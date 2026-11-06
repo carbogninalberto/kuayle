@@ -5,9 +5,10 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 type LabelRepository struct {
@@ -21,6 +22,20 @@ func NewLabelRepository(db *sqlx.DB) *LabelRepository {
 // ErrLabelProjectNotVisible is returned by Create when the label's project
 // does not exist in the workspace or the caller cannot see it.
 var ErrLabelProjectNotVisible = errors.New("label project not found")
+
+// ErrLabelNameTaken is returned by Create and Update when another active label
+// of the same scope (workspace-wide, or one project) has the name, ignoring case.
+var ErrLabelNameTaken = errors.New("label name taken in its scope")
+
+// labelNameConflict maps a violation of migration 115's per-scope unique name
+// index, which also catches creates and renames racing past ExistsByName.
+func labelNameConflict(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_labels_scope_name" {
+		return ErrLabelNameTaken
+	}
+	return err
+}
 
 // Create checks the project's visibility in the same statement as the insert,
 // after the privacy barrier, so a project that became hidden meanwhile is not
@@ -40,7 +55,7 @@ func (r *LabelRepository) Create(ctx context.Context, label *domain.Label) error
 		return ErrLabelProjectNotVisible
 	}
 	if err != nil {
-		return err
+		return labelNameConflict(err)
 	}
 	return tx.Commit()
 }
@@ -68,7 +83,7 @@ func (r *LabelRepository) ListByWorkspace(ctx context.Context, workspaceID uuid.
 
 func (r *LabelRepository) Update(ctx context.Context, label *domain.Label) error {
 	query := `UPDATE labels SET name = $1, color = $2, description = $3, updated_at = NOW() WHERE id = $4 AND ` + labelVisible(ctx, "labels") + ` RETURNING updated_at`
-	return r.db.QueryRowContext(ctx, query, label.Name, label.Color, label.Description, label.ID).Scan(&label.UpdatedAt)
+	return labelNameConflict(r.db.QueryRowContext(ctx, query, label.Name, label.Color, label.Description, label.ID).Scan(&label.UpdatedAt))
 }
 
 func (r *LabelRepository) Delete(ctx context.Context, id uuid.UUID) error {

@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
-	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -280,4 +280,30 @@ func TestLabelService_UpdateKeepsNamesUniquePerScope(t *testing.T) {
 	assert.NoError(t, rename(todoA, "TODO"), "changing only the case of its own name")
 	assert.NoError(t, rename(bugB, "Bug"), "another project's Bug does not clash")
 	assert.NoError(t, rename(todoA, "Fresh"))
+}
+
+// conflictingLabelRepo stands for a write that lost a race to the database's
+// per-scope unique name index after passing ExistsByName.
+type conflictingLabelRepo struct{ fakeLabelRepo }
+
+func (r *conflictingLabelRepo) Create(context.Context, *domain.Label) error {
+	return repository.ErrLabelNameTaken
+}
+
+func (r *conflictingLabelRepo) Update(context.Context, *domain.Label) error {
+	return repository.ErrLabelNameTaken
+}
+
+func TestLabelService_MapsDatabaseNameConflicts(t *testing.T) {
+	ctx := context.Background()
+	ws := uuid.New()
+	existing := domain.Label{ID: uuid.New(), WorkspaceID: ws, Name: "Todo"}
+	repo := &conflictingLabelRepo{fakeLabelRepo{labels: []domain.Label{existing}}}
+	svc := NewLabelService(repo, &fakeProjectRepo{})
+
+	_, err := svc.Create(ctx, ws, dto.CreateLabelRequest{Name: "Bug", Color: "#000000"})
+	assert.ErrorIs(t, err, ErrLabelNameTaken)
+	name := "Bug"
+	_, err = svc.Update(ctx, ws, existing.ID, dto.UpdateLabelRequest{Name: &name})
+	assert.ErrorIs(t, err, ErrLabelNameTaken)
 }

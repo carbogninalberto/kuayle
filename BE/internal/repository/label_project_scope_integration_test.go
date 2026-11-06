@@ -282,4 +282,31 @@ func TestProjectScopedLabelVisibilityAndMoveLockPostgres(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, taken, "workspace scope is separate from the project's")
 	})
+	t.Run("the database keeps names unique per scope when checks race", func(t *testing.T) {
+		const racers = 8
+		results := make(chan error, racers)
+		for i := 0; i < racers; i++ {
+			go func(i int) {
+				l := &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: []string{"Race", "RACE"}[i%2], Color: "#112233", ProjectID: &openProject}
+				results <- labels.Create(ownerCtx, l)
+			}(i)
+		}
+		created := 0
+		for i := 0; i < racers; i++ {
+			if err := <-results; err == nil {
+				created++
+			} else {
+				require.ErrorIs(t, err, ErrLabelNameTaken)
+			}
+		}
+		require.Equal(t, 1, created, "one create wins, the others see the name taken")
+		require.NoError(t, labels.Create(ownerCtx, &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: "race", Color: "#112233"}), "another scope may use the name")
+
+		rename := newLabel("rename-me", &openProject)
+		rename.Name = "race"
+		require.ErrorIs(t, labels.Update(ownerCtx, rename), ErrLabelNameTaken, "a rename cannot take a name of its scope")
+		var stored string
+		require.NoError(t, db.Get(&stored, `SELECT name FROM labels WHERE id=$1`, rename.ID))
+		require.Equal(t, "rename-me", stored)
+	})
 }

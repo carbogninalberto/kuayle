@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
-	"github.com/google/uuid"
 )
 
 // ErrLabelProject is returned when a label's project does not exist in the workspace.
@@ -75,6 +75,9 @@ func (s *LabelService) Create(ctx context.Context, workspaceID uuid.UUID, req dt
 		if errors.Is(err, repository.ErrLabelProjectNotVisible) {
 			return nil, ErrLabelProject
 		}
+		if errors.Is(err, repository.ErrLabelNameTaken) {
+			return nil, ErrLabelNameTaken
+		}
 		return nil, err
 	}
 	return label, nil
@@ -122,6 +125,9 @@ func (s *LabelService) Update(ctx context.Context, workspaceID, id uuid.UUID, re
 	}
 
 	if err := s.labelRepo.Update(ctx, label); err != nil {
+		if errors.Is(err, repository.ErrLabelNameTaken) {
+			return nil, ErrLabelNameTaken
+		}
 		return nil, err
 	}
 	return label, nil
