@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Migration 112 lets two tasks share a machine by default (existing
+// Migration 113 lets two tasks share a machine by default (existing
 // workspaces included), keeps a user's own agent run alone on its machine and
 // rolls back to one active run per machine.
 func TestSharedTaskMachinesMigration(t *testing.T) {
@@ -38,11 +38,11 @@ func TestSharedTaskMachinesMigration(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 	fixture := insertBaseMigrationFixture(t, db)
-	require.NoError(t, m.Migrate(111))
+	require.NoError(t, m.Migrate(112))
 	_, err = db.Exec(`INSERT INTO dev_machine_workspace_policies(workspace_id,enabled) VALUES($1,TRUE) ON CONFLICT (workspace_id) DO NOTHING`, fixture.workspaceA)
 	require.NoError(t, err)
 
-	require.NoError(t, m.Migrate(112))
+	require.NoError(t, m.Migrate(113))
 	var limit int
 	require.NoError(t, db.QueryRow(`SELECT task_machine_max_tasks FROM dev_machine_workspace_policies WHERE workspace_id=$1`, fixture.workspaceA).Scan(&limit))
 	require.Equal(t, 2, limit, "existing workspaces share a machine between two tasks")
@@ -72,5 +72,5 @@ func TestSharedTaskMachinesMigration(t *testing.T) {
 	var columns int
 	require.NoError(t, db.QueryRow(`SELECT count(*) FROM information_schema.columns WHERE table_name='dev_machine_workspace_policies' AND column_name='task_machine_max_tasks'`).Scan(&columns))
 	require.Zero(t, columns)
-	require.NoError(t, m.Migrate(112), "the migration can be applied again")
+	require.NoError(t, m.Migrate(113), "the migration can be applied again")
 }

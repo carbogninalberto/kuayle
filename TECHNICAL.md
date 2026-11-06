@@ -707,7 +707,7 @@ Workspace policy controls:
 - maximum daily agent runs;
 - maximum per-machine workspace-volume size (2 GB steps up to 2048 GB; migration 90 rounded an odd limit down);
 - task machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB; older clients that omit them keep the current values);
-- how many active agent tasks share one task machine (`task_machine_max_tasks`, default 2, 1 to 4; migration 112; older clients that omit it keep the current value);
+- how many active agent tasks share one task machine (`task_machine_max_tasks`, default 2, 1 to 4; migration 113; older clients that omit it keep the current value);
 - allowed providers;
 - allowed repositories;
 - whether custom providers are allowed;
