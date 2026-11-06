@@ -194,7 +194,7 @@ func TestDockerImagesArePinned(t *testing.T) {
 	require.NoError(t, err)
 	require.Regexp(t, `(?m)^COMPOSE_COMMIT=[0-9a-f]{40}$`, string(plugins))
 	require.Regexp(t, `(?m)^BUILDX_COMMIT=[0-9a-f]{40}$`, string(plugins))
-	require.Contains(t, string(plugins), "golang.org/x/net=golang.org/x/net@v0.60.0")
+	require.Contains(t, string(plugins), "golang.org/x/net=golang.org/x/net@v0.62.0")
 	for _, image := range []string{"ide", "headless", "agent"} {
 		content, err := os.ReadFile(filepath.Join(root, "devmachine", image, "Dockerfile"))
 		require.NoError(t, err)
