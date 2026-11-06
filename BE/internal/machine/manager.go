@@ -116,6 +116,10 @@ type ManagerStore interface {
 	// the machine's pending size; RecordResourceLimit keeps the latest limit
 	// one of its containers hit.
 	FinishResize(context.Context, uuid.UUID, bool, *string) error
+	EnqueueImageUpdate(context.Context, *domain.DevMachineOperation) (bool, error)
+	MachineBusyForImageUpdate(context.Context, uuid.UUID, uuid.UUID) (bool, error)
+	ReplaceServiceImage(context.Context, uuid.UUID, string) error
+	UpdateProviderImage(context.Context, uuid.UUID, string) error
 	RecordResourceLimit(context.Context, uuid.UUID, string, string) error
 }
 
@@ -186,6 +190,9 @@ type Manager struct {
 
 	// liveInterval overrides liveChannelInterval (tests).
 	liveInterval time.Duration
+
+	// images are the installed release's machine images; see SetImages.
+	images MachineImages
 }
 
 type terminalOperationError struct {
@@ -494,6 +501,23 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		if machine.Status == domain.DevMachineStatusFailed || machine.Status == domain.DevMachineStatusSpawning || machine.Status == domain.DevMachineStatusQueued {
 			return m.spawn(ctx, machine, services, operation)
 		}
+		if machine.Status == domain.DevMachineStatusStopped {
+			// A stopped machine runs no processes: it starts on the
+			// installed release's images.
+			changes, err := m.replaceOutdatedServices(ctx, machine, services)
+			if err != nil {
+				return err
+			}
+			if len(changes) > 0 {
+				if services, err = m.store.ListServices(ctx, machine.WorkspaceID, machine.ID); err != nil {
+					return err
+				}
+				if err := m.spawn(ctx, machine, services, operation); err != nil {
+					return err
+				}
+				return m.imagesUpdatedEvent(ctx, machine, changes)
+			}
+		}
 		if machine.Status == domain.DevMachineStatusPaused || machine.Status == domain.DevMachineStatusStopped {
 			if machine.Status == domain.DevMachineStatusPaused {
 				if err := m.store.RevokeMachineAccess(ctx, machine.ID); err != nil {
@@ -602,6 +626,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			return nil
 		}
 		return m.syncTerminalSignIns(ctx, machine)
+	case domain.DevMachineOpUpdateImages:
+		return m.updateImages(ctx, machine, services, operation)
 	case domain.DevMachineOpRunAgent:
 		return m.runAgent(ctx, machine, operation)
 	case domain.DevMachineOpCancelAgent:
@@ -1094,6 +1120,11 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if err != nil || providerRecord == nil {
 		return fmt.Errorf("provider_not_found: %s", run.ProviderID)
 	}
+	runServices, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
+	if err != nil {
+		return err
+	}
+	providerRecord.ImageRef = m.runImage(ctx, machine, run, providerRecord, runServices)
 	provider, ok := m.agents.Get(run.ProviderID)
 	if !ok {
 		return fmt.Errorf("provider_not_found: %s", run.ProviderID)
@@ -1567,6 +1598,7 @@ func (m *Manager) reconcile(ctx context.Context) error {
 			if machine.Status != domain.DevMachineStatusRunning {
 				continue
 			}
+			m.queueImageUpdate(ctx, machine, services, now)
 			usage, err := m.runtime.Stats(ctx, machine, services)
 			if err != nil {
 				log.WithField("machine_id", machine.ID).WithError(err).Warn("resource sampling failed")

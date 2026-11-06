@@ -16,6 +16,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,8 +54,7 @@ func sendSignIn(t *testing.T, h *DevMachineHandler, method, provider, query, bod
 	ctx := devMachineHandlerContext(request, recorder, ws, user)
 	ctx.Set("workspace_role", role)
 	if provider != "" {
-		ctx.SetParamNames("provider")
-		ctx.SetParamValues(provider)
+		ctx.SetPathValues(echo.PathValues{{Name: "provider", Value: provider}})
 	}
 	switch method {
 	case http.MethodGet:

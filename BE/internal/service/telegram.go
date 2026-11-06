@@ -773,6 +773,11 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 		return "The decision could not be saved. Try again.", false
 	}
 	switch approval.Status {
+	case "approving":
+		if approval.Action == shipAction {
+			return "Approved: shipping started. Kuayle merges, waits for the tests and releases; follow each step in the chat in Kuayle.", true
+		}
+		return "The decision could not be saved. Try again.", false
 	case "approved":
 		switch approval.Action {
 		case "request_agent_review":
@@ -783,6 +788,14 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: the check is starting.", true
 		case "run_custom_tool":
 			return "Approved: the tool is running. Its result appears in the chat in Kuayle.", true
+		case "reply_to_review_comment":
+			return "Approved: the reply was posted on the pull request.", true
+		case "resolve_review_thread":
+			return "Approved: the review thread was resolved.", true
+		case "update_pull_request_branch":
+			return "Approved: the pull request branch is being updated.", true
+		case "mark_pull_request_ready":
+			return "Approved: the pull request draft state was changed.", true
 		case "accept_agent_work":
 			return "Approved: the work was accepted in Kuayle without merging.", true
 		case "start_preview":
@@ -791,6 +804,10 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: the port is exposed. Open it from the chat in Kuayle.", true
 		case "upgrade_instance":
 			return "Approved: the upgrade is starting. The instance restarts; follow it from the chat in Kuayle.", true
+		case "create_release":
+			return "Approved: the release was published with the notes shown in Kuayle. Its build is starting.", true
+		case shipAction:
+			return "Shipped: merged, tested and released. Each step is listed in the chat in Kuayle.", true
 		}
 		return "Approved: the coding agent is starting.", true
 	case "denied":
@@ -798,6 +815,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 	case "failed":
 		message := "The coding agent could not start."
 		switch approval.Action {
+		case "reply_to_review_comment", "resolve_review_thread", "update_pull_request_branch", "mark_pull_request_ready":
+			message = "The pull request was not changed."
 		case "accept_agent_work":
 			message = "The work could not be accepted."
 		case "start_preview":
@@ -810,6 +829,10 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			message = "The tool could not start."
 		case "upgrade_instance":
 			message = "The upgrade could not start."
+		case "create_release":
+			message = "The release was not published."
+		case shipAction:
+			message = "Shipping stopped."
 		}
 		if approval.Error != nil {
 			message += " " + *approval.Error

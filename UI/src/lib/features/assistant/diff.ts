@@ -34,3 +34,26 @@ export function parseDiff(diff: string): DiffFile[] {
 	for (const file of files) while (file.lines.at(-1)?.kind === 'context' && !file.lines.at(-1)?.text) file.lines.pop();
 	return files;
 }
+
+export function diffTotals(files: DiffFile[]): { files: number; additions: number; deletions: number } {
+	return files.reduce(
+		(sum, file) => ({
+			files: sum.files + 1,
+			additions: sum.additions + file.additions,
+			deletions: sum.deletions + file.deletions
+		}),
+		{ files: 0, additions: 0, deletions: 0 }
+	);
+}
+
+// Case-insensitive match against a line's text (never a regex: the query is user input).
+export function lineMatches(text: string, query: string): boolean {
+	const needle = query.trim().toLowerCase();
+	return needle !== '' && text.toLowerCase().includes(needle);
+}
+
+// Files whose path or any line matches the query; a blank query matches all.
+export function searchDiff(files: DiffFile[], query: string): DiffFile[] {
+	if (!query.trim()) return files;
+	return files.filter((file) => lineMatches(file.path, query) || file.lines.some((line) => lineMatches(line.text, query)));
+}

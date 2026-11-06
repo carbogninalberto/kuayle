@@ -103,7 +103,7 @@ func TestModelServerRejectsInvalidValues(t *testing.T) {
 		"quoted URL":          {Name: "A", OpenAIBaseURL: dmStrPtr(`https://a.test/"x`), APIKey: dmStrPtr("k"), DefaultModel: "m", Thinking: "high"},
 		"unlisted model":      {Name: "A", OpenAIBaseURL: url, APIKey: dmStrPtr("k"), Models: []string{"a"}, DefaultModel: "b", Thinking: "high"},
 		"injected model name": {Name: "A", OpenAIBaseURL: url, APIKey: dmStrPtr("k"), DefaultModel: `m" x="y`, Thinking: "high"},
-		"unknown thinking":    {Name: "A", OpenAIBaseURL: url, APIKey: dmStrPtr("k"), DefaultModel: "m", Thinking: "medium"},
+		"unknown thinking":    {Name: "A", OpenAIBaseURL: url, APIKey: dmStrPtr("k"), DefaultModel: "m", Thinking: "ultra"},
 		"blank name":          {Name: " ", OpenAIBaseURL: url, APIKey: dmStrPtr("k"), DefaultModel: "m", Thinking: "high"},
 	} {
 		_, err := newTestDevMachineService(&devMachineStoreFake{}).SaveModelServer(context.Background(), uuid.New(), uuid.New(), nil, request)
@@ -250,16 +250,6 @@ func TestCreateAgentRunRejectsOverridesForOtherProviders(t *testing.T) {
 	)
 	require.ErrorIs(t, err, ErrInvalidMachineInput)
 	require.ErrorContains(t, err, "codex and claude-code")
-}
-
-func TestCreateAgentRunRequiresAModelServerForModelOverride(t *testing.T) {
-	_, err := newTestDevMachineService(&devMachineStoreFake{}).createAgentRun(
-		context.Background(), uuid.New(), uuid.New(), uuid.New(), dto.CreateAgentRunRequest{
-			Provider: "codex", Mode: "autonomous", Prompt: "test", Model: "deepseek-flash",
-		}, uuid.New(),
-	)
-	require.ErrorIs(t, err, ErrInvalidOperation)
-	require.ErrorContains(t, err, "add a model server")
 }
 
 func TestMachineTokenAuthenticationDistinguishesCredentialsFromStorageFailure(t *testing.T) {
@@ -1773,6 +1763,7 @@ func TestSnapshotEnvironmentRequiresSourceBuilderOwner(t *testing.T) {
 
 type devMachineStoreFake struct {
 	repository.DevMachineStore
+	operationLookups            []string
 	purgedMachineIDs            []uuid.UUID
 	createdVolumes              []domain.DevMachineVolume
 	attachedProviders           []domain.DevMachineAgentProvider
@@ -1833,6 +1824,7 @@ type devMachineStoreFake struct {
 	queuedOperation             *domain.DevMachineOperation
 	queuedDesired               domain.DevMachineStatus
 	modelServers                []domain.AgentModelServer
+	agentModelDefaults          []domain.AgentModelDefault
 }
 
 func newTestDevMachineService(store repository.DevMachineStore) *DevMachineService {
@@ -1942,7 +1934,8 @@ func (f *devMachineStoreFake) CountActiveMachines(_ context.Context, _ uuid.UUID
 	return f.workspaceActiveCount, nil
 }
 
-func (f *devMachineStoreFake) GetOperationByIdempotency(context.Context, uuid.UUID, uuid.UUID, string) (*domain.DevMachineOperation, error) {
+func (f *devMachineStoreFake) GetOperationByIdempotency(_ context.Context, _ uuid.UUID, _ uuid.UUID, key string) (*domain.DevMachineOperation, error) {
+	f.operationLookups = append(f.operationLookups, key)
 	if f.queuedOperation != nil {
 		return f.queuedOperation, nil
 	}

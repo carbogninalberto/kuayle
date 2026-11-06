@@ -105,10 +105,20 @@ export interface ConversationToolCall {
 	created_at: string;
 	completed_at?: string;
 }
+/** The harness and model picked on an approval card; empty keeps what was proposed. */
+export interface ApprovalModelChoice {
+	harness?: string;
+	model?: string;
+	/** The model server that runs model; sent only with a model. */
+	model_server_id?: string;
+}
 export interface DelegationPayload {
 	identifier: string;
 	title: string;
 	instructions: string;
+	/** The coding agent the assistant proposed; empty means the configured default. */
+	harness?: string;
+	model?: string;
 	/** The development repository resolved when approval was requested. */
 	repository?: string;
 	base_branch?: string;
@@ -126,6 +136,8 @@ export interface MergePayload {
 	commit: string;
 	/** The commit Kuayle published; differs from `commit` when others pushed. */
 	published_commit?: string;
+	/** merge, squash or rebase; approvals created before it was recorded merge by squash. */
+	merge_method?: string;
 	head_change?: PullRequestHeadChange;
 }
 /** What others added to the pull request after Kuayle published it. */
@@ -152,6 +164,7 @@ export interface ReviewPayload {
 	title: string;
 	task_id: string;
 	harness: string;
+	model?: string;
 	focus?: string;
 	post_to_pull_request: boolean;
 	pull_request: number;
@@ -164,6 +177,11 @@ export interface FollowUpPayload {
 	task_id: string;
 	generation: number;
 	instructions: string;
+	model?: string;
+	/** The model, harness and model server (absent: the workspace default) the task ran with. */
+	current_model?: string;
+	harness?: string;
+	model_server_id?: string;
 }
 // Who can open an app port link: only the machine's owner, signed in.
 export type AppPortAudience = 'owner';
@@ -214,11 +232,86 @@ export interface RunCustomToolPayload {
 	generation?: number;
 	machine_id?: string;
 }
+// A pull request change (reply, resolve, branch update, draft state) is bound
+// to the task's pull request and to exactly what the user sees on the card.
+export interface PullRequestActionPayload {
+	identifier: string;
+	title: string;
+	task_id: string;
+	repository: string;
+	pull_request: number;
+	pull_request_url: string;
+	comment_id?: number;
+	thread_id?: string;
+	author?: string;
+	bot?: boolean;
+	path?: string;
+	excerpt?: string;
+	/** The exact reply that will be posted. */
+	body?: string;
+	/** The head a branch update is pinned to. */
+	head?: string;
+	base?: string;
+	behind?: number;
+	/** The state mark_pull_request_ready sets: true puts the pull request back to draft. */
+	draft: boolean;
+}
 // An upgrade belongs to no issue: it names the installed and the latest release.
 export interface UpgradePayload {
 	current_version: string;
 	latest_version: string;
 	changelog?: string;
+}
+// A release belongs to a repository, not an issue: the tag, the pinned commit of
+// the default branch, what the gate and secret scan found, and the notes that
+// will be published (editable on the card until approved).
+export interface ReleasePayload {
+	repository: string;
+	tag: string;
+	name: string;
+	target_commit: string;
+	branch: string;
+	previous_tag?: string;
+	notes: string;
+	notes_edited?: boolean;
+	checks_passed: number;
+	commits: number;
+	scanned_files: number;
+	unscanned_files?: string[];
+	compare_url?: string;
+	release_url: string;
+}
+// A ship_pull_request chain: one approval for merging an issue's pull request,
+// waiting for its tests, publishing a release (notes editable until approved),
+// waiting for the release build and, when asked, upgrading the instance. The
+// steps record its progress; after a failed step the rest are skipped.
+export interface ShipStep {
+	step: 'merge' | 'tests' | 'release' | 'build' | 'upgrade';
+	status: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
+	detail?: string;
+	url?: string;
+}
+export interface ShipPayload {
+	identifier: string;
+	title: string;
+	repository: string;
+	pull_request: number;
+	merge: MergePayload;
+	release: ReleasePayload;
+	upgrade?: UpgradePayload;
+	merge_commit?: string;
+	steps: ShipStep[];
+}
+// GitHub App access an action needs but the installation lacks; any approval payload may carry it.
+export interface GitHubAccessGap {
+	missing: { name: string; level: string }[];
+	settings_url?: string;
+	unverified?: boolean;
+	message: string;
+}
+// What the approver set on the card: a model choice, or a release's (or a chain's) edited notes.
+export interface ApprovalEdit extends ApprovalModelChoice {
+	notes?: string;
 }
 export type ConversationApproval = ApprovalBase &
 	(
@@ -232,6 +325,12 @@ export type ConversationApproval = ApprovalBase &
 		| { action: 'run_check'; payload: RunCheckPayload }
 		| { action: 'run_custom_tool'; payload: RunCustomToolPayload }
 		| { action: 'upgrade_instance'; payload: UpgradePayload }
+		| { action: 'reply_to_review_comment'; payload: PullRequestActionPayload }
+		| { action: 'resolve_review_thread'; payload: PullRequestActionPayload }
+		| { action: 'update_pull_request_branch'; payload: PullRequestActionPayload }
+		| { action: 'mark_pull_request_ready'; payload: PullRequestActionPayload }
+		| { action: 'create_release'; payload: ReleasePayload }
+		| { action: 'ship_pull_request'; payload: ShipPayload }
 	);
 interface ApprovalBase {
 	id: string;
@@ -314,10 +413,17 @@ export const conversations = {
 			file,
 			onProgress
 		),
-	resolveApproval: (slug: string, id: string, approval: string, decision: 'approve' | 'deny') =>
+	// choice.notes replaces a release's notes when approving; the server checks it.
+	resolveApproval: (
+		slug: string,
+		id: string,
+		approval: string,
+		decision: 'approve' | 'deny',
+		choice: ApprovalEdit = {}
+	) =>
 		api.post<ConversationApproval>(
 			`${base(slug)}/conversations/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approval)}`,
-			{ decision }
+			{ decision, ...(decision === 'approve' ? choice : undefined) }
 		),
 	retry: (slug: string, id: string, message: string, request_id: string) =>
 		api.post<ConversationMessage>(
@@ -328,4 +434,3 @@ export const conversations = {
 	streamURL: (slug: string, id: string, after: number) =>
 		`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${base(slug)}/conversations/${encodeURIComponent(id)}/stream?after=${after}`
 };
-

@@ -91,7 +91,7 @@ The shared workspace is writable by developer and agent containers. The collecto
 
 Standard machines represent the developer container as separate `ide` and `terminal` service records that point at one container: code-server listens on `8080`, ttyd listens on `7681`, and terminal sessions attach to named tmux sessions under the same `HOME`, process tree, tools, and `/workspace` used by code-server. Headless machines expose only the `terminal` developer-service record plus collector and egress; the terminal uses the headless developer image, which also serves as the autonomous image for the five new built-in CLIs. Development Environment image selection does not replace that headless image. Headless developer containers retain the standard developer security, tmpfs executable scratch space, workspace mount, and terminal-session scripts.
 
-Agent containers are created on demand. Multiple runs are represented separately, although workspaces should default to one mutating autonomous agent at a time to avoid conflicting writes.
+Agent containers are created on demand, one per run (`kuayle-<routing key>-agent-<run>`). Attempts of different agent tasks may run on one machine at the same time, each in its own task worktree, up to the workspace's task limit (see [Task machine reuse](#resource-limits-and-quotas)); a user's own (non-task) agent run keeps the machine to itself (partial unique index `idx_dev_machine_agent_runs_one_active_manual`).
 
 ## Network Isolation
 
@@ -454,7 +454,7 @@ Initial providers:
 
 Provider adapters can construct both invocation modes, but the current product dialogs queue autonomous runs only and there is no UI/gateway endpoint for attaching to an interactive agent container. The IDE developer image pins all seven built-in CLI versions for terminal use. Qwen Code, Crush, Kimi, and Goose use `DEV_MACHINE_HEADLESS_IMAGE` for both developer-terminal and autonomous execution. The existing three built-ins retain their provider-specific agent images. Custom providers must be enabled by workspace policy and are currently launched through the autonomous dashboard flow. Provider-specific agent images remain separately pinned by tag or digest in configuration and runtime Dockerfiles; custom provider images must also be pinned.
 
-Codex and Claude Code runs accept an optional `model_server_id`, `model` and `thinking`. They are rejected for other providers. A run uses the chosen model server, or the workspace default when it speaks the harness's protocol (OpenAI-compatible for Codex, Anthropic-compatible for Claude Code); without one the harness uses its own sign-in. A model must be offered by the server when its model list is known; thinking levels are `off`, `low`, `high`, and `max`. The server is recorded on the run (`model_server_id`). Codex receives the server and model entirely as argv `-c` overrides (`model_provider="kuayle"`, its `base_url`, `env_key="KUAYLE_MODEL_API_KEY"`, `wire_api="responses"`), so a user-managed `config.toml` cannot redirect a run; model names and URLs are restricted to characters that need no TOML quoting. Claude Code receives the model as argv and the thinking level through the validated non-secret `CLAUDE_CODE_EFFORT_LEVEL` container environment; `off` omits that variable.
+Codex and Claude Code runs accept an optional `model_server_id`, `model` and `thinking`. They are rejected for other providers. A run uses the chosen model server, or the workspace default when it speaks the harness's protocol (OpenAI-compatible for Codex, Anthropic-compatible for Claude Code); without one the harness uses its own sign-in and takes any valid model name. A model on a server must be offered by it when its model list is known; thinking levels are `off`, `low`, `medium`, `high`, `xhigh`, and `max` (Claude Code 2.1.318 accepts `low`, `medium`, `high`, `xhigh` and `max` for `--effort` and `CLAUDE_CODE_EFFORT_LEVEL`; Codex maps `off` to `none`). A run on the harness's own sign-in fills the model and thinking level it did not choose from the [workspace default](#agent-model-defaults). The server is recorded on the run (`model_server_id`). Codex receives the server and model entirely as argv `-c` overrides (`model_provider="kuayle"`, its `base_url`, `env_key="KUAYLE_MODEL_API_KEY"`, `wire_api="responses"`), so a user-managed `config.toml` cannot redirect a run; model names and URLs are restricted to characters that need no TOML quoting. Claude Code receives the model as argv and the thinking level through the validated non-secret `CLAUDE_CODE_EFFORT_LEVEL` container environment; `off` omits that variable.
 
 ### Normalized Result
 
@@ -609,7 +609,9 @@ stopping; paused machines keep memory) plus this one fits within the host minus
 Memory is never overcommitted; CPU may be, up to `DEV_MACHINE_CPU_OVERCOMMIT`.
 A machine that does not fit stays queued: its operation is deferred for 30
 seconds with a visible `host_capacity_wait` reason and without consuming a
-retry, and agent tasks keep waiting rather than failing. Admission is serialized
+retry, and agent tasks keep waiting rather than failing, with a reason naming
+the wait; cancelling such a task withdraws its machine's start (see
+[cancellation](BE/docs/agent-tasks.md#failure-cancellation-and-explicit-retries)). Admission is serialized
 within one manager process, which also counts machines admitted but not yet
 running; multiple manager replicas on one host are not coordinated. An unknown
 host size never blocks. No machine is stopped to make room; the workspace/user
@@ -627,9 +629,9 @@ A `custom` size picks CPU (1, 2, 4, 6, 8, 12 or 16 vCPU) and memory (2, 4, 8, 12
 
 **Task machines.** Machines Kuayle creates itself for agent tasks (issue delegations, the assistant's delegate tool and automations all go through agent tasks) are headless custom machines sized by the workspace policy's `task_machine_cpu_millis`, `task_machine_memory_mb` and `task_machine_disk_gb` (Settings → Dev Machines → Policy → Task machines). The defaults are 4 vCPU, 8 GB and 20 GB; migration 90 gives existing workspaces the same values (task machines were previously `small`, whose 4 GB left an agent such as Claude Code 1.4 GB and was OOM-killed under builds). The same size rules apply, and the task disk must stay within `max_disk_gb`. Changes affect task machines created afterwards; reused task machines keep their size.
 
-**Task machine reuse.** A task first reuses a suitable machine that is already running; only when none fits does it create a task machine (named `task-<reservation>`), which then stays running after the task for later tasks. `AgentTaskRepository.ReserveMachine` picks, under the workspace advisory lock and `FOR UPDATE SKIP LOCKED`, a machine that is: in the task's workspace and created by the task's creator (the task runs as its creator); `running` with desired `running` and not being deleted; a `standard` or `headless` machine of the task's environment (no environment means headless) and not an Environment Builder; allowed by the enabled workspace policy (a sudo machine only while sudo is allowed, a Docker machine only while Docker is allowed); and idle — no queued or active agent run, no other task in an active state (`awaiting_review`, `blocked` and finished tasks do not hold it), and no pending or leased stop, pause, teardown, snapshot, validation, publication, check or custom tool operation. Paused and stopped machines are left alone: their user chose that. A machine already used by a task of the same issue comes first, then the most recently active one (machines that already cache the repository or carry the task's agent break ties). A task keeps the machine it was given across attempts, retries and restarts (a stopped or paused one is started again for it). Each task works in its own checkout (`/workspace/tasks/<issue>-<task>`, scoped to the task), so reuse never mixes work; attempts, validations, checks and tool runs on one machine are serialized by the machine locks (`CreateAgentRun`, `lockMachineForCheck`), never running concurrently. The machine's agent is attached under the same policy checks as creating a machine with it. The Environment Builder dialog starts with the task machine CPU and memory.
+**Task machine reuse.** A task first runs on a suitable machine that is already running, sharing it with other tasks when needed; only when none fits does it create a task machine (named `task-<reservation>`), which then stays running after the task for later tasks. `AgentTaskRepository.ReserveMachine` picks, under the workspace advisory lock and `FOR UPDATE SKIP LOCKED`, a machine that is: in the task's workspace and created by the task's creator (the task runs as its creator); `running` with desired `running` and not being deleted; a `standard` or `headless` machine of the task's environment (no environment means headless) and not an Environment Builder; allowed by the enabled workspace policy (a sudo machine only while sudo is allowed, a Docker machine only while Docker is allowed); running no agent session of the user's own and no pending or leased stop, pause, teardown, snapshot, check or custom tool operation; and working on fewer other active tasks than the policy's `task_machine_max_tasks` (default 2, from 1 to 4; `awaiting_review`, `blocked` and finished tasks do not count). Idle machines (no active agent run, no other active task, no queued validation or publication) come first: one already used by a task of the same issue, then the most recently active one (machines that already cache the repository or carry the task's agent break ties). Otherwise the least loaded busy machine is shared, with the same tie-breaks. Paused and stopped machines are left alone: their user chose that. A task keeps the machine it was given across attempts, retries and restarts (a stopped or paused one is started again for it). Each task works in its own checkout (`/workspace/tasks/<issue>-<task>`, branch `kuayle/<issue>-<task>`, agent sessions under `/workspace/.kuayle/agent-sessions/<task>`), so sharing never mixes work. `CreateAgentRun` re-checks the limit under the workspace and machine locks: a task attempt waits (the task retries) while the user's own agent session runs, a manual check or tool run is queued, or as many other tasks as the limit allows hold an attempt, validation, publication or cleanup there; a user's own agent run still needs a machine without task work. Validations and publications of a finished attempt run beside other tasks' attempts (`lockTaskMachine`), while manual checks and custom tool runs still need a machine without agent work (`lockMachineForCheck`). The manager leases one operation per machine at a time, except that agent tasks' `run_agent`, `checkout_issue`, `validate_agent` and `publish_agent` operations (a run with a `task_id`, a checkout with a task `scope_key`) run beside one another (`LeaseOperations`); the user's own agent runs and checkouts, which share the root workspace and its `/workspace/current` link, and lifecycle, preview, image update and sign-in operations still run alone. Tasks on one machine share its CPU, memory and disk: each agent container keeps its own share ceiling below, so two agents can together use up to twice the agent share, which Docker does not reserve. Set `task_machine_max_tasks` to 1 to give every task its own machine. The machine's agent is attached under the same policy checks as creating a machine with it. The Environment Builder dialog starts with the task machine CPU and memory.
 
-The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits (`containerSharePercent` in `BE/internal/machine/docker.go`). On standard machines the IDE (which also serves the terminal) and browser each receive 25%, an agent run 35%, and the collector and egress 5% each. Headless machines (task machines among them) have no IDE or browser, so the agent receives 50% and the terminal container 40%; with a Docker daemon, which takes 40%, the agent and the terminal receive 35% each. Shares are per-container ceilings, not reservations: without Docker the headless shares add up to the machine, and with Docker the agent and terminal ceilings overlap (120%) so the terminal people use by hand is not squeezed below the agent. An 8 GB task machine therefore gives its agent 4 GB (2.8 GB with Docker). Validation checks keep the 35% agent share because their compose services share another 30%. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot, and a workspace that allows sudo relaxes its developer containers (see [Sudo in machines](#sudo-in-machines)). Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
+The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits (`containerSharePercent` in `BE/internal/machine/docker.go`). On standard machines the IDE (which also serves the terminal) and browser each receive 25%, an agent run 35%, and the collector and egress 5% each. Headless machines (task machines among them) have no IDE or browser, so the agent receives 50% and the terminal container 40%; with a Docker daemon, which takes 40%, the agent and the terminal receive 35% each. Shares are per-container ceilings, not reservations: without Docker the headless shares add up to the machine, and with Docker the agent and terminal ceilings overlap (120%) so the terminal people use by hand is not squeezed below the agent. An 8 GB task machine therefore gives its agent 4 GB (2.8 GB with Docker). PID limits count threads, so the containers agents and people build in (agent runs, validation checks, custom tools, the IDE and the terminal) get at least 1,024 PIDs (`buildMinimumPids`) whatever their share of the machine's limit: with a 512-PID machine their 35% share was 179, which a Claude Code session plus a parallel `go test ./...` exceeds, and the failed thread and process creation then crashed git and the harness with SIGSEGV (exit 139). Other services keep their share, with at least 256 for the browser and 32 otherwise. Validation checks keep the 35% agent share because their compose services share another 30%. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot, and a workspace that allows sudo relaxes its developer containers (see [Sudo in machines](#sudo-in-machines)). Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
 
 **Live resize.** `PATCH /dev-machines/:machineId` with any of `cpu_millis`,
 `memory_mb` and `disk_gb` (omitted values keep the current size; a request
@@ -655,6 +657,34 @@ machine's containers take the new limits at their next start, which admits them.
 A rejected resize clears the pending size and records `resize_error`. Events:
 `machine.resize_requested` and `machine.resized`.
 
+**Release images.** Each machine service and agent provider records the image
+it was created with (`dev_machine_services.image_ref`,
+`dev_machine_agent_providers.image_ref`); the manager moves them to the
+installed release's images, its `DEV_MACHINE_*_IMAGE` settings. A new run of a
+built-in agent uses the release's agent image and records it on the provider; a
+run that already has a container keeps its image so it can resume, and a custom
+agent keeps its configured image. A machine's own containers (collector, egress,
+Docker daemon, browser, and the IDE or headless terminal) are recreated from the
+release images: when a stopped machine starts, and, for a running machine, by an
+`update_images` operation (migration `000108_machine_image_updates`) that
+reconciliation queues for an outdated machine or one with finished run
+containers, only while the machine is idle: no other queued or running
+operation, no unfinished agent run, no running task preview and no activity
+through the gateway or API (`last_activity_at`, which an open terminal or IDE
+connection renews every minute) in the last 15 minutes. The
+operation re-checks this when it runs, removes the machine's finished agent,
+check and never-started live inbox writer containers and the inbox volumes no
+container uses (they would keep old images in use; a failed removal fails the
+operation, which is retried), removes any outdated containers, records the new images and provisions the machine again like a
+recovery, then records `machine.images_updated` with each service's old and new
+image. Containers keep no state of their own (read-only root, in-memory `/tmp`
+and home), and the workspace and Docker volumes stay, so this is like a restart:
+running processes and detached terminal sessions end. A paused machine keeps its frozen
+processes and is not recreated. The developer container of a machine built from
+a Development Environment keeps the environment's image. A busy or failed
+update is queued again after an hour. A manager without release images
+configured leaves machine images alone.
+
 **Resource limit visibility.** An exited agent or check container is inspected
 for Docker's `State.OOMKilled` (set for any out-of-memory kill in its cgroup, a
 killed compiler included); the manager also follows Docker `oom` events for
@@ -677,6 +707,7 @@ Workspace policy controls:
 - maximum daily agent runs;
 - maximum per-machine workspace-volume size (2 GB steps up to 2048 GB; migration 90 rounded an odd limit down);
 - task machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB; older clients that omit them keep the current values);
+- how many active agent tasks share one task machine (`task_machine_max_tasks`, default 2, 1 to 4; migration 113; older clients that omit it keep the current value);
 - allowed providers;
 - allowed repositories;
 - whether custom providers are allowed;
@@ -743,6 +774,14 @@ Setting up the Claude Code token (also shown under Settings → Agent configurat
 
 Migration `000076_agent_model_servers` converts an existing workspace DeepSeek credential into a default server named DeepSeek with the same encrypted key, models and thinking level; rolling back restores it.
 
+### Agent model defaults
+
+Settings → Agent configuration → Default model and effort sets, per workspace, the model and effort Codex and Claude Code use on their own sign-in (`agent_model_defaults`, one row per workspace and agent; migration `000109_agent_model_defaults`). `GET /agent-model-defaults` (`dev_machine:read`) lists both agents, configured or not, with the accepted `thinking_levels`; `PUT /agent-model-defaults/:provider` (`dev_machine:admin`, owners and admins only) takes `{"model","thinking"}` with the same model-name pattern and levels as runs, and both empty removes the default. For production without a model server, setting Claude Code to `claude-opus-5-5` and `medium` makes its runs start with `--model claude-opus-5-5` and `CLAUDE_CODE_EFFORT_LEVEL=medium`.
+
+The default is resolved when each run is created (`createAgentRun`), not when a task is accepted: tasks keep storing only an explicit choice, and a run fills each of model and thinking that it left empty. Every new task, including those delegated from chat (`delegate_issue`) and automations, and every new attempt of an open task (retry, follow-up, sign-in continuation, review) therefore uses the default current at that moment. A run that already exists keeps the model and effort recorded on it, including while it is recovered, and resuming a Claude Code session in a new attempt applies the current default to that attempt. A run that uses a model server, chosen or the workspace default speaking the agent's protocol, ignores the agent default; the server's default model and thinking level apply as before. IDE and terminal shells are not affected.
+
+Migration `000109` also widens the `thinking` checks of `dev_machine_agent_runs` and `agent_model_servers` to `medium` and `xhigh`. Rolling it back drops the defaults and maps `medium` to `high` and `xhigh` to `max` on runs, servers and tasks, which is not reversible.
+
 ## Scoped Settings, Worktrees, and Environments
 
 Development defaults are stored in `dev_machine_scope_settings`. A setting may provide a linked GitHub repository, base branch, development environment, test command, Compose file for checks (migration 68), preview command and preferred port (migrations 71 and 85), preferred coding agent and/or agent instructions (at most 8000 characters) for a workspace, team, project, or issue. Each value is resolved independently in this order: issue, project, team, workspace (migration 65). The preferred agent is the default for task delegation from chat and the task composer when the workspace policy allows it; instructions and the Compose file path are snapshotted onto each task when it is accepted or retried and placed ahead of the task in the native prompt. This lets an issue override only the repository while inheriting an environment, or vice versa.
@@ -753,7 +792,7 @@ Development defaults are stored in `dev_machine_scope_settings`. A setting may p
 
 Machine creation accepts optional issue/project/repository information but does not require it. If no repository resolves, legacy repository fields remain empty and the machine starts as a generic developer workspace. When an issue is opened, `POST /dev-machines/:machineId/checkouts` resolves the issue's development settings, enforces the machine's repository affinity, and creates an idempotent issue worktree under `/workspace/tasks/{issue-key}`. A machine can hold multiple ready manual checkouts from the same repository. Task checkouts (`/workspace/tasks/{issue-key}-{task-id}`) do not use or change the machine's repository affinity, so one task machine serves several repositories; the environment must still match.
 
-Task reservation reuses one of the creator's own machines with the same environment before creating a new one: running machines first, then paused, then stopped ones (the task starts a paused or stopped machine through the ordinary lifecycle checks, including the machine limits), preferring a machine that already caches the task's repository or carries its agent. Machines of other users, environment builders, machines being deleted or changing state, and machines with an active run or another active task are never chosen.
+Task reservation reuses one of the creator's own machines with the same environment before creating a new one: running machines first, then paused, then stopped ones (the task starts a paused or stopped machine through the ordinary lifecycle checks, including the machine limits), preferring a machine that already caches the task's repository or carries its agent. Machines of other users, environment builders, machines being deleted or changing state, machines running the user's own agent session, and machines already working on the workspace's limit of active tasks are never chosen; an idle machine comes before a busy one.
 
 Every repository a machine checks out is cloned once as a bare cache, `/workspace/repos/{owner}/{repo}.git`, and each checkout is a `git worktree` of that cache; earlier machines may also hold flat `/workspace/repos/{owner}-{repo}.git` caches, which existing worktrees keep using. Preparing an existing checkout path again fetches it and keeps its work, and is refused when the path holds another repository. The caches store no credential: each checkout authenticates with an installation token scoped to that one repository, passed through an ephemeral askpass helper, and worktrees use the token-less credential helper that reads the per-run `GITHUB_TOKEN`. All repositories on one machine share its workspace volume, so they share the creator's trust boundary; the repository allowlist is checked for every checkout.
 
@@ -832,6 +871,7 @@ Migration `000033_dev_machines` creates:
 | `dev_machine_terminal_sessions` | User terminal tabs mapped to runtime tmux sessions and optional checkouts |
 | `dev_machine_runtime_credentials` | Encrypted, expiring runtime-secret registrations used for telemetry redaction |
 | `agent_model_servers` | Workspace model servers: protocol URLs, encrypted API key, models, default and fast model, thinking level, default flag |
+| `agent_model_defaults` | Workspace default model and effort per coding agent on its own sign-in |
 
 The migration creates the final scoped-workspace schema directly. Composite foreign keys bind workspace, machine, service, checkout, run, session, and environment tuples so cross-workspace identifiers are rejected by PostgreSQL rather than relying only on application checks. Rolling migration `000033` back is destructive for all Dev Machine control-plane records.
 
@@ -863,6 +903,8 @@ GET    /api/workspaces/:slug/dev-machine-names/availability
 
 GET    /api/workspaces/:slug/dev-machine-policy
 PATCH  /api/workspaces/:slug/dev-machine-policy
+GET    /api/workspaces/:slug/dev-machine-merge-methods
+PUT    /api/workspaces/:slug/dev-machine-merge-methods
 GET    /api/workspaces/:slug/dev-machine-scope-settings
 GET    /api/workspaces/:slug/dev-machine-scope-setting
 GET    /api/workspaces/:slug/dev-machine-repository-defaults
@@ -879,6 +921,8 @@ POST   /api/workspaces/:slug/agent-model-servers
 POST   /api/workspaces/:slug/agent-model-servers/discover
 PUT    /api/workspaces/:slug/agent-model-servers/:serverId
 DELETE /api/workspaces/:slug/agent-model-servers/:serverId
+GET    /api/workspaces/:slug/agent-model-defaults
+PUT    /api/workspaces/:slug/agent-model-defaults/:provider
 
 GET    /api/workspaces/:slug/dev-machines/:machineId
 PATCH  /api/workspaces/:slug/dev-machines/:machineId
@@ -1058,6 +1102,7 @@ The October 2026 audit ([SECURITY_AUDIT.md](SECURITY_AUDIT.md)) added these inva
 - Outbound requests to workspace-chosen URLs (AI provider `base_url`) dial through `validate.PublicAddressControl`, never follow redirects, and keep transport errors server-side. `AI_ALLOW_PRIVATE_NETWORK=true` lets operators use a private-network provider, which trusts every workspace owner with internal access.
 - With the shared GitHub App, installation callbacks require the installing user's OAuth code and the installation in `GET /user/installations`; enable "Request user authorization (OAuth) during installation" and set `GITHUB_APP_CLIENT_ID`/`GITHUB_APP_CLIENT_SECRET`.
 - Issue, project and template writes reject users who are not workspace members and labels, cycles and statuses from other workspaces; repository unlinks are workspace-scoped; the public GitHub webhook body is capped at 25 MB.
+- The API (Echo v5) and the machine gateway resolve the client address with `internal/clientip`: `X-Forwarded-For` is honored only through hops on loopback, link-local or private networks (the bundled Caddy and Compose networks) and the nearest public hop is used; `X-Real-IP` is ignored. A client connecting from a public address therefore cannot choose its rate-limit, login-throttle, abuse-guard or audit address. Do not publish the backend or gateway port to a private network whose clients are untrusted; such peers are treated as proxies.
 
 The gateway also serves a private HTTP certificate-approval listener on port 8091.
 It validates the exact requested hostname against a live route and checks running
@@ -1131,6 +1176,22 @@ reviews, activates, restores, deletes and test-runs them with their run
 history; chat shows `propose_tool` drafts and run approvals and results as
 escaped text. See [custom tools](BE/docs/conversations.md#custom-tools) and
 [custom tool runs](BE/docs/agent-tasks.md#custom-tool-runs).
+Release tools read a linked repository's releases (`list_releases`,
+`get_release`), draft the next notes from the pull requests merged since the
+latest release in the workspace's editable "Release notes style" skill
+(`draft_release_notes`), publish a release after approval (`create_release`,
+owners and admins, migration 111) and follow its build (`get_workflow_run`,
+GitHub App **Actions: Read**). Tagging is refused unless the target is on the
+default branch and all its checks passed; the release range (previous tag to
+target, from GitHub's compare API) and the notes go through a server-side secret
+scan first, and the approval card lets the approver edit the notes that are
+published. See [release tools](BE/docs/conversations.md#release-tools).
+`ship_pull_request` (owners and admins, migration 112) merges an issue's pull
+request, waits for the merge commit's checks, publishes the release, waits for
+its build and optionally upgrades the instance, behind one approval that lists
+every step; each step re-checks its own tool's role, GitHub permissions and
+switch, and the first failing step stops the chain with the next step. See
+[shipping in one approval](BE/docs/conversations.md#shipping-in-one-approval).
 
 ### Images in conversations
 

@@ -53,7 +53,10 @@ var (
 )
 
 var (
-	modelThinkingLevels = []string{"off", "low", "high", "max"}
+	// Effort levels Kuayle passes to Codex (model_reasoning_effort, with off as
+	// none) and Claude Code (CLAUDE_CODE_EFFORT_LEVEL, off omits it). Claude
+	// Code 2.1.318 accepts low, medium, high, xhigh and max.
+	modelThinkingLevels = []string{"off", "low", "medium", "high", "xhigh", "max"}
 )
 
 type machineQuotaError struct {
@@ -1363,6 +1366,11 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 			}
 		}
 	}
+	if modelServer == nil {
+		if err := s.applyAgentModelDefault(ctx, workspaceID, &req); err != nil {
+			return nil, err
+		}
+	}
 	openAIBaseURL := ""
 	if modelServer != nil && req.Provider == "codex" {
 		openAIBaseURL = *modelServer.OpenAIBaseURL
@@ -1433,12 +1441,16 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 	if selectedCheckout == nil && !req.UseRootWorkspace {
 		return nil, fmt.Errorf("%w: set use_root_workspace to run without a repository checkout", ErrInvalidMachineInput)
 	}
-	active, err := s.store.HasActiveAgentRun(ctx, machineID)
-	if err != nil {
-		return nil, err
-	}
-	if active {
-		return nil, fmt.Errorf("%w: this machine already has an active agent run", ErrMachineQuota)
+	// Task attempts share a machine up to the workspace's task limit; the
+	// store checks that place under the machine lock.
+	if _, task := domain.TaskExecutionFromContext(ctx); !task {
+		active, err := s.store.HasActiveAgentRun(ctx, machineID)
+		if err != nil {
+			return nil, err
+		}
+		if active {
+			return nil, fmt.Errorf("%w: this machine already has an active agent run", ErrMachineQuota)
+		}
 	}
 	registered, err := s.store.GetProvider(ctx, workspaceID, machineID, req.Provider)
 	if err != nil {
@@ -1546,7 +1558,8 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 	}
 	if err := s.store.CreateAgentRun(ctx, run, operation); err != nil {
 		if errors.Is(err, repository.ErrMachineBusy) {
-			// A manual check is running on the machine: the task waits for it.
+			// A manual check, the user's own agent session or as many other
+			// tasks as the workspace allows hold the machine: the task waits.
 			return nil, repository.ErrAgentTaskConflict
 		}
 		if errors.Is(err, repository.ErrMachineStateConflict) || errors.Is(err, repository.ErrActiveAgentRun) {
@@ -2027,6 +2040,7 @@ func (s *DevMachineService) GetPolicy(ctx context.Context, workspaceID uuid.UUID
 		TaskMachineCPUMillis: domain.DefaultTaskMachineResources.CPUMillis,
 		TaskMachineMemoryMB:  domain.DefaultTaskMachineResources.MemoryMB,
 		TaskMachineDiskGB:    domain.DefaultTaskMachineResources.DiskGB,
+		TaskMachineMaxTasks:  domain.DefaultTaskMachineMaxTasks,
 		AllowedProviders:     json.RawMessage(`["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`),
 		AllowedRepositories:  json.RawMessage(`[]`),
 	}, nil
@@ -2071,9 +2085,19 @@ func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.U
 	// Omitted optional settings (Docker, sudo, task machines) keep their
 	// current values for older clients.
 	taskMachine := domain.DefaultTaskMachineResources
+	policy.TaskMachineMaxTasks = domain.DefaultTaskMachineMaxTasks
 	if current != nil {
 		policy.AllowDocker, policy.AllowSudo = current.AllowDocker, current.AllowSudo
 		taskMachine = current.TaskMachine()
+		if current.TaskMachineMaxTasks > 0 {
+			policy.TaskMachineMaxTasks = current.TaskMachineMaxTasks
+		}
+	}
+	if req.TaskMachineMaxTasks != nil {
+		if *req.TaskMachineMaxTasks < 1 || *req.TaskMachineMaxTasks > domain.MaxTaskMachineMaxTasks {
+			return nil, fmt.Errorf("%w: task_machine_max_tasks must be from 1 to %d", ErrInvalidMachineInput, domain.MaxTaskMachineMaxTasks)
+		}
+		policy.TaskMachineMaxTasks = *req.TaskMachineMaxTasks
 	}
 	if req.AllowDocker != nil {
 		policy.AllowDocker = *req.AllowDocker
@@ -2399,8 +2423,9 @@ func redactText(value string, secrets []string) string {
 }
 
 // Shared by direct native runs and conversation delegation; model selectors must
-// describe the same overrides that the harness actually accepts. A chosen model
-// must come from a server that speaks the harness's protocol.
+// describe the same overrides that the harness actually accepts. A model on a
+// model server must be one it offers; without a server that speaks the
+// harness's protocol the harness uses its own sign-in, which takes any model.
 func (s *DevMachineService) validateAgentModel(ctx context.Context, workspaceID uuid.UUID, provider string, serverID *uuid.UUID, model, thinking string) error {
 	if model != "" || thinking != "" || serverID != nil {
 		if provider != "codex" && provider != "claude-code" {
@@ -2420,11 +2445,11 @@ func (s *DevMachineService) validateAgentModel(ctx context.Context, workspaceID 
 	if err != nil {
 		return err
 	}
-	if server == nil {
-		if serverID != nil {
-			return fmt.Errorf("%w: model server not found", ErrInvalidMachineInput)
-		}
-		return fmt.Errorf("%w: add a model server for this workspace before selecting a model", ErrInvalidOperation)
+	if server == nil && serverID != nil {
+		return fmt.Errorf("%w: model server not found", ErrInvalidMachineInput)
+	}
+	if server == nil || (serverID == nil && !server.Serves(provider)) {
+		return nil
 	}
 	if !server.Serves(provider) {
 		return fmt.Errorf("%w: %s does not offer the protocol this agent needs", ErrInvalidMachineInput, server.Name)

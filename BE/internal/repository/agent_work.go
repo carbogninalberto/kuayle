@@ -139,13 +139,17 @@ type FollowUpTarget struct {
 	CreatorID  uuid.UUID `db:"creator_id"`
 	State      string    `db:"state"`
 	Generation int64     `db:"generation"`
+	Model      string    `db:"model"`
+	Provider   string    `db:"provider"`
+	// ModelServerID is the task's model server; nil means the workspace default.
+	ModelServerID *uuid.UUID `db:"model_server_id"`
 }
 
 // FollowUpTarget returns the issue's newest implementing task. Callers
 // authorize the issue first; Retry re-checks the task's own authorization.
 func (r *AgentTaskRepository) FollowUpTarget(ctx context.Context, ws, issue uuid.UUID) (*FollowUpTarget, error) {
 	var target FollowUpTarget
-	err := r.db.GetContext(ctx, &target, `SELECT id,creator_id,state,generation FROM agent_tasks WHERE workspace_id=$1 AND issue_id=$2 AND kind='implement' ORDER BY created_at DESC,id LIMIT 1`, ws, issue)
+	err := r.db.GetContext(ctx, &target, `SELECT id,creator_id,state,generation,model,provider,model_server_id FROM agent_tasks WHERE workspace_id=$1 AND issue_id=$2 AND kind='implement' ORDER BY created_at DESC,id LIMIT 1`, ws, issue)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNoMergeTarget
 	}

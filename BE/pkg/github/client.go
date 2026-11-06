@@ -67,7 +67,7 @@ func (c *Client) GetRepositoryInstallationToken(installationID int64, repository
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
 		responseBody, _ := io.ReadAll(response.Body)
-		return "", time.Time{}, fmt.Errorf("GitHub API error %d: %s", response.StatusCode, responseBody)
+		return "", time.Time{}, &APIError{Status: response.StatusCode, Message: string(responseBody)}
 	}
 	var result struct {
 		Token     string    `json:"token"`
@@ -102,7 +102,7 @@ func (c *Client) CreatePullRequest(token, owner, repository, title, head, base, 
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
 		responseBody, _ := io.ReadAll(response.Body)
-		return nil, fmt.Errorf("GitHub API error %d: %s", response.StatusCode, responseBody)
+		return nil, &APIError{Status: response.StatusCode, Message: string(responseBody)}
 	}
 	var pullRequest PullRequest
 	if err := json.NewDecoder(response.Body).Decode(&pullRequest); err != nil {
@@ -132,7 +132,7 @@ func (c *Client) UpdatePullRequestBody(token, owner, repository string, number i
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		responseBody, _ := io.ReadAll(response.Body)
-		return fmt.Errorf("GitHub API error %d: %s", response.StatusCode, responseBody)
+		return &APIError{Status: response.StatusCode, Message: string(responseBody)}
 	}
 	return nil
 }
@@ -164,7 +164,7 @@ func (c *Client) MarkPullRequestReadyForReview(token, nodeID string) error {
 	defer response.Body.Close()
 	responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("GitHub API error %d: %s", response.StatusCode, responseBody)
+		return &APIError{Status: response.StatusCode, Message: string(responseBody)}
 	}
 	// GraphQL reports failures with HTTP 200 and an errors list.
 	var result struct {
@@ -196,23 +196,36 @@ type Repository struct {
 
 // PullRequest represents a GitHub pull request.
 type PullRequest struct {
-	ID        int64      `json:"id"`
-	NodeID    string     `json:"node_id"`
-	Number    int        `json:"number"`
-	Title     string     `json:"title"`
-	State     string     `json:"state"`
-	Draft     bool       `json:"draft"`
-	Merged    bool       `json:"merged"`
-	HTMLURL   string     `json:"html_url"`
-	Head      PRBranch   `json:"head"`
-	Base      PRBranch   `json:"base"`
-	User      GitHubUser `json:"user"`
-	Additions int        `json:"additions"`
-	Deletions int        `json:"deletions"`
-	MergedAt  *time.Time `json:"merged_at"`
-	ClosedAt  *time.Time `json:"closed_at"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	ID     int64  `json:"id"`
+	NodeID string `json:"node_id"`
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	Body   string `json:"body"`
+	State  string `json:"state"`
+	Draft  bool   `json:"draft"`
+	Merged bool   `json:"merged"`
+	// MergeCommitSHA is the commit a merge created on the base branch.
+	MergeCommitSHA string `json:"merge_commit_sha"`
+	// Mergeable is nil while GitHub is still computing it.
+	Mergeable      *bool      `json:"mergeable"`
+	MergeableState string     `json:"mergeable_state"`
+	ChangedFiles   int        `json:"changed_files"`
+	HTMLURL        string     `json:"html_url"`
+	Head           PRBranch   `json:"head"`
+	Base           PRBranch   `json:"base"`
+	User           GitHubUser `json:"user"`
+	Labels         []Label    `json:"labels"`
+	Additions      int        `json:"additions"`
+	Deletions      int        `json:"deletions"`
+	MergedAt       *time.Time `json:"merged_at"`
+	ClosedAt       *time.Time `json:"closed_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+// Label is an issue or pull request label.
+type Label struct {
+	Name string `json:"name"`
 }
 
 type PRBranch struct {
@@ -334,7 +347,7 @@ func (c *Client) GetInstallationTokenContext(ctx context.Context, installationID
 
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
-		return "", time.Time{}, fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, body)
+		return "", time.Time{}, &APIError{Status: resp.StatusCode, Message: string(body)}
 	}
 
 	var result struct {
@@ -370,7 +383,7 @@ func (c *Client) ListInstallationRepos(token string) ([]Repository, error) {
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, body)
+			return nil, &APIError{Status: resp.StatusCode, Message: string(body)}
 		}
 
 		var result struct {
@@ -437,7 +450,7 @@ func (c *Client) getAsApp(ctx context.Context, path string, result any) error {
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		return fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, body)
+		return &APIError{Status: resp.StatusCode, Message: string(body)}
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(result)
 }
@@ -489,7 +502,7 @@ func (c *Client) doGet(token, url string, result interface{}) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, body)
+		return &APIError{Status: resp.StatusCode, Message: string(body)}
 	}
 
 	return json.NewDecoder(resp.Body).Decode(result)
@@ -536,6 +549,8 @@ func (c *Client) CompareCommitsPage(token, owner, repo, base, head string, page 
 // history. TotalCommits can exceed len(Commits).
 type Comparison struct {
 	Status       string        `json:"status"`
+	AheadBy      int           `json:"ahead_by"`
+	BehindBy     int           `json:"behind_by"`
 	TotalCommits int           `json:"total_commits"`
 	Commits      []Commit      `json:"commits"`
 	Files        []CompareFile `json:"files"`
@@ -549,7 +564,13 @@ func (e *ErrMergeRefused) Error() string { return "GitHub refused the merge: " +
 
 // MergePullRequest squash-merges a pull request only if its head is still sha.
 func (c *Client) MergePullRequest(token, owner, repo string, number int, sha string) error {
-	payload, err := json.Marshal(map[string]string{"sha": sha, "merge_method": "squash"})
+	return c.MergePullRequestWithMethod(token, owner, repo, number, sha, "squash")
+}
+
+// MergePullRequestWithMethod merges with "merge", "squash" or "rebase" only if
+// the pull request's head is still sha.
+func (c *Client) MergePullRequestWithMethod(token, owner, repo string, number int, sha, method string) error {
+	payload, err := json.Marshal(map[string]string{"sha": sha, "merge_method": method})
 	if err != nil {
 		return err
 	}
@@ -581,7 +602,7 @@ func (c *Client) MergePullRequest(token, owner, repo string, number int, sha str
 		}
 		return &ErrMergeRefused{Reason: reason}
 	}
-	return fmt.Errorf("GitHub API error %d: %s", response.StatusCode, body.Message)
+	return &APIError{Status: response.StatusCode, Message: body.Message}
 }
 
 // FindOpenPullRequest returns the open PR from head into base in the same
@@ -614,4 +635,7 @@ type CompareFile struct {
 	Filename string `json:"filename"`
 	SHA      string `json:"sha"`
 	Status   string `json:"status"`
+	// Patch is the file's unified diff; GitHub omits it for binary or very
+	// large files.
+	Patch string `json:"patch"`
 }

@@ -8,8 +8,9 @@ import (
 	"testing"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/handler"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,7 +38,7 @@ func TestRoutePermissionAnnotations(t *testing.T) {
 	})
 
 	count := 0
-	for _, r := range e.Routes() {
+	for _, r := range e.Router().Routes() {
 		if r.Method == echo.RouteNotFound {
 			continue // synthetic group entry, not a real route
 		}
@@ -62,7 +63,7 @@ func TestIntegratedRoutesPreserved(t *testing.T) {
 	e := echo.New()
 	registerRoutes(e, &appHandlers{}, testMiddleware(noopMiddleware()))
 	registered := map[string]bool{}
-	for _, route := range e.Routes() {
+	for _, route := range e.Router().Routes() {
 		registered[route.Method+" "+route.Path] = true
 	}
 	baseline, err := os.ReadFile("testdata/integrated_routes.txt")
@@ -76,7 +77,7 @@ func TestIntegratedRoutesPreserved(t *testing.T) {
 func TestManualAgentRunRoutesAreRetired(t *testing.T) {
 	e := echo.New()
 	registerRoutes(e, &appHandlers{}, testMiddleware(noopMiddleware()))
-	for _, route := range e.Routes() {
+	for _, route := range e.Router().Routes() {
 		require.NotContains(t, route.Path, "/agent-runs", "%s %s", route.Method, route.Path)
 	}
 }
@@ -120,7 +121,7 @@ func TestRegisteredRoutesRejectPATOutsideBoundaries(t *testing.T) {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			e := echo.New()
 			auth := func(next echo.HandlerFunc) echo.HandlerFunc {
-				return func(c echo.Context) error {
+				return func(c *echo.Context) error {
 					c.Set(mw.TokenScopesKey, tc.scopes)
 					c.Set("workspace_role", domain.RoleOwner)
 					if tc.restricted {
@@ -151,7 +152,7 @@ func TestCycleWritesRejectGuestSessions(t *testing.T) {
 		t.Run(target.method+target.path, func(t *testing.T) {
 			e := echo.New()
 			auth := func(next echo.HandlerFunc) echo.HandlerFunc {
-				return func(c echo.Context) error {
+				return func(c *echo.Context) error {
 					c.Set("workspace_role", domain.RoleGuest)
 					return next(c)
 				}
@@ -180,7 +181,7 @@ func TestGitHubAppSetupRequiresWorkspaceManage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := echo.New()
 			auth := func(next echo.HandlerFunc) echo.HandlerFunc {
-				return func(c echo.Context) error {
+				return func(c *echo.Context) error {
 					if tc.scopes != nil {
 						c.Set(mw.TokenScopesKey, tc.scopes)
 					}
@@ -195,4 +196,37 @@ func TestGitHubAppSetupRequiresWorkspaceManage(t *testing.T) {
 			require.Equal(t, http.StatusForbidden, rec.Code)
 		})
 	}
+}
+
+// Echo v5 rejects duplicate method+path registrations at startup, so the
+// optional route sets must register cleanly alongside everything else.
+func TestOptionalRouteSetsRegisterWithoutConflicts(t *testing.T) {
+	e := echo.New()
+	require.NotPanics(t, func() {
+		registerRoutes(e, &appHandlers{
+			telegram:        &handler.TelegramHandler{},
+			agentAutomation: &handler.AgentAutomationHandler{},
+			agentMessage:    &handler.AgentMessageHandler{},
+		}, testMiddleware(noopMiddleware()))
+	})
+	registered := map[string]bool{}
+	for _, route := range e.Router().Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+	require.True(t, registered["POST /api/telegram/webhook/:workspaceId"])
+}
+
+// Draft issues can be expanded with AI by anyone allowed to create issues;
+// the static path must not be captured by the per-issue routes.
+func TestDraftDescriptionExpansionRequiresIssueCreate(t *testing.T) {
+	e := echo.New()
+	registerRoutes(e, &appHandlers{}, testMiddleware(noopMiddleware()))
+	found := false
+	for _, route := range e.Router().Routes() {
+		if route.Method == http.MethodPost && route.Path == "/api/workspaces/:slug/issues/expand-description" {
+			found = true
+			require.Equal(t, "perm:issue:create", route.Name)
+		}
+	}
+	require.True(t, found, "draft expansion route is not registered")
 }

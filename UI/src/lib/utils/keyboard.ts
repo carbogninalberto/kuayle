@@ -8,24 +8,55 @@ interface Shortcut {
 	handler: KeyHandler;
 }
 
+const EDITABLE_SELECTOR = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
+
+/** True when the key or paste belongs to a text field, select or rich/terminal editor. */
+export function isEditableTarget(target: EventTarget | null): boolean {
+	const el = target as HTMLElement | null;
+	if (!el || typeof el.tagName !== 'string') return false;
+	if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable) return true;
+	return typeof el.closest === 'function' && el.closest(EDITABLE_SELECTOR) !== null;
+}
+
+/** Events that a global shortcut must leave to the focused control or the browser. */
+function ignoredEvent(e: KeyboardEvent): boolean {
+	return e.defaultPrevented || e.isComposing || isEditableTarget(e.target);
+}
+
+/**
+ * Plain shortcuts never fire with Cmd, or with Ctrl/Alt on letters, digits and named
+ * keys, so browser chords such as copy (Ctrl/Cmd+C) and paste keep their native
+ * behaviour. Printed symbols still match when typed with AltGr (see isPrintedSymbol).
+ */
+function matchesModifiers(e: KeyboardEvent, s: { ctrl?: boolean; meta?: boolean; shift?: boolean }): boolean {
+	if (s.meta || s.ctrl) {
+		if (!(e.metaKey || e.ctrlKey)) return false;
+	} else if (e.metaKey || (isPrintedSymbol(e.key) ? e.ctrlKey && !e.altKey : e.ctrlKey || e.altKey)) {
+		return false;
+	}
+	return !s.shift || e.shiftKey;
+}
+
+/**
+ * Symbols such as `/` and `?` are already the result of the keyboard layout. Many
+ * layouts type them with AltGr, which Windows reports as Ctrl+Alt (and macOS as
+ * Option), so those modifiers must not hide a symbol shortcut. Letters, digits
+ * and named keys keep rejecting them.
+ */
+function isPrintedSymbol(key: string): boolean {
+	return [...key].length === 1 && !/[\p{L}\p{N}\s]/u.test(key);
+}
+
 /**
  * Simple keyboard handler for single-key shortcuts.
- * Ignores events when focused on inputs/textareas.
+ * Ignores events when focused on editable controls.
  */
 export function createKeyboardHandler(shortcuts: Shortcut[]): KeyHandler {
 	return (e: KeyboardEvent) => {
-		const target = e.target as HTMLElement;
-		if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-			return;
-		}
+		if (ignoredEvent(e)) return;
 
 		for (const shortcut of shortcuts) {
-			const metaOrCtrl = shortcut.meta || shortcut.ctrl;
-			if (
-				e.key.toLowerCase() === shortcut.key.toLowerCase() &&
-				(!metaOrCtrl || e.metaKey || e.ctrlKey) &&
-				(!shortcut.shift || e.shiftKey)
-			) {
+			if (e.key.toLowerCase() === shortcut.key.toLowerCase() && matchesModifiers(e, shortcut)) {
 				e.preventDefault();
 				shortcut.handler(e);
 				return;
@@ -62,6 +93,8 @@ export type ShortcutDef = {
 	ctrl?: boolean;
 	meta?: boolean;
 	shift?: boolean;
+	/** When it returns false the shortcut is unavailable and the key is left alone. */
+	when?: () => boolean;
 	handler: () => void;
 	label: string;
 	category: string;
@@ -85,27 +118,17 @@ export function createShortcutEngine(defs: ShortcutDef[]) {
 	}
 
 	function handler(e: KeyboardEvent) {
-		const target = e.target as HTMLElement;
-		if (
-			target.tagName === 'INPUT' ||
-			target.tagName === 'TEXTAREA' ||
-			target.isContentEditable
-		) {
-			return;
-		}
+		if (ignoredEvent(e)) return;
 
 		const key = e.key.toLowerCase();
 
 		// Check single-key shortcuts with modifiers first
 		for (const s of singles) {
 			const metaOrCtrl = s.meta || s.ctrl;
-			if (
-				key === s.key!.toLowerCase() &&
-				(!metaOrCtrl || e.metaKey || e.ctrlKey) &&
-				(!s.shift || e.shiftKey)
-			) {
+			if (key === s.key!.toLowerCase() && matchesModifiers(e, s)) {
 				// Don't match single-key shortcuts if we're mid-sequence (unless they have modifiers)
 				if (pendingKeys.length > 0 && !metaOrCtrl) continue;
+				if (s.when && !s.when()) continue;
 				e.preventDefault();
 				resetPending();
 				s.handler();

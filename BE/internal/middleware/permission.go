@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // RequirePermission enforces scope ∩ RBAC. For PAT callers the token's
@@ -16,7 +16,7 @@ import (
 // pass as before.
 func RequirePermission(permission string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			if scopes, ok := c.Get(TokenScopesKey).([]string); ok {
 				if !slices.Contains(scopes, permission) {
 					return response.Forbidden(c)
@@ -39,7 +39,7 @@ func RequirePermission(permission string) echo.MiddlewareFunc {
 // personal access tokens are denied by default.
 func RequireSession() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			if c.Get(TokenScopesKey) != nil {
 				return response.Forbidden(c)
 			}
@@ -53,7 +53,7 @@ func RequireSession() echo.MiddlewareFunc {
 // workspace) stay interactive-session-only as defense in depth.
 func RequireOwner() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			if c.Get(TokenScopesKey) != nil {
 				return response.Forbidden(c)
 			}
@@ -66,13 +66,13 @@ func RequireOwner() echo.MiddlewareFunc {
 	}
 }
 
-func GetUserID(c echo.Context) uuid.UUID {
+func GetUserID(c *echo.Context) uuid.UUID {
 	id, _ := c.Get(string(UserIDKey)).(uuid.UUID)
 	return id
 }
 
 // GetWorkspaceRole returns the requester's role within the current workspace.
-func GetWorkspaceRole(c echo.Context) string {
+func GetWorkspaceRole(c *echo.Context) string {
 	role, _ := c.Get("workspace_role").(string)
 	return role
 }
@@ -82,7 +82,7 @@ func GetWorkspaceRole(c echo.Context) string {
 // sessions historically use the read permission to reach the machine.
 func RequireTokenPermission(permission string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			if scopes, ok := c.Get(TokenScopesKey).([]string); ok {
 				if !slices.Contains(scopes, permission) {
 					return response.Forbidden(c)
@@ -100,7 +100,7 @@ func RequireTokenPermission(permission string) echo.MiddlewareFunc {
 // data from multiple workspaces when the handler cannot filter its response.
 func RequireUnrestrictedTokenWorkspaces() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			if slugs, ok := c.Get(TokenWorkspacesKey).([]string); ok && slugs != nil {
 				return response.Forbidden(c)
 			}

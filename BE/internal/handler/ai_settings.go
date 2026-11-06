@@ -11,7 +11,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type AISettingsHandler struct {
@@ -22,7 +22,7 @@ func NewAISettingsHandler(aiSvc *service.AISettingsService) *AISettingsHandler {
 	return &AISettingsHandler{aiSvc: aiSvc}
 }
 
-func (h *AISettingsHandler) Get(c echo.Context) error {
+func (h *AISettingsHandler) Get(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	settings, err := h.aiSvc.Get(c.Request().Context(), ws.ID)
 	if err != nil {
@@ -31,7 +31,7 @@ func (h *AISettingsHandler) Get(c echo.Context) error {
 	return response.Success(c, http.StatusOK, service.ToAISettingsResponse(settings))
 }
 
-func (h *AISettingsHandler) GetIssueCopyPrompt(c echo.Context) error {
+func (h *AISettingsHandler) GetIssueCopyPrompt(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	settings, err := h.aiSvc.Get(c.Request().Context(), ws.ID)
 	if err != nil {
@@ -43,7 +43,7 @@ func (h *AISettingsHandler) GetIssueCopyPrompt(c echo.Context) error {
 	})
 }
 
-func (h *AISettingsHandler) Update(c echo.Context) error {
+func (h *AISettingsHandler) Update(c *echo.Context) error {
 	var req dto.UpdateAISettingsRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -72,21 +72,45 @@ func (h *AISettingsHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, service.ToAISettingsResponse(settings))
 }
 
-func (h *AISettingsHandler) ExpandIssueDescription(c echo.Context) error {
+func (h *AISettingsHandler) ExpandIssueDescription(c *echo.Context) error {
 	var req dto.ExpandIssueDescriptionRequest
-	if err := c.Bind(&req); err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	if ok, err := bindExpansionRequest(c, &req); !ok {
+		return err
 	}
-	if err := validate.Struct(&req); err != nil {
+	ws := c.Get("workspace").(*domain.Workspace)
+	description, err := h.aiSvc.ExpandIssueDescription(c.Request().Context(), ws.ID, c.Param("identifier"), req.SelectedText)
+	return expansionResponse(c, description, err)
+}
+
+// ExpandDraftIssueDescription expands the description of an issue that is
+// still being created; it never reads stored issues.
+func (h *AISettingsHandler) ExpandDraftIssueDescription(c *echo.Context) error {
+	var req dto.ExpandDraftIssueDescriptionRequest
+	if ok, err := bindExpansionRequest(c, &req); !ok {
+		return err
+	}
+	ws := c.Get("workspace").(*domain.Workspace)
+	description, err := h.aiSvc.ExpandDraftIssueDescription(c.Request().Context(), ws.ID, req.Title, req.Description, req.SelectedText)
+	return expansionResponse(c, description, err)
+}
+
+// bindExpansionRequest binds and validates req. When it reports false the
+// error response has been written and its result must be returned.
+func bindExpansionRequest(c *echo.Context, req any) (bool, error) {
+	if err := c.Bind(req); err != nil {
+		return false, response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	if err := validate.Struct(req); err != nil {
 		details := make([]dto.ErrorDetail, 0)
 		for _, e := range validate.FormatErrors(err) {
 			details = append(details, dto.ErrorDetail{Field: e["field"], Message: e["message"]})
 		}
-		return response.ValidationError(c, details)
+		return false, response.ValidationError(c, details)
 	}
+	return true, nil
+}
 
-	ws := c.Get("workspace").(*domain.Workspace)
-	description, err := h.aiSvc.ExpandIssueDescription(c.Request().Context(), ws.ID, c.Param("identifier"), req.SelectedText)
+func expansionResponse(c *echo.Context, description string, err error) error {
 	if err != nil {
 		switch {
 		case errors.Is(err, repository.ErrPrivateWorkspaceOperation):
@@ -106,7 +130,7 @@ func (h *AISettingsHandler) ExpandIssueDescription(c echo.Context) error {
 
 // CheckVision probes the saved assistant model with a tiny image and reports
 // whether it answered and recognised it.
-func (h *AISettingsHandler) CheckVision(c echo.Context) error {
+func (h *AISettingsHandler) CheckVision(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	result, err := h.aiSvc.CheckVision(c.Request().Context(), ws.ID, middleware.GetUserID(c))
 	switch {

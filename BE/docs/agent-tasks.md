@@ -43,6 +43,13 @@ defaults unless it explicitly supplies an override. Existing attempts migrate
 with no configured command; later defaults are never retroactively applied.
 Rollback refuses configured overrides or nonempty effective snapshots.
 
+A retry may also switch the task's `model` (internally with the model server an
+approver picked). The retry receipt (`agent_task_retries.model` and
+`model_server_id`, migration `000110_agent_task_retry_model`) records what was
+asked, `''`/NULL meaning keep the task's, so replaying a request ID with another
+model or server conflicts like a changed prompt. Existing receipts asked for no
+model; rollback drops only the two columns.
+
 The native attempt receives this command in its instructions and existing
 `test_command` field. That is advisory only: the outcome used by the task is the
 independent check below. Missing commands are not evidence of success.
@@ -588,9 +595,15 @@ workspace policy and the provider/model checks of any coding task, and calls
 `CreateReview` under the conversation transaction. The task must be an
 implementing task in `awaiting_review` with a pull request and commit Kuayle
 published for its current attempt (the same records as `MergeTarget`). A
-request is idempotent per (task, published commit, harness): it returns the
-existing review unless that one failed or was cancelled, in which case a new
-`attempt` starts. Replaying the approval's request ID returns its review.
+request is idempotent per (task, published commit, harness, model, model
+server): it returns the newest such review unless it failed or was cancelled,
+in which case a new review starts. Another model or server picked on the
+approval card is a review of its own. A review without a chosen server records
+the workspace default it runs on (when that server speaks the harness), so a
+later default is a different review; an older review without a recorded server
+is matched by the server its run used. `attempt` counts every review of the
+commit with that harness (unique per task, commit and harness). Replaying the
+approval's request ID returns its review.
 
 A review is an `agent_tasks` row with `kind='review'` and `review_of_task_id`,
 created by the approver in their issue conversation, with an `agent_reviews`
@@ -702,7 +715,18 @@ once their underlying cause has been repaired.
 
 Cancellation, failure and completion leave the task's machine as it is: a
 machine Kuayle created for the task and a reused one both stay running, with
-their volume and worktrees, so a later task can reuse them. Machines are never
+their volume and worktrees, so a later task can reuse them. The exception is a
+start that has not begun: when a cancelling task has no attempt yet and its own
+machine (the one created for its reservation, used by no other task or run) has
+only the task's own spawn or start operations (its creation spawn and its
+`task-start:` keys) that the manager has not leased and that made no attempt,
+typically ones waiting for host capacity, cleanup cancels them instead of
+waiting. A start the user requested on that machine is not withdrawn. A machine that never ran is then permanently deleted through the
+ordinary teardown, which cancellation waits for; one that ran before (stopped or
+paused, restarting for a retry) keeps its workspace and its desired state
+returns to its current state. A reused machine, one another task waits for, and
+a start already leased or attempted are left alone, and cancellation keeps
+waiting for them as before. Revoked access cancels through the same cleanup. Machines are never
 paused, stopped or torn down on a timer either; only their user does that.
 
 Preparation resolves the task's repository from the issue, project, team and
@@ -718,17 +742,21 @@ attempt; different payloads conflict. Retries allocate a new native run ID and
 invalidate old worker leases while retaining the task's checkout and branch.
 Retried task-owned machines resume through existing lifecycle policy checks and
 task fencing. A task keeps the machine it was given; when it has none,
-reservation reuses a running, idle machine of its creator before creating a new
-task machine: same workspace and environment (so the same profile), not an
+reservation uses a running machine of its creator before creating a new task
+machine: same workspace and environment (so the same profile), not an
 Environment Builder or being deleted, still allowed by the enabled policy (sudo
-and Docker machines only while those stay allowed), and without an active run,
-another active task, or a queued lifecycle, snapshot, validation, publication,
-check or custom tool operation. A machine already used for the same issue comes
-first, then the most recently active. Paused and stopped machines are not
+and Docker machines only while those stay allowed), without the user's own
+agent session or a queued lifecycle, snapshot, check or custom tool operation,
+and working on fewer other active tasks than the policy's
+`task_machine_max_tasks` (default 2). An idle machine comes first (one already
+used for the same issue, then the most recently active); otherwise the task
+shares the least loaded busy machine. Paused and stopped machines are not
 chosen, since their user paused or stopped them. The full rule is in
 [task machine reuse](../../TECHNICAL.md#resource-limits-and-quotas). Each task
-has its own checkout, and the machine locks serialize attempts, checks and tool
-runs on a shared machine. Preparation starts the task's own machine when its
+has its own checkout, branch and session directory; attempt creation re-checks
+the limit under the machine lock, so tasks on a shared machine run their
+attempts, validations and publications side by side while checks and tool runs
+still wait for a machine without agent work. Preparation starts the task's own machine when its
 user paused or stopped it, and waits for a start already requested. Each start
 is keyed by task, task generation and machine generation, so a machine paused
 again is started again while a start that failed for good is not retried in a
@@ -1201,6 +1229,11 @@ on the existing machine routes.
 Encrypted recovery credentials never appear in API output. Mutating task bodies
 reject unknown properties; callers cannot supply runtime IDs or lease authority.
 Provider model/effort validation is shared with direct native execution.
+A task stores only an explicit model and effort. Each attempt's run fills what
+the task left empty from the workspace default of its agent on its own sign-in
+when the run is created, so open tasks pick up a changed default on their next
+attempt while an existing run keeps its own; see
+[agent model defaults](../../TECHNICAL.md#agent-model-defaults).
 
 
 ## Web task controls

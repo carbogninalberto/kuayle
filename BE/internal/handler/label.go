@@ -10,7 +10,7 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
 	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type LabelHandler struct {
@@ -21,7 +21,7 @@ func NewLabelHandler(labelSvc *service.LabelService) *LabelHandler {
 	return &LabelHandler{labelSvc: labelSvc}
 }
 
-func (h *LabelHandler) List(c echo.Context) error {
+func (h *LabelHandler) List(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	var projectID *string
 	if raw := c.QueryParam("project_id"); raw != "" {
@@ -38,7 +38,7 @@ func (h *LabelHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *LabelHandler) Create(c echo.Context) error {
+func (h *LabelHandler) Create(c *echo.Context) error {
 	var req dto.CreateLabelRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -59,7 +59,7 @@ func (h *LabelHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, toLabelResponse(*label))
 }
 
-func labelError(c echo.Context, err error) error {
+func labelError(c *echo.Context, err error) error {
 	if errors.Is(err, service.ErrLabelProject) {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
@@ -69,7 +69,7 @@ func labelError(c echo.Context, err error) error {
 	return response.InternalError(c)
 }
 
-func (h *LabelHandler) Update(c echo.Context) error {
+func (h *LabelHandler) Update(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid label ID")
@@ -86,7 +86,7 @@ func (h *LabelHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, toLabelResponse(*label))
 }
 
-func (h *LabelHandler) Delete(c echo.Context) error {
+func (h *LabelHandler) Delete(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid label ID")

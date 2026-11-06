@@ -24,7 +24,9 @@ import type {
 	ResourceSample,
 	TerminalSessionLaunchResponse,
 	ModelServer,
-	ModelServerInput
+	ModelServerInput,
+	AgentModelDefault,
+	AgentModelDefaultInput
 } from '$lib/types/dev-machine';
 
 const base = (slug: string) => `/api/workspaces/${slug}`;
@@ -371,6 +373,12 @@ export function listAgentProviders(slug: string): Promise<AgentProvider[]> {
 	return api.get(`${base(slug)}/dev-machine-providers`);
 }
 
+export const agentModelDefaults = {
+	list: (slug: string) => api.get<AgentModelDefault[]>(`${base(slug)}/agent-model-defaults`),
+	save: (slug: string, provider: string, input: AgentModelDefaultInput) =>
+		api.put<AgentModelDefault>(`${base(slug)}/agent-model-defaults/${encodeURIComponent(provider)}`, input)
+};
+
 export const modelServers = {
 	list: (slug: string) => api.get<ModelServer[]>(`${base(slug)}/agent-model-servers`),
 	create: (slug: string, input: ModelServerInput) => api.post<ModelServer>(`${base(slug)}/agent-model-servers`, input),
@@ -463,4 +471,16 @@ function appendQueryParam(url: string, key: string, value: string): string {
 		const separator = url.includes('?') ? '&' : '?';
 		return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
 	}
+}
+
+export type MergeMethod = 'merge' | 'squash' | 'rebase';
+
+/** The merge method chosen in the development settings, by repository full name. */
+export function getMergeMethods(slug: string): Promise<Record<string, MergeMethod>> {
+	return api.get(`${base(slug)}/dev-machine-merge-methods`);
+}
+
+/** Sets a repository's merge method; an empty method restores the default. */
+export function setMergeMethod(slug: string, repository: string, method: MergeMethod | ''): Promise<unknown> {
+	return api.put(`${base(slug)}/dev-machine-merge-methods`, { repository, merge_method: method });
 }

@@ -338,6 +338,31 @@ func TestHeadlessTerminalUsesDeveloperContainerSecurityAndResources(t *testing.T
 	require.False(t, terminalConfig.Mounts[0].ReadOnly)
 }
 
+// A 512-PID machine split by share gave its agent 179 tasks. A Claude Code
+// session (a multithreaded native runtime) with a parallel `go test ./...` that
+// shells out to git hit that ceiling: thread and fork creation failed, git
+// crashed and the harness was killed with SIGSEGV (exit 139). The containers
+// people and agents build in keep a process budget that fits such a workload;
+// the small service containers keep their share.
+func TestBuildContainersGetAProcessBudgetForParallelToolchains(t *testing.T) {
+	runtime := &DockerRuntime{}
+	for _, profile := range []string{domain.DevMachineProfileStandard, domain.DevMachineProfileHeadless} {
+		machine := &domain.DevMachine{MemoryMB: 12288, CPUMillis: 4000, PidsLimit: 512, Profile: profile}
+		for _, docker := range []bool{false, true} {
+			for _, service := range []string{"agent", "terminal", "ide"} {
+				pids := *runtime.secureHostConfig(machine, service, "network", "volume", docker).Resources.PidsLimit
+				require.GreaterOrEqual(t, pids, int64(1024), "%s on a %s machine (docker=%t)", service, profile, docker)
+			}
+			require.Equal(t, int64(32), *runtime.secureHostConfig(machine, "collector", "network", "volume", docker).Resources.PidsLimit)
+			require.Equal(t, int64(32), *runtime.secureHostConfig(machine, "egress", "network", "volume", docker).Resources.PidsLimit)
+		}
+	}
+
+	// A machine configured with more processes keeps its larger share.
+	large := &domain.DevMachine{MemoryMB: 16384, CPUMillis: 8000, PidsLimit: 8192, Profile: domain.DevMachineProfileHeadless}
+	require.Equal(t, int64(8192)*35/100, *runtime.secureHostConfig(large, "agent", "network", "volume", true).Resources.PidsLimit)
+}
+
 func TestDeveloperContainerIDSupportsHeadlessTerminalOnlyMachines(t *testing.T) {
 	terminalContainer := "headless-developer"
 	collectorContainer := "collector"

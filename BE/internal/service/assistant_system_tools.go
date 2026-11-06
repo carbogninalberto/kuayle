@@ -279,31 +279,43 @@ func (t *AssistantTools) prepareUpgrade(ctx context.Context, user uuid.UUID, arg
 	if err := decodeToolInput(arguments, &struct{}{}); err != nil {
 		return uuid.Nil, domain.UpgradePayload{}, err
 	}
-	if !t.system.isAdmin(user) {
-		audit.Log("system.update_refused", user, map[string]interface{}{"reason": "not an instance administrator"})
-		return uuid.Nil, domain.UpgradePayload{}, toolFailure("only an instance administrator can upgrade this instance; ask one to upgrade it")
+	info, err := t.system.checkUpgradeRequest(ctx, user)
+	if err != nil {
+		return uuid.Nil, domain.UpgradePayload{}, err
 	}
-	if !t.system.updater.Configured() {
-		return uuid.Nil, domain.UpgradePayload{}, toolFailure("the system updater is not configured; set UPDATER_URL and UPDATER_TOKEN for the backend and run the updater service, or upgrade from the server with selfhosting/update.sh")
-	}
-	status, code, err := t.system.updater.Status(ctx)
-	if err != nil || code != http.StatusOK {
-		return uuid.Nil, domain.UpgradePayload{}, toolFailure("the system updater did not answer; check that the updater container is running, then try again")
-	}
-	if status.Running {
-		return uuid.Nil, domain.UpgradePayload{}, toolFailure("an upgrade is already running; follow it with get_instance_version")
-	}
-	info := t.system.versionInfo(ctx)
-	switch {
-	case info.err != nil:
-		return uuid.Nil, domain.UpgradePayload{}, toolFailure("the release list could not be reached, so the latest version is unknown; try again, or upgrade from Settings → Version")
-	case info.current == "dev":
-		return uuid.Nil, domain.UpgradePayload{}, toolFailure("this is a development build without a release version; upgrade it from the server")
-	case !info.available:
+	if !info.available {
 		return uuid.Nil, domain.UpgradePayload{}, toolFailure("the instance already runs the latest release (%s)", info.current)
 	}
 	audit.Log("system.update_requested", user, map[string]interface{}{"from": info.current, "to": info.latest})
 	return uuid.Nil, domain.UpgradePayload{CurrentVersion: info.current, LatestVersion: info.latest, Changelog: info.changelog}, nil
+}
+
+// checkUpgradeRequest is what an upgrade request must pass whatever release it
+// installs: an instance administrator, a configured and idle updater, and a
+// release build whose version is known. It returns the release picture.
+func (s *AssistantSystem) checkUpgradeRequest(ctx context.Context, user uuid.UUID) (instanceVersion, error) {
+	if !s.isAdmin(user) {
+		audit.Log("system.update_refused", user, map[string]interface{}{"reason": "not an instance administrator"})
+		return instanceVersion{}, toolFailure("only an instance administrator can upgrade this instance; ask one to upgrade it")
+	}
+	if !s.updater.Configured() {
+		return instanceVersion{}, toolFailure("the system updater is not configured; set UPDATER_URL and UPDATER_TOKEN for the backend and run the updater service, or upgrade from the server with selfhosting/update.sh")
+	}
+	status, code, err := s.updater.Status(ctx)
+	if err != nil || code != http.StatusOK {
+		return instanceVersion{}, toolFailure("the system updater did not answer; check that the updater container is running, then try again")
+	}
+	if status.Running {
+		return instanceVersion{}, toolFailure("an upgrade is already running; follow it with get_instance_version")
+	}
+	info := s.versionInfo(ctx)
+	switch {
+	case info.err != nil:
+		return instanceVersion{}, toolFailure("the release list could not be reached, so the latest version is unknown; try again, or upgrade from Settings → Version")
+	case info.current == "dev":
+		return instanceVersion{}, toolFailure("this is a development build without a release version; upgrade it from the server")
+	}
+	return info, nil
 }
 
 // upgradeInstance starts an approved upgrade as the approver. The instance

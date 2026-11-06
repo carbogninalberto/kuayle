@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
@@ -27,7 +27,7 @@ func TestBrowserOrigin(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := echo.New()
 			e.Use(BrowserOrigin("https://app.example.com"))
-			e.Any("/", func(c echo.Context) error { return c.NoContent(204) })
+			e.Any("/", func(c *echo.Context) error { return c.NoContent(204) })
 			req := httptest.NewRequest(tc.method, "https://app.example.com/", nil)
 			req.Header.Set("Origin", tc.origin)
 			req.Header.Set("Cookie", tc.cookie)
@@ -42,7 +42,7 @@ func TestBrowserOrigin(t *testing.T) {
 func TestBrowserOriginRejectsSiblingWebSocket(t *testing.T) {
 	e := echo.New()
 	e.Use(BrowserOrigin("https://app.example.com"))
-	e.GET("/", func(c echo.Context) error { return c.NoContent(http.StatusNoContent) })
+	e.GET("/", func(c *echo.Context) error { return c.NoContent(http.StatusNoContent) })
 	req := httptest.NewRequest("GET", "https://app.example.com/", nil)
 	req.Header.Set("Upgrade", "websocket")
 	req.Header.Set("Origin", "https://machine.app.example.com")

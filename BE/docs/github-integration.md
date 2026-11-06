@@ -33,6 +33,8 @@ A single GitHub App is pre-configured and shared across all workspaces. Users on
    | Metadata | Read |
    | Issues | Read |
    | Checks | Read |
+   | Commit statuses | Read |
+   | Actions | Read |
 
    **Events to subscribe to:**
    - Pull request
@@ -130,6 +132,17 @@ Existing apps and the shared app must add them in the GitHub App settings, and
 each installation owner must accept the updated permissions. Without them, tasks
 still publish and complete on merge but never receive CI or review signals. See
 the [agent task contract](agent-tasks.md#ci-and-review-feedback).
+
+The assistant's `get_pull_request_checks` also reads legacy commit statuses and
+needs **Commit statuses: Read**; apps created before it must add that permission
+the same way (see [assistant action policies](conversations.md#assistant-action-policies)).
+
+The assistant's release tools need **Contents: Read and write** (already
+requested) and, to follow release builds with `get_workflow_run`, **Actions:
+Read**. Apps created before them must add **Actions: Read** in the GitHub App
+settings and each installation owner must accept it; until then the setup check
+lists it as missing and `get_workflow_run` names it instead of calling GitHub
+(see [release tools](conversations.md#release-tools)).
 
 ### GitHub App setup check
 

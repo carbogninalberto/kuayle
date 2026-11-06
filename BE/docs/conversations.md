@@ -215,7 +215,11 @@ status or priority; assignees are not changed), `delegate_issue`, `plan_issues` 
 `follow_up_task` (see [requested agent reviews](agent-tasks.md#requested-agent-reviews)),
 `run_check` (see [manual checks](agent-tasks.md#manual-checks)),
 `link_repository`, and `start_preview`, `stop_preview`, `expose_port` and
-`list_ports` (see [previews and ports from chat](#previews-and-ports-from-chat)).
+`list_ports` (see [previews and ports from chat](#previews-and-ports-from-chat)),
+and the release tools `list_releases`, `get_release`, `draft_release_notes`,
+`create_release` and `get_workflow_run` (see [release tools](#release-tools)),
+and `ship_pull_request`, which chains merge, tests, release, build and upgrade
+behind one approval (see [shipping in one approval](#shipping-in-one-approval)).
 `link_repository`, and the live channel tools `message_task` and
 `get_task_messages` (see [agent messages in chat](#agent-messages-in-chat)).
 `create_issue` accepts a `parent_identifier`. The write tools (`create_issue`,
@@ -601,6 +605,38 @@ this same resolution path; see [Telegram approval buttons](telegram.md#approval-
 [requested agent reviews](agent-tasks.md#requested-agent-reviews). `run_check` does too (migration 97); see
 [manual checks](agent-tasks.md#manual-checks).
 
+### Model choice for agents started from chat
+
+`delegate_issue`, `request_agent_review` and `follow_up_task` accept an optional
+`model` (and `harness` for delegations and reviews) that is stored in the
+approval payload; a follow-up payload also shows the task's current model,
+harness and `model_server_id`. The approval card (`ApprovalModelPicker`) opens
+on what the backend would start: the proposal on the server that offers it
+(the task's own first, then the default, then another compatible server), else
+the default model server's default model when that server speaks the harness,
+else the agent's own sign-in (whose run fills the model and effort from the
+workspace's [agent default](../../TECHNICAL.md#agent-model-defaults) when it is
+created; a proposed model no server offers also runs there). A follow-up without a proposed model opens on the
+task's current model and the server it actually runs on (its own, else the
+current default), even if that server no longer lists the model, since an
+untouched card keeps both. Like the task composer it offers the compatible
+model servers and the models of the selected one. `POST .../approvals/:id`
+accepts optional `harness`, `model` and `model_server_id` next to `decision`;
+only what the user changed is sent, and a picked model always carries its server
+because two servers may list the same model name (the server is ignored without
+a model). The approver's choice wins over the proposal and a new harness never
+inherits the proposed model. With no choice the default model server applies as
+before. The harness must be allowed in the workspace, and the model must be one
+the chosen server offers (validation fails the approval otherwise; an unknown
+server is never replaced by another). Reviews still default to the implementing
+task's harness. A follow-up continues on the task's own harness, so only its
+model and server change (`agent_tasks.model`, `thinking` and `model_server_id`
+are updated together when the attempt is queued). An explicit model takes the
+thinking level of the server that runs it; the default server stays implicit
+unless the task was pinned to a server. Harness and model on an approval other
+than these three, or on a denial, are ignored. Only the approval's bound actor
+can resolve it, and the effect re-checks their access as for any approval.
+
 ### Previews and ports from chat
 
 The machine tools act on the issue's newest implementing task and its machine,
@@ -742,3 +778,232 @@ the same `service.SystemUpdater` as Settings → Version → Upgrade; requests,
 refusals, starts and failures go to the audit log. The instance restarts during
 the run, so the approval card follows `/api/system/update-status` and the
 assistant follows progress with `get_instance_version`.
+
+### Assistant action policies
+
+`assistantActionPolicies` in
+[assistant_guard.go](../internal/service/assistant_guard.go) is the one
+declaration of what each assistant action needs: the GitHub App permissions it
+calls and who may do it. Every approval tool and every tool that calls GitHub for
+a pull request or a release must have an entry, and every permission an entry names must be in
+the App manifest (`githubAppPermissions`); a unit test enforces both, so no entry
+asks for a permission before its tool exists. `authorizeAssistantAction` is the
+single role check, made when an approval is requested and again, against the
+current role, when it is approved; guests and former members are refused.
+Admin-or-creator actions (merging and the four pull request changes) make it
+where the task's creator is known. Custom tools (`run_custom_tool`) go through
+the same check and audit.
+
+Before an approval is created its GitHub permissions are checked live against
+the app and installation (cached briefly for requests, never when approving). A
+gap is shown on the approval card with what to grant and where; approving
+re-checks and refuses while it remains, and a GitHub 403 for a missing permission
+names the permissions that are still missing. A read tool with a gap fails with
+the same message instead of calling GitHub. When GitHub cannot be asked, the gap
+is only a warning. The audit log records `assistant.approval_requested`,
+`request_refused`, `approval_approved`, `approval_denied`, `approval_expired`,
+`action_executed`, `action_failed` and `action_error` with the actor, tool,
+approval and target, each decision and outcome once.
+
+### Pull request tools
+
+`get_pull_request`, `get_pull_request_checks` and `list_pull_request_comments`
+read the pull request Kuayle published for the issue's newest task (any task
+state) from GitHub now, for anyone who can see the issue. They report what blocks
+a merge with the next step instead of a generic error: a draft
+(`mark_pull_request_ready`), conflicts or a branch behind its base
+(`update_pull_request_branch`), failing checks with links to their logs and a
+summary (`follow_up_task`), and unresolved review threads, bot reviewers such as
+Codex included. A missing App permission, a deleted pull request and an
+unreachable GitHub each get their own message. Checks are read page by page; when
+the list was cut short or the legacy commit statuses could not be read, the state
+is `incomplete` (`checks_truncated`, `statuses_unavailable`) and never `passing`.
+
+`reply_to_review_comment`, `resolve_review_thread`, `update_pull_request_branch`
+and `mark_pull_request_ready` (`draft` true puts it back to draft) need approval
+(migration 107 adds the actions) and are bound to the task, repository and pull
+request number; the card shows the exact reply, the thread, or the head a branch
+update is pinned to. Like merging, they need a workspace owner/admin or the
+task's creator, checked when asking and again when approving, and every request,
+refusal, change and failure is audited. `update_pull_request_branch` asks the
+task agent to merge the base in its own checkout (a `follow_up_task` approval)
+when the user created the task and it awaits review, is blocked or failed; it
+uses GitHub's update-branch (pinned to the head the user saw) when that is
+requested or no agent can take it, and never for conflicts. The new head is
+recorded as for any head that moved (see
+[pull request heads](agent-tasks.md#pull-request-head-tracking)); the
+task's checkout fast-forwards to it when the task next publishes
+(`SyncCheckout`).
+
+`merge_pull_request` now merges with the repository's method from Settings →
+Development (`repository_merge_methods`, `GET/PUT /dev-machine-merge-methods`,
+admins only), otherwise the first method GitHub says the repository allows
+(squash, merge, rebase). The method is pinned in the approval; a configured method
+the repository disallows, a draft and a closed pull request are refused with
+their next step before asking.
+
+### Release tools
+
+The release tools work on a repository linked to the workspace's GitHub
+installation (`owner/name`, the same list as Settings → Integrations), not on an
+issue. Anyone who can use the assistant (no guests) may read; only workspace
+owners and admins may publish. Their entries in `assistantActionPolicies`
+declare the GitHub permissions below, so the preflight names a missing one.
+
+| Tool | GitHub App permissions | Role |
+| --- | --- | --- |
+| `list_releases`, `get_release` | contents: read | member |
+| `draft_release_notes` | contents, pull requests, checks, statuses: read | member |
+| `create_release` (approval) | contents: write; checks, statuses: read | owner/admin |
+| `get_workflow_run` | actions: read | member |
+
+`list_releases` and `get_release` return previous releases and their notes as
+untrusted data, so the assistant can learn their style.
+
+**Style skill.** The style is the workspace skill **Release notes style**
+(workspace-wide, an ordinary [skill](#skills)). `draft_release_notes` seeds it
+with the default style the first time it runs in a workspace (active, no
+author); owners and admins edit, version, switch off or delete it in Settings →
+Assistant → Skills, and a deleted one is seeded again on the next draft. Its
+`Sections:` line sets which sections are rendered and in what order (default:
+Features, Improvements, Fixed, Upgrade, Validation, PR links, Full Changelog);
+the rest of the body is guidance returned to the model as `style.guidance`. A
+switched-off or draft skill is not followed: the built-in default is used and
+the result says so.
+
+**Drafting.** `draft_release_notes(repository, tag?, target?, previous_tag?)`
+pins the target commit (default: the head of the default branch), takes the
+latest non-prerelease release as the previous tag, compares the two with
+GitHub's compare API, and reads the pull requests named by the range's merge
+commits (`Merge pull request #N`) and squash titles (`… (#N)`), at most 40. Pull
+requests go to Features or Fixed by their conventional prefix (`feat`, `fix`)
+or `bug`/`enhancement` labels, otherwise Improvements; added migration files
+fill Upgrade; Validation states that all checks of the target passed (or that
+they have not); then the PR links line and the Full Changelog compare link. It
+returns the draft, the pull requests (title, labels, a body excerpt), the
+suggested next patch tag, the previous release's notes as an example and the
+checks state, and stays within the tool output limit by dropping body excerpts
+first. The model rewrites the bullets in the style's wording and passes the
+notes to `create_release`.
+
+**Publishing.** `create_release(repository, tag, target_commit, notes, name?)`
+needs approval (migration 111 adds the action; like an upgrade
+the approval has no issue). Before the approval is offered, and again when it
+is approved, Kuayle refuses with a reason, auditing the refusal:
+
+- a tag that is not a plain git tag name or that already exists;
+- a target commit not on the default branch (`Tagging refused: commit … is not on main`);
+- a target whose checks did not all pass, from the same check-run and
+  commit-status reading as `get_pull_request_checks`: failing (named), still
+  running, none reported, or not all readable (`Tagging refused: …`);
+- no earlier stable release among the newest 100 (the range always starts at
+  the latest stable release, which the model cannot change, so a first release
+  has no range to scan and is published outside Kuayle);
+- a target that does not descend from that release, or a range of 300 or more
+  changed files (more than the compare API lists, so the scan cannot cover it);
+- a changed text file GitHub sent no diff for (too large), which the scan could
+  not read;
+- a finding of the secret scan of the range, or of the notes.
+
+The secret scan (`release_scan.go`) reads the added lines of each changed file's
+diff from the compare API and looks for private-key headers, AWS, GitHub,
+GitLab, Slack, Google and API secret key formats, JWTs and URLs with an
+embedded password (placeholders such as `${DB_PASSWORD}` or `<password>` are
+allowed), and flags files that hold secrets by name (`.env`, `*.pem`, `*.key`,
+`id_rsa`, `*.tfstate`, database dumps and similar; `.env.example` and other
+templates are scanned instead). Removed lines and files are not findings.
+Binary files (by extension) are listed on the card as not scanned; public keys
+(`*.pub`) are content-scanned rather than flagged by name. Tool results are
+bounded in encoded bytes so long or multi-byte notes never exceed the tool
+output limit. The notes get the same credential patterns plus private IPv4
+addresses (RFC 1918, loopback, link-local, CGNAT), host names under `.internal`,
+`.local`, `.lan`, `.corp`, `.home`, `.intranet`, `.localdomain` or `.private`,
+and local paths (`/Users/<name>/`, `/home/<name>/`), and are limited to 20 000
+characters. A refusal names the file or notes line and the type, never the
+value.
+
+The approval card shows the repository, tag, short commit and branch, the
+number of passing checks, commits and scanned files, files not scanned, a
+compare link and the notes in a Textarea. The approver may edit the notes:
+`POST …/approvals/:approvalId` accepts `{"decision":"approve","notes":"…"}`;
+the edit is checked like the requested notes and stored on the approval with
+the claim (`notes_edited`), so the edited notes are what gets published and a
+retry publishes the same. An edit that fails the check is answered with 422
+`INVALID_APPROVAL_EDIT` and the reason, and the approval stays pending. Approving
+re-checks the admin role and GitHub permissions, runs the whole gate again, then
+creates the release with `target_commitish` pinned to the full commit SHA,
+`make_latest` and not as a draft or prerelease. A release found at the same tag
+and commit (an earlier attempt whose answer was lost) counts as done; a 422 from
+GitHub fails the approval with its message; an unreachable GitHub leaves the
+claim to resume. Telegram can approve too and then publishes the notes as
+requested (they cannot be edited there); its button names the release tag.
+Requests, refusals, approvals and outcomes go to the audit log as for every
+assistant action.
+
+**Following the build.** Publishing a release starts the repository's release
+workflows (in Kuayle's own repository, **Build & Push**). `get_workflow_run`
+lists the runs of a tag or commit, optionally only one workflow by name, with
+`state` `running`, `success`, `failure` or `none` (not started yet), or reads one
+run by `run_id` with its failed jobs and their log links. It needs the GitHub
+App permission **Actions: Read**, which the manifest now requests; apps created
+before it must grant it and installations accept it (see
+[GitHub integration](github-integration.md)).
+
+Sources: `BE/internal/service/assistant_releases.go`, `release_notes.go`,
+`release_scan.go`, `github_releases.go`, `BE/pkg/github/releases.go` and
+`UI/src/lib/features/assistant/ReleaseApprovalCard.svelte`. Checks:
+`assistant_releases_test.go` (authorization, gate, scan, approval, workflow
+runs), `release_notes_test.go` (style rendering), `release_scan_test.go`,
+`assistant_releases_integration_test.go` (request, edited approval, demoted
+admin; needs `DATABASE_URL`), `BE/migrations/release_approvals_test.go` and the
+release card test in `UI/tests/e2e/assistant.test.ts`.
+
+### Shipping in one approval
+
+`ship_pull_request(identifier, tag, notes, name?, upgrade?)` asks for one
+approval for the whole chain, and the card lists every step before anything runs:
+
+1. **merge**: as `merge_pull_request`, at the head GitHub reported when the card
+   was offered, with the repository's merge method;
+2. **tests**: wait until every check of the merge commit on the default branch
+   passed (the same reading as `create_release`'s gate; at most an hour);
+3. **release**: as `create_release` at the merge commit, with the tag and the
+   notes as left on the card (the gate and the secret scan run again);
+4. **build**: wait for the workflow runs the release started (`event=release`);
+   a repository without one passes unless an upgrade follows;
+5. **upgrade** (only when asked): wait until the release list this instance
+   installs from shows the tag, then start the updater as `upgrade_instance`.
+
+Only workspace owners and admins may ask (its policy entry needs what its steps
+need on GitHub). Before the card is offered, every step's own request checks
+run: each step's tool switch and role (upgrading needs an instance
+administrator), `merge_pull_request`'s target and head, a pull request into the
+default branch, the tag (valid, new), the notes check and, with `upgrade`, a
+release of the repository this instance installs that is newer than the running
+version. When each step runs, its own tool's role, GitHub permission preflight
+and switch are read again, so a chain approved earlier cannot act with rights
+since lost, and its outcome is audited as that tool (`action_executed` or
+`action_failed` with `chain` and `step`), besides the approval's own records.
+
+The notes are editable on the card as for `create_release`. Approving answers
+at once with the approval still `approving`; the chain runs in the background
+and records each step's status (`pending`, `running`, `done`, `failed`,
+`skipped`), detail and link in the approval's payload, sending
+`approval.updated` so the card follows it. The first failing step stops the
+chain: its approval fails with `Step n of m (step) failed: why. Next step: …`
+naming what already happened (for example, merged but not released) and the
+steps not run; nothing after it runs. GitHub or the database being unreachable
+is retried three times before the step fails. A restarted server resumes
+`approving` chains from their last recorded step as their approver
+(`ResumeShips`); every step is safe to repeat (a merged pull request, a release
+at the same tag and commit or an instance already on the version count as
+done). Migration 112 adds the action; like a merge the approval belongs to the
+issue. Telegram can approve it; progress is followed in Kuayle.
+
+Sources: `BE/internal/service/assistant_ship.go`,
+`UI/src/lib/features/assistant/ShipApprovalCard.svelte` and `ShipSteps.svelte`.
+Checks: `assistant_ship_test.go` (order, first failure, each step's
+authorization, resume, request checks), `assistant_ship_integration_test.go`
+(from chat to release with one approval; needs `DATABASE_URL`),
+`BE/migrations/ship_approvals_test.go` and the ship card tests in
+`UI/tests/e2e/assistant.test.ts`.

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"time"
@@ -71,25 +72,36 @@ func resolveApproval(ctx context.Context, tx *sqlx.Tx, approval *domain.Conversa
 // ClaimApproval applies the actor's decision. Denial is final. Approval moves to
 // `approving`, which the caller completes after the effect; repeating an approval
 // returns the same claim so a client retry resumes rather than duplicates it.
-func (r *ConversationRepository) ClaimApproval(ctx context.Context, ws, conversation, id uuid.UUID, approve bool) (*domain.ConversationApproval, error) {
+// The boolean reports whether this call changed the approval's status, so a
+// repeated decision is not recorded twice.
+func (r *ConversationRepository) ClaimApproval(ctx context.Context, ws, conversation, id uuid.UUID, approve bool) (*domain.ConversationApproval, bool, error) {
+	return r.ClaimApprovalEdited(ctx, ws, conversation, id, approve, nil)
+}
+
+// ClaimApprovalEdited is ClaimApproval with the approver's edit of the
+// payload: when a pending approval is approved, edit returns the payload to
+// store with the claim, under the same lock, so the effect uses exactly what
+// was approved. An error from edit leaves the approval pending. An approval
+// already claimed keeps its payload, so a retry resumes what was approved.
+func (r *ConversationRepository) ClaimApprovalEdited(ctx context.Context, ws, conversation, id uuid.UUID, approve bool, edit func(*domain.ConversationApproval) (json.RawMessage, error)) (*domain.ConversationApproval, bool, error) {
 	actor, err := conversationActor(ctx, ws)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	tx, _, err := r.authorized(ctx, ws, conversation)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer tx.Rollback()
 	approval, err := lockApproval(ctx, tx, conversation, id, actor)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	switch approval.Status {
 	case "pending":
 		var expired bool
 		if err = tx.GetContext(ctx, &expired, `SELECT expires_at<=now() FROM conversation_approvals WHERE id=$1`, id); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		target := "denied"
 		if expired {
@@ -97,28 +109,37 @@ func (r *ConversationRepository) ClaimApproval(ctx context.Context, ws, conversa
 		} else if approve {
 			target = "approving"
 		}
+		if target == "approving" && edit != nil {
+			payload, err := edit(approval)
+			if err != nil {
+				return nil, false, err
+			}
+			if err = tx.GetContext(ctx, approval, `UPDATE conversation_approvals SET payload=$2,updated_at=now() WHERE id=$1 RETURNING *`, id, payload); err != nil {
+				return nil, false, err
+			}
+		}
 		if err = resolveApproval(ctx, tx, approval, target, nil, nil); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if err = tx.Commit(); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if expired {
-			return approval, ErrApprovalExpired
+			return approval, true, ErrApprovalExpired
 		}
-		return approval, nil
+		return approval, true, nil
 	case "approving", "approved":
 		if approve {
-			return approval, nil
+			return approval, false, nil
 		}
 	case "denied":
 		if !approve {
-			return approval, nil
+			return approval, false, nil
 		}
 	case "expired":
-		return approval, ErrApprovalExpired
+		return approval, false, ErrApprovalExpired
 	}
-	return nil, ErrConversationConflict
+	return nil, false, ErrConversationConflict
 }
 
 // FinishApproval records the effect of a claimed approval exactly once.
@@ -149,7 +170,13 @@ func (r *ConversationRepository) FinishApproval(ctx context.Context, ws, convers
 	if err = resolveApproval(ctx, tx, approval, status, taskID, errorText); err != nil {
 		return nil, err
 	}
-	return approval, tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	if flag, ok := ctx.Value(finishTransitionKey{}).(*bool); ok {
+		*flag = true
+	}
+	return approval, nil
 }
 
 func toolApprovals(ctx context.Context, tx *sqlx.Tx, calls []domain.ConversationToolCall) ([]domain.ConversationApproval, error) {
@@ -167,4 +194,95 @@ func toolApprovals(ctx context.Context, tx *sqlx.Tx, calls []domain.Conversation
 	}
 	err = tx.SelectContext(ctx, &approvals, tx.Rebind(query), args...)
 	return approvals, err
+}
+
+type finishTransitionKey struct{}
+
+// WithFinishTransition returns a context whose FinishApproval reports through
+// the returned flag whether it moved the approval out of `approving`, as opposed
+// to finding it already finished. Callers use it to record an outcome once.
+func WithFinishTransition(ctx context.Context) (context.Context, *bool) {
+	flag := new(bool)
+	return context.WithValue(ctx, finishTransitionKey{}, flag), flag
+}
+
+// RecordApprovalProgress stores the progress of a claimed approval's effect in
+// its payload and tells the conversation's clients. Only an approval still
+// `approving` and bound to the actor in ctx can be updated.
+func (r *ConversationRepository) RecordApprovalProgress(ctx context.Context, ws, conversation, id uuid.UUID, payload json.RawMessage) (*domain.ConversationApproval, error) {
+	actor, err := conversationActor(ctx, ws)
+	if err != nil {
+		return nil, err
+	}
+	tx, _, err := r.authorized(ctx, ws, conversation)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	approval, err := lockApproval(ctx, tx, conversation, id, actor)
+	if err != nil {
+		return nil, err
+	}
+	if approval.Status != "approving" {
+		return nil, ErrConversationConflict
+	}
+	if err = tx.GetContext(ctx, approval, `UPDATE conversation_approvals SET payload=$2,updated_at=now() WHERE id=$1 RETURNING *`, id, payload); err != nil {
+		return nil, err
+	}
+	if _, err = conversationEvent(ctx, tx, approval.ConversationID, "approval.updated", approval); err != nil {
+		return nil, err
+	}
+	return approval, tx.Commit()
+}
+
+// ClaimedApproval names an approval whose effect was claimed but not finished.
+type ClaimedApproval struct {
+	ID             uuid.UUID `db:"id"`
+	ConversationID uuid.UUID `db:"conversation_id"`
+	WorkspaceID    uuid.UUID `db:"workspace_id"`
+	ActorID        uuid.UUID `db:"actor_id"`
+}
+
+// ClaimedApprovals lists every approval of an action still `approving`, so a
+// restarted server can resume their effect as their actor. Resuming goes
+// through the usual claim, which re-checks access.
+func (r *ConversationRepository) ClaimedApprovals(ctx context.Context, action string) ([]ClaimedApproval, error) {
+	claimed := []ClaimedApproval{}
+	err := r.db.SelectContext(ctx, &claimed, `SELECT a.id,a.conversation_id,c.workspace_id,a.actor_id FROM conversation_approvals a JOIN conversations c ON c.id=a.conversation_id WHERE a.action=$1 AND a.status='approving' ORDER BY a.updated_at`, action)
+	return claimed, err
+}
+
+// LockApprovalEffect takes a PostgreSQL session lock on an approval's effect,
+// so a single server process runs it. The lock lives on a connection of its
+// own until unlock is called, or until the process dies and the database
+// ends the session. held is false when another process holds the lock.
+func (r *ConversationRepository) LockApprovalEffect(ctx context.Context, id uuid.UUID) (unlock func(), held bool, err error) {
+	conn, err := r.db.Connx(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	// The connection is closed rather than returned to the pool, so a lock
+	// whose unlock failed cannot stay with a pooled session.
+	discard := func() {
+		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		_ = conn.Close()
+	}
+	if err = conn.GetContext(ctx, &held, `SELECT pg_try_advisory_lock(hashtextextended('approval-effect:'||$1::text,0))`, id); err != nil || !held {
+		discard()
+		return nil, false, err
+	}
+	return func() {
+		_, _ = conn.ExecContext(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtextextended('approval-effect:'||$1::text,0))`, id)
+		discard()
+	}, true, nil
+}
+
+// ApprovalState reads an approval's status and payload as stored now.
+func (r *ConversationRepository) ApprovalState(ctx context.Context, id uuid.UUID) (string, json.RawMessage, error) {
+	var row struct {
+		Status  string          `db:"status"`
+		Payload json.RawMessage `db:"payload"`
+	}
+	err := r.db.GetContext(ctx, &row, `SELECT status,payload FROM conversation_approvals WHERE id=$1`, id)
+	return row.Status, row.Payload, err
 }

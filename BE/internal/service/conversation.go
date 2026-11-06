@@ -33,10 +33,25 @@ func (s *ConversationService) SetApprovals(approvals *AssistantApprovals) {
 }
 
 func (s *ConversationService) ResolveApproval(ctx context.Context, ws, conversation, id uuid.UUID, approve bool) (*domain.ConversationApproval, error) {
+	return s.ResolveApprovalWithModel(ctx, ws, conversation, id, approve, ModelChoice{})
+}
+
+// ResolveApprovalWithModel resolves with the harness and model the approver
+// picked on the approval card.
+func (s *ConversationService) ResolveApprovalWithModel(ctx context.Context, ws, conversation, id uuid.UUID, approve bool, choice ModelChoice) (*domain.ConversationApproval, error) {
 	if s.approvals == nil {
 		return nil, repository.ErrConversationNotFound
 	}
-	return s.approvals.Resolve(ctx, ws, conversation, id, approve)
+	return s.approvals.ResolveWithModel(ctx, ws, conversation, id, approve, choice)
+}
+
+// ResolveApprovalDecision resolves with the approver's model choice and edit
+// of the approval card.
+func (s *ConversationService) ResolveApprovalDecision(ctx context.Context, ws, conversation, id uuid.UUID, approve bool, choice ModelChoice, edit *ApprovalEdit) (*domain.ConversationApproval, error) {
+	if s.approvals == nil {
+		return nil, repository.ErrConversationNotFound
+	}
+	return s.approvals.ResolveDecision(ctx, ws, conversation, id, approve, choice, edit)
 }
 
 // SetTools enables authorized Kuayle operations for the assistant. Without it
@@ -359,6 +374,10 @@ func (s *ConversationService) runToolCall(ctx context.Context, a domain.Conversa
 	modelContent := ""
 	if runErr = s.tools.refuseDisabled(ctx, a.Conversation.WorkspaceID, tool.name); runErr != nil {
 		// A tool the workspace turned off is recorded as refused and never runs.
+	} else if gap := s.readOnlyGitHubGap(ctx, a.Conversation.WorkspaceID, tool); gap != nil {
+		// A read-only GitHub tool cannot work without its permission; approval
+		// tools are checked when the approval is requested instead.
+		runErr = toolFailure("%s", gap.Message)
 	} else if custom {
 		output, issueID, runErr = s.runCustomTool(ctx, a, record.ID, tool.name, call.Function.Arguments)
 	} else if tool.approval {
@@ -413,6 +432,10 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 	var payload any
 	var identifier string
 	var err error
+	ws, actor := a.Conversation.WorkspaceID, a.Conversation.CreatorID
+	if err = s.refuseRequest(ctx, ws, actor, action); err != nil {
+		return nil, nil, err
+	}
 	switch action {
 	case "delegate_issue":
 		var delegation domain.DelegationPayload
@@ -442,10 +465,27 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 		var port domain.ExposePortPayload
 		issueID, port, err = s.tools.preparePort(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)
 		payload, identifier = port, port.Identifier
+	case "reply_to_review_comment", "resolve_review_thread", "update_pull_request_branch", "mark_pull_request_ready":
+		// Updating a branch may become a follow-up to the task agent, which
+		// records its own action.
+		issueID, payload, action, err = s.tools.preparePullRequestAction(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, action, arguments)
+		if err == nil {
+			identifier = pullRequestIdentifier(payload)
+		}
 	case "upgrade_instance":
 		var upgrade domain.UpgradePayload
 		_, upgrade, err = s.tools.prepareUpgrade(ctx, a.Conversation.CreatorID, arguments)
 		payload = upgrade
+	case "create_release":
+		// A release belongs to a repository, not to an issue.
+		var release domain.ReleasePayload
+		release, err = s.tools.prepareRelease(ctx, ws, actor, arguments)
+		payload = release
+	case shipAction:
+		// Every step's own request checks run before the one approval is offered.
+		var ship domain.ShipPayload
+		issueID, ship, err = s.tools.prepareShip(ctx, ws, actor, arguments)
+		payload, identifier = ship, ship.Identifier
 	case "run_check":
 		var check domain.RunCheckPayload
 		issueID, check, err = s.tools.prepareRunCheck(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)
@@ -456,6 +496,12 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 	if err != nil {
 		return nil, nil, err
 	}
+	// The approval is still offered when GitHub access is missing, so the admin
+	// sees what to grant on the card; approving re-checks it.
+	gap := preflightGitHub(ctx, s.tools.access, ws, action)
+	if payload, err = withGitHubAccess(payload, gap); err != nil {
+		return nil, nil, err
+	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, nil, err
@@ -464,9 +510,16 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 	if err != nil {
 		return nil, nil, err
 	}
-	// An upgrade belongs to no issue.
-	if issueID == uuid.Nil {
-		return map[string]any{"approval_id": approval.ID, "status": "pending_user_approval"}, nil, nil
+	auditApprovalRequested(actor, ws, approval, gap)
+	result := map[string]any{"approval_id": approval.ID, "status": "pending_user_approval"}
+	if gap != nil {
+		result["github_access"] = gap
+		result["warning"] = gap.Message
 	}
-	return map[string]any{"approval_id": approval.ID, "status": "pending_user_approval", "identifier": identifier}, &issueID, nil
+	// An upgrade or a release belongs to no issue.
+	if issueID == uuid.Nil {
+		return result, nil, nil
+	}
+	result["identifier"] = identifier
+	return result, &issueID, nil
 }

@@ -18,11 +18,23 @@
 	import * as Item from '$lib/components/ui/item/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import type { ConversationApproval, ConversationToolCall } from '$lib/api/conversations';
+	import type {
+		ApprovalEdit,
+		ApprovalModelChoice,
+		ConversationApproval,
+		ConversationToolCall,
+		GitHubAccessGap
+	} from '$lib/api/conversations';
+	import ApprovalModelPicker from './ApprovalModelPicker.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import AgentSubagent from './AgentSubagent.svelte';
 	import AppPortLinks from './AppPortLinks.svelte';
 	import UpgradeProgress from './UpgradeProgress.svelte';
+	import ReleaseApprovalCard from './ReleaseApprovalCard.svelte';
+	import { releaseNotesInvalid } from './ReleaseNotesField.svelte';
+	import MergeHeadChange from './MergeHeadChange.svelte';
+	import ShipApprovalCard from './ShipApprovalCard.svelte';
+	import ShipSteps from './ShipSteps.svelte';
 	import ProposedSkillCard, { proposedSkill } from './ProposedSkillCard.svelte';
 	import ProposedToolCard, { proposedTool } from './ProposedToolCard.svelte';
 	import CustomToolRunResult, { toolRunSummary } from './CustomToolRunResult.svelte';
@@ -39,19 +51,45 @@
 		calls: ConversationToolCall[];
 		slug: string;
 		approvals?: Record<string, ConversationApproval>;
-		onresolve?: (approval: ConversationApproval, decision: 'approve' | 'deny') => Promise<void>;
+		onresolve?: (approval: ConversationApproval, decision: 'approve' | 'deny', choice?: ApprovalEdit) => Promise<void>;
 	} = $props();
+	let choices = $state<Record<string, ApprovalModelChoice>>({});
 	let deciding = $state<string | null>(null),
-		decisionError = $state<string | null>(null);
+		decisionError = $state<string | null>(null),
+		// The server's reason for refusing an edit, such as a secret in the notes.
+		decisionReason = $state<string | null>(null),
+		// Release notes edited on a pending card, by approval id.
+		releaseNotes = $state<Record<string, string | undefined>>({});
+	// The drafted release notes of a release or ship approval.
+	function draftNotes(approval: ConversationApproval) {
+		if (approval.action === 'create_release') return approval.payload.notes;
+		if (approval.action === 'ship_pull_request') return approval.payload.release.notes;
+		return undefined;
+	}
+	// The edit sent with an approval: only release notes, when changed.
+	function editOf(approval: ConversationApproval): ApprovalEdit | undefined {
+		const draft = draftNotes(approval);
+		const notes = releaseNotes[approval.id];
+		return draft !== undefined && notes !== undefined && notes !== draft ? { notes } : undefined;
+	}
+	function notesInvalid(approval: ConversationApproval) {
+		const draft = draftNotes(approval);
+		return draft !== undefined && releaseNotesInvalid(releaseNotes[approval.id] ?? draft);
+	}
 	async function decide(approval: ConversationApproval, decision: 'approve' | 'deny') {
 		if (!onresolve || deciding) return;
 		deciding = approval.id;
 		decisionError = null;
+		decisionReason = null;
 		try {
-			await onresolve(approval, decision);
+			// A model choice for coding agents, or a release's edited notes.
+			const choice = decision === 'approve' ? { ...choices[approval.id], ...editOf(approval) } : undefined;
+			await onresolve(approval, decision, choice);
 		} catch (error) {
+			const failure = error as { status?: number; error?: { message?: string } };
 			// An expiry is reported through the conversation stream as well.
-			if ((error as { status?: number }).status !== 410) decisionError = approval.id;
+			if (failure.status !== 410) decisionError = approval.id;
+			if (failure.status === 422 && failure.error?.message) decisionReason = failure.error.message;
 		} finally {
 			deciding = null;
 		}
@@ -82,10 +120,53 @@
 		propose_tool: m['assistant.tool_propose_tool'],
 		get_tool_run: m['assistant.tool_get_tool_run'],
 		get_instance_version: m['assistant.tool_get_instance_version'],
-		upgrade_instance: m['assistant.tool_upgrade_instance']
+		upgrade_instance: m['assistant.tool_upgrade_instance'],
+		get_pull_request: m['assistant.tool_get_pull_request'],
+		get_pull_request_checks: m['assistant.tool_get_pull_request_checks'],
+		list_pull_request_comments: m['assistant.tool_list_pull_request_comments'],
+		reply_to_review_comment: m['assistant.tool_reply_to_review_comment'],
+		resolve_review_thread: m['assistant.tool_resolve_review_thread'],
+		update_pull_request_branch: m['assistant.tool_update_pull_request_branch'],
+		mark_pull_request_ready: m['assistant.tool_mark_pull_request_ready'],
+		list_releases: m['assistant.tool_list_releases'],
+		get_release: m['assistant.tool_get_release'],
+		draft_release_notes: m['assistant.tool_draft_release_notes'],
+		create_release: m['assistant.tool_create_release'],
+		get_workflow_run: m['assistant.tool_get_workflow_run'],
+		ship_pull_request: m['assistant.tool_ship_pull_request']
 	};
 	// Outcome lines per approval action.
 	function outcome(approval: ConversationApproval) {
+		if (approval.action === 'create_release') {
+			const tag = approval.payload.tag;
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.release_approving']({ tag });
+				case 'approved':
+					return m['assistant.release_approved']({ tag });
+				case 'failed':
+					return m['assistant.release_failed']({ tag, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier: tag });
+				default:
+					return m['assistant.release_denied']({ tag });
+			}
+		}
+		if (approval.action === 'ship_pull_request') {
+			const { identifier } = approval.payload;
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.ship_approving']({ identifier });
+				case 'approved':
+					return m['assistant.ship_approved']({ identifier, tag: approval.payload.release.tag });
+				case 'failed':
+					return m['assistant.ship_failed']({ identifier, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier });
+				default:
+					return m['assistant.ship_denied']({ identifier });
+			}
+		}
 		if (approval.action === 'upgrade_instance') {
 			const latest = approval.payload.latest_version;
 			switch (approval.status) {
@@ -103,6 +184,25 @@
 		}
 		const identifier = approval.payload.identifier;
 		const merge = approval.action === 'merge_pull_request';
+		if (
+			approval.action === 'reply_to_review_comment' ||
+			approval.action === 'resolve_review_thread' ||
+			approval.action === 'update_pull_request_branch' ||
+			approval.action === 'mark_pull_request_ready'
+		) {
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.pr_action_approving']({ identifier });
+				case 'approved':
+					return m['assistant.pr_action_approved']({ identifier });
+				case 'failed':
+					return m['assistant.pr_action_failed']({ identifier, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier });
+				default:
+					return m['assistant.pr_action_denied']({ identifier });
+			}
+		}
 		if (approval.action === 'accept_agent_work') {
 			switch (approval.status) {
 				case 'approving':
@@ -267,7 +367,10 @@
 		{#each calls as call (call.id)}
 			{@const approval = approvals[call.id]}
 			{#if approval}
-				{@const identifier = approval.action === 'upgrade_instance' ? '' : approval.payload.identifier}
+				{@const identifier =
+					approval.action === 'upgrade_instance' || approval.action === 'create_release'
+						? ''
+						: approval.payload.identifier}
 				{#if approval.status === 'pending'}
 					<!-- Official AI Elements Confirmation composition: Item prompt with Deny/Approve. -->
 					<!-- A pending approval is the one thing waiting on the user: give it the warning tone. -->
@@ -278,6 +381,27 @@
 					>
 						<Item.Media variant="icon" class="text-[var(--status-warning)]"><Bot /></Item.Media>
 						<Item.Content class="min-w-0">
+							{@const gap = (approval.payload as { github_access?: GitHubAccessGap }).github_access}
+							{#if gap}
+								<Alert.Root class="mb-2 border-[var(--status-warning)]/40" data-testid="github-access-gap">
+									<Alert.Title
+										>{gap.unverified
+											? m['assistant.github_access_unverified_title']()
+											: m['assistant.github_access_title']()}</Alert.Title
+									>
+									<Alert.Description class="space-y-1">
+										<p>{gap.message}</p>
+										{#if gap.settings_url}
+											<a
+												href={gap.settings_url}
+												target="_blank"
+												rel="noopener noreferrer"
+												class="underline underline-offset-2">{m['assistant.github_access_link']()}</a
+											>
+										{/if}
+									</Alert.Description>
+								</Alert.Root>
+							{/if}
 							{#if approval.action === 'merge_pull_request'}
 								<Item.Title
 									>{m['assistant.merge_title']({ identifier, number: approval.payload.pull_request })}</Item.Title
@@ -286,51 +410,100 @@
 									>{m['assistant.merge_description']({
 										title: approval.payload.title,
 										commit: approval.payload.commit.slice(0, 7),
+										method: approval.payload.merge_method ?? 'squash',
 										repository: approval.payload.repository
 									})}</Item.Description
 								>
-								{#if approval.payload.head_change}
-									{@const change = approval.payload.head_change}
-									{@const published = (approval.payload.published_commit ?? '').slice(0, 7)}
-									<!-- Commits others pushed after publication: authors and whether the files changed. -->
-									<div class="space-y-1 text-xs text-muted-foreground" data-testid="merge-head-change">
-										<p>
-											{change.kind === 'merge'
-												? m['assistant.merge_head_merge']({ published })
-												: change.kind === 'rewritten'
-													? m['assistant.merge_head_rewritten']({ published })
-													: m['assistant.merge_head_pushed']({ published })}
-											{change.tree_changed
-												? m['assistant.merge_head_tree_changed']()
-												: m['assistant.merge_head_tree_same']()}
-										</p>
-										<p data-testid="merge-review-stale">{m['assistant.merge_head_review_stale']()}</p>
-										<ul class="list-disc space-y-0.5 pl-4">
-											{#each change.commits as commit (commit.sha)}
-												<li class="break-words">
-													{m['assistant.merge_head_commit']({
-														commit: commit.sha.slice(0, 7),
-														author: commit.author,
-														subject: commit.subject
-													})}
-												</li>
-											{/each}
-										</ul>
-										{#if change.truncated}
-											<!-- The list is a prefix: approving must not imply it is complete. -->
-											<Alert.Root
-												class="border-[var(--status-warning)]/40 text-[var(--status-warning)]"
-												data-testid="merge-head-truncated"
-											>
-												<Alert.Description
-													>{m['assistant.merge_head_truncated']({
-														count: Math.max((change.total_commits ?? 0) - change.commits.length, 1)
-													})}</Alert.Description
-												>
-											</Alert.Root>
-										{/if}
-									</div>
+								{#if approval.payload.head_change}<MergeHeadChange
+										change={approval.payload.head_change}
+										publishedCommit={approval.payload.published_commit}
+									/>{/if}
+								<a
+									class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+									href={approval.payload.pull_request_url}
+									target="_blank"
+									rel="noopener noreferrer"><ExternalLink size={12} />{m['tasks.open_pull_request']()}</a
+								>
+							{:else if approval.action === 'reply_to_review_comment' || approval.action === 'resolve_review_thread'}
+								{@const reply = approval.action === 'reply_to_review_comment'}
+								<Item.Title
+									>{reply
+										? m['assistant.pr_reply_title']({
+												author: approval.payload.author ?? '',
+												number: approval.payload.pull_request,
+												identifier
+											})
+										: m['assistant.pr_resolve_title']({
+												path: approval.payload.path ?? '',
+												identifier
+											})}</Item.Title
+								>
+								<Item.Description class="line-clamp-none"
+									>{reply
+										? m['assistant.pr_reply_description']({
+												path: approval.payload.path ?? '',
+												repository: approval.payload.repository
+											})
+										: m['assistant.pr_resolve_description']({
+												author: approval.payload.author ?? '',
+												number: approval.payload.pull_request,
+												repository: approval.payload.repository
+											})}</Item.Description
+								>
+								{#if approval.payload.bot}<p class="text-xs text-muted-foreground">
+										{m['assistant.pr_comment_bot']({ author: approval.payload.author ?? '' })}
+									</p>{/if}
+								{#if approval.payload.excerpt}
+									<p class="text-xs font-medium text-muted-foreground">{m['assistant.pr_comment_excerpt']()}</p>
+									<CodeBlock.Root size="sm"
+										><CodeBlock.Content code={approval.payload.excerpt} wrap class="max-h-24 text-xs" /></CodeBlock.Root
+									>
 								{/if}
+								{#if reply}
+									<p class="text-xs font-medium text-muted-foreground">{m['assistant.pr_reply_body']()}</p>
+									<CodeBlock.Root size="sm"
+										><CodeBlock.Content
+											code={approval.payload.body ?? ''}
+											wrap
+											class="max-h-48 text-xs"
+										/></CodeBlock.Root
+									>
+								{/if}
+								<a
+									class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+									href={approval.payload.pull_request_url}
+									target="_blank"
+									rel="noopener noreferrer"><ExternalLink size={12} />{m['tasks.open_pull_request']()}</a
+								>
+							{:else if approval.action === 'update_pull_request_branch'}
+								<Item.Title
+									>{m['assistant.pr_branch_title']({ number: approval.payload.pull_request, identifier })}</Item.Title
+								>
+								<Item.Description class="line-clamp-none"
+									>{m['assistant.pr_branch_description']({
+										base: approval.payload.base ?? '',
+										head: (approval.payload.head ?? '').slice(0, 7),
+										repository: approval.payload.repository
+									})}</Item.Description
+								>
+								<a
+									class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+									href={approval.payload.pull_request_url}
+									target="_blank"
+									rel="noopener noreferrer"><ExternalLink size={12} />{m['tasks.open_pull_request']()}</a
+								>
+							{:else if approval.action === 'mark_pull_request_ready'}
+								<Item.Title
+									>{approval.payload.draft
+										? m['assistant.pr_draft_title']({ number: approval.payload.pull_request, identifier })
+										: m['assistant.pr_ready_title']({ number: approval.payload.pull_request, identifier })}</Item.Title
+								>
+								<Item.Description class="line-clamp-none"
+									>{m['assistant.pr_draft_description']({
+										title: approval.payload.title,
+										repository: approval.payload.repository
+									})}</Item.Description
+								>
 								<a
 									class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
 									href={approval.payload.pull_request_url}
@@ -402,9 +575,7 @@
 										identifier
 									})}</Item.Title
 								>
-								<Item.Description class="line-clamp-none break-words"
-									>{approval.payload.description}</Item.Description
-								>
+								<Item.Description class="line-clamp-none break-words">{approval.payload.description}</Item.Description>
 								<p class="text-xs break-words text-muted-foreground">
 									{m['assistant.custom_run_where']({
 										title: approval.payload.title,
@@ -457,6 +628,20 @@
 								<p class="flex items-center gap-1 text-xs text-muted-foreground">
 									<Lock size={12} class="shrink-0" />{m['assistant.port_audience_owner']()}
 								</p>
+							{:else if approval.action === 'create_release'}
+								<ReleaseApprovalCard
+									id={approval.id}
+									payload={approval.payload}
+									bind:notes={releaseNotes[approval.id]}
+									disabled={deciding !== null}
+								/>
+							{:else if approval.action === 'ship_pull_request'}
+								<ShipApprovalCard
+									id={approval.id}
+									payload={approval.payload}
+									bind:notes={releaseNotes[approval.id]}
+									disabled={deciding !== null}
+								/>
 							{:else if approval.action === 'upgrade_instance'}
 								<Item.Title
 									>{m['assistant.upgrade_title']({
@@ -469,7 +654,11 @@
 										{m['assistant.upgrade_changelog']()}
 									</p>
 									<CodeBlock.Root size="sm"
-										><CodeBlock.Content code={approval.payload.changelog} wrap class="max-h-48 text-xs" /></CodeBlock.Root
+										><CodeBlock.Content
+											code={approval.payload.changelog}
+											wrap
+											class="max-h-48 text-xs"
+										/></CodeBlock.Root
 									>{/if}
 							{:else if approval.action === 'expose_port'}
 								<Item.Title>{m['assistant.port_title']({ identifier, port: approval.payload.port })}</Item.Title>
@@ -510,8 +699,25 @@
 									/></CodeBlock.Root
 								>
 							{/if}
+							{#if approval.action === 'delegate_issue' || approval.action === 'request_agent_review' || approval.action === 'follow_up_task'}
+								<ApprovalModelPicker
+									{slug}
+									issueId={approval.issue_id}
+									proposed={approval.action === 'follow_up_task'
+										? {
+												harness: approval.payload.harness,
+												model: approval.payload.model || approval.payload.current_model,
+												server: approval.payload.model_server_id,
+												current: !approval.payload.model
+											}
+										: approval.payload}
+									harnessLocked={approval.action === 'follow_up_task'}
+									disabled={deciding !== null}
+									onchange={(choice) => (choices[approval.id] = choice)}
+								/>
+							{/if}
 							{#if decisionError === approval.id}<p role="alert" class="text-xs text-destructive">
-									{m['assistant.approval_error']()}
+									{decisionReason ?? m['assistant.approval_error']()}
 								</p>{/if}
 						</Item.Content>
 						<Item.Actions>
@@ -523,7 +729,7 @@
 							>
 							<Button
 								size="sm"
-								disabled={deciding !== null || !onresolve}
+								disabled={deciding !== null || !onresolve || notesInvalid(approval)}
 								onclick={() => void decide(approval, 'approve')}>{m['assistant.approval_approve']()}</Button
 							>
 						</Item.Actions>
@@ -561,7 +767,16 @@
 							port={approval.payload.port}
 							wait
 						/>{:else if approval.action === 'upgrade_instance' && approval.status === 'approved'}<UpgradeProgress
-						/>{:else if approval.action === 'run_custom_tool' && approval.status === 'approved'}<CustomToolRunResult
+						/>{:else if approval.action === 'create_release' && approval.status === 'approved'}<a
+							class="inline-flex items-center gap-1 pl-6 text-xs underline underline-offset-2"
+							href={approval.payload.release_url}
+							target="_blank"
+							rel="noopener noreferrer"><ExternalLink size={12} />{m['assistant.release_open']()}</a
+						>{:else if approval.action === 'ship_pull_request' && approval.status !== 'denied' && approval.status !== 'expired'}<div
+							class="pl-6"
+						>
+							<ShipSteps payload={approval.payload} />
+						</div>{:else if approval.action === 'run_custom_tool' && approval.status === 'approved'}<CustomToolRunResult
 							{slug}
 							name="custom_{approval.payload.tool_name}"
 							toolId={approval.payload.tool_id}

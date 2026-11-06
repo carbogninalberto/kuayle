@@ -65,6 +65,9 @@ const (
 	// DevMachineOpSyncAgentSignIns rewrites the owner's agent sign-ins in the
 	// machine's terminal home after they change in Kuayle.
 	DevMachineOpSyncAgentSignIns DevMachineOperationAction = "sync_agent_sign_ins"
+	// DevMachineOpUpdateImages recreates an idle running machine's containers
+	// whose image is not the installed release's.
+	DevMachineOpUpdateImages DevMachineOperationAction = "update_images"
 )
 
 type DevMachineOperationStatus string
@@ -254,6 +257,19 @@ type AgentModelServer struct {
 	UpdatedBy            *uuid.UUID      `json:"-" db:"updated_by"`
 	CreatedAt            time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt            time.Time       `json:"updated_at" db:"updated_at"`
+}
+
+// AgentModelDefault is the workspace's model and effort for a coding agent that
+// runs with its own sign-in. A run fills what it did not choose from it when
+// the run is created; empty fields keep the agent's own defaults.
+type AgentModelDefault struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id" db:"workspace_id"`
+	Provider    string     `json:"provider" db:"provider"`
+	Model       string     `json:"model" db:"model"`
+	Thinking    string     `json:"thinking" db:"thinking"`
+	UpdatedBy   *uuid.UUID `json:"-" db:"updated_by"`
+	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // ModelList is the server's selectable models, as discovered or entered.
@@ -550,13 +566,16 @@ type DevMachineWorkspacePolicy struct {
 	AgentGitEmail *string `json:"agent_git_email" db:"agent_git_email"`
 	// TaskMachine* size the machines Kuayle creates itself for agent tasks
 	// (delegations and automations); see TaskMachine.
-	TaskMachineCPUMillis int                   `json:"task_machine_cpu_millis" db:"task_machine_cpu_millis"`
-	TaskMachineMemoryMB  int                   `json:"task_machine_memory_mb" db:"task_machine_memory_mb"`
-	TaskMachineDiskGB    int                   `json:"task_machine_disk_gb" db:"task_machine_disk_gb"`
-	DiskQuotaMode        string                `json:"disk_quota_mode" db:"-"`
-	SizeOptions          DevMachineSizeOptions `json:"size_options" db:"-"`
-	CreatedAt            time.Time             `json:"created_at" db:"created_at"`
-	UpdatedAt            time.Time             `json:"updated_at" db:"updated_at"`
+	TaskMachineCPUMillis int `json:"task_machine_cpu_millis" db:"task_machine_cpu_millis"`
+	TaskMachineMemoryMB  int `json:"task_machine_memory_mb" db:"task_machine_memory_mb"`
+	TaskMachineDiskGB    int `json:"task_machine_disk_gb" db:"task_machine_disk_gb"`
+	// TaskMachineMaxTasks is how many active agent tasks share one machine,
+	// each in its own worktree, before a task gets a new machine.
+	TaskMachineMaxTasks int                   `json:"task_machine_max_tasks" db:"task_machine_max_tasks"`
+	DiskQuotaMode       string                `json:"disk_quota_mode" db:"-"`
+	SizeOptions         DevMachineSizeOptions `json:"size_options" db:"-"`
+	CreatedAt           time.Time             `json:"created_at" db:"created_at"`
+	UpdatedAt           time.Time             `json:"updated_at" db:"updated_at"`
 }
 
 type DevMachineSizeOptions struct {
@@ -595,6 +614,14 @@ type TaskMachineResources struct {
 // DefaultTaskMachineResources is 4 vCPU and 8 GiB: an agent CLI such as
 // Claude Code with a build or test run did not fit the former 4 GiB machine.
 var DefaultTaskMachineResources = TaskMachineResources{CPUMillis: 4000, MemoryMB: 8192, DiskGB: 20}
+
+// DefaultTaskMachineMaxTasks active agent tasks share one machine unless the
+// workspace sets another limit, from 1 (a machine per task) to
+// MaxTaskMachineMaxTasks. Tasks on one machine share its CPU and memory.
+const (
+	DefaultTaskMachineMaxTasks = 2
+	MaxTaskMachineMaxTasks     = 4
+)
 
 // TaskMachine returns the policy's task machine resources; a field without a
 // stored value (a policy built in memory) takes the default.

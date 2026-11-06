@@ -342,3 +342,37 @@ func (r *AssistantSkillRepository) Delete(ctx context.Context, ws, id, actor uui
 	}
 	return tx.Commit()
 }
+
+// ReleaseNotesStyle returns the workspace-wide skill named like seed, first
+// storing seed as an active skill when the workspace has none: the release
+// notes style is seeded by Kuayle (no author) on first use and edited by
+// owners and admins like any skill. Concurrent first uses converge on one skill.
+func (r *AssistantSkillRepository) ReleaseNotesStyle(ctx context.Context, ws uuid.UUID, seed domain.AssistantSkillInput) (*domain.AssistantSkill, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var id uuid.UUID
+	err = tx.GetContext(ctx, &id, `INSERT INTO assistant_skills(workspace_id,team_id,name,description,body,status,current_version,created_by_user_id,author_kind)
+ VALUES($1,NULL,$2,$3,$4,'active',1,NULL,$5)
+ ON CONFLICT (workspace_id, COALESCE(team_id, '00000000-0000-0000-0000-000000000000'::uuid), lower(name)) DO NOTHING RETURNING id`, ws, seed.Name, seed.Description, seed.Body, seed.AuthorKind)
+	switch {
+	case err == nil:
+		if _, err = tx.ExecContext(ctx, `INSERT INTO assistant_skill_versions(skill_id,version,name,description,body,status,author_kind,author_user_id) VALUES($1,1,$2,$3,$4,'active',$5,NULL)`,
+			id, seed.Name, seed.Description, seed.Body, seed.AuthorKind); err != nil {
+			return nil, err
+		}
+	case !errors.Is(err, sql.ErrNoRows):
+		return nil, err
+	}
+	var skill domain.AssistantSkill
+	if err = tx.GetContext(ctx, &skill, `SELECT s.id,s.workspace_id,s.team_id,NULL AS team_key,NULL AS team_name,s.name,s.description,s.body,s.enabled,s.status,s.current_version,
+ (SELECT max(v.version) FROM assistant_skill_versions v WHERE v.skill_id=s.id) AS latest_version,
+ (SELECT max(v.version) FROM assistant_skill_versions v WHERE v.skill_id=s.id AND v.version>s.current_version AND v.status='draft') AS pending_version,
+ s.created_by_user_id,s.author_kind,s.created_at,s.updated_at
+ FROM assistant_skills s WHERE s.workspace_id=$1 AND s.team_id IS NULL AND lower(s.name)=lower($2)`, ws, seed.Name); err != nil {
+		return nil, err
+	}
+	return &skill, tx.Commit()
+}

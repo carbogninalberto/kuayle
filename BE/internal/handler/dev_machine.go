@@ -15,7 +15,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type DevMachineHandler struct {
@@ -31,7 +31,7 @@ func NewDevMachineHandler(machineService *service.DevMachineService, diskQuotaMo
 	return &DevMachineHandler{service: machineService, diskQuotaMode: mode}
 }
 
-func (h *DevMachineHandler) List(c echo.Context) error {
+func (h *DevMachineHandler) List(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	var params dto.DevMachineListParams
 	if err := c.Bind(&params); err != nil {
@@ -51,8 +51,8 @@ func (h *DevMachineHandler) List(c echo.Context) error {
 	})
 }
 
-func (h *DevMachineHandler) Create(c echo.Context) error {
-	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 1024*1024)
+func (h *DevMachineHandler) Create(c *echo.Context) error {
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 1024*1024)
 	var request dto.CreateDevMachineRequest
 	if !bindAndValidate(c, &request) {
 		return nil
@@ -73,7 +73,7 @@ func (h *DevMachineHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, machine)
 }
 
-func (h *DevMachineHandler) NameSuggestion(c echo.Context) error {
+func (h *DevMachineHandler) NameSuggestion(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	name, err := h.service.GenerateName(c.Request().Context(), workspace.ID, middleware.GetUserID(c))
 	if err != nil {
@@ -82,7 +82,7 @@ func (h *DevMachineHandler) NameSuggestion(c echo.Context) error {
 	return response.Success(c, http.StatusOK, dto.DevMachineNameAvailabilityResponse{Name: name, Available: true})
 }
 
-func (h *DevMachineHandler) NameAvailability(c echo.Context) error {
+func (h *DevMachineHandler) NameAvailability(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	name := strings.TrimSpace(c.QueryParam("name"))
 	available, err := h.service.NameAvailable(c.Request().Context(), workspace.ID, middleware.GetUserID(c), name)
@@ -92,7 +92,7 @@ func (h *DevMachineHandler) NameAvailability(c echo.Context) error {
 	return response.Success(c, http.StatusOK, dto.DevMachineNameAvailabilityResponse{Name: name, Available: available})
 }
 
-func (h *DevMachineHandler) Get(c echo.Context) error {
+func (h *DevMachineHandler) Get(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
@@ -105,7 +105,7 @@ func (h *DevMachineHandler) Get(c echo.Context) error {
 	return response.Success(c, http.StatusOK, machine)
 }
 
-func (h *DevMachineHandler) Update(c echo.Context) error {
+func (h *DevMachineHandler) Update(c *echo.Context) error {
 	var request dto.UpdateDevMachineRequest
 	if !bindAndValidate(c, &request) {
 		return nil
@@ -121,7 +121,7 @@ func (h *DevMachineHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, machine)
 }
 
-func (h *DevMachineHandler) Delete(c echo.Context) error {
+func (h *DevMachineHandler) Delete(c *echo.Context) error {
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
@@ -136,7 +136,7 @@ func (h *DevMachineHandler) Delete(c echo.Context) error {
 	return response.Success(c, http.StatusAccepted, operationResponse(operation))
 }
 
-func (h *DevMachineHandler) PermanentDelete(c echo.Context) error {
+func (h *DevMachineHandler) PermanentDelete(c *echo.Context) error {
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
@@ -147,7 +147,7 @@ func (h *DevMachineHandler) PermanentDelete(c echo.Context) error {
 	return c.NoContent(http.StatusAccepted)
 }
 
-func (h *DevMachineHandler) BulkDelete(c echo.Context) error {
+func (h *DevMachineHandler) BulkDelete(c *echo.Context) error {
 	var request dto.BulkDeleteDevMachinesRequest
 	if !bindAndValidate(c, &request) {
 		return nil
@@ -159,7 +159,7 @@ func (h *DevMachineHandler) BulkDelete(c echo.Context) error {
 	return response.Success(c, http.StatusAccepted, result)
 }
 
-func (h *DevMachineHandler) BulkPermanentDelete(c echo.Context) error {
+func (h *DevMachineHandler) BulkPermanentDelete(c *echo.Context) error {
 	var request dto.PurgeDevMachinesRequest
 	if !bindAndValidate(c, &request) {
 		return nil
@@ -171,7 +171,7 @@ func (h *DevMachineHandler) BulkPermanentDelete(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *DevMachineHandler) TouchActivity(c echo.Context) error {
+func (h *DevMachineHandler) TouchActivity(c *echo.Context) error {
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
@@ -182,7 +182,7 @@ func (h *DevMachineHandler) TouchActivity(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *DevMachineHandler) ScopeSettings(c echo.Context) error {
+func (h *DevMachineHandler) ScopeSettings(c *echo.Context) error {
 	settings, err := h.service.ListScopeSettings(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return machineError(c, err)
@@ -190,7 +190,7 @@ func (h *DevMachineHandler) ScopeSettings(c echo.Context) error {
 	return response.Success(c, http.StatusOK, settings)
 }
 
-func (h *DevMachineHandler) ScopeSetting(c echo.Context) error {
+func (h *DevMachineHandler) ScopeSetting(c *echo.Context) error {
 	scopeType := c.QueryParam("scope_type")
 	var scopeID *uuid.UUID
 	if raw := c.QueryParam("scope_id"); raw != "" {
@@ -209,7 +209,7 @@ func (h *DevMachineHandler) ScopeSetting(c echo.Context) error {
 
 // RepositoryDefaults reports the development repository an issue or project
 // inherits, so clients can preselect it instead of asking for one.
-func (h *DevMachineHandler) RepositoryDefaults(c echo.Context) error {
+func (h *DevMachineHandler) RepositoryDefaults(c *echo.Context) error {
 	var issueID, projectID *string
 	for name, target := range map[string]**string{"issue_id": &issueID, "project_id": &projectID} {
 		if raw := c.QueryParam(name); raw != "" {
@@ -229,7 +229,7 @@ func (h *DevMachineHandler) RepositoryDefaults(c echo.Context) error {
 // CheckSuggestion proposes a check command for repository_id or, with
 // project_id or team_id, for the repository that scope inherits. Nothing is
 // saved.
-func (h *DevMachineHandler) CheckSuggestion(c echo.Context) error {
+func (h *DevMachineHandler) CheckSuggestion(c *echo.Context) error {
 	role := middleware.GetWorkspaceRole(c)
 	if role != domain.RoleOwner && role != domain.RoleAdmin {
 		return response.Error(c, http.StatusForbidden, "FORBIDDEN", "Workspace, team, and project development defaults require workspace administration")
@@ -277,7 +277,7 @@ func (h *DevMachineHandler) CheckSuggestion(c echo.Context) error {
 	return response.Success(c, http.StatusOK, suggestion)
 }
 
-func (h *DevMachineHandler) UpdateScopeSetting(c echo.Context) error {
+func (h *DevMachineHandler) UpdateScopeSetting(c *echo.Context) error {
 	var request dto.DevMachineScopeSettingRequest
 	if !bindAndValidate(c, &request) {
 		return nil
@@ -293,7 +293,7 @@ func (h *DevMachineHandler) UpdateScopeSetting(c echo.Context) error {
 	return response.Success(c, http.StatusOK, setting)
 }
 
-func (h *DevMachineHandler) DeleteScopeSetting(c echo.Context) error {
+func (h *DevMachineHandler) DeleteScopeSetting(c *echo.Context) error {
 	scopeType := c.QueryParam("scope_type")
 	role := middleware.GetWorkspaceRole(c)
 	if scopeType != "issue" && role != domain.RoleOwner && role != domain.RoleAdmin {
@@ -313,7 +313,7 @@ func (h *DevMachineHandler) DeleteScopeSetting(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *DevMachineHandler) Checkouts(c echo.Context) error {
+func (h *DevMachineHandler) Checkouts(c *echo.Context) error {
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
@@ -325,7 +325,7 @@ func (h *DevMachineHandler) Checkouts(c echo.Context) error {
 	return response.Success(c, http.StatusOK, checkouts)
 }
 
-func (h *DevMachineHandler) CheckoutIssue(c echo.Context) error {
+func (h *DevMachineHandler) CheckoutIssue(c *echo.Context) error {
 	var request dto.CheckoutIssueRequest
 	if !bindAndValidate(c, &request) {
 		return nil
@@ -341,7 +341,7 @@ func (h *DevMachineHandler) CheckoutIssue(c echo.Context) error {
 	return response.Success(c, http.StatusAccepted, checkout)
 }
 
-func (h *DevMachineHandler) Environments(c echo.Context) error {
+func (h *DevMachineHandler) Environments(c *echo.Context) error {
 	environments, err := h.service.ListEnvironments(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return machineError(c, err)
@@ -349,7 +349,7 @@ func (h *DevMachineHandler) Environments(c echo.Context) error {
 	return response.Success(c, http.StatusOK, environments)
 }
 
-func (h *DevMachineHandler) GetEnvironment(c echo.Context) error {
+func (h *DevMachineHandler) GetEnvironment(c *echo.Context) error {
 	environmentID, err := uuid.Parse(c.Param("environmentId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid environment ID")
@@ -361,7 +361,7 @@ func (h *DevMachineHandler) GetEnvironment(c echo.Context) error {
 	return response.Success(c, http.StatusOK, environment)
 }
 
-func (h *DevMachineHandler) SnapshotEnvironment(c echo.Context) error {
+func (h *DevMachineHandler) SnapshotEnvironment(c *echo.Context) error {
 	var request dto.CreateDevMachineEnvironmentRequest
 	if !bindAndValidate(c, &request) {
 		return nil
@@ -373,7 +373,7 @@ func (h *DevMachineHandler) SnapshotEnvironment(c echo.Context) error {
 	return response.Success(c, http.StatusAccepted, environment)
 }
 
-func (h *DevMachineHandler) DeleteEnvironment(c echo.Context) error {
+func (h *DevMachineHandler) DeleteEnvironment(c *echo.Context) error {
 	environmentID, err := uuid.Parse(c.Param("environmentId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid environment ID")
@@ -384,20 +384,20 @@ func (h *DevMachineHandler) DeleteEnvironment(c echo.Context) error {
 	return c.NoContent(http.StatusAccepted)
 }
 
-func (h *DevMachineHandler) Start(c echo.Context) error {
+func (h *DevMachineHandler) Start(c *echo.Context) error {
 	return h.lifecycle(c, domain.DevMachineOpStart)
 }
-func (h *DevMachineHandler) Stop(c echo.Context) error {
+func (h *DevMachineHandler) Stop(c *echo.Context) error {
 	return h.lifecycle(c, domain.DevMachineOpStop)
 }
-func (h *DevMachineHandler) Pause(c echo.Context) error {
+func (h *DevMachineHandler) Pause(c *echo.Context) error {
 	return h.lifecycle(c, domain.DevMachineOpPause)
 }
-func (h *DevMachineHandler) Teardown(c echo.Context) error {
+func (h *DevMachineHandler) Teardown(c *echo.Context) error {
 	return h.lifecycle(c, domain.DevMachineOpTeardown)
 }
 
-func (h *DevMachineHandler) lifecycle(c echo.Context, action domain.DevMachineOperationAction) error {
+func (h *DevMachineHandler) lifecycle(c *echo.Context, action domain.DevMachineOperationAction) error {
 	workspace := middleware.GetWorkspace(c)
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
@@ -410,7 +410,7 @@ func (h *DevMachineHandler) lifecycle(c echo.Context, action domain.DevMachineOp
 	return response.Success(c, http.StatusAccepted, operationResponse(operation))
 }
 
-func (h *DevMachineHandler) Events(c echo.Context) error {
+func (h *DevMachineHandler) Events(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
@@ -428,7 +428,7 @@ func (h *DevMachineHandler) Events(c echo.Context) error {
 	return response.Success(c, http.StatusOK, events)
 }
 
-func (h *DevMachineHandler) Logs(c echo.Context) error {
+func (h *DevMachineHandler) Logs(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
@@ -454,7 +454,7 @@ func (h *DevMachineHandler) Logs(c echo.Context) error {
 	return response.Success(c, http.StatusOK, logs)
 }
 
-func (h *DevMachineHandler) Services(c echo.Context) error {
+func (h *DevMachineHandler) Services(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
@@ -467,7 +467,7 @@ func (h *DevMachineHandler) Services(c echo.Context) error {
 	return response.Success(c, http.StatusOK, services)
 }
 
-func (h *DevMachineHandler) MachineProviders(c echo.Context) error {
+func (h *DevMachineHandler) MachineProviders(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
@@ -480,7 +480,7 @@ func (h *DevMachineHandler) MachineProviders(c echo.Context) error {
 	return response.Success(c, http.StatusOK, providers)
 }
 
-func (h *DevMachineHandler) ResourceUsage(c echo.Context) error {
+func (h *DevMachineHandler) ResourceUsage(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
@@ -493,7 +493,7 @@ func (h *DevMachineHandler) ResourceUsage(c echo.Context) error {
 	return response.Success(c, http.StatusOK, samples)
 }
 
-func (h *DevMachineHandler) LaunchService(c echo.Context) error {
+func (h *DevMachineHandler) LaunchService(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
@@ -518,7 +518,7 @@ func (h *DevMachineHandler) LaunchService(c echo.Context) error {
 	return response.Success(c, status, launch)
 }
 
-func (h *DevMachineHandler) ListTerminalSessions(c echo.Context) error {
+func (h *DevMachineHandler) ListTerminalSessions(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
@@ -531,8 +531,8 @@ func (h *DevMachineHandler) ListTerminalSessions(c echo.Context) error {
 	return response.Success(c, http.StatusOK, sessions)
 }
 
-func (h *DevMachineHandler) CreateTerminalSession(c echo.Context) error {
-	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 64*1024)
+func (h *DevMachineHandler) CreateTerminalSession(c *echo.Context) error {
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 64*1024)
 	var request dto.CreateTerminalSessionRequest
 	if !bindAndValidate(c, &request) {
 		return nil
@@ -553,7 +553,7 @@ func (h *DevMachineHandler) CreateTerminalSession(c echo.Context) error {
 	return response.Success(c, status, launch)
 }
 
-func (h *DevMachineHandler) CloseTerminalSession(c echo.Context) error {
+func (h *DevMachineHandler) CloseTerminalSession(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
@@ -574,7 +574,7 @@ func (h *DevMachineHandler) CloseTerminalSession(c echo.Context) error {
 	return response.Success(c, status, session)
 }
 
-func (h *DevMachineHandler) Providers(c echo.Context) error {
+func (h *DevMachineHandler) Providers(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	providers, err := h.service.AvailableProviders(c.Request().Context(), workspace.ID)
 	if err != nil {
@@ -595,7 +595,7 @@ func (h *DevMachineHandler) Providers(c echo.Context) error {
 
 // ListModelServers reports configuration only; keys are never returned, so
 // members may read it to choose a server and model when running agents.
-func (h *DevMachineHandler) ListModelServers(c echo.Context) error {
+func (h *DevMachineHandler) ListModelServers(c *echo.Context) error {
 	servers, err := h.service.ListModelServers(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return machineError(c, err)
@@ -603,11 +603,11 @@ func (h *DevMachineHandler) ListModelServers(c echo.Context) error {
 	return response.Success(c, http.StatusOK, servers)
 }
 
-func (h *DevMachineHandler) CreateModelServer(c echo.Context) error {
+func (h *DevMachineHandler) CreateModelServer(c *echo.Context) error {
 	return h.saveModelServer(c, nil)
 }
 
-func (h *DevMachineHandler) UpdateModelServer(c echo.Context) error {
+func (h *DevMachineHandler) UpdateModelServer(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("serverId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid model server ID")
@@ -615,11 +615,11 @@ func (h *DevMachineHandler) UpdateModelServer(c echo.Context) error {
 	return h.saveModelServer(c, &id)
 }
 
-func (h *DevMachineHandler) saveModelServer(c echo.Context, id *uuid.UUID) error {
+func (h *DevMachineHandler) saveModelServer(c *echo.Context, id *uuid.UUID) error {
 	if !canAdministerDevMachines(c) {
 		return response.Forbidden(c)
 	}
-	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 96*1024)
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 96*1024)
 	var request dto.SaveModelServerRequest
 	if !bindAndValidate(c, &request) {
 		return nil
@@ -635,7 +635,7 @@ func (h *DevMachineHandler) saveModelServer(c echo.Context, id *uuid.UUID) error
 	return response.Success(c, status, server)
 }
 
-func (h *DevMachineHandler) DeleteModelServer(c echo.Context) error {
+func (h *DevMachineHandler) DeleteModelServer(c *echo.Context) error {
 	if !canAdministerDevMachines(c) {
 		return response.Forbidden(c)
 	}
@@ -649,13 +649,40 @@ func (h *DevMachineHandler) DeleteModelServer(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// DiscoverModels lists a server's models for the settings form. It sends the
-// key to an admin-chosen URL, so only admins may call it.
-func (h *DevMachineHandler) DiscoverModels(c echo.Context) error {
+// ListAgentModelDefaults reports the workspace default model and effort of each
+// coding agent that takes them; members read them to know what tasks run with.
+func (h *DevMachineHandler) ListAgentModelDefaults(c *echo.Context) error {
+	defaults, err := h.service.ListAgentModelDefaults(c.Request().Context(), middleware.GetWorkspace(c).ID)
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, defaults)
+}
+
+// SaveAgentModelDefault sets one agent's workspace default. Owners and admins only.
+func (h *DevMachineHandler) SaveAgentModelDefault(c *echo.Context) error {
 	if !canAdministerDevMachines(c) {
 		return response.Forbidden(c)
 	}
-	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 8*1024)
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 4*1024)
+	var request dto.SaveAgentModelDefaultRequest
+	if !bindAndValidate(c, &request) {
+		return nil
+	}
+	saved, err := h.service.SaveAgentModelDefault(c.Request().Context(), middleware.GetWorkspace(c).ID, middleware.GetUserID(c), c.Param("provider"), request)
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, saved)
+}
+
+// DiscoverModels lists a server's models for the settings form. It sends the
+// key to an admin-chosen URL, so only admins may call it.
+func (h *DevMachineHandler) DiscoverModels(c *echo.Context) error {
+	if !canAdministerDevMachines(c) {
+		return response.Forbidden(c)
+	}
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 8*1024)
 	var request dto.DiscoverModelsRequest
 	if !bindAndValidate(c, &request) {
 		return nil
@@ -667,12 +694,12 @@ func (h *DevMachineHandler) DiscoverModels(c echo.Context) error {
 	return response.Success(c, http.StatusOK, models)
 }
 
-func canAdministerDevMachines(c echo.Context) bool {
+func canAdministerDevMachines(c *echo.Context) bool {
 	role := middleware.GetWorkspaceRole(c)
 	return role == domain.RoleOwner || role == domain.RoleAdmin
 }
 
-func (h *DevMachineHandler) GetPolicy(c echo.Context) error {
+func (h *DevMachineHandler) GetPolicy(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	policy, err := h.service.GetPolicy(c.Request().Context(), workspace.ID)
 	if err != nil {
@@ -681,8 +708,8 @@ func (h *DevMachineHandler) GetPolicy(c echo.Context) error {
 	return response.Success(c, http.StatusOK, h.policyResponse(policy))
 }
 
-func (h *DevMachineHandler) UpdatePolicy(c echo.Context) error {
-	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 256*1024)
+func (h *DevMachineHandler) UpdatePolicy(c *echo.Context) error {
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 256*1024)
 	var request dto.DevMachinePolicyRequest
 	if !bindAndValidate(c, &request) {
 		return nil
@@ -705,8 +732,8 @@ func (h *DevMachineHandler) policyResponse(policy *domain.DevMachineWorkspacePol
 	return &current
 }
 
-func (h *DevMachineHandler) IngestEvent(c echo.Context) error {
-	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 1024*1024)
+func (h *DevMachineHandler) IngestEvent(c *echo.Context) error {
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 1024*1024)
 	var input dto.CollectorEventInput
 	if !bindAndValidate(c, &input) {
 		return nil
@@ -720,8 +747,8 @@ func (h *DevMachineHandler) IngestEvent(c echo.Context) error {
 	return c.NoContent(http.StatusAccepted)
 }
 
-func (h *DevMachineHandler) IngestLog(c echo.Context) error {
-	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 128*1024)
+func (h *DevMachineHandler) IngestLog(c *echo.Context) error {
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 128*1024)
 	var input dto.CollectorLogInput
 	if !bindAndValidate(c, &input) {
 		return nil
@@ -735,7 +762,7 @@ func (h *DevMachineHandler) IngestLog(c echo.Context) error {
 	return c.NoContent(http.StatusAccepted)
 }
 
-func bearerToken(c echo.Context) string {
+func bearerToken(c *echo.Context) string {
 	parts := strings.Fields(c.Request().Header.Get("Authorization"))
 	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
 		return parts[1]
@@ -745,7 +772,7 @@ func bearerToken(c echo.Context) string {
 
 // bindAndValidate binds and validates request, writing the 400 response and
 // returning false when it is invalid; the caller then stops without acting.
-func bindAndValidate(c echo.Context, request any) bool {
+func bindAndValidate(c *echo.Context, request any) bool {
 	if err := c.Bind(request); err != nil {
 		_ = response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
 		return false
@@ -770,7 +797,7 @@ func operationResponse(operation *domain.DevMachineOperation) dto.DevMachineOper
 	}
 }
 
-func machineError(c echo.Context, err error) error {
+func machineError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, service.ErrMachineNotFound):
 		return response.NotFound(c, "Dev Machine")
@@ -826,7 +853,7 @@ func machineError(c echo.Context, err error) error {
 	}
 }
 
-func portParams(c echo.Context, withPort bool) (uuid.UUID, uuid.UUID, error) {
+func portParams(c *echo.Context, withPort bool) (uuid.UUID, uuid.UUID, error) {
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
 		return uuid.Nil, uuid.Nil, response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
@@ -842,7 +869,7 @@ func portParams(c echo.Context, withPort bool) (uuid.UUID, uuid.UUID, error) {
 }
 
 // bindStrictJSON decodes one bounded JSON object without unknown fields.
-func bindStrictJSON(c echo.Context, target any) error {
+func bindStrictJSON(c *echo.Context, target any) error {
 	decoder := json.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, 4<<10))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(target) != nil || decoder.Decode(new(any)) != io.EOF {
@@ -851,8 +878,14 @@ func bindStrictJSON(c echo.Context, target any) error {
 	return nil
 }
 
+// responseCommitted reports whether a response has already been written.
+func responseCommitted(c *echo.Context) bool {
+	res, err := echo.UnwrapResponse(c.Response())
+	return err == nil && res.Committed
+}
+
 // ListPorts returns the machine's app ports and detected listening ports.
-func (h *DevMachineHandler) ListPorts(c echo.Context) error {
+func (h *DevMachineHandler) ListPorts(c *echo.Context) error {
 	machineID, _, err := portParams(c, false)
 	if err != nil {
 		return err
@@ -864,13 +897,13 @@ func (h *DevMachineHandler) ListPorts(c echo.Context) error {
 	return response.Success(c, http.StatusOK, ports)
 }
 
-func (h *DevMachineHandler) CreatePort(c echo.Context) error {
+func (h *DevMachineHandler) CreatePort(c *echo.Context) error {
 	machineID, _, err := portParams(c, false)
 	if err != nil {
 		return err
 	}
 	var input dto.AppPortRequest
-	if err = bindStrictJSON(c, &input); err != nil || c.Response().Committed {
+	if err = bindStrictJSON(c, &input); err != nil || responseCommitted(c) {
 		return err
 	}
 	port, err := h.service.CreatePort(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c), input.Port, input.Label)
@@ -880,13 +913,13 @@ func (h *DevMachineHandler) CreatePort(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, port)
 }
 
-func (h *DevMachineHandler) UpdatePort(c echo.Context) error {
+func (h *DevMachineHandler) UpdatePort(c *echo.Context) error {
 	machineID, portID, err := portParams(c, true)
 	if err != nil {
 		return err
 	}
 	var input dto.AppPortUpdate
-	if err = bindStrictJSON(c, &input); err != nil || c.Response().Committed {
+	if err = bindStrictJSON(c, &input); err != nil || responseCommitted(c) {
 		return err
 	}
 	port, err := h.service.UpdatePort(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, portID, middleware.GetUserID(c), input.Label)
@@ -896,7 +929,7 @@ func (h *DevMachineHandler) UpdatePort(c echo.Context) error {
 	return response.Success(c, http.StatusOK, port)
 }
 
-func (h *DevMachineHandler) DeletePort(c echo.Context) error {
+func (h *DevMachineHandler) DeletePort(c *echo.Context) error {
 	machineID, portID, err := portParams(c, true)
 	if err != nil {
 		return err
@@ -907,7 +940,7 @@ func (h *DevMachineHandler) DeletePort(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *DevMachineHandler) LaunchPort(c echo.Context) error {
+func (h *DevMachineHandler) LaunchPort(c *echo.Context) error {
 	machineID, portID, err := portParams(c, true)
 	if err != nil {
 		return err

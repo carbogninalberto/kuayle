@@ -24,6 +24,8 @@
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import { StatusSelector, PrioritySelector, AssigneeSelector, LabelSelector, ProjectSelector, CycleSelector, TeamSelector } from './selectors';
 	import { listTemplates } from '$lib/api/issue-templates';
+	import { expandDraftIssueDescription } from '$lib/api/issues';
+	import { reworkDescriptionSelection } from './description-rework';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 	import {
@@ -32,7 +34,10 @@
 		FolderKanban,
 		FileText,
 		ImagePlus,
-		Paperclip
+		Maximize2,
+		Minimize2,
+		Paperclip,
+		X
 	} from '@lucide/svelte';
 
 	let {
@@ -108,6 +113,8 @@
 	let dueDate = $state<string | null>(null);
 	let cycleId = $state<string | null>(null);
 	let createMore = $state(false);
+	// Like the dock's fullscreen toggle, the expanded size lasts while the page is open.
+	let expanded = $state(false);
 	let statusLoadVersion = 0;
 	let statusFallbackId: string | undefined;
 	let statusTeamBeforeOpen = '';
@@ -126,7 +133,11 @@
 	let labelsOpen = $state(false);
 	let cycleOpen = $state(false);
 
-	let descriptionEditor = $state<{ insertFiles: (files: File[]) => void } | null>(null);
+	let descriptionEditor = $state<{
+		insertFiles: (files: File[]) => void;
+		focusStart: () => void;
+		isCaretOnFirstLine: () => boolean;
+	} | null>(null);
 	const uploadUrl = $derived(slug && teamId ? `/api/workspaces/${slug}/upload?team_id=${teamId}` : undefined);
 	// Uploads started in the description editor that have not been inserted yet.
 	let pendingUploads = $state(0);
@@ -272,6 +283,12 @@
 		}
 	}
 
+	function reworkDraftSelection(selectedText: string): Promise<string> {
+		return reworkDescriptionSelection(() =>
+			expandDraftIssueDescription(slug, { title: title.trim(), description, selected_text: selectedText })
+		);
+	}
+
 	function titleFromListLine(line: string): string {
 		return line
 			.replace(/^\s*(?:[-*+]\s+\[[ xX]?\]\s+|\[[ xX]?\]\s+|[-*+]\s+|\d+[.)]\s+)/, '')
@@ -367,6 +384,17 @@
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
 			handleSubmit();
+			return;
+		}
+		if (e.defaultPrevented || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || e.isComposing) return;
+		const target = e.target as HTMLElement;
+		// Title -> content, and content (first line) -> title.
+		if (e.key === 'ArrowDown' && target.id === 'create-issue-title') {
+			e.preventDefault();
+			descriptionEditor?.focusStart();
+		} else if (e.key === 'ArrowUp' && target.closest('.ProseMirror') && descriptionEditor?.isCaretOnFirstLine()) {
+			e.preventDefault();
+			document.getElementById('create-issue-title')?.focus();
 		}
 	}
 
@@ -409,16 +437,20 @@
 
 <Dialog.Root bind:open>
 	<Dialog.Content
-		class="sm:max-w-[640px] gap-0 overflow-hidden rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 max-sm:w-screen max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:flex max-sm:flex-col"
+		showCloseButton={false}
+		data-expanded={expanded}
+		class="flex flex-col gap-0 overflow-hidden rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 max-sm:w-screen max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 {expanded
+			? 'sm:top-[4dvh] sm:h-[92dvh] sm:max-w-[min(80rem,calc(100vw-4rem))]'
+			: 'sm:max-h-[86dvh] sm:max-w-3xl'}"
 		onOpenAutoFocus={(e) => {
 			e.preventDefault();
 			const input = document.getElementById('create-issue-title');
 			input?.focus();
 		}}
 	>
-		<Dialog.Title class="sr-only">{m['sidebar.new_issue']()}</Dialog.Title>
-		<!-- Top bar: Team + Template -->
-		<div class="flex items-center gap-1.5 px-3 pr-10 py-2 max-sm:shrink-0">
+		<!-- Header: Team + Template, then size and close actions (as in issue details) -->
+		<Dialog.Header class="flex-row items-center gap-1.5 border-b border-[var(--app-border)] px-3 py-2 shrink-0">
+			<Dialog.Title class="sr-only">{m['sidebar.new_issue']()}</Dialog.Title>
 			<TeamSelector
 				bind:open={teamOpen}
 				{teams}
@@ -467,12 +499,32 @@
 					{parentIssue ? m['sharedComponents.create_issue.new_sub_issue']({ identifier: parentIssue.identifier }) : m['sharedComponents.create_issue.new_issue']()}
 				</span>
 			{/if}
-		</div>
+			<div class="ml-auto flex shrink-0 items-center gap-0.5">
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					class="max-sm:hidden"
+					aria-pressed={expanded}
+					aria-label={expanded ? m['sharedComponents.create_issue.collapse']() : m['sharedComponents.create_issue.expand']()}
+					title={expanded ? m['sharedComponents.create_issue.collapse']() : m['sharedComponents.create_issue.expand']()}
+					onclick={() => (expanded = !expanded)}
+				>
+					{#if expanded}<Minimize2 />{:else}<Maximize2 />{/if}
+				</Button>
+				<Dialog.Close>
+					{#snippet child({ props })}
+						<Button {...props} variant="ghost" size="icon-sm" aria-label={m['common.close']()}>
+							<X />
+						</Button>
+					{/snippet}
+				</Dialog.Close>
+			</div>
+		</Dialog.Header>
 
 		<!-- Title + Description -->
 		<!-- svelte-ignore a11y_autofocus -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="px-4 py-3 max-sm:flex max-sm:flex-col max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto" onkeydown={handleKeydown}>
+		<div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3" onkeydown={handleKeydown}>
 			<Input variant="plain"
 				id="create-issue-title"
 				type="text"
@@ -481,7 +533,7 @@
 				placeholder={m['sharedComponents.create_issue.issue_title_placeholder']()}
 				class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] max-sm:shrink-0"
 			/>
-			<div class="mt-4 max-h-[calc(60vh-120px)] overflow-y-auto max-sm:flex-1 max-sm:[max-height:none] max-sm:overflow-y-auto">
+			<div class="mt-4 flex-1 overflow-y-auto {expanded ? '' : 'sm:max-h-[calc(60vh-120px)]'}">
 				{#key descriptionVersion}
 				{@const editorVersion = descriptionVersion}
 				<RichEditor
@@ -500,13 +552,14 @@
 						if (open && editorVersion === descriptionVersion) pendingUploads = pending;
 					}}
 					onupdate={(html) => (description = html)}
+					onreworkselection={slug ? reworkDraftSelection : undefined}
 				/>
 				{/key}
 			</div>
 		</div>
 
-		<!-- Property pills -->
-		<div class="flex flex-wrap items-center gap-1.5 px-4 py-2.5 max-sm:shrink-0">
+		<!-- Selection footer: property pills -->
+		<div class="flex shrink-0 flex-wrap items-center gap-1.5 px-3 py-2">
 			<!-- Status -->
 			<StatusSelector
 				bind:open={statusOpen}
@@ -633,8 +686,8 @@
 			/>
 		</div>
 
-		<!-- Footer -->
-		<div class="flex items-center gap-3 px-4 py-2.5 max-sm:sticky max-sm:bottom-0 max-sm:shrink-0 max-sm:flex-col max-sm:items-stretch max-sm:border-t max-sm:border-[var(--app-border)] max-sm:bg-[var(--color-bg-secondary)] max-sm:pb-[calc(1rem+env(safe-area-inset-bottom,0px))] {uploadUrl ? 'justify-between' : 'justify-end'}">
+		<!-- End footer -->
+		<Dialog.Footer class="m-0 shrink-0 flex-row items-center gap-3 rounded-none border-t border-[var(--app-border)] bg-transparent px-3 py-2 max-sm:sticky max-sm:bottom-0 max-sm:flex-col max-sm:items-stretch max-sm:bg-[var(--color-bg-secondary)] max-sm:pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] {uploadUrl ? 'sm:justify-between' : 'sm:justify-end'}">
 			{#if uploadUrl}
 				<div class="flex items-center gap-1 max-sm:order-2">
 					<Button variant="plain" type="button"
@@ -671,6 +724,6 @@
 						: m['sharedComponents.create_issue.create_issue']()}
 				</Button>
 			</div>
-		</div>
+		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>

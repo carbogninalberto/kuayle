@@ -32,7 +32,7 @@
 		{ name: 'Anthropic', anthropic: 'https://api.anthropic.com' },
 		{ name: 'OpenRouter', openai: 'https://openrouter.ai/api/v1' }
 	];
-	const levels: ThinkingLevel[] = ['off', 'low', 'high', 'max'];
+	const levels: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 	// The form starts from the server being edited; later prop changes do not reset it.
 	const initial = untrack(() => server);

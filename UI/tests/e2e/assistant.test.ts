@@ -736,6 +736,81 @@ test('asks for approval before delegating and records the decision from the back
 	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
 });
 
+test('the approval card runs the model on the model server the user picked', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Approval is pending.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-9',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_9',
+			name: 'delegate_issue',
+			input: { identifier: 'ENG-1' },
+			status: 'completed',
+			output: { approval_id: 'approval-1', status: 'pending_user_approval', identifier: 'ENG-1' },
+			created_at: conversation.created_at
+		}
+	];
+	state.approvals = [
+		{
+			id: 'approval-1',
+			conversation_id: 'chat-1',
+			tool_call_id: 'tool-9',
+			action: 'delegate_issue',
+			actor_id: 'user-1',
+			issue_id: 'issue-1',
+			payload: { identifier: 'ENG-1', title: 'Dark mode', instructions: 'Implement dark mode' },
+			status: 'pending',
+			expires_at: '2026-10-27T10:00:00Z',
+			created_at: conversation.created_at,
+			updated_at: conversation.created_at
+		}
+	];
+	// Two gateways list the same model name; only the server tells them apart.
+	const server = (id: string, name: string, is_default: boolean, models: string[]) => ({
+		id,
+		name,
+		models,
+		default_model: models[0],
+		fast_model: '',
+		thinking: 'high',
+		is_default,
+		harnesses: ['codex'],
+		thinking_levels: ['off', 'low', 'high', 'max'],
+		updated_at: conversation.created_at
+	});
+	await page.route('**/api/workspaces/test/conversations/chat-1/task-options', (route) =>
+		route.fulfill({
+			json: {
+				providers: [{ id: 'codex', display_name: 'Codex' }],
+				default_provider: 'codex',
+				model_servers: [
+					server('server-a', 'Gateway A', true, ['gpt-5']),
+					server('server-b', 'Gateway B', false, ['gpt-5', 'o4'])
+				]
+			}
+		})
+	);
+	const bodies: unknown[] = [];
+	page.on('request', (request) => {
+		if (request.method() === 'POST' && request.url().includes('/approvals/')) bodies.push(request.postDataJSON());
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	const serverButton = page.getByRole('button', { name: 'Model server' });
+	await expect(serverButton).toHaveText('Gateway A');
+	await expect(page.getByRole('button', { name: 'Model', exact: true })).toHaveText('gpt-5');
+	await serverButton.click();
+	await page.getByRole('menuitemradio', { name: 'Gateway B' }).click();
+	await expect(serverButton).toHaveText('Gateway B');
+	await expect(page.getByRole('button', { name: 'Model', exact: true })).toHaveText('gpt-5');
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
+	expect(bodies).toEqual([{ decision: 'approve', model: 'gpt-5', model_server_id: 'server-b' }]);
+});
+
 test('a long conversation list scrolls inside the sidebar, never the page', async ({ page }) => {
 	const state = await fixture(page);
 	const many = Array.from({ length: 40 }, (_, i) => ({
@@ -1109,7 +1184,7 @@ test('asks for approval before merging the reviewed pull request', async ({ page
 	await page.goto('/test/assistant?conversation=chat-1');
 	await expect(page.getByText('Merge pull request #12 for ENG-1?', { exact: true })).toBeVisible();
 	await expect(
-		page.getByText('Squash-merges the reviewed commit 0123456 of Dark mode in acme/app.', { exact: false })
+		page.getByText('Merges (squash) the reviewed commit 0123456 of Dark mode in acme/app.', { exact: false })
 	).toBeVisible();
 	await expect(page.getByRole('link', { name: 'Open pull request' })).toHaveAttribute(
 		'href',
@@ -1119,6 +1194,119 @@ test('asks for approval before merging the reviewed pull request', async ({ page
 	await expect(page.getByText('Merged the pull request for ENG-1', { exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: /Coding agent on ENG-1/ })).toHaveCount(0);
 	expect(state.decisions).toEqual(['approve']);
+});
+
+const pullRequestPayload = {
+	identifier: 'ENG-1',
+	title: 'Dark mode',
+	task_id: 'task-9',
+	repository: 'acme/app',
+	pull_request: 12,
+	pull_request_url: 'https://github.com/acme/app/pull/12',
+	draft: false
+};
+
+const pullRequestCards: {
+	name: string;
+	payload: Record<string, unknown>;
+	title: string;
+	text: string[];
+	done: string;
+}[] = [
+	{
+		name: 'reply_to_review_comment',
+		payload: {
+			comment_id: 55,
+			thread_id: 'T1',
+			author: 'chatgpt-codex-connector',
+			bot: true,
+			path: 'src/app.go',
+			excerpt: 'Possible nil dereference when the cache is empty',
+			body: 'Fixed in 1a2b3c4: the cache is now checked first.'
+		},
+		title: 'Reply to chatgpt-codex-connector on pull request #12 for ENG-1?',
+		text: [
+			'chatgpt-codex-connector is a bot reviewer.',
+			'Possible nil dereference when the cache is empty',
+			'Fixed in 1a2b3c4: the cache is now checked first.'
+		],
+		done: 'Changed the pull request for ENG-1'
+	},
+	{
+		name: 'resolve_review_thread',
+		payload: { thread_id: 'T1', author: 'maintainer', path: 'src/app.go', comment_id: 55, excerpt: 'Add a test' },
+		title: 'Resolve the review thread on src/app.go for ENG-1?',
+		text: ['Add a test'],
+		done: 'Changed the pull request for ENG-1'
+	},
+	{
+		name: 'update_pull_request_branch',
+		payload: { head: '0123456789abcdef0123456789abcdef01234567', base: 'main', behind: 3 },
+		title: 'Update the branch of pull request #12 for ENG-1?',
+		text: ['only while its head is still 0123456', 'It cannot resolve conflicts'],
+		done: 'Changed the pull request for ENG-1'
+	},
+	{
+		name: 'mark_pull_request_ready',
+		payload: { draft: false },
+		title: 'Mark pull request #12 for ENG-1 ready for review?',
+		text: ['Changes the draft state of Dark mode in acme/app on GitHub.'],
+		done: 'Changed the pull request for ENG-1'
+	},
+	{
+		name: 'mark_pull_request_ready',
+		payload: { draft: true },
+		title: 'Put pull request #12 for ENG-1 back to draft?',
+		text: ['Changes the draft state of Dark mode in acme/app on GitHub.'],
+		done: 'Changed the pull request for ENG-1'
+	}
+];
+
+for (const card of pullRequestCards) {
+	test(`${card.name} (${JSON.stringify(card.payload.draft ?? '')}) waits for approval and shows exactly what changes`, async ({
+		page
+	}) => {
+		const state = await fixture(page);
+		machineApproval(state, card.name, { ...pullRequestPayload, ...card.payload });
+		await page.goto('/test/assistant?conversation=chat-1');
+		await expect(page.getByText(card.title, { exact: true })).toBeVisible();
+		for (const text of card.text) await expect(page.getByText(text, { exact: false })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Open pull request' })).toHaveAttribute(
+			'href',
+			'https://github.com/acme/app/pull/12'
+		);
+		// Nothing is decided before the user answers.
+		expect(state.decisions).toEqual([]);
+		await page.getByRole('button', { name: 'Approve', exact: true }).click();
+		await expect(page.getByText(card.done, { exact: true })).toBeVisible();
+		expect(state.decisions).toEqual(['approve']);
+	});
+}
+
+test('denying a pull request change records the denial and changes nothing', async ({ page }) => {
+	const state = await fixture(page);
+	machineApproval(state, 'resolve_review_thread', { ...pullRequestPayload, thread_id: 'T1', path: 'a.go' });
+	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByRole('button', { name: 'Deny', exact: true }).click();
+	await expect(page.getByText('Denied changing the pull request for ENG-1', { exact: true })).toBeVisible();
+	expect(state.decisions).toEqual(['deny']);
+});
+
+test('a failed pull request change shows GitHub’s reason and the next step', async ({ page }) => {
+	const state = await fixture(page);
+	machineApproval(state, 'update_pull_request_branch', {
+		...pullRequestPayload,
+		head: '0123456789abcdef',
+		base: 'main'
+	});
+	state.approvals[0].status = 'failed' as any;
+	(state.approvals[0] as any).error =
+		'GitHub refused: merge conflict. If the branch has conflicts or moved, ask for update_pull_request_branch again so the task agent merges the base itself';
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(
+		page.getByText(/Could not change the pull request for ENG-1: GitHub refused: merge conflict/)
+	).toBeVisible();
+	await expect(page.getByText(/task agent merges the base itself/)).toBeVisible();
 });
 
 test('merge approval shows the commit others pushed after the task was published', async ({ page }) => {
@@ -1186,6 +1374,70 @@ test('merge approval shows the commit others pushed after the task was published
 	await expect(change).toContainText("3220dbc by maintainer: Merge branch 'main'");
 	await page.getByRole('button', { name: 'Approve', exact: true }).click();
 	expect(state.decisions).toEqual(['approve']);
+});
+
+test('an approval card names the GitHub App permissions the action lacks', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Approval is pending.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-11',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_11',
+			name: 'merge_pull_request',
+			input: { identifier: 'ENG-1' },
+			status: 'completed',
+			output: { approval_id: 'approval-3', status: 'pending_user_approval', identifier: 'ENG-1' },
+			created_at: conversation.created_at
+		}
+	];
+	const approval = (githubAccess: Record<string, unknown>) => ({
+		id: 'approval-3',
+		conversation_id: 'chat-1',
+		tool_call_id: 'tool-11',
+		action: 'merge_pull_request',
+		actor_id: 'user-1',
+		issue_id: 'issue-1',
+		payload: {
+			identifier: 'ENG-1',
+			title: 'Dark mode',
+			task_id: 'task-9',
+			repository: 'acme/app',
+			pull_request: 108,
+			pull_request_url: 'https://github.com/acme/app/pull/108',
+			commit: '3220dbc9aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			github_access: githubAccess
+		},
+		status: 'pending',
+		expires_at: '2026-10-27T10:00:00Z',
+		created_at: conversation.created_at,
+		updated_at: conversation.created_at
+	});
+	state.approvals = [
+		approval({
+			missing: [{ name: 'contents', level: 'write' }],
+			settings_url: 'https://github.com/settings/apps/kuayle/permissions',
+			message: 'The GitHub App lacks permissions this needs (contents: write).'
+		})
+	] as any;
+	await page.goto('/test/assistant?conversation=chat-1');
+	const gap = page.getByTestId('github-access-gap');
+	await expect(gap).toContainText('GitHub App permission missing');
+	await expect(gap).toContainText('(contents: write)');
+	await expect(gap.getByRole('link', { name: 'Open GitHub App settings' })).toHaveAttribute(
+		'href',
+		'https://github.com/settings/apps/kuayle/permissions'
+	);
+	// The approval stays available: approving re-checks the permission.
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeEnabled();
+
+	state.approvals = [approval({ missing: [], unverified: true, message: 'GitHub did not answer.' })] as any;
+	await page.reload();
+	await expect(page.getByTestId('github-access-gap')).toContainText("Couldn't verify GitHub App permissions");
+	await expect(page.getByTestId('github-access-gap').getByRole('link')).toHaveCount(0);
 });
 
 test('merge approval warns when the list of commits others pushed is truncated', async ({ page }) => {
@@ -1657,11 +1909,304 @@ test('an instance upgrade waits for approval, shows both versions and follows th
 	expect(polls).toBe(0);
 	expect(state.decisions).toEqual([]);
 	await page.getByRole('button', { name: 'Approve', exact: true }).click();
-	await expect(page.getByText('Upgrade to 0.3.0 started; the instance restarts, follow it below', { exact: true })).toBeVisible();
+	await expect(
+		page.getByText('Upgrade to 0.3.0 started; the instance restarts, follow it below', { exact: true })
+	).toBeVisible();
 	await expect(
 		page.getByText('Upgrade finished and the health check passed. Reload to run the new version.', { exact: true })
 	).toBeVisible();
 	expect(state.decisions).toEqual(['approve']);
+});
+
+test('a release waits for approval with its notes editable, and publishes the edited notes', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'The release is waiting for your approval.' };
+	state.messages = [userMessage, answered];
+	const draft =
+		'### Features\n- **Release tools (KUA-88).**\n\n**Full Changelog**: https://github.com/acme/app/compare/v1.2.0...v1.3.0';
+	state.tools = [
+		{
+			id: 'tool-60',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_tool-60',
+			name: 'create_release',
+			input: { repository: 'acme/app', tag: 'v1.3.0' },
+			status: 'completed',
+			output: { approval_id: 'approval-60', status: 'pending_user_approval' },
+			created_at: conversation.created_at
+		}
+	];
+	const pending = {
+		id: 'approval-60',
+		conversation_id: 'chat-1',
+		tool_call_id: 'tool-60',
+		actor_id: 'user-1',
+		issue_id: '00000000-0000-0000-0000-000000000000',
+		action: 'create_release',
+		payload: {
+			repository: 'acme/app',
+			tag: 'v1.3.0',
+			name: 'v1.3.0',
+			target_commit: '0123456789abcdef0123456789abcdef01234567',
+			branch: 'main',
+			previous_tag: 'v1.2.0',
+			notes: draft,
+			checks_passed: 12,
+			commits: 4,
+			scanned_files: 9,
+			unscanned_files: ['UI/static/logo.png'],
+			compare_url: 'https://github.com/acme/app/compare/v1.2.0...0123456789abcdef0123456789abcdef01234567',
+			release_url: 'https://github.com/acme/app/releases/tag/v1.3.0'
+		},
+		status: 'pending',
+		expires_at: '2026-10-27T10:00:00Z',
+		created_at: conversation.created_at,
+		updated_at: conversation.created_at
+	};
+	state.approvals = [pending] as any;
+	const bodies: any[] = [];
+	await page.route('**/conversations/chat-1/approvals/**', (route) => {
+		const body = route.request().postDataJSON();
+		bodies.push(body);
+		// The server checks the edited notes again; the first edit holds a private address.
+		if (body.notes?.includes('10.0.0.8'))
+			return route.fulfill({
+				status: 422,
+				json: {
+					error: {
+						code: 'INVALID_APPROVAL_EDIT',
+						message:
+							'The check of the release notes found 1 secret(s), private address(es), host name(s) or local path(s): notes line 1 (private address).'
+					}
+				}
+			});
+		const approved = {
+			...pending,
+			payload: { ...pending.payload, notes: body.notes ?? draft, notes_edited: body.notes !== undefined },
+			status: 'approved',
+			resolved_at: '2026-10-26T10:05:00Z',
+			updated_at: '2026-10-26T10:05:00Z'
+		};
+		state.approvals = [approved] as any;
+		return route.fulfill({ json: approved });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Publish v1.3.0 of acme/app?', { exact: true })).toBeVisible();
+	await expect(page.getByText('Tags 0123456 on main, where all 12 checks passed.', { exact: false })).toBeVisible();
+	await expect(page.getByTestId('release-scan')).toContainText(
+		'Since v1.2.0: 4 commits; the secret scan read 9 changed files'
+	);
+	await expect(page.getByText(/UI\/static\/logo\.png/)).toBeVisible();
+	const notes = page.getByLabel('Release notes (published as you leave them)');
+	await expect(notes).toHaveValue(draft);
+	expect(bodies).toEqual([]);
+
+	// An empty edit cannot be approved.
+	await notes.fill('   ');
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
+
+	// The server's reason for refusing an edit is shown, and the card stays pending.
+	await notes.fill('- staged on 10.0.0.8 first');
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByRole('alert').filter({ hasText: 'notes line 1 (private address)' })).toBeVisible();
+	await expect(notes).toBeVisible();
+
+	// Reset restores the draft; the edited notes are what is sent and published.
+	await page.getByRole('button', { name: 'Reset to the draft' }).click();
+	await expect(notes).toHaveValue(draft);
+	const edited = '### Fixed\n- **Edited on the card (KUA-88).**';
+	await notes.fill(edited);
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Published v1.3.0', { exact: true })).toBeVisible();
+	await expect(page.getByRole('link', { name: 'Open the release' })).toHaveAttribute(
+		'href',
+		'https://github.com/acme/app/releases/tag/v1.3.0'
+	);
+	expect(bodies.map((body) => body.decision)).toEqual(['approve', 'approve']);
+	expect(bodies[1]).toEqual({ decision: 'approve', notes: edited });
+});
+
+// A ship_pull_request chain approval for ENG-7, with the given steps.
+function shipApproval(steps: { step: string; status: string; detail?: string; url?: string }[], extra = {}) {
+	return {
+		id: 'approval-70',
+		conversation_id: 'chat-1',
+		tool_call_id: 'tool-70',
+		actor_id: 'user-1',
+		issue_id: 'issue-7',
+		action: 'ship_pull_request',
+		payload: {
+			identifier: 'ENG-7',
+			title: 'Ship it',
+			repository: 'acme/app',
+			pull_request: 42,
+			merge: {
+				identifier: 'ENG-7',
+				title: 'Ship it',
+				task_id: 'task-7',
+				repository: 'acme/app',
+				pull_request: 42,
+				pull_request_url: 'https://github.com/acme/app/pull/42',
+				commit: 'abcdef0123456789abcdef0123456789abcdef01',
+				merge_method: 'squash'
+			},
+			release: {
+				repository: 'acme/app',
+				tag: 'v1.4.0',
+				name: 'v1.4.0',
+				target_commit: '',
+				branch: 'main',
+				previous_tag: 'v1.3.0',
+				notes: '### Features\n- **Ship in one go (KUA-90).**',
+				checks_passed: 0,
+				commits: 0,
+				scanned_files: 0,
+				release_url: 'https://github.com/acme/app/releases/tag/v1.4.0'
+			},
+			upgrade: { current_version: '1.3.0', latest_version: '1.4.0' },
+			steps
+		},
+		status: 'pending',
+		expires_at: '2026-10-27T10:00:00Z',
+		created_at: conversation.created_at,
+		updated_at: conversation.created_at,
+		...extra
+	};
+}
+
+async function shipFixture(page: Page) {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Shipping waits for your approval.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-70',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_tool-70',
+			name: 'ship_pull_request',
+			input: { identifier: 'ENG-7', tag: 'v1.4.0', upgrade: true },
+			status: 'completed',
+			output: { approval_id: 'approval-70', status: 'pending_user_approval' },
+			created_at: conversation.created_at
+		}
+	];
+	return state;
+}
+
+const pendingSteps = ['merge', 'tests', 'release', 'build', 'upgrade'].map((step) => ({ step, status: 'pending' }));
+
+test('shipping asks for one approval that lists every step, then follows each step', async ({ page }) => {
+	const state = await shipFixture(page);
+	const pending = shipApproval(pendingSteps);
+	state.approvals = [pending] as any;
+	const bodies: any[] = [];
+	await page.route('**/conversations/chat-1/approvals/**', (route) => {
+		const body = route.request().postDataJSON();
+		bodies.push(body);
+		const approving = {
+			...pending,
+			payload: { ...pending.payload, release: { ...pending.payload.release, notes: body.notes } },
+			status: 'approving',
+			updated_at: '2026-10-26T10:05:00Z'
+		};
+		state.approvals = [approving] as any;
+		return route.fulfill({ json: approving });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Ship ENG-7: merge #42 and publish v1.4.0 of acme/app?', { exact: true })).toBeVisible();
+	// Every step is listed, in order, before anything runs.
+	const steps = page.getByTestId('ship-steps').getByRole('listitem');
+	await expect(steps).toHaveCount(5);
+	await expect(steps.nth(0)).toContainText('Merge pull request #42 (squash) at abcdef0');
+	await expect(steps.nth(1)).toContainText('Wait for the checks of the merge commit on main');
+	await expect(steps.nth(2)).toContainText('Publish v1.4.0 at the merge commit');
+	await expect(steps.nth(3)).toContainText('Wait for the release build');
+	await expect(steps.nth(4)).toContainText('Upgrade this instance from 1.3.0 to 1.4.0');
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(1);
+	expect(bodies).toEqual([]);
+
+	// The notes are editable as on a release card; the edit is what is approved.
+	const notes = page.getByLabel('Release notes (published as you leave them)');
+	await expect(notes).toHaveValue(pending.payload.release.notes);
+	await notes.fill('   ');
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
+	const edited = '### Features\n- **Edited before shipping.**';
+	await notes.fill(edited);
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Shipping ENG-7 step by step', { exact: true })).toBeVisible();
+	expect(bodies).toEqual([{ decision: 'approve', notes: edited }]);
+
+	// Progress arrives as approval updates; the finished chain links the release.
+	await expect.poll(() => state.sockets.length).toBeGreaterThan(0);
+	const socket = state.sockets.at(-1)!;
+	const running = shipApproval(
+		[
+			{ step: 'merge', status: 'done', detail: 'Merged #42 by squash as 1234567' },
+			{ step: 'tests', status: 'running' },
+			...pendingSteps.slice(2)
+		],
+		{ status: 'approving', updated_at: '2026-10-26T10:06:00Z' }
+	);
+	socket.send(
+		JSON.stringify({ id: 'e1', cursor: 1, conversation_id: 'chat-1', type: 'approval.updated', payload: running })
+	);
+	await expect(page.getByText('Merged #42 by squash as 1234567', { exact: true })).toBeVisible();
+	const done = shipApproval(
+		[
+			{ step: 'merge', status: 'done', detail: 'Merged #42 by squash as 1234567' },
+			{ step: 'tests', status: 'done', detail: '12 check(s) passed on main at 1234567' },
+			{
+				step: 'release',
+				status: 'done',
+				detail: 'Published v1.4.0 at 1234567 with 9 scanned file(s)',
+				url: 'https://github.com/acme/app/releases/tag/v1.4.0'
+			},
+			{ step: 'build', status: 'done', detail: 'The release build succeeded: Release' },
+			{ step: 'upgrade', status: 'done', detail: 'Started the upgrade from 1.3.0 to 1.4.0; the instance restarts' }
+		],
+		{ status: 'approved', resolved_at: '2026-10-26T10:30:00Z', updated_at: '2026-10-26T10:30:00Z' }
+	);
+	socket.send(
+		JSON.stringify({ id: 'e2', cursor: 2, conversation_id: 'chat-1', type: 'approval.resolved', payload: done })
+	);
+	await expect(page.getByText('Shipped ENG-7: merged, tested and released v1.4.0', { exact: true })).toBeVisible();
+	await expect(
+		page.getByText('Started the upgrade from 1.3.0 to 1.4.0; the instance restarts', { exact: true })
+	).toBeVisible();
+	await expect(page.getByRole('link', { name: 'Open the release' }).first()).toHaveAttribute(
+		'href',
+		'https://github.com/acme/app/releases/tag/v1.4.0'
+	);
+});
+
+test('a failed ship step is reported with its reason, and later steps show they did not run', async ({ page }) => {
+	const state = await shipFixture(page);
+	const error =
+		'Step 2 of 5 (wait for the tests) failed: 1 check failed on main. Next step: pull request #42 is merged as 1234567 but nothing was released. Not run: publish the release, wait for the release build, upgrade the instance.';
+	state.approvals = [
+		shipApproval(
+			[
+				{ step: 'merge', status: 'done', detail: 'Merged #42 by squash as 1234567' },
+				{ step: 'tests', status: 'failed', detail: '1 check failed on main' },
+				{ step: 'release', status: 'skipped' },
+				{ step: 'build', status: 'skipped' },
+				{ step: 'upgrade', status: 'skipped' }
+			],
+			{ status: 'failed', error, resolved_at: '2026-10-26T10:30:00Z', updated_at: '2026-10-26T10:30:00Z' }
+		)
+	] as any;
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText(`Shipping ENG-7 stopped: ${error}`, { exact: true })).toBeVisible();
+	const steps = page.getByTestId('ship-steps').getByRole('listitem');
+	await expect(steps.nth(1)).toContainText('Failed');
+	await expect(steps.nth(1)).toContainText('1 check failed on main');
+	for (const index of [2, 3, 4]) await expect(steps.nth(index)).toContainText('Not run');
+	await expect(page.getByRole('link', { name: 'Open the release' })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
 });
 
 test('message_task says where the message went without asking for approval', async ({ page }) => {
@@ -1723,7 +2268,13 @@ test('a proposed skill shows its full draft and links to Settings; a loaded skil
 	});
 	const body = '## Steps\n\n1. Bump the version\n2. Tag the release\n\n<img src=x onerror="window.__xss=1">';
 	state.tools = [
-		tool('tool-40', 0, 'load_skill', { name: 'How we triage' }, { skill_id: skillId, name: 'How we triage', version: 2, team_key: null, bytes: 120 }),
+		tool(
+			'tool-40',
+			0,
+			'load_skill',
+			{ name: 'How we triage' },
+			{ skill_id: skillId, name: 'How we triage', version: 2, team_key: null, bytes: 120 }
+		),
 		tool(
 			'tool-41',
 			1,
@@ -1751,7 +2302,9 @@ test('a proposed skill shows its full draft and links to Settings; a loaded skil
 	await expect(card.getByText('Use when asked how to cut a release.')).toBeVisible();
 	await expect(card.getByRole('heading', { name: 'Steps' })).toBeVisible();
 	await expect(card.getByText('Tag the release')).toBeVisible();
-	await expect(card.getByText('Draft version 3 for ENG. Active version 2 stays in effect until the draft is activated.')).toBeVisible();
+	await expect(
+		card.getByText('Draft version 3 for ENG. Active version 2 stays in effect until the draft is activated.')
+	).toBeVisible();
 	await expect(card.locator('img')).toHaveCount(0);
 	expect(await page.evaluate(() => (window as unknown as { __xss?: number }).__xss)).toBeUndefined();
 	await expect(card.getByRole('link', { name: 'Review in Settings' })).toHaveAttribute(

@@ -5,6 +5,7 @@
 	import { previewSettingPayload } from '$lib/features/dev-machines/preview-setting';
 	import AgentDefaultsField from '$lib/features/dev-machines/AgentDefaultsField.svelte';
 	import AutomationsCard from '$lib/features/dev-machines/AutomationsCard.svelte';
+	import MergeMethodsCard from '$lib/features/dev-machines/MergeMethodsCard.svelte';
 	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -39,6 +40,8 @@
 	import {
 		DEFAULT_MACHINE_RESOURCES,
 		DEFAULT_TASK_MACHINE_RESOURCES,
+		DEFAULT_TASK_MACHINE_MAX_TASKS,
+		MAX_TASK_MACHINE_MAX_TASKS,
 		MACHINE_DISK_GB,
 		normalizeMachineResources,
 		resolveMachineSizeOptions
@@ -149,7 +152,7 @@
 				getDevMachinePolicy(slug), getGitHubStatus(slug),
 				getDevMachineScopeSetting(slug, 'workspace'), listDevMachineEnvironments(slug)
 			]);
-			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false, allow_docker: loaded.allow_docker ?? false, allow_sudo: loaded.allow_sudo ?? false, task_machine_cpu_millis: loaded.task_machine_cpu_millis || DEFAULT_TASK_MACHINE_RESOURCES.cpu_millis, task_machine_memory_mb: loaded.task_machine_memory_mb || DEFAULT_TASK_MACHINE_RESOURCES.memory_mb, task_machine_disk_gb: loaded.task_machine_disk_gb || DEFAULT_TASK_MACHINE_RESOURCES.disk_gb };
+			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false, allow_docker: loaded.allow_docker ?? false, allow_sudo: loaded.allow_sudo ?? false, task_machine_cpu_millis: loaded.task_machine_cpu_millis || DEFAULT_TASK_MACHINE_RESOURCES.cpu_millis, task_machine_memory_mb: loaded.task_machine_memory_mb || DEFAULT_TASK_MACHINE_RESOURCES.memory_mb, task_machine_disk_gb: loaded.task_machine_disk_gb || DEFAULT_TASK_MACHINE_RESOURCES.disk_gb, task_machine_max_tasks: loaded.task_machine_max_tasks || DEFAULT_TASK_MACHINE_MAX_TASKS };
 			repositories = policy.allowed_repositories.join('\n');
 			linkedRepositories = github.repos ?? [];
 			environments = availableEnvironments ?? [];
@@ -192,7 +195,8 @@
 				agent_git_email: (policy.agent_git_email ?? '').trim(),
 				task_machine_cpu_millis: taskMachine.cpu_millis,
 				task_machine_memory_mb: taskMachine.memory_mb,
-				task_machine_disk_gb: taskMachine.disk_gb
+				task_machine_disk_gb: taskMachine.disk_gb,
+				task_machine_max_tasks: Math.min(MAX_TASK_MACHINE_MAX_TASKS, Math.max(1, Math.round(Number(policy.task_machine_max_tasks) || DEFAULT_TASK_MACHINE_MAX_TASKS)))
 			});
 			const repository = linkedRepositories.find((item) => item.id === defaultRepositoryId);
 			if (defaultRepositoryId === 'none' && defaultEnvironmentId === 'standard' && command === undefined && defaultAgentProvider === 'inherit' && !defaultAgentInstructions.trim() && !defaultComposeFile.trim() && !defaultPreviewCommand.trim()) {
@@ -301,6 +305,8 @@
 			<div><h2 id="task-machines-title" class="text-sm font-semibold">{m['settings.dev_machines.task_machines']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.task_machines_desc']()}</p></div>
 			<MachineResourceSliders inputId="task-machine" disabled={!canAdmin} sizeOptions={taskMachineSizeOptions} bind:cpu_millis={policy.task_machine_cpu_millis} bind:memory_mb={policy.task_machine_memory_mb} bind:disk_gb={policy.task_machine_disk_gb} />
 			<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.task_machines_split']()}</p>
+			<label class="block space-y-1 sm:max-w-xs"><Label>{m['settings.dev_machines.task_machine_max_tasks']()}</Label><Input type="number" min="1" max={MAX_TASK_MACHINE_MAX_TASKS} step="1" bind:value={policy.task_machine_max_tasks} /></label>
+			<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.task_machine_max_tasks_desc']()}</p>
 		</section>
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
 			<div class="flex items-start justify-between gap-4"><div><h2 class="text-sm font-semibold">{m['settings.dev_machines.environments']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.environments_desc']()}</p></div><Button type="button" variant="outline" onclick={openEnvironmentBuilder} disabled={builderBusy}>{m['settings.dev_machines.new_env']()}</Button></div>
@@ -344,6 +350,7 @@
 		<div class="flex justify-end"><Button type="submit" disabled={saving}>{saving ? m['settings.saving']() : m['settings.dev_machines.save_policy']()}</Button></div>
 		</fieldset>
 	</form>
+	<MergeMethodsCard {slug} repositories={linkedRepositories} disabled={!canAdmin} />
 {/if}
 		</Tabs.Content>
 		{#if canAdmin}

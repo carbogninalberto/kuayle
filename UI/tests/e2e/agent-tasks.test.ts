@@ -32,6 +32,7 @@ async function fixture(page: Page) {
 		signals: [] as any[],
 		changedFiles: [] as string[],
 		diff: '',
+		diffTruncated: false,
 		ports: [] as any[],
 		portLaunches: [] as string[],
 		appStarts: 0,
@@ -281,7 +282,7 @@ async function fixture(page: Page) {
 					body: '<html><script>window.evil=true</script></html>',
 					headers: { 'content-type': 'text/html', 'content-disposition': 'attachment; filename="index.html"' }
 				});
-			if (path.endsWith('/runs/run-1/diff')) return route.fulfill({ json: { diff: state.diff, truncated: false } });
+			if (path.endsWith('/runs/run-1/diff')) return route.fulfill({ json: { diff: state.diff, truncated: state.diffTruncated } });
 			if (path.endsWith('/validation')) return route.fulfill({ json: state.validation });
 			if (path.endsWith('/signals')) return route.fulfill({ json: state.signals });
 			if (path.endsWith('/sessions')) return route.fulfill({ json: { sessions: state.sessions } });
@@ -1120,13 +1121,55 @@ test('opens the attempt diff beside the chat and closes it', async ({ page }) =>
 	await page.getByRole('button', { name: 'View diff' }).click();
 	const panel = page.getByRole('region', { name: 'Changes' });
 	await expect(panel.getByText('src/text.js')).toBeVisible();
-	await expect(panel.getByText('+1', { exact: true })).toBeVisible();
+	await expect(panel.getByTestId('diff-totals')).toHaveText('1 file +1 −1');
+	await expect(panel.getByRole('button', { name: /src\/text\.js/ })).toContainText('+1');
+	const line = panel.getByText('+export const kebab', { exact: false });
+	const search = panel.getByRole('searchbox', { name: 'Search changes' });
+	await search.fill('nomatch');
+	await expect(panel.getByText('No files match “nomatch”.')).toBeVisible();
+	await panel.getByRole('button', { name: 'Clear search' }).click();
+	await expect(search).toHaveValue('');
+	// A search shows matching files expanded, even ones the user collapsed, and bulk
+	// collapse is unavailable while it is active; clearing restores the user's state.
+	await panel.getByRole('button', { name: 'Collapse all files' }).click();
+	await expect(line).not.toBeVisible();
+	await search.fill('kebab');
+	await expect(panel.getByTestId('diff-match-count')).toHaveText('1 of 1 files match');
+	await expect(line).toBeVisible();
+	await expect(panel.getByRole('button', { name: 'Expand all files' })).toBeDisabled();
+	// Collapsing a match during the search lasts only for that query.
+	await panel.getByRole('button', { name: /src\/text\.js/ }).click();
+	await expect(line).not.toBeVisible();
+	await search.fill('keba');
+	await expect(line).toBeVisible();
+	await search.fill('');
+	await expect(line).not.toBeVisible();
+	await panel.getByRole('button', { name: 'Expand all files' }).click();
 	await expect(panel.getByText('+export const kebab = "<script>window.evil=1</script>";')).toBeVisible();
 	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
 	await expect(page.getByRole('separator', { name: 'Resize changes panel' })).toBeVisible();
 	await expect(page.getByRole('textbox', { name: 'Message' })).toBeVisible();
 	await panel.getByRole('button', { name: 'Close changes' }).click();
 	await expect(panel).toHaveCount(0);
+});
+
+test('qualifies diff totals and empty searches when the diff is truncated', async ({ page }) => {
+	const { state, emit: emitState } = await fixture(page);
+	state.changedFiles = ['src/text.js'];
+	state.diffTruncated = true;
+	state.diff = ['diff --git a/src/text.js b/src/text.js', '@@ -1 +1 @@', '-old', '+new', ''].join('\n');
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review' };
+	emitState('task.state_changed', state.task);
+	await page.getByRole('button', { name: 'View diff' }).click();
+	const panel = page.getByRole('region', { name: 'Changes' });
+	const totals = panel.getByTestId('diff-totals');
+	await expect(totals).toContainText('At least 1 file +1 −1');
+	await expect(totals).toContainText('Totals cover only the loaded part of the diff.');
+	await panel.getByRole('searchbox', { name: 'Search changes' }).fill('elsewhere');
+	await expect(panel.getByText('No files match “elsewhere” in the loaded part of the diff.')).toBeVisible();
+	await expect(panel.getByText(/The diff is too large and was cut off/)).toBeVisible();
 });
 
 test('pins a compact task header with every action while the chat scrolls', async ({ page }) => {

@@ -21,7 +21,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 )
 
@@ -280,8 +280,7 @@ func TestDevMachineGetIsCreatorScoped(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machines/"+machineID.String(), nil), recorder, workspaceID, otherID)
 	ctx.SetPath("/dev-machines/:machineId")
-	ctx.SetParamNames("machineId")
-	ctx.SetParamValues(machineID.String())
+	ctx.SetPathValues(echo.PathValues{{Name: "machineId", Value: machineID.String()}})
 
 	require.NoError(t, h.Get(ctx))
 	require.Equal(t, http.StatusNotFound, recorder.Code)
@@ -289,8 +288,7 @@ func TestDevMachineGetIsCreatorScoped(t *testing.T) {
 	recorder = httptest.NewRecorder()
 	ctx = devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machines/"+machineID.String(), nil), recorder, workspaceID, ownerID)
 	ctx.SetPath("/dev-machines/:machineId")
-	ctx.SetParamNames("machineId")
-	ctx.SetParamValues(machineID.String())
+	ctx.SetPathValues(echo.PathValues{{Name: "machineId", Value: machineID.String()}})
 
 	require.NoError(t, h.Get(ctx))
 	require.Equal(t, http.StatusOK, recorder.Code)
@@ -310,8 +308,7 @@ func sendModelServer(t *testing.T, h *DevMachineHandler, method, path, body, rol
 	ctx := devMachineHandlerContext(request, recorder, workspaceID, userID)
 	ctx.Set("workspace_role", role)
 	if serverID != nil {
-		ctx.SetParamNames("serverId")
-		ctx.SetParamValues(serverID.String())
+		ctx.SetPathValues(echo.PathValues{{Name: "serverId", Value: serverID.String()}})
 	}
 	switch {
 	case method == http.MethodGet:
@@ -530,6 +527,43 @@ func TestDevMachinePolicyTaskMachineResources(t *testing.T) {
 	}
 }
 
+// The number of tasks sharing a task machine defaults to 2, is kept when an
+// older client omits it and is refused outside 1 to 4.
+func TestDevMachinePolicyTaskMachineMaxTasks(t *testing.T) {
+	workspaceID := uuid.New()
+	store := &handlerDevMachineStoreFake{}
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	), config.DiskQuotaModeHard)
+	update := func(extra string) *httptest.ResponseRecorder {
+		t.Helper()
+		body := `{"enabled":true,"max_concurrent_machines":5,"max_machines_per_user":2,"max_daily_agent_runs":25,
+			"max_disk_gb":100,"allowed_providers":["opencode"],"allowed_repositories":[]` + extra + `}`
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPatch, "/dev-machine-policy", strings.NewReader(body))
+		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		require.NoError(t, h.UpdatePolicy(devMachineHandlerContext(request, recorder, workspaceID, uuid.New())))
+		return recorder
+	}
+	limit := func(recorder *httptest.ResponseRecorder) int {
+		t.Helper()
+		require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+		var updated domain.DevMachineWorkspacePolicy
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &updated))
+		return updated.TaskMachineMaxTasks
+	}
+	require.Equal(t, 2, limit(update("")), "a new policy shares a machine between two tasks")
+	require.Equal(t, 3, limit(update(`,"task_machine_max_tasks":3`)))
+	require.Equal(t, 3, limit(update("")), "omitting the limit keeps it")
+	require.Equal(t, 1, limit(update(`,"task_machine_max_tasks":1`)), "1 gives every task its own machine")
+	for _, invalid := range []string{"0", "5"} {
+		recorder := update(`,"task_machine_max_tasks":` + invalid)
+		require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+		require.Contains(t, recorder.Body.String(), "task_machine_max_tasks must be from 1 to 4")
+		require.Equal(t, 1, store.policy.TaskMachineMaxTasks, "a rejected update keeps the policy")
+	}
+}
+
 func TestDevMachineCreateRejectsInvalidCustomResources(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	for _, test := range []struct {
@@ -624,8 +658,7 @@ func TestTerminalCloseReturnsAcceptedWhileRuntimeCleanupIsPending(t *testing.T) 
 	recorder := httptest.NewRecorder()
 	ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodPost, "/dev-machines/"+machineID.String()+"/terminal-sessions/"+sessionID.String()+"/close", nil), recorder, workspaceID, userID)
 	ctx.SetPath("/dev-machines/:machineId/terminal-sessions/:sessionId/close")
-	ctx.SetParamNames("machineId", "sessionId")
-	ctx.SetParamValues(machineID.String(), sessionID.String())
+	ctx.SetPathValues(echo.PathValues{{Name: "machineId", Value: machineID.String()}, {Name: "sessionId", Value: sessionID.String()}})
 
 	require.NoError(t, h.CloseTerminalSession(ctx))
 	require.Equal(t, http.StatusAccepted, recorder.Code)
@@ -642,6 +675,7 @@ type handlerDevMachineStoreFake struct {
 	permanentDeleteRequests int
 	terminalCloseOperation  *domain.DevMachineOperation
 	modelServers            []domain.AgentModelServer
+	agentModelDefaults      []domain.AgentModelDefault
 	purge                   *domain.DevMachinePurge
 }
 
@@ -776,7 +810,7 @@ func (f *handlerDevMachineStoreFake) CreateEvent(context.Context, *domain.DevMac
 	return nil
 }
 
-func devMachineHandlerContext(req *http.Request, recorder *httptest.ResponseRecorder, workspaceID, userID uuid.UUID) echo.Context {
+func devMachineHandlerContext(req *http.Request, recorder *httptest.ResponseRecorder, workspaceID, userID uuid.UUID) *echo.Context {
 	e := echo.New()
 	ctx := e.NewContext(req, recorder)
 	ctx.Set("workspace", &domain.Workspace{ID: workspaceID})

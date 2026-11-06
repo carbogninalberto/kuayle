@@ -226,7 +226,22 @@ export type CreateDevMachineInput =
 			disk_gb: number;
 	  });
 
-export type ThinkingLevel = 'off' | 'low' | 'high' | 'max';
+export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+// A coding agent's workspace default for runs on its own sign-in. Empty
+// fields leave the model or effort to the agent.
+export interface AgentModelDefault {
+	provider: string;
+	model: string;
+	thinking: ThinkingLevel | '';
+	thinking_levels: ThinkingLevel[];
+	updated_at?: string;
+}
+
+export interface AgentModelDefaultInput {
+	model: string;
+	thinking: ThinkingLevel | '';
+}
 
 // A workspace model server. Codex uses its OpenAI-compatible URL and Claude
 // Code its Anthropic-compatible URL; `harnesses` lists who can use it. The API
@@ -279,6 +294,8 @@ export interface DevMachinePolicy {
 	task_machine_cpu_millis: number;
 	task_machine_memory_mb: number;
 	task_machine_disk_gb: number;
+	// Active agent tasks sharing one machine before a task gets a new one (1-4).
+	task_machine_max_tasks?: number;
 	disk_quota_mode: 'hard' | 'monitored';
 	size_options?: {
 		cpu_millis: number[];
