@@ -204,6 +204,8 @@ type PullRequest struct {
 	State  string `json:"state"`
 	Draft  bool   `json:"draft"`
 	Merged bool   `json:"merged"`
+	// MergeCommitSHA is the commit a merge created on the base branch.
+	MergeCommitSHA string `json:"merge_commit_sha"`
 	// Mergeable is nil while GitHub is still computing it.
 	Mergeable      *bool      `json:"mergeable"`
 	MergeableState string     `json:"mergeable_state"`

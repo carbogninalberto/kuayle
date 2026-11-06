@@ -52,6 +52,8 @@ type AssistantApprovals struct {
 	pullTargets pullRequestTargets
 	// Releases are unavailable until SetReleases wires them.
 	releases releaseGitHub
+	// ships runs approved ship_pull_request chains in the background.
+	ships *shipRunner
 }
 
 type approvalToolSettings interface {
@@ -114,7 +116,7 @@ func (s *AssistantApprovals) SetPullRequestHeads(heads pullRequestHeadReader) {
 }
 
 func NewAssistantApprovals(conversations *repository.ConversationRepository, tasks approvalTasks) *AssistantApprovals {
-	return &AssistantApprovals{conversations: conversations, tasks: tasks}
+	return &AssistantApprovals{conversations: conversations, tasks: tasks, ships: newShipRunner()}
 }
 
 // Resolve applies a decision. Concurrent or repeated approvals converge on one
@@ -255,6 +257,8 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 		return s.upgradeInstance(ctx, ws, conversation, approval)
 	case "create_release":
 		return s.release(ctx, ws, conversation, approval)
+	case shipAction:
+		return s.ship(ctx, ws, conversation, approval)
 	case "run_custom_tool":
 		return s.runCustomTool(ctx, ws, conversation, approval)
 	case "reply_to_review_comment", "resolve_review_thread", "update_pull_request_branch", "mark_pull_request_ready":
@@ -334,36 +338,51 @@ func (s *AssistantApprovals) merge(ctx context.Context, ws, conversation uuid.UU
 	if s.merger == nil || json.Unmarshal(approval.Payload, &payload) != nil {
 		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "This approval cannot be executed")
 	}
+	task, message, err := s.applyMerge(ctx, ws, approval.ActorID, approval.IssueID, payload)
+	if err != nil {
+		// A transient failure leaves the claim in place; approving again resumes it.
+		return nil, err
+	}
+	return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, task, message)
+}
+
+// applyMerge merges the pull request the actor approved, at the commit they
+// saw, after the merge role check. It returns the merged task, or the reason
+// it did not merge; an error is a failure to reach GitHub or the database.
+func (s *AssistantApprovals) applyMerge(ctx context.Context, ws, actor, issue uuid.UUID, payload domain.MergePayload) (*uuid.UUID, string, error) {
+	if s.merger == nil || s.targets == nil {
+		return nil, "This approval cannot be executed", nil
+	}
 	target, err := s.targets.MergeTarget(ctx, ws, nil, &payload.TaskID)
 	if errors.Is(err, repository.ErrNoMergeTarget) {
-		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "The task is no longer awaiting review")
+		return nil, "The task is no longer awaiting review", nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	published := payload.PublishedCommit
 	if published == "" {
 		published = payload.Commit
 	}
-	if target.IssueID != approval.IssueID || target.Repository != payload.Repository || target.Number != payload.PullRequest || target.Commit != published {
-		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "The pull request changed after approval was requested; ask again")
+	if target.IssueID != issue || target.Repository != payload.Repository || target.Number != payload.PullRequest || target.Commit != published {
+		return nil, "The pull request changed after approval was requested; ask again", nil
 	}
-	refusal, err := authorizeAssistantAction(ctx, s.members, s.system, ws, approval.ActorID, approval.Action, target.CreatorID)
+	refusal, err := authorizeAssistantAction(ctx, s.members, s.system, ws, actor, "merge_pull_request", target.CreatorID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if refusal != "" {
-		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, upperFirst(refusal))
+		return nil, upperFirst(refusal), nil
 	}
 	if s.heads != nil {
 		// Read the head again now that the approver is known to be allowed to
 		// merge: anything pushed since the user saw the card is not approved.
 		head, err := s.heads.ReadPullRequestHead(ctx, ws, target.Repository, target.Number)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if head != payload.Commit {
-			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, fmt.Sprintf("The pull request head moved to %s after approval was requested; ask again to review the new commit", shortSHA(head)))
+			return nil, fmt.Sprintf("The pull request head moved to %s after approval was requested; ask again to review the new commit", shortSHA(head)), nil
 		}
 	}
 	// The merge is pinned to the commit the user saw, so a push that lands after
@@ -375,13 +394,11 @@ func (s *AssistantApprovals) merge(ctx context.Context, ws, conversation uuid.UU
 	if err = s.merger.MergeTaskPullRequest(ctx, ws, target.Repository, target.Number, payload.Commit, method); err != nil {
 		var refused *gh.ErrMergeRefused
 		if errors.As(err, &refused) {
-			message := mergeRefusalMessage(refused.Reason, payload.Commit)
-			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, message)
+			return nil, mergeRefusalMessage(refused.Reason, payload.Commit), nil
 		}
-		// A transient failure leaves the claim in place; approving again resumes it.
-		return nil, err
+		return nil, "", err
 	}
-	return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, &target.TaskID, "")
+	return &target.TaskID, "", nil
 }
 
 // accept completes the approved attempt in Kuayle as the approver, without

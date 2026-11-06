@@ -358,3 +358,32 @@ type PullRequestActionPayload struct {
 	// pull request back to draft, false makes it ready for review.
 	Draft bool `json:"draft"`
 }
+
+// ShipPayload is a ship_pull_request request: one approval for a chain that
+// merges an issue's pull request, waits for the merge commit's checks on the
+// default branch, publishes a release of that commit, waits for the release
+// build and, when asked, upgrades this instance. Each step carries the payload
+// its own tool would have approved. Steps records the progress; the first
+// failed step stops the chain and the steps after it are skipped.
+type ShipPayload struct {
+	Identifier  string          `json:"identifier"`
+	Title       string          `json:"title"`
+	Repository  string          `json:"repository"`
+	PullRequest int             `json:"pull_request"`
+	Merge       MergePayload    `json:"merge"`
+	Release     ReleasePayload  `json:"release"`
+	Upgrade     *UpgradePayload `json:"upgrade,omitempty"`
+	// MergeCommit is the commit the merge created on the default branch, once merged.
+	MergeCommit string     `json:"merge_commit,omitempty"`
+	Steps       []ShipStep `json:"steps"`
+}
+
+// ShipStep is one step of a ship_pull_request chain. Step is merge, tests,
+// release, build or upgrade; Status is pending, running, done, failed or
+// skipped (never run because an earlier step failed). Detail is what happened.
+type ShipStep struct {
+	Step   string `json:"step"`
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+	URL    string `json:"url,omitempty"`
+}

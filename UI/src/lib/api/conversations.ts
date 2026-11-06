@@ -281,6 +281,27 @@ export interface ReleasePayload {
 	compare_url?: string;
 	release_url: string;
 }
+// A ship_pull_request chain: one approval for merging an issue's pull request,
+// waiting for its tests, publishing a release (notes editable until approved),
+// waiting for the release build and, when asked, upgrading the instance. The
+// steps record its progress; after a failed step the rest are skipped.
+export interface ShipStep {
+	step: 'merge' | 'tests' | 'release' | 'build' | 'upgrade';
+	status: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
+	detail?: string;
+	url?: string;
+}
+export interface ShipPayload {
+	identifier: string;
+	title: string;
+	repository: string;
+	pull_request: number;
+	merge: MergePayload;
+	release: ReleasePayload;
+	upgrade?: UpgradePayload;
+	merge_commit?: string;
+	steps: ShipStep[];
+}
 // GitHub App access an action needs but the installation lacks; any approval payload may carry it.
 export interface GitHubAccessGap {
 	missing: { name: string; level: string }[];
@@ -288,7 +309,7 @@ export interface GitHubAccessGap {
 	unverified?: boolean;
 	message: string;
 }
-// What the approver set on the card: a model choice, or a release's edited notes.
+// What the approver set on the card: a model choice, or a release's (or a chain's) edited notes.
 export interface ApprovalEdit extends ApprovalModelChoice {
 	notes?: string;
 }
@@ -309,6 +330,7 @@ export type ConversationApproval = ApprovalBase &
 		| { action: 'update_pull_request_branch'; payload: PullRequestActionPayload }
 		| { action: 'mark_pull_request_ready'; payload: PullRequestActionPayload }
 		| { action: 'create_release'; payload: ReleasePayload }
+		| { action: 'ship_pull_request'; payload: ShipPayload }
 	);
 interface ApprovalBase {
 	id: string;

@@ -204,3 +204,49 @@ func WithFinishTransition(ctx context.Context) (context.Context, *bool) {
 	flag := new(bool)
 	return context.WithValue(ctx, finishTransitionKey{}, flag), flag
 }
+
+// RecordApprovalProgress stores the progress of a claimed approval's effect in
+// its payload and tells the conversation's clients. Only an approval still
+// `approving` and bound to the actor in ctx can be updated.
+func (r *ConversationRepository) RecordApprovalProgress(ctx context.Context, ws, conversation, id uuid.UUID, payload json.RawMessage) (*domain.ConversationApproval, error) {
+	actor, err := conversationActor(ctx, ws)
+	if err != nil {
+		return nil, err
+	}
+	tx, _, err := r.authorized(ctx, ws, conversation)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	approval, err := lockApproval(ctx, tx, conversation, id, actor)
+	if err != nil {
+		return nil, err
+	}
+	if approval.Status != "approving" {
+		return nil, ErrConversationConflict
+	}
+	if err = tx.GetContext(ctx, approval, `UPDATE conversation_approvals SET payload=$2,updated_at=now() WHERE id=$1 RETURNING *`, id, payload); err != nil {
+		return nil, err
+	}
+	if _, err = conversationEvent(ctx, tx, approval.ConversationID, "approval.updated", approval); err != nil {
+		return nil, err
+	}
+	return approval, tx.Commit()
+}
+
+// ClaimedApproval names an approval whose effect was claimed but not finished.
+type ClaimedApproval struct {
+	ID             uuid.UUID `db:"id"`
+	ConversationID uuid.UUID `db:"conversation_id"`
+	WorkspaceID    uuid.UUID `db:"workspace_id"`
+	ActorID        uuid.UUID `db:"actor_id"`
+}
+
+// ClaimedApprovals lists the approvals of an action still `approving`, so a
+// restarted server can resume their effect as their actor. Resuming goes
+// through the usual claim, which re-checks access.
+func (r *ConversationRepository) ClaimedApprovals(ctx context.Context, action string) ([]ClaimedApproval, error) {
+	claimed := []ClaimedApproval{}
+	err := r.db.SelectContext(ctx, &claimed, `SELECT a.id,a.conversation_id,c.workspace_id,a.actor_id FROM conversation_approvals a JOIN conversations c ON c.id=a.conversation_id WHERE a.action=$1 AND a.status='approving' ORDER BY a.updated_at LIMIT 100`, action)
+	return claimed, err
+}
