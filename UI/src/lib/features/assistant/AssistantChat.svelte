@@ -49,6 +49,9 @@
 	import ScrollerHandle from './ScrollerHandle.svelte';
 	import TaskComposer from './TaskComposer.svelte';
 	import TaskStep from './TaskStep.svelte';
+	import AgentThread from './AgentThread.svelte';
+	import { indicatorDot } from './task-tone';
+	import { taskLabel } from './task-labels';
 	import AssistantSidebar from './AssistantSidebar.svelte';
 	import SidePanelHost from './panels/SidePanelHost.svelte';
 	import OverviewPanel from './panels/OverviewPanel.svelte';
@@ -59,6 +62,7 @@
 		conversationIndicator,
 		isMessageableTask,
 		placeByTime,
+		taskIndicator,
 		visibleHistory,
 		type TaskIndicator
 	} from './shell-rules';
@@ -183,6 +187,51 @@
 	// A task asked for (step, background row, ?task=) opens the agents panel.
 	$effect(() => {
 		if (chat.focusedTask && chat.issue) untrack(() => host.open('agent'));
+	});
+	// ── Agent view: the centre column shows one coding task's agent thread.
+	// The URL names it (?agent=<task id or issue identifier>), so reloads and
+	// links open the same view; leaving it returns to the assistant chat.
+	const agentTasksList = $derived(
+		board?.tasks ??
+			Object.values(chat.liveTasks).sort(
+				(a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id.localeCompare(a.id)
+			)
+	);
+	const agentParam = $derived(page.url.searchParams.get('agent'));
+	const agentTask = $derived.by(() => {
+		if (!agentParam) return undefined;
+		const byId = chat.liveTasks[agentParam];
+		if (byId) return byId;
+		return chat.issue && agentParam.toLowerCase() === chat.issue.identifier.toLowerCase()
+			? agentTasksList[0]
+			: undefined;
+	});
+	const agentView = $derived(!!agentParam && !!conversationId);
+	const assistantHref = $derived(
+		conversationId ? `/${slug}/assistant?conversation=${encodeURIComponent(conversationId)}` : `/${slug}/assistant`
+	);
+	function openAgent(task: AgentTask) {
+		const url = new URL(page.url);
+		url.searchParams.set('agent', task.id);
+		url.searchParams.delete('task');
+		void goto(`${url.pathname}${url.search}`, { keepFocus: true, noScroll: true });
+	}
+	function closeAgent() {
+		void goto(assistantHref, { keepFocus: true, noScroll: true });
+	}
+	// While an agent's view is open the composer writes to that agent; the
+	// person can still switch it back with the "Send to" chip.
+	const agentViewTarget = $derived(
+		agentTask && agentTask.kind !== 'review' && isMessageableTask(agentTask.state) ? agentTask.id : null
+	);
+	let viewTarget: string | null = null;
+	$effect(() => {
+		const id = agentViewTarget;
+		untrack(() => {
+			if (id) chat.composerTarget = id;
+			else if (viewTarget && chat.composerTarget === viewTarget) chat.composerTarget = null;
+			viewTarget = id;
+		});
 	});
 	const requestedTask = untrack(() => page.url.searchParams.get('task'));
 	$effect(() => {
@@ -705,6 +754,7 @@
 					class="hidden shrink-0 rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground sm:inline"
 					href="/{slug}/issue/{encodeURIComponent(chat.issue.identifier)}">{chat.issue.identifier}</a
 				>{/if}
+			{#if agentTasksList.length && chat.issue}{@render agentSwitch()}{/if}
 		</div>
 		{#if conversationId && !firstLoad && !chat.unavailable}<LiveStatus
 				connected={chat.connected}
@@ -726,6 +776,66 @@
 			{/each}
 		</div>
 	</header>
+{/snippet}
+
+{#snippet statusDot(task: AgentTask)}
+	<span
+		role="img"
+		aria-label={taskLabel(task.state)}
+		class="size-2 shrink-0 rounded-full {indicatorDot[taskIndicator(task.state) ?? 'done']}"
+	></span>
+{/snippet}
+
+{#snippet agentSwitch()}
+	{@const label = m['assistant.agent_view_button']({ identifier: chat.issue?.identifier ?? '' })}
+	{@const shownTask = agentTask ?? agentTasksList[0]}
+	{#if agentTasksList.length === 1}
+		<Button
+			variant={agentView ? 'secondary' : 'outline'}
+			size="sm"
+			class="h-7 max-w-[60%] min-w-0 shrink gap-1.5 rounded-full px-2.5 text-xs"
+			aria-pressed={agentView}
+			onclick={() => (agentView ? closeAgent() : openAgent(agentTasksList[0]))}
+			><Bot size={13} /><span class="truncate">{label}</span>{@render statusDot(shownTask)}</Button
+		>
+	{:else}
+		<DropdownMenu.Root>
+			<DropdownMenu.Trigger>
+				{#snippet child({ props })}
+					<Button
+						{...props}
+						variant={agentView ? 'secondary' : 'outline'}
+						size="sm"
+						class="h-7 max-w-[60%] min-w-0 shrink gap-1.5 rounded-full px-2.5 text-xs"
+						><Bot size={13} /><span class="truncate">{label}</span>{@render statusDot(shownTask)}<ChevronDown
+							size={12}
+							class="text-muted-foreground"
+						/></Button
+					>
+				{/snippet}
+			</DropdownMenu.Trigger>
+			<DropdownMenu.Content align="start" class="w-72">
+				<DropdownMenu.Label class="text-xs font-normal text-muted-foreground"
+					>{m['assistant.agent_view_choose']()}</DropdownMenu.Label
+				>
+				{#each agentTasksList as task (task.id)}<DropdownMenu.CheckboxItem
+						checked={agentView && agentTask?.id === task.id}
+						onCheckedChange={() => openAgent(task)}
+						>{@render statusDot(task)}<span class="truncate"
+							>{m['assistant.agent_view_option']({
+								identifier: chat.issue?.identifier ?? '',
+								agent: agentName(task),
+								attempt: m['tasks.attempt']({ number: task.generation }),
+								state: taskLabel(task.state)
+							})}</span
+						></DropdownMenu.CheckboxItem
+					>{/each}
+				{#if agentView}<DropdownMenu.Separator /><DropdownMenu.Item onSelect={closeAgent}
+						><MessageCircle />{m['assistant.target_back']()}</DropdownMenu.Item
+					>{/if}
+			</DropdownMenu.Content>
+		</DropdownMenu.Root>
+	{/if}
 {/snippet}
 
 {#snippet userMessage(message: (typeof chat.messages)[number])}
@@ -809,10 +919,7 @@
 		{#if item.kind === 'agent'}<AgentChatMessage message={item.message} {slug} />{:else}<TaskStep
 				task={item.task}
 				identifier={chat.issue?.identifier ?? ''}
-				onopen={() => {
-					chat.focusedTask = item.task.id;
-					host.open('agent');
-				}}
+				onopen={() => openAgent(item.task)}
 				onretry={board ? () => board?.retry(item.task) : undefined}
 			/>{/if}
 	</MessageScroller.Item>
@@ -828,6 +935,9 @@
 					{m['assistant.configure']()} <a class="underline" href="/{slug}/settings/ai">{m['assistant.settings']()}</a>
 				</p>{/if}
 			{#if attachments.notice}<p role="alert" class="mb-2 text-sm text-destructive">{attachments.notice}</p>{/if}
+			{#if agentView && agentTask && !agentViewTarget}<p class="mb-1.5 text-xs text-muted-foreground" role="status">
+					{m['assistant.agent_view_finished']()}
+				</p>{/if}
 			{#if toAgent && targetTask}
 				<div
 					class="mb-1.5 flex min-w-0 items-center gap-2 rounded-lg border border-[var(--status-running)]/40 bg-[var(--status-running)]/5 px-3 py-1.5 text-xs"
@@ -1023,6 +1133,27 @@
 				<ScrollerHandle bind:scroller />
 				<MessageScroller.Root>
 					<MessageScroller.Viewport aria-label={m['assistant.messages']()}>
+						{#if agentView}<MessageScroller.Content class="mx-auto w-full max-w-3xl gap-6 px-4 py-6 md:px-6">
+								<section aria-label={m['assistant.agent_view_label']({ identifier: chat.issue?.identifier ?? '' })}>
+									{#if agentTask}{#key agentTask.id}<AgentThread
+												{chat}
+												task={agentTask}
+												backHref={assistantHref}
+												onback={closeAgent}
+											/>{/key}{:else if firstLoad || (chat.issue && !chat.unavailable && (!board || board.loading))}<p
+											class="text-sm text-muted-foreground"
+											role="status"
+										>
+											{m['assistant.loading']()}
+										</p>{:else}<div class="space-y-3">
+											<p role="alert" class="text-sm text-muted-foreground">{m['assistant.agent_view_missing']()}</p>
+											<Button variant="outline" size="sm" href={assistantHref}
+												><MessageCircle />{m['assistant.target_back']()}</Button
+											>
+										</div>{/if}
+								</section>
+							</MessageScroller.Content>
+						{:else}
 						{#if chat.hasMore && !shown.hidden}<div class="mx-auto w-full max-w-3xl px-4 pt-3 md:px-6">
 								<Button variant="ghost" class="w-full" disabled={chat.loadingOlder} onclick={() => void chat.older()}
 									>{chat.loadingOlder ? m['assistant.loading']() : m['assistant.older']()}</Button
@@ -1087,6 +1218,7 @@
 							{/each}
 							{#each timeline.after as item (item.id)}{@render timelineItem(item)}{/each}
 						</MessageScroller.Content>
+						{/if}
 					</MessageScroller.Viewport>
 					<MessageScroller.Button aria-label={m['assistant.latest']()}
 						><ArrowDown size={16} /><span class="sr-only">{m['assistant.latest']()}</span></MessageScroller.Button

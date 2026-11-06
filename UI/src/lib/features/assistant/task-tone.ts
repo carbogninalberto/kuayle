@@ -48,3 +48,11 @@ export const toneBadge: Record<TaskTone, string> = {
 	error: 'border-transparent bg-[var(--status-error)]/15 text-[var(--status-error)]',
 	neutral: 'text-muted-foreground'
 };
+
+// The status dot of a task row: running, waiting for you, failed, or done.
+export const indicatorDot: Record<'running' | 'waiting' | 'failed' | 'done', string> = {
+	running: 'bg-[var(--status-running)] animate-pulse motion-reduce:animate-none',
+	waiting: 'bg-[var(--status-warning)]',
+	failed: 'bg-[var(--status-error)]',
+	done: 'bg-muted-foreground/40'
+};

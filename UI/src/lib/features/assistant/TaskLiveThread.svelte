@@ -97,6 +97,13 @@
 						>
 							{message.body}
 						</p>
+						<!-- A question is answered right where it was asked. -->
+						{#if fromAgent && message.kind === 'question' && open}<Button
+								size="sm"
+								variant={targeted ? 'secondary' : 'outline'}
+								class="h-7 text-xs"
+								onclick={reply}><Reply />{m['tasks.live_answer']()}</Button
+							>{/if}
 						{#if message.state === 'rejected' && message.reject_reason}<p class="text-xs text-muted-foreground">
 								{m['tasks.live_rejected_reason']({ reason: message.reject_reason })}
 							</p>{/if}

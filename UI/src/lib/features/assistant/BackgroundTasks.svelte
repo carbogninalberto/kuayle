@@ -5,7 +5,8 @@
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import type { AgentQueueItem, AgentTask } from '$lib/api/agent-tasks';
 	import { taskLabel } from './task-labels';
-	import { formatDuration, splitBackgroundTasks, taskIndicator, type TaskIndicator } from './shell-rules';
+	import { formatDuration, splitBackgroundTasks, taskIndicator } from './shell-rules';
+	import { indicatorDot } from './task-tone';
 	import { m } from '$lib/paraglide/messages.js';
 
 	// The person's agent work across conversations, one row per task. Running,
@@ -27,14 +28,10 @@
 	let finishedOpen = $state(false);
 	const split = $derived(splitBackgroundTasks(items, live));
 	const shown = $derived(showAll ? split.open : split.open.slice(0, limit));
-	const dot: Record<TaskIndicator | 'done', string> = {
-		running: 'bg-[var(--status-running)] animate-pulse motion-reduce:animate-none',
-		waiting: 'bg-[var(--status-warning)]',
-		failed: 'bg-[var(--status-error)]',
-		done: 'bg-muted-foreground/40'
-	};
+	const dot = indicatorDot;
+	// Each row opens the task's agent thread in the centre column.
 	const href = (item: AgentQueueItem) =>
-		`/${slug}/assistant?conversation=${encodeURIComponent(item.conversation_id)}&task=${encodeURIComponent(item.id)}`;
+		`/${slug}/assistant?conversation=${encodeURIComponent(item.conversation_id)}&agent=${encodeURIComponent(item.id)}`;
 	const ago = (value: string) => {
 		const ms = Date.now() - Date.parse(value);
 		return Number.isFinite(ms) && ms >= 0 ? formatDuration(Math.max(ms, 60_000)).replace(/ \d+s$/, '') : '';

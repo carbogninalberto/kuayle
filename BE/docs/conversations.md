@@ -209,6 +209,25 @@ the "N finished" row. Each task shows "Iteration N" with why it started (first
 run, review changes, CI follow-up, your follow-up, retry after failure),
 derived from its recorded transitions and follow-up signals.
 
+**Agent view.** When an issue chat has coding tasks, the top bar offers
+"Agent · ENG-1" (a menu with status dots when there are several). It swaps
+the centre column to that task's agent thread, named in the URL
+(`?conversation=…&agent=<task id or issue identifier>`, an identifier picks the
+newest task), with a breadcrumb back to the assistant; the task's step in the
+transcript and its Background tasks row open the same view. While it is open
+the one composer is aimed at that agent (live if running, otherwise read at
+its next iteration) and a question's answer button sits under the question.
+The readable session is parsed in the browser from the run's recorded log
+chunks (the same `/runs/:runId/logs` pages the task card reads, refreshed on
+`task.activity`) by [agent-transcript.ts](../../UI/src/lib/features/assistant/agent-transcript.ts):
+Claude Code stream-json and Codex `exec --json` become agent messages
+(sanitized Markdown), one-line tool chips paired with their results by id
+(expandable, long results behind "show more", failures marked), "Thought for
+Ns" markers without signatures and a compact session header; consecutive
+calls fold into "Ran N commands". Oversized or limit-truncated lines say so,
+unknown events and plain output stay visible as escaped text, and "Raw" shows
+the original output. The task card's Execution output uses the same view.
+
 Focused checks, in addition to the repository testing skill's area checks:
 
 ```sh

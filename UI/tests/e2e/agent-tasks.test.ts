@@ -61,7 +61,9 @@ async function fixture(page: Page) {
 		chatAgentMessages: [] as any[],
 		messageQueries: [] as string[],
 		messageActions: [] as string[],
-		providers: [{ id: 'codex', display_name: 'Codex', supported_modes: ['autonomous'], custom: false }] as any[]
+		providers: [{ id: 'codex', display_name: 'Codex', supported_modes: ['autonomous'], custom: false }] as any[],
+		// More tasks of the same conversation, listed only (their routes are not served).
+		otherTasks: [] as any[]
 	};
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
 	await page.routeWebSocket('**/conversations/chat-1/stream*', (socket) => state.sockets.push(socket));
@@ -142,7 +144,7 @@ async function fixture(page: Page) {
 				}
 				return route.fulfill({ status: 202, json: state.task });
 			}
-			return route.fulfill({ json: { tasks: state.task ? [state.task] : [] } });
+			return route.fulfill({ json: { tasks: [...(state.task ? [state.task] : []), ...state.otherTasks] } });
 		}
 		if (path.endsWith('/events'))
 			return route.fulfill({ json: state.events.filter((e) => e.cursor > Number(url.searchParams.get('after') ?? 0)) });
@@ -1249,7 +1251,10 @@ test('the task stays in view beside the chat while the conversation scrolls', as
 	const step = page.getByRole('group', { name: 'Agent task for ENG-1' });
 	await expect(step).toContainText('Awaiting review');
 	await step.getByRole('button', { name: 'Open thread' }).click();
-	await expect(page.getByRole('article', { name: 'Coding task' })).toBeInViewport();
+	// It opens the agent's thread in the centre; the panel keeps the task.
+	await expect(page).toHaveURL(/[?&]agent=task-1/);
+	await expect(page.getByRole('navigation', { name: 'Location' })).toContainText('ENG-1 · Iteration 1');
+	await expect(tasks).toBeVisible();
 	await tasks.getByRole('button', { name: 'View diff' }).click();
 	await expect(page.getByRole('region', { name: 'Changes' })).toBeVisible();
 });
@@ -1752,4 +1757,304 @@ test('each iteration says why it started: a retry after failure and review chang
 	await expect(page.getByRole('article', { name: 'Coding task' }).getByTestId('iteration-reason')).toHaveText(
 		'review changes'
 	);
+});
+
+// A Claude Code run as the manager stores it: one log chunk per native line.
+function claudeRun() {
+	const at = (second: number) => `2026-10-26T10:01:${String(second).padStart(2, '0')}Z`;
+	const lines: [any, number, boolean?][] = [
+		[
+			{
+				type: 'system',
+				subtype: 'init',
+				cwd: '/workspace/repo',
+				model: 'claude-opus-5-5',
+				claude_code_version: '2.3.1'
+			},
+			0
+		],
+		[
+			{
+				type: 'assistant',
+				message: { content: [{ type: 'thinking', thinking: '', signature: 'SIGNATURE-NEVER-SHOWN' }] },
+				thinking_duration_ms: 2400
+			},
+			1
+		],
+		[
+			{
+				type: 'assistant',
+				message: {
+					content: [
+						{
+							type: 'tool_use',
+							id: 'toolu_1',
+							name: 'Bash',
+							input: { command: 'cat AGENTS/SKILLS.md', description: 'Read skills index and tools' }
+						}
+					]
+				}
+			},
+			2
+		],
+		[
+			{
+				type: 'assistant',
+				message: { content: [{ type: 'tool_use', id: 'toolu_2', name: 'Bash', input: { command: 'npm test' } }] }
+			},
+			2
+		],
+		[
+			{
+				type: 'user',
+				message: {
+					content: [
+						{
+							tool_use_id: 'toolu_1',
+							type: 'tool_result',
+							content: '# Skill index\n<img src=x onerror="window.pwned=1">',
+							is_error: false
+						}
+					]
+				}
+			},
+			5
+		],
+		[
+			{
+				type: 'user',
+				message: { content: [{ tool_use_id: 'toolu_2', type: 'tool_result', content: '1 failing', is_error: true }] }
+			},
+			9
+		],
+		['[Oversized output line omitted]', 10, true],
+		[
+			{
+				type: 'assistant',
+				message: { content: [{ type: 'text', text: 'Up to date with main; next migration is **000116**.' }] }
+			},
+			11
+		]
+	];
+	return lines.map(([value, second, truncated], i) => ({
+		id: i + 1,
+		agent_run_id: 'run-1',
+		stream: 'stdout',
+		sequence: i + 1,
+		content: (typeof value === 'string' ? value : JSON.stringify(value)) + '\n',
+		truncated: !!truncated,
+		created_at: at(second)
+	}));
+}
+
+const runningTask = (over: any = {}) => ({
+	id: 'task-1',
+	workspace_id: 'workspace-1',
+	conversation_id: 'chat-1',
+	creator_id: 'user-1',
+	issue_id: 'issue-1',
+	team_id: 'team-1',
+	prompt: 'Implement search',
+	provider: 'claude-code',
+	model: 'claude-opus-5-5',
+	thinking: 'high',
+	state: 'running',
+	reason: 'Native coding harness started',
+	generation: 1,
+	failure_count: 0,
+	machine_id: 'machine-1',
+	checkout_id: 'checkout-1',
+	run_id: 'run-1',
+	created_at: '2026-10-26T10:00:00Z',
+	updated_at: '2026-10-26T10:00:00Z',
+	...over
+});
+
+test('the top bar opens the agent thread as a readable session, linked by the URL', async ({ page }, testInfo) => {
+	const { state, emit } = await fixture(page);
+	state.task = runningTask();
+	state.logs = claudeRun();
+	await page.goto('/test/assistant?conversation=chat-1');
+	const target = page.getByRole('button', { name: /^Send to: / });
+	await expect(target).toHaveAccessibleName('Send to: Assistant');
+	const toggle = page.getByRole('button', { name: /^Agent · ENG-1/ });
+	await expect(toggle.getByRole('img', { name: 'Running' })).toBeAttached();
+	await toggle.click();
+	await expect(page).toHaveURL(/conversation=chat-1&agent=task-1/);
+	await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+	const crumbs = page.getByRole('navigation', { name: 'Location' });
+	await expect(crumbs).toContainText('ENG-1 · Iteration 1');
+
+	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+	const session = thread.getByRole('region', { name: 'Agent session' });
+	// The header, thinking marker and the agent's message as Markdown.
+	await expect(session.getByLabel('Session details')).toContainText('claude-opus-5-5');
+	await expect(session.getByLabel('Session details')).toContainText('Claude Code 2.3.1');
+	await expect(session.getByLabel('Session details')).toContainText('/workspace/repo');
+	await expect(session.getByText('Thought for 2s')).toBeVisible();
+	await expect(session.getByRole('article', { name: 'Agent' }).locator('strong')).toHaveText('000116');
+	await expect(session.getByText('Output too large to show')).toBeVisible();
+	await expect(page.getByText('SIGNATURE-NEVER-SHOWN')).toHaveCount(0);
+	// Consecutive calls fold into one row; each opens to its command and result.
+	const group = session.getByRole('button', { name: /Ran 2 commands/ });
+	await expect(group).toContainText('1 failed');
+	await group.click();
+	const chip = session.getByRole('button', { name: /Read skills index and tools/ });
+	await expect(chip).toContainText('3s');
+	await chip.click();
+	await expect(session.getByText('cat AGENTS/SKILLS.md')).toBeVisible();
+	await expect(session.getByText('<img src=x onerror="window.pwned=1">', { exact: false })).toBeVisible();
+	await expect(session.locator('img')).toHaveCount(0);
+	expect(await page.evaluate(() => (window as any).pwned)).toBeUndefined();
+	const failed = session.getByRole('button', { name: /Bash: npm test/ });
+	await expect(failed).toHaveAccessibleName(/^Failed: /);
+	await failed.click();
+	await expect(session.getByText('1 failing')).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('agent-view-desktop.png'), fullPage: true });
+
+	// The composer writes to this agent while its thread is open.
+	await expect(target).toHaveAccessibleName('Send to: ENG-1 · Claude Code agent');
+	await expect(page.getByText('Messages go to the Claude Code agent of ENG-1, not to the assistant.')).toBeVisible();
+	const composer = page.getByRole('textbox', { name: 'Write to the agent' });
+	await composer.fill('Keep the old route');
+	await composer.press('Enter');
+	await expect.poll(() => state.liveSends).toEqual(['Keep the old route']);
+	await expect(
+		thread.getByRole('region', { name: 'Live messages' }).getByRole('listitem', { name: 'You' })
+	).toContainText('Waiting for the agent');
+
+	// New output streams in.
+	state.logs = [
+		...state.logs,
+		{
+			id: 9,
+			agent_run_id: 'run-1',
+			stream: 'stdout',
+			sequence: 9,
+			content:
+				JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Tests pass now.' }] } }) + '\n',
+			truncated: false,
+			created_at: '2026-10-26T10:01:20Z'
+		}
+	];
+	emit('task.activity', {
+		task_id: 'task-1',
+		run_id: 'run-1',
+		log_id: 9,
+		stream: 'stdout',
+		truncated: false,
+		events: []
+	});
+	await expect(session.getByText('Tests pass now.')).toBeVisible();
+
+	// Raw keeps the original output for debugging.
+	const raw = session.getByRole('button', { name: 'Raw', exact: true });
+	await raw.click();
+	await expect(raw).toHaveAttribute('aria-pressed', 'true');
+	await expect(session.getByText('"subtype":"init"', { exact: false })).toBeVisible();
+	await expect(session.getByText('Thought for 2s')).toHaveCount(0);
+	await raw.click();
+	await expect(session.getByText('Thought for 2s')).toBeVisible();
+
+	// A reload opens the same view; the breadcrumb goes back to the assistant.
+	await page.reload();
+	await expect(page.getByRole('navigation', { name: 'Location' })).toContainText('ENG-1 · Iteration 1');
+	await expect(page.getByRole('region', { name: 'Agent session' }).getByText('Tests pass now.')).toBeVisible();
+	await page.getByRole('navigation', { name: 'Location' }).getByRole('link', { name: 'Assistant' }).click();
+	await expect(page).not.toHaveURL(/agent=/);
+	await expect(page.getByRole('navigation', { name: 'Location' })).toHaveCount(0);
+	await expect(page.getByRole('group', { name: 'Agent task for ENG-1' })).toBeVisible();
+	await expect(target).toHaveAccessibleName('Send to: Assistant');
+});
+
+test('a question from the agent is answered right under it in the agent view', async ({ page }, testInfo) => {
+	const { state } = await fixture(page);
+	state.task = runningTask({ provider: 'codex', model: 'deepseek-flash' });
+	state.liveMessages = [agentQuestion];
+	state.logs = [
+		{
+			id: 1,
+			agent_run_id: 'run-1',
+			stream: 'stdout',
+			sequence: 1,
+			content:
+				[
+					{ type: 'thread.started', thread_id: 'thread-1' },
+					{
+						type: 'item.completed',
+						item: {
+							id: 'i1',
+							type: 'command_execution',
+							command: "bash -lc 'rg -n search'",
+							aggregated_output: 'src/a.ts',
+							exit_code: 0,
+							status: 'completed'
+						}
+					},
+					{ type: 'item.completed', item: { id: 'i2', type: 'agent_message', text: 'Found the router.' } }
+				]
+					.map((event) => JSON.stringify(event))
+					.join('\n') + '\n',
+			truncated: false,
+			created_at: '2026-10-26T10:01:00Z'
+		}
+	];
+	// The issue identifier is a deep link to the conversation's newest task.
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.goto('/test/assistant?conversation=chat-1&agent=ENG-1');
+	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+	await expect(thread.getByRole('button', { name: /rg -n search/ })).toBeVisible();
+	await expect(thread.getByRole('article', { name: 'Agent' })).toContainText('Found the router.');
+	const question = thread.getByRole('region', { name: 'Live messages' }).getByRole('listitem', { name: 'Agent' });
+	await expect(question).toContainText('Keep the v1 route?');
+	// Pointed elsewhere first, the answer button aims the composer back at the agent.
+	await page.getByRole('button', { name: 'Back to assistant' }).click();
+	await expect(page.getByRole('button', { name: /^Send to: / })).toHaveAccessibleName('Send to: Assistant');
+	await question.getByRole('button', { name: 'Answer the question' }).click();
+	await expect(page.getByRole('button', { name: /^Send to: / })).toHaveAccessibleName('Send to: ENG-1 · Codex agent');
+	await expect(page.getByRole('textbox', { name: 'Write to the agent' })).toBeFocused();
+	for (const dark of [false, true]) {
+		await page.evaluate((d) => {
+			document.documentElement.classList.toggle('dark', d);
+			document.documentElement.setAttribute('data-theme', d ? 'dark' : 'light');
+		}, dark);
+		expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+		await page.screenshot({ path: testInfo.outputPath(`agent-view-390-${dark ? 'dark' : 'light'}.png`) });
+	}
+});
+
+test('several agent tasks are offered in a menu with their status', async ({ page }) => {
+	const { state } = await fixture(page);
+	state.task = runningTask({ state: 'waiting_input', reason: 'Waiting for your answer', generation: 3 });
+	state.otherTasks = [
+		runningTask({
+			id: 'task-2',
+			run_id: 'run-9',
+			state: 'failed',
+			reason: 'Execution failed',
+			provider: 'codex',
+			created_at: '2026-10-26T09:00:00Z',
+			updated_at: '2026-10-26T09:30:00Z'
+		})
+	];
+	state.logs = claudeRun();
+	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByRole('button', { name: /^Agent · ENG-1/ }).click();
+	const waiting = page.getByRole('menuitemcheckbox', { name: /ENG-1 · Claude Code · Iteration 3/ });
+	await expect(waiting.getByRole('img', { name: 'Waiting for input' })).toBeAttached();
+	const failed = page.getByRole('menuitemcheckbox', { name: /ENG-1 · Codex · Iteration 1/ });
+	await expect(failed.getByRole('img', { name: 'Failed' })).toBeAttached();
+	await waiting.click();
+	await expect(page).toHaveURL(/agent=task-1/);
+	await expect(page.getByRole('navigation', { name: 'Location' })).toContainText('ENG-1 · Iteration 3');
+	await expect(page.getByRole('region', { name: 'Agent session' }).getByText('Thought for 2s')).toBeVisible();
+});
+
+test('an unknown agent in the link says so and leads back to the assistant', async ({ page }) => {
+	const { state } = await fixture(page);
+	state.task = runningTask();
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-404');
+	await expect(page.getByText('This agent task is not part of this conversation.')).toBeVisible();
+	await page.getByRole('link', { name: 'Back to assistant' }).click();
+	await expect(page).not.toHaveURL(/agent=/);
 });
