@@ -324,6 +324,8 @@
 	}
 
 	function openCreateIssue() {
+		// Settings pages offer no issue creation, whichever entry point asks for it.
+		if (isWorkspaceSettingsPath(page.url.pathname)) return;
 		if (teams.length === 0) {
 			showCreateTeam = true;
 		} else {
@@ -617,7 +619,7 @@
 	</div>
 
 	{#if showCommandPalette}
-		<CommandPalette {slug} {teams} onclose={() => (showCommandPalette = false)} oncreateissue={openCreateIssue} />
+		<CommandPalette {slug} {teams} onclose={() => (showCommandPalette = false)} oncreateissue={isSettings ? undefined : openCreateIssue} />
 	{/if}
 
 	<CreateIssueDialog

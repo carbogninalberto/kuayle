@@ -40,6 +40,28 @@ async function focusPage(page: Page) {
 	await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 }
 
+function commandPalette(page: Page) {
+	const input = page.getByPlaceholder('Type a command or search...');
+	return { input, root: page.locator('div.fixed.inset-0').filter({ has: input }) };
+}
+
+/** Opens the palette with a key, checks it offers no issue creation, and closes it. */
+async function expectPaletteWithoutCreate(page: Page, key: string) {
+	const palette = commandPalette(page);
+	await focusPage(page);
+	await page.keyboard.press(key);
+	await expect(palette.input).toBeVisible();
+	await expect(palette.root.getByText('Go to Inbox', { exact: true })).toBeVisible();
+	await expect(palette.root.getByText('Create issue', { exact: true })).toHaveCount(0);
+	// Searching for it and confirming must not create anything either.
+	await palette.input.fill('create');
+	await page.keyboard.press('Enter');
+	await page.waitForTimeout(200);
+	await expect(createDialogTitle(page)).toHaveCount(0);
+	await page.keyboard.press('Escape');
+	await expect(palette.input).toHaveCount(0);
+}
+
 async function waitForTeams(page: Page) {
 	await expect(page.locator('nav').getByText('Engineering', { exact: true }).first()).toBeVisible();
 }
@@ -57,6 +79,10 @@ test('settings pages ignore the create shortcut and keep native paste', async ({
 	await page.keyboard.press('ControlOrMeta+v');
 	await page.waitForTimeout(200);
 	await expect(createDialogTitle(page)).toHaveCount(0);
+
+	// The command palette still opens (Cmd/Ctrl+K and /) but offers no issue creation.
+	await expectPaletteWithoutCreate(page, 'ControlOrMeta+k');
+	await expectPaletteWithoutCreate(page, '/');
 
 	// Inside a settings input, paste and typing stay with the input.
 	await name.fill('');
@@ -86,6 +112,15 @@ test('the create shortcut still works outside settings, but not on copy', async 
 	await expect(createDialogTitle(page)).toHaveCount(0);
 
 	await page.keyboard.press('c');
+	await expect(createDialogTitle(page)).toBeFocused();
+	await page.keyboard.press('Escape');
+	await expect(createDialogTitle(page)).toHaveCount(0);
+
+	// Outside settings the palette keeps its create command.
+	const palette = commandPalette(page);
+	await focusPage(page);
+	await page.keyboard.press('ControlOrMeta+k');
+	await palette.root.getByText('Create issue', { exact: true }).click();
 	await expect(createDialogTitle(page)).toBeFocused();
 	await page.keyboard.press('Escape');
 	await expect(createDialogTitle(page)).toHaveCount(0);

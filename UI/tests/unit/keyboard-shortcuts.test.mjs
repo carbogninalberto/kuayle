@@ -145,3 +145,22 @@ test('only workspace settings routes count as settings pages', () => {
 	assert.equal(isWorkspaceSettingsPath('/acme/views/settings-review'), false);
 	assert.equal(isWorkspaceSettingsPath('/settings'), false);
 });
+
+test('symbols typed with AltGr (reported as Ctrl+Alt) still trigger symbol shortcuts', () => {
+	const calls = [];
+	const { handler } = createShortcutEngine([
+		{ key: 'c', handler: () => calls.push('create'), label: 'Create issue', category: 'Actions' },
+		{ key: '/', handler: () => calls.push('search'), label: 'Search', category: 'Actions' },
+		{ key: '?', shift: true, handler: () => calls.push('help'), label: 'Help', category: 'Help' }
+	]);
+	handler(keydown('/', { ctrlKey: true, altKey: true }));
+	handler(keydown('?', { ctrlKey: true, altKey: true, shiftKey: true }));
+	handler(keydown('/', { altKey: true }));
+	assert.deepEqual(calls, ['search', 'help', 'search']);
+
+	// Real Ctrl or Cmd chords on symbols and AltGr letters stay with the browser.
+	handler(keydown('/', { ctrlKey: true }));
+	handler(keydown('/', { metaKey: true }));
+	handler(keydown('c', { ctrlKey: true, altKey: true }));
+	assert.deepEqual(calls, ['search', 'help', 'search']);
+});

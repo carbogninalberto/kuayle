@@ -24,13 +24,27 @@ function ignoredEvent(e: KeyboardEvent): boolean {
 }
 
 /**
- * Plain shortcuts never fire with Ctrl, Cmd or Alt held, so browser chords such as
- * copy (Ctrl/Cmd+C) and paste keep their native behaviour.
+ * Plain shortcuts never fire with Cmd, or with Ctrl/Alt on letters, digits and named
+ * keys, so browser chords such as copy (Ctrl/Cmd+C) and paste keep their native
+ * behaviour. Printed symbols still match when typed with AltGr (see isPrintedSymbol).
  */
 function matchesModifiers(e: KeyboardEvent, s: { ctrl?: boolean; meta?: boolean; shift?: boolean }): boolean {
-	const metaOrCtrl = s.meta || s.ctrl;
-	if (metaOrCtrl ? !(e.metaKey || e.ctrlKey) : e.metaKey || e.ctrlKey || e.altKey) return false;
+	if (s.meta || s.ctrl) {
+		if (!(e.metaKey || e.ctrlKey)) return false;
+	} else if (e.metaKey || (isPrintedSymbol(e.key) ? e.ctrlKey && !e.altKey : e.ctrlKey || e.altKey)) {
+		return false;
+	}
 	return !s.shift || e.shiftKey;
+}
+
+/**
+ * Symbols such as `/` and `?` are already the result of the keyboard layout. Many
+ * layouts type them with AltGr, which Windows reports as Ctrl+Alt (and macOS as
+ * Option), so those modifiers must not hide a symbol shortcut. Letters, digits
+ * and named keys keep rejecting them.
+ */
+function isPrintedSymbol(key: string): boolean {
+	return [...key].length === 1 && !/[\p{L}\p{N}\s]/u.test(key);
 }
 
 /**
