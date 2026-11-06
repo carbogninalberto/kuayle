@@ -37,13 +37,3 @@ export type TaskMenuEntry =
 			disabled?: boolean;
 			variant?: 'danger';
 	  };
-
-// The newest task's header, shown pinned above the chat once its row scrolls away.
-export type TaskBar = {
-	taskId: string;
-	identifier?: string;
-	title: string;
-	status: string;
-	badgeClass: string;
-	actions: TaskAction[];
-};

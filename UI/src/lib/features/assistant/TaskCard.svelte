@@ -67,6 +67,7 @@
 	import { getErrorMessage } from '$lib/features/toast/toast';
 	import type { ConversationState } from './conversation-state.svelte';
 	import { taskLabel } from './task-labels';
+	import { iterationReasons, type IterationReason } from './shell-rules';
 	import { m } from '$lib/paraglide/messages.js';
 	let {
 		task,
@@ -82,7 +83,7 @@
 		ondenied: (error: unknown) => void;
 		// Coding agents the workspace allows, offered for a requested review.
 		allowedAgents?: string[];
-		// The newest task feeds the compact header pinned above the chat.
+		// The newest task starts expanded; earlier ones are one-line rows.
 		pinned?: boolean;
 	} = $props();
 	// Earlier tasks start as one-line rows; the newest one is shown in full.
@@ -573,6 +574,48 @@
 			failure(e);
 		}
 	}
+	// Each iteration says why it started (first run, review changes, a retry
+	// after a failure, your follow-up), derived from the recorded transitions
+	// and the signals that queued follow-ups.
+	const reasons = $derived(iterationReasons(history, signals));
+	const iterationReason = $derived<IterationReason | undefined>(reasons[task.generation]);
+	const reasonLabels: Record<IterationReason, () => string> = {
+		first: m['tasks.iteration_first'],
+		review_changes: m['tasks.iteration_review_changes'],
+		ci_failed: m['tasks.iteration_ci_failed'],
+		follow_up: m['tasks.iteration_follow_up'],
+		retry_failed: m['tasks.iteration_retry_failed'],
+		retry_blocked: m['tasks.iteration_retry_blocked'],
+		restarted: m['tasks.iteration_restarted']
+	};
+	$effect(() => {
+		const observed = [expanded, task.generation, chat.taskSignalCursor[task.id]];
+		if (!observed[0] || task.generation < 2) return;
+		untrack(() => void loadIterations());
+	});
+	async function loadIterations() {
+		try {
+			let after = history.at(-1)?.sequence ?? 0;
+			const [recorded] = await Promise.all([
+				agentTasks.signals(chat.slug, task.id),
+				(async () => {
+					// Transitions are paged; an iteration's start can be several pages in.
+					for (let page = 0; page < 10; page++) {
+						const events = await agentTasks.history(chat.slug, task.id, after);
+						if (disposed) return;
+						const known = new Set(history.map((e) => e.sequence));
+						history = [...history, ...events.transitions.filter((e) => !known.has(e.sequence))];
+						historyAfter = events.next_after;
+						if (!events.next_after || events.next_after === after) break;
+						after = events.next_after;
+					}
+				})()
+			]);
+			if (!disposed && !chat.unavailable) signals = recorded;
+		} catch (e) {
+			failure(e);
+		}
+	}
 	// An attempt's diff is captured when its native run ends.
 	const diffReady = $derived(
 		!!selectedRun &&
@@ -718,20 +761,16 @@
 			});
 		return list;
 	});
+	// Asked for from an inline step or a background task row: open in full
+	// and bring it into view.
+	let article = $state<HTMLElement>();
 	$effect(() => {
-		if (!pinned) return;
-		const bar = {
-			taskId: task.id,
-			identifier: chat.issue?.identifier,
-			title: task.prompt.split('\n', 1)[0],
-			status: stateLabel,
-			badgeClass: toneBadge[tone],
-			actions
-		};
-		chat.taskBar = bar;
-		return () => {
-			if (chat.taskBar?.taskId === bar.taskId) chat.taskBar = null;
-		};
+		if (chat.focusedTask !== task.id) return;
+		untrack(() => {
+			expanded = true;
+			chat.focusedTask = null;
+			queueMicrotask(() => article?.scrollIntoView({ block: 'nearest' }));
+		});
 	});
 
 	// The attempt stopped for the agent's own sign-in: sign in from the
@@ -778,7 +817,7 @@
 </script>
 
 <!-- A task is a row in the panel's list, not a nested card. -->
-<article class="min-w-0 py-2" aria-label={m['tasks.task']()}>
+<article bind:this={article} class="min-w-0 scroll-mt-2 py-2" aria-label={m['tasks.task']()}>
 	<div class="flex items-start gap-2">
 		<Button
 			variant="ghost"
@@ -796,8 +835,16 @@
 				</p>
 				<Badge variant="outline" class="shrink-0 {toneBadge[tone]}" role="status">{stateLabel}</Badge>
 			</div>
-			<p class="text-xs text-muted-foreground">
-				{task.provider}{task.model ? ` · ${task.model}` : ''} · {m['tasks.attempt']({ number: task.generation })}
+			<p class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+				<AgentLogo agent={task.provider} size="sm" /><span class="min-w-0 break-words"
+					>{agentLabel(task.provider)}{task.model ? ` · ${task.model}` : ''} · {m['tasks.attempt']({
+						number: task.generation
+					})}</span
+				>{#if iterationReason}<Badge
+						variant="secondary"
+						class="h-4 shrink-0 px-1.5 text-[10px] font-normal"
+						data-testid="iteration-reason">{reasonLabels[iterationReason]()}</Badge
+					>{/if}
 			</p>
 		</div>
 	</div>
@@ -811,6 +858,65 @@
 					><Trace.Title class="overflow-visible text-clip whitespace-normal break-words">{reason}</Trace.Title
 					></Trace.Line
 				>
+			</Trace.Root>
+			{#if needsSignIn}
+				<Alert.Root class="border-[var(--status-warning)]/40 bg-[var(--status-warning)]/5">
+					<CircleAlert class="text-[var(--status-warning)]" />
+					<Alert.Title>{m['tasks.sign_in_title']({ agent: agentLabel(task.provider) })}</Alert.Title>
+					<Alert.Description class="space-y-3">
+						{#if task.provider === 'claude-code'}
+							<p>{m['tasks.sign_in_token_body']()}</p>
+							<div class="space-y-2">
+								<p>{m['settings.agents.claude_token_help']()}</p>
+								<code class="block w-fit rounded-md border bg-muted px-2 py-1 font-mono text-foreground"
+									>claude setup-token</code
+								>
+							</div>
+							<ClaudeTokenForm
+								slug={chat.slug}
+								submitLabel={m['tasks.sign_in_token_continue']()}
+								onsaved={continueAfterSignIn}
+							/>
+							<p>{m['tasks.sign_in_terminal_instead']()}</p>
+						{:else}<p>{m['tasks.sign_in_body']()}</p>{/if}
+						<div class="flex flex-wrap gap-2">
+							{#if task.machine_id && dock}<Button
+									size="sm"
+									variant="outline"
+									onclick={() => openTerminal(signInCommand(task.provider))}
+									><SquareTerminal />{m['tasks.sign_in_open']()}</Button
+								>{/if}
+							<Button
+								size="sm"
+								variant={task.provider === 'claude-code' ? 'outline' : 'default'}
+								disabled={continuing}
+								onclick={() => void continueAfterSignIn()}
+								>{#if continuing}<LoaderCircle class="animate-spin" />{m['tasks.sign_in_continuing']()}{:else}{m[
+										'tasks.sign_in_continue'
+									]()}{/if}</Button
+							>
+						</div>
+						{#if task.provider === 'claude-code'}<a
+								class="inline-block text-xs underline underline-offset-2"
+								href="/{chat.slug}/settings/agents#your-sign-ins">{m['tasks.sign_in_manage']()}</a
+							>{/if}
+						{#if signInError}<p role="alert" class="text-destructive">{signInError}</p>{/if}
+					</Alert.Description>
+				</Alert.Root>
+			{/if}
+			<TaskActions {actions}>
+				{#snippet extra()}
+					{#if task.state === 'awaiting_review' && pullRequest && harnesses.length && chat.issue}<ReviewRequestMenu
+							{harnesses}
+							implementer={task.provider}
+							onpick={requestReview}
+						/>{/if}
+				{/snippet}
+			</TaskActions>
+			{#if task.kind !== 'review'}<TaskLiveThread {chat} {task} />{/if}
+			<AgentReviews {reviews} />
+			<TaskMessages slug={chat.slug} {task} />
+			<Trace.Root>
 				<Trace.Collapsible bind:open>
 					<Trace.CollapsibleTrigger aria-label={m['tasks.details']()}
 						><Trace.Line
@@ -818,13 +924,14 @@
 						></Trace.CollapsibleTrigger
 					>
 					<Trace.CollapsibleContent class="space-y-3">
-						{#each history as entry (entry.sequence)}<Trace.Line class="items-start"
+						<!-- Rendered only while open: the closed details hold no duplicate state text. -->
+						{#if open}{#each history as entry (entry.sequence)}<Trace.Line class="items-start"
 								><Trace.Icon><CircleCheck /></Trace.Icon><span class="min-w-0 flex-1"
 									><Trace.Title class="block">{taskLabel(entry.to_state)}</Trace.Title><Trace.Description
 										class="block whitespace-normal break-words">{entry.reason}</Trace.Description
 									></span
 								></Trace.Line
-							>{/each}
+							>{/each}{/if}
 						{#if historyAfter}<Button variant="ghost" size="sm" disabled={loading} onclick={() => void refresh()}
 								>{m['tasks.more_history']()}</Button
 							>{/if}
@@ -933,67 +1040,10 @@
 					</Trace.CollapsibleContent>
 				</Trace.Collapsible>
 			</Trace.Root>
-			{#if needsSignIn}
-				<Alert.Root class="border-[var(--status-warning)]/40 bg-[var(--status-warning)]/5">
-					<CircleAlert class="text-[var(--status-warning)]" />
-					<Alert.Title>{m['tasks.sign_in_title']({ agent: agentLabel(task.provider) })}</Alert.Title>
-					<Alert.Description class="space-y-3">
-						{#if task.provider === 'claude-code'}
-							<p>{m['tasks.sign_in_token_body']()}</p>
-							<div class="space-y-2">
-								<p>{m['settings.agents.claude_token_help']()}</p>
-								<code class="block w-fit rounded-md border bg-muted px-2 py-1 font-mono text-foreground"
-									>claude setup-token</code
-								>
-							</div>
-							<ClaudeTokenForm
-								slug={chat.slug}
-								submitLabel={m['tasks.sign_in_token_continue']()}
-								onsaved={continueAfterSignIn}
-							/>
-							<p>{m['tasks.sign_in_terminal_instead']()}</p>
-						{:else}<p>{m['tasks.sign_in_body']()}</p>{/if}
-						<div class="flex flex-wrap gap-2">
-							{#if task.machine_id && dock}<Button
-									size="sm"
-									variant="outline"
-									onclick={() => openTerminal(signInCommand(task.provider))}
-									><SquareTerminal />{m['tasks.sign_in_open']()}</Button
-								>{/if}
-							<Button
-								size="sm"
-								variant={task.provider === 'claude-code' ? 'outline' : 'default'}
-								disabled={continuing}
-								onclick={() => void continueAfterSignIn()}
-								>{#if continuing}<LoaderCircle class="animate-spin" />{m['tasks.sign_in_continuing']()}{:else}{m[
-										'tasks.sign_in_continue'
-									]()}{/if}</Button
-							>
-						</div>
-						{#if task.provider === 'claude-code'}<a
-								class="inline-block text-xs underline underline-offset-2"
-								href="/{chat.slug}/settings/agents#your-sign-ins">{m['tasks.sign_in_manage']()}</a
-							>{/if}
-						{#if signInError}<p role="alert" class="text-destructive">{signInError}</p>{/if}
-					</Alert.Description>
-				</Alert.Root>
-			{/if}
-			<AgentReviews {reviews} />
-			<TaskMessages slug={chat.slug} {task} />
-			{#if task.kind !== 'review'}<TaskLiveThread {chat} {task} />{/if}
 			{#if appError}<p role="alert" class="text-sm break-words text-destructive">{appError}</p>{/if}
 			{#if checkError}<p role="alert" class="text-sm break-words text-destructive">{checkError}</p>{/if}
 			{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>
 				<Button variant="ghost" size="sm" onclick={() => void refresh()}>{m['tasks.refresh']()}</Button>{/if}
-			<TaskActions {actions}>
-				{#snippet extra()}
-					{#if task.state === 'awaiting_review' && pullRequest && harnesses.length && chat.issue}<ReviewRequestMenu
-							{harnesses}
-							implementer={task.provider}
-							onpick={requestReview}
-						/>{/if}
-				{/snippet}
-			</TaskActions>
 		</div>{/if}
 	<AlertDialog.Root bind:open={acceptOpen}>
 		<AlertDialog.Content>

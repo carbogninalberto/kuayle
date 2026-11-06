@@ -587,8 +587,8 @@ Code receives them after each tool call (and before it stops) through a
 Without a running attempt they go into the next attempt's prompt. During an
 attempt the manager also collects the outbox every 5 seconds, and files
 addressed `{"to":"orchestrator"}` (optionally `"kind":"question"`) are recorded
-in the same channel as untrusted text. The task card's **Live messages** thread reads and
-sends through `GET/POST /agent-tasks/:taskId/live-messages`; the assistant has
+in the same channel as untrusted text. The task card's **Live messages** thread reads (and the
+assistant composer, aimed at the task's agent, sends) through `GET/POST /agent-tasks/:taskId/live-messages`; the assistant has
 `message_task` (no approval, it only delivers text) and the read-only
 `get_task_messages`; agent messages appear in the owning chat as escaped,
 untrusted items through `task.live_message` conversation events and history

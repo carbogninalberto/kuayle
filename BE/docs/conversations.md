@@ -13,8 +13,9 @@ The assistant can list teams and search, read and create issues through
 delegate an issue to a coding agent. It has no repository, machine or publishing
 tools; the system instruction says so. Conversations currently belong to
 their creator, who must remain a non-guest workspace member. Two browsers signed
-in as that user can view the same stream. Issue details now embed the same conversation UI, with a full-page link back to the
-issue. Each creator has one reusable chat per issue and original team.
+in as that user can view the same stream. Issue details offer a **Chat with assistant**
+button that opens (creating or reusing) the issue's conversation on the assistant page,
+which links back to the issue; no chat is embedded in the issue page. Each creator has one reusable chat per issue and original team.
 Conversations are never shared: [projects](#projects) and private folders only
 tag and filter the creator's own list.
 
@@ -183,8 +184,30 @@ live edge (re-arming follow mode, even if they had scrolled up); scrolling away
 while a reply streams releases it again. Reloads after a send keep the
 transcript on screen; only a first load shows the loading state. The composer supports Enter/Shift+Enter,
 per-user/conversation drafts, send, stop and explicit retry. All strings use the
-four existing Paraglide catalogs. Desktop conversation history collapses into a
-mobile disclosure.
+four existing Paraglide catalogs.
+
+The page is a three-column shell ([AssistantChat](../../UI/src/lib/features/assistant/AssistantChat.svelte)):
+the assistant's own sidebar (places, conversation search, project filter, a
+collapsible Recents list with folders, the signed-in person) is fixed from
+1024 px and a drawer below; the centre holds the conversation (user turns as
+compact right-aligned bubbles, assistant turns as plain Markdown, tool calls as
+one-line step chips with the overflow behind "+N more steps", coding tasks as
+compact steps where they started) and a floating composer; the right side is a
+resizable [panel host](../../UI/src/lib/features/assistant/panels/panel-host.svelte.ts)
+(inline from 1280 px, a drawer below) with Details (environment, context
+usage of the 50-message model window, changes, background tasks), Agents (each
+coding task as a thread with its agent) and Diff panels. New panels, such as a
+future workflow editor, register as one more `PanelDefinition`. Unknown tool
+names render through the generic step chip; [tool-chips.ts](../../UI/src/lib/features/assistant/tool-chips.ts)
+registers per-tool labels, icons or renderers. The one composer sends to the
+assistant or, when aimed at a running task, to its agent through the live
+channel, and says which. Earlier messages can be folded behind "Show N earlier
+messages" (remembered per person). Conversations move between folders by drag
+and drop or the row menu. Failed tasks stay listed in the transcript, the
+Agents panel and Background tasks; only completed or cancelled ones fold into
+the "N finished" row. Each task shows "Iteration N" with why it started (first
+run, review changes, CI follow-up, your follow-up, retry after failure),
+derived from its recorded transitions and follow-up signals.
 
 Focused checks, in addition to the repository testing skill's area checks:
 

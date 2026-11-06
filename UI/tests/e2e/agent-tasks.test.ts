@@ -57,6 +57,7 @@ async function fixture(page: Page) {
 		agentMessages: [] as any[],
 		liveMessages: [] as any[],
 		liveSends: [] as string[],
+		transitions: null as any[] | null,
 		chatAgentMessages: [] as any[],
 		messageQueries: [] as string[],
 		messageActions: [] as string[],
@@ -249,7 +250,7 @@ async function fixture(page: Page) {
 			if (path.endsWith('/history'))
 				return route.fulfill({
 					json: {
-						transitions: [
+						transitions: state.transitions ?? [
 							{
 								sequence: 1,
 								task_id: 'task-1',
@@ -344,6 +345,7 @@ async function fixture(page: Page) {
 test('delegates from an issue conversation and shows real execution updates', async ({ page }) => {
 	const { state, emit } = await fixture(page);
 	await page.goto('/test/assistant?conversation=chat-1');
+	await showAgents(page);
 	await page.getByRole('button', { name: 'Start coding', exact: true }).click();
 	const dialog = page.getByRole('dialog', { name: 'Start coding', exact: true });
 	// The harness is chosen from logo tiles; the default server fits Codex.
@@ -397,7 +399,18 @@ test('delegates from an issue conversation and shows real execution updates', as
 	await expect(page.getByText('Cancelling', { exact: true })).toBeVisible();
 });
 
+// The coding agents live in the side panel: inline on wide screens, a drawer
+// that the top bar's Agents button opens on narrow ones.
+async function showAgents(page: Page) {
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	await expect(page.getByRole('button', { name: 'Agents', exact: true }).first()).toBeVisible();
+	if (await tasks.isVisible()) return;
+	await page.getByRole('button', { name: 'Agents', exact: true }).first().click();
+	await expect(tasks).toBeVisible();
+}
+
 async function delegate(page: Page, prompt = 'Implement and test issue search') {
+	await showAgents(page);
 	await page.getByRole('button', { name: 'Start coding', exact: true }).click();
 	const dialog = page.getByRole('dialog', { name: 'Start coding', exact: true });
 	await dialog.getByRole('textbox', { name: 'Task instructions' }).fill(prompt);
@@ -428,7 +441,7 @@ test('replays task failure, retries the same task and clears revoked task conten
 	await dialog.getByRole('button', { name: 'Retry task', exact: true }).click();
 	await expect.poll(() => state.retries.length).toBe(1);
 	expect(state.retries[0]).toMatchObject({ generation: 1, prompt: 'Address the failed authorization check' });
-	await expect(page.getByText('Attempt 2', { exact: false })).toBeVisible();
+	await expect(page.getByRole('region', { name: 'Coding tasks' }).getByText('Iteration 2', { exact: false })).toBeVisible();
 	expect(state.creates).toHaveLength(1);
 	state.denied = true;
 	state.sockets.at(-1)!.close({ code: 1008, reason: 'Revoked' });
@@ -446,6 +459,7 @@ test('retains delegation identity after a lost response and refresh', async ({ p
 	const requestID = state.creates[0].request_id;
 	await page.reload();
 	await expect(page.getByText('Queued', { exact: true })).toBeVisible();
+	await showAgents(page);
 	await page.getByRole('button', { name: 'Start coding', exact: true }).click();
 	const recovered = page.getByRole('dialog', { name: 'Start coding', exact: true });
 	await expect(recovered.getByRole('textbox', { name: 'Task instructions' })).toHaveValue('Make search accessible');
@@ -526,6 +540,7 @@ test('keeps displaying live output while activity arrives continuously', async (
 test('validates test command overrides and preserves them across transport retries', async ({ page }) => {
 	const { state } = await fixture(page);
 	await page.goto('/test/assistant?conversation=chat-1');
+	await showAgents(page);
 	await page.getByRole('button', { name: 'Start coding', exact: true }).click();
 	const dialog = page.getByRole('dialog', { name: 'Start coding', exact: true });
 	await dialog.getByRole('textbox', { name: 'Task instructions' }).fill('Implement search');
@@ -540,6 +555,7 @@ test('validates test command overrides and preserves them across transport retri
 	await expect.poll(() => state.creates.length).toBe(1);
 	const request = state.creates[0];
 	await page.reload();
+	await showAgents(page);
 	await page.getByRole('button', { name: 'Start coding', exact: true }).click();
 	await expect(command).toHaveValue('["npm","test"]');
 	await dialog.getByRole('button', { name: 'Delegate task', exact: true }).click();
@@ -1045,7 +1061,7 @@ test('shows GitHub CI and review signals with the follow-up they caused', async 
 	];
 	emit('task.signal_recorded', state.signals[1]);
 	await expect(section.getByText('CI GitHub Actions: failure', { exact: true })).toBeVisible();
-	await expect(section.getByText('Follow-up attempt queued', { exact: true })).toBeVisible();
+	await expect(section.getByText('Follow-up iteration queued', { exact: true })).toBeVisible();
 	await expect(section.getByText('Ignored: reviewer has no write access', { exact: true })).toBeVisible();
 	await expect(section.getByText('<script>window.evil=1</script>', { exact: false })).toBeVisible();
 	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
@@ -1147,7 +1163,7 @@ test('opens the attempt diff beside the chat and closes it', async ({ page }) =>
 	await panel.getByRole('button', { name: 'Expand all files' }).click();
 	await expect(panel.getByText('+export const kebab = "<script>window.evil=1</script>";')).toBeVisible();
 	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
-	await expect(page.getByRole('separator', { name: 'Resize changes panel' })).toBeVisible();
+	await expect(page.getByRole('separator', { name: 'Resize side panel' })).toBeVisible();
 	await expect(page.getByRole('textbox', { name: 'Message' })).toBeVisible();
 	await panel.getByRole('button', { name: 'Close changes' }).click();
 	await expect(panel).toHaveCount(0);
@@ -1172,7 +1188,7 @@ test('qualifies diff totals and empty searches when the diff is truncated', asyn
 	await expect(panel.getByText(/The diff is too large and was cut off/)).toBeVisible();
 });
 
-test('pins a compact task header with every action while the chat scrolls', async ({ page }) => {
+test('the task stays in view beside the chat while the conversation scrolls', async ({ page }) => {
 	const { state, emit: emitState } = await fixture(page);
 	state.messages = Array.from({ length: 24 }, (_, i) => ({
 		id: `message-${i + 1}`,
@@ -1188,28 +1204,42 @@ test('pins a compact task header with every action while the chat scrolls', asyn
 	state.changedFiles = ['src/text.js'];
 	await page.goto('/test/assistant?conversation=chat-1');
 	await delegate(page);
-	await expect(page.getByRole('region', { name: 'Coding tasks' }).getByText('Queued', { exact: true })).toBeVisible();
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
 	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review' };
 	emitState('task.state_changed', state.task);
-	const pinned = page.getByRole('region', { name: 'Coding task', exact: true });
-	const tasks = page.getByRole('region', { name: 'Coding tasks' });
 	await expect(tasks.getByRole('button', { name: 'View diff' })).toBeVisible();
+	await page.getByText('Message 1:').scrollIntoViewIfNeeded();
 	await page.getByText('Message 24:').scrollIntoViewIfNeeded();
-	await expect(tasks).not.toBeInViewport();
-	await expect(pinned).toBeVisible();
-	await expect(pinned.getByText('Awaiting review')).toBeVisible();
-	await expect(pinned.getByText('ENG-1')).toBeVisible();
-	const diff = pinned.getByRole('button', { name: 'View diff' });
-	await diff.hover();
-	await expect(page.locator('[data-slot="tooltip-content"]')).toContainText('View diff');
-	await diff.click();
-	await expect(page.getByRole('region', { name: 'Changes' })).toBeVisible();
-	await pinned.getByRole('button', { name: 'More actions', exact: true }).click();
-	await expect(page.getByRole('menuitem', { name: 'Retry task', exact: true })).toBeVisible();
-	await page.keyboard.press('Escape');
-	await pinned.getByRole('button', { name: /ENG-1/ }).click();
+	// No up and down: the agent's task never scrolls away with the chat.
 	await expect(tasks).toBeInViewport();
-	await expect(pinned).toHaveCount(0);
+	await expect(tasks.getByText('Awaiting review')).toBeVisible();
+	// The task also sits in the transcript where it started, and opens its thread.
+	const step = page.getByRole('group', { name: 'Agent task for ENG-1' });
+	await expect(step).toContainText('Awaiting review');
+	await step.getByRole('button', { name: 'Open thread' }).click();
+	await expect(page.getByRole('article', { name: 'Coding task' })).toBeInViewport();
+	await tasks.getByRole('button', { name: 'View diff' }).click();
+	await expect(page.getByRole('region', { name: 'Changes' })).toBeVisible();
+});
+
+test('a failed task stays in the transcript and the panel with its reason and a retry', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	state.task = { ...state.task, state: 'failed', reason: 'Execution failed; runtime cleanup confirmed' };
+	emit('task.state_changed', state.task);
+	const step = page.getByRole('group', { name: 'Agent task for ENG-1' });
+	await expect(step).toContainText('Failed');
+	await expect(step).toContainText('Stopped: Execution failed; runtime cleanup confirmed');
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	await expect(tasks.getByText('Failed', { exact: true })).toBeVisible();
+	// Still listed after a reload: nothing about a failure disappears.
+	await page.reload();
+	await expect(page.getByRole('group', { name: 'Agent task for ENG-1' })).toContainText('Failed');
+	await expect(page.getByRole('region', { name: 'Coding tasks' }).getByText('Failed', { exact: true })).toBeVisible();
+	await page.getByRole('group', { name: 'Agent task for ENG-1' }).getByRole('button', { name: 'Retry this task' }).click();
+	await expect(page.getByRole('dialog', { name: 'Retry task', exact: true })).toBeVisible();
 });
 
 test('an approval on GitHub shows the task as approved and ready to merge', async ({ page }) => {
@@ -1252,7 +1282,7 @@ test('an attempt whose records are gone keeps the task panel available', async (
 	state.missingRun = true;
 	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review' };
 	emit('task.state_changed', state.task);
-	await expect(tasks.getByText('This attempt’s records are no longer available.')).toBeVisible();
+	await expect(tasks.getByText('This iteration’s records are no longer available.')).toBeVisible();
 	await expect(page.getByText('Coding tasks are unavailable for this account.')).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Start coding', exact: true })).toBeVisible();
 });
@@ -1535,12 +1565,27 @@ test('the task card thread messages the running agent and shows its answers live
 	await page.goto('/test/assistant?conversation=chat-1');
 	const thread = page.getByRole('region', { name: 'Live messages' });
 	await expect(thread.getByText('The running agent reads it after its current step.')).toBeVisible();
-	const composer = thread.getByRole('textbox', { name: 'Write to the agent' });
+	// One composer: it says plainly whether it writes to the assistant or to the agent.
+	const target = page.getByRole('button', { name: /^Send to: / });
+	await expect(target).toHaveAccessibleName('Send to: Assistant');
+	await thread.getByRole('button', { name: 'Reply to the agent' }).click();
+	await expect(target).toHaveAccessibleName('Send to: ENG-1 · Codex agent');
+	await expect(page.getByText('Messages go to the Codex agent of ENG-1, not to the assistant.')).toBeVisible();
+	const composer = page.getByRole('textbox', { name: 'Write to the agent' });
+	await expect(composer).toBeFocused();
 	await composer.fill('Also add tests for the empty list');
-	await thread.getByRole('button', { name: 'Send', exact: true }).click();
+	await composer.press('Enter');
 	await expect.poll(() => state.liveSends).toEqual(['Also add tests for the empty list']);
 	await expect(composer).toHaveValue('');
 	await expect(thread.getByRole('listitem', { name: 'You' })).toContainText('Waiting for the agent');
+	// Nothing was sent to the assistant; switching back aims the composer at it again.
+	await page.getByRole('button', { name: 'Back to assistant' }).click();
+	await expect(target).toHaveAccessibleName('Send to: Assistant');
+	await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
+	await target.click();
+	await page.getByRole('menuitemcheckbox', { name: 'ENG-1 · Codex agent' }).click();
+	await expect(target).toHaveAccessibleName('Send to: ENG-1 · Codex agent');
+	await page.keyboard.press('Escape');
 
 	// The manager records the agent's question: the card and the chat update live.
 	state.liveMessages = [...state.liveMessages, agentQuestion];
@@ -1596,4 +1641,69 @@ test('opens a stopped Claude Code task in Claude Code through the task terminal'
 	state.task = { ...state.task, state: 'running', reason: 'Running' };
 	emit('task.state_changed', state.task);
 	await expect(open).toHaveCount(0);
+});
+
+test('each iteration says why it started: a retry after failure and review changes differ', async ({ page }) => {
+	const { state } = await fixture(page);
+	const time = '2026-10-26T10:00:00Z';
+	const step = (sequence: number, from: string, to: string) => ({
+		sequence,
+		task_id: 'task-1',
+		from_state: from,
+		to_state: to,
+		reason: '',
+		created_at: time
+	});
+	state.task = {
+		id: 'task-1',
+		workspace_id: 'workspace-1',
+		conversation_id: 'chat-1',
+		creator_id: 'user-1',
+		issue_id: 'issue-1',
+		team_id: 'team-1',
+		prompt: 'Implement search',
+		provider: 'codex',
+		model: 'deepseek-flash',
+		thinking: 'high',
+		state: 'running',
+		reason: 'Native coding harness started',
+		generation: 2,
+		failure_count: 0,
+		checkout_id: 'checkout-1',
+		run_id: 'run-2',
+		created_at: time,
+		updated_at: time
+	};
+	state.transitions = [step(1, '', 'queued'), step(2, 'queued', 'running'), step(3, 'running', 'failed'), step(4, 'failed', 'queued')];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const card = page.getByRole('article', { name: 'Coding task' });
+	await expect(card).toContainText('Iteration 2');
+	await expect(card.getByTestId('iteration-reason')).toHaveText('retry after failure');
+
+	state.transitions = [
+		step(1, '', 'queued'),
+		step(2, 'running', 'awaiting_review'),
+		step(3, 'awaiting_review', 'queued')
+	];
+	state.signals = [
+		{
+			id: 'signal-1',
+			task_id: 'task-1',
+			run_id: 'run-1',
+			kind: 'review',
+			external_id: '1',
+			outcome: 'changes_requested',
+			name: 'octocat',
+			summary: '',
+			url: '',
+			action: 'follow_up',
+			follow_up_generation: 2,
+			created_at: time,
+			updated_at: time
+		}
+	];
+	await page.reload();
+	await expect(page.getByRole('article', { name: 'Coding task' }).getByTestId('iteration-reason')).toHaveText(
+		'review changes'
+	);
 });
