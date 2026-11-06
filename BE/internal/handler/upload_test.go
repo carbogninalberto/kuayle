@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/pkg/assettoken"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -203,8 +203,7 @@ func TestGetAssetStreamsWorkspaceAsset(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	c.Set("workspace", &domain.Workspace{ID: workspaceID, Slug: "acme"})
-	c.SetParamNames("assetId")
-	c.SetParamValues(assetID.String())
+	c.SetPathValues(echo.PathValues{{Name: "assetId", Value: assetID.String()}})
 
 	err := h.GetAsset(c)
 
@@ -231,8 +230,7 @@ func TestGetAssetCanForceSafeDownload(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	c.Set("workspace", &domain.Workspace{ID: workspaceID, Slug: "acme"})
-	c.SetParamNames("assetId")
-	c.SetParamValues(assetID.String())
+	c.SetPathValues(echo.PathValues{{Name: "assetId", Value: assetID.String()}})
 
 	require.NoError(t, h.GetAsset(c))
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -262,8 +260,7 @@ func TestPublicAssetRequiresValidToken(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/public/assets/"+token, nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
-	c.SetParamNames("token")
-	c.SetParamValues(token)
+	c.SetPathValues(echo.PathValues{{Name: "token", Value: token}})
 
 	err = h.PublicAsset(c)
 
@@ -293,8 +290,7 @@ func TestPublicAssetCanForceSafeDownload(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/public/assets/"+token+"?download=1", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
-	c.SetParamNames("token")
-	c.SetParamValues(token)
+	c.SetPathValues(echo.PathValues{{Name: "token", Value: token}})
 
 	require.NoError(t, h.PublicAsset(c))
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -330,8 +326,7 @@ func TestPublicAssetServesUnlistedContentTypesAsDownloads(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/api/public/assets/"+token, nil)
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
-			c.SetParamNames("token")
-			c.SetParamValues(token)
+			c.SetPathValues(echo.PathValues{{Name: "token", Value: token}})
 
 			require.NoError(t, h.PublicAsset(c))
 

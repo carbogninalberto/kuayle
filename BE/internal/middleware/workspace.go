@@ -7,12 +7,12 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 func WorkspaceMembership(workspaceRepo repository.WorkspaceRepo) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			slug := c.Param("slug")
 			if slug == "" {
 				return next(c)
@@ -49,7 +49,7 @@ func WorkspaceMembership(workspaceRepo repository.WorkspaceRepo) echo.Middleware
 	}
 }
 
-func GetWorkspace(c echo.Context) *domain.Workspace {
+func GetWorkspace(c *echo.Context) *domain.Workspace {
 	workspace, _ := c.Get("workspace").(*domain.Workspace)
 	return workspace
 }

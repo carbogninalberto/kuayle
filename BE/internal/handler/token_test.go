@@ -13,7 +13,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,8 +52,7 @@ func TestTokenManagementRejectsPATBeforeServiceAccess(t *testing.T) {
 				c := e.NewContext(req, rec)
 				c.Set(string(middleware.UserIDKey), uuid.New())
 				c.Set(middleware.TokenScopesKey, scopes)
-				c.SetParamNames("id")
-				c.SetParamValues(uuid.NewString())
+				c.SetPathValues(echo.PathValues{{Name: "id", Value: uuid.NewString()}})
 				var err error
 				switch method {
 				case http.MethodGet:
@@ -88,8 +87,7 @@ func TestTokenManagementSessionStillReachesService(t *testing.T) {
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 			c.Set(string(middleware.UserIDKey), uuid.New())
-			c.SetParamNames("id")
-			c.SetParamValues(uuid.NewString())
+			c.SetPathValues(echo.PathValues{{Name: "id", Value: uuid.NewString()}})
 			switch method {
 			case http.MethodGet:
 				require.NoError(t, h.List(c))

@@ -10,13 +10,13 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type TelegramHandler struct{ svc *service.TelegramService }
 
 func NewTelegramHandler(svc *service.TelegramService) *TelegramHandler { return &TelegramHandler{svc} }
-func telegramError(c echo.Context, err error) error {
+func telegramError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, repository.ErrTelegramDenied), errors.Is(err, repository.ErrConversationNotFound):
 		return response.Forbidden(c)
@@ -34,14 +34,14 @@ func telegramError(c echo.Context, err error) error {
 		return response.InternalError(c)
 	}
 }
-func (h *TelegramHandler) Status(c echo.Context) error {
+func (h *TelegramHandler) Status(c *echo.Context) error {
 	result, err := h.svc.Status(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return telegramError(c, err)
 	}
 	return response.Success(c, 200, result)
 }
-func (h *TelegramHandler) Save(c echo.Context) error {
+func (h *TelegramHandler) Save(c *echo.Context) error {
 	var req service.TelegramSettingsRequest
 	if err := bindConversation(c, &req); err != nil {
 		return telegramError(c, repository.ErrTelegramInvalid)
@@ -52,7 +52,7 @@ func (h *TelegramHandler) Save(c echo.Context) error {
 	}
 	return response.Success(c, 200, result)
 }
-func (h *TelegramHandler) Link(c echo.Context) error {
+func (h *TelegramHandler) Link(c *echo.Context) error {
 	var req struct {
 		ID int64 `json:"telegram_user_id"`
 	}
@@ -66,13 +66,13 @@ func (h *TelegramHandler) Link(c echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	return response.Success(c, 200, map[string]any{"command": command, "expires_in": 600})
 }
-func (h *TelegramHandler) Unlink(c echo.Context) error {
+func (h *TelegramHandler) Unlink(c *echo.Context) error {
 	if err := h.svc.Repo.Unlink(c.Request().Context(), middleware.GetWorkspace(c).ID); err != nil {
 		return telegramError(c, err)
 	}
 	return c.NoContent(204)
 }
-func (h *TelegramHandler) Webhook(c echo.Context) error {
+func (h *TelegramHandler) Webhook(c *echo.Context) error {
 	ws, err := uuid.Parse(c.Param("workspaceId"))
 	if err != nil {
 		return c.NoContent(404)

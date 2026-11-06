@@ -6,7 +6,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"nhooyr.io/websocket"
 )
 
@@ -18,11 +18,11 @@ func NewWSHandler(hub *realtime.Hub) *WSHandler {
 	return &WSHandler{hub: hub}
 }
 
-func (h *WSHandler) Handle(c echo.Context) error {
+func (h *WSHandler) Handle(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
 
-	conn, err := websocket.Accept(c.Response().Writer, c.Request(), &websocket.AcceptOptions{
+	conn, err := websocket.Accept(c.Response(), c.Request(), &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"},
 	})
 	if err != nil {

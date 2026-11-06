@@ -9,7 +9,7 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
 	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type CycleHandler struct {
@@ -20,7 +20,7 @@ func NewCycleHandler(cycleSvc *service.CycleService) *CycleHandler {
 	return &CycleHandler{cycleSvc: cycleSvc}
 }
 
-func (h *CycleHandler) List(c echo.Context) error {
+func (h *CycleHandler) List(c *echo.Context) error {
 	teamID, err := uuid.Parse(c.Param("teamId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team ID")
@@ -45,7 +45,7 @@ func (h *CycleHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *CycleHandler) Create(c echo.Context) error {
+func (h *CycleHandler) Create(c *echo.Context) error {
 	teamID, err := uuid.Parse(c.Param("teamId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team ID")
@@ -71,7 +71,7 @@ func (h *CycleHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, toCycleResponse(*cycle))
 }
 
-func (h *CycleHandler) Get(c echo.Context) error {
+func (h *CycleHandler) Get(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("cycleId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid cycle ID")
@@ -91,7 +91,7 @@ func (h *CycleHandler) Get(c echo.Context) error {
 	return response.Success(c, http.StatusOK, r)
 }
 
-func (h *CycleHandler) Update(c echo.Context) error {
+func (h *CycleHandler) Update(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("cycleId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid cycle ID")
@@ -110,7 +110,7 @@ func (h *CycleHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, toCycleResponse(*cycle))
 }
 
-func (h *CycleHandler) Complete(c echo.Context) error {
+func (h *CycleHandler) Complete(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("cycleId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid cycle ID")
@@ -132,7 +132,7 @@ func (h *CycleHandler) Complete(c echo.Context) error {
 	})
 }
 
-func (h *CycleHandler) Velocity(c echo.Context) error {
+func (h *CycleHandler) Velocity(c *echo.Context) error {
 	teamID, err := uuid.Parse(c.Param("teamId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team ID")
@@ -144,7 +144,7 @@ func (h *CycleHandler) Velocity(c echo.Context) error {
 	return response.Success(c, http.StatusOK, points)
 }
 
-func (h *CycleHandler) Delete(c echo.Context) error {
+func (h *CycleHandler) Delete(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("cycleId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid cycle ID")
@@ -157,7 +157,7 @@ func (h *CycleHandler) Delete(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-func (h *CycleHandler) Burndown(c echo.Context) error {
+func (h *CycleHandler) Burndown(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("cycleId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid cycle ID")

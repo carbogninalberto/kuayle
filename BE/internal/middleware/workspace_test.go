@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -83,13 +83,12 @@ func runMembership(t *testing.T, repo *fakeWorkspaceRepo, userID uuid.UUID, toke
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/acme/issues", nil)
 	c := e.NewContext(req, rec)
-	c.SetParamNames("slug")
-	c.SetParamValues("acme")
+	c.SetPathValues(echo.PathValues{{Name: "slug", Value: "acme"}})
 	c.Set(string(UserIDKey), userID)
 	if markPAT {
 		c.Set(TokenWorkspacesKey, tokenWorkspaces)
 	}
-	handler := WorkspaceMembership(repo)(func(c echo.Context) error {
+	handler := WorkspaceMembership(repo)(func(c *echo.Context) error {
 		return c.NoContent(http.StatusNoContent)
 	})
 	require.NoError(t, handler(c))

@@ -16,7 +16,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
@@ -59,12 +59,11 @@ func sendPort(t *testing.T, h *DevMachineHandler, method, body string, workspace
 	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	ctx := devMachineHandlerContext(request, recorder, workspaceID, userID)
 	ctx.Set("workspace_role", "member")
-	names, values := []string{"machineId"}, []string{machineID.String()}
+	pathValues := echo.PathValues{{Name: "machineId", Value: machineID.String()}}
 	if portID != nil {
-		names, values = append(names, "portId"), append(values, portID.String())
+		pathValues = append(pathValues, echo.PathValue{Name: "portId", Value: portID.String()})
 	}
-	ctx.SetParamNames(names...)
-	ctx.SetParamValues(values...)
+	ctx.SetPathValues(pathValues)
 	switch method {
 	case http.MethodGet:
 		require.NoError(t, h.ListPorts(ctx))

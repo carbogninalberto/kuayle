@@ -13,7 +13,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type TeamHandler struct {
@@ -24,7 +24,7 @@ func NewTeamHandler(teamSvc *service.TeamService) *TeamHandler {
 	return &TeamHandler{teamSvc: teamSvc}
 }
 
-func (h *TeamHandler) List(c echo.Context) error {
+func (h *TeamHandler) List(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	teams, err := h.teamSvc.ListByWorkspace(c.Request().Context(), ws.ID)
 	if err != nil {
@@ -37,7 +37,7 @@ func (h *TeamHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *TeamHandler) Create(c echo.Context) error {
+func (h *TeamHandler) Create(c *echo.Context) error {
 	var req dto.CreateTeamRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -59,7 +59,7 @@ func (h *TeamHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, toTeamResponse(*team))
 }
 
-func (h *TeamHandler) Get(c echo.Context) error {
+func (h *TeamHandler) Get(c *echo.Context) error {
 	teamID, err := uuid.Parse(c.Param("teamId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team ID")
@@ -71,7 +71,7 @@ func (h *TeamHandler) Get(c echo.Context) error {
 	return response.Success(c, http.StatusOK, toTeamResponse(*team))
 }
 
-func (h *TeamHandler) Update(c echo.Context) error {
+func (h *TeamHandler) Update(c *echo.Context) error {
 	teamID, err := uuid.Parse(c.Param("teamId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team ID")
@@ -87,7 +87,7 @@ func (h *TeamHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, toTeamResponse(*team))
 }
 
-func (h *TeamHandler) Delete(c echo.Context) error {
+func (h *TeamHandler) Delete(c *echo.Context) error {
 	teamID, err := uuid.Parse(c.Param("teamId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team ID")
@@ -103,7 +103,7 @@ func (h *TeamHandler) Delete(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-func (h *TeamHandler) Leave(c echo.Context) error {
+func (h *TeamHandler) Leave(c *echo.Context) error {
 	teamID, err := uuid.Parse(c.Param("teamId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team ID")
@@ -148,7 +148,7 @@ func toTeamResponse(t domain.Team) dto.TeamResponse {
 	}
 }
 
-func (h *TeamHandler) SetVisibility(c echo.Context) error {
+func (h *TeamHandler) SetVisibility(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("teamId"))
 	if err != nil {
 		return response.NotFound(c, "Team")
@@ -164,7 +164,7 @@ func (h *TeamHandler) SetVisibility(c echo.Context) error {
 	return response.Success(c, http.StatusOK, toTeamResponse(*team))
 }
 
-func (h *TeamHandler) Members(c echo.Context) error {
+func (h *TeamHandler) Members(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("teamId"))
 	if err != nil {
 		return response.NotFound(c, "Team")
@@ -179,7 +179,7 @@ func (h *TeamHandler) Members(c echo.Context) error {
 	return response.Success(c, http.StatusOK, members)
 }
 
-func (h *TeamHandler) AddMember(c echo.Context) error {
+func (h *TeamHandler) AddMember(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("teamId"))
 	if err != nil {
 		return response.NotFound(c, "Team")
@@ -198,7 +198,7 @@ func (h *TeamHandler) AddMember(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "added"})
 }
 
-func (h *TeamHandler) RemoveMember(c echo.Context) error {
+func (h *TeamHandler) RemoveMember(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("teamId"))
 	if err != nil {
 		return response.NotFound(c, "Team")
@@ -213,7 +213,7 @@ func (h *TeamHandler) RemoveMember(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "removed"})
 }
 
-func teamOperationError(c echo.Context, err error) error {
+func teamOperationError(c *echo.Context, err error) error {
 	if errors.Is(err, service.ErrPrivacyConfirmation) {
 		return response.Error(c, http.StatusBadRequest, "PRIVACY_CONFIRMATION_REQUIRED", err.Error())
 	}

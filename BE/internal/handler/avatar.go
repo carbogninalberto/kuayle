@@ -15,7 +15,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/storage"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -41,9 +41,9 @@ func (h *AuthHandler) SetAvatarStore(store storage.Backend) { h.avatarStore = st
 func avatarKey(userID uuid.UUID, file string) string { return "avatar-" + userID.String() + "-" + file }
 
 // UploadAvatar stores the caller's profile picture and points their avatar_url at it.
-func (h *AuthHandler) UploadAvatar(c echo.Context) error {
+func (h *AuthHandler) UploadAvatar(c *echo.Context) error {
 	userID := middleware.GetUserID(c)
-	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, maxAvatarSize+64*1024)
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxAvatarSize+64*1024)
 
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -104,7 +104,7 @@ func (h *AuthHandler) UploadAvatar(c echo.Context) error {
 }
 
 // GetAvatar serves a stored profile picture to any signed-in user.
-func (h *AuthHandler) GetAvatar(c echo.Context) error {
+func (h *AuthHandler) GetAvatar(c *echo.Context) error {
 	if h.avatarStore == nil {
 		return response.NotFound(c, "Avatar")
 	}
@@ -130,7 +130,7 @@ func (h *AuthHandler) GetAvatar(c echo.Context) error {
 }
 
 // deleteStored removes a previously uploaded avatar owned by the user.
-func (h *AuthHandler) deleteStored(c echo.Context, userID uuid.UUID, avatarURL *string) {
+func (h *AuthHandler) deleteStored(c *echo.Context, userID uuid.UUID, avatarURL *string) {
 	if avatarURL == nil {
 		return
 	}
