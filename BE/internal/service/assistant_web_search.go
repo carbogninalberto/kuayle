@@ -40,6 +40,9 @@ var (
 	ErrWebSearchRateLimited  = errors.New("the search provider rate-limited the request")
 	ErrWebSearchTimeout      = errors.New("the search provider did not answer in time")
 	ErrWebSearchUnavailable  = errors.New("the search provider failed")
+	// ErrWebSearchFormatDisabled: SearXNG refused the JSON API, which it
+	// does (403) unless json is listed in search.formats of its settings.
+	ErrWebSearchFormatDisabled = errors.New("SearXNG refused JSON results")
 )
 
 // WebSearchResult is one result as the model sees it.
@@ -54,6 +57,15 @@ type WebSearchResult struct {
 type WebSearchProvider interface {
 	Name() string
 	Search(ctx context.Context, apiKey, query string, count int) ([]WebSearchResult, error)
+}
+
+// keylessSearchProvider is a provider that needs no workspace API key, such
+// as an operator-configured SearXNG instance.
+type keylessSearchProvider interface{ Keyless() bool }
+
+func searchNeedsKey(provider WebSearchProvider) bool {
+	keyless, ok := provider.(keylessSearchProvider)
+	return !ok || !keyless.Keyless()
 }
 
 // ResearchConfig is a workspace's research settings with the search key
@@ -109,8 +121,8 @@ func (t *AssistantTools) webSearch(ctx context.Context, ws uuid.UUID, arguments 
 		return nil, nil, err
 	}
 	provider := t.searchProvider[config.SearchProvider]
-	if provider == nil || config.SearchAPIKey == "" {
-		return nil, nil, searchFailure("web search is not configured: a workspace owner or admin must add a search API key in Settings → Assistant → Research")
+	if provider == nil || (searchNeedsKey(provider) && config.SearchAPIKey == "") {
+		return nil, nil, searchFailure("web search is not configured: a workspace owner or admin must choose an available search provider and add its API key in Settings → Assistant → Research")
 	}
 	searchCtx, cancel := context.WithTimeout(ctx, webSearchTimeout)
 	defer cancel()
@@ -122,6 +134,9 @@ func (t *AssistantTools) webSearch(ctx context.Context, ws uuid.UUID, arguments 
 		return nil, nil, searchFailure("%s rate-limited the search; try again later", provider.Name())
 	case errors.Is(err, ErrWebSearchTimeout):
 		return nil, nil, searchFailure("%s did not answer in time", provider.Name())
+	case errors.Is(err, ErrWebSearchFormatDisabled):
+		log.WithField("provider", provider.Name()).Warn("SearXNG refused JSON results: enable json in search.formats of its settings.yml")
+		return nil, nil, searchFailure("the SearXNG instance refused JSON results (HTTP 403); the Kuayle instance operator must enable json in search.formats of SearXNG's settings.yml")
 	case err != nil:
 		log.WithError(err).WithField("provider", provider.Name()).Warn("Web search failed")
 		return nil, nil, searchFailure("%s could not be reached", provider.Name())
@@ -169,11 +184,26 @@ func cleanSearchResult(title, link, excerpt string) (WebSearchResult, bool) {
 }
 
 // newSearchClient dials only public addresses and never follows redirects.
-func newSearchClient() *http.Client {
-	dialer := &net.Dialer{Timeout: 10 * time.Second, Control: validate.PublicAddressControl}
+func newSearchClient() *http.Client { return searchClientAllowing("") }
+
+// searchClientAllowing is newSearchClient that may also dial allowed, an
+// operator-configured host:port, at whatever address it resolves to (such as
+// a Compose service on a private network). Only an exact host and port match
+// skips the public-address check, and the connection then goes to the
+// configured host itself, never to an address taken from the request; any
+// other private address is refused. Redirects are never followed.
+func searchClientAllowing(allowed string) *http.Client {
+	public := &net.Dialer{Timeout: 10 * time.Second, Control: validate.PublicAddressControl}
+	operator := &net.Dialer{Timeout: 10 * time.Second}
+	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		if allowed != "" && strings.EqualFold(address, allowed) {
+			return operator.DialContext(ctx, network, allowed)
+		}
+		return public.DialContext(ctx, network, address)
+	}
 	return &http.Client{
 		Timeout:       webSearchTimeout,
-		Transport:     &http.Transport{Proxy: nil, DialContext: dialer.DialContext, TLSHandshakeTimeout: 10 * time.Second},
+		Transport:     &http.Transport{Proxy: nil, DialContext: dial, TLSHandshakeTimeout: 10 * time.Second},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 }
@@ -297,7 +327,61 @@ func (s *TavilySearch) Search(ctx context.Context, apiKey, query string, count i
 	return results, nil
 }
 
-// WebSearchProviders lists the providers Kuayle supports, by settings name.
+// SearXNGSearch is a self-hosted SearXNG instance (https://docs.searxng.org)
+// whose base URL the instance operator sets in WEB_SEARCH_SEARXNG_URL. It needs
+// no key; JSON output must be enabled in its search.formats.
+type SearXNGSearch struct {
+	// Base is the validated base URL (see validate.OperatorBaseURL).
+	Base   *url.URL
+	Client *http.Client
+}
+
+// NewSearXNGSearch searches base, whose host and port are the only private
+// destination its client may dial.
+func NewSearXNGSearch(base *url.URL) *SearXNGSearch {
+	return &SearXNGSearch{Base: base, Client: searchClientAllowing(validate.OperatorHostPort(base))}
+}
+
+func (*SearXNGSearch) Name() string  { return "searxng" }
+func (*SearXNGSearch) Keyless() bool { return true }
+
+// Search ignores apiKey. SearXNG has no result count parameter, so the tool
+// cuts the list; safe search is moderate, as Brave's default.
+func (s *SearXNGSearch) Search(ctx context.Context, _ string, query string, _ int) ([]WebSearchResult, error) {
+	endpoint := s.Base.JoinPath("search")
+	endpoint.RawQuery = url.Values{"q": {query}, "format": {"json"}, "safesearch": {"1"}, "pageno": {"1"}}.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, ErrWebSearchUnavailable
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("User-Agent", "Kuayle web_search")
+	var body struct {
+		Results []struct {
+			Title   string `json:"title"`
+			URL     string `json:"url"`
+			Content string `json:"content"`
+		} `json:"results"`
+	}
+	if err := doSearch(ctx, s.Client, request, &body); err != nil {
+		// SearXNG has no key: a 401/403 means the json format is disabled
+		// (or something in front of it refused Kuayle).
+		if errors.Is(err, ErrWebSearchUnauthorized) {
+			return nil, ErrWebSearchFormatDisabled
+		}
+		return nil, err
+	}
+	var results []WebSearchResult
+	for _, r := range body.Results {
+		if result, ok := cleanSearchResult(r.Title, r.URL, r.Content); ok {
+			results = append(results, result)
+		}
+	}
+	return results, nil
+}
+
+// WebSearchProviders lists the providers every instance offers, by settings
+// name. SearXNG is added when the operator configures it.
 var WebSearchProviders = []string{"brave", "tavily"}
 
 // researchPrompt describes the research tools this reply can use, so the

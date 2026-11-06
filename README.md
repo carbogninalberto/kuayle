@@ -424,6 +424,15 @@ Members can dictate assistant messages and send Telegram voice notes; speech is 
 
 The service is not published: only the backend reaches it on the internal `voice-control` network, and it needs outbound HTTPS only to download models into the `voice_models` volume (from 41 MB for Vosk small to about 1.6 GB for large-v3-turbo; unused models stay there until you remove the volume). `selfhosting/update.sh` does not rebuild optional profiles: after updating, run `docker compose --profile voice up -d --build voice`. See [voice transcription](TECHNICAL.md#voice-transcription) for limits and security.
 
+### Self-hosted web search (optional)
+
+The assistant's `web_search` tool can use a SearXNG instance on your server instead of a Brave or Tavily API key.
+
+1. Run `bash selfhosting/searxng.sh enable`. It generates `SEARXNG_SECRET` in `selfhosting/.env` (never printed or committed), sets `WEB_SEARCH_SEARXNG_URL=http://searxng:8080`, starts the `searxng` Compose profile and recreates the backend.
+2. A workspace owner or admin chooses **SearXNG (self-hosted)** in **Settings → Assistant → Research**. No key is needed.
+
+The service has no published port: only the backend reaches it on the internal `search-control` network, and it queries DuckDuckGo, Brave, Wikipedia and Bing through `search-egress`. Its configuration is [selfhosting/searxng/settings.yml](selfhosting/searxng/settings.yml) (JSON output on, limiter off because nothing else can reach it, moderate safe search). `selfhosting/update.sh` keeps the secret and refreshes the pinned image when SearXNG is running; `bash selfhosting/searxng.sh disable` turns it off. To use an existing instance, set `WEB_SEARCH_SEARXNG_URL` to its base URL instead; it must list `json` in `search.formats`. With the [release updater](selfhosting/RELEASE_UPDATER.md), add the `searxng` service and the backend's `WEB_SEARCH_SEARXNG_URL` to your production configuration. See [web search](BE/docs/conversations.md#research-tools) for the security model.
+
 ### Storage options
 
 By default, uploads use a local Docker volume (`STORAGE_TYPE=local`). The alternative S3 backend accepts a configurable endpoint and path-style requests:

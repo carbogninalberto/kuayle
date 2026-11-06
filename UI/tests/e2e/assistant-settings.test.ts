@@ -7,13 +7,13 @@ const tools = () => [
 	{ name: 'link_repository', description: 'Set the GitHub repository coding agents use.', requires_approval: false, changes_data: true, available: false, enabled: true }
 ];
 
-async function fixture(page: Page, role: 'admin' | 'member') {
+async function fixture(page: Page, role: 'admin' | 'member', research: { search_provider?: string; search_providers?: string[] } = {}) {
 	const state = {
 		tools: tools(),
 		puts: [] as Array<{ name: string; enabled: boolean }>,
 		research: {
-			search_provider: 'brave',
-			search_providers: ['brave', 'tavily'],
+			search_provider: research.search_provider ?? 'brave',
+			search_providers: research.search_providers ?? ['brave', 'tavily'],
 			has_search_api_key: false,
 			subagent_model: '',
 			subagent_max_parallel: 3,
@@ -137,6 +137,40 @@ test('admins set the search provider and key without ever seeing the key again',
 
 	await page.setViewportSize({ width: 390, height: 844 });
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test('SearXNG is offered only when the instance configures it, without a key', async ({ page }) => {
+	const state = await fixture(page, 'admin', { search_providers: ['brave', 'tavily', 'searxng'] });
+	await page.goto('/test/settings/assistant?tab=research');
+	await expect(page.getByLabel('Search API key')).toBeVisible();
+	await page.getByLabel('Search API key').fill('typed-for-brave');
+
+	await page.getByLabel('Search provider').click();
+	await page.getByRole('option', { name: 'SearXNG (self-hosted)' }).click();
+	await expect(page.getByLabel('Search API key')).toHaveCount(0);
+	await expect(page.getByText("Searches go to this Kuayle instance's own SearXNG server")).toBeVisible();
+	await page.getByRole('button', { name: 'Save' }).click();
+	await expect
+		.poll(() => state.researchPuts)
+		.toEqual([{ search_provider: 'searxng', subagent_model: '', subagent_max_parallel: 3 }]);
+	await expect(page.getByLabel('Search provider')).toHaveText('SearXNG (self-hosted)');
+	await expect(page.getByText('No key: the assistant reports that web search is not configured.')).toHaveCount(0);
+	await page.screenshot({ path: test.info().outputPath('assistant-research-searxng.png'), fullPage: true });
+
+	await page.setViewportSize({ width: 390, height: 844 });
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test('a SearXNG choice the instance no longer offers asks for another provider', async ({ page }) => {
+	const state = await fixture(page, 'admin', { search_provider: 'searxng' });
+	await page.goto('/test/settings/assistant?tab=research');
+	await expect(page.getByText('SearXNG is no longer offered on this instance; choose another search provider.')).toBeVisible();
+	await page.getByLabel('Search provider').click();
+	await expect(page.getByRole('option', { name: 'SearXNG (self-hosted)' })).toHaveCount(0);
+	await page.getByRole('option', { name: 'Brave Search' }).click();
+	await page.getByRole('button', { name: 'Save' }).click();
+	await expect.poll(() => state.researchPuts.at(-1)?.search_provider).toBe('brave');
+	await expect(page.getByText('SearXNG is no longer offered on this instance; choose another search provider.')).toHaveCount(0);
 });
 
 test('members see the research settings read-only', async ({ page }) => {

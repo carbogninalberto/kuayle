@@ -1,0 +1,51 @@
+# SearXNG for the assistant's web_search tool (Compose profile "searxng").
+# Not published: only the Kuayle backend reaches it on the internal
+# search-control network. Reference: https://docs.searxng.org/admin/settings/
+use_default_settings:
+  engines:
+    # A few general web engines that work without keys; Google is left out
+    # because it blocks server traffic quickly.
+    keep_only:
+      - duckduckgo
+      - brave
+      - wikipedia
+      - bing
+
+general:
+  instance_name: "Kuayle search"
+  enable_metrics: false
+
+search:
+  # Moderate, as Kuayle's request asks for.
+  safe_search: 1
+  autocomplete: ""
+  default_lang: "auto"
+  # json is what Kuayle reads; without it SearXNG answers 403.
+  formats:
+    - html
+    - json
+
+server:
+  # Placeholder only: SEARXNG_SECRET (generated into selfhosting/.env by
+  # selfhosting/searxng.sh) overrides it, and SearXNG refuses to start while
+  # this placeholder is the effective key.
+  secret_key: "ultrasecretkey"
+  # The limiter is for public instances (it needs Valkey and real client IP
+  # headers). This instance is reachable only by the backend, which bounds
+  # web_search calls per reply; upstream engines that rate-limit are
+  # suspended by SearXNG's search.suspended_times defaults.
+  limiter: false
+  public_instance: false
+  image_proxy: false
+  method: "GET"
+
+outgoing:
+  # Kuayle waits at most 15 seconds for a search.
+  request_timeout: 4.0
+  max_request_timeout: 8.0
+  pool_connections: 20
+  pool_maxsize: 10
+
+engines:
+  - name: bing
+    disabled: false
