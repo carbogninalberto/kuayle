@@ -63,6 +63,9 @@ func labelError(c echo.Context, err error) error {
 	if errors.Is(err, service.ErrLabelProject) {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
+	if errors.Is(err, service.ErrLabelNameTaken) {
+		return response.Error(c, http.StatusConflict, "CONFLICT", err.Error())
+	}
 	return response.InternalError(c)
 }
 
@@ -78,7 +81,7 @@ func (h *LabelHandler) Update(c echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	label, err := h.labelSvc.Update(c.Request().Context(), ws.ID, id, req)
 	if err != nil {
-		return response.InternalError(c)
+		return labelError(c, err)
 	}
 	return response.Success(c, http.StatusOK, toLabelResponse(*label))
 }

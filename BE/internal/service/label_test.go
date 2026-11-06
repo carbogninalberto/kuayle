@@ -35,8 +35,30 @@ func (f *fakeLabelRepo) ListByWorkspace(_ context.Context, ws uuid.UUID, project
 	return out, nil
 }
 
-func (f *fakeLabelRepo) ExistsByName(_ context.Context, ws uuid.UUID, project *uuid.UUID, name string) (bool, error) {
+func (f *fakeLabelRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.Label, error) {
+	for i := range f.labels {
+		if f.labels[i].ID == id {
+			l := f.labels[i]
+			return &l, nil
+		}
+	}
+	return nil, nil
+}
+
+func (f *fakeLabelRepo) Update(_ context.Context, label *domain.Label) error {
+	for i := range f.labels {
+		if f.labels[i].ID == label.ID {
+			f.labels[i] = *label
+		}
+	}
+	return nil
+}
+
+func (f *fakeLabelRepo) ExistsByName(_ context.Context, ws uuid.UUID, project *uuid.UUID, name string, exclude uuid.UUID) (bool, error) {
 	for _, l := range f.labels {
+		if l.ID == exclude {
+			continue
+		}
 		sameScope := (l.ProjectID == nil && project == nil) || (l.ProjectID != nil && project != nil && *l.ProjectID == *project)
 		if l.WorkspaceID == ws && sameScope && strings.EqualFold(l.Name, name) {
 			return true, nil
@@ -234,4 +256,28 @@ func TestIssueService_UpdateRecordsLabelsDroppedByMoveWithLabelIDs(t *testing.T)
 	_, err := svc.Update(ctx, wsID, userID, "ENG-1", dto.UpdateIssueRequest{ProjectID: &noProject, LabelIDs: []string{}})
 	require.NoError(t, err)
 	historyRepo.AssertCalled(t, "Create", ctx, issueID, userID, "labels", mock.Anything, mock.Anything)
+}
+
+func TestLabelService_UpdateKeepsNamesUniquePerScope(t *testing.T) {
+	svc, ws, projectA, projectB := newLabelFixture()
+	ctx := context.Background()
+	a, b := projectA.String(), projectB.String()
+	create := func(name string, project *string) *domain.Label {
+		l, err := svc.Create(ctx, ws, dto.CreateLabelRequest{Name: name, Color: "#000000", ProjectID: project})
+		require.NoError(t, err)
+		return l
+	}
+	todoA, bugB := create("Todo", &a), create("Todo", &b)
+	create("Bug", nil)
+	create("Bug", &a)
+	rename := func(l *domain.Label, name string) error {
+		_, err := svc.Update(ctx, ws, l.ID, dto.UpdateLabelRequest{Name: &name})
+		return err
+	}
+
+	assert.ErrorIs(t, rename(todoA, "bug"), ErrLabelNameTaken, "same project, case-insensitive")
+	assert.NoError(t, rename(todoA, "Todo"), "unchanged name is not a clash with itself")
+	assert.NoError(t, rename(todoA, "TODO"), "changing only the case of its own name")
+	assert.NoError(t, rename(bugB, "Bug"), "another project's Bug does not clash")
+	assert.NoError(t, rename(todoA, "Fresh"))
 }

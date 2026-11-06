@@ -114,7 +114,7 @@ type LabelRepo interface {
 	ListByWorkspace(ctx context.Context, workspaceID uuid.UUID, projectID *uuid.UUID) ([]domain.Label, error)
 	Update(ctx context.Context, label *domain.Label) error
 	Delete(ctx context.Context, id uuid.UUID) error
-	ExistsByName(ctx context.Context, workspaceID uuid.UUID, projectID *uuid.UUID, name string) (bool, error)
+	ExistsByName(ctx context.Context, workspaceID uuid.UUID, projectID *uuid.UUID, name string, excludeID uuid.UUID) (bool, error)
 }
 
 type CommentRepo interface {

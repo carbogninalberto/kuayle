@@ -69,7 +69,7 @@ func TestProjectScopedLabelsPostgres(t *testing.T) {
 	require.ElementsMatch(t, []string{"global", "a"}, names(&projectA))
 
 	exists := func(project *uuid.UUID, name string) bool {
-		ok, err := labels.ExistsByName(ctx, workspace, project, name)
+		ok, err := labels.ExistsByName(ctx, workspace, project, name, uuid.Nil)
 		require.NoError(t, err)
 		return ok
 	}
@@ -268,5 +268,18 @@ func TestProjectScopedLabelVisibilityAndMoveLockPostgres(t *testing.T) {
 		require.NoError(t, labels.Create(memberCtx, visible))
 		workspaceWide := &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: "everywhere", Color: "#112233"}
 		require.NoError(t, labels.Create(memberCtx, workspaceWide))
+	})
+	t.Run("ExistsByName excludes the label being renamed", func(t *testing.T) {
+		a := newLabel("dupe-a", &openProject)
+		newLabel("dupe-b", &openProject)
+		taken, err := labels.ExistsByName(ownerCtx, workspace, &openProject, "DUPE-B", a.ID)
+		require.NoError(t, err)
+		require.True(t, taken, "another label of the scope has the name")
+		taken, err = labels.ExistsByName(ownerCtx, workspace, &openProject, "dupe-a", a.ID)
+		require.NoError(t, err)
+		require.False(t, taken, "its own name is not a clash")
+		taken, err = labels.ExistsByName(ownerCtx, workspace, nil, "dupe-b", a.ID)
+		require.NoError(t, err)
+		require.False(t, taken, "workspace scope is separate from the project's")
 	})
 }

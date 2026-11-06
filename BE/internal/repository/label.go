@@ -77,9 +77,10 @@ func (r *LabelRepository) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 // ExistsByName reports whether the name is taken within one scope: the
-// workspace-wide labels (projectID nil) or a single project's labels.
-func (r *LabelRepository) ExistsByName(ctx context.Context, workspaceID uuid.UUID, projectID *uuid.UUID, name string) (bool, error) {
+// workspace-wide labels (projectID nil) or a single project's labels. A label
+// being renamed passes its own ID as excludeID (uuid.Nil excludes nothing).
+func (r *LabelRepository) ExistsByName(ctx context.Context, workspaceID uuid.UUID, projectID *uuid.UUID, name string, excludeID uuid.UUID) (bool, error) {
 	var exists bool
-	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM labels WHERE workspace_id = $1 AND project_id IS NOT DISTINCT FROM $2::uuid AND LOWER(name) = LOWER($3) AND deleted_at IS NULL)`, workspaceID, projectID, name)
+	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM labels WHERE workspace_id = $1 AND project_id IS NOT DISTINCT FROM $2::uuid AND LOWER(name) = LOWER($3) AND id <> $4 AND deleted_at IS NULL)`, workspaceID, projectID, name, excludeID)
 	return exists, err
 }

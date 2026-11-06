@@ -14,6 +14,9 @@ import (
 // ErrLabelProject is returned when a label's project does not exist in the workspace.
 var ErrLabelProject = errors.New("project not found")
 
+// ErrLabelNameTaken is returned when another label of the same scope has the name.
+var ErrLabelNameTaken = errors.New("a label with this name already exists")
+
 type LabelService struct {
 	labelRepo   repository.LabelRepo
 	projectRepo repository.ProjectRepo
@@ -48,12 +51,12 @@ func (s *LabelService) Create(ctx context.Context, workspaceID uuid.UUID, req dt
 		}
 	}
 
-	exists, err := s.labelRepo.ExistsByName(ctx, workspaceID, projectID, req.Name)
+	exists, err := s.labelRepo.ExistsByName(ctx, workspaceID, projectID, req.Name, uuid.Nil)
 	if err != nil {
 		return nil, err
 	}
 	if exists {
-		return nil, fmt.Errorf("a label with this name already exists")
+		return nil, ErrLabelNameTaken
 	}
 
 	label := &domain.Label{
@@ -100,6 +103,15 @@ func (s *LabelService) Update(ctx context.Context, workspaceID, id uuid.UUID, re
 	}
 
 	if req.Name != nil {
+		if *req.Name != label.Name {
+			taken, err := s.labelRepo.ExistsByName(ctx, workspaceID, label.ProjectID, *req.Name, label.ID)
+			if err != nil {
+				return nil, err
+			}
+			if taken {
+				return nil, ErrLabelNameTaken
+			}
+		}
 		label.Name = *req.Name
 	}
 	if req.Color != nil {
