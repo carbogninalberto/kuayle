@@ -82,7 +82,15 @@ var assistantActionPolicies = map[string]assistantActionPolicy{
 	// commit's checks, tagging and following the release build. Only workspace
 	// owners and admins may ask for it, since it publishes a release; each step
 	// is checked again with its own tool's entry when it runs.
-	shipAction: {github: map[string]string{"pull_requests": "write", "contents": "write", "checks": "read", "statuses": "read", "actions": "read"}, role: roleWorkspaceAdmin, refusal: "only workspace owners and admins can merge and release in one step"},
+	// Repository scans (KUA-93) download one commit's archive with a token
+	// that can only read contents; any member who can use the assistant may
+	// scan the workspace's linked repositories.
+	"repo_list_files": {github: map[string]string{"contents": "read"}},
+	"repo_glob":       {github: map[string]string{"contents": "read"}},
+	"repo_grep":       {github: map[string]string{"contents": "read"}},
+	"repo_read_file":  {github: map[string]string{"contents": "read"}},
+	"repo_symbols":    {github: map[string]string{"contents": "read"}},
+	shipAction:        {github: map[string]string{"pull_requests": "write", "contents": "write", "checks": "read", "statuses": "read", "actions": "read"}, role: roleWorkspaceAdmin, refusal: "only workspace owners and admins can merge and release in one step"},
 }
 
 const pullRequestChangeRefusal = "only workspace admins or the task's creator can change this pull request"

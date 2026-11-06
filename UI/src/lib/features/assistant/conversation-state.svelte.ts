@@ -1,5 +1,4 @@
 import type { AgentLiveChatMessage, AgentTask, TaskActivity } from '$lib/api/agent-tasks';
-import type { TaskBar } from './task-actions';
 import {
 	conversations,
 	type Conversation,
@@ -22,8 +21,14 @@ export class ConversationState {
 	liveTasks = $state<Record<string, AgentTask>>({});
 	// The attempt whose diff is open beside the chat.
 	diffView = $state<{ taskId: string; runId: string; title: string } | null>(null);
-	// The newest task's compact header, pinned while its row is scrolled away.
-	taskBar = $state<TaskBar | null>(null);
+	// The task whose agent thread was asked for (an inline step, a background
+	// task row); the agent panel opens on it and scrolls it into view.
+	focusedTask = $state<string | null>(null);
+	// Where the composer sends: null for the assistant, or a task id to write
+	// to that task's coding agent through its live channel.
+	composerTarget = $state<string | null>(null);
+	// Bumped to ask the composer to take focus (e.g. "Reply to the agent").
+	composerFocus = $state(0);
 	taskActivity = $state<Record<string, TaskActivity>>({});
 	taskValidationCursor = $state<Record<string, number>>({});
 	taskPublicationCursor = $state<Record<string, number>>({});

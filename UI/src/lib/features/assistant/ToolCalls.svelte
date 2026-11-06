@@ -42,6 +42,9 @@
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
 	import { repositorySourceLabel } from '$lib/features/dev-machines/repository-source';
+	import { toolChip, toolLabel } from './tool-chips';
+	import './research-chips';
+	import { elapsed, formatDuration, splitSteps } from './shell-rules';
 	let {
 		calls,
 		slug,
@@ -94,47 +97,6 @@
 			deciding = null;
 		}
 	}
-	const names: Record<string, () => string> = {
-		list_teams: m['assistant.tool_list_teams'],
-		search_issues: m['assistant.tool_search_issues'],
-		get_issue: m['assistant.tool_get_issue'],
-		create_issue: m['assistant.tool_create_issue'],
-		update_issue: m['assistant.tool_update_issue'],
-		delegate_issue: m['assistant.tool_delegate_issue'],
-		plan_issues: m['assistant.tool_plan_issues'],
-		link_issues: m['assistant.tool_link_issues'],
-		get_agent_work: m['assistant.tool_get_agent_work'],
-		merge_pull_request: m['assistant.tool_merge_pull_request'],
-		accept_agent_work: m['assistant.tool_accept_agent_work'],
-		request_agent_review: m['assistant.tool_request_agent_review'],
-		follow_up_task: m['assistant.tool_follow_up_task'],
-		start_preview: m['assistant.tool_start_preview'],
-		stop_preview: m['assistant.tool_stop_preview'],
-		expose_port: m['assistant.tool_expose_port'],
-		list_ports: m['assistant.tool_list_ports'],
-		run_check: m['assistant.tool_run_check'],
-		message_task: m['assistant.tool_message_task'],
-		get_task_messages: m['assistant.tool_get_task_messages'],
-		load_skill: m['assistant.tool_load_skill'],
-		propose_skill: m['assistant.tool_propose_skill'],
-		propose_tool: m['assistant.tool_propose_tool'],
-		get_tool_run: m['assistant.tool_get_tool_run'],
-		get_instance_version: m['assistant.tool_get_instance_version'],
-		upgrade_instance: m['assistant.tool_upgrade_instance'],
-		get_pull_request: m['assistant.tool_get_pull_request'],
-		get_pull_request_checks: m['assistant.tool_get_pull_request_checks'],
-		list_pull_request_comments: m['assistant.tool_list_pull_request_comments'],
-		reply_to_review_comment: m['assistant.tool_reply_to_review_comment'],
-		resolve_review_thread: m['assistant.tool_resolve_review_thread'],
-		update_pull_request_branch: m['assistant.tool_update_pull_request_branch'],
-		mark_pull_request_ready: m['assistant.tool_mark_pull_request_ready'],
-		list_releases: m['assistant.tool_list_releases'],
-		get_release: m['assistant.tool_get_release'],
-		draft_release_notes: m['assistant.tool_draft_release_notes'],
-		create_release: m['assistant.tool_create_release'],
-		get_workflow_run: m['assistant.tool_get_workflow_run'],
-		ship_pull_request: m['assistant.tool_ship_pull_request']
-	};
 	// Outcome lines per approval action.
 	function outcome(approval: ConversationApproval) {
 		if (approval.action === 'create_release') {
@@ -316,7 +278,15 @@
 				return merge ? m['assistant.merge_denied']({ identifier }) : m['assistant.approval_denied']({ identifier });
 		}
 	}
-	const label = (call: ConversationToolCall) => (names[call.name] ?? (() => call.name))();
+	const label = (call: ConversationToolCall) => toolLabel(call.name);
+	const duration = (call: ConversationToolCall) => {
+		const ms = elapsed(call.created_at, call.completed_at);
+		return ms === undefined ? '' : formatDuration(ms);
+	};
+	// A pending approval is never folded away; other steps beyond the first few
+	// collapse behind one "+N more steps" chip so long tool work stays one line.
+	const pending = $derived(calls.filter((call) => approvals[call.id]?.status === 'pending'));
+	const steps = $derived(splitSteps(calls.filter((call) => approvals[call.id]?.status !== 'pending')));
 	function created(call: ConversationToolCall) {
 		const identifier = (call.output as { identifier?: unknown } | undefined)?.identifier;
 		return (call.name === 'create_issue' || call.name === 'update_issue') &&
@@ -361,10 +331,8 @@
 	const pretty = (value: unknown) => JSON.stringify(value ?? null, null, 2);
 </script>
 
-<!-- Official AI Elements Tool composition: Trace rows, expandable Code Block output. -->
-{#if calls.length}
-	<Trace.Root class="min-w-0">
-		{#each calls as call (call.id)}
+<!-- Official AI Elements Tool composition: Trace rows (one-line step chips), expandable Code Block output. -->
+{#snippet callView(call: ConversationToolCall)}
 			{@const approval = approvals[call.id]}
 			{#if approval}
 				{@const identifier =
@@ -815,13 +783,15 @@
 			{:else}
 				{@const failed = call.status === 'failed'}
 				{@const identifier = created(call)}
+				{@const Renderer = toolChip(call.name)?.renderer}
+				{@const Icon = toolChip(call.name)?.icon ?? Wrench}
 				{@const machine = listedMachine(call)}
 				{@const sent = sentTo(call)}
 				<Trace.Collapsible>
 					<Trace.CollapsibleTrigger>
 						<Trace.Line status={failed ? 'error' : identifier || sent ? 'success' : undefined}>
 							<Trace.Icon
-								>{#if failed}<CircleAlert />{:else}<Wrench />{/if}</Trace.Icon
+								>{#if failed}<CircleAlert />{:else}<Icon />{/if}</Trace.Icon
 							>
 							<Trace.Title class="whitespace-normal break-words"
 								>{sent
@@ -835,10 +805,12 @@
 										: failed
 											? m['assistant.tool_failed']({ tool: label(call) })
 											: m['assistant.tool_completed']({ tool: label(call) })}</Trace.Title
-							>
+							>{#if duration(call)}<Trace.Description class="shrink-0 tabular-nums">{duration(call)}</Trace.Description
+								>{/if}
 						</Trace.Line>
 					</Trace.CollapsibleTrigger>
 					<Trace.CollapsibleContent class="space-y-2">
+						{#if Renderer}<Renderer {call} {slug} />{:else}
 						<CodeBlock.Root size="sm"
 							><CodeBlock.Header><CodeBlock.Title>{m['assistant.tool_input']()}</CodeBlock.Title></CodeBlock.Header
 							><CodeBlock.Content code={pretty(call.input)} wrap class="max-h-48 text-xs" /></CodeBlock.Root
@@ -850,7 +822,7 @@
 								wrap
 								class="max-h-64 text-xs"
 							/></CodeBlock.Root
-						>
+						>{/if}
 					</Trace.CollapsibleContent>
 				</Trace.Collapsible>
 				{#if identifier}<a
@@ -859,6 +831,26 @@
 					>{/if}
 				{#if machine}<AppPortLinks {slug} machineId={machine} />{/if}
 			{/if}
-		{/each}
+{/snippet}
+
+{#if calls.length}
+	<Trace.Root class="min-w-0 gap-1.5" data-testid="tool-steps">
+		{#each steps.inline as call (call.id)}{@render callView(call)}{/each}
+		{#if steps.overflow.length}
+			<Trace.Collapsible>
+				<Trace.CollapsibleTrigger>
+					<Trace.Line>
+						<Trace.Icon><Wrench /></Trace.Icon>
+						<Trace.Title>{m['assistant.steps_more']({ count: steps.overflow.length })}</Trace.Title>
+					</Trace.Line>
+				</Trace.CollapsibleTrigger>
+				<Trace.CollapsibleContent>
+					<Trace.Root class="min-w-0 gap-1.5">
+						{#each steps.overflow as call (call.id)}{@render callView(call)}{/each}
+					</Trace.Root>
+				</Trace.CollapsibleContent>
+			</Trace.Collapsible>
+		{/if}
+		{#each pending as call (call.id)}{@render callView(call)}{/each}
 	</Trace.Root>
 {/if}

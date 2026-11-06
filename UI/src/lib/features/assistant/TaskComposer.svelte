@@ -157,17 +157,20 @@
 					<ToggleGroup.Root
 						type="single"
 						variant="outline"
+						spacing={1.5}
 						aria-labelledby="task-harness-label"
 						value={provider}
 						onValueChange={chooseProvider}
 						disabled={saving}
-						class="flex w-full flex-wrap justify-start gap-1.5 shadow-none"
+						class="w-full flex-wrap justify-start shadow-none"
 					>
 						{#each options?.providers ?? [] as p (p.id)}
+							<!-- Separate chips (spacing > 0): each keeps its own rounded border; the selection is one
+							     primary border and tint, without the focus ring doubling it. -->
 							<ToggleGroup.Item
 								value={p.id}
 								aria-label={p.display_name}
-								class="h-9 flex-none gap-2 rounded-md border px-2.5 first:rounded-md last:rounded-md data-[state=on]:border-primary data-[state=on]:bg-primary/5"
+								class="h-9 flex-none gap-2 rounded-md px-2.5 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-0 data-[state=on]:border-primary data-[state=on]:bg-primary/10 data-[state=on]:text-foreground"
 								><AgentLogo agent={p.id} size="sm" /><span class="text-xs">{p.display_name}</span></ToggleGroup.Item
 							>
 						{/each}

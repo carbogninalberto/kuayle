@@ -80,7 +80,7 @@ func (t *AssistantTools) prepareRunCheck(ctx context.Context, ws, user uuid.UUID
 	}
 	if !slices.Contains(checkableStates, target.State) {
 		if target.State == "cancelled" || target.State == "queued" {
-			return uuid.Nil, domain.RunCheckPayload{}, toolFailure("the task is %s; it has no attempt to check", target.State)
+			return uuid.Nil, domain.RunCheckPayload{}, toolFailure("the task is %s; it has no iteration to check", target.State)
 		}
 		return uuid.Nil, domain.RunCheckPayload{}, toolFailure("the agent is working (the task is %s); try again when it pauses", target.State)
 	}
@@ -99,7 +99,7 @@ func (s *AssistantApprovals) runCheck(ctx context.Context, ws, conversation uuid
 		err = repository.ErrConversationNotFound
 	}
 	if err == nil && task.Generation != payload.Generation {
-		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "The task started a new attempt after approval was requested; ask again")
+		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "The task started a new iteration after approval was requested; ask again")
 	}
 	if err == nil {
 		_, err = s.checks.RunCheck(ctx, ws, payload.TaskID, payload.Command)

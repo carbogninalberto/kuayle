@@ -101,6 +101,8 @@ func TestAssistantCapabilitiesHTTP(t *testing.T) {
 	require.Equal(t, 200, status)
 	require.Equal(t, false, payload["can_manage"])
 	require.Equal(t, true, enabled(payload, "create_issue"))
+	require.Equal(t, false, enabled(payload, "spawn_research_subagents"), "research sub-tasks are off until an admin turns them on")
+	require.Equal(t, true, enabled(payload, "web_search"))
 	for _, auth := range []string{tokenFor(guest), tokenFor(outsider), raw} {
 		require.Equal(t, 403, first(do("GET", "/assistant-capabilities", "", auth)))
 	}
@@ -120,4 +122,10 @@ func TestAssistantCapabilitiesHTTP(t *testing.T) {
 	require.Equal(t, true, payload["can_manage"])
 	require.Equal(t, false, enabled(payload, "create_issue"), "members and owners see the admin's switch")
 	require.Equal(t, 200, first(do("PUT", "/assistant-capabilities/create_issue", `{"enabled":true}`, tokenFor(owner))))
+	require.Equal(t, 403, first(do("PUT", "/assistant-capabilities/spawn_research_subagents", `{"enabled":true}`, tokenFor(member))))
+	status, payload = do("PUT", "/assistant-capabilities/spawn_research_subagents", `{"enabled":true}`, tokenFor(admin))
+	require.Equal(t, 200, status)
+	require.Equal(t, true, payload["enabled"])
+	_, payload = do("GET", "/assistant-capabilities", "", tokenFor(member))
+	require.Equal(t, true, enabled(payload, "spawn_research_subagents"))
 }

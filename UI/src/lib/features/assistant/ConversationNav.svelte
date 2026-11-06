@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { ChevronRight, Folder, FolderKanban, FolderPlus, MoreHorizontal, Pencil, Trash2 } from '@lucide/svelte';
+	import { CONVERSATION_DRAG_TYPE, dropMove, isConversationDrag, type TaskIndicator } from './shell-rules';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -23,6 +25,7 @@
 		search = '',
 		projects = [],
 		projectFilter = 'all',
+		indicators = {},
 		onrenamed
 	}: {
 		slug: string;
@@ -31,8 +34,77 @@
 		search?: string;
 		projects?: Project[];
 		projectFilter?: ProjectFilter;
+		// A conversation's agent work at a glance: running, waiting on you, failed.
+		indicators?: Record<string, TaskIndicator | undefined>;
 		onrenamed?: (conversation: Conversation) => void;
 	} = $props();
+	// The Recents list can be folded away; the choice is remembered.
+	const recentsKey = untrack(() => `assistant-recents-open:${slug}`);
+	let recentsOpen = $state(
+		(() => {
+			try {
+				return localStorage.getItem(recentsKey) !== 'closed';
+			} catch {
+				return true;
+			}
+		})()
+	);
+	function toggleRecents(open: boolean) {
+		recentsOpen = open;
+		try {
+			localStorage.setItem(recentsKey, open ? 'open' : 'closed');
+		} catch {
+			/* Folding still works without storage. */
+		}
+	}
+	// Drag and drop: a row carries its id under its own type; a folder (or the
+	// list itself, for "no folder") accepts it. The row menu's "Move to" is the
+	// keyboard equivalent.
+	let dragging = $state<string | null>(null);
+	let dropTarget = $state<string | null | undefined>(undefined);
+	function dragStart(event: DragEvent, item: Conversation) {
+		if (!event.dataTransfer) return;
+		event.dataTransfer.setData(CONVERSATION_DRAG_TYPE, item.id);
+		event.dataTransfer.effectAllowed = 'move';
+		dragging = item.id;
+	}
+	function dragEnd() {
+		dragging = null;
+		dropTarget = undefined;
+	}
+	function dragOver(event: DragEvent, target: string | null) {
+		if (!isConversationDrag(event.dataTransfer?.types)) return;
+		event.preventDefault();
+		event.stopPropagation();
+		if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+		dropTarget = target;
+	}
+	function dragLeave(event: DragEvent, target: string | null) {
+		const next = event.relatedTarget as Node | null;
+		if (dropTarget === target && !(event.currentTarget as HTMLElement).contains(next)) dropTarget = undefined;
+	}
+	function drop(event: DragEvent, target: string | null) {
+		if (!isConversationDrag(event.dataTransfer?.types)) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const id = event.dataTransfer?.getData(CONVERSATION_DRAG_TYPE) || dragging;
+		dragEnd();
+		const conversation = history.find((c) => c.id === id);
+		const move = dropMove(conversation, target);
+		if (!move || !conversation) return;
+		if (target) toggled = { ...toggled, [target]: true };
+		void moveTo(conversation, move.folder);
+	}
+	const indicatorDot: Record<TaskIndicator, string> = {
+		running: 'bg-[var(--status-running)] animate-pulse motion-reduce:animate-none',
+		waiting: 'bg-[var(--status-warning)]',
+		failed: 'bg-[var(--status-error)]'
+	};
+	const indicatorLabel: Record<TaskIndicator, () => string> = {
+		running: m['assistant.indicator_running'],
+		waiting: m['assistant.indicator_waiting'],
+		failed: m['assistant.indicator_failed']
+	};
 	// Under a single project's filter every row is that project's.
 	const showProjects = $derived(projectFilter === 'all');
 
@@ -133,7 +205,8 @@
 		}
 	}
 
-	async function move(conversation: Conversation, folder: string | null) {
+	const move = (conversation: Conversation, folder: string | null) => moveTo(conversation, folder);
+	async function moveTo(conversation: Conversation, folder: string | null) {
 		try {
 			const updated = await api.move(slug, conversation.id, folder);
 			history = history.map((c) => (c.id === conversation.id ? { ...c, folder_id: updated.folder_id ?? null } : c));
@@ -196,16 +269,32 @@
 			/>
 		</div>
 	{:else}
+		{@const indicator = indicators[item.id]}
+		<!-- Dragging is a pointer shortcut; the row menu's "Move to" does the same from the keyboard. -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="group flex min-w-0 items-center rounded-md hover:bg-muted {item.id === conversationId ? 'bg-muted' : ''}"
+			class="group flex h-8 min-w-0 items-center rounded-md hover:bg-muted {item.id === conversationId
+				? 'bg-muted'
+				: ''} {dragging === item.id ? 'opacity-50' : ''}"
+			draggable="true"
+			ondragstart={(event) => dragStart(event, item)}
+			ondragend={dragEnd}
+			data-conversation={item.id}
 		>
 			<a
 				href="/{slug}/assistant?conversation={encodeURIComponent(item.id)}"
 				aria-current={item.id === conversationId ? 'page' : undefined}
-				class="min-w-0 flex-1 truncate px-2 py-2 text-sm {item.id === conversationId
-					? 'font-medium'
+				draggable="false"
+				class="min-w-0 flex-1 truncate px-2 py-1.5 text-sm {item.id === conversationId
+					? 'font-medium text-foreground'
 					: 'text-muted-foreground'}">{item.title}</a
 			>
+			{#if indicator}<span
+					role="img"
+					aria-label={indicatorLabel[indicator]()}
+					title={indicatorLabel[indicator]()}
+					class="mr-1 size-1.5 shrink-0 rounded-full {indicatorDot[indicator]}"
+				></span>{/if}
 			{#if showProjects && item.project}
 				<Badge variant="secondary" class="max-w-24 shrink font-normal" title={item.project.name}
 					><span class="truncate">{item.project.name}</span></Badge
@@ -270,12 +359,7 @@
 	{/if}
 {/snippet}
 
-<Button
-	variant="ghost"
-	size="sm"
-	class="h-7 justify-start self-start px-2 text-xs"
-	onclick={() => (editing = { name: '' })}><FolderPlus />{m['assistant.new_folder']()}</Button
->
+
 {#snippet nameField()}
 	{#if editing}
 		<Input
@@ -290,7 +374,41 @@
 	{/if}
 {/snippet}
 
-<nav class="flex flex-col gap-1" aria-label={m['assistant.history']()}>
+<Collapsible.Root open={recentsOpen} onOpenChange={toggleRecents} class="min-w-0">
+<div class="flex items-center gap-1 pr-1">
+	<Collapsible.Trigger>
+		{#snippet child({ props })}
+			<Button
+				{...props}
+				variant="plain"
+				class="flex h-7 min-w-0 flex-1 items-center gap-1 rounded-md px-2 text-left text-[11px] font-medium tracking-wide text-muted-foreground uppercase hover:text-foreground"
+				><ChevronRight
+					class="size-3 shrink-0 transition-transform {recentsOpen ? 'rotate-90' : ''}"
+					aria-hidden="true"
+				/>{m['assistant.recents']()}</Button
+			>
+		{/snippet}
+	</Collapsible.Trigger>
+	<Button
+		variant="ghost"
+		size="icon-sm"
+		class="size-6 text-muted-foreground"
+		aria-label={m['assistant.new_folder']()}
+		title={m['assistant.new_folder']()}
+		onclick={() => {
+			toggleRecents(true);
+			editing = { name: '' };
+		}}><FolderPlus class="size-3.5" /></Button
+	>
+</div>
+<Collapsible.Content>
+<nav
+	class="flex min-h-12 flex-col gap-0.5 rounded-md pb-2 {dropTarget === null ? 'bg-muted/40 ring-1 ring-ring/40' : ''}"
+	aria-label={m['assistant.history']()}
+	ondragover={(event) => dragOver(event, null)}
+	ondragleave={(event) => dragLeave(event, null)}
+	ondrop={(event) => drop(event, null)}
+>
 	{#if editing && !editing.id}
 		<div class="flex items-center gap-1.5 px-2 py-0.5">
 			<Folder class="size-3.5 shrink-0 text-muted-foreground" />{@render nameField()}
@@ -304,7 +422,17 @@
 					<Folder class="size-3.5 shrink-0 text-muted-foreground" />{@render nameField()}
 				</div>
 			{:else}
-				<div class="group flex items-center rounded-md hover:bg-muted">
+				<div
+					class="group flex items-center rounded-md hover:bg-muted {dropTarget === folder.id
+						? 'bg-muted ring-1 ring-ring/60'
+						: ''}"
+					role="group"
+					aria-label={m['assistant.folder_drop']({ name: folder.name })}
+					data-folder={folder.id}
+					ondragover={(event) => dragOver(event, folder.id)}
+					ondragleave={(event) => dragLeave(event, folder.id)}
+					ondrop={(event) => drop(event, folder.id)}
+				>
 					<Collapsible.Trigger class="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left text-sm">
 						<ChevronRight class="size-3.5 shrink-0 transition-transform {isOpen(folder) ? 'rotate-90' : ''}" />
 						<Folder class="size-3.5 shrink-0 text-muted-foreground" />
@@ -334,7 +462,11 @@
 					</DropdownMenu.Root>
 				</div>
 			{/if}
-			<Collapsible.Content class="ml-3 flex flex-col gap-1 border-l pl-1">
+			<Collapsible.Content
+				class="ml-3 flex flex-col gap-0.5 border-l pl-1"
+				ondragover={(event: DragEvent) => dragOver(event, folder.id)}
+				ondrop={(event: DragEvent) => drop(event, folder.id)}
+			>
 				{#each items as item (item.id)}{@render row(item)}{:else}
 					<p class="px-2 py-1 text-xs text-muted-foreground">{m['assistant.folder_empty']()}</p>
 				{/each}
@@ -342,7 +474,10 @@
 		</Collapsible.Root>
 	{/each}
 	{#each ungrouped as item (item.id)}{@render row(item)}{/each}
+	{#if !visible.length}<p class="px-2 py-1 text-xs text-muted-foreground">{m['assistant.recents_empty']()}</p>{/if}
 </nav>
+</Collapsible.Content>
+</Collapsible.Root>
 
 <AlertDialog.Root open={!!deleting} onOpenChange={(open) => !open && (deleting = null)}>
 	<AlertDialog.Content>

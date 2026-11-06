@@ -37,23 +37,34 @@ type Client struct {
 // GetRepositoryInstallationToken creates a short-lived installation token
 // restricted to one repository and the permissions required by Dev Machines.
 func (c *Client) GetRepositoryInstallationToken(installationID int64, repository string) (string, time.Time, error) {
+	return c.repositoryInstallationToken(context.Background(), installationID, repository, map[string]string{
+		"contents":      "write",
+		"pull_requests": "write",
+		"metadata":      "read",
+	})
+}
+
+// GetReadOnlyRepositoryInstallationToken creates a short-lived installation
+// token that can only read one repository's contents, for the assistant's
+// repository scans.
+func (c *Client) GetReadOnlyRepositoryInstallationToken(ctx context.Context, installationID int64, repository string) (string, time.Time, error) {
+	return c.repositoryInstallationToken(ctx, installationID, repository, map[string]string{"contents": "read", "metadata": "read"})
+}
+
+func (c *Client) repositoryInstallationToken(ctx context.Context, installationID int64, repository string, permissions map[string]string) (string, time.Time, error) {
 	appJWT, err := c.generateAppJWT()
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("generating app JWT: %w", err)
 	}
 	body, err := json.Marshal(map[string]any{
 		"repositories": []string{repository},
-		"permissions": map[string]string{
-			"contents":      "write",
-			"pull_requests": "write",
-			"metadata":      "read",
-		},
+		"permissions":  permissions,
 	})
 	if err != nil {
 		return "", time.Time{}, err
 	}
 	endpoint := fmt.Sprintf("%s/app/installations/%d/access_tokens", githubAPIBaseURL, installationID)
-	request, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -66,7 +77,7 @@ func (c *Client) GetRepositoryInstallationToken(installationID int64, repository
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
-		responseBody, _ := io.ReadAll(response.Body)
+		responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
 		return "", time.Time{}, &APIError{Status: response.StatusCode, Message: string(responseBody)}
 	}
 	var result struct {

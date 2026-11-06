@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { agentName } from './history-agent';
-	import IssueAssistant from '$lib/features/assistant/IssueAssistant.svelte';
+	import OpenIssueChatButton from '$lib/features/assistant/OpenIssueChatButton.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount, onDestroy } from 'svelte';
@@ -159,6 +159,7 @@
 				>
 					<BellIcon size={16} />
 				</Button>
+				<OpenIssueChatButton {slug} issueId={issue.id} class="ml-auto" />
 				<Sheet.Description class="sr-only">Issue details for {issue.identifier}</Sheet.Description>
 			</div>
 		</Sheet.Header>
@@ -208,8 +209,6 @@
 					</PrioritySelector>
 				</div>
 			</div>
-
-			<div class="mt-6"><IssueAssistant {slug} issueId={issue.id} /></div>
 
 			<div class="mt-5"><IssueVersionHistory {slug} identifier={issue.identifier} {members} /></div>
 

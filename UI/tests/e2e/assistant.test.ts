@@ -494,60 +494,46 @@ test('does not restore delayed older history after access is revoked', async ({ 
 	await expect(page.locator('[data-slot="message"]')).toHaveCount(0);
 });
 
-test('opens persistent issue chat in place and links its focused view back to the issue', async ({ page }) => {
+const chatIssue = {
+	id: 'issue-1',
+	identifier: 'ENG-1',
+	workspace_id: workspace.id,
+	team_id: 'team-1',
+	title: 'Implement issue chat',
+	description: 'Issue context',
+	status: 'todo',
+	priority: 0,
+	number: 1,
+	creator_id: 'user-1',
+	created_at: conversation.created_at,
+	updated_at: conversation.updated_at,
+	labels: [],
+	assignees: []
+};
+
+test('the issue page opens its conversation in the assistant instead of embedding a chat', async ({ page }) => {
 	const state = await fixture(page);
-	const issue = {
-		id: 'issue-1',
-		identifier: 'ENG-1',
-		workspace_id: workspace.id,
-		team_id: 'team-1',
-		title: 'Implement issue chat',
-		description: 'Issue context',
-		status: 'todo',
-		priority: 0,
-		number: 1,
-		creator_id: 'user-1',
-		created_at: conversation.created_at,
-		updated_at: conversation.updated_at,
-		labels: [],
-		assignees: []
-	};
+	const issueChat = { ...conversation, issue_id: chatIssue.id, team_id: chatIssue.team_id };
 	let opens = 0;
-	await page.route('**/api/workspaces/test/issues/ENG-1', (route) => route.fulfill({ json: issue }));
+	await page.route('**/api/workspaces/test/issues/ENG-1', (route) => route.fulfill({ json: chatIssue }));
 	await page.route('**/api/workspaces/test/conversations', (route) => {
 		if (route.request().method() === 'POST') {
-			expect(route.request().postDataJSON()).toEqual({ issue_id: issue.id });
+			expect(route.request().postDataJSON()).toEqual({ issue_id: chatIssue.id });
 			opens++;
-			return route.fulfill({ json: { ...conversation, issue_id: issue.id, team_id: issue.team_id } });
+			return route.fulfill({ json: issueChat });
 		}
-		return route.fulfill({ json: [{ ...conversation, issue_id: issue.id, team_id: issue.team_id }] });
+		return route.fulfill({ json: [issueChat] });
 	});
-	await page.goto('/test/issue/ENG-1');
-	await page.getByRole('button', { name: 'Issue chat', exact: true }).click();
-	const chat = page.getByRole('region', { name: 'Issue chat', exact: true });
-	await expect(chat.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
-	await chat.getByRole('textbox', { name: 'Message', exact: true }).fill('Explain the implementation');
-	await chat.getByRole('textbox', { name: 'Message', exact: true }).press('Enter');
-	await expect.poll(() => state.sends).toEqual(['Explain the implementation']);
-	await expect(page).toHaveURL(/\/issue\/ENG-1$/);
-	await expect(chat.getByRole('link', { name: 'Open full conversation' })).toHaveAttribute(
-		'href',
-		'/test/assistant?conversation=chat-1'
-	);
-	await page.getByRole('button', { name: 'Issue chat', exact: true }).click();
-	await page.getByRole('button', { name: 'Issue chat', exact: true }).click();
-	await expect(chat.getByText('Hello assistant', { exact: true })).toBeVisible();
-	expect(opens).toBe(1);
 	await page.route('**/api/workspaces/test/conversations/chat-1?*', (route) =>
 		route.fulfill({
 			json: {
-				conversation: { ...conversation, issue_id: issue.id, team_id: issue.team_id },
+				conversation: issueChat,
 				issue: {
-					id: issue.id,
-					identifier: issue.identifier,
-					title: issue.title,
-					description: issue.description,
-					status: issue.status
+					id: chatIssue.id,
+					identifier: chatIssue.identifier,
+					title: chatIssue.title,
+					description: chatIssue.description,
+					status: chatIssue.status
 				},
 				messages: state.messages,
 				cursor: state.cursor,
@@ -555,40 +541,41 @@ test('opens persistent issue chat in place and links its focused view back to th
 			}
 		})
 	);
-	await chat.getByRole('link', { name: 'Open full conversation' }).click();
+	await page.goto('/test/issue/ENG-1');
+	await expect(page.getByText('Issue context')).toBeVisible();
+	// The description is followed by the issue's own content: no chat is embedded.
+	await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('region', { name: 'Issue chat' })).toHaveCount(0);
+	const open = page.getByRole('button', { name: 'Chat with assistant', exact: true });
+	await expect(open).toBeVisible();
+	// Keyboard: the button is reachable and activates with Enter.
+	await open.focus();
+	await page.keyboard.press('Enter');
+	await expect(page).toHaveURL(/\/test\/assistant\?conversation=chat-1$/);
+	expect(opens).toBe(1);
 	await expect(page.getByRole('link', { name: 'ENG-1', exact: true })).toHaveAttribute('href', '/test/issue/ENG-1');
+	const composer = page.getByRole('textbox', { name: 'Message', exact: true });
+	await composer.fill('Explain the implementation');
+	await composer.press('Enter');
+	await expect.poll(() => state.sends).toEqual(['Explain the implementation']);
+	// The issue's conversation is the selected one in the sidebar.
+	await expect(
+		page.getByRole('navigation', { name: 'Conversations' }).getByRole('link', { name: conversation.title })
+	).toHaveAttribute('aria-current', 'page');
 });
 
-test('denied issue chat stays empty and can retry a temporary opening failure', async ({ page }) => {
+test('a denied issue conversation reports the failure and stays on the issue', async ({ page }) => {
 	await fixture(page);
-	const issue = {
-		id: 'issue-1',
-		identifier: 'ENG-1',
-		workspace_id: workspace.id,
-		team_id: 'team-1',
-		title: 'Scoped issue',
-		status: 'todo',
-		priority: 0,
-		creator_id: 'user-1',
-		created_at: conversation.created_at,
-		updated_at: conversation.updated_at,
-		labels: [],
-		assignees: []
-	};
-	await page.route('**/api/workspaces/test/issues/ENG-1', (route) => route.fulfill({ json: issue }));
-	let status = 500;
+	await page.route('**/api/workspaces/test/issues/ENG-1', (route) => route.fulfill({ json: chatIssue }));
 	await page.route('**/api/workspaces/test/conversations', (route) =>
-		route.fulfill({ status, json: { error: { code: 'DENIED' } } })
+		route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } })
 	);
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto('/test/issue/ENG-1');
-	await page.getByRole('button', { name: 'Issue chat', exact: true }).click();
-	const chat = page.getByRole('region', { name: 'Issue chat', exact: true });
-	await expect(chat.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
-	status = 404;
-	await chat.getByRole('button', { name: 'Retry', exact: true }).click();
-	await expect(chat.getByText('This conversation is no longer available.')).toBeVisible();
-	await expect(chat.getByRole('textbox')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Chat with assistant', exact: true }).click();
+	await expect(page.getByText("Could not open this issue's conversation.")).toBeVisible();
+	await expect(page).toHaveURL(/\/issue\/ENG-1$/);
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test('renders recorded tool calls from history and live events as escaped data', async ({ page }) => {
@@ -833,7 +820,8 @@ test('a long conversation list scrolls inside the sidebar, never the page', asyn
 		}
 	];
 	await page.goto('/test/assistant?conversation=chat-1');
-	await expect(page.getByRole('region', { name: 'Agent work', exact: true })).toBeAttached();
+	await expect(page.getByRole('region', { name: 'Background tasks', exact: true })).toBeAttached();
+	await expect(page.getByRole('navigation', { name: 'Conversations' }).getByRole('link')).toHaveCount(41);
 	// Visually hidden labels below the fold must not stretch the document.
 	expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
 	await page.mouse.move(640, 300);
@@ -841,7 +829,7 @@ test('a long conversation list scrolls inside the sidebar, never the page', asyn
 	expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
 
-test('lists agent work across projects as a queue linking to each issue chat', async ({ page }) => {
+test('lists background agent work; failed tasks stay listed and finished ones fold into one row', async ({ page }) => {
 	const state = await fixture(page);
 	const item = (id: string, identifier: string, taskState: string) => ({
 		id,
@@ -850,20 +838,94 @@ test('lists agent work across projects as a queue linking to each issue chat', a
 		reason: '',
 		issue_identifier: identifier,
 		issue_title: `Title ${identifier}`,
+		provider: 'codex',
 		updated_at: conversation.created_at
 	});
-	state.queue = [item('a', 'ENG-1', 'running'), item('b', 'ENG-2', 'awaiting_review'), item('c', 'WEB-3', 'completed')];
+	state.queue = [
+		item('a', 'ENG-1', 'running'),
+		item('b', 'ENG-2', 'awaiting_review'),
+		item('c', 'WEB-3', 'completed'),
+		item('d', 'ENG-4', 'failed')
+	];
 	await page.goto('/test/assistant');
-	const queue = page.getByRole('region', { name: 'Agent work', exact: true });
-	await expect(queue.getByText('2 in progress or waiting', { exact: true })).toBeVisible();
+	const queue = page.getByRole('region', { name: 'Background tasks', exact: true });
+	await expect(queue.getByText('3 in progress or waiting', { exact: true })).toBeAttached();
 	await expect(queue.getByRole('link', { name: /ENG-1 · Title ENG-1/ })).toHaveAttribute(
 		'href',
-		'/test/assistant?conversation=chat-a'
+		'/test/assistant?conversation=chat-a&task=a'
 	);
 	await expect(queue.getByRole('link', { name: /ENG-2/ })).toBeVisible();
+	// A failure does not disappear into the finished row: it stays listed with its state.
+	const failed = queue.getByRole('link', { name: /ENG-4/ });
+	await expect(failed).toBeVisible();
+	await expect(failed.getByRole('img', { name: 'Failed' })).toBeAttached();
 	await expect(queue.getByRole('link', { name: /WEB-3/ })).toBeHidden();
 	await queue.getByRole('button', { name: '1 finished' }).click();
 	await expect(queue.getByRole('link', { name: /WEB-3/ })).toBeVisible();
+});
+
+test('three columns on desktop; both sidebars become drawers on narrow screens', async ({ page }) => {
+	await fixture(page);
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto('/test/assistant?conversation=chat-1');
+	const sidebar = page.getByRole('complementary', { name: 'Assistant sidebar' });
+	const conversationSection = page.getByRole('region', { name: 'Conversation', exact: true });
+	const panel = page.getByTestId('side-panel');
+	await expect(sidebar).toBeVisible();
+	await expect(conversationSection).toBeVisible();
+	await expect(panel).toBeVisible();
+	await expect(panel.getByText('Background tasks')).toBeVisible();
+	// The sidebar header holds the settings cog; there is no search button there and no user footer.
+	await expect(sidebar.getByRole('link', { name: 'Assistant', exact: true })).toHaveAttribute(
+		'href',
+		'/test/settings/assistant'
+	);
+	await expect(sidebar.getByRole('button', { name: 'Search conversations' })).toHaveCount(0);
+	await expect(sidebar.getByRole('searchbox', { name: 'Search conversations' })).toBeVisible();
+	const [left, middle, right] = await Promise.all([
+		sidebar.boundingBox(),
+		conversationSection.boundingBox(),
+		panel.boundingBox()
+	]);
+	expect(left!.x + left!.width).toBeLessThanOrEqual(middle!.x + 1);
+	expect(middle!.x + middle!.width).toBeLessThanOrEqual(right!.x + 1);
+	// The side panel can be closed and reopened from the conversation's top bar.
+	await page.getByRole('button', { name: 'Close panel' }).click();
+	await expect(panel).toHaveCount(0);
+	await page.getByRole('button', { name: 'Details', exact: true }).click();
+	await expect(page.getByTestId('side-panel')).toBeVisible();
+
+	await page.setViewportSize({ width: 390, height: 844 });
+	await expect(page.getByRole('complementary', { name: 'Assistant sidebar' })).toHaveCount(0);
+	await expect(page.getByTestId('side-panel')).toHaveCount(0);
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+	await page.getByRole('button', { name: 'Show conversations' }).click();
+	const drawer = page.getByRole('dialog', { name: 'Assistant sidebar' });
+	await expect(drawer.getByRole('navigation', { name: 'Conversations' })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(drawer).toHaveCount(0);
+	await page.getByRole('button', { name: 'Details', exact: true }).click();
+	const details = page.getByRole('dialog', { name: 'Details' });
+	await expect(details.getByText('Context', { exact: true })).toBeVisible();
+	await details.getByRole('button', { name: 'Close panel' }).click();
+	await expect(details).toHaveCount(0);
+});
+
+test('earlier history folds behind one row and unfolds again', async ({ page }) => {
+	const state = await fixture(page);
+	state.messages = longTranscript(12);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.locator('[data-slot="message"]')).toHaveCount(12);
+	await page.getByRole('button', { name: 'Collapse earlier messages' }).click();
+	await expect(page.locator('[data-slot="message"]')).toHaveCount(6);
+	await expect(page.getByText('History message 0.', { exact: false })).toHaveCount(0);
+	await expect(page.getByText('History message 11.', { exact: false })).toBeVisible();
+	// The choice is remembered.
+	await page.reload();
+	const show = page.getByRole('button', { name: 'Show 6 earlier messages' });
+	await expect(show).toBeVisible();
+	await show.click();
+	await expect(page.locator('[data-slot="message"]')).toHaveCount(12);
 });
 
 test('lists the issues a reply used and offers contextual suggestions', async ({ page }) => {
@@ -960,7 +1022,6 @@ test('groups conversations into folders and deletes one after confirmation', asy
 	await page.goto('/test/assistant?conversation=chat-1');
 	const nav = page.getByRole('navigation', { name: 'Conversations' });
 	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeVisible();
-	await expect(page.getByRole('separator', { name: 'Resize conversation list' })).toBeVisible();
 	const live = page.getByRole('button', { name: 'Live' });
 	await live.click();
 	await expect(
@@ -994,6 +1055,43 @@ test('groups conversations into folders and deletes one after confirmation', asy
 	await dialog.getByRole('button', { name: 'Delete' }).click();
 	await expect.poll(() => deletes).toEqual(['chat-2']);
 	await expect(nav.getByRole('link', { name: 'Release notes' })).toHaveCount(0);
+});
+
+test('drags a conversation into a folder and back out to the list', async ({ page }) => {
+	await fixture(page);
+	const other = { ...conversation, id: 'chat-2', title: 'Release notes' };
+	const folders = [{ id: 'folder-1', name: 'Releases' }];
+	const moves: unknown[] = [];
+	let current = { ...other, folder_id: null as string | null };
+	await page.route('**/api/workspaces/test/conversations', (route) =>
+		route.fulfill({ json: route.request().method() === 'POST' ? conversation : [conversation, current] })
+	);
+	await page.route('**/api/workspaces/test/conversation-folders', (route) => route.fulfill({ json: folders }));
+	await page.route('**/api/workspaces/test/conversations/chat-2', (route) => {
+		if (route.request().method() !== 'PATCH') return route.fallback();
+		const body = route.request().postDataJSON();
+		moves.push(body);
+		current = { ...current, folder_id: body.folder_id };
+		return route.fulfill({ json: current });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	const nav = page.getByRole('navigation', { name: 'Conversations' });
+	const row = nav.locator('[data-conversation="chat-2"]');
+	const folder = nav.getByRole('group', { name: 'Folder Releases' });
+	await expect(row).toBeVisible();
+	await row.dragTo(folder);
+	await expect.poll(() => moves).toEqual([{ folder_id: 'folder-1' }]);
+	// The folder opens to show where the conversation went.
+	await expect(nav.getByRole('button', { name: /^Releases 1$/ })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeVisible();
+	// Dropping on the list itself takes it out of the folder again.
+	await nav.locator('[data-conversation="chat-2"]').dragTo(nav.locator('[data-conversation="chat-1"]'));
+	await expect.poll(() => moves).toEqual([{ folder_id: 'folder-1' }, { folder_id: null }]);
+	await expect(nav.getByRole('button', { name: /^Releases 0$/ })).toBeVisible();
+	// Dropping where it already is changes nothing.
+	await nav.locator('[data-conversation="chat-2"]').dragTo(nav.locator('[data-conversation="chat-1"]'));
+	await page.waitForTimeout(200);
+	expect(moves).toHaveLength(2);
 });
 
 test('renames a conversation in place from its menu', async ({ page }) => {
@@ -1553,7 +1651,7 @@ test('asks for approval before accepting work in Kuayle without merging', async 
 	await page.goto('/test/assistant?conversation=chat-1');
 	await expect(page.getByText('Accept the work on ENG-1 without merging?', { exact: true })).toBeVisible();
 	await expect(
-		page.getByText('Completes attempt 2 of Dark mode in Kuayle. Pull request #12 stays open and is not merged.', {
+		page.getByText('Completes iteration 2 of Dark mode in Kuayle. Pull request #12 stays open and is not merged.', {
 			exact: false
 		})
 	).toBeVisible();
@@ -2240,7 +2338,7 @@ test('message_task says where the message went without asking for approval', asy
 	const live = page.getByRole('button', { name: 'Message sent to the running agent of ENG-1' });
 	await expect(live).toBeVisible();
 	await expect(
-		page.getByRole('button', { name: "Message for ENG-2 queued for the agent's next attempt" })
+		page.getByRole('button', { name: "Message for ENG-2 queued for the agent's next iteration" })
 	).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
 	await live.click();
