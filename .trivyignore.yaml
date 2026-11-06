@@ -13,30 +13,16 @@ vulnerabilities:
     expired_at: 2027-01-31
     statement: No fixed go-jose v3 release; JWK parsing is not reachable in Kuayle's Caddy.
   # Docker Engine daemon flaws (archive upload and docker cp), fixed in Engine
-  # 29.5.1 and moby/moby v2; the machine daemon runs 29.9.2. The finding is the
+  # 29.5.1 and moby/moby v2; the machine daemon runs 29.9.3. The finding is the
   # github.com/docker/docker module compiled into the Buildx client plugin,
   # which has no fixed release on that module path.
   - id: CVE-2026-41567
     purls:
       - pkg:golang/github.com/docker/docker@v28.5.2%2Bincompatible
     expired_at: 2027-01-31
-    statement: Daemon-side flaw; only client code of the module is in Buildx, and the daemon is 29.9.2.
+    statement: Daemon-side flaw; only client code of the module is in Buildx, and the daemon is 29.9.3.
   - id: CVE-2026-42306
     purls:
       - pkg:golang/github.com/docker/docker@v28.5.2%2Bincompatible
     expired_at: 2027-01-31
-    statement: Daemon-side flaw; only client code of the module is in Buildx, and the daemon is 29.9.2.
-  # golang.org/x/net/html quadratic text coalescing (GO-2026-6860), fixed in
-  # x/net v0.62.0, released after Docker 29.9.x. Kuayle rebuilds runc, the
-  # containerd shim, Compose, Buildx, Crush and Caddy with v0.62.0; only the
-  # upstream binaries of the pinned docker:29.9.2-dind-rootless image remain:
-  # dockerd and docker-proxy (v0.61.0) and rootlesskit (v0.60.0). None parses
-  # HTML: the daemon serves the API on a socket inside the machine's own
-  # network, rootlesskit only sets up the user namespace and port forwarding.
-  # Remove when a Docker release ships x/net v0.62.0 or later.
-  - id: CVE-2026-78661
-    purls:
-      - pkg:golang/golang.org/x/net@v0.61.0
-      - pkg:golang/golang.org/x/net@v0.60.0
-    expired_at: 2026-12-31
-    statement: Fixed release postdates Docker 29.9.x; only upstream dockerd, docker-proxy and rootlesskit carry it, and none parses HTML.
+    statement: Daemon-side flaw; only client code of the module is in Buildx, and the daemon is 29.9.3.
