@@ -1250,8 +1250,8 @@
 			</div>
 		</div>
 
-		<!-- Right column — card-based sidebar -->
-		<div class="w-full space-y-2 border-t border-[var(--app-border)] p-3 md:w-[300px] md:shrink-0 md:overflow-y-auto md:border-t-0">
+		<!-- Right column — card-based sidebar, sized in rem so it grows with the font size setting -->
+		<div class="w-full space-y-2 border-t border-[var(--app-border)] p-3 md:w-[18.75rem] md:shrink-0 md:overflow-y-auto md:border-t-0">
 			<!-- Details card -->
 			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 				<Button variant="plain" onclick={() => detailsExpanded = !detailsExpanded}

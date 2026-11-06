@@ -278,8 +278,25 @@ test.describe('workspace controls', () => {
 		await expect(page).toHaveURL('/test/issue/ENG-1');
 	});
 
+	/** Visible names of the due date row and its card, per app locale. */
+	const dueDateText = {
+		en: { dueDate: 'Due date', details: 'Details', clear: 'Clear' },
+		it: { dueDate: 'Scadenza', details: 'Dettagli', clear: 'Cancella' },
+		'zh-CN': { dueDate: '截止日期', details: '详情', clear: '清除' },
+		'zh-TW': { dueDate: '截止日期', details: '詳情', clear: '清除' }
+	};
+	type DueDateLocale = keyof typeof dueDateText;
+
 	/** Opens ENG-1 with the given due date (null for none) and returns its due date row. */
-	async function openIssueWithDueDate(page: Page, dueDate: string | null, fontSize = 'normal') {
+	async function openIssueWithDueDate(
+		page: Page,
+		dueDate: string | null,
+		fontSize = 'normal',
+		locale: DueDateLocale = 'en'
+	) {
+		if (locale !== 'en') {
+			await page.addInitScript((locale) => localStorage.setItem('PARAGLIDE_LOCALE', locale), locale);
+		}
 		await page.route('**/api/preferences', (route) =>
 			route.fulfill({
 				json: {
@@ -299,15 +316,16 @@ test.describe('workspace controls', () => {
 			route.fulfill({ json: { ...issues[0], due_date: dueDate } })
 		);
 		await page.goto('/test/issue/ENG-1');
-		return page.getByText('Due date', { exact: true }).locator('..');
+		return page.getByText(dueDateText[locale].dueDate, { exact: true }).locator('..');
 	}
 
 	/** Checks the due date label is on one line, fully visible and inside its row and the details card. */
-	async function expectDueDateFits(page: Page, dueDateRow: Locator, label: string) {
-		const detailsCard = page.getByRole('button', { name: 'Details', exact: true }).locator('..');
+	async function expectDueDateFits(page: Page, dueDateRow: Locator, label: string, locale: DueDateLocale = 'en') {
+		const text = dueDateText[locale];
+		const detailsCard = page.getByRole('button', { name: text.details, exact: true }).locator('..');
 		const dateTrigger = dueDateRow.getByRole('button', { name: label, exact: true });
 		await expect(dateTrigger).toBeVisible();
-		await expect(dueDateRow.getByRole('button', { name: 'Clear', exact: true })).toBeVisible();
+		await expect(dueDateRow.getByRole('button', { name: text.clear, exact: true })).toBeVisible();
 
 		const dateLayout = await dateTrigger.evaluate((node, label) => {
 			const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
@@ -373,6 +391,20 @@ test.describe('workspace controls', () => {
 			const dueDateRow = await openIssueWithDueDate(page, '2026-12-30', 'large');
 			await expectDueDateFits(page, dueDateRow, 'Dec 30, 2026');
 		});
+
+		// The label follows the app locale; Chinese labels use full-width glyphs.
+		for (const { locale, label } of [
+			{ locale: 'it', label: '30 dic 2026' },
+			{ locale: 'zh-CN', label: '2026年12月30日' },
+			{ locale: 'zh-TW', label: '2026年12月30日' }
+		] as const) {
+			test(`an overdue ${locale} date label fits the details card with large text`, async ({ page }) => {
+				await page.clock.setFixedTime(new Date('2027-01-15T10:00:00Z'));
+				const dueDateRow = await openIssueWithDueDate(page, '2026-12-30', 'large', locale);
+				const control = await expectDueDateFits(page, dueDateRow, label, locale);
+				await expect(control).toHaveClass(/text-red-400/);
+			});
+		}
 	});
 
 	test('an issue without a due date shows the placeholder and no clear button', async ({ page }) => {
