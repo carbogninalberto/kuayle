@@ -13,7 +13,7 @@ BUILDX_VERSION=0.38.1
 BUILDX_COMMIT=0dbe87f36ed472fe36b6796c3f70b4210a731fc5
 # Dependency floors. Advisories without any fixed version are listed, with
 # their review date, in .trivyignore.
-FLOORS="golang.org/x/net=golang.org/x/net@v0.60.0 github.com/moby/go-archive=github.com/moby/go-archive@v0.3.0"
+FLOORS="golang.org/x/net=golang.org/x/net@v0.62.0 github.com/moby/go-archive=github.com/moby/go-archive@v0.3.0"
 
 out=${1:?usage: build-docker-plugins.sh OUTDIR}
 work=$(mktemp -d)
