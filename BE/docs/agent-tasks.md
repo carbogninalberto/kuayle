@@ -15,6 +15,14 @@ comments queue bounded follow-up attempts; reviews by a second agent run only on
 request (migration 84). See [remaining workflow work](#remaining-workflow-work)
 for what is not implemented.
 
+Terminology: texts users read (transition reasons such as "Native coding
+iteration failed; stopping execution before retry", "New execution iteration
+requested" and "Implementation iteration finished; independent validation is
+pending", check and tool-run errors, and assistant tool descriptions) call one
+native execution run an **iteration**. Code identifiers, API fields
+(`attempt`, `attempt_id`), database columns, enum values and operation keys
+keep "attempt", and rows stored before the rename keep their old text.
+
 Migration 56 adds tasks and transition history, task-specific checkout scopes,
 immutable native-attempt ownership, encrypted recovery credentials and log-source
 identity. Existing manual checkouts use an empty scope. Ordinary checkout reads
@@ -191,7 +199,7 @@ above, because the check container cannot join the daemon's Compose networks.
 ### Manual checks
 
 Migration 97 adds the `run_check` machine operation. The task's creator can run
-the check on demand, without an agent attempt and without changing the task's
+the check on demand, without an agent iteration and without changing the task's
 state, generation or attempt: `POST /agent-tasks/:taskId/checks` with an empty
 body or `{}` runs the task's check (the command requested for the task, else the
 command configured for its issue now, with the configured Compose file), and

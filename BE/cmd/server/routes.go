@@ -78,6 +78,7 @@ type appHandlers struct {
 	conversation      *handler.ConversationHandler
 	assistantSkill    *handler.AssistantSkillHandler
 	assistantTool     *handler.AssistantCustomToolHandler
+	assistantResearch *handler.AssistantResearchHandler
 	telegram          *handler.TelegramHandler
 	voice             *handler.VoiceHandler
 	devMachine        *handler.DevMachineHandler
@@ -276,6 +277,10 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// Members read the assistant's tools; the service lets owners and admins switch them.
 	sessionOnly(ws, http.MethodGet, "/assistant-capabilities", h.conversation.Capabilities)
 	sessionOnly(ws, http.MethodPut, "/assistant-capabilities/:name", h.conversation.SetCapability)
+	// Members read the research settings (never the search key); the service
+	// and SQL let only owners and admins change them.
+	sessionOnly(ws, http.MethodGet, "/assistant-research-settings", h.assistantResearch.Get)
+	sessionOnly(ws, http.MethodPut, "/assistant-research-settings", h.assistantResearch.Update)
 	// Members read the skills they can see; the repository lets only current
 	// owners and admins write them.
 	sessionOnly(ws, http.MethodGet, "/assistant-skills", h.assistantSkill.List)

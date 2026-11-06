@@ -219,7 +219,10 @@ status or priority; assignees are not changed), `delegate_issue`, `plan_issues` 
 and the release tools `list_releases`, `get_release`, `draft_release_notes`,
 `create_release` and `get_workflow_run` (see [release tools](#release-tools)),
 and `ship_pull_request`, which chains merge, tests, release, build and upgrade
-behind one approval (see [shipping in one approval](#shipping-in-one-approval)).
+behind one approval (see [shipping in one approval](#shipping-in-one-approval)),
+and the read-only research tools `web_search`, `repo_list_files`, `repo_glob`,
+`repo_grep`, `repo_read_file`, `repo_symbols` and `spawn_research_subagents`
+(see [research tools](#research-tools)).
 `link_repository`, and the live channel tools `message_task` and
 `get_task_messages` (see [agent messages in chat](#agent-messages-in-chat)).
 `create_issue` accepts a `parent_identifier`. The write tools (`create_issue`,
@@ -269,7 +272,9 @@ non-guest member may read it. `PUT /assistant-capabilities/:name` with
 routes are session-only (personal access tokens are refused), and the write is
 allowed only for current owners and admins: the role is checked in the same
 SQL statement that writes `assistant_tool_settings` (workspace, tool name,
-enabled, updated by, updated at; no row means enabled), so members, guests,
+enabled, updated by, updated at; no row means enabled, except for the tools in
+`repository.DefaultOffAssistantTools`, currently `spawn_research_subagents`,
+which are off until an owner or admin turns them on), so members, guests,
 outsiders and an admin demoted concurrently get 403.
 
 A disabled tool is enforced on the server, never only in the UI. Each reply
@@ -785,7 +790,7 @@ assistant follows progress with `get_instance_version`.
 [assistant_guard.go](../internal/service/assistant_guard.go) is the one
 declaration of what each assistant action needs: the GitHub App permissions it
 calls and who may do it. Every approval tool and every tool that calls GitHub for
-a pull request or a release must have an entry, and every permission an entry names must be in
+a pull request, a release or a repository scan must have an entry, and every permission an entry names must be in
 the App manifest (`githubAppPermissions`); a unit test enforces both, so no entry
 asks for a permission before its tool exists. `authorizeAssistantAction` is the
 single role check, made when an approval is requested and again, against the
@@ -1007,3 +1012,184 @@ authorization, resume, request checks), `assistant_ship_integration_test.go`
 (from chat to release with one approval; needs `DATABASE_URL`),
 `BE/migrations/ship_approvals_test.go` and the ship card tests in
 `UI/tests/e2e/assistant.test.ts`.
+
+### Research tools
+
+KUA-93 adds read-only research: `web_search`, five repository scan tools
+(`repo_list_files`, `repo_glob`, `repo_grep`, `repo_read_file`, `repo_symbols`)
+and `spawn_research_subagents`. None needs approval or counts toward the change
+limit. They act at once for any current non-guest member (as every tool, via
+`AssistantTools.run`), each has a workspace switch in Settings → Assistant
+(`spawn_research_subagents` is off by default, since it spends the workspace's
+AI provider budget; `web_search` and `repo_*` are on, and `web_search` does
+nothing until a key is set), and
+the system prompt describes only the ones offered to the reply (cite URLs; name
+the exact paths and lines read, and put them in any issue filed after a scan).
+
+| Tool | GitHub App permissions | Role |
+| --- | --- | --- |
+| `web_search` | none (search provider API) | member |
+| `repo_*` (five tools) | contents: read | member |
+| `spawn_research_subagents` | none itself; each sub-step is checked as its own tool | member |
+
+**Settings** (migration 114, `assistant_research_settings`; no row means the
+defaults). `GET /assistant-research-settings` (session only, any non-guest
+member) returns
+`{"search_provider":"brave"|"tavily","search_providers":["brave","tavily"],"has_search_api_key":bool,"subagent_model":string,"subagent_max_parallel":1-8,"can_manage":bool,"updated_at"?:time}`.
+`PUT` (owners and admins; the role is checked again in the writing SQL
+statement, so a concurrent demotion is refused) takes any of
+`search_provider`, `search_api_key` (absent keeps it, `null` or `""` removes
+it), `subagent_model` (`""` = the conversation's model) and
+`subagent_max_parallel` (default 3); unknown fields are 400. The key is
+encrypted with a key derived from `JWT_SECRET` (`:assistant-research`), never
+returned or logged; `assistant.research_settings_updated` is audited without it.
+Guests, outsiders and personal access tokens get 403. The settings UI is the
+Research tab of Settings → Assistant (`?tab=research`).
+
+**Web search.** Providers implement `WebSearchProvider` (`Name`, `Search`) in
+[assistant_web_search.go](../internal/service/assistant_web_search.go):
+`BraveSearch` (`GET api.search.brave.com/res/v1/web/search`,
+`X-Subscription-Token`) and `TavilySearch` (`POST api.tavily.com/search`, bearer
+key). The host is fixed by Kuayle, dialled only at public addresses without
+redirects; result URLs are given to the model to cite and never fetched by the
+server. Arguments: `query` (1–400 characters), `count` (1–10, default 5).
+Titles and excerpts are stripped of markup and capped (200 and 500 runes); only
+`http(s)` URLs are kept; the list is cut to 12 KB. A missing key, a rejected
+key, a rate limit (429), a timeout (15 s) or an unreachable provider is a tool
+error that tells the model to say it could not search and not to invent
+sources. Result:
+
+```json
+{"query":"…","provider":"brave","results":[{"title":"…","url":"https://…","excerpt":"…"}],"truncated":true,"note":"Cite the url of each result you use. …"}
+```
+
+`truncated` appears only when the byte budget dropped results.
+
+**Repository scans.** Every scan tool takes `repository` (`owner/name`, linked
+and active in the workspace's GitHub installation) or `identifier` (an issue the
+user can see; its development repository and base branch), and optionally `ref`
+(branch, tag or full SHA; default: the default branch). The API server mints a
+token restricted to that repository with only `contents: read` and `metadata:
+read`, pins the ref to a commit and downloads that commit's tarball (the
+redirect is followed only to `https://codeload.github.com`, without the
+token). The archive is extracted in Go into
+`$TMPDIR/kuayle-repo-scan-*/checkout-*` (0700/0600), so there is no git, no
+`.git` directory and the token never touches the disk or the logs. Extraction
+drops the archive's top directory and refuses absolute paths, `..`, `.git`,
+anything under a link, and every symlink and hard link (none is created; they
+are counted). Caps: 100 MB archive, 300 MB extracted, 30 000 files
+(`checkout_truncated`), 2 MB per file (larger files are listed with
+`"omitted":"too_large"` and cannot be read). Files matched by the checkout's
+`.gitignore` files (negation, anchored, directory-only, `**`, deeper files win)
+are excluded. Reads go through the checkout's index and `os.Root`, so a path
+outside the index or a link out of the checkout is refused. Checkouts are keyed
+by workspace, repository and ref, shared by concurrent calls (one download),
+kept 15 minutes, at most 8 at once, deleted when they expire, on shutdown
+(`RepositoryCheckouts.Run`/`Close`) and, for roots a crashed process left, at
+the next start. Failed downloads are not cached. GitHub's 404, 401/403 and
+outages become tool errors naming the next step. Each result starts with
+`repository`, `ref`, `commit` (and `checkout_truncated` when set) and reports
+the path or pattern used:
+
+```jsonc
+// repo_list_files(path?, limit 1-500 = 200)
+{"repository":"acme/app","ref":"main","commit":"<sha>","path":"BE","files":[{"path":"BE/main.go","size":120,"binary":false,"omitted":"too_large"}],"matched":12,"total_files":340,"truncated":false,"omitted":{"ignored":3,"links":1,"too_large":2,"unsafe":0}}
+// repo_glob(pattern, limit 1-500 = 200)
+{"repository":"…","ref":"…","commit":"…","pattern":"**/*_test.go","files":[{"path":"…","size":0}],"matched":4,"truncated":false}
+// repo_grep(pattern, glob?, fixed?, case_insensitive?, limit 1-100 = 50)
+{"repository":"…","ref":"…","commit":"…","pattern":"Serve\\(","glob":"BE/**","fixed":false,"case_insensitive":false,"matches":[{"path":"BE/main.go","line":5,"text":"\tServe()"}],"files_searched":10,"files_matched":2,"truncated":false,"timed_out":true,"note":"…"}
+// repo_read_file(path, start_line?, end_line?)
+{"repository":"…","ref":"…","commit":"…","path":"BE/main.go","start_line":1,"end_line":400,"total_lines":812,"content":"…","truncated":true}
+// repo_symbols(path?, glob?, limit 1-500 = 200)
+{"repository":"…","ref":"…","commit":"…","path":"","glob":"","symbols":[{"path":"BE/main.go","line":4,"kind":"function","name":"main"}],"files_searched":3,"truncated":false}
+```
+
+`binary` and `omitted` are omitted when false/empty; `omitted` (the counts) only
+when something was left out. Grep uses RE2 (linear time), skips binary files
+(a NUL in the first 8000 bytes), cuts lines to 300 runes and stops after 10 s or
+64 MB (`timed_out`). `repo_read_file` returns at most 400 lines and 14 KB per
+call (`truncated`: read on from `end_line + 1`). Symbol kinds are `function`,
+`method`, `type`, `interface`, `class`, `const`, `var`, `table` and `view`,
+from per-language line patterns (Go, JS/TS/Svelte/Vue, Python, Rust,
+Java/Kotlin/C#/Scala, Ruby, SQL). Every list is cut to 16 KB of JSON.
+
+**Research sub-tasks.** `spawn_research_subagents(tasks[1-8], max_parallel?)`,
+where each task is `{title (≤120), instructions (≤4000), tools?}` and `tools`
+narrows the sub-task to some of `web_search` and the `repo_*` tools (the
+default: all of them that are available and switched on). Sub-tasks run on the
+assistant's own provider (Settings → AI) with `subagent_model`, or the
+conversation's model when it is empty; at most `subagent_max_parallel` run at
+once (default 3, at most 8, lowered by `max_parallel`). They can only call those
+read-only tools, through the same switch, GitHub preflight and role checks as
+the parent (`create_issue`, approvals and `spawn_research_subagents` itself are
+refused as a failed step). Bounds: 6 model rounds per sub-task (the last offers
+no tools), 40 tool calls and about 300 000 estimated tokens (bytes ÷ 4; streamed
+replies report no usage) shared by all sub-tasks of the call, 2 minutes per
+sub-task and 4 minutes for the call. A failing, timed-out or panicking sub-task
+gets its own error status; the others finish. Each sub-task answers with JSON
+`{summary, findings, files, citations}` (plain text becomes the summary);
+`files` and `citations` keep only paths and URLs its own tool results returned
+(`path:line` is accepted), the rest are counted in `dropped_unverified`. The
+run is audited as `assistant.subagents_finished` (counts, model, steps,
+tokens). Sub-task tool calls are not conversation tool calls of their own: they
+are in the result, which is stored when the step finishes (there is no live
+progress for sub-tasks yet). The result, at most 20 KB (larger results are
+shrunk evenly and marked `truncated`, keeping every status and summary):
+
+```json
+{
+  "subagents": [
+    {
+      "index": 0,
+      "title": "Callers",
+      "status": "completed",
+      "model": "small-model",
+      "duration_ms": 8123,
+      "tokens_estimated": 5400,
+      "cost": null,
+      "summary": "main calls Serve.",
+      "findings": ["BE/main.go:5 calls Serve without a context"],
+      "files": ["BE/main.go:5"],
+      "citations": [{"url": "https://go.dev/blog/osroot", "title": "Go"}],
+      "steps": [
+        {"tool": "repo_grep", "input": {"repository": "acme/app", "pattern": "Serve\\("}, "ok": true, "duration_ms": 41},
+        {"tool": "create_issue", "input": {}, "ok": false, "error": "create_issue is not available to research subagents; …", "duration_ms": 0}
+      ],
+      "dropped_unverified": 1
+    }
+  ],
+  "model": "small-model",
+  "parallel": 3,
+  "duration_ms": 9050,
+  "completed": 1,
+  "failed": 0,
+  "budget": {"max_steps": 40, "steps_used": 1, "max_tokens_estimated": 300000, "tokens_estimated": 5400},
+  "truncated": true,
+  "note": "Sub-task findings are leads from a smaller model: …"
+}
+```
+
+`status` is `completed`, `failed`, `timed_out` or `budget_exhausted`; `error`
+(present unless completed) is a user-safe reason; `cost` is always `null` for
+now; `dropped_unverified` and `truncated` appear only when non-zero/true; step
+`input` is the normalised arguments (`{}` when over 600 bytes or shrunk). Order
+follows `tasks`. The chat renders the step chip from this output (one nested row
+per entry of `subagents`: title, model, duration, tokens/cost, status).
+
+Sources: `BE/internal/service/assistant_web_search.go`,
+`assistant_scan_checkout.go`, `assistant_scan_ignore.go`,
+`assistant_scan_tools.go`, `assistant_subagents.go`,
+`assistant_research_settings.go`, `github_snapshots.go`,
+`BE/pkg/github/tarball.go`, `BE/internal/handler/assistant_research.go` and
+`UI/src/lib/features/assistant/AssistantResearchSettings.svelte`. Checks:
+`assistant_web_search_test.go` (providers on httptest servers, failures,
+budget), `assistant_scan_checkout_test.go` (traversal, links, a link planted
+after extraction, size caps, `.gitignore`, sharing, expiry, cleanup, stale
+roots), `assistant_scan_tools_test.go`, `assistant_subagents_test.go`
+(concurrency cap, failure isolation, read-only tools, shared budget, verified
+sources, size), `assistant_research_settings_test.go`,
+`assistant_research_integration_test.go`,
+`BE/internal/repository/assistant_research_settings_test.go`,
+`BE/cmd/server/assistant_research_http_test.go`,
+`BE/migrations/assistant_research_settings_test.go` (the last four need
+`DATABASE_URL`) and `BE/pkg/github/tarball_test.go`.

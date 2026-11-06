@@ -135,7 +135,7 @@ func (r *DevMachineRepository) CompletePublication(ctx context.Context, op domai
 		return ErrAgentTaskConflict
 	}
 	if result.Commit == "" {
-		if err = tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status='skipped',completed_at=now(),summary='The attempt produced no changes to publish' WHERE id=$1 RETURNING *`, step.ID); err != nil {
+		if err = tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status='skipped',completed_at=now(),summary='The iteration produced no changes to publish' WHERE id=$1 RETURNING *`, step.ID); err != nil {
 			return err
 		}
 	} else {

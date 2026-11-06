@@ -262,6 +262,15 @@ func TestPolicyTableMatchesRegisteredTools(t *testing.T) {
 			require.True(t, ok, "%s calls GitHub but has no policy", tool.name)
 			require.NotEmpty(t, policy.github, "%s calls GitHub but declares no GitHub permission", tool.name)
 		}
+		if tool.scan {
+			// A scan downloads the repository with a read-only token, so its
+			// policy must say exactly that for the preflight to name it.
+			require.True(t, ok, "%s reads a repository but has no policy", tool.name)
+			require.Equal(t, map[string]string{"contents": "read"}, policy.github, tool.name)
+		}
+		if tool.webSearch || tool.subagents {
+			require.False(t, ok, "%s calls no GitHub API itself; its sub-steps are checked on their own", tool.name)
+		}
 		if tool.pulls && tool.approval {
 			require.Equal(t, roleAdminOrCreator, policy.role, "%s changes a pull request, which needs what merging needs", tool.name)
 		}

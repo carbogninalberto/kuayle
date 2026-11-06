@@ -1192,6 +1192,16 @@ its build and optionally upgrades the instance, behind one approval that lists
 every step; each step re-checks its own tool's role, GitHub permissions and
 switch, and the first failing step stops the chain with the next step. See
 [shipping in one approval](BE/docs/conversations.md#shipping-in-one-approval).
+Read-only research tools (KUA-93, migration 114): `web_search` asks the
+workspace's search provider (Brave or Tavily; the key is set by owners and
+admins in Settings → Assistant → Research, `/assistant-research-settings`,
+stored encrypted and never returned); the `repo_*` tools list, glob, grep, read
+and list symbols of a temporary checkout that the API server extracts from a
+linked repository's tarball (read-only, repository-scoped installation token,
+no git, `.gitignore`, link and traversal protection, size caps, 15-minute TTL,
+removed on shutdown); `spawn_research_subagents` runs up to eight parallel
+sub-tasks on a cheaper model limited to those tools, with a shared step and
+token budget. See [research tools](BE/docs/conversations.md#research-tools).
 
 ### Images in conversations
 

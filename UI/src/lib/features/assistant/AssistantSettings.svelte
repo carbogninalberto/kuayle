@@ -17,6 +17,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import AssistantSkills from './AssistantSkills.svelte';
 	import AssistantCustomTools from './AssistantCustomTools.svelte';
+	import AssistantResearchSettings from './AssistantResearchSettings.svelte';
 
 	let { slug }: { slug: string } = $props();
 	let capabilities = $state<AssistantCapabilities | null>(null);
@@ -28,7 +29,7 @@
 	const labels = m as unknown as Record<string, (() => string) | undefined>;
 	const label = (tool: AssistantCapability) => labels[`assistant.tool_${tool.name}`]?.() ?? tool.name;
 	// The tab is in the URL so chat cards can link to Skills and Custom tools.
-	const linkedTabs = ['skills', 'custom-tools'];
+	const linkedTabs = ['skills', 'custom-tools', 'research'];
 	const tab = $derived(linkedTabs.find((value) => value === page.url.searchParams.get('tab')) ?? 'tools');
 	function selectTab(value: string) {
 		const url = new URL(page.url);
@@ -81,6 +82,7 @@
 			<Tabs.Trigger value="tools">{m['assistant_settings.tab_tools']()}</Tabs.Trigger>
 			<Tabs.Trigger value="skills">{m['assistant_settings.tab_skills']()}</Tabs.Trigger>
 			<Tabs.Trigger value="custom-tools">{m['assistant_settings.tab_custom_tools']()}</Tabs.Trigger>
+			<Tabs.Trigger value="research">{m['assistant_settings.tab_research']()}</Tabs.Trigger>
 		</Tabs.List>
 
 		<Tabs.Content value="tools" class="space-y-4">
@@ -160,6 +162,9 @@
 		>
 		<Tabs.Content value="custom-tools" class="min-w-0 space-y-4"
 			>{#if tab === 'custom-tools'}<AssistantCustomTools {slug} />{/if}</Tabs.Content
+		>
+		<Tabs.Content value="research" class="space-y-4"
+			>{#if tab === 'research'}<AssistantResearchSettings {slug} />{/if}</Tabs.Content
 		>
 	</Tabs.Root>
 </div>

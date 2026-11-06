@@ -186,7 +186,7 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			}
 			return s.store.Transition(ctx, task, "awaiting_review", "Pull request opened; waiting for human review")
 		case domain.DevMachineAgentRunStepStatusSkipped:
-			return s.store.Transition(ctx, task, "blocked", "The attempt produced no changes to publish")
+			return s.store.Transition(ctx, task, "blocked", "The iteration produced no changes to publish")
 		case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
 			return s.store.Transition(ctx, task, "blocked", "Publishing failed; check the repository connection and retry")
 		}
@@ -222,9 +222,9 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if run.ErrorMessage != nil && domain.IsResourceLimitReason(*run.ErrorMessage) {
 			return s.store.Fail(ctx, task, *run.ErrorMessage)
 		}
-		return s.store.Fail(ctx, task, "Native coding attempt failed; stopping execution before retry")
+		return s.store.Fail(ctx, task, "Native coding iteration failed; stopping execution before retry")
 	case domain.DevMachineAgentRunStatusCancelled:
-		return s.store.Transition(ctx, task, "cancelling", "Native coding attempt was cancelled")
+		return s.store.Transition(ctx, task, "cancelling", "Native coding iteration was cancelled")
 	case domain.DevMachineAgentRunStatusRunning, domain.DevMachineAgentRunStatusWaitingInput, domain.DevMachineAgentRunStatusSucceeded:
 		// These states are reported by the native execution record.
 	default:
@@ -253,7 +253,7 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			return s.store.CompleteReview(ctx, task)
 		}
 		// Process success is not evidence that independent validation passed.
-		return s.store.Transition(ctx, task, "validating", "Implementation attempt finished; independent validation is pending")
+		return s.store.Transition(ctx, task, "validating", "Implementation iteration finished; independent validation is pending")
 	}
 	return nil
 }
@@ -299,7 +299,7 @@ func (s *AgentTaskService) preparationError(ctx context.Context, task domain.Age
 		// A preparing task may already have queued or started native execution.
 		// Once an environment is reserved, settle its operations before stopping.
 		if task.MachineID != nil || task.State == "running" || task.State == "waiting_input" {
-			return s.store.Fail(ctx, task, "Execution configuration became unavailable; stopping the native attempt")
+			return s.store.Fail(ctx, task, "Execution configuration became unavailable; stopping the native iteration")
 		}
 		return s.store.Transition(ctx, task, "blocked", "Execution configuration is unavailable; check the issue repository, environment, provider and workspace policy")
 	}

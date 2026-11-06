@@ -42,25 +42,36 @@ func TestAssistantToolSettingsAreWorkspaceSwitchesForAdmins(t *testing.T) {
 
 	disabled, err := repo.Disabled(ctx, ws)
 	require.NoError(t, err)
-	require.Empty(t, disabled, "every tool starts enabled")
+	require.Equal(t, map[string]bool{"spawn_research_subagents": true}, disabled, "every tool starts enabled except the default-off ones")
 
 	require.NoError(t, repo.Set(ctx, ws, admin, "create_issue", false))
 	require.NoError(t, repo.Set(ctx, ws, owner, "delegate_issue", false))
 	disabled, err = repo.Disabled(ctx, ws)
 	require.NoError(t, err)
-	require.Equal(t, map[string]bool{"create_issue": true, "delegate_issue": true}, disabled)
+	require.Equal(t, map[string]bool{"create_issue": true, "delegate_issue": true, "spawn_research_subagents": true}, disabled)
 
 	for _, user := range []uuid.UUID{member, guest, outsider} {
 		require.ErrorIs(t, repo.Set(ctx, ws, user, "create_issue", true), ErrAssistantToolSettingDenied)
 	}
 	disabled, err = repo.Disabled(ctx, other)
 	require.NoError(t, err)
-	require.Empty(t, disabled, "another workspace keeps its own switches")
+	require.Equal(t, map[string]bool{"spawn_research_subagents": true}, disabled, "another workspace keeps its own switches")
 
 	require.NoError(t, repo.Set(ctx, ws, owner, "create_issue", true))
 	disabled, err = repo.Disabled(ctx, ws)
 	require.NoError(t, err)
+	require.Equal(t, map[string]bool{"delegate_issue": true, "spawn_research_subagents": true}, disabled)
+
+	// A default-off tool is on only once an owner or admin turns it on.
+	require.ErrorIs(t, repo.Set(ctx, ws, member, "spawn_research_subagents", true), ErrAssistantToolSettingDenied)
+	require.NoError(t, repo.Set(ctx, ws, admin, "spawn_research_subagents", true))
+	disabled, err = repo.Disabled(ctx, ws)
+	require.NoError(t, err)
 	require.Equal(t, map[string]bool{"delegate_issue": true}, disabled)
+	require.NoError(t, repo.Set(ctx, ws, admin, "spawn_research_subagents", false))
+	disabled, err = repo.Disabled(ctx, ws)
+	require.NoError(t, err)
+	require.True(t, disabled["spawn_research_subagents"])
 	var updatedBy uuid.UUID
 	require.NoError(t, db.Get(&updatedBy, `SELECT updated_by FROM assistant_tool_settings WHERE workspace_id=$1 AND tool_name='create_issue'`, ws))
 	require.Equal(t, owner, updatedBy)
