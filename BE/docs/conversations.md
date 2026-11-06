@@ -1052,7 +1052,7 @@ the exact paths and lines read, and put them in any issue filed after a scan).
 | Tool | GitHub App permissions | Role |
 | --- | --- | --- |
 | `web_search` | none (search provider API) | member |
-| `repo_*` (five tools) | contents: read | member |
+| `repo_*` (five tools) | contents: read | member through an issue they can see (`identifier`); a repository named directly (`repository`) is for owners and admins |
 | `spawn_research_subagents` | none itself; each sub-step is checked as its own tool | member |
 
 **Settings** (migration 114, `assistant_research_settings`; no row means the
@@ -1089,8 +1089,10 @@ sources. Result:
 `truncated` appears only when the byte budget dropped results.
 
 **Repository scans.** Every scan tool takes `repository` (`owner/name`, linked
-and active in the workspace's GitHub installation) or `identifier` (an issue the
-user can see; its development repository and base branch), and optionally `ref`
+and active in the workspace's GitHub installation; owners and admins only, since
+the scan token can read a repository the caller cannot see on GitHub) or
+`identifier` (an issue the user can see; its development repository and base
+branch). The Dev Machine policy's repository allowlist applies to every scan, and optionally `ref`
 (branch, tag or full SHA; default: the default branch). The API server mints a
 token restricted to that repository with only `contents: read` and `metadata:
 read`, pins the ref to a commit and downloads that commit's tarball (the

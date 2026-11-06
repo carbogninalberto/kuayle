@@ -55,6 +55,16 @@ export interface RepoScanOutput {
 
 const maxLines = 50;
 
+/** A listed file is a record {path, size, binary?, omitted?}; its line names the path and any reason it was left out. */
+function fileLine(value: unknown): string {
+	const file = record(value);
+	if (!file) return '';
+	const path = str(file.path);
+	if (!path) return '';
+	const notes = [file.binary === true ? 'binary' : '', str(file.omitted)].filter(Boolean);
+	return notes.length ? `${path}  (${notes.join(', ')})` : path;
+}
+
 export function repoScanOutput(name: string, input: unknown, output: unknown): RepoScanOutput | undefined {
 	const data = record(output);
 	if (!data) return undefined;
@@ -64,12 +74,12 @@ export function repoScanOutput(name: string, input: unknown, output: unknown): R
 	switch (name) {
 		case 'repo_list_files':
 			scan.query = str(data.path) || str(args.path);
-			scan.lines = list(data.files).map(str).filter(Boolean);
+			scan.lines = list(data.files).map(fileLine).filter(Boolean);
 			scan.summary = `${num(data.matched) || scan.lines.length} / ${num(data.total_files)}`;
 			break;
 		case 'repo_glob':
 			scan.query = str(data.pattern) || str(args.pattern);
-			scan.lines = list(data.files).map(str).filter(Boolean);
+			scan.lines = list(data.files).map(fileLine).filter(Boolean);
 			scan.summary = `${num(data.matched) || scan.lines.length}`;
 			break;
 		case 'repo_grep':

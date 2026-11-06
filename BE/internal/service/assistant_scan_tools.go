@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	gh "github.com/kuayle/kuayle-backend/pkg/github"
 )
 
@@ -59,8 +60,14 @@ var fullSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // openCheckout resolves the repository among the workspace's linked ones (or
 // an issue the user can see) and returns its checkout.
-func (t *AssistantTools) openCheckout(ctx context.Context, ws uuid.UUID, in scanTargetInput) (*repositoryCheckout, func(), error) {
+func (t *AssistantTools) openCheckout(ctx context.Context, ws uuid.UUID, role string, in scanTargetInput) (*repositoryCheckout, func(), error) {
 	name, ref := strings.TrimSpace(in.Repository), strings.TrimSpace(in.Ref)
+	// A repository named directly can be one the caller cannot see on GitHub,
+	// and the scan token reads it anyway, so only workspace owners and admins
+	// may name one; members scan through an issue they can see.
+	if name != "" && role != domain.RoleOwner && role != domain.RoleAdmin {
+		return nil, nil, toolFailure("only workspace owners and admins can scan a repository by name. Next step: give the identifier of an issue you can see, and its development repository is scanned")
+	}
 	if name == "" {
 		identifier := strings.ToUpper(strings.TrimSpace(in.Identifier))
 		if identifier == "" || t.repositories == nil {
@@ -88,6 +95,17 @@ func (t *AssistantTools) openCheckout(ctx context.Context, ws uuid.UUID, in scan
 	}
 	if linked == nil {
 		return nil, nil, toolFailure("repository %q is not linked to this workspace's GitHub installation. Next step: link it in Settings → Integrations", truncateRunes(name, 200))
+	}
+	if t.repositories != nil {
+		// The Dev Machine repository allowlist bounds every repository the
+		// assistant works on, scans included.
+		policy, err := t.repositories.GetPolicy(ctx, ws)
+		if err != nil {
+			return nil, nil, err
+		}
+		if policy != nil && !repositoryAllowed(policy.AllowedRepositories, linked.FullName) {
+			return nil, nil, toolFailure("repository %q is not allowed by the workspace's Dev Machine policy", linked.FullName)
+		}
 	}
 	if ref == "" {
 		ref = linked.DefaultBranch
@@ -146,7 +164,7 @@ func scanLimit(value, fallback, maximum int) int {
 	return min(value, maximum)
 }
 
-func (t *AssistantTools) runScanTool(ctx context.Context, ws uuid.UUID, name, arguments string) (any, *uuid.UUID, error) {
+func (t *AssistantTools) runScanTool(ctx context.Context, ws uuid.UUID, role string, name, arguments string) (any, *uuid.UUID, error) {
 	switch name {
 	case "repo_list_files":
 		var input struct {
@@ -163,7 +181,7 @@ func (t *AssistantTools) runScanTool(ctx context.Context, ws uuid.UUID, name, ar
 				return nil, nil, toolFailure("invalid path")
 			}
 		}
-		co, release, err := t.openCheckout(ctx, ws, input.scanTargetInput)
+		co, release, err := t.openCheckout(ctx, ws, role, input.scanTargetInput)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -190,7 +208,7 @@ func (t *AssistantTools) runScanTool(ctx context.Context, ws uuid.UUID, name, ar
 		if pattern == "" || len(pattern) > scanMaxPatternSize || !validGlob(pattern) {
 			return nil, nil, toolFailure("invalid glob pattern")
 		}
-		co, release, err := t.openCheckout(ctx, ws, input.scanTargetInput)
+		co, release, err := t.openCheckout(ctx, ws, role, input.scanTargetInput)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -200,11 +218,11 @@ func (t *AssistantTools) runScanTool(ctx context.Context, ws uuid.UUID, name, ar
 		result["pattern"], result["files"], result["matched"], result["truncated"] = pattern, files, matched, truncated
 		return result, nil, nil
 	case "repo_grep":
-		return t.repoGrep(ctx, ws, arguments)
+		return t.repoGrep(ctx, ws, role, arguments)
 	case "repo_read_file":
-		return t.repoReadFile(ctx, ws, arguments)
+		return t.repoReadFile(ctx, ws, role, arguments)
 	case "repo_symbols":
-		return t.repoSymbols(ctx, ws, arguments)
+		return t.repoSymbols(ctx, ws, role, arguments)
 	}
 	return nil, nil, toolFailure("unknown tool")
 }
@@ -233,7 +251,7 @@ type grepMatch struct {
 	Text string `json:"text"`
 }
 
-func (t *AssistantTools) repoGrep(ctx context.Context, ws uuid.UUID, arguments string) (any, *uuid.UUID, error) {
+func (t *AssistantTools) repoGrep(ctx context.Context, ws uuid.UUID, role string, arguments string) (any, *uuid.UUID, error) {
 	var input struct {
 		scanTargetInput
 		Pattern         string `json:"pattern"`
@@ -264,7 +282,7 @@ func (t *AssistantTools) repoGrep(ctx context.Context, ws uuid.UUID, arguments s
 	if err != nil {
 		return nil, nil, toolFailure("invalid pattern: %s", truncateRunes(err.Error(), 200))
 	}
-	co, release, err := t.openCheckout(ctx, ws, input.scanTargetInput)
+	co, release, err := t.openCheckout(ctx, ws, role, input.scanTargetInput)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -329,7 +347,7 @@ func toValidUTF8(data []byte) string {
 	return strings.ToValidUTF8(string(data), "�")
 }
 
-func (t *AssistantTools) repoReadFile(ctx context.Context, ws uuid.UUID, arguments string) (any, *uuid.UUID, error) {
+func (t *AssistantTools) repoReadFile(ctx context.Context, ws uuid.UUID, role string, arguments string) (any, *uuid.UUID, error) {
 	var input struct {
 		scanTargetInput
 		Path      string `json:"path"`
@@ -343,7 +361,7 @@ func (t *AssistantTools) repoReadFile(ctx context.Context, ws uuid.UUID, argumen
 	if name == "" {
 		return nil, nil, toolFailure("invalid path")
 	}
-	co, release, err := t.openCheckout(ctx, ws, input.scanTargetInput)
+	co, release, err := t.openCheckout(ctx, ws, role, input.scanTargetInput)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -473,7 +491,7 @@ func symbolPatterns(name string) []symbolPattern {
 	return nil
 }
 
-func (t *AssistantTools) repoSymbols(ctx context.Context, ws uuid.UUID, arguments string) (any, *uuid.UUID, error) {
+func (t *AssistantTools) repoSymbols(ctx context.Context, ws uuid.UUID, role string, arguments string) (any, *uuid.UUID, error) {
 	var input struct {
 		scanTargetInput
 		Path  string `json:"path"`
@@ -493,7 +511,7 @@ func (t *AssistantTools) repoSymbols(ctx context.Context, ws uuid.UUID, argument
 	if glob != "" && (len(glob) > scanMaxPatternSize || !validGlob(glob)) {
 		return nil, nil, toolFailure("invalid glob pattern")
 	}
-	co, release, err := t.openCheckout(ctx, ws, input.scanTargetInput)
+	co, release, err := t.openCheckout(ctx, ws, role, input.scanTargetInput)
 	if err != nil {
 		return nil, nil, err
 	}

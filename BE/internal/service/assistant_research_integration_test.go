@@ -15,6 +15,9 @@ import (
 // spawn step's result rather than as separate steps.
 func TestResearchToolsRecordWhatTheyReadInTheConversation(t *testing.T) {
 	f := newToolFixture(t)
+	// Naming a repository directly is for owners and admins.
+	_, err := f.db.Exec(`UPDATE workspace_members SET role='admin' WHERE workspace_id=$1 AND user_id=$2`, f.ws, f.user)
+	require.NoError(t, err)
 	source := &snapshotFake{archive: tarball(t,
 		tarEntry{name: "acme-app-1/BE/main.go", body: "package main\n\nfunc main() { Serve() }\n"},
 		tarEntry{name: "acme-app-1/.env", body: "SECRET=1"},

@@ -34,7 +34,7 @@ func newSubagentFixture(t *testing.T, model subagentCaller) *subagentFixture {
 	scan.tools.SetWebSearch(researchSettingsFunc(func() ResearchConfig { return f.config }), f.provider)
 	scan.tools.SetSubagents(true)
 	f.svc = &ConversationService{tools: scan.tools, subagentCall: model}
-	f.attempt = domain.ConversationAttempt{Conversation: domain.Conversation{WorkspaceID: scan.ws, CreatorID: scan.member}, Message: domain.ConversationMessage{Model: "big-model"}}
+	f.attempt = domain.ConversationAttempt{Conversation: domain.Conversation{WorkspaceID: scan.ws, CreatorID: scan.admin}, Message: domain.ConversationMessage{Model: "big-model"}}
 	return f
 }
 
@@ -268,11 +268,45 @@ func TestSubagentsShareOneStepAndTokenBudget(t *testing.T) {
 		}
 		return strings.Repeat("thinking ", 2000), []chatToolCall{toolCall("x", "repo_list_files", `{"repository":"acme/app"}`)}, nil
 	})
-	withSubagentLimits(t, func(l *subagentLimitSet) { l.tokens = 3000 })
+	// One call fits; its long reply uses up the rest, so the next round is not started.
+	withSubagentLimits(t, func(l *subagentLimitSet) { l.tokens = 6000 })
 	out, err = f.spawn(t, task("a"))
 	require.NoError(t, err)
 	require.Equal(t, "budget_exhausted", out.Subagents[0].Status)
-	require.GreaterOrEqual(t, out.Budget.TokensEstimated, 3000)
+	require.GreaterOrEqual(t, out.Budget.TokensEstimated, 4000, "the first call's real usage is counted")
+	require.Len(t, out.Subagents[0].Steps, 1, "only the first round's tool call ran")
+}
+
+// The token budget is reserved before each model call, so sub-tasks running at
+// the same time cannot all start calls the remaining budget cannot cover.
+func TestSubagentsReserveTokensBeforeConcurrentCalls(t *testing.T) {
+	var started atomic.Int32
+	release := make(chan struct{})
+	f := newSubagentFixture(t, func(ctx context.Context, _ string, _ []chatCompletionMessage, _ []chatToolSpec) (string, []chatToolCall, error) {
+		if started.Add(1) == 1 {
+			// Hold the first call open while the other sub-task tries to start.
+			select {
+			case <-release:
+			case <-time.After(2 * time.Second):
+			}
+		}
+		return `{"summary":"done"}`, nil, nil
+	})
+	// Room for one call's reservation (prompt plus reply allowance), not two.
+	withSubagentLimits(t, func(l *subagentLimitSet) { l.tokens = subagentReplyAllowance + 1500 })
+	go func() {
+		for started.Load() == 0 {
+			time.Sleep(time.Millisecond)
+		}
+		time.Sleep(200 * time.Millisecond)
+		close(release)
+	}()
+	out, err := f.spawn(t, task("a"), task("b"))
+	require.NoError(t, err)
+	require.Equal(t, int32(1), started.Load(), "the second call never starts: its reservation does not fit")
+	statuses := []string{out.Subagents[0].Status, out.Subagents[1].Status}
+	require.ElementsMatch(t, []string{"completed", "budget_exhausted"}, statuses)
+	require.LessOrEqual(t, out.Budget.TokensEstimated, out.Budget.MaxTokensEstimated)
 }
 
 func TestSubagentCitationsAndFilesAreOnlyWhatToolsReturned(t *testing.T) {

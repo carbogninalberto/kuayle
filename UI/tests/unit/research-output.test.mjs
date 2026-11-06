@@ -78,8 +78,32 @@ test('a scan step names the repository, commit and the pattern it used', () => {
 	assert.equal(repoScanOutput('unknown_tool', {}, {}), undefined);
 });
 
+test('listed files are read from their records, with why one was left out', () => {
+	const scan = repoScanOutput(
+		'repo_list_files',
+		{ path: 'BE' },
+		{
+			repository: 'acme/app',
+			commit: 'abc',
+			path: 'BE',
+			files: [
+				{ path: 'BE/main.go', size: 120, binary: false },
+				{ path: 'BE/big.sql', size: 9000000, omitted: 'too_large' },
+				{ path: 'BE/logo.png', size: 40, binary: true },
+				'not-a-record',
+				{ size: 3 }
+			],
+			matched: 3,
+			total_files: 340
+		}
+	);
+	assert.deepEqual(scan.lines, ['BE/main.go', 'BE/big.sql  (too_large)', 'BE/logo.png  (binary)']);
+	assert.equal(scan.summary, '3 / 340');
+});
+
 test('scan listings are capped so a large result cannot flood the transcript', () => {
-	const files = Array.from({ length: 500 }, (_, index) => `f${index}.go`);
+	// As the backend sends them: one record per file.
+	const files = Array.from({ length: 500 }, (_, index) => ({ path: `f${index}.go`, size: 10 }));
 	const scan = repoScanOutput(
 		'repo_glob',
 		{ pattern: '**/*.go' },

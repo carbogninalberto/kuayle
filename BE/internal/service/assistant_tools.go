@@ -430,7 +430,7 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 	case "list_releases", "get_release", "draft_release_notes", "get_workflow_run":
 		return t.runReleaseTool(ctx, ws, name, arguments)
 	case "repo_list_files", "repo_glob", "repo_grep", "repo_read_file", "repo_symbols":
-		return t.runScanTool(ctx, ws, name, arguments)
+		return t.runScanTool(ctx, ws, member.Role, name, arguments)
 	case "web_search":
 		return t.webSearch(ctx, ws, arguments)
 	case "get_instance_version":

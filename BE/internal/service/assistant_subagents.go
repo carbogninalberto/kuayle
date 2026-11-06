@@ -119,9 +119,27 @@ func (b *subagentBudget) takeStep() bool {
 	return true
 }
 
-func (b *subagentBudget) spend(tokens int) {
+// subagentReplyAllowance is the reply size reserved for every model call
+// (streamed replies report no usage, and requests set no output cap).
+const subagentReplyAllowance = 2000
+
+// reserve takes a call's estimated tokens from the shared budget before the
+// call starts, so concurrent sub-tasks cannot all pass the check and then
+// overspend it together. false: the budget cannot cover the call.
+func (b *subagentBudget) reserve(tokens int) bool {
 	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.tokens+tokens > b.maxTokens {
+		return false
+	}
 	b.tokens += tokens
+	return true
+}
+
+// settle replaces a call's reservation with what it actually used.
+func (b *subagentBudget) settle(reserved, used int) {
+	b.mu.Lock()
+	b.tokens += used - reserved
 	b.mu.Unlock()
 }
 
@@ -333,12 +351,17 @@ func (s *ConversationService) runSubagent(parent context.Context, ws, creator uu
 		}
 		compactToolContext(messages, 2, assistantContextBytes/2)
 		sent := estimateTokens(messages, offered)
+		reserved := sent + subagentReplyAllowance
+		if !budget.reserve(reserved) {
+			result.Status, result.Error = "budget_exhausted", "the shared token budget ran out"
+			break
+		}
 		text, calls, err := caller(ctx, model, messages, offered)
 		used := sent + len(text)/4
 		for _, call := range calls {
 			used += len(call.Function.Arguments) / 4
 		}
-		budget.spend(used)
+		budget.settle(reserved, used)
 		result.TokensEstimated += used
 		if err != nil {
 			if ctx.Err() != nil {

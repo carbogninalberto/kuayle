@@ -16,8 +16,11 @@ type scanFixture struct {
 	tools  *AssistantTools
 	source *snapshotFake
 	ws     uuid.UUID
-	member uuid.UUID
-	guest  uuid.UUID
+	// admin names repositories directly; plain is a member, who scans only
+	// through an issue they can see.
+	admin uuid.UUID
+	plain uuid.UUID
+	guest uuid.UUID
 }
 
 func newScanFixture(t *testing.T, entries ...tarEntry) *scanFixture {
@@ -32,8 +35,8 @@ func newScanFixture(t *testing.T, entries ...tarEntry) *scanFixture {
 			{name: "acme-app-1/logo.png", body: "\x89PNG\x00\x00serve"},
 		}
 	}
-	f := &scanFixture{source: &snapshotFake{archive: tarball(t, entries...)}, ws: uuid.New(), member: uuid.New(), guest: uuid.New()}
-	members := prMembers{f.member: domain.RoleMember, f.guest: domain.RoleGuest}
+	f := &scanFixture{source: &snapshotFake{archive: tarball(t, entries...)}, ws: uuid.New(), admin: uuid.New(), plain: uuid.New(), guest: uuid.New()}
+	members := prMembers{f.admin: domain.RoleAdmin, f.plain: domain.RoleMember, f.guest: domain.RoleGuest}
 	f.tools = NewAssistantTools(prIssues{}, nil, members, nil)
 	f.tools.SetRepositoryScans(newTestCheckouts(t, f.source, testScanLimits()), releaseRepos{})
 	return f
@@ -45,7 +48,7 @@ func (f *scanFixture) run(t *testing.T, name string, args map[string]any) (map[s
 		args["repository"] = "acme/app"
 	}
 	data, _ := json.Marshal(args)
-	result, _, err := f.tools.run(context.Background(), f.ws, f.member, name, string(data))
+	result, _, err := f.tools.run(context.Background(), f.ws, f.admin, name, string(data))
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +88,37 @@ func TestScanToolsRefuseGuestsAndUnlinkedRepositories(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, toolErrorText(err), "invalid ref")
 	require.Zero(t, f.source.calls.Load(), "nothing is downloaded for a refused call")
+}
+
+// The scan token can read a repository the caller cannot see on GitHub, so a
+// repository named directly is for workspace owners and admins; a member scans
+// through an issue they can see. The Dev Machine allowlist bounds every scan.
+func TestScanByRepositoryNameIsForAdminsAndFollowsTheAllowlist(t *testing.T) {
+	f := newScanFixture(t)
+	_, _, err := f.tools.run(context.Background(), f.ws, f.plain, "repo_read_file", `{"repository":"acme/app","path":"BE/main.go"}`)
+	require.Error(t, err)
+	require.Contains(t, toolErrorText(err), "only workspace owners and admins can scan a repository by name")
+	require.Zero(t, f.source.calls.Load(), "nothing is downloaded for a member naming a repository")
+
+	_, err = f.run(t, "repo_read_file", map[string]any{"path": "BE/main.go"})
+	require.NoError(t, err, "an admin can name a linked repository")
+
+	f = newScanFixture(t)
+	f.tools.SetRepositories(scanPolicyStore{allowed: `["acme/other"]`})
+	_, err = f.run(t, "repo_list_files", map[string]any{})
+	require.Error(t, err)
+	require.Contains(t, toolErrorText(err), "not allowed by the workspace's Dev Machine policy")
+	require.Zero(t, f.source.calls.Load())
+}
+
+// scanPolicyStore is a workspace whose Dev Machine policy allows only some repositories.
+type scanPolicyStore struct {
+	assistantRepositoryStore
+	allowed string
+}
+
+func (s scanPolicyStore) GetPolicy(context.Context, uuid.UUID) (*domain.DevMachineWorkspacePolicy, error) {
+	return &domain.DevMachineWorkspacePolicy{AllowedRepositories: json.RawMessage(s.allowed)}, nil
 }
 
 func TestRepoListFilesAndGlobReportWhatTheyUsed(t *testing.T) {
