@@ -2615,7 +2615,7 @@
 	"assistant_research.remove_key": "Remove key",
 	"assistant_research.key_removed": "Search key removed",
 	"assistant_research.subagents_heading": "Research sub-tasks",
-	"assistant_research.subagents_hint": "The assistant can split broad questions into parallel read-only sub-tasks on a cheaper model.",
+	"assistant_research.subagents_hint": "The assistant can split broad questions into parallel read-only sub-tasks on a cheaper model. They are off until an owner or admin turns on spawn_research_subagents in the Tools tab.",
 	"assistant_research.model": "Sub-task model",
 	"assistant_research.model_placeholder": "Empty: the conversation's model",
 	"assistant_research.parallel": "Sub-tasks at once",

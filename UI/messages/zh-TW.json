@@ -2615,7 +2615,7 @@
 	"assistant_research.remove_key": "移除金鑰",
 	"assistant_research.key_removed": "已移除搜尋金鑰",
 	"assistant_research.subagents_heading": "研究子任務",
-	"assistant_research.subagents_hint": "助理可以把廣泛的問題拆成平行的唯讀子任務，由較便宜的模型執行。",
+	"assistant_research.subagents_hint": "助理可以把廣泛的問題拆成平行的唯讀子任務，由較便宜的模型執行。在擁有者或管理員於「工具」分頁開啟 spawn_research_subagents 之前，此功能為關閉狀態。",
 	"assistant_research.model": "子任務模型",
 	"assistant_research.model_placeholder": "留空：使用對話的模型",
 	"assistant_research.parallel": "同時執行的子任務",

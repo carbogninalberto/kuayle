@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/require"
 )
 
@@ -399,4 +400,12 @@ func TestSubagentsAreRefusedWhenUnavailableOrForGuests(t *testing.T) {
 	_, err = unwired.runSubagents(context.Background(), f.attempt, args)
 	require.Error(t, err)
 	require.False(t, called, "no model is called for a refused run")
+}
+
+func TestDefaultOffToolsAreRegisteredTools(t *testing.T) {
+	require.Equal(t, []string{subagentToolName}, repository.DefaultOffAssistantTools)
+	for _, name := range repository.DefaultOffAssistantTools {
+		_, ok := lookupAssistantTool(name)
+		require.True(t, ok, name)
+	}
 }

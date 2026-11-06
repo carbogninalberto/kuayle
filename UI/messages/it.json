@@ -2615,7 +2615,7 @@
 	"assistant_research.remove_key": "Rimuovi chiave",
 	"assistant_research.key_removed": "Chiave di ricerca rimossa",
 	"assistant_research.subagents_heading": "Sotto-attività di ricerca",
-	"assistant_research.subagents_hint": "L'assistente può suddividere le domande ampie in sotto-attività parallele di sola lettura con un modello più economico.",
+	"assistant_research.subagents_hint": "L'assistente può suddividere le domande ampie in sotto-attività parallele di sola lettura con un modello più economico. Sono disattivate finché un proprietario o un amministratore non attiva spawn_research_subagents nella scheda Strumenti.",
 	"assistant_research.model": "Modello delle sotto-attività",
 	"assistant_research.model_placeholder": "Vuoto: il modello della conversazione",
 	"assistant_research.parallel": "Sotto-attività in parallelo",

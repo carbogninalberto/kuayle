@@ -272,7 +272,9 @@ non-guest member may read it. `PUT /assistant-capabilities/:name` with
 routes are session-only (personal access tokens are refused), and the write is
 allowed only for current owners and admins: the role is checked in the same
 SQL statement that writes `assistant_tool_settings` (workspace, tool name,
-enabled, updated by, updated at; no row means enabled), so members, guests,
+enabled, updated by, updated at; no row means enabled, except for the tools in
+`repository.DefaultOffAssistantTools`, currently `spawn_research_subagents`,
+which are off until an owner or admin turns them on), so members, guests,
 outsiders and an admin demoted concurrently get 403.
 
 A disabled tool is enforced on the server, never only in the UI. Each reply
@@ -1017,7 +1019,10 @@ KUA-93 adds read-only research: `web_search`, five repository scan tools
 (`repo_list_files`, `repo_glob`, `repo_grep`, `repo_read_file`, `repo_symbols`)
 and `spawn_research_subagents`. None needs approval or counts toward the change
 limit. They act at once for any current non-guest member (as every tool, via
-`AssistantTools.run`), each has a workspace switch in Settings → Assistant, and
+`AssistantTools.run`), each has a workspace switch in Settings → Assistant
+(`spawn_research_subagents` is off by default, since it spends the workspace's
+AI provider budget; `web_search` and `repo_*` are on, and `web_search` does
+nothing until a key is set), and
 the system prompt describes only the ones offered to the reply (cite URLs; name
 the exact paths and lines read, and put them in any issue filed after a scan).
 
