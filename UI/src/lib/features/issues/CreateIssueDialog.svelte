@@ -8,6 +8,7 @@
 	import type { Team } from '$lib/types/team';
 	import type { Project } from '$lib/types/project';
 	import type { Label } from '$lib/types/label';
+	import { labelAppliesTo } from '$lib/features/labels/label-scope';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Cycle } from '$lib/types/cycle';
 	import type { Issue, IssueStatus, IssuePriority } from '$lib/types/issue';
@@ -417,8 +418,8 @@
 	/** Labels of another project do not apply to the current one: call after projectId changes. */
 	function pruneScopedLabels() {
 		labelIds = labelIds.filter((labelId) => {
-			const scope = labels.find((l) => l.id === labelId)?.project_id;
-			return !scope || scope === projectId;
+			const label = labels.find((l) => l.id === labelId);
+			return !label || labelAppliesTo(label, projectId);
 		});
 	}
 

@@ -401,3 +401,37 @@ test('review regression: action menus retain compact item spacing', async ({ pag
 		return complete!.y - (edit!.y + edit!.height);
 	}).toBeLessThanOrEqual(4);
 });
+
+test('issue context menu offers only labels that apply to the issue project', async ({ page }) => {
+	const state = await mockWorkspace(page);
+	const label = (id: string, name: string, project_id: string | null) => ({
+		id,
+		name,
+		color: '#ef4444',
+		description: null,
+		parent_id: null,
+		project_id,
+		created_at: now,
+		updated_at: now
+	});
+	await page.route('**/api/workspaces/test/labels', (route) =>
+		route.fulfill({
+			json: [
+				label('label-workspace', 'Bug', null),
+				label('label-launch', 'Launch only', projectId),
+				label('label-other', 'Other project only', '00000000-0000-0000-0000-000000000099')
+			]
+		})
+	);
+	await page.goto(`/test/projects/${projectId}`);
+	await page.getByTestId('scoped-issues').getByText('Scoped issue 1', { exact: true }).click({ button: 'right' });
+	await page.getByRole('menuitem', { name: 'Labels', exact: true }).hover();
+	await expect(page.getByRole('menuitemcheckbox', { name: 'Bug', exact: true })).toBeVisible();
+	await expect(page.getByRole('menuitemcheckbox', { name: 'Launch only', exact: true })).toBeVisible();
+	await expect(page.getByRole('menuitemcheckbox', { name: 'Other project only', exact: true })).toHaveCount(0);
+	await page.getByRole('menuitemcheckbox', { name: 'Launch only', exact: true }).click();
+	await expect
+		.poll(() => state.mutations.find((m) => m.method === 'PATCH' && m.path.endsWith('/issues/ENG-1'))?.body)
+		.toEqual({ label_ids: ['label-launch'] });
+	expect(state.errors).toEqual([]);
+});

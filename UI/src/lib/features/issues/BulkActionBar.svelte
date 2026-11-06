@@ -4,6 +4,7 @@
 	import type { Issue, IssuePriority, RelationType } from '$lib/types/issue';
 	import { getPriorityLabel } from '$lib/types/issue';
 	import type { Label } from '$lib/types/label';
+	import { labelsForIssues } from '$lib/features/labels/label-scope';
 	import type { Cycle } from '$lib/types/cycle';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import { teamStatusesState } from './team-statuses.state.svelte';
@@ -106,10 +107,13 @@
 	let creatingLabel = $state(false);
 	let createdLabels = $state<Label[]>([]);
 	let showCycleActions = $derived(cycles !== undefined);
-	let visibleLabels = $derived([
-		...createdLabels.filter((createdLabel) => !labels.some((label) => label.id === createdLabel.id)),
-		...labels
-	]);
+	// Only labels that apply to every selected issue: a project label fits only that project's issues.
+	let visibleLabels = $derived(
+		labelsForIssues(
+			[...createdLabels.filter((createdLabel) => !labels.some((label) => label.id === createdLabel.id)), ...labels],
+			issuesState.issues.filter((issue) => issuesState.selectedIds.has(issue.id))
+		)
+	);
 	let commands = $derived.by<BulkCommandOption[]>(() => {
 		const options: BulkCommandOption[] = [
 			{
