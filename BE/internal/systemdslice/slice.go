@@ -1,7 +1,7 @@
-// Package systemdslice sets the memory limits of a machine's systemd slice.
+// Package systemdslice sets the memory and CPU limits of a machine's systemd slice.
 // The machine manager runs it in a short-lived helper container that only
 // receives systemd's private socket, because the manager itself runs
-// unprivileged: see machine.dockerMemorySlices.
+// unprivileged: see machine.dockerMachineSlices.
 package systemdslice
 
 import (
@@ -20,7 +20,7 @@ import (
 const PrivateSocket = "/run/systemd/private"
 
 // Command is the machine-manager argument that runs a slice operation.
-const Command = "memory-slice"
+const Command = "machine-slice"
 
 var sliceName = regexp.MustCompile(`^kuayle-[a-z0-9]{1,64}\.slice$`)
 
@@ -33,7 +33,7 @@ func ValidName(name string) bool {
 // Run executes one operation from the helper's arguments:
 //
 //	probe
-//	apply <slice> <memory-bytes> <swap-bytes>
+//	apply <slice> <memory-bytes> <swap-bytes> <cpu-millis>
 //	remove <slice>
 func Run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
@@ -45,12 +45,12 @@ func Run(ctx context.Context, args []string) error {
 			_, err := manager.GetProperty("org.freedesktop.systemd1.Manager.Version")
 			return err
 		})
-	case operation == "apply" && len(args) == 4:
-		memory, swap, err := parseLimits(args[2], args[3])
+	case operation == "apply" && len(args) == 5:
+		limits, err := parseLimits(args[2], args[3], args[4])
 		if err != nil {
 			return err
 		}
-		return Apply(ctx, args[1], memory, swap)
+		return Apply(ctx, args[1], limits)
 	case operation == "remove" && len(args) == 2:
 		return Remove(ctx, args[1])
 	default:
@@ -58,16 +58,28 @@ func Run(ctx context.Context, args []string) error {
 	}
 }
 
-func parseLimits(memoryValue, swapValue string) (uint64, uint64, error) {
+// Limits are a machine slice's ceilings.
+type Limits struct {
+	MemoryBytes uint64
+	SwapBytes   uint64
+	// CPUMillis is the CPU time per second, in thousandths of a CPU.
+	CPUMillis uint64
+}
+
+func parseLimits(memoryValue, swapValue, cpuValue string) (Limits, error) {
 	memory, err := strconv.ParseUint(memoryValue, 10, 64)
 	if err != nil || memory < 128<<20 {
-		return 0, 0, fmt.Errorf("invalid memory limit %q", memoryValue)
+		return Limits{}, fmt.Errorf("invalid memory limit %q", memoryValue)
 	}
 	swap, err := strconv.ParseUint(swapValue, 10, 64)
 	if err != nil || swap > memory {
-		return 0, 0, fmt.Errorf("invalid swap limit %q", swapValue)
+		return Limits{}, fmt.Errorf("invalid swap limit %q", swapValue)
 	}
-	return memory, swap, nil
+	cpu, err := strconv.ParseUint(cpuValue, 10, 64)
+	if err != nil || cpu < 10 || cpu > 1_000_000 {
+		return Limits{}, fmt.Errorf("invalid CPU limit %q", cpuValue)
+	}
+	return Limits{MemoryBytes: memory, SwapBytes: swap, CPUMillis: cpu}, nil
 }
 
 type property struct {
@@ -75,16 +87,18 @@ type property struct {
 	Value dbus.Variant
 }
 
-// Apply sets the slice's memory and swap ceilings. The properties are stored
-// persistently (as `systemctl set-property` does), so they also apply to a
-// slice that does not exist yet and survive a host reboot.
-func Apply(ctx context.Context, name string, memory, swap uint64) error {
+// Apply sets the slice's memory, swap and CPU ceilings (CPUQuota, as CPU
+// time per second). The properties are stored persistently (as `systemctl
+// set-property` does), so they also apply to a slice that does not exist yet
+// and survive a host reboot.
+func Apply(ctx context.Context, name string, limits Limits) error {
 	if !ValidName(name) {
 		return fmt.Errorf("invalid slice name %q", name)
 	}
 	properties := []property{
-		{Name: "MemoryMax", Value: dbus.MakeVariant(memory)},
-		{Name: "MemorySwapMax", Value: dbus.MakeVariant(swap)},
+		{Name: "MemoryMax", Value: dbus.MakeVariant(limits.MemoryBytes)},
+		{Name: "MemorySwapMax", Value: dbus.MakeVariant(limits.SwapBytes)},
+		{Name: "CPUQuotaPerSecUSec", Value: dbus.MakeVariant(limits.CPUMillis * 1000)},
 	}
 	return withManager(ctx, func(manager dbus.BusObject) error {
 		return manager.CallWithContext(ctx, "org.freedesktop.systemd1.Manager.SetUnitProperties", 0, name, false, properties).Err

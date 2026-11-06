@@ -67,13 +67,13 @@ func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMa
 	// A check may start compose services beside it, so it keeps the agent
 	// share of a machine with a daemon (35%) unless the machine shares its memory.
 	hostConfig := r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName, true)
-	if err := r.scopeMachineMemory(ctx, machine, "agent", labels, hostConfig); err != nil {
+	if err := r.scopeMachineResources(ctx, machine, "agent", labels, hostConfig); err != nil {
 		return nil, err
 	}
 	result, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Name: name,
 		Config: &container.Config{Image: image, User: "1000:1000", WorkingDir: checkout.WorkspacePath, Entrypoint: checkEntrypoint, Cmd: checkCommand(argv), Labels: labels, AttachStdout: true, AttachStderr: true,
-			Env: append([]string{"HOME=/home/kuayle", "CI=true", "HTTP_PROXY=http://" + machine.RoutingKey + "-egress:3128", "HTTPS_PROXY=http://" + machine.RoutingKey + "-egress:3128", "NO_PROXY=localhost,127.0.0.1"}, runTmpEnvironment(runTmpDir(key))...)},
+			Env: append(append([]string{"HOME=/home/kuayle", "CI=true"}, proxyVariables(egressProxyURL(machine), "localhost,127.0.0.1")...), runTmpEnvironment(runTmpDir(key))...)},
 		HostConfig:       hostConfig,
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{*machine.DockerNetworkName: {Aliases: []string{key}}}},
 	})

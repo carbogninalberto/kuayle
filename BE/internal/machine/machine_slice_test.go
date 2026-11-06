@@ -16,13 +16,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type memorySlicesFake struct {
+type machineSlicesFake struct {
 	applied  []int
 	removed  int
 	applyErr error
 }
 
-func (f *memorySlicesFake) Apply(_ context.Context, machine *domain.DevMachine) error {
+func (f *machineSlicesFake) Apply(_ context.Context, machine *domain.DevMachine) error {
 	if f.applyErr != nil {
 		return f.applyErr
 	}
@@ -30,7 +30,7 @@ func (f *memorySlicesFake) Apply(_ context.Context, machine *domain.DevMachine) 
 	return nil
 }
 
-func (f *memorySlicesFake) Remove(context.Context, *domain.DevMachine) error {
+func (f *machineSlicesFake) Remove(context.Context, *domain.DevMachine) error {
 	f.removed++
 	return nil
 }
@@ -65,7 +65,7 @@ func sliceMachine() *domain.DevMachine {
 func machineNetwork(machine *domain.DevMachine, shared bool) *network.Inspect {
 	labels := machineLabels(machine)
 	if shared {
-		labels[memoryScopeLabel] = memoryScopeMachine
+		labels[resourceScopeLabel] = resourceScopeMachine
 	}
 	inspect := &network.Inspect{}
 	inspect.Labels = labels
@@ -74,30 +74,30 @@ func machineNetwork(machine *domain.DevMachine, shared bool) *network.Inspect {
 
 func TestNewMachineSharesItsMemoryOnlyOnceItsSliceIsLimited(t *testing.T) {
 	machine := sliceMachine()
-	slices := &memorySlicesFake{}
+	slices := &machineSlicesFake{}
 	runtime := &DockerRuntime{client: &sliceDockerClientFake{dockerClientFake: &dockerClientFake{}}, slices: slices}
-	labels, err := runtime.prepareMachineMemory(context.Background(), machine, machineNetworkName(machine), machineLabels(machine))
+	labels, err := runtime.prepareMachineSlice(context.Background(), machine, machineNetworkName(machine), machineLabels(machine))
 	require.NoError(t, err)
-	require.Equal(t, memoryScopeMachine, labels[memoryScopeLabel], "the network records the choice")
+	require.Equal(t, resourceScopeMachine, labels[resourceScopeLabel], "the network records the choice")
 	require.Equal(t, []int{16384}, slices.applied, "limits are set before any container runs in the slice")
 
-	failing := &DockerRuntime{client: &sliceDockerClientFake{dockerClientFake: &dockerClientFake{}}, slices: &memorySlicesFake{applyErr: errors.New("systemd unreachable")}}
-	labels, err = failing.prepareMachineMemory(context.Background(), machine, machineNetworkName(machine), machineLabels(machine))
+	failing := &DockerRuntime{client: &sliceDockerClientFake{dockerClientFake: &dockerClientFake{}}, slices: &machineSlicesFake{applyErr: errors.New("systemd unreachable")}}
+	labels, err = failing.prepareMachineSlice(context.Background(), machine, machineNetworkName(machine), machineLabels(machine))
 	require.NoError(t, err, "the machine still starts")
-	require.NotContains(t, labels, memoryScopeLabel, "without a limited slice it keeps separate container limits")
+	require.NotContains(t, labels, resourceScopeLabel, "without a limited slice it keeps separate container limits")
 
 	unsupported := &DockerRuntime{client: &sliceDockerClientFake{dockerClientFake: &dockerClientFake{}}}
-	labels, err = unsupported.prepareMachineMemory(context.Background(), machine, machineNetworkName(machine), machineLabels(machine))
+	labels, err = unsupported.prepareMachineSlice(context.Background(), machine, machineNetworkName(machine), machineLabels(machine))
 	require.NoError(t, err)
-	require.NotContains(t, labels, memoryScopeLabel)
+	require.NotContains(t, labels, resourceScopeLabel)
 }
 
 func TestExistingMachineKeepsItsMemoryModel(t *testing.T) {
 	machine := sliceMachine()
 	for _, shared := range []bool{false, true} {
-		slices := &memorySlicesFake{}
+		slices := &machineSlicesFake{}
 		runtime := &DockerRuntime{client: &sliceDockerClientFake{dockerClientFake: &dockerClientFake{}, network: machineNetwork(machine, shared)}, slices: slices}
-		labels, err := runtime.prepareMachineMemory(context.Background(), machine, machineNetworkName(machine), machineLabels(machine))
+		labels, err := runtime.prepareMachineSlice(context.Background(), machine, machineNetworkName(machine), machineLabels(machine))
 		require.NoError(t, err)
 		require.Equal(t, machineLabels(machine), labels, "an existing network is matched with its creation labels")
 		if shared {
@@ -112,7 +112,7 @@ func TestExistingMachineKeepsItsMemoryModel(t *testing.T) {
 // 6.4 GiB and its agent 5.6 GiB, and a Node build was killed at 6.3 GiB.
 func TestSharedMachineWorkloadsMayUseTheWholeMachine(t *testing.T) {
 	machine := sliceMachine()
-	runtime := &DockerRuntime{client: &sliceDockerClientFake{dockerClientFake: &dockerClientFake{}, network: machineNetwork(machine, true)}, slices: &memorySlicesFake{}}
+	runtime := &DockerRuntime{client: &sliceDockerClientFake{dockerClientFake: &dockerClientFake{}, network: machineNetwork(machine, true)}, slices: &machineSlicesFake{}}
 	hostConfigs := map[string]*container.HostConfig{
 		"terminal": runtime.secureHostConfig(machine, "terminal", "", "", true), "agent": runtime.secureHostConfig(machine, "agent", "", "", true),
 		"docker": runtime.dockerHostConfig(machine, "", "", ""), "compose": runtime.composeHostConfig(machine, "", 2),
@@ -121,28 +121,30 @@ func TestSharedMachineWorkloadsMayUseTheWholeMachine(t *testing.T) {
 	for service, hostConfig := range hostConfigs {
 		share := hostConfig.Resources
 		labels := machineLabels(machine)
-		require.NoError(t, runtime.scopeMachineMemory(context.Background(), machine, service, labels, hostConfig))
+		require.NoError(t, runtime.scopeMachineResources(context.Background(), machine, service, labels, hostConfig))
 		require.Equal(t, "kuayle-0123456789abcdef0123.slice", hostConfig.CgroupParent, service)
-		require.Equal(t, share.NanoCPUs, hostConfig.Resources.NanoCPUs, "CPU keeps the share")
-		require.Equal(t, *share.PidsLimit, *hostConfig.Resources.PidsLimit, service)
+		require.Equal(t, *share.PidsLimit, *hostConfig.Resources.PidsLimit, "processes keep the share")
 		if service == "collector" || service == "egress" {
+			require.Equal(t, share.NanoCPUs, hostConfig.Resources.NanoCPUs, "infrastructure keeps its small limits inside the slice")
 			require.Equal(t, share.Memory, hostConfig.Resources.Memory, "infrastructure keeps its small limit inside the slice")
 			require.Equal(t, share.MemorySwap, hostConfig.Resources.MemorySwap, service)
-			require.NotContains(t, labels, memoryScopeLabel, "its own limit names the container")
+			require.NotContains(t, labels, resourceScopeLabel, "its own limit names the container")
 			continue
 		}
 		require.Equal(t, int64(16)<<30, hostConfig.Resources.Memory, service)
+		require.Equal(t, int64(16_000_000_000), hostConfig.Resources.NanoCPUs, "%s may use all 16 CPUs; the slice bounds the machine", service)
 		require.Equal(t, int64(-1), hostConfig.Resources.MemorySwap, "the slice bounds swap")
-		require.Equal(t, memoryScopeMachine, labels[memoryScopeLabel], service)
+		require.Equal(t, resourceScopeMachine, labels[resourceScopeLabel], service)
 	}
 
-	split := &DockerRuntime{client: &sliceDockerClientFake{dockerClientFake: &dockerClientFake{}, network: machineNetwork(machine, false)}, slices: &memorySlicesFake{}}
+	split := &DockerRuntime{client: &sliceDockerClientFake{dockerClientFake: &dockerClientFake{}, network: machineNetwork(machine, false)}, slices: &machineSlicesFake{}}
 	hostConfig := split.dockerHostConfig(machine, "", "", "")
 	labels := machineLabels(machine)
-	require.NoError(t, split.scopeMachineMemory(context.Background(), machine, "docker", labels, hostConfig))
+	require.NoError(t, split.scopeMachineResources(context.Background(), machine, "docker", labels, hostConfig))
 	require.Empty(t, hostConfig.CgroupParent)
 	require.Equal(t, int64(16384)*1024*1024*dockerShare/100, hostConfig.Resources.Memory, "machines with container shares are unchanged")
-	require.NotContains(t, labels, memoryScopeLabel)
+	require.Equal(t, int64(16000)*1_000_000*dockerShare/100, hostConfig.Resources.NanoCPUs)
+	require.NotContains(t, labels, resourceScopeLabel)
 }
 
 func TestSharedMachineResizeLimitsTheSliceFirst(t *testing.T) {
@@ -151,23 +153,25 @@ func TestSharedMachineResizeLimitsTheSliceFirst(t *testing.T) {
 		labels := machineLabels(machine)
 		labels["com.kuayle.service"] = service
 		if shared {
-			labels[memoryScopeLabel] = memoryScopeMachine
+			labels[resourceScopeLabel] = resourceScopeMachine
 		}
 		return container.Summary{ID: id, Labels: labels}
 	}
-	slices := &memorySlicesFake{}
+	slices := &machineSlicesFake{}
 	dockerClient := &sliceDockerClientFake{dockerClientFake: &dockerClientFake{containers: []container.Summary{
 		owned("terminal", "terminal", true), owned("docker", "docker", true), owned("collector", "collector", false),
 	}}, updates: map[string]container.Resources{}}
 	runtime := &DockerRuntime{client: dockerClient, slices: slices}
-	machine.MemoryMB = 32768
+	machine.MemoryMB, machine.CPUMillis = 32768, 8000
 	require.NoError(t, runtime.UpdateResources(context.Background(), machine))
 	require.Equal(t, []int{32768}, slices.applied)
 	require.Equal(t, int64(32)<<30, dockerClient.updates["terminal"].Memory)
 	require.Equal(t, int64(32)<<30, dockerClient.updates["docker"].Memory)
 	require.Equal(t, int64(-1), dockerClient.updates["docker"].MemorySwap)
-	require.Equal(t, runtime.dockerHostConfig(machine, "", "", "").Resources.NanoCPUs, dockerClient.updates["docker"].NanoCPUs)
+	require.Equal(t, int64(8_000_000_000), dockerClient.updates["docker"].NanoCPUs)
+	require.Equal(t, int64(8_000_000_000), dockerClient.updates["terminal"].NanoCPUs)
 	require.Equal(t, int64(32768)*1024*1024*5/100, dockerClient.updates["collector"].Memory)
+	require.Equal(t, int64(8000)*1_000_000*5/100, dockerClient.updates["collector"].NanoCPUs)
 
 	runtime.slices = nil
 	dockerClient.updates = map[string]container.Resources{}
@@ -179,7 +183,7 @@ func TestSharedMachineMemoryKillNamesTheMachineLimit(t *testing.T) {
 	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusRunning}
 	labels := machineLabels(machine)
 	labels["com.kuayle.service"] = "docker"
-	labels[memoryScopeLabel] = memoryScopeMachine
+	labels[resourceScopeLabel] = resourceScopeMachine
 	runtime := &DockerRuntime{client: &inspectLimitClientFake{dockerClientFake: &dockerClientFake{}, memory: 16 << 30}}
 	hit, ok := runtime.resourceLimitHit(context.Background(), events.Message{Actor: events.Actor{ID: "docker-1", Attributes: labels}})
 	require.True(t, ok)
@@ -202,12 +206,12 @@ func (f *inspectLimitClientFake) ContainerInspect(context.Context, string, clien
 	return client.ContainerInspectResult{Container: container.InspectResponse{HostConfig: &container.HostConfig{Resources: container.Resources{Memory: f.memory}}}}, nil
 }
 
-func TestMemorySliceNamesOnlyPlainRoutingKeys(t *testing.T) {
-	name, ok := memorySliceName(&domain.DevMachine{RoutingKey: "0123456789abcdef0123"})
+func TestMachineSliceNamesOnlyPlainRoutingKeys(t *testing.T) {
+	name, ok := machineSliceName(&domain.DevMachine{RoutingKey: "0123456789abcdef0123"})
 	require.True(t, ok)
 	require.Equal(t, "kuayle-0123456789abcdef0123.slice", name)
 	for _, key := range []string{"", "a-b", "A6", "../x"} {
-		_, ok := memorySliceName(&domain.DevMachine{RoutingKey: key})
+		_, ok := machineSliceName(&domain.DevMachine{RoutingKey: key})
 		require.False(t, ok, key)
 	}
 }

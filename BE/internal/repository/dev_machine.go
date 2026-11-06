@@ -60,6 +60,7 @@ type DevMachineStore interface {
 	ListLogs(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID, int64, int) ([]domain.DevMachineLogChunk, error)
 	CreateAccessTicket(context.Context, *domain.DevMachineAccessTicket) error
 	ListResourceSamples(context.Context, uuid.UUID, uuid.UUID, int) ([]domain.DevMachineResourceSample, error)
+	ListResourceHistory(ctx context.Context, workspaceID, machineID uuid.UUID, since time.Time, bucket time.Duration) ([]domain.DevMachineResourceSample, error)
 	CreateGitRef(context.Context, *domain.DevMachineGitRef) error
 	MachineNameExistsForUser(context.Context, uuid.UUID, uuid.UUID, string) (bool, error)
 	RequestResizeForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, domain.DevMachineResize, *domain.DevMachineOperation) (*domain.DevMachine, error)
@@ -1595,6 +1596,18 @@ func (r *DevMachineRepository) CreateResourceSample(ctx context.Context, sample 
 	).Scan(&sample.ID, &sample.CreatedAt)
 }
 
+// PruneResourceSamples removes a machine's samples older than before.
+func (r *DevMachineRepository) PruneResourceSamples(ctx context.Context, machineID uuid.UUID, before time.Time) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM dev_machine_resource_samples WHERE machine_id=$1 AND created_at<$2`, machineID, before.UTC())
+	return err
+}
+
+// DeleteResourceSamples removes a machine's usage history at teardown.
+func (r *DevMachineRepository) DeleteResourceSamples(ctx context.Context, machineID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM dev_machine_resource_samples WHERE machine_id=$1`, machineID)
+	return err
+}
+
 func (r *DevMachineRepository) UpdateVolumeUsage(ctx context.Context, machineID uuid.UUID, size int64) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_volumes SET current_size_bytes=$1
 		WHERE machine_id=$2 AND volume_type='workspace' AND deleted_at IS NULL`, size, machineID)
@@ -1632,6 +1645,23 @@ func (r *DevMachineRepository) ListResourceSamples(ctx context.Context, workspac
 	var samples []domain.DevMachineResourceSample
 	err := r.db.SelectContext(ctx, &samples, `SELECT s.* FROM dev_machine_resource_samples s
 		WHERE s.workspace_id=$1 AND s.machine_id=$2 ORDER BY s.created_at DESC LIMIT $3`, workspaceID, machineID, limit)
+	return samples, err
+}
+
+// ListResourceHistory averages the machine's samples since since into
+// buckets of bucket length, oldest first; created_at is the bucket start and
+// id the newest sample in it. Network counters are cumulative, so they keep
+// the bucket's highest value.
+func (r *DevMachineRepository) ListResourceHistory(ctx context.Context, workspaceID, machineID uuid.UUID, since time.Time, bucket time.Duration) ([]domain.DevMachineResourceSample, error) {
+	var samples []domain.DevMachineResourceSample
+	err := r.db.SelectContext(ctx, &samples, `SELECT MAX(s.id) AS id, s.workspace_id, s.machine_id,
+			AVG(s.cpu_percent) AS cpu_percent, AVG(s.memory_bytes)::BIGINT AS memory_bytes,
+			AVG(s.disk_bytes)::BIGINT AS disk_bytes, AVG(s.pids)::INT AS pids,
+			MAX(s.network_rx_bytes) AS network_rx_bytes, MAX(s.network_tx_bytes) AS network_tx_bytes,
+			date_bin(make_interval(secs => $4), s.created_at, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS created_at
+		FROM dev_machine_resource_samples s
+		WHERE s.workspace_id=$1 AND s.machine_id=$2 AND s.created_at>=$3
+		GROUP BY s.workspace_id, s.machine_id, 10 ORDER BY 10`, workspaceID, machineID, since.UTC(), bucket.Seconds())
 	return samples, err
 }
 

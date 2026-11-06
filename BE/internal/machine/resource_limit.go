@@ -88,7 +88,7 @@ func (r *DockerRuntime) resourceLimitHit(ctx context.Context, message events.Mes
 	}
 	hit := ResourceLimitHit{
 		MachineID: machineID, WorkspaceID: workspaceID, ContainerID: message.Actor.ID, Service: labels["com.kuayle.service"],
-		MachineMemory: labels[memoryScopeLabel] == memoryScopeMachine,
+		MachineMemory: labels[resourceScopeLabel] == resourceScopeMachine,
 	}
 	if labels["com.kuayle.validation-id"] != "" {
 		hit.Service = "validation"

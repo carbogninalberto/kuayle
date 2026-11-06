@@ -133,7 +133,7 @@ func TestManualCheckContainerIsNamedPerStepAndGetsNoCredentials(t *testing.T) {
 	require.Contains(t, input.HostConfig.CapDrop, "ALL")
 	require.Len(t, input.HostConfig.Mounts, 1, "only the workspace volume, no credential files")
 	for _, env := range input.Env {
-		require.Regexp(t, `^(HOME|CI|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|KUAYLE_RUN_TMP|TMPDIR|TMP|TEMP|GOTMPDIR|GOCACHE|GOMODCACHE|XDG_CACHE_HOME|npm_config_cache|PIP_CACHE_DIR|YARN_CACHE_FOLDER)=`, env)
+		require.Regexp(t, `^(HOME|CI|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|http_proxy|https_proxy|no_proxy|KUAYLE_RUN_TMP|TMPDIR|TMP|TEMP|GOTMPDIR|GOCACHE|GOMODCACHE|XDG_CACHE_HOME|npm_config_cache|PIP_CACHE_DIR|YARN_CACHE_FOLDER)=`, env)
 	}
 	require.Contains(t, input.Env, "TMPDIR=/workspace/.kuayle/tmp/check-"+step.ID.String()+"/tmp", "temporary files go to the workspace volume, not the small /tmp")
 }

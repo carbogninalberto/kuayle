@@ -15,7 +15,7 @@ import (
 // service and agent containers through secureHostConfig (containerSharePercent), the Docker daemon
 // through dockerHostConfig and check services through composeHostConfig.
 // On a machine that shares its memory, its slice gets the new size first and
-// workload containers keep the whole machine's memory (memory_slice.go).
+// workload containers keep the whole machine's memory (machine_slice.go).
 // Short-lived helpers keep their fixed limits.
 func (r *DockerRuntime) UpdateResources(ctx context.Context, machine *domain.DevMachine) error {
 	containers, err := r.client.ContainerList(ctx, client.ContainerListOptions{
@@ -30,7 +30,7 @@ func (r *DockerRuntime) UpdateResources(ctx context.Context, machine *domain.Dev
 		if !r.ownedForResize(item.Labels, machine) {
 			continue
 		}
-		sharedMemory = sharedMemory || item.Labels[memoryScopeLabel] == memoryScopeMachine
+		sharedMemory = sharedMemory || item.Labels[resourceScopeLabel] == resourceScopeMachine
 		switch item.Labels["com.kuayle.service"] {
 		case "compose":
 			composeCounts[item.Labels["com.kuayle.agent-run-id"]]++
@@ -40,10 +40,10 @@ func (r *DockerRuntime) UpdateResources(ctx context.Context, machine *domain.Dev
 	}
 	if sharedMemory {
 		if r.slices == nil {
-			return fmt.Errorf("machine memory slice cannot be resized: memory slices are unavailable")
+			return fmt.Errorf("machine machine slice cannot be resized: machine slices are unavailable")
 		}
 		if err := r.slices.Apply(ctx, machine); err != nil {
-			return fmt.Errorf("resize machine memory slice: %w", err)
+			return fmt.Errorf("resize machine machine slice: %w", err)
 		}
 	}
 	var failures []error
@@ -64,7 +64,7 @@ func (r *DockerRuntime) UpdateResources(ctx context.Context, machine *domain.Dev
 		default:
 			continue
 		}
-		if item.Labels[memoryScopeLabel] == memoryScopeMachine {
+		if item.Labels[resourceScopeLabel] == resourceScopeMachine {
 			resources = sharedMachineResources(machine, resources)
 		}
 		pids := *resources.PidsLimit

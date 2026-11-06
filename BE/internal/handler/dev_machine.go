@@ -486,7 +486,13 @@ func (h *DevMachineHandler) ResourceUsage(c *echo.Context) error {
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
 	}
-	samples, err := h.service.ListResourceSamples(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c), 120)
+	var samples []domain.DevMachineResourceSample
+	if window := c.QueryParam("window"); window != "" {
+		// Chart history: averaged, oldest first.
+		samples, err = h.service.ListResourceHistory(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c), window)
+	} else {
+		samples, err = h.service.ListResourceSamples(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c), 120)
+	}
 	if err != nil {
 		return machineError(c, err)
 	}

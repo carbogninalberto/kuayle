@@ -213,7 +213,7 @@ func TestToolContainerGetsArgumentsOnlyAsData(t *testing.T) {
 	require.Contains(t, input.Env, "KUAYLE_ARG_SPEC="+hostileInput)
 	require.Contains(t, input.Env, "KUAYLE_TOOL_SCRIPT=echo \"$KUAYLE_ARG_SPEC\"")
 	for _, env := range input.Env {
-		require.Regexp(t, `^(HOME|CI|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|KUAYLE_TOOL_NAME|KUAYLE_TOOL_SCRIPT|KUAYLE_TOOL_INPUT|KUAYLE_ARG_SPEC|KUAYLE_RUN_TMP|TMPDIR|TMP|TEMP|GOTMPDIR|GOCACHE|GOMODCACHE|XDG_CACHE_HOME|npm_config_cache|PIP_CACHE_DIR|YARN_CACHE_FOLDER)=`, env)
+		require.Regexp(t, `^(HOME|CI|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|http_proxy|https_proxy|no_proxy|KUAYLE_TOOL_NAME|KUAYLE_TOOL_SCRIPT|KUAYLE_TOOL_INPUT|KUAYLE_ARG_SPEC|KUAYLE_RUN_TMP|TMPDIR|TMP|TEMP|GOTMPDIR|GOCACHE|GOMODCACHE|XDG_CACHE_HOME|npm_config_cache|PIP_CACHE_DIR|YARN_CACHE_FOLDER)=`, env)
 	}
 	require.Contains(t, input.Env, "GOCACHE=/workspace/.kuayle/tmp/tool-"+execution.Run.ID.String()+"/cache/go-build", "caches live on the workspace volume, not the small home tmpfs")
 	require.Equal(t, execution.Run.ID.String(), input.Labels["com.kuayle.tool-run-id"])

@@ -127,7 +127,7 @@ func (r *DockerRuntime) ensureCheckService(ctx context.Context, machine *domain.
 		config.Healthcheck = &container.HealthConfig{Test: service.Health.Test, Interval: service.Health.Interval, Timeout: service.Health.Timeout, StartPeriod: service.Health.StartPeriod, Retries: service.Health.Retries}
 	}
 	hostConfig := r.composeHostConfig(machine, networkName, count)
-	if err := r.scopeMachineMemory(ctx, machine, "compose", labels, hostConfig); err != nil {
+	if err := r.scopeMachineResources(ctx, machine, "compose", labels, hostConfig); err != nil {
 		return "", err
 	}
 	result, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{

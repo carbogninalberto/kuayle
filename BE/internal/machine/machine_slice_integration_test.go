@@ -13,22 +13,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMemorySliceBoundsContainersWithoutTheirOwnLimit runs the real helper on a
+// TestMachineSliceBoundsContainersWithoutTheirOwnLimit runs the real helper on a
 // systemd host. It must run in a container of an image whose
 // /usr/local/bin/machine-manager is this branch's manager, with the Docker
-// socket, as the manager does (KUAYLE_MEMORY_SLICE_INTEGRATION=1, plus an
+// socket, as the manager does (KUAYLE_MACHINE_SLICE_INTEGRATION=1, plus an
 // alpine:3 image on the host).
-func TestMemorySliceBoundsContainersWithoutTheirOwnLimit(t *testing.T) {
-	if os.Getenv("KUAYLE_MEMORY_SLICE_INTEGRATION") != "1" {
-		t.Skip("set KUAYLE_MEMORY_SLICE_INTEGRATION=1 on a systemd Docker host")
+func TestMachineSliceBoundsContainersWithoutTheirOwnLimit(t *testing.T) {
+	if os.Getenv("KUAYLE_MACHINE_SLICE_INTEGRATION") != "1" {
+		t.Skip("set KUAYLE_MACHINE_SLICE_INTEGRATION=1 on a systemd Docker host")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	runtime, err := NewDockerRuntime(DockerConfig{})
 	require.NoError(t, err)
-	require.NoError(t, runtime.EnableMemorySlices(ctx, 0))
-	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "slicetest" + uuid.NewString()[:8], MemoryMB: 256}
-	name, _ := memorySliceName(machine)
+	require.NoError(t, runtime.EnableMachineSlices(ctx, 0))
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "slicetest" + uuid.NewString()[:8], MemoryMB: 256, CPUMillis: 1000}
+	name, _ := machineSliceName(machine)
 	require.NoError(t, runtime.slices.Apply(ctx, machine))
 	defer func() { require.NoError(t, runtime.slices.Remove(context.Background(), machine)) }()
 

@@ -23,6 +23,9 @@ import (
 
 type managerStoreFake struct {
 	ManagerStore
+	resourceSamples           []domain.DevMachineResourceSample
+	prunedSamples             []prunedSamples
+	wipedSampleMachines       []uuid.UUID
 	appPorts                  portFakeState
 	signIns                   map[string]string
 	envVars                   []domain.DevMachineEnvVar
@@ -333,7 +336,21 @@ func (f *managerStoreFake) PurgePermanentDeleteRequest(_ context.Context, _ uuid
 	return nil
 }
 
-func (f *managerStoreFake) CreateResourceSample(context.Context, *domain.DevMachineResourceSample) error {
+type prunedSamples struct {
+	machineID uuid.UUID
+	before    time.Time
+}
+
+func (f *managerStoreFake) CreateResourceSample(_ context.Context, sample *domain.DevMachineResourceSample) error {
+	f.resourceSamples = append(f.resourceSamples, *sample)
+	return nil
+}
+func (f *managerStoreFake) PruneResourceSamples(_ context.Context, machineID uuid.UUID, before time.Time) error {
+	f.prunedSamples = append(f.prunedSamples, prunedSamples{machineID: machineID, before: before})
+	return nil
+}
+func (f *managerStoreFake) DeleteResourceSamples(_ context.Context, machineID uuid.UUID) error {
+	f.wipedSampleMachines = append(f.wipedSampleMachines, machineID)
 	return nil
 }
 func (f *managerStoreFake) UpdateVolumeUsage(context.Context, uuid.UUID, int64) error    { return nil }
@@ -479,6 +496,7 @@ type runtimeFake struct {
 	agentCancellations                          int
 	onAgentOutput                               func(AgentOutput) error
 	spawned, started, paused, stopped, tornDown int
+	teardownErr                                 error
 	snapshots                                   int
 	agentRuns                                   int
 	terminatedTerminals                         int
@@ -543,7 +561,7 @@ func (f *runtimeFake) Stop(context.Context, *domain.DevMachine, []domain.DevMach
 }
 func (f *runtimeFake) Teardown(context.Context, *domain.DevMachine, []domain.DevMachineService) error {
 	f.tornDown++
-	return nil
+	return f.teardownErr
 }
 func (f *runtimeFake) RunAgent(_ context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, _ *domain.DevMachineAgentProvider, _ *domain.DevMachineCheckout, secrets map[string]string, observer *AgentObserver) (*AgentExecution, error) {
 	f.agentRuns++

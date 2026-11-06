@@ -68,8 +68,9 @@ func toolEnvironment(machine *domain.DevMachine, execution *domain.AssistantTool
 	if strings.ContainsRune(execution.Script, 0) {
 		return nil, fmt.Errorf("invalid tool script")
 	}
-	env := []string{"HOME=/home/kuayle", "CI=true", "HTTP_PROXY=http://" + machine.RoutingKey + "-egress:3128", "HTTPS_PROXY=http://" + machine.RoutingKey + "-egress:3128", "NO_PROXY=localhost,127.0.0.1",
+	env := []string{"HOME=/home/kuayle", "CI=true",
 		"KUAYLE_TOOL_NAME=" + execution.Run.ToolName, "KUAYLE_TOOL_SCRIPT=" + execution.Script, "KUAYLE_TOOL_INPUT=" + string(execution.Run.Inputs)}
+	env = append(env, proxyVariables(egressProxyURL(machine), "localhost,127.0.0.1")...)
 	env = append(env, runTmpEnvironment(runTmpDir("tool-"+execution.Run.ID.String()))...)
 	return append(env, args...), nil
 }
@@ -128,7 +129,7 @@ func (r *DockerRuntime) RunTool(ctx context.Context, machine *domain.DevMachine,
 	}
 	// The same share and isolation as a check container.
 	hostConfig := r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName, true)
-	if err := r.scopeMachineMemory(ctx, machine, "agent", labels, hostConfig); err != nil {
+	if err := r.scopeMachineResources(ctx, machine, "agent", labels, hostConfig); err != nil {
 		return nil, err
 	}
 	result, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
