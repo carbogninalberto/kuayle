@@ -112,3 +112,13 @@ test('every Tier A competitor has exactly one alternative page with sourced, key
 		}
 	}
 });
+
+test('vendors that publish only monthly prices are costed at monthly billing, never as yearly list prices', async () => {
+	const { annualCostAtMonthlyBilling } = await import('../../src/lib/data/competitor-types.ts');
+	const jira = competitors.find((competitor) => competitor.slug === 'jira');
+	assert.equal(annualLicenseCost(jira, 25), null);
+	assert.equal(annualCostAtMonthlyBilling(jira, 25), 2544);
+	assert.equal(annualCostAtMonthlyBilling(jira, 25, 'business'), 4668);
+	const linear = competitors.find((competitor) => competitor.slug === 'linear');
+	assert.equal(annualCostAtMonthlyBilling(linear, 25), null);
+});

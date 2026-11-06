@@ -62,7 +62,7 @@
 <section id="tour" class="relative py-24 sm:py-32">
 	<div class="mx-auto max-w-6xl px-6">
 		<div class="max-w-2xl" use:reveal>
-			<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">A closer look</p>
+			<p class="font-mono text-xs tracking-widest text-brand-300 uppercase"><span class="text-muted-foreground">02</span> · Plan</p>
 			<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Planning and history, from the current release</h2>
 			<p class="mt-4 text-lg text-muted-foreground">
 				Screenshots from a local instance with the repository’s seed data.

@@ -10,6 +10,8 @@
  * bounded retries and every consumer updates if a newer release exists.
  */
 
+import { releaseSummary } from './release-summary.ts';
+
 export const FALLBACK_VERSION = 'v0.1.24';
 export const RELEASES_PAGE_URL = 'https://github.com/carbogninalberto/kuayle/releases';
 
@@ -22,7 +24,17 @@ interface GitHubRelease {
 	tag_name: string;
 	html_url?: string;
 	prerelease?: boolean;
+	published_at?: string;
+	summary?: string;
 }
+
+export interface RecentRelease {
+	version: string;
+	url: string;
+	publishedAt: string | null;
+	summary: string | null;
+}
+
 
 function normalizeVersion(version: string): number[] {
 	return version
@@ -58,7 +70,9 @@ function parseManifest(manifest: unknown): GitHubRelease[] {
 			{
 				tag_name: release.tag_name,
 				html_url: typeof release.html_url === 'string' ? release.html_url : undefined,
-				prerelease: release.prerelease === true
+				prerelease: release.prerelease === true,
+				published_at: typeof release.published_at === 'string' ? release.published_at : undefined,
+				summary: releaseSummary(release.body)
 			}
 		];
 	});
@@ -94,6 +108,7 @@ function releaseUrlFor(tagName: string, value: string | undefined): string {
 
 let version = $state(FALLBACK_VERSION);
 let releaseUrl = $state(`${RELEASES_PAGE_URL}/tag/${FALLBACK_VERSION}`);
+let recent = $state<RecentRelease[]>([]);
 let loaded = false;
 let request: Promise<void> | null = null;
 
@@ -102,10 +117,17 @@ async function loadOnce(): Promise<boolean> {
 		const response = await fetch(RELEASES_MANIFEST_URL, { cache: 'no-store' });
 		if (!response.ok) return false;
 		const releases = parseManifest(await response.json());
-		const latest = releases
+		const stable = releases
 			.filter((release) => !release.prerelease && release.tag_name)
-			.sort((a, b) => compareVersions(b.tag_name, a.tag_name))[0];
+			.sort((a, b) => compareVersions(b.tag_name, a.tag_name));
+		const latest = stable[0];
 		if (!latest) return false;
+		recent = stable.slice(0, 4).map((release) => ({
+			version: release.tag_name,
+			url: releaseUrlFor(release.tag_name, release.html_url),
+			publishedAt: release.published_at ?? null,
+			summary: release.summary ?? null
+		}));
 		version = latest.tag_name;
 		releaseUrl = releaseUrlFor(latest.tag_name, latest.html_url);
 		return true;
@@ -137,6 +159,10 @@ export function useLatestRelease() {
 	return {
 		get version() {
 			return version;
+		},
+		/** Latest stable releases after hydration; empty in prerendered HTML. */
+		get recent() {
+			return recent;
 		},
 		get releaseUrl() {
 			return releaseUrl;

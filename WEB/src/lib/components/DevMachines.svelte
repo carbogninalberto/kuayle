@@ -32,13 +32,12 @@
 </script>
 
 <section id="dev-machines" class="relative overflow-hidden py-24 sm:py-32">
-	<div class="absolute top-1/3 right-0 -z-10 h-[420px] w-[560px] rounded-full bg-brand-600/15 blur-[140px]"></div>
-
+	
 	<div class="mx-auto max-w-6xl px-6">
 		<div class="grid items-center gap-14 lg:grid-cols-2">
 			<div use:reveal class="min-w-0">
-				<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">
-					Dev Machines · {DEV_MACHINES_RELEASE_STATUS}
+				<p class="font-mono text-xs tracking-widest text-brand-300 uppercase">
+					<span class="text-muted-foreground">05</span> · Automate · Dev Machines · {DEV_MACHINES_RELEASE_STATUS}
 				</p>
 				<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Agentic coding, on your own metal</h2>
 				<p class="mt-5 text-lg leading-relaxed text-muted-foreground">

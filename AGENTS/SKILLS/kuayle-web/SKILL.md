@@ -22,6 +22,12 @@ description: Maintain Kuayle WEB marketing pages, route registries, SEO, assets 
   [Seo.svelte](../../../WEB/src/lib/components/Seo.svelte) for canonical URLs,
   metadata, social cards and structured data. Preserve crawlable prerendered
   content, a meaningful h1, and working internal links.
+- Comparison content: competitor facts live in the
+  [competitor registry](../../../WEB/src/lib/data/competitors.ts) with first-party
+  sources and check dates; Kuayle's side lives in
+  [kuayle facts](../../../WEB/src/lib/data/kuayle-facts.ts). Alternative pages use
+  `/<competitor>-alternative`; never add `kuayle-vs-*` URLs. Navigation menus and
+  footer columns come from [navigation](../../../WEB/src/lib/data/navigation.ts).
 - Check [content modification data](../../../WEB/src/lib/data/content-modified.json)
   when changing indexed content. Keep comparison claims, reviewed dates and
   self-hosting instructions accurate against the implementation and
