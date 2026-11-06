@@ -389,7 +389,9 @@ func (r *IssueRepository) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labelIDs []uuid.UUID) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
+	// The privacy graph barrier comes before the issue row lock below, the
+	// order cascading team and workspace deletes use.
+	tx, err := beginConversationTransaction(ctx, r.db)
 	if err != nil {
 		return err
 	}
@@ -398,7 +400,7 @@ func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labe
 		return err
 	}
 	// Serializes with a concurrent project move: the move's UPDATE takes the
-	// same row lock, and the scope check below then sees the committed project.
+	// same row lock (its statement trigger takes the shared barrier first), and the scope check below then sees the committed project.
 	if _, err := tx.ExecContext(ctx, `SELECT 1 FROM issues WHERE id = $1 FOR UPDATE`, issueID); err != nil {
 		return err
 	}

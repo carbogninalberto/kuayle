@@ -229,4 +229,29 @@ func TestProjectScopedLabelVisibilityAndMoveLockPostgres(t *testing.T) {
 		require.NoError(t, db.Select(&attached, `SELECT label_id FROM issue_labels WHERE issue_id=$1`, issueID))
 		require.Equal(t, []uuid.UUID{global.ID}, attached, "the old project's label is not attached to the moved issue")
 	})
+	t.Run("SetLabels takes the privacy barrier before the issue lock", func(t *testing.T) {
+		issueID := uuid.New()
+		exec(`INSERT INTO issues(id,workspace_id,team_id,status_id,number,identifier_text,title,creator_id,project_id) VALUES($1,$2,$3,$4,3,'OPN-3','Barrier',$5,$6)`, issueID, workspace, team, status, owner, openProject)
+
+		// A cascading delete holds the exclusive barrier and then needs the issue row.
+		deleter, err := db.BeginTxx(context.Background(), nil)
+		require.NoError(t, err)
+		defer deleter.Rollback()
+		_, err = deleter.Exec(`SELECT pg_advisory_xact_lock(610046,0)`)
+		require.NoError(t, err)
+
+		done := make(chan error, 1)
+		go func() { done <- issues.SetLabels(ownerCtx, issueID, []uuid.UUID{global.ID}) }()
+		select {
+		case err := <-done:
+			t.Fatalf("SetLabels did not wait for the barrier: %v", err)
+		case <-time.After(500 * time.Millisecond):
+		}
+
+		// SetLabels waits without holding the issue row, so the deleter can take it.
+		_, err = deleter.Exec(`SELECT 1 FROM issues WHERE id=$1 FOR UPDATE NOWAIT`, issueID)
+		require.NoError(t, err, "SetLabels must not hold the issue lock while it waits for the barrier")
+		require.NoError(t, deleter.Commit())
+		require.NoError(t, <-done)
+	})
 }
