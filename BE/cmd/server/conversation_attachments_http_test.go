@@ -25,7 +25,7 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/crypto"
 	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
 	"github.com/kuayle/kuayle-backend/pkg/storage"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 )
 

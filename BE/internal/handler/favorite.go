@@ -10,7 +10,7 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
 	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type FavoriteHandler struct {
@@ -21,7 +21,7 @@ func NewFavoriteHandler(favSvc *service.FavoriteService) *FavoriteHandler {
 	return &FavoriteHandler{favSvc: favSvc}
 }
 
-func (h *FavoriteHandler) List(c echo.Context) error {
+func (h *FavoriteHandler) List(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
 	favs, err := h.favSvc.List(c.Request().Context(), ws.ID, userID)
@@ -41,7 +41,7 @@ func (h *FavoriteHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *FavoriteHandler) Create(c echo.Context) error {
+func (h *FavoriteHandler) Create(c *echo.Context) error {
 	var req dto.CreateFavoriteRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -68,7 +68,7 @@ func (h *FavoriteHandler) Create(c echo.Context) error {
 	})
 }
 
-func (h *FavoriteHandler) Delete(c echo.Context) error {
+func (h *FavoriteHandler) Delete(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid ID")

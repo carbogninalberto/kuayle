@@ -5,7 +5,7 @@ import (
 
 	"github.com/kuayle/kuayle-backend/internal/handler"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // Route registration helpers make the permission annotation and its
@@ -18,16 +18,34 @@ import (
 //	ownerOnly   workspace owner, interactive sessions only
 func scoped(g *echo.Group, method, path string, h echo.HandlerFunc, perm string, extra ...echo.MiddlewareFunc) {
 	middleware := append([]echo.MiddlewareFunc{mw.RequirePermission(perm)}, extra...)
-	g.Add(method, path, h, middleware...).Name = "perm:" + perm
+	addNamedRoute(g, method, path, h, "perm:"+perm, middleware...)
 }
 
 func sessionOnly(g *echo.Group, method, path string, h echo.HandlerFunc, extra ...echo.MiddlewareFunc) {
 	middlewares := append([]echo.MiddlewareFunc{mw.RequireSession()}, extra...)
-	g.Add(method, path, h, middlewares...).Name = "session"
+	addNamedRoute(g, method, path, h, "session", middlewares...)
 }
 
 func ownerOnly(g *echo.Group, method, path string, h echo.HandlerFunc) {
-	g.Add(method, path, h, mw.RequireOwner()).Name = "owner"
+	addNamedRoute(g, method, path, h, "owner", mw.RequireOwner())
+}
+
+// public registers a route that deliberately needs no authentication.
+func public(r routeAdder, method, path string, h echo.HandlerFunc, extra ...echo.MiddlewareFunc) {
+	addNamedRoute(r, method, path, h, "public", extra...)
+}
+
+// routeAdder is implemented by both *echo.Echo and *echo.Group.
+type routeAdder interface {
+	AddRoute(route echo.Route) (echo.RouteInfo, error)
+}
+
+// addNamedRoute records the permission annotation as the route Name. Like
+// echo.Add it panics on an invalid or duplicate registration.
+func addNamedRoute(r routeAdder, method, path string, h echo.HandlerFunc, name string, middlewares ...echo.MiddlewareFunc) {
+	if _, err := r.AddRoute(echo.Route{Method: method, Path: path, Name: name, Handler: h, Middlewares: middlewares}); err != nil {
+		panic(err)
+	}
 }
 
 // appHandlers groups every HTTP handler so route registration can run
@@ -87,27 +105,27 @@ type appMiddleware struct {
 
 func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// Health
-	e.GET("/health", h.health.Health).Name = "public"
-	e.GET("/ready", h.health.Ready).Name = "public"
+	public(e, http.MethodGet, "/health", h.health.Health)
+	public(e, http.MethodGet, "/ready", h.health.Ready)
 
 	// Auth (public) — rate limited: 5 requests/sec, burst of 10
 	auth := e.Group("/api/auth", m.authRateLimit)
-	auth.POST("/register", h.auth.Register).Name = "public"
-	auth.POST("/login", h.auth.Login).Name = "public"
-	auth.POST("/refresh", h.auth.Refresh).Name = "public"
-	auth.POST("/logout", h.auth.Logout).Name = "public"
-	auth.POST("/forgot-password", h.auth.ForgotPassword).Name = "public"
-	auth.POST("/reset-password", h.auth.ResetPassword).Name = "public"
+	public(auth, http.MethodPost, "/register", h.auth.Register)
+	public(auth, http.MethodPost, "/login", h.auth.Login)
+	public(auth, http.MethodPost, "/refresh", h.auth.Refresh)
+	public(auth, http.MethodPost, "/logout", h.auth.Logout)
+	public(auth, http.MethodPost, "/forgot-password", h.auth.ForgotPassword)
+	public(auth, http.MethodPost, "/reset-password", h.auth.ResetPassword)
 
 	// Public share routes (no auth, rate limited)
 	pub := e.Group("/api/public", m.publicRateLimit)
-	pub.GET("/share/:token", h.sharedLink.GetPublicMeta).Name = "public"
-	pub.GET("/share/:token/issues", h.sharedLink.ListPublicIssues).Name = "public"
-	e.GET("/api/public/assets/:token", h.upload.PublicAsset, m.publicAssetRateLimit).Name = "public"
-	pub.GET("/system/update-activity", h.system.UpdateActivity).Name = "public"
+	public(pub, http.MethodGet, "/share/:token", h.sharedLink.GetPublicMeta)
+	public(pub, http.MethodGet, "/share/:token/issues", h.sharedLink.ListPublicIssues)
+	public(e, http.MethodGet, "/api/public/assets/:token", h.upload.PublicAsset, m.publicAssetRateLimit)
+	public(pub, http.MethodGet, "/system/update-activity", h.system.UpdateActivity)
 
-	e.GET("/api/config", h.config.Get, m.publicAssetRateLimit).Name = "public"
-	e.GET("/api/invite/:token", h.inviteLink.Preview, m.authRateLimit).Name = "public"
+	public(e, http.MethodGet, "/api/config", h.config.Get, m.publicAssetRateLimit)
+	public(e, http.MethodGet, "/api/invite/:token", h.inviteLink.Preview, m.authRateLimit)
 
 	// Authenticated routes
 	api := e.Group("/api", m.auth)
@@ -312,14 +330,14 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 		sessionOnly(ws, http.MethodPatch, "/telegram", h.telegram.Save)
 		sessionOnly(ws, http.MethodPost, "/telegram/link", h.telegram.Link)
 		sessionOnly(ws, http.MethodDelete, "/telegram/link", h.telegram.Unlink)
-		e.POST("/api/telegram/webhook/:workspaceId", h.telegram.Webhook, m.publicRateLimit).Name = "public"
+		public(e, http.MethodPost, "/api/telegram/webhook/:workspaceId", h.telegram.Webhook, m.publicRateLimit)
 	}
 
 	// GitHub integration (conditional)
 	// Public webhook endpoint (no auth, signature-verified internally)
-	e.POST("/api/github/webhook", h.github.HandleWebhook).Name = "public"
-	e.POST("/api/dev-machine-ingest/events", h.devMachine.IngestEvent, m.machineEventsRateLimit).Name = "public"
-	e.POST("/api/dev-machine-ingest/logs", h.devMachine.IngestLog, m.machineLogsRateLimit).Name = "public"
+	public(e, http.MethodPost, "/api/github/webhook", h.github.HandleWebhook)
+	public(e, http.MethodPost, "/api/dev-machine-ingest/events", h.devMachine.IngestEvent, m.machineEventsRateLimit)
+	public(e, http.MethodPost, "/api/dev-machine-ingest/logs", h.devMachine.IngestLog, m.machineLogsRateLimit)
 
 	// GitHub integration (workspace-scoped)
 	sessionOnly(ws, http.MethodGet, "/github/status", h.github.Status)

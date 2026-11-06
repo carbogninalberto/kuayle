@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -53,12 +53,12 @@ func (r *fakePATRepo) UpdateLastUsed(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func runAuth(t *testing.T, repo *fakePATRepo, req *http.Request) (*httptest.ResponseRecorder, echo.Context) {
+func runAuth(t *testing.T, repo *fakePATRepo, req *http.Request) (*httptest.ResponseRecorder, *echo.Context) {
 	t.Helper()
 	e := echo.New()
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
-	handler := Auth("test-secret", repo)(func(c echo.Context) error {
+	handler := Auth("test-secret", repo)(func(c *echo.Context) error {
 		return c.NoContent(http.StatusNoContent)
 	})
 	require.NoError(t, handler(c))
@@ -191,7 +191,7 @@ func TestHostCookieAuthRejectsLegacyCookie(t *testing.T) {
 	require.NoError(t, err)
 	for _, name := range []string{"access_token", "__Host-kuayle-access"} {
 		e := echo.New()
-		e.GET("/", func(c echo.Context) error { return c.NoContent(204) }, Auth("test-secret", nil, true))
+		e.GET("/", func(c *echo.Context) error { return c.NoContent(204) }, Auth("test-secret", nil, true))
 		req := httptest.NewRequest("GET", "/", nil)
 		req.AddCookie(&http.Cookie{Name: name, Value: token})
 		rec := httptest.NewRecorder()

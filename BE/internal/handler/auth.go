@@ -15,7 +15,7 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/storage"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -36,7 +36,7 @@ func NewAuthHandler(authService *service.AuthService, secureCookie bool, loginTh
 	return &AuthHandler{hostCookies: useHostCookies, authService: authService, secureCookie: secureCookie || useHostCookies, loginThrottle: loginThrottle, isSysAdmin: isSysAdmin}
 }
 
-func (h *AuthHandler) Register(c echo.Context) error {
+func (h *AuthHandler) Register(c *echo.Context) error {
 	var req dto.RegisterRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -76,7 +76,7 @@ func (h *AuthHandler) Register(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, h.userResponse(user))
 }
 
-func (h *AuthHandler) Login(c echo.Context) error {
+func (h *AuthHandler) Login(c *echo.Context) error {
 	var req dto.LoginRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -112,7 +112,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 }
 
 // ForgotPassword always answers 200 so it cannot be used to enumerate accounts.
-func (h *AuthHandler) ForgotPassword(c echo.Context) error {
+func (h *AuthHandler) ForgotPassword(c *echo.Context) error {
 	var req dto.ForgotPasswordRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -126,7 +126,7 @@ func (h *AuthHandler) ForgotPassword(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (h *AuthHandler) ResetPassword(c echo.Context) error {
+func (h *AuthHandler) ResetPassword(c *echo.Context) error {
 	var req dto.ResetPasswordRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -156,7 +156,7 @@ func validationDetails(err error) []dto.ErrorDetail {
 	return details
 }
 
-func (h *AuthHandler) Refresh(c echo.Context) error {
+func (h *AuthHandler) Refresh(c *echo.Context) error {
 	cookie, err := c.Cookie(h.refreshCookieName())
 	if err != nil || cookie.Value == "" {
 		return response.Unauthorized(c)
@@ -174,7 +174,7 @@ func (h *AuthHandler) Refresh(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "refreshed"})
 }
 
-func (h *AuthHandler) Logout(c echo.Context) error {
+func (h *AuthHandler) Logout(c *echo.Context) error {
 	cookie, err := c.Cookie(h.refreshCookieName())
 	if err == nil && cookie.Value != "" {
 		_ = h.authService.Logout(c.Request().Context(), cookie.Value)
@@ -184,7 +184,7 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "logged out"})
 }
 
-func (h *AuthHandler) Me(c echo.Context) error {
+func (h *AuthHandler) Me(c *echo.Context) error {
 	userID := middleware.GetUserID(c)
 	user, err := h.authService.GetUserByID(c.Request().Context(), userID)
 	if err != nil || user == nil {
@@ -193,7 +193,7 @@ func (h *AuthHandler) Me(c echo.Context) error {
 	return response.Success(c, http.StatusOK, h.userResponse(user))
 }
 
-func (h *AuthHandler) UpdateProfile(c echo.Context) error {
+func (h *AuthHandler) UpdateProfile(c *echo.Context) error {
 	var req dto.UpdateProfileRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -242,7 +242,7 @@ func (h *AuthHandler) userResponse(user *domain.User) dto.UserResponse {
 	}
 }
 
-func (h *AuthHandler) setAuthCookies(c echo.Context, accessToken, refreshToken string) {
+func (h *AuthHandler) setAuthCookies(c *echo.Context, accessToken, refreshToken string) {
 	c.SetCookie(&http.Cookie{
 		Name:     h.accessCookieName(),
 		Value:    accessToken,
@@ -263,7 +263,7 @@ func (h *AuthHandler) setAuthCookies(c echo.Context, accessToken, refreshToken s
 	})
 }
 
-func (h *AuthHandler) clearAuthCookies(c echo.Context) {
+func (h *AuthHandler) clearAuthCookies(c *echo.Context) {
 	c.SetCookie(&http.Cookie{
 		Name:     h.accessCookieName(),
 		Value:    "",

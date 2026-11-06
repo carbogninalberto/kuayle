@@ -6,13 +6,14 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -26,7 +27,7 @@ func NewWorkspaceTransferHandler(service *service.WorkspaceTransferService) *Wor
 	return &WorkspaceTransferHandler{service: service}
 }
 
-func (h *WorkspaceTransferHandler) Export(c echo.Context) error {
+func (h *WorkspaceTransferHandler) Export(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	if workspace == nil {
 		return response.NotFound(c, "Workspace")
@@ -47,10 +48,11 @@ func (h *WorkspaceTransferHandler) Export(c echo.Context) error {
 	defer os.Remove(archive.Path)
 	c.Response().Header().Set(echo.HeaderContentDisposition, `attachment; filename="`+archive.Filename+`"`)
 	c.Response().Header().Set(echo.HeaderContentType, "application/zip")
-	return c.File(archive.Path)
+	// The archive lives in the temp directory, outside echo's working-directory filesystem.
+	return c.FileFS(filepath.Base(archive.Path), os.DirFS(filepath.Dir(archive.Path)))
 }
 
-func (h *WorkspaceTransferHandler) Preview(c echo.Context) error {
+func (h *WorkspaceTransferHandler) Preview(c *echo.Context) error {
 	path, cleanup, err := receiveWorkspaceArchive(c)
 	if err != nil {
 		return err
@@ -63,7 +65,7 @@ func (h *WorkspaceTransferHandler) Preview(c echo.Context) error {
 	return response.Success(c, http.StatusOK, preview)
 }
 
-func (h *WorkspaceTransferHandler) Import(c echo.Context) error {
+func (h *WorkspaceTransferHandler) Import(c *echo.Context) error {
 	path, cleanup, err := receiveWorkspaceArchive(c)
 	if err != nil {
 		return err
@@ -78,8 +80,8 @@ func (h *WorkspaceTransferHandler) Import(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, result)
 }
 
-func receiveWorkspaceArchive(c echo.Context) (string, func(), error) {
-	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, maxWorkspaceImportRequestBytes)
+func receiveWorkspaceArchive(c *echo.Context) (string, func(), error) {
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxWorkspaceImportRequestBytes)
 	cleanupMultipart := func() {
 		if c.Request().MultipartForm != nil {
 			_ = c.Request().MultipartForm.RemoveAll()
@@ -124,7 +126,7 @@ func receiveWorkspaceArchive(c echo.Context) (string, func(), error) {
 
 func openMultipartFile(header *multipart.FileHeader) (multipart.File, error) { return header.Open() }
 
-func transferHTTPError(c echo.Context, err error) error {
+func transferHTTPError(c *echo.Context, err error) error {
 	var transferErr *service.WorkspaceTransferError
 	if !errors.As(err, &transferErr) {
 		return response.InternalError(c)

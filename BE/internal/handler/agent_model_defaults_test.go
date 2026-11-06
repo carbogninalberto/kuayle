@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,8 +34,7 @@ func sendAgentModelDefault(t *testing.T, h *DevMachineHandler, method, provider,
 	if method == http.MethodGet {
 		require.NoError(t, h.ListAgentModelDefaults(ctx))
 	} else {
-		ctx.SetParamNames("provider")
-		ctx.SetParamValues(provider)
+		ctx.SetPathValues(echo.PathValues{{Name: "provider", Value: provider}})
 		require.NoError(t, h.SaveAgentModelDefault(ctx))
 	}
 	return recorder

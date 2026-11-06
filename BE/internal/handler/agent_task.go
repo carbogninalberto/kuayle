@@ -14,7 +14,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type AgentTaskHandler struct{ svc *service.AgentTaskService }
@@ -22,7 +22,7 @@ type AgentTaskHandler struct{ svc *service.AgentTaskService }
 func NewAgentTaskHandler(svc *service.AgentTaskService) *AgentTaskHandler {
 	return &AgentTaskHandler{svc}
 }
-func agentTaskError(c echo.Context, err error) error {
+func agentTaskError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, repository.ErrConversationNotFound), errors.Is(err, repository.ErrAgentTaskUnauthorized):
 		return response.NotFound(c, "Agent task")
@@ -56,14 +56,14 @@ func agentTaskError(c echo.Context, err error) error {
 		return machineError(c, err)
 	}
 }
-func taskID(c echo.Context, name string) (uuid.UUID, error) {
+func taskID(c *echo.Context, name string) (uuid.UUID, error) {
 	id, err := uuid.Parse(c.Param(name))
 	if err != nil {
 		return uuid.Nil, repository.ErrConversationNotFound
 	}
 	return id, nil
 }
-func taskBefore(c echo.Context) (*uuid.UUID, error) {
+func taskBefore(c *echo.Context) (*uuid.UUID, error) {
 	raw := c.QueryParam("before")
 	if raw == "" {
 		return nil, nil
@@ -74,7 +74,7 @@ func taskBefore(c echo.Context) (*uuid.UUID, error) {
 	}
 	return &id, nil
 }
-func bindTask(c echo.Context, target any) error {
+func bindTask(c *echo.Context, target any) error {
 	body := http.MaxBytesReader(c.Response(), c.Request().Body, 64<<10)
 	decoder := json.NewDecoder(body)
 	decoder.DisallowUnknownFields()
@@ -86,7 +86,7 @@ func bindTask(c echo.Context, target any) error {
 	}
 	return nil
 }
-func (h *AgentTaskHandler) Options(c echo.Context) error {
+func (h *AgentTaskHandler) Options(c *echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return agentTaskError(c, err)
@@ -97,7 +97,7 @@ func (h *AgentTaskHandler) Options(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
-func (h *AgentTaskHandler) Create(c echo.Context) error {
+func (h *AgentTaskHandler) Create(c *echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return agentTaskError(c, err)
@@ -112,7 +112,7 @@ func (h *AgentTaskHandler) Create(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusAccepted, result)
 }
-func (h *AgentTaskHandler) List(c echo.Context) error {
+func (h *AgentTaskHandler) List(c *echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return agentTaskError(c, err)
@@ -127,7 +127,7 @@ func (h *AgentTaskHandler) List(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
-func (h *AgentTaskHandler) Get(c echo.Context) error {
+func (h *AgentTaskHandler) Get(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -141,7 +141,7 @@ func (h *AgentTaskHandler) Get(c echo.Context) error {
 
 // Sessions lists the task's agent session and the review sessions of its
 // published work, read-only, under the task's current authorization.
-func (h *AgentTaskHandler) Sessions(c echo.Context) error {
+func (h *AgentTaskHandler) Sessions(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -152,7 +152,7 @@ func (h *AgentTaskHandler) Sessions(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
-func (h *AgentTaskHandler) Cancel(c echo.Context) error {
+func (h *AgentTaskHandler) Cancel(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -165,9 +165,9 @@ func (h *AgentTaskHandler) Cancel(c echo.Context) error {
 
 // StartPreview queues the task's preview process and app port; StopPreview
 // queues its stop. Both answer 202 with the task.
-func (h *AgentTaskHandler) StartPreview(c echo.Context) error { return h.preview(c, true) }
-func (h *AgentTaskHandler) StopPreview(c echo.Context) error  { return h.preview(c, false) }
-func (h *AgentTaskHandler) preview(c echo.Context, start bool) error {
+func (h *AgentTaskHandler) StartPreview(c *echo.Context) error { return h.preview(c, true) }
+func (h *AgentTaskHandler) StopPreview(c *echo.Context) error  { return h.preview(c, false) }
+func (h *AgentTaskHandler) preview(c *echo.Context, start bool) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -181,7 +181,7 @@ func (h *AgentTaskHandler) preview(c echo.Context, start bool) error {
 
 // RunCheck runs the task's check, or a given command, on the latest attempt's
 // checkout without starting an agent attempt. An empty body runs the task's check.
-func (h *AgentTaskHandler) RunCheck(c echo.Context) error {
+func (h *AgentTaskHandler) RunCheck(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -202,7 +202,7 @@ func (h *AgentTaskHandler) RunCheck(c echo.Context) error {
 }
 
 // ManualChecks lists an attempt's manual checks, oldest first.
-func (h *AgentTaskHandler) ManualChecks(c echo.Context) error {
+func (h *AgentTaskHandler) ManualChecks(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -220,7 +220,7 @@ func (h *AgentTaskHandler) ManualChecks(c echo.Context) error {
 
 // ContinueAfterSignIn keeps the sign-in the user completed in their terminal
 // and starts a new attempt.
-func (h *AgentTaskHandler) ContinueAfterSignIn(c echo.Context) error {
+func (h *AgentTaskHandler) ContinueAfterSignIn(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -240,7 +240,7 @@ func (h *AgentTaskHandler) ContinueAfterSignIn(c echo.Context) error {
 
 // OpenInClaudeCode opens the task's Claude Code session in a terminal on its
 // machine for the task's creator.
-func (h *AgentTaskHandler) OpenInClaudeCode(c echo.Context) error {
+func (h *AgentTaskHandler) OpenInClaudeCode(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -252,7 +252,7 @@ func (h *AgentTaskHandler) OpenInClaudeCode(c echo.Context) error {
 	return response.Success(c, http.StatusOK, launch)
 }
 
-func (h *AgentTaskHandler) Retry(c echo.Context) error {
+func (h *AgentTaskHandler) Retry(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -271,7 +271,7 @@ func (h *AgentTaskHandler) Retry(c echo.Context) error {
 // Accept completes the creator's task awaiting review without merging its pull
 // request. The generation is the attempt the user reviewed; repeating it
 // returns the accepted task.
-func (h *AgentTaskHandler) Accept(c echo.Context) error {
+func (h *AgentTaskHandler) Accept(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -288,7 +288,7 @@ func (h *AgentTaskHandler) Accept(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, task)
 }
-func (h *AgentTaskHandler) History(c echo.Context) error {
+func (h *AgentTaskHandler) History(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -303,7 +303,7 @@ func (h *AgentTaskHandler) History(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
-func (h *AgentTaskHandler) Runs(c echo.Context) error {
+func (h *AgentTaskHandler) Runs(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -318,7 +318,7 @@ func (h *AgentTaskHandler) Runs(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
-func (h *AgentTaskHandler) Logs(c echo.Context) error {
+func (h *AgentTaskHandler) Logs(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -339,7 +339,7 @@ func (h *AgentTaskHandler) Logs(c echo.Context) error {
 }
 
 // Diff returns an attempt's captured diff against its base branch.
-func (h *AgentTaskHandler) Diff(c echo.Context) error {
+func (h *AgentTaskHandler) Diff(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -356,7 +356,7 @@ func (h *AgentTaskHandler) Diff(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AgentTaskHandler) Validation(c echo.Context) error {
+func (h *AgentTaskHandler) Validation(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -372,7 +372,7 @@ func (h *AgentTaskHandler) Validation(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AgentTaskHandler) Publication(c echo.Context) error {
+func (h *AgentTaskHandler) Publication(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -388,7 +388,7 @@ func (h *AgentTaskHandler) Publication(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AgentTaskHandler) Signals(c echo.Context) error {
+func (h *AgentTaskHandler) Signals(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -402,7 +402,7 @@ func (h *AgentTaskHandler) Signals(c echo.Context) error {
 
 // LiveMessages lists the newest messages of the task's live channel, both
 // directions, oldest first, for the task's creator. Agent text is untrusted.
-func (h *AgentTaskHandler) LiveMessages(c echo.Context) error {
+func (h *AgentTaskHandler) LiveMessages(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -417,7 +417,7 @@ func (h *AgentTaskHandler) LiveMessages(c echo.Context) error {
 // SendLiveMessage queues the creator's message for the task's agent: the
 // running attempt reads it from its inbox, otherwise the next attempt's
 // prompt carries it.
-func (h *AgentTaskHandler) SendLiveMessage(c echo.Context) error {
+func (h *AgentTaskHandler) SendLiveMessage(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -436,7 +436,7 @@ func (h *AgentTaskHandler) SendLiveMessage(c echo.Context) error {
 }
 
 // Queue lists the session user's recent agent tasks across projects.
-func (h *AgentTaskHandler) Queue(c echo.Context) error {
+func (h *AgentTaskHandler) Queue(c *echo.Context) error {
 	result, err := h.svc.Repo.Queue(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return agentTaskError(c, err)
@@ -445,7 +445,7 @@ func (h *AgentTaskHandler) Queue(c echo.Context) error {
 }
 
 // MachineTasks lists the tasks that used one of the session user's machines.
-func (h *AgentTaskHandler) MachineTasks(c echo.Context) error {
+func (h *AgentTaskHandler) MachineTasks(c *echo.Context) error {
 	id, err := taskID(c, "machineId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -457,7 +457,7 @@ func (h *AgentTaskHandler) MachineTasks(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AgentTaskHandler) Artifacts(c echo.Context) error {
+func (h *AgentTaskHandler) Artifacts(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
@@ -477,7 +477,7 @@ var unsafeArtifactName = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 
 // Artifact serves a QA report file as untrusted content: never sniffed or
 // scripted, and downloaded rather than rendered unless it is an image.
-func (h *AgentTaskHandler) Artifact(c echo.Context) error {
+func (h *AgentTaskHandler) Artifact(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)

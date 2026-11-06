@@ -19,7 +19,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -330,7 +330,7 @@ func (r *testNotifRepo) UnreadCount(_ context.Context, _ uuid.UUID) (int, error)
 
 // --- Context helpers ---
 
-func setupIssueContext(e *echo.Echo, method, path, body string) (echo.Context, *httptest.ResponseRecorder) {
+func setupIssueContext(e *echo.Echo, method, path, body string) (*echo.Context, *httptest.ResponseRecorder) {
 	var req *http.Request
 	if body != "" {
 		req = httptest.NewRequest(method, path, strings.NewReader(body))
@@ -343,7 +343,7 @@ func setupIssueContext(e *echo.Echo, method, path, body string) (echo.Context, *
 	return c, rec
 }
 
-func setWorkspaceContext(c echo.Context) uuid.UUID {
+func setWorkspaceContext(c *echo.Context) uuid.UUID {
 	wsID := uuid.New()
 	ws := &domain.Workspace{ID: wsID, Name: "Test", Slug: "test"}
 	c.Set("workspace", ws)
@@ -414,8 +414,7 @@ func TestIssueHandler_Get_Found(t *testing.T) {
 	c, rec := setupIssueContext(e, http.MethodGet, "/api/workspaces/test/issues/ENG-1", "")
 	ws := &domain.Workspace{ID: wsID, Name: "Test", Slug: "test"}
 	c.Set("workspace", ws)
-	c.SetParamNames("identifier")
-	c.SetParamValues("ENG-1")
+	c.SetPathValues(echo.PathValues{{Name: "identifier", Value: "ENG-1"}})
 
 	err := h.Get(c)
 
@@ -439,8 +438,7 @@ func TestIssueHandler_Get_NotFound(t *testing.T) {
 	c, rec := setupIssueContext(e, http.MethodGet, "/api/workspaces/test/issues/ENG-999", "")
 	ws := &domain.Workspace{ID: uuid.New(), Name: "Test", Slug: "test"}
 	c.Set("workspace", ws)
-	c.SetParamNames("identifier")
-	c.SetParamValues("ENG-999")
+	c.SetPathValues(echo.PathValues{{Name: "identifier", Value: "ENG-999"}})
 
 	err := h.Get(c)
 
@@ -493,8 +491,7 @@ func TestIssueHandler_Delete_Success(t *testing.T) {
 	c, rec := setupIssueContext(e, http.MethodDelete, "/api/workspaces/test/issues/ENG-1", "")
 	ws := &domain.Workspace{ID: wsID, Name: "Test", Slug: "test"}
 	c.Set("workspace", ws)
-	c.SetParamNames("identifier")
-	c.SetParamValues("ENG-1")
+	c.SetPathValues(echo.PathValues{{Name: "identifier", Value: "ENG-1"}})
 
 	err := h.Delete(c)
 
@@ -517,8 +514,7 @@ func TestIssueHandler_CreateComment_ValidationError(t *testing.T) {
 
 	c, rec := setupIssueContext(e, http.MethodPost, "/api/workspaces/test/issues/ENG-1/comments", `{"body": ""}`)
 	setWorkspaceContext(c)
-	c.SetParamNames("identifier")
-	c.SetParamValues("ENG-1")
+	c.SetPathValues(echo.PathValues{{Name: "identifier", Value: "ENG-1"}})
 
 	err := h.CreateComment(c)
 

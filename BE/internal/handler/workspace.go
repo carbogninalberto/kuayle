@@ -14,7 +14,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 func parseUUID(s string) (uuid.UUID, error) {
@@ -29,7 +29,7 @@ func NewWorkspaceHandler(workspaceSvc *service.WorkspaceService) *WorkspaceHandl
 	return &WorkspaceHandler{workspaceSvc: workspaceSvc}
 }
 
-func (h *WorkspaceHandler) List(c echo.Context) error {
+func (h *WorkspaceHandler) List(c *echo.Context) error {
 	userID := middleware.GetUserID(c)
 	workspaces, err := h.workspaceSvc.ListByUser(c.Request().Context(), userID)
 	if err != nil {
@@ -46,7 +46,7 @@ func (h *WorkspaceHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *WorkspaceHandler) Create(c echo.Context) error {
+func (h *WorkspaceHandler) Create(c *echo.Context) error {
 	var req dto.CreateWorkspaceRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -69,12 +69,12 @@ func (h *WorkspaceHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, h.toWorkspaceResponse(c, *ws))
 }
 
-func (h *WorkspaceHandler) Get(c echo.Context) error {
+func (h *WorkspaceHandler) Get(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	return response.Success(c, http.StatusOK, h.toWorkspaceResponse(c, *ws))
 }
 
-func (h *WorkspaceHandler) Update(c echo.Context) error {
+func (h *WorkspaceHandler) Update(c *echo.Context) error {
 	var req dto.UpdateWorkspaceRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -108,7 +108,7 @@ func (h *WorkspaceHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, h.toWorkspaceResponse(c, *ws))
 }
 
-func (h *WorkspaceHandler) Delete(c echo.Context) error {
+func (h *WorkspaceHandler) Delete(c *echo.Context) error {
 	slug := c.Param("slug")
 	userID := middleware.GetUserID(c)
 	if err := h.workspaceSvc.Delete(c.Request().Context(), slug, userID); err != nil {
@@ -128,7 +128,7 @@ func (h *WorkspaceHandler) Delete(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-func (h *WorkspaceHandler) Invite(c echo.Context) error {
+func (h *WorkspaceHandler) Invite(c *echo.Context) error {
 	var req dto.InviteMemberRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -149,7 +149,7 @@ func (h *WorkspaceHandler) Invite(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "invited"})
 }
 
-func (h *WorkspaceHandler) ListMembers(c echo.Context) error {
+func (h *WorkspaceHandler) ListMembers(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	members, err := h.workspaceSvc.ListMembersWithUsers(c.Request().Context(), ws.ID)
 	if err != nil {
@@ -169,7 +169,7 @@ func (h *WorkspaceHandler) ListMembers(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *WorkspaceHandler) UpdateMemberRole(c echo.Context) error {
+func (h *WorkspaceHandler) UpdateMemberRole(c *echo.Context) error {
 	var req dto.UpdateMemberRoleRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -195,7 +195,7 @@ func (h *WorkspaceHandler) UpdateMemberRole(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "updated"})
 }
 
-func (h *WorkspaceHandler) RemoveMember(c echo.Context) error {
+func (h *WorkspaceHandler) RemoveMember(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userIDStr := c.Param("userId")
 	userID, err := parseUUID(userIDStr)
@@ -223,7 +223,7 @@ func validateLogoURL(rawURL string) error {
 
 // toWorkspaceResponse builds a WorkspaceResponse, attaching the requesting user's
 // role (if available) and the workspace owner's profile (best-effort).
-func (h *WorkspaceHandler) toWorkspaceResponse(c echo.Context, ws domain.Workspace) dto.WorkspaceResponse {
+func (h *WorkspaceHandler) toWorkspaceResponse(c *echo.Context, ws domain.Workspace) dto.WorkspaceResponse {
 	resp := dto.WorkspaceResponse{
 		PrivacyEnabled:   ws.PrivacyEnabled,
 		ID:               ws.ID.String(),

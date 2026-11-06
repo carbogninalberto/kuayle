@@ -9,7 +9,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // AgentAutomationHandler manages delegation rules. Rules are workspace
@@ -22,7 +22,7 @@ func NewAgentAutomationHandler(svc *service.AgentAutomationService) *AgentAutoma
 	return &AgentAutomationHandler{svc}
 }
 
-func automationError(c echo.Context, err error) error {
+func automationError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, repository.ErrAutomationNotFound):
 		return response.NotFound(c, "Automation")
@@ -33,7 +33,7 @@ func automationError(c echo.Context, err error) error {
 	}
 }
 
-func automationID(c echo.Context) (uuid.UUID, error) {
+func automationID(c *echo.Context) (uuid.UUID, error) {
 	id, err := uuid.Parse(c.Param("automationId"))
 	if err != nil {
 		return uuid.Nil, repository.ErrAutomationNotFound
@@ -41,7 +41,7 @@ func automationID(c echo.Context) (uuid.UUID, error) {
 	return id, nil
 }
 
-func (h *AgentAutomationHandler) List(c echo.Context) error {
+func (h *AgentAutomationHandler) List(c *echo.Context) error {
 	if !canAdministerDevMachines(c) {
 		return response.Forbidden(c)
 	}
@@ -52,7 +52,7 @@ func (h *AgentAutomationHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, automations)
 }
 
-func (h *AgentAutomationHandler) Create(c echo.Context) error {
+func (h *AgentAutomationHandler) Create(c *echo.Context) error {
 	if !canAdministerDevMachines(c) {
 		return response.Forbidden(c)
 	}
@@ -67,7 +67,7 @@ func (h *AgentAutomationHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, automation)
 }
 
-func (h *AgentAutomationHandler) Update(c echo.Context) error {
+func (h *AgentAutomationHandler) Update(c *echo.Context) error {
 	if !canAdministerDevMachines(c) {
 		return response.Forbidden(c)
 	}
@@ -88,7 +88,7 @@ func (h *AgentAutomationHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, automation)
 }
 
-func (h *AgentAutomationHandler) Delete(c echo.Context) error {
+func (h *AgentAutomationHandler) Delete(c *echo.Context) error {
 	if !canAdministerDevMachines(c) {
 		return response.Forbidden(c)
 	}
@@ -102,7 +102,7 @@ func (h *AgentAutomationHandler) Delete(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *AgentAutomationHandler) Runs(c echo.Context) error {
+func (h *AgentAutomationHandler) Runs(c *echo.Context) error {
 	if !canAdministerDevMachines(c) {
 		return response.Forbidden(c)
 	}
@@ -113,7 +113,7 @@ func (h *AgentAutomationHandler) Runs(c echo.Context) error {
 	return response.Success(c, http.StatusOK, runs)
 }
 
-func (h *AgentAutomationHandler) decide(c echo.Context, approve bool) error {
+func (h *AgentAutomationHandler) decide(c *echo.Context, approve bool) error {
 	id, err := uuid.Parse(c.Param("runId"))
 	if err != nil {
 		return automationError(c, repository.ErrAutomationNotFound)
@@ -125,5 +125,5 @@ func (h *AgentAutomationHandler) decide(c echo.Context, approve bool) error {
 	return response.Success(c, http.StatusOK, run)
 }
 
-func (h *AgentAutomationHandler) Approve(c echo.Context) error { return h.decide(c, true) }
-func (h *AgentAutomationHandler) Dismiss(c echo.Context) error { return h.decide(c, false) }
+func (h *AgentAutomationHandler) Approve(c *echo.Context) error { return h.decide(c, true) }
+func (h *AgentAutomationHandler) Dismiss(c *echo.Context) error { return h.decide(c, false) }

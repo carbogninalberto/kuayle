@@ -17,7 +17,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/service"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -91,8 +91,7 @@ func TestUploadAvatar(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, *user.AvatarURL, nil)
 	rec = httptest.NewRecorder()
 	c := echo.New().NewContext(req, rec)
-	c.SetParamNames("userId", "file")
-	c.SetParamValues(user.ID.String(), parts[len(parts)-1])
+	c.SetPathValues(echo.PathValues{{Name: "userId", Value: user.ID.String()}, {Name: "file", Value: parts[len(parts)-1]}})
 	require.NoError(t, h.GetAvatar(c))
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "image/png", rec.Header().Get("Content-Type"))
