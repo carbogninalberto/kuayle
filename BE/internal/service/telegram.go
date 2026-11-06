@@ -773,6 +773,11 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 		return "The decision could not be saved. Try again.", false
 	}
 	switch approval.Status {
+	case "approving":
+		if approval.Action == shipAction {
+			return "Approved: shipping started. Kuayle merges, waits for the tests and releases; follow each step in the chat in Kuayle.", true
+		}
+		return "The decision could not be saved. Try again.", false
 	case "approved":
 		switch approval.Action {
 		case "request_agent_review":
@@ -801,6 +806,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: the upgrade is starting. The instance restarts; follow it from the chat in Kuayle.", true
 		case "create_release":
 			return "Approved: the release was published with the notes shown in Kuayle. Its build is starting.", true
+		case shipAction:
+			return "Shipped: merged, tested and released. Each step is listed in the chat in Kuayle.", true
 		}
 		return "Approved: the coding agent is starting.", true
 	case "denied":
@@ -824,6 +831,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			message = "The upgrade could not start."
 		case "create_release":
 			message = "The release was not published."
+		case shipAction:
+			message = "Shipping stopped."
 		}
 		if approval.Error != nil {
 			message += " " + *approval.Error

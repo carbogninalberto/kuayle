@@ -78,6 +78,11 @@ var assistantActionPolicies = map[string]assistantActionPolicy{
 	"draft_release_notes": {github: map[string]string{"contents": "read", "pull_requests": "read", "checks": "read", "statuses": "read"}},
 	"create_release":      {github: map[string]string{"contents": "write", "checks": "read", "statuses": "read"}, role: roleWorkspaceAdmin, refusal: "only workspace owners and admins can publish a release"},
 	"get_workflow_run":    {github: map[string]string{"actions": "read"}},
+	// The chain (KUA-90) needs what its steps need: merging, reading the merge
+	// commit's checks, tagging and following the release build. Only workspace
+	// owners and admins may ask for it, since it publishes a release; each step
+	// is checked again with its own tool's entry when it runs.
+	shipAction: {github: map[string]string{"pull_requests": "write", "contents": "write", "checks": "read", "statuses": "read", "actions": "read"}, role: roleWorkspaceAdmin, refusal: "only workspace owners and admins can merge and release in one step"},
 }
 
 const pullRequestChangeRefusal = "only workspace admins or the task's creator can change this pull request"

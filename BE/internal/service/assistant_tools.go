@@ -209,6 +209,7 @@ func assistantTools() []assistantTool {
 		assistantSystemToolCatalog,
 		assistantPullRequestToolCatalog,
 		assistantReleaseToolCatalog,
+		assistantShipToolCatalog,
 	} {
 		tools = append(tools, catalog...)
 	}

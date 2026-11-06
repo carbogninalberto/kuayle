@@ -30,7 +30,11 @@
 	import AgentSubagent from './AgentSubagent.svelte';
 	import AppPortLinks from './AppPortLinks.svelte';
 	import UpgradeProgress from './UpgradeProgress.svelte';
-	import ReleaseApprovalCard, { maxReleaseNotes } from './ReleaseApprovalCard.svelte';
+	import ReleaseApprovalCard from './ReleaseApprovalCard.svelte';
+	import { releaseNotesInvalid } from './ReleaseNotesField.svelte';
+	import MergeHeadChange from './MergeHeadChange.svelte';
+	import ShipApprovalCard from './ShipApprovalCard.svelte';
+	import ShipSteps from './ShipSteps.svelte';
 	import ProposedSkillCard, { proposedSkill } from './ProposedSkillCard.svelte';
 	import ProposedToolCard, { proposedTool } from './ProposedToolCard.svelte';
 	import CustomToolRunResult, { toolRunSummary } from './CustomToolRunResult.svelte';
@@ -56,16 +60,21 @@
 		decisionReason = $state<string | null>(null),
 		// Release notes edited on a pending card, by approval id.
 		releaseNotes = $state<Record<string, string | undefined>>({});
-	// The edit sent with an approval: only a release's notes, when changed.
+	// The drafted release notes of a release or ship approval.
+	function draftNotes(approval: ConversationApproval) {
+		if (approval.action === 'create_release') return approval.payload.notes;
+		if (approval.action === 'ship_pull_request') return approval.payload.release.notes;
+		return undefined;
+	}
+	// The edit sent with an approval: only release notes, when changed.
 	function editOf(approval: ConversationApproval): ApprovalEdit | undefined {
-		if (approval.action !== 'create_release') return undefined;
+		const draft = draftNotes(approval);
 		const notes = releaseNotes[approval.id];
-		return notes !== undefined && notes !== approval.payload.notes ? { notes } : undefined;
+		return draft !== undefined && notes !== undefined && notes !== draft ? { notes } : undefined;
 	}
 	function notesInvalid(approval: ConversationApproval) {
-		if (approval.action !== 'create_release') return false;
-		const notes = releaseNotes[approval.id] ?? approval.payload.notes;
-		return !notes.trim() || [...notes].length > maxReleaseNotes;
+		const draft = draftNotes(approval);
+		return draft !== undefined && releaseNotesInvalid(releaseNotes[approval.id] ?? draft);
 	}
 	async function decide(approval: ConversationApproval, decision: 'approve' | 'deny') {
 		if (!onresolve || deciding) return;
@@ -123,7 +132,8 @@
 		get_release: m['assistant.tool_get_release'],
 		draft_release_notes: m['assistant.tool_draft_release_notes'],
 		create_release: m['assistant.tool_create_release'],
-		get_workflow_run: m['assistant.tool_get_workflow_run']
+		get_workflow_run: m['assistant.tool_get_workflow_run'],
+		ship_pull_request: m['assistant.tool_ship_pull_request']
 	};
 	// Outcome lines per approval action.
 	function outcome(approval: ConversationApproval) {
@@ -140,6 +150,21 @@
 					return m['assistant.approval_expired']({ identifier: tag });
 				default:
 					return m['assistant.release_denied']({ tag });
+			}
+		}
+		if (approval.action === 'ship_pull_request') {
+			const { identifier } = approval.payload;
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.ship_approving']({ identifier });
+				case 'approved':
+					return m['assistant.ship_approved']({ identifier, tag: approval.payload.release.tag });
+				case 'failed':
+					return m['assistant.ship_failed']({ identifier, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier });
+				default:
+					return m['assistant.ship_denied']({ identifier });
 			}
 		}
 		if (approval.action === 'upgrade_instance') {
@@ -389,48 +414,10 @@
 										repository: approval.payload.repository
 									})}</Item.Description
 								>
-								{#if approval.payload.head_change}
-									{@const change = approval.payload.head_change}
-									{@const published = (approval.payload.published_commit ?? '').slice(0, 7)}
-									<!-- Commits others pushed after publication: authors and whether the files changed. -->
-									<div class="space-y-1 text-xs text-muted-foreground" data-testid="merge-head-change">
-										<p>
-											{change.kind === 'merge'
-												? m['assistant.merge_head_merge']({ published })
-												: change.kind === 'rewritten'
-													? m['assistant.merge_head_rewritten']({ published })
-													: m['assistant.merge_head_pushed']({ published })}
-											{change.tree_changed
-												? m['assistant.merge_head_tree_changed']()
-												: m['assistant.merge_head_tree_same']()}
-										</p>
-										<p data-testid="merge-review-stale">{m['assistant.merge_head_review_stale']()}</p>
-										<ul class="list-disc space-y-0.5 pl-4">
-											{#each change.commits as commit (commit.sha)}
-												<li class="break-words">
-													{m['assistant.merge_head_commit']({
-														commit: commit.sha.slice(0, 7),
-														author: commit.author,
-														subject: commit.subject
-													})}
-												</li>
-											{/each}
-										</ul>
-										{#if change.truncated}
-											<!-- The list is a prefix: approving must not imply it is complete. -->
-											<Alert.Root
-												class="border-[var(--status-warning)]/40 text-[var(--status-warning)]"
-												data-testid="merge-head-truncated"
-											>
-												<Alert.Description
-													>{m['assistant.merge_head_truncated']({
-														count: Math.max((change.total_commits ?? 0) - change.commits.length, 1)
-													})}</Alert.Description
-												>
-											</Alert.Root>
-										{/if}
-									</div>
-								{/if}
+								{#if approval.payload.head_change}<MergeHeadChange
+										change={approval.payload.head_change}
+										publishedCommit={approval.payload.published_commit}
+									/>{/if}
 								<a
 									class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
 									href={approval.payload.pull_request_url}
@@ -648,6 +635,13 @@
 									bind:notes={releaseNotes[approval.id]}
 									disabled={deciding !== null}
 								/>
+							{:else if approval.action === 'ship_pull_request'}
+								<ShipApprovalCard
+									id={approval.id}
+									payload={approval.payload}
+									bind:notes={releaseNotes[approval.id]}
+									disabled={deciding !== null}
+								/>
 							{:else if approval.action === 'upgrade_instance'}
 								<Item.Title
 									>{m['assistant.upgrade_title']({
@@ -778,7 +772,11 @@
 							href={approval.payload.release_url}
 							target="_blank"
 							rel="noopener noreferrer"><ExternalLink size={12} />{m['assistant.release_open']()}</a
-						>{:else if approval.action === 'run_custom_tool' && approval.status === 'approved'}<CustomToolRunResult
+						>{:else if approval.action === 'ship_pull_request' && approval.status !== 'denied' && approval.status !== 'expired'}<div
+							class="pl-6"
+						>
+							<ShipSteps payload={approval.payload} />
+						</div>{:else if approval.action === 'run_custom_tool' && approval.status === 'approved'}<CustomToolRunResult
 							{slug}
 							name="custom_{approval.payload.tool_name}"
 							toolId={approval.payload.tool_id}

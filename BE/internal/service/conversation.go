@@ -481,6 +481,11 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 		var release domain.ReleasePayload
 		release, err = s.tools.prepareRelease(ctx, ws, actor, arguments)
 		payload = release
+	case shipAction:
+		// Every step's own request checks run before the one approval is offered.
+		var ship domain.ShipPayload
+		issueID, ship, err = s.tools.prepareShip(ctx, ws, actor, arguments)
+		payload, identifier = ship, ship.Identifier
 	case "run_check":
 		var check domain.RunCheckPayload
 		issueID, check, err = s.tools.prepareRunCheck(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)

@@ -360,6 +360,8 @@ func main() {
 	go githubSvc.RunMergeReconciliation(conversationCtx, 2*time.Minute)
 	go githubSvc.RunReviewComments(conversationCtx, 15*time.Second)
 	go telegramSvc.Run(conversationCtx)
+	// Chains approved before a restart continue from their last recorded step.
+	go assistantApprovals.ResumeShips(conversationCtx)
 
 	// Start
 	addr := fmt.Sprintf(":%d", cfg.Port)

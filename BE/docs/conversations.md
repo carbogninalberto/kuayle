@@ -217,7 +217,9 @@ status or priority; assignees are not changed), `delegate_issue`, `plan_issues` 
 `link_repository`, and `start_preview`, `stop_preview`, `expose_port` and
 `list_ports` (see [previews and ports from chat](#previews-and-ports-from-chat)),
 and the release tools `list_releases`, `get_release`, `draft_release_notes`,
-`create_release` and `get_workflow_run` (see [release tools](#release-tools)).
+`create_release` and `get_workflow_run` (see [release tools](#release-tools)),
+and `ship_pull_request`, which chains merge, tests, release, build and upgrade
+behind one approval (see [shipping in one approval](#shipping-in-one-approval)).
 `link_repository`, and the live channel tools `message_task` and
 `get_task_messages` (see [agent messages in chat](#agent-messages-in-chat)).
 `create_issue` accepts a `parent_identifier`. The write tools (`create_issue`,
@@ -955,3 +957,53 @@ runs), `release_notes_test.go` (style rendering), `release_scan_test.go`,
 `assistant_releases_integration_test.go` (request, edited approval, demoted
 admin; needs `DATABASE_URL`), `BE/migrations/release_approvals_test.go` and the
 release card test in `UI/tests/e2e/assistant.test.ts`.
+
+### Shipping in one approval
+
+`ship_pull_request(identifier, tag, notes, name?, upgrade?)` asks for one
+approval for the whole chain, and the card lists every step before anything runs:
+
+1. **merge**: as `merge_pull_request`, at the head GitHub reported when the card
+   was offered, with the repository's merge method;
+2. **tests**: wait until every check of the merge commit on the default branch
+   passed (the same reading as `create_release`'s gate; at most an hour);
+3. **release**: as `create_release` at the merge commit, with the tag and the
+   notes as left on the card (the gate and the secret scan run again);
+4. **build**: wait for the workflow runs the release started (`event=release`);
+   a repository without one passes unless an upgrade follows;
+5. **upgrade** (only when asked): wait until the release list this instance
+   installs from shows the tag, then start the updater as `upgrade_instance`.
+
+Only workspace owners and admins may ask (its policy entry needs what its steps
+need on GitHub). Before the card is offered, every step's own request checks
+run: each step's tool switch and role (upgrading needs an instance
+administrator), `merge_pull_request`'s target and head, a pull request into the
+default branch, the tag (valid, new), the notes check and, with `upgrade`, a
+release of the repository this instance installs that is newer than the running
+version. When each step runs, its own tool's role, GitHub permission preflight
+and switch are read again, so a chain approved earlier cannot act with rights
+since lost, and its outcome is audited as that tool (`action_executed` or
+`action_failed` with `chain` and `step`), besides the approval's own records.
+
+The notes are editable on the card as for `create_release`. Approving answers
+at once with the approval still `approving`; the chain runs in the background
+and records each step's status (`pending`, `running`, `done`, `failed`,
+`skipped`), detail and link in the approval's payload, sending
+`approval.updated` so the card follows it. The first failing step stops the
+chain: its approval fails with `Step n of m (step) failed: why. Next step: …`
+naming what already happened (for example, merged but not released) and the
+steps not run; nothing after it runs. GitHub or the database being unreachable
+is retried three times before the step fails. A restarted server resumes
+`approving` chains from their last recorded step as their approver
+(`ResumeShips`); every step is safe to repeat (a merged pull request, a release
+at the same tag and commit or an instance already on the version count as
+done). Migration 112 adds the action; like a merge the approval belongs to the
+issue. Telegram can approve it; progress is followed in Kuayle.
+
+Sources: `BE/internal/service/assistant_ship.go`,
+`UI/src/lib/features/assistant/ShipApprovalCard.svelte` and `ShipSteps.svelte`.
+Checks: `assistant_ship_test.go` (order, first failure, each step's
+authorization, resume, request checks), `assistant_ship_integration_test.go`
+(from chat to release with one approval; needs `DATABASE_URL`),
+`BE/migrations/ship_approvals_test.go` and the ship card tests in
+`UI/tests/e2e/assistant.test.ts`.

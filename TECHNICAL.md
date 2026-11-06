@@ -1185,6 +1185,12 @@ default branch and all its checks passed; the release range (previous tag to
 target, from GitHub's compare API) and the notes go through a server-side secret
 scan first, and the approval card lets the approver edit the notes that are
 published. See [release tools](BE/docs/conversations.md#release-tools).
+`ship_pull_request` (owners and admins, migration 112) merges an issue's pull
+request, waits for the merge commit's checks, publishes the release, waits for
+its build and optionally upgrades the instance, behind one approval that lists
+every step; each step re-checks its own tool's role, GitHub permissions and
+switch, and the first failing step stops the chain with the next step. See
+[shipping in one approval](BE/docs/conversations.md#shipping-in-one-approval).
 
 ### Images in conversations
 
