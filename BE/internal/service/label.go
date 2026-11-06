@@ -69,6 +69,9 @@ func (s *LabelService) Create(ctx context.Context, workspaceID uuid.UUID, req dt
 		label.ParentID = &pid
 	}
 	if err := s.labelRepo.Create(ctx, label); err != nil {
+		if errors.Is(err, repository.ErrLabelProjectNotVisible) {
+			return nil, ErrLabelProject
+		}
 		return nil, err
 	}
 	return label, nil

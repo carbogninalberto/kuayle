@@ -254,4 +254,19 @@ func TestProjectScopedLabelVisibilityAndMoveLockPostgres(t *testing.T) {
 		require.NoError(t, deleter.Commit())
 		require.NoError(t, <-done)
 	})
+	t.Run("Create refuses a project the caller cannot see", func(t *testing.T) {
+		hidden := &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: "sneaky", Color: "#112233", ProjectID: &secretProject}
+		require.ErrorIs(t, labels.Create(memberCtx, hidden), ErrLabelProjectNotVisible)
+		other := uuid.New()
+		missing := &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: "nowhere", Color: "#112233", ProjectID: &other}
+		require.ErrorIs(t, labels.Create(ownerCtx, missing), ErrLabelProjectNotVisible)
+		var n int
+		require.NoError(t, db.Get(&n, `SELECT COUNT(*) FROM labels WHERE name IN ('sneaky','nowhere')`))
+		require.Zero(t, n)
+
+		visible := &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: "fine", Color: "#112233", ProjectID: &openProject}
+		require.NoError(t, labels.Create(memberCtx, visible))
+		workspaceWide := &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: "everywhere", Color: "#112233"}
+		require.NoError(t, labels.Create(memberCtx, workspaceWide))
+	})
 }

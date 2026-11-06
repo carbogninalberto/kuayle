@@ -162,22 +162,50 @@ func TestIssueService_ValidateLabelScope(t *testing.T) {
 	assert.Nil(t, repo.got)
 }
 
-func TestIssueService_RecordLabelNamesWhenMoveDropsLabels(t *testing.T) {
+func TestIssueService_RecordLabelChangeWhenMoveDropsLabels(t *testing.T) {
+	ctx := context.Background()
+	issueID, userID := uuid.New(), uuid.New()
+	global, blocker := uuid.New(), uuid.New()
+	repo := &mockIssueRepo{}
+	history := new(mockIssueHistoryRepo)
+	svc := &IssueService{issueRepo: repo, historyRepo: history}
+	before := func(ids ...uuid.UUID) labelSnapshot {
+		ls := make([]domain.Label, len(ids))
+		names := []string{"global", "Launch blocker"}
+		for i, id := range ids {
+			ls[i] = domain.Label{ID: id, Name: names[i]}
+		}
+		repo.On("GetLabels", ctx, issueID).Return(ls, nil).Once()
+		return svc.labelSnapshot(ctx, issueID)
+	}
+
+	snapshot := before(global, blocker)
+	repo.On("GetLabels", ctx, issueID).Return([]domain.Label{{ID: global, Name: "global"}}, nil).Once()
+	history.On("Create", ctx, issueID, userID, "labels", mock.MatchedBy(func(v *string) bool {
+		return *v == "global, Launch blocker"
+	}), mock.MatchedBy(func(v *string) bool { return *v == "global" })).Return(nil).Once()
+	assert.True(t, svc.recordLabelChange(ctx, issueID, userID, snapshot))
+	history.AssertExpectations(t)
+
+	snapshot = before(global)
+	repo.On("GetLabels", ctx, issueID).Return([]domain.Label{{ID: global, Name: "global"}}, nil).Once()
+	assert.False(t, svc.recordLabelChange(ctx, issueID, userID, snapshot), "unchanged: no history call")
+}
+
+// Swapping a workspace label for a project label of the same name is a change.
+func TestIssueService_RecordLabelChangeDetectsSameNameSwap(t *testing.T) {
 	ctx := context.Background()
 	issueID, userID := uuid.New(), uuid.New()
 	repo := &mockIssueRepo{}
 	history := new(mockIssueHistoryRepo)
 	svc := &IssueService{issueRepo: repo, historyRepo: history}
 
-	repo.On("GetLabels", ctx, issueID).Return([]domain.Label{{Name: "global"}}, nil).Once()
-	history.On("Create", ctx, issueID, userID, "labels", mock.MatchedBy(func(v *string) bool {
-		return *v == "global, Launch blocker"
-	}), mock.MatchedBy(func(v *string) bool { return *v == "global" })).Return(nil).Once()
-	svc.recordLabelNames(ctx, issueID, userID, "global, Launch blocker")
+	repo.On("GetLabels", ctx, issueID).Return([]domain.Label{{ID: uuid.New(), Name: "Bug"}}, nil).Once()
+	snapshot := svc.labelSnapshot(ctx, issueID)
+	repo.On("GetLabels", ctx, issueID).Return([]domain.Label{{ID: uuid.New(), Name: "Bug"}}, nil).Once()
+	history.On("Create", ctx, issueID, userID, "labels", mock.Anything, mock.Anything).Return(nil).Once()
+	assert.True(t, svc.recordLabelChange(ctx, issueID, userID, snapshot))
 	history.AssertExpectations(t)
-
-	repo.On("GetLabels", ctx, issueID).Return([]domain.Label{{Name: "global"}}, nil).Once()
-	svc.recordLabelNames(ctx, issueID, userID, "global") // unchanged: no history call
 }
 
 // A move that also sends label_ids (even empty) still records what the move

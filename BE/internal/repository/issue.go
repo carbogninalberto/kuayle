@@ -400,7 +400,8 @@ func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labe
 		return err
 	}
 	// Serializes with a concurrent project move: the move's UPDATE takes the
-	// same row lock (its statement trigger takes the shared barrier first), and the scope check below then sees the committed project.
+	// same row lock (its statement trigger takes the shared barrier first),
+	// and the scope check below then sees the committed project.
 	if _, err := tx.ExecContext(ctx, `SELECT 1 FROM issues WHERE id = $1 FOR UPDATE`, issueID); err != nil {
 		return err
 	}

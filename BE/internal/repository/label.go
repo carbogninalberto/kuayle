@@ -18,9 +18,31 @@ func NewLabelRepository(db *sqlx.DB) *LabelRepository {
 	return &LabelRepository{db: db}
 }
 
+// ErrLabelProjectNotVisible is returned by Create when the label's project
+// does not exist in the workspace or the caller cannot see it.
+var ErrLabelProjectNotVisible = errors.New("label project not found")
+
+// Create checks the project's visibility in the same statement as the insert,
+// after the privacy barrier, so a project that became hidden meanwhile is not
+// written to.
 func (r *LabelRepository) Create(ctx context.Context, label *domain.Label) error {
-	query := `INSERT INTO labels (id, workspace_id, name, color, description, parent_id, project_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING created_at, updated_at`
-	return r.db.QueryRowContext(ctx, query, label.ID, label.WorkspaceID, label.Name, label.Color, label.Description, label.ParentID, label.ProjectID).Scan(&label.CreatedAt, &label.UpdatedAt)
+	tx, err := beginConversationTransaction(ctx, r.db)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	query := `INSERT INTO labels (id, workspace_id, name, color, description, parent_id, project_id)
+		SELECT $1, $2, $3, $4, $5, $6, $7 WHERE $7::uuid IS NULL OR EXISTS (
+			SELECT 1 FROM projects label_project WHERE label_project.id = $7::uuid AND label_project.workspace_id = $2 AND ` + projectVisible(ctx, "label_project.workspace_id", "label_project.team_id") + `)
+		RETURNING created_at, updated_at`
+	err = tx.QueryRowContext(ctx, query, label.ID, label.WorkspaceID, label.Name, label.Color, label.Description, label.ParentID, label.ProjectID).Scan(&label.CreatedAt, &label.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrLabelProjectNotVisible
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *LabelRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Label, error) {
