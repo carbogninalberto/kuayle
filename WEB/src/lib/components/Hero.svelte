@@ -19,7 +19,8 @@
 </script>
 
 <section class="relative overflow-hidden pt-32 pb-24 sm:pt-40">
-	<!-- One calm glow behind the headline -->
+	<!-- Faint grid and one calm glow behind the headline -->
+	<div class="hero-grid absolute inset-0 -z-10 opacity-50" aria-hidden="true"></div>
 	<div
 		class="absolute -top-48 left-1/2 -z-10 h-[460px] w-[760px] -translate-x-1/2 rounded-full bg-brand-400/15 blur-[150px]"
 		aria-hidden="true"

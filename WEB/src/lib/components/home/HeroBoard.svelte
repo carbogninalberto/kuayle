@@ -79,7 +79,7 @@
 									<p class="mt-1 line-clamp-2 text-[0.7rem] leading-snug text-foreground">{card.title}</p>
 									<div class="mt-2 flex items-center justify-between">
 										<span class="rounded border border-white/10 px-1 text-[0.6rem] text-muted-foreground">{card.labels[0]}</span>
-										<span class="flex -space-x-1.5">
+										<span class="flex -space-x-1">
 											{#each card.people as person}
 												<span class="grid size-5 place-items-center rounded-full bg-brand-500 text-[0.5rem] leading-none font-semibold text-white ring-1 ring-[#101015]">{person}</span>
 											{/each}

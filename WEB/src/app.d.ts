@@ -8,6 +8,9 @@ declare global {
 		// interface PageState {}
 		// interface Platform {}
 	}
+
+	/** Stable releases resolved at build time by vite.config.ts (empty when the manifest was unreachable). */
+	const __KUAYLE_RELEASES__: import('$lib/release-manifest').RecentRelease[];
 }
 
 export {};
