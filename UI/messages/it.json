@@ -1323,6 +1323,8 @@
 	"sharedComponents.create_issue.assignees_count": "{count} assegnatari",
 	"sharedComponents.create_issue.create_issue": "Crea attività",
 	"sharedComponents.create_issue.create_more": "Crea altre",
+	"sharedComponents.create_issue.expand": "Espandi",
+	"sharedComponents.create_issue.collapse": "Riduci",
 	"sharedComponents.create_issue.cycle": "Ciclo",
 	"sharedComponents.create_issue.description_placeholder": "Aggiungi descrizione...",
 	"sharedComponents.create_issue.due_date_placeholder": "Scadenza",

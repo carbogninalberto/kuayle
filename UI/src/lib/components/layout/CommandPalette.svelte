@@ -22,6 +22,7 @@
 		slug: string;
 		teams: Team[];
 		onclose: () => void;
+		/** Omit where issue creation is unavailable (e.g. settings); the command is then hidden. */
 		oncreateissue?: () => void;
 	} = $props();
 	let search = $state('');
@@ -63,7 +64,9 @@
 
 	const commands: CommandItem[] = $derived.by(() => {
 		const items: CommandItem[] = [
-			{ label: m['sidebar.create_issue'](), description: m['sidebar.new_issue'](), keys: ['C'], action: createIssue },
+			...(oncreateissue
+				? [{ label: m['sidebar.create_issue'](), description: m['sidebar.new_issue'](), keys: ['C'], action: createIssue }]
+				: []),
 			{ label: m['sidebar.go_inbox'](), keys: ['G', 'I'], action: () => navigate(`/${slug}/inbox`) },
 			{ label: m['sidebar.go_my_issues'](), keys: ['G', 'M'], action: () => navigate(`/${slug}/my-issues`) },
 			{ label: m['sidebar.go_projects'](), keys: ['G', 'P'], action: () => navigate(`/${slug}/projects`) },

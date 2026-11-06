@@ -119,6 +119,14 @@ export function expandIssueDescription(
 	);
 }
 
+/** Expands the description of an issue that has not been created yet. */
+export function expandDraftIssueDescription(
+	slug: string,
+	req: { title: string; description: string; selected_text?: string }
+): Promise<{ description: string }> {
+	return api.post<{ description: string }>(`/api/workspaces/${slug}/issues/expand-description`, req);
+}
+
 export function triageAccept(slug: string, identifier: string): Promise<Issue> {
 	return api.post<Issue>(`/api/workspaces/${slug}/issues/${identifier}/triage/accept`);
 }

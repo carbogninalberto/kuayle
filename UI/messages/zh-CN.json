@@ -1323,6 +1323,8 @@
 	"sharedComponents.create_issue.assignees_count": "{count} 位指派人",
 	"sharedComponents.create_issue.create_issue": "创建议题",
 	"sharedComponents.create_issue.create_more": "继续创建",
+	"sharedComponents.create_issue.expand": "展开",
+	"sharedComponents.create_issue.collapse": "收起",
 	"sharedComponents.create_issue.cycle": "周期",
 	"sharedComponents.create_issue.description_placeholder": "添加描述...",
 	"sharedComponents.create_issue.due_date_placeholder": "截止日期",
