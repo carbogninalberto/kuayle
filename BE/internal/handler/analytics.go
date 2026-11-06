@@ -8,7 +8,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type AnalyticsHandler struct {
@@ -19,7 +19,7 @@ func NewAnalyticsHandler(repo *repository.AnalyticsRepository) *AnalyticsHandler
 	return &AnalyticsHandler{repo: repo}
 }
 
-func (h *AnalyticsHandler) Overview(c echo.Context) error {
+func (h *AnalyticsHandler) Overview(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	var params dto.AnalyticsScopeParams
 	if err := c.Bind(&params); err != nil {
@@ -39,7 +39,7 @@ func (h *AnalyticsHandler) Overview(c echo.Context) error {
 	return response.Success(c, http.StatusOK, overview)
 }
 
-func (h *AnalyticsHandler) IssueDistribution(c echo.Context) error {
+func (h *AnalyticsHandler) IssueDistribution(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	var params dto.AnalyticsScopeParams
 	if err := c.Bind(&params); err != nil {
@@ -59,7 +59,7 @@ func (h *AnalyticsHandler) IssueDistribution(c echo.Context) error {
 	return response.Success(c, http.StatusOK, dist)
 }
 
-func (h *AnalyticsHandler) Insights(c echo.Context) error {
+func (h *AnalyticsHandler) Insights(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 
 	var params dto.AnalyticsInsightsParams
@@ -79,7 +79,7 @@ func (h *AnalyticsHandler) Insights(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AnalyticsHandler) Burnup(c echo.Context) error {
+func (h *AnalyticsHandler) Burnup(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 
 	var params dto.AnalyticsBurnupParams

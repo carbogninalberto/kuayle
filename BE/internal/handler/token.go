@@ -11,7 +11,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type TokenHandler struct {
@@ -22,7 +22,7 @@ func NewTokenHandler(tokenSvc *service.TokenService) *TokenHandler {
 	return &TokenHandler{tokenSvc: tokenSvc}
 }
 
-func (h *TokenHandler) List(c echo.Context) error {
+func (h *TokenHandler) List(c *echo.Context) error {
 	if c.Get(middleware.TokenScopesKey) != nil {
 		return response.Forbidden(c)
 	}
@@ -37,7 +37,7 @@ func (h *TokenHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *TokenHandler) Create(c echo.Context) error {
+func (h *TokenHandler) Create(c *echo.Context) error {
 	if c.Get(middleware.TokenScopesKey) != nil {
 		return response.Forbidden(c)
 	}
@@ -70,7 +70,7 @@ func (h *TokenHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, toPersonalAccessTokenResponse(*token, plaintext))
 }
 
-func (h *TokenHandler) Revoke(c echo.Context) error {
+func (h *TokenHandler) Revoke(c *echo.Context) error {
 	if c.Get(middleware.TokenScopesKey) != nil {
 		return response.Forbidden(c)
 	}

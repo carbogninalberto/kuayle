@@ -21,7 +21,7 @@ import (
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 )
 

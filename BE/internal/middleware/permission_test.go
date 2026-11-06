@@ -7,12 +7,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func runMiddleware(t *testing.T, mw echo.MiddlewareFunc, setup func(c echo.Context)) int {
+func runMiddleware(t *testing.T, mw echo.MiddlewareFunc, setup func(c *echo.Context)) int {
 	t.Helper()
 	e := echo.New()
 	rec := httptest.NewRecorder()
@@ -20,20 +20,20 @@ func runMiddleware(t *testing.T, mw echo.MiddlewareFunc, setup func(c echo.Conte
 	if setup != nil {
 		setup(c)
 	}
-	require.NoError(t, mw(func(c echo.Context) error {
+	require.NoError(t, mw(func(c *echo.Context) error {
 		return c.NoContent(http.StatusNoContent)
 	})(c))
 	return rec.Code
 }
 
-func patContext(scopes ...string) func(c echo.Context) {
-	return func(c echo.Context) {
+func patContext(scopes ...string) func(c *echo.Context) {
+	return func(c *echo.Context) {
 		c.Set(TokenScopesKey, scopes)
 	}
 }
 
 func TestRequirePermissionPATWithinScopeAndRole(t *testing.T) {
-	code := runMiddleware(t, RequirePermission("issue:create"), func(c echo.Context) {
+	code := runMiddleware(t, RequirePermission("issue:create"), func(c *echo.Context) {
 		patContext("issue:create")(c)
 		c.Set("workspace_role", domain.RoleMember)
 	})
@@ -42,7 +42,7 @@ func TestRequirePermissionPATWithinScopeAndRole(t *testing.T) {
 
 func TestRequirePermissionPATBeyondScopeDenied(t *testing.T) {
 	// Role allows it, but the token's scopes are the ceiling.
-	code := runMiddleware(t, RequirePermission("issue:create"), func(c echo.Context) {
+	code := runMiddleware(t, RequirePermission("issue:create"), func(c *echo.Context) {
 		patContext("issues:read")(c)
 		c.Set("workspace_role", domain.RoleMember)
 	})
@@ -51,7 +51,7 @@ func TestRequirePermissionPATBeyondScopeDenied(t *testing.T) {
 
 func TestRequirePermissionPATBeyondRoleDenied(t *testing.T) {
 	// Scope allows it, but the user's role is the floor.
-	code := runMiddleware(t, RequirePermission("issue:create"), func(c echo.Context) {
+	code := runMiddleware(t, RequirePermission("issue:create"), func(c *echo.Context) {
 		patContext("issue:create")(c)
 		c.Set("workspace_role", domain.RoleGuest)
 	})
@@ -59,12 +59,12 @@ func TestRequirePermissionPATBeyondRoleDenied(t *testing.T) {
 }
 
 func TestRequirePermissionJWTUnaffected(t *testing.T) {
-	withRole := runMiddleware(t, RequirePermission("issue:create"), func(c echo.Context) {
+	withRole := runMiddleware(t, RequirePermission("issue:create"), func(c *echo.Context) {
 		c.Set("workspace_role", domain.RoleMember)
 	})
 	assert.Equal(t, http.StatusNoContent, withRole)
 
-	withoutRole := runMiddleware(t, RequirePermission("issue:create"), func(c echo.Context) {
+	withoutRole := runMiddleware(t, RequirePermission("issue:create"), func(c *echo.Context) {
 		c.Set("workspace_role", domain.RoleGuest)
 	})
 	assert.Equal(t, http.StatusForbidden, withoutRole)
@@ -93,7 +93,7 @@ func TestRequireSession(t *testing.T) {
 
 func TestRequireOwner(t *testing.T) {
 	ownerID := uuid.New()
-	setup := func(c echo.Context) {
+	setup := func(c *echo.Context) {
 		c.Set("workspace", &domain.Workspace{OwnerID: ownerID})
 		c.Set(string(UserIDKey), ownerID)
 	}
@@ -101,14 +101,14 @@ func TestRequireOwner(t *testing.T) {
 	owner := runMiddleware(t, RequireOwner(), setup)
 	assert.Equal(t, http.StatusNoContent, owner)
 
-	stranger := runMiddleware(t, RequireOwner(), func(c echo.Context) {
+	stranger := runMiddleware(t, RequireOwner(), func(c *echo.Context) {
 		c.Set("workspace", &domain.Workspace{OwnerID: ownerID})
 		c.Set(string(UserIDKey), uuid.New())
 	})
 	assert.Equal(t, http.StatusForbidden, stranger)
 
 	// The owner authenticating with a PAT is still rejected.
-	patOwner := runMiddleware(t, RequireOwner(), func(c echo.Context) {
+	patOwner := runMiddleware(t, RequireOwner(), func(c *echo.Context) {
 		setup(c)
 		patContext("workspace:manage")(c)
 	})
@@ -128,7 +128,7 @@ func TestRequireUnrestrictedTokenWorkspaces(t *testing.T) {
 		{"empty stored restriction", true, []string{}, http.StatusForbidden},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			code := runMiddleware(t, RequireUnrestrictedTokenWorkspaces(), func(c echo.Context) {
+			code := runMiddleware(t, RequireUnrestrictedTokenWorkspaces(), func(c *echo.Context) {
 				if tc.pat {
 					c.Set(TokenWorkspacesKey, tc.slugs)
 				}
@@ -153,7 +153,7 @@ func TestRequireTokenWritePermissionIntersectsWorkspaceRole(t *testing.T) {
 		{domain.RoleOwner, http.StatusNoContent},
 	} {
 		t.Run(tc.role, func(t *testing.T) {
-			code := runMiddleware(t, RequireTokenPermission(domain.PermDevMachineManage), func(c echo.Context) {
+			code := runMiddleware(t, RequireTokenPermission(domain.PermDevMachineManage), func(c *echo.Context) {
 				patContext(domain.PermDevMachineRead, domain.PermDevMachineManage)(c)
 				c.Set("workspace_role", tc.role)
 			})

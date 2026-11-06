@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // BrowserOrigin supplies the CSRF boundary when workloads share the app's site.
@@ -12,7 +12,7 @@ import (
 // and bearer clients without ambient cookies remain supported.
 func BrowserOrigin(frontendOrigin string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			r := c.Request()
 			safe := r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions
 			if safe && !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {

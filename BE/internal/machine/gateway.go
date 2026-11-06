@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/clientip"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	log "github.com/sirupsen/logrus"
@@ -612,14 +613,7 @@ func forwardedProto(request *http.Request) string {
 }
 
 func requestRemoteIP(request *http.Request) string {
-	if forwarded := strings.TrimSpace(strings.Split(request.Header.Get("X-Forwarded-For"), ",")[0]); net.ParseIP(forwarded) != nil {
-		return forwarded
-	}
-	host, _, _ := net.SplitHostPort(request.RemoteAddr)
-	if net.ParseIP(host) != nil {
-		return host
-	}
-	return ""
+	return clientip.FromRequest(request)
 }
 
 func randomToken() (string, error) {
