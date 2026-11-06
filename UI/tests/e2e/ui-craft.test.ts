@@ -278,11 +278,12 @@ test.describe('workspace controls', () => {
 		await expect(page).toHaveURL('/test/issue/ENG-1');
 	});
 
-	test('the issue due date stays on one line within the details card with large text', async ({ page }) => {
+	/** Opens ENG-1 with the given due date (null for none) and returns its due date row. */
+	async function openIssueWithDueDate(page: Page, dueDate: string | null, fontSize = 'normal') {
 		await page.route('**/api/preferences', (route) =>
 			route.fulfill({
 				json: {
-					font_size: 'large',
+					font_size: fontSize,
 					theme_mode: 'dark',
 					light_theme: 'light',
 					dark_theme: 'dark',
@@ -295,20 +296,24 @@ test.describe('workspace controls', () => {
 			})
 		);
 		await page.route('**/api/workspaces/test/issues/ENG-1', (route) =>
-			route.fulfill({ json: { ...issues[0], due_date: '2026-10-31' } })
+			route.fulfill({ json: { ...issues[0], due_date: dueDate } })
 		);
 		await page.goto('/test/issue/ENG-1');
+		return page.getByText('Due date', { exact: true }).locator('..');
+	}
+
+	/** Checks the due date label is on one line, fully visible and inside its row and the details card. */
+	async function expectDueDateFits(page: Page, dueDateRow: Locator, label: string) {
 		const detailsCard = page.getByRole('button', { name: 'Details', exact: true }).locator('..');
-		const dueDateRow = page.getByText('Due date', { exact: true }).locator('..');
-		const dateTrigger = dueDateRow.getByRole('button', { name: 'Oct 31, 2026', exact: true });
+		const dateTrigger = dueDateRow.getByRole('button', { name: label, exact: true });
 		await expect(dateTrigger).toBeVisible();
 		await expect(dueDateRow.getByRole('button', { name: 'Clear', exact: true })).toBeVisible();
 
-		const dateLayout = await dateTrigger.evaluate((node) => {
+		const dateLayout = await dateTrigger.evaluate((node, label) => {
 			const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
 			let text: Text | null;
 			while ((text = walker.nextNode() as Text | null)) {
-				if (!text.textContent?.includes('Oct 31')) continue;
+				if (!text.textContent?.includes(label)) continue;
 				const range = document.createRange();
 				range.selectNodeContents(text);
 				const lines = new Set([...range.getClientRects()].map((rect) => rect.top));
@@ -318,7 +323,7 @@ test.describe('workspace controls', () => {
 				};
 			}
 			throw new Error('Due date text not found');
-		});
+		}, label);
 		expect(dateLayout.lineCount).toBe(1);
 		expect(dateLayout.fullyVisible).toBe(true);
 
@@ -330,6 +335,51 @@ test.describe('workspace controls', () => {
 		expect(controlBox!.x).toBeGreaterThanOrEqual(rowBox!.x);
 		expect(controlBox!.x + controlBox!.width).toBeLessThanOrEqual(rowBox!.x + rowBox!.width);
 		expect(controlBox!.x + controlBox!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
+		return dateTrigger.locator('..');
+	}
+
+	test('the issue due date stays on one line within the details card with large text', async ({ page }) => {
+		const dueDateRow = await openIssueWithDueDate(page, '2026-10-31', 'large');
+		await expectDueDateFits(page, dueDateRow, 'Oct 31, 2026');
+	});
+
+	test.describe('issue due date relative to today', () => {
+		// Fixed "now" so overdue, tomorrow and future dates are stable.
+		test.beforeEach(async ({ page }) => {
+			await page.clock.setFixedTime(new Date('2026-11-06T10:00:00'));
+		});
+
+		for (const { name, dueDate, label, color } of [
+			{ name: 'an overdue date is red', dueDate: '2026-10-28', label: 'Oct 28, 2026', color: /text-red-400/ },
+			{ name: 'tomorrow is orange', dueDate: '2026-11-07', label: 'Nov 7, 2026', color: /text-orange-400/ },
+			{
+				name: 'a later date uses the primary text color',
+				dueDate: '2027-09-30',
+				label: 'Sep 30, 2027',
+				color: /text-\[var\(--color-text-primary\)\]/
+			}
+		]) {
+			test(`${name} and fits the details card`, async ({ page }) => {
+				const dueDateRow = await openIssueWithDueDate(page, dueDate);
+				const control = await expectDueDateFits(page, dueDateRow, label);
+				await expect(control).toHaveClass(color);
+			});
+		}
+
+		test('a wide date label fits the details card with large text', async ({ page }) => {
+			// Wide month glyphs and a two-digit day: among the longest English labels.
+			const dueDateRow = await openIssueWithDueDate(page, '2026-12-30', 'large');
+			await expectDueDateFits(page, dueDateRow, 'Dec 30, 2026');
+		});
+	});
+
+	test('an issue without a due date shows the placeholder and no clear button', async ({ page }) => {
+		const dueDateRow = await openIssueWithDueDate(page, null);
+		await expect(dueDateRow.getByRole('button', { name: 'Set date', exact: true })).toBeVisible();
+		await expect(dueDateRow.getByRole('button', { name: 'Clear', exact: true })).toHaveCount(0);
+		await expect(dueDateRow.getByRole('button', { name: 'Set date', exact: true }).locator('..')).toHaveClass(
+			/text-\[var\(--color-text-secondary\)\]/
+		);
 	});
 
 	test('the collapsed sidebar drawer closes from its overlay by click and Escape', async ({ page }) => {
