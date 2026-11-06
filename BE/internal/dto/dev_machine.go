@@ -329,6 +329,8 @@ type DevMachinePolicyRequest struct {
 	TaskMachineCPUMillis *int `json:"task_machine_cpu_millis,omitempty"`
 	TaskMachineMemoryMB  *int `json:"task_machine_memory_mb,omitempty"`
 	TaskMachineDiskGB    *int `json:"task_machine_disk_gb,omitempty"`
+	// TaskMachineMaxTasks is optional: omitted, the current limit is kept.
+	TaskMachineMaxTasks *int `json:"task_machine_max_tasks,omitempty"`
 }
 
 type CollectorEventInput struct {

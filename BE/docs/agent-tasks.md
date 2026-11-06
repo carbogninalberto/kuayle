@@ -742,17 +742,21 @@ attempt; different payloads conflict. Retries allocate a new native run ID and
 invalidate old worker leases while retaining the task's checkout and branch.
 Retried task-owned machines resume through existing lifecycle policy checks and
 task fencing. A task keeps the machine it was given; when it has none,
-reservation reuses a running, idle machine of its creator before creating a new
-task machine: same workspace and environment (so the same profile), not an
+reservation uses a running machine of its creator before creating a new task
+machine: same workspace and environment (so the same profile), not an
 Environment Builder or being deleted, still allowed by the enabled policy (sudo
-and Docker machines only while those stay allowed), and without an active run,
-another active task, or a queued lifecycle, snapshot, validation, publication,
-check or custom tool operation. A machine already used for the same issue comes
-first, then the most recently active. Paused and stopped machines are not
+and Docker machines only while those stay allowed), without the user's own
+agent session or a queued lifecycle, snapshot, check or custom tool operation,
+and working on fewer other active tasks than the policy's
+`task_machine_max_tasks` (default 2). An idle machine comes first (one already
+used for the same issue, then the most recently active); otherwise the task
+shares the least loaded busy machine. Paused and stopped machines are not
 chosen, since their user paused or stopped them. The full rule is in
 [task machine reuse](../../TECHNICAL.md#resource-limits-and-quotas). Each task
-has its own checkout, and the machine locks serialize attempts, checks and tool
-runs on a shared machine. Preparation starts the task's own machine when its
+has its own checkout, branch and session directory; attempt creation re-checks
+the limit under the machine lock, so tasks on a shared machine run their
+attempts, validations and publications side by side while checks and tool runs
+still wait for a machine without agent work. Preparation starts the task's own machine when its
 user paused or stopped it, and waits for a start already requested. Each start
 is keyed by task, task generation and machine generation, so a machine paused
 again is started again while a start that failed for good is not retried in a

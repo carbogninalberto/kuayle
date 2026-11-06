@@ -146,7 +146,19 @@ test('a server without task machine settings shows and saves the 8 GB default', 
 	await expect(section.getByText('4 vCPU · 8 GB RAM · 20 GB disk')).toBeVisible();
 	await page.getByRole('button', { name: 'Save policy' }).click();
 	await expect.poll(() => state.saved.length).toBe(1);
-	expect(state.saved[0]).toMatchObject(eightGiB);
+	expect(state.saved[0]).toMatchObject({ ...eightGiB, task_machine_max_tasks: 2 });
+});
+
+test('admins choose how many tasks share a task machine', async ({ page }) => {
+	const state = await mockPolicyApi(page, { ...eightGiB, task_machine_max_tasks: 2 });
+	await page.goto('/test/settings/dev-machines?tab=policy');
+	const section = page.getByRole('region', { name: 'Task machines' });
+	const tasks = section.getByRole('spinbutton', { name: 'Tasks per machine' });
+	await expect(tasks).toHaveValue('2');
+	await tasks.fill('3');
+	await page.getByRole('button', { name: 'Save policy' }).click();
+	await expect.poll(() => state.saved.length).toBe(1);
+	expect(state.saved[0]).toMatchObject({ task_machine_max_tasks: 3 });
 });
 
 test('members see task machine resources read-only', async ({ page }) => {
