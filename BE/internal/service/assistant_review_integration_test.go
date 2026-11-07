@@ -26,6 +26,9 @@ func (f *reviewTaskFake) RequestReview(ctx context.Context, ws, conversation, re
 func (f *reviewTaskFake) Get(ctx context.Context, ws, id uuid.UUID) (*domain.AgentTask, error) {
 	return f.repo.Get(ctx, ws, id)
 }
+func (f *reviewTaskFake) ChangesRequested(ctx context.Context, ws, id uuid.UUID) (*domain.AgentReview, error) {
+	return f.repo.ChangesRequested(ctx, ws, id)
+}
 func (f *reviewTaskFake) Retry(ctx context.Context, ws, id uuid.UUID, input domain.AgentTaskRetryRequest) (*domain.AgentTask, error) {
 	return f.repo.Retry(ctx, ws, id, input)
 }
@@ -136,7 +139,26 @@ func TestRequestedReviewsNeedApprovalAndFollowUpsContinueTheTask(t *testing.T) {
 		require.ErrorContains(t, err, message, arguments)
 	}
 
-	// A follow-up with the findings continues the reviewed task.
+	// The review finished and asked for changes; an older review of another
+	// commit and an approval are never what a follow-up carries.
+	_, err = f.db.Exec(`UPDATE agent_reviews SET verdict='request_changes',findings=$2,completed_at=now() WHERE task_id=$1`, *result.TaskID,
+		"- **major:** handle the error in app.go\n- **minor:** the retry loop in sync.go never stops")
+	require.NoError(t, err)
+	for _, change := range []string{`verdict='approve'`, `commit_sha='` + strings.Repeat("f", 40) + `'`, `completed_at=NULL`} {
+		_, err = f.db.Exec(`UPDATE agent_reviews SET `+change+` WHERE task_id=$1`, *result.TaskID)
+		require.NoError(t, err)
+		none, err := work.ChangesRequested(f.ctx, f.ws, taskID)
+		require.NoError(t, err)
+		require.Nil(t, none, change)
+		_, err = f.db.Exec(`UPDATE agent_reviews SET verdict='request_changes',commit_sha=$2,completed_at=now() WHERE task_id=$1`, *result.TaskID, reviewedCommit)
+		require.NoError(t, err)
+	}
+	asked, err := work.ChangesRequested(f.ctx, f.ws, taskID)
+	require.NoError(t, err)
+	require.Equal(t, *result.TaskID, asked.TaskID)
+
+	// A follow-up continues the reviewed task with every finding of that
+	// review, even those the assistant left out of its instructions.
 	a, approvals, _ = ask("follow_up_task", `{"identifier":"ENG-1","instructions":"Fix the review findings: handle the error in app.go"}`)
 	require.Len(t, approvals, 1)
 	var followUp domain.FollowUpPayload
@@ -157,6 +179,8 @@ func TestRequestedReviewsNeedApprovalAndFollowUpsContinueTheTask(t *testing.T) {
 	require.True(t, strings.HasPrefix(current.Prompt, "Implement dark mode and add tests"))
 	require.Contains(t, current.Prompt, "Follow-up from Kuayle chat")
 	require.Contains(t, current.Prompt, "handle the error in app.go")
+	require.Contains(t, current.Prompt, "the retry loop in sync.go never stops")
+	require.Contains(t, current.Prompt, "verdict request_changes")
 	_, _, err = f.service.tools.prepareFollowUp(f.ctx, f.ws, f.user, `{"identifier":"ENG-1","instructions":"Again"}`)
 	require.ErrorContains(t, err, "the task is queued")
 

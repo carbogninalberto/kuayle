@@ -169,6 +169,41 @@ func getReview(ctx context.Context, q sqlx.QueryerContext, task uuid.UUID) (*dom
 	return review, nil
 }
 
+// ChangesRequested is the latest finished agent review of the commit the
+// task currently publishes that did not approve it and reported findings,
+// under the task's current authorization; nil when there is none, so a
+// follow-up never carries a review of older work or an approval.
+func (r *AgentTaskRepository) ChangesRequested(ctx context.Context, ws, id uuid.UUID) (*domain.AgentReview, error) {
+	if _, err := conversationActor(ctx, ws); err != nil {
+		return nil, err
+	}
+	tx, task, err := r.transaction(ctx, id, true)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if task.Kind != domain.AgentTaskKindImplement {
+		return nil, nil
+	}
+	published, err := reviewTarget(ctx, tx, *task)
+	if errors.Is(err, ErrNoReviewTarget) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	review := &domain.AgentReview{}
+	err = tx.GetContext(ctx, review, `SELECT * FROM agent_reviews WHERE workspace_id=$1 AND reviewed_task_id=$2 AND commit_sha=$3
+ AND completed_at IS NOT NULL AND verdict IS DISTINCT FROM 'approve' AND btrim(COALESCE(findings,''))<>'' ORDER BY completed_at DESC LIMIT 1`, task.WorkspaceID, task.ID, published.CommitSHA)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return review, nil
+}
+
 // reviewUpdated tells the reviewed task's conversation that one of its
 // reviews changed, in the transition's own transaction.
 func reviewUpdated(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) error {

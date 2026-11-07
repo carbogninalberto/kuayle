@@ -29,6 +29,12 @@ func (s *AgentTaskService) Sessions(ctx context.Context, ws, id uuid.UUID) (*dom
 	return s.Repo.TaskSessions(ctx, ws, id)
 }
 
+// ChangesRequested is the finished agent review of the commit a task
+// published that a follow-up answers, or nil; see the repository method.
+func (s *AgentTaskService) ChangesRequested(ctx context.Context, ws, id uuid.UUID) (*domain.AgentReview, error) {
+	return s.Repo.ChangesRequested(ctx, ws, id)
+}
+
 // Get reads a task under its current authorization.
 func (s *AgentTaskService) Get(ctx context.Context, ws, id uuid.UUID) (*domain.AgentTask, error) {
 	return s.Repo.Get(ctx, ws, id)
