@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 )
@@ -343,11 +344,24 @@ func TestOpenCodeParseEventsProdicesEvents(t *testing.T) {
 func TestOpenCodeParseResultSummaryTruncation(t *testing.T) {
 	p := NewOpenCodeProvider("")
 
-	longText := strings.Repeat("a", 5000)
+	longText := strings.Repeat("a", MaxSummaryBytes+1000)
 	stdout := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"` + longText + `"}]}}`
 
 	result := p.ParseResult(stdout, "", 0)
-	require.LessOrEqual(t, len(result.Summary), 4000)
+	require.Len(t, result.Summary, MaxSummaryBytes)
+}
+
+// A reviewer's findings arrive as its final message, so summaries longer than
+// 4000 bytes are kept up to the findings limit and cut on a UTF-8 boundary.
+func TestDefaultResultKeepsLongSummariesWithinTheLimit(t *testing.T) {
+	findings := strings.Repeat("é", 3000) + "LAST FINDING"
+	result := defaultResult(findings, "", 0)
+	require.Equal(t, findings, result.Summary)
+
+	result = defaultResult(strings.Repeat("é", MaxSummaryBytes), "", 0)
+	require.LessOrEqual(t, len(result.Summary), MaxSummaryBytes)
+	require.Greater(t, len(result.Summary), MaxSummaryBytes-2)
+	require.True(t, utf8.ValidString(result.Summary))
 }
 
 // Claude Code and Codex also work with a subscription login, so their API keys are optional.
