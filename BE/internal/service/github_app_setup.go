@@ -36,6 +36,8 @@ var githubAppEvents = []string{
 	"pull_request",
 	"pull_request_review",
 	"check_suite",
+	// issue_comment lets a mention of the bot on a pull request start a review (KUA-96).
+	"issue_comment",
 	"push",
 	"create",
 }

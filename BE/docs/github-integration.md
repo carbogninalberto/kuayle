@@ -40,6 +40,7 @@ A single GitHub App is pre-configured and shared across all workspaces. Users on
    - Pull request
    - Pull request review
    - Check suite
+   - Issue comment (mention-triggered reviews)
    - Push
    - Create (branch/tag)
 
@@ -167,3 +168,58 @@ satisfies a lower one (`write` covers `read`). The response `state` is:
 
 The card re-checks on **Check again** and whenever the window regains focus
 while the state is not `ok`.
+
+## Kuayle bot identity and abilities (KUA-96)
+
+Settings > GitHub > **Kuayle bot** customizes the workspace's GitHub bot.
+Members read the settings (`GET /api/workspaces/:slug/github/bot`, session only,
+guests refused); `workspace:manage` changes them (`PATCH /github/bot`,
+`POST /github/bot/avatar`). They live in `workspace_github_bot_settings`
+(migration 117); no row means the defaults below.
+
+**Identity.** A display name (1–64 characters, no line breaks or
+`` < > @ ` [ ] \ * _ ~ | # ``) and a profile picture, either uploaded (multipart
+`file`) or linked by an `https://` URL. Both must be PNG, JPEG, WebP or GIF
+content of at most 2 MB, detected from the bytes; a linked image is downloaded
+once through a public-address-only client without redirects before it is saved.
+GitHub always shows the GitHub App as the comment author and offers no API to
+change that per comment, so Kuayle starts its comments (issue link and agent
+review findings) with the configured picture and **name**. Default settings add
+nothing, so existing comments are unchanged. An uploaded picture is served
+publicly at `/api/github-bot/:workspaceId/avatar/:file` (only the file the
+settings reference) so GitHub can load it; it is linked from comments only when
+`FRONTEND_URL` is `https://`. Replacing or removing a picture deletes the upload.
+
+**Abilities.** Each is a toggle refused where the GitHub write happens, so a
+turned-off ability also refuses actions someone approves in Kuayle:
+
+| Key | Default | Gates |
+|---|---|---|
+| `link_issues` | on | the issue link comment on opened pull requests |
+| `task_feedback` | on | `check_suite`/`pull_request_review` signals to agent tasks |
+| `review_comments` | on | posting requested agent review findings |
+| `pull_request_actions` | on | reply/resolve review threads, update branch, mark ready |
+| `merge_pull_requests` | on | merging a task's pull request |
+| `releases` | on | creating GitHub releases |
+| `mention_reviews` | **off** | reviews started by a mention (below) |
+
+Status transitions keep their own per-event switches under Automations.
+Opening pull requests from agent tasks is part of task publication, not a bot
+ability.
+
+**Mention-triggered reviews.** With `mention_reviews` on, a new
+`issue_comment` on a pull request of a linked, active repository that mentions
+the app (`@<app-slug>` or `@<app-slug>[bot]`) and contains the word "review"
+starts an agent review. The commenter must have OWNER, MEMBER or COLLABORATOR
+association; bots, edits and issue comments are ignored. The pull request must
+be one a Kuayle implementing task published and that awaits review. The review
+goes through the same `RequestReview` path as an approved `request_agent_review`
+but without an approval card (enabling the ability is the approval): it acts for
+the task's creator under their current membership, issue visibility and coding
+agent policy, is pinned to the published commit, posts its findings back on the
+pull request, and uses the configured harness and model or, when empty, chat's
+defaults (the implementing task's harness and the default model server's model).
+The request ID derives from the comment, so a redelivered webhook converges on
+one review. Problems a retry cannot fix (no task, lost access, harness not
+allowed) are logged and acknowledged. Apps must subscribe to **Issue comment**;
+the app setup check reports it when missing.

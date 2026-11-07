@@ -632,6 +632,9 @@ func (s *AssistantApprovals) publishRelease(ctx context.Context, ws uuid.UUID, p
 	}
 	_, err := s.releases.CreateRelease(ctx, ws, payload.Repository, gh.NewRelease{TagName: payload.Tag, TargetCommitish: payload.TargetCommit, Name: payload.Name, Body: payload.Notes})
 	if err != nil {
+		if message, disabled := disabledAbilityMessage(err); disabled {
+			return message, nil
+		}
 		var api *gh.APIError
 		if isGitHubPermissionDenied(err) || !errors.As(err, &api) || api.Status >= 500 {
 			return "", err

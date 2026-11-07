@@ -75,6 +75,10 @@ type GitHubService struct {
 	reviewComments reviewCommentStore
 	// postReviewComment comments through the GitHub App; replaced in tests.
 	postReviewComment func(ctx context.Context, workspaceID uuid.UUID, repository string, number int, marker, body string) error
+	// bot holds the workspace bot identity and ability toggles.
+	bot githubBotReader
+	// mentionReviews starts reviews the bot is asked for on GitHub.
+	mentionReviews mentionReviewer
 	// githubHTTPClient replaces the GitHub API transport in tests.
 	githubHTTPClient *http.Client
 }
@@ -641,6 +645,8 @@ func (s *GitHubService) HandleWebhookEvent(ctx context.Context, eventType string
 		return s.processCheckSuiteEvent(ctx, payload)
 	case "pull_request_review":
 		return s.processReviewEvent(ctx, payload)
+	case "issue_comment":
+		return s.processIssueCommentEvent(ctx, payload)
 	case "push":
 		return s.processPushEvent(ctx, payload)
 	case "create":
@@ -1370,6 +1376,10 @@ func (s *GitHubService) processCheckSuiteEvent(ctx context.Context, payload []by
 	if err != nil || repo == nil {
 		return err
 	}
+	// CI and review feedback only reaches tasks while the workspace allows it.
+	if err = s.requireAbility(ctx, inst.WorkspaceID, domain.GitHubBotTaskFeedback); err != nil {
+		return ignoreDisabledAbility(err)
+	}
 	for i, pr := range event.CheckSuite.PullRequests {
 		if i >= 10 || pr.Number <= 0 {
 			break
@@ -1417,6 +1427,10 @@ func (s *GitHubService) processReviewEvent(ctx context.Context, payload []byte) 
 	inst, repo, err := s.linkedRepository(ctx, event.Installation.ID, event.Repository.ID)
 	if err != nil || repo == nil {
 		return err
+	}
+	// CI and review feedback only reaches tasks while the workspace allows it.
+	if err = s.requireAbility(ctx, inst.WorkspaceID, domain.GitHubBotTaskFeedback); err != nil {
+		return ignoreDisabledAbility(err)
 	}
 	// Only reviewers with write association can steer a coding agent.
 	association := event.Review.AuthorAssociation
@@ -1513,6 +1527,9 @@ func (s *GitHubService) githubPullRequestMerged(ctx context.Context, workspaceID
 func (s *GitHubService) MergeTaskPullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha, method string) error {
 	if s.taskReviews == nil {
 		return fmt.Errorf("agent tasks are unavailable")
+	}
+	if err := s.requireAbility(ctx, workspaceID, domain.GitHubBotMergePullRequests); err != nil {
+		return err
 	}
 	merge := s.mergePullRequest
 	if merge == nil {

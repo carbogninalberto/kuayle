@@ -80,3 +80,40 @@ export interface GitHubAutoTransition {
 	target_status_id: string | null;
 	is_active: boolean;
 }
+
+export type GitHubBotAbilityKey =
+	| 'link_issues'
+	| 'task_feedback'
+	| 'review_comments'
+	| 'pull_request_actions'
+	| 'merge_pull_requests'
+	| 'releases'
+	| 'mention_reviews';
+
+export interface GitHubBotAbility {
+	key: GitHubBotAbilityKey;
+	enabled: boolean;
+	enabled_by_default: boolean;
+}
+
+export interface GitHubBotSettings {
+	display_name: string;
+	default_name: string;
+	// An external https image or Kuayle's public path of an uploaded one.
+	avatar_url: string;
+	avatar_source: 'none' | 'url' | 'upload';
+	abilities: GitHubBotAbility[];
+	mention_harness: string;
+	mention_model: string;
+	// The handle that mentions the bot on GitHub, e.g. "@kuayle-acme"; empty when unknown.
+	mention_handle: string;
+	harnesses: string[];
+}
+
+export interface GitHubBotSettingsUpdate {
+	display_name?: string;
+	avatar_url?: string;
+	abilities?: Partial<Record<GitHubBotAbilityKey, boolean>>;
+	mention_harness?: string;
+	mention_model?: string;
+}

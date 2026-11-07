@@ -11,6 +11,7 @@ import (
 
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/pkg/response"
@@ -23,12 +24,7 @@ const maxAvatarSize = 2 * 1024 * 1024
 
 // avatarTypes lists the raster formats accepted for profile pictures. SVG is
 // excluded because it can carry script.
-var avatarTypes = map[string]string{
-	"image/png":  ".png",
-	"image/jpeg": ".jpg",
-	"image/webp": ".webp",
-	"image/gif":  ".gif",
-}
+var avatarTypes = domain.AvatarImageTypes
 
 var (
 	avatarFilePattern = regexp.MustCompile(`^[0-9a-f-]{36}\.(png|jpg|webp|gif)$`)

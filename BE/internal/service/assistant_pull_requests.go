@@ -473,6 +473,9 @@ func (s *AssistantApprovals) applyPullRequestAction(ctx context.Context, ws uuid
 		return fail("This approval cannot be executed")
 	}
 	if err != nil {
+		if message, disabled := disabledAbilityMessage(err); disabled {
+			return fail(message)
+		}
 		var unsynced *HeadSyncError
 		if errors.As(err, &unsynced) {
 			// GitHub did update the branch, so asking again would not help.

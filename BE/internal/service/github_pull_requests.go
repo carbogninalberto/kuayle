@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	gh "github.com/kuayle/kuayle-backend/pkg/github"
 )
 
@@ -82,6 +83,15 @@ var _ pullRequestReader = (*GitHubService)(nil)
 
 func (s *GitHubService) pullClient(ctx context.Context, ws uuid.UUID, repository string) (*gh.Client, string, string, string, error) {
 	return s.repositoryClient(ctx, ws, repository)
+}
+
+// pullWriteClient is pullClient for actions that change a pull request,
+// which the workspace may turn off.
+func (s *GitHubService) pullWriteClient(ctx context.Context, ws uuid.UUID, repository string) (*gh.Client, string, string, string, error) {
+	if err := s.requireAbility(ctx, ws, domain.GitHubBotPullRequestActions); err != nil {
+		return nil, "", "", "", err
+	}
+	return s.pullClient(ctx, ws, repository)
 }
 
 func (s *GitHubService) PullRequestStatus(ctx context.Context, ws uuid.UUID, repository string, number int) (*PullRequestStatus, error) {
@@ -229,7 +239,7 @@ func (s *GitHubService) PullRequestComments(ctx context.Context, ws uuid.UUID, r
 }
 
 func (s *GitHubService) ReplyToReviewComment(ctx context.Context, ws uuid.UUID, repository string, number int, commentID int64, body string) error {
-	client, token, owner, name, err := s.pullClient(ctx, ws, repository)
+	client, token, owner, name, err := s.pullWriteClient(ctx, ws, repository)
 	if err != nil {
 		return err
 	}
@@ -239,7 +249,7 @@ func (s *GitHubService) ReplyToReviewComment(ctx context.Context, ws uuid.UUID, 
 
 // ResolveReviewThread resolves a thread only if it belongs to the pull request.
 func (s *GitHubService) ResolveReviewThread(ctx context.Context, ws uuid.UUID, repository string, number int, threadID string) error {
-	client, token, owner, name, err := s.pullClient(ctx, ws, repository)
+	client, token, owner, name, err := s.pullWriteClient(ctx, ws, repository)
 	if err != nil {
 		return err
 	}
@@ -273,7 +283,7 @@ func (e *HeadSyncError) Unwrap() error { return e.Err }
 // it waits briefly for the head to move; if it has not, the pull_request
 // webhook records it later and the returned head is still expectedHead.
 func (s *GitHubService) UpdatePullRequestBranch(ctx context.Context, ws uuid.UUID, repository string, number int, expectedHead string) (string, error) {
-	client, token, owner, name, err := s.pullClient(ctx, ws, repository)
+	client, token, owner, name, err := s.pullWriteClient(ctx, ws, repository)
 	if err != nil {
 		return "", err
 	}
@@ -302,7 +312,7 @@ func (s *GitHubService) UpdatePullRequestBranch(ctx context.Context, ws uuid.UUI
 
 // SetPullRequestDraft marks a pull request ready for review or back to draft.
 func (s *GitHubService) SetPullRequestDraft(ctx context.Context, ws uuid.UUID, repository string, number int, draft bool) error {
-	client, token, owner, name, err := s.pullClient(ctx, ws, repository)
+	client, token, owner, name, err := s.pullWriteClient(ctx, ws, repository)
 	if err != nil {
 		return err
 	}

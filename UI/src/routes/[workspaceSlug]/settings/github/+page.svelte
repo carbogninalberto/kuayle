@@ -18,6 +18,7 @@
 	import { getWorkspace } from '$lib/api/workspaces';
 	import { githubRepositoryHomeUrl } from '$lib/security/github-url';
 	import GitHubAppSetupCard from '$lib/features/github/GitHubAppSetupCard.svelte';
+	import GitHubBotSettings from '$lib/features/github/GitHubBotSettings.svelte';
 	import type { GitHubStatus, GitHubAvailableRepo, GitHubAutoTransition } from '$lib/types/github';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
@@ -427,6 +428,9 @@
 					</div>
 				{/if}
 			</div>
+
+			<!-- Bot identity and abilities -->
+			<GitHubBotSettings {slug} {canManage} />
 
 			<!-- Auto-transitions -->
 			{#if transitions.length > 0}

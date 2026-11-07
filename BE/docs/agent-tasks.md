@@ -586,7 +586,10 @@ logo, purpose, state) and shows reviews as review cards.
 
 ## Requested agent reviews
 
-A review runs only when the user asks for it in chat; nothing starts one
+A review runs only when the user asks for it in chat, or, when the workspace
+turned on the GitHub bot's `mention_reviews` ability, when a trusted commenter
+mentions the bot on the task's pull request and asks for one (see [mention-triggered
+reviews](github-integration.md#kuayle-bot-identity-and-abilities-kua-96)); nothing else starts one
 automatically. The assistant tool `request_agent_review` takes an issue
 identifier and/or a task ID, an optional harness (`claude-code`, `codex`,
 `opencode`; default the implementing task's harness, and a different one may be

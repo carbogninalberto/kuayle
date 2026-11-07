@@ -147,3 +147,34 @@ type GitHubAppSetupResponse struct {
 	AppSettingsURL     string                           `json:"app_settings_url,omitempty"`
 	InstallationURL    string                           `json:"installation_url,omitempty"`
 }
+
+// GitHubBotAbilityResponse is one ability toggle of the workspace's GitHub bot.
+type GitHubBotAbilityResponse struct {
+	Key              string `json:"key"`
+	Enabled          bool   `json:"enabled"`
+	EnabledByDefault bool   `json:"enabled_by_default"`
+}
+
+// GitHubBotSettingsResponse is the workspace's GitHub bot identity and abilities.
+// AvatarURL is an external https image or Kuayle's public path of an upload.
+type GitHubBotSettingsResponse struct {
+	DisplayName    string                     `json:"display_name"`
+	DefaultName    string                     `json:"default_name"`
+	AvatarURL      string                     `json:"avatar_url"`
+	AvatarSource   string                     `json:"avatar_source"`
+	Abilities      []GitHubBotAbilityResponse `json:"abilities"`
+	MentionHarness string                     `json:"mention_harness"`
+	MentionModel   string                     `json:"mention_model"`
+	MentionHandle  string                     `json:"mention_handle"`
+	Harnesses      []string                   `json:"harnesses"`
+}
+
+// UpdateGitHubBotSettingsRequest changes only the fields it sets. An empty
+// display name restores the default and an empty avatar URL removes the picture.
+type UpdateGitHubBotSettingsRequest struct {
+	DisplayName    *string         `json:"display_name"`
+	AvatarURL      *string         `json:"avatar_url"`
+	Abilities      map[string]bool `json:"abilities"`
+	MentionHarness *string         `json:"mention_harness"`
+	MentionModel   *string         `json:"mention_model"`
+}

@@ -396,6 +396,9 @@ func (s *AssistantApprovals) applyMerge(ctx context.Context, ws, actor, issue uu
 		if errors.As(err, &refused) {
 			return nil, mergeRefusalMessage(refused.Reason, payload.Commit), nil
 		}
+		if message, disabled := disabledAbilityMessage(err); disabled {
+			return nil, message, nil
+		}
 		return nil, "", err
 	}
 	return &target.TaskID, "", nil

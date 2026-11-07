@@ -288,6 +288,12 @@ func main() {
 	taskFeedback := service.NewAgentTaskFeedback(repository.NewAgentTaskRepository(db), agentTaskSvc)
 	githubSvc.SetTaskSignals(taskFeedback)
 	commentSvc.SetTaskFeedback(taskFeedback)
+	// The workspace GitHub bot: identity, ability toggles and the mention trigger.
+	githubBotRepo := repository.NewGitHubBotRepository(db)
+	githubSvc.SetBotSettings(githubBotRepo)
+	githubBotSvc := service.NewGitHubBotService(githubBotRepo, store, cfg.FrontendURL)
+	githubBotSvc.SetAppSlug(githubSvc.AppSlug)
+	githubSvc.SetMentionReviews(service.NewGitHubMentionReviews(repository.NewAgentTaskRepository(db), conversationSvc.Repo, agentTaskSvc))
 	githubH := handler.NewGitHubHandler(githubSvc)
 
 	// Background: clean up expired refresh tokens every hour
@@ -357,6 +363,7 @@ func main() {
 		sharedLink:        sharedLinkH,
 		upload:            uploadH,
 		github:            githubH,
+		githubBot:         handler.NewGitHubBotHandler(githubBotSvc),
 	}, &appMiddleware{
 		auth:                   mw.Auth(cfg.JWTSecret, patRepo, cfg.DevMachine.AllowSameSite),
 		authRateLimit:          mw.RateLimit(5, 10),
