@@ -623,7 +623,7 @@ Codex and OpenCode are told to poll the inbox by the `kuayle-live-channel`
 section of the `kuayle-agents` skill.
 
 [Configurable workflows](BE/docs/agent-tasks.md#configurable-workflows)
-(migration 117) replace the fixed implement → validate → publish → review flow
+(migration 118) replace the fixed implement → validate → publish → review flow
 with a workspace's own state machines: agent profiles, immutable workflow
 versions validated on save, defaults per workspace, team and project, and a
 runner that drives each task's pinned version node by node under the worker's
