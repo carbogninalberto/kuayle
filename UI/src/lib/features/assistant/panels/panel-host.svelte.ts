@@ -19,8 +19,8 @@ export interface PanelContext {
 }
 
 /**
- * One side panel. Panels are registered in AssistantChat's list; a future
- * panel (for example a Svelte Flow workflow editor) is one more entry:
+ * One side panel. Panels are registered in AssistantChat's list; each is one
+ * entry, for example the workflow panel (KUA-95):
  *
  *   { id: 'workflow', label: m['assistant.panel_workflow'], icon: Workflow,
  *     component: WorkflowPanel }

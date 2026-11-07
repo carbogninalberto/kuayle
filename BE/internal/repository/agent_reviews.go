@@ -131,34 +131,11 @@ func (r *AgentTaskRepository) CreateReview(ctx context.Context, ws, conversation
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, err
 	}
-	var attempt int
-	if err = tx.GetContext(ctx, &attempt, `SELECT COALESCE(max(attempt),0)+1 FROM agent_reviews WHERE reviewed_task_id=$1 AND commit_sha=$2 AND provider=$3`, reviewed, published.CommitSHA, input.Provider); err != nil {
-		return nil, nil, err
-	}
-	prompt := domain.AgentReviewPrompt(*published, input.Focus)
-	var task domain.AgentTask
-	err = tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,model_server_id,reason,issue_status_id,issue_updated_at,kind,review_of_task_id)
- SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Waiting for a machine to review the pull request',i.status_id,i.updated_at,'review',$12 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`,
-		ws, conversation, c.CreatorID, c.IssueID, c.TeamID, input.RequestID, prompt, input.Provider, input.Model, input.Thinking, input.ModelServerID, reviewed)
+	task, review, err := insertReviewTask(ctx, tx, target, conversation, c.CreatorID, input, published)
 	if err != nil {
 		return nil, nil, err
 	}
-	comment := "not_requested"
-	if input.PostToPullRequest {
-		comment = "pending"
-	}
-	// A requested comment is posted only once the review completed with findings.
-	review := &domain.AgentReview{}
-	err = tx.GetContext(ctx, review, `INSERT INTO agent_reviews(task_id,workspace_id,reviewed_task_id,requested_by,provider,commit_sha,repository_full_name,pull_request_number,pull_request_url,base_branch,focus,attempt,post_to_pull_request,comment_state)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-		task.ID, ws, reviewed, c.CreatorID, input.Provider, published.CommitSHA, published.Repository, published.PullRequestNumber, published.PullRequestURL, published.BaseBranch, input.Focus, attempt, input.PostToPullRequest, comment)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err = recordAgentTaskTransition(ctx, tx, task, "", &c.CreatorID); err != nil {
-		return nil, nil, err
-	}
-	return &task, review, tx.Commit()
+	return task, review, tx.Commit()
 }
 
 func getReview(ctx context.Context, q sqlx.QueryerContext, task uuid.UUID) (*domain.AgentReview, error) {

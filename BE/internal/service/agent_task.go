@@ -49,6 +49,10 @@ type AgentTaskService struct {
 	events   taskEventPublisher
 	store    taskLifecycleStore
 	runtime  taskExecutionRuntime
+	// workflow runs tasks that pin a configurable workflow version; nil until
+	// SetWorkflows wires it, and tasks then keep the Standard flow.
+	workflow    *WorkflowRunner
+	definitions *repository.WorkflowRepository
 }
 
 func NewAgentTaskService(repo *repository.AgentTaskRepository, machines *DevMachineService, hub *realtime.Hub) *AgentTaskService {
@@ -153,6 +157,9 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if result == nil {
 			return nil
 		}
+		if task.RunsWorkflow() {
+			return s.workflowValidated(ctx, task, result)
+		}
 		switch result.Status {
 		case domain.DevMachineAgentRunStepStatusSucceeded:
 			return s.store.Transition(ctx, task, "publishing", "Independent validation passed; preparing review artifacts")
@@ -177,6 +184,9 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if result == nil {
 			return nil
 		}
+		if task.RunsWorkflow() {
+			return s.workflowPublished(ctx, task, result)
+		}
 		// Only a recorded pull request reaches review. Publishing failures keep
 		// the validated work in place, so the task blocks instead of failing.
 		switch result.Status {
@@ -191,6 +201,10 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			return s.store.Transition(ctx, task, "blocked", "Publishing failed; check the repository connection and retry")
 		}
 		return nil
+	}
+	// A workflow step waiting for a review, CI or a timeout was woken.
+	if task.State == "awaiting_review" && task.RunsWorkflow() && s.workflow != nil {
+		return s.workflow.Evaluate(ctx, task)
 	}
 	if task.State != "preparing" && task.State != "running" && task.State != "waiting_input" {
 		return nil
@@ -222,6 +236,15 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if run.ErrorMessage != nil && domain.IsResourceLimitReason(*run.ErrorMessage) {
 			return s.store.Fail(ctx, task, *run.ErrorMessage)
 		}
+		// A workflow decides what an agent's failure leads to; a run that
+		// never started still fails through cleanup.
+		if task.RunsWorkflow() && s.workflow != nil && task.State == "running" {
+			detail := "The agent's iteration failed"
+			if run.Status == domain.DevMachineAgentRunStatusTimeout {
+				detail = "The agent's iteration reached its time limit"
+			}
+			return s.workflow.Outcome(ctx, task, domain.WorkflowAgentFailed, detail)
+		}
 		return s.store.Fail(ctx, task, "Native coding iteration failed; stopping execution before retry")
 	case domain.DevMachineAgentRunStatusCancelled:
 		return s.store.Transition(ctx, task, "cancelling", "Native coding iteration was cancelled")
@@ -251,6 +274,10 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		// A review ends with its findings; it is never validated or published.
 		if task.Kind == domain.AgentTaskKindReview {
 			return s.store.CompleteReview(ctx, task)
+		}
+		// A workflow decides what follows the agent step.
+		if task.RunsWorkflow() && s.workflow != nil {
+			return s.workflow.Outcome(ctx, task, domain.WorkflowAgentFinished, "")
 		}
 		// Process success is not evidence that independent validation passed.
 		return s.store.Transition(ctx, task, "validating", "Implementation iteration finished; independent validation is pending")
@@ -753,3 +780,61 @@ func (r *devMachineTaskRuntime) attachAgent(ctx context.Context, machine *domain
 	}
 	return nil
 }
+
+// workflowValidated reports the independent check's result to the workflow.
+// A skipped check (none configured) is never a pass: only an "else"
+// transition follows it.
+func (s *AgentTaskService) workflowValidated(ctx context.Context, task domain.AgentTask, result *domain.DevMachineAgentRunStep) error {
+	if s.workflow == nil {
+		return ErrInvalidOperation
+	}
+	summary := ""
+	if result.Summary != nil {
+		summary = *result.Summary
+	}
+	switch result.Status {
+	case domain.DevMachineAgentRunStepStatusSucceeded:
+		return s.workflow.Outcome(ctx, task, domain.WorkflowChecksPassed, summary)
+	case domain.DevMachineAgentRunStepStatusSkipped:
+		return s.workflow.Outcome(ctx, task, domain.WorkflowChecksSkipped, summary)
+	case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
+		detail := "Independent validation failed"
+		if command, exit, failed := result.FailedCommand(); failed {
+			detail = fmt.Sprintf("Kuayle re-ran %s and it exited %d", truncateRunes(strings.Join(command, " "), 300), exit)
+		}
+		return s.workflow.Outcome(ctx, task, domain.WorkflowChecksFailed, detail)
+	}
+	return nil
+}
+
+// workflowPublished reports the publication's result to the workflow.
+func (s *AgentTaskService) workflowPublished(ctx context.Context, task domain.AgentTask, result *domain.DevMachineAgentRunStep) error {
+	if s.workflow == nil {
+		return ErrInvalidOperation
+	}
+	switch result.Status {
+	case domain.DevMachineAgentRunStepStatusSucceeded:
+		return s.workflow.Outcome(ctx, task, domain.WorkflowPublished, "")
+	case domain.DevMachineAgentRunStepStatusSkipped:
+		return s.workflow.Outcome(ctx, task, domain.WorkflowPublishFailed, "The iteration produced no changes to publish")
+	case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
+		return s.workflow.Outcome(ctx, task, domain.WorkflowPublishFailed, "Publishing failed; check the repository connection")
+	}
+	return nil
+}
+
+// SetWorkflows enables configurable workflows: tasks that pin a workflow
+// version follow it, under the workspace policy for every agent step.
+func (s *AgentTaskService) SetWorkflows(definitions *repository.WorkflowRepository) {
+	s.definitions = definitions
+	s.workflow = newWorkflowRunner(s.Repo, definitions, s.profilePolicy)
+}
+
+// profilePolicy checks a profile's harness and model against the workspace
+// policy as it is now, exactly as a delegated task's are.
+func (s *AgentTaskService) profilePolicy(ctx context.Context, ws uuid.UUID, profile domain.AgentProfile) error {
+	return s.validateRequest(ctx, ws, domain.AgentTaskRequest{Prompt: "Workflow step", Provider: profile.Harness, Model: profile.Model, Thinking: profile.Effort})
+}
+
+// Workflow returns the runner, or nil when workflows are not wired.
+func (s *AgentTaskService) Workflow() *WorkflowRunner { return s.workflow }

@@ -7,6 +7,7 @@ import {
 	humanizeToolName,
 	isConversationDrag,
 	iterationReasons,
+	workflowIterationReasons,
 	placeByTime,
 	splitBackgroundTasks,
 	splitSteps,
@@ -138,4 +139,18 @@ test('each iteration says why it started: a retry after failure differs from rev
 		iterationReasons(transitions.slice(0, 4), [{ kind: 'ci', action: 'follow_up', follow_up_generation: 2 }])[2],
 		'ci_failed'
 	);
+});
+
+test('a workflow iteration is named by the step and the transition that queued it', () => {
+	const transitions = [
+		{ sequence: 1, from_state: '', to_state: 'queued', reason: 'Waiting for execution' },
+		{ sequence: 2, from_state: 'queued', to_state: 'running', reason: 'Started' },
+		{ sequence: 3, from_state: 'awaiting_review', to_state: 'queued', reason: 'Workflow · Reviewer → Implementer: changes requested' },
+		{ sequence: 4, from_state: 'failed', to_state: 'queued', reason: 'New execution iteration requested' },
+		{ sequence: 5, from_state: 'awaiting_review', to_state: 'queued', reason: 'Workflow · CI → Implementer: checks failed' }
+	];
+	assert.deepEqual(workflowIterationReasons(transitions), {
+		2: 'Reviewer → Implementer: changes requested',
+		4: 'CI → Implementer: checks failed'
+	});
 });

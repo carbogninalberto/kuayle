@@ -40,6 +40,12 @@ export interface AgentTask {
 	// on that task's card, never as a task of its own.
 	kind?: 'implement' | 'review';
 	review_of_task_id?: string;
+	// A task following a configurable workflow pins its version and reports
+	// its current node and status; Standard tasks have none.
+	workflow_version_id?: string | null;
+	workflow_node?: string | null;
+	workflow_status?: string | null;
+	workflow_iterations?: number;
 	// The task's own app process (its preview command), when one was started.
 	preview?: TaskPreview | null;
 	created_at: string;
@@ -184,6 +190,8 @@ export interface TaskInput {
 	model: string;
 	thinking: string;
 	model_server_id?: string;
+	/** A workflow ID, "standard", or omitted for the issue's default workflow. */
+	workflow_id?: string;
 }
 export interface TaskOptions {
 	providers: AgentProvider[];

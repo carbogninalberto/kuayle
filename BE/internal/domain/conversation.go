@@ -146,6 +146,11 @@ type DelegationPayload struct {
 	// means the workspace, project or team default. The approver can change them.
 	Harness string `json:"harness,omitempty"`
 	Model   string `json:"model,omitempty"`
+	// WorkflowID is the workflow the assistant chose ("standard" or a
+	// workflow ID of the workspace) and Workflow its name for the card; empty
+	// means the issue's default workflow. Creating the task checks it again.
+	WorkflowID string `json:"workflow_id,omitempty"`
+	Workflow   string `json:"workflow,omitempty"`
 	// Repository, BaseBranch and RepositorySource show the development
 	// repository resolved when approval was requested (issue → project → team
 	// → workspace). The task resolves it again when it runs.

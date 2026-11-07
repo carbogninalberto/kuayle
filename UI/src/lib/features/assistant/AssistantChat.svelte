@@ -20,6 +20,7 @@
 		Pencil,
 		SquarePen,
 		FileDiff,
+		Workflow as WorkflowIcon,
 		X
 	} from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -57,6 +58,7 @@
 	import OverviewPanel from './panels/OverviewPanel.svelte';
 	import AgentPanel from './panels/AgentPanel.svelte';
 	import DiffSidePanel from './panels/DiffSidePanel.svelte';
+	import WorkflowPanel from './panels/WorkflowPanel.svelte';
 	import { PanelHost, type PanelContext, type PanelDefinition } from './panels/panel-host.svelte';
 	import {
 		conversationIndicator,
@@ -161,8 +163,9 @@
 	const panels: PanelDefinition[] = [
 		{ id: 'details', label: m['assistant.panel_details'], icon: PanelRight, component: OverviewPanel },
 		{ id: 'agent', label: m['assistant.panel_agents'], icon: Bot, component: AgentPanel, available: () => !!chat.issue },
-		{ id: 'diff', label: m['assistant.panel_diff'], icon: FileDiff, component: DiffSidePanel, available: () => !!chat.diffView }
-		// A future workflow editor (Svelte Flow) registers here as one more panel.
+		{ id: 'diff', label: m['assistant.panel_diff'], icon: FileDiff, component: DiffSidePanel, available: () => !!chat.diffView },
+		// The task's workflow (KUA-95): its graph, current step and path.
+		{ id: 'workflow', label: m['assistant.panel_workflow'], icon: WorkflowIcon, component: WorkflowPanel, available: () => !!chat.issue }
 	];
 	const availablePanels = $derived(panels.filter((panel) => panel.available?.() ?? true));
 	const activePanel = $derived.by(() => {
