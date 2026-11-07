@@ -202,6 +202,7 @@ type Manager struct {
 	agentCLINext     time.Time
 	agentCLIVersions map[string]string
 	agentCLIRunning  atomic.Bool
+	reconciling      atomic.Bool
 }
 
 type terminalOperationError struct {
@@ -260,8 +261,16 @@ func (m *Manager) Run(ctx context.Context) error {
 				log.WithError(err).Error("dev machine operation batch failed")
 			}
 		case <-reconcileTicker.C:
-			if err := m.reconcile(ctx); err != nil {
-				log.WithError(err).Error("dev machine reconciliation failed")
+			// Reconciliation never holds up leasing operations.
+			if m.reconciling.CompareAndSwap(false, true) {
+				m.operations.Add(1)
+				go func() {
+					defer m.operations.Done()
+					defer m.reconciling.Store(false)
+					if err := m.reconcile(ctx); err != nil {
+						log.WithError(err).Error("dev machine reconciliation failed")
+					}
+				}()
 			}
 			// A refresh takes minutes; it never holds up operations.
 			if m.agentCLIRunning.CompareAndSwap(false, true) {
@@ -1223,9 +1232,9 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		if stream == "stdout" && !truncated {
 			for _, parsed := range provider.ParseEvents([]byte(content)) {
 				if id := codexThreadID(run, parsed); id != "" {
-					writeCtx, cancelWrite := context.WithTimeout(runContext, 5*time.Second)
-					err := m.store.RecordNativeSession(writeCtx, run.ID, id)
-					cancelWrite()
+					err := retryAgentWrite(runContext, func(writeCtx context.Context) error {
+						return m.store.RecordNativeSession(writeCtx, run.ID, id)
+					})
 					if err != nil {
 						return fmt.Errorf("agent_session_persistence_failed: %w", err)
 					}
@@ -1241,12 +1250,14 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 				events = append(events, domain.DevMachineEvent{WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, Source: "agent", EventType: eventType, Payload: payload})
 			}
 		}
-		writeCtx, cancelWrite := context.WithTimeout(runContext, 5*time.Second)
-		defer cancelWrite()
-		if err := m.store.CreateAgentOutput(writeCtx, &domain.DevMachineLogChunk{
+		chunk := domain.DevMachineLogChunk{
 			WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceID: &service.ID,
 			Stream: stream, Sequence: sequence, SourceKey: source, Content: content, Truncated: truncated,
-		}, events); err != nil {
+		}
+		if err := retryAgentWrite(runContext, func(writeCtx context.Context) error {
+			attempt := chunk
+			return m.store.CreateAgentOutput(writeCtx, &attempt, events)
+		}); err != nil {
 			return fmt.Errorf("agent_output_persistence_failed: %w", err)
 		}
 		return nil
@@ -1390,6 +1401,10 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	})
 }
 
+// Recovery may respawn a machine, which takes tens of seconds; anything longer
+// is a stuck call.
+const machineReconcileTimeout = 2 * time.Minute
+
 func (m *Manager) reconcile(ctx context.Context) error {
 	now := time.Now().UTC()
 	m.lastReconcileUnix.Store(now.Unix())
@@ -1483,173 +1498,11 @@ func (m *Manager) reconcile(ctx context.Context) error {
 			return err
 		}
 		for i := range machines {
-			machine := &machines[i]
-			services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
-			if err != nil {
-				continue
-			}
-			if hostDiskFloorBreached &&
-				machine.Status == domain.DevMachineStatusRunning &&
-				machine.DesiredStatus == domain.DevMachineStatusRunning {
-				hostDisk := HostDiskUsage{
-					TotalBytes: m.hostDiskTotalBytes.Load(),
-					FreeBytes:  m.hostDiskFreeBytes.Load(),
-				}
-				minFreeBytes := int64(m.diskQuota.HostMinFreeGB) * 1024 * 1024 * 1024
-				operation := &domain.DevMachineOperation{
-					ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID,
-					Action: domain.DevMachineOpStop, Status: domain.DevMachineOpStatusPending,
-					Generation: machine.Generation + 1, IdempotencyKey: fmt.Sprintf("host-disk-floor:%d", machine.Generation), MaxAttempts: 3,
-				}
-				if err := m.store.SetDesiredAndEnqueue(ctx, machine.WorkspaceID, machine.ID, domain.DevMachineStatusStopped, operation); err != nil && !errors.Is(err, sql.ErrNoRows) {
-					log.WithFields(log.Fields{"machine_id": machine.ID, "workspace_id": machine.WorkspaceID}).WithError(err).Warn("host disk floor stop queue failed")
-				}
-				_ = m.createEvent(ctx, machine, nil, "collector", "resource.host_disk_floor", map[string]any{
-					"free_bytes": hostDisk.FreeBytes, "total_bytes": hostDisk.TotalBytes,
-					"min_free_bytes": minFreeBytes, "min_free_percent": m.diskQuota.HostMinFreePercent,
-				})
-				log.WithFields(log.Fields{
-					"machine_id": machine.ID, "workspace_id": machine.WorkspaceID,
-					"free_bytes": hostDisk.FreeBytes, "total_bytes": hostDisk.TotalBytes,
-					"min_free_bytes": minFreeBytes, "min_free_percent": m.diskQuota.HostMinFreePercent,
-				}).Warn("host disk free-space floor breached; stopping dev machine")
-				continue
-			}
-			if machine.Status != machine.DesiredStatus {
-				switch machine.DesiredStatus {
-				case domain.DevMachineStatusDestroyed:
-					m.cancelActiveRuns(ctx, machine.ID, nil)
-					_ = m.store.RevokeMachineAccess(ctx, machine.ID)
-					if err := m.runtime.Teardown(ctx, machine, services); err != nil {
-						log.WithField("machine_id", machine.ID).WithError(err).Warn("teardown reconciliation failed")
-						continue
-					}
-					for _, service := range services {
-						if service.ContainerID != nil {
-							_ = m.store.UpdateServiceRuntime(ctx, service.ID, *service.ContainerID, "destroyed", "stopped", nil)
-						}
-					}
-					updated, stateErr := m.store.SetMachineStateForOperation(ctx, machine.ID, machine.Generation, true, domain.DevMachineStatusDestroyed, nil, nil, nil, nil)
-					if stateErr == nil && updated {
-						_ = m.createEvent(ctx, machine, nil, "lifecycle", "machine.destroyed", nil)
-					}
-					continue
-				case domain.DevMachineStatusStopped:
-					if err := m.runtime.Stop(ctx, machine, services); err != nil {
-						log.WithField("machine_id", machine.ID).WithError(err).Warn("stop reconciliation failed")
-						continue
-					}
-					for _, service := range services {
-						if service.ContainerID != nil {
-							_ = m.store.UpdateServiceRuntime(ctx, service.ID, *service.ContainerID, "stopped", "stopped", nil)
-						}
-					}
-					_, _ = m.store.SetMachineStateForOperation(ctx, machine.ID, machine.Generation, false, domain.DevMachineStatusStopped, nil, nil, nil, nil)
-					continue
-				case domain.DevMachineStatusPaused:
-					if err := m.store.RevokeMachineAccess(ctx, machine.ID); err != nil {
-						log.WithField("machine_id", machine.ID).WithError(err).Warn("pause access revocation failed")
-						continue
-					}
-					if err := m.runtime.Pause(ctx, machine, services); err != nil {
-						log.WithField("machine_id", machine.ID).WithError(err).Warn("pause reconciliation failed")
-						continue
-					}
-					for _, service := range services {
-						if service.ContainerID != nil {
-							_ = m.store.UpdateServiceRuntime(ctx, service.ID, *service.ContainerID, "paused", "paused", nil)
-						}
-					}
-					_, _ = m.store.SetMachineStateForOperation(ctx, machine.ID, machine.Generation, false, domain.DevMachineStatusPaused, nil, nil, nil, nil)
-					continue
-				}
-			}
-			if machine.DesiredStatus == domain.DevMachineStatusRunning {
-				inspection, inspectErr := m.runtime.Inspect(ctx, machine, services)
-				if inspectErr != nil {
-					log.WithField("machine_id", machine.ID).WithError(inspectErr).Warn("runtime inspection failed")
-					continue
-				}
-				if !runtimeReady(inspection, services) {
-					runtimeServices := make([]domain.DevMachineService, 0, len(services))
-					for _, service := range services {
-						if service.ServiceType != "agent" {
-							runtimeServices = append(runtimeServices, service)
-						}
-					}
-					secrets, secretErr := m.serviceSecrets(ctx, machine, runtimeServices)
-					if secretErr != nil {
-						log.WithField("machine_id", machine.ID).WithError(secretErr).Warn("runtime recovery secrets failed")
-						continue
-					}
-					networkName, volumeName, containers, spawnErr := m.runtime.Spawn(ctx, machine, runtimeServices, secrets)
-					if spawnErr != nil {
-						log.WithField("machine_id", machine.ID).WithError(spawnErr).Warn("runtime recovery failed")
-						continue
-					}
-					for _, service := range runtimeServices {
-						if containerID := containers[service.ServiceKey]; containerID != "" {
-							_ = m.store.UpdateServiceRuntime(ctx, service.ID, containerID, "running", "healthy", nil)
-						}
-					}
-					updated, stateErr := m.store.SetMachineStateForOperation(ctx, machine.ID, machine.Generation, false, domain.DevMachineStatusRunning, &networkName, &volumeName, nil, nil)
-					if stateErr != nil {
-						log.WithField("machine_id", machine.ID).WithError(stateErr).Warn("runtime recovery state update failed")
-						continue
-					}
-					if updated {
-						m.syncTerminalSignInsAfterStart(ctx, machine)
-						_ = m.createEvent(ctx, machine, nil, "lifecycle", "machine.recovered", nil)
-					}
-					continue
-				}
-				for _, service := range services {
-					if actual, ok := inspection.Services[service.ServiceKey]; ok && actual.Exists {
-						_ = m.store.UpdateServiceRuntime(ctx, service.ID, actual.ContainerID, "running", actual.HealthStatus, nil)
-					}
-				}
-				if machine.Status != domain.DevMachineStatusRunning {
-					updated, stateErr := m.store.SetMachineStateForOperation(ctx, machine.ID, machine.Generation, false, domain.DevMachineStatusRunning, &inspection.NetworkName, &inspection.VolumeName, nil, nil)
-					if stateErr != nil || !updated {
-						continue
-					}
-					machine.Status = domain.DevMachineStatusRunning
-					_ = m.createEvent(ctx, machine, nil, "lifecycle", "machine.recovered", nil)
-				}
-			}
-			if machine.Status != domain.DevMachineStatusRunning {
-				continue
-			}
-			m.queueImageUpdate(ctx, machine, services, now)
-			usage, err := m.runtime.Stats(ctx, machine, services)
-			if err != nil {
-				log.WithField("machine_id", machine.ID).WithError(err).Warn("resource sampling failed")
-				continue
-			}
-			_ = m.store.CreateResourceSample(ctx, &domain.DevMachineResourceSample{
-				WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, CPUPercent: usage.CPUPercent, MemoryBytes: usage.MemoryBytes,
-				DiskBytes: usage.DiskBytes, Pids: usage.Pids, NetworkRxBytes: usage.NetworkRxBytes,
-				NetworkTxBytes: usage.NetworkTxBytes,
-			})
-			if err := m.store.PruneResourceSamples(ctx, machine.ID, now.Add(-domain.DevMachineResourceRetention)); err != nil {
-				log.WithField("machine_id", machine.ID).WithError(err).Warn("resource sample pruning failed")
-			}
-			_ = m.store.UpdateVolumeUsage(ctx, machine.ID, usage.DiskBytes)
-			limit := int64(machine.DiskGB) * 1024 * 1024 * 1024
-			if usage.DiskBytes >= limit*9/10 && usage.DiskBytes < limit && m.claimDiskQuotaWarning(machine.ID, machine.Generation) {
-				_ = m.createEvent(ctx, machine, nil, "collector", "resource.disk_quota_warning", map[string]any{
-					"used_bytes": usage.DiskBytes, "limit_bytes": limit, "percent": usage.DiskBytes * 100 / limit,
-				})
-			}
-			if usage.DiskBytes >= limit {
-				operation := &domain.DevMachineOperation{
-					ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID,
-					Action: domain.DevMachineOpStop, Status: domain.DevMachineOpStatusPending,
-					Generation: machine.Generation + 1, IdempotencyKey: fmt.Sprintf("disk-quota:%d", machine.Generation), MaxAttempts: 3,
-				}
-				_ = m.store.SetDesiredAndEnqueue(ctx, machine.WorkspaceID, machine.ID, domain.DevMachineStatusStopped, operation)
-				_ = m.store.RecordResourceLimit(ctx, machine.ID, domain.DevMachineResourceLimitDisk, domain.DiskLimitMessage(machine.DiskGB))
-				_ = m.createEvent(ctx, machine, nil, "collector", "resource.disk_quota_exceeded", map[string]any{"used_bytes": usage.DiskBytes, "limit_bytes": limit})
+			machineCtx, cancelMachine := context.WithTimeout(ctx, machineReconcileTimeout)
+			m.reconcileMachine(machineCtx, &machines[i], hostDiskFloorBreached, now)
+			cancelMachine()
+			if errors.Is(machineCtx.Err(), context.DeadlineExceeded) {
+				log.WithField("machine_id", machines[i].ID).Warn("dev machine reconciliation timed out")
 			}
 		}
 		if len(machines) < runtimePageSize {
@@ -1659,11 +1512,185 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	return nil
 }
 
+// One machine's Docker or database calls are bounded so a stuck daemon call
+// cannot stop sampling and recovery for every machine.
+func (m *Manager) reconcileMachine(ctx context.Context, machine *domain.DevMachine, hostDiskFloorBreached bool, now time.Time) {
+	services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
+	if err != nil {
+		return
+	}
+	if hostDiskFloorBreached &&
+		machine.Status == domain.DevMachineStatusRunning &&
+		machine.DesiredStatus == domain.DevMachineStatusRunning {
+		hostDisk := HostDiskUsage{
+			TotalBytes: m.hostDiskTotalBytes.Load(),
+			FreeBytes:  m.hostDiskFreeBytes.Load(),
+		}
+		minFreeBytes := int64(m.diskQuota.HostMinFreeGB) * 1024 * 1024 * 1024
+		operation := &domain.DevMachineOperation{
+			ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID,
+			Action: domain.DevMachineOpStop, Status: domain.DevMachineOpStatusPending,
+			Generation: machine.Generation + 1, IdempotencyKey: fmt.Sprintf("host-disk-floor:%d", machine.Generation), MaxAttempts: 3,
+		}
+		if err := m.store.SetDesiredAndEnqueue(ctx, machine.WorkspaceID, machine.ID, domain.DevMachineStatusStopped, operation); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			log.WithFields(log.Fields{"machine_id": machine.ID, "workspace_id": machine.WorkspaceID}).WithError(err).Warn("host disk floor stop queue failed")
+		}
+		_ = m.createEvent(ctx, machine, nil, "collector", "resource.host_disk_floor", map[string]any{
+			"free_bytes": hostDisk.FreeBytes, "total_bytes": hostDisk.TotalBytes,
+			"min_free_bytes": minFreeBytes, "min_free_percent": m.diskQuota.HostMinFreePercent,
+		})
+		log.WithFields(log.Fields{
+			"machine_id": machine.ID, "workspace_id": machine.WorkspaceID,
+			"free_bytes": hostDisk.FreeBytes, "total_bytes": hostDisk.TotalBytes,
+			"min_free_bytes": minFreeBytes, "min_free_percent": m.diskQuota.HostMinFreePercent,
+		}).Warn("host disk free-space floor breached; stopping dev machine")
+		return
+	}
+	if machine.Status != machine.DesiredStatus {
+		switch machine.DesiredStatus {
+		case domain.DevMachineStatusDestroyed:
+			m.cancelActiveRuns(ctx, machine.ID, nil)
+			_ = m.store.RevokeMachineAccess(ctx, machine.ID)
+			if err := m.runtime.Teardown(ctx, machine, services); err != nil {
+				log.WithField("machine_id", machine.ID).WithError(err).Warn("teardown reconciliation failed")
+				return
+			}
+			for _, service := range services {
+				if service.ContainerID != nil {
+					_ = m.store.UpdateServiceRuntime(ctx, service.ID, *service.ContainerID, "destroyed", "stopped", nil)
+				}
+			}
+			updated, stateErr := m.store.SetMachineStateForOperation(ctx, machine.ID, machine.Generation, true, domain.DevMachineStatusDestroyed, nil, nil, nil, nil)
+			if stateErr == nil && updated {
+				_ = m.createEvent(ctx, machine, nil, "lifecycle", "machine.destroyed", nil)
+			}
+			return
+		case domain.DevMachineStatusStopped:
+			if err := m.runtime.Stop(ctx, machine, services); err != nil {
+				log.WithField("machine_id", machine.ID).WithError(err).Warn("stop reconciliation failed")
+				return
+			}
+			for _, service := range services {
+				if service.ContainerID != nil {
+					_ = m.store.UpdateServiceRuntime(ctx, service.ID, *service.ContainerID, "stopped", "stopped", nil)
+				}
+			}
+			_, _ = m.store.SetMachineStateForOperation(ctx, machine.ID, machine.Generation, false, domain.DevMachineStatusStopped, nil, nil, nil, nil)
+			return
+		case domain.DevMachineStatusPaused:
+			if err := m.store.RevokeMachineAccess(ctx, machine.ID); err != nil {
+				log.WithField("machine_id", machine.ID).WithError(err).Warn("pause access revocation failed")
+				return
+			}
+			if err := m.runtime.Pause(ctx, machine, services); err != nil {
+				log.WithField("machine_id", machine.ID).WithError(err).Warn("pause reconciliation failed")
+				return
+			}
+			for _, service := range services {
+				if service.ContainerID != nil {
+					_ = m.store.UpdateServiceRuntime(ctx, service.ID, *service.ContainerID, "paused", "paused", nil)
+				}
+			}
+			_, _ = m.store.SetMachineStateForOperation(ctx, machine.ID, machine.Generation, false, domain.DevMachineStatusPaused, nil, nil, nil, nil)
+			return
+		}
+	}
+	if machine.DesiredStatus == domain.DevMachineStatusRunning {
+		inspection, inspectErr := m.runtime.Inspect(ctx, machine, services)
+		if inspectErr != nil {
+			log.WithField("machine_id", machine.ID).WithError(inspectErr).Warn("runtime inspection failed")
+			return
+		}
+		if !runtimeReady(inspection, services) {
+			runtimeServices := make([]domain.DevMachineService, 0, len(services))
+			for _, service := range services {
+				if service.ServiceType != "agent" {
+					runtimeServices = append(runtimeServices, service)
+				}
+			}
+			secrets, secretErr := m.serviceSecrets(ctx, machine, runtimeServices)
+			if secretErr != nil {
+				log.WithField("machine_id", machine.ID).WithError(secretErr).Warn("runtime recovery secrets failed")
+				return
+			}
+			networkName, volumeName, containers, spawnErr := m.runtime.Spawn(ctx, machine, runtimeServices, secrets)
+			if spawnErr != nil {
+				log.WithField("machine_id", machine.ID).WithError(spawnErr).Warn("runtime recovery failed")
+				return
+			}
+			for _, service := range runtimeServices {
+				if containerID := containers[service.ServiceKey]; containerID != "" {
+					_ = m.store.UpdateServiceRuntime(ctx, service.ID, containerID, "running", "healthy", nil)
+				}
+			}
+			updated, stateErr := m.store.SetMachineStateForOperation(ctx, machine.ID, machine.Generation, false, domain.DevMachineStatusRunning, &networkName, &volumeName, nil, nil)
+			if stateErr != nil {
+				log.WithField("machine_id", machine.ID).WithError(stateErr).Warn("runtime recovery state update failed")
+				return
+			}
+			if updated {
+				m.syncTerminalSignInsAfterStart(ctx, machine)
+				_ = m.createEvent(ctx, machine, nil, "lifecycle", "machine.recovered", nil)
+			}
+			return
+		}
+		for _, service := range services {
+			if actual, ok := inspection.Services[service.ServiceKey]; ok && actual.Exists {
+				_ = m.store.UpdateServiceRuntime(ctx, service.ID, actual.ContainerID, "running", actual.HealthStatus, nil)
+			}
+		}
+		if machine.Status != domain.DevMachineStatusRunning {
+			updated, stateErr := m.store.SetMachineStateForOperation(ctx, machine.ID, machine.Generation, false, domain.DevMachineStatusRunning, &inspection.NetworkName, &inspection.VolumeName, nil, nil)
+			if stateErr != nil || !updated {
+				return
+			}
+			machine.Status = domain.DevMachineStatusRunning
+			_ = m.createEvent(ctx, machine, nil, "lifecycle", "machine.recovered", nil)
+		}
+	}
+	if machine.Status != domain.DevMachineStatusRunning {
+		return
+	}
+	m.queueImageUpdate(ctx, machine, services, now)
+	usage, err := m.runtime.Stats(ctx, machine, services)
+	if err != nil {
+		log.WithField("machine_id", machine.ID).WithError(err).Warn("resource sampling failed")
+		return
+	}
+	_ = m.store.CreateResourceSample(ctx, &domain.DevMachineResourceSample{
+		WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, CPUPercent: usage.CPUPercent, MemoryBytes: usage.MemoryBytes,
+		DiskBytes: usage.DiskBytes, Pids: usage.Pids, NetworkRxBytes: usage.NetworkRxBytes,
+		NetworkTxBytes: usage.NetworkTxBytes,
+	})
+	if err := m.store.PruneResourceSamples(ctx, machine.ID, now.Add(-domain.DevMachineResourceRetention)); err != nil {
+		log.WithField("machine_id", machine.ID).WithError(err).Warn("resource sample pruning failed")
+	}
+	_ = m.store.UpdateVolumeUsage(ctx, machine.ID, usage.DiskBytes)
+	limit := int64(machine.DiskGB) * 1024 * 1024 * 1024
+	if usage.DiskBytes >= limit*9/10 && usage.DiskBytes < limit && m.claimDiskQuotaWarning(machine.ID, machine.Generation) {
+		_ = m.createEvent(ctx, machine, nil, "collector", "resource.disk_quota_warning", map[string]any{
+			"used_bytes": usage.DiskBytes, "limit_bytes": limit, "percent": usage.DiskBytes * 100 / limit,
+		})
+	}
+	if usage.DiskBytes >= limit {
+		operation := &domain.DevMachineOperation{
+			ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID,
+			Action: domain.DevMachineOpStop, Status: domain.DevMachineOpStatusPending,
+			Generation: machine.Generation + 1, IdempotencyKey: fmt.Sprintf("disk-quota:%d", machine.Generation), MaxAttempts: 3,
+		}
+		_ = m.store.SetDesiredAndEnqueue(ctx, machine.WorkspaceID, machine.ID, domain.DevMachineStatusStopped, operation)
+		_ = m.store.RecordResourceLimit(ctx, machine.ID, domain.DevMachineResourceLimitDisk, domain.DiskLimitMessage(machine.DiskGB))
+		_ = m.createEvent(ctx, machine, nil, "collector", "resource.disk_quota_exceeded", map[string]any{"used_bytes": usage.DiskBytes, "limit_bytes": limit})
+	}
+}
+
 func (m *Manager) reconcileHostDiskFloor(ctx context.Context) bool {
 	if !m.diskQuota.monitored() {
 		return false
 	}
-	usage, err := m.runtime.HostDiskUsage(ctx)
+	measureCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	usage, err := m.runtime.HostDiskUsage(measureCtx)
 	if err != nil {
 		if !errors.Is(err, ErrHostDiskUnknown) {
 			log.WithError(err).Warn("host disk usage unavailable")

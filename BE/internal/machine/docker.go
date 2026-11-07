@@ -121,6 +121,9 @@ type DockerRuntime struct {
 	dockerUsageMu sync.Mutex
 	dockerUsage   map[uuid.UUID]dockerUsageSample
 
+	cpuSamplesMu sync.Mutex
+	cpuSamples   map[uuid.UUID]map[string]cpuSample
+
 	// slices is set when machines may share their resources (machine_slice.go).
 	slices         machineSlices
 	machineScopeMu sync.Mutex
@@ -1053,7 +1056,13 @@ func (r *DockerRuntime) agentOutputFailure(containerID string, cause error) (*Ag
 	defer cancel()
 	_, err := r.client.ContainerStop(ctx, containerID, client.ContainerStopOptions{})
 	if err != nil && !errdefs.IsNotFound(err) {
-		return &AgentExecution{ContainerID: containerID, ExitCode: -1}, fmt.Errorf("agent output cleanup failed: %w", err)
+		// A slow daemon must not leave the agent running unobserved.
+		killCtx, cancelKill := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelKill()
+		_, killErr := r.client.ContainerKill(killCtx, containerID, client.ContainerKillOptions{Signal: "KILL"})
+		if killErr != nil && !errdefs.IsNotFound(killErr) {
+			return &AgentExecution{ContainerID: containerID, ExitCode: -1}, fmt.Errorf("agent output cleanup failed: %w (after %v)", err, cause)
+		}
 	}
 	return &AgentExecution{ContainerID: containerID, ExitCode: -1}, cause
 }
@@ -1134,6 +1143,9 @@ func (r *DockerRuntime) Stats(ctx context.Context, machine *domain.DevMachine, s
 			}
 		}
 	}
+	previousCPU := r.previousCPUSamples(machine)
+	cpu := make(map[string]cpuSample, len(containerIDs))
+	defer r.storeCPUSamples(machine, cpu)
 	for _, containerID := range containerIDs {
 		statsReader, err := r.client.ContainerStats(ctx, containerID, client.ContainerStatsOptions{Stream: false})
 		if err != nil {
@@ -1148,11 +1160,11 @@ func (r *DockerRuntime) Stats(ctx context.Context, machine *domain.DevMachine, s
 		if err != nil {
 			return usage, err
 		}
-		cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
-		systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
-		if cpuDelta > 0 && systemDelta > 0 {
-			usage.CPUPercent += cpuDelta / systemDelta * float64(stats.CPUStats.OnlineCPUs) * 100
-		}
+		// One-shot stats carry no previous sample, so CPU is measured
+		// against this container's sample from the previous reconcile.
+		current := cpuSample{total: stats.CPUStats.CPUUsage.TotalUsage, system: stats.CPUStats.SystemUsage, onlineCPUs: stats.CPUStats.OnlineCPUs}
+		cpu[containerID] = current
+		usage.CPUPercent += cpuPercent(previousCPU[containerID], current)
 		usage.MemoryBytes += int64(stats.MemoryStats.Usage)
 		usage.Pids += int(stats.PidsStats.Current)
 		for _, networkStats := range stats.Networks {
@@ -1982,6 +1994,7 @@ func (r *DockerRuntime) writeSecretFile(ctx context.Context, containerID, name, 
 		return err
 	}
 	defer attached.Close()
+	defer context.AfterFunc(ctx, attached.Close)()
 	if _, err := attached.Conn.Write([]byte(value)); err != nil {
 		return err
 	}
@@ -2102,6 +2115,8 @@ func (r *DockerRuntime) execOutputAs(ctx context.Context, containerID string, co
 		return "", err
 	}
 	defer attached.Close()
+	// A hijacked exec stream ignores ctx; closing it unblocks the read.
+	defer context.AfterFunc(ctx, attached.Close)()
 	stdout := newCappedBuffer(maxCapturedLogBytes)
 	stderr := newCappedBuffer(maxCapturedLogBytes)
 	if _, err := stdcopy.StdCopy(&stdout, &stderr, attached.Reader); err != nil {
@@ -2134,6 +2149,7 @@ func (r *DockerRuntime) execInputOutput(ctx context.Context, containerID string,
 		return "", err
 	}
 	defer attached.Close()
+	defer context.AfterFunc(ctx, attached.Close)()
 	if _, err := io.WriteString(attached.Conn, input); err != nil {
 		return "", err
 	}

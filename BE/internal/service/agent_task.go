@@ -476,8 +476,10 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	if _, err := s.GetForUser(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID); err != nil {
 		return nil, err
 	}
-	// Each attempt has its own time limit; the machine itself has none.
-	const timeout = 3600
+	// Each attempt has its own time limit; the machine itself has none. Large
+	// issues (a full build and test cycle across several services) routinely
+	// take more than an hour.
+	const timeout = 3 * 60 * 60
 	var command []string
 	if len(task.ValidationCommand) > 0 && json.Unmarshal(task.ValidationCommand, &command) != nil {
 		return nil, ErrInvalidMachineInput
