@@ -148,7 +148,17 @@ test('the creation dialog is wider than before and can expand', async ({ page })
 	await expect(createDialogTitle(page)).toBeFocused();
 
 	const width = async () => (await dialog.boundingBox())!.width;
-	const normal = await width();
+	// The dialog zooms in when it opens, so its box is narrower until the
+	// animation ends; take the baseline once two samples apart agree.
+	let normal = 0;
+	await expect
+		.poll(async () => {
+			const before = await width();
+			await page.waitForTimeout(150);
+			normal = await width();
+			return Math.abs(normal - before);
+		})
+		.toBeLessThan(0.5);
 	expect(normal).toBeGreaterThan(700);
 
 	const expand = dialog.getByRole('button', { name: 'Expand', exact: true });
@@ -158,7 +168,7 @@ test('the creation dialog is wider than before and can expand', async ({ page })
 	expect((await dialog.boundingBox())!.height).toBeGreaterThan(780);
 
 	await dialog.getByRole('button', { name: 'Collapse', exact: true }).click();
-	await expect.poll(width).toBeLessThan(normal + 1);
+	await expect.poll(async () => Math.abs((await width()) - normal)).toBeLessThan(2);
 
 	// Footers keep a compact horizontal inset.
 	const footer = dialog.locator('[data-slot="dialog-footer"]');
