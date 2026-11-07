@@ -22,6 +22,10 @@ var (
 	ErrAgentProfileNotFound  = errors.New("agent profile not found")
 	ErrAgentProfileNameTaken = errors.New("agent profile name taken")
 	ErrAgentProfileInUse     = errors.New("agent profile is used by a workflow")
+	// ErrAgentProfileRoleInUse: a saved workflow version uses the profile, and
+	// its role decides how that version runs (reviewer or implementing step,
+	// which transitions leave it), so the role cannot change.
+	ErrAgentProfileRoleInUse = errors.New("agent profile role is fixed by the workflows that use it")
 	ErrWorkflowScopeNotFound = errors.New("workflow default scope not found")
 )
 
@@ -154,6 +158,27 @@ func (r *WorkflowRepository) UpdateProfile(ctx context.Context, ws, id, actor uu
 		return nil, err
 	}
 	defer tx.Rollback()
+	// The row lock serializes with saves, which validate graphs against the
+	// profiles' roles under FOR SHARE: a version saved first is seen below,
+	// and a save after this commit validates against the new role.
+	var role string
+	err = tx.GetContext(ctx, &role, `SELECT role FROM agent_profiles WHERE id=$1 AND workspace_id=$2 AND archived_at IS NULL FOR UPDATE`, id, ws)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrAgentProfileNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if role != in.Role {
+		// Any version counts, archived workflows' included: tasks pin versions.
+		var used bool
+		if err = tx.GetContext(ctx, &used, `SELECT EXISTS(SELECT 1 FROM workflow_versions WHERE workspace_id=$1 AND graph->'nodes' @> jsonb_build_array(jsonb_build_object('profile_id',$2::text)))`, ws, id); err != nil {
+			return nil, err
+		}
+		if used {
+			return nil, ErrAgentProfileRoleInUse
+		}
+	}
 	profile := &domain.AgentProfile{}
 	err = tx.GetContext(ctx, profile, `UPDATE agent_profiles SET name=$3,role=$4,harness=$5,model=$6,effort=$7,instructions=$8,updated_at=now() WHERE id=$1 AND workspace_id=$2 AND archived_at IS NULL RETURNING *`,
 		id, ws, in.Name, in.Role, in.Harness, in.Model, in.Effort, in.Instructions)

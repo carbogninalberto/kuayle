@@ -44,6 +44,12 @@ type workflowDefinitionStore interface {
 	AllProfiles(context.Context, uuid.UUID) (map[uuid.UUID]domain.AgentProfile, error)
 }
 
+// workflowCIChecks reads every check run and commit status of a commit from
+// GitHub, including the ones still running (GitHubService.CommitChecks).
+type workflowCIChecks interface {
+	CommitChecks(ctx context.Context, ws uuid.UUID, repository, sha string) ([]PullRequestCheck, ChecksCoverage, error)
+}
+
 // workflowPolicy checks an agent profile against the workspace policy
 // (allowed providers, model checks) before each step that runs it.
 type workflowPolicy func(ctx context.Context, ws uuid.UUID, profile domain.AgentProfile) error
@@ -53,7 +59,10 @@ type WorkflowRunner struct {
 	tasks       workflowTaskStore
 	definitions workflowDefinitionStore
 	policy      workflowPolicy
-	now         func() time.Time
+	// checks confirms a CI check node's commit with GitHub; without it a CI
+	// node can only fail (from a reported failure) or time out.
+	checks workflowCIChecks
+	now    func() time.Time
 
 	mu     sync.Mutex
 	graphs map[uuid.UUID]*domain.WorkflowGraph
@@ -63,9 +72,16 @@ func newWorkflowRunner(tasks workflowTaskStore, definitions workflowDefinitionSt
 	return &WorkflowRunner{tasks: tasks, definitions: definitions, policy: policy, now: time.Now, graphs: map[uuid.UUID]*domain.WorkflowGraph{}}
 }
 
-// ciSettle lets other CI suites of the same commit report a failure before a
-// success decides the check.
-const ciSettle = time.Minute
+// A CI check node reads the commit's checks again after ciPoll while some
+// are running, and after ciIdlePoll while none started or GitHub could not
+// be read; a reported failure or a finished review wakes it sooner.
+const (
+	ciPoll     = time.Minute
+	ciIdlePoll = 5 * time.Minute
+)
+
+// SetCIChecks lets CI check nodes confirm a commit's checks with GitHub.
+func (w *WorkflowRunner) SetCIChecks(checks workflowCIChecks) { w.checks = checks }
 
 // ErrWorkflowDecision is a decision the task's current step does not accept.
 var ErrWorkflowDecision = errors.New("the workflow is not waiting for this decision")
@@ -167,11 +183,11 @@ func (w *WorkflowRunner) plan(ctx context.Context, task domain.AgentTask, outcom
 // it finishes with at once and why.
 func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, cursor domain.WorkflowCursor, decision domain.WorkflowDecision, reason string, vars domain.WorkflowVariables, now time.Time) (repository.WorkflowEntry, string, string, error) {
 	to := decision.To
+	// A waiting node is evaluated as soon as it is entered: what it waits for
+	// may already be there (CI finished during the review), and Evaluate then
+	// sets its next wake-up (its timeout, the time budget, a CI poll).
 	wake := func() *time.Time {
-		if to.TimeoutMinutes <= 0 {
-			return nil
-		}
-		at := now.Add(time.Duration(to.TimeoutMinutes) * time.Minute)
+		at := now
 		return &at
 	}
 	switch to.Type {
@@ -343,7 +359,7 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 		at := step.EnteredAt.Add(time.Duration(node.TimeoutMinutes) * time.Minute)
 		deadline = &at
 	}
-	outcome, detail := "", ""
+	outcome, detail, waiting := "", "", ""
 	var wake *time.Time
 	switch {
 	case node.Type == domain.WorkflowNodeAgent && step.ReviewTaskID != nil:
@@ -372,39 +388,102 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 		if err != nil {
 			return err
 		}
-		if len(ci.Failed) > 0 {
-			var lines []string
-			for _, signal := range ci.Failed {
-				line := fmt.Sprintf("CI check suite %q concluded %q", signal.Name, signal.Outcome)
-				if signal.URL != "" {
-					line += " (" + signal.URL + ")"
-				}
-				if strings.TrimSpace(signal.Summary) != "" {
-					line += ":\n" + strings.TrimSpace(signal.Summary)
-				}
-				lines = append(lines, line)
-			}
-			outcome, detail = domain.WorkflowChecksFailed, strings.Join(lines, "\n\n")
-		} else if len(ci.Passed) > 0 {
-			latest := ci.Passed[len(ci.Passed)-1].UpdatedAt
-			if settled := latest.Add(ciSettle); !now.Before(settled) {
-				outcome, detail = domain.WorkflowChecksPassed, fmt.Sprintf("%d CI check suites passed", len(ci.Passed))
-			} else {
-				wake = &settled
-			}
+		if outcome, detail, waiting, wake, err = w.ciOutcome(ctx, task, ci, now); err != nil {
+			return err
 		}
 	}
 	_ = profiles
 	if outcome == "" && deadline != nil && !now.Before(*deadline) {
 		outcome, detail = domain.WorkflowTimeout, fmt.Sprintf("%s waited %d minutes", node.Label, node.TimeoutMinutes)
+		if waiting != "" {
+			detail += ": " + waiting
+		}
 	}
 	if outcome == "" {
-		if wake == nil || (deadline != nil && deadline.Before(*wake)) {
-			wake = deadline
+		// The time budget also bounds a wait (a reviewer, an approval, CI):
+		// the task stays on the step and fails or asks a person.
+		budget := graph.BudgetDeadline(task.Cursor())
+		if budget != nil && !now.Before(*budget) {
+			reason := fmt.Sprintf("Workflow · The workflow's time budget of %d minutes is used up while %s waits", graph.Budget.MaxMinutes, node.Label)
+			if waiting != "" {
+				reason += " (" + waiting + ")"
+			}
+			apply := repository.WorkflowApply{Sequence: task.WorkflowSequence, Hold: true, Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: reason}}
+			if graph.Budget.Policy() == domain.WorkflowOnLimitAsk {
+				apply.Entry = repository.WorkflowEntry{Kind: repository.WorkflowEnterPause, Reason: reason + ". Continue or stop the workflow"}
+			}
+			_, err = w.tasks.ApplyWorkflow(ctx, task, apply)
+			return err
+		}
+		for _, at := range []*time.Time{deadline, budget} {
+			if at != nil && (wake == nil || at.Before(*wake)) {
+				wake = at
+			}
 		}
 		return w.tasks.SetWorkflowWake(ctx, task, wake)
 	}
 	return w.Outcome(ctx, task, outcome, detail)
+}
+
+// ciOutcome decides a CI check node. A failure reported by a webhook fails
+// it at once. Passing needs more than completed suites, because GitHub only
+// reports suites once they complete and a fast one (lint) finishes before a
+// slow one (tests) has reported anything: CI passes only when GitHub lists
+// at least one check for the published commit, none failed, none is still
+// running and the whole list could be read. Otherwise the node keeps waiting
+// (waiting says why) and polls again.
+func (w *WorkflowRunner) ciOutcome(ctx context.Context, task domain.AgentTask, ci *repository.WorkflowCI, now time.Time) (outcome, detail, waiting string, wake *time.Time, err error) {
+	if len(ci.Failed) > 0 {
+		var lines []string
+		for _, signal := range ci.Failed {
+			lines = append(lines, ciFailureLine(fmt.Sprintf("CI check suite %q concluded %q", signal.Name, signal.Outcome), signal.URL, signal.Summary))
+		}
+		return domain.WorkflowChecksFailed, strings.Join(lines, "\n\n"), "", nil, nil
+	}
+	idle := now.Add(ciIdlePoll)
+	if w.checks == nil || ci.Repository == "" || ci.CommitSHA == "" {
+		// Completed suites alone never prove that CI passed.
+		return "", "", "Kuayle cannot read this commit's checks from GitHub", nil, nil
+	}
+	checks, coverage, err := w.checks.CommitChecks(ctx, task.WorkspaceID, ci.Repository, ci.CommitSHA)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return "", "", "", nil, err
+		}
+		return "", "", "GitHub's checks could not be read", &idle, nil
+	}
+	var failed []string
+	pending := 0
+	for _, check := range checks {
+		switch check.State {
+		case "failed":
+			failed = append(failed, ciFailureLine(fmt.Sprintf("CI check %q failed", check.Name), check.URL, check.Summary))
+		case "pending":
+			pending++
+		}
+	}
+	switch {
+	case len(failed) > 0:
+		return domain.WorkflowChecksFailed, strings.Join(failed, "\n\n"), "", nil, nil
+	case coverage.incomplete():
+		return "", "", "not every check of the commit could be read", &idle, nil
+	case pending > 0:
+		poll := now.Add(ciPoll)
+		return "", "", fmt.Sprintf("%d of %d CI checks still running", pending, len(checks)), &poll, nil
+	case len(checks) == 0:
+		return "", "", "no CI check has started on the commit", &idle, nil
+	}
+	return domain.WorkflowChecksPassed, fmt.Sprintf("All %d CI checks passed", len(checks)), "", nil, nil
+}
+
+func ciFailureLine(line, url, summary string) string {
+	if url != "" {
+		line += " (" + url + ")"
+	}
+	if summary = strings.TrimSpace(summary); summary != "" {
+		line += ":\n" + summary
+	}
+	return line
 }
 
 // Workflow decisions a person can make.
@@ -427,7 +506,7 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 	if !task.RunsWorkflow() || task.WorkflowSequence != sequence || task.WorkflowStatus == nil {
 		return nil, ErrWorkflowDecision
 	}
-	graph, _, err := w.graph(ctx, *task)
+	graph, profiles, err := w.graph(ctx, *task)
 	if err != nil {
 		return nil, err
 	}
@@ -456,12 +535,7 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 		}
 		switch decision {
 		case WorkflowDecisionContinue:
-			// Continue past the limit once, with the outcome that reached it.
-			outcome := ""
-			if step.Outcome != nil {
-				outcome = *step.Outcome
-			}
-			if apply, err = w.plan(ctx, *task, outcome, "", true); err != nil {
+			if apply, err = w.continuePast(ctx, *task, *graph, profiles, node, *step); err != nil {
 				return nil, err
 			}
 		case WorkflowDecisionStop:
@@ -476,6 +550,41 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 	}
 	return w.tasks.DecideWorkflow(ctx, ws, id, *apply)
 }
+
+// continuePast resumes a workflow a person continued past a limit. The
+// time budget reached during a wait leaves the step unfinished: it waits
+// again with another time budget. A budget reached at a transition grants
+// another iteration and time budget of the same size, so later transitions
+// do not pause again at once; a node's visit limit is passed once. Either
+// way the step's outcome and saved detail (failing checks, review comments)
+// are passed along as they would have been.
+func (w *WorkflowRunner) continuePast(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, node domain.WorkflowNode, step domain.WorkflowStep) (*repository.WorkflowApply, error) {
+	if step.FinishedAt == nil {
+		return &repository.WorkflowApply{Sequence: task.WorkflowSequence, Hold: true, ExtendBudget: true,
+			Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: "Workflow · continued past the time budget by a person; " + node.Label + " waits again", WakeAt: ptr(w.now())}}, nil
+	}
+	outcome := ""
+	if step.Outcome != nil {
+		outcome = *step.Outcome
+	}
+	probe := graph.Decide(task.Cursor(), outcome, w.now(), profiles)
+	// The limit's reason was added to the step's detail when it stopped.
+	detail := strings.TrimSuffix(strings.TrimSuffix(step.Detail, probe.Reason), "\n")
+	switch probe.Limit {
+	case domain.WorkflowLimitIterations, domain.WorkflowLimitTime:
+		extended, now := task, w.now()
+		extended.WorkflowExtensions, extended.WorkflowBudgetFrom = task.WorkflowExtensions+1, &now
+		apply, err := w.plan(ctx, extended, outcome, detail, false)
+		if err != nil {
+			return nil, err
+		}
+		apply.ExtendBudget = true
+		return apply, nil
+	}
+	return w.plan(ctx, task, outcome, detail, true)
+}
+
+func ptr[T any](value T) *T { return &value }
 
 func truncateUTF8Bytes(value string, limit int) string {
 	if len(value) <= limit {

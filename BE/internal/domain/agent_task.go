@@ -78,6 +78,9 @@ type AgentTask struct {
 	WorkflowStatus     *string         `json:"workflow_status,omitempty" db:"workflow_status"`
 	WorkflowWakeAt     *time.Time      `json:"-" db:"workflow_wake_at"`
 	WorkflowSequence   int             `json:"-" db:"workflow_sequence"`
+	// WorkflowExtensions counts the budgets people granted by continuing.
+	WorkflowExtensions int        `json:"workflow_budget_extensions,omitempty" db:"workflow_budget_extensions"`
+	WorkflowBudgetFrom *time.Time `json:"workflow_budget_from,omitempty" db:"workflow_budget_from"`
 }
 
 // RunsWorkflow reports whether the task follows a configurable workflow
@@ -88,7 +91,7 @@ func (t AgentTask) RunsWorkflow() bool {
 
 // Cursor returns the task's workflow position.
 func (t AgentTask) Cursor() WorkflowCursor {
-	cursor := WorkflowCursor{Visits: map[string]int{}, Iterations: t.WorkflowIterations}
+	cursor := WorkflowCursor{Visits: map[string]int{}, Iterations: t.WorkflowIterations, Extensions: t.WorkflowExtensions}
 	if t.WorkflowNode != nil {
 		cursor.Node = *t.WorkflowNode
 	}
@@ -100,6 +103,9 @@ func (t AgentTask) Cursor() WorkflowCursor {
 	}
 	if t.WorkflowStartedAt != nil {
 		cursor.StartedAt = *t.WorkflowStartedAt
+	}
+	if t.WorkflowBudgetFrom != nil {
+		cursor.BudgetFrom = *t.WorkflowBudgetFrom
 	}
 	return cursor
 }

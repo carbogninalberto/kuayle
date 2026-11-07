@@ -11,6 +11,8 @@ DROP TABLE agent_task_workflow_steps;
 DROP INDEX agent_tasks_workflow_wake;
 ALTER TABLE agent_tasks
     DROP CONSTRAINT agent_tasks_workflow_cursor,
+    DROP COLUMN workflow_budget_from,
+    DROP COLUMN workflow_budget_extensions,
     DROP COLUMN workflow_sequence,
     DROP COLUMN workflow_wake_at,
     DROP COLUMN workflow_status,

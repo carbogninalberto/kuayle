@@ -51,9 +51,11 @@ func TestWorkflowsMigration(t *testing.T) {
 	// An existing task runs the Standard flow: nothing is pinned.
 	var pinned sql.NullString
 	var visits string
-	require.NoError(t, db.QueryRow(`SELECT workflow_version_id, workflow_visits::text FROM agent_tasks WHERE id=$1`, existing).Scan(&pinned, &visits))
+	var extensions int
+	require.NoError(t, db.QueryRow(`SELECT workflow_version_id, workflow_visits::text, workflow_budget_extensions FROM agent_tasks WHERE id=$1`, existing).Scan(&pinned, &visits, &extensions))
 	require.False(t, pinned.Valid)
 	require.Equal(t, "{}", visits)
+	require.Zero(t, extensions)
 
 	var workflow, version uuid.UUID
 	require.NoError(t, db.QueryRow(`INSERT INTO workflows(workspace_id,name,latest_version) VALUES($1,'Review loop',1) RETURNING id`, fixture.workspaceA).Scan(&workflow))
@@ -97,7 +99,9 @@ func TestWorkflowsMigration(t *testing.T) {
 		require.NoError(t, db.QueryRow(`SELECT to_regclass($1) IS NOT NULL`, table).Scan(&exists))
 		require.False(t, exists, table)
 	}
-	var column bool
-	require.NoError(t, db.QueryRow(`SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='agent_tasks' AND column_name='workflow_version_id')`).Scan(&column))
-	require.False(t, column)
+	for _, name := range []string{"workflow_version_id", "workflow_budget_extensions", "workflow_budget_from"} {
+		var column bool
+		require.NoError(t, db.QueryRow(`SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='agent_tasks' AND column_name=$1)`, name).Scan(&column))
+		require.False(t, column, name)
+	}
 }

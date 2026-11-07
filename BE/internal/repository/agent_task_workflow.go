@@ -72,6 +72,13 @@ type WorkflowApply struct {
 	Iteration bool
 	// Actor is the person whose decision this is; nil for the runner.
 	Actor *uuid.UUID
+	// Hold keeps the task on its current step, unfinished and without moves:
+	// the time budget ran out while it waited (Entry fails or pauses), or a
+	// person continued past that and it waits again (Entry waits).
+	Hold bool
+	// ExtendBudget grants another iteration and time budget of the same size
+	// (a person continued past a budget limit).
+	ExtendBudget bool
 }
 
 func workflowEvent(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) error {
@@ -289,6 +296,10 @@ func ComputeWorkflowApply(task domain.AgentTask, apply WorkflowApply, now time.T
 	if apply.Iteration && apply.Entry.Kind == WorkflowEnterIteration {
 		result.Cursor.Iterations++
 	}
+	if apply.ExtendBudget {
+		result.Cursor.Extensions++
+		result.Cursor.BudgetFrom = now
+	}
 	switch apply.Entry.Kind {
 	case WorkflowEnterWait, WorkflowEnterReview:
 		result.Status, result.Wake = domain.WorkflowStatusWaiting, apply.Entry.WakeAt
@@ -328,15 +339,50 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "workflow-runner:"+task.ID.String()); err != nil {
 		return err
 	}
-	if !task.RunsWorkflow() || task.WorkflowSequence != apply.Sequence || len(apply.Moves) == 0 || WorkflowEntryState(apply.Entry.Kind) == "" {
+	if !task.RunsWorkflow() || task.WorkflowSequence != apply.Sequence || (len(apply.Moves) == 0) != apply.Hold || WorkflowEntryState(apply.Entry.Kind) == "" {
 		return ErrAgentTaskConflict
+	}
+	if apply.Hold {
+		// Only an unfinished step is held: a waiting one stops (fails or
+		// pauses), and a paused one waits again. A hold keeps the sequence,
+		// so the status is what fences a replayed decision.
+		want := domain.WorkflowStatusWaiting
+		switch apply.Entry.Kind {
+		case WorkflowEnterWait:
+			want = domain.WorkflowStatusPaused
+		case WorkflowEnterFail, WorkflowEnterPause:
+		default:
+			return ErrAgentTaskConflict
+		}
+		if task.WorkflowStatus == nil || *task.WorkflowStatus != want {
+			return ErrAgentTaskConflict
+		}
+		var open bool
+		if err := tx.GetContext(ctx, &open, `SELECT EXISTS(SELECT 1 FROM agent_task_workflow_steps WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL)`, task.ID, apply.Sequence); err != nil {
+			return err
+		}
+		if !open {
+			return ErrAgentTaskConflict
+		}
 	}
 	switch task.State {
 	case "running", "validating", "publishing", "awaiting_review", "blocked":
 	default:
 		return ErrAgentTaskConflict
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET outcome=COALESCE(NULLIF($3,''),outcome),detail=CASE WHEN $4='' THEN detail ELSE $4 END,decided_by=COALESCE($5,decided_by),finished_at=COALESCE(finished_at,now()) WHERE task_id=$1 AND sequence=$2`,
+	// A step left (or a held wait that fails) no longer needs its review.
+	if !apply.Hold || apply.Entry.Kind == WorkflowEnterFail {
+		if err := cancelWorkflowReviews(ctx, tx, task.ID, apply.Sequence); err != nil {
+			return err
+		}
+	}
+	if apply.Hold {
+		if apply.Actor != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET decided_by=$3 WHERE task_id=$1 AND sequence=$2`, task.ID, apply.Sequence, apply.Actor); err != nil {
+				return err
+			}
+		}
+	} else if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET outcome=COALESCE(NULLIF($3,''),outcome),detail=CASE WHEN $4='' THEN detail ELSE $4 END,decided_by=COALESCE($5,decided_by),finished_at=COALESCE(finished_at,now()) WHERE task_id=$1 AND sequence=$2`,
 		task.ID, apply.Sequence, apply.Outcome, truncateBytes(apply.Detail, 16000), apply.Actor); err != nil {
 		return err
 	}
@@ -356,8 +402,8 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 	if err != nil {
 		return err
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_node=$2,workflow_visits=$3,workflow_iterations=$4,workflow_sequence=$5,workflow_status=$6,workflow_wake_at=$7 WHERE id=$1 RETURNING *`,
-		task.ID, result.Cursor.Node, visits, result.Cursor.Iterations, result.Sequence, result.Status, result.Wake); err != nil {
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_node=$2,workflow_visits=$3,workflow_iterations=$4,workflow_sequence=$5,workflow_status=$6,workflow_wake_at=$7,workflow_budget_extensions=$8,workflow_budget_from=$9 WHERE id=$1 RETURNING *`,
+		task.ID, result.Cursor.Node, visits, result.Cursor.Iterations, result.Sequence, result.Status, result.Wake, result.Cursor.Extensions, nullTime(result.Cursor.BudgetFrom)); err != nil {
 		return err
 	}
 	reason := apply.Entry.Reason
@@ -387,6 +433,13 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 	return workflowEvent(ctx, tx, *task)
 }
 
+func nullTime(at time.Time) *time.Time {
+	if at.IsZero() {
+		return nil
+	}
+	return &at
+}
+
 func truncateBytes(value string, limit int) string {
 	if len(value) <= limit {
 		return value
@@ -414,6 +467,11 @@ func workflowIteration(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 	if strings.TrimSpace(entry.Prompt) == "" || len(entry.Prompt) > 32768 || entry.Provider == "" {
 		return ErrConversationInvalid
 	}
+	if entry.ModelServerID == nil {
+		if entry.ModelServerID, err = defaultModelServer(ctx, tx, task.WorkspaceID, entry.Provider); err != nil {
+			return err
+		}
+	}
 	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET prompt=$2,agent_instructions=$3,provider=$4,model=$5,thinking=$6,model_server_id=$7,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,sign_in_required=false,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at
  FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`,
 		task.ID, entry.Prompt, entry.Instructions, entry.Provider, entry.Model, entry.Thinking, entry.ModelServerID); err != nil {
@@ -440,15 +498,27 @@ func workflowReview(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, en
 	return review, err
 }
 
+// defaultModelServer is the workspace's default model server when it speaks
+// the harness's protocol, as the task composer and requested reviews use it;
+// nil otherwise. Workflow steps carry no model server of their own.
+func defaultModelServer(ctx context.Context, q sqlx.QueryerContext, ws uuid.UUID, provider string) (*uuid.UUID, error) {
+	var server domain.AgentModelServer
+	err := sqlx.GetContext(ctx, q, &server, `SELECT * FROM agent_model_servers WHERE workspace_id=$1 AND is_default`, ws)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil || !server.Serves(provider) {
+		return nil, err
+	}
+	return &server.ID, nil
+}
+
 // insertReviewTask creates a review task of the reviewed task's published
 // work and its review record, in the caller's transaction.
 func insertReviewTask(ctx context.Context, tx *sqlx.Tx, reviewed domain.AgentTask, conversation, creator uuid.UUID, input domain.AgentReviewRequest, published *domain.AgentReviewTarget) (*domain.AgentTask, *domain.AgentReview, error) {
 	if input.ModelServerID == nil {
-		var server domain.AgentModelServer
-		err := tx.GetContext(ctx, &server, `SELECT * FROM agent_model_servers WHERE workspace_id=$1 AND is_default`, reviewed.WorkspaceID)
-		if err == nil && server.Serves(input.Provider) {
-			input.ModelServerID = &server.ID
-		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		var err error
+		if input.ModelServerID, err = defaultModelServer(ctx, tx, reviewed.WorkspaceID, input.Provider); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -497,11 +567,39 @@ func closeWorkflowOnFinish(ctx context.Context, tx *sqlx.Tx, task domain.AgentTa
 	default:
 		return nil
 	}
+	if err := cancelWorkflowReviews(ctx, tx, task.ID, 0); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET outcome=COALESCE(outcome,$2),finished_at=now() WHERE task_id=$1 AND finished_at IS NULL`, task.ID, "task_"+task.State); err != nil {
 		return err
 	}
 	_, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_status=$2,workflow_wake_at=NULL WHERE id=$1`, task.ID, status)
 	return err
+}
+
+// cancelWorkflowReviews asks the review tasks of steps the workflow leaves
+// before their verdict (a timeout, a budget, a person's stop, the task ending
+// outside the runner) to stop, as a cancellation request does: nothing would
+// read their result. sequence names the step; 0 means every open step.
+// Reviews lock themselves before their parent (wakeWorkflowParent), so one
+// locked by its own transition right now is skipped rather than risking a
+// deadlock; its result is then ignored.
+func cancelWorkflowReviews(ctx context.Context, tx *sqlx.Tx, taskID uuid.UUID, sequence int) error {
+	var reviews []domain.AgentTask
+	if err := tx.SelectContext(ctx, &reviews, `SELECT t.* FROM agent_tasks t JOIN agent_task_workflow_steps s ON s.review_task_id=t.id
+ WHERE s.task_id=$1 AND t.kind='review' AND t.review_of_task_id=$1 AND (s.sequence=$2 OR ($2=0 AND s.finished_at IS NULL))
+ AND t.state NOT IN ('completed','failed','cancelled','cancelling') FOR UPDATE OF t SKIP LOCKED`, taskID, sequence); err != nil {
+		return err
+	}
+	for i := range reviews {
+		if err := transitionAgentTask(ctx, tx, &reviews[i], "cancelling", "The workflow left this review's step before it finished", nil); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET lease_token=NULL,lease_expires_at=NULL,next_poll_at=now() WHERE id=$1`, reviews[i].ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // wakeWorkflowParent asks the worker to evaluate the workflow step waiting
@@ -571,11 +669,16 @@ func (r *AgentTaskRepository) LatestWorkflowReview(ctx context.Context, task dom
 	return findings.String, err
 }
 
-// WorkflowCI is the CI the current attempt's published commit reported.
+// WorkflowCI is the CI the current attempt's published commit reported
+// through webhooks. GitHub only sends completed check suites, so Passed never
+// proves that nothing is still running: the runner reads the commit's full
+// check list from GitHub (Repository, CommitSHA) before it passes CI.
 type WorkflowCI struct {
-	Failed    []domain.AgentTaskSignal
-	Passed    []domain.AgentTaskSignal
-	Published bool
+	Failed     []domain.AgentTaskSignal
+	Passed     []domain.AgentTaskSignal
+	Published  bool
+	Repository string
+	CommitSHA  string
 }
 
 // failedCIOutcomes and passedCIOutcomes classify GitHub check suite conclusions.
@@ -586,8 +689,8 @@ var (
 
 func (r *AgentTaskRepository) WorkflowCI(ctx context.Context, task domain.AgentTask) (*WorkflowCI, error) {
 	out := &WorkflowCI{}
-	if _, err := reviewTarget(ctx, r.db, task); err == nil {
-		out.Published = true
+	if target, err := reviewTarget(ctx, r.db, task); err == nil {
+		out.Published, out.Repository, out.CommitSHA = true, target.Repository, target.CommitSHA
 	} else if !errors.Is(err, ErrNoReviewTarget) {
 		return nil, err
 	}

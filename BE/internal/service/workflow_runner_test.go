@@ -27,9 +27,13 @@ type workflowWorld struct {
 	published map[uuid.UUID]bool
 	reviews   map[uuid.UUID]*repository.WorkflowReview
 	ci        map[uuid.UUID]*repository.WorkflowCI
-	version   domain.WorkflowVersion
-	profiles  map[uuid.UUID]domain.AgentProfile
-	entries   []repository.WorkflowEntry
+	// checks is what GitHub lists for each published commit (keyed by run).
+	checks   map[uuid.UUID][]PullRequestCheck
+	coverage ChecksCoverage
+	noGitHub bool
+	version  domain.WorkflowVersion
+	profiles map[uuid.UUID]domain.AgentProfile
+	entries  []repository.WorkflowEntry
 }
 
 func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowApply) (*domain.AgentTask, error) {
@@ -42,14 +46,28 @@ func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowAp
 		return nil, repository.ErrAgentTaskConflict
 	}
 	current := w.steps[apply.Sequence]
-	if apply.Outcome != "" {
-		current.Outcome = &apply.Outcome
-	}
-	if apply.Detail != "" {
-		current.Detail = apply.Detail
-	}
-	if current.FinishedAt == nil {
-		current.FinishedAt = &w.now
+	if apply.Hold {
+		// As applyWorkflowTx: only an unfinished step is held, without moves.
+		if len(apply.Moves) > 0 || current.FinishedAt != nil {
+			return nil, repository.ErrAgentTaskConflict
+		}
+		want := domain.WorkflowStatusWaiting
+		if apply.Entry.Kind == repository.WorkflowEnterWait {
+			want = domain.WorkflowStatusPaused
+		}
+		if *w.task.WorkflowStatus != want {
+			return nil, repository.ErrAgentTaskConflict
+		}
+	} else {
+		if apply.Outcome != "" {
+			current.Outcome = &apply.Outcome
+		}
+		if apply.Detail != "" {
+			current.Detail = apply.Detail
+		}
+		if current.FinishedAt == nil {
+			current.FinishedAt = &w.now
+		}
 	}
 	result := repository.ComputeWorkflowApply(w.task, apply, w.now)
 	for i := range result.Steps {
@@ -63,6 +81,11 @@ func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowAp
 	node, status := result.Cursor.Node, result.Status
 	w.task.WorkflowNode, w.task.WorkflowVisits, w.task.WorkflowIterations = &node, visits, result.Cursor.Iterations
 	w.task.WorkflowSequence, w.task.WorkflowStatus, w.task.WorkflowWakeAt = result.Sequence, &status, result.Wake
+	w.task.WorkflowExtensions = result.Cursor.Extensions
+	if !result.Cursor.BudgetFrom.IsZero() {
+		from := result.Cursor.BudgetFrom
+		w.task.WorkflowBudgetFrom = &from
+	}
 	entry := apply.Entry
 	w.entries = append(w.entries, entry)
 	switch entry.Kind {
@@ -109,10 +132,26 @@ func (s worldStore) LatestWorkflowReview(_ context.Context, _ domain.AgentTask) 
 	return "", nil
 }
 func (s worldStore) WorkflowCI(_ context.Context, task domain.AgentTask) (*repository.WorkflowCI, error) {
-	if ci := s.w.ci[task.RunID]; ci != nil {
-		return ci, nil
+	ci := repository.WorkflowCI{}
+	if recorded := s.w.ci[task.RunID]; recorded != nil {
+		ci = *recorded
 	}
-	return &repository.WorkflowCI{Published: s.w.published[task.RunID]}, nil
+	if s.w.published[task.RunID] {
+		ci.Published, ci.Repository, ci.CommitSHA = true, "acme/app", task.RunID.String()
+	}
+	return &ci, nil
+}
+
+// CommitChecks is GitHub's full check list of a published commit.
+func (s worldStore) CommitChecks(_ context.Context, _ uuid.UUID, repository, sha string) ([]PullRequestCheck, ChecksCoverage, error) {
+	if repository != "acme/app" {
+		return nil, ChecksCoverage{}, errors.New("unknown repository")
+	}
+	run, err := uuid.Parse(sha)
+	if err != nil {
+		return nil, ChecksCoverage{}, err
+	}
+	return s.w.checks[run], s.w.coverage, nil
 }
 func (s worldStore) HasPublishedWork(_ context.Context, task domain.AgentTask) (bool, error) {
 	return s.w.published[task.RunID], nil
@@ -179,6 +218,7 @@ func newWorkflowHarness(t *testing.T, budget domain.WorkflowBudget) *workflowHar
 			2: {Sequence: 2, NodeID: "implement", NodeType: "agent", Visit: 1},
 		},
 		runs: map[uuid.UUID]*repository.WorkflowRun{}, published: map[uuid.UUID]bool{}, reviews: map[uuid.UUID]*repository.WorkflowReview{}, ci: map[uuid.UUID]*repository.WorkflowCI{},
+		checks:  map[uuid.UUID][]PullRequestCheck{},
 		version: domain.WorkflowVersion{ID: versionID, Graph: raw},
 		profiles: map[uuid.UUID]domain.AgentProfile{
 			implementer: {ID: implementer, Name: "Implementer", Role: domain.AgentRoleImplementer, Harness: "claude-code", Instructions: "Write tests."},
@@ -197,6 +237,48 @@ func (h *workflowHarness) restart() {
 	store := worldStore{h.w}
 	h.runner = newWorkflowRunner(store, store, func(ctx context.Context, ws uuid.UUID, p domain.AgentProfile) error { return h.policy(ctx, ws, p) })
 	h.runner.now = func() time.Time { return h.w.now }
+	if !h.w.noGitHub {
+		h.runner.SetCIChecks(store)
+	}
+}
+
+// tick is the worker's claim: a task waiting in awaiting_review is evaluated
+// only once its wake time is due, never because a test asks for it.
+func (h *workflowHarness) tick() bool {
+	h.t.Helper()
+	task := h.w.task
+	if task.State != "awaiting_review" || task.WorkflowWakeAt == nil || h.w.now.Before(*task.WorkflowWakeAt) {
+		return false
+	}
+	require.NoError(h.t, h.runner.Evaluate(context.Background(), task))
+	return true
+}
+
+// signalCI records a completed CI suite as the GitHub webhook does, waking
+// the task only while its workflow waits (repository.recordSignal).
+func (h *workflowHarness) signalCI(outcome, summary string) {
+	h.t.Helper()
+	ci := h.w.ci[h.w.task.RunID]
+	if ci == nil {
+		ci = &repository.WorkflowCI{}
+		h.w.ci[h.w.task.RunID] = ci
+	}
+	signal := domain.AgentTaskSignal{Kind: "ci", Name: "Tests", Outcome: outcome, Summary: summary, UpdatedAt: h.w.now}
+	if outcome == "success" {
+		ci.Passed = append(ci.Passed, signal)
+	} else {
+		ci.Failed = append(ci.Failed, signal)
+	}
+	if h.w.task.State == "awaiting_review" && *h.w.task.WorkflowStatus == domain.WorkflowStatusWaiting {
+		now := h.w.now
+		h.w.task.WorkflowWakeAt = &now
+	}
+	h.tick()
+}
+
+// github sets what GitHub lists for the current run's published commit.
+func (h *workflowHarness) github(checks ...PullRequestCheck) {
+	h.w.checks[h.w.task.RunID] = checks
 }
 
 // The worker side: what the task machinery reports for each node.
@@ -223,21 +305,24 @@ func (h *workflowHarness) review(verdict, findings string) {
 	require.Equal(h.t, "review", step.NodeID)
 	require.NotNil(h.t, step.ReviewTaskID, "the reviewer runs as a review task")
 	h.w.reviews[*step.ReviewTaskID] = &repository.WorkflowReview{State: "completed", Verdict: &verdict, Findings: &findings}
-	require.NoError(h.t, h.runner.Evaluate(context.Background(), h.w.task))
+	// A finished review wakes the step waiting for it (wakeWorkflowParent).
+	now := h.w.now
+	h.w.task.WorkflowWakeAt = &now
+	require.True(h.t, h.tick())
+	h.tick() // a CI node entered next is evaluated at once
 }
 
+// ci finishes CI on the published commit: GitHub lists the check, and its
+// webhook reports the suite.
 func (h *workflowHarness) ci(outcome, summary string) {
 	h.t.Helper()
 	require.Equal(h.t, "ci", h.current().NodeID)
-	signal := domain.AgentTaskSignal{Kind: "ci", Name: "Tests", Outcome: outcome, Summary: summary, UpdatedAt: h.w.now}
-	ci := &repository.WorkflowCI{Published: true}
-	if outcome == "success" {
-		ci.Passed = []domain.AgentTaskSignal{signal}
-	} else {
-		ci.Failed = []domain.AgentTaskSignal{signal}
+	state := "passed"
+	if outcome != "success" {
+		state = "failed"
 	}
-	h.w.ci[h.w.task.RunID] = ci
-	require.NoError(h.t, h.runner.Evaluate(context.Background(), h.w.task))
+	h.github(PullRequestCheck{Name: "Tests", State: state, Summary: summary})
+	h.signalCI(outcome, summary)
 }
 
 func (h *workflowHarness) current() domain.WorkflowStep { return *h.w.steps[h.w.task.WorkflowSequence] }
@@ -284,7 +369,7 @@ func TestWorkflowRunnerExampleEndToEnd(t *testing.T) {
 	h.review("approve", "Looks good")
 	require.Equal(t, "ci", h.current().NodeID)
 	require.Equal(t, "awaiting_review", h.w.task.State)
-	require.NotNil(t, h.w.task.WorkflowWakeAt, "CI waits with its timeout as the wake-up")
+	require.Equal(t, "Waiting for CI", ciWaiting(h), "nothing has started on the commit yet")
 
 	// CI fails: back to the implementer with the failing output.
 	h.restart()
@@ -298,12 +383,7 @@ func TestWorkflowRunnerExampleEndToEnd(t *testing.T) {
 	h.agentFinishes("Fixed the test")
 	h.published()
 	h.review("approve", "Still good")
-	// A success settles for a minute so a failing sibling suite can report.
 	h.ci("success", "")
-	require.Equal(t, "ci", h.current().NodeID)
-	require.Equal(t, h.w.now.Add(ciSettle), *h.w.task.WorkflowWakeAt)
-	h.w.now = h.w.now.Add(ciSettle)
-	require.NoError(t, h.runner.Evaluate(context.Background(), h.w.task))
 	require.Equal(t, "ship", h.current().NodeID)
 	require.Contains(t, h.w.task.Reason, "waiting for approval: Ready to ship")
 
@@ -371,13 +451,103 @@ func TestWorkflowRunnerAsksAPersonAtALimit(t *testing.T) {
 	require.Equal(t, "review", h.current().NodeID)
 	require.Equal(t, "awaiting_review", h.w.task.State)
 
-	// The next limit asks again; stopping fails the task.
+	require.Equal(t, 1, h.w.task.WorkflowExtensions)
+
+	// Continuing granted a new time budget from the decision: the next
+	// transitions run without asking again (review finding 4) ...
 	h.review("request_changes", "- again")
+	require.Equal(t, "queued", h.w.task.State, "back to the implementer without a new pause")
+
+	// ... until that budget is used up too; stopping then fails the task.
+	h.w.now = h.w.now.Add(61 * time.Minute)
+	h.agentFinishes("second")
 	require.Equal(t, "blocked", h.w.task.State)
-	_, err = h.runner.Decide(context.Background(), h.w.task.WorkspaceID, h.w.task.ID, h.w.task.WorkflowSequence, WorkflowDecisionStop)
-	require.NoError(t, err)
+	require.Contains(t, h.w.task.Reason, "time budget of 60 minutes")
+	h.decide(WorkflowDecisionStop)
 	require.Equal(t, "cancelling", h.w.task.State)
 	require.Equal(t, domain.WorkflowStatusFailed, *h.w.task.WorkflowStatus)
+}
+
+func (h *workflowHarness) decide(decision string) {
+	h.t.Helper()
+	_, err := h.runner.Decide(context.Background(), h.w.task.WorkspaceID, h.w.task.ID, h.w.task.WorkflowSequence, decision)
+	require.NoError(h.t, err)
+}
+
+// Continuing past the iteration budget grants another budget of the same
+// size, and passes along what the step that reached it produced: the
+// failing CI output reaches the implementer (review findings 4 and 6).
+func TestWorkflowRunnerContinuesPastTheIterationBudget(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{MaxIterations: 1, OnExhausted: domain.WorkflowOnLimitAsk})
+	h.agentFinishes("first")
+	h.published()
+	h.review("approve", "ok")
+	h.ci("failure", "TestThemeToggle failed")
+	require.Equal(t, "blocked", h.w.task.State, "a second iteration would exceed the budget of 1")
+	require.Contains(t, h.w.task.Reason, "budget of 1 iterations is used up")
+
+	h.decide(WorkflowDecisionContinue)
+	require.Equal(t, "queued", h.w.task.State)
+	require.Equal(t, "implement", h.current().NodeID)
+	require.Contains(t, h.w.task.Prompt, "TestThemeToggle failed", "{{failing_checks}} is not empty after a pause")
+	require.NotContains(t, h.w.task.Prompt, "budget of 1 iterations", "the limit's reason is not passed as check output")
+	require.Equal(t, 1, h.w.task.WorkflowExtensions)
+	require.Equal(t, 2, h.w.task.WorkflowIterations)
+
+	// The extension is one more budget of 1 iteration: the third asks again.
+	h.agentFinishes("second")
+	h.published()
+	h.review("request_changes", "- not yet")
+	require.Equal(t, "blocked", h.w.task.State)
+	require.Contains(t, h.w.task.Reason, "budget of 2 iterations is used up")
+}
+
+// The time budget bounds a step that waits without a timeout (an approval,
+// a reviewer, CI), not only transitions (review finding 4).
+func TestWorkflowRunnerTimeBudgetBoundsWaitingSteps(t *testing.T) {
+	toShip := func(h *workflowHarness) {
+		h.agentFinishes("done")
+		h.published()
+		h.review("approve", "ok")
+		h.ci("success", "")
+		require.Equal(t, "ship", h.current().NodeID, "the approval has no timeout")
+		require.True(t, h.tick(), "an entered approval is evaluated at once")
+		require.Equal(t, h.w.task.WorkflowStartedAt.Add(time.Hour), *h.w.task.WorkflowWakeAt, "it wakes when the time budget runs out")
+	}
+	t.Run("fail", func(t *testing.T) {
+		h := newWorkflowHarness(t, domain.WorkflowBudget{MaxMinutes: 60})
+		toShip(h)
+		h.w.now = h.w.now.Add(59 * time.Minute)
+		require.False(t, h.tick())
+		h.w.now = h.w.now.Add(time.Minute)
+		require.True(t, h.tick())
+		require.Equal(t, "cancelling", h.w.task.State)
+		require.Equal(t, domain.WorkflowStatusFailed, *h.w.task.WorkflowStatus)
+		require.Contains(t, h.w.task.Reason, "time budget of 60 minutes is used up while Ready to ship waits")
+		require.Equal(t, "ship", h.current().NodeID, "the task stays on the waiting step")
+	})
+	t.Run("ask", func(t *testing.T) {
+		h := newWorkflowHarness(t, domain.WorkflowBudget{MaxMinutes: 60, OnExhausted: domain.WorkflowOnLimitAsk})
+		toShip(h)
+		waiting := h.w.task.WorkflowSequence
+		h.w.now = h.w.now.Add(time.Hour)
+		require.True(t, h.tick())
+		require.Equal(t, "blocked", h.w.task.State)
+		require.Equal(t, domain.WorkflowStatusPaused, *h.w.task.WorkflowStatus)
+		require.Nil(t, h.current().FinishedAt, "the step is held, not left")
+		_, err := h.runner.Decide(context.Background(), h.w.task.WorkspaceID, h.w.task.ID, waiting, WorkflowDecisionApprove)
+		require.ErrorIs(t, err, ErrWorkflowDecision, "a paused approval is continued first")
+
+		// Continuing waits on the same step again, with a new time budget.
+		h.decide(WorkflowDecisionContinue)
+		require.Equal(t, "awaiting_review", h.w.task.State)
+		require.Equal(t, domain.WorkflowStatusWaiting, *h.w.task.WorkflowStatus)
+		require.Equal(t, waiting, h.w.task.WorkflowSequence)
+		require.True(t, h.tick())
+		require.Equal(t, h.w.now.Add(time.Hour), *h.w.task.WorkflowWakeAt)
+		h.decide(WorkflowDecisionApprove)
+		require.Equal(t, "completed", h.w.task.State)
+	})
 }
 
 func TestWorkflowRunnerAppliesWorkspacePolicyToEveryStep(t *testing.T) {
@@ -416,12 +586,122 @@ func TestWorkflowRunnerTimesOutWaitingNodes(t *testing.T) {
 	h.agentFinishes("done")
 	h.published()
 	h.review("approve", "ok")
-	require.Equal(t, "ci", h.current().NodeID)
-	h.w.steps[h.w.task.WorkflowSequence].EnteredAt = h.w.now
-	require.NoError(t, h.runner.Evaluate(context.Background(), h.w.task))
 	require.Equal(t, "ci", h.current().NodeID, "nothing reported yet")
-	h.w.now = h.w.now.Add(121 * time.Minute)
-	require.NoError(t, h.runner.Evaluate(context.Background(), h.w.task))
+	h.w.steps[h.w.task.WorkflowSequence].EnteredAt = h.w.now
+	for range 30 {
+		h.w.now = h.w.now.Add(ciIdlePoll)
+		h.tick()
+	}
 	require.Equal(t, "failed", h.current().NodeID)
 	require.Equal(t, "CI → Failed: timed out", h.current().Reason)
+	require.Contains(t, h.w.steps[h.w.task.WorkflowSequence-1].Detail, "no CI check has started on the commit", "the timeout says what it waited for")
+}
+
+// ciWaiting names what a waiting CI node waits for, from its wake-up: due
+// now, a poll for running checks, or an idle poll.
+func ciWaiting(h *workflowHarness) string {
+	wake := h.w.task.WorkflowWakeAt
+	switch {
+	case wake == nil:
+		return "Only an event"
+	case wake.Equal(h.w.now.Add(ciPoll)):
+		return "Polling running checks"
+	case wake.Equal(h.w.now.Add(ciIdlePoll)):
+		return "Waiting for CI"
+	}
+	return wake.Sub(h.w.now).String()
+}
+
+// CI that finishes while the reviewer still works is read as soon as the CI
+// step starts: the step does not sit until its timeout (review finding 1).
+func TestWorkflowRunnerReadsCIThatFinishedDuringTheReview(t *testing.T) {
+	for _, tc := range []struct {
+		name, outcome, next string
+	}{
+		{"passed", "success", "ship"},
+		{"failed", "failure", "implement"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newWorkflowHarness(t, domain.WorkflowBudget{})
+			h.agentFinishes("Added a theme toggle")
+			h.published()
+			require.Equal(t, "review", h.current().NodeID)
+			state := map[string]string{"success": "passed", "failure": "failed"}[tc.outcome]
+			h.github(PullRequestCheck{Name: "Tests", State: state, Summary: "TestThemeToggle failed"})
+			h.signalCI(tc.outcome, "TestThemeToggle failed")
+			require.Equal(t, "review", h.current().NodeID, "the CI result does not decide the review")
+
+			h.restart()
+			h.review("approve", "Looks good")
+			require.Equal(t, tc.next, h.current().NodeID, "no new CI event and no timeout were needed")
+			if tc.next == "implement" {
+				require.Contains(t, h.w.task.Prompt, "TestThemeToggle failed", "the failing output is passed along")
+			}
+		})
+	}
+}
+
+// A passed suite does not pass CI while GitHub still runs another check of
+// the commit; a check failing on GitHub fails it without its webhook
+// (review finding 2).
+func TestWorkflowRunnerWaitsForEveryCICheck(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{})
+	h.agentFinishes("Added a theme toggle")
+	h.published()
+	h.review("approve", "Looks good")
+	require.Equal(t, "ci", h.current().NodeID)
+
+	// Lint finished fast; tests are still running.
+	h.github(PullRequestCheck{Name: "Lint", State: "passed"}, PullRequestCheck{Name: "Tests", State: "pending"})
+	h.signalCI("success", "")
+	require.Equal(t, "ci", h.current().NodeID, "a running check keeps CI waiting")
+	require.Equal(t, "Polling running checks", ciWaiting(h))
+	h.w.now = h.w.now.Add(10 * time.Minute)
+	require.True(t, h.tick())
+	require.Equal(t, "ci", h.current().NodeID, "still running, however long ago lint passed")
+
+	// GitHub could not list everything: never treated as passing.
+	h.github(PullRequestCheck{Name: "Lint", State: "passed"}, PullRequestCheck{Name: "Tests", State: "passed"})
+	h.w.coverage = ChecksCoverage{StatusesUnavailable: true}
+	h.w.now = h.w.now.Add(ciPoll)
+	require.True(t, h.tick())
+	require.Equal(t, "ci", h.current().NodeID)
+	require.Equal(t, "Waiting for CI", ciWaiting(h))
+
+	// The slow check fails on GitHub before its suite's webhook arrives.
+	h.w.coverage = ChecksCoverage{}
+	h.github(PullRequestCheck{Name: "Lint", State: "passed"}, PullRequestCheck{Name: "Tests", State: "failed", URL: "https://ci.test/1", Summary: "TestThemeToggle failed"})
+	h.w.now = h.w.now.Add(ciIdlePoll)
+	require.True(t, h.tick())
+	require.Equal(t, "implement", h.current().NodeID)
+	require.Contains(t, h.w.task.Prompt, "CI check \"Tests\" failed (https://ci.test/1)")
+	require.Contains(t, h.w.task.Prompt, "TestThemeToggle failed")
+
+	// The next round passes once every check of the new commit completed.
+	h.agentFinishes("Fixed the test")
+	h.published()
+	h.review("approve", "ok")
+	h.github(PullRequestCheck{Name: "Lint", State: "passed"}, PullRequestCheck{Name: "Tests", State: "passed"})
+	h.w.now = h.w.now.Add(ciIdlePoll)
+	require.True(t, h.tick())
+	require.Equal(t, "ship", h.current().NodeID)
+	require.Equal(t, "All 2 CI checks passed", h.w.steps[h.w.task.WorkflowSequence-1].Detail)
+}
+
+// Without GitHub's check list a completed suite never passes CI: only a
+// failure or the timeout leaves the step.
+func TestWorkflowRunnerNeverPassesCIWithoutGitHub(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{})
+	h.w.noGitHub = true
+	h.restart()
+	h.agentFinishes("done")
+	h.published()
+	h.review("approve", "ok")
+	h.signalCI("success", "")
+	require.Equal(t, "ci", h.current().NodeID)
+	h.w.now = h.w.now.Add(121 * time.Minute)
+	h.w.task.WorkflowWakeAt = &h.w.now // the timeout's wake-up
+	require.True(t, h.tick())
+	require.Equal(t, "failed", h.current().NodeID)
+	require.Contains(t, h.w.steps[h.w.task.WorkflowSequence-1].Detail, "cannot read this commit's checks")
 }

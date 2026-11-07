@@ -430,6 +430,12 @@ func ValidateWorkflowGraph(g WorkflowGraph, profiles map[uuid.UUID]AgentProfile)
 		if !allowed {
 			add("invalid_condition", edge.Source, edge.ID, "%s: a transition on %q cannot leave this kind of step", source.Label, edge.Condition)
 		}
+		// Merging the pull request completes the task, so nothing after a
+		// merge would run: its merged (or else) transition ends as done.
+		if target := nodes[edge.Target]; source.Type == WorkflowNodeMerge && (edge.Condition == WorkflowMerged || edge.Condition == WorkflowElse) &&
+			(target.Type != WorkflowNodeEnd || target.Outcome != WorkflowEndDone) {
+			add("merge_target", edge.Source, edge.ID, "%s: merging completes the task, so this transition leads to an end that finishes as done", source.Label)
+		}
 		for _, other := range outgoing[edge.Source] {
 			if other.Condition == edge.Condition {
 				add("duplicate_condition", edge.Source, edge.ID, "%s: two transitions leave on %q", source.Label, edge.Condition)
@@ -533,6 +539,29 @@ type WorkflowCursor struct {
 	Visits     map[string]int `json:"visits"`
 	Iterations int            `json:"iterations"`
 	StartedAt  time.Time      `json:"started_at"`
+	// Extensions counts the budgets a person granted by continuing past the
+	// iteration or time budget: each adds an iteration budget of the same
+	// size, and the time budget starts again at BudgetFrom (zero: StartedAt).
+	Extensions int       `json:"extensions"`
+	BudgetFrom time.Time `json:"budget_from"`
+}
+
+// IterationAllowance is how many iterations the cursor may start (0: no limit).
+func (b WorkflowBudget) IterationAllowance(c WorkflowCursor) int {
+	return b.MaxIterations * (1 + c.Extensions)
+}
+
+// BudgetDeadline is when the cursor's time budget runs out, or nil.
+func (g WorkflowGraph) BudgetDeadline(c WorkflowCursor) *time.Time {
+	from := c.BudgetFrom
+	if from.IsZero() {
+		from = c.StartedAt
+	}
+	if g.Budget.MaxMinutes <= 0 || from.IsZero() {
+		return nil
+	}
+	at := from.Add(time.Duration(g.Budget.MaxMinutes) * time.Minute)
+	return &at
 }
 
 // Limit kinds a decision can hit.
@@ -603,10 +632,10 @@ func (g WorkflowGraph) Decide(cursor WorkflowCursor, outcome string, now time.Ti
 	case to.MaxVisits > 0 && cursor.Visits[to.ID] >= to.MaxVisits:
 		decision.Limit = WorkflowLimitVisits
 		decision.Reason = fmt.Sprintf("%s reached its limit of %d visits after %s", to.Label, to.MaxVisits, because)
-	case g.Budget.MaxIterations > 0 && g.Iteration(to, profiles) && cursor.Iterations >= g.Budget.MaxIterations:
+	case g.Budget.MaxIterations > 0 && g.Iteration(to, profiles) && cursor.Iterations >= g.Budget.IterationAllowance(cursor):
 		decision.Limit = WorkflowLimitIterations
-		decision.Reason = fmt.Sprintf("The workflow's budget of %d iterations is used up; %s would start another", g.Budget.MaxIterations, to.Label)
-	case g.Budget.MaxMinutes > 0 && !cursor.StartedAt.IsZero() && now.Sub(cursor.StartedAt) >= time.Duration(g.Budget.MaxMinutes)*time.Minute:
+		decision.Reason = fmt.Sprintf("The workflow's budget of %d iterations is used up; %s would start another", g.Budget.IterationAllowance(cursor), to.Label)
+	case g.BudgetDeadline(cursor) != nil && !now.Before(*g.BudgetDeadline(cursor)):
 		decision.Limit = WorkflowLimitTime
 		decision.Reason = fmt.Sprintf("The workflow's time budget of %d minutes is used up before %s", g.Budget.MaxMinutes, to.Label)
 	}
@@ -736,6 +765,8 @@ func StandardWorkflowGraph() WorkflowGraph {
 			{ID: "e-implemented", Source: "implement", Target: "validate", Condition: WorkflowAgentFinished},
 			{ID: "e-implement-failed", Source: "implement", Target: "failed", Condition: WorkflowAgentFailed},
 			{ID: "e-validated", Source: "validate", Target: "publish", Condition: WorkflowChecksPassed},
+			// Without a configured check the change is still published, as a draft.
+			{ID: "e-unchecked", Source: "validate", Target: "publish", Condition: WorkflowElse},
 			{ID: "e-validation-failed", Source: "validate", Target: "failed", Condition: WorkflowChecksFailed},
 			{ID: "e-published", Source: "publish", Target: "review", Condition: WorkflowPublished},
 			{ID: "e-accepted", Source: "review", Target: "done", Condition: WorkflowApprovalApproved},

@@ -275,6 +275,9 @@ func main() {
 	assistantApprovals.SetPullRequests(githubSvc, repository.NewAgentTaskRepository(db))
 	assistantTools.SetPullRequests(githubSvc, repository.NewAgentTaskRepository(db))
 	assistantTools.SetReleases(githubSvc, devMachineRepo, assistantSkills)
+	// CI check nodes of configurable workflows confirm the commit's full
+	// check list with GitHub before they pass (KUA-95).
+	agentTaskSvc.Workflow().SetCIChecks(githubSvc)
 	// Repository scans read temporary checkouts on this server, removed when
 	// they expire and on shutdown.
 	repositoryCheckouts := service.NewRepositoryCheckouts(githubSvc)

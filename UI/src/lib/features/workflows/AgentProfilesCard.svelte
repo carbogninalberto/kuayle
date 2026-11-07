@@ -76,6 +76,14 @@
 		editing = profile;
 	}
 
+	// Refusals the server explains with a code get a translated message.
+	function profileError(error: unknown) {
+		const code = (error as { error?: { code?: string } }).error?.code;
+		if (code === 'PROFILE_ROLE_IN_USE') appToast.error(m['profiles.role_in_use']());
+		else if (code === 'PROFILE_IN_USE') appToast.error(m['profiles.in_use']());
+		else appToast.apiError(error, m['profiles.failed_save']());
+	}
+
 	async function save(event: SubmitEvent) {
 		event.preventDefault();
 		if (!editing || saving || !canManage) return;
@@ -88,7 +96,7 @@
 			editing = null;
 			await load();
 		} catch (error) {
-			appToast.apiError(error, m['profiles.failed_save']());
+			profileError(error);
 		} finally {
 			saving = false;
 		}
@@ -103,7 +111,7 @@
 			archiving = null;
 			await load();
 		} catch (error) {
-			appToast.apiError(error, m['profiles.failed_save']());
+			profileError(error);
 		} finally {
 			saving = false;
 		}

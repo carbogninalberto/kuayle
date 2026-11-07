@@ -157,6 +157,31 @@ func TestWorkflowSettingsPermissionsValidationAndDefaults(t *testing.T) {
 
 	// A profile the workflow uses cannot be archived; an unused one can.
 	require.ErrorIs(t, repo.ArchiveProfile(ctx, ws, reviewer, owner), ErrAgentProfileInUse)
+
+	// A saved version's semantics never change under it: the role of a
+	// profile any version uses is fixed (a reviewer turned implementer would
+	// edit code, and running tasks would find no transition). Other fields
+	// and unused profiles stay editable.
+	toImplementer := domain.AgentProfileInput{Name: "Reviewer", Role: domain.AgentRoleImplementer, Harness: "codex"}
+	_, err = repo.UpdateProfile(ctx, ws, reviewer, owner, toImplementer)
+	require.ErrorIs(t, err, ErrAgentProfileRoleInUse)
+	var role string
+	require.NoError(t, db.Get(&role, `SELECT role FROM agent_profiles WHERE id=$1`, reviewer))
+	require.Equal(t, domain.AgentRoleReviewer, role)
+	renamed, err := repo.UpdateProfile(ctx, ws, reviewer, owner, domain.AgentProfileInput{Name: "Strict reviewer", Role: domain.AgentRoleReviewer, Harness: "codex", Model: "gpt-5.5"})
+	require.NoError(t, err, "the same role with another model is fine")
+	require.Equal(t, "gpt-5.5", renamed.Model)
+	docsAsTester := input
+	docsAsTester.Role = domain.AgentRoleTester
+	_, err = repo.UpdateProfile(ctx, ws, docs.ID, owner, docsAsTester)
+	require.NoError(t, err, "an unused profile may change role")
+	// An archived workflow keeps its versions, which running tasks may pin.
+	_, err = db.Exec(`UPDATE workflows SET archived_at=now() WHERE id=$1`, created.ID)
+	require.NoError(t, err)
+	_, err = repo.UpdateProfile(ctx, ws, reviewer, owner, toImplementer)
+	require.ErrorIs(t, err, ErrAgentProfileRoleInUse)
+	_, err = db.Exec(`UPDATE workflows SET archived_at=NULL WHERE id=$1`, created.ID)
+	require.NoError(t, err)
 	require.NoError(t, repo.ArchiveProfile(ctx, ws, docs.ID, owner))
 
 	// Defaults: project, then team, then workspace; none is Standard.
@@ -222,6 +247,11 @@ func TestWorkflowTaskMovesThroughTheRepository(t *testing.T) {
 	version, err := workflows.ResolveWorkflow(ctx, ws, legacy.IssueID, &chosen)
 	require.NoError(t, err)
 
+	// The workspace's default model server speaks Claude Code's protocol:
+	// implementing steps use it like the composer and reviews do.
+	var server uuid.UUID
+	require.NoError(t, db.Get(&server, `INSERT INTO agent_model_servers(workspace_id,name,anthropic_base_url,encrypted_api_key,default_model,is_default) VALUES($1,'Gateway','https://models.example.test','x','opus',true) RETURNING id`, ws))
+
 	task, err := repo.Create(ctx, ws, *legacy.ConversationID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Add dark mode", Provider: "claude-code",
 		Workflow: version, WorkflowInstructions: "Agent profile \"Implementer\" (implementer):\nWrite tests."})
 	require.NoError(t, err)
@@ -229,6 +259,8 @@ func TestWorkflowTaskMovesThroughTheRepository(t *testing.T) {
 	require.Equal(t, "implement", *task.WorkflowNode)
 	require.Equal(t, 2, task.WorkflowSequence)
 	require.Contains(t, task.AgentInstructions, "Write tests.")
+	require.NotNil(t, task.ModelServerID, "the first iteration runs on the default model server")
+	require.Equal(t, server, *task.ModelServerID)
 	steps, err := repo.WorkflowSteps(ctx, ws, task.ID)
 	require.NoError(t, err)
 	require.Len(t, steps, 2)
@@ -283,6 +315,7 @@ func TestWorkflowTaskMovesThroughTheRepository(t *testing.T) {
 	require.NoError(t, db.Get(&child, `SELECT * FROM agent_tasks WHERE id=$1`, *step.ReviewTaskID))
 	require.Equal(t, domain.AgentTaskKindReview, child.Kind)
 	require.Equal(t, "codex", child.Provider, "the reviewer runs its own harness")
+	require.Nil(t, child.ModelServerID, "the default server does not speak Codex's protocol")
 	require.Equal(t, task.ID, *child.ReviewOfTaskID)
 	require.Equal(t, task.CreatorID, child.CreatorID, "it runs with the creator's permissions")
 	require.Contains(t, child.Prompt, "Be strict.")
@@ -338,6 +371,43 @@ func TestWorkflowTaskMovesThroughTheRepository(t *testing.T) {
 		require.ErrorIs(t, err, ErrConversationNotFound)
 	}
 	adminCtx := domain.WithAccess(ctx, domain.Access{WorkspaceID: ws, UserID: admin})
+
+	// The time budget running out during the wait holds the task on its open
+	// step and pauses it; continuing waits on the same step again with
+	// another budget, which starts at the decision.
+	_, err = db.Exec(`UPDATE agent_tasks SET workflow_wake_at=now(),next_poll_at=now() WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	holder, err := repo.Claim(ctx)
+	require.NoError(t, err)
+	require.Equal(t, task.ID, holder.ID)
+	pause := WorkflowApply{Sequence: 4, Hold: true, Entry: WorkflowEntry{Kind: WorkflowEnterPause, Reason: "Workflow · The workflow's time budget of 60 minutes is used up while Reviewer waits"}}
+	withMoves := pause
+	withMoves.Moves = []WorkflowMove{{Decision: toImplement}}
+	_, err = repo.ApplyWorkflow(ctx, *holder, withMoves)
+	require.ErrorIs(t, err, ErrAgentTaskConflict, "a held step has no moves")
+	paused, err := repo.ApplyWorkflow(ctx, *holder, pause)
+	require.NoError(t, err)
+	require.Equal(t, "blocked", paused.State)
+	require.Equal(t, domain.WorkflowStatusPaused, *paused.WorkflowStatus)
+	require.Equal(t, 4, paused.WorkflowSequence)
+	held, err := repo.CurrentWorkflowStep(ctx, *paused)
+	require.NoError(t, err)
+	require.Nil(t, held.FinishedAt, "the waiting step stays open")
+	require.NoError(t, repo.Release(ctx, *holder))
+	resume := WorkflowApply{Sequence: 4, Hold: true, ExtendBudget: true, Entry: WorkflowEntry{Kind: WorkflowEnterWait, Reason: "Workflow · continued past the time budget by a person; Reviewer waits again", WakeAt: &now}}
+	resumed, err := repo.DecideWorkflow(adminCtx, ws, task.ID, resume)
+	require.NoError(t, err)
+	require.Equal(t, "awaiting_review", resumed.State)
+	require.Equal(t, domain.WorkflowStatusWaiting, *resumed.WorkflowStatus)
+	require.Equal(t, 1, resumed.WorkflowExtensions)
+	require.NotNil(t, resumed.WorkflowBudgetFrom)
+	_, err = repo.DecideWorkflow(adminCtx, ws, task.ID, resume)
+	require.ErrorIs(t, err, ErrAgentTaskConflict, "a waiting task is not continued twice")
+	held, err = repo.CurrentWorkflowStep(ctx, *resumed)
+	require.NoError(t, err)
+	require.Nil(t, held.FinishedAt)
+	require.Equal(t, admin, *held.DecidedBy)
+
 	stale := iteration
 	stale.Sequence = 3
 	_, err = repo.DecideWorkflow(adminCtx, ws, task.ID, stale)
@@ -346,6 +416,8 @@ func TestWorkflowTaskMovesThroughTheRepository(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "queued", again.State)
 	require.EqualValues(t, 2, again.Generation)
+	require.NotNil(t, again.ModelServerID, "a later implementing iteration keeps the default model server")
+	require.Equal(t, server, *again.ModelServerID)
 	require.NotEqual(t, task.RunID, again.RunID)
 	require.Equal(t, 2, again.WorkflowIterations)
 	steps, err = repo.WorkflowSteps(ctx, ws, task.ID)
@@ -357,7 +429,7 @@ func TestWorkflowTaskMovesThroughTheRepository(t *testing.T) {
 	require.EqualValues(t, 2, *steps[4].Generation)
 	var audited int
 	require.NoError(t, db.Get(&audited, `SELECT count(*) FROM workflow_audit_events WHERE entity='task_workflow' AND entity_id=$1 AND actor_id=$2`, task.ID, admin))
-	require.Equal(t, 1, audited)
+	require.Equal(t, 2, audited, "continuing and the decision")
 	findings, err = repo.LatestWorkflowReview(ctx, *again)
 	require.NoError(t, err)
 	require.Equal(t, "- Not accessible", findings)
@@ -370,4 +442,56 @@ func TestWorkflowTaskMovesThroughTheRepository(t *testing.T) {
 		require.NoError(t, db.Get(&status, `SELECT workflow_status FROM agent_tasks WHERE id=$1`, task.ID))
 		require.Equal(t, domain.WorkflowStatusFailed, status)
 	}
+}
+
+// A reviewer step the workflow leaves before its verdict (here a person
+// stops the workflow) asks its review task to stop: nothing would read it.
+func TestWorkflowStopCancelsTheOpenReview(t *testing.T) {
+	db, repo, ctx, legacy, fixture := taskRecoveryFixture(t)
+	_, err := db.Exec(`UPDATE agent_tasks SET state='completed' WHERE id=$1`, legacy.ID)
+	require.NoError(t, err)
+	ws := legacy.WorkspaceID
+	workflows := NewWorkflowRepository(db)
+	implementer, reviewer := builtinIDs(t, workflows, ws)
+	graph := domain.ReviewLoopWorkflowGraph(implementer, reviewer)
+	raw, err := json.Marshal(graph)
+	require.NoError(t, err)
+	created, err := workflows.CreateWorkflow(ctx, ws, fixture.userID, "Review loop", "", raw, "created")
+	require.NoError(t, err)
+	chosen := created.ID.String()
+	version, err := workflows.ResolveWorkflow(ctx, ws, legacy.IssueID, &chosen)
+	require.NoError(t, err)
+	task, err := repo.Create(ctx, ws, *legacy.ConversationID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Add dark mode", Provider: "claude-code", Workflow: version})
+	require.NoError(t, err)
+	claimed := prepareTaskStart(t, db, repo, ctx, *task, fixture)
+	_, err = repo.Start(ctx, *claimed)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now(),exit_code=0 WHERE id=$1`, task.RunID)
+	require.NoError(t, err)
+	now := time.Now()
+	toPublish := graph.Decide(task.Cursor(), domain.WorkflowAgentFinished, now, nil)
+	moved, err := repo.ApplyWorkflow(ctx, *claimed, WorkflowApply{Sequence: 2, Outcome: domain.WorkflowAgentFinished, Moves: []WorkflowMove{{Decision: toPublish}}, Entry: WorkflowEntry{Kind: WorkflowEnterPublish, Reason: "Workflow · " + toPublish.Reason}})
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO dev_machine_git_refs(workspace_id,machine_id,agent_run_id,ref_type,repository_full_name,ref_name,commit_sha,pull_request_number,url,source) VALUES
+ ($1,$2,$3,'pull_request','fixture/repo','kuayle/wf',NULL,7,'https://github.com/fixture/repo/pull/7','published'),
+ ($1,$2,$3,'commit','fixture/repo','kuayle/wf','0123456789abcdef0123456789abcdef01234567',NULL,NULL,'published')`, ws, *claimed.MachineID, task.RunID)
+	require.NoError(t, err)
+	claimed.WorkflowSequence = moved.WorkflowSequence
+	toReview := graph.Decide(moved.Cursor(), domain.WorkflowPublished, now, nil)
+	moved, err = repo.ApplyWorkflow(ctx, *claimed, WorkflowApply{Sequence: 3, Outcome: domain.WorkflowPublished, Moves: []WorkflowMove{{Decision: toReview}},
+		Entry: WorkflowEntry{Kind: WorkflowEnterReview, Reason: "Workflow · " + toReview.Reason, Review: &domain.AgentReviewRequest{Provider: "codex", Focus: "Be strict."}}})
+	require.NoError(t, err)
+	step, err := repo.CurrentWorkflowStep(ctx, *moved)
+	require.NoError(t, err)
+	require.NotNil(t, step.ReviewTaskID)
+
+	reviewNode, _ := graph.Node("review")
+	stop := WorkflowApply{Sequence: 4, Moves: []WorkflowMove{{Decision: domain.WorkflowDecision{From: reviewNode, Reason: "Stopped by a person at the workflow's limit"}, Stop: true}},
+		Entry: WorkflowEntry{Kind: WorkflowEnterFail, Reason: "Workflow · stopped by a person at its limit"}}
+	claimed.WorkflowSequence = moved.WorkflowSequence
+	_, err = repo.ApplyWorkflow(ctx, *claimed, stop)
+	require.NoError(t, err)
+	var state string
+	require.NoError(t, db.Get(&state, `SELECT state FROM agent_tasks WHERE id=$1`, *step.ReviewTaskID))
+	require.Equal(t, "cancelling", state, "the open review is asked to stop")
 }

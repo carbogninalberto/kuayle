@@ -303,9 +303,7 @@ func standardCopy(implementer uuid.UUID) domain.WorkflowGraph {
 			graph.Nodes[i].Prompt = "Review the pull request"
 		}
 	}
-	graph.Edges = append(graph.Edges, domain.WorkflowEdge{ID: "e-publish-failed", Source: "publish", Target: "failed", Condition: domain.WorkflowPublishFailed},
-		// Like Standard, an unchecked change (no check configured) is still published, as a draft.
-		domain.WorkflowEdge{ID: "e-unchecked", Source: "validate", Target: "publish", Condition: domain.WorkflowElse})
+	graph.Edges = append(graph.Edges, domain.WorkflowEdge{ID: "e-publish-failed", Source: "publish", Target: "failed", Condition: domain.WorkflowPublishFailed})
 	return graph
 }
 
@@ -559,10 +557,24 @@ func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID) (*
 		return nil, err
 	}
 	out.Profiles = profiles
-	// The creator reads the task; deciding is open to them (and to owners
-	// and admins through the same route, re-checked when they decide).
-	out.CanDecide = out.Status == domain.WorkflowStatusPaused || out.Status == domain.WorkflowStatusWaiting
+	if access, ok := domain.AccessFromContext(ctx); ok {
+		role, err := s.repo.MemberRole(ctx, ws, access.UserID)
+		if err != nil {
+			return nil, err
+		}
+		out.CanDecide = workflowDecider(out.Status, access.UserID, task.CreatorID, role)
+	}
 	return out, nil
+}
+
+// workflowDecider mirrors who the repository lets decide (the task's creator
+// or a workspace owner or admin who can see it), so the UI offers decisions
+// only to them; the decision itself is re-checked when it is made.
+func workflowDecider(status string, actor, creator uuid.UUID, role string) bool {
+	if status != domain.WorkflowStatusPaused && status != domain.WorkflowStatusWaiting {
+		return false
+	}
+	return actor == creator || role == domain.RoleOwner || role == domain.RoleAdmin
 }
 
 // Decide applies a person's decision on a task's workflow.

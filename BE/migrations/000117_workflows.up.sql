@@ -98,6 +98,10 @@ ALTER TABLE agent_tasks
     ADD COLUMN workflow_status TEXT CHECK (workflow_status IN ('running', 'waiting', 'paused', 'done', 'failed')),
     ADD COLUMN workflow_wake_at TIMESTAMPTZ,
     ADD COLUMN workflow_sequence INT NOT NULL DEFAULT 0,
+    -- Budgets a person granted by continuing past the iteration or time
+    -- budget, and when the current time budget started (NULL: at the start).
+    ADD COLUMN workflow_budget_extensions INT NOT NULL DEFAULT 0 CHECK (workflow_budget_extensions >= 0),
+    ADD COLUMN workflow_budget_from TIMESTAMPTZ,
     ADD CONSTRAINT agent_tasks_workflow_cursor CHECK (workflow_version_id IS NULL OR (workflow_node IS NOT NULL AND workflow_status IS NOT NULL));
 CREATE INDEX agent_tasks_workflow_wake ON agent_tasks (workflow_wake_at) WHERE workflow_wake_at IS NOT NULL;
 

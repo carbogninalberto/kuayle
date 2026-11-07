@@ -1189,7 +1189,13 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   each time an agent step starts, its harness and model go through the same
   workspace policy check as a delegated task (allowed providers, model
   servers), and every iteration runs on the task's own machine under the
-  workspace's repository, sudo and Docker policy.
+  workspace's repository, sudo and Docker policy. A step without its own
+  model server uses the workspace's default one when it speaks the harness's
+  protocol, as the composer and requested reviews do. The role decides how a
+  version runs (a reviewer step reviews and leaves on its verdict; other roles
+  start iterations), so it cannot change while any saved version (archived
+  workflows' included) uses the profile (`409 PROFILE_ROLE_IN_USE`); the
+  profile's row lock serializes this with saves.
 - **Workflows** (`workflows`, `workflow_versions`): a save inserts the next
   immutable version (an update trigger refuses changes) with the graph as
   JSONB; `expected_version` refuses a stale save. Archiving hides a workflow
@@ -1197,7 +1203,14 @@ flow in code, and `StandardWorkflowGraph` only draws it.
 - **Graph**: nodes `start`, `agent` (profile and iteration prompt template),
   `check` (`tests`: the independent check; `ci`: the pull request's CI),
   `approval`, `publish`, `merge` (waits until the pull request merges, through
-  the [ship](conversations.md) chain or GitHub) and `end` (`done` or `failed`).
+  the [ship](conversations.md) chain or GitHub; the merge completes the task,
+  so its `merged` or `else` transition must lead to a `done` end) and `end`
+  (`done` or `failed`). A `ci` check fails at once on a failed check suite
+  the webhook reports, and passes only when GitHub lists at least one check
+  run or status for the published commit and all of them completed
+  successfully with the whole list read (webhooks only report completed
+  suites, so a fast suite passing says nothing about a slow one); it polls
+  every minute while checks run and every five minutes while none started.
   Edges carry a condition the source node can produce (`agent_finished`,
   `agent_failed`, `checks_passed`, `checks_failed`, `review_approved`,
   `review_changes_requested`, `approval_approved`, `approval_denied`,
@@ -1211,8 +1224,17 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   an invalid graph is never stored.
 - **Budget**: `max_iterations`, `max_minutes` and `on_exhausted` (`fail` or
   `ask`). A visit limit or the budget either fails the task or pauses the
-  workflow for a person to continue once or stop. Cost budgets are not
-  available because runs do not record cost.
+  workflow for a person to continue or stop. Limits are checked at every
+  transition, and the time budget also wakes a waiting step (reviewer, CI,
+  approval, merge) when it runs out: the task then stays on that open step
+  (`Hold`) and fails or pauses. An iteration that is running is not
+  interrupted; its run's own time limit bounds it and the budget applies when
+  it ends. Continuing passes a visit limit once; past a budget it grants
+  another iteration budget of the same size and restarts the time budget at
+  the decision (`workflow_budget_extensions`, `workflow_budget_from`), so
+  later transitions do not pause again at once; a held wait waits again. The
+  step's saved detail (failing checks, review comments) is passed on as it
+  would have been. Cost budgets are a follow-up: runs do not record cost.
 - **Defaults** (`workflow_defaults`): per workspace, team and project; the
   most specific wins. A task may choose any active workflow (`workflow_id` on
   task creation, `"standard"` for Standard); the assistant's `delegate_issue`
@@ -1240,8 +1262,15 @@ transaction as the task's state change. Agent steps reuse the iteration
 machinery (each is an iteration whose reason names the node and transition),
 check and publish nodes reuse validation and publication, reviewer steps reuse
 review tasks, and waiting nodes (review, CI, approval, merge, timeout) park the
-task in `awaiting_review` with `workflow_wake_at`; a finished review or a CI
-result sets it, and the claim query picks the task up again. Everything is in
+task in `awaiting_review` with `workflow_wake_at`. A waiting node is
+evaluated as soon as it is entered (CI may have finished during the review),
+then wakes at its timeout, the time budget's end or a CI poll; a finished
+review or a CI result wakes it sooner, and the claim query picks the task up.
+A reviewer step left before its verdict (a timeout, a budget, a person's stop,
+or the task ending outside the runner) asks its review task to stop, as a
+cancellation request does; a review whose row is locked by its own transition
+at that moment is skipped (to keep the review-then-parent lock order) and its
+result is ignored. Everything is in
 the database, so a restarted API resumes where the task was. Prompt variables
 (`{{previous_summary}}`, `{{review_comments}}`, `{{failing_checks}}`,
 `{{diff}}`) are passed as fenced, untrusted text. CI results and comments on a

@@ -232,3 +232,47 @@ func TestTimeoutsOnlyBoundWaitingSteps(t *testing.T) {
 	g.Edges = append(g.Edges, WorkflowEdge{ID: "review-timeout", Source: "review", Target: "failed", Condition: WorkflowTimeout})
 	require.Empty(t, ValidateWorkflowGraph(g, profiles))
 }
+
+// Merging the pull request completes the task, so whatever a Merge step's
+// "merged" (or "else") transition leads to would never run: it must lead to
+// an End that finishes as done. A timeout may still go elsewhere.
+func TestMergeStepLeadsToADoneEnd(t *testing.T) {
+	implementer, reviewer, profiles := exampleProfiles()
+	withMerge := func(target string, condition string) WorkflowGraph {
+		g := ReviewLoopWorkflowGraph(implementer, reviewer)
+		g.Nodes = append(g.Nodes, WorkflowNode{ID: "merge", Type: WorkflowNodeMerge, Label: "Ship", TimeoutMinutes: 60})
+		for i := range g.Edges {
+			if g.Edges[i].Source == "ship" && g.Edges[i].Condition == WorkflowApprovalApproved {
+				g.Edges[i].Target = "merge"
+			}
+		}
+		g.Edges = append(g.Edges, WorkflowEdge{ID: "e-merged", Source: "merge", Target: target, Condition: condition})
+		return g
+	}
+	require.Empty(t, ValidateWorkflowGraph(withMerge("done", WorkflowMerged), profiles))
+	for _, tc := range []struct{ target, condition string }{
+		{"ship", WorkflowMerged},
+		{"failed", WorkflowMerged},
+		{"ship", WorkflowElse},
+	} {
+		issues := ValidateWorkflowGraph(withMerge(tc.target, tc.condition), profiles)
+		require.Contains(t, issueCodes(issues), "merge_target", "%s on %s", tc.target, tc.condition)
+	}
+	timeout := withMerge("done", WorkflowMerged)
+	timeout.Edges = append(timeout.Edges, WorkflowEdge{ID: "e-merge-timeout", Source: "merge", Target: "ship", Condition: WorkflowTimeout})
+	for i := range timeout.Nodes {
+		if timeout.Nodes[i].ID == "merge" {
+			timeout.Nodes[i].MaxVisits = 2 // the loop back to a person is guarded
+		}
+	}
+	require.Empty(t, ValidateWorkflowGraph(timeout, profiles), "a timeout may lead back to a person")
+}
+
+// Standard publishes unchecked work (no check configured) as a draft; its
+// read-only graph shows that transition (review finding 9).
+func TestStandardGraphPublishesUncheckedWork(t *testing.T) {
+	graph := StandardWorkflowGraph()
+	decision := graph.Decide(WorkflowCursor{Node: "validate", Visits: map[string]int{}}, WorkflowChecksSkipped, time.Now(), nil)
+	require.Equal(t, "publish", decision.To.ID)
+	require.Equal(t, WorkflowElse, decision.Condition)
+}

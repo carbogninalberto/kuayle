@@ -64,7 +64,8 @@ const issues: Record<string, () => string> = {
 	start_target: m['workflows.issue.start_target'],
 	dead_end: m['workflows.issue.dead_end'],
 	unreachable: m['workflows.issue.unreachable'],
-	unguarded_loop: m['workflows.issue.unguarded_loop']
+	unguarded_loop: m['workflows.issue.unguarded_loop'],
+	merge_target: m['workflows.issue.merge_target']
 };
 
 const statuses: Record<string, () => string> = {
