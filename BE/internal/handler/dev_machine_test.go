@@ -527,8 +527,8 @@ func TestDevMachinePolicyTaskMachineResources(t *testing.T) {
 	}
 }
 
-// The number of tasks sharing a task machine defaults to 2, is kept when an
-// older client omits it and is refused outside 1 to 4.
+// The number of tasks sharing a task machine defaults to 10, is kept when an
+// older client omits it and is refused outside 1 to 10.
 func TestDevMachinePolicyTaskMachineMaxTasks(t *testing.T) {
 	workspaceID := uuid.New()
 	store := &handlerDevMachineStoreFake{}
@@ -552,14 +552,15 @@ func TestDevMachinePolicyTaskMachineMaxTasks(t *testing.T) {
 		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &updated))
 		return updated.TaskMachineMaxTasks
 	}
-	require.Equal(t, 2, limit(update("")), "a new policy shares a machine between two tasks")
+	require.Equal(t, 10, limit(update("")), "a new policy shares a machine between up to ten tasks")
 	require.Equal(t, 3, limit(update(`,"task_machine_max_tasks":3`)))
 	require.Equal(t, 3, limit(update("")), "omitting the limit keeps it")
+	require.Equal(t, 10, limit(update(`,"task_machine_max_tasks":10`)), "ten tasks may share one large machine")
 	require.Equal(t, 1, limit(update(`,"task_machine_max_tasks":1`)), "1 gives every task its own machine")
-	for _, invalid := range []string{"0", "5"} {
+	for _, invalid := range []string{"0", "11"} {
 		recorder := update(`,"task_machine_max_tasks":` + invalid)
 		require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
-		require.Contains(t, recorder.Body.String(), "task_machine_max_tasks must be from 1 to 4")
+		require.Contains(t, recorder.Body.String(), "task_machine_max_tasks must be from 1 to 10")
 		require.Equal(t, 1, store.policy.TaskMachineMaxTasks, "a rejected update keeps the policy")
 	}
 }

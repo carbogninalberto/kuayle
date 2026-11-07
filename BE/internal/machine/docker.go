@@ -791,7 +791,6 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	}
 	// Attempts on a machine with a Docker daemon receive its address.
 	_, docker := secrets["KUAYLE_DOCKER_HOST"]
-	hostConfig := r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName, docker)
 	entrypoint := []string{"/usr/local/bin/kuayle-agent-runner"}
 	if provider.IsCustom {
 		entrypoint = []string{"/bin/sh", "-c", customAgentBootstrap, "kuayle-agent"}
@@ -816,6 +815,10 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		return r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", secrets, observer)
 	} else if !errdefs.IsNotFound(inspectErr) {
 		return nil, inspectErr
+	}
+	hostConfig, err := r.agentHostConfig(ctx, machine, run.ID, docker)
+	if err != nil {
+		return nil, err
 	}
 	workingDirectory := "/workspace"
 	if checkout != nil {
@@ -1569,6 +1572,69 @@ func containerSharePercent(machine *domain.DevMachine, serviceType string, docke
 	default:
 		return 5
 	}
+}
+
+// agentMinimumMemoryBytes is the least memory an agent container gets when
+// tasks sharing a machine split the agent share (agentMemoryBytes).
+const agentMinimumMemoryBytes = 1024 * 1024 * 1024
+
+// agentMemoryBytes is the memory limit of an agent attempt or check
+// container when tasks agent tasks work on the machine, this one included.
+// Tasks split the agent share (containerSharePercent) so that their limits
+// together stay near that share instead of each ceiling allowing the whole
+// share: ten tasks on a 16 GiB headless machine get about 1 GiB each rather
+// than 8 GiB each, and reclaim page cache under pressure before the kernel
+// stops one with exit code 137. Each keeps at least agentMinimumMemoryBytes,
+// never more than the undivided share. CPU and process limits are not split:
+// CPU is throttled, not killed, and the process floor is per container.
+func agentMemoryBytes(machine *domain.DevMachine, docker bool, tasks int) int64 {
+	share := machineMemoryBytes(machine) * containerSharePercent(machine, "agent", docker) / 100
+	if share < 128*1024*1024 {
+		share = 128 * 1024 * 1024
+	}
+	if tasks <= 1 {
+		return share
+	}
+	memory := share / int64(tasks)
+	if floor := min(share, agentMinimumMemoryBytes); memory < floor {
+		memory = floor
+	}
+	return memory
+}
+
+// agentTaskCount counts the agent runs with a running attempt or check
+// container among containers of machine, plus run (the one being started,
+// when it has none yet). Each run belongs to one task.
+func agentTaskCount(items []container.Summary, machine *domain.DevMachine, run string) int {
+	runs := map[string]bool{}
+	if run != "" {
+		runs[run] = true
+	}
+	for _, item := range items {
+		if item.State != container.StateRunning || !ownedByMachine(item.Labels, machine.ID) ||
+			item.Labels["com.kuayle.workspace-id"] != machine.WorkspaceID.String() || item.Labels["com.kuayle.service"] != "agent" {
+			continue
+		}
+		if id := item.Labels["com.kuayle.agent-run-id"]; id != "" {
+			runs[id] = true
+		}
+	}
+	return len(runs)
+}
+
+// agentHostConfig is secureHostConfig for an agent attempt or check container
+// of run, whose memory is split with the other tasks running on the machine.
+func (r *DockerRuntime) agentHostConfig(ctx context.Context, machine *domain.DevMachine, run uuid.UUID, docker bool) (*container.HostConfig, error) {
+	running, err := r.client.ContainerList(ctx, client.ContainerListOptions{
+		Filters: make(client.Filters).Add("label", "com.kuayle.machine-id="+machine.ID.String(), "com.kuayle.service=agent"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("count agent tasks on the machine: %w", err)
+	}
+	hostConfig := r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName, docker)
+	memory := agentMemoryBytes(machine, docker, agentTaskCount(running.Items, machine, run.String()))
+	hostConfig.Resources.Memory, hostConfig.Resources.MemorySwap = memory, memory
+	return hostConfig, nil
 }
 
 // buildMinimumPids is the process budget of the containers agents and people

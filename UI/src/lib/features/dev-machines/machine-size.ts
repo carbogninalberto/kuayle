@@ -35,8 +35,8 @@ export const DEFAULT_TASK_MACHINE_RESOURCES: MachineResources = {
 };
 
 // Active agent tasks that share one task machine unless the policy says otherwise.
-export const DEFAULT_TASK_MACHINE_MAX_TASKS = 2;
-export const MAX_TASK_MACHINE_MAX_TASKS = 4;
+export const DEFAULT_TASK_MACHINE_MAX_TASKS = 10;
+export const MAX_TASK_MACHINE_MAX_TASKS = 10;
 
 function normalizedOptions(values: readonly number[] | undefined, fallback: readonly number[]): number[] {
 	const source = values ?? fallback;

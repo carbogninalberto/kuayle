@@ -27,6 +27,8 @@ func TestValidationRunsExactCommandWithoutHarnessOrCredentialHandoff(t *testing.
 		switch {
 		case strings.Contains(r.URL.Path, "/images/"):
 			_, _ = w.Write([]byte(`{"Id":"image","Config":{}}`))
+		case strings.HasSuffix(r.URL.Path, "/containers/json"):
+			_, _ = w.Write([]byte(`[]`))
 		case strings.HasSuffix(r.URL.Path, "/json"):
 			http.NotFound(w, r)
 		case strings.HasSuffix(r.URL.Path, "/containers/create"):

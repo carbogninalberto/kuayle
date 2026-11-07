@@ -756,7 +756,7 @@ Environment Builder or being deleted, still allowed by the enabled policy (sudo
 and Docker machines only while those stay allowed), without the user's own
 agent session or a queued lifecycle, snapshot, check or custom tool operation,
 and working on fewer other active tasks than the policy's
-`task_machine_max_tasks` (default 2). An idle machine comes first (one already
+`task_machine_max_tasks` (default 10, from 1 to 10). An idle machine comes first (one already
 used for the same issue, then the most recently active); otherwise the task
 shares the least loaded busy machine. Paused and stopped machines are not
 chosen, since their user paused or stopped them. The full rule is in
@@ -764,7 +764,10 @@ chosen, since their user paused or stopped them. The full rule is in
 has its own checkout, branch and session directory; attempt creation re-checks
 the limit under the machine lock, so tasks on a shared machine run their
 attempts, validations and publications side by side while checks and tool runs
-still wait for a machine without agent work. Preparation starts the task's own machine when its
+still wait for a machine without agent work. Agent attempt and check containers
+of tasks sharing a machine split the agent memory share between them (at least
+1 GB each; CPU and PID limits are not split), see
+[Resource Limits and Quotas](../../TECHNICAL.md#resource-limits-and-quotas). Preparation starts the task's own machine when its
 user paused or stopped it, and waits for a start already requested. Each start
 is keyed by task, task generation and machine generation, so a machine paused
 again is started again while a start that failed for good is not retried in a
