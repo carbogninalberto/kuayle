@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.2.20",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.20",
+    "body": "## What's changed\n\n### Agent reviews reach the follow-up in full\n- When you approve a follow-up in the assistant after an agent review asked for changes, Kuayle now attaches **every finding** of that review (the latest finished review of the published commit) to the follow-up, instead of relying on the assistant's summary. Coding agents can't read Kuayle's reviews, so before this they could miss findings or stop to ask for them. Reviews of older commits, approvals and unfinished reviews are not attached. (#148)\n- Agent run summaries are now kept up to 16 KiB instead of 4000 bytes, cut on a character boundary, so long reviewer findings are no longer truncated mid-sentence. (#148)\n\n### For contributors\n- The agent harness now says to access the web with headless Playwright, never a browser extension. (#148)\n\n**Full changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.2.19...v0.2.20\n",
+    "published_at": "2026-11-07T14:38:40Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.20",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.2.19",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.19",
     "body": "### Fixed\n- **Agent tasks no longer fail on a short database slowdown.** A slow database write used to stop the agent run after 5 seconds, losing up to an hour of work. Kuayle now retries the write for up to three minutes. If a failed run's container won't stop, it's killed instead of left running.\n- **Task attempts get three hours instead of one.** Large issues often need longer than an hour to build and test.\n- **Machine usage charts keep updating while agents run.** Sampling could stop for the whole run when a Docker call stalled. Each machine's check now has a time limit, and it no longer holds up other machine work.\n- **The CPU chart shows real usage.** It read 0% on every machine before.\n\n### Improvements\n- **Far fewer file events.** Machines no longer record an event for every file in build output, caches, `node_modules` or agent scratch folders. When many files change at once, for example after a checkout or an install, one summary event replaces thousands. Busy machines wrote about 20 events a second before. Existing machines get the new collector when they're next idle, or when they're started from stopped.\n",
