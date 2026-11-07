@@ -332,6 +332,8 @@ func TestAgentAuthorizationAfterPreparationPreventsStart(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "/images/"):
 			_, _ = w.Write([]byte(`{"Id":"image","Config":{}}`))
+		case strings.HasSuffix(r.URL.Path, "/containers/json"):
+			_, _ = w.Write([]byte(`[]`))
 		case strings.HasSuffix(r.URL.Path, "/containers/create"):
 			// Cancellation happens after the manager's pre-dispatch check, while
 			// Docker is still allocating the container, before any process starts.

@@ -73,6 +73,7 @@ type appHandlers struct {
 	token             *handler.TokenHandler
 	aiSettings        *handler.AISettingsHandler
 	agentTask         *handler.AgentTaskHandler
+	workflow          *handler.WorkflowHandler
 	agentAutomation   *handler.AgentAutomationHandler
 	agentMessage      *handler.AgentMessageHandler
 	conversation      *handler.ConversationHandler
@@ -282,6 +283,22 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// and SQL let only owners and admins change them.
 	sessionOnly(ws, http.MethodGet, "/assistant-research-settings", h.assistantResearch.Get)
 	sessionOnly(ws, http.MethodPut, "/assistant-research-settings", h.assistantResearch.Update)
+	// Agent profiles and workflows (KUA-95): non-guest members read and
+	// choose them; the repository lets only current owners and admins write,
+	// and audits every change.
+	sessionOnly(ws, http.MethodGet, "/agent-profiles", h.workflow.Profiles)
+	sessionOnly(ws, http.MethodPost, "/agent-profiles", h.workflow.CreateProfile)
+	sessionOnly(ws, http.MethodPut, "/agent-profiles/:profileId", h.workflow.UpdateProfile)
+	sessionOnly(ws, http.MethodDelete, "/agent-profiles/:profileId", h.workflow.ArchiveProfile)
+	sessionOnly(ws, http.MethodGet, "/workflows", h.workflow.List)
+	sessionOnly(ws, http.MethodPost, "/workflows", h.workflow.Create)
+	sessionOnly(ws, http.MethodPost, "/workflows/validate", h.workflow.Validate)
+	sessionOnly(ws, http.MethodPut, "/workflow-defaults", h.workflow.SetDefault)
+	sessionOnly(ws, http.MethodGet, "/workflows/:workflowId", h.workflow.Get)
+	sessionOnly(ws, http.MethodPut, "/workflows/:workflowId", h.workflow.Save)
+	sessionOnly(ws, http.MethodPost, "/workflows/:workflowId/duplicate", h.workflow.Duplicate)
+	sessionOnly(ws, http.MethodPost, "/workflows/:workflowId/archive", h.workflow.Archive)
+	sessionOnly(ws, http.MethodGet, "/workflows/:workflowId/audit", h.workflow.Audit)
 	// Members read the skills they can see; the repository lets only current
 	// owners and admins write them.
 	sessionOnly(ws, http.MethodGet, "/assistant-skills", h.assistantSkill.List)
@@ -412,6 +429,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/cancel", h.agentTask.Cancel)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/retry", h.agentTask.Retry)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/accept", h.agentTask.Accept)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/workflow", h.workflow.TaskWorkflow)
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/workflow/decision", h.workflow.Decide)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/sign-in", h.agentTask.ContinueAfterSignIn)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/terminal", h.agentTask.OpenInClaudeCode)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/preview", h.agentTask.StartPreview)

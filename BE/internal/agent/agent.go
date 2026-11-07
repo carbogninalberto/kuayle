@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 type Mode string
@@ -143,6 +144,23 @@ func validateInput(metadata Metadata, input RunInput) error {
 	return fmt.Errorf("provider %s does not support %s mode", metadata.ID, input.Mode)
 }
 
+// MaxSummaryBytes bounds a run's final summary. A reviewer's findings are its
+// final message, so this matches the review findings limit
+// (domain.MaxAgentReviewFindings) and long reviews are stored whole.
+const MaxSummaryBytes = 16 << 10
+
+// truncateSummary cuts a summary to MaxSummaryBytes on a UTF-8 boundary.
+func truncateSummary(summary string) string {
+	if len(summary) <= MaxSummaryBytes {
+		return summary
+	}
+	summary = summary[:MaxSummaryBytes]
+	for !utf8.ValidString(summary) {
+		summary = summary[:len(summary)-1]
+	}
+	return summary
+}
+
 func defaultResult(stdout, stderr string, exitCode int) RunResult {
 	status := "succeeded"
 	if exitCode != 0 {
@@ -155,12 +173,9 @@ func defaultResult(stdout, stderr string, exitCode int) RunResult {
 	if summary == "" {
 		summary = strings.TrimSpace(stderr)
 	}
-	if len(summary) > 4000 {
-		summary = summary[:4000]
-	}
 	return RunResult{
 		Status:       status,
-		Summary:      summary,
+		Summary:      truncateSummary(summary),
 		ChangedFiles: []string{},
 		Commits:      []string{},
 		TestsRun:     []string{},

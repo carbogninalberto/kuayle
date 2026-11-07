@@ -85,6 +85,8 @@ type AssistantTools struct {
 	settings assistantToolSettings
 	// The skill tools are unavailable until SetSkills wires them.
 	skills assistantSkills
+	// delegate_issue can only keep the default workflow until SetWorkflows wires them.
+	workflows assistantWorkflows
 	// Custom tools are unavailable until SetCustomTools wires them.
 	customTools    assistantCustomTools
 	customToolWait time.Duration
@@ -196,7 +198,7 @@ var assistantToolCatalog = []assistantTool{
 	{name: "list_teams", description: "List the teams the user can access, with the key used to create issues.", parameters: `{"type":"object","properties":{},"additionalProperties":false}`},
 	{name: "search_issues", description: "Search issues the user can access by text in the title or identifier.", parameters: `{"type":"object","properties":{"query":{"type":"string","maxLength":200},"limit":{"type":"integer","minimum":1,"maximum":20}},"required":["query"],"additionalProperties":false}`},
 	{name: "get_issue", description: "Read one issue by identifier, such as ENG-12, including the development repository coding agents use for it when one is configured on the issue, its project, team or workspace.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
-	{name: "delegate_issue", description: "Ask the user to approve starting a coding agent on an existing issue. The agent works in the development repository configured for the issue, its project, team or workspace, so do not ask for a repository unless this tool reports that none is configured. The agent only starts after the user approves in Kuayle; never claim work has started. Set harness and model only when the user named them; otherwise the configured default is used. The user can still change them on the approval card.", approval: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000},"harness":{"type":"string","enum":["claude-code","codex","opencode"]},"model":{"type":"string","maxLength":200}},"required":["identifier","instructions"],"additionalProperties":false}`},
+	{name: "delegate_issue", description: "Ask the user to approve starting a coding agent on an existing issue. The agent works in the development repository configured for the issue, its project, team or workspace, so do not ask for a repository unless this tool reports that none is configured. The agent only starts after the user approves in Kuayle; never claim work has started. Set harness and model only when the user named them; otherwise the configured default is used. The user can still change them on the approval card. Set workflow (a workflow name or ID of the workspace, or \"standard\") only when the user named one; otherwise the issue's default workflow is used, and a custom workflow's first agent step decides the harness and model.", approval: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000},"harness":{"type":"string","enum":["claude-code","codex","opencode"]},"model":{"type":"string","maxLength":200},"workflow":{"type":"string","maxLength":100}},"required":["identifier","instructions"],"additionalProperties":false}`},
 	{name: "update_issue", description: "Change an existing issue's title, description, status or priority. Only call this when the user explicitly asked for that change.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"status":{"type":"string","enum":["backlog","todo","in_progress","in_review","done","cancelled"]},"priority":{"type":"integer","minimum":0,"maximum":4}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "create_issue", description: "Create a new issue, optionally as a sub-issue of parent_identifier to split work between agents. Only call this when the user explicitly asked to create or file an issue.", write: true, parameters: `{"type":"object","properties":{"team_key":{"type":"string","maxLength":16},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"priority":{"type":"integer","minimum":0,"maximum":4},"parent_identifier":{"type":"string","maxLength":32}},"required":["team_key","title"],"additionalProperties":false}`},
 	{name: "plan_issues", description: "Order up to 20 issues by their blocked-by dependencies into waves that can run in parallel. Delegated issues with unfinished blockers wait automatically, so a whole plan can be delegated at once.", parameters: `{"type":"object","properties":{"identifiers":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","maxLength":32}}},"required":["identifiers"],"additionalProperties":false}`},
@@ -205,7 +207,7 @@ var assistantToolCatalog = []assistantTool{
 	{name: "merge_pull_request", agentWork: true, approval: true, description: "Ask the user to approve merging the pull request of an issue's task that is awaiting review with the repository's merge method (chosen in the development settings, otherwise the first the repository allows: squash, merge, rebase), at the head commit GitHub reports now (the card lists commits others pushed after Kuayle published, and whether the tree changed). Nothing merges until the user approves in Kuayle, and a later push is refused; GitHub still enforces branch protection. If agent_review is stale, its findings are withheld: offer request_agent_review for the new head instead of repeating them. A draft pull request is refused with the next step (mark_pull_request_ready); read get_pull_request, get_pull_request_checks and list_pull_request_comments first and report failing checks or unresolved review threads. Only call this when the user asked to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "accept_agent_work", agentWork: true, approval: true, description: "Ask the user to approve accepting the work of an issue's task that is awaiting review, in Kuayle, without merging its pull request: the task completes, its app stops and the issue moves to its team's completed status, while the pull request stays open and unmerged on GitHub. Only the task's creator or a workspace admin can accept. Only call this when the user asked to accept the work without merging; use merge_pull_request to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "request_agent_review", agentWork: true, approval: true, description: "Ask the user to approve a coding agent reviewing the pull request Kuayle published for an issue's task awaiting review, at its published commit. Only call this when the user asked for a review; reviews never start on their own. The harness may differ from the one that implemented the task (default: the same). Set model only when the user named one; otherwise the configured default is used. The reviewer never pushes; set post_to_pull_request only when the user asked to comment the findings on the pull request.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"task_id":{"type":"string","maxLength":36},"harness":{"type":"string","enum":["claude-code","codex","opencode"]},"model":{"type":"string","maxLength":200},"focus":{"type":"string","maxLength":4000},"post_to_pull_request":{"type":"boolean"}},"additionalProperties":false}`},
-	{name: "follow_up_task", agentWork: true, approval: true, description: "Ask the user to approve a follow-up iteration on an issue's latest coding task, on its existing branch and pull request, for example to fix review findings. Put everything the agent must do in instructions. Only the task's creator can approve it. The follow-up continues on the task's own harness; set model only when the user asked for a different one.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000},"model":{"type":"string","maxLength":200}},"required":["identifier","instructions"],"additionalProperties":false}`},
+	{name: "follow_up_task", agentWork: true, approval: true, description: "Ask the user to approve a follow-up iteration on an issue's latest coding task, on its existing branch and pull request, for example to fix review findings. Put everything the agent must do in instructions. When an agent review of the published commit asked for changes, Kuayle attaches its full findings to the follow-up, so summarize or prioritize them rather than copying them. Only the task's creator can approve it. The follow-up continues on the task's own harness; set model only when the user asked for a different one.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000},"model":{"type":"string","maxLength":200}},"required":["identifier","instructions"],"additionalProperties":false}`},
 	{name: "run_check", agentWork: true, approval: true, description: "Ask the user to approve running the check of an issue's latest coding task on its checkout, without an agent iteration and without changing the task: by default the task's configured check command, or command, which runs as sh -c <command>. Only the task's creator can run it, and not while the agent is working. Afterwards, read the result (pass/fail, exit code and the end of the output) with get_agent_work.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"command":{"type":"string","maxLength":2000}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "link_issues", description: "Record that an issue is blocked by another issue. Only call this when the user asked to plan or order work. Cycles are refused.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"blocked_by":{"type":"string","maxLength":32}},"required":["identifier","blocked_by"],"additionalProperties":false}`},
 	{name: "link_repository", repositories: true, write: true, description: "Set the GitHub repository (owner/name) coding agents use for an issue, or with scope \"project\" for every issue of its project, as the development settings in Kuayle do. Only repositories linked to the workspace's GitHub installation and allowed by its Dev Machine policy can be used; the base branch defaults to the repository's default branch. Only call this when the user explicitly asked to link or change the repository.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"repository":{"type":"string","minLength":3,"maxLength":200},"base_branch":{"type":"string","minLength":1,"maxLength":255},"scope":{"type":"string","enum":["issue","project"]}},"required":["identifier","repository"],"additionalProperties":false}`},
@@ -566,6 +568,7 @@ func (t *AssistantTools) prepareDelegation(ctx context.Context, ws, user uuid.UU
 		Instructions string `json:"instructions"`
 		Harness      string `json:"harness"`
 		Model        string `json:"model"`
+		Workflow     string `json:"workflow"`
 	}
 	if err = decodeToolInput(arguments, &input); err != nil {
 		return uuid.Nil, domain.DelegationPayload{}, err
@@ -586,6 +589,9 @@ func (t *AssistantTools) prepareDelegation(ctx context.Context, ws, user uuid.UU
 		return uuid.Nil, domain.DelegationPayload{}, toolFailure("issue not found")
 	}
 	payload := domain.DelegationPayload{Identifier: issue.Identifier, Title: issue.Title, Instructions: input.Instructions, Harness: input.Harness, Model: input.Model}
+	if payload.WorkflowID, payload.Workflow, err = t.delegationWorkflow(ctx, ws, input.Workflow); err != nil {
+		return uuid.Nil, domain.DelegationPayload{}, err
+	}
 	if t.repositories != nil {
 		// The agent uses the issue's inherited repository; ask only when none is
 		// configured, and refuse one the workspace policy does not allow.
@@ -602,6 +608,39 @@ func (t *AssistantTools) prepareDelegation(ctx context.Context, ws, user uuid.UU
 		payload.Repository, payload.BaseBranch, payload.RepositorySource = repository.FullName, repository.BaseBranch, repository.Source
 	}
 	return issue.ID, payload, nil
+}
+
+// assistantWorkflows lists the workspace's workflows, archived ones included.
+type assistantWorkflows interface {
+	Workflows(ctx context.Context, ws uuid.UUID) ([]repository.WorkflowDetail, error)
+}
+
+// SetWorkflows lets delegate_issue choose a workflow (KUA-95).
+func (t *AssistantTools) SetWorkflows(workflows assistantWorkflows) { t.workflows = workflows }
+
+// delegationWorkflow resolves a delegation's workflow choice, by ID or
+// case-insensitive name, to a non-archived workflow of the workspace.
+// Empty keeps the issue's default; "standard" is the built-in workflow.
+func (t *AssistantTools) delegationWorkflow(ctx context.Context, ws uuid.UUID, chosen string) (string, string, error) {
+	chosen = strings.TrimSpace(chosen)
+	switch {
+	case chosen == "":
+		return "", "", nil
+	case strings.EqualFold(chosen, domain.StandardWorkflowID):
+		return domain.StandardWorkflowID, "Standard", nil
+	case t.workflows == nil:
+		return "", "", toolFailure("custom workflows are not available; omit workflow to use the issue's default")
+	}
+	list, err := t.workflows.Workflows(ctx, ws)
+	if err != nil {
+		return "", "", err
+	}
+	for _, w := range list {
+		if w.WorkspaceID == ws && w.ArchivedAt == nil && (w.ID.String() == strings.ToLower(chosen) || strings.EqualFold(w.Name, chosen)) {
+			return w.ID.String(), w.Name, nil
+		}
+	}
+	return "", "", toolFailure("workflow not found: name a workflow of this workspace that is not archived, or \"standard\"")
 }
 
 // prepareMerge binds a merge request to the issue's task awaiting review, its

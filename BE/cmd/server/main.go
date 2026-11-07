@@ -187,6 +187,11 @@ func main() {
 	conversationSvc.SetTools(assistantTools)
 	conversationH := handler.NewConversationHandler(conversationSvc, cfg.FrontendURL)
 	agentTaskSvc := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), devMachineSvc, hub)
+	// Tasks that pin a configurable workflow follow it (KUA-95).
+	workflowRepo := repository.NewWorkflowRepository(db)
+	agentTaskSvc.SetWorkflows(workflowRepo)
+	assistantTools.SetWorkflows(workflowRepo)
+	workflowH := handler.NewWorkflowHandler(service.NewWorkflowService(workflowRepo, devMachineAgentReg, agentTaskSvc))
 	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))
 	assistantTools.SetRepositories(devMachineRepo)
 	assistantTools.SetLiveChannel(repository.NewAgentTaskRepository(db))
@@ -270,6 +275,9 @@ func main() {
 	assistantApprovals.SetPullRequests(githubSvc, repository.NewAgentTaskRepository(db))
 	assistantTools.SetPullRequests(githubSvc, repository.NewAgentTaskRepository(db))
 	assistantTools.SetReleases(githubSvc, devMachineRepo, assistantSkills)
+	// CI check nodes of configurable workflows confirm the commit's full
+	// check list with GitHub before they pass (KUA-95).
+	agentTaskSvc.Workflow().SetCIChecks(githubSvc)
 	// Repository scans read temporary checkouts on this server, removed when
 	// they expire and on shutdown.
 	repositoryCheckouts := service.NewRepositoryCheckouts(githubSvc)
@@ -351,6 +359,7 @@ func main() {
 		assistantTool:     assistantToolH,
 		assistantResearch: assistantResearchH,
 		agentTask:         agentTaskH,
+		workflow:          workflowH,
 		agentAutomation:   agentAutomationH,
 		agentMessage:      agentMessageH,
 		telegram:          telegramH,

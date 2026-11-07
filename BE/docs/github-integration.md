@@ -175,7 +175,7 @@ Settings > GitHub > **Kuayle bot** customizes the workspace's GitHub bot.
 Members read the settings (`GET /api/workspaces/:slug/github/bot`, session only,
 guests refused); `workspace:manage` changes them (`PATCH /github/bot`,
 `POST /github/bot/avatar`). They live in `workspace_github_bot_settings`
-(migration 117); no row means the defaults below.
+(migration 119); no row means the defaults below.
 
 **Identity.** A display name (1–64 characters, no line breaks or
 `` < > @ ` [ ] \ * _ ~ | # ``) and a profile picture, either uploaded (multipart

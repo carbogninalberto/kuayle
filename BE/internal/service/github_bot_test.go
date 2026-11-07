@@ -54,8 +54,6 @@ func (f *botStoreFake) Update(ctx context.Context, ws, _ uuid.UUID, change func(
 	return current, nil, nil
 }
 
-func ptr[T any](v T) *T { return &v }
-
 func requireBotInvalid(t *testing.T, err error, code string) {
 	t.Helper()
 	var invalid *GitHubBotValidationError

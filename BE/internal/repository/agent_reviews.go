@@ -131,39 +131,51 @@ func (r *AgentTaskRepository) CreateReview(ctx context.Context, ws, conversation
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, err
 	}
-	var attempt int
-	if err = tx.GetContext(ctx, &attempt, `SELECT COALESCE(max(attempt),0)+1 FROM agent_reviews WHERE reviewed_task_id=$1 AND commit_sha=$2 AND provider=$3`, reviewed, published.CommitSHA, input.Provider); err != nil {
-		return nil, nil, err
-	}
-	prompt := domain.AgentReviewPrompt(*published, input.Focus)
-	var task domain.AgentTask
-	err = tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,model_server_id,reason,issue_status_id,issue_updated_at,kind,review_of_task_id)
- SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Waiting for a machine to review the pull request',i.status_id,i.updated_at,'review',$12 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`,
-		ws, conversation, c.CreatorID, c.IssueID, c.TeamID, input.RequestID, prompt, input.Provider, input.Model, input.Thinking, input.ModelServerID, reviewed)
+	task, review, err := insertReviewTask(ctx, tx, target, conversation, c.CreatorID, input, published)
 	if err != nil {
 		return nil, nil, err
 	}
-	comment := "not_requested"
-	if input.PostToPullRequest {
-		comment = "pending"
-	}
-	// A requested comment is posted only once the review completed with findings.
-	review := &domain.AgentReview{}
-	err = tx.GetContext(ctx, review, `INSERT INTO agent_reviews(task_id,workspace_id,reviewed_task_id,requested_by,provider,commit_sha,repository_full_name,pull_request_number,pull_request_url,base_branch,focus,attempt,post_to_pull_request,comment_state)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-		task.ID, ws, reviewed, c.CreatorID, input.Provider, published.CommitSHA, published.Repository, published.PullRequestNumber, published.PullRequestURL, published.BaseBranch, input.Focus, attempt, input.PostToPullRequest, comment)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err = recordAgentTaskTransition(ctx, tx, task, "", &c.CreatorID); err != nil {
-		return nil, nil, err
-	}
-	return &task, review, tx.Commit()
+	return task, review, tx.Commit()
 }
 
 func getReview(ctx context.Context, q sqlx.QueryerContext, task uuid.UUID) (*domain.AgentReview, error) {
 	review := &domain.AgentReview{}
 	if err := sqlx.GetContext(ctx, q, review, `SELECT * FROM agent_reviews WHERE task_id=$1`, task); err != nil {
+		return nil, err
+	}
+	return review, nil
+}
+
+// ChangesRequested is the latest finished agent review of the commit the
+// task currently publishes that did not approve it and reported findings,
+// under the task's current authorization; nil when there is none, so a
+// follow-up never carries a review of older work or an approval.
+func (r *AgentTaskRepository) ChangesRequested(ctx context.Context, ws, id uuid.UUID) (*domain.AgentReview, error) {
+	if _, err := conversationActor(ctx, ws); err != nil {
+		return nil, err
+	}
+	tx, task, err := r.transaction(ctx, id, true)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if task.Kind != domain.AgentTaskKindImplement {
+		return nil, nil
+	}
+	published, err := reviewTarget(ctx, tx, *task)
+	if errors.Is(err, ErrNoReviewTarget) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	review := &domain.AgentReview{}
+	err = tx.GetContext(ctx, review, `SELECT * FROM agent_reviews WHERE workspace_id=$1 AND reviewed_task_id=$2 AND commit_sha=$3
+ AND completed_at IS NOT NULL AND verdict IS DISTINCT FROM 'approve' AND btrim(COALESCE(findings,''))<>'' ORDER BY completed_at DESC LIMIT 1`, task.WorkspaceID, task.ID, published.CommitSHA)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
 		return nil, err
 	}
 	return review, nil

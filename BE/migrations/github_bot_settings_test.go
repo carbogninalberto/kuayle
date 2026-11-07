@@ -37,7 +37,7 @@ func TestGitHubBotSettingsMigration(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 	fixture := insertBaseMigrationFixture(t, db)
-	require.NoError(t, m.Migrate(117))
+	require.NoError(t, m.Migrate(119))
 
 	var count int
 	require.NoError(t, db.QueryRow(`SELECT count(*) FROM workspace_github_bot_settings`).Scan(&count))
