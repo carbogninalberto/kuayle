@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	gh "github.com/kuayle/kuayle-backend/pkg/github"
 )
 
@@ -144,6 +145,9 @@ func (s *GitHubService) TagExists(ctx context.Context, ws uuid.UUID, repository,
 }
 
 func (s *GitHubService) CreateRelease(ctx context.Context, ws uuid.UUID, repository string, release gh.NewRelease) (*gh.Release, error) {
+	if err := s.requireAbility(ctx, ws, domain.GitHubBotReleases); err != nil {
+		return nil, err
+	}
 	client, token, owner, name, err := s.repositoryClient(ctx, ws, repository)
 	if err != nil {
 		return nil, err

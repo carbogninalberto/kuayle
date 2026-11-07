@@ -59,7 +59,13 @@ func (s *GitHubService) PostReviewComments(ctx context.Context) (int, error) {
 			return posted, err
 		}
 		review := claimed.Review
-		err = post(ctx, review.WorkspaceID, review.Repository, review.PullRequestNumber, reviewCommentMarker(review.TaskID), reviewCommentBody(*claimed))
+		var bot *domain.GitHubBotSettings
+		if bot, err = s.botSettings(ctx, review.WorkspaceID); err == nil && !bot.Enabled(domain.GitHubBotReviewComments) {
+			err = &GitHubBotAbilityDisabledError{Ability: domain.GitHubBotReviewComments}
+		}
+		if err == nil {
+			err = post(ctx, review.WorkspaceID, review.Repository, review.PullRequestNumber, reviewCommentMarker(review.TaskID), botSignature(bot, s.frontendURL)+reviewCommentBody(*claimed))
+		}
 		if err != nil {
 			log.WithError(err).WithField("review_task_id", review.TaskID).Warn("Could not post agent review comment")
 		}
@@ -99,7 +105,11 @@ func reviewCommentBody(comment repository.ReviewComment) string {
 		name = review.Provider
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "**Agent review by %s** of `%s` for %s, requested in Kuayle.\n\n", name, short, comment.IssueIdentifier)
+	origin := "requested in Kuayle"
+	if strings.HasPrefix(review.Focus, mentionReviewFocusPrefix) {
+		origin = "requested by a mention on GitHub"
+	}
+	fmt.Fprintf(&b, "**Agent review by %s** of `%s` for %s, %s.\n\n", name, short, comment.IssueIdentifier, origin)
 	fmt.Fprintf(&b, "Verdict: **%s**\n\n", verdict)
 	for _, line := range strings.Split(findings, "\n") {
 		b.WriteString("> " + line + "\n")
