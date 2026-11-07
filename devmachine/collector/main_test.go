@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -178,5 +181,55 @@ func TestParseRetryAfterHTTPDate(t *testing.T) {
 	delay, ok := parseRetryAfter(now.Add(3*time.Second).Format(http.TimeFormat), now)
 	if !ok || delay != 3*time.Second {
 		t.Fatalf("expected three-second HTTP-date delay, got %s, %t", delay, ok)
+	}
+}
+
+func TestWalkFilesSkipsGeneratedAndScratchTrees(t *testing.T) {
+	root := t.TempDir()
+	for _, path := range []string{"src/app.go", "UI/node_modules/x/index.js", "UI/.svelte-kit/output/a.js", "UI/build/app.js", ".kuayle/tmp/agent.sock", ".kuayle/agent-sessions/s.json"} {
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := walkFiles(root)
+	if len(files) != 2 {
+		t.Fatalf("walkFiles() = %v, want only src/app.go and .kuayle/agent-sessions/s.json", files)
+	}
+	for _, path := range []string{"src/app.go", ".kuayle/agent-sessions/s.json"} {
+		if _, ok := files[path]; !ok {
+			t.Fatalf("walkFiles() missing %s", path)
+		}
+	}
+}
+
+func TestFileEventsReportsSmallChangesPerFile(t *testing.T) {
+	now := time.Now()
+	previous := map[string]fileState{"a.go": {1, now}, "b.go": {1, now}}
+	next := map[string]fileState{"a.go": {2, now}, "c.go": {1, now}}
+	types := map[string]int{}
+	for _, event := range fileEvents(previous, next) {
+		types[event.eventType]++
+	}
+	if types["file.modified"] != 1 || types["file.created"] != 1 || types["file.deleted"] != 1 || len(types) != 3 {
+		t.Fatalf("fileEvents() types = %v", types)
+	}
+}
+
+func TestFileEventsSummarizesLargeChanges(t *testing.T) {
+	next := map[string]fileState{}
+	for i := 0; i < 5000; i++ {
+		next[fmt.Sprintf("repo/file-%04d.go", i)] = fileState{Size: 1}
+	}
+	events := fileEvents(map[string]fileState{"gone.go": {}}, next)
+	if len(events) != 1 || events[0].eventType != "files.changed" {
+		t.Fatalf("fileEvents() = %d events, want one summary", len(events))
+	}
+	payload := events[0].payload
+	if payload["created"] != 5000 || payload["deleted"] != 1 || len(payload["sample_paths"].([]string)) != maxFileEventsPerScan {
+		t.Fatalf("summary = %v", payload)
 	}
 }

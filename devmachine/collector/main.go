@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -128,26 +129,84 @@ func (c *collector) receiveEvent(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-func (c *collector) scanFiles() {
-	next := make(map[string]fileState)
-	_ = filepath.WalkDir("/workspace", func(path string, entry fs.DirEntry, err error) error {
+// Generated, cached and agent scratch trees churn thousands of files per build;
+// recording each one floods the event store without telling anyone anything.
+var ignoredDirNames = map[string]bool{
+	".git": true, "node_modules": true, ".svelte-kit": true, "__pycache__": true, ".venv": true,
+	".cache": true, ".next": true, ".turbo": true, "dist": true, "build": true, "target": true,
+}
+
+var ignoredDirPaths = map[string]bool{".kuayle/tmp": true}
+
+// Above this many changes in one scan (a checkout, an install, a build), one
+// summary event replaces the per-file events.
+const maxFileEventsPerScan = 25
+
+type fileEvent struct {
+	eventType string
+	payload   map[string]any
+}
+
+func walkFiles(root string) map[string]fileState {
+	files := make(map[string]fileState)
+	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == "node_modules") {
-			return filepath.SkipDir
-		}
+		relative, _ := filepath.Rel(root, path)
+		relative = filepath.ToSlash(relative)
 		if entry.IsDir() {
+			if path != root && (ignoredDirNames[entry.Name()] || ignoredDirPaths[relative]) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		info, err := entry.Info()
 		if err != nil {
 			return nil
 		}
-		relative, _ := filepath.Rel("/workspace", path)
-		next[relative] = fileState{Size: info.Size(), ModTime: info.ModTime()}
+		files[relative] = fileState{Size: info.Size(), ModTime: info.ModTime()}
 		return nil
 	})
+	return files
+}
+
+func fileEvents(previous, next map[string]fileState) []fileEvent {
+	var events []fileEvent
+	created, modified, deleted := 0, 0, 0
+	for path, state := range next {
+		before, exists := previous[path]
+		if !exists {
+			created++
+			events = append(events, fileEvent{"file.created", map[string]any{"path": path, "size_bytes": state.Size}})
+		} else if before.Size != state.Size || !before.ModTime.Equal(state.ModTime) {
+			modified++
+			events = append(events, fileEvent{"file.modified", map[string]any{"path": path, "size_bytes": state.Size}})
+		}
+	}
+	for path := range previous {
+		if _, exists := next[path]; !exists {
+			deleted++
+			events = append(events, fileEvent{"file.deleted", map[string]any{"path": path}})
+		}
+	}
+	if len(events) <= maxFileEventsPerScan {
+		return events
+	}
+	sample := make([]string, 0, maxFileEventsPerScan)
+	for _, event := range events {
+		if path, ok := event.payload["path"].(string); ok {
+			sample = append(sample, path)
+		}
+	}
+	sort.Strings(sample)
+	return []fileEvent{{"files.changed", map[string]any{
+		"created": created, "modified": modified, "deleted": deleted, "sample_paths": sample[:maxFileEventsPerScan],
+	}}}
+}
+
+func (c *collector) scanFiles() {
+	next := walkFiles("/workspace")
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.initialized {
@@ -155,18 +214,8 @@ func (c *collector) scanFiles() {
 		c.initialized = true
 		return
 	}
-	for path, state := range next {
-		previous, exists := c.files[path]
-		if !exists {
-			c.sendBackground("filesystem", "file.created", map[string]any{"path": path, "size_bytes": state.Size})
-		} else if previous.Size != state.Size || !previous.ModTime.Equal(state.ModTime) {
-			c.sendBackground("filesystem", "file.modified", map[string]any{"path": path, "size_bytes": state.Size})
-		}
-	}
-	for path := range c.files {
-		if _, exists := next[path]; !exists {
-			c.sendBackground("filesystem", "file.deleted", map[string]any{"path": path})
-		}
+	for _, event := range fileEvents(c.files, next) {
+		c.sendBackground("filesystem", event.eventType, event.payload)
 	}
 	c.files = next
 }
