@@ -72,7 +72,15 @@ async function mockPolicyApi(page: Page, taskMachine: Record<string, number>, ro
 			return route.fulfill({ json: policy });
 		}
 		if (path === '/api/workspaces/test/github/status')
-			return route.fulfill({ json: { configured: true, installed: true, global_app: false, repos: [] } });
+			return route.fulfill({
+				json: {
+					configured: true,
+					installed: true,
+					global_app: false,
+					repos: [{ id: 'repo-1', github_repo_id: 1, full_name: 'acme/app', default_branch: 'main', is_active: true }]
+				}
+			});
+		if (path === '/api/workspaces/test/dev-machine-merge-methods') return route.fulfill({ json: {} });
 		if (path === '/api/workspaces/test/dev-machine-scope-setting') {
 			if (request.method() === 'DELETE') return route.fulfill({ status: 204, body: '' });
 			return route.fulfill({ json: { workspace_id: workspaceId } });
@@ -146,19 +154,52 @@ test('a server without task machine settings shows and saves the 8 GB default', 
 	await expect(section.getByText('4 vCPU · 8 GB RAM · 20 GB disk')).toBeVisible();
 	await page.getByRole('button', { name: 'Save policy' }).click();
 	await expect.poll(() => state.saved.length).toBe(1);
-	expect(state.saved[0]).toMatchObject({ ...eightGiB, task_machine_max_tasks: 2 });
+	expect(state.saved[0]).toMatchObject({ ...eightGiB, task_machine_max_tasks: 10 });
+	await expect(section.getByRole('slider', { name: 'Tasks per machine' })).toHaveAttribute('aria-valuenow', '10');
 });
 
-test('admins choose how many tasks share a task machine', async ({ page }) => {
+test('admins choose how many tasks share a task machine with a slider', async ({ page }) => {
 	const state = await mockPolicyApi(page, { ...eightGiB, task_machine_max_tasks: 2 });
 	await page.goto('/test/settings/dev-machines?tab=policy');
 	const section = page.getByRole('region', { name: 'Task machines' });
-	const tasks = section.getByRole('spinbutton', { name: 'Tasks per machine' });
-	await expect(tasks).toHaveValue('2');
-	await tasks.fill('3');
+	const tasks = section.getByRole('slider', { name: 'Tasks per machine' });
+	const shown = section.getByTestId('task-machine-max-tasks-value');
+	await expect(tasks).toHaveAttribute('aria-valuemin', '1');
+	await expect(tasks).toHaveAttribute('aria-valuemax', '10');
+	await expect(tasks).toHaveAttribute('aria-valuenow', '2');
+	await expect(shown).toHaveText('2');
+
+	// The keyboard moves it one task at a time, between 1 and 10.
+	await tasks.focus();
+	await page.keyboard.press('ArrowRight');
+	await expect(tasks).toHaveAttribute('aria-valuenow', '3');
+	await expect(shown).toHaveText('3');
+	await page.keyboard.press('Home');
+	await expect(shown).toHaveText('1');
+	await page.keyboard.press('ArrowLeft');
+	await expect(shown).toHaveText('1');
+	await page.keyboard.press('End');
+	await expect(tasks).toHaveAttribute('aria-valuenow', '10');
+	await page.keyboard.press('ArrowRight');
+	await expect(shown).toHaveText('10');
+	await expect(section.getByRole('spinbutton', { name: 'Tasks per machine' })).toHaveCount(0);
+
 	await page.getByRole('button', { name: 'Save policy' }).click();
 	await expect.poll(() => state.saved.length).toBe(1);
-	expect(state.saved[0]).toMatchObject({ task_machine_max_tasks: 3 });
+	expect(state.saved[0]).toMatchObject({ task_machine_max_tasks: 10 });
+});
+
+test('the merge method card sits above the policy save button', async ({ page }) => {
+	await mockPolicyApi(page, eightGiB);
+	await page.goto('/test/settings/dev-machines?tab=policy');
+	const card = page.getByRole('region', { name: 'Merge method' });
+	const save = page.getByRole('button', { name: 'Save policy' });
+	await expect(card).toBeVisible();
+	await expect(card.getByRole('combobox', { name: 'Merge method for acme/app' })).toBeVisible();
+	const cardBox = await card.boundingBox();
+	const saveBox = await save.boundingBox();
+	expect(cardBox && saveBox).toBeTruthy();
+	expect(cardBox!.y + cardBox!.height).toBeLessThanOrEqual(saveBox!.y);
 });
 
 test('members see task machine resources read-only', async ({ page }) => {

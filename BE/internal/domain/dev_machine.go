@@ -621,10 +621,11 @@ var DefaultTaskMachineResources = TaskMachineResources{CPUMillis: 4000, MemoryMB
 
 // DefaultTaskMachineMaxTasks active agent tasks share one machine unless the
 // workspace sets another limit, from 1 (a machine per task) to
-// MaxTaskMachineMaxTasks. Tasks on one machine share its CPU and memory.
+// MaxTaskMachineMaxTasks (migration 117). Tasks on one machine share its CPU
+// and memory; their agent containers split the agent memory share.
 const (
-	DefaultTaskMachineMaxTasks = 2
-	MaxTaskMachineMaxTasks     = 4
+	DefaultTaskMachineMaxTasks = 10
+	MaxTaskMachineMaxTasks     = 10
 )
 
 // TaskMachine returns the policy's task machine resources; a field without a

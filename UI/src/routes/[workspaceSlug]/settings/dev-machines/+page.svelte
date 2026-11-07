@@ -20,6 +20,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import { Slider } from '$lib/components/ui/slider';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
@@ -120,6 +121,10 @@
 			policy?.max_disk_gb ?? MACHINE_DISK_GB[MACHINE_DISK_GB.length - 1]
 		)
 	);
+	// Saved as the slider shows it: a whole number of tasks from 1 to the maximum.
+	const taskMachineMaxTasks = $derived(
+		Math.min(MAX_TASK_MACHINE_MAX_TASKS, Math.max(1, Math.round(Number(policy?.task_machine_max_tasks) || DEFAULT_TASK_MACHINE_MAX_TASKS)))
+	);
 	const canCreateEnvironmentBuilder = $derived(
 		canAdmin && !builderBusy && builderSizeOptions.disk_gb.length > 0
 	);
@@ -196,7 +201,7 @@
 				task_machine_cpu_millis: taskMachine.cpu_millis,
 				task_machine_memory_mb: taskMachine.memory_mb,
 				task_machine_disk_gb: taskMachine.disk_gb,
-				task_machine_max_tasks: Math.min(MAX_TASK_MACHINE_MAX_TASKS, Math.max(1, Math.round(Number(policy.task_machine_max_tasks) || DEFAULT_TASK_MACHINE_MAX_TASKS)))
+				task_machine_max_tasks: taskMachineMaxTasks
 			});
 			const repository = linkedRepositories.find((item) => item.id === defaultRepositoryId);
 			if (defaultRepositoryId === 'none' && defaultEnvironmentId === 'standard' && command === undefined && defaultAgentProvider === 'inherit' && !defaultAgentInstructions.trim() && !defaultComposeFile.trim() && !defaultPreviewCommand.trim()) {
@@ -305,8 +310,24 @@
 			<div><h2 id="task-machines-title" class="text-sm font-semibold">{m['settings.dev_machines.task_machines']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.task_machines_desc']()}</p></div>
 			<MachineResourceSliders inputId="task-machine" disabled={!canAdmin} sizeOptions={taskMachineSizeOptions} bind:cpu_millis={policy.task_machine_cpu_millis} bind:memory_mb={policy.task_machine_memory_mb} bind:disk_gb={policy.task_machine_disk_gb} />
 			<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.task_machines_split']()}</p>
-			<label class="block space-y-1 sm:max-w-xs"><Label>{m['settings.dev_machines.task_machine_max_tasks']()}</Label><Input type="number" min="1" max={MAX_TASK_MACHINE_MAX_TASKS} step="1" bind:value={policy.task_machine_max_tasks} /></label>
-			<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.task_machine_max_tasks_desc']()}</p>
+			<div class="space-y-2 sm:max-w-sm">
+				<div class="flex items-baseline justify-between gap-4">
+					<Label>{m['settings.dev_machines.task_machine_max_tasks']()}</Label>
+					<span class="text-sm font-medium tabular-nums" data-testid="task-machine-max-tasks-value">{taskMachineMaxTasks}</span>
+				</div>
+				<Slider
+					type="single"
+					min={1}
+					max={MAX_TASK_MACHINE_MAX_TASKS}
+					step={1}
+					value={taskMachineMaxTasks}
+					onValueChange={(value: number) => policy && (policy.task_machine_max_tasks = value)}
+					disabled={!canAdmin}
+					aria-label={m['settings.dev_machines.task_machine_max_tasks']()}
+					aria-valuetext={m['settings.dev_machines.task_machine_max_tasks_value']({ count: taskMachineMaxTasks })}
+				/>
+				<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.task_machine_max_tasks_desc']()}</p>
+			</div>
 		</section>
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
 			<div class="flex items-start justify-between gap-4"><div><h2 class="text-sm font-semibold">{m['settings.dev_machines.environments']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.environments_desc']()}</p></div><Button type="button" variant="outline" onclick={openEnvironmentBuilder} disabled={builderBusy}>{m['settings.dev_machines.new_env']()}</Button></div>
@@ -347,10 +368,10 @@
 			</div>
 		</section>
 		<section class="space-y-3 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5"><div><h2 class="text-sm font-semibold">{m['settings.dev_machines.repo_allowlist']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{@html m['settings.dev_machines.repo_allowlist_desc']()}</p></div><Textarea bind:value={repositories} rows={6} class="font-mono text-xs" /></section>
+		<MergeMethodsCard {slug} repositories={linkedRepositories} disabled={!canAdmin} />
 		<div class="flex justify-end"><Button type="submit" disabled={saving}>{saving ? m['settings.saving']() : m['settings.dev_machines.save_policy']()}</Button></div>
 		</fieldset>
 	</form>
-	<MergeMethodsCard {slug} repositories={linkedRepositories} disabled={!canAdmin} />
 {/if}
 		</Tabs.Content>
 		{#if canAdmin}

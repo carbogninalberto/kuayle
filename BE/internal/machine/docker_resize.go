@@ -12,8 +12,9 @@ import (
 
 // UpdateResources applies the machine's size to each of its containers,
 // running or stopped, with the same share each one gets when it is created:
-// service and agent containers through secureHostConfig (containerSharePercent), the Docker daemon
-// through dockerHostConfig and check services through composeHostConfig.
+// service and agent containers through secureHostConfig (containerSharePercent,
+// agent memory split between running tasks by agentMemoryBytes), the Docker
+// daemon through dockerHostConfig and check services through composeHostConfig.
 // On a machine that shares its memory, its slice gets the new size first and
 // workload containers keep the whole machine's memory (machine_slice.go).
 // Short-lived helpers keep their fixed limits.
@@ -38,6 +39,7 @@ func (r *DockerRuntime) UpdateResources(ctx context.Context, machine *domain.Dev
 			docker = true
 		}
 	}
+	agentTasks := agentTaskCount(containers.Items, machine, "")
 	if sharedMemory {
 		if r.slices == nil {
 			return fmt.Errorf("machine machine slice cannot be resized: machine slices are unavailable")
@@ -53,10 +55,17 @@ func (r *DockerRuntime) UpdateResources(ctx context.Context, machine *domain.Dev
 		}
 		var resources container.Resources
 		switch service := item.Labels["com.kuayle.service"]; service {
-		case "ide", "terminal", "browser", "collector", "egress", "agent":
-			// Shares follow containerSharePercent; a check keeps the share of
-			// a machine with a daemon, as when it is created.
-			resources = r.secureHostConfig(machine, service, "", "", docker || item.Labels["com.kuayle.validation-id"] != "").Resources
+		case "ide", "terminal", "browser", "collector", "egress":
+			// Shares follow containerSharePercent.
+			resources = r.secureHostConfig(machine, service, "", "", docker).Resources
+		case "agent":
+			// A check keeps the share of a machine with a daemon, as when it
+			// is created; agent and check memory is split between the tasks
+			// running on the machine (agentMemoryBytes).
+			daemon := docker || item.Labels["com.kuayle.validation-id"] != ""
+			resources = r.secureHostConfig(machine, service, "", "", daemon).Resources
+			resources.Memory = agentMemoryBytes(machine, daemon, agentTasks)
+			resources.MemorySwap = resources.Memory
 		case "docker":
 			resources = r.dockerHostConfig(machine, "", "", "").Resources
 		case "compose":
