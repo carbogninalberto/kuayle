@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -49,6 +50,12 @@ func (f machineShareFixture) exec(t *testing.T, query string, args ...any) {
 	require.NoError(t, err)
 }
 
+// taskLimit sets how many tasks share a machine in the fixture workspace.
+func (f machineShareFixture) taskLimit(t *testing.T, limit int) {
+	t.Helper()
+	f.exec(t, `UPDATE dev_machine_workspace_policies SET task_machine_max_tasks=$2 WHERE workspace_id=$1`, f.workspaceID, limit)
+}
+
 // preparingTask creates a task and claims it into the preparing state.
 func (f machineShareFixture) preparingTask(t *testing.T) domain.AgentTask {
 	t.Helper()
@@ -86,10 +93,11 @@ func (f machineShareFixture) runningMachine(t *testing.T, activity string) uuid.
 // A task runs on a busy machine of its creator, beside the work already there,
 // rather than creating a new machine. An idle machine still comes first; among
 // busy machines the least loaded is chosen; a machine that already runs as many
-// tasks as the workspace allows (two by default), or that does not suit the
-// task, is not used.
+// tasks as the workspace allows (two here), or that does not suit the task, is
+// not used.
 func TestReservationSharesABusyMachineBelowItsTaskLimit(t *testing.T) {
 	f := newMachineShareFixture(t)
+	f.taskLimit(t, 2)
 	claimed := f.preparingTask(t)
 	repository := uuid.New()
 	reserve := func() uuid.UUID {
@@ -141,10 +149,60 @@ func TestReservationSharesABusyMachineBelowItsTaskLimit(t *testing.T) {
 	require.Equal(t, claimed.ReservedMachineID, reserve(), "with no suitable machine below the limit a new one is created")
 }
 
+// With the default limit ten tasks of a user share one running machine. The
+// eleventh gets a machine of its own, which waits while the user's machine
+// limit is reached; ten attempts run on the shared machine together and an
+// eleventh attempt waits for a place.
+func TestTenTasksShareOneMachineByDefault(t *testing.T) {
+	f := newMachineShareFixture(t)
+	var limit int
+	require.NoError(t, f.db.Get(&limit, `SELECT task_machine_max_tasks FROM dev_machine_workspace_policies WHERE workspace_id=$1`, f.workspaceID))
+	require.Equal(t, 10, limit, "a new workspace lets ten tasks share a machine")
+	machine := f.runningMachine(t, "1 minute")
+	for range 9 {
+		f.workingTask(t, machine)
+	}
+	tenth := f.preparingTask(t)
+	id, _, err := f.repo.ReserveMachine(f.ctx, tenth, uuid.New(), &f.environmentID)
+	require.NoError(t, err)
+	require.Equal(t, machine, id, "the tenth task shares the machine")
+
+	eleventh := f.preparingTask(t)
+	id, reserved, err := f.repo.ReserveMachine(f.ctx, eleventh, uuid.New(), &f.environmentID)
+	require.NoError(t, err)
+	require.Equal(t, eleventh.ReservedMachineID, id, "the eleventh task gets a new machine")
+	require.Equal(t, eleventh.ReservedMachineID, reserved)
+
+	f.exec(t, `UPDATE dev_machine_workspace_policies SET max_machines_per_user=1 WHERE workspace_id=$1`, f.workspaceID)
+	routingKey := strings.ReplaceAll(reserved.String(), "-", "")[:16]
+	err = f.repository.CreateBundle(context.Background(), &domain.DevMachine{
+		ID: reserved, WorkspaceID: f.workspaceID, CreatedByUserID: &f.userID, RoutingKey: routingKey, Name: "task-" + routingKey,
+		Status: domain.DevMachineStatusQueued, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, RepoProvider: "github",
+		MachineSize: "custom", Profile: domain.DevMachineProfileHeadless, CPUMillis: 4000, MemoryMB: 8192, DiskGB: 20, PidsLimit: 512,
+		ServicesConfig: []byte(`{}`), Labels: []byte(`{}`),
+	}, nil, nil, nil, nil, nil, &domain.DevMachineOperation{
+		ID: uuid.New(), MachineID: reserved, WorkspaceID: f.workspaceID, Action: domain.DevMachineOpSpawn,
+		Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "spawn:1", RequestedByUserID: &f.userID, MaxAttempts: 5,
+	})
+	require.ErrorIs(t, err, ErrMachineQuota, "at the user's machine limit the eleventh task waits")
+
+	// Ten attempts run on the machine together; an eleventh waits.
+	start := func(task domain.AgentTask) error {
+		task.MachineID = &machine
+		f.exec(t, `UPDATE agent_tasks SET machine_id=$2 WHERE id=$1`, task.ID, machine)
+		run, op := taskRun(task, machine)
+		return f.repository.CreateAgentRun(domain.WithTaskExecution(f.ctx, task), run, op)
+	}
+	tenth.MachineID = &machine
+	require.NoError(t, start(tenth), "the tenth attempt runs beside nine others")
+	require.ErrorIs(t, start(eleventh), ErrMachineBusy, "an eleventh attempt waits for a place")
+}
+
 // The workspace reservation lock serializes the choice, so concurrent tasks
 // never take more places on a machine than the limit allows.
 func TestConcurrentReservationsDoNotExceedTheMachineTaskLimit(t *testing.T) {
 	f := newMachineShareFixture(t)
+	f.taskLimit(t, 2)
 	machine := f.runningMachine(t, "1 minute")
 	tasks := make([]domain.AgentTask, 4)
 	for i := range tasks {
@@ -180,10 +238,11 @@ func taskRun(task domain.AgentTask, machine uuid.UUID) (*domain.DevMachineAgentR
 }
 
 // Attempts of different tasks run on one machine at the same time, up to the
-// limit. The user's own agent sessions still never share a machine with task
-// attempts.
+// limit (two here). The user's own agent sessions still never share a machine
+// with task attempts.
 func TestTaskAttemptsRunTogetherOnASharedMachine(t *testing.T) {
 	f := newMachineShareFixture(t)
+	f.taskLimit(t, 2)
 	machine := f.runningMachine(t, "1 minute")
 	tasks := make([]domain.AgentTask, 3)
 	for i := range tasks {

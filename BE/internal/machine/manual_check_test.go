@@ -94,6 +94,8 @@ func TestManualCheckContainerIsNamedPerStepAndGetsNoCredentials(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "/images/"):
 			_, _ = w.Write([]byte(`{"Id":"image","Config":{}}`))
+		case strings.HasSuffix(r.URL.Path, "/containers/json"):
+			_, _ = w.Write([]byte(`[]`))
 		case strings.HasSuffix(r.URL.Path, "/json"):
 			inspected = append(inspected, r.URL.Path)
 			http.NotFound(w, r)
