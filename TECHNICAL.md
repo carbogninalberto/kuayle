@@ -622,6 +622,14 @@ untrusted items through `task.live_message` conversation events and history
 Codex and OpenCode are told to poll the inbox by the `kuayle-live-channel`
 section of the `kuayle-agents` skill.
 
+[Configurable workflows](BE/docs/agent-tasks.md#configurable-workflows)
+(migration 117) replace the fixed implement → validate → publish → review flow
+with a workspace's own state machines: agent profiles, immutable workflow
+versions validated on save, defaults per workspace, team and project, and a
+runner that drives each task's pinned version node by node under the worker's
+lease. Tasks without a pinned version run the built-in Standard workflow,
+which is the existing fixed flow.
+
 [Automations](BE/docs/agent-tasks.md#automations) (migration 69) delegate matching issues on a label or status trigger, optionally on a UTC schedule. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
 
 ## Resource Limits and Quotas

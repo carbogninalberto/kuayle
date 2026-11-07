@@ -11,6 +11,7 @@
 	import ModelServersCard from '$lib/features/agents/ModelServersCard.svelte';
 	import AgentModelDefaultsCard from '$lib/features/agents/AgentModelDefaultsCard.svelte';
 	import AgentSignInsCard from '$lib/features/agents/AgentSignInsCard.svelte';
+	import AgentProfilesCard from '$lib/features/workflows/AgentProfilesCard.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -72,6 +73,7 @@
 			</p>{/if}
 		<ModelServersCard {slug} {canAdmin} />
 		<AgentModelDefaultsCard {slug} {canAdmin} />
+		<AgentProfilesCard {slug} />
 		<CodingAgentsCard {policy} {canAdmin} {saving} onchange={saveAgents} />
 		<AgentSignInsCard {slug} />
 	</div>

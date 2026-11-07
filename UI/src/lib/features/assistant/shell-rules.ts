@@ -197,3 +197,24 @@ export function iterationReasons(
 	}
 	return reasons;
 }
+
+const WORKFLOW_REASON = 'Workflow · ';
+
+/**
+ * A configurable workflow queues each agent step as an iteration whose
+ * transition reason names the step and the transition that led there
+ * ("Workflow · Reviewer → Implementer: changes requested"). Returns that text
+ * per iteration; iterations started otherwise (a retry) are absent.
+ */
+export function workflowIterationReasons(
+	transitions: { sequence: number; to_state: string; reason?: string }[]
+): Record<number, string> {
+	const reasons: Record<number, string> = {};
+	const queued = [...transitions].sort((a, b) => a.sequence - b.sequence).filter((t) => t.to_state === 'queued');
+	queued.slice(1).forEach((transition, index) => {
+		if (transition.reason?.startsWith(WORKFLOW_REASON)) {
+			reasons[index + 2] = transition.reason.slice(WORKFLOW_REASON.length);
+		}
+	});
+	return reasons;
+}

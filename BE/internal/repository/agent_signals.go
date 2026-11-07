@@ -100,6 +100,16 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 			action = "follow_up"
 		}
 	}
+	// A workflow decides what CI results do (its CI checks); they never queue
+	// the Standard flow's follow-ups.
+	if task.RunsWorkflow() {
+		action = "recorded"
+		if in.Kind == "ci" {
+			if _, err = tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_wake_at=now() WHERE id=$1 AND state='awaiting_review' AND workflow_status='waiting'`, task.ID); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if existing {
 		err = tx.GetContext(ctx, signal, `UPDATE agent_task_signals SET outcome=$2,name=$3,summary=$4,url=$5,action=$6,updated_at=now() WHERE id=$1 RETURNING *`, signal.ID, in.Outcome, in.Name, in.Summary, in.URL, action)
 	} else {
@@ -172,6 +182,10 @@ func (r *AgentTaskRepository) RecordCommentSignal(ctx context.Context, ws, issue
 	action := "follow_up"
 	if used >= CommentFollowUpBudget {
 		action = "budget_exhausted"
+	}
+	// A workflow task follows its own graph; a comment is recorded only.
+	if task.RunsWorkflow() {
+		action = "recorded"
 	}
 	requestID := uuid.NewSHA1(signalNamespace, []byte(task.ID.String()+"/"+task.RunID.String()+"/comment/"+comment.String()))
 	if err = tx.GetContext(ctx, signal, `INSERT INTO agent_task_signals(task_id,run_id,kind,external_id,outcome,name,summary,action,request_id) VALUES($1,$2,'comment',$3,'commented',$4,$5,$6,$7) RETURNING *`, task.ID, task.RunID, comment.String(), name, summary, action, requestID); err != nil {
