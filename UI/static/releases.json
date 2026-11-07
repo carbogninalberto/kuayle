@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.2.21",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.21",
+    "body": "## What's changed\n\n### Configurable workflows\n- Design your own development flows as editable state machines in **Settings → Workflows**: agent steps, checks/CI, approvals, publish, merge and end nodes, with conditions on each transition, loop guards and a per-task budget. Workflows are versioned, validated before saving (unreachable nodes, unguarded loops and missing profiles are refused), and can be set as the default per workspace, project or team, or picked per task. (#146)\n- **Agent profiles** in Settings → Agents: reusable agents with a role, harness, model, effort and instructions. Built-in Implementer and Reviewer profiles. Profiles can't widen workspace policy. (#146)\n- The task's Agents panel shows the workflow graph, the current node, the path taken and why each transition fired. The fixed flow is now the built-in \"Standard\" workflow, so nothing changes until you pick another. (#146)\n\n### Dev machines\n- A task machine can now run up to **10 tasks** (default 10 for new workspaces; saved values are kept), set with a slider. Each agent's memory limit is split across the tasks running on the machine, so tasks slow down instead of being killed. (#147)\n- The Merge method card now sits above the policy's Save button and is more compact. (#147)\n\n### Fixes\n- The workflows migration is renumbered to 000118 so it no longer clashes with the tasks-per-machine migration, and a test now catches duplicate migration versions. (#150)\n\n**Full changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.2.20...v0.2.21\n",
+    "published_at": "2026-11-07T21:50:42Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.21",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.2.20",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.20",
     "body": "## What's changed\n\n### Agent reviews reach the follow-up in full\n- When you approve a follow-up in the assistant after an agent review asked for changes, Kuayle now attaches **every finding** of that review (the latest finished review of the published commit) to the follow-up, instead of relying on the assistant's summary. Coding agents can't read Kuayle's reviews, so before this they could miss findings or stop to ask for them. Reviews of older commits, approvals and unfinished reviews are not attached. (#148)\n- Agent run summaries are now kept up to 16 KiB instead of 4000 bytes, cut on a character boundary, so long reviewer findings are no longer truncated mid-sentence. (#148)\n\n### For contributors\n- The agent harness now says to access the web with headless Playwright, never a browser extension. (#148)\n\n**Full changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.2.19...v0.2.20\n",
