@@ -14,7 +14,7 @@ Kuayle without merging ([accepting without merge](#accepting-without-merge)). CI
 comments queue bounded follow-up attempts; reviews by a second agent run only on
 request (migration 84). That fixed flow is the built-in Standard workflow;
 workspaces can design their own as [configurable workflows](#configurable-workflows)
-(migration 117). See [remaining workflow work](#remaining-workflow-work)
+(migration 118). See [remaining workflow work](#remaining-workflow-work)
 for what is not implemented.
 
 Terminology: texts users read (transition reasons such as "Native coding
@@ -1183,7 +1183,7 @@ Rolling migration 95 back drops the live channel's messages.
 
 ## Configurable workflows
 
-Migration 117 lets a workspace replace the fixed flow above with its own
+Migration 118 lets a workspace replace the fixed flow above with its own
 state machines (KUA-95). Nothing changes until someone picks one: a task with
 no pinned version runs the built-in **Standard** workflow, which is the fixed
 flow in code, and `StandardWorkflowGraph` only draws it.

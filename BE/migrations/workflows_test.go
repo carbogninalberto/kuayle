@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Migration 117 adds configurable workflows. Existing tasks keep the
+// Migration 118 adds configurable workflows. Existing tasks keep the
 // Standard flow (no pinned version), versions are immutable, a workflow
 // never crosses workspaces, and rolling back refuses while a task still runs
 // a configurable workflow.
@@ -39,14 +39,14 @@ func TestWorkflowsMigration(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 	fixture := insertBaseMigrationFixture(t, db)
-	require.NoError(t, m.Migrate(116))
+	require.NoError(t, m.Migrate(117))
 
 	var issue, team, conversation, existing uuid.UUID
 	require.NoError(t, db.QueryRow(`SELECT id,team_id FROM issues WHERE workspace_id=$1 LIMIT 1`, fixture.workspaceA).Scan(&issue, &team))
 	require.NoError(t, db.QueryRow(`INSERT INTO conversations(workspace_id,creator_id,title,issue_id,team_id) VALUES($1,$2,'Workflows',$3,$4) RETURNING id`, fixture.workspaceA, fixture.userA, issue, team).Scan(&conversation))
 	require.NoError(t, db.QueryRow(`INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider) VALUES($1,$2,$3,$4,$5,$6,'Implement','codex') RETURNING id`, fixture.workspaceA, conversation, fixture.userA, issue, team, uuid.New()).Scan(&existing))
 
-	require.NoError(t, m.Migrate(117))
+	require.NoError(t, m.Migrate(118))
 
 	// An existing task runs the Standard flow: nothing is pinned.
 	var pinned sql.NullString
@@ -93,7 +93,7 @@ func TestWorkflowsMigration(t *testing.T) {
 	// ... and removes everything once none does.
 	_, err = db.Exec(`UPDATE agent_tasks SET workflow_version_id=NULL,workflow_node=NULL,workflow_status=NULL WHERE id=$1`, existing)
 	require.NoError(t, err)
-	require.NoError(t, m.Force(117))
+	require.NoError(t, m.Force(118))
 	require.NoError(t, m.Steps(-1))
 	for _, table := range []string{"agent_profiles", "workflows", "workflow_versions", "workflow_defaults", "workflow_audit_events", "agent_task_workflow_steps"} {
 		require.NoError(t, db.QueryRow(`SELECT to_regclass($1) IS NOT NULL`, table).Scan(&exists))
