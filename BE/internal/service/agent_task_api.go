@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -80,6 +83,9 @@ func (s *AgentTaskService) Create(ctx context.Context, ws, conversation uuid.UUI
 	if accepted, err := s.Repo.ReplayCreate(ctx, ws, conversation, input); err != nil || accepted != nil {
 		return accepted, err
 	}
+	if err := s.resolveWorkflow(ctx, ws, conversation, &input); err != nil {
+		return nil, err
+	}
 	if err := s.validateRequest(ctx, ws, input); err != nil {
 		return nil, err
 	}
@@ -133,4 +139,60 @@ func (s *AgentTaskService) accept(ctx context.Context, ws, id uuid.UUID, generat
 		s.events.Broadcast(ws, realtime.Event{Type: "issue.updated", Payload: issue})
 	}
 	return task, nil
+}
+
+// ErrWorkflowUnusable means the chosen or default workflow cannot start a
+// task now: it is archived, or one of its agent profiles was archived.
+var ErrWorkflowUnusable = errors.New("the workflow cannot start a task")
+
+// resolveWorkflow pins the workflow a new task runs: the one the request
+// chose, else the issue's project, team or workspace default. The Standard
+// workflow (no version) keeps the request as it is. A custom workflow's
+// first agent step decides the harness and model, and every agent step's
+// profile must be allowed by the workspace policy now; each step is checked
+// again when it runs.
+func (s *AgentTaskService) resolveWorkflow(ctx context.Context, ws, conversation uuid.UUID, input *domain.AgentTaskRequest) error {
+	input.Workflow, input.WorkflowInstructions = nil, ""
+	if s.definitions == nil {
+		if input.WorkflowID != nil && *input.WorkflowID != domain.StandardWorkflowID && *input.WorkflowID != "" {
+			return repository.ErrWorkflowNotFound
+		}
+		return nil
+	}
+	c, err := s.Repo.Conversation(ctx, ws, conversation)
+	if err != nil {
+		return err
+	}
+	if c.IssueID == nil {
+		return repository.ErrConversationInvalid
+	}
+	version, err := s.definitions.ResolveWorkflow(ctx, ws, *c.IssueID, input.WorkflowID)
+	if err != nil || version == nil {
+		return err
+	}
+	graph, err := domain.ParseWorkflowGraph(version.Graph)
+	if err != nil {
+		return ErrWorkflowUnusable
+	}
+	profiles, err := s.definitions.ActiveProfiles(ctx, ws)
+	if err != nil {
+		return err
+	}
+	if len(domain.ValidateWorkflowGraph(*graph, profiles)) > 0 {
+		return ErrWorkflowUnusable
+	}
+	for _, node := range graph.Nodes {
+		if node.Type == domain.WorkflowNodeAgent {
+			if err = s.profilePolicy(ctx, ws, profiles[*node.ProfileID]); err != nil {
+				return err
+			}
+		}
+	}
+	start, _ := graph.Start()
+	first := graph.Decide(domain.WorkflowCursor{Node: start.ID, Visits: map[string]int{}}, domain.WorkflowElse, time.Now(), profiles).To
+	profile := profiles[*first.ProfileID]
+	input.Provider, input.Model, input.Thinking, input.ModelServerID = profile.Harness, profile.Model, profile.Effort, nil
+	input.Workflow = version
+	input.WorkflowInstructions = workflowInstructions("", profile, first)
+	return nil
 }

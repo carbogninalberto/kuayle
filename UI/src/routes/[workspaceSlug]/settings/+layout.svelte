@@ -22,7 +22,8 @@
 		Bot,
 		MessagesSquare,
 		Mic,
-		BotMessageSquare
+		BotMessageSquare,
+		Workflow
 	} from '@lucide/svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
 	import type { Snippet } from 'svelte';
@@ -112,6 +113,7 @@
 					? [
 							{ label: m['settings.nav.dev_machines'](), href: `/${slug}/settings/dev-machines`, icon: SlidersHorizontal },
 							{ label: m['settings.nav.agents'](), href: `/${slug}/settings/agents`, icon: Bot },
+							{ label: m['settings.nav.workflows'](), href: `/${slug}/settings/workflows`, icon: Workflow },
 							{ label: m['agent_messages.nav'](), href: `/${slug}/settings/agent-messages`, icon: MessagesSquare }
 						]
 					: [])

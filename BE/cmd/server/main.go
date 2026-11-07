@@ -187,6 +187,11 @@ func main() {
 	conversationSvc.SetTools(assistantTools)
 	conversationH := handler.NewConversationHandler(conversationSvc, cfg.FrontendURL)
 	agentTaskSvc := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), devMachineSvc, hub)
+	// Tasks that pin a configurable workflow follow it (KUA-95).
+	workflowRepo := repository.NewWorkflowRepository(db)
+	agentTaskSvc.SetWorkflows(workflowRepo)
+	assistantTools.SetWorkflows(workflowRepo)
+	workflowH := handler.NewWorkflowHandler(service.NewWorkflowService(workflowRepo, devMachineAgentReg, agentTaskSvc))
 	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))
 	assistantTools.SetRepositories(devMachineRepo)
 	assistantTools.SetLiveChannel(repository.NewAgentTaskRepository(db))
@@ -345,6 +350,7 @@ func main() {
 		assistantTool:     assistantToolH,
 		assistantResearch: assistantResearchH,
 		agentTask:         agentTaskH,
+		workflow:          workflowH,
 		agentAutomation:   agentAutomationH,
 		agentMessage:      agentMessageH,
 		telegram:          telegramH,

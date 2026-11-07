@@ -66,6 +66,42 @@ type AgentTask struct {
 	// pull request of ReviewOfTaskID and never validates or publishes.
 	Kind           string     `json:"kind" db:"kind"`
 	ReviewOfTaskID *uuid.UUID `json:"review_of_task_id,omitempty" db:"review_of_task_id"`
+
+	// WorkflowVersionID pins the configurable workflow the task runs; nil
+	// runs the built-in Standard flow. The cursor fields are the durable
+	// position of the workflow runner (see BE/docs/workflows.md).
+	WorkflowVersionID  *uuid.UUID      `json:"workflow_version_id,omitempty" db:"workflow_version_id"`
+	WorkflowNode       *string         `json:"workflow_node,omitempty" db:"workflow_node"`
+	WorkflowVisits     json.RawMessage `json:"workflow_visits,omitempty" db:"workflow_visits"`
+	WorkflowIterations int             `json:"workflow_iterations,omitempty" db:"workflow_iterations"`
+	WorkflowStartedAt  *time.Time      `json:"workflow_started_at,omitempty" db:"workflow_started_at"`
+	WorkflowStatus     *string         `json:"workflow_status,omitempty" db:"workflow_status"`
+	WorkflowWakeAt     *time.Time      `json:"-" db:"workflow_wake_at"`
+	WorkflowSequence   int             `json:"-" db:"workflow_sequence"`
+}
+
+// RunsWorkflow reports whether the task follows a configurable workflow
+// rather than the Standard fixed flow.
+func (t AgentTask) RunsWorkflow() bool {
+	return t.WorkflowVersionID != nil && t.Kind != AgentTaskKindReview
+}
+
+// Cursor returns the task's workflow position.
+func (t AgentTask) Cursor() WorkflowCursor {
+	cursor := WorkflowCursor{Visits: map[string]int{}, Iterations: t.WorkflowIterations}
+	if t.WorkflowNode != nil {
+		cursor.Node = *t.WorkflowNode
+	}
+	if len(t.WorkflowVisits) > 0 {
+		_ = json.Unmarshal(t.WorkflowVisits, &cursor.Visits)
+		if cursor.Visits == nil {
+			cursor.Visits = map[string]int{}
+		}
+	}
+	if t.WorkflowStartedAt != nil {
+		cursor.StartedAt = *t.WorkflowStartedAt
+	}
+	return cursor
 }
 
 // Task preview states.
@@ -111,6 +147,14 @@ type AgentTaskRequest struct {
 	ModelServerID *uuid.UUID `json:"model_server_id,omitempty"`
 
 	TestCommand []string `json:"test_command"`
+
+	// WorkflowID chooses the task's workflow: a workflow's ID, "standard",
+	// or omitted for the issue's project, team or workspace default.
+	WorkflowID *string `json:"workflow_id,omitempty"`
+	// Workflow is the resolved version and WorkflowInstructions the first
+	// agent step's profile and step instructions; the service sets them.
+	Workflow             *WorkflowVersion `json:"-"`
+	WorkflowInstructions string           `json:"-"`
 }
 
 type AgentTaskRetryRequest struct {

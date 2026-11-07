@@ -269,7 +269,7 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, "This approval cannot be executed")
 	}
 	harness, model, server := choice.over(payload.Harness, payload.Model)
-	task, err := delegateIssue(ctx, s.conversations, s.tasks, ws, approval.IssueID, payload.Instructions, approval.RequestID, harness, model, server)
+	task, err := delegateIssue(ctx, s.conversations, s.tasks, ws, approval.IssueID, payload.Instructions, approval.RequestID, harness, model, server, payload.WorkflowID)
 	if err != nil {
 		if message, permanent := delegationFailure(err); permanent {
 			return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, message)
@@ -282,7 +282,8 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 
 // delegateIssue starts a coding task on an issue for the actor in ctx, with the
 // task composer's defaults. Replaying the same request ID converges on one task.
-func delegateIssue(ctx context.Context, conversations *repository.ConversationRepository, tasks approvalTasks, ws, issue uuid.UUID, instructions string, requestID uuid.UUID, harness, model string, server *uuid.UUID) (*domain.AgentTask, error) {
+// An empty workflow runs the issue's default workflow.
+func delegateIssue(ctx context.Context, conversations *repository.ConversationRepository, tasks approvalTasks, ws, issue uuid.UUID, instructions string, requestID uuid.UUID, harness, model string, server *uuid.UUID, workflow string) (*domain.AgentTask, error) {
 	chat, err := conversations.OpenIssue(ctx, ws, issue)
 	if err != nil {
 		return nil, err
@@ -291,8 +292,19 @@ func delegateIssue(ctx context.Context, conversations *repository.ConversationRe
 	if err != nil {
 		return nil, err
 	}
+	request, err := delegationRequest(options, requestID, instructions, harness, model, server, workflow)
+	if err != nil {
+		return nil, err
+	}
+	return tasks.Create(ctx, ws, chat.ID, request)
+}
+
+// delegationRequest is the task request a delegation starts: the chosen or
+// default harness and model, and the chosen workflow, which the task service
+// resolves and checks against the workspace policy when it creates the task.
+func delegationRequest(options *AgentTaskOptions, requestID uuid.UUID, instructions, harness, model string, server *uuid.UUID, workflow string) (domain.AgentTaskRequest, error) {
 	if len(options.Providers) == 0 {
-		return nil, ErrProviderNotAllowed
+		return domain.AgentTaskRequest{}, ErrProviderNotAllowed
 	}
 	provider := options.Providers[0].ID
 	if options.DefaultProvider != "" {
@@ -302,7 +314,7 @@ func delegateIssue(ctx context.Context, conversations *repository.ConversationRe
 		// An explicit harness must be one the workspace allows; never fall back
 		// silently to another agent than the one the user chose.
 		if !providerListed(options, harness) {
-			return nil, ErrProviderNotAllowed
+			return domain.AgentTaskRequest{}, ErrProviderNotAllowed
 		}
 		provider = harness
 	}
@@ -311,7 +323,10 @@ func delegateIssue(ctx context.Context, conversations *repository.ConversationRe
 	// model server's model and thinking level when that server speaks the
 	// harness's protocol.
 	request.Model, request.Thinking, request.ModelServerID = chatModel(options, provider, model, server)
-	return tasks.Create(ctx, ws, chat.ID, request)
+	if workflow != "" {
+		request.WorkflowID = &workflow
+	}
+	return request, nil
 }
 
 func delegationFailure(err error) (string, bool) {
@@ -320,6 +335,8 @@ func delegationFailure(err error) (string, bool) {
 		return "Coding agents are not enabled for this workspace", true
 	case errors.Is(err, ErrProviderNotAllowed):
 		return "No allowed coding agent is available", true
+	case errors.Is(err, repository.ErrWorkflowNotFound), errors.Is(err, ErrWorkflowUnusable):
+		return "The chosen workflow can no longer start a task", true
 	case errors.Is(err, ErrInvalidMachineInput), errors.Is(err, repository.ErrConversationInvalid):
 		return "The coding task request was rejected", true
 	case errors.Is(err, repository.ErrConversationNotFound), errors.Is(err, repository.ErrAgentTaskUnauthorized):

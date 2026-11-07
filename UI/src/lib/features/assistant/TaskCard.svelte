@@ -67,7 +67,7 @@
 	import { getErrorMessage } from '$lib/features/toast/toast';
 	import type { ConversationState } from './conversation-state.svelte';
 	import { taskLabel } from './task-labels';
-	import { iterationReasons, type IterationReason } from './shell-rules';
+	import { iterationReasons, workflowIterationReasons, type IterationReason } from './shell-rules';
 	import { m } from '$lib/paraglide/messages.js';
 	let {
 		task,
@@ -576,6 +576,10 @@
 	// and the signals that queued follow-ups.
 	const reasons = $derived(iterationReasons(history, signals));
 	const iterationReason = $derived<IterationReason | undefined>(reasons[task.generation]);
+	// A workflow names the step and the transition that started the iteration.
+	const workflowReason = $derived(
+		task.workflow_version_id ? workflowIterationReasons(history)[task.generation] : undefined
+	);
 	const reasonLabels: Record<IterationReason, () => string> = {
 		first: m['tasks.iteration_first'],
 		review_changes: m['tasks.iteration_review_changes'],
@@ -837,7 +841,12 @@
 					>{agentLabel(task.provider)}{task.model ? ` · ${task.model}` : ''} · {m['tasks.attempt']({
 						number: task.generation
 					})}</span
-				>{#if iterationReason}<Badge
+				>{#if workflowReason}<Badge
+						variant="secondary"
+						class="h-4 max-w-full shrink truncate px-1.5 text-[10px] font-normal"
+						title={workflowReason}
+						data-testid="iteration-reason">{workflowReason}</Badge
+					>{:else if iterationReason}<Badge
 						variant="secondary"
 						class="h-4 shrink-0 px-1.5 text-[10px] font-normal"
 						data-testid="iteration-reason">{reasonLabels[iterationReason]()}</Badge

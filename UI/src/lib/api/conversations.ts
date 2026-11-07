@@ -123,6 +123,9 @@ export interface DelegationPayload {
 	repository?: string;
 	base_branch?: string;
 	repository_source?: 'issue' | 'project' | 'team' | 'workspace';
+	/** The workflow the assistant chose ("standard" or a workflow ID) and its name; empty means the issue's default. */
+	workflow_id?: string;
+	workflow?: string;
 }
 // A merge approval is bound to the reviewed commit shown to the user.
 export interface MergePayload {

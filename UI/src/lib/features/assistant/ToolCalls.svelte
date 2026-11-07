@@ -11,7 +11,8 @@
 		Lock,
 		Server,
 		BookOpenText,
-		Eye
+		Eye,
+		Workflow
 	} from '@lucide/svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
@@ -659,6 +660,14 @@
 											})}</span
 										>
 									</p>{/if}
+								{#if approval.payload.workflow}<p class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+										<Workflow size={12} class="shrink-0" /><span class="truncate"
+											>{m['workflows.choose_label']()}: {approval.payload.workflow}</span
+										>
+									</p>
+									{#if approval.payload.workflow_id !== 'standard'}<p class="text-xs text-muted-foreground">
+											{m['workflows.composer_note']()}
+										</p>{/if}{/if}
 								<CodeBlock.Root size="sm"
 									><CodeBlock.Content
 										code={approval.payload.instructions}

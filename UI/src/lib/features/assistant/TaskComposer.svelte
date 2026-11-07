@@ -11,6 +11,9 @@
 	import { preferredServer, serversFor } from '$lib/features/agents/model-choice';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { agentTasks, type AgentTask, type TaskOptions, type TaskInput } from '$lib/api/agent-tasks';
+	import { workflows as workflowsApi, type WorkflowList } from '$lib/api/workflows';
+	import SelectField from '$lib/components/shared/SelectField.svelte';
+	import { Label } from '$lib/components/ui/label/index.js';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	let {
@@ -39,6 +42,22 @@
 		saving = $state(false),
 		error = $state('');
 	let pending: { key: string; id: string } | null = null;
+	// The workflow a new task follows: the issue's default, Standard or a
+	// custom one. Guests cannot list workflows (nor start tasks), so the
+	// chooser stays hidden whenever the list does not load.
+	const DEFAULT_WORKFLOW = 'default';
+	let workflowList = $state<WorkflowList | null>(null),
+		workflowChoice = $state(DEFAULT_WORKFLOW);
+	const customWorkflows = $derived((workflowList?.workflows ?? []).filter((w) => !w.builtin && !w.archived));
+	const customChosen = $derived(workflowChoice !== DEFAULT_WORKFLOW && workflowChoice !== 'standard');
+	// A custom workflow's first agent step decides the harness and model; a
+	// default may also name one.
+	const defaultMayBeCustom = $derived((workflowList?.defaults ?? []).some((d) => d.workflow_id));
+	const workflowOptions = $derived([
+		{ value: DEFAULT_WORKFLOW, label: m['workflows.choose_default']() },
+		{ value: 'standard', label: m['workflows.standard']() },
+		...customWorkflows.map((w) => ({ value: w.id, label: w.name }))
+	]);
 	let disposed = false;
 	// Codex and Claude Code use a compatible model server when there is one;
 	// otherwise, like the other agents, their own sign-in.
@@ -66,12 +85,24 @@
 		prompt = task?.prompt ?? initialPrompt;
 		testCommand = formatTestCommand(task?.test_command);
 		chooseProvider(task?.provider ?? options?.default_provider ?? options?.providers[0]?.id ?? '');
+		if (!task)
+			workflowsApi
+				.list(slug)
+				.then((list) => {
+					if (disposed) return;
+					workflowList = list;
+					if (!workflowOptions.some((o) => o.value === workflowChoice)) workflowChoice = DEFAULT_WORKFLOW;
+				})
+				.catch(() => {
+					/* The task still starts with the issue's default workflow. */
+				});
 		try {
 			const saved = JSON.parse(localStorage.getItem(draftKey) ?? 'null');
 			if (saved?.pending && typeof saved.prompt === 'string') {
 				prompt = saved.prompt;
 				pending = saved.pending;
 				testCommand = formatTestCommand(saved.test_command);
+				if (!task && typeof saved.workflow_id === 'string') workflowChoice = saved.workflow_id;
 				if (!task && options?.providers.some((p) => p.id === saved.provider)) {
 					chooseProvider(saved.provider);
 					if (serversFor(options?.model_servers, saved.provider).some((item) => item.id === saved.model_server_id)) {
@@ -103,7 +134,8 @@
 			provider,
 			model: canOverride ? model : '',
 			thinking: canOverride ? thinking : '',
-			...(server ? { model_server_id: server.id } : {})
+			...(server ? { model_server_id: server.id } : {}),
+			...(!task && workflowChoice !== DEFAULT_WORKFLOW ? { workflow_id: workflowChoice } : {})
 		};
 		const key = JSON.stringify(
 			task ? { prompt: input.prompt, generation: task.generation, test_command: command } : input
@@ -151,7 +183,28 @@
 			></Dialog.Header
 		>
 		<form onsubmit={submit} class="min-w-0 space-y-4">
-			{#if !task}
+			{#if !task && workflowList && customWorkflows.length > 0}
+				<div class="space-y-1.5">
+					<Label for="task-workflow" class="text-xs font-medium text-muted-foreground"
+						>{m['workflows.choose_label']()}</Label
+					>
+					<SelectField
+						id="task-workflow"
+						bind:value={workflowChoice}
+						options={workflowOptions}
+						disabled={saving}
+						aria-describedby={customChosen || defaultMayBeCustom ? 'task-workflow-note' : undefined}
+						data-testid="task-workflow"
+					/>
+					{#if customChosen || (workflowChoice === DEFAULT_WORKFLOW && defaultMayBeCustom)}<p
+							id="task-workflow-note"
+							class="text-xs text-muted-foreground"
+						>
+							{m['workflows.composer_note']()}
+						</p>{/if}
+				</div>
+			{/if}
+			{#if !task && !customChosen}
 				<div class="space-y-1.5">
 					<p id="task-harness-label" class="text-xs font-medium text-muted-foreground">{m['tasks.harness']()}</p>
 					<ToggleGroup.Root
@@ -186,7 +239,10 @@
 					disabled={saving}
 				/>
 				<InputGroup.Addon align="block-end" class="flex-wrap gap-2">
-					{#if !task}
+					{#if !task && customChosen}<span class="px-1 text-xs text-muted-foreground"
+							>{customWorkflows.find((w) => w.id === workflowChoice)?.name}</span
+						>
+					{:else if !task}
 						{#if compatibleServers.length > 1}
 							<DropdownMenu.Root
 								><DropdownMenu.Trigger

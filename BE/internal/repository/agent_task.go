@@ -62,6 +62,22 @@ func (r *AgentTaskRepository) Create(ctx context.Context, ws, conversation uuid.
 	if err != nil {
 		return nil, err
 	}
+	if input.Workflow != nil {
+		// The first agent step's profile and step instructions join the
+		// inherited instructions; the version is pinned before the queued
+		// snapshot is recorded, so a replay returns it.
+		if input.WorkflowInstructions != "" {
+			if err = tx.GetContext(ctx, &task, `UPDATE agent_tasks SET agent_instructions=$2 WHERE id=$1 RETURNING *`, task.ID, joinInstructions(instructions, input.WorkflowInstructions)); err != nil {
+				return nil, err
+			}
+		}
+		if input.Workflow.WorkspaceID != ws {
+			return nil, ErrConversationInvalid
+		}
+		if err = startWorkflow(ctx, tx, &task, *input.Workflow); err != nil {
+			return nil, err
+		}
+	}
 	// Name what the new task waits for; the worker starts it once unblocked.
 	if reason, err := waitingReason(ctx, tx, task.IssueID); err != nil {
 		return nil, err
@@ -183,10 +199,13 @@ func (r *AgentTaskRepository) Claim(ctx context.Context) (*domain.AgentTask, err
 	var task domain.AgentTask
 	// A queued task whose issue has unfinished blockers waits for them.
 	err := r.db.GetContext(ctx, &task, `WITH candidate AS (
- SELECT id FROM agent_tasks WHERE state NOT IN ('completed','cancelled','failed','blocked','awaiting_review')
- AND next_poll_at<=now() AND (lease_expires_at IS NULL OR lease_expires_at<=now())
+ SELECT id FROM agent_tasks WHERE ((state NOT IN ('completed','cancelled','failed','blocked','awaiting_review') AND next_poll_at<=now())
+  -- A workflow step waiting for a review, CI, a person or a timeout is
+  -- evaluated when an event or its timeout wakes it.
+  OR (state='awaiting_review' AND workflow_wake_at<=now() AND next_poll_at<=now()))
+ AND (lease_expires_at IS NULL OR lease_expires_at<=now())
  AND NOT (state='queued' AND kind='implement' AND `+openBlockersExist("agent_tasks.issue_id")+`)
- ORDER BY next_poll_at,created_at,id FOR UPDATE SKIP LOCKED LIMIT 1)
+ ORDER BY LEAST(next_poll_at,COALESCE(workflow_wake_at,next_poll_at)),created_at,id FOR UPDATE SKIP LOCKED LIMIT 1)
  UPDATE agent_tasks t SET lease_token=gen_random_uuid(),lease_expires_at=now()+interval '30 seconds'
  FROM candidate c WHERE t.id=c.id RETURNING t.*`)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -220,6 +239,14 @@ func recordAgentTaskTransition(ctx context.Context, tx *sqlx.Tx, task domain.Age
 		return err
 	}
 	if err = reviewUpdated(ctx, tx, task); err != nil {
+		return err
+	}
+	// Workflows: a finished review wakes the step waiting for it, and a task
+	// that finished outside the runner closes its workflow.
+	if err = wakeWorkflowParent(ctx, tx, task); err != nil {
+		return err
+	}
+	if err = closeWorkflowOnFinish(ctx, tx, task); err != nil {
 		return err
 	}
 	if task.ConversationID != nil {
@@ -823,6 +850,10 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 		return nil, err
 	}
 	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET model=COALESCE(NULLIF($9::text,''),t.model),thinking=CASE WHEN $9::text<>'' THEN $10::text ELSE t.thinking END,model_server_id=CASE WHEN $9::text<>'' THEN $11::uuid ELSE t.model_server_id END,prompt=$2,test_command=$3,validation_command=$4,agent_instructions=$5,compose_file=$6,preview_command=$7,preview_port=$8,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,sign_in_required=false,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, req.Prompt, requested, command, instructions, compose, preview, previewPort, req.Model, req.Thinking, req.ModelServerID); err != nil {
+		return nil, err
+	}
+	// A workflow task continues on its implementing agent step.
+	if err = retryWorkflow(ctx, tx, task, task.CreatorID); err != nil {
 		return nil, err
 	}
 	if err = transitionAgentTask(ctx, tx, task, "queued", "New execution iteration requested", &task.CreatorID); err != nil {
