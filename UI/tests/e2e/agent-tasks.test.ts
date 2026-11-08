@@ -398,7 +398,7 @@ test('delegates from an issue conversation and shows real execution updates', as
 	state.sockets.at(-1)!.send(JSON.stringify(event));
 	await expect(page.getByText('Implement search and add regression coverage', { exact: true })).toHaveCount(1);
 	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
-	await page.getByRole('button', { name: 'Execution output', exact: true }).click(); // raw output starts collapsed
+	await openOutput(page);
 	state.logs = [
 		{
 			id: 1,
@@ -438,6 +438,16 @@ async function showAgents(page: Page) {
 	if (await tasks.isVisible()) return;
 	await page.getByRole('button', { name: 'Agents', exact: true }).first().click();
 	await expect(tasks).toBeVisible();
+}
+
+// Raw output starts collapsed. A click that lands while the execution details
+// are still opening can be lost, so click until the output is really open.
+async function openOutput(page: Page) {
+	const output = page.getByRole('button', { name: 'Execution output', exact: true });
+	await expect(async () => {
+		if ((await output.getAttribute('aria-expanded')) !== 'true') await output.click();
+		await expect(output).toHaveAttribute('aria-expanded', 'true', { timeout: 1000 });
+	}).toPass();
 }
 
 async function delegate(page: Page, prompt = 'Implement and test issue search') {
@@ -517,7 +527,7 @@ test('mobile task controls and bounded output stay within the viewport in both t
 		truncated: false
 	}));
 	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
-	await page.getByRole('button', { name: 'Execution output', exact: true }).click(); // raw output starts collapsed
+	await openOutput(page);
 	await expect(page.getByRole('button', { name: 'Load more output', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Load more output', exact: true }).click();
 	await expect(page.getByText('Log entry 105', { exact: false })).toBeVisible();
@@ -540,7 +550,7 @@ test('keeps displaying live output while activity arrives continuously', async (
 	await delegate(page);
 	await expect(page.getByText('Queued', { exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
-	await page.getByRole('button', { name: 'Execution output', exact: true }).click(); // raw output starts collapsed
+	await openOutput(page);
 	await expect(page.getByText('No output received yet.', { exact: true })).toBeVisible();
 	let sequence = 0;
 	const timer = setInterval(() => {
