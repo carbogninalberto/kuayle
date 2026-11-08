@@ -170,7 +170,7 @@
 		nodesConnectable={editable}
 		elementsSelectable
 		deleteKey={editable ? ['Backspace', 'Delete'] : null}
-		proOptions={{ hideAttribution: false }}
+		proOptions={{ hideAttribution: true }}
 		onnodeclick={({ node }) => onselect?.({ kind: 'node', id: node.id })}
 		onedgeclick={({ edge }) => onselect?.({ kind: 'edge', id: edge.id })}
 		onpaneclick={() => onselect?.(null)}
@@ -203,7 +203,6 @@
 		--xy-controls-button-border-color: var(--border);
 		--xy-node-border-radius: 0.5rem;
 		--xy-handle-background-color: var(--muted-foreground);
-		--xy-attribution-background-color: transparent;
 	}
 	.workflow-canvas :global(.svelte-flow__node-workflow) {
 		background: transparent;
