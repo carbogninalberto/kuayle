@@ -757,13 +757,13 @@ func truncateUTF8(value string, limit int) string {
 func StandardWorkflowGraph() WorkflowGraph {
 	return WorkflowGraph{
 		Nodes: []WorkflowNode{
-			{ID: "start", Type: WorkflowNodeStart, Label: "Start", Position: WorkflowPosition{X: 0, Y: 0}},
-			{ID: "implement", Type: WorkflowNodeAgent, Label: "Implement", Prompt: "The task's instructions", MaxVisits: 0, Position: WorkflowPosition{X: 0, Y: 120}},
-			{ID: "validate", Type: WorkflowNodeCheck, Label: "Validate", Check: WorkflowCheckTests, Position: WorkflowPosition{X: 0, Y: 240}},
-			{ID: "publish", Type: WorkflowNodePublish, Label: "Publish pull request", Position: WorkflowPosition{X: 0, Y: 360}},
-			{ID: "review", Type: WorkflowNodeApproval, Label: "Human review", Prompt: "Review the pull request; CI failures, change requests and comments queue follow-up iterations", MaxVisits: 0, Position: WorkflowPosition{X: 0, Y: 480}},
-			{ID: "done", Type: WorkflowNodeEnd, Label: "Done", Outcome: WorkflowEndDone, Position: WorkflowPosition{X: -160, Y: 600}},
-			{ID: "failed", Type: WorkflowNodeEnd, Label: "Failed", Outcome: WorkflowEndFailed, Position: WorkflowPosition{X: 200, Y: 300}},
+			{ID: "start", Type: WorkflowNodeStart, Label: "Start", Position: WorkflowPosition{X: -88, Y: 0}},
+			{ID: "implement", Type: WorkflowNodeAgent, Label: "Implement", Prompt: "The task's instructions", MaxVisits: 0, Position: WorkflowPosition{X: -120, Y: 130}},
+			{ID: "validate", Type: WorkflowNodeCheck, Label: "Validate", Check: WorkflowCheckTests, Position: WorkflowPosition{X: -120, Y: 260}},
+			{ID: "publish", Type: WorkflowNodePublish, Label: "Publish pull request", Position: WorkflowPosition{X: -120, Y: 390}},
+			{ID: "review", Type: WorkflowNodeApproval, Label: "Human review", Prompt: "Review the pull request; CI failures, change requests and comments queue follow-up iterations", MaxVisits: 0, Position: WorkflowPosition{X: -120, Y: 520}},
+			{ID: "done", Type: WorkflowNodeEnd, Label: "Done", Outcome: WorkflowEndDone, Position: WorkflowPosition{X: -88, Y: 650}},
+			{ID: "failed", Type: WorkflowNodeEnd, Label: "Failed", Outcome: WorkflowEndFailed, Position: WorkflowPosition{X: 200, Y: 260}},
 		},
 		Edges: []WorkflowEdge{
 			{ID: "e-start", Source: "start", Target: "implement", Condition: WorkflowElse},

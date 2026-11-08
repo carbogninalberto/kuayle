@@ -3,6 +3,7 @@
 	import {
 		SvelteFlow,
 		Background,
+		BackgroundVariant,
 		Controls,
 		MarkerType,
 		type Connection,
@@ -13,7 +14,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import WorkflowNodeCard, { type WorkflowFlowNode } from './WorkflowNodeCard.svelte';
 	import { conditionLabel, issueLabel, roleLabel } from './labels';
-	import { placeIssues, type FiredTransition } from './workflow-graph';
+	import { layering, placeIssues, type FiredTransition } from './workflow-graph';
 
 	// The workflow graph on a Svelte Flow canvas, editable or read-only. The
 	// graph prop stays the source of truth: the canvas reports moves,
@@ -40,7 +41,12 @@
 		editable?: boolean;
 		selection?: Selection;
 		/** A task's run: its current node, the nodes it entered, visit counts and fired transitions. */
-		run?: { current: string; visited: Set<string>; visits: Record<string, number>; fired: Map<string, FiredTransition> };
+		run?: {
+			current: string;
+			visited: Set<string>;
+			visits: Record<string, number>;
+			fired: Map<string, FiredTransition>;
+		};
 		label: string;
 		class?: string;
 		onselect?: (selection: Selection) => void;
@@ -55,12 +61,16 @@
 		switch (node.type) {
 			case 'agent': {
 				const profile = profiles.find((p) => p.id === node.profile_id);
-				return profile ? `${profile.name} · ${roleLabel(profile.role)}` : '';
+				if (!profile) return '';
+				const role = roleLabel(profile.role);
+				return profile.name === role ? profile.name : `${profile.name} · ${role}`;
 			}
 			case 'check':
 				return node.check === 'ci' ? m['workflows.editor.check_ci']() : m['workflows.editor.check_tests']();
 			case 'end':
-				return node.outcome === 'failed' ? m['workflows.editor.outcome_failed']() : m['workflows.editor.outcome_done']();
+				return node.outcome === 'failed'
+					? m['workflows.editor.outcome_failed']()
+					: m['workflows.editor.outcome_done']();
 			case 'approval':
 				return node.prompt ?? '';
 		}
@@ -93,19 +103,45 @@
 				visits: run ? (run.visits[node.id] ?? 0) : undefined
 			}
 		}));
+		// Loops back to an earlier step leave and enter on the left and failures
+		// leave on the right, so neither crosses the main path; transitions
+		// between the same two steps share one label.
+		const { back } = layering(graph);
+		const pairs = new Map<string, string[]>();
+		for (const edge of graph.edges) {
+			const key = `${edge.source}>${edge.target}`;
+			pairs.set(key, [...(pairs.get(key) ?? []), edge.id]);
+		}
+		const pairLabel = (edge: WorkflowGraph['edges'][number]) => {
+			const ids = pairs.get(`${edge.source}>${edge.target}`) ?? [];
+			if (ids[0] !== edge.id) return undefined;
+			return ids.map((id) => conditionLabel(graph.edges.find((e) => e.id === id)?.condition ?? '')).join(' / ');
+		};
 		edges = graph.edges.map((edge) => {
 			const fired = run?.fired.get(edge.id);
+			const loop = back.has(edge.id);
+			const target = graph.nodes.find((n) => n.id === edge.target);
+			const toFailure = !loop && target?.type === 'end' && target.outcome === 'failed';
 			const problem = placed.edges.has(edge.id);
 			return {
 				id: edge.id,
+				type: 'smoothstep',
 				source: edge.source,
 				target: edge.target,
-				label: fired && fired.count > 1 ? `${conditionLabel(edge.condition)} ×${fired.count}` : conditionLabel(edge.condition),
+				...(loop ? { sourceHandle: 'loop-out', targetHandle: 'loop-in' } : {}),
+				...(toFailure ? { sourceHandle: 'side-out', targetHandle: 'loop-in' } : {}),
+				label: fired && fired.count > 1 ? `${conditionLabel(edge.condition)} ×${fired.count}` : pairLabel(edge),
 				selected: selection?.kind === 'edge' && selection.id === edge.id,
 				deletable: editable,
 				animated: !!fired && run?.current === edge.target,
 				markerEnd: { type: MarkerType.ArrowClosed },
-				class: problem ? 'workflow-edge-problem' : fired ? 'workflow-edge-fired' : run ? 'workflow-edge-idle' : undefined,
+				class: problem
+					? 'workflow-edge-problem'
+					: fired
+						? 'workflow-edge-fired'
+						: run
+							? 'workflow-edge-idle'
+							: undefined,
 				ariaLabel: fired ? `${conditionLabel(edge.condition)}: ${fired.reason}` : conditionLabel(edge.condition)
 			};
 		});
@@ -117,13 +153,19 @@
 	}
 </script>
 
-<div class="workflow-canvas min-h-0 w-full overflow-hidden rounded-lg border bg-muted/20 {className}" role="region" aria-label={label}>
+<div
+	class="workflow-canvas min-h-0 w-full overflow-hidden rounded-lg border bg-muted/20 {className}"
+	role="region"
+	aria-label={label}
+>
 	<SvelteFlow
 		bind:nodes
 		bind:edges
 		{nodeTypes}
 		fitView
+		fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
 		minZoom={0.2}
+		maxZoom={1.5}
 		nodesDraggable={editable}
 		nodesConnectable={editable}
 		elementsSelectable
@@ -141,7 +183,7 @@
 				removedEdges.map((e) => e.id)
 			)}
 	>
-		<Background />
+		<Background variant={BackgroundVariant.Dots} gap={18} size={1.2} />
 		<Controls showLock={false} />
 	</SvelteFlow>
 </div>
@@ -149,7 +191,9 @@
 <style>
 	.workflow-canvas :global(.svelte-flow) {
 		--xy-background-color: transparent;
-		--xy-edge-stroke: var(--muted-foreground);
+		--xy-edge-stroke: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+		--xy-edge-stroke-width: 1.5;
+		--xy-background-pattern-color: color-mix(in oklab, var(--muted-foreground) 25%, transparent);
 		--xy-edge-stroke-selected: var(--ring);
 		--xy-edge-label-background-color: var(--background);
 		--xy-edge-label-color: var(--foreground);
@@ -178,7 +222,33 @@
 		stroke-dasharray: 4 4;
 		opacity: 0.6;
 	}
-	.workflow-canvas :global(.svelte-flow__edge-text) {
+	.workflow-canvas :global(.svelte-flow__edge-label) {
+		padding: 1px 6px;
+		border: 1px solid var(--border);
+		border-radius: 9999px;
+		background: var(--background);
+		color: var(--muted-foreground);
 		font-size: 11px;
+		line-height: 16px;
+		white-space: nowrap;
+	}
+	.workflow-canvas :global(.svelte-flow__edge.selected .svelte-flow__edge-label) {
+		border-color: var(--ring);
+		color: var(--foreground);
+	}
+	.workflow-canvas :global(.svelte-flow__handle) {
+		width: 8px;
+		height: 8px;
+		border: 2px solid var(--background);
+	}
+	.workflow-canvas :global(.workflow-loop-handle) {
+		opacity: 0;
+		pointer-events: none;
+	}
+	.workflow-canvas :global(.svelte-flow__controls) {
+		overflow: hidden;
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+		box-shadow: none;
 	}
 </style>

@@ -84,12 +84,12 @@ export function newNode(
 	label: string,
 	position?: { x: number; y: number }
 ): WorkflowNode {
-	const lowest = graph.nodes.reduce((y, node) => Math.max(y, node.position.y), -120);
+	const lowest = graph.nodes.reduce((y, node) => Math.max(y, node.position.y), -ROW);
 	const node: WorkflowNode = {
 		id: uniqueId(type, new Set(graph.nodes.map((n) => n.id))),
 		type,
 		label,
-		position: position ?? { x: 0, y: lowest + 120 }
+		position: position ?? { x: -nodeWidth(type) / 2, y: lowest + ROW }
 	};
 	if (type === 'check') node.check = 'tests';
 	if (type === 'end') node.outcome = 'done';
@@ -174,7 +174,9 @@ export function graphForSave(graph: WorkflowGraph): WorkflowGraph {
 		}),
 		edges: graph.edges.map(({ id, source, target, condition }) => ({ id, source, target, condition })),
 		budget: {
-			...((graph.budget.max_iterations ?? 0) > 0 ? { max_iterations: Math.floor(graph.budget.max_iterations ?? 0) } : {}),
+			...((graph.budget.max_iterations ?? 0) > 0
+				? { max_iterations: Math.floor(graph.budget.max_iterations ?? 0) }
+				: {}),
 			...((graph.budget.max_minutes ?? 0) > 0 ? { max_minutes: Math.floor(graph.budget.max_minutes ?? 0) } : {}),
 			...(graph.budget.on_exhausted ? { on_exhausted: graph.budget.on_exhausted } : {})
 		}
@@ -246,4 +248,74 @@ export function pendingDecision(
 	if (run.status === 'waiting' && node?.type === 'approval' && run.task_state === 'awaiting_review')
 		return { kind: 'approval', sequence: run.sequence, question: node.prompt ?? '' };
 	return null;
+}
+
+// Canvas geometry, matching WorkflowNodeCard: start and end cards are
+// narrower than the steps between them.
+const ROW = 130;
+const COLUMN = 300;
+export const nodeWidth = (type: WorkflowNodeType) => (type === 'start' || type === 'end' ? 176 : 240);
+
+/**
+ * Orders the graph from its start: each node's rank is its longest distance
+ * from the start over forward transitions, and back are the transitions that
+ * loop to an earlier step (a review sending work back).
+ */
+export function layering(graph: WorkflowGraph): { rank: Map<string, number>; back: Set<string> } {
+	const outgoing = new Map<string, WorkflowEdge[]>();
+	for (const edge of graph.edges) outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge]);
+	const state = new Map<string, 'open' | 'done'>();
+	const back = new Set<string>();
+	const order: string[] = [];
+	const visit = (id: string) => {
+		state.set(id, 'open');
+		for (const edge of outgoing.get(id) ?? []) {
+			const seen = state.get(edge.target);
+			if (seen === 'open') back.add(edge.id);
+			else if (!seen) visit(edge.target);
+		}
+		state.set(id, 'done');
+		order.unshift(id);
+	};
+	const start = graph.nodes.find((n) => n.type === 'start');
+	if (start) visit(start.id);
+	for (const node of graph.nodes) if (!state.has(node.id)) visit(node.id);
+	const rank = new Map<string, number>(graph.nodes.map((n) => [n.id, 0]));
+	for (const id of order)
+		for (const edge of outgoing.get(id) ?? [])
+			if (!back.has(edge.id)) rank.set(edge.target, Math.max(rank.get(edge.target) ?? 0, (rank.get(id) ?? 0) + 1));
+	return { rank, back };
+}
+
+/**
+ * Lays the graph out top to bottom by rank, each row centred. Failed endings
+ * sit in a column to the right, level with the earliest step that leads to
+ * them, so the main path stays straight.
+ */
+export function tidy(graph: WorkflowGraph): WorkflowGraph {
+	const { rank, back } = layering(graph);
+	const failed = (n: WorkflowNode) => n.type === 'end' && n.outcome === 'failed';
+	const rows = new Map<number, WorkflowNode[]>();
+	for (const node of graph.nodes) {
+		if (failed(node)) continue;
+		const r = rank.get(node.id) ?? 0;
+		rows.set(r, [...(rows.get(r) ?? []), node]);
+	}
+	const positions = new Map<string, { x: number; y: number }>();
+	let widest = 0;
+	for (const [r, row] of rows) {
+		row.forEach((node, i) => {
+			const centre = (i - (row.length - 1) / 2) * COLUMN;
+			widest = Math.max(widest, Math.abs(centre) + nodeWidth(node.type) / 2);
+			positions.set(node.id, { x: centre - nodeWidth(node.type) / 2, y: r * ROW });
+		});
+	}
+	let side = 0;
+	for (const node of graph.nodes.filter(failed)) {
+		const from = graph.edges.filter((e) => e.target === node.id && !back.has(e.id)).map((e) => rank.get(e.source) ?? 0);
+		const r = from.length > 0 ? Math.min(...from) + 1 : (rank.get(node.id) ?? 0);
+		positions.set(node.id, { x: widest + 80 + side * (nodeWidth('end') + 40), y: r * ROW });
+		side++;
+	}
+	return { ...graph, nodes: graph.nodes.map((n) => ({ ...n, position: positions.get(n.id) ?? n.position })) };
 }

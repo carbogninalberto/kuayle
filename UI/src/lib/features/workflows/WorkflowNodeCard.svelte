@@ -18,47 +18,76 @@
 
 <script lang="ts">
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
+	import { CircleAlert } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { cn } from '$lib/utils.js';
 	import { m } from '$lib/paraglide/messages.js';
 	import { nodeTypeLabel } from './labels';
+	import { nodeIcon, nodeTone } from './node-style';
 
-	// One step on the workflow canvas. Svelte Flow makes it focusable and
-	// selectable from the keyboard; the editor's lists offer the same actions.
+	// One step on the workflow canvas: a typed icon, its name and what it
+	// uses. Svelte Flow makes it focusable and selectable from the keyboard;
+	// the editor's outline offers the same actions.
 	let { data, selected }: NodeProps<WorkflowFlowNode> = $props();
 	const node = $derived(data.node);
 	const limit = $derived(node.max_visits ?? 0);
+	const Icon = $derived(nodeIcon(node));
+	const terminal = $derived(node.type === 'start' || node.type === 'end');
+	// Under the name: what the step uses, else its type unless the name says it.
+	const detail = $derived(
+		data.subtitle && data.subtitle !== node.label
+			? data.subtitle
+			: nodeTypeLabel(node.type) !== node.label
+				? nodeTypeLabel(node.type)
+				: ''
+	);
+	const visitsText = $derived(
+		data.visits !== undefined && data.visits > 0
+			? limit > 0
+				? m['workflows.task.visits_of']({ count: data.visits, max: limit })
+				: m['workflows.task.visits']({ count: data.visits })
+			: limit > 0
+				? `≤ ${limit}×`
+				: ''
+	);
 </script>
 
-{#if node.type !== 'start'}<Handle type="target" position={Position.Top} />{/if}
+{#if node.type !== 'start'}<Handle type="target" position={Position.Top} />
+	<Handle id="loop-in" type="target" position={Position.Left} class="workflow-loop-handle" isConnectable={false} />{/if}
 <div
 	class={cn(
-		'w-52 rounded-lg border bg-card px-3 py-2 text-card-foreground shadow-xs',
-		node.type === 'end' && node.outcome === 'failed' && 'border-destructive/40',
-		data.visited && 'border-primary/60',
+		'flex items-center gap-2.5 rounded-xl border bg-card p-2 pr-3 text-card-foreground shadow-sm transition-shadow',
+		terminal ? 'w-44' : 'w-60',
+		data.visited && 'border-primary/50',
 		data.current && 'ring-2 ring-primary',
-		selected && 'ring-2 ring-ring',
-		data.problems.length > 0 && 'border-destructive ring-1 ring-destructive'
+		selected && 'border-ring ring-2 ring-ring/40',
+		data.problems.length > 0 && 'border-destructive'
 	)}
 	data-testid="workflow-node-{node.id}"
 	data-current={data.current ? 'true' : undefined}
+	title={data.problems.join('\n') || undefined}
 >
-	<div class="flex items-center justify-between gap-2">
-		<span class="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">{nodeTypeLabel(node.type)}</span>
-		{#if data.current}<Badge class="h-4 px-1.5 text-[10px]">{m['workflows.task.current']()}</Badge>{/if}
+	<span class={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', nodeTone(node))}>
+		<Icon class="size-4" aria-hidden="true" />
+	</span>
+	<div class="min-w-0 flex-1">
+		<p class="truncate text-sm leading-5 font-medium">{node.label}</p>
+		{#if detail || visitsText}<p class="truncate text-xs leading-4 text-muted-foreground">
+				{[detail, visitsText].filter(Boolean).join(' · ')}
+			</p>{/if}
 	</div>
-	<p class="truncate text-sm font-medium" title={node.label}>{node.label}</p>
-	{#if data.subtitle}<p class="truncate text-xs text-muted-foreground" title={data.subtitle}>{data.subtitle}</p>{/if}
-	{#if data.visits !== undefined && data.visits > 0}<p class="mt-1 text-[11px] text-muted-foreground">
-			{limit > 0
-				? m['workflows.task.visits_of']({ count: data.visits, max: limit })
-				: m['workflows.task.visits']({ count: data.visits })}
-		</p>
-	{:else if limit > 0}<p class="mt-1 text-[11px] text-muted-foreground">
-			{m['workflows.editor.node_max_visits']()}: {limit}
-		</p>{/if}
-	{#if data.problems.length > 0}<ul class="mt-1 space-y-0.5 text-[11px] text-destructive" role="list">
-			{#each data.problems as problem, i (i)}<li>{problem}</li>{/each}
-		</ul>{/if}
+	{#if data.current}<Badge class="h-4 shrink-0 px-1.5 text-[10px]">{m['workflows.task.current']()}</Badge>{/if}
+	{#if data.problems.length > 0}<CircleAlert
+			class="size-4 shrink-0 text-destructive"
+			aria-label={data.problems.join('. ')}
+		/>{/if}
 </div>
-{#if node.type !== 'end'}<Handle type="source" position={Position.Bottom} />{/if}
+{#if node.type !== 'end'}<Handle type="source" position={Position.Bottom} />
+	<Handle id="loop-out" type="source" position={Position.Left} class="workflow-loop-handle" isConnectable={false} />
+	<Handle
+		id="side-out"
+		type="source"
+		position={Position.Right}
+		class="workflow-loop-handle"
+		isConnectable={false}
+	/>{/if}
