@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.2.22",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.22",
+    "body": "## What's changed\n\n### Customizable GitHub bot\n- **Settings → GitHub → Kuayle bot** sets the bot's display name and profile picture. You can upload a PNG, JPEG, WebP or GIF up to 2 MB, or link one from an https:// address. Kuayle starts each GitHub comment with this name and picture. GitHub still shows the GitHub App as the author. (#145)\n- Each workspace can turn the bot's abilities on or off: linking issues, task feedback from CI and change requests, posting review findings, pull request actions, merging, releases. A disabled ability is refused wherever the GitHub write happens, whoever asked for it. Existing abilities stay on by default. (#145)\n- New, off by default: the bot can start an agent review when a trusted commenter mentions it on a pull request and asks for one. You can choose the harness and model it uses. (#145)\n- Migration 000119 adds the per-workspace bot settings table. (#145)\n\n### For contributors\n- New `kuayle-review` agent skill for peer reviews of a PR, one area or the whole codebase. It covers security, correctness, architecture flows, maintainability, UI, UX, performance, tests and operations, with a severity rubric and a report format. (#149)\n\n**Full changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.2.21...v0.2.22\n",
+    "published_at": "2026-11-08T20:36:30Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.22",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.2.21",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.21",
     "body": "## What's changed\n\n### Configurable workflows\n- Design your own development flows as editable state machines in **Settings → Workflows**: agent steps, checks/CI, approvals, publish, merge and end nodes, with conditions on each transition, loop guards and a per-task budget. Workflows are versioned, validated before saving (unreachable nodes, unguarded loops and missing profiles are refused), and can be set as the default per workspace, project or team, or picked per task. (#146)\n- **Agent profiles** in Settings → Agents: reusable agents with a role, harness, model, effort and instructions. Built-in Implementer and Reviewer profiles. Profiles can't widen workspace policy. (#146)\n- The task's Agents panel shows the workflow graph, the current node, the path taken and why each transition fired. The fixed flow is now the built-in \"Standard\" workflow, so nothing changes until you pick another. (#146)\n\n### Dev machines\n- A task machine can now run up to **10 tasks** (default 10 for new workspaces; saved values are kept), set with a slider. Each agent's memory limit is split across the tasks running on the machine, so tasks slow down instead of being killed. (#147)\n- The Merge method card now sits above the policy's Save button and is more compact. (#147)\n\n### Fixes\n- The workflows migration is renumbered to 000118 so it no longer clashes with the tasks-per-machine migration, and a test now catches duplicate migration versions. (#150)\n\n**Full changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.2.20...v0.2.21\n",
