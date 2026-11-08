@@ -181,3 +181,23 @@ func (r *AgentTaskRepository) RecordPullRequestHead(ctx context.Context, ws uuid
  ON CONFLICT (workspace_id,repository_full_name,pull_request_number) DO UPDATE SET head_sha=EXCLUDED.head_sha,observed_at=EXCLUDED.observed_at,updated_at=now() WHERE EXCLUDED.observed_at>=pull_request_heads.observed_at`, ws, repository, number, sha, observed)
 	return err
 }
+
+// PullRequestReviewTarget finds the newest implementing task awaiting review
+// whose current attempt published the given pull request, with the commit it
+// published. Callers re-check the task's authorization when acting on it.
+func (r *AgentTaskRepository) PullRequestReviewTarget(ctx context.Context, ws uuid.UUID, repository string, number int) (*MergeTarget, error) {
+	var target MergeTarget
+	err := r.db.GetContext(ctx, &target, `SELECT t.id,t.issue_id,t.creator_id,t.generation,t.provider,p.repository_full_name,p.pull_request_number,p.url,c.commit_sha
+ FROM agent_tasks t
+ JOIN LATERAL (SELECT g.repository_full_name,g.pull_request_number,g.url FROM dev_machine_git_refs g WHERE g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id AND g.ref_type='pull_request' AND g.source='published' AND g.pull_request_number IS NOT NULL AND g.url IS NOT NULL ORDER BY g.created_at DESC LIMIT 1) p ON true
+ JOIN LATERAL (SELECT g.commit_sha FROM dev_machine_git_refs g WHERE g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id AND g.ref_type='commit' AND g.source='published' AND g.commit_sha IS NOT NULL ORDER BY g.created_at DESC LIMIT 1) c ON true
+ WHERE t.workspace_id=$1 AND t.kind='implement' AND t.state='awaiting_review' AND LOWER(p.repository_full_name)=LOWER($2) AND p.pull_request_number=$3
+ ORDER BY t.updated_at DESC LIMIT 1`, ws, repository, number)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNoMergeTarget
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &target, nil
+}

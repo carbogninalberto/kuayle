@@ -90,6 +90,7 @@ type appHandlers struct {
 	sharedLink        *handler.SharedLinkHandler
 	upload            *handler.UploadHandler
 	github            *handler.GitHubHandler
+	githubBot         *handler.GitHubBotHandler
 }
 
 // appMiddleware carries the pre-built route middleware whose construction
@@ -359,6 +360,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// GitHub integration (conditional)
 	// Public webhook endpoint (no auth, signature-verified internally)
 	public(e, http.MethodPost, "/api/github/webhook", h.github.HandleWebhook)
+	// The uploaded bot picture is public so GitHub can show it in bot comments.
+	public(e, http.MethodGet, "/api/github-bot/:workspaceId/avatar/:file", h.githubBot.Avatar, m.publicAssetRateLimit)
 	public(e, http.MethodPost, "/api/dev-machine-ingest/events", h.devMachine.IngestEvent, m.machineEventsRateLimit)
 	public(e, http.MethodPost, "/api/dev-machine-ingest/logs", h.devMachine.IngestLog, m.machineLogsRateLimit)
 
@@ -376,6 +379,10 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodDelete, "/github/repos/:id", h.github.UnlinkRepo, "workspace:manage")
 	scoped(ws, http.MethodGet, "/github/auto-transitions", h.github.ListAutoTransitions, "workspace:manage")
 	scoped(ws, http.MethodPatch, "/github/auto-transitions", h.github.UpdateAutoTransitions, "workspace:manage")
+	// Members see the bot identity and abilities; managers change them.
+	sessionOnly(ws, http.MethodGet, "/github/bot", h.githubBot.Get)
+	scoped(ws, http.MethodPatch, "/github/bot", h.githubBot.Update, "workspace:manage")
+	scoped(ws, http.MethodPost, "/github/bot/avatar", h.githubBot.UploadAvatar, "workspace:manage")
 	scoped(ws, http.MethodGet, "/issues/:identifier/github", h.github.IssueGitHubActivity, "issues:read")
 	scoped(ws, http.MethodGet, "/github/issue-links", h.github.AgentIssueLinks, "issues:read")
 

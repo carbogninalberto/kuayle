@@ -33,6 +33,13 @@ func (s *GitHubService) commentOnPullRequest(ctx context.Context, inst *domain.G
 	}()
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
+	bot, err := s.botSettings(ctx, inst.WorkspaceID)
+	if err != nil {
+		return fmt.Errorf("reading GitHub bot settings")
+	}
+	if !bot.Enabled(domain.GitHubBotLinkIssues) {
+		return nil
+	}
 	// Resolve credentials before borrowing the publication transaction connection.
 	client, _, err := s.getClient(ctx, inst.WorkspaceID)
 	if err != nil {
@@ -48,6 +55,6 @@ func (s *GitHubService) commentOnPullRequest(ctx context.Context, inst *domain.G
 			return err
 		}
 		marker := "<!-- kuayle:pr-issue:" + inst.WorkspaceID.String() + " -->"
-		return client.EnsurePullRequestComment(ctx, token, repo.FullName, pr.Number, marker, body)
+		return client.EnsurePullRequestComment(ctx, token, repo.FullName, pr.Number, marker, botSignature(bot, s.frontendURL)+body)
 	})
 }

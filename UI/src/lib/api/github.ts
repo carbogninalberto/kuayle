@@ -1,5 +1,13 @@
 import { api } from './client';
-import type { GitHubStatus, GitHubAvailableRepo, GitHubIssueActivity, GitHubAutoTransition } from '$lib/types/github';
+import type {
+	GitHubStatus,
+	GitHubAvailableRepo,
+	GitHubIssueActivity,
+	GitHubAutoTransition,
+	GitHubBotSettings,
+	GitHubBotSettingsUpdate
+} from '$lib/types/github';
+import { uploadWithProgress } from './upload';
 import {
 	safeGitHubAppInstallUrl,
 	safeGitHubBranchUrl,
@@ -84,4 +92,16 @@ export function listAutoTransitions(slug: string): Promise<GitHubAutoTransition[
 
 export function updateAutoTransitions(slug: string, transitions: GitHubAutoTransition[]): Promise<void> {
 	return api.patch<void>(`/api/workspaces/${slug}/github/auto-transitions`, { transitions });
+}
+
+export function getGitHubBot(slug: string): Promise<GitHubBotSettings> {
+	return api.get<GitHubBotSettings>(`/api/workspaces/${slug}/github/bot`);
+}
+
+export function updateGitHubBot(slug: string, update: GitHubBotSettingsUpdate): Promise<GitHubBotSettings> {
+	return api.patch<GitHubBotSettings>(`/api/workspaces/${slug}/github/bot`, update);
+}
+
+export function uploadGitHubBotAvatar(slug: string, file: File): Promise<GitHubBotSettings> {
+	return uploadWithProgress<GitHubBotSettings>(`/api/workspaces/${slug}/github/bot/avatar`, file);
 }

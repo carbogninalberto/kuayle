@@ -46,6 +46,7 @@ const EVENT_LABELS: Record<string, string> = {
 	pull_request: 'Pull request',
 	pull_request_review: 'Pull request review',
 	check_suite: 'Check suite',
+	issue_comment: 'Issue comment',
 	push: 'Push',
 	create: 'Create'
 };
