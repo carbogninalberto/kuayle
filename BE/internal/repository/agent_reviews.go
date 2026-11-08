@@ -147,9 +147,10 @@ func getReview(ctx context.Context, q sqlx.QueryerContext, task uuid.UUID) (*dom
 }
 
 // ChangesRequested is the latest finished agent review of the commit the
-// task currently publishes that did not approve it and reported findings,
-// under the task's current authorization; nil when there is none, so a
-// follow-up never carries a review of older work or an approval.
+// task currently publishes when it did not approve it and reported findings,
+// under the task's current authorization; nil otherwise, so a follow-up never
+// carries a review of older work, an approval, or a request for changes that a
+// later review of the same commit superseded.
 func (r *AgentTaskRepository) ChangesRequested(ctx context.Context, ws, id uuid.UUID) (*domain.AgentReview, error) {
 	if _, err := conversationActor(ctx, ws); err != nil {
 		return nil, err
@@ -170,8 +171,9 @@ func (r *AgentTaskRepository) ChangesRequested(ctx context.Context, ws, id uuid.
 		return nil, err
 	}
 	review := &domain.AgentReview{}
-	err = tx.GetContext(ctx, review, `SELECT * FROM agent_reviews WHERE workspace_id=$1 AND reviewed_task_id=$2 AND commit_sha=$3
- AND completed_at IS NOT NULL AND verdict IS DISTINCT FROM 'approve' AND btrim(COALESCE(findings,''))<>'' ORDER BY completed_at DESC LIMIT 1`, task.WorkspaceID, task.ID, published.CommitSHA)
+	err = tx.GetContext(ctx, review, `SELECT * FROM (SELECT * FROM agent_reviews WHERE workspace_id=$1 AND reviewed_task_id=$2 AND commit_sha=$3
+ AND completed_at IS NOT NULL ORDER BY completed_at DESC, created_at DESC LIMIT 1) latest
+ WHERE verdict IS DISTINCT FROM 'approve' AND btrim(COALESCE(findings,''))<>''`, task.WorkspaceID, task.ID, published.CommitSHA)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
