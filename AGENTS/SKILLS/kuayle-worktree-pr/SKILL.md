@@ -46,7 +46,8 @@ description: Start isolated Kuayle worktrees, commit and push with the configure
 
 ## Review and merge gate
 
-- Review the entire final diff against the issue and acceptance criteria, including
+- Review the entire final diff with the [peer review skill](../kuayle-review/SKILL.md)
+  against the issue and acceptance criteria, including
   behavior, permissions, migrations, UI reuse/accessibility, tests and harness
   freshness as applicable. Fix findings and repeat affected checks. Update the
   PR description to explain the final problem/change, evidence, and limitations.
