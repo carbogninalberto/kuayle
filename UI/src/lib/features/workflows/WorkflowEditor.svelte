@@ -574,7 +574,7 @@
 									<Button
 										variant="plain"
 										class={cn(
-											'h-8 w-full justify-start gap-2 rounded-md px-2 text-left text-sm font-normal hover:bg-muted',
+											'flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm font-normal outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50',
 											selection?.id === node.id && 'bg-muted font-medium'
 										)}
 										aria-label={m['workflows.editor.select_named']({ name: node.label })}
@@ -584,8 +584,8 @@
 										<span class={cn('flex size-5 shrink-0 items-center justify-center rounded', nodeTone(node))}
 											><Icon class="size-3" /></span
 										>
-										<span class="truncate">{node.label}</span>
-										<span class="ml-auto shrink-0 text-xs text-muted-foreground">{nodeTypeLabel(node.type)}</span>
+										<span class="min-w-0 flex-1 truncate">{node.label}</span>
+										<span class="shrink-0 text-xs text-muted-foreground">{nodeTypeLabel(node.type)}</span>
 									</Button>
 								</li>
 							{/each}
@@ -601,19 +601,21 @@
 									<Button
 										variant="plain"
 										class={cn(
-											'h-auto w-full flex-col items-start gap-0 rounded-md px-2 py-1 text-left font-normal hover:bg-muted',
-											selection?.id === edge.id && 'bg-muted'
+											'flex w-full min-w-0 flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left font-normal outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50',
+											selection?.id === edge.id && 'bg-muted font-medium'
 										)}
 										aria-pressed={selection?.kind === 'edge' && selection.id === edge.id}
 										onclick={() => select({ kind: 'edge', id: edge.id })}
 									>
-										<span class="w-full truncate text-sm"
+										<span class="block w-full truncate text-sm"
 											>{m['workflows.editor.transition_named']({
 												from: nodeName(edge.source),
 												to: nodeName(edge.target)
 											})}</span
 										>
-										<span class="text-xs text-muted-foreground">{conditionLabel(edge.condition)}</span>
+										<span class="block w-full truncate text-xs font-normal text-muted-foreground"
+											>{conditionLabel(edge.condition)}</span
+										>
 									</Button>
 								</li>
 							{/each}
