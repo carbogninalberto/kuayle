@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/lib/pq"
 )
 
 var (
@@ -22,6 +23,9 @@ var (
 	ErrAgentProfileNotFound  = errors.New("agent profile not found")
 	ErrAgentProfileNameTaken = errors.New("agent profile name taken")
 	ErrAgentProfileInUse     = errors.New("agent profile is used by a workflow")
+	// ErrAgentProfileSkill: a skill to attach is not an active, workspace-wide
+	// skill of the workspace.
+	ErrAgentProfileSkill = errors.New("skill cannot be attached to an agent profile")
 	// ErrAgentProfileRoleInUse: a saved workflow version uses the profile, and
 	// its role decides how that version runs (reviewer or implementing step,
 	// which transitions leave it), so the role cannot change.
@@ -102,8 +106,63 @@ func (r *WorkflowRepository) EnsureBuiltinProfiles(ctx context.Context, ws uuid.
 
 func (r *WorkflowRepository) Profiles(ctx context.Context, ws uuid.UUID) ([]domain.AgentProfile, error) {
 	profiles := []domain.AgentProfile{}
-	err := r.db.SelectContext(ctx, &profiles, `SELECT * FROM agent_profiles WHERE workspace_id=$1 ORDER BY archived_at IS NOT NULL, builtin_key IS NULL, lower(name)`, ws)
-	return profiles, err
+	if err := r.db.SelectContext(ctx, &profiles, `SELECT * FROM agent_profiles WHERE workspace_id=$1 ORDER BY archived_at IS NOT NULL, builtin_key IS NULL, lower(name)`, ws); err != nil {
+		return nil, err
+	}
+	return profiles, attachSkillIDs(ctx, r.db, ws, profiles)
+}
+
+// attachSkillIDs fills each profile's skills, in order.
+func attachSkillIDs(ctx context.Context, q sqlx.QueryerContext, ws uuid.UUID, profiles []domain.AgentProfile) error {
+	var rows []struct {
+		ProfileID uuid.UUID `db:"profile_id"`
+		SkillID   uuid.UUID `db:"skill_id"`
+	}
+	if err := sqlx.SelectContext(ctx, q, &rows, `SELECT profile_id,skill_id FROM agent_profile_skills WHERE workspace_id=$1 ORDER BY profile_id,position`, ws); err != nil {
+		return err
+	}
+	byProfile := map[uuid.UUID][]uuid.UUID{}
+	for _, row := range rows {
+		byProfile[row.ProfileID] = append(byProfile[row.ProfileID], row.SkillID)
+	}
+	for i := range profiles {
+		profiles[i].SkillIDs = byProfile[profiles[i].ID]
+		if profiles[i].SkillIDs == nil {
+			profiles[i].SkillIDs = []uuid.UUID{}
+		}
+	}
+	return nil
+}
+
+// setProfileSkills replaces a profile's skills inside the writing
+// transaction. Each must be an active, workspace-wide skill of the workspace,
+// locked so it cannot become team-scoped meanwhile.
+// A nil list keeps the profile's skills. Either way profile.SkillIDs ends up
+// holding what is stored.
+func setProfileSkills(ctx context.Context, tx *sqlx.Tx, ws uuid.UUID, profile *domain.AgentProfile, skills []uuid.UUID) error {
+	if skills == nil {
+		profile.SkillIDs = []uuid.UUID{}
+		return tx.SelectContext(ctx, &profile.SkillIDs, `SELECT skill_id FROM agent_profile_skills WHERE profile_id=$1 ORDER BY position`, profile.ID)
+	}
+	if len(skills) > 0 {
+		var allowed int
+		if err := tx.GetContext(ctx, &allowed, `SELECT count(*) FROM (SELECT id FROM assistant_skills WHERE workspace_id=$1 AND id=ANY($2) AND team_id IS NULL AND status='active' FOR SHARE) s`, ws, pq.Array(skills)); err != nil {
+			return err
+		}
+		if allowed != len(skills) {
+			return ErrAgentProfileSkill
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_profile_skills WHERE profile_id=$1`, profile.ID); err != nil {
+		return err
+	}
+	for i, id := range skills {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_profile_skills(profile_id,skill_id,workspace_id,position) VALUES($1,$2,$3,$4)`, profile.ID, id, ws, i); err != nil {
+			return err
+		}
+	}
+	profile.SkillIDs = skills
+	return nil
 }
 
 // ProfilesByID returns every profile of the workspace, archived ones
@@ -149,6 +208,9 @@ func (r *WorkflowRepository) CreateProfile(ctx context.Context, ws, actor uuid.U
 	if err != nil {
 		return nil, err
 	}
+	if err = setProfileSkills(ctx, tx, ws, profile, in.SkillIDs); err != nil {
+		return nil, err
+	}
 	if err = workflowAudit(ctx, tx, ws, &actor, "agent_profile", profile.ID, "created", in); err != nil {
 		return nil, err
 	}
@@ -192,6 +254,9 @@ func (r *WorkflowRepository) UpdateProfile(ctx context.Context, ws, id, actor uu
 		return nil, ErrAgentProfileNotFound
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err = setProfileSkills(ctx, tx, ws, profile, in.SkillIDs); err != nil {
 		return nil, err
 	}
 	if err = workflowAudit(ctx, tx, ws, &actor, "agent_profile", id, "updated", in); err != nil {

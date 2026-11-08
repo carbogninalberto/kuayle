@@ -15,6 +15,8 @@ export interface AgentProfile {
 	model: string;
 	effort: string;
 	instructions: string;
+	/** Workspace-wide library skills the agent gets, in order. */
+	skill_ids: string[];
 	builtin_key?: string | null;
 	archived_at?: string | null;
 	created_at: string;
@@ -28,6 +30,8 @@ export interface AgentProfileInput {
 	model: string;
 	effort: string;
 	instructions: string;
+	/** Replaces the profile's skills; omitted keeps them. */
+	skill_ids?: string[];
 }
 
 export interface AgentProfileList {

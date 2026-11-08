@@ -102,12 +102,21 @@ type AgentProfileRequest struct {
 	Model        string `json:"model"`
 	Effort       string `json:"effort"`
 	Instructions string `json:"instructions"`
+	// SkillIDs replaces the profile's skills; omitted keeps them.
+	SkillIDs []uuid.UUID `json:"skill_ids,omitempty"`
 }
 
 func singleLine(value string) bool { return !strings.ContainsFunc(value, unicode.IsControl) }
 
 func (s *WorkflowService) validateProfile(in AgentProfileRequest) (domain.AgentProfileInput, error) {
-	out := domain.AgentProfileInput{Name: strings.TrimSpace(in.Name), Role: in.Role, Harness: in.Harness, Model: strings.TrimSpace(in.Model), Effort: strings.TrimSpace(in.Effort), Instructions: strings.TrimSpace(in.Instructions)}
+	out := domain.AgentProfileInput{Name: strings.TrimSpace(in.Name), Role: in.Role, Harness: in.Harness, Model: strings.TrimSpace(in.Model), Effort: strings.TrimSpace(in.Effort), Instructions: strings.TrimSpace(in.Instructions), SkillIDs: in.SkillIDs}
+	seen := map[uuid.UUID]bool{}
+	for _, id := range in.SkillIDs {
+		if seen[id] {
+			return out, &ErrInvalidWorkflowInput{"a skill is listed twice"}
+		}
+		seen[id] = true
+	}
 	known := false
 	for _, harness := range s.harnesses() {
 		known = known || harness == out.Harness
@@ -123,8 +132,10 @@ func (s *WorkflowService) validateProfile(in AgentProfileRequest) (domain.AgentP
 		return out, &ErrInvalidWorkflowInput{"the model is at most 128 characters"}
 	case utf8.RuneCountInString(out.Effort) > 32 || !singleLine(out.Effort):
 		return out, &ErrInvalidWorkflowInput{"the effort is at most 32 characters"}
-	case len(out.Instructions) > 16384 || !utf8.ValidString(out.Instructions):
-		return out, &ErrInvalidWorkflowInput{"the instructions are at most 16 KB"}
+	case len(out.SkillIDs) > domain.AgentProfileMaxSkills:
+		return out, &ErrInvalidWorkflowInput{"a profile has at most 20 skills"}
+	case len(out.Instructions) > domain.AgentProfileInstructionsMaxBytes || !utf8.ValidString(out.Instructions):
+		return out, &ErrInvalidWorkflowInput{"the instructions are at most 64 KB"}
 	}
 	return out, nil
 }

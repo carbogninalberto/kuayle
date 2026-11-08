@@ -97,29 +97,39 @@ func ReviewerRole(role string) bool {
 // "standard") runs wherever Standard is chosen or inherited.
 const StandardWorkflowID = "standard"
 
+// AgentProfileInstructionsMaxBytes bounds a profile's Markdown instructions.
+const AgentProfileInstructionsMaxBytes = 64 << 10
+
 // AgentProfile is a reusable agent: what it is for, which harness and model
 // run it and its instructions. A profile carries no repository, machine or
 // permission settings: every step still runs under the workspace policy.
 type AgentProfile struct {
-	ID           uuid.UUID  `json:"id" db:"id"`
-	WorkspaceID  uuid.UUID  `json:"workspace_id" db:"workspace_id"`
-	Name         string     `json:"name" db:"name"`
-	Role         string     `json:"role" db:"role"`
-	Harness      string     `json:"harness" db:"harness"`
-	Model        string     `json:"model" db:"model"`
-	Effort       string     `json:"effort" db:"effort"`
-	Instructions string     `json:"instructions" db:"instructions"`
-	BuiltinKey   *string    `json:"builtin_key,omitempty" db:"builtin_key"`
-	ArchivedAt   *time.Time `json:"archived_at,omitempty" db:"archived_at"`
-	CreatedBy    *uuid.UUID `json:"created_by,omitempty" db:"created_by"`
-	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at" db:"updated_at"`
+	ID           uuid.UUID `json:"id" db:"id"`
+	WorkspaceID  uuid.UUID `json:"workspace_id" db:"workspace_id"`
+	Name         string    `json:"name" db:"name"`
+	Role         string    `json:"role" db:"role"`
+	Harness      string    `json:"harness" db:"harness"`
+	Model        string    `json:"model" db:"model"`
+	Effort       string    `json:"effort" db:"effort"`
+	Instructions string    `json:"instructions" db:"instructions"`
+	// SkillIDs are the workspace-wide library skills the agent gets, in order.
+	SkillIDs   []uuid.UUID `json:"skill_ids" db:"-"`
+	BuiltinKey *string     `json:"builtin_key,omitempty" db:"builtin_key"`
+	ArchivedAt *time.Time  `json:"archived_at,omitempty" db:"archived_at"`
+	CreatedBy  *uuid.UUID  `json:"created_by,omitempty" db:"created_by"`
+	CreatedAt  time.Time   `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time   `json:"updated_at" db:"updated_at"`
 }
 
 // AgentProfileInput is a validated profile write.
 type AgentProfileInput struct {
 	Name, Role, Harness, Model, Effort, Instructions string
+	// SkillIDs replaces the profile's skills; nil keeps them.
+	SkillIDs []uuid.UUID
 }
+
+// AgentProfileMaxSkills bounds the skills one profile carries.
+const AgentProfileMaxSkills = 20
 
 // Workflow is a named, workspace-scoped workflow; its graphs are immutable
 // versions.
