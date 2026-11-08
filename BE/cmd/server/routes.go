@@ -298,6 +298,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodPut, "/workflows/:workflowId", h.workflow.Save)
 	sessionOnly(ws, http.MethodPost, "/workflows/:workflowId/duplicate", h.workflow.Duplicate)
 	sessionOnly(ws, http.MethodPost, "/workflows/:workflowId/archive", h.workflow.Archive)
+	sessionOnly(ws, http.MethodDelete, "/workflows/:workflowId", h.workflow.Delete)
 	sessionOnly(ws, http.MethodGet, "/workflows/:workflowId/audit", h.workflow.Audit)
 	// Members read the skills they can see; the repository lets only current
 	// owners and admins write them.

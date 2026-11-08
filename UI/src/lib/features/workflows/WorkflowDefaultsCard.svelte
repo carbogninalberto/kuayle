@@ -63,7 +63,11 @@
 	]);
 </script>
 
-<section aria-labelledby="workflow-defaults-title" class="space-y-4 rounded-xl border bg-card p-5" data-testid="workflow-defaults">
+<section
+	aria-labelledby="workflow-defaults-title"
+	class="space-y-4 rounded-xl border bg-card p-5"
+	data-testid="workflow-defaults"
+>
 	<div>
 		<h2 id="workflow-defaults-title" class="text-sm font-semibold">{m['workflows.defaults_title']()}</h2>
 		<p class="text-xs text-muted-foreground">{m['workflows.defaults_desc']()}</p>
@@ -73,15 +77,17 @@
 			{@const id = `workflow-default-${row.scope}-${row.id}`}
 			<div class="grid items-center gap-1.5 sm:grid-cols-[minmax(0,1fr)_16rem] sm:gap-3">
 				<Label for={id} class="truncate text-sm">{row.label}</Label>
-				<SelectField
-					{id}
-					disabled={!list.can_manage || busy !== null}
-					bind:value={() => current(row.scope, row.id), (value: string) => void choose(row.scope, row.id, value)}
-					options={[
-						...(row.scope === 'workspace' ? [] : [{ value: INHERIT, label: m['workflows.inherit']() }]),
-						...choices
-					]}
-				/>
+				<div class="flex sm:justify-end">
+					<SelectField
+						{id}
+						disabled={!list.can_manage || busy !== null}
+						bind:value={() => current(row.scope, row.id), (value: string) => void choose(row.scope, row.id, value)}
+						options={[
+							...(row.scope === 'workspace' ? [] : [{ value: INHERIT, label: m['workflows.inherit']() }]),
+							...choices
+						]}
+					/>
+				</div>
 			</div>
 		{/each}
 	</div>

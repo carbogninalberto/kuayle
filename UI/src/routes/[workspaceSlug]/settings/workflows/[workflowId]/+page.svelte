@@ -9,9 +9,9 @@
 	import WorkflowEditor from '$lib/features/workflows/WorkflowEditor.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 
-	// One workflow in the editor. The built-in Standard workflow, archived
-	// workflows and every workflow for members open read-only; the server
-	// enforces who may save.
+	// One workflow in the editor. Owners and admins edit any workflow but an
+	// archived one, Standard included (their edits replace the built-in flow);
+	// members read them. The server enforces who may save.
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const workflowId = $derived(page.params.workflowId ?? '');
 
@@ -41,7 +41,7 @@
 		void load(workflowId);
 	});
 
-	const editable = $derived(!!detail && canManage && !detail.builtin && !detail.archived);
+	const editable = $derived(!!detail && canManage && !detail.archived);
 </script>
 
 <div class="mx-auto max-w-7xl space-y-4 p-6">

@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Archive, Copy, Plus, Star, Workflow } from '@lucide/svelte';
+	import { Copy, Info, Pencil, Plus, RotateCcw, Star, Trash2, Workflow } from '@lucide/svelte';
+	import * as Popover from '$lib/components/ui/popover/index.js';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import * as Item from '$lib/components/ui/item/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -31,7 +32,7 @@
 		failed = $state(false),
 		creating = $state(false),
 		busy = $state<string | null>(null),
-		archiving = $state<WorkflowSummary | null>(null);
+		deleting = $state<WorkflowSummary | null>(null);
 
 	async function load() {
 		loading = true;
@@ -60,7 +61,6 @@
 		const row = list?.defaults.find((d) => d.scope === 'workspace');
 		return row?.workflow_id ?? 'standard';
 	});
-	const custom = $derived(list?.workflows.filter((w) => !w.builtin) ?? []);
 	const editorHref = (id: string) => `/${slug}/settings/workflows/${encodeURIComponent(id)}`;
 
 	async function setDefault(workflow: WorkflowSummary) {
@@ -90,14 +90,14 @@
 		}
 	}
 
-	async function archive() {
-		const workflow = archiving;
+	async function remove() {
+		const workflow = deleting;
 		if (!workflow || busy) return;
 		busy = workflow.id;
 		try {
-			await workflows.archive(slug, workflow.id);
-			appToast.success(m['workflows.archived_done']());
-			archiving = null;
+			await workflows.remove(slug, workflow.id);
+			appToast.success(workflow.builtin ? m['workflows.reset_done']() : m['workflows.deleted_done']());
+			deleting = null;
 			await load();
 		} catch (error) {
 			appToast.apiError(error, m['workflows.failed_save']());
@@ -113,9 +113,22 @@
 	{@const canManage = list.can_manage}
 	<div class="mx-auto max-w-3xl space-y-6 p-6">
 		<div class="flex flex-wrap items-start justify-between gap-3">
-			<div>
+			<div class="flex items-center gap-1">
 				<h1 class="text-lg font-semibold">{m['workflows.title']()}</h1>
-				<p class="mt-1 text-sm text-muted-foreground">{m['workflows.desc']()}</p>
+				<Popover.Root>
+					<Popover.Trigger>
+						{#snippet child({ props })}<Button
+								{...props}
+								size="icon-sm"
+								variant="ghost"
+								class="text-muted-foreground"
+								aria-label={m['workflows.about']()}><Info /></Button
+							>{/snippet}
+					</Popover.Trigger>
+					<Popover.Content align="start" class="w-80 text-sm text-muted-foreground"
+						>{m['workflows.desc']()}</Popover.Content
+					>
+				</Popover.Root>
 			</div>
 			{#if canManage}<Button size="sm" onclick={() => (creating = true)} data-testid="workflow-new"
 					><Plus />{m['workflows.new']()}</Button
@@ -133,10 +146,13 @@
 					<Item.Media variant="icon"><Workflow /></Item.Media>
 					<Item.Content class="min-w-0">
 						<Item.Title class="flex flex-wrap items-center gap-2">
-							<a href={editorHref(workflow.id)} class="hover:underline" aria-label={m['workflows.open_named']({ name })}
-								>{name}</a
+							<a
+								href={editorHref(workflow.id)}
+								class="underline-offset-4 hover:underline"
+								aria-label={m['workflows.open_named']({ name })}>{name}</a
 							>
 							{#if workflow.builtin}<Badge variant="secondary">{m['workflows.builtin']()}</Badge>
+								{#if workflow.customized}<Badge variant="outline">{m['workflows.customized']()}</Badge>{/if}
 							{:else}<Badge variant="outline">{m['workflows.version']({ version: workflow.latest_version })}</Badge
 								>{/if}
 							{#if defaultId === workflow.id}<Badge>{m['workflows.default_badge']()}</Badge>{/if}
@@ -147,6 +163,13 @@
 					</Item.Content>
 					{#if canManage}
 						<Item.Actions>
+							{#if !workflow.archived}<Button
+									size="icon-sm"
+									variant="ghost"
+									href={editorHref(workflow.id)}
+									aria-label={m['workflows.edit_named']({ name })}
+									title={m['workflows.edit']()}><Pencil /></Button
+								>{/if}
 							{#if !workflow.archived && defaultId !== workflow.id}<Button
 									size="icon-sm"
 									variant="ghost"
@@ -163,20 +186,22 @@
 								title={m['workflows.duplicate']()}
 								onclick={() => duplicate(workflow)}><Copy /></Button
 							>
-							{#if !workflow.builtin && !workflow.archived}<Button
+							{#if !workflow.builtin || workflow.customized}<Button
 									size="icon-sm"
 									variant="ghost"
 									class="text-destructive hover:text-destructive"
 									disabled={busy !== null}
-									aria-label={m['workflows.archive_named']({ name })}
-									title={m['workflows.archive']()}
-									onclick={() => (archiving = workflow)}><Archive /></Button
+									aria-label={workflow.builtin
+										? m['workflows.reset_named']({ name })
+										: m['workflows.delete_named']({ name })}
+									title={workflow.builtin ? m['workflows.reset']() : m['workflows.delete']()}
+									onclick={() => (deleting = workflow)}
+									>{#if workflow.builtin}<RotateCcw />{:else}<Trash2 />{/if}</Button
 								>{/if}
 						</Item.Actions>
 					{/if}
 				</Item.Root>
 			{/each}
-			{#if custom.length === 0}<p class="text-xs text-muted-foreground">{m['workflows.empty']()}</p>{/if}
 		</section>
 
 		<WorkflowDefaultsCard {slug} {list} {workspaceId} {teams} {projects} onchange={(next) => (list = next)} />
@@ -194,16 +219,22 @@
 	/>
 {/if}
 
-<AlertDialog.Root open={!!archiving} onOpenChange={(open) => !open && (archiving = null)}>
+<AlertDialog.Root open={!!deleting} onOpenChange={(open) => !open && (deleting = null)}>
 	<AlertDialog.Content>
 		<AlertDialog.Header>
-			<AlertDialog.Title>{m['workflows.archive_title']()}</AlertDialog.Title>
-			<AlertDialog.Description>{m['workflows.archive_confirm']({ name: archiving?.name ?? '' })}</AlertDialog.Description>
+			<AlertDialog.Title
+				>{deleting?.builtin ? m['workflows.reset_title']() : m['workflows.delete_title']()}</AlertDialog.Title
+			>
+			<AlertDialog.Description
+				>{deleting?.builtin
+					? m['workflows.reset_confirm']()
+					: m['workflows.delete_confirm']({ name: deleting?.name ?? '' })}</AlertDialog.Description
+			>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel>
-			<AlertDialog.Action variant="destructive" disabled={busy !== null} onclick={archive}
-				>{m['workflows.archive']()}</AlertDialog.Action
+			<AlertDialog.Action variant="destructive" disabled={busy !== null} onclick={remove}
+				>{deleting?.builtin ? m['workflows.reset']() : m['workflows.delete']()}</AlertDialog.Action
 			>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>

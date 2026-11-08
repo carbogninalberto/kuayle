@@ -161,13 +161,15 @@ func (s *WorkflowService) ArchiveProfile(ctx context.Context, ws, id uuid.UUID) 
 	return s.repo.ArchiveProfile(ctx, ws, id, actor)
 }
 
-// WorkflowSummary is one entry of Settings → Workflows. The built-in
-// Standard workflow is listed first with ID "standard" and is read-only.
+// WorkflowSummary is one entry of Settings → Workflows. The Standard
+// workflow is listed first with ID "standard": the built-in flow until the
+// workspace edits it (Customized), then the workspace's stored copy.
 type WorkflowSummary struct {
 	ID            string          `json:"id"`
 	Name          string          `json:"name"`
 	Description   string          `json:"description"`
 	Builtin       bool            `json:"builtin"`
+	Customized    bool            `json:"customized"`
 	LatestVersion int             `json:"latest_version"`
 	VersionID     *uuid.UUID      `json:"version_id,omitempty"`
 	Archived      bool            `json:"archived"`
@@ -181,14 +183,50 @@ type WorkflowList struct {
 	CanManage bool                     `json:"can_manage"`
 }
 
+// standardSummary is the built-in Standard workflow. Its version is 0 until
+// the workspace edits it, so a save from a stale editor can't overwrite an
+// edit someone made meanwhile.
 func standardSummary() WorkflowSummary {
 	graph, _ := json.Marshal(domain.StandardWorkflowGraph())
-	return WorkflowSummary{ID: domain.StandardWorkflowID, Name: "Standard", Description: "Implement, validate, publish a pull request and wait for human review, with follow-ups on CI failures, change requests and comments.", Builtin: true, LatestVersion: 1, Graph: graph}
+	return WorkflowSummary{ID: domain.StandardWorkflowID, Name: "Standard", Description: "Implement, validate, publish a pull request and wait for human review, with follow-ups on CI failures, change requests and comments.", Builtin: true, Graph: graph}
 }
 
 func summaryOf(w repository.WorkflowDetail) WorkflowSummary {
 	updated := w.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z")
-	return WorkflowSummary{ID: w.ID.String(), Name: w.Name, Description: w.Description, LatestVersion: w.LatestVersion, VersionID: w.VersionID, Archived: w.ArchivedAt != nil, Graph: w.Graph, UpdatedAt: &updated}
+	out := WorkflowSummary{ID: w.ID.String(), Name: w.Name, Description: w.Description, LatestVersion: w.LatestVersion, VersionID: w.VersionID, Archived: w.ArchivedAt != nil, Graph: w.Graph, UpdatedAt: &updated}
+	if w.BuiltinKey != nil {
+		out.ID, out.Name, out.Builtin, out.Customized = domain.StandardWorkflowID, "Standard", true, true
+	}
+	return out
+}
+
+// standardView is the Standard workflow as the workspace runs it: its edited
+// copy, else the built-in flow. For the editor, the built-in graph is the
+// editable copy (the workspace's implementer on the implement step), so a
+// first save is valid as it is.
+func (s *WorkflowService) standardView(ctx context.Context, ws uuid.UUID, editable bool) (*WorkflowView, error) {
+	override, err := s.repo.StandardOverride(ctx, ws)
+	if err != nil {
+		return nil, err
+	}
+	if override != nil {
+		versions, err := s.repo.Versions(ctx, ws, override.ID)
+		if err != nil {
+			return nil, err
+		}
+		return &WorkflowView{WorkflowSummary: summaryOf(*override), Versions: versions}, nil
+	}
+	view := &WorkflowView{WorkflowSummary: standardSummary(), Versions: []domain.WorkflowVersion{}}
+	if editable {
+		implementer, _, err := s.builtinProfileIDs(ctx, ws)
+		if err != nil {
+			return nil, err
+		}
+		if view.Graph, err = json.Marshal(standardCopy(implementer)); err != nil {
+			return nil, err
+		}
+	}
+	return view, nil
 }
 
 func (s *WorkflowService) List(ctx context.Context, ws uuid.UUID) (*WorkflowList, error) {
@@ -204,7 +242,11 @@ func (s *WorkflowService) List(ctx context.Context, ws uuid.UUID) (*WorkflowList
 	if err != nil {
 		return nil, err
 	}
-	out := &WorkflowList{Workflows: []WorkflowSummary{standardSummary()}, Defaults: defaults, CanManage: canManage}
+	standard, err := s.standardView(ctx, ws, false)
+	if err != nil {
+		return nil, err
+	}
+	out := &WorkflowList{Workflows: []WorkflowSummary{standard.WorkflowSummary}, Defaults: defaults, CanManage: canManage}
 	for _, w := range workflows {
 		out.Workflows = append(out.Workflows, summaryOf(w))
 	}
@@ -218,11 +260,12 @@ type WorkflowView struct {
 }
 
 func (s *WorkflowService) Get(ctx context.Context, ws uuid.UUID, id string) (*WorkflowView, error) {
-	if _, _, err := s.access(ctx, ws); err != nil {
+	_, canManage, err := s.access(ctx, ws)
+	if err != nil {
 		return nil, err
 	}
 	if id == domain.StandardWorkflowID {
-		return &WorkflowView{WorkflowSummary: standardSummary(), Versions: []domain.WorkflowVersion{}}, nil
+		return s.standardView(ctx, ws, canManage)
 	}
 	workflowID, err := uuid.Parse(id)
 	if err != nil {
@@ -351,16 +394,46 @@ func (s *WorkflowService) Save(ctx context.Context, ws uuid.UUID, id string, in 
 	if err != nil {
 		return nil, err
 	}
+	if id == domain.StandardWorkflowID {
+		return s.saveStandard(ctx, ws, actor, in)
+	}
 	workflowID, err := uuid.Parse(id)
 	if err != nil {
-		// The built-in Standard workflow is read-only.
-		return nil, repository.ErrWorkflowDenied
+		return nil, repository.ErrWorkflowNotFound
 	}
 	name, description, err := validateWorkflowMeta(in.Name, in.Description)
 	if err != nil {
 		return nil, err
 	}
 	saved, err := s.repo.SaveVersion(ctx, ws, workflowID, actor, in.ExpectedVersion, name, description, in.Graph)
+	if err != nil {
+		return nil, err
+	}
+	summary := summaryOf(*saved)
+	return &summary, nil
+}
+
+// saveStandard stores an edit of the Standard workflow: the first edit
+// creates the workspace's copy (expected version 0), later ones add versions.
+// Its name stays "Standard".
+func (s *WorkflowService) saveStandard(ctx context.Context, ws, actor uuid.UUID, in WorkflowRequest) (*WorkflowSummary, error) {
+	_, description, err := validateWorkflowMeta("Standard", in.Description)
+	if err != nil {
+		return nil, err
+	}
+	override, err := s.repo.StandardOverride(ctx, ws)
+	if err != nil {
+		return nil, err
+	}
+	var saved *repository.WorkflowDetail
+	switch {
+	case override == nil && in.ExpectedVersion != 0, override != nil && in.ExpectedVersion == 0:
+		return nil, repository.ErrWorkflowStale
+	case override == nil:
+		saved, err = s.repo.CreateStandardOverride(ctx, ws, actor, description, in.Graph)
+	default:
+		saved, err = s.repo.SaveVersion(ctx, ws, override.ID, actor, in.ExpectedVersion, override.Name, description, in.Graph)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -381,14 +454,11 @@ func (s *WorkflowService) Duplicate(ctx context.Context, ws uuid.UUID, id, name 
 	var graph json.RawMessage
 	var description, source string
 	if id == domain.StandardWorkflowID {
-		implementer, _, err := s.builtinProfileIDs(ctx, ws)
+		standard, err := s.standardView(ctx, ws, true)
 		if err != nil {
 			return nil, err
 		}
-		if graph, err = json.Marshal(standardCopy(implementer)); err != nil {
-			return nil, err
-		}
-		source, description = "Standard", standardSummary().Description
+		graph, source, description = standard.Graph, "Standard", standard.Description
 	} else {
 		workflowID, err := uuid.Parse(id)
 		if err != nil {
@@ -428,6 +498,30 @@ func (s *WorkflowService) Archive(ctx context.Context, ws uuid.UUID, id string) 
 		return repository.ErrWorkflowDenied
 	}
 	return s.repo.ArchiveWorkflow(ctx, ws, workflowID, actor)
+}
+
+// Delete removes a workflow for good. Deleting "standard" discards the
+// workspace's edits and restores the built-in Standard workflow.
+func (s *WorkflowService) Delete(ctx context.Context, ws uuid.UUID, id string) error {
+	actor, _, err := s.access(ctx, ws)
+	if err != nil {
+		return err
+	}
+	if id == domain.StandardWorkflowID {
+		override, err := s.repo.StandardOverride(ctx, ws)
+		if err != nil {
+			return err
+		}
+		if override == nil {
+			return repository.ErrWorkflowNotFound
+		}
+		return s.repo.DeleteWorkflow(ctx, ws, override.ID, actor)
+	}
+	workflowID, err := uuid.Parse(id)
+	if err != nil {
+		return repository.ErrWorkflowNotFound
+	}
+	return s.repo.DeleteWorkflow(ctx, ws, workflowID, actor)
 }
 
 // WorkflowDefaultRequest sets a scope's workflow: "standard", a workflow ID,
@@ -545,6 +639,9 @@ func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID) (*
 	}
 	cursor := task.Cursor()
 	out.WorkflowID, out.Name, out.Version, out.Graph = w.ID.String(), w.Name, version.Version, version.Graph
+	if w.BuiltinKey != nil {
+		out.WorkflowID, out.Builtin = domain.StandardWorkflowID, true
+	}
 	out.Node, out.Visits, out.Iterations, out.Sequence = cursor.Node, cursor.Visits, cursor.Iterations, task.WorkflowSequence
 	if task.WorkflowStatus != nil {
 		out.Status = *task.WorkflowStatus

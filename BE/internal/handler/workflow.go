@@ -52,6 +52,8 @@ func workflowError(c *echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "PROFILE_ROLE_IN_USE", "Workflows use this profile, so its role cannot change; create a new profile for the other role")
 	case errors.Is(err, repository.ErrAgentProfileInUse):
 		return response.Error(c, http.StatusConflict, "PROFILE_IN_USE", "A workflow uses this profile; change the workflow first")
+	case errors.Is(err, repository.ErrWorkflowInUse):
+		return response.Error(c, http.StatusConflict, "WORKFLOW_IN_USE", "A task that is still running uses this workflow; wait for it to finish or cancel it first")
 	case errors.Is(err, repository.ErrWorkflowStale):
 		return response.Error(c, http.StatusConflict, "WORKFLOW_STALE", "Someone saved a newer version; reload it and edit again")
 	case errors.Is(err, service.ErrWorkflowDecision):
@@ -181,6 +183,13 @@ func (h *WorkflowHandler) Duplicate(c *echo.Context) error {
 
 func (h *WorkflowHandler) Archive(c *echo.Context) error {
 	if err := h.svc.Archive(c.Request().Context(), workspaceID(c), c.Param("workflowId")); err != nil {
+		return workflowError(c, err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *WorkflowHandler) Delete(c *echo.Context) error {
+	if err := h.svc.Delete(c.Request().Context(), workspaceID(c), c.Param("workflowId")); err != nil {
 		return workflowError(c, err)
 	}
 	return c.NoContent(http.StatusNoContent)

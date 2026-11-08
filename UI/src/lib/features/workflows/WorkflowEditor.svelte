@@ -168,10 +168,16 @@
 	<div class="flex flex-wrap items-end gap-3">
 		<div class="min-w-48 flex-1 space-y-1.5">
 			<Label for="workflow-name">{m['workflows.name']()}</Label>
-			<Input id="workflow-name" bind:value={name} maxlength={80} disabled={!editable} oninput={() => (dirty = true)} />
+			<Input
+				id="workflow-name"
+				bind:value={name}
+				maxlength={80}
+				disabled={!editable || workflow.builtin}
+				oninput={() => (dirty = true)}
+			/>
 		</div>
 		<div class="flex flex-wrap items-center gap-2 pb-1 text-xs text-muted-foreground" aria-live="polite">
-			<Badge variant="outline">{m['workflows.version']({ version })}</Badge>
+			{#if version > 0}<Badge variant="outline">{m['workflows.version']({ version })}</Badge>{/if}
 			{#if !editable}<Badge variant="secondary">{m['workflows.read_only']()}</Badge>{/if}
 			{#if dirty}<span>{m['workflows.editor.unsaved']()}</span>{/if}
 			{#if checking}<span>{m['workflows.editor.checking']()}</span>

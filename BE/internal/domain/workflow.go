@@ -91,8 +91,10 @@ func ReviewerRole(role string) bool {
 	return role == AgentRoleReviewer || role == AgentRoleSecurityReviewer
 }
 
-// StandardWorkflowID names the built-in Standard workflow. It is not stored:
-// a task without a workflow version runs today's fixed flow in code.
+// StandardWorkflowID names the built-in Standard workflow. Until a workspace
+// edits it, it is not stored: a task without a workflow version runs today's
+// fixed flow in code. Once edited, the workspace's stored copy (BuiltinKey
+// "standard") runs wherever Standard is chosen or inherited.
 const StandardWorkflowID = "standard"
 
 // AgentProfile is a reusable agent: what it is for, which harness and model
@@ -122,15 +124,18 @@ type AgentProfileInput struct {
 // Workflow is a named, workspace-scoped workflow; its graphs are immutable
 // versions.
 type Workflow struct {
-	ID            uuid.UUID  `json:"id" db:"id"`
-	WorkspaceID   uuid.UUID  `json:"workspace_id" db:"workspace_id"`
-	Name          string     `json:"name" db:"name"`
-	Description   string     `json:"description" db:"description"`
-	LatestVersion int        `json:"latest_version" db:"latest_version"`
-	ArchivedAt    *time.Time `json:"archived_at,omitempty" db:"archived_at"`
-	CreatedBy     *uuid.UUID `json:"created_by,omitempty" db:"created_by"`
-	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
+	ID            uuid.UUID `json:"id" db:"id"`
+	WorkspaceID   uuid.UUID `json:"workspace_id" db:"workspace_id"`
+	Name          string    `json:"name" db:"name"`
+	Description   string    `json:"description" db:"description"`
+	LatestVersion int       `json:"latest_version" db:"latest_version"`
+	// BuiltinKey is "standard" for the workspace's edits of the built-in
+	// Standard workflow.
+	BuiltinKey *string    `json:"builtin_key,omitempty" db:"builtin_key"`
+	ArchivedAt *time.Time `json:"archived_at,omitempty" db:"archived_at"`
+	CreatedBy  *uuid.UUID `json:"created_by,omitempty" db:"created_by"`
+	CreatedAt  time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // WorkflowVersion is one saved, immutable graph of a workflow.

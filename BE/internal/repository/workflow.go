@@ -27,6 +27,9 @@ var (
 	// which transitions leave it), so the role cannot change.
 	ErrAgentProfileRoleInUse = errors.New("agent profile role is fixed by the workflows that use it")
 	ErrWorkflowScopeNotFound = errors.New("workflow default scope not found")
+	// ErrWorkflowInUse: a task that can still move runs a version of the
+	// workflow, so it cannot be deleted yet.
+	ErrWorkflowInUse = errors.New("workflow is used by an active task")
 )
 
 // WorkflowRepository stores agent profiles, workflows, their immutable
@@ -237,7 +240,18 @@ const workflowDetailSelect = `SELECT w.*,v.id AS version_id,v.graph FROM workflo
 
 func (r *WorkflowRepository) Workflows(ctx context.Context, ws uuid.UUID) ([]WorkflowDetail, error) {
 	out := []WorkflowDetail{}
-	err := r.db.SelectContext(ctx, &out, workflowDetailSelect+` WHERE w.workspace_id=$1 ORDER BY w.archived_at IS NOT NULL, lower(w.name)`, ws)
+	err := r.db.SelectContext(ctx, &out, workflowDetailSelect+` WHERE w.workspace_id=$1 AND w.builtin_key IS NULL ORDER BY w.archived_at IS NOT NULL, lower(w.name)`, ws)
+	return out, err
+}
+
+// StandardOverride returns the workspace's edited Standard workflow, or nil
+// while it uses the built-in one.
+func (r *WorkflowRepository) StandardOverride(ctx context.Context, ws uuid.UUID) (*WorkflowDetail, error) {
+	out := &WorkflowDetail{}
+	err := r.db.GetContext(ctx, out, workflowDetailSelect+` WHERE w.workspace_id=$1 AND w.builtin_key=$2 AND w.archived_at IS NULL`, ws, domain.StandardWorkflowID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
 	return out, err
 }
 
@@ -290,6 +304,17 @@ func validateGraphTx(ctx context.Context, tx *sqlx.Tx, ws uuid.UUID, raw json.Ra
 // CreateWorkflow saves a new workflow and its first version. An invalid
 // graph is refused with every validation issue.
 func (r *WorkflowRepository) CreateWorkflow(ctx context.Context, ws, actor uuid.UUID, name, description string, graph json.RawMessage, action string) (*WorkflowDetail, error) {
+	return r.createWorkflow(ctx, ws, actor, name, description, graph, action, nil)
+}
+
+// CreateStandardOverride stores the workspace's first edit of the built-in
+// Standard workflow. A concurrent first edit loses with ErrWorkflowStale.
+func (r *WorkflowRepository) CreateStandardOverride(ctx context.Context, ws, actor uuid.UUID, description string, graph json.RawMessage) (*WorkflowDetail, error) {
+	key := domain.StandardWorkflowID
+	return r.createWorkflow(ctx, ws, actor, "Standard", description, graph, "standard_edited", &key)
+}
+
+func (r *WorkflowRepository) createWorkflow(ctx context.Context, ws, actor uuid.UUID, name, description string, graph json.RawMessage, action string, builtinKey *string) (*WorkflowDetail, error) {
 	tx, err := r.beginManage(ctx, ws, actor)
 	if err != nil {
 		return nil, err
@@ -300,7 +325,10 @@ func (r *WorkflowRepository) CreateWorkflow(ctx context.Context, ws, actor uuid.
 		return nil, err
 	}
 	var workflow domain.Workflow
-	err = tx.GetContext(ctx, &workflow, `INSERT INTO workflows(workspace_id,name,description,latest_version,created_by) VALUES($1,$2,$3,1,$4) RETURNING *`, ws, name, description, actor)
+	err = tx.GetContext(ctx, &workflow, `INSERT INTO workflows(workspace_id,name,description,latest_version,created_by,builtin_key) VALUES($1,$2,$3,1,$4,$5) RETURNING *`, ws, name, description, actor, builtinKey)
+	if uniqueViolation(err) && builtinKey != nil {
+		return nil, ErrWorkflowStale
+	}
 	if uniqueViolation(err) {
 		return nil, ErrWorkflowNameTaken
 	}
@@ -373,7 +401,7 @@ func (r *WorkflowRepository) ArchiveWorkflow(ctx context.Context, ws, id, actor 
 		return err
 	}
 	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, `UPDATE workflows SET archived_at=now(),updated_at=now() WHERE id=$1 AND workspace_id=$2 AND archived_at IS NULL`, id, ws)
+	res, err := tx.ExecContext(ctx, `UPDATE workflows SET archived_at=now(),updated_at=now() WHERE id=$1 AND workspace_id=$2 AND archived_at IS NULL AND builtin_key IS NULL`, id, ws)
 	if err != nil {
 		return err
 	}
@@ -385,6 +413,47 @@ func (r *WorkflowRepository) ArchiveWorkflow(ctx context.Context, ws, id, actor 
 		return err
 	}
 	if err = workflowAudit(ctx, tx, ws, &actor, "workflow", id, "archived", map[string]any{"cleared_defaults": cleared}); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// DeleteWorkflow removes a workflow, its versions and the defaults that chose
+// it (those scopes fall back to the next default, then Standard). Deleting the
+// edited Standard workflow restores the built-in one. A task that can still
+// move refuses the delete; finished, failed and cancelled tasks are detached
+// from its versions and show the Standard flow from then on.
+func (r *WorkflowRepository) DeleteWorkflow(ctx context.Context, ws, id, actor uuid.UUID) error {
+	tx, err := r.beginManage(ctx, ws, actor)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var workflow domain.Workflow
+	err = tx.GetContext(ctx, &workflow, `SELECT * FROM workflows WHERE id=$1 AND workspace_id=$2 FOR UPDATE`, id, ws)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrWorkflowNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var active bool
+	if err = tx.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM agent_tasks t JOIN workflow_versions v ON v.id=t.workflow_version_id
+ WHERE v.workflow_id=$1 AND t.workspace_id=$2 AND t.state NOT IN ('completed','cancelled','failed'))`, id, ws); err != nil {
+		return err
+	}
+	if active {
+		return ErrWorkflowInUse
+	}
+	var detached int
+	if err = tx.GetContext(ctx, &detached, `WITH d AS (UPDATE agent_tasks t SET workflow_version_id=NULL,workflow_wake_at=NULL
+ FROM workflow_versions v WHERE v.id=t.workflow_version_id AND v.workflow_id=$1 AND t.workspace_id=$2 RETURNING 1) SELECT count(*) FROM d`, id, ws); err != nil {
+		return err
+	}
+	if err = workflowAudit(ctx, tx, ws, &actor, "workflow", id, "deleted", map[string]any{"name": workflow.Name, "builtin_key": workflow.BuiltinKey, "detached_tasks": detached}); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM workflows WHERE id=$1 AND workspace_id=$2`, id, ws); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -460,12 +529,13 @@ type WorkflowAuditEvent struct {
 
 // ResolveWorkflow returns the workflow version a new task on the issue runs:
 // the explicitly chosen workflow, else the issue's project, team and
-// workspace defaults, the most specific first. nil means Standard.
+// workspace defaults, the most specific first. Standard resolves to the
+// workspace's edited Standard workflow, if any; nil means the built-in flow.
 func resolveWorkflowVersion(ctx context.Context, q sqlx.QueryerContext, ws, issue uuid.UUID, chosen *string) (*domain.WorkflowVersion, error) {
 	var workflowID *uuid.UUID
 	if chosen != nil {
 		if *chosen == domain.StandardWorkflowID || *chosen == "" {
-			return nil, nil
+			return standardOverrideVersion(ctx, q, ws)
 		}
 		id, err := uuid.Parse(*chosen)
 		if err != nil {
@@ -482,7 +552,7 @@ func resolveWorkflowVersion(ctx context.Context, q sqlx.QueryerContext, ws, issu
  WHERE i.id=$1 AND i.workspace_id=$2
  ORDER BY CASE d.scope WHEN 'project' THEN 0 WHEN 'team' THEN 1 ELSE 2 END LIMIT 1`, issue, ws)
 		if errors.Is(err, sql.ErrNoRows) || (err == nil && row.WorkflowID == nil) {
-			return nil, nil
+			return standardOverrideVersion(ctx, q, ws)
 		}
 		if err != nil {
 			return nil, err
@@ -494,6 +564,18 @@ func resolveWorkflowVersion(ctx context.Context, q sqlx.QueryerContext, ws, issu
  WHERE w.id=$1 AND w.workspace_id=$2 AND w.archived_at IS NULL`, workflowID, ws)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrWorkflowNotFound
+	}
+	return version, err
+}
+
+// standardOverrideVersion is the latest version of the workspace's edited
+// Standard workflow, or nil while the built-in flow applies.
+func standardOverrideVersion(ctx context.Context, q sqlx.QueryerContext, ws uuid.UUID) (*domain.WorkflowVersion, error) {
+	version := &domain.WorkflowVersion{}
+	err := sqlx.GetContext(ctx, q, version, `SELECT v.* FROM workflows w JOIN workflow_versions v ON v.workflow_id=w.id AND v.version=w.latest_version
+ WHERE w.workspace_id=$1 AND w.builtin_key=$2 AND w.archived_at IS NULL`, ws, domain.StandardWorkflowID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
 	}
 	return version, err
 }

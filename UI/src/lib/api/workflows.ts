@@ -96,11 +96,13 @@ export interface WorkflowIssue {
 }
 
 export interface WorkflowSummary {
-	/** "standard" for the built-in, read-only Standard workflow. */
+	/** "standard" for the Standard workflow, built-in or as the workspace edited it. */
 	id: string;
 	name: string;
 	description: string;
 	builtin: boolean;
+	/** The workspace edited Standard; deleting it restores the built-in flow. */
+	customized: boolean;
 	latest_version: number;
 	version_id?: string | null;
 	archived: boolean;
@@ -209,7 +211,8 @@ export const workflows = {
 	save: (slug: string, id: string, input: WorkflowSaveInput) => api.put<WorkflowSummary>(one(slug, id), input),
 	duplicate: (slug: string, id: string, name?: string) =>
 		api.post<WorkflowSummary>(`${one(slug, id)}/duplicate`, name ? { name } : {}),
-	archive: (slug: string, id: string) => api.post<void>(`${one(slug, id)}/archive`, {}),
+	/** Deletes a workflow; for "standard", discards the workspace's edits. */
+	remove: (slug: string, id: string) => api.delete<void>(one(slug, id)),
 	validate: (slug: string, graph: WorkflowGraph) =>
 		api.post<{ issues: WorkflowIssue[] }>(`${base(slug)}/workflows/validate`, { graph }),
 	/** workflow_id "standard" chooses Standard; null makes a team or project inherit. */
