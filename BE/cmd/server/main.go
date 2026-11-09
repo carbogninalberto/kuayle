@@ -373,6 +373,7 @@ func main() {
 		upload:            uploadH,
 		github:            githubH,
 		githubBot:         handler.NewGitHubBotHandler(githubBotSvc),
+		wiki:              handler.NewWikiHandler(service.NewWikiService(repository.NewWikiRepository(db))),
 	}, &appMiddleware{
 		auth:                   mw.Auth(cfg.JWTSecret, patRepo, cfg.DevMachine.AllowSameSite),
 		authRateLimit:          mw.RateLimit(5, 10),

@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/handler"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/labstack/echo/v5"
@@ -91,6 +92,7 @@ type appHandlers struct {
 	upload            *handler.UploadHandler
 	github            *handler.GitHubHandler
 	githubBot         *handler.GitHubBotHandler
+	wiki              *handler.WikiHandler
 }
 
 // appMiddleware carries the pre-built route middleware whose construction
@@ -248,6 +250,19 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodPatch, "/projects/:id", h.project.Update, "project:manage")
 	scoped(ws, http.MethodDelete, "/projects/:id", h.project.Delete, "project:manage")
 	scoped(ws, http.MethodGet, "/teams/:teamId/projects", h.project.ListByTeam, "projects:read")
+
+	// Wikis: pages belong to one team or project; the repository applies the
+	// caller's current visibility of that scope on every read and write.
+	for _, wiki := range []struct {
+		base string
+		kind domain.WikiScopeKind
+	}{{"/teams/:teamId/wiki", domain.WikiScopeTeam}, {"/projects/:id/wiki", domain.WikiScopeProject}} {
+		scoped(ws, http.MethodGet, wiki.base, h.wiki.List(wiki.kind), domain.PermWikiRead)
+		scoped(ws, http.MethodPost, wiki.base, h.wiki.Create(wiki.kind), domain.PermWikiWrite)
+		scoped(ws, http.MethodGet, wiki.base+"/:pageId", h.wiki.Get(wiki.kind), domain.PermWikiRead)
+		scoped(ws, http.MethodPatch, wiki.base+"/:pageId", h.wiki.Update(wiki.kind), domain.PermWikiWrite)
+		scoped(ws, http.MethodDelete, wiki.base+"/:pageId", h.wiki.Delete(wiki.kind), domain.PermWikiWrite)
+	}
 
 	// Views
 	scoped(ws, http.MethodGet, "/views", h.view.List, "views:read")

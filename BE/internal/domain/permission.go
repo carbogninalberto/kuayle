@@ -18,6 +18,7 @@ const (
 	PermDevMachineCreate  = "dev_machine:create"
 	PermDevMachineManage  = "dev_machine:manage"
 	PermDevMachineAdmin   = "dev_machine:admin"
+	PermWikiWrite         = "wiki:write"
 )
 
 // Read permission codes for read routes. Every workspace role holds all of
@@ -38,13 +39,14 @@ const (
 	PermWorkspacesRead    = "workspaces:read"
 	PermAccountRead       = "account:read"
 	PermAssetsRead        = "assets:read"
+	PermWikiRead          = "wiki:read"
 )
 
 var readPermissions = []string{
 	PermIssuesRead, PermCommentsRead, PermProjectsRead, PermCyclesRead,
 	PermLabelsRead, PermTeamsRead, PermMembersRead, PermTemplatesRead,
 	PermViewsRead, PermAnalyticsRead, PermNotificationsRead, PermWorkspacesRead,
-	PermAccountRead, PermAssetsRead,
+	PermAccountRead, PermAssetsRead, PermWikiRead,
 }
 
 var RolePermissions = map[string][]string{
@@ -53,17 +55,20 @@ var RolePermissions = map[string][]string{
 		PermIssueUpdate, PermIssueDelete, PermIssueDeleteOwn, PermProjectManage, PermLabelManage,
 		PermMemberInvite, PermCycleManage, PermViewManage,
 		PermDevMachineRead, PermDevMachineCreate, PermDevMachineManage, PermDevMachineAdmin,
+		PermWikiWrite,
 	}, readPermissions...),
 	RoleAdmin: append([]string{
 		PermWorkspaceTransfer, PermTeamManage, PermIssueCreate, PermIssueUpdate,
 		PermIssueDelete, PermIssueDeleteOwn, PermProjectManage, PermLabelManage, PermMemberInvite,
 		PermCycleManage, PermViewManage,
 		PermDevMachineRead, PermDevMachineCreate, PermDevMachineManage, PermDevMachineAdmin,
+		PermWikiWrite,
 	}, readPermissions...),
 	RoleMember: append([]string{
 		PermIssueCreate, PermIssueUpdate, PermIssueDeleteOwn, PermProjectManage,
 		PermLabelManage, PermCycleManage, PermViewManage,
 		PermDevMachineRead, PermDevMachineCreate, PermDevMachineManage,
+		PermWikiWrite,
 	}, readPermissions...),
 	RoleGuest: append([]string{}, readPermissions...),
 }

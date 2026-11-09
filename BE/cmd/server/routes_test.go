@@ -230,3 +230,25 @@ func TestDraftDescriptionExpansionRequiresIssueCreate(t *testing.T) {
 	}
 	require.True(t, found, "draft expansion route is not registered")
 }
+
+// Wiki reads need wiki:read and every wiki write needs wiki:write, for both
+// scopes, so guests and read-only tokens cannot change documentation.
+func TestWikiRoutesRequireWikiPermissions(t *testing.T) {
+	e := echo.New()
+	registerRoutes(e, &appHandlers{}, testMiddleware(noopMiddleware()))
+	got := map[string]string{}
+	for _, route := range e.Router().Routes() {
+		if strings.Contains(route.Path, "/wiki") {
+			got[route.Method+" "+route.Path] = route.Name
+		}
+	}
+	want := map[string]string{}
+	for _, base := range []string{"/api/workspaces/:slug/teams/:teamId/wiki", "/api/workspaces/:slug/projects/:id/wiki"} {
+		want["GET "+base] = "perm:wiki:read"
+		want["POST "+base] = "perm:wiki:write"
+		want["GET "+base+"/:pageId"] = "perm:wiki:read"
+		want["PATCH "+base+"/:pageId"] = "perm:wiki:write"
+		want["DELETE "+base+"/:pageId"] = "perm:wiki:write"
+	}
+	require.Equal(t, want, got)
+}

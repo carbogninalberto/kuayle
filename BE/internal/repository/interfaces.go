@@ -265,3 +265,16 @@ type PasswordResetRepo interface {
 	Issue(ctx context.Context, t *PasswordResetToken, cooldown time.Duration) (bool, error)
 	Reset(ctx context.Context, tokenHash, passwordHash string) error
 }
+
+// WikiRepo stores team and project wiki pages. Every method applies the
+// caller's current visibility of the scope from the request context.
+type WikiRepo interface {
+	RequireScope(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) error
+	List(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) ([]domain.WikiPage, error)
+	Get(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) (*domain.WikiPage, error)
+	Create(ctx context.Context, page *domain.WikiPage) error
+	Update(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, page *domain.WikiPage, expectedVersion int) error
+	Delete(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) error
+}
+
+var _ WikiRepo = (*WikiRepository)(nil)
