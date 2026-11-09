@@ -222,3 +222,26 @@ func TestSkillFenceOutlastsBackticksInTheBody(t *testing.T) {
 	require.Equal(t, "```markdown\nplain\n```", skillFence("plain"))
 	require.Equal(t, "`````markdown\n````go\nx\n````\n`````", skillFence("````go\nx\n````"))
 }
+
+// propose_skill resolves a retired team key to the team's current key.
+func TestProposeSkillAcceptsARetiredTeamKey(t *testing.T) {
+	f := newToolFixture(t)
+	withSkills(t, f)
+	teams := repository.NewTeamRepository(f.db)
+	listed, err := teams.ListByWorkspace(f.ctx, f.ws)
+	require.NoError(t, err)
+	require.NoError(t, teams.UpdateWithKey(f.ctx, &listed[0], "PLT"))
+	setRole(t, f, "admin")
+	a := f.attempt(t, "Make a skill")
+	card, _, err := f.service.tools.runSkill(f.ctx, a, "propose_skill", `{"name":"Hotfix","description":"Use when shipping a hotfix","body":"Ship","team_key":"eng"}`)
+	require.NoError(t, err)
+	require.Equal(t, "PLT", *card.(map[string]any)["team_key"].(*string))
+	require.Equal(t, listed[0].ID, *mustSkillTeam(t, f, "Hotfix"))
+}
+
+func mustSkillTeam(t *testing.T, f toolFixture, name string) *uuid.UUID {
+	t.Helper()
+	var team *uuid.UUID
+	require.NoError(t, f.db.Get(&team, `SELECT team_id FROM assistant_skills WHERE workspace_id=$1 AND name=$2`, f.ws, name))
+	return team
+}

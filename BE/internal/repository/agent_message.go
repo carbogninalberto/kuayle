@@ -207,6 +207,7 @@ func (r *AgentMessageRepository) RecordTaskOutbox(ctx context.Context, taskID uu
 				continue
 			}
 			var recipient messageRecipient
+			aliasKey, aliasNumber := splitIdentifier(message.To)
 			err = tx.GetContext(ctx, &recipient, `WITH me AS (SELECT id,parent_id,team_id,workspace_id FROM issues WHERE id=$1),
  related(id) AS (
   SELECT me.parent_id FROM me WHERE me.parent_id IS NOT NULL
@@ -216,7 +217,8 @@ func (r *AgentMessageRepository) RecordTaskOutbox(ctx context.Context, taskID uu
   UNION SELECT d.blocked_id FROM me JOIN `+issueBlockerEdges+` d ON d.blocker_id=me.id)
  SELECT i.id,(SELECT t.id FROM agent_tasks t WHERE t.issue_id=i.id AND t.workspace_id=i.workspace_id AND t.kind='implement' ORDER BY t.created_at DESC,t.id LIMIT 1) AS task_id
  FROM related r JOIN issues i ON i.id=r.id JOIN me ON i.team_id=me.team_id AND i.workspace_id=me.workspace_id AND i.id<>me.id
- WHERE i.identifier_text=$2 LIMIT 1`, sender.IssueID, message.To)
+ WHERE (i.identifier_text=$2 OR (i.number=$4 AND i.team_id IN (SELECT a.team_id FROM team_key_aliases a WHERE a.workspace_id=i.workspace_id AND a.old_key=$3)))
+ ORDER BY (i.identifier_text=$2) DESC LIMIT 1`, sender.IssueID, message.To, aliasKey, aliasNumber)
 			if errors.Is(err, sql.ErrNoRows) {
 				reject("not a related issue of this task")
 				break

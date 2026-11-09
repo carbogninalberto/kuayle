@@ -1644,6 +1644,8 @@
 	"team_settings.icons_preview_desc": "Icons preview with the selected team color.",
 	"team_settings.icons_tab": "Icons",
 	"team_settings.identifier": "Identifier",
+	"team_settings.identifier_hint": "Used in issue identifiers such as ENG-12. Letters A to Z, up to 10.",
+	"team_settings.identifier_warning": "Renaming changes every issue identifier in this team from {old}-N to {next}-N. Old identifiers, links and branch names keep working and redirect, but text already written in comments or commits is not rewritten. The old key {old} stays reserved and cannot be used by another team. In a large team, creating and editing issues pauses briefly while the identifiers are updated.",
 	"team_settings.issue_copy_prompt": "Issue copy prompt",
 	"team_settings.issue_copy_prompt_desc": "Override the workspace AI prompt template for this team. Leave empty to use the workspace default.",
 	"team_settings.issue_copy_prompt_placeholder": "Use workspace issue copy prompt",

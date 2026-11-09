@@ -521,20 +521,14 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		if input.Title == "" || utf8.RuneCountInString(input.Title) > 500 || utf8.RuneCountInString(input.Description) > 8000 || (input.Priority != nil && (*input.Priority < 0 || *input.Priority > 4)) {
 			return nil, nil, toolFailure("invalid issue fields")
 		}
-		teams, err := t.teams.ListByWorkspace(ctx, ws)
+		team, err := t.teamByKey(ctx, ws, input.TeamKey)
 		if err != nil {
 			return nil, nil, err
 		}
-		var teamID uuid.UUID
-		for _, team := range teams {
-			if strings.EqualFold(team.Key, strings.TrimSpace(input.TeamKey)) {
-				teamID = team.ID
-			}
-		}
-		if teamID == uuid.Nil {
+		if team == nil {
 			return nil, nil, toolFailure("team %q is not available; call list_teams", truncateRunes(input.TeamKey, 16))
 		}
-		request := dto.CreateIssueRequest{TeamID: teamID.String(), Title: input.Title, Priority: input.Priority}
+		request := dto.CreateIssueRequest{TeamID: team.ID.String(), Title: input.Title, Priority: input.Priority}
 		if parent := strings.ToUpper(strings.TrimSpace(input.Parent)); parent != "" {
 			issue, err := t.issues.GetByIdentifier(ctx, ws, parent)
 			if err != nil || issue == nil {
@@ -553,6 +547,38 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return issueSummary(*issue), &issue.ID, nil
 	}
 	return nil, nil, toolFailure("unknown tool")
+}
+
+// teamByKey finds a team the user can see by its key, or by a key it had
+// before a rename (ENG after ENG became PLT). Nil when there is none.
+func (t *AssistantTools) teamByKey(ctx context.Context, ws uuid.UUID, key string) (*domain.Team, error) {
+	key = strings.TrimSpace(key)
+	teams, err := t.teams.ListByWorkspace(ctx, ws)
+	if err != nil || key == "" {
+		return nil, err
+	}
+	for i := range teams {
+		if strings.EqualFold(teams[i].Key, key) {
+			return &teams[i], nil
+		}
+	}
+	retired, ok := t.teams.(interface {
+		TeamIDForRetiredKey(context.Context, uuid.UUID, string) (uuid.UUID, error)
+	})
+	if !ok {
+		return nil, nil
+	}
+	id, err := retired.TeamIDForRetiredKey(ctx, ws, strings.ToUpper(key))
+	if err != nil || id == uuid.Nil {
+		return nil, err
+	}
+	// Only a team already listed as visible is returned.
+	for i := range teams {
+		if teams[i].ID == id {
+			return &teams[i], nil
+		}
+	}
+	return nil, nil
 }
 
 func issueSummary(issue domain.Issue) map[string]any {

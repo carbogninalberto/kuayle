@@ -1644,6 +1644,8 @@
 	"team_settings.icons_preview_desc": "圖示將使用選定的團隊顏色預覽。",
 	"team_settings.icons_tab": "圖示",
 	"team_settings.identifier": "識別碼",
+	"team_settings.identifier_hint": "用於 issue 識別碼，例如 ENG-12。字母 A 到 Z，最多 10 個。",
+	"team_settings.identifier_warning": "重新命名會把此團隊中每個 issue 的識別碼從 {old}-N 改為 {next}-N。舊的識別碼、連結和分支名稱仍然有效並會重新導向，但已寫在留言或提交中的文字不會被改寫。舊鍵 {old} 會被保留，其他團隊無法使用。團隊較大時，更新識別碼期間會短暫無法建立和編輯 issue。",
 	"team_settings.issue_copy_prompt": "問題複製提示詞",
 	"team_settings.issue_copy_prompt_desc": "覆寫此團隊的工作空間 AI 提示詞範本。留空則使用工作空間預設值。",
 	"team_settings.issue_copy_prompt_placeholder": "使用工作空間問題複製提示詞",

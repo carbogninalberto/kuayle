@@ -114,3 +114,26 @@ func TestRelatedWorkPromptNamesNeighboursOnOneLineEach(t *testing.T) {
 	require.Contains(t, prompt, "- ENG-2 (sibling sub-issue): UI half [Todo]; agent task running; branch kuayle/eng-2\n")
 	require.Equal(t, "Implement the API", withRelatedWork("Implement the API", nil))
 }
+
+// A team key the user remembers from before a rename still works in team_key,
+// but an alias never reaches a private team the user cannot see.
+func TestCreateIssueAcceptsARetiredTeamKey(t *testing.T) {
+	f, tools := planningFixture(t)
+	teams := repository.NewTeamRepository(f.db)
+	listed, err := teams.ListByWorkspace(f.ctx, f.ws)
+	require.NoError(t, err)
+	require.Len(t, listed, 1, "the private team is hidden")
+	require.NoError(t, teams.UpdateWithKey(f.ctx, &listed[0], "PLT"))
+
+	result, _, err := tools.run(f.ctx, f.ws, f.user, "create_issue", `{"team_key":"eng","title":"Old key"}`)
+	require.NoError(t, err)
+	require.Equal(t, "PLT-5", result.(map[string]any)["identifier"])
+
+	_, err = f.db.Exec(`INSERT INTO team_key_aliases(workspace_id,old_key,team_id) SELECT workspace_id,'HID',id FROM teams WHERE workspace_id=$1 AND key='SEC'`, f.ws)
+	require.NoError(t, err)
+	_, _, err = tools.run(f.ctx, f.ws, f.user, "create_issue", `{"team_key":"HID","title":"Leak"}`)
+	require.ErrorContains(t, err, "not available")
+	var leaked int
+	require.NoError(t, f.db.Get(&leaked, `SELECT count(*) FROM issues WHERE workspace_id=$1 AND title='Leak'`, f.ws))
+	require.Zero(t, leaked)
+}

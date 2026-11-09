@@ -253,6 +253,21 @@ func (s *TeamService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateTe
 		}
 	}
 
+	if req.Key != nil && *req.Key != team.Key {
+		rekey, ok := s.teamRepo.(interface {
+			UpdateWithKey(context.Context, *domain.Team, string) error
+		})
+		if !ok {
+			return nil, fmt.Errorf("changing a team key requires an atomic repository")
+		}
+		if err := rekey.UpdateWithKey(ctx, team, *req.Key); err != nil {
+			return nil, err
+		}
+		s.deleteReplacedIcon(ctx, team)
+		s.refresh(team.WorkspaceID)
+		return team, nil
+	}
+
 	if err := s.teamRepo.Update(ctx, team); err != nil {
 		return nil, err
 	}

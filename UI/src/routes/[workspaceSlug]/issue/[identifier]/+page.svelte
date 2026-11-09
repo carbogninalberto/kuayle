@@ -42,6 +42,11 @@
 			getIssue(slug, identifier).then((i) => {
 				if (currentRequest !== requestId) return;
 				issue = i;
+				// The address used a retired team key (ENG-12 after ENG became PLT):
+				// show the current identifier in the URL.
+				if (i.identifier !== identifier) {
+					void goto(`/${requestSlug}/issue/${i.identifier}`, { replaceState: true });
+				}
 				// Load team issues for prev/next navigation if not already loaded
 				if (issuesState.issues.length === 0 && i.team_id) {
 					teamStatusesState.reload(requestSlug, i.team_id);

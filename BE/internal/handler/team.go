@@ -10,6 +10,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
@@ -80,8 +81,18 @@ func (h *TeamHandler) Update(c *echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
 	}
+	if err := validate.Struct(&req); err != nil {
+		details := make([]dto.ErrorDetail, 0)
+		for _, e := range validate.FormatErrors(err) {
+			details = append(details, dto.ErrorDetail{Field: e["field"], Message: e["message"]})
+		}
+		return response.ValidationError(c, details)
+	}
 	team, err := h.teamSvc.Update(c.Request().Context(), teamID, req)
 	if err != nil {
+		if errors.Is(err, repository.ErrTeamKeyTaken) {
+			return response.Error(c, http.StatusConflict, "CONFLICT", "A team with this key already exists")
+		}
 		if errors.Is(err, service.ErrInvalidTeamIcon) {
 			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 		}
@@ -217,6 +228,9 @@ func (h *TeamHandler) RemoveMember(c *echo.Context) error {
 }
 
 func teamOperationError(c *echo.Context, err error) error {
+	if errors.Is(err, repository.ErrTeamKeyTaken) {
+		return response.Error(c, http.StatusConflict, "CONFLICT", "A team with this key already exists")
+	}
 	if errors.Is(err, service.ErrInvalidTeamIcon) {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}

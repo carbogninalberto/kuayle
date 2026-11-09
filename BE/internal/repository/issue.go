@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -46,6 +47,15 @@ func (r *IssueRepository) NextNumber(ctx context.Context, tx *sqlx.Tx, teamID uu
 	return num, err
 }
 
+// TeamKey reads the team's current key inside the transaction. Call it after
+// NextNumber: that holds the per-team lock a key rename also takes, so the key
+// cannot change before the new issue is committed.
+func (r *IssueRepository) TeamKey(ctx context.Context, tx *sqlx.Tx, teamID uuid.UUID) (string, error) {
+	var key string
+	err := tx.QueryRowContext(ctx, `SELECT key FROM teams WHERE id = $1`, teamID).Scan(&key)
+	return key, err
+}
+
 func (r *IssueRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Issue, error) {
 	var issue domain.Issue
 	err := r.db.GetContext(ctx, &issue, `SELECT * FROM issues WHERE id = $1 AND `+teamVisible(ctx, "issues.team_id"), id)
@@ -55,9 +65,38 @@ func (r *IssueRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Is
 	return &issue, err
 }
 
+// splitIdentifier splits "ENG-12" into its team key and number, for looking up a
+// retired team key. A text that is not of that shape gives ("", -1), which
+// matches no alias.
+func splitIdentifier(identifier string) (string, int) {
+	if i := strings.LastIndex(identifier, "-"); i > 0 {
+		// 32 bits: the column is an int4, a longer number cannot match and must
+		// not reach the database as an encode error.
+		if n, err := strconv.ParseInt(identifier[i+1:], 10, 32); err == nil {
+			return identifier[:i], int(n)
+		}
+	}
+	return "", -1
+}
+
 func (r *IssueRepository) GetByIdentifier(ctx context.Context, workspaceID uuid.UUID, identifier string) (*domain.Issue, error) {
 	var issue domain.Issue
+	// The current identifier first, on the (workspace_id, identifier_text) index.
 	err := r.db.GetContext(ctx, &issue, `SELECT * FROM issues WHERE workspace_id = $1 AND identifier_text = $2 AND `+teamVisible(ctx, "issues.team_id"), workspaceID, identifier)
+	if !errors.Is(err, sql.ErrNoRows) {
+		if err != nil {
+			return nil, err
+		}
+		return &issue, nil
+	}
+	// On a miss, a retired team key (an alias) still resolves: ENG-12 finds
+	// PLT-12 after ENG was renamed to PLT. The alias gives the team, and the
+	// issue is found by (team_id, number).
+	oldKey, number := splitIdentifier(identifier)
+	if oldKey == "" {
+		return nil, nil
+	}
+	err = r.db.GetContext(ctx, &issue, `SELECT issues.* FROM team_key_aliases a JOIN issues ON issues.team_id = a.team_id AND issues.number = $3 AND issues.workspace_id = a.workspace_id WHERE a.workspace_id = $1 AND a.old_key = $2 AND `+teamVisible(ctx, "issues.team_id"), workspaceID, oldKey, number)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -157,6 +196,13 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 		searchFields := []string{
 			"i.title ILIKE :search",
 			"i.identifier_text ILIKE :search",
+			// Retired identifiers (ENG-12 after ENG became PLT): the matching
+			// (team, number) pairs are resolved once, not probed for every row.
+			`(i.team_id, i.number) IN (
+				SELECT tka.team_id, ai.number FROM team_key_aliases tka
+				INNER JOIN issues ai ON ai.team_id = tka.team_id
+				WHERE tka.workspace_id = :workspace_id AND (tka.old_key || '-' || ai.number) ILIKE :search
+			)`,
 			"i.description ILIKE :search",
 			"i.status ILIKE :search",
 			"CAST(i.number AS TEXT) ILIKE :search",

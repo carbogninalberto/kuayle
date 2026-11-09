@@ -11,6 +11,7 @@ async function mockWorkspace(page: Page) {
  let revoked = false;
  let isPrivate = true;
  const visibilityWrites: unknown[] = [];
+ const teamWrites: Record<string, unknown>[] = [];
  let teamMembers: {user_id: string; team_id: string}[] = [];
 	let socket: WebSocketRoute | undefined;
 	let workspaceRevoked = false;
@@ -103,6 +104,11 @@ async function mockWorkspace(page: Page) {
 		if (path === '/api/workspaces') return route.fulfill({ json: [workspace] });
 		if (path === '/api/workspaces/test') return route.fulfill({ json: workspace });
 		if (path === '/api/workspaces/test/teams') return route.fulfill({ json: revoked ? [teams[1]] : [{...teams[0], is_private: isPrivate}, teams[1]] });
+  if (path === `/api/workspaces/test/teams/${teamId}` && route.request().method() === 'PATCH') {
+   const body = route.request().postDataJSON(); teamWrites.push(body);
+   if (body.key) { teams[0].key = body.key; issues.forEach((issue, i) => { issue.identifier = `${body.key}-${i + 1}`; }); }
+   return route.fulfill({json: {...teams[0], is_private: isPrivate}});
+  }
   if (path === `/api/workspaces/test/teams/${teamId}/visibility`) {
    const body = route.request().postDataJSON(); visibilityWrites.push(body); isPrivate = body.is_private;
    return route.fulfill({json: {...teams[0], is_private: isPrivate}});
@@ -146,6 +152,10 @@ async function mockWorkspace(page: Page) {
 					}
 				]
 			});
+		if (path === '/api/workspaces/test/issues/OLD-1') return route.fulfill({ json: { ...issues[0], identifier: 'PLT-1' } });
+		if (path === '/api/workspaces/test/issues/PLT-1') return route.fulfill({ json: { ...issues[0], identifier: 'PLT-1' } });
+		if (path.match(/^\/api\/workspaces\/test\/issues\/(OLD|PLT)-1\/(github|comments|history|relations|sub-issues)$/))
+			return route.fulfill({ json: path.endsWith('/github') ? { pull_requests: [], branches: [], commits: [] } : [] });
 		const detailMatch = path.match(/^\/api\/workspaces\/test\/issues\/(ENG-[123])$/);
 		if (detailMatch && revoked) return route.fulfill({status: 404, json: {error: {message: 'Not found'}}});
 		if (detailMatch) return route.fulfill({ json: issues.find((issue) => issue.identifier === detailMatch[1]) });
@@ -165,7 +175,7 @@ async function mockWorkspace(page: Page) {
 		unhandledPaths.push(path);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
 	});
-	return { disconnectRevokedWorkspace: () => { workspaceRevoked = true; expect(socket).toBeDefined(); socket!.close({code:1001,reason:'Proxy disconnected'}); }, revoke: () => { revoked = true; }, visibilityWrites, issues, assertHealthy: () => { expect(pageErrors).toEqual([]); expect(unhandledPaths).toEqual([]); } };
+	return { disconnectRevokedWorkspace: () => { workspaceRevoked = true; expect(socket).toBeDefined(); socket!.close({code:1001,reason:'Proxy disconnected'}); }, revoke: () => { revoked = true; }, visibilityWrites, teamWrites, issues, assertHealthy: () => { expect(pageErrors).toEqual([]); expect(unhandledPaths).toEqual([]); } };
 }
 
 
@@ -204,6 +214,34 @@ test('making a private team public requires explicit confirmation', async ({page
  server.assertHealthy();
 });
 
+test('renaming the team identifier warns first and only sends a valid key', async ({page}) => {
+ const server = await mockWorkspace(page);
+ await page.goto(`/test/settings/teams/${teamId}`);
+ await page.getByRole('button', {name: 'Edit', exact: true}).click();
+ const key = page.getByLabel('Identifier', {exact: true});
+ await expect(key).toHaveValue('ENG');
+ await expect(page.getByText('Renaming changes every issue identifier')).toHaveCount(0);
+ await key.fill('plt1');
+ await expect(key).toHaveValue('PLT');
+ await key.pressSequentially('-9');
+ await expect(key).toHaveValue('PLT');
+ await expect(page.getByText('Renaming changes every issue identifier in this team from ENG-N to PLT-N.')).toBeVisible();
+ await key.fill('');
+ await expect(page.getByRole('button', {name: 'Save', exact: true})).toBeDisabled();
+ await key.fill('PLT');
+ await page.getByRole('button', {name: 'Save', exact: true}).click();
+ await expect(page.getByText('PLT', {exact: true}).first()).toBeVisible();
+ expect(server.teamWrites).toEqual([{name: 'Engineering', key: 'PLT', description: null}]);
+ server.assertHealthy();
+});
+
+test('an issue opened by a retired team key shows its current identifier in the address', async ({page}) => {
+ const server = await mockWorkspace(page);
+ await page.goto('/test/issue/OLD-1');
+ await expect(page).toHaveURL(/\/test\/issue\/PLT-1$/);
+ await expect(page.getByText('Navigation issue 1', {exact: true}).first()).toBeVisible();
+ server.assertHealthy();
+});
 
 test('an older successful issue response cannot restore a revoked page', async ({page}) => {
  const server = await mockWorkspace(page);

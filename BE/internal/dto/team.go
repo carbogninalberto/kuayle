@@ -14,6 +14,7 @@ type CreateTeamRequest struct {
 
 type UpdateTeamRequest struct {
 	Name                     *string `json:"name" validate:"omitempty,min=1,max=100"`
+	Key                      *string `json:"key" validate:"omitempty,min=1,max=10,alpha,uppercase"`
 	Description              *string `json:"description"`
 	Color                    *string `json:"color"`
 	Icon                     *string `json:"icon"`
