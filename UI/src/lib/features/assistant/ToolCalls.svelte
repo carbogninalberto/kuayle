@@ -671,7 +671,13 @@
 										? m['assistant.wiki_delete_title']({ title: approval.payload.title ?? '' })
 										: approval.action === 'restore_wiki_page_version'
 											? m['assistant.wiki_restore_title']({ title: approval.payload.title ?? '' })
-											: m['assistant.wiki_disable_registry_title']()}</Item.Title
+											: approval.action === 'share_wiki_page'
+												? approval.payload.rotate
+													? m['assistant.wiki_share_rotate_title']({ title: approval.payload.title ?? '' })
+													: approval.payload.publish_mode === 'public'
+														? m['assistant.wiki_share_public_title']({ title: approval.payload.title ?? '' })
+														: m['assistant.wiki_share_unpublish_title']({ title: approval.payload.title ?? '' })
+												: m['assistant.wiki_disable_registry_title']()}</Item.Title
 								>
 								<Item.Description class="line-clamp-none"
 									>{approval.action === 'restore_wiki_page_version'
@@ -687,6 +693,14 @@
 											})
 										: approval.action === 'delete_wiki_page'
 											? m['assistant.wiki_delete_description']({ wiki: approval.payload.scope_name })
+											: approval.action === 'share_wiki_page'
+												? approval.payload.rotate
+													? m['assistant.wiki_share_rotate_description']({ wiki: approval.payload.scope_name })
+													: approval.payload.publish_mode === 'public'
+														? approval.payload.publish_children
+															? m['assistant.wiki_share_public_children_description']({ wiki: approval.payload.scope_name })
+															: m['assistant.wiki_share_public_description']({ wiki: approval.payload.scope_name })
+														: m['assistant.wiki_share_unpublish_description']({ wiki: approval.payload.scope_name })
 											: m['assistant.wiki_disable_registry_description']({
 													wiki: approval.payload.scope_name
 												})}</Item.Description

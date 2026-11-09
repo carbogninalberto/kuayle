@@ -3651,5 +3651,15 @@
 	"wiki.publish.private": "私人團隊的頁面不能公開。",
 	"wiki.publish.forbidden": "你的角色無法在此工作區公開分享頁面。",
 	"wiki.publish.failed": "無法更新發布設定",
-	"wiki.publish.load_failed": "無法載入發布設定。"
+	"wiki.publish.load_failed": "無法載入發布設定。",
+	"assistant.tool_move_wiki_page": "移動 Wiki 頁面",
+	"assistant.tool_publish_wiki_page": "發布 Wiki 頁面",
+	"assistant.tool_share_wiki_page": "分享 Wiki 頁面",
+	"assistant.wiki_share_public_title": "公開發布「{title}」？",
+	"assistant.wiki_share_rotate_title": "更換「{title}」的公開連結？",
+	"assistant.wiki_share_unpublish_title": "撤下「{title}」的公開存取？",
+	"assistant.wiki_share_public_description": "任何取得連結的人無需登入即可閱讀 {wiki} Wiki 中的此頁面。",
+	"assistant.wiki_share_public_children_description": "任何取得連結的人無需登入即可閱讀 {wiki} Wiki 中的此頁面及其子頁面。",
+	"assistant.wiki_share_rotate_description": "新連結將取代目前連結，舊連結將失效。",
+	"assistant.wiki_share_unpublish_description": "此 {wiki} Wiki 頁面的公開連結將失效。"
 }

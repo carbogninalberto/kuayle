@@ -3651,5 +3651,15 @@
 	"wiki.publish.private": "Pages of private teams cannot be public.",
 	"wiki.publish.forbidden": "Your role cannot share pages publicly in this workspace.",
 	"wiki.publish.failed": "Could not update publishing",
-	"wiki.publish.load_failed": "Could not load publishing settings."
+	"wiki.publish.load_failed": "Could not load publishing settings.",
+	"assistant.tool_move_wiki_page": "Move wiki page",
+	"assistant.tool_publish_wiki_page": "Publish wiki page",
+	"assistant.tool_share_wiki_page": "Share wiki page",
+	"assistant.wiki_share_public_title": "Publish \"{title}\" publicly?",
+	"assistant.wiki_share_rotate_title": "Replace the public link of \"{title}\"?",
+	"assistant.wiki_share_unpublish_title": "Take \"{title}\" off the web?",
+	"assistant.wiki_share_public_description": "Anyone with the link can read this page from the {wiki} wiki without signing in.",
+	"assistant.wiki_share_public_children_description": "Anyone with the link can read this page and the pages inside it from the {wiki} wiki without signing in.",
+	"assistant.wiki_share_rotate_description": "A new link replaces the current one; the old link stops working.",
+	"assistant.wiki_share_unpublish_description": "The public link to this {wiki} wiki page stops working."
 }

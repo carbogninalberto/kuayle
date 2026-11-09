@@ -328,11 +328,16 @@ export interface WikiApprovalPayload {
 	restore_state?: 'before' | 'after';
 	restore_title?: string;
 	version_at?: string;
+	publish_mode?: 'off' | 'internal' | 'public';
+	publish_children?: boolean;
+	rotate?: boolean;
+	published_from?: 'off' | 'internal' | 'public';
 }
 export const WIKI_APPROVAL_ACTIONS = [
 	'delete_wiki_page',
 	'restore_wiki_page_version',
-	'disable_wiki_registry'
+	'disable_wiki_registry',
+	'share_wiki_page'
 ] as const;
 export type WikiApprovalAction = (typeof WIKI_APPROVAL_ACTIONS)[number];
 

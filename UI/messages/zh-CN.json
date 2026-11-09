@@ -3651,5 +3651,15 @@
 	"wiki.publish.private": "私有团队的页面不能公开。",
 	"wiki.publish.forbidden": "你的角色无法在此工作区公开分享页面。",
 	"wiki.publish.failed": "无法更新发布设置",
-	"wiki.publish.load_failed": "无法加载发布设置。"
+	"wiki.publish.load_failed": "无法加载发布设置。",
+	"assistant.tool_move_wiki_page": "移动 Wiki 页面",
+	"assistant.tool_publish_wiki_page": "发布 Wiki 页面",
+	"assistant.tool_share_wiki_page": "分享 Wiki 页面",
+	"assistant.wiki_share_public_title": "公开发布“{title}”？",
+	"assistant.wiki_share_rotate_title": "更换“{title}”的公开链接？",
+	"assistant.wiki_share_unpublish_title": "撤下“{title}”的公开访问？",
+	"assistant.wiki_share_public_description": "任何拿到链接的人无需登录即可阅读 {wiki} Wiki 中的此页面。",
+	"assistant.wiki_share_public_children_description": "任何拿到链接的人无需登录即可阅读 {wiki} Wiki 中的此页面及其子页面。",
+	"assistant.wiki_share_rotate_description": "新链接将替换当前链接，旧链接将失效。",
+	"assistant.wiki_share_unpublish_description": "此 {wiki} Wiki 页面的公开链接将失效。"
 }

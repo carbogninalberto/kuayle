@@ -75,7 +75,10 @@ const builtIn: Record<string, () => string> = {
 	manage_wiki_registry: m['assistant.tool_manage_wiki_registry'],
 	delete_wiki_page: m['assistant.tool_delete_wiki_page'],
 	restore_wiki_page_version: m['assistant.tool_restore_wiki_page_version'],
-	disable_wiki_registry: m['assistant.tool_disable_wiki_registry']
+	disable_wiki_registry: m['assistant.tool_disable_wiki_registry'],
+	move_wiki_page: m['assistant.tool_move_wiki_page'],
+	publish_wiki_page: m['assistant.tool_publish_wiki_page'],
+	share_wiki_page: m['assistant.tool_share_wiki_page']
 };
 
 const registry = new Map<string, ToolChip>();
