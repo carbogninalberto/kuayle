@@ -1,0 +1,107 @@
+---
+source: crates/kuayle/tests/golden.rs
+assertion_line: 18
+expression: stdout
+---
+kuayle — CLI for the kuayle self-hosted issue tracker
+
+## Global Flags
+
+  --profile <NAME>     Profile to use (env: KUAYLE_PROFILE)
+  --url <URL>          Override instance URL (env: KUAYLE_URL)
+  --workspace <SLUG>   Override workspace slug (env: KUAYLE_WORKSPACE)
+  --format human|json   Output format (default: auto-detect tty)
+  --no-cache            Disable resolve disk cache (env: KUAYLE_NO_CACHE)
+
+## Authentication
+
+  kuayle auth login --token <PAT>     Login with Personal Access Token
+  kuayle auth logout                   Remove stored credentials
+  kuayle auth status                   Show authentication status
+
+## Commands
+
+  kuayle auth login
+  kuayle auth logout
+  kuayle auth status
+  kuayle whoami
+  kuayle workspaces list
+  kuayle issues list
+  kuayle issues read
+  kuayle issues create
+  kuayle issues update
+  kuayle issues delete
+  kuayle issues batch-update
+  kuayle issues batch-delete
+  kuayle issues subscribe
+  kuayle issues unsubscribe
+  kuayle issues history
+  kuayle issues sub-issues-list
+    List sub-issues
+  kuayle issues sub-issues-create
+    Create a sub-issue
+  kuayle comments list
+  kuayle comments create
+  kuayle comments resolve
+  kuayle comments reopen
+  kuayle relations list
+  kuayle relations create
+  kuayle relations delete
+  kuayle labels list
+  kuayle labels create
+  kuayle labels update
+  kuayle labels delete
+  kuayle teams list
+  kuayle teams read
+  kuayle statuses list
+  kuayle projects list
+  kuayle projects read
+  kuayle cycles list
+  kuayle cycles read
+  kuayle cycles burndown
+  kuayle cycles velocity
+  kuayle templates list
+  kuayle templates read
+  kuayle templates create
+  kuayle templates update
+  kuayle templates delete
+  kuayle views list
+  kuayle views read
+  kuayle members list
+  kuayle favorites list
+  kuayle notifications list
+  kuayle assets list
+  kuayle assets read
+  kuayle assets upload
+  kuayle assets download
+  kuayle usage
+    Show command reference
+  kuayle completion
+    Generate shell completion script
+  kuayle self-update
+    Check for updates or update the binary
+## Name Resolution
+
+  Names accept: UUID (passthrough), human-readable name, or identifier.
+  Names resolved via batch fetch + case-insensitive match.
+  In-process memo + disk cache (5min TTL, --no-cache to disable).
+  Multiple names resolved in parallel (tokio::join!).
+  On failure: lists available candidates, exit code 3.
+
+## Exit Codes
+
+  0  Success
+  1  Generic error
+  2  Authentication failure
+  3  Resource not found
+  4  Validation error
+  5  Permission denied
+  6  Rate limited
+  7  Network / server unreachable
+
+## Output Format
+
+  --format human   Human-readable tables and text (default when TTY).
+  --format json    Machine-readable JSON.
+  Default: auto-detect — JSON when piped, human when interactive.
+  JSON mode: errors are also JSON.

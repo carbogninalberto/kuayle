@@ -1,0 +1,39 @@
+---
+source: crates/kuayle/tests/golden.rs
+expression: stdout
+---
+CLI for the kuayle self-hosted issue tracker
+
+Usage: kuayle [OPTIONS] <COMMAND>
+
+Commands:
+  auth           
+  whoami         
+  workspaces     
+  issues         
+  comments       
+  relations      
+  labels         
+  teams          Team actions: list teams, read a single team
+  statuses       Statuses actions: list statuses for a team
+  projects       Project actions: list projects, read a single project
+  cycles         Cycle actions: list, read, burndown, velocity (read-only)
+  templates      Template actions: full CRUD for issue templates
+  views          View actions: list views, read a single view (read-only)
+  members        Member actions: list workspace members (read-only)
+  favorites      Favorite actions: list workspace favorites (read-only)
+  notifications  Notification actions: list user notifications (read-only, user-scoped)
+  assets         Asset actions: read asset info, upload file (upload is a placeholder)
+  usage          Show command reference
+  completion     Generate shell completion script
+  self-update    Check for updates or update the binary
+  help           Print this message or the help of the given subcommand(s)
+
+Options:
+      --profile <PROFILE>      [env: KUAYLE_PROFILE=]
+      --url <URL>              [env: KUAYLE_URL=]
+      --workspace <WORKSPACE>  [env: KUAYLE_WORKSPACE=]
+      --format <FORMAT>        [default: auto]
+      --no-cache               Disable resolve disk cache [env: KUAYLE_NO_CACHE=]
+  -h, --help                   Print help
+  -V, --version                Print version

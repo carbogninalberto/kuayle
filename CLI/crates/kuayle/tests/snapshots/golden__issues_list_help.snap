@@ -1,0 +1,22 @@
+---
+source: crates/kuayle/tests/golden.rs
+expression: stdout
+---
+Usage: kuayle issues list [OPTIONS]
+
+Options:
+      --profile <PROFILE>      [env: KUAYLE_PROFILE=]
+      --status <STATUS>        
+      --priority <PRIORITY>    
+      --url <URL>              [env: KUAYLE_URL=]
+      --assignee <ASSIGNEE>    Assignee email, name, UUID, or "me"
+      --workspace <WORKSPACE>  [env: KUAYLE_WORKSPACE=]
+      --format <FORMAT>        [default: auto]
+      --label <LABEL>          
+      --no-cache               Disable resolve disk cache [env: KUAYLE_NO_CACHE=]
+      --team <TEAM>            
+      --project <PROJECT>      
+      --cycle <CYCLE>          
+      --search <SEARCH>        
+      --all                    
+  -h, --help                   Print help
