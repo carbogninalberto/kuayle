@@ -38,5 +38,5 @@ Rules:
   `kuayle-ports unexpose PORT`.
 - Do not put secrets in labels, logs or the summary. The app receives no Kuayle
   credentials and must not depend on them.
-- When the project defines a preview command, Kuayle starts it for each task
-  in review on its own port; you do not need to expose that one.
+- When the project defines a preview command, the reviewer starts it from the
+  task in Kuayle, on its own port; you do not need to expose that one.

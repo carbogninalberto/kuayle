@@ -2184,7 +2184,7 @@
 	"tasks.app_stop_error": "Impossibile arrestare l'app.",
 	"tasks.preview_command": "Comando di anteprima",
 	"tasks.preview_port": "Porta preferita (facoltativa)",
-	"tasks.preview_help": "Facoltativo. Viene eseguito nel worktree dell'attività con PORT e HOST=0.0.0.0 quando l'attività arriva in revisione o quando avvii la sua app. Se la porta preferita è occupata, Kuayle ne sceglie una libera.",
+	"tasks.preview_help": "Facoltativo. Viene eseguito nel worktree dell'attività con PORT e HOST=0.0.0.0 quando avvii l'app dell'attività; non parte mai da solo. Se la porta preferita è occupata, Kuayle ne sceglie una libera.",
 	"tasks.preview_invalid": "Inserisci un comando come array JSON. Una porta preferita deve essere tra 1024 e 65535.",
 	"tasks.agent_session": "Sessione dell'agente",
 	"tasks.agent_session_help": "Apri un terminale nel worktree di questa attività e continua in modo interattivo la sessione dell'agente.",

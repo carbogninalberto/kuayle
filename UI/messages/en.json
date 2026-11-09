@@ -2184,7 +2184,7 @@
 	"tasks.app_stop_error": "Could not stop the app.",
 	"tasks.preview_command": "Preview command",
 	"tasks.preview_port": "Preferred port (optional)",
-	"tasks.preview_help": "Optional. Runs in the task worktree with PORT and HOST=0.0.0.0 set when the task reaches review or you start its app. If the preferred port is taken, Kuayle picks a free one.",
+	"tasks.preview_help": "Optional. Runs in the task worktree with PORT and HOST=0.0.0.0 set when you start the task's app; it never starts by itself. If the preferred port is taken, Kuayle picks a free one.",
 	"tasks.preview_invalid": "Enter a JSON array command. A preferred port must be between 1024 and 65535.",
 	"tasks.agent_session": "Agent session",
 	"tasks.agent_session_help": "Open a terminal in this task's worktree and continue the agent's own session interactively.",

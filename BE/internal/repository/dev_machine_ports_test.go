@@ -218,9 +218,39 @@ func previewOperations(t *testing.T, db *sqlx.DB, task uuid.UUID, action string)
 	return count
 }
 
-// A task in review queues its preview once per attempt; its creator can start
-// and stop it, and the preview is part of every task payload.
-func TestTaskPreviewsStartOncePerAttemptAndStopWithTheTask(t *testing.T) {
+// Reaching review never starts a preview: the command would run code the agent
+// just wrote in the developer container, so only the task's creator starts it.
+func TestReachingReviewQueuesNoPreview(t *testing.T) {
+	db, repo, ctx, task, claimed := publishingTask(t)
+	_, err := db.Exec(`UPDATE agent_tasks SET preview_command='["npm","run","dev"]' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	_, err = repo.EnsurePublication(ctx, *claimed)
+	require.NoError(t, err)
+	store := NewDevMachineRepository(db)
+	op := leasePublication(t, store, ctx)
+	require.NoError(t, store.StartPublication(ctx, op))
+	require.NoError(t, store.CompletePublication(ctx, op, domain.AgentPublicationResult{Branch: "kuayle/rec-1", Commit: publishedCommit, PullRequestNumber: 12, PullRequestURL: "https://github.com/fixture/repo/pull/12"}))
+	require.NoError(t, store.CompleteOperation(ctx, op.ID, *op.LeaseOwner))
+	require.NoError(t, repo.Transition(ctx, *claimed, "awaiting_review", "Published"))
+
+	reviewed := previewTask(t, db, task.ID)
+	require.Equal(t, "awaiting_review", reviewed.State)
+	require.Zero(t, previewOperations(t, db, task.ID, "start_preview"), "reaching review must not run the preview command")
+	require.Nil(t, reviewed.PreviewState, "the preview waits for its creator")
+
+	stranger := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: task.WorkspaceID, UserID: uuid.New()})
+	_, err = repo.RequestPreview(stranger, task.WorkspaceID, task.ID, true)
+	require.Error(t, err, "only the task's creator")
+	require.Zero(t, previewOperations(t, db, task.ID, "start_preview"))
+	started, err := repo.RequestPreview(ctx, task.WorkspaceID, task.ID, true)
+	require.NoError(t, err)
+	require.Equal(t, "starting", *started.PreviewState)
+	require.Equal(t, 1, previewOperations(t, db, task.ID, "start_preview"), "the creator's request starts it")
+}
+
+// A task's creator can start and stop its preview, a running preview stops
+// with the task, and the preview is part of every task payload.
+func TestTaskPreviewsStartOnRequestAndStopWithTheTask(t *testing.T) {
 	db, repo, ctx, task, _ := publishingTask(t)
 	store := NewDevMachineRepository(db)
 	_, err := repo.RequestPreview(ctx, task.WorkspaceID, task.ID, true)
@@ -233,27 +263,28 @@ func TestTaskPreviewsStartOncePerAttemptAndStopWithTheTask(t *testing.T) {
 	current := previewTask(t, db, task.ID)
 	tx, err := db.BeginTxx(ctx, nil)
 	require.NoError(t, err)
+	defer tx.Rollback()
 	current.State = "awaiting_review"
 	require.NoError(t, taskPreviewTransition(ctx, tx, &current))
-	require.Equal(t, "starting", *current.PreviewState)
-	_, err = tx.Exec(`UPDATE agent_tasks SET preview_state='running' WHERE id=$1`, task.ID)
-	require.NoError(t, err)
-	current.PreviewState = nil
-	require.NoError(t, taskPreviewTransition(ctx, tx, &current))
-	require.Nil(t, current.PreviewState, "the same attempt queues one preview and changes nothing")
 	require.NoError(t, tx.Commit())
-	require.Equal(t, 1, previewOperations(t, db, task.ID, "start_preview"))
+	require.Nil(t, current.PreviewState, "review alone starts nothing")
+	require.Zero(t, previewOperations(t, db, task.ID, "start_preview"))
 
 	stranger := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: task.WorkspaceID, UserID: uuid.New()})
 	_, err = repo.RequestPreview(stranger, task.WorkspaceID, task.ID, true)
 	require.Error(t, err, "only the task's creator")
 	_, err = repo.RequestPreview(ctx, task.WorkspaceID, task.ID, true)
 	require.NoError(t, err)
-	require.Equal(t, 2, previewOperations(t, db, task.ID, "start_preview"), "a running preview can be restarted")
+	require.Equal(t, 1, previewOperations(t, db, task.ID, "start_preview"))
 	updated, err := repo.RequestPreview(ctx, task.WorkspaceID, task.ID, true)
 	require.NoError(t, err)
 	require.Equal(t, "starting", *updated.PreviewState)
-	require.Equal(t, 2, previewOperations(t, db, task.ID, "start_preview"), "a starting preview is not queued again")
+	require.Equal(t, 1, previewOperations(t, db, task.ID, "start_preview"), "a starting preview is not queued again")
+	_, err = db.Exec(`UPDATE agent_tasks SET preview_state='running' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	_, err = repo.RequestPreview(ctx, task.WorkspaceID, task.ID, true)
+	require.NoError(t, err)
+	require.Equal(t, 2, previewOperations(t, db, task.ID, "start_preview"), "a running preview can be restarted")
 
 	machine := taskMachine(t, db, task)
 	port := appPort(machine, 4100, "task", &task.ID)

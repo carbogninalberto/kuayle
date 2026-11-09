@@ -910,11 +910,16 @@ is refused. Each task has its own preview process and app port (see
 [App ports](../../TECHNICAL.md#app-ports)), so tasks on one machine never
 replace each other's previews.
 
-A preview starts when an attempt reaches `awaiting_review` (one
-`start_preview` operation keyed by attempt) or when the task's creator calls
-`POST /agent-tasks/:taskId/preview` (202 with the task; 409
-`PREVIEW_UNAVAILABLE` without a preview command, or without the task's ready
-checkout on a running machine). `DELETE /agent-tasks/:taskId/preview` (202)
+A preview starts only when the task's creator asks for it: `POST
+/agent-tasks/:taskId/preview` (202 with the task; 409 `PREVIEW_UNAVAILABLE`
+without a preview command, or without the task's ready checkout on a running
+machine) or the assistant's `start_preview` tool, which needs their approval.
+Reaching `awaiting_review` queues nothing. The preview command runs files the
+agent just wrote, in the developer container, which holds the creator's
+developer-scoped secrets and synced agent sign-ins and may allow sudo; starting
+it is therefore the same decision as running the agent's code in the machine
+terminal, and it is left to the person who owns that machine. Review the
+change before starting its preview. `DELETE /agent-tasks/:taskId/preview` (202)
 queues its stop. Preview operations name the task in
 `dev_machine_operations.agent_task_id`. The manager then:
 
@@ -942,7 +947,7 @@ and `list_ports` tools use these same paths; see
 [previews and ports from chat](conversations.md#previews-and-ports-from-chat).
 
 Implementing attempts get one prompt line about manual QA: with a preview
-command, that Kuayle starts it for the reviewer; without one, that the attempt
+command, that the reviewer can start it from the task; without one, that the attempt
 runs in a temporary container and should explain how to start and test the
 app, which the reviewer can expose from the machine terminal with the
 `kuayle-qa` skill and `kuayle-ports`.

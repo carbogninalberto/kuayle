@@ -468,11 +468,13 @@ func TestAgentTaskAttemptPassesAcceptedTestCommandToNativeHarness(t *testing.T) 
 	require.Less(t, strings.Index(run.Prompt, "Issue ENG-26"), strings.Index(run.Prompt, "Implement"))
 	require.Less(t, strings.Index(run.Prompt, "ENG-2"), strings.Index(run.Prompt, "Implement"))
 
-	// With a preview command, Kuayle starts the app for the reviewer.
+	// With a preview command, the reviewer starts the app from the task; the
+	// agent is not told that Kuayle runs it by itself.
 	task.PreviewCommand, task.RunID = json.RawMessage(`["npm","run","dev"]`), uuid.New()
 	run, err = runtime.Attempt(context.Background(), task)
 	require.NoError(t, err)
-	require.Contains(t, run.Prompt, "Kuayle starts the project's preview command")
+	require.Contains(t, run.Prompt, "the reviewer can start the project's preview command")
+	require.NotContains(t, run.Prompt, "Kuayle starts")
 	require.Contains(t, run.Prompt, "$PORT")
 }
 
