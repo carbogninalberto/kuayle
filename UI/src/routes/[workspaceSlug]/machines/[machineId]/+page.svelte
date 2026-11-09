@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
 	import { Activity, AppWindow, ArrowLeft, CalendarPlus, CircleAlert, Clock, Code2, Ellipsis, Cpu, ExternalLink, Gauge, GitBranch, LayoutDashboard, Pause, Play, Save, ScrollText, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from '@lucide/svelte';
@@ -746,3 +747,5 @@
 	<MachineResizeDialog bind:open={resizeOpen} {slug} {machine} {policy} onresized={(updated) => (machine = updated)} />
 	<Dialog.Root bind:open={snapshotOpen}><Dialog.Content class="sm:max-w-md"><Dialog.Header><Dialog.Title>{m['machines.snapshot_title']()}</Dialog.Title><Dialog.Description>{m['machines.snapshot_desc']()}</Dialog.Description></Dialog.Header><label class="space-y-1.5"><Label for="snapshot-name">{m['machines.environment_name']()}</Label><Input id="snapshot-name" bind:value={snapshotName} /></label><Dialog.Footer><Button variant="outline" onclick={() => (snapshotOpen = false)}>{m['common.cancel']()}</Button><Button onclick={saveSnapshot} disabled={snapshotBusy || !snapshotName.trim()}>{snapshotBusy ? m['machines.queuing']() : m['machines.save_snapshot']()}</Button></Dialog.Footer></Dialog.Content></Dialog.Root>
 {/if}
+
+<PageTitle parts={[machine?.name, m['machines.title']()]} />

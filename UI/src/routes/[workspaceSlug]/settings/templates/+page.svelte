@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { listTemplates, createTemplate, updateTemplate, deleteTemplate } from '$lib/api/issue-templates';
@@ -196,3 +197,5 @@
 	}}
 	onsubmit={handleSave}
 />
+
+<PageTitle parts={[m['settings.templates.title'](), m['settings.title']()]} />

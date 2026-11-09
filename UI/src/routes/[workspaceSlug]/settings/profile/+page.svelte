@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount } from 'svelte';
 	import { appToast } from '$lib/features/toast/toast';
@@ -157,3 +158,5 @@
 		</div>
 	{/if}
 </div>
+
+<PageTitle parts={[m['settings.profile.title'](), m['settings.title']()]} />

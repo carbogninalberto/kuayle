@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import TestCommandField from '$lib/features/dev-machines/TestCommandField.svelte';
 	import ComposeFileField from '$lib/features/dev-machines/ComposeFileField.svelte';
 	import PreviewSettingField from '$lib/features/dev-machines/PreviewSettingField.svelte';
@@ -483,3 +484,5 @@
 		>
 	</Dialog.Content>
 </Dialog.Root>
+
+<PageTitle parts={[project?.name, m['projects.title']()]} />

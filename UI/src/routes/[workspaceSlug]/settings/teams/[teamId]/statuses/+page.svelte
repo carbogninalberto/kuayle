@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { flip } from 'svelte/animate';
@@ -551,3 +552,5 @@
 		{/if}
 	</div>
 </div>
+
+<PageTitle parts={[m['team_settings.statuses_title'](), m['settings.title']()]} />

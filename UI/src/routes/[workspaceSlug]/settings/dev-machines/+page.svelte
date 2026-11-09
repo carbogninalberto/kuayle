@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import TestCommandField from '$lib/features/dev-machines/TestCommandField.svelte';
 	import ComposeFileField from '$lib/features/dev-machines/ComposeFileField.svelte';
 	import PreviewSettingField from '$lib/features/dev-machines/PreviewSettingField.svelte';
@@ -411,3 +412,5 @@
 	</Dialog.Root>
 	<AlertDialog.Root bind:open={environmentDeleteOpen}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['settings.dev_machines.delete_env_title']()}</AlertDialog.Title><AlertDialog.Description>{m['settings.dev_machines.delete_env_desc']({ name: environmentToDelete?.name ?? '' })}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel onclick={() => (environmentToDelete = null)}>{m['settings.cancel']()}</AlertDialog.Cancel><AlertDialog.Action variant="destructive" onclick={deleteEnvironment} disabled={environmentDeleteBusy}>{environmentDeleteBusy ? m['settings.deleting']() : m['settings.dev_machines.delete_env_button']()}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
 {/if}
+
+<PageTitle parts={[m['settings.dev_machines.title'](), m['settings.title']()]} />

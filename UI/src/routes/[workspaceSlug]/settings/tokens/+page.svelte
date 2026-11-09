@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
 	import {
@@ -644,3 +645,5 @@
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
+
+<PageTitle parts={[m['settings.tokens.title'](), m['settings.title']()]} />

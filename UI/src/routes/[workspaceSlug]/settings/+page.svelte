@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -315,3 +316,5 @@
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
+
+<PageTitle parts={[m['settings.general.title'](), m['settings.title']()]} />

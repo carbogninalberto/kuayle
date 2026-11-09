@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -658,3 +659,5 @@
 	defaultType={relationDefaultType}
 	oncreated={loadIssues}
 />
+
+<PageTitle parts={[sidebarState.getTeam(teamId)?.name, m['sidebar.issues']()]} />
