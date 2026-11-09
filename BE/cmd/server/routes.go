@@ -181,6 +181,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodPatch, "/teams/:teamId", h.team.Update, "team:manage")
 	scoped(ws, http.MethodDelete, "/teams/:teamId", h.team.Delete, "team:manage")
 	scoped(ws, http.MethodPatch, "/teams/:teamId/visibility", h.team.SetVisibility, "team:manage")
+	sessionOnly(ws, http.MethodPost, "/teams/:teamId/icon", h.team.UploadIcon, mw.RequirePermission("team:manage"))
+	scoped(ws, http.MethodGet, "/teams/:teamId/icon/:file", h.team.Icon, "teams:read")
 	scoped(ws, http.MethodGet, "/teams/:teamId/members", h.team.Members, "members:read", mw.RequirePermission("teams:read"))
 	scoped(ws, http.MethodPost, "/teams/:teamId/members", h.team.AddMember, "team:manage")
 	scoped(ws, http.MethodDelete, "/teams/:teamId/members/:userId", h.team.RemoveMember, "team:manage")

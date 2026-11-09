@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
@@ -211,3 +212,5 @@
 		</div>
 	{/if}
 </div>
+
+<PageTitle parts={[mode === 'login' ? m['login.button.signin']() : m['login.button.create_account']()]} />

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { page } from '$app/stores';
@@ -179,9 +180,7 @@
 	);
 </script>
 
-<svelte:head>
-	<title>{meta ? `${meta.scope_name} - ${meta.workspace_name}` : 'Shared View'}</title>
-</svelte:head>
+<PageTitle parts={meta ? [meta.scope_name, meta.workspace_name] : ['Shared View']} />
 
 {#if loading}
 	<div class="flex h-[60vh] items-center justify-center">

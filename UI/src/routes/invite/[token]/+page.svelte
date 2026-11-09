@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -92,9 +93,7 @@
 	}
 </script>
 
-<svelte:head>
-	<title>{preview ? `${preview.workspace_name} - ${m['invite.title']()}` : m['invite.title']()}</title>
-</svelte:head>
+<PageTitle parts={[m['invite.title'](), preview?.workspace_name]} />
 
 <div class="flex min-h-screen items-center justify-center bg-[var(--color-bg)]">
 	{#if loading}

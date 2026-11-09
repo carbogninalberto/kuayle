@@ -167,9 +167,16 @@ func (m *mockTeamRepo) Update(ctx context.Context, team *domain.Team) error {
 	return args.Error(0)
 }
 
-func (m *mockTeamRepo) Delete(ctx context.Context, id uuid.UUID) error {
+func (m *mockTeamRepo) Delete(ctx context.Context, id uuid.UUID) (*string, error) {
 	args := m.Called(ctx, id)
-	return args.Error(0)
+	icon, _ := args.Get(0).(*string)
+	return icon, args.Error(1)
+}
+
+func (m *mockTeamRepo) SetIcon(ctx context.Context, id uuid.UUID, icon string) (*domain.Team, error) {
+	args := m.Called(ctx, id, icon)
+	team, _ := args.Get(0).(*domain.Team)
+	return team, args.Error(1)
 }
 
 func (m *mockTeamRepo) AddMember(ctx context.Context, member *domain.TeamMember) error {

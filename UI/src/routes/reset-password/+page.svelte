@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Password } from '$lib/components/ui/password';
 	import { Loader2 } from '@lucide/svelte';
@@ -89,3 +90,5 @@
 		{/if}
 	</div>
 </div>
+
+<PageTitle parts={[m['reset.title']()]} />

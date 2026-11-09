@@ -237,6 +237,8 @@ func main() {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}
 	authH.SetAvatarStore(store)
+	teamSvc.SetIconStore(store)
+	workspaceSvc.SetTeamIconStore(store)
 	uploadH := handler.NewUploadHandler(store, assetRepo, issueRepo, cfg.JWTSecret)
 	wikiPublishSvc := service.NewWikiPublishService(repository.NewWikiRepository(db), sharedLinkRepo, workspaceRepo, cfg.JWTSecret)
 	uploadH.SetWikiPublicPages(wikiPublishSvc.PublicPageReachable)

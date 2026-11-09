@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/google/uuid"
@@ -11,18 +13,23 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	"github.com/kuayle/kuayle-backend/pkg/storage"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
 	ErrPrivacyConfirmation = errors.New("confirm the visibility change and privacy limitations")
 	ErrTeamNotFound        = errors.New("team not found")
 	ErrTeamMemberNotFound  = errors.New("team member not found")
+	ErrInvalidTeamIcon     = errors.New("image icons are set by uploading a file")
+	ErrTeamIconUnavailable = errors.New("team icon uploads are not available")
 )
 
 type TeamService struct {
 	hub            *realtime.Hub
 	teamRepo       repository.TeamRepo
 	teamStatusRepo repository.TeamStatusRepo
+	iconStore      storage.Backend
 }
 
 func NewTeamService(teamRepo repository.TeamRepo, teamStatusRepo repository.TeamStatusRepo, hubs ...*realtime.Hub) *TeamService {
@@ -33,9 +40,99 @@ func NewTeamService(teamRepo repository.TeamRepo, teamStatusRepo repository.Team
 	return &TeamService{teamRepo: teamRepo, teamStatusRepo: teamStatusRepo, hub: hub}
 }
 
+// SetIconStore enables team icon image uploads.
+func (s *TeamService) SetIconStore(store storage.Backend) { s.iconStore = store }
+
+func teamIconKey(team uuid.UUID, file string) string {
+	return "team-icon-" + team.String() + "-" + file
+}
+
+// deleteTeamIconImage removes the stored image behind an icon value, if it is
+// one. It is best effort: a failure is logged and leaves only an unused file.
+func deleteTeamIconImage(ctx context.Context, store storage.Backend, teamID uuid.UUID, icon *string) {
+	file, ok := domain.TeamIconImageFile(icon)
+	if !ok || store == nil {
+		return
+	}
+	if err := store.Delete(ctx, teamIconKey(teamID, file)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.WithError(err).Warn("failed to delete team icon image")
+	}
+}
+
+func (s *TeamService) deleteIconImage(ctx context.Context, teamID uuid.UUID, icon *string) {
+	deleteTeamIconImage(ctx, s.iconStore, teamID, icon)
+}
+
+// deleteReplacedIcon removes the image the last Update displaced. The
+// repository reports it under the row lock, so concurrent icon changes each
+// delete exactly the file they replaced and none is left behind.
+func (s *TeamService) deleteReplacedIcon(ctx context.Context, team *domain.Team) {
+	replaced := team.ReplacedIcon
+	team.ReplacedIcon = nil
+	if replaced == nil || (team.Icon != nil && *team.Icon == *replaced) {
+		return
+	}
+	s.deleteIconImage(ctx, team.ID, replaced)
+}
+
+// UploadIcon stores an already validated image as the team's icon and removes
+// the previous image. ext is one of the TeamIconImageTypes extensions.
+func (s *TeamService) UploadIcon(ctx context.Context, workspaceID, id uuid.UUID, src io.Reader, contentType, ext string) (*domain.Team, error) {
+	if s.iconStore == nil {
+		return nil, ErrTeamIconUnavailable
+	}
+	team, err := s.teamRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if team == nil || team.WorkspaceID != workspaceID {
+		return nil, ErrTeamNotFound
+	}
+	file := uuid.New().String() + ext
+	if _, err := s.iconStore.Put(ctx, teamIconKey(id, file), src, contentType); err != nil {
+		return nil, err
+	}
+	icon := domain.TeamIconImagePrefix + file
+	// Only the icon is written, so fields changed while the file was stored stay.
+	updated, err := s.teamRepo.SetIcon(ctx, id, icon)
+	if err != nil || updated == nil {
+		_ = s.iconStore.Delete(ctx, teamIconKey(id, file))
+		if err == nil {
+			err = ErrTeamNotFound
+		}
+		return nil, err
+	}
+	team = updated
+	s.deleteReplacedIcon(ctx, team)
+	s.refresh(team.WorkspaceID)
+	return team, nil
+}
+
+// Icon opens a team's stored icon image. The team lookup applies the caller's
+// team visibility, and only the file the team currently uses is served.
+func (s *TeamService) Icon(ctx context.Context, workspaceID, id uuid.UUID, file string) (io.ReadCloser, error) {
+	if s.iconStore == nil || !domain.TeamIconFilePattern.MatchString(file) {
+		return nil, ErrTeamNotFound
+	}
+	team, err := s.teamRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if team == nil || team.WorkspaceID != workspaceID {
+		return nil, ErrTeamNotFound
+	}
+	if current, ok := domain.TeamIconImageFile(team.Icon); !ok || current != file {
+		return nil, ErrTeamNotFound
+	}
+	return s.iconStore.Get(ctx, teamIconKey(id, file))
+}
+
 func (s *TeamService) Create(ctx context.Context, workspaceID uuid.UUID, creatorID uuid.UUID, req dto.CreateTeamRequest) (*domain.Team, error) {
 	if req.IsPrivate && !req.AcknowledgePrivacyLimitations {
 		return nil, ErrPrivacyConfirmation
+	}
+	if req.Icon != nil && strings.HasPrefix(*req.Icon, domain.TeamIconImagePrefix) {
+		return nil, ErrInvalidTeamIcon
 	}
 	team := &domain.Team{
 		IsPrivate:   req.IsPrivate,
@@ -125,8 +222,18 @@ func (s *TeamService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateTe
 	if req.Color != nil {
 		team.Color = req.Color
 	}
+	// Only an explicit icon change writes the icon column. An image icon only
+	// comes from UploadIcon, so resending the current one changes nothing.
+	team.IconSet = false
 	if req.Icon != nil {
-		team.Icon = req.Icon
+		if strings.HasPrefix(*req.Icon, domain.TeamIconImagePrefix) {
+			if team.Icon == nil || *team.Icon != *req.Icon {
+				return nil, ErrInvalidTeamIcon
+			}
+		} else {
+			team.Icon = req.Icon
+			team.IconSet = true
+		}
 	}
 	if req.TriageEnabled != nil {
 		team.TriageEnabled = *req.TriageEnabled
@@ -149,6 +256,7 @@ func (s *TeamService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateTe
 	if err := s.teamRepo.Update(ctx, team); err != nil {
 		return nil, err
 	}
+	s.deleteReplacedIcon(ctx, team)
 	s.refresh(team.WorkspaceID)
 	return team, nil
 }
@@ -162,8 +270,11 @@ func (s *TeamService) Delete(ctx context.Context, workspaceID, id uuid.UUID) err
 		return ErrTeamNotFound
 	}
 
-	err = s.teamRepo.Delete(ctx, id)
+	// The icon comes from the delete itself, so an upload that changed it after
+	// the read above does not leave its image behind.
+	icon, err := s.teamRepo.Delete(ctx, id)
 	if err == nil {
+		s.deleteIconImage(ctx, id, icon)
 		s.refresh(team.WorkspaceID)
 	}
 	return err

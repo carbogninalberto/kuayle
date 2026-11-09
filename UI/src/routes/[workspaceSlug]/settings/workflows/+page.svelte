@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -239,3 +240,5 @@
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
+
+<PageTitle parts={[m['workflows.title'](), m['settings.title']()]} />

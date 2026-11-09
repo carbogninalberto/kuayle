@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { assistantDraftKey } from './chat-draft';
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount, tick, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -684,7 +685,7 @@
 	});
 </script>
 
-<svelte:head><title>{m['assistant.title']()} · Kuayle</title></svelte:head>
+<PageTitle parts={[m['assistant.title']()]} />
 
 {#snippet topBar()}
 	<header class="flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-3">
