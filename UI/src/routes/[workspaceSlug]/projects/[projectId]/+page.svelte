@@ -234,14 +234,17 @@
 		try {
 			await updateProject(slug, id, { name: next });
 			sidebarState.projects = sidebarState.projects.map((p) => (p.id === id ? { ...p, name: next } : p));
+			if (projectId !== id) return;
 			await refreshProject();
+			if (projectId !== id) return;
 			appToast.success(m['projects.toast.renamed']());
 		} catch (err: any) {
-			appToast.apiError(err, m['projects.toast.failed_rename']());
+			if (projectId === id) appToast.apiError(err, m['projects.toast.failed_rename']());
 		}
 	}
 
 	function renameKeydown(e: KeyboardEvent) {
+		if (e.isComposing) return;
 		if (e.key === 'Enter') {
 			e.preventDefault();
 			void commitRename();

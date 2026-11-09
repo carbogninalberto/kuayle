@@ -438,7 +438,7 @@ test('issue context menu offers only labels that apply to the issue project', as
 	expect(state.errors).toEqual([]);
 });
 
-test('project name renames inline with Enter, Esc cancels, empty is rejected and guests have no pencil', async ({
+test('project name renames inline with Enter, Esc cancels and empty is rejected', async ({
 	page
 }) => {
 	const state = await mockWorkspace(page);
