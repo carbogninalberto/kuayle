@@ -7,6 +7,8 @@
 	import { labelsForIssues } from '$lib/features/labels/label-scope';
 	import type { Cycle } from '$lib/types/cycle';
 	import type { Project } from '$lib/types/project';
+	import type { Team } from '$lib/types/team';
+	import { projectsForIssues } from '$lib/features/projects/project-scope';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import { issuesState } from './issues.state.svelte';
@@ -49,6 +51,7 @@
 		members = [],
 		cycles,
 		projects,
+		teams = [],
 		onlabelcreated,
 		canDelete = true,
 		statusOptions,
@@ -59,6 +62,8 @@
 		members?: WorkspaceMember[];
 		cycles?: Cycle[];
 		projects?: Project[];
+		/** Teams of the workspace, to offer only projects the selected issues can join. */
+		teams?: Team[];
 		onlabelcreated?: (label: Label) => void;
 		canDelete?: boolean;
 		statusOptions?: import('$lib/types/team-status').TeamStatus[];
@@ -243,8 +248,13 @@
 	});
 	let filteredProjects = $derived.by(() => {
 		const term = searchQuery.trim().toLowerCase();
-		if (!term) return projects ?? [];
-		return (projects ?? []).filter((project) => project.name.toLowerCase().includes(term));
+		const compatible = projectsForIssues(
+			projects ?? [],
+			issuesState.issues.filter((issue) => issuesState.selectedIds.has(issue.id)),
+			teams
+		);
+		if (!term) return compatible;
+		return compatible.filter((project) => project.name.toLowerCase().includes(term));
 	});
 	let activeTitle = $derived(
 		commands.find((command) => command.id === activeCommand)?.title ?? m['bulkActions.title']()
@@ -652,9 +662,9 @@
 	}
 
 	async function bulkSetProject(projectId: string | null) {
-		const count = issuesState.selectionCount;
 		try {
-			await issuesState.bulkUpdate(slug, { project_id: projectId ?? '' });
+			// Issues already in the project are not moved: report what the server changed.
+			const count = (await issuesState.bulkUpdate(slug, { project_id: projectId ?? '' }))?.updated ?? 0;
 			onchanged?.();
 			appToast.success(
 				projectId

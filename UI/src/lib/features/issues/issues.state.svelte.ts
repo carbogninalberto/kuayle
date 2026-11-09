@@ -318,8 +318,8 @@ class IssuesState {
 		if (issueIds.length === 0) return;
 
 		const requestId = this.loadRequestId;
-		await issueApi.bulkUpdateIssues(slug, { issue_ids: issueIds, ...updates });
-		if (requestId !== this.loadRequestId || slug !== this.currentSlug) return;
+		const result = await issueApi.bulkUpdateIssues(slug, { issue_ids: issueIds, ...updates });
+		if (requestId !== this.loadRequestId || slug !== this.currentSlug) return result;
 
 		// Apply optimistic updates locally
 		for (const issue of this.issues) {
@@ -334,6 +334,7 @@ class IssuesState {
 			}
 		}
 		this.clearSelection();
+		return result;
 	}
 
 	select(issue: Issue | null) {

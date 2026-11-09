@@ -605,6 +605,7 @@
 				{members}
 				{cycles}
 				{projects}
+				{teams}
 				onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
 			/>
 		</div>

@@ -63,6 +63,8 @@
 		onchanged?: () => void;
 	} = $props();
 	let teams = $state<Team[]>([]);
+	// Every team, including those outside the scope, to tell which projects issues can join.
+	let workspaceTeams = $state<Team[]>([]);
 	let projects = $state<Project[]>([]);
 	let labels = $state<Label[]>([]);
 	let members = $state<WorkspaceMember[]>([]);
@@ -141,6 +143,7 @@
 			]);
 			if (!active) return;
 			teams = scope.teamId ? te.filter((team) => team.id === scope.teamId) : te;
+			workspaceTeams = te;
 			projects = pr;
 			labels = la;
 			members = me;
@@ -402,7 +405,8 @@
 					{labels}
 					{members}
 					cycles={cycles.filter((cycle) => cycle.team_id === selectedTeamId)}
-					projects={projects.filter((project) => project.team_id === null || project.team_id === selectedTeamId)}
+					{projects}
+					teams={workspaceTeams}
 					statusOptions={statuses.filter((status) => status.team_id === selectedTeamId)}
 					canDelete={selectedIssues.every(canDeleteIssue)}
 					onchanged={changed}

@@ -127,7 +127,8 @@ async function mockWorkspace(page: Page, role = 'owner', icon = 'layers') {
 			});
 		}
 		if (path === '/api/workspaces/test/issues/bulk' && request.method() === 'PATCH')
-			return route.fulfill({ json: { updated: request.postDataJSON().issue_ids.length } });
+			// Fewer than selected: some issues are already in the project.
+			return route.fulfill({ json: { updated: 3 } });
 		const issue = issues.find((i) => path === `/api/workspaces/test/issues/${i.identifier}`);
 		if (issue) {
 			if (request.method() === 'PATCH') Object.assign(issue, request.postDataJSON());
@@ -351,6 +352,8 @@ test('bulk actions set the project of the selected issues and can remove it', as
 	await expect.poll(() => bulkRequests().length).toBe(1);
 	expect(bulkRequests()[0].body.project_id).toBe(projectId);
 	expect(bulkRequests()[0].body.issue_ids.length).toBeGreaterThan(0);
+	// The toast reports what the server changed, not the selection size.
+	await expect(page.getByText('Moved 3 issues to the project')).toBeVisible();
 	// The selection is cleared once the update lands, which hides the bar.
 	await expect(actions).toHaveCount(0);
 
@@ -362,6 +365,38 @@ test('bulk actions set the project of the selected issues and can remove it', as
 	expect(bulkRequests()[1].body.project_id).toBe('');
 	expect(state.errors).toEqual([]);
 });
+
+for (const path of [`${cyclePath}/${cycleId}`, `/test/teams/${teamId}`]) {
+	test(`bulk Set project offers only projects the selected issues can join on ${path}`, async ({ page }) => {
+		await mockWorkspace(page);
+		const team = (id: string, name: string, is_private: boolean) => ({ id, name, key: name.slice(0, 3).toUpperCase(), is_private, created_at: now });
+		const project = (id: string, name: string, team_id: string | null) => ({ id, name, team_id, status: 'planned', created_at: now });
+		const designId = '00000000-0000-0000-0000-000000000071';
+		const privateTeamId = '00000000-0000-0000-0000-000000000072';
+		await page.route('**/api/workspaces/test/teams', (route) =>
+			route.fulfill({ json: [team(teamId, 'Engineering', false), team(designId, 'Design', false), team(privateTeamId, 'Secret', true)] })
+		);
+		await page.route('**/api/workspaces/test/projects', (route) =>
+			route.fulfill({
+				json: [
+					project(projectId, 'Launch', teamId),
+					project('00000000-0000-0000-0000-000000000081', 'Website', designId),
+					project('00000000-0000-0000-0000-000000000082', 'Company', null),
+					project('00000000-0000-0000-0000-000000000083', 'Hidden', privateTeamId)
+				]
+			})
+		);
+		await page.goto(path);
+		await expect(page.getByText('Scoped issue 1', { exact: true }).first()).toBeVisible();
+		await page.keyboard.press('Control+a');
+		await page.getByRole('button', { name: 'Actions', exact: true }).click();
+		await page.getByRole('button', { name: /Set project/ }).click();
+		for (const name of ['Launch', 'Website', 'Company'])
+			await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
+		// A private team's project cannot take another team's issues.
+		await expect(page.getByRole('button', { name: 'Hidden', exact: true })).toHaveCount(0);
+	});
+}
 
 for (const theme of ['light', 'dark', 'cyber-77']) {
  test(`calendar and selector triggers preserve keyboard focus in ${theme}`, async ({ page }, testInfo) => {
