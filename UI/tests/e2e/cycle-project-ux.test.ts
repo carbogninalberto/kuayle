@@ -96,11 +96,7 @@ async function mockWorkspace(
 		if (path === '/api/workspaces/test/projects' || path === `/api/workspaces/test/teams/${teamId}/projects`)
 			return route.fulfill({ json: [project] });
 		if (path === `/api/workspaces/test/projects/${projectId}`) {
-			if (request.method() === 'PATCH') {
-				const { color, icon } = request.postDataJSON();
-				if (color !== undefined) project.color = color || null;
-				if (icon !== undefined) project.icon = icon || null;
-			}
+			if (request.method() === 'PATCH') Object.assign(project, request.postDataJSON());
 			return route.fulfill({
 				json: {
 					...project,
