@@ -144,7 +144,7 @@ test('adds a model server from fetched models, edits it without the key and remo
 	});
 
 	await page.goto('/test/settings/agents');
-	await expect(page.getByRole('heading', { name: 'Agent configuration', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible();
 	await expect(page.getByText('No model servers yet.', { exact: false })).toBeVisible();
 	await page.getByRole('button', { name: 'Add server' }).click();
 	const dialog = page.getByRole('dialog');
