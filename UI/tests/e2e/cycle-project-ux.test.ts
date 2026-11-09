@@ -355,7 +355,6 @@ test('a project manager picks an icon and a colour, and can reset them', async (
 	await page.getByRole('button', { name: 'Use color #3b82f6', exact: true }).click();
 	await expect.poll(() => state.mutations.some((m) => m.method === 'PATCH' && m.body.color === '#3b82f6')).toBe(true);
 	await expect(page.getByTestId('project-appearance-trigger').locator('svg')).toHaveCSS('color', 'rgb(59, 130, 246)');
-	await page.getByTestId('project-appearance-trigger').click();
 	await page.getByRole('button', { name: 'Reset', exact: true }).click();
 	await expect.poll(() => state.mutations.some((m) => m.method === 'PATCH' && m.body.icon === '' && m.body.color === '')).toBe(true);
 	expect(state.errors).toEqual([]);

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import type { Component } from 'svelte';
 	import * as LucideIcons from '@lucide/svelte';
 	import { Search } from '@lucide/svelte';
@@ -96,7 +95,9 @@
 	}
 
 	async function loadEmoji() {
-		if (!emojiDatabase || !open || tab !== 'emoji') return;
+		if (!open || tab !== 'emoji') return;
+		// Created on first use: the database opens IndexedDB and may download emoji data.
+		emojiDatabase ??= new Database();
 		const request = ++emojiRequest;
 		try {
 			const q = query.trim();
@@ -120,10 +121,6 @@
 		visibleIcons = ICON_PAGE_SIZE;
 	});
 
-	onMount(() => {
-		emojiDatabase = new Database();
-		void loadEmoji();
-	});
 </script>
 
 <Popover.Root bind:open>

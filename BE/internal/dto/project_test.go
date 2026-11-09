@@ -23,6 +23,7 @@ func TestProjectColorIconValidation(t *testing.T) {
 		{name: "emoji icon", icon: ptr("emoji:🚀"), wantErr: false},
 		{name: "empty clears", color: ptr(""), icon: ptr(""), wantErr: false},
 		{name: "colour name", color: ptr("blue"), wantErr: true},
+		{name: "colour with alpha", color: ptr("#11223344"), wantErr: true},
 		{name: "colour without hash", color: ptr("3b82f6"), wantErr: true},
 		{name: "icon too long", icon: ptr(strings.Repeat("a", 51)), wantErr: true},
 	}
