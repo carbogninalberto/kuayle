@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -182,4 +183,106 @@ func TestTeamKeyRenamePostgres(t *testing.T) {
 	seen, err := issues.GetByIdentifier(admin, ws, "PRV-1")
 	require.NoError(t, err)
 	require.NotNil(t, seen)
+}
+
+// GetByIdentifier finds the current identifier first and falls back to a
+// retired key only on a miss; the fallback stays inside the workspace and
+// behind team visibility.
+func TestGetByIdentifierAliasFallbackPostgres(t *testing.T) {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	db, err := sqlx.Connect("pgx", url)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+
+	owner, outsider := uuid.New(), uuid.New()
+	for _, id := range []uuid.UUID{owner, outsider} {
+		_, err = db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Alias test','hash')`, id, id.String()+"@example.test")
+		require.NoError(t, err)
+		id := id
+		t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM users WHERE id=$1`, id) })
+	}
+	// Two workspaces whose teams share the same keys.
+	type fixture struct{ ws, team, priv, issue, privIssue uuid.UUID }
+	make1 := func() fixture {
+		f := fixture{ws: uuid.New(), team: uuid.New(), priv: uuid.New(), issue: uuid.New(), privIssue: uuid.New()}
+		_, err := db.Exec(`INSERT INTO workspaces(id,name,slug,owner_id) VALUES($1,'Alias test',$2,$3)`, f.ws, f.ws.String(), owner)
+		require.NoError(t, err)
+		t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM workspaces WHERE id=$1`, f.ws) })
+		_, err = db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'owner'),($1,$3,'member')`, f.ws, owner, outsider)
+		require.NoError(t, err)
+		_, err = db.Exec(`INSERT INTO teams(id,workspace_id,name,key) VALUES($1,$2,'Eng','ENG')`, f.team, f.ws)
+		require.NoError(t, err)
+		_, err = db.Exec(`INSERT INTO teams(id,workspace_id,name,key,is_private) VALUES($1,$2,'Priv','PRV',TRUE)`, f.priv, f.ws)
+		require.NoError(t, err)
+		for team, issue := range map[uuid.UUID]uuid.UUID{f.team: f.issue, f.priv: f.privIssue} {
+			status := uuid.New()
+			_, err = db.Exec(`INSERT INTO team_statuses(id,team_id,name,slug,category,position) VALUES($1,$2,'Todo','todo','unstarted',0)`, status, team)
+			require.NoError(t, err)
+			_, err = db.Exec(`INSERT INTO issues(id,workspace_id,team_id,number,identifier_text,title,creator_id,sort_order,status_id) SELECT $1,$2,$3,7,key||'-7','Issue',$4,0,$5 FROM teams WHERE id=$3`, issue, f.ws, team, owner, status)
+			require.NoError(t, err)
+		}
+		return f
+	}
+	a, b := make1(), make1()
+	teams, issues := NewTeamRepository(db), NewIssueRepository(db)
+	asOwner := func(ws uuid.UUID) context.Context {
+		return domain.WithAccess(ctx, domain.Access{UserID: owner, WorkspaceID: ws})
+	}
+	rename := func(ws, id uuid.UUID, key string) {
+		team, err := teams.GetByID(asOwner(ws), id)
+		require.NoError(t, err)
+		require.NoError(t, teams.UpdateWithKey(asOwner(ws), team, key))
+	}
+	find := func(c context.Context, ws uuid.UUID, identifier string) *domain.Issue {
+		got, err := issues.GetByIdentifier(c, ws, identifier)
+		require.NoError(t, err)
+		return got
+	}
+
+	rename(a.ws, a.team, "PLT")
+	rename(a.ws, a.priv, "SEC")
+
+	// Exact and alias matches both resolve to the issue under its new identifier.
+	for _, identifier := range []string{"PLT-7", "ENG-7"} {
+		got := find(asOwner(a.ws), a.ws, identifier)
+		require.NotNil(t, got, identifier)
+		require.Equal(t, a.issue, got.ID)
+		require.Equal(t, "PLT-7", got.Identifier)
+	}
+	require.Nil(t, find(asOwner(a.ws), a.ws, "ENG-8"), "an alias with an unknown number")
+	require.Nil(t, find(asOwner(a.ws), a.ws, "ENG"), "not an identifier")
+
+	// Workspace B was not renamed: ENG-7 is its own issue, and PLT-7 is unknown.
+	got := find(asOwner(b.ws), b.ws, "ENG-7")
+	require.NotNil(t, got)
+	require.Equal(t, b.issue, got.ID)
+	require.Nil(t, find(asOwner(b.ws), b.ws, "PLT-7"), "another workspace's alias does not apply")
+
+	// A private team's issue stays hidden from a non-member by either identifier.
+	asOutsider := domain.WithAccess(ctx, domain.Access{UserID: outsider, WorkspaceID: a.ws})
+	require.Nil(t, find(asOutsider, a.ws, "SEC-7"))
+	require.Nil(t, find(asOutsider, a.ws, "PRV-7"))
+	got = find(asOwner(a.ws), a.ws, "PRV-7")
+	require.NotNil(t, got)
+	require.Equal(t, a.privIssue, got.ID)
+
+	// Searching the list by a retired identifier finds the renamed issue, in
+	// this workspace only and never in a private team the caller cannot see.
+	search := func(c context.Context, ws uuid.UUID, term string) []uuid.UUID {
+		listed, _, err := issues.List(c, ws, dto.IssueFilterParams{Search: term})
+		require.NoError(t, err)
+		ids := []uuid.UUID{}
+		for _, issue := range listed {
+			ids = append(ids, issue.ID)
+		}
+		return ids
+	}
+	require.Equal(t, []uuid.UUID{a.issue}, search(asOwner(a.ws), a.ws, "eng-7"))
+	require.Equal(t, []uuid.UUID{a.privIssue}, search(asOwner(a.ws), a.ws, "PRV-7"))
+	require.Empty(t, search(asOutsider, a.ws, "PRV-7"))
+	require.Empty(t, search(asOwner(b.ws), b.ws, "PLT-7"))
 }

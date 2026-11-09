@@ -81,10 +81,22 @@ func splitIdentifier(identifier string) (string, int) {
 
 func (r *IssueRepository) GetByIdentifier(ctx context.Context, workspaceID uuid.UUID, identifier string) (*domain.Issue, error) {
 	var issue domain.Issue
-	// A retired team key (an alias) still resolves: ENG-12 finds PLT-12 after
-	// ENG was renamed to PLT. The current identifier wins if both match.
+	// The current identifier first, on the (workspace_id, identifier_text) index.
+	err := r.db.GetContext(ctx, &issue, `SELECT * FROM issues WHERE workspace_id = $1 AND identifier_text = $2 AND `+teamVisible(ctx, "issues.team_id"), workspaceID, identifier)
+	if !errors.Is(err, sql.ErrNoRows) {
+		if err != nil {
+			return nil, err
+		}
+		return &issue, nil
+	}
+	// On a miss, a retired team key (an alias) still resolves: ENG-12 finds
+	// PLT-12 after ENG was renamed to PLT. The alias gives the team, and the
+	// issue is found by (team_id, number).
 	oldKey, number := splitIdentifier(identifier)
-	err := r.db.GetContext(ctx, &issue, `SELECT * FROM issues WHERE workspace_id = $1 AND `+teamVisible(ctx, "issues.team_id")+` AND (identifier_text = $2 OR (number = $4 AND team_id IN (SELECT team_id FROM team_key_aliases WHERE workspace_id = $1 AND old_key = $3))) ORDER BY (identifier_text = $2) DESC LIMIT 1`, workspaceID, identifier, oldKey, number)
+	if oldKey == "" {
+		return nil, nil
+	}
+	err = r.db.GetContext(ctx, &issue, `SELECT issues.* FROM team_key_aliases a JOIN issues ON issues.team_id = a.team_id AND issues.number = $3 AND issues.workspace_id = a.workspace_id WHERE a.workspace_id = $1 AND a.old_key = $2 AND `+teamVisible(ctx, "issues.team_id"), workspaceID, oldKey, number)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -184,7 +196,13 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 		searchFields := []string{
 			"i.title ILIKE :search",
 			"i.identifier_text ILIKE :search",
-			"EXISTS (SELECT 1 FROM team_key_aliases tka WHERE tka.team_id = i.team_id AND (tka.old_key || '-' || i.number) ILIKE :search)",
+			// Retired identifiers (ENG-12 after ENG became PLT): the matching
+			// (team, number) pairs are resolved once, not probed for every row.
+			`(i.team_id, i.number) IN (
+				SELECT tka.team_id, ai.number FROM team_key_aliases tka
+				INNER JOIN issues ai ON ai.team_id = tka.team_id
+				WHERE tka.workspace_id = :workspace_id AND (tka.old_key || '-' || ai.number) ILIKE :search
+			)`,
 			"i.description ILIKE :search",
 			"i.status ILIKE :search",
 			"CAST(i.number AS TEXT) ILIKE :search",
