@@ -76,7 +76,7 @@ func TestWorkspaceDeleteWaitsForEnvironmentImageCleanup(t *testing.T) {
 	activeID := insertEnvironment("building")
 	activeOperationID := insertOperation(activeID, domain.DevMachineOpStatusLeased, dmTimePtr(time.Now().Add(time.Minute)))
 
-	err = repository.Delete(context.Background(), fixture.workspaceID)
+	_, err = repository.Delete(context.Background(), fixture.workspaceID)
 
 	require.ErrorIs(t, err, ErrWorkspaceEnvironmentCleanupPending)
 	var workspaceCount int
@@ -98,7 +98,9 @@ func TestWorkspaceDeleteWaitsForEnvironmentImageCleanup(t *testing.T) {
 
 	_, err = db.Exec(`UPDATE dev_machine_operations SET lease_expires_at=NOW()-INTERVAL '1 minute' WHERE id=$1`, activeOperationID)
 	require.NoError(t, err)
-	require.ErrorIs(t, repository.Delete(context.Background(), fixture.workspaceID), ErrWorkspaceEnvironmentCleanupPending)
+	icons, err := repository.Delete(context.Background(), fixture.workspaceID)
+	require.ErrorIs(t, err, ErrWorkspaceEnvironmentCleanupPending)
+	require.Empty(t, icons)
 	require.NoError(t, db.Get(&activeStatus, `SELECT status FROM dev_machine_environments WHERE id=$1`, activeID))
 	require.Equal(t, "delete_requested", activeStatus)
 	require.NoError(t, db.Get(&activeOperationStatus, `SELECT status FROM dev_machine_operations WHERE id=$1`, activeOperationID))
@@ -106,7 +108,8 @@ func TestWorkspaceDeleteWaitsForEnvironmentImageCleanup(t *testing.T) {
 
 	_, err = db.Exec(`DELETE FROM dev_machine_environments WHERE workspace_id=$1 AND status='delete_requested'`, fixture.workspaceID)
 	require.NoError(t, err)
-	require.NoError(t, repository.Delete(context.Background(), fixture.workspaceID))
+	_, err = repository.Delete(context.Background(), fixture.workspaceID)
+	require.NoError(t, err)
 	require.NoError(t, db.Get(&workspaceCount, `SELECT COUNT(*) FROM workspaces WHERE id=$1`, fixture.workspaceID))
 	require.Zero(t, workspaceCount)
 }

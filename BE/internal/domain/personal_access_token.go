@@ -100,6 +100,7 @@ var validTokenScopes = map[string]bool{
 	PermDevMachineCreate:  true,
 	PermDevMachineManage:  true,
 	PermDevMachineAdmin:   true,
+	PermWikiWrite:         true,
 	// Read codes
 	PermIssuesRead:        true,
 	PermCommentsRead:      true,
@@ -115,4 +116,5 @@ var validTokenScopes = map[string]bool{
 	PermWorkspacesRead:    true,
 	PermAccountRead:       true,
 	PermAssetsRead:        true,
+	PermWikiRead:          true,
 }

@@ -53,6 +53,35 @@ type AgentTaskService struct {
 	// SetWorkflows wires it, and tasks then keep the Standard flow.
 	workflow    *WorkflowRunner
 	definitions *repository.WorkflowRepository
+	// registry logs published pull requests in the wiki registry of the
+	// issue's project or team when that registry is on; nil until SetRegistry.
+	registry taskRegistry
+}
+
+type taskRegistry interface {
+	AppendIssueRegistry(ctx context.Context, workspaceID, issueID, userID uuid.UUID, text string) error
+}
+
+// SetRegistry makes published pull requests appear in wiki registries.
+func (s *AgentTaskService) SetRegistry(registry taskRegistry) { s.registry = registry }
+
+// notePublished adds "pull request #N published: <url>" to the registry of
+// the task's issue, acting as the task's creator. It is best effort: a
+// registry that is off, or a failure, never affects the task.
+func (s *AgentTaskService) notePublished(ctx context.Context, task domain.AgentTask) {
+	if s.registry == nil {
+		return
+	}
+	text := "pull request published"
+	if s.Repo != nil {
+		if target, err := s.Repo.MergeTarget(ctx, task.WorkspaceID, nil, &task.ID); err == nil && target.URL != "" {
+			text = fmt.Sprintf("pull request #%d published: %s", target.Number, target.URL)
+		}
+	}
+	err := s.registry.AppendIssueRegistry(ctx, task.WorkspaceID, task.IssueID, task.CreatorID, text)
+	if err != nil && !errors.Is(err, ErrWikiRegistryDisabled) && !errors.Is(err, ErrWikiNotFound) {
+		log.WithField("task_id", task.ID).WithError(err).Warn("Could not log a published pull request in the wiki registry")
+	}
 }
 
 func NewAgentTaskService(repo *repository.AgentTaskRepository, machines *DevMachineService, hub *realtime.Hub) *AgentTaskService {
@@ -191,10 +220,15 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		// the validated work in place, so the task blocks instead of failing.
 		switch result.Status {
 		case domain.DevMachineAgentRunStepStatusSucceeded:
+			reason := "Pull request opened; waiting for human review"
 			if task.Reason == unvalidatedPublishingReason {
-				return s.store.Transition(ctx, task, "awaiting_review", "Draft pull request opened without validation; no check command is configured. Review it, and add a check in the development settings")
+				reason = "Draft pull request opened without validation; no check command is configured. Review it, and add a check in the development settings"
 			}
-			return s.store.Transition(ctx, task, "awaiting_review", "Pull request opened; waiting for human review")
+			if err := s.store.Transition(ctx, task, "awaiting_review", reason); err != nil {
+				return err
+			}
+			s.notePublished(ctx, task)
+			return nil
 		case domain.DevMachineAgentRunStepStatusSkipped:
 			return s.store.Transition(ctx, task, "blocked", "The iteration produced no changes to publish")
 		case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
@@ -824,7 +858,11 @@ func (s *AgentTaskService) workflowPublished(ctx context.Context, task domain.Ag
 	}
 	switch result.Status {
 	case domain.DevMachineAgentRunStepStatusSucceeded:
-		return s.workflow.Outcome(ctx, task, domain.WorkflowPublished, "")
+		if err := s.workflow.Outcome(ctx, task, domain.WorkflowPublished, ""); err != nil {
+			return err
+		}
+		s.notePublished(ctx, task)
+		return nil
 	case domain.DevMachineAgentRunStepStatusSkipped:
 		return s.workflow.Outcome(ctx, task, domain.WorkflowPublishFailed, "The iteration produced no changes to publish")
 	case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:

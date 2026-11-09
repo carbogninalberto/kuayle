@@ -83,13 +83,15 @@ async function mockWorkspace(page: Page, role = 'owner', icon = 'layers') {
 			});
 		if (path === '/api/workspaces/test/projects' || path === `/api/workspaces/test/teams/${teamId}/projects`)
 			return route.fulfill({ json: [project] });
-		if (path === `/api/workspaces/test/projects/${projectId}`)
+		if (path === `/api/workspaces/test/projects/${projectId}`) {
+			if (request.method() === 'PATCH') Object.assign(project, request.postDataJSON());
 			return route.fulfill({
 				json: {
 					...project,
 					progress: { total: issues.filter((i) => i.project_id === projectId).length, completed: 0, cancelled: 0 }
 				}
 			});
+		}
 		if (path === `/api/workspaces/test/teams/${teamId}/cycles`) return route.fulfill({ json: cycles });
 		if (path === `/api/workspaces/test/teams/${teamId}/cycles/velocity`) return route.fulfill({ json: [] });
 		if (path.startsWith(`/api/workspaces/test/teams/${teamId}/cycles/`)) {
@@ -126,6 +128,9 @@ async function mockWorkspace(page: Page, role = 'owner', icon = 'layers') {
 				}
 			});
 		}
+		if (path === '/api/workspaces/test/issues/bulk' && request.method() === 'PATCH')
+			// Fewer than selected: some issues are already in the project.
+			return route.fulfill({ json: { updated: 3 } });
 		const issue = issues.find((i) => path === `/api/workspaces/test/issues/${i.identifier}`);
 		if (issue) {
 			if (request.method() === 'PATCH') Object.assign(issue, request.postDataJSON());
@@ -289,6 +294,8 @@ test('project Gantt returns directly to list and deletion requires confirmation'
 	await page.goto(`/test/projects/${projectId}`);
 	const scoped = page.getByTestId('scoped-issues');
 	await expect(scoped.getByText('Scoped issue 1', { exact: true })).toBeVisible();
+	// Browser tab title: the project first, then the team, then Kuayle.
+	await expect(page).toHaveTitle('Launch < Engineering < Kuayle');
 	await scoped.getByRole('button', { name: 'Gantt view', exact: true }).click();
 	await expect(scoped.getByRole('radio', { name: 'List view', exact: true })).not.toBeChecked();
 	await scoped.getByRole('radio', { name: 'List view', exact: true }).click();
@@ -334,6 +341,66 @@ test('existing single-select parent picker still applies one selection immediate
 	});
 	expect(state.errors).toEqual([]);
 });
+
+test('bulk actions set the project of the selected issues and can remove it', async ({ page }) => {
+	const state = await mockWorkspace(page);
+	await page.goto(`${cyclePath}/${cycleId}`);
+	const scoped = page.getByTestId('scoped-issues');
+	const actions = page.getByRole('button', { name: 'Actions', exact: true });
+	const bulkRequests = () => state.mutations.filter((m) => m.path === '/api/workspaces/test/issues/bulk');
+	await expect(scoped.getByText('Scoped issue 1', { exact: true })).toBeVisible();
+	await page.keyboard.press('Control+a');
+	await actions.click();
+	await page.getByRole('button', { name: /Set project/ }).click();
+	await page.getByRole('button', { name: 'Launch', exact: true }).click();
+	await expect.poll(() => bulkRequests().length).toBe(1);
+	expect(bulkRequests()[0].body.project_id).toBe(projectId);
+	expect(bulkRequests()[0].body.issue_ids.length).toBeGreaterThan(0);
+	// The toast reports what the server changed, not the selection size.
+	await expect(page.getByText('Moved 3 issues to the project')).toBeVisible();
+	// The selection is cleared once the update lands, which hides the bar.
+	await expect(actions).toHaveCount(0);
+
+	await page.keyboard.press('Control+a');
+	await actions.click();
+	await page.getByRole('button', { name: /Set project/ }).click();
+	await page.getByRole('button', { name: 'No project', exact: true }).click();
+	await expect.poll(() => bulkRequests().length).toBe(2);
+	expect(bulkRequests()[1].body.project_id).toBe('');
+	expect(state.errors).toEqual([]);
+});
+
+for (const path of [`${cyclePath}/${cycleId}`, `/test/teams/${teamId}`]) {
+	test(`bulk Set project offers only projects the selected issues can join on ${path}`, async ({ page }) => {
+		await mockWorkspace(page);
+		const team = (id: string, name: string, is_private: boolean) => ({ id, name, key: name.slice(0, 3).toUpperCase(), is_private, created_at: now });
+		const project = (id: string, name: string, team_id: string | null) => ({ id, name, team_id, status: 'planned', created_at: now });
+		const designId = '00000000-0000-0000-0000-000000000071';
+		const privateTeamId = '00000000-0000-0000-0000-000000000072';
+		await page.route('**/api/workspaces/test/teams', (route) =>
+			route.fulfill({ json: [team(teamId, 'Engineering', false), team(designId, 'Design', false), team(privateTeamId, 'Secret', true)] })
+		);
+		await page.route('**/api/workspaces/test/projects', (route) =>
+			route.fulfill({
+				json: [
+					project(projectId, 'Launch', teamId),
+					project('00000000-0000-0000-0000-000000000081', 'Website', designId),
+					project('00000000-0000-0000-0000-000000000082', 'Company', null),
+					project('00000000-0000-0000-0000-000000000083', 'Hidden', privateTeamId)
+				]
+			})
+		);
+		await page.goto(path);
+		await expect(page.getByText('Scoped issue 1', { exact: true }).first()).toBeVisible();
+		await page.keyboard.press('Control+a');
+		await page.getByRole('button', { name: 'Actions', exact: true }).click();
+		await page.getByRole('button', { name: /Set project/ }).click();
+		for (const name of ['Launch', 'Website', 'Company'])
+			await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
+		// A private team's project cannot take another team's issues.
+		await expect(page.getByRole('button', { name: 'Hidden', exact: true })).toHaveCount(0);
+	});
+}
 
 for (const theme of ['light', 'dark', 'cyber-77']) {
  test(`calendar and selector triggers preserve keyboard focus in ${theme}`, async ({ page }, testInfo) => {
@@ -434,4 +501,39 @@ test('issue context menu offers only labels that apply to the issue project', as
 		.poll(() => state.mutations.find((m) => m.method === 'PATCH' && m.path.endsWith('/issues/ENG-1'))?.body)
 		.toEqual({ label_ids: ['label-launch'] });
 	expect(state.errors).toEqual([]);
+});
+
+test('project name renames inline with Enter, Esc cancels and empty is rejected', async ({
+	page
+}) => {
+	const state = await mockWorkspace(page);
+	const patches = () =>
+		state.mutations.filter((m) => m.method === 'PATCH' && m.path.endsWith(`/projects/${projectId}`));
+	await page.goto(`/test/projects/${projectId}`);
+	await expect(page.getByText('Launch', { exact: true }).first()).toBeVisible();
+
+	await page.getByRole('button', { name: 'Rename project', exact: true }).click();
+	await page.getByRole('textbox', { name: 'Rename project', exact: true }).fill('Changed');
+	await page.keyboard.press('Escape');
+	expect(patches()).toHaveLength(0);
+	await expect(page.getByRole('textbox', { name: 'Rename project', exact: true })).toHaveCount(0);
+
+	await page.getByRole('button', { name: 'Rename project', exact: true }).click();
+	await page.getByRole('textbox', { name: 'Rename project', exact: true }).fill('   ');
+	await page.keyboard.press('Enter');
+	expect(patches()).toHaveLength(0);
+
+	await page.getByRole('textbox', { name: 'Rename project', exact: true }).fill('  Relaunch  ');
+	await page.keyboard.press('Enter');
+	await expect.poll(() => patches().length).toBe(1);
+	expect(patches()[0].body).toEqual({ name: 'Relaunch' });
+	await expect(page.getByText('Relaunch', { exact: true }).first()).toBeVisible();
+	expect(state.errors).toEqual([]);
+});
+
+test('guests cannot rename a project', async ({ page }) => {
+	await mockWorkspace(page, 'guest');
+	await page.goto(`/test/projects/${projectId}`);
+	await expect(page.getByText('Launch', { exact: true }).first()).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Rename project', exact: true })).toHaveCount(0);
 });

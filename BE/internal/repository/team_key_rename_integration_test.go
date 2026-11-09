@@ -157,7 +157,7 @@ func TestTeamKeyRenamePostgres(t *testing.T) {
 		}
 		done := make(chan error, 2)
 		go func() { done <- teams.UpdateWithKey(admin, load(doomed), "DOMB") }()
-		go func() { done <- teams.Delete(admin, doomed) }()
+		go func() { _, err := teams.Delete(admin, doomed); done <- err }()
 		for j := 0; j < 2; j++ {
 			if err := <-done; err != nil {
 				require.NotContains(t, err.Error(), "deadlock")
@@ -183,6 +183,29 @@ func TestTeamKeyRenamePostgres(t *testing.T) {
 	seen, err := issues.GetByIdentifier(admin, ws, "PRV-1")
 	require.NoError(t, err)
 	require.NotNil(t, seen)
+
+	// A rename keeps the stored icon unless the icon is changed too, so it
+	// cannot revert an image uploaded meanwhile, and it reports the icon it
+	// replaced so the image file can be removed.
+	image := "image:" + uuid.NewString() + ".png"
+	stale := load(ops)
+	_, err = teams.SetIcon(admin, ops, image)
+	require.NoError(t, err)
+	stale.IconSet = false
+	require.NoError(t, teams.UpdateWithKey(admin, stale, "OPZ"))
+	require.NotNil(t, load(ops).Icon)
+	require.Equal(t, image, *load(ops).Icon)
+	require.NotNil(t, stale.Icon)
+	require.Equal(t, image, *stale.Icon)
+	require.Nil(t, stale.ReplacedIcon)
+
+	rocket := "emoji:🚀"
+	changed := load(ops)
+	changed.Icon, changed.IconSet = &rocket, true
+	require.NoError(t, teams.UpdateWithKey(admin, changed, "OPS"))
+	require.Equal(t, rocket, *load(ops).Icon)
+	require.NotNil(t, changed.ReplacedIcon)
+	require.Equal(t, image, *changed.ReplacedIcon)
 }
 
 // GetByIdentifier finds the current identifier first and falls back to a

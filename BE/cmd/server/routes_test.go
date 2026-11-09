@@ -230,3 +230,40 @@ func TestDraftDescriptionExpansionRequiresIssueCreate(t *testing.T) {
 	}
 	require.True(t, found, "draft expansion route is not registered")
 }
+
+// Wiki reads need wiki:read and every wiki write needs wiki:write, for both
+// scopes, so guests and read-only tokens cannot change documentation.
+func TestWikiRoutesRequireWikiPermissions(t *testing.T) {
+	e := echo.New()
+	registerRoutes(e, &appHandlers{}, testMiddleware(noopMiddleware()))
+	got := map[string]string{}
+	for _, route := range e.Router().Routes() {
+		if strings.Contains(route.Path, "/wiki") {
+			got[route.Method+" "+route.Path] = route.Name
+		}
+	}
+	want := map[string]string{}
+	for _, base := range []string{"/api/workspaces/:slug/teams/:teamId/wiki", "/api/workspaces/:slug/projects/:id/wiki"} {
+		want["GET "+base] = "perm:wiki:read"
+		want["POST "+base] = "perm:wiki:write"
+		want["GET "+base+"/:pageId"] = "perm:wiki:read"
+		want["PATCH "+base+"/:pageId"] = "perm:wiki:write"
+		want["DELETE "+base+"/:pageId"] = "perm:wiki:write"
+		want["GET "+base+"/:pageId/versions"] = "perm:wiki:read"
+		want["POST "+base+"/:pageId/rework"] = "perm:wiki:write"
+		want["GET "+base+"/settings"] = "perm:wiki:read"
+		want["PATCH "+base+"/settings"] = "perm:wiki:write"
+		want["GET "+base+"/registry"] = "perm:wiki:read"
+		want["POST "+base+"/registry"] = "perm:wiki:write"
+		want["GET "+base+"/registry/overviews"] = "perm:wiki:read"
+		want["POST "+base+"/registry/overviews"] = "perm:wiki:write"
+		want["GET "+base+"/tree"] = "perm:wiki:read"
+		want["POST "+base+"/tree"] = "perm:wiki:write"
+		want["POST "+base+"/:pageId/move"] = "perm:wiki:write"
+		want["GET "+base+"/:pageId/publish"] = "perm:wiki:read"
+		want["PUT "+base+"/:pageId/publish"] = "perm:wiki:write"
+	}
+	// A public wiki link is anonymous and rate limited like issue shares.
+	want["GET /api/public/wiki/:token"] = "public"
+	require.Equal(t, want, got)
+}

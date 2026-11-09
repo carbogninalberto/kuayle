@@ -10,6 +10,7 @@ import (
 	"html"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -168,6 +169,43 @@ func (r *AgentMessageRepository) RecordTaskOutbox(ctx context.Context, taskID uu
 				reject("the sending task can no longer send messages")
 				break
 			}
+			if message.To == domain.AgentOutboxRegistry {
+				// Recorded first, so a file taken twice is appended once; the
+				// record then says whether the registry took it.
+				reject("logging to the registry")
+				inserted, err := insertAgentMessage(ctx, tx, row)
+				if err != nil || !inserted {
+					return recorded, err
+				}
+				recorded++
+				sent++
+				// The append acts as the task's creator, with their visibility.
+				actor := domain.WithAccess(ctx, domain.Access{WorkspaceID: sender.WorkspaceID, UserID: sender.CreatorID})
+				_, _, appendErr := appendIssueRegistryTx(actor, tx, sender.WorkspaceID, sender.IssueID, sender.CreatorID, time.Now(), message.Body)
+				reason := ""
+				switch {
+				case appendErr == nil:
+				case errors.Is(appendErr, ErrWikiRegistryDisabled), errors.Is(appendErr, ErrWikiScopeNotFound):
+					reason = "the registry of this project and team is turned off"
+				case errors.Is(appendErr, ErrWikiRegistryFull):
+					reason = "today's registry page is full"
+				case errors.Is(appendErr, domain.ErrWikiRegistryEntry):
+					reason = "a registry entry needs 1 to 2000 characters"
+				default:
+					return recorded, appendErr
+				}
+				if reason != "" {
+					_, err = tx.ExecContext(ctx, `UPDATE agent_messages SET reject_reason=$3,updated_at=now() WHERE from_task_id=$1 AND dedupe_key=$2`, sender.ID, row.DedupeKey, reason)
+				} else {
+					// Delivered to the registry of the sender's own issue's scope.
+					_, err = tx.ExecContext(ctx, `UPDATE agent_messages SET state='delivered',reject_reason=NULL,to_issue_id=from_issue_id,delivered_run_id=$3,delivered_at=now(),updated_at=now()
+ WHERE from_task_id=$1 AND dedupe_key=$2`, sender.ID, row.DedupeKey, sender.RunID)
+				}
+				if err != nil {
+					return recorded, err
+				}
+				continue
+			}
 			var recipient messageRecipient
 			aliasKey, aliasNumber := splitIdentifier(message.To)
 			err = tx.GetContext(ctx, &recipient, `WITH me AS (SELECT id,parent_id,team_id,workspace_id FROM issues WHERE id=$1),
@@ -202,18 +240,29 @@ func (r *AgentMessageRepository) RecordTaskOutbox(ctx context.Context, taskID uu
 				row.CommentState = "pending"
 			}
 		}
-		result, err := tx.NamedExecContext(ctx, `INSERT INTO agent_messages(workspace_id,from_task_id,from_issue_id,from_run_id,to_ref,to_issue_id,to_task_id,channel,body,state,reject_reason,dedupe_key,held_by,held_at,comment_state,created_at)
- VALUES(:workspace_id,:from_task_id,:from_issue_id,:from_run_id,:to_ref,:to_issue_id,:to_task_id,:channel,:body,:state,:reject_reason,:dedupe_key,:held_by,CASE WHEN CAST(:state AS text)='held' THEN now() END,:comment_state,clock_timestamp())
- ON CONFLICT (from_task_id,dedupe_key) DO NOTHING`, row)
+		inserted, err := insertAgentMessage(ctx, tx, row)
 		if err != nil {
 			return recorded, err
 		}
-		if inserted, _ := result.RowsAffected(); inserted > 0 {
+		if inserted {
 			recorded++
 			sent++
 		}
 	}
 	return recorded, tx.Commit()
+}
+
+// insertAgentMessage records one outbox message unless the same file was
+// already recorded for the task.
+func insertAgentMessage(ctx context.Context, tx *sqlx.Tx, row domain.AgentMessage) (bool, error) {
+	result, err := tx.NamedExecContext(ctx, `INSERT INTO agent_messages(workspace_id,from_task_id,from_issue_id,from_run_id,to_ref,to_issue_id,to_task_id,channel,body,state,reject_reason,dedupe_key,held_by,held_at,comment_state,created_at)
+ VALUES(:workspace_id,:from_task_id,:from_issue_id,:from_run_id,:to_ref,:to_issue_id,:to_task_id,:channel,:body,:state,:reject_reason,:dedupe_key,:held_by,CASE WHEN CAST(:state AS text)='held' THEN now() END,:comment_state,clock_timestamp())
+ ON CONFLICT (from_task_id,dedupe_key) DO NOTHING`, row)
+	if err != nil {
+		return false, err
+	}
+	inserted, _ := result.RowsAffected()
+	return inserted > 0, nil
 }
 
 const deliverySelect = `SELECT m.id,fi.identifier_text AS from_identifier,m.from_task_id,m.channel,m.body,m.created_at
@@ -230,11 +279,11 @@ func (r *AgentMessageRepository) Claim(ctx context.Context, task domain.AgentTas
 	}
 	defer tx.Rollback()
 	deliveries := []domain.AgentMessageDelivery{}
-	if err = tx.SelectContext(ctx, &deliveries, deliverySelect+` WHERE m.workspace_id=$1 AND m.to_issue_id=$2 AND m.state='delivered' AND m.delivered_run_id=$3 ORDER BY m.created_at,m.id`, task.WorkspaceID, task.IssueID, task.RunID); err != nil || len(deliveries) > 0 {
+	if err = tx.SelectContext(ctx, &deliveries, deliverySelect+` WHERE m.workspace_id=$1 AND m.to_issue_id=$2 AND m.to_ref<>'REGISTRY' AND m.state='delivered' AND m.delivered_run_id=$3 ORDER BY m.created_at,m.id`, task.WorkspaceID, task.IssueID, task.RunID); err != nil || len(deliveries) > 0 {
 		return deliveries, err
 	}
 	candidates := []domain.AgentMessageDelivery{}
-	if err = tx.SelectContext(ctx, &candidates, deliverySelect+` WHERE m.workspace_id=$1 AND m.to_issue_id=$2 AND (m.state='queued'
+	if err = tx.SelectContext(ctx, &candidates, deliverySelect+` WHERE m.workspace_id=$1 AND m.to_issue_id=$2 AND m.to_ref<>'REGISTRY' AND (m.state='queued'
   OR (m.state='delivered' AND NOT EXISTS (SELECT 1 FROM dev_machine_agent_runs rn WHERE rn.id=m.delivered_run_id) AND NOT EXISTS (SELECT 1 FROM agent_tasks tk WHERE tk.run_id=m.delivered_run_id)))
  ORDER BY m.created_at,m.id LIMIT $3 FOR UPDATE OF m SKIP LOCKED`, task.WorkspaceID, task.IssueID, agentMessagesPerPrompt); err != nil {
 		return nil, err

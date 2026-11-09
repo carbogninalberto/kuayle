@@ -75,5 +75,6 @@ func sharedLinkVisible(ctx context.Context, workspace, scope, id, filters string
 	return "(" + workspaceVisible(ctx, workspace) + " AND (" + publicMetadataAllowed(workspace) + " OR (" + filters + " = '{}'::jsonb AND " + scope + " <> 'view')) AND (" +
 		"(" + scope + "='workspace') OR (" + scope + "='team' AND EXISTS(SELECT 1 FROM teams slt WHERE slt.id=" + id + " AND slt.workspace_id=" + workspace + " AND " + teamVisible(public, "slt.id") + ")) OR (" +
 		scope + "='project' AND EXISTS(SELECT 1 FROM projects slp WHERE slp.id=" + id + " AND slp.workspace_id=" + workspace + " AND " + projectVisible(public, "slp.workspace_id", "slp.team_id") + ")) OR (" +
-		scope + "='view' AND EXISTS(SELECT 1 FROM views slv WHERE slv.id=" + id + " AND slv.workspace_id=" + workspace + " AND " + publicMetadataAllowed("slv.workspace_id") + "))))"
+		scope + "='view' AND EXISTS(SELECT 1 FROM views slv WHERE slv.id=" + id + " AND slv.workspace_id=" + workspace + " AND " + publicMetadataAllowed("slv.workspace_id") + ")) OR (" +
+		scope + "='wiki_page' AND " + wikiPagePublished(id, workspace) + ")))"
 }

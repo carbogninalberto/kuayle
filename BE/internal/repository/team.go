@@ -61,14 +61,43 @@ func (r *TeamRepository) TeamIDForRetiredKey(ctx context.Context, workspaceID uu
 	return id, err
 }
 
+// Update saves the team and sets team.ReplacedIcon to the icon it replaced. The
+// icon column is written only when team.IconSet; otherwise the stored icon is
+// kept and team.Icon is refreshed from it. The previous icon is read with FOR
+// NO KEY UPDATE (which, unlike FOR UPDATE, does not conflict with the key share
+// lock of a concurrent team_members insert) in the same statement, so
+// concurrent updates are serialized and each one sees exactly the icon it
+// overwrites.
 func (r *TeamRepository) Update(ctx context.Context, team *domain.Team) error {
-	query := `UPDATE teams SET name = $1, description = $2, color = $3, icon = $4, triage_enabled = $5, parent_auto_close_enabled = $6, sub_issue_auto_close_enabled = $7, issue_copy_prompt = $8, updated_at = NOW() WHERE id = $9 AND ` + teamVisible(ctx, "teams.id") + ` RETURNING updated_at`
-	return r.db.QueryRowContext(ctx, query, team.Name, team.Description, team.Color, team.Icon, team.TriageEnabled, team.ParentAutoCloseEnabled, team.SubIssueAutoCloseEnabled, team.IssueCopyPrompt, team.ID).Scan(&team.UpdatedAt)
+	query := `UPDATE teams SET name = $1, description = $2, color = $3, icon = CASE WHEN $10::boolean THEN $4::text ELSE teams.icon END, triage_enabled = $5, parent_auto_close_enabled = $6, sub_issue_auto_close_enabled = $7, issue_copy_prompt = $8, updated_at = NOW() FROM (SELECT id, icon FROM teams WHERE id = $9 FOR NO KEY UPDATE) previous WHERE teams.id = previous.id AND ` + teamVisible(ctx, "teams.id") + ` RETURNING teams.updated_at, previous.icon, teams.icon`
+	return r.db.QueryRowContext(ctx, query, team.Name, team.Description, team.Color, team.Icon, team.TriageEnabled, team.ParentAutoCloseEnabled, team.SubIssueAutoCloseEnabled, team.IssueCopyPrompt, team.ID, team.IconSet).Scan(&team.UpdatedAt, &team.ReplacedIcon, &team.Icon)
 }
 
-func (r *TeamRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM teams WHERE id = $1 AND `+teamVisible(ctx, "teams.id"), id)
-	return err
+// SetIcon writes only the icon column, so an icon change cannot revert other
+// fields saved meanwhile. The replaced icon is read under the row lock and
+// returned in ReplacedIcon.
+func (r *TeamRepository) SetIcon(ctx context.Context, id uuid.UUID, icon string) (*domain.Team, error) {
+	var team domain.Team
+	query := `UPDATE teams SET icon = $2, updated_at = NOW() FROM (SELECT id, icon FROM teams WHERE id = $1 FOR NO KEY UPDATE) previous WHERE teams.id = previous.id AND ` + teamVisible(ctx, "teams.id") + ` RETURNING teams.*, previous.icon AS replaced_icon`
+	err := r.db.GetContext(ctx, &team, query, id, icon)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &team, nil
+}
+
+// Delete removes the team and returns its icon as it was when the row was
+// deleted, so a concurrent icon change cannot leave its image behind.
+func (r *TeamRepository) Delete(ctx context.Context, id uuid.UUID) (*string, error) {
+	var icon *string
+	err := r.db.QueryRowContext(ctx, `DELETE FROM teams WHERE id = $1 AND `+teamVisible(ctx, "teams.id")+` RETURNING icon`, id).Scan(&icon)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return icon, err
 }
 
 func (r *TeamRepository) AddMember(ctx context.Context, member *domain.TeamMember) error {
@@ -223,11 +252,17 @@ func (r *TeamRepository) UpdateWithKey(ctx context.Context, team *domain.Team, n
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(610046,0)`); err != nil {
 		return err
 	}
-	var oldKey string
-	err = tx.GetContext(ctx, &oldKey, `SELECT key FROM teams WHERE id=$1 AND workspace_id=$2 AND `+teamVisible(ctx, "teams.id")+` FOR UPDATE`, team.ID, team.WorkspaceID)
+	// The icon is read under the same row lock, so ReplacedIcon is exactly the
+	// icon this update overwrites (see Update).
+	var current struct {
+		Key  string  `db:"key"`
+		Icon *string `db:"icon"`
+	}
+	err = tx.GetContext(ctx, &current, `SELECT key, icon FROM teams WHERE id=$1 AND workspace_id=$2 AND `+teamVisible(ctx, "teams.id")+` FOR UPDATE`, team.ID, team.WorkspaceID)
 	if err != nil {
 		return err
 	}
+	oldKey := current.Key
 	if oldKey != newKey {
 		var other uuid.UUID
 		switch err := tx.GetContext(ctx, &other, `SELECT team_id FROM team_key_aliases WHERE workspace_id=$1 AND old_key=$2`, team.WorkspaceID, newKey); {
@@ -255,10 +290,15 @@ func (r *TeamRepository) UpdateWithKey(ctx context.Context, team *domain.Team, n
 			return fmt.Errorf("rewrite issue identifiers: %w", err)
 		}
 	}
-	err = tx.QueryRowContext(ctx, `UPDATE teams SET name=$1,key=$2,description=$3,color=$4,icon=$5,triage_enabled=$6,parent_auto_close_enabled=$7,sub_issue_auto_close_enabled=$8,issue_copy_prompt=$9,updated_at=NOW() WHERE id=$10 RETURNING updated_at`,
-		team.Name, newKey, team.Description, team.Color, team.Icon, team.TriageEnabled, team.ParentAutoCloseEnabled, team.SubIssueAutoCloseEnabled, team.IssueCopyPrompt, team.ID).Scan(&team.UpdatedAt)
+	// As in Update, the icon column is written only when team.IconSet.
+	err = tx.QueryRowContext(ctx, `UPDATE teams SET name=$1,key=$2,description=$3,color=$4,icon=CASE WHEN $11::boolean THEN $5::text ELSE teams.icon END,triage_enabled=$6,parent_auto_close_enabled=$7,sub_issue_auto_close_enabled=$8,issue_copy_prompt=$9,updated_at=NOW() WHERE id=$10 RETURNING updated_at, icon`,
+		team.Name, newKey, team.Description, team.Color, team.Icon, team.TriageEnabled, team.ParentAutoCloseEnabled, team.SubIssueAutoCloseEnabled, team.IssueCopyPrompt, team.ID, team.IconSet).Scan(&team.UpdatedAt, &team.Icon)
 	if err != nil {
 		return err
+	}
+	team.ReplacedIcon = nil
+	if team.IconSet {
+		team.ReplacedIcon = current.Icon
 	}
 	team.Key = newKey
 	return tx.Commit()

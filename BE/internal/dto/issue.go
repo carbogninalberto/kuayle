@@ -147,6 +147,9 @@ type BulkUpdateIssueRequest struct {
 	LabelIDs   []string `json:"label_ids" validate:"omitempty,dive,uuid"`
 	CycleID    *string  `json:"cycle_id"`
 	ParentID   *string  `json:"parent_id"`
+	// ProjectID moves the issues to a project; an empty string removes them
+	// from their project. It cannot be combined with other fields.
+	ProjectID *string `json:"project_id"`
 }
 
 type BulkDeleteIssueRequest struct {
@@ -177,4 +180,8 @@ type IssueFilterParams struct {
 	GroupBy    string `query:"group_by" validate:"omitempty,oneof=status priority assignee project"`
 	Sort       string `query:"sort" validate:"omitempty,oneof=created_at updated_at priority sort_order status due_date"`
 	Order      string `query:"order" validate:"omitempty,oneof=asc desc"`
+	// StatusCategoryOrder is an optional comma separated list of status
+	// categories. With group_by=status it orders the groups (and so the pages)
+	// by this category order before the team's status position.
+	StatusCategoryOrder string `query:"status_category_order"`
 }

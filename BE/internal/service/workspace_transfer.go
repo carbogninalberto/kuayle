@@ -757,6 +757,11 @@ func prepareImportedRow(table string, row dto.WorkspaceTransferRow) {
 		}
 	case "dev_machine_scope_settings":
 		row["environment_id"] = nil
+	case "teams":
+		// An uploaded icon image is stored per team and is not in the archive.
+		if strings.HasPrefix(transferString(row["icon"]), domain.TeamIconImagePrefix) {
+			row["icon"] = nil
+		}
 	}
 	delete(row, "archive_path")
 }

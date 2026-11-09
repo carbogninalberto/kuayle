@@ -577,6 +577,19 @@ func TestPrivateArchiveVisibilityMustBeExplicitBooleanFalse(t *testing.T) {
 	}
 }
 
+// An uploaded team icon image is stored per team and is not part of the
+// archive, so an import drops the reference instead of keeping a dead file name.
+func TestImportedTeamImageIconIsCleared(t *testing.T) {
+	image := dto.WorkspaceTransferRow{"icon": "image:00000000-0000-0000-0000-0000000000aa.png"}
+	prepareImportedRow("teams", image)
+	require.Nil(t, image["icon"])
+	for _, icon := range []any{"emoji:🚀", "SquareUser", nil} {
+		row := dto.WorkspaceTransferRow{"icon": icon}
+		prepareImportedRow("teams", row)
+		require.Equal(t, icon, row["icon"])
+	}
+}
+
 // An export from before migration 90 may carry an odd disk limit, which the
 // schema now rejects; the import rounds it down like the migration did.
 func TestImportedDevMachinePolicyDiskLimitMovesToTwoGBSteps(t *testing.T) {

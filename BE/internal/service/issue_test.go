@@ -132,6 +132,12 @@ func (m *mockIssueRepo) GetAssigneesForIssues(ctx context.Context, issueIDs []uu
 	return args.Get(0).(map[uuid.UUID][]uuid.UUID), args.Error(1)
 }
 
+func (m *mockIssueRepo) BulkSetProject(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, projectID *uuid.UUID, actorID uuid.UUID) ([]domain.Issue, error) {
+	args := m.Called(ctx, workspaceID, issueIDs, projectID, actorID)
+	moved, _ := args.Get(0).([]domain.Issue)
+	return moved, args.Error(1)
+}
+
 func (m *mockIssueRepo) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
@@ -167,9 +173,16 @@ func (m *mockTeamRepo) Update(ctx context.Context, team *domain.Team) error {
 	return args.Error(0)
 }
 
-func (m *mockTeamRepo) Delete(ctx context.Context, id uuid.UUID) error {
+func (m *mockTeamRepo) Delete(ctx context.Context, id uuid.UUID) (*string, error) {
 	args := m.Called(ctx, id)
-	return args.Error(0)
+	icon, _ := args.Get(0).(*string)
+	return icon, args.Error(1)
+}
+
+func (m *mockTeamRepo) SetIcon(ctx context.Context, id uuid.UUID, icon string) (*domain.Team, error) {
+	args := m.Called(ctx, id, icon)
+	team, _ := args.Get(0).(*domain.Team)
+	return team, args.Error(1)
 }
 
 func (m *mockTeamRepo) AddMember(ctx context.Context, member *domain.TeamMember) error {

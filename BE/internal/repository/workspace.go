@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -97,26 +98,29 @@ func (r *WorkspaceRepository) Update(ctx context.Context, ws *domain.Workspace) 
 	return r.db.QueryRowContext(ctx, query, ws.Name, ws.LogoURL, ws.ShareLinkMinRole, ws.ID).Scan(&ws.UpdatedAt)
 }
 
-func (r *WorkspaceRepository) Delete(ctx context.Context, id uuid.UUID) error {
+// Delete removes the workspace and returns its teams' image icons. They are
+// read under row locks in the deleting transaction, so an icon upload that
+// commits first is reported and one that waits finds its team gone.
+func (r *WorkspaceRepository) Delete(ctx context.Context, id uuid.UUID) ([]domain.TeamIconImage, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, id); err != nil {
-		return err
+		return nil, err
 	}
 	var activeRuntimes int
 	if err := tx.GetContext(ctx, &activeRuntimes, `SELECT COUNT(*) FROM dev_machines
 		WHERE workspace_id=$1 AND status <> 'destroyed'`, id); err != nil {
-		return err
+		return nil, err
 	}
 	if activeRuntimes > 0 {
-		return fmt.Errorf("%w: %d", ErrWorkspaceHasDevMachineRuntimes, activeRuntimes)
+		return nil, fmt.Errorf("%w: %d", ErrWorkspaceHasDevMachineRuntimes, activeRuntimes)
 	}
 	var environments int
 	if err := tx.GetContext(ctx, &environments, `SELECT COUNT(*) FROM dev_machine_environments WHERE workspace_id=$1`, id); err != nil {
-		return err
+		return nil, err
 	}
 	if environments > 0 {
 		if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='cancelled',
@@ -124,7 +128,7 @@ func (r *WorkspaceRepository) Delete(ctx context.Context, id uuid.UUID) error {
 			lease_owner=NULL,lease_expires_at=NULL,completed_at=NOW()
 			WHERE workspace_id=$1 AND environment_id IS NOT NULL AND action='snapshot_environment'
 			AND (status='pending' OR (status='leased' AND lease_expires_at<NOW()))`, id); err != nil {
-			return err
+			return nil, err
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_environments environment
 			SET status='delete_requested',delete_requested_at=COALESCE(delete_requested_at,NOW())
@@ -133,17 +137,32 @@ func (r *WorkspaceRepository) Delete(ctx context.Context, id uuid.UUID) error {
 				AND operation.action='snapshot_environment' AND operation.status='leased'
 				AND (operation.lease_expires_at IS NULL OR operation.lease_expires_at>=NOW())
 			)`, id); err != nil {
-			return err
+			return nil, err
 		}
 		if err := tx.Commit(); err != nil {
-			return err
+			return nil, err
 		}
-		return ErrWorkspaceEnvironmentCleanupPending
+		return nil, ErrWorkspaceEnvironmentCleanupPending
+	}
+	// Lock every team, not only those with an image now: an upload in flight
+	// may be turning an emoji icon into an image.
+	var teams []domain.TeamIconImage
+	if err := tx.SelectContext(ctx, &teams, `SELECT id, COALESCE(icon,'') AS icon FROM teams WHERE workspace_id=$1 FOR UPDATE`, id); err != nil {
+		return nil, err
+	}
+	var icons []domain.TeamIconImage
+	for _, team := range teams {
+		if strings.HasPrefix(team.Icon, domain.TeamIconImagePrefix) {
+			icons = append(icons, team)
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workspaces WHERE id = $1`, id); err != nil {
-		return err
+		return nil, err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return icons, nil
 }
 
 func (r *WorkspaceRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.Workspace, error) {

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -32,7 +33,7 @@
 	import type { ViewFilter, ViewLayout } from '$lib/types/view';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import { appToast } from '$lib/features/toast/toast';
-	import { Layers, SquareUser, SquaresSubtract, ChevronRight, Share2 } from '@lucide/svelte';
+	import { Layers, SquareUser, SquaresSubtract, ChevronRight, Share2, BookOpen } from '@lucide/svelte';
 	import ShareLinkDialog from '$lib/components/shared/ShareLinkDialog.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -434,6 +435,9 @@
 			</Button>
 		</div>
 		<div class="flex shrink-0 items-center gap-2">
+			<Button variant="ghost" size="sm" href="/{slug}/teams/{teamId}/wiki" title={m['wiki.title']()} data-testid="wiki-entry"
+				><BookOpen size={14} /><span class="hidden sm:inline">{m['wiki.title']()}</span></Button
+			>
 			<!-- Group by -->
 			{#if layout === 'list'}
 				<Popover.Root bind:open={groupByOpen}>
@@ -604,6 +608,8 @@
 				{labels}
 				{members}
 				{cycles}
+				{projects}
+				{teams}
 				onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
 			/>
 		</div>
@@ -658,3 +664,5 @@
 	defaultType={relationDefaultType}
 	oncreated={loadIssues}
 />
+
+<PageTitle parts={[m['sidebar.issues'](), sidebarState.getTeam(teamId)?.name]} />

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { listWebhooks, createWebhook, updateWebhook, deleteWebhook, type Webhook } from '$lib/api/webhooks';
@@ -213,3 +214,5 @@
 		</form>
 	</Dialog.Content>
 </Dialog.Root>
+
+<PageTitle parts={[m['settings.webhooks.title'](), m['settings.title']()]} />

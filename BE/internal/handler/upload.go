@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -33,6 +34,7 @@ type UploadHandler struct {
 	assetRepo   repository.AssetRepo
 	issueRepo   repository.IssueRepo
 	tokenSecret string
+	wikiPublic  func(ctx context.Context, workspaceID, pageID uuid.UUID) bool
 }
 
 func NewUploadHandler(store storage.Backend, assetRepo repository.AssetRepo, issueRepo repository.IssueRepo, jwtSecret string) *UploadHandler {
@@ -146,6 +148,12 @@ func (h *UploadHandler) GetAsset(c *echo.Context) error {
 	return h.streamAsset(c, asset)
 }
 
+// SetWikiPublicPages lets public asset links signed for a wiki page work
+// while that page is publicly published.
+func (h *UploadHandler) SetWikiPublicPages(reachable func(ctx context.Context, workspaceID, pageID uuid.UUID) bool) {
+	h.wikiPublic = reachable
+}
+
 func (h *UploadHandler) PublicAsset(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "private, no-store")
 	claims, err := assettoken.Validate(c.Param("token"), h.tokenSecret)
@@ -157,9 +165,13 @@ func (h *UploadHandler) PublicAsset(c *echo.Context) error {
 	if h.issueRepo == nil {
 		return response.NotFound(c, "Asset")
 	}
+	// The token names the issue, or the published wiki page, whose content
+	// linked the file; it works only while that is still shared.
 	issue, err := h.issueRepo.GetByID(ctx, claims.IssueID)
 	if err != nil || issue == nil || issue.WorkspaceID != claims.WorkspaceID {
-		return response.NotFound(c, "Asset")
+		if h.wikiPublic == nil || !h.wikiPublic(ctx, claims.WorkspaceID, claims.IssueID) {
+			return response.NotFound(c, "Asset")
+		}
 	}
 	asset, err := h.assetRepo.GetByID(ctx, claims.AssetID)
 	if err != nil || asset == nil || asset.WorkspaceID != claims.WorkspaceID {

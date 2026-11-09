@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { page } from '$app/state';
@@ -86,3 +87,5 @@
 		/>
 	{/key}
 {/if}
+
+<PageTitle parts={[issue ? `${issue.identifier} ${issue.title}` : page.params.identifier]} />

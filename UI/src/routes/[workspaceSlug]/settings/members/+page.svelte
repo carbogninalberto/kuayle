@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount } from 'svelte';
@@ -457,3 +458,5 @@
 		{/if}
 	</Dialog.Content>
 </Dialog.Root>
+
+<PageTitle parts={[m['settings.members.title'](), m['settings.title']()]} />

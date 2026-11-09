@@ -93,6 +93,9 @@ func (h *TeamHandler) Update(c *echo.Context) error {
 		if errors.Is(err, repository.ErrTeamKeyTaken) {
 			return response.Error(c, http.StatusConflict, "CONFLICT", "A team with this key already exists")
 		}
+		if errors.Is(err, service.ErrInvalidTeamIcon) {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+		}
 		return response.InternalError(c)
 	}
 	return response.Success(c, http.StatusOK, toTeamResponse(*team))
@@ -227,6 +230,9 @@ func (h *TeamHandler) RemoveMember(c *echo.Context) error {
 func teamOperationError(c *echo.Context, err error) error {
 	if errors.Is(err, repository.ErrTeamKeyTaken) {
 		return response.Error(c, http.StatusConflict, "CONFLICT", "A team with this key already exists")
+	}
+	if errors.Is(err, service.ErrInvalidTeamIcon) {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 	if errors.Is(err, service.ErrPrivacyConfirmation) {
 		return response.Error(c, http.StatusBadRequest, "PRIVACY_CONFIRMATION_REQUIRED", err.Error())
