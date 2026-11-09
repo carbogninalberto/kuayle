@@ -285,7 +285,7 @@ export const alternativePages: AlternativePageContent[] = [
 			},
 			{
 				question: 'Does Kuayle have AI features like Plane?',
-				answer: 'Kuayle’s opt-in Dev Machines run coding agents such as Claude Code or Codex in containers on your own servers. It has no AI credits and no MCP server yet.'
+				answer: 'Kuayle has a built-in assistant that runs on your own OpenAI-compatible model and delegates issues to coding agents such as Claude Code or Codex on opt-in Dev Machines on your own servers. There are no AI credits to buy. It has no MCP server yet.'
 			}
 		]
 	},
@@ -694,7 +694,7 @@ export const alternativePages: AlternativePageContent[] = [
 		faq: [
 			{ question: 'What is the difference between Kuayle and It’s a Plan?', answer: 'Both are self-hosted with no per-seat price. It’s a Plan is AGPL-3.0 with a $240-a-year Pro edition and more features such as AI agents, MCP and SSO. Kuayle is Apache 2.0 with no paid edition.' },
 			{ question: 'Is It’s a Plan free?', answer: 'Its Community edition is free for any number of people. Pro costs $240 a year per domain.' },
-			{ question: 'Does Kuayle have AI agents like It’s a Plan?', answer: 'Not as project members. Kuayle’s opt-in Dev Machines run coding agents in self-hosted containers linked to issues; there is no MCP server yet.' },
+			{ question: 'Does Kuayle have AI agents like It’s a Plan?', answer: 'Not as project members or assignees. Kuayle’s assistant delegates issues to coding agents that run on opt-in, self-hosted Dev Machines, and automations can start them on a label or status. There is no MCP server yet.' },
 			{ question: 'Which licence is more permissive?', answer: 'Apache 2.0, which Kuayle uses, is permissive. AGPL-3.0, which It’s a Plan uses, requires sharing source for modified versions offered over a network.' }
 		]
 	}

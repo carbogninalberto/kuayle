@@ -10,9 +10,9 @@
 
 	const bullets = [
 		'code-server IDE and a native xterm terminal in your browser',
-		'Claude Code, OpenCode, Codex or custom CLI agents on issue worktrees',
+		'Claude Code, Codex, OpenCode and four more agent CLIs, or your own, on issue worktrees',
 		'Authenticated gateway routing — no public ports, one-time launch tickets',
-		'Workspace policies for concurrency, runtime, providers and idle pause'
+		'Workspace policies for concurrency, providers, repositories and machine sizes'
 	];
 
 	const services = [
@@ -42,8 +42,8 @@
 				<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Agentic coding, on your own metal</h2>
 				<p class="mt-5 text-lg leading-relaxed text-muted-foreground">
 					Create an isolated multi-container environment that can combine a developer workspace, browser and on-demand
-					agent runs. Machines can attach issue worktrees. Agent runs can report commits and pull requests in their
-					normalized results; manual IDE and terminal commits are not automatically attached to issues.
+					agents. Delegate an issue from its chat or the assistant: the agent works in its own worktree, Kuayle checks
+					the result and opens a pull request. Manual IDE and terminal commits are not automatically attached to issues.
 				</p>
 				<ul class="mt-7 space-y-3.5">
 					{#each bullets as bullet (bullet)}

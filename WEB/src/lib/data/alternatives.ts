@@ -54,7 +54,7 @@ export const alternatives: ContentRegistry = {
 				]
 			}
 		],
-		footnotes: 'Kuayle details verified against v0.2.15 on November 6, 2026. The comparison table was checked against each project’s own pages on November 6, 2026. This is an informational overview, not an endorsement. Tool availability, features, and licensing can change. Always review the latest project documentation directly.'
+		footnotes: 'Kuayle details verified against v0.2.23 on November 9, 2026. The comparison table was checked against each project’s own pages on November 6, 2026. This is an informational overview, not an endorsement. Tool availability, features, and licensing can change. Always review the latest project documentation directly.'
 	},
 
 	'self-hosted-issue-trackers': {
@@ -109,6 +109,6 @@ export const alternatives: ContentRegistry = {
 				]
 			}
 		],
-		footnotes: 'Kuayle details verified against v0.2.15 on November 6, 2026. The comparison table was checked against each project’s own pages on November 6, 2026. This overview reflects publicly available information and is not a guarantee of current accuracy. Features, deployment options, and licensing change. Always consult each project\'s official documentation.'
+		footnotes: 'Kuayle details verified against v0.2.23 on November 9, 2026. The comparison table was checked against each project’s own pages on November 6, 2026. This overview reflects publicly available information and is not a guarantee of current accuracy. Features, deployment options, and licensing change. Always consult each project\'s official documentation.'
 	}
 };

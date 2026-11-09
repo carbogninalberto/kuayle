@@ -55,10 +55,12 @@ export const features: ContentRegistry = {
 				]
 			},
 			{
-				heading: 'Optional AI assistance',
-				body: 'Owners can connect one OpenAI-compatible provider per workspace to expand or rewrite issue descriptions. Workspace and team issue-copy prompts format an issue for pasting into an external assistant. Nothing is sent to a provider until one is configured, and AI expansion is disabled in workspaces that use private teams.',
+				heading: 'Optional AI assistant',
+				body: 'Owners can connect one OpenAI-compatible provider per workspace. Members then get a persistent assistant that searches, reads, creates and updates issues as the signed-in user, with that user’s permissions, and can expand or rewrite issue descriptions. With Dev Machines enabled it can also delegate an issue to a coding agent, after your approval. Nothing is sent to a provider until one is configured, and AI expansion is disabled in workspaces that use private teams.',
 				list: [
 					'Any OpenAI-compatible API: base URL, model and encrypted API key',
+					'Assistant chats per issue, with skills and custom tools',
+					'Optional web search through a self-hosted SearXNG instance',
 					'Customizable description expansion prompt',
 					'Workspace and per-team issue copy prompts',
 					'Interface available in English, Italian, Simplified and Traditional Chinese'
@@ -475,13 +477,23 @@ export const features: ContentRegistry = {
 			},
 			{
 				heading: 'Agent providers',
-				body: 'The developer image includes pinned Claude Code, OpenCode and Codex CLIs for direct interactive terminal use. From the machine dashboard, users can launch bounded autonomous runs in provider-specific containers, including an admin-configured custom CLI. Autonomous output is normalized into a common result model with a summary, changed files, commits, branch and pull-request URL.',
+				body: 'The developer terminal includes seven pinned agent CLIs for direct interactive terminal use: Claude Code, Codex, OpenCode, Qwen Code, Crush, Kimi and Goose. Admins can also allow a custom CLI. Agent tasks launch bounded autonomous runs in separate containers under a time limit, with scoped secrets.',
 				list: [
-					'Claude Code, OpenCode, Codex and custom CLI providers',
+					'Claude Code, Codex, OpenCode, Qwen Code, Crush, Kimi, Goose and custom CLIs',
 					'Interactive built-in CLIs in the developer terminal',
-					'Bounded autonomous provider runs from the dashboard',
-					'Normalized run results with commits and PR links',
+					'Model and thinking level for Codex and Claude Code runs',
 					'Scoped secrets delivered through tmpfs, redacted in logs'
+				]
+			},
+			{
+				heading: 'Agent tasks, automations and workflows',
+				body: 'Agents run as tasks you delegate from an issue chat, or that the assistant starts after your approval. Each task works in its own worktree and branch; Kuayle re-runs the checks the agent chose in a clean container and opens a pull request, and CI failures, review comments and issue comments queue follow-up attempts. Automations delegate matching issues on a label or status, optionally on a schedule, and workspaces can design their own workflows on a canvas.',
+				list: [
+					'Delegation from an issue chat, or by the assistant with your approval',
+					'Independent checks, then a pull request; the task waits for review',
+					'Automations on a label or status, attended or unattended by policy',
+					'Editable workflows with review steps and retries',
+					'Agent profiles with instructions and skills'
 				]
 			},
 			{
@@ -496,10 +508,10 @@ export const features: ContentRegistry = {
 			},
 			{
 				heading: 'Policy, sizes and lifecycle',
-				body: 'Workspace policy controls concurrency, providers, repositories, maximum runtime and idle pause (default 240 minutes). A per-machine Keep running switch bypasses idle pause. Machines pause, stop and tear down as separate lifecycle operations recorded durably in PostgreSQL.',
+				body: 'Workspace policy controls concurrency, providers, repositories, disk size and the size of the machines Kuayle creates for agent tasks. Machines have no lifetime: a machine stays up until its user pauses, stops, tears down or deletes it, and agent tasks reuse running machines before creating new ones. Lifecycle operations are recorded durably in PostgreSQL.',
 				list: [
-					'Small 2 vCPU/4 GB, medium 4 vCPU/8 GB, large 8 vCPU/16 GB',
-					'Idle pause with per-machine keep-running bypass',
+					'Small 2 vCPU/4 GB, medium 4 vCPU/8 GB, large 8 vCPU/16 GB, or a custom size',
+					'Task machines shared by up to 10 tasks, each in its own checkout',
 					'Filesystem, shell, root-checkout Git, browser and agent activity events',
 					'Disabled by default; requires a separate wildcard domain',
 					'Not available in workspaces that use private teams'

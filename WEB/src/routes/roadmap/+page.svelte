@@ -23,7 +23,7 @@
 				'Open issues describe proposed work',
 				'Pull requests and releases describe shipped work',
 				'No feature on this page has a guaranteed delivery date',
-				'Last reviewed: October 22, 2026'
+				'Last reviewed: November 9, 2026'
 			]
 		},
 		{
@@ -36,6 +36,8 @@
 				'GitHub pull-request comments linking the matching issue (v0.1.24)',
 				'Workspace export/import, invite links and personal access tokens (v0.1.17)',
 				'Cycle burndown and velocity charts, project Gantt view and workspace insights',
+				'Workspace assistant on your own model, delegating issues to coding agents on Dev Machines',
+				'Agent automations, editable agent workflows, and agent profiles with skills',
 				'Interface in English, Italian, Simplified and Traditional Chinese'
 			]
 		},
@@ -53,7 +55,7 @@
 		},
 		{
 			heading: 'Dev Machines are opt-in infrastructure',
-			body: 'Releases since v0.1.13 include the opt-in multi-container Dev Machines subsystem. It adds Caddy wildcard ingress, an unprivileged authenticated gateway, a dedicated Docker manager, isolated machine networks, PostgreSQL reconciliation, scoped secrets, activity collection, issue-linked agent runs, and Claude Code, OpenCode, Codex, and custom CLI adapters. Self-hosted operators must explicitly configure the machine domain, TLS, runtime images, GitHub permissions, and capacity.',
+			body: 'Releases since v0.1.13 include the opt-in multi-container Dev Machines subsystem. It adds Caddy wildcard ingress, an unprivileged authenticated gateway, a dedicated Docker manager, isolated machine networks, PostgreSQL reconciliation, scoped secrets, activity collection, issue-linked agent tasks, and seven built-in agent CLIs (Claude Code, Codex, OpenCode, Qwen Code, Crush, Kimi and Goose) plus custom CLIs. Self-hosted operators must explicitly configure the machine domain, TLS, runtime images, GitHub permissions, and capacity.',
 			list: [
 				'Disabled by default',
 				'Requires wildcard DNS and TLS',

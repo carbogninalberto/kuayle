@@ -65,7 +65,8 @@
 				'Available: cycles and projects with the full issue list, charts, a Gantt view and insights analytics',
 				'Available: private teams, invite links, personal access tokens and workspace export/import',
 				'Available: GitHub activity linking, status transitions and pull-request issue-link comments',
-				'Available (opt-in): Dev Machines with agent providers and issue worktrees',
+				'Available: a workspace assistant on your own OpenAI-compatible model',
+				'Available (opt-in): Dev Machines with agent tasks, automations, workflows and issue worktrees',
 				'Not available: SSO, SCIM, LDAP and importers from other tools'
 			]
 		}
