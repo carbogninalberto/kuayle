@@ -158,11 +158,24 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 		// approval, which never returns the private task.
 		request("POST", taskPath+"/accept", `{"generation":1}`, auth, 404, nil)
 	}
-	for _, auth := range []string{tokenFor(other), tokenFor(guest)} {
+	for _, caller := range []struct {
+		auth  string
+		guest bool
+	}{{tokenFor(other), false}, {tokenFor(guest), true}} {
+		auth := caller.auth
 		request("POST", path, body, auth, 404, nil)
 		request("GET", optionsPath, "", auth, 404, nil)
-		for _, suffix := range []string{"", "/history", "/sessions", "/runs", "/runs/" + task.RunID.String() + "/logs"} {
+		for _, suffix := range []string{"/sessions", "/runs/" + task.RunID.String() + "/logs"} {
 			request("GET", taskPath+suffix, "", auth, 404, nil)
+		}
+		// Task reads are token-readable (agent_tasks:read), a code guests do
+		// not hold: the route refuses a guest before any lookup, for any ID.
+		readStatus := 404
+		if caller.guest {
+			readStatus = 403
+		}
+		for _, suffix := range []string{"", "/history", "/runs"} {
+			request("GET", taskPath+suffix, "", auth, readStatus, nil)
 		}
 		request("POST", taskPath+"/cancel", "", auth, 404, nil)
 		request("GET", taskPath+"/live-messages", "", auth, 404, nil)
@@ -176,6 +189,27 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	for _, route := range guarded {
 		request(route.method, route.path, route.body, raw, 403, nil)
 	}
+	// With agent_tasks:read the creator's token reads the task, its history
+	// and runs; sessions, logs and controls stay session-only. Another
+	// member's token with the scope still cannot see the private task.
+	scopedToken := func(owner uuid.UUID) string {
+		raw, hash, prefix, err := domain.GenerateToken()
+		require.NoError(t, err)
+		require.NoError(t, tokens.Create(context.Background(), &domain.PersonalAccessToken{ID: uuid.New(), UserID: owner, Name: "Task reads", Scopes: []string{domain.PermAgentTasksRead}, TokenHash: hash, TokenPrefix: prefix}))
+		return raw
+	}
+	reader := scopedToken(user)
+	var read domain.AgentTask
+	request("GET", taskPath, "", reader, 200, &read)
+	require.Equal(t, task.ID, read.ID)
+	request("GET", taskPath+"/history", "", reader, 200, nil)
+	request("GET", taskPath+"/runs", "", reader, 200, nil)
+	request("GET", "/agent-tasks", "", reader, 200, nil)
+	for _, suffix := range []string{"/sessions", "/runs/" + task.RunID.String() + "/logs", "/live-messages"} {
+		request("GET", taskPath+suffix, "", reader, 403, nil)
+	}
+	request("POST", taskPath+"/cancel", "", reader, 403, nil)
+	request("GET", taskPath, "", scopedToken(other), 404, nil)
 	demoDenied.Store(true)
 	for _, route := range guarded {
 		request(route.method, route.path, route.body, token, 403, nil)
