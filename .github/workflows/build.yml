@@ -21,7 +21,8 @@ jobs:
   # Releases first commit the version bump and refreshed agent CLIs, then build
   # the application and runtime images from that commit in parallel.
   release-source:
-    if: github.event_name == 'release'
+    # cli-v* releases are published by CLI Release, not as a server release.
+    if: github.event_name == 'release' && !startsWith(github.event.release.tag_name, 'cli-v')
     name: Prepare Release Source
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}

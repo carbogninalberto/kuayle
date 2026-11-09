@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, renameSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { planForPaths, detectPlan, changedPaths } from './impact.mjs';
+import { planForPaths, detectPlan, changedPaths, cliReleasePlan } from './impact.mjs';
 import { checkResults } from './check-results.mjs';
 
 const ids = (items) => items.map((item) => item.id);
@@ -209,7 +209,7 @@ test('missing or invalid comparison data falls back to broad verification', () =
 test('gates allow intentional omissions but reject failed detection or selected skipped/cancelled jobs', () => {
   const plan = planForPaths(['UI/src/app.css']);
   const needs = { changes: { result: 'success', outputs: { plan: JSON.stringify(plan) } } };
-  for (const job of ['agent-harness', 'backend-test', 'frontend-check', 'web-check', 'docker-integration', 'selfhosting-check', 'ci-validation']) {
+  for (const job of ['agent-harness', 'backend-test', 'frontend-check', 'web-check', 'docker-integration', 'selfhosting-check', 'ci-validation', 'cli-check']) {
     needs[job] = { result: plan.required.tests.includes(job) ? 'success' : 'skipped' };
   }
   assert.deepEqual(checkResults('tests', needs), []);
@@ -264,4 +264,31 @@ test('manifest and Go control-plane Dockerfiles do not select unrelated consumer
     assert.equal(plan.runtime, false);
     assert.equal(plan.devImages.length, 1);
   }
+});
+
+test('CLI changes select only the Rust CLI checks and its dependency scan', () => {
+  for (const path of ['CLI/crates/kuayle/src/main.rs', 'CLI/Cargo.lock', 'CLI/install.sh', 'CLI/deny.toml', 'CLI/skills/kuayle/SKILL.md']) {
+    const plan = planForPaths([path]);
+    assert.deepEqual(selected(plan), { tests: ['agent-harness', 'cli-check'], security: ['cli-security'], build: [], readiness: [] }, path);
+    assert.deepEqual(plan.releaseImages, []);
+    assert.deepEqual(plan.devImages, []);
+  }
+  // CLI documentation follows the documentation rule.
+  assert.equal(planForPaths(['CLI/README.md']).cli, false);
+  // Mixed with backend code, both run.
+  const mixed = planForPaths(['CLI/src/x.rs', 'BE/internal/service/wiki.go']);
+  assert.equal(mixed.cli && mixed.backend, true);
+  // Pushes to main and other full runs include the CLI.
+  assert.ok(planForPaths([], 'push').required.tests.includes('cli-check'));
+});
+
+test('a cli-v* release selects no server release jobs and the gates pass', () => {
+  const plan = detectPlan({ event: 'release', releaseTag: 'cli-v0.2.0' });
+  assert.deepEqual(plan, cliReleasePlan());
+  for (const scope of ['tests', 'security', 'build', 'readiness']) assert.deepEqual(plan.required[scope], [], scope);
+  const needs = { changes: { result: 'success', outputs: { plan: JSON.stringify(plan) } } };
+  for (const job of plan.jobs.build) needs[job] = { result: 'skipped' };
+  assert.deepEqual(checkResults('build', needs), []);
+  // Server releases keep their full coverage.
+  assert.deepEqual(detectPlan({ event: 'release', releaseTag: 'v0.2.30' }).required.build, ['release-source', 'build', 'dev-machine-publish', 'dev-machine-manifests']);
 });

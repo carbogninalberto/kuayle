@@ -1,0 +1,44 @@
+# cargo-deny policy for the CLI, run by Security Scan (cli-security).
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+all-features = true
+
+[advisories]
+# Every RustSec vulnerability, unmaintained or unsound advisory fails.
+# Add a reviewed exception as { id = "RUSTSEC-…", reason = "…" }.
+ignore = [
+    # Unmaintained, not vulnerabilities: zvariant, zvariant_derive and
+    # zbus_names were folded into zbus 6. They come in through keyring's Linux
+    # Secret Service store (zbus 5), which has no compatible upgrade yet.
+    # Drop these when keyring moves to zbus 6.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant: unmaintained transitive dep of keyring/zbus 5; no upgrade available" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names: unmaintained transitive dep of keyring/zbus 5; no upgrade available" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: unmaintained transitive dep of keyring/zbus 5; no upgrade available" },
+]
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+    "BSL-1.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -295,10 +295,35 @@ jobs:
           bash selfhosting/update_test.sh
           bash selfhosting/profile_preflight_test.sh
 
+  cli-check:
+    name: CLI Checks
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.plan).cli }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./CLI
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      # rustup reads CLI/rust-toolchain.toml and installs the pinned toolchain.
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy (source and release builds)
+        run: |
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo clippy --locked --all-targets --features binary-release -- -D warnings
+      - name: Build and test
+        run: cargo test --locked --features binary-release
+      - name: Test the installer
+        run: sh scripts/install_test.sh
+
   result:
     name: Tests CI Result
     if: always()
-    needs: [changes, agent-harness, backend-test, docker-integration, frontend-check, web-check, ci-validation, selfhosting-check]
+    needs: [changes, agent-harness, backend-test, docker-integration, frontend-check, web-check, ci-validation, selfhosting-check, cli-check]
     runs-on: ubuntu-latest
     permissions:
       contents: read
