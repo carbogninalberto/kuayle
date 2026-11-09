@@ -29,7 +29,8 @@ esac
 
 if [ "$VERSION" = "latest" ]; then
     # Newest stable release whose tag starts with cli-v (server releases use v*).
-    VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100" | awk '
+    # One JSON field per line, whether the API pretty-prints or not.
+    VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100" | tr ',{' '\n\n' | awk '
         /"tag_name":/ { tag = $0; sub(/.*"tag_name": *"/, "", tag); sub(/".*/, "", tag) }
         /"prerelease": *false/ && tag ~ /^cli-v/ { print tag; exit }
     ') || fail "could not look up the latest release"

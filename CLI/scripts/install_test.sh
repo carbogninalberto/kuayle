@@ -97,8 +97,16 @@ cp "$work/sums" "$release/checksums.txt"
 ok "fails closed when checksums.txt has no entry"
 
 # 4. Only cli-vX.Y.Z tags are accepted.
-if KUAYLE_VERSION='v9.0.0' run > "$work/out" 2>&1; then not_ok "server tag must be rejected"; fi
-if KUAYLE_VERSION='cli-v1.0.0;rm' run > "$work/out" 2>&1; then not_ok "bad tag must be rejected"; fi
+# Subshells: in POSIX sh an assignment before a function call outlives it.
+if (KUAYLE_VERSION='v9.0.0' run) > "$work/out" 2>&1; then not_ok "server tag must be rejected"; fi
+if (KUAYLE_VERSION='cli-v1.0.0;rm' run) > "$work/out" 2>&1; then not_ok "bad tag must be rejected"; fi
 ok "rejects tags that are not CLI releases"
+
+# 5. Minified API JSON resolves the same release.
+tr -d ' \n' < "$work/releases.json" > "$work/min.json" && mv "$work/min.json" "$work/releases.json"
+rm -rf "$work/install"
+run > "$work/out" 2>&1 || { cat "$work/out"; not_ok "install from minified JSON"; }
+grep -q 'cli-v0.2.0' "$work/out" || not_ok "minified JSON picks cli-v0.2.0"
+ok "parses minified releases JSON"
 
 echo "$pass tests passed"
