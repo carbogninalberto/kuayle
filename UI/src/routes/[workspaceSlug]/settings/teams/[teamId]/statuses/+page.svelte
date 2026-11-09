@@ -6,6 +6,7 @@
 	import { page } from '$app/state';
 	import type { TeamStatus, StatusCategory } from '$lib/types/team-status';
 	import { CATEGORY_ORDER, getCategoryLabel } from '$lib/types/team-status';
+	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { preferencesState, type TeamWorkflowSortMode } from '$lib/features/preferences/preferences.state.svelte';
 	import { listTeamStatuses, createTeamStatus, updateTeamStatus, deleteTeamStatus } from '$lib/api/team-statuses';
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
@@ -553,4 +554,4 @@
 	</div>
 </div>
 
-<PageTitle parts={[m['team_settings.statuses_title'](), m['settings.title']()]} />
+<PageTitle parts={[m['team_settings.statuses_title'](), sidebarState.getTeam(teamId)?.name, m['team_settings.title'](), m['settings.title']()]} />
