@@ -164,6 +164,8 @@ func main() {
 	assistantTools := service.NewAssistantTools(issueRepo, teamRepo, workspaceRepo, issueSvc)
 	assistantToolSettings := repository.NewAssistantToolSettingsRepository(db)
 	assistantTools.SetSettings(assistantToolSettings)
+	wikiSvc := service.NewWikiService(repository.NewWikiRepository(db), hub)
+	assistantTools.SetWiki(wikiSvc, projectRepo)
 	assistantSkills := repository.NewAssistantSkillRepository(db)
 	assistantTools.SetSkills(assistantSkills)
 	assistantSkillH := handler.NewAssistantSkillHandler(service.NewAssistantSkillService(assistantSkills, workspaceRepo))
@@ -373,7 +375,7 @@ func main() {
 		upload:            uploadH,
 		github:            githubH,
 		githubBot:         handler.NewGitHubBotHandler(githubBotSvc),
-		wiki:              handler.NewWikiHandler(service.NewWikiService(repository.NewWikiRepository(db), hub), aiSettingsSvc),
+		wiki:              handler.NewWikiHandler(wikiSvc, aiSettingsSvc),
 	}, &appMiddleware{
 		auth:                   mw.Auth(cfg.JWTSecret, patRepo, cfg.DevMachine.AllowSameSite),
 		authRateLimit:          mw.RateLimit(5, 10),

@@ -107,6 +107,9 @@ type AssistantTools struct {
 	searchProvider map[string]WebSearchProvider
 	// spawn_research_subagents is unavailable until SetSubagents wires it.
 	subagents bool
+	// The wiki tools are unavailable until SetWiki wires them.
+	wiki         assistantWiki
+	wikiProjects assistantProjects
 }
 
 type assistantToolSettings interface {
@@ -192,6 +195,8 @@ type assistantTool struct {
 	webSearch bool
 	// subagents tools need SetSubagents and a research tool to delegate to.
 	subagents bool
+	// wiki tools need SetWiki.
+	wiki bool
 }
 
 var assistantToolCatalog = []assistantTool{
@@ -228,6 +233,7 @@ func assistantTools() []assistantTool {
 		assistantShipToolCatalog,
 		assistantResearchToolCatalog,
 		assistantScanToolCatalog,
+		assistantWikiToolCatalog,
 	} {
 		tools = append(tools, catalog...)
 	}
@@ -257,7 +263,7 @@ func (tool assistantTool) spec() chatToolSpec {
 
 // available reports whether a tool's dependencies are wired.
 func (t *AssistantTools) available(tool assistantTool) bool {
-	return (!tool.agentWork || t.work != nil) && (!tool.repositories || t.repositories != nil) &&
+	return (!tool.wiki || (t.wiki != nil && t.wikiProjects != nil)) && (!tool.agentWork || t.work != nil) && (!tool.repositories || t.repositories != nil) &&
 		(!tool.machines || (t.machineTasks != nil && t.machinePorts != nil)) &&
 		(!tool.live || t.live != nil) &&
 		(!tool.skills || t.skills != nil) &&
@@ -324,7 +330,15 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 	if (name == "update_issue" || name == "link_issues") && !domain.HasPermission(member.Role, domain.PermIssueUpdate) {
 		return nil, nil, toolFailure("your role cannot update issues")
 	}
+	if tool.wiki && !domain.HasPermission(member.Role, domain.PermWikiRead) {
+		return nil, nil, toolFailure("your role cannot read wikis")
+	}
+	if tool.wiki && tool.write && !domain.HasPermission(member.Role, domain.PermWikiWrite) {
+		return nil, nil, toolFailure("your role cannot edit wikis")
+	}
 	switch name {
+	case "list_wiki_pages", "get_wiki_page", "create_wiki_page", "update_wiki_page", "append_wiki_registry":
+		return t.runWikiTool(ctx, ws, user, name, arguments)
 	case "list_teams":
 		if err := decodeToolInput(arguments, &struct{}{}); err != nil {
 			return nil, nil, err

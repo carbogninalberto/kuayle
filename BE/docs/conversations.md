@@ -267,6 +267,15 @@ and the read-only research tools `web_search`, `repo_list_files`, `repo_glob`,
 (see [research tools](#research-tools)).
 `link_repository`, and the live channel tools `message_task` and
 `get_task_messages` (see [agent messages in chat](#agent-messages-in-chat)).
+The wiki tools `list_wiki_pages`, `get_wiki_page`, `create_wiki_page`,
+`update_wiki_page` (replace with the page's version, or append) and
+`append_wiki_registry` (one timestamped line on today's UTC registry page,
+only while that wiki's registry is on) address a team wiki by `team_key` or a
+project wiki by `project` name or ID, resolved among the teams and projects the
+user can see. They run through `WikiService`, so every call applies the
+repository's wiki visibility predicates; reading needs `wiki:read`, and the
+three writes need `wiki:write` and count toward the change limit like the
+issue writes. Pages are returned as text, never as stored HTML.
 `create_issue` accepts a `parent_identifier`. The write tools (`create_issue`,
 `update_issue`, `link_issues` and `link_repository`) count toward the per-reply
 change limit. The model only proposes calls.
