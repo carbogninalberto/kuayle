@@ -145,3 +145,18 @@ func wikiSubtreeHeight(nodes []WikiTreeNode, id uuid.UUID, guard int) int {
 	}
 	return height + 1
 }
+
+// Wiki publication modes.
+const (
+	WikiPublishOff      = "off"
+	WikiPublishInternal = "internal"
+	WikiPublishPublic   = "public"
+)
+
+// WikiPublication is how a page is published and, when public, its link.
+type WikiPublication struct {
+	Mode     string     `db:"mode"`
+	Children bool       `db:"children"`
+	LinkID   *uuid.UUID `db:"link_id"`
+	Token    *string    `db:"token"`
+}

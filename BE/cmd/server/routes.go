@@ -93,6 +93,7 @@ type appHandlers struct {
 	github            *handler.GitHubHandler
 	githubBot         *handler.GitHubBotHandler
 	wiki              *handler.WikiHandler
+	wikiPublish       *handler.WikiPublishHandler
 }
 
 // appMiddleware carries the pre-built route middleware whose construction
@@ -126,6 +127,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	pub := e.Group("/api/public", m.publicRateLimit)
 	public(pub, http.MethodGet, "/share/:token", h.sharedLink.GetPublicMeta)
 	public(pub, http.MethodGet, "/share/:token/issues", h.sharedLink.ListPublicIssues)
+	public(pub, http.MethodGet, "/wiki/:token", h.wikiPublish.Public)
 	public(e, http.MethodGet, "/api/public/assets/:token", h.upload.PublicAsset, m.publicAssetRateLimit)
 	public(pub, http.MethodGet, "/system/update-activity", h.system.UpdateActivity)
 
@@ -273,6 +275,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 		scoped(ws, http.MethodGet, wiki.base+"/tree", h.wiki.Tree(wiki.kind), domain.PermWikiRead)
 		scoped(ws, http.MethodPost, wiki.base+"/tree", h.wiki.CreateInTree(wiki.kind), domain.PermWikiWrite)
 		scoped(ws, http.MethodPost, wiki.base+"/:pageId/move", h.wiki.Move(wiki.kind), domain.PermWikiWrite)
+		scoped(ws, http.MethodGet, wiki.base+"/:pageId/publish", h.wikiPublish.State(wiki.kind), domain.PermWikiRead)
+		scoped(ws, http.MethodPut, wiki.base+"/:pageId/publish", h.wikiPublish.Publish(wiki.kind), domain.PermWikiWrite)
 	}
 
 	// Views

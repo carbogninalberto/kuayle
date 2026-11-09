@@ -260,6 +260,10 @@ func TestWikiRoutesRequireWikiPermissions(t *testing.T) {
 		want["GET "+base+"/tree"] = "perm:wiki:read"
 		want["POST "+base+"/tree"] = "perm:wiki:write"
 		want["POST "+base+"/:pageId/move"] = "perm:wiki:write"
+		want["GET "+base+"/:pageId/publish"] = "perm:wiki:read"
+		want["PUT "+base+"/:pageId/publish"] = "perm:wiki:write"
 	}
+	// A public wiki link is anonymous and rate limited like issue shares.
+	want["GET /api/public/wiki/:token"] = "public"
 	require.Equal(t, want, got)
 }

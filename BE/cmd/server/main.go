@@ -238,6 +238,8 @@ func main() {
 	}
 	authH.SetAvatarStore(store)
 	uploadH := handler.NewUploadHandler(store, assetRepo, issueRepo, cfg.JWTSecret)
+	wikiPublishSvc := service.NewWikiPublishService(repository.NewWikiRepository(db), sharedLinkRepo, workspaceRepo, cfg.JWTSecret)
+	uploadH.SetWikiPublicPages(wikiPublishSvc.PublicPageReachable)
 	conversationImages := service.NewImageStore(store)
 	conversationSvc.SetAttachments(conversationImages, assetRepo, commentSvc, workspaceRepo)
 	telegramSvc.SetImages(conversationImages)
@@ -379,6 +381,7 @@ func main() {
 		github:            githubH,
 		githubBot:         handler.NewGitHubBotHandler(githubBotSvc),
 		wiki:              handler.NewWikiHandler(wikiSvc, aiSettingsSvc),
+		wikiPublish:       handler.NewWikiPublishHandler(wikiPublishSvc, cfg.FrontendURL),
 	}, &appMiddleware{
 		auth:                   mw.Auth(cfg.JWTSecret, patRepo, cfg.DevMachine.AllowSameSite),
 		authRateLimit:          mw.RateLimit(5, 10),
