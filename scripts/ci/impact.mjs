@@ -19,6 +19,24 @@ const updater = goImage('updater', 'Updater');
 const agents = ['agent-claude', 'agent-opencode', 'agent-codex'];
 const runtimeImages = ['ide', 'headless', 'browser', 'collector', 'egress', 'docker', ...agents];
 
+// Files no job reads: prose, images for docs, and repository metadata. Markdown
+// under UI/, WEB/ and devmachine/ is content that ships, so it keeps its checks.
+export function isDocumentation(path) {
+  if (/(^|\/)README\.md$/.test(path)) return true;
+  if (['LICENSE', 'NOTICE', '.gitignore', '.env.example'].includes(path)) return true;
+  if (/^[^/]+\.md$/.test(path)) return true;
+  return ['docs/', 'assets/', 'BE/docs/'].some((prefix) => path.startsWith(prefix)) ||
+    (path.startsWith('selfhosting/') && path.endsWith('.md'));
+}
+
+// Inputs whose result can differ between amd64 and arm64: image definitions,
+// dependency locks, native build scripts and the advisory allow-list.
+export function platformSensitive(path) {
+  return /(^|\/)Dockerfile[^/]*$/.test(path) ||
+    ['BE/go.mod', 'BE/go.sum', 'UI/package.json', 'UI/package-lock.json', '.trivyignore.yaml', '.dockerignore', 'selfhosting/image_smoke_test.py'].includes(path) ||
+    (path.startsWith('devmachine/') && !path.startsWith('devmachine/security/'));
+}
+
 // Match actual consumers, not every file in a broad Docker COPY context.
 // Unknown inputs and changes to the routing/workflow implementation run broadly.
 export function planForPaths(paths, event = 'pull_request') {
@@ -26,9 +44,13 @@ export function planForPaths(paths, event = 'pull_request') {
   const flags = { harness: true, backend: false, frontend: false, web: false, runtime: false, selfhosting: false, ci: false };
   const release = new Set(), dev = new Set(), security = new Set();
   let reason = pr ? 'PR merge-base diff' : `full ${event} coverage`;
+  // PRs build images on amd64 only, unless an input can behave differently per
+  // architecture; pushes, releases and manual runs always build both.
+  let arm = !pr;
   const add = (set, values) => values.forEach((value) => set.add(value));
   const all = () => {
     for (const key of Object.keys(flags)) flags[key] = true;
+    arm = true;
     add(release, releaseImages.map((image) => image.id));
     add(dev, devImages.map((image) => image.id));
     security.add('updater');
@@ -36,8 +58,11 @@ export function planForPaths(paths, event = 'pull_request') {
   if (!pr) all();
   for (const path of pr ? paths : []) {
     if (path === 'AGENTS.md' || path.startsWith('AGENTS/')) continue;
-    if (/^(README\.md|TECHNICAL\.md|LICENSE)$/.test(path) || path.startsWith('docs/') || path.startsWith('assets/') || path.startsWith('BE/docs/') || /(^|\/)README\.md$/.test(path)) continue;
-    if (path.startsWith('.github/') || path.startsWith('scripts/ci/')) { all(); continue; }
+    if (isDocumentation(path)) continue;
+    if (platformSensitive(path)) arm = true;
+    if (path.startsWith('.github/workflows/') || path.startsWith('.github/actions/') || path.startsWith('scripts/ci/')) { all(); continue; }
+    // Other .github files (funding, issue and PR templates, CODEOWNERS) never reach a job.
+    if (path.startsWith('.github/')) continue;
     if (path === 'Dockerfile') { release.add('all-in-one'); continue; }
     if (path === 'UI/Dockerfile' || path === 'UI/Caddyfile') { release.add('web'); continue; }
     if (path.startsWith('BE/Dockerfile')) {
@@ -99,13 +124,15 @@ export function planForPaths(paths, event = 'pull_request') {
     }
     if (path.startsWith('selfhosting/')) {
       flags.selfhosting = true;
-      add(release, releaseImages.map((image) => image.id));
+      // Release Readiness runs this smoke test against every application image;
+      // the other self-hosting files are only read by the self-hosting tests.
+      if (path === 'selfhosting/image_smoke_test.py') add(release, releaseImages.map((image) => image.id));
       continue;
     }
     all();
     reason = 'broad coverage for shared or unmapped inputs';
   }
-  const plan = { ...flags, reason, releaseImages: releaseImages.filter((image) => release.has(image.id)), devImages: devImages.filter((image) => dev.has(image.id)), securityImages: pr ? [updater].filter((image) => security.has(image.id)) : [updater, ...devImages] };
+  const plan = { ...flags, reason, architectures: arm ? ['amd64', 'arm64'] : ['amd64'], releaseImages: releaseImages.filter((image) => release.has(image.id)), devImages: devImages.filter((image) => dev.has(image.id)), securityImages: pr ? [updater].filter((image) => security.has(image.id)) : [updater, ...devImages] };
   const enabled = (jobs) => Object.entries(jobs).filter(([, run]) => run).map(([id]) => id);
   const jobs = {
     tests: { 'agent-harness': plan.harness, 'backend-test': plan.backend, 'frontend-check': plan.frontend, 'web-check': plan.web, 'docker-integration': plan.runtime, 'selfhosting-check': plan.selfhosting, 'ci-validation': plan.ci },

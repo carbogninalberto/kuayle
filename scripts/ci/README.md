@@ -15,7 +15,7 @@ advances. Product checks and images continue to verify the recorded PR head.
 
 | Changed inputs | PR verification |
 | --- | --- |
-| Root documentation, README files, `BE/docs/`, `docs/`, `assets/`, `AGENTS.md`, `AGENTS/` | Agent Harness only, plus lightweight planning/result jobs. Harness runs on every PR because its links reference all repository areas. |
+| Root documentation (`*.md`, `LICENSE`, `NOTICE`), README files anywhere, `BE/docs/`, `docs/`, `assets/`, `selfhosting/*.md`, `AGENTS.md`, `AGENTS/`, `.env.example`, `.gitignore`, and `.github/` files outside `workflows/` and `actions/` (funding, templates, CODEOWNERS) | Agent Harness only, plus lightweight planning/result jobs. Harness runs on every PR because its links reference all repository areas. |
 | `BE/` code, migrations, module dependencies | Backend tests and Go security; Docker lifecycle; API and all-in-one readiness on amd64/arm64; gateway/manager builds and scans on both architectures; updater scan. Backend dependencies are conservatively shared across its Go binaries. |
 | Backend token/permission definitions | Also Frontend Checks: the UI PAT scope contract test reads both backend files. |
 | `BE/**/*_test.go` | Backend tests and Go security. Docker lifecycle is also selected for its integration test file; no production image builds for test-only changes. |
@@ -35,8 +35,18 @@ advances. Product checks and images continue to verify the recorded PR head.
 | Shared terminal, checkout and shell scripts | IDE and headless images; backend tests and Docker lifecycle. |
 | Shared npm security patch/cache tests | IDE, headless and all three provider images; backend tests and Docker lifecycle. |
 | `devmachine/security/` | Backend and Docker lifecycle checks for host policy; no independent image build. |
-| `selfhosting/` scripts/configuration/smoke tests | Update-recovery and profile-preflight tests; all three application images' readiness on both architectures. |
-| Workflows, CI helpers, shared root configuration and unmapped inputs | Broad verification. Workflow/helper edits exercise the routing tests and actionlint as well. |
+| `selfhosting/` scripts and configuration | Update-recovery and profile-preflight tests only; no image is built from these files. |
+| `selfhosting/image_smoke_test.py` | Also all three application images' readiness, which runs this smoke test. |
+| `.github/workflows/`, `.github/actions/`, CI helpers, shared root configuration and unmapped inputs | Broad verification. Workflow/helper edits exercise the routing tests and actionlint as well. |
+
+**Architectures.** PR image jobs (Release Readiness and the dev-machine image
+builds) run on amd64 only, unless the diff touches an input that can behave
+differently per architecture: any `Dockerfile*`, `BE/go.mod`/`go.sum`,
+`UI/package.json`/`package-lock.json`, `devmachine/` (except `devmachine/security/`),
+`.trivyignore.yaml`, `.dockerignore` or `selfhosting/image_smoke_test.py`; those, and
+broad-coverage changes, add arm64. The planner exposes this as `architectures`.
+Pushes to main, releases and manual runs always build and scan both, so arm64
+is still verified before anything is published.
 
 Mixed changes take the union. Unknown dev-machine shared files select all runtime
 images. New paths must be classified by actual consumers before narrowing their
@@ -47,10 +57,10 @@ Go test files and README files do not enter the built application.
 
 - [Release Readiness](../../.github/workflows/release-readiness.yml) owns application
   image builds, packaged-runtime/proxy smoke tests, vulnerability/secret scans,
-  and source/image evidence on both native architectures. The duplicate PR
+  and source/image evidence on the planned native architectures. The duplicate PR
   `Build Images` and `Container Security Scan` jobs are intentionally skipped.
 - [Build & Push](../../.github/workflows/build.yml) owns selected dev-machine image
-  builds and HIGH/CRITICAL scans on amd64 and arm64, including IDE and headless
+  builds and HIGH/CRITICAL scans on the planned architectures, including IDE and headless
   smoke tests. The shared steps live in the
   [dev-machine-image action](../../.github/actions/dev-machine-image/action.yml).
   [Security Scan](../../.github/workflows/security.yml) retains the updater image;
