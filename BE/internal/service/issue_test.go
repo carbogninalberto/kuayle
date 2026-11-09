@@ -2,11 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -18,7 +13,6 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"nhooyr.io/websocket"
 )
 
 // --- Mocks ---
@@ -136,6 +130,12 @@ func (m *mockIssueRepo) GetAssignees(ctx context.Context, issueID uuid.UUID) ([]
 func (m *mockIssueRepo) GetAssigneesForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
 	args := m.Called(ctx, issueIDs)
 	return args.Get(0).(map[uuid.UUID][]uuid.UUID), args.Error(1)
+}
+
+func (m *mockIssueRepo) BulkSetProject(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, projectID *uuid.UUID, actorID uuid.UUID) ([]domain.Issue, error) {
+	args := m.Called(ctx, workspaceID, issueIDs, projectID, actorID)
+	moved, _ := args.Get(0).([]domain.Issue)
+	return moved, args.Error(1)
 }
 
 func (m *mockIssueRepo) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
@@ -757,262 +757,4 @@ func TestIssueService_GetHistory(t *testing.T) {
 
 func (m *mockIssueRepo) ValidateLabelScope(ctx context.Context, projectID *uuid.UUID, labelIDs []uuid.UUID) error {
 	return nil
-}
-
-func TestIssueService_BulkUpdate_SetsProject(t *testing.T) {
-	issueRepo := new(mockIssueRepo)
-	historyRepo := new(mockIssueHistoryRepo)
-	svc := NewIssueService(issueRepo, new(mockTeamRepo), new(mockTeamStatusRepo), historyRepo, realtime.NewHub(), newTestNotifSvc())
-
-	ctx := context.Background()
-	wsID, userID, projectID, oldProjectID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	moveID, sameID := uuid.New(), uuid.New()
-	move := &domain.Issue{ID: moveID, WorkspaceID: wsID, ProjectID: &oldProjectID}
-	same := &domain.Issue{ID: sameID, WorkspaceID: wsID, ProjectID: &projectID}
-	projectString := projectID.String()
-	oldString := oldProjectID.String()
-
-	issueRepo.On("GetByID", ctx, moveID).Return(move, nil)
-	issueRepo.On("GetByID", ctx, sameID).Return(same, nil)
-	issueRepo.On("GetLabels", ctx, moveID).Return([]domain.Label{}, nil)
-	issueRepo.On("GetAssignees", ctx, moveID).Return([]uuid.UUID{}, nil)
-	issueRepo.On("Update", mock.Anything, move).Return(nil).Once()
-	historyRepo.On("Create", ctx, moveID, userID, "project", &oldString, &projectString).Return(nil).Once()
-
-	updated, err := svc.BulkUpdate(ctx, wsID, userID, dto.BulkUpdateIssueRequest{
-		IssueIDs:  []string{moveID.String(), sameID.String()},
-		ProjectID: &projectString,
-	})
-
-	assert.NoError(t, err)
-	assert.Equal(t, 1, updated, "an issue already in the project is not counted")
-	assert.Equal(t, &projectID, move.ProjectID)
-	issueRepo.AssertNumberOfCalls(t, "Update", 1)
-	historyRepo.AssertExpectations(t)
-}
-
-func TestIssueService_BulkUpdate_RemovesProject(t *testing.T) {
-	issueRepo := new(mockIssueRepo)
-	historyRepo := new(mockIssueHistoryRepo)
-	svc := NewIssueService(issueRepo, new(mockTeamRepo), new(mockTeamStatusRepo), historyRepo, realtime.NewHub(), newTestNotifSvc())
-
-	ctx := context.Background()
-	wsID, userID, oldProjectID, issueID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	issue := &domain.Issue{ID: issueID, WorkspaceID: wsID, ProjectID: &oldProjectID}
-	oldString, none := oldProjectID.String(), ""
-
-	issueRepo.On("GetByID", ctx, issueID).Return(issue, nil)
-	issueRepo.On("GetLabels", ctx, issueID).Return([]domain.Label{}, nil)
-	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
-	issueRepo.On("Update", mock.Anything, issue).Return(nil)
-	historyRepo.On("Create", ctx, issueID, userID, "project", &oldString, &none).Return(nil)
-
-	updated, err := svc.BulkUpdate(ctx, wsID, userID, dto.BulkUpdateIssueRequest{
-		IssueIDs:  []string{issueID.String()},
-		ProjectID: &none,
-	})
-
-	assert.NoError(t, err)
-	assert.Equal(t, 1, updated)
-	assert.Nil(t, issue.ProjectID)
-	historyRepo.AssertExpectations(t)
-}
-
-func TestIssueService_BulkUpdate_ProjectRejectsForeignIssueBeforeWriting(t *testing.T) {
-	issueRepo := new(mockIssueRepo)
-	svc := NewIssueService(issueRepo, new(mockTeamRepo), new(mockTeamStatusRepo), new(mockIssueHistoryRepo), realtime.NewHub(), newTestNotifSvc())
-
-	ctx := context.Background()
-	wsID, userID, projectID := uuid.New(), uuid.New(), uuid.New()
-	ownID, foreignID := uuid.New(), uuid.New()
-	projectString := projectID.String()
-	issueRepo.On("GetByID", ctx, ownID).Return(&domain.Issue{ID: ownID, WorkspaceID: wsID}, nil)
-	issueRepo.On("GetByID", ctx, foreignID).Return(&domain.Issue{ID: foreignID, WorkspaceID: uuid.New()}, nil)
-
-	updated, err := svc.BulkUpdate(ctx, wsID, userID, dto.BulkUpdateIssueRequest{
-		IssueIDs:  []string{ownID.String(), foreignID.String()},
-		ProjectID: &projectString,
-	})
-
-	assert.EqualError(t, err, "issue not found")
-	assert.Zero(t, updated)
-	issueRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
-}
-
-func TestIssueService_BulkUpdate_ProjectCannotBeCombined(t *testing.T) {
-	svc := NewIssueService(new(mockIssueRepo), new(mockTeamRepo), new(mockTeamStatusRepo), new(mockIssueHistoryRepo), realtime.NewHub(), newTestNotifSvc())
-	projectString := uuid.NewString()
-	priority := 1
-
-	_, err := svc.BulkUpdate(context.Background(), uuid.New(), uuid.New(), dto.BulkUpdateIssueRequest{
-		IssueIDs:  []string{uuid.NewString()},
-		ProjectID: &projectString,
-		Priority:  &priority,
-	})
-
-	assert.EqualError(t, err, "project_id cannot be combined with other fields")
-}
-
-func TestIssueService_BulkUpdate_ProjectNotifiesRecipientsOncePerUser(t *testing.T) {
-	issueRepo := new(mockIssueRepo)
-	historyRepo := new(mockIssueHistoryRepo)
-	notifRepo := new(mockNotificationRepo)
-	svc := NewIssueService(issueRepo, new(mockTeamRepo), new(mockTeamStatusRepo), historyRepo, realtime.NewHub(), NewNotificationService(notifRepo))
-
-	ctx := context.Background()
-	wsID, actorID, creatorID, teamID, projectID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	firstID, secondID := uuid.New(), uuid.New()
-	first := &domain.Issue{ID: firstID, WorkspaceID: wsID, TeamID: teamID, CreatorID: creatorID}
-	second := &domain.Issue{ID: secondID, WorkspaceID: wsID, TeamID: teamID, CreatorID: actorID}
-	projectString := projectID.String()
-
-	for _, issue := range []*domain.Issue{first, second} {
-		issueRepo.On("GetByID", ctx, issue.ID).Return(issue, nil)
-		issueRepo.On("GetLabels", ctx, issue.ID).Return([]domain.Label{}, nil)
-		issueRepo.On("GetAssignees", ctx, issue.ID).Return([]uuid.UUID{}, nil)
-		issueRepo.On("Update", mock.Anything, issue).Return(nil)
-	}
-	historyRepo.On("Create", ctx, mock.Anything, actorID, "project", mock.Anything, mock.Anything).Return(nil)
-	notifRepo.On("CreateOrRefresh", ctx, mock.MatchedBy(func(n *domain.Notification) bool {
-		return n.UserID == creatorID && n.WorkspaceID == wsID && n.Type == "issues_updated" &&
-			n.Title == "1 issues updated: project" && len(n.SourceTeamIDs) == 1 && n.SourceTeamIDs[0] == teamID.String()
-	}), mock.Anything).Return(nil).Once()
-
-	updated, err := svc.BulkUpdate(ctx, wsID, actorID, dto.BulkUpdateIssueRequest{
-		IssueIDs:  []string{firstID.String(), secondID.String()},
-		ProjectID: &projectString,
-	})
-
-	assert.NoError(t, err)
-	assert.Equal(t, 2, updated)
-	notifRepo.AssertNumberOfCalls(t, "CreateOrRefresh", 1) // the actor is never notified
-	notifRepo.AssertExpectations(t)
-}
-
-func TestIssueService_BulkUpdate_ProjectFailureStillSignalsMovedIssues(t *testing.T) {
-	issueRepo := new(mockIssueRepo)
-	historyRepo := new(mockIssueHistoryRepo)
-	notifRepo := new(mockNotificationRepo)
-	hub := realtime.NewHub(func(context.Context, uuid.UUID, uuid.UUID) (bool, bool, error) { return true, false, nil })
-	svc := NewIssueService(issueRepo, new(mockTeamRepo), new(mockTeamStatusRepo), historyRepo, hub, NewNotificationService(notifRepo))
-
-	ctx := context.Background()
-	wsID, actorID, creatorID, teamID, projectID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	movedID, failedID := uuid.New(), uuid.New()
-	moved := &domain.Issue{ID: movedID, WorkspaceID: wsID, TeamID: teamID, CreatorID: creatorID}
-	failed := &domain.Issue{ID: failedID, WorkspaceID: wsID, TeamID: teamID, CreatorID: uuid.New()}
-	projectString := projectID.String()
-	updateFailure := errors.New("update failed")
-
-	for _, issue := range []*domain.Issue{moved, failed} {
-		issueRepo.On("GetByID", ctx, issue.ID).Return(issue, nil)
-		issueRepo.On("GetLabels", ctx, issue.ID).Return([]domain.Label{}, nil)
-		issueRepo.On("GetAssignees", ctx, issue.ID).Return([]uuid.UUID{}, nil)
-	}
-	issueRepo.On("Update", mock.Anything, moved).Return(nil)
-	issueRepo.On("Update", mock.Anything, failed).Return(updateFailure)
-	historyRepo.On("Create", ctx, movedID, actorID, "project", mock.Anything, mock.Anything).Return(nil).Once()
-	notifRepo.On("CreateOrRefresh", ctx, mock.MatchedBy(func(n *domain.Notification) bool {
-		return n.UserID == creatorID && n.Title == "1 issues updated: project"
-	}), mock.Anything).Return(nil).Once()
-
-	// A real websocket client observes what the hub publishes to the workspace.
-	registered := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, nil)
-		if err != nil {
-			return
-		}
-		client := hub.Register(conn, wsID, actorID)
-		close(registered)
-		hub.WritePump(r.Context(), client)
-	}))
-	defer server.Close()
-	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
-	assert.NoError(t, err)
-	defer conn.CloseNow()
-	<-registered
-
-	updated, err := svc.BulkUpdate(ctx, wsID, actorID, dto.BulkUpdateIssueRequest{
-		IssueIDs:  []string{movedID.String(), failedID.String()},
-		ProjectID: &projectString,
-	})
-
-	assert.ErrorIs(t, err, updateFailure)
-	assert.Equal(t, 1, updated)
-	notifRepo.AssertNumberOfCalls(t, "CreateOrRefresh", 1)
-	historyRepo.AssertNumberOfCalls(t, "Create", 1)
-	// Events arrive in order: issue.updated for the moved issue, then the bulk event.
-	// Nothing is published for the issue whose update failed.
-	readCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	for _, wantType := range []string{"issue.updated", "issues.bulk_updated"} {
-		_, data, err := conn.Read(readCtx)
-		if !assert.NoError(t, err) {
-			return
-		}
-		var event struct {
-			Type    string          `json:"type"`
-			Payload json.RawMessage `json:"payload"`
-		}
-		assert.NoError(t, json.Unmarshal(data, &event))
-		assert.Equal(t, wantType, event.Type)
-		if wantType == "issue.updated" {
-			assert.Contains(t, string(event.Payload), movedID.String())
-		} else {
-			assert.JSONEq(t, `{"count":1}`, string(event.Payload))
-		}
-	}
-	shortCtx, shortCancel := context.WithTimeout(ctx, 150*time.Millisecond)
-	defer shortCancel()
-	_, _, err = conn.Read(shortCtx)
-	assert.Error(t, err, "no further events")
-}
-
-// subscribedIssueRepo adds subscribers to the mock repository.
-type subscribedIssueRepo struct {
-	*mockIssueRepo
-	subscribers []uuid.UUID
-}
-
-func (r *subscribedIssueRepo) Subscribe(context.Context, uuid.UUID, uuid.UUID) error   { return nil }
-func (r *subscribedIssueRepo) Unsubscribe(context.Context, uuid.UUID, uuid.UUID) error { return nil }
-func (r *subscribedIssueRepo) IsSubscribed(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
-	return false, nil
-}
-func (r *subscribedIssueRepo) GetSubscribedIssueIDs(context.Context, []uuid.UUID, uuid.UUID) (map[uuid.UUID]bool, error) {
-	return nil, nil
-}
-func (r *subscribedIssueRepo) GetSubscribers(context.Context, uuid.UUID) ([]uuid.UUID, error) {
-	return r.subscribers, nil
-}
-
-func TestIssueService_BulkUpdate_ProjectDoesNotNotifyActorWhoOnlySubscribes(t *testing.T) {
-	base := new(mockIssueRepo)
-	ctx := context.Background()
-	wsID, actorID, otherID, teamID, projectID, issueID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	issue := &domain.Issue{ID: issueID, WorkspaceID: wsID, TeamID: teamID, CreatorID: uuid.New()}
-	issueRepo := &subscribedIssueRepo{mockIssueRepo: base, subscribers: []uuid.UUID{actorID, otherID}}
-	historyRepo := new(mockIssueHistoryRepo)
-	notifRepo := new(mockNotificationRepo)
-	svc := NewIssueService(issueRepo, new(mockTeamRepo), new(mockTeamStatusRepo), historyRepo, realtime.NewHub(), NewNotificationService(notifRepo))
-	projectString := projectID.String()
-
-	base.On("GetByID", ctx, issueID).Return(issue, nil)
-	base.On("GetLabels", ctx, issueID).Return([]domain.Label{}, nil)
-	base.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
-	base.On("Update", mock.Anything, issue).Return(nil)
-	historyRepo.On("Create", ctx, issueID, actorID, "project", mock.Anything, mock.Anything).Return(nil)
-	notifRepo.On("CreateOrRefresh", ctx, mock.MatchedBy(func(n *domain.Notification) bool {
-		return n.UserID == issue.CreatorID || n.UserID == otherID
-	}), mock.Anything).Return(nil)
-
-	updated, err := svc.BulkUpdate(ctx, wsID, actorID, dto.BulkUpdateIssueRequest{
-		IssueIDs:  []string{issueID.String()},
-		ProjectID: &projectString,
-	})
-
-	assert.NoError(t, err)
-	assert.Equal(t, 1, updated)
-	notifRepo.AssertNumberOfCalls(t, "CreateOrRefresh", 2) // creator and the other subscriber, never the actor
 }

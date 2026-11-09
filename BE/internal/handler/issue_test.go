@@ -148,6 +148,10 @@ func (r *testIssueRepo) CycleIsActive(_ context.Context, _ uuid.UUID) (bool, err
 	return false, nil
 }
 
+func (r *testIssueRepo) BulkSetProject(_ context.Context, _ uuid.UUID, _ []uuid.UUID, _ *uuid.UUID, _ uuid.UUID) ([]domain.Issue, error) {
+	return nil, nil
+}
+
 func (r *testIssueRepo) BulkUpdate(_ context.Context, _ uuid.UUID, _ []uuid.UUID, _ *string, _ *int, _ *uuid.UUID, _ *uuid.UUID, _ *uuid.UUID, _ bool) (int, error) {
 	return 0, nil
 }
