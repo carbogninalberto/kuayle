@@ -19,10 +19,10 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale } from '$lib/paraglide/runtime.js';
 	import { sanitizeHtml } from '$lib/security/sanitize';
-	import { diffVersions } from './version-diff';
+	import TextDiff from './TextDiff.svelte';
 
 	// Shared by issue and wiki history: a stepper through recorded changes
-	// with before/after panes, a text diff, and optional restore.
+	// shown as a git-style diff or as before/after panes, with optional restore.
 	let {
 		dialogTitle,
 		intro,
@@ -32,6 +32,7 @@
 		onrestore,
 		triggerClass = 'rounded-md border border-[var(--app-border)] px-2.5 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]',
 		triggerContent,
+		triggerLabel,
 		open = $bindable(false)
 	}: {
 		dialogTitle: string;
@@ -44,6 +45,8 @@
 		onrestore?: (entry: VersionEntry, value: string) => Promise<void>;
 		triggerClass?: string;
 		triggerContent?: Snippet;
+		/** Accessible name when the trigger shows only an icon. */
+		triggerLabel?: string;
 		open?: boolean;
 	} = $props();
 
@@ -52,11 +55,11 @@
 	let versions = $state<VersionEntry[]>([]);
 	let selectedId = $state('');
 	let source = $state(false);
-	let changes = $state(false);
+	// The git-style diff is the default view; before/after panes are one click away.
+	let changes = $state(true);
 	let restoring = $state(false);
 	let selected = $derived(versions.find((v) => v.id === selectedId));
 	let selectedIndex = $derived(versions.findIndex((v) => v.id === selectedId));
-	let diff = $derived(selected ? diffVersions(selected.old_value, selected.new_value, selected.field === 'body') : []);
 	let request = 0;
 
 	async function refresh() {
@@ -96,7 +99,7 @@
 		if (open)
 			untrack(() => {
 				source = false;
-				changes = false;
+				changes = true;
 				void refresh();
 			});
 		else request++;
@@ -104,7 +107,7 @@
 </script>
 
 <Dialog.Root bind:open>
-	<Dialog.Trigger class={triggerClass}>
+	<Dialog.Trigger class={triggerClass} aria-label={triggerLabel} title={triggerLabel}>
 		{#if triggerContent}{@render triggerContent()}{:else}{m['issue.versions.button']()}{/if}
 	</Dialog.Trigger>
 	<Dialog.Content
@@ -166,24 +169,7 @@
 					{/if}
 				</div>
 				{#if changes}
-					<pre
-						aria-label={m['versions.show_changes']()}
-						class="max-h-[50dvh] overflow-auto rounded-lg border border-[var(--app-border)] bg-muted/40 py-2 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">{#each diff as line, index (index)}<div
-								class="px-3 {line.kind === 'add'
-									? 'bg-[var(--status-success)]/10 text-[var(--status-success)]'
-									: line.kind === 'del'
-										? 'bg-destructive/10 text-destructive line-through'
-										: ''}"
-								aria-label={line.kind === 'add'
-									? m['versions.added']()
-									: line.kind === 'del'
-										? m['versions.removed']()
-										: undefined}
-								role={line.kind === 'same' ? undefined : 'group'}><span aria-hidden="true" class="select-none"
-									>{line.kind === 'add' ? '+ ' : line.kind === 'del' ? '- ' : '  '}</span
-								>{line.text || ' '}</div>{:else}<div class="px-3 text-[var(--color-text-tertiary)]">{m[
-									'versions.no_text_changes'
-								]()}</div>{/each}</pre>
+					<TextDiff before={selected.old_value} after={selected.new_value} html={selected.field === 'body'} />
 				{:else}
 					<div class="grid min-w-0 gap-4 md:grid-cols-2">
 						{#each [{ label: m['issue.versions.before'](), value: selected.old_value }, { label: m['issue.versions.after'](), value: selected.new_value }] as side (side.label)}

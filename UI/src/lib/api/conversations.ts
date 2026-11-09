@@ -316,8 +316,29 @@ export interface GitHubAccessGap {
 export interface ApprovalEdit extends ApprovalModelChoice {
 	notes?: string;
 }
+/** A wiki change the assistant asks to make; it names the wiki and page, never an issue. */
+export interface WikiApprovalPayload {
+	wiki: 'team' | 'project';
+	scope_id: string;
+	scope_name: string;
+	page_id?: string;
+	title?: string;
+	version?: number;
+	version_id?: string;
+	restore_state?: 'before' | 'after';
+	restore_title?: string;
+	version_at?: string;
+}
+export const WIKI_APPROVAL_ACTIONS = [
+	'delete_wiki_page',
+	'restore_wiki_page_version',
+	'disable_wiki_registry'
+] as const;
+export type WikiApprovalAction = (typeof WIKI_APPROVAL_ACTIONS)[number];
+
 export type ConversationApproval = ApprovalBase &
 	(
+		| { action: WikiApprovalAction; payload: WikiApprovalPayload }
 		| { action: 'delegate_issue'; payload: DelegationPayload }
 		| { action: 'merge_pull_request'; payload: MergePayload }
 		| { action: 'accept_agent_work'; payload: AcceptPayload }

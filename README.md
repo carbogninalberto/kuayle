@@ -60,7 +60,7 @@ The product is intentionally smaller than broad project-management suites. It co
 | 🔗  | **Issue Relations**    | Blocking/blocked, duplicate, and related issue links                             |
 | 🔄  | **Cycles**             | Sprint planning with burndown/velocity charts and time-boxed iterations          |
 | 📁  | **Projects**           | Cross-team work grouped under a single umbrella with Gantt view                  |
-| 📖  | **Wiki**               | Rich-text documentation pages for each team and project, kept next to their issues |
+| 📖  | **Wiki**               | Team and project pages in folders, with autosave, history, AI rework, a daily registry and read-only publishing |
 | 🏷️  | **Labels**             | Hierarchical, workspace-scoped, with soft delete and default labels on creation  |
 | 👁️  | **Views**              | Saved views with personal/workspace/team scoping, drag-and-drop reorder          |
 | 🔔  | **Notifications**      | Inbox with snooze, read status, and archive                                      |

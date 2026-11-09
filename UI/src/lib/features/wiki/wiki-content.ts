@@ -63,3 +63,62 @@ export function wikiFiles(html: string | null | undefined): PageFile[] {
 	}
 	return files;
 }
+
+export interface RegistryEntry {
+	/** "HH:MM" when the entry starts with a time. */
+	time: string | null;
+	/** The entry without its time, as editor HTML. */
+	html: string;
+}
+
+const timePrefix = /^\s*(?:<strong>)?\s*(\d{1,2}:\d{2})\s*(?:<\/strong>)?\s*(?:[—–-]\s*)?/i;
+const issueKey = /\b([A-Z][A-Z0-9]{1,9}-\d+)\b/g;
+// The registry does not record which repository a PR belongs to, so pull
+// requests render as reference chips rather than links.
+const pullRequest = /\bPR #\d+\b/g;
+
+/**
+ * Turns plain issue keys such as KUA-20 into issue mentions, so entries that
+ * agents write as text render as the usual issue chips, and marks "PR #12". Text inside links,
+ * code and existing mentions is left alone.
+ */
+export function linkIssueKeys(html: string): string {
+	let skip = 0;
+	return html
+		.split(/(<[^>]+>)/)
+		.map((part) => {
+			if (part.startsWith('<')) {
+				if (/^<(a|code|pre)\b|^<span\b[^>]*data-type="mention"/i.test(part)) skip++;
+				else if (/^<\/(a|code|pre)>/i.test(part) || (skip > 0 && /^<\/span>/i.test(part))) skip = Math.max(0, skip - 1);
+				return part;
+			}
+			if (skip > 0) return part;
+			return part
+				.replace(pullRequest, (ref) => `<span class="registry-ref" data-kind="pull-request">${ref}</span>`)
+				.replace(
+					issueKey,
+					(key) =>
+						`<span data-type="mention" data-kind="issue" data-id="" data-label="${key}" data-identifier="${key}" class="mention mention-issue">${key}</span>`
+				);
+		})
+		.join('');
+}
+
+/** A registry day's entries: one per list item, or per paragraph. */
+export function registryEntries(html: string | null | undefined): RegistryEntry[] {
+	const source = html ?? '';
+	const items = /<li\b/i.test(source)
+		? [...source.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)].map((match) =>
+				match[1].replace(/^\s*<p\b[^>]*>([\s\S]*)<\/p>\s*$/i, '$1')
+			)
+		: [...source.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map((match) => match[1]);
+	return items
+		.filter((item) => text(item) !== '')
+		.map((item) => {
+			const match = timePrefix.exec(item);
+			return {
+				time: match ? match[1].padStart(5, '0') : null,
+				html: linkIssueKeys(match ? item.slice(match[0].length) : item)
+			};
+		});
+}

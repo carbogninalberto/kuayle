@@ -18,11 +18,14 @@
 		listWikiPages,
 		listWikiPageVersions,
 		updateWikiPage,
-		updateWikiSettings
+		updateWikiSettings,
+		getWikiTree,
+		createWikiTreePage,
+		moveWikiPage
 	} from '$lib/api/wiki';
 	import { listMembers } from '$lib/api/members';
 	import { listIssues } from '$lib/api/issues';
-	import type { WikiPage, WikiPageSummary, WikiScope } from '$lib/types/wiki';
+	import type { WikiPage, WikiPageSummary, WikiScope, WikiTreeNode } from '$lib/types/wiki';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Issue } from '$lib/types/issue';
 	import { presenceState } from '$lib/features/presence/presence.state.svelte';
@@ -34,11 +37,17 @@
 		FileText,
 		History,
 		Link as LinkIcon,
+		MessageCircle,
 		MoreHorizontal,
 		Plus,
 		Trash2
 	} from '@lucide/svelte';
 	import WikiPageView from './WikiPageView.svelte';
+	import RegistryFeed from './RegistryFeed.svelte';
+	import WikiTree from './WikiTree.svelte';
+	import { openWikiPageInChat } from './open-in-chat';
+	import WikiPublishDialog from './WikiPublishDialog.svelte';
+	import { applyMove, type Move } from './wiki-tree';
 	import type { SaveState } from './wiki-autosave';
 
 	let {
@@ -63,6 +72,9 @@
 	} = $props();
 
 	let pages = $state<WikiPageSummary[]>([]);
+	let treeNodes = $state<WikiTreeNode[]>([]);
+	// The page or folder the delete dialog asks about.
+	let deleteTarget = $state<{ id: string; title: string; kind: 'page' | 'folder' } | null>(null);
 	let listState = $state<'loading' | 'ready' | 'denied' | 'failed'>('loading');
 	let current = $state<WikiPage | null>(null);
 	let pageState = $state<'idle' | 'loading' | 'missing' | 'failed'>('idle');
@@ -72,7 +84,6 @@
 	let registryEnabled = $state(false);
 	let registryBusy = $state(false);
 	let creating = $state(false);
-	let deleteOpen = $state(false);
 	let actionsOpen = $state(false);
 	let historyOpen = $state(false);
 	// Re-mounts the page view after a restore or "load latest".
@@ -82,11 +93,24 @@
 	let pageRequest = 0;
 
 	const selectedId = $derived(page.url.searchParams.get('page'));
+	const registryView = $derived(page.url.searchParams.get('view') === 'registry' && !selectedId);
 	const scopeKey = $derived(`${slug}/${scope.kind}/${scope.id}`);
 	const documents = $derived(pages.filter((p) => !p.registry_date));
-	const registry = $derived(
-		pages.filter((p) => p.registry_date).sort((a, b) => (b.registry_date ?? '').localeCompare(a.registry_date ?? ''))
-	);
+	// Pages placed in the tree; a page the tree does not know yet goes last
+	// at the top level until the next refresh.
+	const treeItems = $derived.by(() => {
+		const placed = new Map(treeNodes.map((node) => [node.id, node]));
+		return documents.map((doc, index) => {
+			const node = placed.get(doc.id);
+			return {
+				id: doc.id,
+				title: doc.title,
+				parent_id: node?.parent_id ?? null,
+				position: node?.position ?? treeNodes.length + index,
+				kind: node?.kind ?? ('page' as const)
+			};
+		});
+	});
 	const uploadUrl = $derived(
 		uploadTeamId === undefined
 			? undefined
@@ -99,9 +123,13 @@
 		const request = ++listRequest;
 		if (showLoading) listState = 'loading';
 		try {
-			const result = await listWikiPages(slug, scope);
+			const [result, tree] = await Promise.all([
+				listWikiPages(slug, scope),
+				getWikiTree(slug, scope).catch(() => null)
+			]);
 			if (request !== listRequest) return;
 			pages = result;
+			if (tree) treeNodes = tree;
 			listState = 'ready';
 		} catch (error) {
 			if (request !== listRequest) return;
@@ -153,9 +181,14 @@
 	$effect(() => {
 		if (listState !== 'ready') return;
 		const id = selectedId;
+		const showRegistry = registryView;
 		untrack(() => {
+			if (showRegistry) {
+				current = null;
+				return;
+			}
 			if (!id) {
-				const first = documents[0] ?? registry[0];
+				const first = documents[0];
 				if (first) void openPage(first.id, true);
 				else current = null;
 				return;
@@ -167,6 +200,7 @@
 	function openPage(id: string, replaceState = false) {
 		const url = new URL(page.url);
 		url.searchParams.set('page', id);
+		url.searchParams.delete('view');
 		return goto(url, { replaceState, noScroll: true, keepFocus: true });
 	}
 
@@ -180,20 +214,57 @@
 		pages = [summaryOf(saved), ...pages.filter((p) => p.id !== saved.id)];
 	}
 
-	async function createPage() {
+	async function createPage(kind: 'page' | 'folder' = 'page', parentId: string | null = null) {
 		if (creating) return;
 		creating = true;
 		try {
-			const created = await createWikiPage(slug, scope, { title: m['wiki.untitled'](), content: '' });
+			const title = kind === 'folder' ? m['wiki.tree.untitled_folder']() : m['wiki.untitled']();
+			const created = await createWikiTreePage(slug, scope, { title, kind, parent_id: parentId });
 			pages = [summaryOf(created), ...pages];
+			treeNodes = [...treeNodes, { id: created.id, parent_id: parentId, position: Number.MAX_SAFE_INTEGER, kind }];
 			current = created;
 			justCreated = created.id;
 			await openPage(created.id);
+			void loadList(false);
 		} catch (error) {
 			appToast.apiError(error, m['wiki.toast.create_failed']());
 		} finally {
 			creating = false;
 		}
+	}
+
+	async function movePage(move: Move) {
+		const before = treeNodes;
+		treeNodes = applyMove(treeItems, move).map(({ id, parent_id, position, kind }) => ({
+			id,
+			parent_id,
+			position,
+			kind
+		}));
+		try {
+			treeNodes = await moveWikiPage(slug, scope, move.id, move.parent_id, move.index);
+		} catch (error) {
+			treeNodes = before;
+			appToast.apiError(error, m['wiki.tree.move_failed']());
+		}
+	}
+
+	async function renamePage(id: string, title: string) {
+		const summary = pages.find((p) => p.id === id);
+		if (!summary) return;
+		try {
+			const saved = await updateWikiPage(slug, scope, id, { title, version: summary.version });
+			onPageSaved(saved);
+			if (current?.id === id) reloadToken++;
+		} catch (error) {
+			appToast.apiError(error, m['wiki.tree.rename_failed']());
+			void loadList(false);
+		}
+	}
+
+	function askDelete(id: string) {
+		const item = treeItems.find((entry) => entry.id === id);
+		if (item) deleteTarget = { id, title: item.title, kind: item.kind };
 	}
 
 	async function reloadCurrent() {
@@ -204,17 +275,20 @@
 	}
 
 	async function confirmDelete() {
-		const target = current;
-		deleteOpen = false;
+		const target = deleteTarget;
+		deleteTarget = null;
 		if (!target) return;
 		try {
 			await deleteWikiPage(slug, scope, target.id);
 			pages = pages.filter((p) => p.id !== target.id);
-			current = null;
 			appToast.success(m['wiki.toast.deleted']());
-			const url = new URL(page.url);
-			url.searchParams.delete('page');
-			await goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+			void loadList(false);
+			if (current?.id === target.id) {
+				current = null;
+				const url = new URL(page.url);
+				url.searchParams.delete('page');
+				await goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+			}
 		} catch (error) {
 			appToast.apiError(error, m['wiki.toast.delete_failed']());
 		}
@@ -279,6 +353,18 @@
 			appToast.apiError(error, m['wiki.toast.restore_failed']());
 			throw error;
 		}
+	}
+
+	// Opens the assistant with this page as context; text selected in the
+	// page goes along as a quote to ask about.
+	function openInChat(id: string) {
+		const title = id === current?.id ? current.title : (pages.find((p) => p.id === id)?.title ?? '');
+		let selection = '';
+		const host = document.querySelector('[data-testid="wiki-editor"]');
+		const selected = window.getSelection();
+		if (id === current?.id && host && selected && !selected.isCollapsed && host.contains(selected.anchorNode))
+			selection = selected.toString();
+		void openWikiPageInChat({ slug, scope, scopeLabel, page: { id, title }, selection });
 	}
 
 	async function copyLink() {
@@ -366,6 +452,15 @@
 				{/if}
 				<Button
 					variant="plain"
+					onclick={() => current && openInChat(current.id)}
+					class={iconButton}
+					title={m['wiki.open_in_chat_hint']()}
+					aria-label={m['wiki.open_in_chat']()}
+				>
+					<MessageCircle size={14} />
+				</Button>
+				<Button
+					variant="plain"
 					onclick={copyLink}
 					class={iconButton}
 					title={m['wiki.copy_link']()}
@@ -373,6 +468,14 @@
 				>
 					<LinkIcon size={14} />
 				</Button>
+				<WikiPublishDialog
+					{slug}
+					{scope}
+					pageId={current.id}
+					{canWrite}
+					triggerClass={iconButton}
+					readerHref="/{slug}/{scope.kind === 'team' ? 'teams' : 'projects'}/{scope.id}/wiki/read/{current.id}"
+				/>
 				<VersionHistoryDialog
 					bind:open={historyOpen}
 					dialogTitle={m['wiki.history_title']({ title: current.title })}
@@ -382,9 +485,10 @@
 					load={loadHistory}
 					onrestore={canWrite ? restore : undefined}
 					triggerClass={iconButton}
+					triggerLabel={m['issue.versions.button']()}
 				>
 					{#snippet triggerContent()}
-						<History size={14} aria-label={m['issue.versions.button']()} />
+						<History size={14} />
 					{/snippet}
 				</VersionHistoryDialog>
 				{#if canWrite}
@@ -410,7 +514,12 @@
 								class="{menuItem} text-red-500"
 								onclick={() => {
 									actionsOpen = false;
-									deleteOpen = true;
+									if (current)
+										deleteTarget = {
+											id: current.id,
+											title: current.title,
+											kind: treeItems.find((item) => item.id === current?.id)?.kind ?? 'page'
+										};
 								}}
 							>
 								<Trash2 size={14} />
@@ -451,7 +560,7 @@
 			<EmptyState
 				title={m['wiki.empty_title']()}
 				description={canWrite ? emptyDescription : m['wiki.empty_readonly']()}
-				action={canWrite ? { label: m['wiki.create_first'](), onclick: createPage } : undefined}
+				action={canWrite ? { label: m['wiki.create_first'](), onclick: () => createPage() } : undefined}
 			/>
 		</div>
 	{:else}
@@ -460,80 +569,61 @@
 				aria-label={m['wiki.pages']()}
 				class="flex max-h-56 shrink-0 flex-col overflow-y-auto border-b border-[var(--app-border)] md:max-h-none md:w-60 md:border-r md:border-b-0"
 			>
-				{#snippet pageLink(item: WikiPageSummary, Icon: typeof FileText)}
-					<li>
-						<a
-							href="?page={item.id}"
-							aria-current={item.id === selectedId ? 'page' : undefined}
-							class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {item.id === selectedId
-								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-								: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
-						>
-							<Icon size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
-							<span class="truncate">{item.title}</span>
-						</a>
-					</li>
-				{/snippet}
-				<div class="flex items-center justify-between px-4 pt-3 pb-1">
-					<h2 class="text-[11px] font-medium tracking-wider text-[var(--color-text-tertiary)] uppercase">
-						{m['wiki.pages']()}
-					</h2>
-					{#if canWrite}
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							aria-label={m['wiki.new_page']()}
-							title={m['wiki.new_page']()}
-							disabled={creating}
-							onclick={createPage}
-						>
-							<Plus size={14} />
-						</Button>
-					{/if}
-				</div>
-				<ul class="px-2 pb-2">
-					{#each documents as item (item.id)}
-						{@render pageLink(item, FileText)}
-					{:else}
-						<li class="px-2 py-1 text-xs text-[var(--color-text-tertiary)]">{m['wiki.no_pages']()}</li>
-					{/each}
-				</ul>
+				<WikiTree
+					items={treeItems}
+					{selectedId}
+					{canWrite}
+					onmove={movePage}
+					oncreate={(kind, parentId) => createPage(kind, parentId)}
+					onrename={renamePage}
+					ondelete={askDelete}
+					onchat={openInChat}
+				/>
 
-				{#if registryEnabled || registry.length > 0 || canWrite}
-					<section aria-labelledby="wiki-registry-heading" class="border-t border-[var(--app-border)] pb-2">
-						<div class="flex items-center justify-between px-4 pt-3 pb-1">
-							<h2
-								id="wiki-registry-heading"
-								class="text-[11px] font-medium tracking-wider text-[var(--color-text-tertiary)] uppercase"
-							>
-								{m['wiki.registry']()}
-							</h2>
+				<!-- The registry is pinned under the page list, apart from the pages. -->
+				{#if registryEnabled || canWrite}
+					<div class="mt-auto border-t border-[var(--app-border)] p-2">
+						<div class="flex items-center gap-2">
+							{#if registryEnabled}
+								<a
+									href="?view=registry"
+									aria-current={registryView ? 'page' : undefined}
+									class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm {registryView
+										? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+										: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
+								>
+									<CalendarDays size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
+									<span class="truncate">{m['wiki.registry']()}</span>
+								</a>
+							{:else}
+								<span
+									class="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-sm text-[var(--color-text-tertiary)]"
+								>
+									<CalendarDays size={14} class="shrink-0" />
+									<span class="truncate">{m['wiki.registry']()}</span>
+								</span>
+							{/if}
 							{#if canWrite}
 								<Switch
 									checked={registryEnabled}
 									disabled={registryBusy}
 									aria-label={m['wiki.registry_toggle']()}
+									title={m['wiki.registry_toggle']()}
 									onCheckedChange={(value) => setRegistry(value)}
 								/>
 							{/if}
 						</div>
-						{#if registry.length > 0}
-							<ul class="px-2">
-								{#each registry as item (item.id)}
-									{@render pageLink(item, CalendarDays)}
-								{/each}
-							</ul>
-						{:else}
-							<p class="px-4 text-xs text-[var(--color-text-tertiary)]">
-								{registryEnabled ? m['wiki.registry_empty']() : m['wiki.registry_off']()}
-							</p>
+						{#if !registryEnabled}
+							<p class="px-2 pt-1 text-xs text-[var(--color-text-tertiary)]">{m['wiki.registry_off']()}</p>
 						{/if}
-					</section>
+					</div>
 				{/if}
 			</nav>
 
 			<section class="flex min-h-0 min-w-0 flex-1 flex-col">
-				{#if pageState === 'loading' && !current}
+				{#if registryView && registryEnabled}
+					<RegistryFeed {slug} {scope} {canWrite} {members} {issues} />
+				{:else if pageState === 'loading' && !current}
 					<div
 						role="status"
 						aria-label={m['common.loading']()}
@@ -570,7 +660,7 @@
 				{:else}
 					<EmptyState
 						title={m['wiki.select_page']()}
-						action={canWrite ? { label: m['wiki.new_page'](), onclick: createPage } : undefined}
+						action={canWrite ? { label: m['wiki.new_page'](), onclick: () => createPage() } : undefined}
 					/>
 				{/if}
 			</section>
@@ -578,11 +668,19 @@
 	{/if}
 </div>
 
-<AlertDialog.Root bind:open={deleteOpen}>
+<AlertDialog.Root open={deleteTarget !== null} onOpenChange={(open) => !open && (deleteTarget = null)}>
 	<AlertDialog.Content>
 		<AlertDialog.Header>
-			<AlertDialog.Title>{m['wiki.delete_title']()}</AlertDialog.Title>
-			<AlertDialog.Description>{m['wiki.delete_desc']({ title: current?.title ?? '' })}</AlertDialog.Description>
+			<AlertDialog.Title
+				>{deleteTarget?.kind === 'folder'
+					? m['wiki.tree.delete_folder_title']()
+					: m['wiki.delete_title']()}</AlertDialog.Title
+			>
+			<AlertDialog.Description
+				>{deleteTarget?.kind === 'folder'
+					? m['wiki.tree.delete_folder_desc']({ title: deleteTarget.title })
+					: m['wiki.delete_desc']({ title: deleteTarget?.title ?? '' })}</AlertDialog.Description
+			>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel>

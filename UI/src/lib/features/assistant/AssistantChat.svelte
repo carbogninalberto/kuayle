@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { assistantDraftKey } from './chat-draft';
 	import { onMount, tick, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -89,7 +90,7 @@
 	// This component is keyed by workspace, conversation and authenticated user.
 	const chat = untrack(() => new ConversationState(slug, conversationId ?? ''));
 	const userKey = untrack(() => `${authState.user?.id}:${slug}`);
-	const draftKey = untrack(() => `assistant-draft:${userKey}:${conversationId ?? 'new'}`);
+	const draftKey = untrack(() => assistantDraftKey(authState.user?.id, slug, conversationId));
 	let history = $state<Conversation[]>([]);
 	let status = $state<AssistantStatus>({ configured: false });
 	let initialized = $state(false);

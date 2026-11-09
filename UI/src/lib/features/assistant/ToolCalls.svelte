@@ -24,8 +24,12 @@
 		ApprovalModelChoice,
 		ConversationApproval,
 		ConversationToolCall,
-		GitHubAccessGap
+		GitHubAccessGap,
+		WikiApprovalAction,
+		WikiApprovalPayload
 	} from '$lib/api/conversations';
+	import { WIKI_APPROVAL_ACTIONS } from '$lib/api/conversations';
+	import { getLocale } from '$lib/paraglide/runtime.js';
 	import ApprovalModelPicker from './ApprovalModelPicker.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import AgentSubagent from './AgentSubagent.svelte';
@@ -102,8 +106,32 @@
 			deciding = null;
 		}
 	}
+	// Wiki approvals name a wiki page or registry rather than an issue.
+	function isWikiApproval(
+		approval: ConversationApproval
+	): approval is Extract<ConversationApproval, { action: WikiApprovalAction }> {
+		return (WIKI_APPROVAL_ACTIONS as readonly string[]).includes(approval.action);
+	}
+	function wikiSubject(payload: WikiApprovalPayload): string {
+		return payload.title ? `${payload.scope_name} · ${payload.title}` : payload.scope_name;
+	}
 	// Outcome lines per approval action.
 	function outcome(approval: ConversationApproval) {
+		if (isWikiApproval(approval)) {
+			const subject = wikiSubject(approval.payload);
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.approval_approving']({ identifier: subject });
+				case 'approved':
+					return m['assistant.wiki_approved']({ subject });
+				case 'failed':
+					return m['assistant.wiki_failed']({ subject, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier: subject });
+				default:
+					return m['assistant.wiki_denied']({ subject });
+			}
+		}
 		if (approval.action === 'create_release') {
 			const tag = approval.payload.tag;
 			switch (approval.status) {
@@ -343,8 +371,9 @@
 {#snippet callView(call: ConversationToolCall)}
 			{@const approval = approvals[call.id]}
 			{#if approval}
-				{@const identifier =
-					approval.action === 'upgrade_instance' || approval.action === 'create_release'
+				{@const identifier = isWikiApproval(approval)
+					? wikiSubject(approval.payload)
+					: approval.action === 'upgrade_instance' || approval.action === 'create_release'
 						? ''
 						: approval.payload.identifier}
 				{#if approval.status === 'pending'}
@@ -636,6 +665,32 @@
 											class="max-h-48 text-xs"
 										/></CodeBlock.Root
 									>{/if}
+							{:else if isWikiApproval(approval)}
+								<Item.Title
+									>{approval.action === 'delete_wiki_page'
+										? m['assistant.wiki_delete_title']({ title: approval.payload.title ?? '' })
+										: approval.action === 'restore_wiki_page_version'
+											? m['assistant.wiki_restore_title']({ title: approval.payload.title ?? '' })
+											: m['assistant.wiki_disable_registry_title']()}</Item.Title
+								>
+								<Item.Description class="line-clamp-none"
+									>{approval.action === 'restore_wiki_page_version'
+										? m['assistant.wiki_restore_description']({
+												state:
+													approval.payload.restore_state === 'before'
+														? m['issue.versions.before']()
+														: m['issue.versions.after'](),
+												date: approval.payload.version_at
+													? new Date(approval.payload.version_at).toLocaleString(getLocale())
+													: '',
+												wiki: approval.payload.scope_name
+											})
+										: approval.action === 'delete_wiki_page'
+											? m['assistant.wiki_delete_description']({ wiki: approval.payload.scope_name })
+											: m['assistant.wiki_disable_registry_description']({
+													wiki: approval.payload.scope_name
+												})}</Item.Description
+								>
 							{:else if approval.action === 'expose_port'}
 								<Item.Title>{m['assistant.port_title']({ identifier, port: approval.payload.port })}</Item.Title>
 								<Item.Description class="line-clamp-none"
