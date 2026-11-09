@@ -31,8 +31,12 @@ test('browser tab title shows the project name and team', async ({ page }) => {
 				}
 			});
 		if (path === '/api/workspaces/test/projects') return route.fulfill({ json: [] });
+		if (path === '/api/workspaces/test/issues')
+			return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
+		if (path.endsWith('/github/status')) return route.fulfill({ json: { configured: false, repos: [] } });
+		if (path.endsWith('/dev-machine-scope-setting')) return route.fulfill({ json: {} });
 		return route.fulfill({ json: [] });
 	});
 	await page.goto(`/test/projects/${projectId}`);
-	await expect(page).toHaveTitle('Launch - Engineering - Kuayle');
+	await expect(page).toHaveTitle('Kuayle - Engineering - Launch');
 });
