@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
+	import { Switch } from '$lib/components/ui/switch/index.js';
 	import {
 		ArrowLeft,
 		ArrowRight,
@@ -48,9 +49,14 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import WorkflowCanvas, { type Selection } from './WorkflowCanvas.svelte';
 	import { conditionLabel, issueLabel, nodeTypeLabel, roleLabel } from './labels';
-	import { nodeHint, nodeIcon, nodeTone } from './node-style';
+	import { blockHint, blockIcon, blockLabel, blockTone, nodeIcon, nodeTone } from './node-style';
 	import {
-		PALETTE,
+		BLOCKS,
+		retries,
+		retryCondition,
+		reviewBlock,
+		setRetry,
+		type Block,
 		addNext,
 		conditionsFor,
 		connect,
@@ -202,15 +208,29 @@
 		selection = null;
 	}
 
-	function addAt(type: WorkflowNodeType, at?: { x: number; y: number }) {
-		const node = newNode(graph, type, nodeTypeLabel(type), at);
+	function addAt(type: Block, at?: { x: number; y: number }) {
+		if (type === 'review') {
+			const added = reviewBlock(graph, blockLabel(type), profiles, at);
+			lastChange = 0;
+			change(added.graph);
+			select({ kind: 'node', id: added.id });
+			return;
+		}
+		const node = newNode(graph, type, blockLabel(type), at);
 		lastChange = 0;
 		change({ ...graph, nodes: [...graph.nodes, node] });
 		select({ kind: 'node', id: node.id });
 	}
 
-	function addAfter(source: string, type: WorkflowNodeType) {
-		const added = addNext(graph, source, type, nodeTypeLabel(type), profiles);
+	function addAfter(source: string, type: Block) {
+		let added: { graph: WorkflowGraph; id: string };
+		if (type === 'review') {
+			const from = graph.nodes.find((n) => n.id === source);
+			const placed = from ? addNext(graph, source, 'agent', '', profiles) : { graph, id: '' };
+			const at = placed.graph.nodes.find((n) => n.id === placed.id)?.position;
+			const block = reviewBlock(graph, blockLabel(type), profiles, at);
+			added = { graph: connect(block.graph, source, block.id, profiles), id: block.id };
+		} else added = addNext(graph, source, type, blockLabel(type), profiles);
 		if (!added.id) return;
 		lastChange = 0;
 		change(added.graph);
@@ -453,10 +473,10 @@
 								<ContextMenu.Sub>
 									<ContextMenu.SubTrigger><Plus />{m['workflows.editor.add_next']()}</ContextMenu.SubTrigger>
 									<ContextMenu.SubContent class="w-56">
-										{#each PALETTE as type (type)}
-											{@const Icon = nodeIcon({ type })}
+										{#each BLOCKS as type (type)}
+											{@const Icon = blockIcon(type)}
 											<ContextMenu.Item onclick={() => act(() => addAfter(node.id, type))}
-												><Icon />{nodeTypeLabel(type)}</ContextMenu.Item
+												><Icon />{blockLabel(type)}</ContextMenu.Item
 											>
 										{/each}
 									</ContextMenu.SubContent>
@@ -476,6 +496,16 @@
 								</ContextMenu.Sub>
 							{/if}
 							{#if node.type !== 'start'}
+								{#if retryCondition(node, profiles)}
+									<ContextMenu.CheckboxItem
+										checked={retries(graph, node, profiles)}
+										onCheckedChange={(on) =>
+											act(() => {
+												lastChange = 0;
+												change(setRetry(graph, node.id, on, profiles));
+											})}>{m['workflows.editor.retry']()}</ContextMenu.CheckboxItem
+									>
+								{/if}
 								<ContextMenu.Item onclick={() => act(() => duplicate(node.id))}
 									><Copy />{m['workflows.editor.duplicate']()}<ContextMenu.Shortcut>⌘D</ContextMenu.Shortcut
 									></ContextMenu.Item
@@ -524,10 +554,10 @@
 							<ContextMenu.Sub>
 								<ContextMenu.SubTrigger><Plus />{m['workflows.editor.add_step_here']()}</ContextMenu.SubTrigger>
 								<ContextMenu.SubContent class="w-56">
-									{#each PALETTE as type (type)}
-										{@const Icon = nodeIcon({ type })}
+									{#each BLOCKS as type (type)}
+										{@const Icon = blockIcon(type)}
 										<ContextMenu.Item onclick={() => act(() => addAt(type, at))}
-											><Icon />{nodeTypeLabel(type)}</ContextMenu.Item
+											><Icon />{blockLabel(type)}</ContextMenu.Item
 										>
 									{/each}
 								</ContextMenu.SubContent>
@@ -566,15 +596,15 @@
 									>{/snippet}
 							</DropdownMenu.Trigger>
 							<DropdownMenu.Content side="top" align="start" class="w-72">
-								{#each PALETTE as type (type)}
-									{@const Icon = nodeIcon({ type })}
+								{#each BLOCKS as type (type)}
+									{@const Icon = blockIcon(type)}
 									<DropdownMenu.Item onclick={() => addAt(type)} class="gap-3 py-2" data-testid="workflow-add-{type}">
-										<span class={cn('flex size-7 shrink-0 items-center justify-center rounded-md', nodeTone({ type }))}
+										<span class={cn('flex size-7 shrink-0 items-center justify-center rounded-md', blockTone(type))}
 											><Icon class="size-4" /></span
 										>
 										<span class="min-w-0">
-											<span class="block text-sm font-medium">{nodeTypeLabel(type)}</span>
-											<span class="block text-xs text-muted-foreground">{nodeHint(type)}</span>
+											<span class="block text-sm font-medium">{blockLabel(type)}</span>
+											<span class="block text-xs text-muted-foreground">{blockHint(type)}</span>
 										</span>
 									</DropdownMenu.Item>
 								{/each}
@@ -736,6 +766,23 @@
 											{ value: 'done', label: m['workflows.editor.outcome_done']() },
 											{ value: 'failed', label: m['workflows.editor.outcome_failed']() }
 										]}
+									/>
+								</div>
+							{/if}
+							{#if retryCondition(node, profiles)}
+								<div class="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+									<div class="flex items-center gap-1">
+										<Label for="node-retry" class="text-sm">{m['workflows.editor.retry']()}</Label>
+										<InfoHint text={m['workflows.editor.retry_help']()} />
+									</div>
+									<Switch
+										id="node-retry"
+										checked={retries(graph, node, profiles)}
+										disabled={!editable}
+										onCheckedChange={(on) => {
+											lastChange = 0;
+											change(setRetry(graph, node.id, on, profiles));
+										}}
 									/>
 								</div>
 							{/if}

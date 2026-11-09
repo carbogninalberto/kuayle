@@ -17,6 +17,10 @@ import type {
 /** Node types the palette adds; a workflow has exactly one start. */
 export const PALETTE: WorkflowNodeType[] = ['agent', 'check', 'approval', 'publish', 'merge', 'end'];
 
+/** What the add-step menus offer: the node types plus ready-made blocks. */
+export type Block = WorkflowNodeType | 'review';
+export const BLOCKS: Block[] = ['agent', 'review', 'check', 'approval', 'publish', 'merge', 'end'];
+
 export function isReviewer(role: string | undefined): boolean {
 	return role === 'reviewer' || role === 'security_reviewer';
 }
@@ -356,4 +360,70 @@ export function duplicateNode(graph: WorkflowGraph, id: string): { graph: Workfl
 		position: { x: node.position.x + 40, y: node.position.y + 40 }
 	};
 	return { graph: { ...graph, nodes: [...graph.nodes, copy] }, id: copy.id };
+}
+
+/**
+ * The failure a step can retry on: an agent that failed, or a pull request
+ * that could not be published. Other steps fail for reasons a rerun won't fix.
+ */
+export function retryCondition(node: WorkflowNode, profiles: AgentProfile[]): WorkflowCondition | undefined {
+	if (node.type === 'publish') return 'publish_failed';
+	if (node.type === 'agent' && conditionsFor(node, profiles).includes('agent_failed')) return 'agent_failed';
+	return undefined;
+}
+
+/** Whether the step runs again when it fails (a transition back to itself on its failure). */
+export function retries(graph: WorkflowGraph, node: WorkflowNode, profiles: AgentProfile[]): boolean {
+	const condition = retryCondition(node, profiles);
+	return (
+		!!condition && graph.edges.some((e) => e.source === node.id && e.target === node.id && e.condition === condition)
+	);
+}
+
+/**
+ * Turns "retry on failure" on or off. On: the step's failure leads back to
+ * itself, guarded by its visit limit (3 when it had none). Off: the failure
+ * leads to the workflow's failed ending again, when it has one.
+ */
+export function setRetry(graph: WorkflowGraph, id: string, on: boolean, profiles: AgentProfile[]): WorkflowGraph {
+	const node = graph.nodes.find((n) => n.id === id);
+	const condition = node && retryCondition(node, profiles);
+	if (!node || !condition) return graph;
+	const edges = graph.edges.filter((e) => !(e.source === id && e.condition === condition));
+	if (on) {
+		const nodes = graph.nodes.map((n) => (n.id === id && !(n.max_visits ?? 0) ? { ...n, max_visits: 3 } : n));
+		const edge: WorkflowEdge = {
+			id: uniqueId(`${id}-retry`, new Set(edges.map((e) => e.id))),
+			source: id,
+			target: id,
+			condition
+		};
+		return { ...graph, nodes, edges: [...edges, edge] };
+	}
+	const failed = graph.nodes.find((n) => n.type === 'end' && n.outcome === 'failed');
+	const next = { ...graph, edges };
+	return failed ? connect(next, id, failed.id, profiles, condition) : next;
+}
+
+/**
+ * An automated review: an agent step run by the reviewer profile (the
+ * built-in one first) that reviews the published pull request and retries if
+ * the review agent itself fails. Its verdict transitions are left to connect.
+ */
+export function reviewBlock(
+	graph: WorkflowGraph,
+	label: string,
+	profiles: AgentProfile[],
+	position?: { x: number; y: number }
+): { graph: WorkflowGraph; id: string } {
+	const reviewer =
+		profiles.find((p) => !p.archived_at && p.builtin_key === 'reviewer') ??
+		profiles.find((p) => !p.archived_at && isReviewer(p.role));
+	const node: WorkflowNode = {
+		...newNode(graph, 'agent', label, position),
+		profile_id: reviewer?.id ?? null,
+		max_visits: 3
+	};
+	const added = { ...graph, nodes: [...graph.nodes, node] };
+	return { graph: reviewer ? setRetry(added, node.id, true, profiles) : added, id: node.id };
 }

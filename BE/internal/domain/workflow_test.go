@@ -48,6 +48,11 @@ func TestFullCycleTemplateUsesEveryStepAndLoopsFailuresBack(t *testing.T) {
 	}
 	require.Equal(t, map[string]string{"implement": WorkflowAgentFailed, "tests": WorkflowChecksFailed, "publish": WorkflowPublishFailed,
 		"review": WorkflowReviewChangesRequested, "ci": WorkflowChecksFailed, "ship": WorkflowApprovalDenied}, back)
+	retry := false
+	for _, edge := range g.Edges {
+		retry = retry || (edge.Source == "review" && edge.Target == "review" && edge.Condition == WorkflowAgentFailed)
+	}
+	require.True(t, retry, "a review agent that fails reviews again")
 
 	// The sixth time the implementer would run, the visit limit stops the loop.
 	cursor := WorkflowCursor{Node: "ci", Visits: map[string]int{"implement": 5}}

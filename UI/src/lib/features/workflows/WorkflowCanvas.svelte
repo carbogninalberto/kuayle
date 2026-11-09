@@ -18,7 +18,7 @@
 	import LoopEdge from './LoopEdge.svelte';
 	import type { WorkflowNodeType } from '$lib/api/workflows';
 	import { conditionLabel, issueLabel, roleLabel } from './labels';
-	import { layering, placeIssues, type FiredTransition } from './workflow-graph';
+	import { layering, placeIssues, type Block, type FiredTransition } from './workflow-graph';
 
 	// The workflow graph on a Svelte Flow canvas, editable or read-only. The
 	// graph prop stays the source of truth: the canvas reports moves,
@@ -63,7 +63,7 @@
 		api?: FlowApi;
 		onselect?: (selection: Selection) => void;
 		/** Adds a step after the given one (its hover "+" button). */
-		onaddnext?: (source: string, type: WorkflowNodeType) => void;
+		onaddnext?: (source: string, type: Block) => void;
 		/** A right click on a step or a transition, before the menu opens. */
 		oncontext?: (target: Selection) => void;
 		onmove?: (id: string, position: { x: number; y: number }) => void;
@@ -118,10 +118,11 @@
 				current: run?.current === node.id,
 				visited: run?.visited.has(node.id),
 				visits: run ? (run.visits[node.id] ?? 0) : undefined,
-				onaddnext:
-					editable && onaddnext && node.type !== 'end'
-						? (type: WorkflowNodeType) => onaddnext(node.id, type)
-						: undefined
+				// A step's transitions back to itself (retries) show on its card.
+				retries: graph.edges
+					.filter((e) => e.source === node.id && e.target === node.id)
+					.map((e) => conditionLabel(e.condition)),
+				onaddnext: editable && onaddnext && node.type !== 'end' ? (type: Block) => onaddnext(node.id, type) : undefined
 			}
 		}));
 		// Loops back to an earlier step leave and enter on the left and failures
@@ -145,6 +146,7 @@
 		edges = graph.edges.map((edge) => {
 			const fired = run?.fired.get(edge.id);
 			const loop = back.has(edge.id);
+			const self = edge.source === edge.target;
 			const target = graph.nodes.find((n) => n.id === edge.target);
 			const toFailure = !loop && target?.type === 'end' && target.outcome === 'failed';
 			const problem = placed.edges.has(edge.id);
@@ -164,6 +166,7 @@
 				...(toFailure ? { sourceHandle: 'side-out', targetHandle: 'loop-in' } : {}),
 				label: fired && fired.count > 1 ? `${conditionLabel(edge.condition)} ×${fired.count}` : pairLabel(edge),
 				selected: selection?.kind === 'edge' && selection.id === edge.id,
+				hidden: self,
 				deletable: editable,
 				animated: !!fired && run?.current === edge.target,
 				markerEnd: { type: MarkerType.ArrowClosed },

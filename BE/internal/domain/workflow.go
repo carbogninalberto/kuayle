@@ -847,8 +847,9 @@ func ReviewLoopWorkflowGraph(implementer, reviewer uuid.UUID) WorkflowGraph {
 // FullCycleWorkflowGraph uses every kind of step: implement, run the tests,
 // open the pull request, an agent review, CI, a person's go-ahead and the
 // merge. Every failure and every request for changes goes back to the
-// implementer, which retries at most five times; past that the workflow asks
-// a person instead of failing on its own.
+// implementer, which retries at most five times, and a review agent that
+// fails reviews again; past those limits the workflow asks a person instead of
+// failing on its own.
 func FullCycleWorkflowGraph(implementer, reviewer uuid.UUID) WorkflowGraph {
 	row := func(r int) float64 { return float64(r * 130) }
 	return WorkflowGraph{
@@ -858,7 +859,7 @@ func FullCycleWorkflowGraph(implementer, reviewer uuid.UUID) WorkflowGraph {
 				Prompt: "Address what sent the work back, then make sure the change is complete.\n\n{{review_comments}}\n\n{{failing_checks}}", Position: WorkflowPosition{X: -120, Y: row(1)}},
 			{ID: "tests", Type: WorkflowNodeCheck, Label: "Tests", Check: WorkflowCheckTests, Position: WorkflowPosition{X: -120, Y: row(2)}},
 			{ID: "publish", Type: WorkflowNodePublish, Label: "Open pull request", Position: WorkflowPosition{X: -120, Y: row(3)}},
-			{ID: "review", Type: WorkflowNodeAgent, Label: "Review", ProfileID: &reviewer, Prompt: "Review the pull request against the issue.\n\n{{previous_summary}}", Position: WorkflowPosition{X: -120, Y: row(4)}},
+			{ID: "review", Type: WorkflowNodeAgent, Label: "Review", ProfileID: &reviewer, MaxVisits: 6, Prompt: "Review the pull request against the issue.\n\n{{previous_summary}}", Position: WorkflowPosition{X: -120, Y: row(4)}},
 			{ID: "ci", Type: WorkflowNodeCheck, Label: "CI", Check: WorkflowCheckCI, TimeoutMinutes: 120, Position: WorkflowPosition{X: -120, Y: row(5)}},
 			{ID: "ship", Type: WorkflowNodeApproval, Label: "Ready to ship", Prompt: "Ready to merge?", Position: WorkflowPosition{X: -120, Y: row(6)}},
 			{ID: "merge", Type: WorkflowNodeMerge, Label: "Merge", Position: WorkflowPosition{X: -120, Y: row(7)}},
@@ -875,7 +876,7 @@ func FullCycleWorkflowGraph(implementer, reviewer uuid.UUID) WorkflowGraph {
 			{ID: "publish-failed", Source: "publish", Target: "implement", Condition: WorkflowPublishFailed},
 			{ID: "review-approved", Source: "review", Target: "ci", Condition: WorkflowReviewApproved},
 			{ID: "review-changes", Source: "review", Target: "implement", Condition: WorkflowReviewChangesRequested},
-			{ID: "review-failed", Source: "review", Target: "failed", Condition: WorkflowAgentFailed},
+			{ID: "review-retry", Source: "review", Target: "review", Condition: WorkflowAgentFailed},
 			{ID: "ci-passed", Source: "ci", Target: "ship", Condition: WorkflowChecksPassed},
 			{ID: "ci-failed", Source: "ci", Target: "implement", Condition: WorkflowChecksFailed},
 			{ID: "ci-timeout", Source: "ci", Target: "failed", Condition: WorkflowTimeout},

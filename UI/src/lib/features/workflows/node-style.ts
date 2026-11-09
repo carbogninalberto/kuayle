@@ -1,6 +1,18 @@
 import type { Component } from 'svelte';
-import { Bot, CircleCheck, CircleX, GitMerge, GitPullRequestArrow, ListChecks, Play, UserCheck } from '@lucide/svelte';
+import {
+	Bot,
+	CircleCheck,
+	CircleX,
+	GitMerge,
+	GitPullRequestArrow,
+	ListChecks,
+	Play,
+	ScanSearch,
+	UserCheck
+} from '@lucide/svelte';
 import type { WorkflowNode, WorkflowNodeType } from '$lib/api/workflows';
+import type { Block } from './workflow-graph';
+import { nodeTypeLabel } from './labels';
 import { m } from '$lib/paraglide/messages.js';
 
 // How each step type looks on the canvas and in the editor's lists: one icon
@@ -48,3 +60,11 @@ const hints: Partial<Record<WorkflowNodeType, () => string>> = {
 
 /** One line on what a step of this type does, for the add-step menu. */
 export const nodeHint = (type: WorkflowNodeType) => hints[type]?.() ?? '';
+
+// The add-step menus' entries: node types, plus the automated review block.
+export const blockIcon = (block: Block): Component => (block === 'review' ? ScanSearch : nodeIcon({ type: block }));
+export const blockTone = (block: Block): string => (block === 'review' ? tones.agent : nodeTone({ type: block }));
+export const blockLabel = (block: Block): string =>
+	block === 'review' ? m['workflows.editor.block_review']() : nodeTypeLabel(block);
+export const blockHint = (block: Block): string =>
+	block === 'review' ? m['workflows.editor.hint.review']() : nodeHint(block);

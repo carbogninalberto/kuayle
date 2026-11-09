@@ -2,6 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
 	addNext,
+	retries,
+	reviewBlock,
+	setRetry,
 	duplicateNode,
 	conditionsFor,
 	connect,
@@ -226,4 +229,52 @@ test('duplicating copies a step without transitions and never the start', () => 
 	assert.deepEqual(copy.position, { x: 40, y: 170 });
 	assert.equal(next.edges.length, 1);
 	assert.equal(duplicateNode(graph, 'start').id, '');
+});
+
+test('retry on failure loops the failure back to the step and back to Failed when turned off', () => {
+	const graph = {
+		nodes: [
+			{ id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
+			{ id: 'impl', type: 'agent', label: 'Implement', profile_id: 'impl', position: { x: 0, y: 130 } },
+			{ id: 'failed', type: 'end', label: 'Failed', outcome: 'failed', position: { x: 300, y: 130 } }
+		],
+		edges: [
+			{ id: 'e1', source: 'start', target: 'impl', condition: 'else' },
+			{ id: 'e2', source: 'impl', target: 'failed', condition: 'agent_failed' }
+		],
+		budget: {}
+	};
+	const on = setRetry(graph, 'impl', true, profiles);
+	assert.ok(retries(on, on.nodes[1], profiles));
+	assert.equal(on.nodes[1].max_visits, 3, 'a retry loop gets a visit limit');
+	assert.deepEqual(
+		on.edges.filter((e) => e.source === 'impl').map((e) => [e.target, e.condition]),
+		[['impl', 'agent_failed']]
+	);
+	const off = setRetry(on, 'impl', false, profiles);
+	assert.ok(!retries(off, off.nodes[1], profiles));
+	assert.deepEqual(
+		off.edges.filter((e) => e.source === 'impl').map((e) => [e.target, e.condition]),
+		[['failed', 'agent_failed']]
+	);
+	assert.equal(setRetry(graph, 'start', true, profiles), graph, 'only agent and publish steps retry');
+});
+
+test('an automated review block runs the reviewer and retries if it fails', () => {
+	const graph = {
+		nodes: [{ id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } }],
+		edges: [],
+		budget: {}
+	};
+	const { graph: next, id } = reviewBlock(graph, 'Automated review', [
+		...profiles,
+		{ id: 'rev2', role: 'reviewer', builtin_key: 'reviewer' }
+	]);
+	const node = next.nodes.find((n) => n.id === id);
+	assert.equal(node.profile_id, 'rev2', 'the built-in reviewer first');
+	assert.equal(node.max_visits, 3);
+	assert.deepEqual(
+		next.edges.map((e) => [e.source, e.target, e.condition]),
+		[[id, id, 'agent_failed']]
+	);
 });

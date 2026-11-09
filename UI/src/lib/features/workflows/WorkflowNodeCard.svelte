@@ -12,22 +12,24 @@
 		current?: boolean;
 		visited?: boolean;
 		visits?: number;
+		/** Conditions on which the step runs again (transitions back to itself). */
+		retries?: string[];
 		/** In the editor: adds a step of this type after this one. */
-		onaddnext?: (type: WorkflowNodeType) => void;
+		onaddnext?: (type: Block) => void;
 	}
 	export type WorkflowFlowNode = Node<WorkflowNodeData, 'workflow'>;
 </script>
 
 <script lang="ts">
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
-	import { CircleAlert, Plus } from '@lucide/svelte';
+	import { CircleAlert, Plus, RotateCcw } from '@lucide/svelte';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
-	import { PALETTE } from './workflow-graph';
+	import { BLOCKS, type Block } from './workflow-graph';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { cn } from '$lib/utils.js';
 	import { m } from '$lib/paraglide/messages.js';
 	import { nodeTypeLabel } from './labels';
-	import { nodeHint, nodeIcon, nodeTone } from './node-style';
+	import { blockHint, blockIcon, blockLabel, blockTone, nodeIcon, nodeTone } from './node-style';
 
 	// One step on the workflow canvas: a typed icon, its name and what it
 	// uses. Svelte Flow makes it focusable and selectable from the keyboard;
@@ -80,6 +82,12 @@
 				{[detail, visitsText].filter(Boolean).join(' · ')}
 			</p>{/if}
 	</div>
+	{#if data.retries?.length}<span
+			class="flex shrink-0 items-center gap-0.5 rounded-md bg-muted px-1 py-0.5 text-[10px] text-muted-foreground"
+			title={m['workflows.editor.retries_on']({ conditions: data.retries.join(', ') })}
+			aria-label={m['workflows.editor.retries_on']({ conditions: data.retries.join(', ') })}
+			><RotateCcw class="size-3" /></span
+		>{/if}
 	{#if data.current}<Badge class="h-4 shrink-0 px-1.5 text-[10px]">{m['workflows.task.current']()}</Badge>{/if}
 	{#if data.problems.length > 0}<CircleAlert
 			class="size-4 shrink-0 text-destructive"
@@ -104,15 +112,15 @@
 			<DropdownMenu.Content align="center" class="w-64">
 				<DropdownMenu.Label class="text-xs text-muted-foreground">{m['workflows.editor.add_next']()}</DropdownMenu.Label
 				>
-				{#each PALETTE as type (type)}
-					{@const TypeIcon = nodeIcon({ type })}
+				{#each BLOCKS as type (type)}
+					{@const TypeIcon = blockIcon(type)}
 					<DropdownMenu.Item onclick={() => add(type)} class="gap-2.5">
-						<span class={cn('flex size-6 shrink-0 items-center justify-center rounded-md', nodeTone({ type }))}
+						<span class={cn('flex size-6 shrink-0 items-center justify-center rounded-md', blockTone(type))}
 							><TypeIcon class="size-3.5" /></span
 						>
 						<span class="min-w-0">
-							<span class="block text-sm">{nodeTypeLabel(type)}</span>
-							<span class="block truncate text-xs text-muted-foreground">{nodeHint(type)}</span>
+							<span class="block text-sm">{blockLabel(type)}</span>
+							<span class="block truncate text-xs text-muted-foreground">{blockHint(type)}</span>
 						</span>
 					</DropdownMenu.Item>
 				{/each}
