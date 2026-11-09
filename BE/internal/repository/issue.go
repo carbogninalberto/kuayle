@@ -65,16 +65,23 @@ func (r *IssueRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Is
 	return &issue, err
 }
 
+// splitIdentifier splits "ENG-12" into its team key and number, for looking up a
+// retired team key. A text that is not of that shape gives ("", -1), which
+// matches no alias.
+func splitIdentifier(identifier string) (string, int) {
+	if i := strings.LastIndex(identifier, "-"); i > 0 {
+		if n, err := strconv.Atoi(identifier[i+1:]); err == nil {
+			return identifier[:i], n
+		}
+	}
+	return "", -1
+}
+
 func (r *IssueRepository) GetByIdentifier(ctx context.Context, workspaceID uuid.UUID, identifier string) (*domain.Issue, error) {
 	var issue domain.Issue
 	// A retired team key (an alias) still resolves: ENG-12 finds PLT-12 after
 	// ENG was renamed to PLT. The current identifier wins if both match.
-	oldKey, number := "", -1
-	if i := strings.LastIndex(identifier, "-"); i > 0 {
-		if n, convErr := strconv.Atoi(identifier[i+1:]); convErr == nil {
-			oldKey, number = identifier[:i], n
-		}
-	}
+	oldKey, number := splitIdentifier(identifier)
 	err := r.db.GetContext(ctx, &issue, `SELECT * FROM issues WHERE workspace_id = $1 AND `+teamVisible(ctx, "issues.team_id")+` AND (identifier_text = $2 OR (number = $4 AND team_id IN (SELECT team_id FROM team_key_aliases WHERE workspace_id = $1 AND old_key = $3))) ORDER BY (identifier_text = $2) DESC LIMIT 1`, workspaceID, identifier, oldKey, number)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil

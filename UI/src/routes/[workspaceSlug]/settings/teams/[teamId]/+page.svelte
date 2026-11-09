@@ -460,7 +460,12 @@
 						<Input
 							id="team-key"
 							value={editKey}
-							oninput={(e) => (editKey = e.currentTarget.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 10))}
+							oninput={(e) => {
+								const cleaned = e.currentTarget.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 10);
+								// Keep the box in step with what is sent: a rejected character vanishes.
+								e.currentTarget.value = cleaned;
+								editKey = cleaned;
+							}}
 							maxlength={10}
 							autocapitalize="characters"
 							class="font-mono"

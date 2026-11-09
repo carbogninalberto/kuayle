@@ -194,6 +194,11 @@ func (r *TeamRepository) UpdateWithKey(ctx context.Context, team *domain.Team, n
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// Same order as SetVisibility: the privacy barrier (the workspace lock)
+	// before any team row or key lock, or the two deadlock.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,63))`, team.WorkspaceID); err != nil {
+		return err
+	}
 	if err := lockTeamKeys(ctx, tx, team.WorkspaceID); err != nil {
 		return err
 	}

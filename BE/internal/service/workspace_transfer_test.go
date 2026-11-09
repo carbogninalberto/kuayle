@@ -208,6 +208,8 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO comments(id,issue_id,user_id,body) VALUES($1,$2,$3,'Portable comment')`, commentID, issueID, userID)
 	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `INSERT INTO team_key_aliases(workspace_id,old_key,team_id) VALUES($1,'OLD',$2)`, workspaceID, teamID)
+	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO team_members(team_id,user_id) VALUES($1,$2)`, teamID, userID)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO projects(id,workspace_id,team_id,name,status,lead_id,start_date,target_date,sort_order) VALUES($1,$2,$3,'Portable project','in_progress',$4,'2026-01-01','2026-02-01',4.5)`, projectID, workspaceID, teamID, userID)
@@ -407,6 +409,9 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 
 	var importedTeamID uuid.UUID
 	require.NoError(t, db.Get(&importedTeamID, `SELECT id FROM teams WHERE workspace_id=$1 AND key='ENG'`, targetWorkspaceID))
+	var importedAliasTeamID uuid.UUID
+	require.NoError(t, db.Get(&importedAliasTeamID, `SELECT team_id FROM team_key_aliases WHERE workspace_id=$1 AND old_key='OLD'`, targetWorkspaceID))
+	require.Equal(t, importedTeamID, importedAliasTeamID)
 	var importedValidTeamSharedLinkID, importedSharedLinkScopeID uuid.UUID
 	var importedSharedLinkActive bool
 	var importedSharedLinkToken string

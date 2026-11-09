@@ -223,6 +223,8 @@ test('renaming the team identifier warns first and only sends a valid key', asyn
  await expect(page.getByText('Renaming changes every issue identifier')).toHaveCount(0);
  await key.fill('plt1');
  await expect(key).toHaveValue('PLT');
+ await key.pressSequentially('-9');
+ await expect(key).toHaveValue('PLT');
  await expect(page.getByText('Renaming changes every issue identifier in this team from ENG-N to PLT-N.')).toBeVisible();
  await key.fill('');
  await expect(page.getByRole('button', {name: 'Save', exact: true})).toBeDisabled();

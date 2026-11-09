@@ -127,6 +127,17 @@ func TestTeamKeyRenamePostgres(t *testing.T) {
 	require.Equal(t, "NEW-"+strconv.Itoa(number), identifier)
 	require.NoError(t, teams.UpdateWithKey(admin, load(eng), "ENG"))
 
+	// A rename and a visibility change on the same team must not deadlock:
+	// both take the privacy barrier before the team row.
+	for i := 0; i < 15; i++ {
+		keys := []string{"OPA", "OPB"}
+		done := make(chan error, 2)
+		go func() { done <- teams.UpdateWithKey(admin, load(ops), keys[i%2]) }()
+		go func() { _, err := teams.SetVisibility(admin, ops, i%2 == 0, true, true); done <- err }()
+		require.NoError(t, <-done)
+		require.NoError(t, <-done)
+	}
+
 	// An alias never exposes a private team's issues to a non-member.
 	require.NoError(t, teams.UpdateWithKey(admin, load(priv), "SEC"))
 	outsider := uuid.New()
