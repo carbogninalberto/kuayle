@@ -32,6 +32,8 @@ func (s *ProjectService) Create(ctx context.Context, workspaceID uuid.UUID, req 
 		Name:        req.Name,
 		Description: req.Description,
 		Status:      domain.ProjectStatusPlanned,
+		Color:       emptyToNil(req.Color),
+		Icon:        emptyToNil(req.Icon),
 	}
 	if req.TeamID != nil {
 		tid, _ := uuid.Parse(*req.TeamID)
@@ -92,6 +94,12 @@ func (s *ProjectService) Update(ctx context.Context, workspaceID, id uuid.UUID, 
 	if req.SortOrder != nil {
 		project.SortOrder = *req.SortOrder
 	}
+	if req.Color != nil {
+		project.Color = emptyToNil(req.Color)
+	}
+	if req.Icon != nil {
+		project.Icon = emptyToNil(req.Icon)
+	}
 
 	if err := s.projectRepo.Update(ctx, project); err != nil {
 		return nil, err
@@ -120,4 +128,12 @@ func (s *ProjectService) GetStats(ctx context.Context, projectID uuid.UUID) (*dt
 		Completed: completed,
 		Cancelled: cancelled,
 	}, nil
+}
+
+// emptyToNil maps an empty string to nil so a client can clear a value.
+func emptyToNil(v *string) *string {
+	if v == nil || *v == "" {
+		return nil
+	}
+	return v
 }

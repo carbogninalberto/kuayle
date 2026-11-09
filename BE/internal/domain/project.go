@@ -26,6 +26,8 @@ type Project struct {
 	StartDate   *time.Time    `json:"start_date" db:"start_date"`
 	TargetDate  *time.Time    `json:"target_date" db:"target_date"`
 	SortOrder   float64       `json:"sort_order" db:"sort_order"`
+	Color       *string       `json:"color" db:"color"`
+	Icon        *string       `json:"icon" db:"icon"`
 	CreatedAt   time.Time     `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time     `json:"updated_at" db:"updated_at"`
 }

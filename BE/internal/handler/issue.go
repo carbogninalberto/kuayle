@@ -1034,6 +1034,8 @@ func toProjectResponseForIssue(project domain.Project) dto.ProjectResponse {
 		StartDate:   project.StartDate,
 		TargetDate:  project.TargetDate,
 		SortOrder:   project.SortOrder,
+		Color:       project.Color,
+		Icon:        project.Icon,
 		CreatedAt:   project.CreatedAt,
 		UpdatedAt:   project.UpdatedAt,
 	}

@@ -3,6 +3,7 @@
 	import type { TeamStatus } from '$lib/types/team-status';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Project } from '$lib/types/project';
+	import ProjectChip from '$lib/components/shared/ProjectChip.svelte';
 	import type { Cycle } from '$lib/types/cycle';
 	import type { Label } from '$lib/types/label';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
@@ -121,6 +122,10 @@
 						<p class="line-clamp-2 min-w-0 flex-1 text-sm text-[var(--color-text-primary)]">{issue.title}</p>
 						<SubIssueCounterTag {issue} {slug} {members} onclickissue={onissueclick} compact />
 					</div>
+					{#if issue.project_id}
+						{@const cardProject = projects.find((p) => p.id === issue.project_id)}
+						{#if cardProject}<div class="mt-2 flex"><ProjectChip project={cardProject} class="max-w-full" /></div>{/if}
+					{/if}
 				</svelte:element>
 			</IssueContextMenu>
 		{/each}

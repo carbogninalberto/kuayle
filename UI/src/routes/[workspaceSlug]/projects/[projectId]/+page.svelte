@@ -16,6 +16,7 @@
 	import { listTeams } from '$lib/api/teams';
 	import type { Project, ProjectStatus } from '$lib/types/project';
 	import type { Team } from '$lib/types/team';
+	import ProjectAppearancePicker from '$lib/features/projects/ProjectAppearancePicker.svelte';
 	import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import { Badge } from '$lib/components/ui/badge';
@@ -202,6 +203,17 @@
 		}
 	}
 
+	async function handleAppearanceChange(change: { icon?: string; color?: string }) {
+		if (!project || !canManage) return;
+		try {
+			await updateProject(slug, project.id, change);
+			await refreshProject();
+			appToast.success(m['projects.toast.appearance_updated']());
+		} catch (err: any) {
+			appToast.apiError(err, m['projects.toast.failed_update_appearance']());
+		}
+	}
+
 	async function handleDateChange(field: 'start_date' | 'target_date', value: string | null) {
 		if (!project || !canManage) return;
 		try {
@@ -300,6 +312,7 @@
 						</a>
 						<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
 					{/if}
+					<ProjectAppearancePicker {project} disabled={!canManage} onchange={handleAppearanceChange} />
 					<span class="truncate font-medium text-[var(--color-text-primary)]">{project.name}</span>
 				</nav>
 				<Popover.Root bind:open={statusOpen}>

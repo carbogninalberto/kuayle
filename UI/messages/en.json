@@ -3461,5 +3461,9 @@
 	"workflows.task.iteration_reason": "{node} · after {reason}",
 	"workflows.task.decided_by": "Decided by a person",
 	"workflows.task.outcome": "Outcome: {outcome}",
-	"workflows.task.step_title": "Step {sequence}: {node}"
+	"workflows.task.step_title": "Step {sequence}: {node}",
+	"projects.appearance": "Project icon and color",
+	"projects.appearance_reset": "Reset",
+	"projects.toast.appearance_updated": "Project appearance updated",
+	"projects.toast.failed_update_appearance": "Failed to update project appearance"
 }

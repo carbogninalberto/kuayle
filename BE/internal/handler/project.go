@@ -133,6 +133,8 @@ func toProjectResponse(p domain.Project) dto.ProjectResponse {
 		Description: p.Description,
 		Status:      string(p.Status),
 		SortOrder:   p.SortOrder,
+		Color:       p.Color,
+		Icon:        p.Icon,
 		CreatedAt:   p.CreatedAt,
 		UpdatedAt:   p.UpdatedAt,
 	}

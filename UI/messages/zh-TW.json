@@ -3461,5 +3461,9 @@
 	"workflows.task.iteration_reason": "{node} · 在{reason}之後",
 	"workflows.task.decided_by": "由人員決定",
 	"workflows.task.outcome": "結果：{outcome}",
-	"workflows.task.step_title": "步驟 {sequence}：{node}"
+	"workflows.task.step_title": "步驟 {sequence}：{node}",
+	"projects.appearance": "專案圖示和顏色",
+	"projects.appearance_reset": "重設",
+	"projects.toast.appearance_updated": "專案外觀已更新",
+	"projects.toast.failed_update_appearance": "更新專案外觀失敗"
 }
