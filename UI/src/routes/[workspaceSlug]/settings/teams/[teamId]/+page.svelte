@@ -129,7 +129,8 @@
 		team?.icon && !team.icon.startsWith('emoji:') ? (LEGACY_ICON_NAMES[team.icon] ?? team.icon) : 'SquareUser'
 	);
 
-	const TEAM_ICON_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/x-icon', 'image/vnd.microsoft.icon'];
+	// The server checks the format from the file's content; browsers often report
+	// no or a generic type for .ico files, so only the size is checked here.
 	const TEAM_ICON_MAX_BYTES = 1024 * 1024;
 	let iconInput = $state<HTMLInputElement | null>(null);
 	let uploadingIcon = $state(false);
@@ -140,7 +141,7 @@
 		const file = input.files?.[0];
 		input.value = '';
 		if (!file || !team) return;
-		if (!TEAM_ICON_TYPES.includes(file.type) || file.size > TEAM_ICON_MAX_BYTES) {
+		if (file.size > TEAM_ICON_MAX_BYTES) {
 			appToast.error(m['team_settings.icon_image_invalid']());
 			return;
 		}
