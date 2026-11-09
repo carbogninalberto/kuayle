@@ -279,6 +279,8 @@ type WikiRepo interface {
 	RegistryEnabled(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) (bool, error)
 	SetRegistryEnabled(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, enabled bool) error
 	AppendRegistry(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, day time.Time, entry string) (*domain.WikiPage, bool, error)
+	AppendIssueRegistry(ctx context.Context, workspaceID, issueID, userID uuid.UUID, now time.Time, text string) (*domain.WikiPage, bool, error)
+	RegistryDays(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, before *time.Time, limit int) ([]domain.WikiPage, error)
 }
 
 var _ WikiRepo = (*WikiRepository)(nil)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -274,4 +275,56 @@ func TestTheRegistryHidesMessagesOfInvisibleTeams(t *testing.T) {
 	require.Len(t, page.Messages, 1, "team members still see it")
 	_, _, err = f.messages.Get(f.memberCtx, f.workspace, page.Messages[0].ID)
 	require.ErrorIs(t, err, ErrAgentMessageNotFound)
+}
+
+// An agent logs to the wiki registry of its issue's team through the outbox,
+// as the task's creator; a file taken twice is logged once, and a registry
+// that is off refuses the entry on the record.
+func TestOutboxRegistryEntriesLandInTheTeamRegistry(t *testing.T) {
+	f := newMessageFixture(t)
+	file := outbox("log.json", `{"to":"registry","body":"Tests pass, <b>PR</b> next"}`)
+	recorded, err := f.messages.RecordTaskOutbox(context.Background(), f.sender.ID, []domain.AgentOutboxFile{file})
+	require.NoError(t, err)
+	require.Equal(t, 1, recorded)
+	var reason string
+	require.NoError(t, f.db.Get(&reason, `SELECT reject_reason FROM agent_messages WHERE from_task_id=$1 AND to_ref='REGISTRY'`, f.sender.ID))
+	require.Equal(t, "the registry of this project and team is turned off", reason)
+
+	_, err = f.db.Exec(`INSERT INTO wiki_settings(workspace_id,team_id,registry_enabled) VALUES($1,$2,TRUE)`, f.workspace, f.team)
+	require.NoError(t, err)
+	enabled := outbox("log-2.json", `{"to":"Registry","body":"Tests pass, <b>PR</b> next"}`)
+	for range 2 {
+		_, err = f.messages.RecordTaskOutbox(context.Background(), f.sender.ID, []domain.AgentOutboxFile{enabled})
+		require.NoError(t, err)
+	}
+	var pages []struct {
+		Title   string `db:"title"`
+		Content string `db:"content"`
+	}
+	require.NoError(t, f.db.Select(&pages, `SELECT title,content FROM wiki_pages WHERE team_id=$1 AND registry_date IS NOT NULL`, f.team))
+	require.Len(t, pages, 1)
+	require.Equal(t, "Registry "+time.Now().UTC().Format(time.DateOnly), pages[0].Title)
+	require.Equal(t, 1, strings.Count(pages[0].Content, "AUT-2: Tests pass, &lt;b&gt;PR&lt;/b&gt; next"), "taken twice, logged once")
+
+	// The issue's project registry takes entries while it is on.
+	project := uuid.New()
+	_, err = f.db.Exec(`INSERT INTO projects(id,workspace_id,team_id,name) VALUES($1,$2,$3,'Launch')`, project, f.workspace, f.team)
+	require.NoError(t, err)
+	_, err = f.db.Exec(`UPDATE issues SET project_id=$1 WHERE id=$2`, project, f.other)
+	require.NoError(t, err)
+	_, err = f.db.Exec(`INSERT INTO wiki_settings(workspace_id,project_id,registry_enabled) VALUES($1,$2,TRUE)`, f.workspace, project)
+	require.NoError(t, err)
+	_, err = f.messages.RecordTaskOutbox(context.Background(), f.sender.ID, []domain.AgentOutboxFile{outbox("log-3.json", `{"to":"registry","body":"Project milestone"}`)})
+	require.NoError(t, err)
+	var projectEntries int
+	require.NoError(t, f.db.Get(&projectEntries, `SELECT count(*) FROM wiki_pages WHERE project_id=$1 AND content LIKE '%AUT-2: Project milestone%'`, project))
+	require.Equal(t, 1, projectEntries)
+
+	var states []string
+	require.NoError(t, f.db.Select(&states, `SELECT state FROM agent_messages WHERE from_task_id=$1 AND to_ref='REGISTRY' ORDER BY created_at`, f.sender.ID))
+	require.Equal(t, []string{"rejected", "delivered", "delivered"}, states)
+	// Registry entries are never placed in an agent's prompt.
+	deliveries, err := f.messages.Claim(context.Background(), *f.sender, 1<<20)
+	require.NoError(t, err)
+	require.Empty(t, deliveries)
 }

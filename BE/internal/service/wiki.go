@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"html"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -200,17 +199,58 @@ func (s *WikiService) AppendRegistry(ctx context.Context, workspaceID uuid.UUID,
 	return page, nil
 }
 
-// wikiRegistryEntry renders one registry entry as editor HTML: the UTC time
-// in bold, then the escaped text on one line.
+// Registry feed page sizes, in days.
+const (
+	WikiRegistryDaysDefault = 7
+	WikiRegistryDaysMax     = 31
+)
+
+// RegistryDays returns a page of the scope's registry, newest day first, and
+// the cursor for the next (older) page, nil when there is none.
+func (s *WikiService) RegistryDays(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, before *time.Time, limit int) ([]domain.WikiPage, *time.Time, error) {
+	if limit <= 0 {
+		limit = WikiRegistryDaysDefault
+	}
+	if limit > WikiRegistryDaysMax {
+		return nil, nil, &WikiValidationError{Field: "limit", Message: "must be at most 31"}
+	}
+	pages, err := s.repo.RegistryDays(ctx, workspaceID, scope, before, limit+1)
+	if err != nil {
+		return nil, nil, wikiError(err)
+	}
+	if len(pages) <= limit {
+		return pages, nil, nil
+	}
+	pages = pages[:limit]
+	return pages, pages[limit-1].RegistryDate, nil
+}
+
+// wikiRegistryEntry renders one plain-text registry entry as editor HTML.
 func wikiRegistryEntry(raw string, at time.Time) (string, error) {
-	text := strings.Join(strings.Fields(sanitize.PlainText(raw)), " ")
-	if text == "" {
-		return "", &WikiValidationError{Field: "text", Message: "is required"}
+	entry, err := domain.WikiRegistryEntryHTML(sanitize.PlainText(raw), at)
+	if err != nil {
+		return "", &WikiValidationError{Field: "text", Message: "must be 1 to 2000 characters"}
 	}
-	if utf8.RuneCountInString(text) > domain.WikiRegistryEntryMaxRunes {
-		return "", &WikiValidationError{Field: "text", Message: "must be at most 2000 characters"}
+	return entry, nil
+}
+
+// AppendIssueRegistry logs text about an issue in today's registry of its
+// project, or of its team when the project's registry is off. It returns
+// ErrWikiRegistryDisabled when neither registry takes it.
+func (s *WikiService) AppendIssueRegistry(ctx context.Context, workspaceID, issueID, userID uuid.UUID, text string) error {
+	page, created, err := s.repo.AppendIssueRegistry(ctx, workspaceID, issueID, userID, s.now(), sanitize.PlainText(text))
+	if errors.Is(err, domain.ErrWikiRegistryEntry) {
+		return &WikiValidationError{Field: "text", Message: "must be 1 to 2000 characters"}
 	}
-	return "<p><strong>" + at.UTC().Format("15:04") + "</strong> " + html.EscapeString(text) + "</p>", nil
+	if err != nil {
+		return wikiError(err)
+	}
+	if created {
+		s.publish("wiki.created", page)
+	} else {
+		s.publish("wiki.updated", page)
+	}
+	return nil
 }
 
 func wikiTitle(raw string) (string, error) {

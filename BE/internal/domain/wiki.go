@@ -1,7 +1,11 @@
 package domain
 
 import (
+	"errors"
+	"html"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -102,4 +106,17 @@ const WikiRegistryEntryMaxRunes = 2000
 // WikiRegistryTitle is the title of the registry page for day (UTC).
 func WikiRegistryTitle(day time.Time) string {
 	return "Registry " + day.UTC().Format(time.DateOnly)
+}
+
+// ErrWikiRegistryEntry rejects an empty or overlong registry entry.
+var ErrWikiRegistryEntry = errors.New("a registry entry needs 1 to 2000 characters of text")
+
+// WikiRegistryEntryHTML renders one registry entry as editor HTML: the UTC
+// time in bold, then the text, escaped, on one line.
+func WikiRegistryEntryHTML(raw string, at time.Time) (string, error) {
+	text := strings.Join(strings.Fields(raw), " ")
+	if text == "" || utf8.RuneCountInString(text) > WikiRegistryEntryMaxRunes {
+		return "", ErrWikiRegistryEntry
+	}
+	return "<p><strong>" + at.UTC().Format("15:04") + "</strong> " + html.EscapeString(text) + "</p>", nil
 }

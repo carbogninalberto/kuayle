@@ -1054,6 +1054,18 @@ These comments are not interactive, so they never queue a follow-up attempt;
 the recipient agent still receives the message in its prompt. Held comment
 messages are posted only once released.
 
+**Registry entries.** A file with `"to":"registry"` (no channel or kind) is a
+line for the wiki registry (migration 126): it is recorded first, so a file
+taken twice is logged once and counts toward the same hourly budget, then
+appended, acting as the task's creator with their visibility, to today's (UTC)
+registry page of the issue's project when that project's registry is on, and
+otherwise of the issue's team, prefixed with the issue identifier. The record
+becomes `delivered` (to the sender's own issue, and never placed in a prompt)
+or stays `rejected` with the reason, such as a registry that is off. Kuayle
+also logs "pull request #N published: <url>" there, as the task's creator,
+whenever an implementing task publishes, in the Standard flow and in
+workflows; a registry that is off or fails never affects the task.
+
 **Reading.** Every non-guest workspace member reads the messages whose sending
 issue they can see; the recipient is named only when they can see it too.
 

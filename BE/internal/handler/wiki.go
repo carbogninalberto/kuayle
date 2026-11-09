@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -230,6 +231,42 @@ func (h *WikiHandler) AppendRegistry(kind domain.WikiScopeKind) echo.HandlerFunc
 			return wikiErrorResponse(c, err)
 		}
 		return response.Success(c, http.StatusOK, toWikiPage(*page))
+	}
+}
+
+// RegistryFeed lists registry pages, newest day first, a page of days at a
+// time: ?before=YYYY-MM-DD (exclusive) and ?limit=1..31 (default 7).
+func (h *WikiHandler) RegistryFeed(kind domain.WikiScopeKind) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		scope, ok := wikiScopeFromRoute(c, kind)
+		if !ok {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid "+string(kind)+" ID")
+		}
+		var before *time.Time
+		if raw := c.QueryParam("before"); raw != "" {
+			day, err := time.Parse(time.DateOnly, raw)
+			if err != nil {
+				return response.ValidationError(c, []dto.ErrorDetail{{Field: "before", Message: "must be a date (YYYY-MM-DD)"}})
+			}
+			before = &day
+		}
+		limit := 0
+		if raw := c.QueryParam("limit"); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value < 1 {
+				return response.ValidationError(c, []dto.ErrorDetail{{Field: "limit", Message: "must be 1 to 31"}})
+			}
+			limit = value
+		}
+		pages, next, err := h.wikiSvc.RegistryDays(c.Request().Context(), middleware.GetWorkspace(c).ID, scope, before, limit)
+		if err != nil {
+			return wikiErrorResponse(c, err)
+		}
+		resp := dto.WikiRegistryFeedResponse{Days: make([]dto.WikiRegistryDay, len(pages)), NextBefore: registryDate(next)}
+		for i, page := range pages {
+			resp.Days[i] = dto.WikiRegistryDay{Date: *registryDate(page.RegistryDate), PageID: page.ID.String(), Title: page.Title, Content: page.Content, Version: page.Version, UpdatedAt: page.UpdatedAt}
+		}
+		return response.Success(c, http.StatusOK, resp)
 	}
 }
 

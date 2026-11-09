@@ -308,6 +308,38 @@ func TestWikiHTTPAccessAndPersistence(t *testing.T) {
 	request(memberJWT, "PATCH", projectWiki+"/settings", `{"registry_enabled":false}`, http.StatusOK)
 	request(memberJWT, "POST", projectWiki+"/registry", `{"text":"after off"}`, http.StatusConflict)
 
+	// The registry feed pages through days, newest first, even while off.
+	for _, day := range []string{"2026-01-02", "2026-01-01"} {
+		_, err = db.Exec(`INSERT INTO wiki_pages(workspace_id,project_id,title,content,registry_date) VALUES($1,$2,$3,'<p><strong>09:00</strong> old</p>',$4)`, ws, publicProject, "Registry "+day, day)
+		require.NoError(t, err)
+	}
+	type feed struct {
+		Days []struct {
+			Date    string `json:"date"`
+			PageID  string `json:"page_id"`
+			Title   string `json:"title"`
+			Content string `json:"content"`
+			Version int    `json:"version"`
+		} `json:"days"`
+		NextBefore *string `json:"next_before"`
+	}
+	var registryFeed feed
+	decode(request(guestJWT, "GET", projectWiki+"/registry?limit=2", "", http.StatusOK), &registryFeed)
+	require.Len(t, registryFeed.Days, 2)
+	require.Equal(t, today, registryFeed.Days[0].Date)
+	require.Equal(t, registryPage.ID, registryFeed.Days[0].PageID)
+	require.Equal(t, "2026-01-02", registryFeed.Days[1].Date)
+	require.Equal(t, "2026-01-02", *registryFeed.NextBefore)
+	decode(request(guestJWT, "GET", projectWiki+"/registry?before="+*registryFeed.NextBefore, "", http.StatusOK), &registryFeed)
+	require.Len(t, registryFeed.Days, 1)
+	require.Equal(t, "<p><strong>09:00</strong> old</p>", registryFeed.Days[0].Content)
+	require.Nil(t, registryFeed.NextBefore)
+	decode(request(guestJWT, "GET", teamWiki+"/registry", "", http.StatusOK), &registryFeed)
+	require.Empty(t, registryFeed.Days, "other wikis' registries stay apart")
+	request(guestJWT, "GET", projectWiki+"/registry?limit=32", "", http.StatusBadRequest)
+	request(guestJWT, "GET", projectWiki+"/registry?before=yesterday", "", http.StatusBadRequest)
+	request(memberJWT, "GET", privateProjectWiki+"/registry", "", http.StatusNotFound)
+
 	// Outsiders and members of another workspace are denied.
 	request(jwt(outsider), "GET", teamWiki, "", http.StatusForbidden)
 	request(jwt(stranger), "GET", teamWiki, "", http.StatusForbidden)

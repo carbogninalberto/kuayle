@@ -44,3 +44,17 @@ func TestAgentMessageRecipientRefIsBoundedForRefusals(t *testing.T) {
 	require.Equal(t, "?", AgentMessageRef([]byte(`not json`)))
 	require.Len(t, []rune(AgentMessageRef([]byte(`{"to":"`+strings.Repeat("x", 500)+`"}`))), 64)
 }
+
+func TestOutboxRegistryEntries(t *testing.T) {
+	message, err := ParseAgentOutboxMessage([]byte(`{"to":" Registry ","body":"Tests pass"}`))
+	require.NoError(t, err)
+	require.Equal(t, AgentOutboxMessage{To: AgentOutboxRegistry, Channel: AgentMessageInternal, Body: "Tests pass"}, message)
+	for _, body := range []string{
+		`{"to":"registry","channel":"comment","body":"x"}`,
+		`{"to":"registry","kind":"question","body":"x"}`,
+		`{"to":"registry","body":""}`,
+	} {
+		_, err := ParseAgentOutboxMessage([]byte(body))
+		require.Error(t, err, body)
+	}
+}

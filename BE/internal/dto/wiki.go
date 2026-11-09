@@ -69,3 +69,19 @@ type WikiSettingsResponse struct {
 type WikiRegistryRequest struct {
 	Text string `json:"text"`
 }
+
+// WikiRegistryDay is one day of a registry feed: that day's page, whose
+// content holds one <p><strong>HH:MM</strong> text</p> per entry.
+type WikiRegistryDay struct {
+	Date      string    `json:"date"`
+	PageID    string    `json:"page_id"`
+	Title     string    `json:"title"`
+	Content   string    `json:"content"`
+	Version   int       `json:"version"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type WikiRegistryFeedResponse struct {
+	Days       []WikiRegistryDay `json:"days"`
+	NextBefore *string           `json:"next_before"`
+}

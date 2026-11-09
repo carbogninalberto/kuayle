@@ -306,7 +306,7 @@ func (r *WikiRepository) SetRegistryEnabled(ctx context.Context, workspaceID uui
 // It requires the scope to be visible and its registry on, holds the settings
 // and page rows locked until done, and records the change as a version like
 // any other save. created reports whether the page was new.
-func (r *WikiRepository) AppendRegistry(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, day time.Time, entry string) (page *domain.WikiPage, created bool, err error) {
+func (r *WikiRepository) AppendRegistry(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, day time.Time, entry string) (*domain.WikiPage, bool, error) {
 	if !scope.Valid() {
 		return nil, false, ErrWikiScopeNotFound
 	}
@@ -315,6 +315,20 @@ func (r *WikiRepository) AppendRegistry(ctx context.Context, workspaceID uuid.UU
 		return nil, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	page, created, err := appendRegistryTx(ctx, tx, workspaceID, scope, userID, day, entry)
+	if err != nil {
+		return nil, false, err
+	}
+	return page, created, tx.Commit()
+}
+
+// appendRegistryTx is AppendRegistry inside the caller's transaction. Its
+// refusals (invisible scope, registry off, full page) happen before any
+// write, so the transaction stays usable after them.
+func appendRegistryTx(ctx context.Context, tx *sqlx.Tx, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, day time.Time, entry string) (page *domain.WikiPage, created bool, err error) {
+	if !scope.Valid() {
+		return nil, false, ErrWikiScopeNotFound
+	}
 	if err := requireVisible(ctx, tx, wikiScopeVisible(ctx, scope.Kind, uuidSQL(scope.ID), uuidSQL(workspaceID))); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, false, ErrWikiScopeNotFound
@@ -384,5 +398,73 @@ func (r *WikiRepository) AppendRegistry(ctx context.Context, workspaceID uuid.UU
 	if err != nil {
 		return nil, false, err
 	}
+	return page, created, nil
+}
+
+// AppendIssueRegistry appends text, prefixed with the issue's identifier, to
+// today's registry of the issue's project when that registry is on, and
+// otherwise of its team. The caller must see the issue; registries that are
+// off or invisible are skipped, and ErrWikiRegistryDisabled means none took it.
+func (r *WikiRepository) AppendIssueRegistry(ctx context.Context, workspaceID, issueID, userID uuid.UUID, now time.Time, text string) (*domain.WikiPage, bool, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	page, created, err := appendIssueRegistryTx(ctx, tx, workspaceID, issueID, userID, now, text)
+	if err != nil {
+		return nil, false, err
+	}
 	return page, created, tx.Commit()
+}
+
+func appendIssueRegistryTx(ctx context.Context, tx *sqlx.Tx, workspaceID, issueID, userID uuid.UUID, now time.Time, text string) (*domain.WikiPage, bool, error) {
+	var issue struct {
+		Identifier string     `db:"identifier_text"`
+		TeamID     uuid.UUID  `db:"team_id"`
+		ProjectID  *uuid.UUID `db:"project_id"`
+	}
+	err := tx.GetContext(ctx, &issue, `SELECT issues.identifier_text, issues.team_id, issues.project_id FROM issues
+		WHERE issues.id = $1 AND issues.workspace_id = $2 AND `+teamVisible(ctx, "issues.team_id"), issueID, workspaceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, ErrWikiScopeNotFound
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	entry, err := domain.WikiRegistryEntryHTML(issue.Identifier+": "+text, now)
+	if err != nil {
+		return nil, false, err
+	}
+	scopes := []domain.WikiScope{domain.TeamWiki(issue.TeamID)}
+	if issue.ProjectID != nil {
+		scopes = append([]domain.WikiScope{domain.ProjectWiki(*issue.ProjectID)}, scopes...)
+	}
+	for _, scope := range scopes {
+		page, created, err := appendRegistryTx(ctx, tx, workspaceID, scope, userID, now, entry)
+		if errors.Is(err, ErrWikiRegistryDisabled) || errors.Is(err, ErrWikiScopeNotFound) {
+			continue
+		}
+		return page, created, err
+	}
+	return nil, false, ErrWikiRegistryDisabled
+}
+
+// RegistryDays returns up to limit registry pages of a visible scope, newest
+// day first, before the given day (exclusive) when one is set.
+func (r *WikiRepository) RegistryDays(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, before *time.Time, limit int) ([]domain.WikiPage, error) {
+	if err := r.RequireScope(ctx, workspaceID, scope); err != nil {
+		return nil, err
+	}
+	var cursor *string
+	if before != nil {
+		day := before.UTC().Format(time.DateOnly)
+		cursor = &day
+	}
+	pages := []domain.WikiPage{}
+	err := r.db.SelectContext(ctx, &pages, `SELECT `+wikiPageColumns+` FROM wiki_pages`+wikiEditorJoin+`
+		WHERE `+wikiPageInScope(ctx, scope)+` AND wiki_pages.registry_date IS NOT NULL
+		AND (CAST($3 AS date) IS NULL OR wiki_pages.registry_date < CAST($3 AS date))
+		ORDER BY wiki_pages.registry_date DESC LIMIT $4`, workspaceID, scope.ID, cursor, limit)
+	return pages, err
 }

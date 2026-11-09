@@ -192,6 +192,7 @@ func main() {
 	// Tasks that pin a configurable workflow follow it (KUA-95).
 	workflowRepo := repository.NewWorkflowRepository(db)
 	agentTaskSvc.SetWorkflows(workflowRepo)
+	agentTaskSvc.SetRegistry(wikiSvc)
 	assistantTools.SetWorkflows(workflowRepo)
 	workflowH := handler.NewWorkflowHandler(service.NewWorkflowService(workflowRepo, devMachineAgentReg, agentTaskSvc))
 	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))

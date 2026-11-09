@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -145,6 +146,28 @@ func (f *fakeWikiRepo) AppendRegistry(ctx context.Context, ws uuid.UUID, scope d
 	}
 	f.pages[page.ID] = page
 	return &page, true, nil
+}
+
+func (f *fakeWikiRepo) AppendIssueRegistry(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, time.Time, string) (*domain.WikiPage, bool, error) {
+	return nil, false, repository.ErrWikiRegistryDisabled
+}
+
+// RegistryDays returns registry pages of the scope, newest day first.
+func (f *fakeWikiRepo) RegistryDays(ctx context.Context, ws uuid.UUID, scope domain.WikiScope, before *time.Time, limit int) ([]domain.WikiPage, error) {
+	if err := f.RequireScope(ctx, ws, scope); err != nil {
+		return nil, err
+	}
+	pages := []domain.WikiPage{}
+	for _, page := range f.pages {
+		if page.Scope() == scope && page.RegistryDate != nil && (before == nil || page.RegistryDate.Before(*before)) {
+			pages = append(pages, page)
+		}
+	}
+	sort.Slice(pages, func(i, j int) bool { return pages[i].RegistryDate.After(*pages[j].RegistryDate) })
+	if len(pages) > limit {
+		pages = pages[:limit]
+	}
+	return pages, nil
 }
 
 func TestWikiServiceCreateAndReopenPreservesContent(t *testing.T) {
@@ -366,4 +389,31 @@ func TestWikiServiceRegistryAppendsToToday(t *testing.T) {
 	require.ErrorIs(t, err, ErrWikiNotFound)
 	require.ErrorIs(t, svc.SetRegistryEnabled(ctx, ws, hidden, user, true), ErrWikiNotFound)
 	require.Len(t, repo.appended, 3)
+}
+
+func TestWikiServiceRegistryFeedPagesByDay(t *testing.T) {
+	ctx, ws, user := context.Background(), uuid.New(), uuid.New()
+	team := domain.TeamWiki(uuid.New())
+	repo := newFakeWikiRepo(team)
+	repo.registry[team] = true
+	svc := NewWikiService(repo)
+	day := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	for i := range 3 {
+		svc.now = func() time.Time { return day.AddDate(0, 0, i) }
+		_, err := svc.AppendRegistry(ctx, ws, team, user, "entry")
+		require.NoError(t, err)
+	}
+	pages, next, err := svc.RegistryDays(ctx, ws, team, nil, 2)
+	require.NoError(t, err)
+	require.Equal(t, []string{"Registry 2026-11-03", "Registry 2026-11-02"}, []string{pages[0].Title, pages[1].Title})
+	require.Equal(t, "2026-11-02", next.Format(time.DateOnly))
+	pages, next, err = svc.RegistryDays(ctx, ws, team, next, 2)
+	require.NoError(t, err)
+	require.Len(t, pages, 1)
+	require.Nil(t, next, "the last page has no cursor")
+	_, _, err = svc.RegistryDays(ctx, ws, team, nil, 32)
+	var invalid *WikiValidationError
+	require.ErrorAs(t, err, &invalid)
+	_, _, err = svc.RegistryDays(ctx, ws, domain.TeamWiki(uuid.New()), nil, 0)
+	require.ErrorIs(t, err, ErrWikiNotFound)
 }
