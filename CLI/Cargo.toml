@@ -6,4 +6,6 @@ members = ["crates/*"]
 version = "0.1.1"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/uiYzzi/kuayle_cli"
+repository = "https://github.com/carbogninalberto/kuayle"
+homepage = "https://kuayle.com"
+authors = ["uiYzzi (original author)", "Kuayle contributors"]

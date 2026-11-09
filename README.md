@@ -253,11 +253,22 @@ Dev Machines, voice, web search, private teams and workspace transfer. GitHub
 setup is in [GitHub integration](docs/github-integration.md). All docs are
 indexed in [docs/](docs/README.md).
 
-## Community and ecosystem
+## Command-line interface
 
-- [kuayle_cli](https://github.com/uiYzzi/kuayle_cli) by [@uiYzzi](https://github.com/uiYzzi):
-  an unofficial Rust CLI and SDK for using Kuayle from the terminal, by people or
-  coding agents.
+[`CLI/`](CLI/) holds the official `kuayle` CLI and Rust SDK, for people and coding
+agents. Install it with checksum verification:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/carbogninalberto/kuayle/main/CLI/install.sh | sh
+kuayle auth login --url https://kuayle.example.com --workspace acme --token kuayle_pat_...
+kuayle usage
+```
+
+Originally created by [@uiYzzi](https://github.com/uiYzzi) as
+[kuayle_cli](https://github.com/uiYzzi/kuayle_cli); contributed to and now
+maintained in the Kuayle repository. Thank you! The CLI keeps its MIT license
+([`CLI/LICENSE`](CLI/LICENSE)); see [`NOTICE`](NOTICE) and the
+[CLI guide](docs/cli.md).
 
 ## Contributing
 
@@ -271,7 +282,8 @@ If Kuayle is useful to you, you can support it through
 
 ## License
 
-Apache 2.0, see [`LICENSE`](LICENSE).
+Apache 2.0, see [`LICENSE`](LICENSE). The CLI in [`CLI/`](CLI/) is MIT licensed;
+see [`NOTICE`](NOTICE).
 
 ## Contact
 

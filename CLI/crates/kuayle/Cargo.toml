@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "CLI for the kuayle self-hosted issue tracker"
+description = "Official command-line interface for Kuayle, the self-hosted issue tracker"
 
 [features]
 binary-release = []

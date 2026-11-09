@@ -4,6 +4,6 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Cargo task runner for kuayle-cli development"
+description = "Cargo task runner for Kuayle CLI development"
 
 [dependencies]
