@@ -20,6 +20,7 @@
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
@@ -60,6 +61,9 @@
 	const projectId = $derived(page.params.projectId ?? '');
 
 	let project = $state<Project | null>(null);
+	let renaming = $state(false);
+	let nameDraft = $state('');
+	let nameInput = $state<HTMLInputElement | null>(null);
 	let teams = $state<Team[]>([]);
 	let loading = $state(true);
 	let statusOpen = $state(false);
@@ -157,6 +161,7 @@
 		project = null;
 		workspaceRole = 'guest';
 		showDelete = false;
+		renaming = false;
 		void loadProject(s, pid, version);
 		return () => {
 			projectRequestVersion++;
@@ -203,9 +208,6 @@
 		}
 	}
 
-	let renaming = $state(false);
-	let nameDraft = $state('');
-
 	function startRename() {
 		if (!project || !canManage) return;
 		nameDraft = project.name;
@@ -228,9 +230,9 @@
 			return;
 		}
 		renaming = false;
+		const id = project.id;
 		try {
-			await updateProject(slug, project.id, { name: next });
-			const id = project.id;
+			await updateProject(slug, id, { name: next });
 			sidebarState.projects = sidebarState.projects.map((p) => (p.id === id ? { ...p, name: next } : p));
 			await refreshProject();
 			appToast.success(m['projects.toast.renamed']());
@@ -249,10 +251,12 @@
 		}
 	}
 
-	function focusOnMount(node: HTMLInputElement) {
-		node.focus();
-		node.select();
-	}
+	$effect(() => {
+		if (renaming && nameInput) {
+			nameInput.focus();
+			nameInput.select();
+		}
+	});
 
 	async function handleDateChange(field: 'start_date' | 'target_date', value: string | null) {
 		if (!project || !canManage) return;
@@ -353,8 +357,9 @@
 						<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
 					{/if}
 					{#if renaming}
-						<input
-							use:focusOnMount
+						<Input
+							variant="plain"
+							bind:ref={nameInput}
 							bind:value={nameDraft}
 							onkeydown={renameKeydown}
 							onblur={commitRename}
@@ -365,7 +370,8 @@
 					{:else}
 						<span class="truncate font-medium text-[var(--color-text-primary)]">{project.name}</span>
 						{#if canManage}
-							<button
+							<Button
+								variant="plain"
 								type="button"
 								onclick={startRename}
 								aria-label={m['projects.rename']()}
@@ -373,7 +379,7 @@
 								class="flex size-7 shrink-0 items-center justify-center rounded text-[var(--color-text-tertiary)] outline-none hover:text-[var(--color-text-secondary)] focus-visible:ring-2 focus-visible:ring-ring/50"
 							>
 								<Pencil size={14} />
-							</button>
+							</Button>
 						{/if}
 					{/if}
 				</nav>
