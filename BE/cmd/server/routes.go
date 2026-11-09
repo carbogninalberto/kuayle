@@ -270,6 +270,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 		scoped(ws, http.MethodDelete, wiki.base+"/:pageId", h.wiki.Delete(wiki.kind), domain.PermWikiWrite)
 		scoped(ws, http.MethodGet, wiki.base+"/:pageId/versions", h.wiki.Revisions(wiki.kind), domain.PermWikiRead)
 		scoped(ws, http.MethodPost, wiki.base+"/:pageId/rework", h.wiki.Rework(wiki.kind), domain.PermWikiWrite)
+		scoped(ws, http.MethodGet, wiki.base+"/tree", h.wiki.Tree(wiki.kind), domain.PermWikiRead)
+		scoped(ws, http.MethodPost, wiki.base+"/tree", h.wiki.CreateInTree(wiki.kind), domain.PermWikiWrite)
+		scoped(ws, http.MethodPost, wiki.base+"/:pageId/move", h.wiki.Move(wiki.kind), domain.PermWikiWrite)
 	}
 
 	// Views
