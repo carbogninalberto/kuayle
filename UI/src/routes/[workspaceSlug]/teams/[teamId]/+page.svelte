@@ -660,4 +660,4 @@
 	oncreated={loadIssues}
 />
 
-<PageTitle parts={[sidebarState.getTeam(teamId)?.name, m['sidebar.issues']()]} />
+<PageTitle parts={[m['sidebar.issues'](), sidebarState.getTeam(teamId)?.name]} />

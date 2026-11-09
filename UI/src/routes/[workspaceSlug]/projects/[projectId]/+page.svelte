@@ -485,4 +485,4 @@
 	</Dialog.Content>
 </Dialog.Root>
 
-<PageTitle parts={[project?.name, m['projects.title']()]} />
+<PageTitle parts={[project?.name, projectTeam?.name]} />
