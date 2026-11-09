@@ -50,11 +50,15 @@
 		calls,
 		slug,
 		approvals = {},
+		part = 'all',
 		onresolve
 	}: {
 		calls: ConversationToolCall[];
 		slug: string;
 		approvals?: Record<string, ConversationApproval>;
+		// A message renders its steps before its text and its approval requests
+		// after it: 'steps' leaves approvals out, 'approvals' shows only them.
+		part?: 'all' | 'steps' | 'approvals';
 		onresolve?: (approval: ConversationApproval, decision: 'approve' | 'deny', choice?: ApprovalEdit) => Promise<void>;
 	} = $props();
 	let choices = $state<Record<string, ApprovalModelChoice>>({});
@@ -286,8 +290,11 @@
 	};
 	// A pending approval is never folded away; other steps beyond the first few
 	// collapse behind one "+N more steps" chip so long tool work stays one line.
-	const pending = $derived(calls.filter((call) => approvals[call.id]?.status === 'pending'));
-	const steps = $derived(splitSteps(calls.filter((call) => approvals[call.id]?.status !== 'pending')));
+	const shown = $derived(
+		part === 'all' ? calls : calls.filter((call) => (part === 'approvals') === !!approvals[call.id])
+	);
+	const pending = $derived(shown.filter((call) => approvals[call.id]?.status === 'pending'));
+	const steps = $derived(splitSteps(shown.filter((call) => approvals[call.id]?.status !== 'pending')));
 	function created(call: ConversationToolCall) {
 		const identifier = (call.output as { identifier?: unknown } | undefined)?.identifier;
 		return (call.name === 'create_issue' || call.name === 'update_issue') &&
@@ -842,8 +849,8 @@
 			{/if}
 {/snippet}
 
-{#if calls.length}
-	<Trace.Root class="min-w-0 gap-1.5" data-testid="tool-steps">
+{#if shown.length}
+	<Trace.Root class="min-w-0 gap-1.5" data-testid={part === 'approvals' ? 'tool-approvals' : 'tool-steps'}>
 		{#each steps.inline as call (call.id)}{@render callView(call)}{/each}
 		{#if steps.overflow.length}
 			<Trace.Collapsible>

@@ -776,11 +776,14 @@ test('runs the check from the task card and shows the manual check live, apart f
 	await page.goto('/test/assistant?conversation=chat-1');
 	await delegate(page);
 	const task = page.getByRole('article', { name: 'Coding task' });
-	const run = task.getByRole('group', { name: 'Tools' }).getByRole('button', { name: 'Run check', exact: true });
+	const run = page.getByRole('menuitem', { name: 'Run check', exact: true });
+	await openTaskMenu(page);
 	await expect(run).toHaveCount(0);
+	await page.keyboard.press('Escape');
 	await awaitReview(state, emit);
 	state.task = { ...state.task, machine_id: 'machine-1' };
 	emit('task.state_changed', state.task);
+	await openTaskMenu(page);
 	await run.click();
 	await expect.poll(() => state.checkRuns).toEqual([{}]);
 	const manual = task.getByRole('region', { name: 'Manual check', exact: true });
@@ -788,11 +791,13 @@ test('runs the check from the task card and shows the manual check live, apart f
 	await expect(task.getByRole('region', { name: 'Independent checks', exact: true })).toContainText(
 		'No independent check recorded'
 	);
-	const busy = task.getByRole('group', { name: 'Tools' }).getByRole('button', { name: 'Running manual check' });
+	const busy = page.getByRole('menuitem', { name: 'Running manual check' });
 	state.manualChecks = [{ ...state.manualChecks[0], status: 'running', started_at: '2026-10-27T10:00:00Z' }];
 	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.manualChecks[0] });
 	await expect(manual.getByText('Running manual check')).toBeVisible();
+	await openTaskMenu(page);
 	await expect(busy).toBeDisabled();
+	await page.keyboard.press('Escape');
 	state.logs = [
 		{
 			id: 1,
@@ -812,6 +817,7 @@ test('runs the check from the task card and shows the manual check live, apart f
 	await expect(manual.getByText('Exit code: 1')).toBeVisible();
 	await expect(manual.getByText(/1 failing: search returns hidden issues/)).toBeVisible();
 	await expect(page.getByText(/1 failing: search returns hidden issues/)).toHaveCount(1);
+	await openTaskMenu(page);
 	await expect(run).toBeEnabled();
 	expect(state.task.state).toBe('awaiting_review');
 	expect(state.retries).toHaveLength(0);
@@ -872,6 +878,15 @@ test('opens the recorded pull request only after publication succeeds', async ({
 	await expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
 	expect(state.creates).toHaveLength(1);
 });
+
+// Tools and secondary actions live in the task card's one "More actions" menu.
+async function openTaskMenu(page: Page) {
+	await page
+		.getByRole('article', { name: 'Coding task' })
+		.getByRole('button', { name: 'More actions', exact: true })
+		.click();
+	return page.getByRole('menu').first();
+}
 
 async function awaitReview(state: any, emit: (type: string, payload: any) => void) {
 	state.publication = {
@@ -976,12 +991,15 @@ test('starts, opens and stops the task app from its card', async ({ page }) => {
 	await page
 		.context()
 		.route('https://*.machines.example.test/**', (route) => route.fulfill({ contentType: 'text/html', body: 'app' }));
-	const tools = page.getByRole('group', { name: 'Tools' });
-	const app = tools.getByRole('button', { name: /^App/ });
-	await app.click();
+	// The app is a submenu of the card's menu; its label carries the app's state.
+	const app = (name: string | RegExp) => page.getByRole('menuitem', { name, exact: true });
+	const sub = page.getByRole('menu').last();
+	await openTaskMenu(page);
+	await app(/^App/).click();
 	await page.getByRole('menuitem', { name: 'Start app' }).click();
 	await expect.poll(() => state.appStarts).toBe(1);
-	await expect(tools.getByRole('button', { name: 'App: starting' })).toBeVisible();
+	await openTaskMenu(page);
+	await expect(app('App: starting')).toBeVisible();
 	// The manager reports the process running on its allocated port; the card
 	// keeps checking while the app starts.
 	state.ports = [
@@ -991,23 +1009,24 @@ test('starts, opens and stops the task app from its card', async ({ page }) => {
 		taskPort({ id: 'port-u', port: 3000, label: 'web', source: 'user', agent_task_id: null, task_identifier: null })
 	];
 	state.task = { ...state.task, preview: { state: 'running', port_id: 'port-t', port: 4100, error: null } };
-	await expect(tools.getByRole('button', { name: 'App: running' })).toBeVisible({ timeout: 10_000 });
-	await tools.getByRole('button', { name: 'App: running' }).click();
-	const menu = page.getByRole('menu');
-	await expect(menu.getByRole('menuitem', { name: /^Open/ })).toHaveCount(2);
-	await expect(menu.getByRole('menuitem', { name: 'Start app' })).toHaveCount(0);
+	await expect(app('App: running')).toBeVisible({ timeout: 10_000 });
+	await app('App: running').click();
+	await expect(sub.getByRole('menuitem', { name: /^Open/ })).toHaveCount(2);
+	await expect(sub.getByRole('menuitem', { name: 'Start app' })).toHaveCount(0);
 	const popupPromise = page.waitForEvent('popup');
-	await menu.getByRole('menuitem', { name: 'Open ENG-1 :4100' }).click();
+	await sub.getByRole('menuitem', { name: 'Open ENG-1 :4100' }).click();
 	const popup = await popupPromise;
 	await expect.poll(() => popup.url()).toContain('machine-port-t.machines.example.test');
 	expect(state.portLaunches).toEqual(['port-t']);
-	await tools.getByRole('button', { name: 'App: running' }).click();
-	await page.getByRole('menu').getByRole('menuitem', { name: 'Stop app' }).click();
+	await openTaskMenu(page);
+	await app('App: running').click();
+	await page.getByRole('menuitem', { name: 'Stop app' }).click();
 	await expect.poll(() => state.appStops).toBe(1);
-	await expect(tools.getByRole('button', { name: 'App', exact: true })).toBeVisible();
-	await tools.getByRole('button', { name: 'App', exact: true }).click();
-	await expect(page.getByRole('menu').getByRole('menuitem', { name: 'Open storybook :6006' })).toBeVisible();
-	await expect(page.getByRole('menu').getByRole('menuitem', { name: 'Start app' })).toBeVisible();
+	await openTaskMenu(page);
+	await expect(app('App')).toBeVisible();
+	await app('App').click();
+	await expect(sub.getByRole('menuitem', { name: 'Open storybook :6006' })).toBeVisible();
+	await expect(sub.getByRole('menuitem', { name: 'Start app' })).toBeVisible();
 });
 
 test('shows why the task app failed or could not start', async ({ page }) => {
@@ -1022,9 +1041,9 @@ test('shows why the task app failed or could not start', async ({ page }) => {
 		preview: { state: 'failed', port_id: null, port: null, error: 'npm ERR! Missing script: "dev"' }
 	};
 	emit('task.state_changed', state.task);
-	const tools = page.getByRole('group', { name: 'Tools' });
-	await tools.getByRole('button', { name: 'App: failed' }).click();
-	const menu = page.getByRole('menu');
+	await openTaskMenu(page);
+	await page.getByRole('menuitem', { name: 'App: failed' }).click();
+	const menu = page.getByRole('menu').last();
 	await expect(menu.getByText('npm ERR! Missing script: "dev"')).toBeVisible();
 	state.appStartError = {
 		status: 422,
@@ -1052,8 +1071,8 @@ for (const [name, width] of [
 			preview: { state: 'running', port_id: 'port-t', port: 4100, error: null }
 		};
 		emit('task.state_changed', state.task);
-		const task = page.getByRole('article', { name: 'Coding task' });
-		await task.getByRole('button', { name: 'App: running' }).click();
+		await openTaskMenu(page);
+		await page.getByRole('menuitem', { name: 'App: running' }).click();
 		await expect(page.getByRole('menuitem', { name: 'Open ENG-1 :4100' })).toBeVisible();
 		expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
 		const item = await page.getByRole('menuitem', { name: 'Open ENG-1 :4100' }).boundingBox();
@@ -1434,8 +1453,9 @@ test('requests an agent review through the chat and shows its findings on the ta
 	page.on('request', (request) => {
 		if (request.method() !== 'GET') requests.push(request.url());
 	});
-	await tasks.getByRole('button', { name: 'Request review', exact: true }).click();
-	const items = page.getByRole('menuitem');
+	await openTaskMenu(page);
+	await page.getByRole('menuitem', { name: 'Request review', exact: true }).click();
+	const items = page.getByRole('menu').last().getByRole('menuitem');
 	await expect(items).toHaveText([/Codex\s*Same agent$/, /Claude Code$/]);
 	await page.getByRole('menuitem', { name: 'Claude Code' }).click();
 	await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('Review ENG-1 with Claude Code');
@@ -1613,28 +1633,33 @@ test('the task card thread messages the running agent and shows its answers live
 	};
 	await page.goto('/test/assistant?conversation=chat-1');
 	const thread = page.getByRole('region', { name: 'Live messages' });
-	await expect(thread.getByText('The running agent reads it after its current step.')).toBeVisible();
-	// One composer: it says plainly whether it writes to the assistant or to the agent.
+	// The card's own one-line composer writes to the agent; its hint says when it reads it.
+	const reply = thread.getByRole('textbox', { name: 'Reply to the agent' });
+	await expect(reply).toHaveAccessibleDescription('The running agent reads it after its current step.');
+	const send = thread.getByRole('button', { name: 'Send', exact: true });
+	await expect(send).toBeDisabled();
+	await reply.fill('Also add tests for the empty list');
+	await reply.press('Enter');
+	await expect.poll(() => state.liveSends).toEqual(['Also add tests for the empty list']);
+	await expect(reply).toHaveValue('');
+	await expect(thread.getByRole('listitem', { name: 'You' })).toContainText('Waiting for the agent');
+	// The chat composer says plainly whether it writes to the assistant or to the agent.
 	const target = page.getByRole('button', { name: /^Send to: / });
 	await expect(target).toHaveAccessibleName('Send to: Assistant');
-	await thread.getByRole('button', { name: 'Reply to the agent' }).click();
-	await expect(target).toHaveAccessibleName('Send to: ENG-1 · Codex agent');
-	await expect(page.getByText('Messages go to the Codex agent of ENG-1, not to the assistant.')).toBeVisible();
-	const composer = page.getByRole('textbox', { name: 'Write to the agent' });
-	await expect(composer).toBeFocused();
-	await composer.fill('Also add tests for the empty list');
-	await composer.press('Enter');
-	await expect.poll(() => state.liveSends).toEqual(['Also add tests for the empty list']);
-	await expect(composer).toHaveValue('');
-	await expect(thread.getByRole('listitem', { name: 'You' })).toContainText('Waiting for the agent');
-	// Nothing was sent to the assistant; switching back aims the composer at it again.
-	await page.getByRole('button', { name: 'Back to assistant' }).click();
-	await expect(target).toHaveAccessibleName('Send to: Assistant');
-	await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
 	await target.click();
 	await page.getByRole('menuitemcheckbox', { name: 'ENG-1 · Codex agent' }).click();
 	await expect(target).toHaveAccessibleName('Send to: ENG-1 · Codex agent');
 	await page.keyboard.press('Escape');
+	await expect(page.getByText('Messages go to the Codex agent of ENG-1, not to the assistant.')).toBeVisible();
+	const composer = page.getByRole('textbox', { name: 'Write to the agent' });
+	await composer.fill('Keep the old route');
+	await composer.press('Enter');
+	await expect.poll(() => state.liveSends).toEqual(['Also add tests for the empty list', 'Keep the old route']);
+	await expect(composer).toHaveValue('');
+	// Nothing was sent to the assistant; switching back aims the composer at it again.
+	await page.getByRole('button', { name: 'Back to assistant' }).click();
+	await expect(target).toHaveAccessibleName('Send to: Assistant');
+	await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
 
 	// The manager records the agent's question: the card and the chat update live.
 	state.liveMessages = [...state.liveMessages, agentQuestion];
@@ -1669,8 +1694,10 @@ test('opens a stopped Claude Code task in Claude Code through the task terminal'
 	await delegate(page);
 	const tasks = page.getByRole('region', { name: 'Coding tasks' });
 	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
-	const open = tasks.getByRole('button', { name: 'Open in Claude Code', exact: true });
+	const open = page.getByRole('menuitem', { name: 'Open in Claude Code', exact: true });
+	await openTaskMenu(page);
 	await expect(open).toHaveCount(0);
+	await page.keyboard.press('Escape');
 	// A Codex task keeps the typed session command instead.
 	state.task = {
 		...state.task,
@@ -1680,10 +1707,13 @@ test('opens a stopped Claude Code task in Claude Code through the task terminal'
 	};
 	emit('task.state_changed', state.task);
 	await expect(tasks.getByText('Pull request opened; waiting for human review', { exact: true })).toBeVisible();
+	await openTaskMenu(page);
 	await expect(open).toHaveCount(0);
+	await page.keyboard.press('Escape');
 
 	state.task = { ...state.task, provider: 'claude-code' };
 	emit('task.state_changed', state.task);
+	await openTaskMenu(page);
 	await expect(open).toBeVisible();
 	await open.click();
 	await expect.poll(() => state.terminals).toBe(1);
@@ -1696,6 +1726,8 @@ test('opens a stopped Claude Code task in Claude Code through the task terminal'
 
 	state.task = { ...state.task, state: 'running', reason: 'Running' };
 	emit('task.state_changed', state.task);
+	await expect(tasks.getByRole('status').filter({ hasText: 'Running' })).toBeVisible();
+	await openTaskMenu(page);
 	await expect(open).toHaveCount(0);
 });
 

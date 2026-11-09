@@ -27,7 +27,8 @@
 		ChevronRight,
 		ChevronDown,
 		BadgeCheck,
-		FlaskConical
+		FlaskConical,
+		ScanSearch
 	} from '@lucide/svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import TaskActions from './TaskActions.svelte';
@@ -35,7 +36,7 @@
 	import TaskMessages from '$lib/features/agent-messages/TaskMessages.svelte';
 	import TaskLiveThread from './TaskLiveThread.svelte';
 	import AgentTranscript from './AgentTranscript.svelte';
-	import ReviewRequestMenu from './ReviewRequestMenu.svelte';
+	import TaskMenu from './TaskMenu.svelte';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { reviewHarnesses, reviewSessions } from './agent-review';
 	import * as Alert from '$lib/components/ui/alert/index.js';
@@ -47,7 +48,7 @@
 	import type { TaskAction, TaskMenuEntry } from './task-actions';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import { agentSessionCommand, resumableStates } from './agent-session';
-	import { taskTone, toneBadge, toneStatus } from './task-tone';
+	import { taskTone, toneDot, toneText } from './task-tone';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
@@ -702,6 +703,52 @@
 						title: `${chat.issue?.identifier ?? ''} · ${m['tasks.attempt']({ number: task.generation })}`
 					})
 			});
+		// Tools, in the menu: the agent's own session first, then review and QA.
+		if (task.machine_id && dock) {
+			if (claudeCode)
+				list.push({
+					id: 'claude-code',
+					icon: Bot,
+					label: m['tasks.open_in_claude_code'](),
+					title: m['tasks.open_in_claude_code_help'](),
+					group: 'tools',
+					movesFocus: true,
+					onclick: openInClaudeCode
+				});
+			else if (sessionCommand) {
+				const command = sessionCommand;
+				list.push({
+					id: 'session',
+					icon: Bot,
+					label: m['tasks.agent_session'](),
+					title: m['tasks.agent_session_help'](),
+					group: 'tools',
+					movesFocus: true,
+					onclick: () => openTerminal(command)
+				});
+			}
+		}
+		// Reviews are requested from the chat: the pick writes the request into
+		// the composer, and the assistant asks for approval.
+		if (task.state === 'awaiting_review' && pullRequest && harnesses.length && chat.issue)
+			list.push({
+				id: 'review',
+				icon: ScanSearch,
+				label: m['tasks.request_review'](),
+				group: 'tools',
+				menu: [
+					{ kind: 'note', id: 'heading', text: m['tasks.review_with']() },
+					...harnesses.map((id) => ({
+						kind: 'item' as const,
+						id,
+						logo: id,
+						label: agentLabel(id),
+						hint: id === task.provider ? m['tasks.review_same_agent']() : undefined,
+						movesFocus: true,
+						onclick: () => requestReview(id)
+					}))
+				]
+			});
 		if (canRunCheck)
 			list.push({
 				id: 'check',
@@ -713,35 +760,15 @@
 				onclick: () => void runCheck()
 			});
 		if (appAction) list.push(appAction);
-		if (task.machine_id && dock) {
+		if (task.machine_id && dock)
 			list.push({
 				id: 'terminal',
 				icon: SquareTerminal,
 				label: m['tasks.agents_terminal'](),
 				group: 'tools',
+				movesFocus: true,
 				onclick: () => openTerminal()
 			});
-			if (claudeCode) {
-				list.push({
-					id: 'claude-code',
-					icon: Bot,
-					label: m['tasks.open_in_claude_code'](),
-					title: m['tasks.open_in_claude_code_help'](),
-					group: 'main',
-					onclick: openInClaudeCode
-				});
-			} else if (sessionCommand) {
-				const command = sessionCommand;
-				list.push({
-					id: 'session',
-					icon: Bot,
-					label: m['tasks.agent_session'](),
-					title: m['tasks.agent_session_help'](),
-					group: 'tools',
-					onclick: () => openTerminal(command)
-				});
-			}
-		}
 		if (task.machine_id)
 			list.push({
 				id: 'environment',
@@ -818,53 +845,59 @@
 </script>
 
 <!-- A task is a row in the panel's list, not a nested card. -->
-<article bind:this={article} class="min-w-0 scroll-mt-2 py-2" aria-label={m['tasks.task']()}>
-	<div class="flex items-start gap-2">
+<article bind:this={article} class="min-w-0 scroll-mt-2 py-2.5" aria-label={m['tasks.task']()}>
+	<div class="flex items-start gap-1.5">
 		<Button
-			variant="ghost"
-			size="icon-sm"
-			class="mt-0.5 shrink-0 cursor-pointer"
+			variant="plain"
+			class="mt-px flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 [&_svg]:size-3.5"
 			aria-expanded={expanded}
 			aria-label={expanded ? m['tasks.collapse_task']() : m['tasks.expand_task']()}
 			onclick={() => (expanded = !expanded)}
 			>{#if expanded}<ChevronDown />{:else}<ChevronRight />{/if}</Button
 		>
-		<div class="min-w-0 flex-1 space-y-0.5 pt-1">
-			<div class="flex items-start justify-between gap-3">
-				<p class="min-w-0 text-sm font-medium break-words {expanded ? 'line-clamp-2 whitespace-pre-wrap' : 'truncate'}">
-					{task.prompt}
-				</p>
-				<Badge variant="outline" class="shrink-0 {toneBadge[tone]}" role="status">{stateLabel}</Badge>
-			</div>
-			<p class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
-				<AgentLogo agent={task.provider} size="sm" /><span class="min-w-0 break-words"
-					>{agentLabel(task.provider)}{task.model ? ` · ${task.model}` : ''} · {m['tasks.attempt']({
-						number: task.generation
-					})}</span
-				>{#if workflowReason}<Badge
+		<div class="min-w-0 flex-1 space-y-1">
+			<p
+				class="min-w-0 text-[13px] leading-5 font-medium break-words {expanded
+					? 'line-clamp-2 whitespace-pre-wrap'
+					: 'truncate'}"
+				title={task.prompt}
+			>
+				{task.prompt}
+			</p>
+			<div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
+				<span class="inline-flex shrink-0 items-center gap-1.5 font-medium {toneText[tone]}" role="status"
+					><span aria-hidden="true" class="size-1.5 rounded-full {toneDot[tone]}"></span>{stateLabel}</span
+				>
+				<span class="inline-flex min-w-0 items-center gap-1"
+					><AgentLogo agent={task.provider} size="sm" class="size-4 [&_svg]:size-2.5" /><span class="min-w-0 truncate"
+						>{agentLabel(task.provider)}{task.model ? ` · ${task.model}` : ''} · {m['tasks.attempt']({
+							number: task.generation
+						})}</span
+					></span
+				>
+				<!-- Why the iteration started; the first run needs no explanation. -->
+				{#if workflowReason}<Badge
 						variant="secondary"
 						class="h-4 max-w-full shrink truncate px-1.5 text-[10px] font-normal"
 						title={workflowReason}
 						data-testid="iteration-reason">{workflowReason}</Badge
-					>{:else if iterationReason}<Badge
+					>{:else if iterationReason && iterationReason !== 'first'}<Badge
 						variant="secondary"
 						class="h-4 shrink-0 px-1.5 text-[10px] font-normal"
 						data-testid="iteration-reason">{reasonLabels[iterationReason]()}</Badge
 					>{/if}
-			</p>
+			</div>
 		</div>
+		{#if expanded}<TaskMenu {actions} />{/if}
 	</div>
-	{#if expanded}<div class="mt-2 space-y-3 pl-9">
-			<Trace.Root>
-				<Trace.Line class="items-start" status={toneStatus(tone)}
-					><Trace.Icon
-						>{#if active}<LoaderCircle class="animate-spin" />{:else if failed || task.state === 'blocked'}<CircleAlert
-							/>{:else if task.state === 'completed'}<CircleCheck />{:else if approver}<CircleCheck
-							/>{:else if task.state === 'awaiting_review'}<GitPullRequest />{:else}<Circle />{/if}</Trace.Icon
-					><Trace.Title class="overflow-visible text-clip whitespace-normal break-words">{reason}</Trace.Title
-					></Trace.Line
-				>
-			</Trace.Root>
+	{#if expanded}<div class="mt-2 space-y-2.5 pl-[26px]">
+			{#if reason}<p class="flex min-w-0 items-start gap-1.5 text-xs leading-5 text-muted-foreground">
+					<span aria-hidden="true" class="mt-[3px] shrink-0 [&_svg]:size-3.5 {toneText[tone]}"
+						>{#if active}<LoaderCircle class="animate-spin motion-reduce:animate-none" />{:else if failed}<CircleAlert
+							/>{:else if task.state === 'completed' || approver}<CircleCheck
+							/>{:else if task.state === 'awaiting_review'}<GitPullRequest />{:else}<Circle />{/if}</span
+					><span class="min-w-0 break-words">{reason}</span>
+				</p>{/if}
 			{#if needsSignIn}
 				<Alert.Root class="border-[var(--status-warning)]/40 bg-[var(--status-warning)]/5">
 					<CircleAlert class="text-[var(--status-warning)]" />
@@ -910,34 +943,30 @@
 					</Alert.Description>
 				</Alert.Root>
 			{/if}
-			<TaskActions {actions}>
-				{#snippet extra()}
-					{#if task.state === 'awaiting_review' && pullRequest && harnesses.length && chat.issue}<ReviewRequestMenu
-							{harnesses}
-							implementer={task.provider}
-							onpick={requestReview}
-						/>{/if}
-				{/snippet}
-			</TaskActions>
-			{#if task.kind !== 'review'}<TaskLiveThread {chat} {task} />{/if}
+			<TaskActions {actions} />
+			{#if task.kind !== 'review'}<TaskLiveThread {chat} {task} inline />{/if}
 			<AgentReviews {reviews} />
 			<TaskMessages slug={chat.slug} {task} />
-			<Trace.Root>
+			<Trace.Root class="border-t pt-1.5">
 				<Trace.Collapsible bind:open>
-					<Trace.CollapsibleTrigger aria-label={m['tasks.details']()}
-						><Trace.Line
-							><Trace.Icon><Terminal /></Trace.Icon><Trace.Title>{m['tasks.details']()}</Trace.Title></Trace.Line
+					<Trace.CollapsibleTrigger
+						class="-mx-1 w-[calc(100%+0.5rem)] max-w-none justify-start rounded-md px-1 py-0.5 hover:bg-muted/60 focus-visible:ring-2"
+						aria-label={m['tasks.details']()}
+						><Trace.Line class="text-xs"
+							><Trace.Icon class="[&_svg]:size-3.5"><Terminal /></Trace.Icon><Trace.Title
+								>{m['tasks.details']()}</Trace.Title
+							></Trace.Line
 						></Trace.CollapsibleTrigger
 					>
 					<Trace.CollapsibleContent class="space-y-3">
 						<!-- Rendered only while open: the closed details hold no duplicate state text. -->
 						{#if open}{#each history as entry (entry.sequence)}<Trace.Line class="items-start"
-								><Trace.Icon><CircleCheck /></Trace.Icon><span class="min-w-0 flex-1"
-									><Trace.Title class="block">{taskLabel(entry.to_state)}</Trace.Title><Trace.Description
-										class="block whitespace-normal break-words">{entry.reason}</Trace.Description
-									></span
-								></Trace.Line
-							>{/each}{/if}
+									><Trace.Icon><CircleCheck /></Trace.Icon><span class="min-w-0 flex-1"
+										><Trace.Title class="block">{taskLabel(entry.to_state)}</Trace.Title><Trace.Description
+											class="block whitespace-normal break-words">{entry.reason}</Trace.Description
+										></span
+									></Trace.Line
+								>{/each}{/if}
 						{#if historyAfter}<Button variant="ghost" size="sm" disabled={loading} onclick={() => void refresh()}
 								>{m['tasks.more_history']()}</Button
 							>{/if}

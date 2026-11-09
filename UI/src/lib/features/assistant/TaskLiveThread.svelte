@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { Bot, CircleHelp, Reply, User } from '@lucide/svelte';
+	import { ArrowUp, Bot, CircleHelp, LoaderCircle, Reply, User } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
+	import * as InputGroup from '$lib/components/ui/input-group/index.js';
+	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
+	import { getErrorMessage } from '$lib/features/toast/toast';
 	import { agentTasks, type AgentLiveMessage, type AgentTask } from '$lib/api/agent-tasks';
 	import { getLocale } from '$lib/paraglide/runtime.js';
 	import type { ConversationState } from './conversation-state.svelte';
@@ -11,10 +14,19 @@
 
 	// The task's live channel as a conversation with its coding agent: what its
 	// creator (or the assistant for them) told the agent and what the agent
-	// wrote back. Replies are written in the one chat composer, aimed at this
-	// agent. The backend decides who may read or send; the agent's text is
-	// untrusted and only shown as plain text.
-	let { chat, task }: { chat: ConversationState; task: Pick<AgentTask, 'id' | 'state'> } = $props();
+	// wrote back. Replies are written in the chat composer aimed at this agent
+	// or, inline (the task card), in the thread's own one-line composer. The
+	// backend decides who may read or send; the agent's text is untrusted and
+	// only shown as plain text.
+	let {
+		chat,
+		task,
+		inline = false
+	}: { chat: ConversationState; task: Pick<AgentTask, 'id' | 'state'>; inline?: boolean } = $props();
+	let draft = $state(''),
+		sending = $state(false),
+		sendError = $state(''),
+		input = $state<HTMLInputElement | null>(null);
 	let messages = $state<AgentLiveMessage[]>([]),
 		showAll = $state(false),
 		unavailable = $state(false);
@@ -38,8 +50,28 @@
 		untrack(() => void load());
 	});
 	function reply() {
+		if (inline) return input?.focus();
 		chat.composerTarget = task.id;
 		chat.composerFocus++;
+	}
+	const hint = $derived(task.state === 'running' ? m['tasks.live_hint_running']() : m['tasks.live_hint_next']());
+	async function send(event: SubmitEvent) {
+		event.preventDefault();
+		const body = draft.trim();
+		if (!body || sending) return;
+		sending = true;
+		sendError = '';
+		try {
+			await agentTasks.sendLiveMessage(chat.slug, task.id, body);
+			if (disposed) return;
+			if (draft.trim() === body) draft = '';
+			// The thread reloads and shows the message with its delivery.
+			chat.taskLiveCursor = { ...chat.taskLiveCursor, [task.id]: -Date.now() };
+		} catch (e) {
+			if (!disposed) sendError = getErrorMessage(e, m['tasks.live_send_error']());
+		} finally {
+			if (!disposed) sending = false;
+		}
 	}
 	const sender = (message: AgentLiveMessage) =>
 		message.sender === 'agent'
@@ -62,9 +94,11 @@
 		aria-label={m['tasks.live_messages']()}
 		class="min-w-0 space-y-2"
 	>
-		<div class="flex min-w-0 items-center gap-2">
-			<h3 class="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{m['tasks.live_messages']()}</h3>
-		</div>
+		{#if !inline}<div class="flex min-w-0 items-center gap-2">
+				<h3 class="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+					{m['tasks.live_messages']()}
+				</h3>
+			</div>{/if}
 		{#if messages.length > visible.length}<Button
 				variant="ghost"
 				size="sm"
@@ -111,14 +145,48 @@
 				{/each}
 			</ol>
 		{/if}
-		{#if open}
+		{#if open && inline}
+			<!-- A one-line composer for this agent; the hint says when it reads it. -->
+			<form class="min-w-0" onsubmit={send}>
+				<InputGroup.Root class="h-8 rounded-lg">
+					<InputGroup.Input
+						bind:ref={input}
+						bind:value={draft}
+						class="h-8 text-xs placeholder:text-xs md:text-xs"
+						placeholder={m['tasks.live_placeholder']()}
+						aria-label={m['tasks.live_reply']()}
+						title={hint}
+						autocomplete="off"
+					/>
+					<InputGroup.Addon align="inline-end" class="pr-1">
+						<Tooltip.Root>
+							<Tooltip.Trigger>
+								{#snippet child({ props })}
+									<InputGroup.Button
+										{...props}
+										type="submit"
+										variant="default"
+										size="icon-xs"
+										class="rounded-md"
+										disabled={!draft.trim() || sending}
+										aria-label={m['tasks.live_send']()}
+										>{#if sending}<LoaderCircle class="animate-spin motion-reduce:animate-none" />{:else}<ArrowUp
+											/>{/if}</InputGroup.Button
+									>
+								{/snippet}
+							</Tooltip.Trigger>
+							<Tooltip.Content class="max-w-60">{hint}</Tooltip.Content>
+						</Tooltip.Root>
+					</InputGroup.Addon>
+				</InputGroup.Root>
+				{#if sendError}<p role="alert" class="mt-1 text-xs text-destructive">{sendError}</p>{/if}
+			</form>
+		{:else if open}
 			<div class="flex min-w-0 flex-wrap items-center gap-2">
 				<Button size="sm" variant={targeted ? 'secondary' : 'outline'} aria-pressed={targeted} onclick={reply}
 					><Reply />{m['tasks.live_reply']()}</Button
 				>
-				<p class="min-w-0 text-xs text-muted-foreground">
-					{task.state === 'running' ? m['tasks.live_hint_running']() : m['tasks.live_hint_next']()}
-				</p>
+				<p class="min-w-0 text-xs text-muted-foreground">{hint}</p>
 			</div>
 		{/if}
 	</section>{/if}

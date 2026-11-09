@@ -882,17 +882,23 @@
 			<Message.Header class="sr-only"
 				>{m['assistant.title']()}{#if message.model}{' '}· {message.model}{/if}</Message.Header
 			>
-			<ToolCalls
+			<ToolCalls calls={chat.tools[message.id] ?? []} slug={chat.slug} approvals={chat.approvals} part="steps" /><ToolSources
 				calls={chat.tools[message.id] ?? []}
 				slug={chat.slug}
-				approvals={chat.approvals}
-				onresolve={(approval, decision, choice) => chat.resolveApproval(approval, decision, choice)}
-			/><ToolSources calls={chat.tools[message.id] ?? []} slug={chat.slug} />
+			/>
 			<Bubble.Root variant="ghost">
 				<Bubble.Content>
 					<Markdown source={message.content} />
 				</Bubble.Content>
 			</Bubble.Root>
+			<!-- Approval requests always close the message, after its text. -->
+			<ToolCalls
+				calls={chat.tools[message.id] ?? []}
+				slug={chat.slug}
+				approvals={chat.approvals}
+				part="approvals"
+				onresolve={(approval, decision, choice) => chat.resolveApproval(approval, decision, choice)}
+			/>
 			<Message.Footer class="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
 				<time datetime={message.created_at}
 					>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time

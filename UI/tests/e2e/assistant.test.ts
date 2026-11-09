@@ -685,6 +685,10 @@ test('asks for approval before delegating and records the decision from the back
 	await page.goto('/test/assistant?conversation=chat-1');
 	await expect(page.getByText('Start a coding agent on ENG-1?', { exact: true })).toBeVisible();
 	await expect(page.getByText('<b onmouseover=', { exact: false })).toBeVisible();
+	// The approval request closes the message: it comes after the reply's text.
+	const text = await page.getByText('Approval is pending.', { exact: true }).boundingBox();
+	const request = await page.getByText('Start a coding agent on ENG-1?', { exact: true }).boundingBox();
+	expect(request!.y).toBeGreaterThan(text!.y);
 	await page.setViewportSize({ width: 360, height: 800 });
 	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeInViewport();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
