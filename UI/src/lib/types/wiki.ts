@@ -12,6 +12,8 @@ export interface WikiPageSummary {
 	updated_by_name: string | null;
 	created_at: string;
 	updated_at: string;
+	/** Set on registry pages: the day (YYYY-MM-DD) the page logs. */
+	registry_date?: string | null;
 }
 
 export interface WikiPage extends WikiPageSummary {
@@ -29,4 +31,22 @@ export interface UpdateWikiPageRequest {
 	title?: string;
 	content?: string;
 	version: number;
+}
+
+/** One recorded change: consecutive saves by one person are merged. */
+export interface WikiRevision {
+	id: string;
+	version: number;
+	old_title: string;
+	new_title: string;
+	old_content: string;
+	new_content: string;
+	edited_by: string | null;
+	edited_by_name: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface WikiSettings {
+	registry_enabled: boolean;
 }
