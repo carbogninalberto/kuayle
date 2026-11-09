@@ -370,9 +370,9 @@
 								onclick={startRename}
 								aria-label={m['projects.rename']()}
 								title={m['projects.rename']()}
-								class="shrink-0 rounded p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+								class="flex size-7 shrink-0 items-center justify-center rounded text-[var(--color-text-tertiary)] outline-none hover:text-[var(--color-text-secondary)] focus-visible:ring-2 focus-visible:ring-ring/50"
 							>
-								<Pencil size={12} />
+								<Pencil size={14} />
 							</button>
 						{/if}
 					{/if}
