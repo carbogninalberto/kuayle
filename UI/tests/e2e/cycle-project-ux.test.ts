@@ -83,13 +83,15 @@ async function mockWorkspace(page: Page, role = 'owner', icon = 'layers') {
 			});
 		if (path === '/api/workspaces/test/projects' || path === `/api/workspaces/test/teams/${teamId}/projects`)
 			return route.fulfill({ json: [project] });
-		if (path === `/api/workspaces/test/projects/${projectId}`)
+		if (path === `/api/workspaces/test/projects/${projectId}`) {
+			if (request.method() === 'PATCH') Object.assign(project, request.postDataJSON());
 			return route.fulfill({
 				json: {
 					...project,
 					progress: { total: issues.filter((i) => i.project_id === projectId).length, completed: 0, cancelled: 0 }
 				}
 			});
+		}
 		if (path === `/api/workspaces/test/teams/${teamId}/cycles`) return route.fulfill({ json: cycles });
 		if (path === `/api/workspaces/test/teams/${teamId}/cycles/velocity`) return route.fulfill({ json: [] });
 		if (path.startsWith(`/api/workspaces/test/teams/${teamId}/cycles/`)) {
@@ -434,4 +436,39 @@ test('issue context menu offers only labels that apply to the issue project', as
 		.poll(() => state.mutations.find((m) => m.method === 'PATCH' && m.path.endsWith('/issues/ENG-1'))?.body)
 		.toEqual({ label_ids: ['label-launch'] });
 	expect(state.errors).toEqual([]);
+});
+
+test('project name renames inline with Enter, Esc cancels and empty is rejected', async ({
+	page
+}) => {
+	const state = await mockWorkspace(page);
+	const patches = () =>
+		state.mutations.filter((m) => m.method === 'PATCH' && m.path.endsWith(`/projects/${projectId}`));
+	await page.goto(`/test/projects/${projectId}`);
+	await expect(page.getByText('Launch', { exact: true }).first()).toBeVisible();
+
+	await page.getByRole('button', { name: 'Rename project', exact: true }).click();
+	await page.getByRole('textbox', { name: 'Rename project', exact: true }).fill('Changed');
+	await page.keyboard.press('Escape');
+	expect(patches()).toHaveLength(0);
+	await expect(page.getByRole('textbox', { name: 'Rename project', exact: true })).toHaveCount(0);
+
+	await page.getByRole('button', { name: 'Rename project', exact: true }).click();
+	await page.getByRole('textbox', { name: 'Rename project', exact: true }).fill('   ');
+	await page.keyboard.press('Enter');
+	expect(patches()).toHaveLength(0);
+
+	await page.getByRole('textbox', { name: 'Rename project', exact: true }).fill('  Relaunch  ');
+	await page.keyboard.press('Enter');
+	await expect.poll(() => patches().length).toBe(1);
+	expect(patches()[0].body).toEqual({ name: 'Relaunch' });
+	await expect(page.getByText('Relaunch', { exact: true }).first()).toBeVisible();
+	expect(state.errors).toEqual([]);
+});
+
+test('guests cannot rename a project', async ({ page }) => {
+	await mockWorkspace(page, 'guest');
+	await page.goto(`/test/projects/${projectId}`);
+	await expect(page.getByText('Launch', { exact: true }).first()).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Rename project', exact: true })).toHaveCount(0);
 });

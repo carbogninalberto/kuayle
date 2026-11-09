@@ -20,6 +20,7 @@
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
@@ -50,7 +51,8 @@
 		ChevronRight,
 		SquareUser,
 		Box,
-		Settings2
+		Settings2,
+		Pencil
 	} from '@lucide/svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
@@ -59,6 +61,9 @@
 	const projectId = $derived(page.params.projectId ?? '');
 
 	let project = $state<Project | null>(null);
+	let renaming = $state(false);
+	let nameDraft = $state('');
+	let nameInput = $state<HTMLInputElement | null>(null);
 	let teams = $state<Team[]>([]);
 	let loading = $state(true);
 	let statusOpen = $state(false);
@@ -156,6 +161,7 @@
 		project = null;
 		workspaceRole = 'guest';
 		showDelete = false;
+		renaming = false;
 		void loadProject(s, pid, version);
 		return () => {
 			projectRequestVersion++;
@@ -201,6 +207,59 @@
 			appToast.apiError(err, m['projects.toast.failed_update_status']());
 		}
 	}
+
+	function startRename() {
+		if (!project || !canManage) return;
+		nameDraft = project.name;
+		renaming = true;
+	}
+
+	function cancelRename() {
+		renaming = false;
+	}
+
+	async function commitRename() {
+		if (!renaming || !project || !canManage) return;
+		const next = nameDraft.trim();
+		if (next === project.name) {
+			renaming = false;
+			return;
+		}
+		if (next.length === 0 || next.length > 200) {
+			appToast.error(m['projects.toast.invalid_name']());
+			return;
+		}
+		renaming = false;
+		const id = project.id;
+		try {
+			await updateProject(slug, id, { name: next });
+			sidebarState.projects = sidebarState.projects.map((p) => (p.id === id ? { ...p, name: next } : p));
+			if (projectId !== id) return;
+			await refreshProject();
+			if (projectId !== id) return;
+			appToast.success(m['projects.toast.renamed']());
+		} catch (err: any) {
+			if (projectId === id) appToast.apiError(err, m['projects.toast.failed_rename']());
+		}
+	}
+
+	function renameKeydown(e: KeyboardEvent) {
+		if (e.isComposing) return;
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			void commitRename();
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			cancelRename();
+		}
+	}
+
+	$effect(() => {
+		if (renaming && nameInput) {
+			nameInput.focus();
+			nameInput.select();
+		}
+	});
 
 	async function handleDateChange(field: 'start_date' | 'target_date', value: string | null) {
 		if (!project || !canManage) return;
@@ -300,7 +359,32 @@
 						</a>
 						<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
 					{/if}
-					<span class="truncate font-medium text-[var(--color-text-primary)]">{project.name}</span>
+					{#if renaming}
+						<Input
+							variant="plain"
+							bind:ref={nameInput}
+							bind:value={nameDraft}
+							onkeydown={renameKeydown}
+							onblur={commitRename}
+							maxlength={200}
+							aria-label={m['projects.rename']()}
+							class="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-transparent px-1 font-medium text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
+						/>
+					{:else}
+						<span class="truncate font-medium text-[var(--color-text-primary)]">{project.name}</span>
+						{#if canManage}
+							<Button
+								variant="plain"
+								type="button"
+								onclick={startRename}
+								aria-label={m['projects.rename']()}
+								title={m['projects.rename']()}
+								class="flex size-7 shrink-0 items-center justify-center rounded text-[var(--color-text-tertiary)] outline-none hover:text-[var(--color-text-secondary)] focus-visible:ring-2 focus-visible:ring-ring/50"
+							>
+								<Pencil size={14} />
+							</Button>
+						{/if}
+					{/if}
 				</nav>
 				<Popover.Root bind:open={statusOpen}>
 					<Popover.Trigger disabled={!canManage}>
