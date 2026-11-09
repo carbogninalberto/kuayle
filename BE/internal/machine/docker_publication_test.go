@@ -227,6 +227,8 @@ func TestPublishScriptsNeverRunProgramsNamedByTheCheckout(t *testing.T) {
 	write(worktree, "feature.txt", "dark mode\n")
 	run(worktree, nil, "-c", "advice.addEmbeddedRepo=false", "add", "-A")
 	run(worktree, bot, "commit", "-q", "-m", "Agent work")
+	// An index split in two keeps one part in the checkout's git directory.
+	run(worktree, nil, "update-index", "--split-index")
 	write(nested, "more.txt", "two\n")
 	run(nested, nil, "add", "more.txt")
 	run(nested, bot, "commit", "-q", "-m", "more")

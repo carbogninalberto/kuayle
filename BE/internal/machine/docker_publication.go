@@ -78,6 +78,8 @@ printf 'ref: refs/heads/%s\n' "$branch" > "$work/checkout/HEAD"
 # Housekeeping here would not see the repository's other worktrees.
 git --git-dir="$work/checkout" config gc.auto 0
 git --git-dir="$work/checkout" config maintenance.auto false
+# A split index would leave its shared part in this directory, which is removed.
+git --git-dir="$work/checkout" config core.splitIndex false
 # Listing the refs of a repository the checkout names as an alternate would run
 # git under that repository's configuration.
 git --git-dir="$work/checkout" config core.alternateRefsCommand :
