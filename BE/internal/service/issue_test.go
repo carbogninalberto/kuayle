@@ -968,3 +968,51 @@ func TestIssueService_BulkUpdate_ProjectFailureStillSignalsMovedIssues(t *testin
 	_, _, err = conn.Read(shortCtx)
 	assert.Error(t, err, "no further events")
 }
+
+// subscribedIssueRepo adds subscribers to the mock repository.
+type subscribedIssueRepo struct {
+	*mockIssueRepo
+	subscribers []uuid.UUID
+}
+
+func (r *subscribedIssueRepo) Subscribe(context.Context, uuid.UUID, uuid.UUID) error   { return nil }
+func (r *subscribedIssueRepo) Unsubscribe(context.Context, uuid.UUID, uuid.UUID) error { return nil }
+func (r *subscribedIssueRepo) IsSubscribed(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	return false, nil
+}
+func (r *subscribedIssueRepo) GetSubscribedIssueIDs(context.Context, []uuid.UUID, uuid.UUID) (map[uuid.UUID]bool, error) {
+	return nil, nil
+}
+func (r *subscribedIssueRepo) GetSubscribers(context.Context, uuid.UUID) ([]uuid.UUID, error) {
+	return r.subscribers, nil
+}
+
+func TestIssueService_BulkUpdate_ProjectDoesNotNotifyActorWhoOnlySubscribes(t *testing.T) {
+	base := new(mockIssueRepo)
+	ctx := context.Background()
+	wsID, actorID, otherID, teamID, projectID, issueID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	issue := &domain.Issue{ID: issueID, WorkspaceID: wsID, TeamID: teamID, CreatorID: uuid.New()}
+	issueRepo := &subscribedIssueRepo{mockIssueRepo: base, subscribers: []uuid.UUID{actorID, otherID}}
+	historyRepo := new(mockIssueHistoryRepo)
+	notifRepo := new(mockNotificationRepo)
+	svc := NewIssueService(issueRepo, new(mockTeamRepo), new(mockTeamStatusRepo), historyRepo, realtime.NewHub(), NewNotificationService(notifRepo))
+	projectString := projectID.String()
+
+	base.On("GetByID", ctx, issueID).Return(issue, nil)
+	base.On("GetLabels", ctx, issueID).Return([]domain.Label{}, nil)
+	base.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
+	base.On("Update", mock.Anything, issue).Return(nil)
+	historyRepo.On("Create", ctx, issueID, actorID, "project", mock.Anything, mock.Anything).Return(nil)
+	notifRepo.On("CreateOrRefresh", ctx, mock.MatchedBy(func(n *domain.Notification) bool {
+		return n.UserID == issue.CreatorID || n.UserID == otherID
+	}), mock.Anything).Return(nil)
+
+	updated, err := svc.BulkUpdate(ctx, wsID, actorID, dto.BulkUpdateIssueRequest{
+		IssueIDs:  []string{issueID.String()},
+		ProjectID: &projectString,
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, 1, updated)
+	notifRepo.AssertNumberOfCalls(t, "CreateOrRefresh", 2) // creator and the other subscriber, never the actor
+}

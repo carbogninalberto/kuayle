@@ -1215,6 +1215,10 @@ func (s *IssueService) bulkUpdateProject(ctx context.Context, workspaceID, userI
 		updated++
 		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: issue})
 		for _, uid := range s.issueNotificationRecipients(ctx, issue, userID, true) {
+			// The helper keeps subscribers even when they are the actor.
+			if uid == userID {
+				continue
+			}
 			recipientCounts[uid]++
 			recipientTeams[uid] = append(recipientTeams[uid], issue.TeamID)
 		}
