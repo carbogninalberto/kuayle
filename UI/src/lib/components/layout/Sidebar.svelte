@@ -49,6 +49,7 @@
 		Box,
 		Plus,
 		Layers,
+		BookOpen,
 		RefreshCcwDot,
 		ShieldCheck,
 		Star,
@@ -888,7 +889,8 @@
 											!isActive(`/${slug}/teams/${team.id}/cycles`) &&
 											!isActive(`/${slug}/teams/${team.id}/triage`) &&
 											!isActive(`/${slug}/teams/${team.id}/projects`) &&
-											!isActive(`/${slug}/teams/${team.id}/views`)
+											!isActive(`/${slug}/teams/${team.id}/views`) &&
+											!isActive(`/${slug}/teams/${team.id}/wiki`)
 												? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
 												: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 										>
@@ -987,6 +989,17 @@
 										>
 											<Layers size={13} />
 											{m['sidebar.views']()}
+										</a>
+										<a
+											href="/{slug}/teams/{team.id}/wiki"
+											class="ml-4 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(
+												`/${slug}/teams/${team.id}/wiki`
+											)
+												? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+												: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
+										>
+											<BookOpen size={13} />
+											{m['sidebar.wiki']()}
 										</a>
 										{#if team.triage_enabled}
 											<a

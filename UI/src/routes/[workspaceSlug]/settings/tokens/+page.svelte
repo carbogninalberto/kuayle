@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
 	import {
@@ -61,6 +62,7 @@
 		res_workspace: m['settings.tokens.res_workspace'],
 		res_templates: m['settings.tokens.res_templates'],
 		res_views: m['settings.tokens.res_views'],
+		res_wiki: m['settings.tokens.res_wiki'],
 		res_analytics: m['settings.tokens.res_analytics'],
 		res_notifications: m['settings.tokens.res_notifications'],
 		res_account: m['settings.tokens.res_account'],
@@ -644,3 +646,5 @@
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
+
+<PageTitle parts={[m['settings.tokens.title'](), m['settings.title']()]} />

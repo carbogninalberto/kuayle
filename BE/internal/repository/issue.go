@@ -288,6 +288,9 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 	orderParts := make([]string, 0, 5)
 	switch params.GroupBy {
 	case "status":
+		if rank := statusCategoryRankSQL(params.StatusCategoryOrder, issueStatusCategoryExpr("i", "ts")); rank != "" {
+			orderParts = append(orderParts, rank+" ASC")
+		}
 		orderParts = append(orderParts, "COALESCE(ts.position, 999) ASC", "i.status_id ASC")
 	case "priority":
 		orderParts = append(orderParts, "i.priority ASC")
@@ -763,4 +766,159 @@ func (r *IssueRepository) ValidateLabelScope(ctx context.Context, projectID *uui
 		return ErrLabelProjectMismatch
 	}
 	return nil
+}
+
+// ErrBulkIssueNotFound is returned when a bulk write names an issue that is
+// not in the workspace or not visible to the caller.
+var ErrBulkIssueNotFound = errors.New("issue not found")
+
+// ErrBulkProjectUnavailable is returned when the project is outside the
+// workspace, hidden from the caller, or crosses a private-team boundary for
+// one of the issues.
+var ErrBulkProjectUnavailable = errors.New("project is unavailable or crosses a private-team boundary")
+
+// BulkSetProject moves issues to projectID (nil removes the project) in one
+// transaction and returns the issues that changed. It locks every issue row
+// first, so the checks and the old values recorded in history are current, and
+// writes only project_id: concurrent edits to other fields are never reverted.
+// Labels scoped to a project an issue leaves are dropped, and project and
+// label history is recorded for actorID, in the same transaction. If any issue
+// is missing, hidden, or cannot take the project, nothing is written.
+func (r *IssueRepository) BulkSetProject(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, projectID *uuid.UUID, actorID uuid.UUID) ([]domain.Issue, error) {
+	if len(issueIDs) == 0 {
+		return nil, nil
+	}
+	// The privacy graph barrier comes before the issue row locks, as in SetLabels.
+	tx, err := beginConversationTransaction(ctx, r.db)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	allowed := "TRUE"
+	if projectID != nil {
+		allowed = "EXISTS (SELECT 1 FROM projects p WHERE p.id = " + uuidSQL(*projectID) + " AND p.workspace_id = i.workspace_id AND " +
+			projectVisible(ctx, "p.workspace_id", "p.team_id") + " AND " + compatibleTeams("i.team_id", "p.team_id") + ")"
+	}
+	type lockedIssue struct {
+		ID        uuid.UUID  `db:"id"`
+		ProjectID *uuid.UUID `db:"project_id"`
+		Allowed   bool       `db:"allowed"`
+	}
+	var locked []lockedIssue
+	// Rows are locked in ID order so concurrent bulk moves cannot deadlock.
+	if err := tx.SelectContext(ctx, &locked, `SELECT i.id, i.project_id, `+allowed+` AS allowed FROM issues i
+		WHERE i.id = ANY($1) AND i.workspace_id = $2 AND `+teamVisible(ctx, "i.team_id")+`
+		ORDER BY i.id FOR UPDATE OF i`, pq.Array(issueIDs), workspaceID); err != nil {
+		return nil, err
+	}
+	if len(locked) != len(issueIDs) {
+		return nil, ErrBulkIssueNotFound
+	}
+	moveIDs := make([]uuid.UUID, 0, len(locked))
+	oldValues := make([]string, 0, len(locked))
+	for _, issue := range locked {
+		if !issue.Allowed {
+			return nil, ErrBulkProjectUnavailable
+		}
+		if issue.ProjectID == nil && projectID == nil || issue.ProjectID != nil && projectID != nil && *issue.ProjectID == *projectID {
+			continue
+		}
+		old := ""
+		if issue.ProjectID != nil {
+			old = issue.ProjectID.String()
+		}
+		moveIDs = append(moveIDs, issue.ID)
+		oldValues = append(oldValues, old)
+	}
+	if len(moveIDs) == 0 {
+		return nil, nil
+	}
+	newValue := ""
+	if projectID != nil {
+		newValue = projectID.String()
+	}
+
+	// All parts of one statement read the same snapshot, so the label history
+	// sees the labels from before the DELETE next to it. Labels history is
+	// recorded only when a label the caller can see is dropped, with the names
+	// the issue page shows (see the service's labelSnapshot).
+	leaves := `l.project_id IS NOT NULL AND l.project_id IS DISTINCT FROM $2::uuid`
+	names := func(extra string) string {
+		return `(SELECT COALESCE(string_agg(l.name, ', ' ORDER BY l.name), '') FROM issue_labels il JOIN labels l ON l.id = il.label_id
+			WHERE il.issue_id = changed.issue_id AND ` + labelVisible(ctx, "l") + extra + `)`
+	}
+	var moved []domain.Issue
+	err = tx.SelectContext(ctx, &moved, `WITH moved AS (
+			UPDATE issues SET project_id = $2, updated_at = NOW() WHERE id = ANY($1) RETURNING *
+		), dropped AS (
+			DELETE FROM issue_labels il USING labels l WHERE il.issue_id = ANY($1) AND l.id = il.label_id AND `+leaves+`
+		), project_history AS (
+			INSERT INTO issue_history (issue_id, user_id, field, old_value, new_value, agent)
+			SELECT moved_issue.id, $3, 'project', moved_issue.old_value, $5, $6
+			FROM unnest($1::uuid[], $4::text[]) AS moved_issue(id, old_value)
+		), label_history AS (
+			INSERT INTO issue_history (issue_id, user_id, field, old_value, new_value, agent)
+			SELECT changed.issue_id, $3, 'labels', `+names("")+`, `+names(" AND NOT ("+leaves+")")+`, $6
+			FROM (SELECT DISTINCT il.issue_id FROM issue_labels il JOIN labels l ON l.id = il.label_id
+				WHERE il.issue_id = ANY($1) AND `+leaves+` AND `+labelVisible(ctx, "l")+`) changed
+		)
+		SELECT * FROM moved ORDER BY id`,
+		pq.Array(moveIDs), projectID, actorID, pq.Array(oldValues), newValue, domain.ActingAgent(ctx))
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return moved, nil
+}
+
+// GetSubscribersForIssues returns each visible issue's subscribers.
+func (r *IssueRepository) GetSubscribersForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
+	result := make(map[uuid.UUID][]uuid.UUID, len(issueIDs))
+	if len(issueIDs) == 0 {
+		return result, nil
+	}
+	var rows []struct {
+		IssueID uuid.UUID `db:"issue_id"`
+		UserID  uuid.UUID `db:"user_id"`
+	}
+	if err := r.db.SelectContext(ctx, &rows, `SELECT issue_id, user_id FROM issue_subscribers WHERE issue_id = ANY($1) AND `+issueVisible(ctx, "issue_id"), pq.Array(issueIDs)); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		result[row.IssueID] = append(result[row.IssueID], row.UserID)
+	}
+	return result, nil
+}
+
+// statusCategoryRankSQL turns a comma separated category list into a CASE
+// expression over categoryExpr (the issue's status category, legacy included). Only known categories are used, each at most
+// once, so the result never contains caller supplied text. Categories that are
+// not listed, and issues without a status row, sort after the listed ones.
+func statusCategoryRankSQL(order, categoryExpr string) string {
+	known := map[string]bool{
+		string(domain.StatusCategoryBacklog):   true,
+		string(domain.StatusCategoryUnstarted): true,
+		string(domain.StatusCategoryStarted):   true,
+		string(domain.StatusCategoryCompleted): true,
+		string(domain.StatusCategoryCancelled): true,
+	}
+	var sb strings.Builder
+	seen := map[string]bool{}
+	rank := 0
+	for _, part := range strings.Split(order, ",") {
+		category := strings.TrimSpace(part)
+		if !known[category] || seen[category] {
+			continue
+		}
+		seen[category] = true
+		fmt.Fprintf(&sb, " WHEN '%s' THEN %d", category, rank)
+		rank++
+	}
+	if rank == 0 {
+		return ""
+	}
+	return fmt.Sprintf("(CASE %s%s ELSE %d END)", categoryExpr, sb.String(), rank)
 }

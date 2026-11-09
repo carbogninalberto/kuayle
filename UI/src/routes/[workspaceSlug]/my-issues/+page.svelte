@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -279,3 +280,5 @@
 	defaultType={relationDefaultType}
 	oncreated={loadIssues}
 />
+
+<PageTitle parts={[m['my_issues.title']()]} />

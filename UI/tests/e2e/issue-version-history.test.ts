@@ -159,6 +159,8 @@ test('reviews complete changes in order and safely renders historical HTML', asy
  await page.goto('/test/issue/ENG-1');
  await page.getByRole('button', { name: 'Version history', exact: true }).click();
  const dialog = page.getByRole('dialog', { name: 'ENG-1 version history' });
+ // The git-style diff is the default; these checks read the before/after panes.
+ await dialog.getByRole('checkbox', { name: 'Show changes' }).uncheck();
  await expect(dialog.getByRole('region', { name: 'After', exact: true })).toContainText('Empty');
  await expect(dialog.getByText(/Unknown author changed the description/)).toBeVisible();
  await expect(dialog.getByRole('button', { name: 'Next change' })).toBeDisabled();
@@ -201,6 +203,8 @@ test('keeps long descriptions readable within a mobile viewport', async ({ page 
  await page.goto('/test/issue/ENG-1');
  await page.getByRole('button', { name: 'Version history', exact: true }).click();
  const dialog = page.getByRole('dialog', { name: 'ENG-1 version history' });
+ // The git-style diff is the default; these checks read the before/after panes.
+ await dialog.getByRole('checkbox', { name: 'Show changes' }).uncheck();
  await expect(dialog.getByRole('region', { name: 'After', exact: true })).toContainText('long-content');
  const bounds = await dialog.boundingBox();
  expect(bounds!.x).toBeGreaterThanOrEqual(0);
@@ -229,6 +233,7 @@ test('reviews history for an issue opened from a project', async ({ page }) => {
  await expect(page).toHaveURL(/\/test\/issue\/ENG-1$/);
  await page.getByRole('button', { name: 'Version history', exact: true }).click();
  const history = page.getByRole('dialog', { name: 'ENG-1 version history', exact: true });
+ await history.getByRole('checkbox', { name: 'Show changes' }).uncheck();
  await expect(history.getByRole('region', { name: 'After', exact: true })).toContainText('Empty');
  await page.keyboard.press('Escape');
  await expect(history).not.toBeVisible();
@@ -242,6 +247,7 @@ test('uses the selected application language for history', async ({ page }) => {
  await page.goto('/test/issue/ENG-1');
  await page.getByRole('button', { name: 'Cronologia delle versioni', exact: true }).click();
  const history = page.getByRole('dialog', { name: 'Cronologia delle versioni di ENG-1' });
+ await history.getByRole('checkbox', { name: 'Mostra differenze' }).uncheck();
  await expect(history.getByRole('region', { name: 'Dopo', exact: true })).toContainText('Vuoto');
  await expect(history.getByRole('button', { name: 'Modifica precedente' })).toBeVisible();
  await expect(history.getByText(/Autore sconosciuto ha modificato la descrizione/)).toBeVisible();
@@ -262,4 +268,18 @@ test('conditional full-page selectors open and return focus through the shared t
   await expect(trigger).toBeFocused();
  }
  await expect(page.locator('button button')).toHaveCount(0);
+});
+
+test('shows a git-style diff of description changes by default', async ({ page }) => {
+ await mockWorkspace(page, [{ ...versions[1], old_value: '<p>Keep this</p><p>Ship on Friday</p>', new_value: '<p>Keep this</p><p>Ship on Monday</p><p>Added line</p>' }]);
+ await page.goto('/test/issue/ENG-1');
+ await page.getByRole('button', { name: 'Version history', exact: true }).click();
+ const diff = page.getByRole('dialog', { name: 'ENG-1 version history' }).getByTestId('text-diff');
+ await expect(diff.getByRole('group', { name: 'Removed' })).toContainText('- Ship on Friday');
+ await expect(diff.getByRole('group', { name: 'Removed' }).locator('mark')).toHaveText('Friday');
+ await expect(diff.getByRole('group', { name: 'Added' }).first().locator('mark')).toHaveText('Monday');
+ await expect(diff.getByRole('group', { name: 'Added' }).nth(1)).toContainText('+ Added line');
+ await expect(diff).not.toContainText('<p>');
+ await page.getByRole('dialog').getByText('Split', { exact: true }).click();
+ await expect(diff.getByRole('group', { name: 'Removed' })).toContainText('Ship on Friday');
 });

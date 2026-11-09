@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { assistantDraftKey } from './chat-draft';
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount, tick, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -89,7 +91,7 @@
 	// This component is keyed by workspace, conversation and authenticated user.
 	const chat = untrack(() => new ConversationState(slug, conversationId ?? ''));
 	const userKey = untrack(() => `${authState.user?.id}:${slug}`);
-	const draftKey = untrack(() => `assistant-draft:${userKey}:${conversationId ?? 'new'}`);
+	const draftKey = untrack(() => assistantDraftKey(authState.user?.id, slug, conversationId));
 	let history = $state<Conversation[]>([]);
 	let status = $state<AssistantStatus>({ configured: false });
 	let initialized = $state(false);
@@ -683,7 +685,7 @@
 	});
 </script>
 
-<svelte:head><title>{m['assistant.title']()} · Kuayle</title></svelte:head>
+<PageTitle parts={[m['assistant.title']()]} />
 
 {#snippet topBar()}
 	<header class="flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-3">

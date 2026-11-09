@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -577,3 +578,5 @@
 		</div>
 	</div>
 </div>
+
+<PageTitle parts={[m['prefs.title'](), m['settings.title']()]} />

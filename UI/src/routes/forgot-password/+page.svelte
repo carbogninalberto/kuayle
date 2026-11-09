@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input';
 	import { Loader2 } from '@lucide/svelte';
@@ -64,3 +65,5 @@
 		</p>
 	</div>
 </div>
+
+<PageTitle parts={[m['forgot.title']()]} />

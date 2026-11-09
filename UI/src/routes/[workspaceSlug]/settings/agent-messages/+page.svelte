@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import { MessagesSquare, RefreshCw, CirclePlay, X } from '@lucide/svelte';
@@ -202,3 +203,5 @@
 			>{/if}
 	{/if}
 </div>
+
+<PageTitle parts={[m['agent_messages.title'](), m['settings.title']()]} />

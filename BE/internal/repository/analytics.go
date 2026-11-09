@@ -194,7 +194,7 @@ var allowedStatusTypes = map[string]bool{
 }
 
 func legacyStatusCategoryExpr(issueAlias string) string {
-	return fmt.Sprintf(`CASE %s.status::text
+	return fmt.Sprintf(`CASE CAST(%s.status AS text)
 		WHEN 'done' THEN 'completed'
 		WHEN 'completed' THEN 'completed'
 		WHEN 'cancelled' THEN 'cancelled'

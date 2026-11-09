@@ -498,6 +498,12 @@
 				window.dispatchEvent(new CustomEvent('ws:issue-deleted', { detail: msg.payload }));
 				break;
 			}
+			case 'wiki.created':
+			case 'wiki.updated':
+			case 'wiki.deleted': {
+				window.dispatchEvent(new CustomEvent('ws:wiki-changed', { detail: { ...msg.payload, type: msg.type } }));
+				break;
+			}
 			case 'comment.created': {
 				window.dispatchEvent(new CustomEvent('ws:comment-created', { detail: msg.payload }));
 				break;

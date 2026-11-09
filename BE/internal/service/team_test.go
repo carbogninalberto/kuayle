@@ -17,7 +17,7 @@ func TestTeamService_Delete(t *testing.T) {
 	teamID := uuid.New()
 
 	repo.On("GetByID", ctx, teamID).Return(&domain.Team{ID: teamID, WorkspaceID: workspaceID}, nil)
-	repo.On("Delete", ctx, teamID).Return(nil)
+	repo.On("Delete", ctx, teamID).Return(nil, nil)
 
 	err := svc.Delete(ctx, workspaceID, teamID)
 
@@ -74,7 +74,7 @@ func TestTeamService_Leave_DeletesWhenLastMember(t *testing.T) {
 	repo.On("GetByID", ctx, teamID).Return(&domain.Team{ID: teamID, WorkspaceID: workspaceID}, nil)
 	repo.On("GetMember", ctx, teamID, userID).Return(&domain.TeamMember{TeamID: teamID, UserID: userID}, nil)
 	repo.On("ListMembers", ctx, teamID).Return([]domain.TeamMember{{TeamID: teamID, UserID: userID}}, nil)
-	repo.On("Delete", ctx, teamID).Return(nil)
+	repo.On("Delete", ctx, teamID).Return(nil, nil)
 
 	deleted, err := svc.Leave(ctx, workspaceID, teamID, userID, domain.RoleMember)
 
@@ -92,7 +92,7 @@ func TestTeamService_Leave_DeletesWhenWorkspaceOwner(t *testing.T) {
 	userID := uuid.New()
 
 	repo.On("GetByID", ctx, teamID).Return(&domain.Team{ID: teamID, WorkspaceID: workspaceID}, nil)
-	repo.On("Delete", ctx, teamID).Return(nil)
+	repo.On("Delete", ctx, teamID).Return(nil, nil)
 
 	deleted, err := svc.Leave(ctx, workspaceID, teamID, userID, domain.RoleOwner)
 
