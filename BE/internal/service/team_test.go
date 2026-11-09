@@ -6,7 +6,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/pkg/validate"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 func TestTeamService_Delete(t *testing.T) {
@@ -137,4 +140,56 @@ func TestPrivateTeamLeaveNeverDeletesContent(t *testing.T) {
 			repo.AssertExpectations(t)
 		})
 	}
+}
+
+type rekeyTeamRepo struct {
+	*mockTeamRepo
+	newKey string
+}
+
+func (r *rekeyTeamRepo) UpdateWithKey(_ context.Context, team *domain.Team, newKey string) error {
+	r.newKey = newKey
+	team.Key = newKey
+	return nil
+}
+
+func TestTeamService_Update_ChangesKeyThroughTheAtomicPath(t *testing.T) {
+	base := new(mockTeamRepo)
+	repo := &rekeyTeamRepo{mockTeamRepo: base}
+	svc := NewTeamService(repo, new(mockTeamStatusRepo))
+	ctx := context.Background()
+	teamID := uuid.New()
+	base.On("GetByID", ctx, teamID).Return(&domain.Team{ID: teamID, WorkspaceID: uuid.New(), Key: "ENG"}, nil)
+	key := "PLT"
+
+	team, err := svc.Update(ctx, teamID, dto.UpdateTeamRequest{Key: &key})
+
+	assert.NoError(t, err)
+	assert.Equal(t, "PLT", team.Key)
+	assert.Equal(t, "PLT", repo.newKey)
+	base.AssertNotCalled(t, "Update", ctx, team)
+}
+
+func TestTeamService_Update_SameKeyIsNotARename(t *testing.T) {
+	repo := new(mockTeamRepo)
+	svc := NewTeamService(repo, new(mockTeamStatusRepo))
+	ctx := context.Background()
+	teamID := uuid.New()
+	repo.On("GetByID", ctx, teamID).Return(&domain.Team{ID: teamID, WorkspaceID: uuid.New(), Key: "ENG"}, nil)
+	repo.On("Update", ctx, mock.AnythingOfType("*domain.Team")).Return(nil)
+	key := "ENG"
+
+	_, err := svc.Update(ctx, teamID, dto.UpdateTeamRequest{Key: &key})
+
+	assert.NoError(t, err)
+	repo.AssertExpectations(t)
+}
+
+func TestUpdateTeamRequest_KeyRules(t *testing.T) {
+	for key, valid := range map[string]bool{"PLT": true, "A": true, "ABCDEFGHIJ": true, "plt": false, "PL1": false, "": false, "ABCDEFGHIJK": false, "A-B": false} {
+		k := key
+		err := validate.Struct(&dto.UpdateTeamRequest{Key: &k})
+		assert.Equal(t, valid, err == nil, "key %q", key)
+	}
+	assert.NoError(t, validate.Struct(&dto.UpdateTeamRequest{}))
 }

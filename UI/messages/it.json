@@ -1630,6 +1630,8 @@
 	"team_settings.icons_preview_desc": "Anteprima icone con il colore del team selezionato.",
 	"team_settings.icons_tab": "Icone",
 	"team_settings.identifier": "Identificatore",
+	"team_settings.identifier_hint": "Usato negli identificativi delle issue, ad esempio ENG-12. Lettere da A a Z, fino a 10.",
+	"team_settings.identifier_warning": "La modifica cambia ogni identificativo delle issue di questo team da {old}-N a {next}-N. I vecchi identificativi, link e nomi di branch continuano a funzionare e reindirizzano, ma il testo già scritto in commenti o commit non viene riscritto. La vecchia chiave {old} resta riservata e non può essere usata da un altro team.",
 	"team_settings.issue_copy_prompt": "Prompt di copia attività",
 	"team_settings.issue_copy_prompt_desc": "Sovrascrivi il template del prompt AI dell'area di lavoro per questo team. Lascia vuoto per usare il predefinito dell'area di lavoro.",
 	"team_settings.issue_copy_prompt_placeholder": "Usa prompt di copia attività dell'area di lavoro",

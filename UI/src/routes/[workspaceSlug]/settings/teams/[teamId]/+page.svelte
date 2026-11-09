@@ -18,6 +18,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import * as Alert from '$lib/components/ui/alert';
 	import { Switch } from '$lib/components/ui/switch';
 	import * as Select from '$lib/components/ui/select';
 	import * as Popover from '$lib/components/ui/popover';
@@ -41,6 +42,7 @@
 	let loading = $state(true);
 	let editingDetails = $state(false);
 	let editName = $state('');
+	let editKey = $state('');
 	let editDescription = $state('');
 	let issueCopyPrompt = $state('');
 	let savingIssueCopyPrompt = $state(false);
@@ -305,20 +307,26 @@
 		return () => { active = false; };
 	});
 
+	const keyValid = $derived(/^[A-Z]{1,10}$/.test(editKey));
+	const keyChanging = $derived(!!team && editKey !== team.key);
+
 	function startEditDetails() {
 		if (!team) return;
 		editName = team.name;
+		editKey = team.key;
 		editDescription = team.description ?? '';
 		editingDetails = true;
 	}
 
 	async function saveDetails() {
-		if (!team || !editName.trim()) return;
+		if (!team || !editName.trim() || !keyValid) return;
 		const previous = team;
-		team = { ...team, name: editName.trim(), description: editDescription.trim() || null };
+		const keyChanged = editKey !== team.key;
+		if (!keyChanged) team = { ...team, name: editName.trim(), description: editDescription.trim() || null };
 		try {
 			team = await updateTeam(slug, teamId, {
 				name: editName.trim(),
+				...(keyChanged ? { key: editKey } : {}),
 				description: editDescription.trim() || null
 			});
 			editingDetails = false;
@@ -448,6 +456,23 @@
 						/>
 					</div>
 					<div class="space-y-1.5">
+						<Label for="team-key" class="text-xs text-[var(--color-text-secondary)]">{m['team_settings.identifier']()}</Label>
+						<Input
+							id="team-key"
+							value={editKey}
+							oninput={(e) => (editKey = e.currentTarget.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 10))}
+							maxlength={10}
+							autocapitalize="characters"
+							class="font-mono"
+						/>
+						<p class="text-xs text-[var(--color-text-tertiary)]">{m['team_settings.identifier_hint']()}</p>
+						{#if keyChanging}
+							<Alert.Root variant="destructive">
+								<Alert.Description>{m['team_settings.identifier_warning']({ old: team.key, next: editKey || '…' })}</Alert.Description>
+							</Alert.Root>
+						{/if}
+					</div>
+					<div class="space-y-1.5">
 						<Label class="text-xs text-[var(--color-text-secondary)]">{m['team_settings.description_label']()}</Label>
 						<Input
 							bind:value={editDescription}
@@ -457,7 +482,7 @@
 					</div>
 					<div class="flex justify-end gap-2">
 						<Button variant="outline" size="sm" onclick={() => (editingDetails = false)}><X size={14} />{m['team_settings.cancel']()}</Button>
-						<Button size="sm" onclick={saveDetails} disabled={!editName.trim()}><Check size={14} />{m['team_settings.save']()}</Button>
+						<Button size="sm" onclick={saveDetails} disabled={!editName.trim() || !keyValid}><Check size={14} />{m['team_settings.save']()}</Button>
 					</div>
 				{:else}
 					<div class="grid gap-3 text-sm">

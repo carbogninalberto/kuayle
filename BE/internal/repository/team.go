@@ -4,11 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
+
+// ErrTeamKeyTaken is returned when a team key is already another team's key or
+// one of its retired keys (an alias) in the workspace.
+var ErrTeamKeyTaken = errors.New("team key already in use")
 
 type TeamRepository struct {
 	db *sqlx.DB
@@ -19,6 +24,13 @@ func NewTeamRepository(db *sqlx.DB) *TeamRepository {
 }
 
 func (r *TeamRepository) Create(ctx context.Context, team *domain.Team) error {
+	var aliased bool
+	if err := r.db.GetContext(ctx, &aliased, `SELECT EXISTS(SELECT 1 FROM team_key_aliases WHERE workspace_id=$1 AND old_key=$2)`, team.WorkspaceID, team.Key); err != nil {
+		return err
+	}
+	if aliased {
+		return ErrTeamKeyTaken
+	}
 	query := `INSERT INTO teams (id, workspace_id, name, key, description, color, icon) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING created_at, updated_at`
 	return r.db.QueryRowContext(ctx, query, team.ID, team.WorkspaceID, team.Name, team.Key, team.Description, team.Color, team.Icon).Scan(&team.CreatedAt, &team.UpdatedAt)
 }
@@ -134,6 +146,12 @@ func (r *TeamRepository) CreateWithDefaults(ctx context.Context, team *domain.Te
 			return err
 		}
 	}
+	if err := lockTeamKeys(ctx, tx, team.WorkspaceID); err != nil {
+		return err
+	}
+	if err := rejectAliasedKey(ctx, tx, team.WorkspaceID, team.Key); err != nil {
+		return err
+	}
 	if err := tx.QueryRowContext(ctx, `INSERT INTO teams(id,workspace_id,name,key,description,color,icon,is_private) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING created_at,updated_at`, team.ID, team.WorkspaceID, team.Name, team.Key, team.Description, team.Color, team.Icon, team.IsPrivate).Scan(&team.CreatedAt, &team.UpdatedAt); err != nil {
 		return err
 	}
@@ -145,5 +163,77 @@ func (r *TeamRepository) CreateWithDefaults(ctx context.Context, team *domain.Te
 			return err
 		}
 	}
+	return tx.Commit()
+}
+
+// lockTeamKeys serializes key changes and team creation in a workspace, so a
+// key cannot be taken and retired at the same moment.
+func lockTeamKeys(ctx context.Context, tx *sqlx.Tx, workspaceID uuid.UUID) error {
+	_, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('team-keys:'||$1::text,63))`, workspaceID)
+	return err
+}
+
+func rejectAliasedKey(ctx context.Context, tx *sqlx.Tx, workspaceID uuid.UUID, key string) error {
+	var aliased bool
+	if err := tx.GetContext(ctx, &aliased, `SELECT EXISTS(SELECT 1 FROM team_key_aliases WHERE workspace_id=$1 AND old_key=$2)`, workspaceID, key); err != nil {
+		return err
+	}
+	if aliased {
+		return ErrTeamKeyTaken
+	}
+	return nil
+}
+
+// UpdateWithKey saves the team and renames its key in one transaction: the old
+// key becomes an alias, every issue identifier of the team is rewritten to the
+// new key, and a key the team itself retired earlier is released again. The
+// caller has checked the new key's format.
+func (r *TeamRepository) UpdateWithKey(ctx context.Context, team *domain.Team, newKey string) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := lockTeamKeys(ctx, tx, team.WorkspaceID); err != nil {
+		return err
+	}
+	var oldKey string
+	err = tx.GetContext(ctx, &oldKey, `SELECT key FROM teams WHERE id=$1 AND workspace_id=$2 AND `+teamVisible(ctx, "teams.id")+` FOR UPDATE`, team.ID, team.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	if oldKey != newKey {
+		var other uuid.UUID
+		switch err := tx.GetContext(ctx, &other, `SELECT team_id FROM team_key_aliases WHERE workspace_id=$1 AND old_key=$2`, team.WorkspaceID, newKey); {
+		case err == nil:
+			if other != team.ID {
+				return ErrTeamKeyTaken
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM team_key_aliases WHERE workspace_id=$1 AND old_key=$2`, team.WorkspaceID, newKey); err != nil {
+				return err
+			}
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
+		var taken bool
+		if err := tx.GetContext(ctx, &taken, `SELECT EXISTS(SELECT 1 FROM teams WHERE workspace_id=$1 AND key=$2 AND id<>$3)`, team.WorkspaceID, newKey, team.ID); err != nil {
+			return err
+		}
+		if taken {
+			return ErrTeamKeyTaken
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO team_key_aliases(workspace_id,old_key,team_id) VALUES($1,$2,$3)`, team.WorkspaceID, oldKey, team.ID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE issues SET identifier_text=$1||'-'||number WHERE team_id=$2`, newKey, team.ID); err != nil {
+			return fmt.Errorf("rewrite issue identifiers: %w", err)
+		}
+	}
+	err = tx.QueryRowContext(ctx, `UPDATE teams SET name=$1,key=$2,description=$3,color=$4,icon=$5,triage_enabled=$6,parent_auto_close_enabled=$7,sub_issue_auto_close_enabled=$8,issue_copy_prompt=$9,updated_at=NOW() WHERE id=$10 RETURNING updated_at`,
+		team.Name, newKey, team.Description, team.Color, team.Icon, team.TriageEnabled, team.ParentAutoCloseEnabled, team.SubIssueAutoCloseEnabled, team.IssueCopyPrompt, team.ID).Scan(&team.UpdatedAt)
+	if err != nil {
+		return err
+	}
+	team.Key = newKey
 	return tx.Commit()
 }

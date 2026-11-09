@@ -20,6 +20,7 @@ export async function updateTeam(
 	teamId: string,
 	data: Partial<{
 		name: string;
+		key: string;
 		description: string | null;
 		color: string | null;
 		icon: string | null;

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -57,7 +58,15 @@ func (r *IssueRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Is
 
 func (r *IssueRepository) GetByIdentifier(ctx context.Context, workspaceID uuid.UUID, identifier string) (*domain.Issue, error) {
 	var issue domain.Issue
-	err := r.db.GetContext(ctx, &issue, `SELECT * FROM issues WHERE workspace_id = $1 AND identifier_text = $2 AND `+teamVisible(ctx, "issues.team_id"), workspaceID, identifier)
+	// A retired team key (an alias) still resolves: ENG-12 finds PLT-12 after
+	// ENG was renamed to PLT. The current identifier wins if both match.
+	oldKey, number := "", -1
+	if i := strings.LastIndex(identifier, "-"); i > 0 {
+		if n, convErr := strconv.Atoi(identifier[i+1:]); convErr == nil {
+			oldKey, number = identifier[:i], n
+		}
+	}
+	err := r.db.GetContext(ctx, &issue, `SELECT * FROM issues WHERE workspace_id = $1 AND `+teamVisible(ctx, "issues.team_id")+` AND (identifier_text = $2 OR (number = $4 AND team_id IN (SELECT team_id FROM team_key_aliases WHERE workspace_id = $1 AND old_key = $3))) ORDER BY (identifier_text = $2) DESC LIMIT 1`, workspaceID, identifier, oldKey, number)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -157,6 +166,7 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 		searchFields := []string{
 			"i.title ILIKE :search",
 			"i.identifier_text ILIKE :search",
+			"EXISTS (SELECT 1 FROM team_key_aliases tka WHERE tka.team_id = i.team_id AND (tka.old_key || '-' || i.number) ILIKE :search)",
 			"i.description ILIKE :search",
 			"i.status ILIKE :search",
 			"CAST(i.number AS TEXT) ILIKE :search",

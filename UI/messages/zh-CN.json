@@ -1630,6 +1630,8 @@
 	"team_settings.icons_preview_desc": "图标将使用选定的团队颜色预览。",
 	"team_settings.icons_tab": "图标",
 	"team_settings.identifier": "标识符",
+	"team_settings.identifier_hint": "用于 issue 标识符，例如 ENG-12。字母 A 到 Z，最多 10 个。",
+	"team_settings.identifier_warning": "重命名会把此团队中每个 issue 的标识符从 {old}-N 改为 {next}-N。旧的标识符、链接和分支名称仍然有效并会重定向，但已写在评论或提交中的文字不会被改写。旧键 {old} 会被保留，其他团队无法使用。",
 	"team_settings.issue_copy_prompt": "问题复制提示词",
 	"team_settings.issue_copy_prompt_desc": "覆盖此团队的工作空间 AI 提示词模板。留空则使用工作空间默认值。",
 	"team_settings.issue_copy_prompt_placeholder": "使用工作空间问题复制提示词",
