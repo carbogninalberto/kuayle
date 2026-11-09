@@ -85,6 +85,13 @@ func (h *ProjectHandler) Update(c *echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
 	}
+	if err := validate.Struct(&req); err != nil {
+		details := make([]dto.ErrorDetail, 0)
+		for _, e := range validate.FormatErrors(err) {
+			details = append(details, dto.ErrorDetail{Field: e["field"], Message: e["message"]})
+		}
+		return response.ValidationError(c, details)
+	}
 	ws := c.Get("workspace").(*domain.Workspace)
 	project, err := h.projectSvc.Update(c.Request().Context(), ws.ID, id, req)
 	if err != nil {
