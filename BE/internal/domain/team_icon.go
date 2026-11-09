@@ -17,9 +17,11 @@ const TeamIconImagePrefix = "image:"
 const TeamIconMaxBytes = 1024 * 1024
 
 // TeamIconImageTypes maps the formats accepted for team icons to their file
-// extension. Favicons are often .ico. SVG is excluded because it can carry script.
+// extension. Favicons are often .ico. An animated PNG is stored and served as a
+// PNG, which browsers animate. SVG is excluded because it can carry script.
 var TeamIconImageTypes = map[string]string{
 	"image/png":                ".png",
+	"image/vnd.mozilla.apng":   ".png",
 	"image/jpeg":               ".jpg",
 	"image/webp":               ".webp",
 	"image/gif":                ".gif",

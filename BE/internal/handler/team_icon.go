@@ -25,12 +25,12 @@ func (h *TeamHandler) UploadIcon(c *echo.Context) error {
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			return response.Error(c, http.StatusRequestEntityTooLarge, "BAD_REQUEST", "Image too large (max 1MB)")
+			return response.Error(c, http.StatusRequestEntityTooLarge, "TEAM_ICON_TOO_LARGE", "Image too large (max 1MB)")
 		}
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "No file provided")
 	}
 	if file.Size > domain.TeamIconMaxBytes {
-		return response.Error(c, http.StatusRequestEntityTooLarge, "BAD_REQUEST", "Image too large (max 1MB)")
+		return response.Error(c, http.StatusRequestEntityTooLarge, "TEAM_ICON_TOO_LARGE", "Image too large (max 1MB)")
 	}
 	src, err := file.Open()
 	if err != nil {
