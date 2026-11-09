@@ -1,6 +1,6 @@
 ---
 name: kuayle-agents
-description: Use when you need to declare the tests Kuayle re-runs for your change (.kuayle/validation.json), to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox).
+description: Use when you need to declare the tests Kuayle re-runs for your change (.kuayle/validation.json), to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, to log what you did in the project's or team's wiki registry, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox).
 ---
 
 # Declare the tests Kuayle re-runs
@@ -82,6 +82,22 @@ can:
 ```json
 {"to":"orchestrator","kind":"question","body":"Should the v1 route stay? I kept it for now."}
 ```
+
+## Log to the wiki registry
+
+When a team or project turned on its wiki registry (a daily log of what
+happened), log notable progress with `"to":"registry"` through the same
+outbox; Kuayle adds the time and your issue's identifier and picks today's
+page of your issue's project registry, or of its team's when the project has
+none:
+
+```json
+{"to":"registry","body":"Pagination implemented and tested; pull request opened."}
+```
+
+Use one short line of plain text (at most 2,000 characters) per notable step,
+not a running commentary. When the registry is off the entry is refused and
+shown as refused in Kuayle; nothing else happens.
 
 ## kuayle-live-channel: read messages while you work
 

@@ -53,6 +53,7 @@
 		SquareUser,
 		Box,
 		Settings2,
+		BookOpen,
 		Pencil
 	} from '@lucide/svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
@@ -410,6 +411,9 @@
 				</Popover.Root>
 			</div>
 			<div class="flex items-center gap-2">
+				<Button variant="ghost" size="sm" href="/{slug}/projects/{projectId}/wiki" title={m['wiki.title']()} data-testid="wiki-entry"
+					><BookOpen size={14} /><span class="hidden sm:inline">{m['wiki.title']()}</span></Button
+				>
 				<Button
 					variant="ghost"
 					size="icon-sm"

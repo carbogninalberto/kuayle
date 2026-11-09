@@ -65,7 +65,20 @@ const builtIn: Record<string, () => string> = {
 	draft_release_notes: m['assistant.tool_draft_release_notes'],
 	create_release: m['assistant.tool_create_release'],
 	get_workflow_run: m['assistant.tool_get_workflow_run'],
-	ship_pull_request: m['assistant.tool_ship_pull_request']
+	ship_pull_request: m['assistant.tool_ship_pull_request'],
+	list_wiki_pages: m['assistant.tool_list_wiki_pages'],
+	get_wiki_page: m['assistant.tool_get_wiki_page'],
+	list_wiki_page_versions: m['assistant.tool_list_wiki_page_versions'],
+	create_wiki_page: m['assistant.tool_create_wiki_page'],
+	update_wiki_page: m['assistant.tool_update_wiki_page'],
+	append_wiki_registry: m['assistant.tool_append_wiki_registry'],
+	manage_wiki_registry: m['assistant.tool_manage_wiki_registry'],
+	delete_wiki_page: m['assistant.tool_delete_wiki_page'],
+	restore_wiki_page_version: m['assistant.tool_restore_wiki_page_version'],
+	disable_wiki_registry: m['assistant.tool_disable_wiki_registry'],
+	move_wiki_page: m['assistant.tool_move_wiki_page'],
+	publish_wiki_page: m['assistant.tool_publish_wiki_page'],
+	share_wiki_page: m['assistant.tool_share_wiki_page']
 };
 
 const registry = new Map<string, ToolChip>();

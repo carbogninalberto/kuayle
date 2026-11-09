@@ -272,3 +272,30 @@ type PasswordResetRepo interface {
 	Issue(ctx context.Context, t *PasswordResetToken, cooldown time.Duration) (bool, error)
 	Reset(ctx context.Context, tokenHash, passwordHash string) error
 }
+
+// WikiRepo stores team and project wiki pages. Every method applies the
+// caller's current visibility of the scope from the request context.
+type WikiRepo interface {
+	RequireScope(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) error
+	List(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) ([]domain.WikiPage, error)
+	Get(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) (*domain.WikiPage, error)
+	Create(ctx context.Context, page *domain.WikiPage) error
+	Update(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, page *domain.WikiPage, expectedVersion int) error
+	Delete(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) error
+	ListRevisions(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) ([]domain.WikiRevision, error)
+	RegistryEnabled(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) (bool, error)
+	SetRegistryEnabled(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, enabled bool) error
+	AppendRegistry(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, day time.Time, entry string) (*domain.WikiPage, bool, error)
+	AppendIssueRegistry(ctx context.Context, workspaceID, issueID, userID uuid.UUID, now time.Time, text string) (*domain.WikiPage, bool, error)
+	RegistryDays(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, before *time.Time, limit int) ([]domain.WikiPage, error)
+	Settings(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) (domain.WikiSettings, error)
+	SetOverviewSchedule(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, schedule domain.WikiOverviewSchedule, nextRun *time.Time) error
+	RegistryRange(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, start, end time.Time) ([]domain.WikiPage, error)
+	CreateOverview(ctx context.Context, overview *domain.WikiOverview) error
+	ListOverviews(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, before *time.Time, limit int) ([]domain.WikiOverview, error)
+	DueOverviewSchedules(ctx context.Context, now time.Time, limit int) ([]domain.DueWikiOverview, error)
+	ClaimOverviewRun(ctx context.Context, settingsID uuid.UUID, slot, next time.Time) (bool, error)
+	RecordOverviewRun(ctx context.Context, settingsID uuid.UUID, at time.Time, runErr *string) error
+}
+
+var _ WikiRepo = (*WikiRepository)(nil)

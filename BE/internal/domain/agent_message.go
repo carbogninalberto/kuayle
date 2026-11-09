@@ -30,6 +30,10 @@ const (
 	AgentMessagesPerHour = 20
 )
 
+// AgentOutboxRegistry addresses an outbox file to the wiki registry of the
+// task's project, or of its team, instead of to another agent.
+const AgentOutboxRegistry = "REGISTRY"
+
 var agentMessageRecipient = regexp.MustCompile(`^[A-Z][A-Z0-9]{0,9}-[0-9]{1,9}$`)
 
 // AgentOutboxFile is one file an agent left in its worktree's
@@ -92,6 +96,11 @@ func ParseAgentOutboxMessage(data []byte) (AgentOutboxMessage, error) {
 		}
 		if message.Kind != AgentLiveKindMessage && message.Kind != AgentLiveKindQuestion {
 			return AgentOutboxMessage{}, errors.New("unknown kind")
+		}
+	} else if message.To == AgentOutboxRegistry {
+		// A line for the wiki registry of the task's project or team.
+		if message.Channel != AgentMessageInternal || raw.Kind != nil {
+			return AgentOutboxMessage{}, errors.New("a registry entry has no channel or kind")
 		}
 	} else {
 		if message.Channel != AgentMessageInternal && message.Channel != AgentMessageComment {

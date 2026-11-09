@@ -31,6 +31,7 @@ export const RESOURCE_ROWS: ResourceRow[] = [
 	{ key: 'workspace', readScopes: ['workspaces:read'], writeScopes: ['workspace:manage', 'workspace:transfer'] },
 	{ key: 'templates', readScopes: ['templates:read'], writeScopes: [] },
 	{ key: 'views', readScopes: ['views:read'], writeScopes: [] },
+	{ key: 'wiki', readScopes: ['wiki:read'], writeScopes: ['wiki:write'] },
 	{ key: 'analytics', readScopes: ['analytics:read'], writeScopes: [] },
 	{ key: 'notifications', readScopes: ['notifications:read'], writeScopes: [] },
 	{ key: 'account', readScopes: ['account:read'], writeScopes: [] },

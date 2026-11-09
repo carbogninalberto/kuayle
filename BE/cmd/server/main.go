@@ -164,6 +164,9 @@ func main() {
 	assistantTools := service.NewAssistantTools(issueRepo, teamRepo, workspaceRepo, issueSvc)
 	assistantToolSettings := repository.NewAssistantToolSettingsRepository(db)
 	assistantTools.SetSettings(assistantToolSettings)
+	wikiSvc := service.NewWikiService(repository.NewWikiRepository(db), hub)
+	wikiSvc.SetOverviewAI(aiSettingsSvc)
+	assistantTools.SetWiki(wikiSvc, projectRepo)
 	assistantSkills := repository.NewAssistantSkillRepository(db)
 	assistantTools.SetSkills(assistantSkills)
 	assistantSkillH := handler.NewAssistantSkillHandler(service.NewAssistantSkillService(assistantSkills, workspaceRepo))
@@ -190,6 +193,7 @@ func main() {
 	// Tasks that pin a configurable workflow follow it (KUA-95).
 	workflowRepo := repository.NewWorkflowRepository(db)
 	agentTaskSvc.SetWorkflows(workflowRepo)
+	agentTaskSvc.SetRegistry(wikiSvc)
 	assistantTools.SetWorkflows(workflowRepo)
 	workflowH := handler.NewWorkflowHandler(service.NewWorkflowService(workflowRepo, devMachineAgentReg, agentTaskSvc))
 	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))
@@ -236,6 +240,9 @@ func main() {
 	teamSvc.SetIconStore(store)
 	workspaceSvc.SetTeamIconStore(store)
 	uploadH := handler.NewUploadHandler(store, assetRepo, issueRepo, cfg.JWTSecret)
+	wikiPublishSvc := service.NewWikiPublishService(repository.NewWikiRepository(db), sharedLinkRepo, workspaceRepo, cfg.JWTSecret)
+	uploadH.SetWikiPublicPages(wikiPublishSvc.PublicPageReachable)
+	assistantTools.SetWikiPublishing(wikiPublishSvc, workspaceRepo)
 	conversationImages := service.NewImageStore(store)
 	conversationSvc.SetAttachments(conversationImages, assetRepo, commentSvc, workspaceRepo)
 	telegramSvc.SetImages(conversationImages)
@@ -274,6 +281,8 @@ func main() {
 	githubSvc.SetTaskReviews(repository.NewAgentTaskRepository(db))
 	devMachineSvc.SetRepositoryManifests(githubSvc)
 	assistantApprovals.SetMerging(repository.NewAgentTaskRepository(db), workspaceRepo, githubSvc)
+	assistantApprovals.SetWiki(wikiSvc, workspaceRepo)
+	assistantApprovals.SetWikiPublishing(wikiPublishSvc, workspaceRepo)
 	assistantApprovals.SetPullRequests(githubSvc, repository.NewAgentTaskRepository(db))
 	assistantTools.SetPullRequests(githubSvc, repository.NewAgentTaskRepository(db))
 	assistantTools.SetReleases(githubSvc, devMachineRepo, assistantSkills)
@@ -375,6 +384,8 @@ func main() {
 		upload:            uploadH,
 		github:            githubH,
 		githubBot:         handler.NewGitHubBotHandler(githubBotSvc),
+		wiki:              handler.NewWikiHandler(wikiSvc, aiSettingsSvc),
+		wikiPublish:       handler.NewWikiPublishHandler(wikiPublishSvc, cfg.FrontendURL),
 	}, &appMiddleware{
 		auth:                   mw.Auth(cfg.JWTSecret, patRepo, cfg.DevMachine.AllowSameSite),
 		authRateLimit:          mw.RateLimit(5, 10),
@@ -391,6 +402,7 @@ func main() {
 	go conversationSvc.Run(conversationCtx)
 	go taskFeedback.Run(conversationCtx)
 	go agentTaskSvc.Run(conversationCtx)
+	go wikiSvc.RunOverviewSchedules(conversationCtx)
 	go agentMessageSvc.Run(conversationCtx, 10*time.Second)
 	go automationSvc.Run(conversationCtx)
 	go githubSvc.RunMergeReconciliation(conversationCtx, 2*time.Minute)

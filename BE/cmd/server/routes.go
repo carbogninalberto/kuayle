@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/handler"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/labstack/echo/v5"
@@ -91,6 +92,8 @@ type appHandlers struct {
 	upload            *handler.UploadHandler
 	github            *handler.GitHubHandler
 	githubBot         *handler.GitHubBotHandler
+	wiki              *handler.WikiHandler
+	wikiPublish       *handler.WikiPublishHandler
 }
 
 // appMiddleware carries the pre-built route middleware whose construction
@@ -124,6 +127,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	pub := e.Group("/api/public", m.publicRateLimit)
 	public(pub, http.MethodGet, "/share/:token", h.sharedLink.GetPublicMeta)
 	public(pub, http.MethodGet, "/share/:token/issues", h.sharedLink.ListPublicIssues)
+	public(pub, http.MethodGet, "/wiki/:token", h.wikiPublish.Public)
 	public(e, http.MethodGet, "/api/public/assets/:token", h.upload.PublicAsset, m.publicAssetRateLimit)
 	public(pub, http.MethodGet, "/system/update-activity", h.system.UpdateActivity)
 
@@ -250,6 +254,32 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodPatch, "/projects/:id", h.project.Update, "project:manage")
 	scoped(ws, http.MethodDelete, "/projects/:id", h.project.Delete, "project:manage")
 	scoped(ws, http.MethodGet, "/teams/:teamId/projects", h.project.ListByTeam, "projects:read")
+
+	// Wikis: pages belong to one team or project; the repository applies the
+	// caller's current visibility of that scope on every read and write.
+	for _, wiki := range []struct {
+		base string
+		kind domain.WikiScopeKind
+	}{{"/teams/:teamId/wiki", domain.WikiScopeTeam}, {"/projects/:id/wiki", domain.WikiScopeProject}} {
+		scoped(ws, http.MethodGet, wiki.base, h.wiki.List(wiki.kind), domain.PermWikiRead)
+		scoped(ws, http.MethodGet, wiki.base+"/settings", h.wiki.Settings(wiki.kind), domain.PermWikiRead)
+		scoped(ws, http.MethodPatch, wiki.base+"/settings", h.wiki.UpdateSettings(wiki.kind), domain.PermWikiWrite)
+		scoped(ws, http.MethodPost, wiki.base+"/registry", h.wiki.AppendRegistry(wiki.kind), domain.PermWikiWrite)
+		scoped(ws, http.MethodGet, wiki.base+"/registry", h.wiki.RegistryFeed(wiki.kind), domain.PermWikiRead)
+		scoped(ws, http.MethodGet, wiki.base+"/registry/overviews", h.wiki.Overviews(wiki.kind), domain.PermWikiRead)
+		scoped(ws, http.MethodPost, wiki.base+"/registry/overviews", h.wiki.GenerateOverview(wiki.kind), domain.PermWikiWrite)
+		scoped(ws, http.MethodPost, wiki.base, h.wiki.Create(wiki.kind), domain.PermWikiWrite)
+		scoped(ws, http.MethodGet, wiki.base+"/:pageId", h.wiki.Get(wiki.kind), domain.PermWikiRead)
+		scoped(ws, http.MethodPatch, wiki.base+"/:pageId", h.wiki.Update(wiki.kind), domain.PermWikiWrite)
+		scoped(ws, http.MethodDelete, wiki.base+"/:pageId", h.wiki.Delete(wiki.kind), domain.PermWikiWrite)
+		scoped(ws, http.MethodGet, wiki.base+"/:pageId/versions", h.wiki.Revisions(wiki.kind), domain.PermWikiRead)
+		scoped(ws, http.MethodPost, wiki.base+"/:pageId/rework", h.wiki.Rework(wiki.kind), domain.PermWikiWrite)
+		scoped(ws, http.MethodGet, wiki.base+"/tree", h.wiki.Tree(wiki.kind), domain.PermWikiRead)
+		scoped(ws, http.MethodPost, wiki.base+"/tree", h.wiki.CreateInTree(wiki.kind), domain.PermWikiWrite)
+		scoped(ws, http.MethodPost, wiki.base+"/:pageId/move", h.wiki.Move(wiki.kind), domain.PermWikiWrite)
+		scoped(ws, http.MethodGet, wiki.base+"/:pageId/publish", h.wikiPublish.State(wiki.kind), domain.PermWikiRead)
+		scoped(ws, http.MethodPut, wiki.base+"/:pageId/publish", h.wikiPublish.Publish(wiki.kind), domain.PermWikiWrite)
+	}
 
 	// Views
 	scoped(ws, http.MethodGet, "/views", h.view.List, "views:read")

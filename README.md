@@ -48,7 +48,7 @@ The distribution model is deliberately simple:
 - no per-user software fee;
 - infrastructure, backups, monitoring, and updates remain the operator's responsibility.
 
-The product is intentionally smaller than broad project-management suites. It covers issues, cycles, projects, saved views, analytics, GitHub automation, public sharing, real-time events, and portable per-workspace transfer. It does not currently include enterprise identity, a wiki, or modules.
+The product is intentionally smaller than broad project-management suites. It covers issues, cycles, projects, team and project wikis, saved views, analytics, GitHub automation, public sharing, real-time events, and portable per-workspace transfer. It does not currently include enterprise identity or modules.
 
 ## ✨ Features
 
@@ -60,6 +60,7 @@ The product is intentionally smaller than broad project-management suites. It co
 | 🔗  | **Issue Relations**    | Blocking/blocked, duplicate, and related issue links                             |
 | 🔄  | **Cycles**             | Sprint planning with burndown/velocity charts and time-boxed iterations          |
 | 📁  | **Projects**           | Cross-team work grouped under a single umbrella with Gantt view                  |
+| 📖  | **Wiki**               | Team and project pages in folders, with autosave, history, AI rework, a daily registry and read-only publishing |
 | 🏷️  | **Labels**             | Hierarchical, workspace-scoped, with soft delete and default labels on creation  |
 | 👁️  | **Views**              | Saved views with personal/workspace/team scoping, drag-and-drop reorder          |
 | 🔔  | **Notifications**      | Inbox with snooze, read status, and archive                                      |
@@ -221,8 +222,8 @@ always have access to private content; ordinary members and guests need explicit
 team membership. Workspace roles and personal access token scopes still limit actions.
 Removing membership affects subsequent requests, including existing tokens.
 
-Issues, projects, cycles, statuses, comments and attachments inherit their team's
-visibility. Teamless projects remain public within the workspace. Relationships
+Issues, projects, cycles, statuses, comments, attachments and wiki pages inherit their
+team's visibility; a project wiki follows its project. Teamless projects remain public within the workspace. Relationships
 involving a private team must stay within that team; private resource moves are
 unsupported. Resolve incompatible relationships before making an existing team
 private. Making a team public requires confirmation and can reactivate old public links.
@@ -286,6 +287,8 @@ version>` before continuing.
 Workspace owners and admins can download a versioned `.kuayle.zip` archive from **Settings → General → Workspace transfer**. An authenticated user with no workspace can choose **Import workspace** during workspace setup; an owner or admin can also start an import from the transfer settings. Import always creates a separate workspace and never overwrites an existing one.
 
 The archive contains a logical `manifest.json`, `data.json`, and the workspace's uploaded asset bytes. It preserves teams, statuses, labels, projects, cycles, issues and their relationships/history, templates, views, favorites, shared links, workspace notifications, integration metadata, AI prompts, and safe Dev Machine workspace policy/scope settings. Database and asset IDs are regenerated and references—including protected asset URLs—are remapped during import.
+
+Team and project wiki pages are not included in the archive yet; copy them separately before migrating.
 
 Workspace transfer deliberately excludes password hashes, refresh tokens, personal preferences, webhook secrets, GitHub App credentials and access tokens, AI API keys, Dev Machine credentials, active machines, Docker volumes/networks, environment images, logs, sessions, and runtime artifacts. Imported webhooks, shared links, GitHub repositories/automation, and Dev Machine policy are disabled or rotated where appropriate; GitHub, AI, webhooks, and Development Environments must be reconfigured on the target instance.
 
