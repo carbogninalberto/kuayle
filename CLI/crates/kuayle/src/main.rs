@@ -88,6 +88,12 @@ async fn main() {
         cli::Command::Registry { action } => {
             commands::wiki::handle_registry(action, &cli).await;
         }
+        cli::Command::AgentTasks { action } => {
+            commands::agents::handle_tasks(action, &cli).await;
+        }
+        cli::Command::Workflows { action } => {
+            commands::agents::handle_workflows(action, &cli).await;
+        }
         cli::Command::Usage => {
             println!("{}", usage::generate(&cli::Cli::command()));
         }

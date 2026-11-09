@@ -3,9 +3,11 @@
 // Skipped unless these are set (see docs/cli.md#develop):
 //   KUAYLE_CONTRACT_URL        e.g. http://localhost:8080
 //   KUAYLE_CONTRACT_TOKEN      a PAT with the Developer preset plus issue:delete_own
+//                              (Developer includes agent_tasks:read and workflows:read)
 //   KUAYLE_CONTRACT_WORKSPACE  a workspace slug with at least one team and project
 // Optional:
-//   KUAYLE_CONTRACT_READONLY_TOKEN  a PAT without wiki:write, to check denials
+//   KUAYLE_CONTRACT_READONLY_TOKEN  a PAT without wiki:write, agent_tasks:read or
+//                                   workflows:read, to check denials
 //
 // The tests create and then delete their own issue, label, template and wiki
 // pages. Registry entries cannot be deleted through the API, so use a
@@ -190,6 +192,24 @@ fn every_command_matches_the_live_api() {
     }
     live.ok(&["issues", "list", "--team", &team_key, "--assignee", "me"]);
     live.expect_code(&["usage"], 0);
+
+    // ── Agent tasks and workflows (read-only) ─────────────────────
+    let queue = live.ok(&["agent-tasks", "list"]);
+    if let Some(task) = queue.get(0) {
+        let id = s(task, "id");
+        live.ok(&["agent-tasks", "read", &id]);
+        live.ok(&["agent-tasks", "history", &id]);
+        live.ok(&["agent-tasks", "runs", &id]);
+    }
+    let workflows = live.ok(&["workflows", "list"]);
+    if let Some(workflow) = workflows["workflows"].get(0) {
+        live.ok(&["workflows", "read", &s(workflow, "id")]);
+    } else {
+        live.failures
+            .borrow_mut()
+            .push(format!("workflows list has no workflows: {workflows}"));
+    }
+    live.ok(&["workflows", "profiles"]);
 
     // ── Issue writes ──────────────────────────────────────────────
     let created = live.ok(&[
@@ -398,6 +418,9 @@ fn every_command_matches_the_live_api() {
             .assert()
             .success();
         ro.ok(&["wiki", "list", "--team", &team_key]);
+        // Without agent_tasks:read / workflows:read.
+        ro.expect_code(&["agent-tasks", "list"], 5);
+        ro.expect_code(&["workflows", "list"], 5);
         ro.expect_code(
             &["wiki", "create", "--team", &team_key, "--title", "denied"],
             5,

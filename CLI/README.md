@@ -96,6 +96,8 @@ on exit codes: 2=re-auth needed, 3=not found, 4=invalid input, 5=forbidden,
 | **Assets** | `upload`, `download` |
 | **Wiki** | `list`, `tree`, `read`, `create`, `update`, `delete`, `move`, `history`, `restore` |
 | **Registry** | `settings`, `append`, `feed`, `overview`, `generate-overview` |
+| **Agent tasks** | `list`, `read`, `history`, `runs` (read-only) |
+| **Workflows** | `list`, `read`, `profiles` (read-only) |
 | **Meta** | `usage`, `completion`, `self-update` |
 
 Every command supports `--help`. Issues are addressed by identifier (`KUA-123`), never UUIDs.
@@ -107,7 +109,7 @@ kuayle issues list --status in_progress --format json
 kuayle comments create ENG-42 --body "Fixed in 3a7d5ee"
 ```
 
-Some operations (issue subscriptions; cycle, view, favorite and notification writes; agent tasks and workflows) accept only signed-in browser sessions, not tokens, so the CLI does not offer them.
+Some operations (issue subscriptions; cycle, view, favorite and notification writes; starting or changing agent tasks and workflows; run logs and diffs) accept only signed-in browser sessions, not tokens, so the CLI does not offer them.
 
 ## SDK: kuayle-sdk
 

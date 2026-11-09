@@ -73,8 +73,12 @@ Output is a table on a terminal and JSON when piped (`--format human|json`).
 Exit codes: 2 authentication, 3 not found, 4 invalid input, 5 forbidden,
 6 rate limited, 7 network or server error.
 
-Agent tasks, workflows, agent profiles and issue subscriptions are not in the CLI:
-their API accepts only signed-in browser sessions, not access tokens.
+`kuayle agent-tasks list|read|history|runs` and `kuayle workflows list|read|profiles`
+show agent tasks and workflows, read-only. They need the `agent_tasks:read` and
+`workflows:read` token scopes (in the Developer preset, under Dev machines in the
+token form). Guests never get these, and a token sees exactly the tasks its owner
+sees in the app. Starting, cancelling or approving tasks, run logs and diffs, and
+issue subscriptions stay in the web app: their API accepts signed-in sessions only.
 
 ## Agents
 

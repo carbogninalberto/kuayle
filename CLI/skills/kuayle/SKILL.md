@@ -17,6 +17,8 @@ full command reference (global flags, name resolution, exit codes). Prefer
   fails with `WIKI_VERSION_CONFLICT` if someone else saved first — re-read, merge,
   and retry rather than overwriting.
 - Log notable progress with `kuayle registry append --team <team> "<text>"`.
+- Inspect agent work read-only with `kuayle agent-tasks list|read|history|runs` and
+  `kuayle workflows list|read|profiles`.
 - Never print or paste the access token. If a command exits 5, report the missing
   scope instead of trying another route.
 

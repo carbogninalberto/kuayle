@@ -26,6 +26,8 @@ Commands:
   assets         Asset actions: upload a file, download one by ID
   wiki           Team and project wiki pages: read, write, tree, history, restore
   registry       A wiki's daily registry: append entries, read the feed and overviews
+  agent-tasks    Agent tasks: the queue, one task, its history and runs (read-only)
+  workflows      Agent workflows and profiles (read-only)
   usage          Show command reference
   completion     Generate shell completion script
   self-update    Check for updates or update the binary

@@ -6,17 +6,13 @@ kuayle — the official Kuayle CLI
 
 ## Global Flags
 
-  --profile <NAME>     Profile to use (env: KUAYLE_PROFILE)
-  --url <URL>          Override instance URL (env: KUAYLE_URL)
-  --workspace <SLUG>   Override workspace slug (env: KUAYLE_WORKSPACE)
-  --format human|json   Output format (default: auto-detect tty)
-  --no-cache            Disable resolve disk cache (env: KUAYLE_NO_CACHE)
+  --profile NAME, --url URL, --workspace SLUG (env: KUAYLE_PROFILE, KUAYLE_URL, KUAYLE_WORKSPACE)
+  --format human|json (default: human on a terminal, JSON when piped; errors too)
+  --no-cache (env: KUAYLE_NO_CACHE) skips the 5-minute name cache
 
 ## Authentication
 
-  kuayle auth login --token <PAT>     Login with Personal Access Token
-  kuayle auth logout                   Remove stored credentials
-  kuayle auth status                   Show authentication status
+  kuayle auth login --url URL --workspace SLUG --token <PAT>
 
 ## Commands
 
@@ -99,6 +95,20 @@ kuayle — the official Kuayle CLI
     List AI overviews of the registry, newest first
   kuayle registry generate-overview
     Generate an AI overview for a period (at most 31 days)
+  kuayle agent-tasks list
+    List the workspace's agent task queue
+  kuayle agent-tasks read
+    Show one agent task
+  kuayle agent-tasks history
+    Show a task's state transitions
+  kuayle agent-tasks runs
+    List a task's runs
+  kuayle workflows list
+    List workflows and the workspace defaults
+  kuayle workflows read
+    Show one workflow, including its graph
+  kuayle workflows profiles
+    List agent profiles
   kuayle usage
     Show command reference
   kuayle completion
@@ -107,32 +117,21 @@ kuayle — the official Kuayle CLI
     Check for updates or update the binary
 ## Name Resolution
 
-  Names accept: UUID (passthrough), human-readable name, or identifier.
-  Names resolved via batch fetch + case-insensitive match.
-  In-process memo + disk cache (5min TTL, --no-cache to disable).
-  Multiple names resolved in parallel (tokio::join!).
-  On failure: lists available candidates, exit code 3.
+  Teams, projects, labels and people accept a name, key, email or UUID
+  (case-insensitive); an unknown name lists candidates and exits 3.
 
 ## Wiki and Registry
 
   wiki/registry commands need --team <name|key|id> or --project <name|id>.
   Content is HTML or Markdown (--content, or --file PATH|-).
   Token scopes: wiki:read to read, wiki:write to change.
+  agent-tasks/workflows need agent_tasks:read / workflows:read (members only).
 
 ## Exit Codes
 
-  0  Success
-  1  Generic error
-  2  Authentication failure
-  3  Resource not found
-  4  Validation error
-  5  Permission denied
-  6  Rate limited
-  7  Network / server unreachable
+  0 ok, 1 error, 2 auth, 3 not found, 4 invalid input, 5 forbidden,
+  6 rate limited, 7 network/server
 
 ## Output Format
 
-  --format human   Human-readable tables and text (default when TTY).
-  --format json    Machine-readable JSON.
-  Default: auto-detect — JSON when piped, human when interactive.
-  JSON mode: errors are also JSON.
+  Prefer --format json in scripts and agents.

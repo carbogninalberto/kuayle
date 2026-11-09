@@ -1,5 +1,6 @@
 // Command modules.
 // 命令模块。
+pub mod agents;
 pub mod assets;
 pub mod auth_cmd;
 pub mod comments;

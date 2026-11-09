@@ -14,17 +14,15 @@ pub fn generate(cmd: &Command) -> String {
 
     // ── Global flags ──────────────────────────────────────────────
     out.push_str("## Global Flags\n\n");
-    out.push_str("  --profile <NAME>     Profile to use (env: KUAYLE_PROFILE)\n");
-    out.push_str("  --url <URL>          Override instance URL (env: KUAYLE_URL)\n");
-    out.push_str("  --workspace <SLUG>   Override workspace slug (env: KUAYLE_WORKSPACE)\n");
-    out.push_str("  --format human|json   Output format (default: auto-detect tty)\n");
-    out.push_str("  --no-cache            Disable resolve disk cache (env: KUAYLE_NO_CACHE)\n\n");
+    out.push_str("  --profile NAME, --url URL, --workspace SLUG (env: KUAYLE_PROFILE, KUAYLE_URL, KUAYLE_WORKSPACE)\n");
+    out.push_str(
+        "  --format human|json (default: human on a terminal, JSON when piped; errors too)\n",
+    );
+    out.push_str("  --no-cache (env: KUAYLE_NO_CACHE) skips the 5-minute name cache\n\n");
 
     // ── Auth ──────────────────────────────────────────────────────
     out.push_str("## Authentication\n\n");
-    out.push_str("  kuayle auth login --token <PAT>     Login with Personal Access Token\n");
-    out.push_str("  kuayle auth logout                   Remove stored credentials\n");
-    out.push_str("  kuayle auth status                   Show authentication status\n\n");
+    out.push_str("  kuayle auth login --url URL --workspace SLUG --token <PAT>\n\n");
 
     // ── Commands from clap tree ───────────────────────────────────
     out.push_str("## Commands\n\n");
@@ -32,35 +30,26 @@ pub fn generate(cmd: &Command) -> String {
 
     // ── Name resolution ───────────────────────────────────────────
     out.push_str("## Name Resolution\n\n");
-    out.push_str("  Names accept: UUID (passthrough), human-readable name, or identifier.\n");
-    out.push_str("  Names resolved via batch fetch + case-insensitive match.\n");
-    out.push_str("  In-process memo + disk cache (5min TTL, --no-cache to disable).\n");
-    out.push_str("  Multiple names resolved in parallel (tokio::join!).\n");
-    out.push_str("  On failure: lists available candidates, exit code 3.\n\n");
+    out.push_str("  Teams, projects, labels and people accept a name, key, email or UUID\n");
+    out.push_str("  (case-insensitive); an unknown name lists candidates and exits 3.\n\n");
 
     // ── Wiki scope ────────────────────────────────────────────────
     out.push_str("## Wiki and Registry\n\n");
     out.push_str("  wiki/registry commands need --team <name|key|id> or --project <name|id>.\n");
     out.push_str("  Content is HTML or Markdown (--content, or --file PATH|-).\n");
-    out.push_str("  Token scopes: wiki:read to read, wiki:write to change.\n\n");
+    out.push_str("  Token scopes: wiki:read to read, wiki:write to change.\n");
+    out.push_str(
+        "  agent-tasks/workflows need agent_tasks:read / workflows:read (members only).\n\n",
+    );
 
     // ── Exit codes ────────────────────────────────────────────────
     out.push_str("## Exit Codes\n\n");
-    out.push_str("  0  Success\n");
-    out.push_str("  1  Generic error\n");
-    out.push_str("  2  Authentication failure\n");
-    out.push_str("  3  Resource not found\n");
-    out.push_str("  4  Validation error\n");
-    out.push_str("  5  Permission denied\n");
-    out.push_str("  6  Rate limited\n");
-    out.push_str("  7  Network / server unreachable\n\n");
+    out.push_str("  0 ok, 1 error, 2 auth, 3 not found, 4 invalid input, 5 forbidden,\n");
+    out.push_str("  6 rate limited, 7 network/server\n\n");
 
     // ── Output format ─────────────────────────────────────────────
     out.push_str("## Output Format\n\n");
-    out.push_str("  --format human   Human-readable tables and text (default when TTY).\n");
-    out.push_str("  --format json    Machine-readable JSON.\n");
-    out.push_str("  Default: auto-detect — JSON when piped, human when interactive.\n");
-    out.push_str("  JSON mode: errors are also JSON.\n\n");
+    out.push_str("  Prefer --format json in scripts and agents.\n");
 
     out
 }

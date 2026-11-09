@@ -103,6 +103,16 @@ pub enum Command {
         #[command(subcommand)]
         action: RegistryAction,
     },
+    /// Agent tasks: the queue, one task, its history and runs (read-only)
+    AgentTasks {
+        #[command(subcommand)]
+        action: AgentTaskAction,
+    },
+    /// Agent workflows and profiles (read-only)
+    Workflows {
+        #[command(subcommand)]
+        action: WorkflowAction,
+    },
     /// Show command reference
     Usage,
     /// Generate shell completion script
@@ -556,4 +566,31 @@ pub enum RegistryAction {
         #[arg(long)]
         to: String,
     },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum AgentTaskAction {
+    /// List the workspace's agent task queue
+    List,
+    /// Show one agent task
+    Read { id: String },
+    /// Show a task's state transitions
+    History {
+        id: String,
+        /// Only transitions after this sequence number
+        #[arg(long)]
+        after: Option<i64>,
+    },
+    /// List a task's runs
+    Runs { id: String },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum WorkflowAction {
+    /// List workflows and the workspace defaults
+    List,
+    /// Show one workflow, including its graph
+    Read { id: String },
+    /// List agent profiles
+    Profiles,
 }
