@@ -1072,6 +1072,20 @@ Example create payload:
 
 Create requests accept `profile: "standard" | "headless"`; omission means standard. Headless requests must omit both `services.ide` and `services.browser`.
 
+## Command-line interface
+
+The `kuayle` CLI and Rust SDK live in [`CLI/`](CLI/) (MIT, originally by @uiYzzi;
+see [NOTICE](NOTICE)). The CLI is a REST client authenticated by a personal access
+token: every call is checked by the same `scoped` route annotation, token scope and
+workspace RBAC as any other PAT request, and it adds no server permissions. Routes
+registered `sessionOnly` (agent tasks, workflows, agent profiles, Dev Machine
+management) are therefore unavailable to it. Wiki and registry commands use the
+`/teams/:teamId/wiki` and `/projects/:id/wiki` routes with `wiki:read` and
+`wiki:write`; restoring a revision is an ordinary versioned update, as in the web
+app. Releases are `cli-v*` tags built by `cli-release.yml`; installers and
+`self-update` verify SHA-256 checksums from the official repository only. User
+guide: [docs/cli.md](docs/cli.md).
+
 ## Failure Handling
 
 | Failure | Behavior |

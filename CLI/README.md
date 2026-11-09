@@ -1,21 +1,26 @@
-# kuayle-cli
+# Kuayle CLI
 
 English | [中文](README.zh-CN.md)
 
-CLI and Rust SDK for [kuayle](https://github.com/carbogninalberto/kuayle) — the self-hosted, open-source issue tracker. Built for humans **and** coding agents.
+The official command-line interface and Rust SDK for
+[Kuayle](https://github.com/carbogninalberto/kuayle), the self-hosted issue
+tracker. Built for people **and** coding agents.
 
-Inspired by [lineark](https://github.com/flipbit03/lineark) (Linear CLI), redesigned for kuayle's REST API and self-hosted deployments.
+> Originally created by [@uiYzzi](https://github.com/uiYzzi) as
+> [kuayle_cli](https://github.com/uiYzzi/kuayle_cli); contributed to and now
+> maintained in the Kuayle repository. Its history and authorship are preserved
+> in this repository, and it keeps its MIT license ([LICENSE](LICENSE)).
+> Inspired by [lineark](https://github.com/flipbit03/lineark) (Linear CLI).
 
-## Why kuayle-cli?
+Full guide: [docs/cli.md](../docs/cli.md).
 
-- **Agent-first, token-cheap.** Point your agent at the CLI; it discovers every command at runtime via `kuayle usage` — a complete command reference in **under 1,000 tokens**. No MCP tool schemas eating your context window.
-- **Structured failures.** Semantic exit codes (2=auth, 3=not found, 4=validation, 5=forbidden, 6=rate limited, 7=network) and JSON errors in `--format json` mode, so agents can branch on failure modes.
-- **Human-friendly identifiers.** `--team Engineering`, `--assignee "Jane Doe"`, `--labels "Bug,P0"` — no UUIDs required. Names resolve in parallel with a short-lived disk cache.
-- **Self-hosted native.** Profiles bind instance URL + workspace + credentials; switch instances with `--profile`.
+## Why
 
-## Requirements
-
-A kuayle server with Personal Access Token support — see [kuayle#51](https://github.com/carbogninalberto/kuayle/issues/51) / [kuayle#55](https://github.com/carbogninalberto/kuayle/pull/55). Until that lands upstream, run a build from the PR branch.
+- **Agent-first, token-cheap.** `kuayle usage` prints the whole command reference in under 1,000 tokens.
+- **Structured failures.** Exit codes 2=auth, 3=not found, 4=validation, 5=forbidden, 6=rate limited, 7=network, and JSON errors with `--format json`.
+- **Human-friendly identifiers.** `--team Engineering`, `--assignee "Jane Doe"`, `--labels "Bug,P0"`; names resolve with a short-lived cache.
+- **Self-hosted native.** Profiles bind instance URL, workspace and credentials.
+- **Safe installs.** Installers and `self-update` verify SHA-256 checksums from the official releases only.
 
 ## Install
 
@@ -35,7 +40,7 @@ Shell completions: `kuayle completion <bash|zsh|fish>`
 
 ## Authenticate
 
-Create a PAT in kuayle (**Settings → API Tokens**; the `Developer` preset covers full CLI functionality), then:
+Create a token in Kuayle (**Settings → API Tokens**; the `Developer` preset covers the CLI, including wiki editing), then:
 
 ```sh
 kuayle auth login --token kuayle_pat_... --url https://kuayle.example.com --workspace acme
@@ -89,7 +94,9 @@ on exit codes: 2=re-auth needed, 3=not found, 4=invalid input, 5=forbidden,
 | **Templates** | `list`, `read`, `create`, `update`, `delete` |
 | **Views / Favorites / Notifications / Members** | `list` (read-only) |
 | **Assets** | `read`, `upload`, `download` |
-| **Meta** | `usage`, `completion`, `self update` |
+| **Wiki** | `list`, `tree`, `read`, `create`, `update`, `delete`, `move`, `history`, `restore` |
+| **Registry** | `append`, `feed`, `overview`, `generate-overview` |
+| **Meta** | `usage`, `completion`, `self-update` |
 
 Every command supports `--help`. Issues are addressed by identifier (`KUA-123`), never UUIDs.
 
@@ -100,7 +107,7 @@ kuayle issues list --status in_progress --format json
 kuayle comments create ENG-42 --body "Fixed in 3a7d5ee"
 ```
 
-Some write operations (cycles, views, favorites, notifications) are currently blocked server-side for PATs and will be enabled as kuayle adds permission codes — see [PR #55](https://github.com/carbogninalberto/kuayle/pull/55).
+Some operations (cycle, view, favorite and notification writes; agent tasks and workflows) accept only signed-in browser sessions, not tokens, so the CLI does not offer them.
 
 ## SDK: kuayle-sdk
 
@@ -122,12 +129,8 @@ Features: typed error enum, offset-pagination stream, retry with jittered backof
 
 ## Development
 
-```sh
-cargo xtask check    # fmt + clippy + build + test
-cargo test           # unit + wiremock integration
-KUAYLE_URL=http://localhost:5173 cargo test --test contract   # live-instance contract tests (skipped when unreachable)
-```
+See [docs/cli.md](../docs/cli.md#develop) for checks, live contract tests and releases.
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE). The rest of the Kuayle repository is Apache 2.0.

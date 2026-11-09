@@ -2,6 +2,8 @@
 
 [English](README.md) | 中文
 
+> Kuayle 官方 CLI。最初由 [@uiYzzi](https://github.com/uiYzzi) 创建为 [kuayle_cli](https://github.com/uiYzzi/kuayle_cli)，现由 Kuayle 仓库维护。最新内容以[英文版](README.md)和 [docs/cli.md](../docs/cli.md) 为准。
+
 [kuayle](https://github.com/carbogninalberto/kuayle)(自托管、开源的 issue tracker)的命令行工具与 Rust SDK,为人类**和** coding agent 而设计。
 
 灵感来自 [lineark](https://github.com/flipbit03/lineark)(Linear CLI),针对 kuayle 的 REST API 与自托管部署重新设计。
