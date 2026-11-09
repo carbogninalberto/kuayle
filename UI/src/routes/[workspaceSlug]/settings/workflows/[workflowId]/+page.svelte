@@ -64,4 +64,4 @@
 	</div>
 {/if}
 
-<PageTitle parts={[m['workflows.title'](), m['settings.title']()]} />
+<PageTitle parts={[detail?.name, m['workflows.title'](), m['settings.title']()]} />
