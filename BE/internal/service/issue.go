@@ -1098,65 +1098,44 @@ func (s *IssueService) inheritSubIssueAssignees(ctx context.Context, parent *dom
 	return []string{parentAssignees[0].String()}
 }
 
+// bulkUpdateParent puts issues under a parent (empty rawParentID removes it)
+// with the single-issue parent rules. The repository does it in one
+// transaction: it locks the issues and the parent's ancestors, checks every
+// issue before writing (a refused change writes nothing), writes only
+// parent_id so concurrent edits to other fields survive, and records parent
+// history. Events follow the commit.
 func (s *IssueService) bulkUpdateParent(ctx context.Context, workspaceID, userID uuid.UUID, issueIDs []uuid.UUID, rawParentID string) (int, error) {
-	issues := make([]*domain.Issue, 0, len(issueIDs))
+	if len(issueIDs) > maxBulkProjectIssues {
+		return 0, fmt.Errorf("at most %d issues can be moved at once", maxBulkProjectIssues)
+	}
 	var parentID *uuid.UUID
 	if rawParentID != "" {
-		parsedParentID, _, err := s.validateParentID(ctx, workspaceID, uuid.Nil, rawParentID)
+		pid, err := uuid.Parse(rawParentID)
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("invalid parent_id")
 		}
-		parentID = parsedParentID
+		parentID = &pid
 	}
 
-	for _, id := range issueIDs {
-		issue, err := s.issueRepo.GetByID(ctx, id)
-		if err != nil || issue == nil || issue.WorkspaceID != workspaceID {
-			return 0, fmt.Errorf("issue not found")
-		}
-		if parentID != nil {
-			if *parentID == issue.ID {
-				return 0, fmt.Errorf("issue cannot be its own parent")
-			}
-			cycle, err := s.issueRepo.WouldCreateCycle(ctx, issue.ID, *parentID)
-			if err != nil {
-				return 0, err
-			}
-			if cycle {
-				return 0, fmt.Errorf("parent would create a sub-issue cycle")
-			}
-		}
-		issues = append(issues, issue)
+	changed, err := s.issueRepo.BulkSetParent(ctx, workspaceID, issueIDs, parentID, userID)
+	switch {
+	case errors.Is(err, repository.ErrBulkIssueNotFound):
+		return 0, fmt.Errorf("issue not found")
+	case errors.Is(err, repository.ErrBulkParentUnavailable):
+		return 0, fmt.Errorf("resource reference is unavailable or crosses a private-team boundary")
+	case err != nil:
+		// The other refusals already read as the single-issue messages.
+		return 0, err
 	}
-
-	updated := 0
-	for _, issue := range issues {
-		old := ""
-		if issue.ParentID != nil {
-			old = issue.ParentID.String()
-		}
-		newVal := ""
-		if parentID != nil {
-			newVal = parentID.String()
-		}
-		if old == newVal {
-			continue
-		}
-		issue.ParentID = parentID
-		if err := s.issueRepo.Update(ctx, issue); err != nil {
-			return updated, err
-		}
-		s.recordHistory(ctx, issue.ID, userID, "parent", &old, &newVal)
-		updated++
-		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: issue})
+	for i := range changed {
+		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: &changed[i]})
 	}
-
-	return updated, nil
+	return len(changed), nil
 }
 
-// maxBulkProjectIssues bounds one bulk project move. The move is a single
-// transaction holding every row lock, so the batch stays bounded; the limit
-// is well above what a selection of loaded issues usually holds.
+// maxBulkProjectIssues bounds one bulk project or parent change. Each is a
+// single transaction holding every row lock, so the batch stays bounded; the
+// limit is well above what a selection of loaded issues usually holds.
 const maxBulkProjectIssues = 5000
 
 // bulkUpdateProject moves issues to a project (empty rawProjectID removes the
