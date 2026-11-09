@@ -138,6 +138,12 @@ func (m *mockIssueRepo) BulkSetProject(ctx context.Context, workspaceID uuid.UUI
 	return moved, args.Error(1)
 }
 
+func (m *mockIssueRepo) BulkSetParent(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, parentID *uuid.UUID, actorID uuid.UUID) ([]domain.Issue, error) {
+	args := m.Called(ctx, workspaceID, issueIDs, parentID, actorID)
+	changed, _ := args.Get(0).([]domain.Issue)
+	return changed, args.Error(1)
+}
+
 func (m *mockIssueRepo) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {

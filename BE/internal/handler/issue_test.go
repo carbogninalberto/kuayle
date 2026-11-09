@@ -152,6 +152,10 @@ func (r *testIssueRepo) BulkSetProject(_ context.Context, _ uuid.UUID, _ []uuid.
 	return nil, nil
 }
 
+func (r *testIssueRepo) BulkSetParent(_ context.Context, _ uuid.UUID, _ []uuid.UUID, _ *uuid.UUID, _ uuid.UUID) ([]domain.Issue, error) {
+	return nil, nil
+}
+
 func (r *testIssueRepo) BulkUpdate(_ context.Context, _ uuid.UUID, _ []uuid.UUID, _ *string, _ *int, _ *uuid.UUID, _ *uuid.UUID, _ *uuid.UUID, _ bool) (int, error) {
 	return 0, nil
 }

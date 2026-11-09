@@ -920,6 +920,159 @@ func (r *IssueRepository) BulkSetProject(ctx context.Context, workspaceID uuid.U
 	return moved, nil
 }
 
+// Refusals of BulkSetParent. Each one means nothing was written; except for
+// ErrBulkParentUnavailable the messages match the single-issue parent errors.
+var (
+	ErrBulkParentNotFound    = errors.New("parent issue not found")
+	ErrBulkParentWorkspace   = errors.New("parent issue must belong to the same workspace")
+	ErrBulkParentUnavailable = errors.New("parent crosses a private-team boundary")
+	ErrBulkOwnParent         = errors.New("issue cannot be its own parent")
+	ErrBulkParentCycle       = errors.New("parent would create a sub-issue cycle")
+)
+
+// BulkSetParent puts issues under parentID (nil removes the parent) in one
+// transaction and returns the issues that changed. It locks the issues and the
+// parent's ancestors, so the cycle check and the old values recorded in
+// history are current, and writes only parent_id: concurrent edits to other
+// fields are never reverted. Parent history is recorded for actorID in the
+// same statement. If any issue is missing or hidden, or the parent is missing,
+// hidden, in another workspace, across a private-team boundary or below one
+// of the issues, nothing is written.
+func (r *IssueRepository) BulkSetParent(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, parentID *uuid.UUID, actorID uuid.UUID) ([]domain.Issue, error) {
+	if len(issueIDs) == 0 {
+		return nil, nil
+	}
+	// The privacy graph barrier comes before the issue row locks, as in SetLabels.
+	tx, err := beginConversationTransaction(ctx, r.db)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	lockIDs := append([]uuid.UUID(nil), issueIDs...)
+	compatible := "TRUE"
+	if parentID != nil {
+		// The parent and its ancestors are locked with the issues: a change
+		// that would close a loop through them waits for this one, then sees it.
+		var chain []uuid.UUID
+		if err := tx.SelectContext(ctx, &chain, `WITH RECURSIVE chain(id, parent_id) AS (
+				SELECT id, parent_id FROM issues WHERE id = $1
+				UNION SELECT i.id, i.parent_id FROM issues i JOIN chain c ON i.id = c.parent_id
+			) SELECT id FROM chain`, *parentID); err != nil {
+			return nil, err
+		}
+		lockIDs = append(lockIDs, chain...)
+		compatible = "EXISTS (SELECT 1 FROM issues bulk_parent WHERE bulk_parent.id = " + uuidSQL(*parentID) + " AND " + compatibleTeams("i.team_id", "bulk_parent.team_id") + ")"
+	}
+	type lockedIssue struct {
+		ID          uuid.UUID  `db:"id"`
+		ParentID    *uuid.UUID `db:"parent_id"`
+		WorkspaceID uuid.UUID  `db:"workspace_id"`
+		Visible     bool       `db:"visible"`
+		Compatible  bool       `db:"compatible"`
+	}
+	lockQuery := `SELECT i.id, i.parent_id, i.workspace_id, ` + teamVisible(ctx, "i.team_id") + ` AS visible, ` + compatible + ` AS compatible
+		FROM issues i WHERE i.id = ANY($1) ORDER BY i.id FOR UPDATE OF i`
+	var rows []lockedIssue
+	// Rows are locked in ID order so concurrent bulk changes cannot deadlock.
+	if err := tx.SelectContext(ctx, &rows, lockQuery, pq.Array(lockIDs)); err != nil {
+		return nil, err
+	}
+	locked := make(map[uuid.UUID]lockedIssue, len(rows))
+	for _, row := range rows {
+		locked[row.ID] = row
+	}
+
+	if parentID != nil {
+		parent, ok := locked[*parentID]
+		if !ok || !parent.Visible {
+			return nil, ErrBulkParentNotFound
+		}
+		if parent.WorkspaceID != workspaceID {
+			return nil, ErrBulkParentWorkspace
+		}
+	}
+	selected := make(map[uuid.UUID]bool, len(issueIDs))
+	for _, id := range issueIDs {
+		issue, ok := locked[id]
+		if !ok || !issue.Visible || issue.WorkspaceID != workspaceID {
+			return nil, ErrBulkIssueNotFound
+		}
+		selected[id] = true
+	}
+	if parentID != nil {
+		if selected[*parentID] {
+			return nil, ErrBulkOwnParent
+		}
+		for _, id := range issueIDs {
+			if !locked[id].Compatible {
+				return nil, ErrBulkParentUnavailable
+			}
+		}
+		// Walk up from the parent over locked rows. An ancestor that changed
+		// before the lock is locked now and the walk goes on from it.
+		seen := map[uuid.UUID]bool{}
+		for current := locked[*parentID].ParentID; current != nil && !seen[*current]; {
+			if selected[*current] {
+				return nil, ErrBulkParentCycle
+			}
+			seen[*current] = true
+			ancestor, ok := locked[*current]
+			if !ok {
+				var more []lockedIssue
+				if err := tx.SelectContext(ctx, &more, lockQuery, pq.Array([]uuid.UUID{*current})); err != nil {
+					return nil, err
+				}
+				if len(more) == 0 {
+					break
+				}
+				ancestor = more[0]
+				locked[ancestor.ID] = ancestor
+			}
+			current = ancestor.ParentID
+		}
+	}
+
+	changeIDs := make([]uuid.UUID, 0, len(issueIDs))
+	oldValues := make([]string, 0, len(issueIDs))
+	for _, id := range issueIDs {
+		old := locked[id].ParentID
+		if old == nil && parentID == nil || old != nil && parentID != nil && *old == *parentID {
+			continue
+		}
+		oldValue := ""
+		if old != nil {
+			oldValue = old.String()
+		}
+		changeIDs = append(changeIDs, id)
+		oldValues = append(oldValues, oldValue)
+	}
+	if len(changeIDs) == 0 {
+		return nil, nil
+	}
+	newValue := ""
+	if parentID != nil {
+		newValue = parentID.String()
+	}
+	var changed []domain.Issue
+	err = tx.SelectContext(ctx, &changed, `WITH changed AS (
+			UPDATE issues SET parent_id = $2, updated_at = NOW() WHERE id = ANY($1) RETURNING *
+		), parent_history AS (
+			INSERT INTO issue_history (issue_id, user_id, field, old_value, new_value, agent)
+			SELECT changed_issue.id, $3, 'parent', changed_issue.old_value, $5, $6
+			FROM unnest($1::uuid[], $4::text[]) AS changed_issue(id, old_value)
+		)
+		SELECT * FROM changed ORDER BY id`,
+		pq.Array(changeIDs), parentID, actorID, pq.Array(oldValues), newValue, domain.ActingAgent(ctx))
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return changed, nil
+}
+
 // GetSubscribersForIssues returns each visible issue's subscribers.
 func (r *IssueRepository) GetSubscribersForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
 	result := make(map[uuid.UUID][]uuid.UUID, len(issueIDs))
