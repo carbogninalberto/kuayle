@@ -16,7 +16,7 @@ export function getProject(slug: string, id: string): Promise<Project> {
 
 export async function createProject(
 	slug: string,
-	data: { name: string; description?: string; team_id?: string }
+	data: { name: string; description?: string; team_id?: string; color?: string; icon?: string }
 ): Promise<Project> {
 	const project = await api.post<Project>(`/api/workspaces/${slug}/projects`, data);
 	emitAppRefresh(['projects'], slug);
@@ -33,6 +33,9 @@ export async function updateProject(
 		team_id?: string | null;
 		start_date?: string | null;
 		target_date?: string | null;
+		/** An empty string clears the value. */
+		color?: string;
+		icon?: string;
 	}
 ): Promise<Project> {
 	const project = await api.patch<Project>(`/api/workspaces/${slug}/projects/${id}`, data);

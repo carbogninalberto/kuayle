@@ -17,6 +17,7 @@
 	import { listTeams } from '$lib/api/teams';
 	import type { Project, ProjectStatus } from '$lib/types/project';
 	import type { Team } from '$lib/types/team';
+	import ProjectAppearancePicker from '$lib/features/projects/ProjectAppearancePicker.svelte';
 	import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import { Badge } from '$lib/components/ui/badge';
@@ -274,6 +275,17 @@
 		}
 	}
 
+	async function handleAppearanceChange(change: { icon?: string; color?: string }) {
+		if (!project || !canManage) return;
+		try {
+			await updateProject(slug, project.id, change);
+			await refreshProject();
+			appToast.success(m['projects.toast.appearance_updated']());
+		} catch (err: any) {
+			appToast.apiError(err, m['projects.toast.failed_update_appearance']());
+		}
+	}
+
 	async function handleDelete() {
 		if (!project || !canManage) return;
 		try {
@@ -342,6 +354,7 @@
 		<div class="flex min-h-[49px] items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-4">
 			<div class="flex min-w-0 items-center gap-3">
 				<SidebarToggle />
+				<ProjectAppearancePicker {project} disabled={!canManage} onchange={handleAppearanceChange} />
 				<nav class="flex min-w-0 items-center gap-1.5 text-sm">
 					{#if projectTeam}
 						<a

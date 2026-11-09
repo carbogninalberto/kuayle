@@ -20,6 +20,7 @@
 	import type { Team } from '$lib/types/team';
 	import type { View } from '$lib/types/view';
 	import { isPersonalView, isTeamView, isWorkspaceView } from '$lib/types/view';
+	import ProjectIcon from '$lib/components/shared/ProjectIcon.svelte';
 	import TeamIcon from '$lib/components/shared/TeamIcon.svelte';
 	import WorkspaceSwitcher from './WorkspaceSwitcher.svelte';
 	import type { Favorite } from '$lib/api/favorites';
@@ -944,7 +945,8 @@
 																			? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
 																			: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 																	>
-																		<span class="ml-2 truncate capitalize">{project.name}</span>
+																		<ProjectIcon {project} size={13} class="ml-2 shrink-0" />
+																		<span class="truncate capitalize">{project.name}</span>
 																	</a>
 																</ContextMenu.Trigger>
 																<ContextMenu.Content class="w-44">

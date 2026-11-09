@@ -16,6 +16,7 @@
 	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue, signIssuePromptAssets, createSubIssue, bulkCreateSubIssues, expandIssueDescription, subscribeToIssue, unsubscribeFromIssue } from '$lib/api/issues';
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
+	import ProjectChip from '$lib/components/shared/ProjectChip.svelte';
 	import { listProjects } from '$lib/api/projects';
 	import { issuesState } from './issues.state.svelte';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
@@ -750,6 +751,9 @@
 			</a>
 			<span class="shrink-0 text-[var(--color-text-tertiary)]">&rsaquo;</span>
 			<span class="truncate font-medium text-[var(--color-text-primary)]">{issue.identifier}</span>
+			{#if issueProject}
+				<a href="/{slug}/projects/{issueProject.id}" class="ml-1 flex min-w-0 shrink-0 hover:opacity-80"><ProjectChip project={issueProject} /></a>
+			{/if}
 		</div>
 		<div class="no-scrollbar flex shrink-0 items-center gap-0.5 overflow-x-auto">
 			<!-- Actions -->

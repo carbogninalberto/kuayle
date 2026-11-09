@@ -7,14 +7,26 @@ const cycleId = '00000000-0000-0000-0000-000000000040';
 const cyclePath = `/test/teams/${teamId}/cycles`;
 const now = '2026-01-01T00:00:00Z';
 
-async function mockWorkspace(page: Page, role = 'owner', icon = 'layers') {
+async function mockWorkspace(
+	page: Page,
+	role = 'owner',
+	icon = 'layers',
+	projectLook: { color: string | null; icon: string | null } = { color: null, icon: null }
+) {
 	await page.routeWebSocket('**/ws', () => {});
 	const errors: string[] = [];
 	page.on('pageerror', (error) => errors.push(error.message));
 	const mutations: { method: string; path: string; body: any }[] = [];
 	const queries: URLSearchParams[] = [];
 	const team = { id: teamId, name: 'Engineering', key: 'ENG', color: '#6366f1', icon, created_at: now };
-	const project = { id: projectId, name: 'Launch', team_id: teamId, status: 'planned', created_at: now };
+	const project = {
+		id: projectId,
+		name: 'Launch',
+		team_id: teamId,
+		status: 'planned',
+		...projectLook,
+		created_at: now
+	};
 	const cycles = Array.from({ length: 7 }, (_, i) => ({
 		id: i === 0 ? cycleId : `00000000-0000-0000-0000-${String(40 + i).padStart(12, '0')}`,
 		team_id: teamId,
@@ -324,6 +336,40 @@ test('mobile scoped pages fit the viewport and project indexes hide guest creati
 		await expect(page.getByRole('link', { name: /Launch/ }).last()).toBeVisible();
 		await expect(page.getByRole('button', { name: 'New project', exact: true })).toHaveCount(0);
 	}
+});
+
+test('project colour and icon show on the project page and only on issues that have a project', async ({ page }) => {
+	const state = await mockWorkspace(page, 'owner', 'layers', { color: '#ef4444', icon: 'Rocket' });
+	await page.goto(`/test/projects/${projectId}`);
+	const scoped = page.getByTestId('scoped-issues');
+	await expect(scoped.getByText('Scoped issue 1', { exact: true })).toBeVisible();
+	await expect(page.getByTestId('project-appearance-trigger').locator('svg')).toHaveCSS('color', 'rgb(239, 68, 68)');
+	await expect(scoped.getByTestId('project-chip')).toHaveCount(1);
+	await expect(scoped.getByTestId('project-chip')).toHaveAttribute('title', 'Launch');
+	expect(state.errors).toEqual([]);
+});
+
+test('a project manager picks an icon and a colour, and can reset them', async ({ page }) => {
+	const state = await mockWorkspace(page);
+	await page.goto(`/test/projects/${projectId}`);
+	await page.getByTestId('project-appearance-trigger').click();
+	await page.getByPlaceholder('Search Lucide icons', { exact: true }).fill('Rocket');
+	await page.getByRole('button', { name: 'Use Rocket icon', exact: true }).click();
+	await expect.poll(() => state.mutations.some((m) => m.method === 'PATCH' && m.body.icon === 'Rocket')).toBe(true);
+	await page.getByTestId('project-appearance-trigger').click();
+	await page.getByRole('button', { name: 'Use color #3b82f6', exact: true }).click();
+	await expect.poll(() => state.mutations.some((m) => m.method === 'PATCH' && m.body.color === '#3b82f6')).toBe(true);
+	await expect(page.getByTestId('project-appearance-trigger').locator('svg')).toHaveCSS('color', 'rgb(59, 130, 246)');
+	await page.getByRole('button', { name: 'Reset', exact: true }).click();
+	await expect.poll(() => state.mutations.some((m) => m.method === 'PATCH' && m.body.icon === '' && m.body.color === '')).toBe(true);
+	expect(state.errors).toEqual([]);
+});
+
+test('guests see the project icon but cannot change it', async ({ page }) => {
+	await mockWorkspace(page, 'guest', 'layers', { color: '#22c55e', icon: 'emoji:🚀' });
+	await page.goto(`/test/projects/${projectId}`);
+	await expect(page.getByTestId('project-appearance-trigger')).toBeDisabled();
+	await expect(page.getByTestId('project-appearance-trigger')).toContainText('🚀');
 });
 
 test('existing single-select parent picker still applies one selection immediately', async ({ page }) => {

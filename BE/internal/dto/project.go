@@ -9,6 +9,8 @@ type CreateProjectRequest struct {
 	LeadID      *string `json:"lead_id" validate:"omitempty,uuid"`
 	StartDate   *string `json:"start_date"`
 	TargetDate  *string `json:"target_date"`
+	Color       *string `json:"color" validate:"omitempty,max=7,hexcolor|eq="`
+	Icon        *string `json:"icon" validate:"omitempty,max=50"`
 }
 
 type UpdateProjectRequest struct {
@@ -20,6 +22,9 @@ type UpdateProjectRequest struct {
 	StartDate   *string  `json:"start_date"`
 	TargetDate  *string  `json:"target_date"`
 	SortOrder   *float64 `json:"sort_order"`
+	// Color and Icon: an empty string clears the value.
+	Color *string `json:"color" validate:"omitempty,max=7,hexcolor|eq="`
+	Icon  *string `json:"icon" validate:"omitempty,max=50"`
 }
 
 type ProjectResponse struct {
@@ -32,6 +37,8 @@ type ProjectResponse struct {
 	StartDate   *time.Time               `json:"start_date"`
 	TargetDate  *time.Time               `json:"target_date"`
 	SortOrder   float64                  `json:"sort_order"`
+	Color       *string                  `json:"color"`
+	Icon        *string                  `json:"icon"`
 	Progress    *ProjectProgressResponse `json:"progress,omitempty"`
 	CreatedAt   time.Time                `json:"created_at"`
 	UpdatedAt   time.Time                `json:"updated_at"`

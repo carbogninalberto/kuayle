@@ -12,6 +12,7 @@
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import SubIssueCounterTag from './SubIssueCounterTag.svelte';
 	import IssueLabelChips from './IssueLabelChips.svelte';
+	import ProjectChip from '$lib/components/shared/ProjectChip.svelte';
 	import IssueContextMenu from './IssueContextMenu.svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as HoverCard from '$lib/components/ui/hover-card';
@@ -67,6 +68,7 @@
 	} = $props();
 
 	const isSelected = $derived(issuesState.selectedIds.has(issue.id));
+	const issueProject = $derived(issue.project_id ? projects.find((p) => p.id === issue.project_id) : null);
 	const issueCycle = $derived(issue.cycle_id ? cycles.find((c) => c.id === issue.cycle_id) : null);
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
 	const isMobile = new IsMobile();
@@ -394,6 +396,8 @@
 				</div>
 			{/if}
 		</div>
+
+		{#if issueProject}<ProjectChip project={issueProject} />{/if}
 
 		<IssueLabelChips labels={issue.labels ?? []} />
 
