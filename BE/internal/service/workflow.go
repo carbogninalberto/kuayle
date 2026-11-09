@@ -294,7 +294,8 @@ func (s *WorkflowService) Get(ctx context.Context, ws uuid.UUID, id string) (*Wo
 }
 
 // WorkflowRequest creates or saves a workflow. Template names a built-in
-// starting point ("review_loop") instead of a graph.
+// starting point ("review_loop", "full_cycle" or "standard") instead of a
+// graph.
 type WorkflowRequest struct {
 	Name            string          `json:"name"`
 	Description     string          `json:"description"`
@@ -383,6 +384,8 @@ func (s *WorkflowService) Create(ctx context.Context, ws uuid.UUID, in WorkflowR
 		switch in.Template {
 		case "review_loop":
 			template = domain.ReviewLoopWorkflowGraph(implementer, reviewer)
+		case "full_cycle":
+			template = domain.FullCycleWorkflowGraph(implementer, reviewer)
 		case domain.StandardWorkflowID:
 			template = standardCopy(implementer)
 		default:

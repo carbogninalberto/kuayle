@@ -19,11 +19,18 @@
 		onclose
 	}: { slug: string; oncreated: (created: WorkflowSummary) => void; onclose: () => void } = $props();
 
-	type Template = 'blank' | 'review_loop' | 'standard';
+	type Template = 'blank' | 'review_loop' | 'full_cycle' | 'standard';
 	let name = $state(''),
 		description = $state(''),
 		template = $state<Template>('review_loop'),
 		saving = $state(false);
+
+	const hints: Record<Template, () => string> = {
+		review_loop: m['workflows.template_hint_review_loop'],
+		full_cycle: m['workflows.template_hint_full_cycle'],
+		standard: m['workflows.template_hint_standard'],
+		blank: m['workflows.template_hint_blank']
+	};
 
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
@@ -77,10 +84,12 @@
 					bind:value={template}
 					options={[
 						{ value: 'review_loop', label: m['workflows.template_review_loop']() },
+						{ value: 'full_cycle', label: m['workflows.template_full_cycle']() },
 						{ value: 'standard', label: m['workflows.template_standard']() },
 						{ value: 'blank', label: m['workflows.template_blank']() }
 					]}
 				/>
+				<p class="text-xs text-muted-foreground">{hints[template]()}</p>
 			</div>
 			<Dialog.Footer>
 				<Button type="button" variant="outline" onclick={onclose}>{m['common.cancel']()}</Button>

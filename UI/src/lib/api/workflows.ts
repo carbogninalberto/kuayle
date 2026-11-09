@@ -191,7 +191,7 @@ export interface WorkflowSaveInput {
 	description: string;
 	graph?: WorkflowGraph;
 	/** A built-in starting point instead of a graph. */
-	template?: 'review_loop' | 'standard';
+	template?: 'review_loop' | 'full_cycle' | 'standard';
 	expected_version?: number;
 }
 

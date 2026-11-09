@@ -31,6 +31,30 @@ func TestReviewLoopTemplateIsValid(t *testing.T) {
 	require.Empty(t, ValidateWorkflowGraph(ReviewLoopWorkflowGraph(implementer, reviewer), profiles))
 }
 
+func TestFullCycleTemplateUsesEveryStepAndLoopsFailuresBack(t *testing.T) {
+	implementer, reviewer, profiles := exampleProfiles()
+	g := FullCycleWorkflowGraph(implementer, reviewer)
+	require.Empty(t, ValidateWorkflowGraph(g, profiles))
+	types := map[string]bool{}
+	for _, node := range g.Nodes {
+		types[node.Type] = true
+	}
+	require.Len(t, types, 7, "start, agent, check, approval, publish, merge and end")
+	back := map[string]string{}
+	for _, edge := range g.Edges {
+		if edge.Target == "implement" && edge.Source != "start" {
+			back[edge.Source] = edge.Condition
+		}
+	}
+	require.Equal(t, map[string]string{"implement": WorkflowAgentFailed, "tests": WorkflowChecksFailed, "publish": WorkflowPublishFailed,
+		"review": WorkflowReviewChangesRequested, "ci": WorkflowChecksFailed, "ship": WorkflowApprovalDenied}, back)
+
+	// The sixth time the implementer would run, the visit limit stops the loop.
+	cursor := WorkflowCursor{Node: "ci", Visits: map[string]int{"implement": 5}}
+	decision := g.Decide(cursor, WorkflowChecksFailed, time.Now(), profiles)
+	require.Equal(t, WorkflowLimitVisits, decision.Limit)
+}
+
 func TestWorkflowValidationRejectsUnreachableNode(t *testing.T) {
 	implementer, reviewer, profiles := exampleProfiles()
 	g := ReviewLoopWorkflowGraph(implementer, reviewer)

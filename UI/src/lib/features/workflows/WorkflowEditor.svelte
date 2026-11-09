@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { beforeNavigate } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import {
 		ArrowLeft,
 		ArrowRight,
@@ -129,9 +130,22 @@
 		if (next) tab = 'inspect';
 	}
 
+	// Leaving with unsaved changes asks first, in a dialog. Closing the tab
+	// can only use the browser's own prompt.
+	let leaving = $state<URL | null>(null),
+		leaveConfirmed = false;
 	beforeNavigate((navigation) => {
-		if (dirty && editable && !confirm(m['workflows.editor.leave_unsaved']())) navigation.cancel();
+		if (!dirty || !editable || leaveConfirmed) return;
+		navigation.cancel();
+		if (navigation.type !== 'leave' && navigation.to) leaving = navigation.to.url;
 	});
+	function leave() {
+		const target = leaving;
+		leaving = null;
+		if (!target) return;
+		leaveConfirmed = true;
+		void goto(target);
+	}
 
 	function shortcut(event: KeyboardEvent) {
 		if (!(event.metaKey || event.ctrlKey)) return;
@@ -217,6 +231,15 @@
 		lastChange = 0;
 		change(copied.graph);
 		select({ kind: 'node', id: copied.id });
+	}
+
+	// Menu actions close the menu before changing the graph: a change re-renders
+	// the canvas under the menu, which otherwise leaves it open and the page
+	// unclickable.
+	let menuOpen = $state(false);
+	function act(action: () => void) {
+		menuOpen = false;
+		queueMicrotask(action);
 	}
 
 	// The context menu opens on the canvas; the canvas reports whether a step
@@ -415,7 +438,7 @@
 				/>
 			{/snippet}
 			{#if editable}
-				<ContextMenu.Root>
+				<ContextMenu.Root bind:open={menuOpen}>
 					<ContextMenu.Trigger class="block h-full" oncontextmenucapture={contextAt} data-testid="workflow-canvas-menu">
 						{@render canvas()}
 					</ContextMenu.Trigger>
@@ -423,7 +446,7 @@
 						{#if menuNode}
 							{@const node = menuNode}
 							<ContextMenu.Label class="truncate text-xs text-muted-foreground">{node.label}</ContextMenu.Label>
-							<ContextMenu.Item onclick={() => select({ kind: 'node', id: node.id })}
+							<ContextMenu.Item onclick={() => act(() => select({ kind: 'node', id: node.id }))}
 								><Pencil />{m['workflows.editor.edit']()}</ContextMenu.Item
 							>
 							{#if node.type !== 'end'}
@@ -432,7 +455,7 @@
 									<ContextMenu.SubContent class="w-56">
 										{#each PALETTE as type (type)}
 											{@const Icon = nodeIcon({ type })}
-											<ContextMenu.Item onclick={() => addAfter(node.id, type)}
+											<ContextMenu.Item onclick={() => act(() => addAfter(node.id, type))}
 												><Icon />{nodeTypeLabel(type)}</ContextMenu.Item
 											>
 										{/each}
@@ -445,7 +468,7 @@
 									<ContextMenu.SubContent class="max-h-72 w-56 overflow-y-auto">
 										{#each connectable(node.id) as target (target.id)}
 											{@const Icon = nodeIcon(target)}
-											<ContextMenu.Item onclick={() => connectTo(node.id, target.id)}
+											<ContextMenu.Item onclick={() => act(() => connectTo(node.id, target.id))}
 												><Icon /><span class="truncate">{target.label}</span></ContextMenu.Item
 											>
 										{/each}
@@ -453,12 +476,12 @@
 								</ContextMenu.Sub>
 							{/if}
 							{#if node.type !== 'start'}
-								<ContextMenu.Item onclick={() => duplicate(node.id)}
+								<ContextMenu.Item onclick={() => act(() => duplicate(node.id))}
 									><Copy />{m['workflows.editor.duplicate']()}<ContextMenu.Shortcut>⌘D</ContextMenu.Shortcut
 									></ContextMenu.Item
 								>
 								<ContextMenu.Separator />
-								<ContextMenu.Item variant="destructive" onclick={() => remove([node.id], [])}
+								<ContextMenu.Item variant="destructive" onclick={() => act(() => remove([node.id], []))}
 									><Trash2 />{m['workflows.editor.delete_node']()}<ContextMenu.Shortcut>⌫</ContextMenu.Shortcut
 									></ContextMenu.Item
 								>
@@ -480,10 +503,11 @@
 								<ContextMenu.SubContent class="w-56">
 									<ContextMenu.RadioGroup
 										value={edge.condition}
-										onValueChange={(value) => {
-											lastChange = 0;
-											change(updateEdge(graph, edge.id, { condition: value as WorkflowCondition }));
-										}}
+										onValueChange={(value) =>
+											act(() => {
+												lastChange = 0;
+												change(updateEdge(graph, edge.id, { condition: value as WorkflowCondition }));
+											})}
 									>
 										{#each [edge.condition, ...sourceConditions(edge.source, edge.id).filter((c) => c !== edge.condition)] as condition (condition)}
 											<ContextMenu.RadioItem value={condition}>{conditionLabel(condition)}</ContextMenu.RadioItem>
@@ -492,7 +516,7 @@
 								</ContextMenu.SubContent>
 							</ContextMenu.Sub>
 							<ContextMenu.Separator />
-							<ContextMenu.Item variant="destructive" onclick={() => remove([], [edge.id])}
+							<ContextMenu.Item variant="destructive" onclick={() => act(() => remove([], [edge.id]))}
 								><Trash2 />{m['workflows.editor.delete_edge']()}</ContextMenu.Item
 							>
 						{:else}
@@ -502,22 +526,24 @@
 								<ContextMenu.SubContent class="w-56">
 									{#each PALETTE as type (type)}
 										{@const Icon = nodeIcon({ type })}
-										<ContextMenu.Item onclick={() => addAt(type, at)}><Icon />{nodeTypeLabel(type)}</ContextMenu.Item>
+										<ContextMenu.Item onclick={() => act(() => addAt(type, at))}
+											><Icon />{nodeTypeLabel(type)}</ContextMenu.Item
+										>
 									{/each}
 								</ContextMenu.SubContent>
 							</ContextMenu.Sub>
-							<ContextMenu.Item onclick={() => change(tidy(graph))}
+							<ContextMenu.Item onclick={() => act(() => change(tidy(graph)))}
 								><LayoutGrid />{m['workflows.editor.tidy']()}</ContextMenu.Item
 							>
-							<ContextMenu.Item onclick={() => flow?.fit()}
+							<ContextMenu.Item onclick={() => act(() => flow?.fit())}
 								><Maximize />{m['workflows.editor.fit_view']()}</ContextMenu.Item
 							>
 							<ContextMenu.Separator />
-							<ContextMenu.Item disabled={past.length === 0} onclick={undo}
+							<ContextMenu.Item disabled={past.length === 0} onclick={() => act(() => undo())}
 								><Undo2 />{m['workflows.editor.undo']()}<ContextMenu.Shortcut>⌘Z</ContextMenu.Shortcut
 								></ContextMenu.Item
 							>
-							<ContextMenu.Item disabled={future.length === 0} onclick={redo}
+							<ContextMenu.Item disabled={future.length === 0} onclick={() => act(() => redo())}
 								><Redo2 />{m['workflows.editor.redo']()}<ContextMenu.Shortcut>⇧⌘Z</ContextMenu.Shortcut
 								></ContextMenu.Item
 							>
@@ -941,3 +967,18 @@
 		</aside>
 	</div>
 </div>
+
+<AlertDialog.Root open={leaving !== null} onOpenChange={(open) => !open && (leaving = null)}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>{m['workflows.editor.leave_title']()}</AlertDialog.Title>
+			<AlertDialog.Description>{m['workflows.editor.leave_unsaved']()}</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel>{m['workflows.editor.stay']()}</AlertDialog.Cancel>
+			<AlertDialog.Action variant="destructive" onclick={leave} data-testid="workflow-leave"
+				>{m['workflows.editor.leave']()}</AlertDialog.Action
+			>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>

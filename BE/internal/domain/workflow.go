@@ -844,6 +844,49 @@ func ReviewLoopWorkflowGraph(implementer, reviewer uuid.UUID) WorkflowGraph {
 	}
 }
 
+// FullCycleWorkflowGraph uses every kind of step: implement, run the tests,
+// open the pull request, an agent review, CI, a person's go-ahead and the
+// merge. Every failure and every request for changes goes back to the
+// implementer, which retries at most five times; past that the workflow asks
+// a person instead of failing on its own.
+func FullCycleWorkflowGraph(implementer, reviewer uuid.UUID) WorkflowGraph {
+	row := func(r int) float64 { return float64(r * 130) }
+	return WorkflowGraph{
+		Nodes: []WorkflowNode{
+			{ID: "start", Type: WorkflowNodeStart, Label: "Start", Position: WorkflowPosition{X: -88, Y: row(0)}},
+			{ID: "implement", Type: WorkflowNodeAgent, Label: "Implement", ProfileID: &implementer, MaxVisits: 5,
+				Prompt: "Address what sent the work back, then make sure the change is complete.\n\n{{review_comments}}\n\n{{failing_checks}}", Position: WorkflowPosition{X: -120, Y: row(1)}},
+			{ID: "tests", Type: WorkflowNodeCheck, Label: "Tests", Check: WorkflowCheckTests, Position: WorkflowPosition{X: -120, Y: row(2)}},
+			{ID: "publish", Type: WorkflowNodePublish, Label: "Open pull request", Position: WorkflowPosition{X: -120, Y: row(3)}},
+			{ID: "review", Type: WorkflowNodeAgent, Label: "Review", ProfileID: &reviewer, Prompt: "Review the pull request against the issue.\n\n{{previous_summary}}", Position: WorkflowPosition{X: -120, Y: row(4)}},
+			{ID: "ci", Type: WorkflowNodeCheck, Label: "CI", Check: WorkflowCheckCI, TimeoutMinutes: 120, Position: WorkflowPosition{X: -120, Y: row(5)}},
+			{ID: "ship", Type: WorkflowNodeApproval, Label: "Ready to ship", Prompt: "Ready to merge?", Position: WorkflowPosition{X: -120, Y: row(6)}},
+			{ID: "merge", Type: WorkflowNodeMerge, Label: "Merge", Position: WorkflowPosition{X: -120, Y: row(7)}},
+			{ID: "done", Type: WorkflowNodeEnd, Label: "Done", Outcome: WorkflowEndDone, Position: WorkflowPosition{X: -88, Y: row(8)}},
+			{ID: "failed", Type: WorkflowNodeEnd, Label: "Failed", Outcome: WorkflowEndFailed, Position: WorkflowPosition{X: 200, Y: row(5)}},
+		},
+		Edges: []WorkflowEdge{
+			{ID: "start-implement", Source: "start", Target: "implement", Condition: WorkflowElse},
+			{ID: "implement-tests", Source: "implement", Target: "tests", Condition: WorkflowAgentFinished},
+			{ID: "implement-retry", Source: "implement", Target: "implement", Condition: WorkflowAgentFailed},
+			{ID: "tests-publish", Source: "tests", Target: "publish", Condition: WorkflowChecksPassed},
+			{ID: "tests-failed", Source: "tests", Target: "implement", Condition: WorkflowChecksFailed},
+			{ID: "publish-review", Source: "publish", Target: "review", Condition: WorkflowPublished},
+			{ID: "publish-failed", Source: "publish", Target: "implement", Condition: WorkflowPublishFailed},
+			{ID: "review-approved", Source: "review", Target: "ci", Condition: WorkflowReviewApproved},
+			{ID: "review-changes", Source: "review", Target: "implement", Condition: WorkflowReviewChangesRequested},
+			{ID: "review-failed", Source: "review", Target: "failed", Condition: WorkflowAgentFailed},
+			{ID: "ci-passed", Source: "ci", Target: "ship", Condition: WorkflowChecksPassed},
+			{ID: "ci-failed", Source: "ci", Target: "implement", Condition: WorkflowChecksFailed},
+			{ID: "ci-timeout", Source: "ci", Target: "failed", Condition: WorkflowTimeout},
+			{ID: "ship-approved", Source: "ship", Target: "merge", Condition: WorkflowApprovalApproved},
+			{ID: "ship-denied", Source: "ship", Target: "implement", Condition: WorkflowApprovalDenied},
+			{ID: "merge-done", Source: "merge", Target: "done", Condition: WorkflowMerged},
+		},
+		Budget: WorkflowBudget{MaxIterations: 10, MaxMinutes: 2 * 24 * 60, OnExhausted: WorkflowOnLimitAsk},
+	}
+}
+
 // WorkflowStep is one node a task entered: the path taken, with the
 // transition that led there and why it fired.
 type WorkflowStep struct {

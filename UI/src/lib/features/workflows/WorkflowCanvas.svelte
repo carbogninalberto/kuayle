@@ -8,12 +8,14 @@
 		MarkerType,
 		type Connection,
 		type Edge,
+		type EdgeTypes,
 		type NodeTypes
 	} from '@xyflow/svelte';
 	import type { AgentProfile, WorkflowGraph, WorkflowIssue } from '$lib/api/workflows';
 	import { m } from '$lib/paraglide/messages.js';
 	import WorkflowNodeCard, { type WorkflowFlowNode } from './WorkflowNodeCard.svelte';
 	import FlowBridge, { type FlowApi } from './FlowBridge.svelte';
+	import LoopEdge from './LoopEdge.svelte';
 	import type { WorkflowNodeType } from '$lib/api/workflows';
 	import { conditionLabel, issueLabel, roleLabel } from './labels';
 	import { layering, placeIssues, type FiredTransition } from './workflow-graph';
@@ -70,6 +72,7 @@
 	} = $props();
 
 	const nodeTypes: NodeTypes = { workflow: WorkflowNodeCard };
+	const edgeTypes: EdgeTypes = { loop: LoopEdge };
 
 	function subtitle(node: WorkflowGraph['nodes'][number]): string {
 		switch (node.type) {
@@ -124,7 +127,11 @@
 		// Loops back to an earlier step leave and enter on the left and failures
 		// leave on the right, so neither crosses the main path; transitions
 		// between the same two steps share one label.
-		const { back } = layering(graph);
+		const { back, rank } = layering(graph);
+		// Loops get their own distance from the main path, the longest outermost.
+		const span = (e: WorkflowGraph['edges'][number]) => (rank.get(e.source) ?? 0) - (rank.get(e.target) ?? 0);
+		const loops = graph.edges.filter((e) => back.has(e.id)).sort((a, b) => span(a) - span(b));
+		const loopOffset = new Map(loops.map((e, i) => [e.id, 24 + i * 16]));
 		const pairs = new Map<string, string[]>();
 		for (const edge of graph.edges) {
 			const key = `${edge.source}>${edge.target}`;
@@ -146,7 +153,14 @@
 				type: 'smoothstep',
 				source: edge.source,
 				target: edge.target,
-				...(loop ? { sourceHandle: 'loop-out', targetHandle: 'loop-in' } : {}),
+				...(loop
+					? {
+							type: 'loop',
+							sourceHandle: 'loop-out',
+							targetHandle: 'loop-in',
+							data: { offset: loopOffset.get(edge.id) }
+						}
+					: {}),
 				...(toFailure ? { sourceHandle: 'side-out', targetHandle: 'loop-in' } : {}),
 				label: fired && fired.count > 1 ? `${conditionLabel(edge.condition)} ×${fired.count}` : pairLabel(edge),
 				selected: selection?.kind === 'edge' && selection.id === edge.id,
@@ -180,6 +194,7 @@
 		bind:nodes
 		bind:edges
 		{nodeTypes}
+		{edgeTypes}
 		fitView
 		fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
 		minZoom={0.2}

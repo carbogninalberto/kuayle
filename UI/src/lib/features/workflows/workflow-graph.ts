@@ -350,7 +350,8 @@ export function duplicateNode(graph: WorkflowGraph, id: string): { graph: Workfl
 	const node = graph.nodes.find((n) => n.id === id);
 	if (!node || node.type === 'start') return { graph, id: '' };
 	const copy: WorkflowNode = {
-		...structuredClone(node),
+		// A JSON copy: structuredClone refuses Svelte's reactive proxies.
+		...(JSON.parse(JSON.stringify(node)) as WorkflowNode),
 		id: uniqueId(node.type, new Set(graph.nodes.map((n) => n.id))),
 		position: { x: node.position.x + 40, y: node.position.y + 40 }
 	};
