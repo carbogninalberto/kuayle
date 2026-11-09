@@ -1342,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "kuayle"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "assert_cmd",
  "bitflags",
@@ -1372,7 +1372,7 @@ dependencies = [
 
 [[package]]
 name = "kuayle-sdk"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "futures-core",
@@ -3040,7 +3040,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.1"
+version = "0.2.0"
 
 [[package]]
 name = "yoke"
