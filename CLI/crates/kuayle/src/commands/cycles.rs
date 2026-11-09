@@ -20,11 +20,7 @@ async fn setup(cli: &Cli) -> (kuayle_sdk::client::Client, String, bool) {
         Ok(c) => c,
         Err(e) => output::print_string_error(&e, 2, is_json),
     };
-    (
-        client,
-        cli.workspace.as_deref().unwrap_or("acme").to_string(),
-        is_json,
-    )
+    (client, crate::commands::workspace_slug(cli), is_json)
 }
 async fn cmd_list(cli: &Cli, team: &str) {
     let (client, ws, is_json) = setup(cli).await;

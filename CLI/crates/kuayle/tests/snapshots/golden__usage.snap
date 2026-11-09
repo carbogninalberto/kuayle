@@ -1,9 +1,8 @@
 ---
 source: crates/kuayle/tests/golden.rs
-assertion_line: 18
 expression: stdout
 ---
-kuayle — CLI for the kuayle self-hosted issue tracker
+kuayle — the official Kuayle CLI
 
 ## Global Flags
 
@@ -74,6 +73,32 @@ kuayle — CLI for the kuayle self-hosted issue tracker
   kuayle assets read
   kuayle assets upload
   kuayle assets download
+  kuayle wiki list
+    List pages (registry days are hidden unless --registry)
+  kuayle wiki tree
+    Show the page tree (folders and nesting)
+  kuayle wiki read
+    Read a page
+  kuayle wiki create
+    Create a page or folder
+  kuayle wiki update
+    Update a page's title and/or content
+  kuayle wiki delete
+    Delete a page
+  kuayle wiki move
+    Move a page under a parent (or top level) at a position
+  kuayle wiki history
+    List a page's revisions, newest first
+  kuayle wiki restore
+    Restore a page to a revision from its history
+  kuayle registry append
+    Add an entry to today's (UTC) registry page
+  kuayle registry feed
+    Show registry days, newest first
+  kuayle registry overview
+    List AI overviews of the registry, newest first
+  kuayle registry generate-overview
+    Generate an AI overview for a period (at most 31 days)
   kuayle usage
     Show command reference
   kuayle completion
@@ -87,6 +112,12 @@ kuayle — CLI for the kuayle self-hosted issue tracker
   In-process memo + disk cache (5min TTL, --no-cache to disable).
   Multiple names resolved in parallel (tokio::join!).
   On failure: lists available candidates, exit code 3.
+
+## Wiki and Registry
+
+  wiki/registry commands need --team <name|key|id> or --project <name|id>.
+  Content is HTML or Markdown (--content, or --file PATH|-).
+  Token scopes: wiki:read to read, wiki:write to change.
 
 ## Exit Codes
 

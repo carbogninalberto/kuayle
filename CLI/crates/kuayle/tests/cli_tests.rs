@@ -689,8 +689,16 @@ async fn relations_delete_uses_correct_path() {
         .mount(&server)
         .await;
 
+    // --workspace on login is saved to the profile and used afterwards.
     let mut cmd = kuayle_cmd(&home, &server.uri());
-    cmd.args(["auth", "login", "--token", "kuayle_pat_test123"]);
+    cmd.args([
+        "auth",
+        "login",
+        "--token",
+        "kuayle_pat_test123",
+        "--workspace",
+        "acme",
+    ]);
     cmd.assert().success();
 
     // Mock the correct DELETE path: /api/workspaces/acme/issues/ENG-1/relations/r1
@@ -705,4 +713,35 @@ async fn relations_delete_uses_correct_path() {
     cmd.args(["relations", "delete", "ENG-1", "r1", "--format", "human"]);
 
     cmd.assert().success();
+}
+
+// ── Workspace selection ───────────────────────────────────────────
+
+#[tokio::test]
+async fn commands_without_a_workspace_fail_instead_of_guessing() {
+    let home = setup_home();
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/auth/me"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(user_json()))
+        .mount(&server)
+        .await;
+    // Any workspace-scoped request would be a bug: nothing may be called.
+    Mock::given(wiremock::matchers::path_regex("^/api/workspaces/.*"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .expect(0)
+        .mount(&server)
+        .await;
+
+    let mut cmd = kuayle_cmd(&home, &server.uri());
+    cmd.args(["auth", "login", "--token", "kuayle_pat_test123"]);
+    cmd.assert().success();
+
+    let mut cmd = kuayle_cmd(&home, &server.uri());
+    cmd.env_remove("KUAYLE_WORKSPACE")
+        .args(["teams", "list", "--format", "json"]);
+    cmd.assert()
+        .failure()
+        .code(predicate::eq(4))
+        .stdout(predicate::str::contains("no workspace selected"));
 }

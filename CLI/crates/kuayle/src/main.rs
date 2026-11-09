@@ -1,5 +1,6 @@
 // kuayle CLI entry point.
 // kuayle CLI 入口点。
+mod banner;
 mod cli;
 mod commands;
 mod completion;
@@ -12,11 +13,16 @@ mod resolve;
 mod update;
 mod usage;
 
-use clap::{CommandFactory, Parser};
+use clap::{CommandFactory, FromArgMatches};
 
 #[tokio::main]
 async fn main() {
-    let cli = cli::Cli::parse();
+    // The purple banner decorates top-level help on a terminal only.
+    let mut command = cli::Cli::command();
+    if let Some(banner) = banner::for_terminal() {
+        command = command.before_help(banner);
+    }
+    let cli = cli::Cli::from_arg_matches(&command.get_matches()).unwrap_or_else(|e| e.exit());
 
     // Check for updates on startup (cached, 24h TTL).
     // 启动时检查更新（缓存，24 小时 TTL）。
@@ -75,6 +81,12 @@ async fn main() {
         }
         cli::Command::Assets { action } => {
             commands::assets::handle(action, &cli).await;
+        }
+        cli::Command::Wiki { action } => {
+            commands::wiki::handle(action, &cli).await;
+        }
+        cli::Command::Registry { action } => {
+            commands::wiki::handle_registry(action, &cli).await;
         }
         cli::Command::Usage => {
             println!("{}", usage::generate(&cli::Cli::command()));

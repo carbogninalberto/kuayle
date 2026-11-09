@@ -71,7 +71,7 @@ async fn cmd_login(cli: &Cli, token: Option<&str>) {
                 output::print_string_error(&format!("saving credentials: {e}"), 1, is_json);
             }
 
-            if let Err(e) = save_profile_to_config(&profile, &url) {
+            if let Err(e) = save_profile_to_config(&profile, &url, cli.workspace.as_deref()) {
                 eprintln!("Warning: could not save profile to config: {e}");
             }
 
@@ -228,7 +228,7 @@ async fn resolve_client(cli: &Cli) -> Result<(Client, String), String> {
     Ok((client, resolved.url))
 }
 
-fn save_profile_to_config(profile: &str, url: &str) -> Result<(), String> {
+fn save_profile_to_config(profile: &str, url: &str, workspace: Option<&str>) -> Result<(), String> {
     let path = crate::config::config_path()?;
     let mut config = Config::load_from(&path)?;
 
@@ -240,6 +240,9 @@ fn save_profile_to_config(profile: &str, url: &str) -> Result<(), String> {
             workspace: None,
         });
     entry.url = url.to_string();
+    if let Some(ws) = workspace.filter(|w| !w.is_empty()) {
+        entry.workspace = Some(ws.to_string());
+    }
 
     if config.default_profile.is_none() {
         config.default_profile = Some(profile.to_string());

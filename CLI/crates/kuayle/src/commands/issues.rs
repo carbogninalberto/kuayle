@@ -113,7 +113,8 @@ async fn setup(cli: &Cli) -> (Issues, Resolver, bool) {
         Ok(c) => c,
         Err(e) => output::print_string_error(&e, 2, is_json),
     };
-    let ws = cli.workspace.as_deref().unwrap_or("acme");
+    let ws_owned = crate::commands::workspace_slug(cli);
+    let ws = ws_owned.as_str();
     let issues = Issues::new(&client, ws);
     let resolver = Resolver::new(client, ws, cli.no_cache);
     (issues, resolver, is_json)
@@ -508,7 +509,8 @@ async fn cmd_sub_issues_list(cli: &Cli, identifier: &str) {
         Ok(c) => c,
         Err(e) => output::print_string_error(&e, 2, is_json),
     };
-    let ws = cli.workspace.as_deref().unwrap_or("acme");
+    let ws_owned = crate::commands::workspace_slug(cli);
+    let ws = ws_owned.as_str();
     let path = format!("/api/workspaces/{ws}/issues/{identifier}/sub-issues");
     // Note: sub-issues endpoint returns a plain array, not ListResponse.
     // 注意：sub-issues 端点返回纯数组，而非 ListResponse。
@@ -553,7 +555,8 @@ async fn cmd_sub_issues_create(
         Ok(c) => c,
         Err(e) => output::print_string_error(&e, 2, is_json),
     };
-    let ws = cli.workspace.as_deref().unwrap_or("acme");
+    let ws_owned = crate::commands::workspace_slug(cli);
+    let ws = ws_owned.as_str();
     let path = format!("/api/workspaces/{}/issues/{}/sub-issues", ws, identifier);
     let req = CreateIssueRequest {
         title: title.to_string(),

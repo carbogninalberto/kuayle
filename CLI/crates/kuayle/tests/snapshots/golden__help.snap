@@ -2,7 +2,7 @@
 source: crates/kuayle/tests/golden.rs
 expression: stdout
 ---
-CLI for the kuayle self-hosted issue tracker
+Official command-line interface for Kuayle, the self-hosted issue tracker
 
 Usage: kuayle [OPTIONS] <COMMAND>
 
@@ -24,6 +24,8 @@ Commands:
   favorites      Favorite actions: list workspace favorites (read-only)
   notifications  Notification actions: list user notifications (read-only, user-scoped)
   assets         Asset actions: read asset info, upload file (upload is a placeholder)
+  wiki           Team and project wiki pages: read, write, tree, history, restore
+  registry       A wiki's daily registry: append entries, read the feed and overviews
   usage          Show command reference
   completion     Generate shell completion script
   self-update    Check for updates or update the binary

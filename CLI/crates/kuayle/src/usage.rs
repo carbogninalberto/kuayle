@@ -10,7 +10,7 @@ pub fn generate(cmd: &Command) -> String {
     let mut out = String::new();
 
     // ── Header ────────────────────────────────────────────────────
-    out.push_str("kuayle — CLI for the kuayle self-hosted issue tracker\n\n");
+    out.push_str("kuayle — the official Kuayle CLI\n\n");
 
     // ── Global flags ──────────────────────────────────────────────
     out.push_str("## Global Flags\n\n");
@@ -37,6 +37,12 @@ pub fn generate(cmd: &Command) -> String {
     out.push_str("  In-process memo + disk cache (5min TTL, --no-cache to disable).\n");
     out.push_str("  Multiple names resolved in parallel (tokio::join!).\n");
     out.push_str("  On failure: lists available candidates, exit code 3.\n\n");
+
+    // ── Wiki scope ────────────────────────────────────────────────
+    out.push_str("## Wiki and Registry\n\n");
+    out.push_str("  wiki/registry commands need --team <name|key|id> or --project <name|id>.\n");
+    out.push_str("  Content is HTML or Markdown (--content, or --file PATH|-).\n");
+    out.push_str("  Token scopes: wiki:read to read, wiki:write to change.\n\n");
 
     // ── Exit codes ────────────────────────────────────────────────
     out.push_str("## Exit Codes\n\n");
@@ -116,6 +122,9 @@ mod tests {
         assert!(usage.contains("teams list"), "missing teams list");
         assert!(usage.contains("templates list"), "missing templates list");
         assert!(usage.contains("statuses list"), "missing statuses list");
+        assert!(usage.contains("wiki update"), "missing wiki update");
+        assert!(usage.contains("registry append"), "missing registry append");
+        assert!(usage.contains("--team <name|key|id>"), "missing wiki scope");
     }
 
     #[test]

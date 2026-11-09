@@ -35,7 +35,7 @@ async fn resolve(cli: &Cli) -> (Client, String, bool) {
         Ok(c) => c,
         Err(e) => output::print_string_error(&e, 2, is_json),
     };
-    let ws = cli.workspace.as_deref().unwrap_or("acme").to_string();
+    let ws = crate::commands::workspace_slug(cli);
     (client, ws, is_json)
 }
 

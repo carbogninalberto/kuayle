@@ -35,3 +35,21 @@ fn snapshot_issues_list_help() {
     let stdout = String::from_utf8_lossy(&output.get_output().stdout);
     assert_snapshot!("issues_list_help", stdout);
 }
+
+#[test]
+fn snapshot_wiki_update_help() {
+    let mut cmd = Command::cargo_bin("kuayle").unwrap();
+    cmd.args(["wiki", "update", "--help"]);
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert_snapshot!("wiki_update_help", stdout);
+}
+
+#[test]
+fn help_is_plain_when_piped() {
+    // The purple banner is for terminals only; piped help has no escapes.
+    let mut cmd = Command::cargo_bin("kuayle").unwrap();
+    cmd.env("COLORTERM", "truecolor").arg("--help");
+    let output = cmd.assert().success();
+    assert!(!output.get_output().stdout.contains(&0x1b));
+}

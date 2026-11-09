@@ -15,4 +15,5 @@ pub mod team;
 pub mod template;
 pub mod user;
 pub mod view;
+pub mod wiki;
 pub mod workspace;

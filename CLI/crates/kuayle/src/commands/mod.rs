@@ -15,12 +15,38 @@ pub mod statuses;
 pub mod teams;
 pub mod templates;
 pub mod views;
+pub mod wiki;
 pub mod workspaces;
 
 use kuayle_sdk::client::Client;
 use url::Url;
 
 use crate::cli::Cli;
+
+/// The workspace slug for this invocation: --workspace, then KUAYLE_WORKSPACE,
+/// then the profile's saved workspace. Exits with a usage error (code 4) when
+/// none is set, rather than guessing a workspace.
+pub fn workspace_slug(cli: &Cli) -> String {
+    let is_json = crate::output::is_json_output(cli);
+    let config = crate::config::Config::load_or_default();
+    let resolved = config
+        .resolve(
+            cli.profile.as_deref(),
+            cli.url.as_deref(),
+            cli.workspace.as_deref(),
+        )
+        .ok()
+        .and_then(|r| r.workspace)
+        .filter(|w| !w.is_empty());
+    match resolved {
+        Some(ws) => ws,
+        None => crate::output::print_string_error(
+            "no workspace selected. Pass --workspace <slug>, set KUAYLE_WORKSPACE, or run 'kuayle auth login --workspace <slug>'.",
+            4,
+            is_json,
+        ),
+    }
+}
 
 /// Shared helper: resolve a Client from config and credentials.
 /// 共享辅助：从配置和凭据解析 Client。
