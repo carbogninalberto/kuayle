@@ -38,6 +38,7 @@ selfhosting `kuayle-machine-gateway` name.
 | ---------------------- | ------------------------------------- |
 | `make dev`             | Run backend + frontend (with migrate) |
 | `make dev-start-services` | Start Postgres, Redis, and Dev Machine infrastructure |
+| `make dev-all`         | `dev-start-services`, then `dev`      |
 | `make dev-reset`       | Reset, seed, start infrastructure, then run host dev |
 | `make dev-backend`     | Backend only                          |
 | `make dev-frontend`    | Frontend only                         |

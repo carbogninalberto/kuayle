@@ -54,41 +54,56 @@ assistant that can hand issues to coding agents running on your own machines.
 <tr>
 <td width="33%" valign="top">🏠 <b>Self-hosted, no paid tier</b><br>One Apache 2.0 repository. No license keys, no per-user fees.</td>
 <td width="33%" valign="top">⚡ <b>Real-time and public links</b><br>Changes reach every open tab; share read-only links to issues and views.</td>
-<td width="33%" valign="top">🌐 <b>Four languages</b><br>English, Italian, and Simplified and Traditional Chinese.</td>
+<td width="33%" valign="top">🌐 <b>Multilingual (WIP)</b><br>English, Italian, Simplified and Traditional Chinese today; more languages in progress.</td>
 </tr>
 </table>
 
 ## Feature tour
 
-Screenshots from a local instance with the repository's seed data. The cycle,
-project and history images are the same files [kuayle.com](https://kuayle.com) uses.
+### Cycles
 
-<table>
-<tr>
-<td width="58%"><img src="WEB/static/tour-cycle-1440.webp" alt="Cycle page with progress and issues grouped by status" width="100%"></td>
-<td width="42%"><h3>Cycles</h3><ul><li>Time-boxed sprints with progress, burndown and velocity.</li><li>The same list and board layouts as the issue list.</li><li>Add issues from the whole team, or create one already in the cycle.</li></ul></td>
-</tr>
-<tr>
-<td width="42%"><h3>Projects</h3><ul><li>Group work across teams under one project.</li><li>Status, lead, start and target dates, and progress.</li><li>List, board or Gantt view of the same issues.</li></ul></td>
-<td width="58%"><img src="WEB/static/tour-project-1440.webp" alt="Project page with status, target date, progress and issues from several teams" width="100%"></td>
-</tr>
-<tr>
-<td width="58%"><img src="WEB/static/tour-history-1440.webp" alt="Issue version history dialog showing a description change as a diff" width="100%"></td>
-<td width="42%"><h3>Version history</h3><ul><li>Every title and description edit, with author and time.</li><li>Unified or split diff, or the full before and after values.</li><li>Captured in the same transaction as the edit.</li></ul></td>
-</tr>
-<tr>
-<td width="42%"><h3>Team and project wikis</h3><ul><li>Pages and folders in a tree you can drag to reorder.</li><li>Autosave, outline, attachments and AI rework of a selection.</li><li>History with diffs and restore.</li><li>Publish a page to an internal reader or a public link.</li></ul></td>
-<td width="58%"><img src="WEB/static/tour-wiki-1440.webp" alt="Wiki page with the page tree on the left and details and outline on the right" width="100%"></td>
-</tr>
-<tr>
-<td width="58%"><img src="WEB/static/tour-registry-1440.webp" alt="Wiki registry timeline with entries grouped by day" width="100%"></td>
-<td width="42%"><h3>Daily registry</h3><ul><li>A day-by-day log that people and agent tasks append to.</li><li>Filter entries and jump between days.</li><li>AI overviews on demand or on a daily or weekly schedule.</li></ul></td>
-</tr>
-<tr>
-<td width="42%"><h3>Agent workflows</h3><ul><li>Draw the steps a coding task follows, with loops and limits.</li><li>Templates: Standard, Review loop, Full cycle, or blank.</li><li>Agent profiles with a model, instructions and skills.</li><li>Defaults per workspace, team or project.</li></ul></td>
-<td width="58%"><img src="WEB/static/tour-workflows-1440.webp" alt="Workflow editor canvas with agent, check, pull request, review, CI and merge steps" width="100%"></td>
-</tr>
-</table>
+- Time-boxed sprints with progress, burndown and velocity.
+- The same list and board layouts as the issue list.
+- Add issues from the whole team, or create one already in the cycle.
+
+<img src="WEB/static/tour-cycle-1440.webp" alt="Cycle page with progress and issues grouped by status" width="100%">
+
+### Projects
+
+- Group work across teams, with status, lead, dates and progress.
+- List, board or Gantt view of the same issues.
+
+<img src="WEB/static/tour-project-1440.webp" alt="Project page with status, target date, progress and issues from several teams" width="100%">
+
+### Version history
+
+- Every title and description edit, with author and time.
+- Unified or split diff, or the full before and after values.
+
+<img src="WEB/static/tour-history-1440.webp" alt="Issue version history dialog showing a description change as a diff" width="100%">
+
+### Team and project wikis
+
+- Pages and folders in a tree; autosave, outline and attachments.
+- AI rework of a selection, and history with diffs and restore.
+- Publish a page to an internal reader or a public link.
+
+<img src="WEB/static/tour-wiki-1440.webp" alt="Wiki page with the page tree on the left and details and outline on the right" width="100%">
+
+### Daily registry
+
+- A day-by-day log that people and agent tasks append to.
+- AI overviews on demand or on a daily or weekly schedule.
+
+<img src="WEB/static/tour-registry-1440.webp" alt="Wiki registry timeline with entries grouped by day" width="100%">
+
+### Agent workflows
+
+- Draw the steps a coding task follows, with loops and visit limits.
+- Start from Standard, Review loop or Full cycle, or from blank.
+- Agent profiles with a model, instructions and skills; defaults per workspace, team or project.
+
+<img src="WEB/static/tour-workflows-1440.webp" alt="Workflow editor with implement, tests, pull request, review, CI and merge steps" width="100%">
 
 ## All features
 
@@ -101,7 +116,7 @@ project and history images are the same files [kuayle.com](https://kuayle.com) u
 - Saved views (personal, team or workspace), favorites, a notification inbox (read state, snooze, archive), a command palette with global search, keyboard shortcuts, and a Tiptap editor with code blocks, slash commands, mentions, task lists and file uploads.
 - Analytics: workspace and team overviews, burn-up trends, configurable insights.
 - Real-time updates and presence over WebSockets; read-only public links for issues and views.
-- UI in English, Italian, and Simplified and Traditional Chinese.
+- Multilingual (WIP): English, Italian, Simplified and Traditional Chinese today; more languages in progress.
 
 </details>
 
@@ -204,8 +219,28 @@ make dev-start-services
 make dev
 ```
 
-See [development](docs/development.md) for all `make` commands, the tech stack and
-the project layout.
+See [development](docs/development.md) for the tech stack and project layout.
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `make dev` | Apply migrations, then run the backend and frontend on the host |
+| `make dev-start-services` | Start Postgres, Redis and the Dev Machine services in Docker |
+| `make dev-all` | `dev-start-services`, then `dev` |
+| `make dev-reset` | Reset and seed the database, start services, then run `dev` |
+| `make dev-backend` / `make dev-frontend` | Backend or frontend only |
+| `make dev-smee` | Forward GitHub webhooks through smee.io (needs `GITHUB_WEBHOOK_URL`) |
+| `make dev-full` | Services, backend, frontend and the smee proxy |
+| `make migrate-up` / `make migrate-down` | Apply or roll back migrations |
+| `make seed` | Load the demo data |
+| `make reset-dev` | Reset the dev database |
+| `make test-backend` | Go tests |
+| `make docker-up` / `make docker-down` | Start or stop the full stack in Docker |
+| `make scan` | Build the backend and frontend images and scan them with Trivy |
+
+Frontend checks run from `UI/` with `npm run check`, `npm run test:unit` and
+`npm run test:e2e`. See [development](docs/development.md) for details.
 
 ## Self-hosting
 
