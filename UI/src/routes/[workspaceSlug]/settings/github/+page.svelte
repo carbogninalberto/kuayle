@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import {
@@ -468,3 +469,5 @@
 		</div>
 	{/if}
 </div>
+
+<PageTitle parts={[m['settings.github.title'](), m['settings.title']()]} />

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -326,3 +327,5 @@
 		</AlertDialog.Content>
 	</AlertDialog.Root>
 {/if}
+
+<PageTitle parts={[view?.name, m['views.title']()]} />

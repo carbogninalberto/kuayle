@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import packageLock from '../../../../../package-lock.json';
 	import { Search } from '@lucide/svelte';
@@ -123,3 +124,5 @@
 		</div>
 	</div>
 </div>
+
+<PageTitle parts={[m['settings.licenses.title'](), m['settings.title']()]} />

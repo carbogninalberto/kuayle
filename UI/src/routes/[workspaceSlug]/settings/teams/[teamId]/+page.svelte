@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import TestCommandField from '$lib/features/dev-machines/TestCommandField.svelte';
 	import ComposeFileField from '$lib/features/dev-machines/ComposeFileField.svelte';
 	import PreviewSettingField from '$lib/features/dev-machines/PreviewSettingField.svelte';
@@ -709,3 +710,5 @@
 		</div>
 	{/if}
 </div>
+
+<PageTitle parts={[team?.name, m['team_settings.title'](), m['settings.title']()]} />

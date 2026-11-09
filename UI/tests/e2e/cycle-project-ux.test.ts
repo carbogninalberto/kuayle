@@ -291,6 +291,8 @@ test('project Gantt returns directly to list and deletion requires confirmation'
 	await page.goto(`/test/projects/${projectId}`);
 	const scoped = page.getByTestId('scoped-issues');
 	await expect(scoped.getByText('Scoped issue 1', { exact: true })).toBeVisible();
+	// Browser tab title: the project first, then the team, then Kuayle.
+	await expect(page).toHaveTitle('Launch < Engineering < Kuayle');
 	await scoped.getByRole('button', { name: 'Gantt view', exact: true }).click();
 	await expect(scoped.getByRole('radio', { name: 'List view', exact: true })).not.toBeChecked();
 	await scoped.getByRole('radio', { name: 'List view', exact: true }).click();

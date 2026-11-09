@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { listIssues, triageAccept, triageDecline } from '$lib/api/issues';
@@ -214,3 +215,5 @@
 		{/if}
 	</div>
 </div>
+
+<PageTitle parts={[m['sidebar.triage'](), sidebarState.getTeam(teamId)?.name]} />

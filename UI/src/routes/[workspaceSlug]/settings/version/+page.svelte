@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import { AlertTriangle, CircleCheck, CircleDashed, CircleX, ExternalLink, LoaderCircle, RefreshCw, ShieldCheck } from '@lucide/svelte';
 	import { m } from '$lib/paraglide/messages.js';
@@ -421,3 +422,5 @@
 		margin-bottom: 0;
 	}
 </style>
+
+<PageTitle parts={[m['settings.version.title'](), m['settings.title']()]} />
