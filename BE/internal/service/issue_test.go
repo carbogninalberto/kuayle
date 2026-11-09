@@ -752,3 +752,95 @@ func TestIssueService_GetHistory(t *testing.T) {
 func (m *mockIssueRepo) ValidateLabelScope(ctx context.Context, projectID *uuid.UUID, labelIDs []uuid.UUID) error {
 	return nil
 }
+
+func TestIssueService_BulkUpdate_SetsProject(t *testing.T) {
+	issueRepo := new(mockIssueRepo)
+	historyRepo := new(mockIssueHistoryRepo)
+	svc := NewIssueService(issueRepo, new(mockTeamRepo), new(mockTeamStatusRepo), historyRepo, realtime.NewHub(), newTestNotifSvc())
+
+	ctx := context.Background()
+	wsID, userID, projectID, oldProjectID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	moveID, sameID := uuid.New(), uuid.New()
+	move := &domain.Issue{ID: moveID, WorkspaceID: wsID, ProjectID: &oldProjectID}
+	same := &domain.Issue{ID: sameID, WorkspaceID: wsID, ProjectID: &projectID}
+	projectString := projectID.String()
+	oldString := oldProjectID.String()
+
+	issueRepo.On("GetByID", ctx, moveID).Return(move, nil)
+	issueRepo.On("GetByID", ctx, sameID).Return(same, nil)
+	issueRepo.On("GetLabels", ctx, moveID).Return([]domain.Label{}, nil)
+	issueRepo.On("Update", mock.Anything, move).Return(nil).Once()
+	historyRepo.On("Create", ctx, moveID, userID, "project", &oldString, &projectString).Return(nil).Once()
+
+	updated, err := svc.BulkUpdate(ctx, wsID, userID, dto.BulkUpdateIssueRequest{
+		IssueIDs:  []string{moveID.String(), sameID.String()},
+		ProjectID: &projectString,
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, 1, updated, "an issue already in the project is not counted")
+	assert.Equal(t, &projectID, move.ProjectID)
+	issueRepo.AssertNumberOfCalls(t, "Update", 1)
+	historyRepo.AssertExpectations(t)
+}
+
+func TestIssueService_BulkUpdate_RemovesProject(t *testing.T) {
+	issueRepo := new(mockIssueRepo)
+	historyRepo := new(mockIssueHistoryRepo)
+	svc := NewIssueService(issueRepo, new(mockTeamRepo), new(mockTeamStatusRepo), historyRepo, realtime.NewHub(), newTestNotifSvc())
+
+	ctx := context.Background()
+	wsID, userID, oldProjectID, issueID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	issue := &domain.Issue{ID: issueID, WorkspaceID: wsID, ProjectID: &oldProjectID}
+	oldString, none := oldProjectID.String(), ""
+
+	issueRepo.On("GetByID", ctx, issueID).Return(issue, nil)
+	issueRepo.On("GetLabels", ctx, issueID).Return([]domain.Label{}, nil)
+	issueRepo.On("Update", mock.Anything, issue).Return(nil)
+	historyRepo.On("Create", ctx, issueID, userID, "project", &oldString, &none).Return(nil)
+
+	updated, err := svc.BulkUpdate(ctx, wsID, userID, dto.BulkUpdateIssueRequest{
+		IssueIDs:  []string{issueID.String()},
+		ProjectID: &none,
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, 1, updated)
+	assert.Nil(t, issue.ProjectID)
+	historyRepo.AssertExpectations(t)
+}
+
+func TestIssueService_BulkUpdate_ProjectRejectsForeignIssueBeforeWriting(t *testing.T) {
+	issueRepo := new(mockIssueRepo)
+	svc := NewIssueService(issueRepo, new(mockTeamRepo), new(mockTeamStatusRepo), new(mockIssueHistoryRepo), realtime.NewHub(), newTestNotifSvc())
+
+	ctx := context.Background()
+	wsID, userID, projectID := uuid.New(), uuid.New(), uuid.New()
+	ownID, foreignID := uuid.New(), uuid.New()
+	projectString := projectID.String()
+	issueRepo.On("GetByID", ctx, ownID).Return(&domain.Issue{ID: ownID, WorkspaceID: wsID}, nil)
+	issueRepo.On("GetByID", ctx, foreignID).Return(&domain.Issue{ID: foreignID, WorkspaceID: uuid.New()}, nil)
+
+	updated, err := svc.BulkUpdate(ctx, wsID, userID, dto.BulkUpdateIssueRequest{
+		IssueIDs:  []string{ownID.String(), foreignID.String()},
+		ProjectID: &projectString,
+	})
+
+	assert.EqualError(t, err, "issue not found")
+	assert.Zero(t, updated)
+	issueRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestIssueService_BulkUpdate_ProjectCannotBeCombined(t *testing.T) {
+	svc := NewIssueService(new(mockIssueRepo), new(mockTeamRepo), new(mockTeamStatusRepo), new(mockIssueHistoryRepo), realtime.NewHub(), newTestNotifSvc())
+	projectString := uuid.NewString()
+	priority := 1
+
+	_, err := svc.BulkUpdate(context.Background(), uuid.New(), uuid.New(), dto.BulkUpdateIssueRequest{
+		IssueIDs:  []string{uuid.NewString()},
+		ProjectID: &projectString,
+		Priority:  &priority,
+	})
+
+	assert.EqualError(t, err, "project_id cannot be combined with other fields")
+}

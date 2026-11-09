@@ -6,6 +6,7 @@
 	import type { Label } from '$lib/types/label';
 	import { labelsForIssues } from '$lib/features/labels/label-scope';
 	import type { Cycle } from '$lib/types/cycle';
+	import type { Project } from '$lib/types/project';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import { issuesState } from './issues.state.svelte';
@@ -19,6 +20,7 @@
 		CornerDownRight,
 		Copy,
 		Flag,
+		FolderKanban,
 		GitBranch,
 		Link,
 		Plus,
@@ -46,6 +48,7 @@
 		labels = [],
 		members = [],
 		cycles,
+		projects,
 		onlabelcreated,
 		canDelete = true,
 		statusOptions,
@@ -55,6 +58,7 @@
 		labels?: Label[];
 		members?: WorkspaceMember[];
 		cycles?: Cycle[];
+		projects?: Project[];
 		onlabelcreated?: (label: Label) => void;
 		canDelete?: boolean;
 		statusOptions?: import('$lib/types/team-status').TeamStatus[];
@@ -67,6 +71,7 @@
 		| 'priority'
 		| 'label'
 		| 'cycle'
+		| 'project'
 		| 'due_date'
 		| 'parent'
 		| 'subissue'
@@ -107,6 +112,7 @@
 	let creatingLabel = $state(false);
 	let createdLabels = $state<Label[]>([]);
 	let showCycleActions = $derived(cycles !== undefined);
+	let showProjectActions = $derived(projects !== undefined);
 	// Only labels that apply to every selected issue: a project label fits only that project's issues.
 	let visibleLabels = $derived(
 		labelsForIssues(
@@ -154,6 +160,15 @@
 				title: m['bulkActions.commands.cycle_title'](),
 				description: m['bulkActions.commands.cycle_desc'](),
 				keywords: 'cycle sprint iteration'
+			});
+		}
+
+		if (showProjectActions) {
+			options.push({
+				id: 'project',
+				title: m['bulkActions.commands.project_title'](),
+				description: m['bulkActions.commands.project_desc'](),
+				keywords: 'project move'
 			});
 		}
 
@@ -226,6 +241,11 @@
 		if (!term) return cycles ?? [];
 		return (cycles ?? []).filter((cycle) => cycle.name.toLowerCase().includes(term));
 	});
+	let filteredProjects = $derived.by(() => {
+		const term = searchQuery.trim().toLowerCase();
+		if (!term) return projects ?? [];
+		return (projects ?? []).filter((project) => project.name.toLowerCase().includes(term));
+	});
 	let activeTitle = $derived(
 		commands.find((command) => command.id === activeCommand)?.title ?? m['bulkActions.title']()
 	);
@@ -270,6 +290,7 @@
 		if (activeCommand === 'priority') return filteredPriorities.length;
 		if (activeCommand === 'label') return filteredLabels.length + (canCreateLabel ? 1 : 0);
 		if (activeCommand === 'cycle') return filteredCycles.length + 1;
+		if (activeCommand === 'project') return filteredProjects.length + 1;
 		if (activeCommand === 'due_date') return 0;
 		return 0;
 	});
@@ -428,6 +449,13 @@
 			} else {
 				const cycle = filteredCycles[selectedIndex - 1];
 				if (cycle) void bulkSetCycle(cycle.id);
+			}
+		} else if (activeCommand === 'project') {
+			if (selectedIndex === 0) {
+				void bulkSetProject(null);
+			} else {
+				const project = filteredProjects[selectedIndex - 1];
+				if (project) void bulkSetProject(project.id);
 			}
 		}
 	}
@@ -623,6 +651,22 @@
 		}
 	}
 
+	async function bulkSetProject(projectId: string | null) {
+		const count = issuesState.selectionCount;
+		try {
+			await issuesState.bulkUpdate(slug, { project_id: projectId ?? '' });
+			onchanged?.();
+			appToast.success(
+				projectId
+					? m['bulkActions.toast.project_assigned']({ n: count, s: _s(count) })
+					: m['bulkActions.toast.project_removed']({ n: count, s: _s(count) })
+			);
+			closeActions();
+		} catch (err: any) {
+			appToast.apiError(err, m['bulkActions.toast.failed_project']());
+		}
+	}
+
 	async function bulkSetParent(parent: Issue) {
 		const count = issuesState.selectionCount;
 		try {
@@ -798,6 +842,8 @@
 											<Tag size={16} />
 										{:else if commandIcon(command.id) === 'cycle'}
 											<RefreshCw size={16} />
+										{:else if commandIcon(command.id) === 'project'}
+											<FolderKanban size={16} />
 										{:else if commandIcon(command.id) === 'due_date'}
 											<CalendarDays size={16} />
 										{:else if commandIcon(command.id) === 'parent'}
@@ -968,6 +1014,34 @@
 								>
 									<RefreshCw size={14} class="text-[var(--color-text-tertiary)]" />
 									<span class="truncate">{cycle.name}</span>
+								</Button>
+							{/each}
+						{/if}
+					{:else if activeCommand === 'project'}
+						<Button variant="plain" id="bulk-action-row-0"
+							class={optionButtonClass}
+							data-selected={selectedIndex === 0}
+							onpointerenter={() => (selectedIndex = 0)}
+							onclick={() => bulkSetProject(null)}
+						>
+							<FolderKanban size={14} class="text-[var(--color-text-tertiary)]" />
+							<span class="truncate text-[var(--color-text-tertiary)]">{m['bulkActions.project.no_project']()}</span>
+						</Button>
+						{#if filteredProjects.length === 0}
+							<div class="py-8 text-center text-xs text-[var(--color-text-tertiary)]">
+								{m['bulkActions.no_projects']()}
+							</div>
+						{:else}
+							{#each filteredProjects as project, index (project.id)}
+								{@const rowIndex = index + 1}
+								<Button variant="plain" id={`bulk-action-row-${rowIndex}`}
+									class={optionButtonClass}
+									data-selected={selectedIndex === rowIndex}
+									onpointerenter={() => (selectedIndex = rowIndex)}
+									onclick={() => bulkSetProject(project.id)}
+								>
+									<FolderKanban size={14} class="text-[var(--color-text-tertiary)]" />
+									<span class="truncate">{project.name}</span>
 								</Button>
 							{/each}
 						{/if}

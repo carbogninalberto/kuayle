@@ -402,6 +402,7 @@
 					{labels}
 					{members}
 					cycles={cycles.filter((cycle) => cycle.team_id === selectedTeamId)}
+					projects={projects.filter((project) => project.team_id === null || project.team_id === selectedTeamId)}
 					statusOptions={statuses.filter((status) => status.team_id === selectedTeamId)}
 					canDelete={selectedIssues.every(canDeleteIssue)}
 					onchanged={changed}

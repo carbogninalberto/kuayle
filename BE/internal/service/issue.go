@@ -940,6 +940,14 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 		cycleID = &cid
 	}
 
+	if req.ProjectID != nil {
+		if req.Status != nil || req.StatusID != nil || req.Priority != nil || req.AssigneeID != nil ||
+			req.LabelIDs != nil || req.CycleID != nil || req.ParentID != nil {
+			return 0, fmt.Errorf("project_id cannot be combined with other fields")
+		}
+		return s.bulkUpdateProject(ctx, workspaceID, userID, issueIDs, *req.ProjectID)
+	}
+
 	if req.ParentID != nil {
 		return s.bulkUpdateParent(ctx, workspaceID, userID, issueIDs, *req.ParentID)
 	}
@@ -1138,6 +1146,72 @@ func (s *IssueService) bulkUpdateParent(ctx context.Context, workspaceID, userID
 		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: issue})
 	}
 
+	return updated, nil
+}
+
+// bulkUpdateProject moves issues to a project (empty rawProjectID removes the
+// project) with the single-issue move rules: every reference is validated
+// before anything is written, labels scoped to the project an issue leaves are
+// dropped by the repository write, and history records the project and label
+// changes.
+func (s *IssueService) bulkUpdateProject(ctx context.Context, workspaceID, userID uuid.UUID, issueIDs []uuid.UUID, rawProjectID string) (int, error) {
+	var projectID *uuid.UUID
+	if rawProjectID != "" {
+		pid, err := uuid.Parse(rawProjectID)
+		if err != nil {
+			return 0, fmt.Errorf("invalid project_id")
+		}
+		projectID = &pid
+	}
+
+	validator, canValidate := s.issueRepo.(interface {
+		ValidateIssueReferences(context.Context, *domain.Issue) error
+	})
+	issues := make([]*domain.Issue, 0, len(issueIDs))
+	for _, id := range issueIDs {
+		issue, err := s.issueRepo.GetByID(ctx, id)
+		if err != nil || issue == nil || issue.WorkspaceID != workspaceID {
+			return 0, fmt.Errorf("issue not found")
+		}
+		if canValidate {
+			candidate := *issue
+			candidate.ProjectID = projectID
+			if err := validator.ValidateIssueReferences(ctx, &candidate); err != nil {
+				return 0, fmt.Errorf("resource reference is unavailable or crosses a private-team boundary")
+			}
+		}
+		issues = append(issues, issue)
+	}
+
+	newVal := ""
+	if projectID != nil {
+		newVal = projectID.String()
+	}
+	updated := 0
+	for _, issue := range issues {
+		old := ""
+		if issue.ProjectID != nil {
+			old = issue.ProjectID.String()
+		}
+		if old == newVal {
+			continue
+		}
+		labelsBefore := s.labelSnapshot(ctx, issue.ID)
+		issue.ProjectID = projectID
+		if err := s.issueRepo.Update(repository.WithIssueHistoryActor(ctx, userID), issue); err != nil {
+			return updated, err
+		}
+		s.recordHistory(ctx, issue.ID, userID, "project", &old, &newVal)
+		s.recordLabelChange(ctx, issue.ID, userID, labelsBefore)
+		updated++
+		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: issue})
+	}
+	if updated > 0 {
+		s.hub.Broadcast(workspaceID, realtime.Event{
+			Type:    "issues.bulk_updated",
+			Payload: map[string]interface{}{"count": updated},
+		})
+	}
 	return updated, nil
 }
 

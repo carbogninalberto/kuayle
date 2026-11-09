@@ -126,6 +126,8 @@ async function mockWorkspace(page: Page, role = 'owner', icon = 'layers') {
 				}
 			});
 		}
+		if (path === '/api/workspaces/test/issues/bulk' && request.method() === 'PATCH')
+			return route.fulfill({ json: { updated: request.postDataJSON().issue_ids.length } });
 		const issue = issues.find((i) => path === `/api/workspaces/test/issues/${i.identifier}`);
 		if (issue) {
 			if (request.method() === 'PATCH') Object.assign(issue, request.postDataJSON());
@@ -332,6 +334,29 @@ test('existing single-select parent picker still applies one selection immediate
 	expect(state.mutations.find((m) => m.path.endsWith('/issues/ENG-1'))?.body).toEqual({
 		parent_id: '00000000-0000-0000-0000-000000000164'
 	});
+	expect(state.errors).toEqual([]);
+});
+
+test('bulk actions set the project of the selected issues and can remove it', async ({ page }) => {
+	const state = await mockWorkspace(page);
+	await page.goto(`${cyclePath}/${cycleId}`);
+	const scoped = page.getByTestId('scoped-issues');
+	await expect(scoped.getByText('Scoped issue 1', { exact: true })).toBeVisible();
+	await page.keyboard.press('Control+a');
+	await page.getByRole('button', { name: 'Actions', exact: true }).click();
+	await page.getByRole('button', { name: /Set project/ }).click();
+	await page.getByRole('button', { name: 'Launch', exact: true }).click();
+	const set = state.mutations.find((m) => m.path === '/api/workspaces/test/issues/bulk');
+	expect(set?.body.project_id).toBe(projectId);
+	expect(set?.body.issue_ids.length).toBeGreaterThan(0);
+
+	await page.keyboard.press('Control+a');
+	await page.getByRole('button', { name: 'Actions', exact: true }).click();
+	await page.getByRole('button', { name: /Set project/ }).click();
+	await page.getByRole('button', { name: 'No project', exact: true }).click();
+	const bulk = state.mutations.filter((m) => m.path === '/api/workspaces/test/issues/bulk');
+	expect(bulk).toHaveLength(2);
+	expect(bulk[1].body.project_id).toBe('');
 	expect(state.errors).toEqual([]);
 });
 
