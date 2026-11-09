@@ -39,7 +39,7 @@
 	const visible = $derived(getVisibleReleases(releases, includePrerelease));
 	const latestRelease = $derived(visible[0] ?? null);
 	const releaseIsNewer = $derived(latestRelease ? compareVersions(latestRelease.tag_name, currentVersion) > 0 : false);
-	const installedRelease = $derived(releases.find((release) => release.tag_name === currentVersionLabel) ?? null);
+	const installedRelease = $derived(releases.find((release) => release.tag_name.replace(/^v/i, '') === currentVersion) ?? null);
 	const changelogEntries = $derived(
 		visible
 			.filter((release) => compareVersions(release.tag_name, currentVersion) > 0)
