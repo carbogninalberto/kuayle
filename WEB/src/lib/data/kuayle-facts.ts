@@ -1,11 +1,11 @@
 /**
  * Kuayle's side of every comparison, verified against the implementation (BE/, UI/, selfhosting/)
- * at v0.2.15. One source of truth: alternative pages, the compare matrix and the homepage read from here.
+ * at v0.2.23. One source of truth: alternative pages, the compare matrix and the homepage read from here.
  * Gaps are stated as gaps. Update this file when the product changes.
  */
 import type { Mark } from './competitor-types.ts';
 
-export const KUAYLE_FACTS_VERSION = 'v0.2.15';
+export const KUAYLE_FACTS_VERSION = 'v0.2.23';
 
 export interface KuayleFact {
 	mark: Mark;
@@ -27,8 +27,8 @@ export const KUAYLE = {
 		text: 'Email and password sign-in with invite links. No SSO (SAML/OIDC), SCIM, passkeys or magic links yet.'
 	},
 	ai: {
-		mark: 'partial',
-		text: 'Opt-in Dev Machines run coding agents (Claude Code, Codex, opencode and others) in self-hosted containers linked to issues. There are no agents assigned as issue members.'
+		mark: 'yes',
+		text: 'A built-in assistant on your own OpenAI-compatible model searches, creates and updates issues and delegates them to coding agents (Claude Code, Codex, OpenCode and others) on opt-in, self-hosted Dev Machines. Each task is checked independently and opens a pull request; automations and editable workflows start agents on a label or status. Agents are not issue assignees yet.'
 	},
 	mcp: { mark: 'no', text: 'No MCP server yet.' },
 	api: {
@@ -107,8 +107,11 @@ export const KUAYLE_FEATURE_GROUPS: { group: string; blurb: string; items: { lab
 	},
 	{
 		group: 'Integrate',
-		blurb: 'Connect your code.',
+		blurb: 'Connect your code and your agents.',
 		items: [
+			{ label: 'Built-in assistant on your own model', href: '/features/issue-tracking' },
+			{ label: 'Delegate issues to coding agents', href: '/features/dev-machines' },
+			{ label: 'Agent automations and workflows', href: '/features/dev-machines' },
 			{ label: 'GitHub App: branches, commits, PRs', href: '/features/github-integration' },
 			{ label: 'Status automation on PR events', href: '/features/github-integration' },
 			{ label: 'Signed webhooks' },
