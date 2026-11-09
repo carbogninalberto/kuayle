@@ -205,7 +205,7 @@ jobs:
       # Bound image fan-out while preserving every architecture and scan.
       max-parallel: 4
       matrix:
-        architecture: [amd64, arm64]
+        architecture: ${{ fromJSON(needs.changes.outputs.plan).architectures }}
         image: ${{ fromJSON(needs.changes.outputs.plan).devImages }}
 
     steps:
