@@ -206,12 +206,6 @@ pub enum IssueAction {
     BatchDelete {
         identifiers: Vec<String>,
     },
-    Subscribe {
-        identifier: String,
-    },
-    Unsubscribe {
-        identifier: String,
-    },
     History {
         identifier: String,
     },
@@ -391,12 +385,12 @@ pub enum NotificationAction {
     List,
 }
 
-/// Asset actions: read asset info, upload file (upload is a placeholder).
+/// Asset actions: upload a file, download one by ID.
 #[derive(Subcommand, Debug, Clone)]
 pub enum AssetAction {
-    List,
-    Read { id: String },
+    /// Upload a file (max 10 MB); prints its asset ID and URL
     Upload { file: String },
+    /// Download an asset to a file (default ./asset-<id>), or "-" for stdout
     Download { id: String, output: Option<String> },
 }
 
@@ -513,6 +507,15 @@ pub enum WikiAction {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum RegistryAction {
+    /// Show whether the registry is on; --enable or --disable to change it
+    Settings {
+        #[command(flatten)]
+        scope: WikiScopeArgs,
+        #[arg(long, conflicts_with = "disable")]
+        enable: bool,
+        #[arg(long)]
+        disable: bool,
+    },
     /// Add an entry to today's (UTC) registry page
     Append {
         #[command(flatten)]

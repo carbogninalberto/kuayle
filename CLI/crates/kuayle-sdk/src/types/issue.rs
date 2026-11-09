@@ -198,13 +198,14 @@ where
 /// 批量操作（update/delete）的请求体。
 #[derive(Debug, Clone, Serialize)]
 pub struct BatchUpdateRequest {
-    /// Issue identifiers to operate on (e.g. ["ENG-1", "ENG-2"]).
-    /// 要操作的 issue identifier（如 ["ENG-1", "ENG-2"]）。
-    pub issue_identifiers: Vec<String>,
-
-    /// Fields to update on all matching issues.
-    /// 要在所有匹配 issue 上更新的字段。
-    pub update: UpdateIssueRequest,
+    /// Issue UUIDs (see `Issues::ids_for`).
+    pub issue_ids: Vec<String>,
+    /// Status slug: backlog, todo, in_progress, in_review, done, cancelled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// Priority 0 (none) to 4.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i32>,
 }
 
 #[cfg(test)]

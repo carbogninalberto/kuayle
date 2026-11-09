@@ -145,6 +145,33 @@ async fn cmd_status(cli: &Cli) {
         },
     };
 
+    if is_json {
+        let base_url = Url::parse(&url).map_err(|e| e.to_string());
+        let user = match base_url {
+            Ok(base) => Client::new(base, session.bearer_token().to_string())
+                .get::<UserResponse>("/api/auth/me")
+                .await
+                .map_err(|e| e.to_string()),
+            Err(e) => Err(format!("invalid URL: {e}")),
+        };
+        let authenticated = user.is_ok();
+        println!(
+            "{}",
+            serde_json::json!({
+                "profile": profile,
+                "url": url,
+                "auth": "personal_access_token",
+                "authenticated": authenticated,
+                "user": user.as_ref().ok().map(|u| serde_json::json!({"email": u.email, "display_name": u.display_name})),
+                "error": user.err(),
+            })
+        );
+        if !authenticated {
+            std::process::exit(2);
+        }
+        return;
+    }
+
     println!("Profile:  {profile}");
     println!("URL:      {url}");
     match session {

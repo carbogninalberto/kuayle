@@ -32,8 +32,6 @@ kuayle — the official Kuayle CLI
   kuayle issues delete
   kuayle issues batch-update
   kuayle issues batch-delete
-  kuayle issues subscribe
-  kuayle issues unsubscribe
   kuayle issues history
   kuayle issues sub-issues-list
     List sub-issues
@@ -69,10 +67,10 @@ kuayle — the official Kuayle CLI
   kuayle members list
   kuayle favorites list
   kuayle notifications list
-  kuayle assets list
-  kuayle assets read
   kuayle assets upload
+    Upload a file (max 10 MB); prints its asset ID and URL
   kuayle assets download
+    Download an asset to a file (default ./asset-<id>), or "-" for stdout
   kuayle wiki list
     List pages (registry days are hidden unless --registry)
   kuayle wiki tree
@@ -91,6 +89,8 @@ kuayle — the official Kuayle CLI
     List a page's revisions, newest first
   kuayle wiki restore
     Restore a page to a revision from its history
+  kuayle registry settings
+    Show whether the registry is on; --enable or --disable to change it
   kuayle registry append
     Add an entry to today's (UTC) registry page
   kuayle registry feed

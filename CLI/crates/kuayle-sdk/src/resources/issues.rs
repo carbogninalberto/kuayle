@@ -80,44 +80,32 @@ impl Issues {
             .await
     }
 
-    /// Batch update multiple issues.
-    /// 批量更新多个 issue。
+    /// The UUIDs of issues given by identifier (e.g. "ENG-25"), in order.
+    /// The bulk endpoints take UUIDs; each identifier is read once.
+    pub async fn ids_for(&self, identifiers: &[String]) -> Result<Vec<String>, KuayleError> {
+        let mut ids = Vec::with_capacity(identifiers.len());
+        for identifier in identifiers {
+            ids.push(self.read(identifier).await?.id);
+        }
+        Ok(ids)
+    }
+
+    /// Update several issues at once: PATCH /issues/bulk.
     pub async fn batch_update(
         &self,
         req: &BatchUpdateRequest,
     ) -> Result<serde_json::Value, KuayleError> {
-        self.client.post(&self.path("/batch"), req).await
+        self.client.patch(&self.path("/bulk"), req).await
     }
 
-    /// Batch delete multiple issues.
-    /// 批量删除多个 issue。
+    /// Delete several issues at once: DELETE /issues/bulk.
     pub async fn batch_delete(
         &self,
-        identifiers: &[String],
+        issue_ids: &[String],
     ) -> Result<serde_json::Value, KuayleError> {
-        let body = serde_json::json!({"issue_identifiers": identifiers});
-        self.client.post(&self.path("/batch-delete"), &body).await
-    }
-
-    /// Subscribe to an issue.
-    /// 订阅 issue。
-    pub async fn subscribe(&self, identifier: &str) -> Result<serde_json::Value, KuayleError> {
+        let body = serde_json::json!({ "issue_ids": issue_ids });
         self.client
-            .post(
-                &self.path(&format!("/{identifier}/subscribe")),
-                &serde_json::Value::Null,
-            )
-            .await
-    }
-
-    /// Unsubscribe from an issue.
-    /// 取消订阅 issue。
-    pub async fn unsubscribe(&self, identifier: &str) -> Result<serde_json::Value, KuayleError> {
-        self.client
-            .post(
-                &self.path(&format!("/{identifier}/unsubscribe")),
-                &serde_json::Value::Null,
-            )
+            .delete_with_body(&self.path("/bulk"), &body)
             .await
     }
 

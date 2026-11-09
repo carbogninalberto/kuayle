@@ -23,7 +23,7 @@ Commands:
   members        Member actions: list workspace members (read-only)
   favorites      Favorite actions: list workspace favorites (read-only)
   notifications  Notification actions: list user notifications (read-only, user-scoped)
-  assets         Asset actions: read asset info, upload file (upload is a placeholder)
+  assets         Asset actions: upload a file, download one by ID
   wiki           Team and project wiki pages: read, write, tree, history, restore
   registry       A wiki's daily registry: append entries, read the feed and overviews
   usage          Show command reference

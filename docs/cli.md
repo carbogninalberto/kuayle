@@ -59,6 +59,7 @@ kuayle wiki list --team ENG
 kuayle wiki update <page-id> --team ENG --file notes.md
 kuayle wiki history <page-id> --team ENG
 kuayle wiki restore <page-id> --team ENG --version 3
+kuayle registry settings --project Launch --enable   # the registry is off by default
 kuayle registry append --project Launch "Deployed v1.2 to staging"
 kuayle registry feed --team ENG --limit 3
 ```
@@ -72,8 +73,8 @@ Output is a table on a terminal and JSON when piped (`--format human|json`).
 Exit codes: 2 authentication, 3 not found, 4 invalid input, 5 forbidden,
 6 rate limited, 7 network or server error.
 
-Agent tasks, workflows and agent profiles are not in the CLI: their API accepts
-only signed-in browser sessions, not access tokens.
+Agent tasks, workflows, agent profiles and issue subscriptions are not in the CLI:
+their API accepts only signed-in browser sessions, not access tokens.
 
 ## Agents
 
@@ -94,9 +95,19 @@ sh scripts/install_test.sh
 cargo deny check        # needs cargo-deny
 ```
 
-Live contract tests run against a local server (`make dev`) and a token:
-`KUAYLE_CONTRACT_URL=http://localhost:8080 KUAYLE_CONTRACT_TOKEN=... KUAYLE_CONTRACT_WORKSPACE=acme cargo test --test contract`.
-They are skipped when those variables are unset.
+Live contract tests run every command against a server with seeded data
+(`make dev` after `make seed`). Create a token with the Developer preset plus
+`issue:delete_own`, optionally a read-only one, then:
+
+```sh
+KUAYLE_CONTRACT_URL=http://localhost:8080 KUAYLE_CONTRACT_WORKSPACE=acme \
+KUAYLE_CONTRACT_TOKEN=... KUAYLE_CONTRACT_READONLY_TOKEN=... \
+cargo test --test contract
+```
+
+They create and delete their own issues, labels, templates, pages and an asset,
+and append a registry entry (which cannot be deleted), so use a disposable
+database. They are skipped when the variables are unset.
 
 Releases: bump `version` in `CLI/Cargo.toml`, merge, then push a tag
 `cli-vX.Y.Z`. [CLI Release](../.github/workflows/cli-release.yml) builds every

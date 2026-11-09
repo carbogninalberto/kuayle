@@ -91,6 +91,15 @@ impl Client {
         self.execute("DELETE", path, None::<&()>).await
     }
 
+    /// Perform a DELETE request with a JSON body (no retry).
+    pub async fn delete_with_body<B: Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, KuayleError> {
+        self.execute("DELETE", path, Some(body)).await
+    }
+
     /// Perform a PATCH request (no retry for non-idempotent).
     /// 执行 PATCH 请求（非幂等请求不重试）。
     pub async fn patch<B: Serialize, T: DeserializeOwned>(
@@ -182,7 +191,13 @@ impl Client {
                 }
                 r
             }
-            "DELETE" => self.http.delete(url),
+            "DELETE" => {
+                let mut r = self.http.delete(url);
+                if let Some(b) = body {
+                    r = r.json(b);
+                }
+                r
+            }
             _ => {
                 return Err(KuayleError::Api {
                     code: "INVALID_METHOD".into(),

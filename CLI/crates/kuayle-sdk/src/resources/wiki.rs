@@ -12,7 +12,8 @@ use crate::error::KuayleError;
 use crate::types::wiki::{
     CreateWikiPageRequest, CreateWikiTreePageRequest, GenerateOverviewRequest, MoveWikiPageRequest,
     RegistryEntryRequest, RegistryFeed, RegistryOverview, RegistryOverviewList,
-    UpdateWikiPageRequest, WikiPage, WikiPageSummary, WikiRevision, WikiTreeNode,
+    UpdateWikiPageRequest, UpdateWikiSettingsRequest, WikiPage, WikiPageSummary, WikiRevision,
+    WikiSettings, WikiTreeNode,
 };
 
 /// Which wiki: a team's or a project's. Holds the resolved UUID.
@@ -159,6 +160,18 @@ impl Wiki {
             version: current.summary.version,
         };
         self.update(page_id, &req).await
+    }
+
+    pub async fn settings(&self) -> Result<WikiSettings, KuayleError> {
+        self.client.get(&self.path("/settings")).await
+    }
+
+    /// Change settings, e.g. turn the registry on or off (wiki:write).
+    pub async fn update_settings(
+        &self,
+        req: &UpdateWikiSettingsRequest,
+    ) -> Result<WikiSettings, KuayleError> {
+        self.client.patch(&self.path("/settings"), req).await
     }
 
     /// Add a plain-text entry to today's (UTC) registry page.

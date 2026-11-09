@@ -94,8 +94,6 @@ pub async fn handle(action: &IssueAction, cli: &Cli) {
             priority,
         } => cmd_batch_update(cli, identifiers, status.as_deref(), *priority).await,
         IssueAction::BatchDelete { identifiers } => cmd_batch_delete(cli, identifiers).await,
-        IssueAction::Subscribe { identifier } => cmd_subscribe(cli, identifier).await,
-        IssueAction::Unsubscribe { identifier } => cmd_unsubscribe(cli, identifier).await,
         IssueAction::History { identifier } => cmd_history(cli, identifier).await,
         IssueAction::SubIssuesList { identifier } => cmd_sub_issues_list(cli, identifier).await,
         IssueAction::SubIssuesCreate {
@@ -417,12 +415,29 @@ async fn cmd_update(
     }
 }
 
-// ── delete / batch / sub/unsub / history ──────────────────────────
+// ── delete / batch / history ──────────────────────────────────────
+
+/// Print a write's result: the server's JSON, or a human line.
+fn print_done(is_json: bool, value: &serde_json::Value, human: &str) {
+    if is_json {
+        let value = if value.is_null() {
+            serde_json::json!({ "ok": true })
+        } else {
+            value.clone()
+        };
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).unwrap_or_default()
+        );
+    } else {
+        println!("{human}");
+    }
+}
 
 async fn cmd_delete(cli: &Cli, identifier: &str) {
     let (issues, _, is_json) = setup(cli).await;
     match issues.delete(identifier).await {
-        Ok(_) => println!("✓ Deleted {identifier}"),
+        Ok(v) => print_done(is_json, &v, &format!("✓ Deleted {identifier}")),
         Err(e) => {
             output::print_error(&e, is_json);
             std::process::exit(e.exit_code());
@@ -437,16 +452,24 @@ async fn cmd_batch_update(
     priority: Option<i32>,
 ) {
     let (issues, _, is_json) = setup(cli).await;
+    let issue_ids = match issues.ids_for(identifiers).await {
+        Ok(ids) => ids,
+        Err(e) => {
+            output::print_error(&e, is_json);
+            std::process::exit(e.exit_code());
+        }
+    };
     let req = kuayle_sdk::types::issue::BatchUpdateRequest {
-        issue_identifiers: identifiers.to_vec(),
-        update: UpdateIssueRequest {
-            status: status.map(|s| s.to_string()),
-            priority,
-            ..Default::default()
-        },
+        issue_ids,
+        status: status.map(|s| s.to_string()),
+        priority,
     };
     match issues.batch_update(&req).await {
-        Ok(_) => println!("✓ Batch updated {} issues", identifiers.len()),
+        Ok(v) => print_done(
+            is_json,
+            &v,
+            &format!("✓ Batch updated {} issues", identifiers.len()),
+        ),
         Err(e) => {
             output::print_error(&e, is_json);
             std::process::exit(e.exit_code());
@@ -456,30 +479,19 @@ async fn cmd_batch_update(
 
 async fn cmd_batch_delete(cli: &Cli, identifiers: &[String]) {
     let (issues, _, is_json) = setup(cli).await;
-    match issues.batch_delete(identifiers).await {
-        Ok(_) => println!("✓ Batch deleted {} issues", identifiers.len()),
+    let issue_ids = match issues.ids_for(identifiers).await {
+        Ok(ids) => ids,
         Err(e) => {
             output::print_error(&e, is_json);
             std::process::exit(e.exit_code());
         }
-    }
-}
-
-async fn cmd_subscribe(cli: &Cli, identifier: &str) {
-    let (issues, _, is_json) = setup(cli).await;
-    match issues.subscribe(identifier).await {
-        Ok(_) => println!("✓ Subscribed to {identifier}"),
-        Err(e) => {
-            output::print_error(&e, is_json);
-            std::process::exit(e.exit_code());
-        }
-    }
-}
-
-async fn cmd_unsubscribe(cli: &Cli, identifier: &str) {
-    let (issues, _, is_json) = setup(cli).await;
-    match issues.unsubscribe(identifier).await {
-        Ok(_) => println!("✓ Unsubscribed from {identifier}"),
+    };
+    match issues.batch_delete(&issue_ids).await {
+        Ok(v) => print_done(
+            is_json,
+            &v,
+            &format!("✓ Batch deleted {} issues", identifiers.len()),
+        ),
         Err(e) => {
             output::print_error(&e, is_json);
             std::process::exit(e.exit_code());

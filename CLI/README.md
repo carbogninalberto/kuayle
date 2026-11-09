@@ -85,7 +85,7 @@ on exit codes: 2=re-auth needed, 3=not found, 4=invalid input, 5=forbidden,
 | Area | Commands |
 |------|----------|
 | **Auth** | `auth login`, `auth logout`, `auth status`, `whoami` |
-| **Issues** | `list`, `read`, `create`, `update`, `delete`, `batch-update`, `batch-delete`, `subscribe`, `unsubscribe`, `history` |
+| **Issues** | `list`, `read`, `create`, `update`, `delete`, `batch-update`, `batch-delete`, `history`, `sub-issues-list`, `sub-issues-create` |
 | **Comments** | `list`, `create`, `resolve`, `reopen` |
 | **Relations** | `list`, `create`, `delete` |
 | **Labels** | `list`, `create`, `update`, `delete` |
@@ -93,9 +93,9 @@ on exit codes: 2=re-auth needed, 3=not found, 4=invalid input, 5=forbidden,
 | **Projects** | `list`, `read` · **Cycles** `list`, `read`, `burndown`, `velocity` |
 | **Templates** | `list`, `read`, `create`, `update`, `delete` |
 | **Views / Favorites / Notifications / Members** | `list` (read-only) |
-| **Assets** | `read`, `upload`, `download` |
+| **Assets** | `upload`, `download` |
 | **Wiki** | `list`, `tree`, `read`, `create`, `update`, `delete`, `move`, `history`, `restore` |
-| **Registry** | `append`, `feed`, `overview`, `generate-overview` |
+| **Registry** | `settings`, `append`, `feed`, `overview`, `generate-overview` |
 | **Meta** | `usage`, `completion`, `self-update` |
 
 Every command supports `--help`. Issues are addressed by identifier (`KUA-123`), never UUIDs.
@@ -107,7 +107,7 @@ kuayle issues list --status in_progress --format json
 kuayle comments create ENG-42 --body "Fixed in 3a7d5ee"
 ```
 
-Some operations (cycle, view, favorite and notification writes; agent tasks and workflows) accept only signed-in browser sessions, not tokens, so the CLI does not offer them.
+Some operations (issue subscriptions; cycle, view, favorite and notification writes; agent tasks and workflows) accept only signed-in browser sessions, not tokens, so the CLI does not offer them.
 
 ## SDK: kuayle-sdk
 

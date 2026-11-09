@@ -10,7 +10,7 @@ use kuayle_sdk::error::KuayleError;
 use kuayle_sdk::resources::wiki::{Wiki, WikiScope};
 use kuayle_sdk::types::wiki::{
     CreateWikiPageRequest, CreateWikiTreePageRequest, GenerateOverviewRequest, MoveWikiPageRequest,
-    UpdateWikiPageRequest, WikiPage,
+    UpdateWikiPageRequest, UpdateWikiSettingsRequest, WikiPage,
 };
 use serde::Serialize;
 
@@ -342,6 +342,34 @@ pub async fn handle(action: &WikiAction, cli: &Cli) {
 
 pub async fn handle_registry(action: &RegistryAction, cli: &Cli) {
     match action {
+        RegistryAction::Settings {
+            scope,
+            enable,
+            disable,
+        } => {
+            let ctx = setup(cli, scope).await;
+            let result = if *enable || *disable {
+                let req = UpdateWikiSettingsRequest {
+                    registry_enabled: Some(*enable),
+                };
+                ctx.wiki.update_settings(&req).await
+            } else {
+                ctx.wiki.settings().await
+            };
+            let settings = result.unwrap_or_else(|e| fail(e, ctx.is_json));
+            if ctx.is_json {
+                print_json(&settings);
+            } else {
+                println!(
+                    "Registry: {}",
+                    if settings.registry_enabled {
+                        "on"
+                    } else {
+                        "off"
+                    }
+                );
+            }
+        }
         RegistryAction::Append { scope, text } => {
             let ctx = setup(cli, scope).await;
             let page = ctx

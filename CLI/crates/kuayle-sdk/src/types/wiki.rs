@@ -141,6 +141,24 @@ pub struct GenerateOverviewRequest {
     pub period_end: String,
 }
 
+/// A wiki's settings; the overview schedule is kept as JSON.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WikiSettings {
+    pub registry_enabled: bool,
+    pub overview_schedule: serde_json::Value,
+    pub overview_timezone: String,
+    pub overview_next_run_at: Option<DateTime<Utc>>,
+    pub overview_last_run_at: Option<DateTime<Utc>>,
+    pub overview_last_error: Option<String>,
+}
+
+/// Change the settings that are present.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct UpdateWikiSettingsRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry_enabled: Option<bool>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

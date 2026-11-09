@@ -79,7 +79,14 @@ async fn cmd_create(cli: &Cli, issue: &str, body: &str) {
 
     match client.post::<_, CommentResponse>(&path, &req).await {
         Ok(comment) => {
-            println!("✓ Comment created on issue {issue} (id: {})", comment.id);
+            if is_json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&comment).unwrap_or_default()
+                );
+            } else {
+                println!("✓ Comment created on issue {issue} (id: {})", comment.id);
+            }
         }
         Err(e) => {
             output::print_error(&e, is_json);

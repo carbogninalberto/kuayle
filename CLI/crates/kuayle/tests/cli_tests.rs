@@ -139,17 +139,26 @@ async fn auth_status_after_login() {
     Mock::given(method("GET"))
         .and(path("/api/auth/me"))
         .respond_with(ResponseTemplate::new(200).set_body_json(user_json()))
-        .expect(1)
+        .expect(2)
         .mount(&server)
         .await;
 
     let mut cmd = kuayle_cmd(&home, &server.uri());
-    cmd.args(["auth", "status"]);
+    cmd.args(["auth", "status", "--format", "human"]);
 
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("Personal Access Token"))
         .stdout(predicate::str::contains("authenticated as Alice"));
+
+    // Piped output is JSON, like every other command.
+    let out = kuayle_cmd(&home, &server.uri())
+        .args(["auth", "status"])
+        .assert()
+        .success();
+    let status: serde_json::Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+    assert_eq!(status["authenticated"], true);
+    assert_eq!(status["user"]["email"], "alice@kuayle.dev");
 }
 
 // ── auth logout ───────────────────────────────────────────────────

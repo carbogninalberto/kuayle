@@ -238,26 +238,6 @@ fn notifications_detail(item: &Value) {
     }
 }
 
-fn assets_headers() -> Vec<&'static str> {
-    vec!["FILENAME", "TYPE", "SIZE"]
-}
-fn assets_row(item: &Value) -> Vec<String> {
-    let size = item["size"].as_u64().unwrap_or(0);
-    vec![
-        s(item, "filename"),
-        s(item, "content_type"),
-        format!("{}", size),
-    ]
-}
-fn assets_detail(item: &Value) {
-    println!("Filename:     {}", s(item, "filename"));
-    println!("Content-Type: {}", s(item, "content_type"));
-    println!("Size:         {}", item["size"]);
-    if let Some(u) = item["url"].as_str() {
-        println!("URL:          {u}");
-    }
-}
-
 fn truncate_str(item: &Value, key: &str, max: usize) -> String {
     let s = item[key].as_str().unwrap_or("-");
     if s.chars().count() <= max {
@@ -356,18 +336,6 @@ pub static RESOURCES: &[ResourceSpec] = &[
         headers_fn: notifications_headers,
         row_fn: notifications_row,
         detail_fn: notifications_detail,
-    },
-    ResourceSpec {
-        name: "assets",
-        about: "Manage uploaded assets",
-        path: "/api/workspaces/{ws}/assets",
-        id_kind: IdKind::Uuid,
-        capabilities: Capabilities::from_bits_truncate(
-            Capabilities::LIST.bits() | Capabilities::READ.bits() | Capabilities::CREATE.bits(),
-        ),
-        headers_fn: assets_headers,
-        row_fn: assets_row,
-        detail_fn: assets_detail,
     },
 ];
 
