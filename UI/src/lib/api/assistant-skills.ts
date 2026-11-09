@@ -69,10 +69,5 @@ export const assistantSkills = {
 		api.post<AssistantSkill>(`${one(slug, id)}/activate`, version === undefined ? {} : { version }),
 	restore: (slug: string, id: string, version: number) =>
 		api.post<AssistantSkill>(`${one(slug, id)}/versions/${version}/restore`),
-	remove: (slug: string, id: string) => api.delete<void>(one(slug, id)),
-	/** Asks the workspace's AI model to generate a SKILL.md, or rewrite the selected part of one. Nothing is saved. */
-	write: (
-		slug: string,
-		input: { mode: 'generate' | 'rewrite'; instruction: string; source: string; selection?: string }
-	) => api.post<{ text: string }>(`${base(slug)}/write`, input)
+	remove: (slug: string, id: string) => api.delete<void>(one(slug, id))
 };

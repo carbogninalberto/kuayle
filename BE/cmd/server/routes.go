@@ -273,6 +273,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodGet, "/ai-settings/issue-copy-prompt", h.aiSettings.GetIssueCopyPrompt, "issues:read")
 	ownerOnly(ws, http.MethodPatch, "/ai-settings", h.aiSettings.Update)
 	ownerOnly(ws, http.MethodPost, "/ai-settings/vision-check", h.aiSettings.CheckVision)
+	// Owners and admins draft skills, profile instructions and step prompts with AI.
+	sessionOnly(ws, http.MethodPost, "/ai/write", h.aiSettings.WriteSkill)
 
 	// Conversations are session-only until dedicated PAT scopes are defined.
 	sessionOnly(ws, http.MethodGet, "/assistant/status", h.conversation.Status)
@@ -304,7 +306,6 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// owners and admins write them.
 	sessionOnly(ws, http.MethodGet, "/assistant-skills", h.assistantSkill.List)
 	sessionOnly(ws, http.MethodPost, "/assistant-skills", h.assistantSkill.Create)
-	sessionOnly(ws, http.MethodPost, "/assistant-skills/write", h.aiSettings.WriteSkill)
 	sessionOnly(ws, http.MethodGet, "/assistant-skills/:skillId", h.assistantSkill.Get)
 	sessionOnly(ws, http.MethodPut, "/assistant-skills/:skillId", h.assistantSkill.Update)
 	sessionOnly(ws, http.MethodDelete, "/assistant-skills/:skillId", h.assistantSkill.Delete)

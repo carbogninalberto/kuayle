@@ -49,3 +49,12 @@ func TestCompleteWithSendsTheGivenSystemPrompt(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, skillWriterSystem, system)
 }
+
+func TestWritePromptsNameWhatIsWritten(t *testing.T) {
+	assert.Contains(t, writePrompt(WriteKindInstructions, SkillWriteGenerate, "Security focus", "", nil), "Write a complete set of agent profile instructions for this request: Security focus")
+	assert.NotContains(t, writePrompt(WriteKindInstructions, SkillWriteGenerate, "x", "", nil), "front matter")
+	selected := "Fix it."
+	assert.Contains(t, writePrompt(WriteKindStepPrompt, SkillWriteRewrite, "", "Fix it. {{review_comments}}", &selected), "Rewrite only the selected part of this workflow step prompt")
+	_, err := NewAISettingsService(nil, nil, nil, nil).WriteText(context.Background(), [16]byte{}, "poem", SkillWriteGenerate, "x", "", nil)
+	require.ErrorIs(t, err, ErrInvalidSkillWrite)
+}

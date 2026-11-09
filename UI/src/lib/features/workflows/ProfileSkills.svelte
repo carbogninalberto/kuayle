@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { ChevronDown, FileUp, Plus, Sparkles, Undo2, X } from '@lucide/svelte';
-	import * as Tabs from '$lib/components/ui/tabs/index.js';
+	import { ChevronDown, FileUp, Plus, Save, X } from '@lucide/svelte';
+	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
+	import AiMarkdownEditor from './AiMarkdownEditor.svelte';
+	import InfoHint from '$lib/components/shared/InfoHint.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
-	import { Input } from '$lib/components/ui/input/index.js';
-	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import { assistantSkills, type AssistantSkill } from '$lib/api/assistant-skills';
 	import { appToast } from '$lib/features/toast/toast';
 	import { cn } from '$lib/utils.js';
@@ -29,51 +29,8 @@
 		bodies = $state<Record<string, string>>({}),
 		writing = $state(false),
 		source = $state(SKILL_TEMPLATE),
-		view = $state<'write' | 'preview'>('write'),
 		saving = $state(false),
-		file = $state<HTMLInputElement | null>(null),
-		editor = $state<HTMLTextAreaElement | null>(null),
-		ask = $state(''),
-		asking = $state(false),
-		// The editor's selection, kept when focus moves to the AI bar.
-		selection = $state<{ start: number; end: number } | null>(null),
-		// The text before the last AI change, for Undo.
-		before = $state<string | null>(null);
-
-	function trackSelection() {
-		if (!editor) return;
-		const { selectionStart: start, selectionEnd: end } = editor;
-		selection = end > start ? { start, end } : null;
-	}
-
-	// Asks the workspace's AI model to write the whole skill, or to rewrite
-	// only the selected text; the result replaces it in the editor, with Undo.
-	async function askAI(mode: 'generate' | 'rewrite') {
-		if (asking) return;
-		const range = mode === 'rewrite' ? selection : null;
-		if (mode === 'rewrite' && !range) return;
-		asking = true;
-		try {
-			const { text } = await assistantSkills.write(slug, {
-				mode,
-				instruction: ask.trim(),
-				source,
-				...(range ? { selection: source.slice(range.start, range.end) } : {})
-			});
-			before = source;
-			source = range ? source.slice(0, range.start) + text + source.slice(range.end) : text + '\n';
-			selection = null;
-			ask = '';
-			view = 'write';
-			appToast.success(m['profiles.ai_done']());
-		} catch (error) {
-			const code = (error as { error?: { code?: string } }).error?.code;
-			if (code === 'AI_NOT_CONFIGURED') appToast.error(m['profiles.ai_not_configured']());
-			else appToast.apiError(error, m['profiles.ai_failed']());
-		} finally {
-			asking = false;
-		}
-	}
+		file = $state<HTMLInputElement | null>(null);
 
 	async function load() {
 		loading = true;
@@ -98,7 +55,7 @@
 		selected = on ? [...selected, skill.id] : selected.filter((id) => id !== skill.id);
 	}
 
-	async function preview(skill: AssistantSkill) {
+	async function togglePreview(skill: AssistantSkill) {
 		open = open === skill.id ? null : skill.id;
 		if (open && bodies[skill.id] === undefined) {
 			try {
@@ -124,7 +81,6 @@
 		input.value = '';
 		if (!picked) return;
 		source = await picked.text();
-		view = 'write';
 	}
 
 	async function saveSkill() {
@@ -154,14 +110,14 @@
 
 <section class="space-y-3" aria-labelledby="profile-skills" data-testid="profile-skills">
 	<div class="flex items-end justify-between gap-3">
-		<div>
+		<div class="flex items-center gap-1">
 			<h3 id="profile-skills" class="text-sm font-medium">
 				{m['profiles.section_skills']()}
 				<span class="ml-1 text-xs font-normal text-muted-foreground"
 					>{m['profiles.skills_count']({ count: selected.length })}</span
 				>
 			</h3>
-			<p class="mt-0.5 text-xs text-muted-foreground">{m['profiles.skills_help']()}</p>
+			<InfoHint text={m['profiles.skills_help']()} />
 		</div>
 		{#if editable && !writing}<Button size="sm" variant="outline" onclick={() => (writing = true)}
 				><Plus />{m['profiles.skill_new']()}</Button
@@ -169,116 +125,64 @@
 	</div>
 
 	{#if writing}
-		<div class="space-y-2 rounded-lg border bg-muted/30 p-3" data-testid="profile-skill-editor">
-			<div class="flex flex-wrap items-center justify-between gap-2">
-				<Tabs.Root bind:value={view}>
-					<Tabs.List>
-						<Tabs.Trigger value="write">{m['profiles.write']()}</Tabs.Trigger>
-						<Tabs.Trigger value="preview">{m['profiles.preview']()}</Tabs.Trigger>
-					</Tabs.List>
-				</Tabs.Root>
-				<div class="flex items-center gap-1">
-					<input
-						bind:this={file}
-						type="file"
-						accept=".md,text/markdown,text/plain"
-						class="hidden"
-						onchange={importFile}
-					/>
-					<Button size="sm" variant="ghost" onclick={() => file?.click()}
-						><FileUp />{m['profiles.skill_import']()}</Button
-					>
-					<Button
-						size="icon-sm"
-						variant="ghost"
-						aria-label={m['common.cancel']()}
-						onclick={() => {
-							writing = false;
-							source = SKILL_TEMPLATE;
-						}}><X /></Button
-					>
-				</div>
-			</div>
-			{#if view === 'write'}
-				<Textarea
-					aria-label={m['profiles.skill_new']()}
-					bind:ref={editor}
-					bind:value={source}
-					spellcheck={false}
-					disabled={asking}
-					onselect={trackSelection}
-					onkeyup={trackSelection}
-					onmouseup={trackSelection}
-					oninput={() => (selection = null)}
-					class="min-h-72 resize-y bg-background font-mono text-[13px] leading-relaxed"
-				/>
-				<form
-					class="flex flex-wrap items-center gap-2"
-					onsubmit={(event) => {
-						event.preventDefault();
-						void askAI(selection ? 'rewrite' : 'generate');
-					}}
-					data-testid="profile-skill-ai"
-				>
-					<div class="relative min-w-0 flex-1">
-						<Sparkles
-							class="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-						/>
-						<Input
-							bind:value={ask}
-							maxlength={2000}
-							disabled={asking}
-							placeholder={m['profiles.ai_placeholder']()}
-							aria-label={m['profiles.ai_label']()}
-							title={m['profiles.ai_label']()}
-							class="h-8 bg-background pl-8 text-sm"
-						/>
+		<div class="space-y-2" data-testid="profile-skill-editor">
+			<input bind:this={file} type="file" accept=".md,text/markdown,text/plain" class="hidden" onchange={importFile} />
+			<AiMarkdownEditor
+				bind:value={source}
+				{slug}
+				kind="skill"
+				label={m['profiles.skill_new']()}
+				testid="profile-skill-ai"
+			>
+				{#snippet actions()}
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}<Button
+									{...props}
+									size="icon-sm"
+									variant="ghost"
+									aria-label={m['profiles.skill_import']()}
+									onclick={() => file?.click()}><FileUp /></Button
+								>{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content>{m['profiles.skill_import']()}</Tooltip.Content>
+					</Tooltip.Root>
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}<Button
+									{...props}
+									size="icon-sm"
+									variant="ghost"
+									aria-label={m['common.cancel']()}
+									onclick={() => {
+										writing = false;
+										source = SKILL_TEMPLATE;
+									}}><X /></Button
+								>{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content>{m['common.cancel']()}</Tooltip.Content>
+					</Tooltip.Root>
+				{/snippet}
+				{#snippet preview()}
+					<div class="space-y-2">
+						<div class="flex flex-wrap items-baseline gap-2 border-b pb-2">
+							<code class="text-sm font-medium">{parsed.name || '—'}</code>
+							<span class="text-xs text-muted-foreground">{parsed.description}</span>
+						</div>
+						<Markdown source={parsed.body} class="text-sm" />
 					</div>
-					<Button
-						type="button"
-						size="sm"
-						variant="outline"
-						disabled={asking || !ask.trim()}
-						onclick={() => askAI('generate')}>{m['profiles.ai_generate']()}</Button
-					>
-					<Button
-						type="button"
-						size="sm"
-						variant="outline"
-						disabled={asking || !selection}
-						title={selection ? undefined : m['profiles.ai_select_hint']()}
-						onclick={() => askAI('rewrite')}>{m['profiles.ai_rewrite']()}</Button
-					>
-					{#if before !== null && !asking}<Button
-							type="button"
-							size="sm"
-							variant="ghost"
-							onclick={() => {
-								source = before ?? source;
-								before = null;
-							}}><Undo2 />{m['profiles.ai_undo']()}</Button
-						>{/if}
-					{#if asking}<span role="status" class="text-xs text-muted-foreground">{m['profiles.ai_working']()}</span>{/if}
-				</form>
-			{:else}
-				<div class="min-h-72 space-y-2 rounded-md border bg-background px-4 py-3">
-					<div class="flex flex-wrap items-baseline gap-2 border-b pb-2">
-						<code class="text-sm font-medium">{parsed.name || '—'}</code>
-						<span class="text-xs text-muted-foreground">{parsed.description}</span>
-					</div>
-					<Markdown source={parsed.body} class="text-sm" />
-				</div>
-			{/if}
-			{#if parsed.problems.length > 0}
-				<ul class="space-y-0.5 text-xs text-destructive" role="list">
-					{#each parsed.problems as problem (problem)}<li>{problems[problem]()}</li>{/each}
-				</ul>
-			{:else}
-				<p class="text-xs text-muted-foreground">{m['profiles.skill_format_help']()}</p>
-			{/if}
-			<div class="flex justify-end">
-				<Button size="sm" onclick={saveSkill} disabled={saving || parsed.problems.length > 0}
-					>{m['profiles.skill_save']()}</Button
+				{/snippet}
+			</AiMarkdownEditor>
+			<div class="flex items-start justify-between gap-3">
+				{#if parsed.problems.length > 0}
+					<ul class="space-y-0.5 text-xs text-destructive" role="list">
+						{#each parsed.problems as problem (problem)}<li>{problems[problem]()}</li>{/each}
+					</ul>
+				{:else}
+					<p class="text-xs text-muted-foreground">{m['profiles.skill_format_help']()}</p>
+				{/if}
+				<Button size="sm" class="shrink-0" onclick={saveSkill} disabled={saving || parsed.problems.length > 0}
+					><Save />{m['profiles.skill_save']()}</Button
 				>
 			</div>
 		</div>
@@ -319,7 +223,7 @@
 							variant="ghost"
 							aria-label={m['profiles.skill_preview']({ name: skill.name })}
 							aria-expanded={open === skill.id}
-							onclick={() => preview(skill)}
+							onclick={() => togglePreview(skill)}
 							><ChevronDown class={cn('transition-transform', open === skill.id && 'rotate-180')} /></Button
 						>
 					</div>

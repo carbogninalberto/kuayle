@@ -1,12 +1,10 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import * as Sheet from '$lib/components/ui/sheet/index.js';
-	import * as Tabs from '$lib/components/ui/tabs/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
-	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import {
 		agentProfiles,
@@ -21,9 +19,10 @@
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
 	import { AGENT_EFFORT, effortChoice } from '$lib/features/agents/model-choice';
-	import Markdown from '$lib/features/assistant/Markdown.svelte';
 	import { roleLabel } from './labels';
 	import ProfileSkills from './ProfileSkills.svelte';
+	import AiMarkdownEditor from './AiMarkdownEditor.svelte';
+	import InfoHint from '$lib/components/shared/InfoHint.svelte';
 
 	// One agent profile in a side panel: who the agent is (role, coding agent,
 	// model, effort) and its Markdown instructions, written with a preview.
@@ -70,7 +69,6 @@
 		)
 	);
 	let saving = $state(false);
-	let view = $state<'write' | 'preview'>('write');
 
 	const editable = $derived(list.can_manage);
 	const bytes = $derived(new TextEncoder().encode(draft.instructions).length);
@@ -133,9 +131,9 @@
 
 			<div class="min-h-0 flex-1 space-y-8 overflow-y-auto px-6 py-5">
 				<section class="space-y-4" aria-labelledby="profile-agent">
-					<div>
+					<div class="flex items-center gap-1">
 						<h3 id="profile-agent" class="text-sm font-medium">{m['profiles.section_agent']()}</h3>
-						<p class="mt-0.5 text-xs text-muted-foreground">{m['profiles.dialog_desc']()}</p>
+						<InfoHint text={m['profiles.dialog_desc']()} />
 					</div>
 					<div class="space-y-1.5">
 						<Label for="profile-name">{m['profiles.name']()}</Label>
@@ -198,33 +196,20 @@
 				</section>
 
 				<section class="space-y-3" aria-labelledby="profile-instructions-title">
-					<div class="flex items-end justify-between gap-3">
-						<div>
-							<h3 id="profile-instructions-title" class="text-sm font-medium">{m['profiles.instructions']()}</h3>
-							<p class="mt-0.5 text-xs text-muted-foreground">{m['profiles.instructions_help']()}</p>
-						</div>
-						<Tabs.Root bind:value={view}>
-							<Tabs.List>
-								<Tabs.Trigger value="write">{m['profiles.write']()}</Tabs.Trigger>
-								<Tabs.Trigger value="preview">{m['profiles.preview']()}</Tabs.Trigger>
-							</Tabs.List>
-						</Tabs.Root>
+					<div class="flex items-center gap-1">
+						<h3 id="profile-instructions-title" class="text-sm font-medium">{m['profiles.instructions']()}</h3>
+						<InfoHint text={m['profiles.instructions_help']()} />
 					</div>
-					{#if view === 'write'}
-						<Textarea
-							id="profile-instructions"
-							aria-labelledby="profile-instructions-title"
-							bind:value={draft.instructions}
-							disabled={!editable}
-							placeholder={m['profiles.instructions_placeholder']()}
-							class="min-h-[22rem] resize-y font-mono text-[13px] leading-relaxed"
-						/>
-					{:else}
-						<div class="min-h-[22rem] rounded-md border px-4 py-3" data-testid="agent-profile-preview">
-							{#if draft.instructions.trim()}<Markdown source={draft.instructions} class="text-sm" />
-							{:else}<p class="text-sm text-muted-foreground">{m['profiles.instructions_empty']()}</p>{/if}
-						</div>
-					{/if}
+					<AiMarkdownEditor
+						bind:value={draft.instructions}
+						{slug}
+						kind="instructions"
+						{editable}
+						label={m['profiles.instructions']()}
+						placeholder={m['profiles.instructions_placeholder']()}
+						class="min-h-[22rem]"
+						testid="agent-profile-instructions"
+					/>
 					<p class="text-right text-xs {tooLong ? 'text-destructive' : 'text-muted-foreground'}">
 						{m['profiles.instructions_size']({ used: sizeLabel(bytes) })}
 					</p>

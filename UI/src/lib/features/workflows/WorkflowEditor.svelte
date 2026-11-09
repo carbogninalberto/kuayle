@@ -22,6 +22,8 @@
 	import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import type { FlowApi } from './FlowBridge.svelte';
+	import AiMarkdownEditor from './AiMarkdownEditor.svelte';
+	import InfoHint from '$lib/components/shared/InfoHint.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -633,29 +635,38 @@
 										disabled={!editable}
 										options={[
 											{ value: '', label: m['workflows.editor.node_profile_placeholder']() },
-											...activeProfiles.map((p) => ({ value: p.id, label: `${p.name} · ${roleLabel(p.role)}` }))
+											...activeProfiles.map((p) => ({
+												value: p.id,
+												label: p.name === roleLabel(p.role) ? p.name : `${p.name} · ${roleLabel(p.role)}`
+											}))
 										]}
 									/>
 								</div>
 								<div class="space-y-1.5">
-									<Label for="node-prompt">{m['workflows.editor.node_prompt']()}</Label>
-									<Textarea
-										id="node-prompt"
-										value={node.prompt ?? ''}
-										rows={6}
-										maxlength={4000}
-										disabled={!editable}
-										class="font-mono text-xs"
-										aria-describedby="node-prompt-help"
-										oninput={(event) => change(updateNode(graph, node.id, { prompt: event.currentTarget.value }))}
-									/>
-									<p id="node-prompt-help" class="text-xs leading-relaxed text-muted-foreground">
-										{m['workflows.editor.node_prompt_help']()}
-										{#each VARIABLES as variable (variable)}<code
-												class="mx-0.5 rounded bg-muted px-1 py-px font-mono text-[11px] text-foreground"
-												>{variable}</code
-											>{/each}
-									</p>
+									<div class="flex items-center gap-1">
+										<Label>{m['workflows.editor.node_prompt']()}</Label>
+										<InfoHint>
+											{m['workflows.editor.node_prompt_help']()}
+											{#each VARIABLES as variable (variable)}<code
+													class="mx-0.5 rounded bg-muted px-1 py-px font-mono text-[11px] text-foreground"
+													>{variable}</code
+												>{/each}
+										</InfoHint>
+									</div>
+									{#key node.id}
+										<AiMarkdownEditor
+											bind:value={
+												() => node.prompt ?? '',
+												(value: string) => change(updateNode(graph, node.id, { prompt: value.slice(0, 4000) }))
+											}
+											{slug}
+											kind="step_prompt"
+											{editable}
+											label={m['workflows.editor.node_prompt']()}
+											class="min-h-32"
+											testid="workflow-node-prompt"
+										/>
+									{/key}
 								</div>
 							{:else if node.type === 'approval'}
 								<div class="space-y-1.5">

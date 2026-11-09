@@ -129,9 +129,9 @@ func expansionResponse(c *echo.Context, description string, err error) error {
 	return response.Success(c, http.StatusOK, dto.ExpandIssueDescriptionResponse{Description: description})
 }
 
-// WriteSkill generates a SKILL.md or rewrites a selection of one with the
-// workspace's AI model, for owners and admins, who write skills. Nothing is
-// saved.
+// WriteSkill generates a SKILL.md, agent profile instructions or a workflow
+// step prompt, or rewrites a selection of one, with the workspace's AI model,
+// for owners and admins, who write them. Nothing is saved.
 func (h *AISettingsHandler) WriteSkill(c *echo.Context) error {
 	if role := middleware.GetWorkspaceRole(c); role != domain.RoleOwner && role != domain.RoleAdmin {
 		return response.Forbidden(c)
@@ -141,7 +141,11 @@ func (h *AISettingsHandler) WriteSkill(c *echo.Context) error {
 		return err
 	}
 	ws := c.Get("workspace").(*domain.Workspace)
-	text, err := h.aiSvc.WriteSkill(c.Request().Context(), ws.ID, req.Mode, req.Instruction, req.Source, req.Selection)
+	kind := req.Kind
+	if kind == "" {
+		kind = service.WriteKindSkill
+	}
+	text, err := h.aiSvc.WriteText(c.Request().Context(), ws.ID, kind, req.Mode, req.Instruction, req.Source, req.Selection)
 	if errors.Is(err, service.ErrInvalidSkillWrite) {
 		return response.Error(c, http.StatusBadRequest, "INVALID_SKILL_WRITE", strings.TrimPrefix(err.Error(), service.ErrInvalidSkillWrite.Error()+": "))
 	}

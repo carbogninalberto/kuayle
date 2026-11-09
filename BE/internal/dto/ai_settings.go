@@ -50,7 +50,9 @@ type ExpandDraftIssueDescriptionRequest struct {
 // WriteSkillRequest asks the AI model to generate a SKILL.md or rewrite the
 // selected part of one.
 type WriteSkillRequest struct {
-	Mode        string  `json:"mode" validate:"required,oneof=generate rewrite"`
+	Mode string `json:"mode" validate:"required,oneof=generate rewrite"`
+	// Kind is what is written: skill (default), instructions or step_prompt.
+	Kind        string  `json:"kind" validate:"omitempty,oneof=skill instructions step_prompt"`
 	Instruction string  `json:"instruction" validate:"max=2000"`
 	Source      string  `json:"source" validate:"max=70000"`
 	Selection   *string `json:"selection" validate:"omitempty,max=20000"`
