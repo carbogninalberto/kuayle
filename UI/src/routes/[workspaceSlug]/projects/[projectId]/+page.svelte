@@ -203,17 +203,6 @@
 		}
 	}
 
-	async function handleAppearanceChange(change: { icon?: string; color?: string }) {
-		if (!project || !canManage) return;
-		try {
-			await updateProject(slug, project.id, change);
-			await refreshProject();
-			appToast.success(m['projects.toast.appearance_updated']());
-		} catch (err: any) {
-			appToast.apiError(err, m['projects.toast.failed_update_appearance']());
-		}
-	}
-
 	async function handleDateChange(field: 'start_date' | 'target_date', value: string | null) {
 		if (!project || !canManage) return;
 		try {
@@ -222,6 +211,17 @@
 			appToast.success(m['projects.toast.date_updated']());
 		} catch (err: any) {
 			appToast.apiError(err, m['projects.toast.failed_update_date']());
+		}
+	}
+
+	async function handleAppearanceChange(change: { icon?: string; color?: string }) {
+		if (!project || !canManage) return;
+		try {
+			await updateProject(slug, project.id, change);
+			await refreshProject();
+			appToast.success(m['projects.toast.appearance_updated']());
+		} catch (err: any) {
+			appToast.apiError(err, m['projects.toast.failed_update_appearance']());
 		}
 	}
 
@@ -293,6 +293,7 @@
 		<div class="flex min-h-[49px] items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-4">
 			<div class="flex min-w-0 items-center gap-3">
 				<SidebarToggle />
+				<ProjectAppearancePicker {project} disabled={!canManage} onchange={handleAppearanceChange} />
 				<nav class="flex min-w-0 items-center gap-1.5 text-sm">
 					{#if projectTeam}
 						<a
@@ -312,7 +313,6 @@
 						</a>
 						<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
 					{/if}
-					<ProjectAppearancePicker {project} disabled={!canManage} onchange={handleAppearanceChange} />
 					<span class="truncate font-medium text-[var(--color-text-primary)]">{project.name}</span>
 				</nav>
 				<Popover.Root bind:open={statusOpen}>
