@@ -3,7 +3,9 @@ package repository
 import (
 	"context"
 	"os"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -97,6 +99,33 @@ func TestTeamKeyRenamePostgres(t *testing.T) {
 	var aliases int
 	require.NoError(t, db.Get(&aliases, `SELECT count(*) FROM team_key_aliases WHERE workspace_id=$1 AND old_key='ENG'`, ws))
 	require.Zero(t, aliases)
+
+	// An issue created while a rename is waiting keeps its number and ends up
+	// under the new key: creation re-reads the key under the lock NextNumber holds.
+	require.NoError(t, teams.UpdateWithKey(admin, load(eng), "ENG"))
+	tx, err := db.BeginTxx(ctx, nil)
+	require.NoError(t, err)
+	number, err := issues.NextNumber(ctx, tx, eng)
+	require.NoError(t, err)
+	renamed := make(chan error, 1)
+	go func() { renamed <- teams.UpdateWithKey(admin, load(eng), "NEW") }()
+	select {
+	case err := <-renamed:
+		t.Fatalf("rename did not wait for the issue being created: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	key, err := issues.TeamKey(ctx, tx, eng)
+	require.NoError(t, err)
+	require.Equal(t, "ENG", key)
+	racing := uuid.New()
+	_, err = tx.Exec(`INSERT INTO issues(id,workspace_id,team_id,number,identifier_text,title,creator_id,sort_order,status_id) VALUES($1,$2,$3,$4,$5,'Racing',$6,0,$7)`, racing, ws, eng, number, key+"-"+strconv.Itoa(number), owner, status)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+	require.NoError(t, <-renamed)
+	var identifier string
+	require.NoError(t, db.Get(&identifier, `SELECT identifier_text FROM issues WHERE id=$1`, racing))
+	require.Equal(t, "NEW-"+strconv.Itoa(number), identifier)
+	require.NoError(t, teams.UpdateWithKey(admin, load(eng), "ENG"))
 
 	// An alias never exposes a private team's issues to a non-member.
 	require.NoError(t, teams.UpdateWithKey(admin, load(priv), "SEC"))

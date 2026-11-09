@@ -47,6 +47,15 @@ func (r *IssueRepository) NextNumber(ctx context.Context, tx *sqlx.Tx, teamID uu
 	return num, err
 }
 
+// TeamKey reads the team's current key inside the transaction. Call it after
+// NextNumber: that holds the per-team lock a key rename also takes, so the key
+// cannot change before the new issue is committed.
+func (r *IssueRepository) TeamKey(ctx context.Context, tx *sqlx.Tx, teamID uuid.UUID) (string, error) {
+	var key string
+	err := tx.QueryRowContext(ctx, `SELECT key FROM teams WHERE id = $1`, teamID).Scan(&key)
+	return key, err
+}
+
 func (r *IssueRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Issue, error) {
 	var issue domain.Issue
 	err := r.db.GetContext(ctx, &issue, `SELECT * FROM issues WHERE id = $1 AND `+teamVisible(ctx, "issues.team_id"), id)

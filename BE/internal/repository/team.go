@@ -197,6 +197,11 @@ func (r *TeamRepository) UpdateWithKey(ctx context.Context, team *domain.Team, n
 	if err := lockTeamKeys(ctx, tx, team.WorkspaceID); err != nil {
 		return err
 	}
+	// The lock issue creation holds while it numbers a new issue (NextNumber):
+	// an issue being created finishes under the old key before the rename runs.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1::text))`, team.ID); err != nil {
+		return err
+	}
 	var oldKey string
 	err = tx.GetContext(ctx, &oldKey, `SELECT key FROM teams WHERE id=$1 AND workspace_id=$2 AND `+teamVisible(ctx, "teams.id")+` FOR UPDATE`, team.ID, team.WorkspaceID)
 	if err != nil {

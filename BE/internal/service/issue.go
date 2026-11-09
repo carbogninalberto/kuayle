@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
@@ -102,7 +103,17 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		return nil, err
 	}
 
-	identifier := fmt.Sprintf("%s-%d", team.Key, number)
+	// A rename of the team key waits for the lock NextNumber holds, so read the
+	// key again now: the one read before the transaction may be out of date.
+	teamKey := team.Key
+	if keyed, ok := s.issueRepo.(interface {
+		TeamKey(context.Context, *sqlx.Tx, uuid.UUID) (string, error)
+	}); ok {
+		if teamKey, err = keyed.TeamKey(ctx, tx, teamID); err != nil {
+			return nil, err
+		}
+	}
+	identifier := fmt.Sprintf("%s-%d", teamKey, number)
 
 	status := domain.IssueStatusBacklog
 	if req.Status != "" {
