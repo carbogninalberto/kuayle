@@ -337,6 +337,41 @@ test('mobile scoped pages fit the viewport and project indexes hide guest creati
 	}
 });
 
+test('project colour and icon show on the project page and only on issues that have a project', async ({ page }) => {
+	const state = await mockWorkspace(page, 'owner', 'layers', { color: '#ef4444', icon: 'Rocket' });
+	await page.goto(`/test/projects/${projectId}`);
+	const scoped = page.getByTestId('scoped-issues');
+	await expect(scoped.getByText('Scoped issue 1', { exact: true })).toBeVisible();
+	await expect(page.getByTestId('project-appearance-trigger').locator('svg')).toHaveCSS('color', 'rgb(239, 68, 68)');
+	await expect(scoped.getByTestId('project-chip')).toHaveCount(1);
+	await expect(scoped.getByTestId('project-chip')).toHaveAttribute('title', 'Launch');
+	expect(state.errors).toEqual([]);
+});
+
+test('a project manager picks an icon and a colour, and can reset them', async ({ page }) => {
+	const state = await mockWorkspace(page);
+	await page.goto(`/test/projects/${projectId}`);
+	await page.getByTestId('project-appearance-trigger').click();
+	await page.getByPlaceholder('Search Lucide icons', { exact: true }).fill('Rocket');
+	await page.getByRole('button', { name: 'Use Rocket icon', exact: true }).click();
+	await expect.poll(() => state.mutations.some((m) => m.method === 'PATCH' && m.body.icon === 'Rocket')).toBe(true);
+	await page.getByTestId('project-appearance-trigger').click();
+	await page.getByRole('button', { name: 'Use color #3b82f6', exact: true }).click();
+	await expect.poll(() => state.mutations.some((m) => m.method === 'PATCH' && m.body.color === '#3b82f6')).toBe(true);
+	await expect(page.getByTestId('project-appearance-trigger').locator('svg')).toHaveCSS('color', 'rgb(59, 130, 246)');
+	await page.getByTestId('project-appearance-trigger').click();
+	await page.getByRole('button', { name: 'Reset', exact: true }).click();
+	await expect.poll(() => state.mutations.some((m) => m.method === 'PATCH' && m.body.icon === '' && m.body.color === '')).toBe(true);
+	expect(state.errors).toEqual([]);
+});
+
+test('guests see the project icon but cannot change it', async ({ page }) => {
+	await mockWorkspace(page, 'guest', 'layers', { color: '#22c55e', icon: 'emoji:🚀' });
+	await page.goto(`/test/projects/${projectId}`);
+	await expect(page.getByTestId('project-appearance-trigger')).toBeDisabled();
+	await expect(page.getByTestId('project-appearance-trigger')).toContainText('🚀');
+});
+
 test('existing single-select parent picker still applies one selection immediately', async ({ page }) => {
 	const state = await mockWorkspace(page);
 	await page.goto(`${cyclePath}/${cycleId}`);
@@ -452,39 +487,4 @@ test('issue context menu offers only labels that apply to the issue project', as
 		.poll(() => state.mutations.find((m) => m.method === 'PATCH' && m.path.endsWith('/issues/ENG-1'))?.body)
 		.toEqual({ label_ids: ['label-launch'] });
 	expect(state.errors).toEqual([]);
-});
-
-test('project colour and icon show on the project page and only on issues that have a project', async ({ page }) => {
-	const state = await mockWorkspace(page, 'owner', 'layers', { color: '#ef4444', icon: 'Rocket' });
-	await page.goto(`/test/projects/${projectId}`);
-	const scoped = page.getByTestId('scoped-issues');
-	await expect(scoped.getByText('Scoped issue 1', { exact: true })).toBeVisible();
-	await expect(page.getByTestId('project-appearance-trigger').locator('svg')).toHaveCSS('color', 'rgb(239, 68, 68)');
-	await expect(scoped.getByTestId('project-chip')).toHaveCount(1);
-	await expect(scoped.getByTestId('project-chip')).toHaveAttribute('title', 'Launch');
-	expect(state.errors).toEqual([]);
-});
-
-test('a project manager picks an icon and a colour, and can reset them', async ({ page }) => {
-	const state = await mockWorkspace(page);
-	await page.goto(`/test/projects/${projectId}`);
-	await page.getByTestId('project-appearance-trigger').click();
-	await page.getByPlaceholder('Search Lucide icons', { exact: true }).fill('Rocket');
-	await page.getByRole('button', { name: 'Use Rocket icon', exact: true }).click();
-	await expect.poll(() => state.mutations.some((m) => m.method === 'PATCH' && m.body.icon === 'Rocket')).toBe(true);
-	await page.getByTestId('project-appearance-trigger').click();
-	await page.getByRole('button', { name: 'Use color #3b82f6', exact: true }).click();
-	await expect.poll(() => state.mutations.some((m) => m.method === 'PATCH' && m.body.color === '#3b82f6')).toBe(true);
-	await expect(page.getByTestId('project-appearance-trigger').locator('svg')).toHaveCSS('color', 'rgb(59, 130, 246)');
-	await page.getByTestId('project-appearance-trigger').click();
-	await page.getByRole('button', { name: 'Reset', exact: true }).click();
-	await expect.poll(() => state.mutations.some((m) => m.method === 'PATCH' && m.body.icon === '' && m.body.color === '')).toBe(true);
-	expect(state.errors).toEqual([]);
-});
-
-test('guests see the project icon but cannot change it', async ({ page }) => {
-	await mockWorkspace(page, 'guest', 'layers', { color: '#22c55e', icon: 'emoji:🚀' });
-	await page.goto(`/test/projects/${projectId}`);
-	await expect(page.getByTestId('project-appearance-trigger')).toBeDisabled();
-	await expect(page.getByTestId('project-appearance-trigger')).toContainText('🚀');
 });
