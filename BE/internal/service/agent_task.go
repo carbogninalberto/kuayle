@@ -571,11 +571,21 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		prompt = withLiveChannel(prompt)
 	}
 	prompt = withInstructions(prompt, task.AgentInstructions)
+	var profileFiles []domain.AgentProfileFile
+	if !review {
+		bundle, err := r.tasks.ProfileBundle(ctx, task)
+		if err != nil {
+			return nil, err
+		}
+		if bundle != nil {
+			profileFiles = domain.ProfileFiles(task.Provider, *bundle)
+		}
+	}
 	// No attempt pushes: Kuayle publishes implementations itself, and a
 	// review is never published. Without push the manager adds no GitHub token.
 	push := false
 	checkout := task.CheckoutID.String()
-	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: prompt, TestCommand: command, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, ModelServerID: task.ModelServerID, PushBranch: &push, MaxRuntimeSeconds: timeout, Session: session}, task.RunID)
+	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: prompt, TestCommand: command, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, ModelServerID: task.ModelServerID, PushBranch: &push, MaxRuntimeSeconds: timeout, Session: session, ProfileFiles: profileFiles}, task.RunID)
 }
 func (r *devMachineTaskRuntime) Cancel(ctx context.Context, task domain.AgentTask) error {
 	return r.tasks.CancelAttempt(ctx, task)

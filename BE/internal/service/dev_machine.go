@@ -1524,6 +1524,15 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 			nativeSession = &req.Session.NewID
 		}
 	}
+	for _, file := range req.ProfileFiles {
+		if !domain.ValidProfileFilePath(file.Path) {
+			return nil, fmt.Errorf("%w: invalid agent profile file", ErrInvalidMachineInput)
+		}
+	}
+	profileFiles := []byte(`[]`)
+	if len(req.ProfileFiles) > 0 {
+		profileFiles, _ = json.Marshal(req.ProfileFiles)
+	}
 	commandArgv, _ := json.Marshal(invocation.Argv)
 	commandEnvironment := []byte(`{}`)
 	if len(invocation.Environment) > 0 {
@@ -1546,7 +1555,7 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 		AllowedCommands: allowedCommands, ForbiddenPaths: forbiddenPaths, AllowedSecrets: allowedSecrets, TestCommand: &testCommand,
 		CommandArgv: commandArgv, CommandEnvironment: commandEnvironment, Model: req.Model, Thinking: req.Thinking,
 		MaxRuntimeSeconds: timeout, PushBranch: pushBranch,
-		NativeSessionID: nativeSession,
+		NativeSessionID: nativeSession, ProfileFiles: profileFiles,
 	}
 	if modelServer != nil {
 		run.ModelServerID = &modelServer.ID

@@ -368,19 +368,22 @@ type DevMachineAgentRun struct {
 	TestCommand            *json.RawMessage         `json:"test_command,omitempty" db:"test_command"`
 	CommandArgv            json.RawMessage          `json:"command_argv" db:"command_argv"`
 	CommandEnvironment     json.RawMessage          `json:"command_environment" db:"command_environment"`
-	Model                  string                   `json:"model,omitempty" db:"model"`
-	Thinking               string                   `json:"thinking,omitempty" db:"thinking"`
-	ModelServerID          *uuid.UUID               `json:"model_server_id,omitempty" db:"model_server_id"`
-	MaxRuntimeSeconds      int                      `json:"max_runtime_seconds" db:"max_runtime_seconds"`
-	PushBranch             bool                     `json:"push_branch" db:"push_branch"`
-	OpenPullRequest        bool                     `json:"open_pull_request" db:"open_pull_request"`
-	Result                 *json.RawMessage         `json:"result,omitempty" db:"result"`
-	Summary                *string                  `json:"summary,omitempty" db:"summary"`
-	ChangedFiles           json.RawMessage          `json:"changed_files" db:"changed_files"`
-	Commits                json.RawMessage          `json:"commits" db:"commits"`
-	Branch                 *string                  `json:"branch,omitempty" db:"branch"`
-	PullRequestURL         *string                  `json:"pull_request_url,omitempty" db:"pull_request_url"`
-	NativeSessionID        *string                  `json:"-" db:"native_session_id"`
+	// ProfileFiles are the agent profile's instructions and skills, written
+	// into the run's home before the harness starts ([]AgentProfileFile).
+	ProfileFiles      json.RawMessage  `json:"-" db:"profile_files"`
+	Model             string           `json:"model,omitempty" db:"model"`
+	Thinking          string           `json:"thinking,omitempty" db:"thinking"`
+	ModelServerID     *uuid.UUID       `json:"model_server_id,omitempty" db:"model_server_id"`
+	MaxRuntimeSeconds int              `json:"max_runtime_seconds" db:"max_runtime_seconds"`
+	PushBranch        bool             `json:"push_branch" db:"push_branch"`
+	OpenPullRequest   bool             `json:"open_pull_request" db:"open_pull_request"`
+	Result            *json.RawMessage `json:"result,omitempty" db:"result"`
+	Summary           *string          `json:"summary,omitempty" db:"summary"`
+	ChangedFiles      json.RawMessage  `json:"changed_files" db:"changed_files"`
+	Commits           json.RawMessage  `json:"commits" db:"commits"`
+	Branch            *string          `json:"branch,omitempty" db:"branch"`
+	PullRequestURL    *string          `json:"pull_request_url,omitempty" db:"pull_request_url"`
+	NativeSessionID   *string          `json:"-" db:"native_session_id"`
 	// SessionContinuedAt is when the user opened this attempt's native
 	// session in Claude Code through the task terminal.
 	SessionContinuedAt *time.Time `json:"-" db:"session_continued_at"`

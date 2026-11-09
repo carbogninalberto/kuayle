@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/agent"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 type DevMachineRepoInput struct {
@@ -194,12 +195,15 @@ type CreateAgentRunRequest struct {
 	ForbiddenPaths     []string `json:"forbidden_paths"`
 	TestCommand        []string `json:"test_command"`
 	// Session is set only by Kuayle's task runtime; HTTP input cannot carry it.
-	Session           *agent.SessionInput `json:"-"`
-	MaxRuntimeSeconds int                 `json:"max_runtime_seconds" validate:"omitempty,min=30,max=86400"`
-	ExtraArgs         []string            `json:"extra_args"`
-	Config            any                 `json:"config,omitempty"`
-	AllowedSecrets    []string            `json:"allowed_secrets"`
-	PushBranch        *bool               `json:"push_branch,omitempty"`
+	Session *agent.SessionInput `json:"-"`
+	// ProfileFiles are set only by Kuayle's task runtime: the workflow step's
+	// agent profile instructions and skills. HTTP input cannot carry them.
+	ProfileFiles      []domain.AgentProfileFile `json:"-"`
+	MaxRuntimeSeconds int                       `json:"max_runtime_seconds" validate:"omitempty,min=30,max=86400"`
+	ExtraArgs         []string                  `json:"extra_args"`
+	Config            any                       `json:"config,omitempty"`
+	AllowedSecrets    []string                  `json:"allowed_secrets"`
+	PushBranch        *bool                     `json:"push_branch,omitempty"`
 	// ModelServerID picks a workspace model server; nil uses the default one.
 	ModelServerID *uuid.UUID `json:"model_server_id,omitempty"`
 	Model         string     `json:"model,omitempty" validate:"omitempty,max=128"`

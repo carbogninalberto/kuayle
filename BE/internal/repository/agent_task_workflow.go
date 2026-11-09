@@ -824,3 +824,43 @@ func (r *AgentTaskRepository) ScopeInstructions(ctx context.Context, task domain
 	defer tx.Rollback()
 	return resolveScopeDefault(ctx, tx, task.WorkspaceID, task.IssueID, "agent_instructions")
 }
+
+// ProfileBundle returns the instructions and skills of the agent profile the
+// task's current workflow step runs, or nil when the task follows no workflow
+// or its step has no profile. Skills are read as they are now: only active,
+// enabled skills shared with the whole workspace are given, so a skill turned
+// off or moved to a team after it was attached never reaches the agent.
+func (r *AgentTaskRepository) ProfileBundle(ctx context.Context, task domain.AgentTask) (*domain.AgentProfileBundle, error) {
+	if !task.RunsWorkflow() || task.WorkflowNode == nil {
+		return nil, nil
+	}
+	var raw json.RawMessage
+	err := r.db.GetContext(ctx, &raw, `SELECT graph FROM workflow_versions WHERE id=$1 AND workspace_id=$2`, task.WorkflowVersionID, task.WorkspaceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var graph domain.WorkflowGraph
+	if err = json.Unmarshal(raw, &graph); err != nil {
+		return nil, err
+	}
+	node, ok := graph.Node(*task.WorkflowNode)
+	if !ok || node.ProfileID == nil {
+		return nil, nil
+	}
+	var profile domain.AgentProfile
+	err = r.db.GetContext(ctx, &profile, `SELECT * FROM agent_profiles WHERE id=$1 AND workspace_id=$2`, *node.ProfileID, task.WorkspaceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	bundle := &domain.AgentProfileBundle{Name: profile.Name, Role: profile.Role, Instructions: profile.Instructions, Skills: []domain.AgentProfileSkill{}}
+	err = r.db.SelectContext(ctx, &bundle.Skills, `SELECT s.name AS name,s.description AS description,s.body AS body FROM agent_profile_skills ps
+ JOIN assistant_skills s ON s.id=ps.skill_id AND s.workspace_id=ps.workspace_id
+ WHERE ps.profile_id=$1 AND ps.workspace_id=$2 AND s.team_id IS NULL AND s.status='active' AND s.enabled ORDER BY ps.position`, profile.ID, task.WorkspaceID)
+	return bundle, err
+}

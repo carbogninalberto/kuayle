@@ -259,6 +259,23 @@ func TestWorkflowTaskMovesThroughTheRepository(t *testing.T) {
 	require.Equal(t, "implement", *task.WorkflowNode)
 	require.Equal(t, 2, task.WorkflowSequence)
 	require.Contains(t, task.AgentInstructions, "Write tests.")
+
+	// The implementing step's profile gives its instructions and only the
+	// skills that are active, enabled and shared with the whole workspace.
+	_, err = db.Exec(`UPDATE agent_profiles SET instructions='Write tests.' WHERE id=$1`, implementer)
+	require.NoError(t, err)
+	var usable, disabled uuid.UUID
+	require.NoError(t, db.Get(&usable, `INSERT INTO assistant_skills(workspace_id,name,description,body,status,current_version,author_kind) VALUES($1,'Review SQL','Scope queries','# SQL','active',1,'user') RETURNING id`, ws))
+	require.NoError(t, db.Get(&disabled, `INSERT INTO assistant_skills(workspace_id,name,description,body,status,current_version,author_kind,enabled) VALUES($1,'Old','Off','# Old','active',1,'user',false) RETURNING id`, ws))
+	_, err = db.Exec(`INSERT INTO agent_profile_skills(profile_id,skill_id,workspace_id,position) VALUES($1,$2,$4,0),($1,$3,$4,1)`, implementer, usable, disabled, ws)
+	require.NoError(t, err)
+	bundle, err := repo.ProfileBundle(ctx, *task)
+	require.NoError(t, err)
+	require.Equal(t, "Write tests.", bundle.Instructions)
+	require.Equal(t, []domain.AgentProfileSkill{{Name: "Review SQL", Description: "Scope queries", Body: "# SQL"}}, bundle.Skills)
+	none, err := repo.ProfileBundle(ctx, legacy)
+	require.NoError(t, err)
+	require.Nil(t, none, "a Standard task has no profile")
 	require.NotNil(t, task.ModelServerID, "the first iteration runs on the default model server")
 	require.Equal(t, server, *task.ModelServerID)
 	steps, err := repo.WorkflowSteps(ctx, ws, task.ID)

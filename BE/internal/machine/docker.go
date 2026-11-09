@@ -876,6 +876,12 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 			return r.agentOutputFailure(containerID, err)
 		}
 	}
+	// Profile files go in before the secrets' ready marker, which the
+	// runner waits for before it starts the harness.
+	if err := r.writeProfileFiles(ctx, containerID, run.ProfileFiles); err != nil {
+		_, _ = r.client.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		return nil, err
+	}
 	if err := r.copySecrets(ctx, containerID, secrets); err != nil {
 		_, _ = r.client.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		return nil, err
@@ -2044,6 +2050,28 @@ func (r *DockerRuntime) clearSecretFiles(ctx context.Context, containerID string
 	_, err := r.execOutput(ctx, containerID, []string{"/bin/sh", "-c", "rm -rf /run/kuayle-secrets/* /run/kuayle-secrets/.[!.]* /run/kuayle-secrets/..?*"})
 	if err != nil {
 		return fmt.Errorf("clear scoped secrets: %w", err)
+	}
+	return nil
+}
+
+// writeProfileFiles writes the agent profile's instructions and skills
+// (domain.ProfileFiles) into the run's home as the agent user. Only the paths
+// ProfileFiles produces are accepted.
+func (r *DockerRuntime) writeProfileFiles(ctx context.Context, containerID string, raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	var files []domain.AgentProfileFile
+	if err := json.Unmarshal(raw, &files); err != nil {
+		return fmt.Errorf("invalid agent profile files: %w", err)
+	}
+	for _, file := range files {
+		if !domain.ValidProfileFilePath(file.Path) {
+			return fmt.Errorf("invalid agent profile file path")
+		}
+		if err := r.execWithInput(ctx, containerID, []string{"/bin/sh", "-c", `mkdir -p "$(dirname "$1")" && cat > "$1"`, "kuayle-profile-file", file.Path}, file.Content); err != nil {
+			return fmt.Errorf("write agent profile file: %w", err)
+		}
 	}
 	return nil
 }

@@ -278,8 +278,9 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 }
 
 // workflowInstructions are the trusted instructions of an agent step: the
-// inherited project instructions, then its profile's, then (for the first
-// iteration, which has no variables yet) the step's template.
+// inherited project instructions, then its profile's (unless the harness reads
+// them from a profile file), then (for the first iteration, which has no
+// variables yet) the step's template.
 func workflowInstructions(scope string, profile domain.AgentProfile, node domain.WorkflowNode) string {
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(scope))
@@ -292,7 +293,11 @@ func workflowInstructions(scope string, profile domain.AgentProfile, node domain
 		}
 		b.WriteString(title + ":\n" + body)
 	}
-	section(fmt.Sprintf("Agent profile %q (%s)", profile.Name, strings.ReplaceAll(profile.Role, "_", " ")), profile.Instructions)
+	// Harnesses that read profile files get the instructions there, whole
+	// and outside the prompt's size limit (domain.ProfileFiles).
+	if !domain.ProfileFilesSupported(profile.Harness) {
+		section(fmt.Sprintf("Agent profile %q (%s)", profile.Name, strings.ReplaceAll(profile.Role, "_", " ")), profile.Instructions)
+	}
 	if node.ID != "" {
 		section("Workflow step "+node.Label, domain.RenderWorkflowPrompt(node.Prompt, domain.WorkflowVariables{}))
 	}

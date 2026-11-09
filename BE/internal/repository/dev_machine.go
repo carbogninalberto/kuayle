@@ -1187,13 +1187,13 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 	if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_agent_runs
 		(id, machine_id, workspace_id, issue_id, checkout_id, requested_by_user_id, provider_id, mode, status, prompt,
 		 acceptance_criteria, allowed_commands, forbidden_paths, allowed_secrets, test_command, command_argv, command_environment,
-		 model, thinking, max_runtime_seconds, push_branch, open_pull_request,task_id,native_session_id,model_server_id,session_id)
+		 model, thinking, max_runtime_seconds, push_branch, open_pull_request,task_id,native_session_id,model_server_id,session_id,profile_files)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
-		 (SELECT id FROM agent_sessions WHERE task_id=$23 AND workspace_id=$3)) RETURNING created_at,session_id`,
+		 (SELECT id FROM agent_sessions WHERE task_id=$23 AND workspace_id=$3),COALESCE($26::jsonb,'[]'::jsonb)) RETURNING created_at,session_id`,
 		run.ID, run.MachineID, run.WorkspaceID, run.IssueID, run.CheckoutID, run.RequestedByUserID, run.ProviderID,
 		run.Mode, run.Status, run.Prompt, run.AcceptanceCriteria, run.AllowedCommands, run.ForbiddenPaths,
 		run.AllowedSecrets, nullJSONPointer(run.TestCommand), run.CommandArgv, run.CommandEnvironment, run.Model, run.Thinking,
-		run.MaxRuntimeSeconds, run.PushBranch, run.OpenPullRequest, run.TaskID, run.NativeSessionID, run.ModelServerID,
+		run.MaxRuntimeSeconds, run.PushBranch, run.OpenPullRequest, run.TaskID, run.NativeSessionID, run.ModelServerID, nullJSON(run.ProfileFiles),
 	).Scan(&run.CreatedAt, &run.SessionID); err != nil {
 		return err
 	}
