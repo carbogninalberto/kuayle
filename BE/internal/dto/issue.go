@@ -149,7 +149,7 @@ type BulkUpdateIssueRequest struct {
 	ParentID   *string  `json:"parent_id"`
 	// ProjectID moves the issues to a project; an empty string removes them
 	// from their project. It cannot be combined with other fields.
-	ProjectID *string `json:"project_id" validate:"omitempty,uuid"`
+	ProjectID *string `json:"project_id"`
 }
 
 type BulkDeleteIssueRequest struct {

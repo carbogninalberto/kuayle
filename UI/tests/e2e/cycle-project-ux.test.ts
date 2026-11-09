@@ -341,22 +341,25 @@ test('bulk actions set the project of the selected issues and can remove it', as
 	const state = await mockWorkspace(page);
 	await page.goto(`${cyclePath}/${cycleId}`);
 	const scoped = page.getByTestId('scoped-issues');
+	const actions = page.getByRole('button', { name: 'Actions', exact: true });
+	const bulkRequests = () => state.mutations.filter((m) => m.path === '/api/workspaces/test/issues/bulk');
 	await expect(scoped.getByText('Scoped issue 1', { exact: true })).toBeVisible();
 	await page.keyboard.press('Control+a');
-	await page.getByRole('button', { name: 'Actions', exact: true }).click();
+	await actions.click();
 	await page.getByRole('button', { name: /Set project/ }).click();
 	await page.getByRole('button', { name: 'Launch', exact: true }).click();
-	const set = state.mutations.find((m) => m.path === '/api/workspaces/test/issues/bulk');
-	expect(set?.body.project_id).toBe(projectId);
-	expect(set?.body.issue_ids.length).toBeGreaterThan(0);
+	await expect.poll(() => bulkRequests().length).toBe(1);
+	expect(bulkRequests()[0].body.project_id).toBe(projectId);
+	expect(bulkRequests()[0].body.issue_ids.length).toBeGreaterThan(0);
+	// The selection is cleared once the update lands, which hides the bar.
+	await expect(actions).toHaveCount(0);
 
 	await page.keyboard.press('Control+a');
-	await page.getByRole('button', { name: 'Actions', exact: true }).click();
+	await actions.click();
 	await page.getByRole('button', { name: /Set project/ }).click();
 	await page.getByRole('button', { name: 'No project', exact: true }).click();
-	const bulk = state.mutations.filter((m) => m.path === '/api/workspaces/test/issues/bulk');
-	expect(bulk).toHaveLength(2);
-	expect(bulk[1].body.project_id).toBe('');
+	await expect.poll(() => bulkRequests().length).toBe(2);
+	expect(bulkRequests()[1].body.project_id).toBe('');
 	expect(state.errors).toEqual([]);
 });
 

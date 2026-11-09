@@ -1153,7 +1153,11 @@ func (s *IssueService) bulkUpdateParent(ctx context.Context, workspaceID, userID
 // project) with the single-issue move rules: every reference is validated
 // before anything is written, labels scoped to the project an issue leaves are
 // dropped by the repository write, and history records the project and label
-// changes.
+// changes. Like bulkUpdateParent, each issue is written in its own transaction:
+// a failure part-way returns the error and leaves earlier issues moved. The
+// single-statement bulk fields (status, priority, ...) are atomic, but the
+// per-issue ones (parent) already behave this way, and project moves need the
+// per-issue label and history handling.
 func (s *IssueService) bulkUpdateProject(ctx context.Context, workspaceID, userID uuid.UUID, issueIDs []uuid.UUID, rawProjectID string) (int, error) {
 	var projectID *uuid.UUID
 	if rawProjectID != "" {
@@ -1188,6 +1192,8 @@ func (s *IssueService) bulkUpdateProject(ctx context.Context, workspaceID, userI
 		newVal = projectID.String()
 	}
 	updated := 0
+	recipientCounts := make(map[uuid.UUID]int)
+	recipientTeams := make(map[uuid.UUID][]uuid.UUID)
 	for _, issue := range issues {
 		old := ""
 		if issue.ProjectID != nil {
@@ -1205,12 +1211,21 @@ func (s *IssueService) bulkUpdateProject(ctx context.Context, workspaceID, userI
 		s.recordLabelChange(ctx, issue.ID, userID, labelsBefore)
 		updated++
 		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: issue})
+		for _, uid := range s.issueNotificationRecipients(ctx, issue, userID, true) {
+			recipientCounts[uid]++
+			recipientTeams[uid] = append(recipientTeams[uid], issue.TeamID)
+		}
 	}
 	if updated > 0 {
 		s.hub.Broadcast(workspaceID, realtime.Event{
 			Type:    "issues.bulk_updated",
 			Payload: map[string]interface{}{"count": updated},
 		})
+	}
+	// Same notification as the other bulk fields: one per recipient.
+	for uid, count := range recipientCounts {
+		title := fmt.Sprintf("%d issues updated: project", count)
+		s.notifyWorkspace(ctx, workspaceID, uid, "issues_updated", title, true, recipientTeams[uid]...)
 	}
 	return updated, nil
 }

@@ -769,6 +769,7 @@ func TestIssueService_BulkUpdate_SetsProject(t *testing.T) {
 	issueRepo.On("GetByID", ctx, moveID).Return(move, nil)
 	issueRepo.On("GetByID", ctx, sameID).Return(same, nil)
 	issueRepo.On("GetLabels", ctx, moveID).Return([]domain.Label{}, nil)
+	issueRepo.On("GetAssignees", ctx, moveID).Return([]uuid.UUID{}, nil)
 	issueRepo.On("Update", mock.Anything, move).Return(nil).Once()
 	historyRepo.On("Create", ctx, moveID, userID, "project", &oldString, &projectString).Return(nil).Once()
 
@@ -796,6 +797,7 @@ func TestIssueService_BulkUpdate_RemovesProject(t *testing.T) {
 
 	issueRepo.On("GetByID", ctx, issueID).Return(issue, nil)
 	issueRepo.On("GetLabels", ctx, issueID).Return([]domain.Label{}, nil)
+	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
 	issueRepo.On("Update", mock.Anything, issue).Return(nil)
 	historyRepo.On("Create", ctx, issueID, userID, "project", &oldString, &none).Return(nil)
 
@@ -843,4 +845,40 @@ func TestIssueService_BulkUpdate_ProjectCannotBeCombined(t *testing.T) {
 	})
 
 	assert.EqualError(t, err, "project_id cannot be combined with other fields")
+}
+
+func TestIssueService_BulkUpdate_ProjectNotifiesRecipientsOncePerUser(t *testing.T) {
+	issueRepo := new(mockIssueRepo)
+	historyRepo := new(mockIssueHistoryRepo)
+	notifRepo := new(mockNotificationRepo)
+	svc := NewIssueService(issueRepo, new(mockTeamRepo), new(mockTeamStatusRepo), historyRepo, realtime.NewHub(), NewNotificationService(notifRepo))
+
+	ctx := context.Background()
+	wsID, actorID, creatorID, teamID, projectID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	firstID, secondID := uuid.New(), uuid.New()
+	first := &domain.Issue{ID: firstID, WorkspaceID: wsID, TeamID: teamID, CreatorID: creatorID}
+	second := &domain.Issue{ID: secondID, WorkspaceID: wsID, TeamID: teamID, CreatorID: actorID}
+	projectString := projectID.String()
+
+	for _, issue := range []*domain.Issue{first, second} {
+		issueRepo.On("GetByID", ctx, issue.ID).Return(issue, nil)
+		issueRepo.On("GetLabels", ctx, issue.ID).Return([]domain.Label{}, nil)
+		issueRepo.On("GetAssignees", ctx, issue.ID).Return([]uuid.UUID{}, nil)
+		issueRepo.On("Update", mock.Anything, issue).Return(nil)
+	}
+	historyRepo.On("Create", ctx, mock.Anything, actorID, "project", mock.Anything, mock.Anything).Return(nil)
+	notifRepo.On("CreateOrRefresh", ctx, mock.MatchedBy(func(n *domain.Notification) bool {
+		return n.UserID == creatorID && n.WorkspaceID == wsID && n.Type == "issues_updated" &&
+			n.Title == "1 issues updated: project" && len(n.SourceTeamIDs) == 1 && n.SourceTeamIDs[0] == teamID.String()
+	}), mock.Anything).Return(nil).Once()
+
+	updated, err := svc.BulkUpdate(ctx, wsID, actorID, dto.BulkUpdateIssueRequest{
+		IssueIDs:  []string{firstID.String(), secondID.String()},
+		ProjectID: &projectString,
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, 2, updated)
+	notifRepo.AssertNumberOfCalls(t, "CreateOrRefresh", 1) // the actor is never notified
+	notifRepo.AssertExpectations(t)
 }
