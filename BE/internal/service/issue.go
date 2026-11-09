@@ -903,13 +903,18 @@ func (s *IssueService) CountSubIssuesForIssues(ctx context.Context, issueIDs []u
 }
 
 func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.UUID, req dto.BulkUpdateIssueRequest) (int, error) {
-	issueIDs := make([]uuid.UUID, len(req.IssueIDs))
-	for i, id := range req.IssueIDs {
+	// Repeated IDs name the same issue: write, record and count it once.
+	issueIDs := make([]uuid.UUID, 0, len(req.IssueIDs))
+	seenIssues := make(map[uuid.UUID]bool, len(req.IssueIDs))
+	for _, id := range req.IssueIDs {
 		parsed, err := uuid.Parse(id)
 		if err != nil {
 			return 0, fmt.Errorf("invalid issue_id: %s", id)
 		}
-		issueIDs[i] = parsed
+		if !seenIssues[parsed] {
+			seenIssues[parsed] = true
+			issueIDs = append(issueIDs, parsed)
+		}
 	}
 
 	var assigneeID *uuid.UUID
@@ -938,6 +943,14 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 			return 0, fmt.Errorf("invalid cycle_id")
 		}
 		cycleID = &cid
+	}
+
+	if req.ProjectID != nil {
+		if req.Status != nil || req.StatusID != nil || req.Priority != nil || req.AssigneeID != nil ||
+			req.LabelIDs != nil || req.CycleID != nil || req.ParentID != nil {
+			return 0, fmt.Errorf("project_id cannot be combined with other fields")
+		}
+		return s.bulkUpdateProject(ctx, workspaceID, userID, issueIDs, *req.ProjectID)
 	}
 
 	if req.ParentID != nil {
@@ -1139,6 +1152,71 @@ func (s *IssueService) bulkUpdateParent(ctx context.Context, workspaceID, userID
 	}
 
 	return updated, nil
+}
+
+// maxBulkProjectIssues bounds one bulk project move. The move is a single
+// transaction holding every row lock, so the batch stays bounded; the limit
+// is well above what a selection of loaded issues usually holds.
+const maxBulkProjectIssues = 5000
+
+// bulkUpdateProject moves issues to a project (empty rawProjectID removes the
+// project) with the single-issue move rules. The repository does it in one
+// transaction: it locks the issues, checks every one against the project
+// before writing (a refused move changes nothing), writes only project_id so
+// concurrent edits to other fields survive, drops labels scoped to the project
+// an issue leaves and records project and label history. Events and
+// notifications follow the commit.
+func (s *IssueService) bulkUpdateProject(ctx context.Context, workspaceID, userID uuid.UUID, issueIDs []uuid.UUID, rawProjectID string) (int, error) {
+	if len(issueIDs) > maxBulkProjectIssues {
+		return 0, fmt.Errorf("at most %d issues can be moved at once", maxBulkProjectIssues)
+	}
+	var projectID *uuid.UUID
+	if rawProjectID != "" {
+		pid, err := uuid.Parse(rawProjectID)
+		if err != nil {
+			return 0, fmt.Errorf("invalid project_id")
+		}
+		projectID = &pid
+	}
+
+	moved, err := s.issueRepo.BulkSetProject(ctx, workspaceID, issueIDs, projectID, userID)
+	switch {
+	case errors.Is(err, repository.ErrBulkIssueNotFound):
+		return 0, fmt.Errorf("issue not found")
+	case errors.Is(err, repository.ErrBulkProjectUnavailable):
+		return 0, fmt.Errorf("resource reference is unavailable or crosses a private-team boundary")
+	case err != nil:
+		return 0, err
+	}
+	if len(moved) == 0 {
+		return 0, nil
+	}
+
+	for i := range moved {
+		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: &moved[i]})
+	}
+	s.hub.Broadcast(workspaceID, realtime.Event{
+		Type:    "issues.bulk_updated",
+		Payload: map[string]interface{}{"count": len(moved)},
+	})
+	// Same notification as the other bulk fields: one per recipient.
+	recipientCounts := make(map[uuid.UUID]int)
+	recipientTeams := make(map[uuid.UUID][]uuid.UUID)
+	for i, recipients := range s.bulkNotificationRecipients(ctx, moved, userID) {
+		for _, uid := range recipients {
+			// The recipients include subscribers even when they are the actor.
+			if uid == userID {
+				continue
+			}
+			recipientCounts[uid]++
+			recipientTeams[uid] = append(recipientTeams[uid], moved[i].TeamID)
+		}
+	}
+	for uid, count := range recipientCounts {
+		title := fmt.Sprintf("%d issues updated: project", count)
+		s.notifyWorkspace(ctx, workspaceID, uid, "issues_updated", title, true, recipientTeams[uid]...)
+	}
+	return len(moved), nil
 }
 
 func (s *IssueService) applyStatusAutomation(ctx context.Context, workspaceID, actorID uuid.UUID, issue *domain.Issue, visited map[uuid.UUID]bool) {
@@ -1372,36 +1450,67 @@ func (s *IssueService) issueNotificationRecipients(ctx context.Context, issue *d
 		return nil
 	}
 	assignees, _ := s.issueRepo.GetAssignees(ctx, issue.ID)
-	recipients := make([]uuid.UUID, 0, len(assignees)+2)
-	seen := make(map[uuid.UUID]bool)
-	add := func(uid uuid.UUID) {
-		if uid == uuid.Nil || uid == actorID || seen[uid] {
-			return
-		}
-		recipients = append(recipients, uid)
-		seen[uid] = true
+	var subscribers []uuid.UUID
+	if repo, ok := s.issueRepo.(issueSubscriberRepo); ok {
+		subscribers, _ = repo.GetSubscribers(ctx, issue.ID)
 	}
-	addSubscriber := func(uid uuid.UUID) {
-		if uid == uuid.Nil || seen[uid] {
+	return notificationRecipients(issue, assignees, subscribers, actorID, includeCreator)
+}
+
+// issueBulkSubscriberRepo loads the subscribers of many issues in one query.
+type issueBulkSubscriberRepo interface {
+	GetSubscribersForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error)
+}
+
+// bulkNotificationRecipients is issueNotificationRecipients (with the creator)
+// for many issues, loading assignees and subscribers in batches. The result
+// is aligned with issues.
+func (s *IssueService) bulkNotificationRecipients(ctx context.Context, issues []domain.Issue, actorID uuid.UUID) [][]uuid.UUID {
+	ids := make([]uuid.UUID, len(issues))
+	for i := range issues {
+		ids[i] = issues[i].ID
+	}
+	assignees, _ := s.issueRepo.GetAssigneesForIssues(ctx, ids)
+	var subscribers map[uuid.UUID][]uuid.UUID
+	if repo, ok := s.issueRepo.(issueBulkSubscriberRepo); ok {
+		subscribers, _ = repo.GetSubscribersForIssues(ctx, ids)
+	}
+	result := make([][]uuid.UUID, len(issues))
+	for i := range issues {
+		var issueSubscribers []uuid.UUID
+		if subscribers != nil {
+			issueSubscribers = subscribers[issues[i].ID]
+		} else if repo, ok := s.issueRepo.(issueSubscriberRepo); ok {
+			issueSubscribers, _ = repo.GetSubscribers(ctx, issues[i].ID)
+		}
+		result[i] = notificationRecipients(&issues[i], assignees[issues[i].ID], issueSubscribers, actorID, true)
+	}
+	return result
+}
+
+// notificationRecipients lists the creator (optionally), assignees and the
+// legacy assignee except the actor, then subscribers (the actor included).
+func notificationRecipients(issue *domain.Issue, assignees, subscribers []uuid.UUID, actorID uuid.UUID, includeCreator bool) []uuid.UUID {
+	recipients := make([]uuid.UUID, 0, len(assignees)+len(subscribers)+2)
+	seen := make(map[uuid.UUID]bool)
+	add := func(uid uuid.UUID, skipActor bool) {
+		if uid == uuid.Nil || (skipActor && uid == actorID) || seen[uid] {
 			return
 		}
 		recipients = append(recipients, uid)
 		seen[uid] = true
 	}
 	if includeCreator {
-		add(issue.CreatorID)
+		add(issue.CreatorID, true)
 	}
 	for _, uid := range assignees {
-		add(uid)
+		add(uid, true)
 	}
 	if issue.AssigneeID != nil {
-		add(*issue.AssigneeID)
+		add(*issue.AssigneeID, true)
 	}
-	if repo, ok := s.issueRepo.(issueSubscriberRepo); ok {
-		subscribers, _ := repo.GetSubscribers(ctx, issue.ID)
-		for _, uid := range subscribers {
-			addSubscriber(uid)
-		}
+	for _, uid := range subscribers {
+		add(uid, false)
 	}
 	return recipients
 }

@@ -147,6 +147,9 @@ type BulkUpdateIssueRequest struct {
 	LabelIDs   []string `json:"label_ids" validate:"omitempty,dive,uuid"`
 	CycleID    *string  `json:"cycle_id"`
 	ParentID   *string  `json:"parent_id"`
+	// ProjectID moves the issues to a project; an empty string removes them
+	// from their project. It cannot be combined with other fields.
+	ProjectID *string `json:"project_id"`
 }
 
 type BulkDeleteIssueRequest struct {

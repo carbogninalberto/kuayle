@@ -132,6 +132,12 @@ func (m *mockIssueRepo) GetAssigneesForIssues(ctx context.Context, issueIDs []uu
 	return args.Get(0).(map[uuid.UUID][]uuid.UUID), args.Error(1)
 }
 
+func (m *mockIssueRepo) BulkSetProject(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, projectID *uuid.UUID, actorID uuid.UUID) ([]domain.Issue, error) {
+	args := m.Called(ctx, workspaceID, issueIDs, projectID, actorID)
+	moved, _ := args.Get(0).([]domain.Issue)
+	return moved, args.Error(1)
+}
+
 func (m *mockIssueRepo) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {

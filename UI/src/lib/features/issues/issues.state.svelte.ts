@@ -328,14 +328,15 @@ class IssuesState {
 			label_ids?: string[];
 			cycle_id?: string;
 			parent_id?: string;
+			project_id?: string;
 		}
 	) {
 		const issueIds = Array.from(this.selectedIds);
 		if (issueIds.length === 0) return;
 
 		const requestId = this.loadRequestId;
-		await issueApi.bulkUpdateIssues(slug, { issue_ids: issueIds, ...updates });
-		if (requestId !== this.loadRequestId || slug !== this.currentSlug) return;
+		const result = await issueApi.bulkUpdateIssues(slug, { issue_ids: issueIds, ...updates });
+		if (requestId !== this.loadRequestId || slug !== this.currentSlug) return result;
 
 		// Apply optimistic updates locally
 		for (const issue of this.issues) {
@@ -346,9 +347,11 @@ class IssuesState {
 				if (updates.assignee_id) (issue as any).assignee_id = updates.assignee_id;
 				if (updates.cycle_id !== undefined) (issue as any).cycle_id = updates.cycle_id || null;
 				if (updates.parent_id !== undefined) (issue as any).parent_id = updates.parent_id || null;
+				if (updates.project_id !== undefined) (issue as any).project_id = updates.project_id || null;
 			}
 		}
 		this.clearSelection();
+		return result;
 	}
 
 	select(issue: Issue | null) {
