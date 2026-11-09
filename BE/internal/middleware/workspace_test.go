@@ -41,7 +41,7 @@ func (r *fakeWorkspaceRepo) Update(ctx context.Context, ws *domain.Workspace) er
 	panic("not implemented")
 }
 
-func (r *fakeWorkspaceRepo) Delete(ctx context.Context, id uuid.UUID) error {
+func (r *fakeWorkspaceRepo) Delete(ctx context.Context, id uuid.UUID) ([]domain.TeamIconImage, error) {
 	panic("not implemented")
 }
 

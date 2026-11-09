@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
@@ -78,3 +79,5 @@
 		<AgentSignInsCard {slug} />
 	</div>
 {/if}
+
+<PageTitle parts={[m['settings.agents.title'](), m['settings.title']()]} />

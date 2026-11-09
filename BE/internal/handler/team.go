@@ -82,6 +82,9 @@ func (h *TeamHandler) Update(c *echo.Context) error {
 	}
 	team, err := h.teamSvc.Update(c.Request().Context(), teamID, req)
 	if err != nil {
+		if errors.Is(err, service.ErrInvalidTeamIcon) {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+		}
 		return response.InternalError(c)
 	}
 	return response.Success(c, http.StatusOK, toTeamResponse(*team))
@@ -214,6 +217,9 @@ func (h *TeamHandler) RemoveMember(c *echo.Context) error {
 }
 
 func teamOperationError(c *echo.Context, err error) error {
+	if errors.Is(err, service.ErrInvalidTeamIcon) {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
 	if errors.Is(err, service.ErrPrivacyConfirmation) {
 		return response.Error(c, http.StatusBadRequest, "PRIVACY_CONFIRMATION_REQUIRED", err.Error())
 	}

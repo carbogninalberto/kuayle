@@ -288,6 +288,9 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 	orderParts := make([]string, 0, 5)
 	switch params.GroupBy {
 	case "status":
+		if rank := statusCategoryRankSQL(params.StatusCategoryOrder, issueStatusCategoryExpr("i", "ts")); rank != "" {
+			orderParts = append(orderParts, rank+" ASC")
+		}
 		orderParts = append(orderParts, "COALESCE(ts.position, 999) ASC", "i.status_id ASC")
 	case "priority":
 		orderParts = append(orderParts, "i.priority ASC")
@@ -888,4 +891,34 @@ func (r *IssueRepository) GetSubscribersForIssues(ctx context.Context, issueIDs 
 		result[row.IssueID] = append(result[row.IssueID], row.UserID)
 	}
 	return result, nil
+}
+
+// statusCategoryRankSQL turns a comma separated category list into a CASE
+// expression over categoryExpr (the issue's status category, legacy included). Only known categories are used, each at most
+// once, so the result never contains caller supplied text. Categories that are
+// not listed, and issues without a status row, sort after the listed ones.
+func statusCategoryRankSQL(order, categoryExpr string) string {
+	known := map[string]bool{
+		string(domain.StatusCategoryBacklog):   true,
+		string(domain.StatusCategoryUnstarted): true,
+		string(domain.StatusCategoryStarted):   true,
+		string(domain.StatusCategoryCompleted): true,
+		string(domain.StatusCategoryCancelled): true,
+	}
+	var sb strings.Builder
+	seen := map[string]bool{}
+	rank := 0
+	for _, part := range strings.Split(order, ",") {
+		category := strings.TrimSpace(part)
+		if !known[category] || seen[category] {
+			continue
+		}
+		seen[category] = true
+		fmt.Fprintf(&sb, " WHEN '%s' THEN %d", category, rank)
+		rank++
+	}
+	if rank == 0 {
+		return ""
+	}
+	return fmt.Sprintf("(CASE %s%s ELSE %d END)", categoryExpr, sb.String(), rank)
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { getCycle, completeCycle, updateCycle, deleteCycle, listCycles } from '$lib/api/cycles';
@@ -304,3 +305,5 @@
 			onconfirm={handleDelete}
 		/>{/if}
 {/if}
+
+<PageTitle parts={[cycle?.name, m['cycles.title'](), sidebarState.getTeam(teamId)?.name]} />

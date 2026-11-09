@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
@@ -94,3 +95,5 @@
 		<Loader2 size={20} class="animate-spin text-[var(--color-text-tertiary)]" />
 	{/if}
 </div>
+
+<PageTitle parts={[m['workspace_setup.title']()]} />

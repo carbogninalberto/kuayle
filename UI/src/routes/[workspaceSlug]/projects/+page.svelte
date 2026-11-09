@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { getWorkspace } from '$lib/api/workspaces';
 	import { hasPermission } from '$lib/security/permissions';
@@ -169,3 +170,5 @@
 {#if canManage}
 	<CreateProjectDialog bind:open={showCreateProject} {teams} onsubmit={handleCreate} />
 {/if}
+
+<PageTitle parts={[m['projects.title']()]} />

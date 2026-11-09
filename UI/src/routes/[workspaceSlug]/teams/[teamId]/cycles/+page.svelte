@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import ScopeDeleteDialog from '$lib/features/issues/ScopeDeleteDialog.svelte';
 	import { getWorkspace } from '$lib/api/workspaces';
@@ -531,3 +532,5 @@
 		}}
 	/>
 {/if}
+
+<PageTitle parts={[m['cycles.title'](), sidebarState.getTeam(teamId)?.name]} />

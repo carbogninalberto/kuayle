@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import {
@@ -345,3 +346,5 @@
 		</main>
 	</Tabs.Root>
 </div>
+
+<PageTitle parts={[m['insights.title']()]} />

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { listProjects } from '$lib/api/projects';
@@ -176,3 +177,5 @@
 	{projects}
 	onsubmit={handleEdit}
 />
+
+<PageTitle parts={[m['settings.labels.title'](), m['settings.title']()]} />

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { page } from '$app/state';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import ErrorState from '$lib/components/shared/ErrorState.svelte';
@@ -62,3 +63,5 @@
 		{/key}
 	</div>
 {/if}
+
+<PageTitle parts={[detail?.name, m['workflows.title'](), m['settings.title']()]} />

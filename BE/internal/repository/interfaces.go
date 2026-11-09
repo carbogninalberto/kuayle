@@ -45,7 +45,9 @@ type WorkspaceRepo interface {
 	GetBySlug(ctx context.Context, slug string) (*domain.Workspace, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Workspace, error)
 	Update(ctx context.Context, ws *domain.Workspace) error
-	Delete(ctx context.Context, id uuid.UUID) error
+	// Delete removes the workspace and returns the image icons its teams had at
+	// deletion, so the caller can remove their files.
+	Delete(ctx context.Context, id uuid.UUID) ([]domain.TeamIconImage, error)
 	ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.Workspace, error)
 	AddMember(ctx context.Context, member *domain.WorkspaceMember) error
 	GetMember(ctx context.Context, workspaceID, userID uuid.UUID) (*domain.WorkspaceMember, error)
@@ -70,7 +72,11 @@ type TeamRepo interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Team, error)
 	ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.Team, error)
 	Update(ctx context.Context, team *domain.Team) error
-	Delete(ctx context.Context, id uuid.UUID) error
+	// SetIcon writes only the icon and returns the team with ReplacedIcon set.
+	// It returns nil when the team does not exist or is not visible.
+	SetIcon(ctx context.Context, id uuid.UUID, icon string) (*domain.Team, error)
+	// Delete removes the team and returns the icon it had at deletion.
+	Delete(ctx context.Context, id uuid.UUID) (*string, error)
 	AddMember(ctx context.Context, member *domain.TeamMember) error
 	GetMember(ctx context.Context, teamID, userID uuid.UUID) (*domain.TeamMember, error)
 	ListMembers(ctx context.Context, teamID uuid.UUID) ([]domain.TeamMember, error)

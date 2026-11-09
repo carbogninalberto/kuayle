@@ -182,7 +182,24 @@ class IssuesState {
 		if (showLoading) this.loading = true;
 	}
 
+	/**
+	 * Pages are cut on the server, so a custom workflow group order has to be
+	 * sent along: otherwise the first page holds the team's default-order groups
+	 * (usually all Backlog) and the custom order only shows once more is loaded.
+	 * Stored in the filters, so loadMore sends the same order.
+	 */
+	private withStatusCategoryOrder(slug: string, params?: Record<string, string>) {
+		if (!params) return params;
+		const rest = { ...params };
+		delete rest.status_category_order;
+		if (rest.group_by !== 'status') return rest;
+		const team = rest.team || undefined;
+		if (preferencesState.getWorkflowSortMode(slug, team) === 'default') return rest;
+		return { ...rest, status_category_order: preferencesState.getWorkflowSortOrder(slug, team).join(',') };
+	}
+
 	async load(slug: string, params?: Record<string, string>, showLoading = true) {
+		params = this.withStatusCategoryOrder(slug, params);
 		this.beginLoad(slug, params, showLoading);
 		this.loadError = false;
 		const requestId = this.loadRequestId;
