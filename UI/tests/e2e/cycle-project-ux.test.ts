@@ -289,6 +289,8 @@ test('project Gantt returns directly to list and deletion requires confirmation'
 	await page.goto(`/test/projects/${projectId}`);
 	const scoped = page.getByTestId('scoped-issues');
 	await expect(scoped.getByText('Scoped issue 1', { exact: true })).toBeVisible();
+	// Browser tab title: Kuayle first, then the team, then the project.
+	await expect(page).toHaveTitle('Kuayle - Engineering - Launch');
 	await scoped.getByRole('button', { name: 'Gantt view', exact: true }).click();
 	await expect(scoped.getByRole('radio', { name: 'List view', exact: true })).not.toBeChecked();
 	await scoped.getByRole('radio', { name: 'List view', exact: true }).click();
@@ -434,4 +436,10 @@ test('issue context menu offers only labels that apply to the issue project', as
 		.poll(() => state.mutations.find((m) => m.method === 'PATCH' && m.path.endsWith('/issues/ENG-1'))?.body)
 		.toEqual({ label_ids: ['label-launch'] });
 	expect(state.errors).toEqual([]);
+});
+
+test('browser tab title for a page without data dependencies is "Kuayle - Inbox"', async ({ page }) => {
+	await mockWorkspace(page);
+	await page.goto('/test/inbox');
+	await expect(page).toHaveTitle('Kuayle - Inbox');
 });
