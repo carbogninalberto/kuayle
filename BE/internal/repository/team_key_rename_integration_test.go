@@ -138,6 +138,36 @@ func TestTeamKeyRenamePostgres(t *testing.T) {
 		require.NoError(t, <-done)
 	}
 
+	// A number too large for the column is simply not found.
+	huge, err := issues.GetByIdentifier(admin, ws, "ENG-99999999999")
+	require.NoError(t, err)
+	require.Nil(t, huge)
+
+	// A rename and a delete of the same team must not deadlock.
+	for i := 0; i < 15; i++ {
+		doomed, doomedStatus := uuid.New(), uuid.New()
+		_, err = db.Exec(`INSERT INTO teams(id,workspace_id,name,key) VALUES($1,$2,'Doomed','DOOM')`, doomed, ws)
+		require.NoError(t, err)
+		_, err = db.Exec(`INSERT INTO team_statuses(id,team_id,name,slug,category,position) VALUES($2,$1,'Todo','todo','unstarted',0)`, doomed, doomedStatus)
+		require.NoError(t, err)
+		for n := 1; n <= 20; n++ {
+			_, err = db.Exec(`INSERT INTO issues(id,workspace_id,team_id,number,identifier_text,title,creator_id,sort_order,status_id) VALUES(gen_random_uuid(),$1,$2,$3,$4,'x',$5,0,$6)`, ws, doomed, n, "DOOM-"+strconv.Itoa(n), owner, doomedStatus)
+			require.NoError(t, err)
+		}
+		done := make(chan error, 2)
+		go func() { done <- teams.UpdateWithKey(admin, load(doomed), "DOMB") }()
+		go func() { done <- teams.Delete(admin, doomed) }()
+		for j := 0; j < 2; j++ {
+			if err := <-done; err != nil {
+				require.NotContains(t, err.Error(), "deadlock")
+			}
+		}
+		_, err = db.Exec(`DELETE FROM teams WHERE id=$1`, doomed)
+		require.NoError(t, err)
+		_, err = db.Exec(`DELETE FROM team_key_aliases WHERE team_id=$1`, doomed)
+		require.NoError(t, err)
+	}
+
 	// An alias never exposes a private team's issues to a non-member.
 	require.NoError(t, teams.UpdateWithKey(admin, load(priv), "SEC"))
 	outsider := uuid.New()

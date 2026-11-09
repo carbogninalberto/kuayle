@@ -194,8 +194,8 @@ func (r *TeamRepository) UpdateWithKey(ctx context.Context, team *domain.Team, n
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	// Same order as SetVisibility: the privacy barrier (the workspace lock)
-	// before any team row or key lock, or the two deadlock.
+	// Same order as SetVisibility: the per-workspace publication lock before any
+	// team row or key lock, or the two deadlock.
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,63))`, team.WorkspaceID); err != nil {
 		return err
 	}
@@ -205,6 +205,11 @@ func (r *TeamRepository) UpdateWithKey(ctx context.Context, team *domain.Team, n
 	// The lock issue creation holds while it numbers a new issue (NextNumber):
 	// an issue being created finishes under the old key before the rename runs.
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1::text))`, team.ID); err != nil {
+		return err
+	}
+	// The shared privacy barrier, before the team row is locked: deleting a team
+	// takes it before its row too, and the opposite order deadlocks.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(610046,0)`); err != nil {
 		return err
 	}
 	var oldKey string

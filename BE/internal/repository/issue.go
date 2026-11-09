@@ -70,8 +70,10 @@ func (r *IssueRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Is
 // matches no alias.
 func splitIdentifier(identifier string) (string, int) {
 	if i := strings.LastIndex(identifier, "-"); i > 0 {
-		if n, err := strconv.Atoi(identifier[i+1:]); err == nil {
-			return identifier[:i], n
+		// 32 bits: the column is an int4, a longer number cannot match and must
+		// not reach the database as an encode error.
+		if n, err := strconv.ParseInt(identifier[i+1:], 10, 32); err == nil {
+			return identifier[:i], int(n)
 		}
 	}
 	return "", -1
