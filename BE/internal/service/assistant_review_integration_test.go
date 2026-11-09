@@ -157,6 +157,24 @@ func TestRequestedReviewsNeedApprovalAndFollowUpsContinueTheTask(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, *result.TaskID, asked.TaskID)
 
+	// A later review of the same commit that approved it supersedes the
+	// request for changes, and a later unfinished one does not.
+	later := uuid.New()
+	_, err = f.db.Exec(`INSERT INTO agent_tasks SELECT (jsonb_populate_record(NULL::agent_tasks, to_jsonb(t) || jsonb_build_object('id',$2::uuid,'request_id',$2::uuid))).* FROM agent_tasks t WHERE id=$1`, *result.TaskID, later)
+	require.NoError(t, err)
+	_, err = f.db.Exec(`INSERT INTO agent_reviews SELECT (jsonb_populate_record(NULL::agent_reviews, to_jsonb(r) || jsonb_build_object('task_id',$2::uuid,'provider','claude-code','verdict',NULL,'findings',NULL,'completed_at',NULL))).* FROM agent_reviews r WHERE task_id=$1`, *result.TaskID, later)
+	require.NoError(t, err)
+	unfinished, err := work.ChangesRequested(f.ctx, f.ws, taskID)
+	require.NoError(t, err)
+	require.Equal(t, *result.TaskID, unfinished.TaskID, "an unfinished review changes nothing")
+	_, err = f.db.Exec(`UPDATE agent_reviews SET verdict='approve',findings='Looks good.',completed_at=now()+interval '1 second' WHERE task_id=$1`, later)
+	require.NoError(t, err)
+	superseded, err := work.ChangesRequested(f.ctx, f.ws, taskID)
+	require.NoError(t, err)
+	require.Nil(t, superseded, "the latest review approved the commit")
+	_, err = f.db.Exec(`DELETE FROM agent_tasks WHERE id=$1`, later)
+	require.NoError(t, err)
+
 	// A follow-up continues the reviewed task with every finding of that
 	// review, even those the assistant left out of its instructions.
 	a, approvals, _ = ask("follow_up_task", `{"identifier":"ENG-1","instructions":"Fix the review findings: handle the error in app.go"}`)
