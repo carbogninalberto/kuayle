@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+	addNext,
+	duplicateNode,
 	conditionsFor,
 	connect,
 	graphForSave,
@@ -26,7 +28,11 @@ test('a reviewer step offers verdicts, an implementer step finished/failed', () 
 		'agent_failed',
 		'else'
 	]);
-	assert.deepEqual(conditionsFor({ id: 'i', type: 'agent', profile_id: 'impl', timeout_minutes: 5 }, profiles), ['agent_finished', 'agent_failed', 'else'], 'a coding iteration cannot time out');
+	assert.deepEqual(
+		conditionsFor({ id: 'i', type: 'agent', profile_id: 'impl', timeout_minutes: 5 }, profiles),
+		['agent_finished', 'agent_failed', 'else'],
+		'a coding iteration cannot time out'
+	);
 	assert.deepEqual(conditionsFor({ id: 'c', type: 'check', check: 'ci', timeout_minutes: 5 }, profiles), [
 		'checks_passed',
 		'checks_failed',
@@ -51,7 +57,7 @@ test('removing a node removes its transitions; new nodes get unique ids', () => 
 	const graph = starterGraph({ start: 'Start', agent: 'Implementer', end: 'Done' });
 	const node = newNode(graph, 'agent', 'Another');
 	assert.equal(node.id, 'agent-2');
-	assert.equal(node.position.y, 360);
+	assert.equal(node.position.y, 370, 'one row (130) below the lowest step');
 	const removed = removeNode(graph, 'agent-1');
 	assert.deepEqual(
 		removed.nodes.map((n) => n.id),
@@ -67,7 +73,14 @@ test('saving drops empty optional fields and keeps limits', () => {
 	graph.nodes[0].profile_id = 'impl';
 	graph.budget = { max_iterations: 0, max_minutes: 90, on_exhausted: 'ask' };
 	const saved = graphForSave(graph);
-	assert.deepEqual(saved.nodes[1], { id: 'agent-1', type: 'agent', label: 'Implementer', position: { x: 0, y: 120 }, profile_id: 'impl', max_visits: 3 });
+	assert.deepEqual(saved.nodes[1], {
+		id: 'agent-1',
+		type: 'agent',
+		label: 'Implementer',
+		position: { x: 0, y: 120 },
+		profile_id: 'impl',
+		max_visits: 3
+	});
 	assert.equal(saved.nodes[0].profile_id, undefined, 'only agent steps keep a profile');
 	assert.deepEqual(saved.budget, { max_minutes: 90, on_exhausted: 'ask' });
 });
@@ -86,10 +99,27 @@ test('issues are placed on nodes, transitions or the workflow', () => {
 test('the path counts each transition and keeps why it last fired', () => {
 	const steps = [
 		{ sequence: 1, node_id: 'start', reason: 'Task delegated' },
-		{ sequence: 2, node_id: 'implement', edge_id: 'start-implement', reason: 'Start → Implementer: started', generation: 1 },
+		{
+			sequence: 2,
+			node_id: 'implement',
+			edge_id: 'start-implement',
+			reason: 'Start → Implementer: started',
+			generation: 1
+		},
 		{ sequence: 3, node_id: 'review', edge_id: 'implement-review', reason: 'Implementer → Reviewer: agent finished' },
-		{ sequence: 4, node_id: 'implement', edge_id: 'review-changes', reason: 'Reviewer → Implementer: review requested changes', generation: 2 },
-		{ sequence: 5, node_id: 'review', edge_id: 'implement-review', reason: 'Implementer → Reviewer: agent finished again' }
+		{
+			sequence: 4,
+			node_id: 'implement',
+			edge_id: 'review-changes',
+			reason: 'Reviewer → Implementer: review requested changes',
+			generation: 2
+		},
+		{
+			sequence: 5,
+			node_id: 'review',
+			edge_id: 'implement-review',
+			reason: 'Implementer → Reviewer: agent finished again'
+		}
 	];
 	const { visited, fired } = pathOf(steps);
 	assert.deepEqual([...visited], ['start', 'implement', 'review']);
@@ -107,7 +137,17 @@ const reviewLoop = {
 	edges: [],
 	budget: {}
 };
-const run = (patch) => ({ graph: reviewLoop, node: 'implement', status: 'running', can_decide: false, sequence: 4, task_state: 'running', visits: { implement: 2 }, steps: [], ...patch });
+const run = (patch) => ({
+	graph: reviewLoop,
+	node: 'implement',
+	status: 'running',
+	can_decide: false,
+	sequence: 4,
+	task_state: 'running',
+	visits: { implement: 2 },
+	steps: [],
+	...patch
+});
 
 test('the run overlay marks the current node and keeps it visited for a Standard task without steps', () => {
 	const overlay = runOverlay(run({ node: 'implement', steps: [] }));
@@ -115,7 +155,12 @@ test('the run overlay marks the current node and keeps it visited for a Standard
 	assert.deepEqual([...overlay.visited], ['implement']);
 	assert.deepEqual(overlay.visits, { implement: 2 });
 	const traced = runOverlay(
-		run({ steps: [{ sequence: 1, node_id: 'start', reason: 'started' }, { sequence: 2, node_id: 'implement', edge_id: 'e1', reason: 'r' }] })
+		run({
+			steps: [
+				{ sequence: 1, node_id: 'start', reason: 'started' },
+				{ sequence: 2, node_id: 'implement', edge_id: 'e1', reason: 'r' }
+			]
+		})
 	);
 	assert.deepEqual([...traced.visited], ['start', 'implement']);
 	assert.equal(traced.fired.get('e1').count, 1);
@@ -133,5 +178,52 @@ test('a person decides an approval only while the task awaits it, and a limit wh
 		null,
 		'an approval is decided once the task reached it'
 	);
-	assert.equal(pendingDecision(run({ can_decide: true, status: 'waiting', node: 'implement' })), null, 'waiting on CI or a review is not a decision');
+	assert.equal(
+		pendingDecision(run({ can_decide: true, status: 'waiting', node: 'implement' })),
+		null,
+		'waiting on CI or a review is not a decision'
+	);
+});
+
+test('adding the next step places it below and connects it on a free condition', () => {
+	const graph = {
+		nodes: [
+			{ id: 'start', type: 'start', label: 'Start', position: { x: -88, y: 0 } },
+			{ id: 'implement', type: 'agent', label: 'Implement', position: { x: -120, y: 130 } }
+		],
+		edges: [{ id: 'e1', source: 'start', target: 'implement', condition: 'else' }],
+		budget: {}
+	};
+	const { graph: next, id } = addNext(graph, 'implement', 'check', 'Check', []);
+	const added = next.nodes.find((n) => n.id === id);
+	assert.deepEqual(added.position, { x: -120, y: 260 }, 'centred under the source');
+	assert.deepEqual(next.edges.map((e) => [e.source, e.target, e.condition]).at(-1), [
+		'implement',
+		id,
+		'agent_finished'
+	]);
+	const second = addNext(next, 'implement', 'end', 'Failed', []);
+	const failed = second.graph.nodes.find((n) => n.id === second.id);
+	assert.equal(failed.position.y, 260);
+	assert.ok(failed.position.x > added.position.x, 'placed beside the step already there');
+	assert.equal(second.graph.edges.at(-1).condition, 'agent_failed');
+	assert.equal(addNext(graph, 'missing', 'end', 'End', []).id, '');
+});
+
+test('duplicating copies a step without transitions and never the start', () => {
+	const graph = {
+		nodes: [
+			{ id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
+			{ id: 'check', type: 'check', label: 'CI', check: 'ci', position: { x: 0, y: 130 } }
+		],
+		edges: [{ id: 'e1', source: 'start', target: 'check', condition: 'else' }],
+		budget: {}
+	};
+	const { graph: next, id } = duplicateNode(graph, 'check');
+	const copy = next.nodes.find((n) => n.id === id);
+	assert.notEqual(id, 'check');
+	assert.equal(copy.check, 'ci');
+	assert.deepEqual(copy.position, { x: 40, y: 170 });
+	assert.equal(next.edges.length, 1);
+	assert.equal(duplicateNode(graph, 'start').id, '');
 });

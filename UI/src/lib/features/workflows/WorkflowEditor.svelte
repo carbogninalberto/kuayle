@@ -6,11 +6,22 @@
 		ArrowRight,
 		Check,
 		CircleAlert,
+		Copy,
 		LayoutGrid,
+		Link2,
+		Maximize,
 		MousePointerClick,
+		Pencil,
 		Plus,
-		Trash2
+		Redo2,
+		Trash2,
+		Undo2,
+		ZoomIn,
+		ZoomOut
 	} from '@lucide/svelte';
+	import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
+	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
+	import type { FlowApi } from './FlowBridge.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -37,8 +48,10 @@
 	import { nodeHint, nodeIcon, nodeTone } from './node-style';
 	import {
 		PALETTE,
+		addNext,
 		conditionsFor,
 		connect,
+		duplicateNode,
 		graphForSave,
 		newNode,
 		removeEdge,
@@ -50,7 +63,9 @@
 	} from './workflow-graph';
 
 	// Svelte Flow editor for one workflow, filling the page: a top bar with the
-	// name, status and save; the canvas with an add-step menu; and a side panel
+	// name, status and save; the canvas, edited directly (right-click menus, a
+	// "+" under each step, drag to connect) with a floating toolbar (add, undo,
+	// redo, tidy, zoom); and a side panel
 	// with the selection (Inspect), every step and transition as keyboard-
 	// reachable lists (Outline), and the description and budget (Settings).
 	// The server validates as you edit and on save; each save is a new
@@ -84,9 +99,18 @@
 	let checking = $state(false);
 	let saving = $state(false);
 	let dirty = $state(false);
-	let newFrom = $state(''),
-		newTo = $state(''),
-		newCondition = $state<WorkflowCondition | ''>('');
+	let flow = $state<FlowApi>();
+	// What the last right click was on, and where on the canvas.
+	let menuTarget = $state<{ kind: 'pane' | 'node' | 'edge'; id: string; at: { x: number; y: number } }>({
+		kind: 'pane',
+		id: '',
+		at: { x: 0, y: 0 }
+	});
+	// Undo and redo: graphs before and after each change. Changes within half
+	// a second (typing in a field) are one step.
+	let past = $state<WorkflowGraph[]>([]),
+		future = $state<WorkflowGraph[]>([]),
+		lastChange = 0;
 
 	const activeProfiles = $derived(profiles.filter((p) => !p.archived_at));
 	const selectedNode = $derived(
@@ -108,16 +132,100 @@
 	});
 
 	function shortcut(event: KeyboardEvent) {
-		if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+		if (!(event.metaKey || event.ctrlKey)) return;
+		const key = event.key.toLowerCase();
+		if (key === 's') {
 			event.preventDefault();
 			if (dirty && name.trim()) void save();
+			return;
+		}
+		// Text fields keep their own undo.
+		const target = event.target as HTMLElement | null;
+		if (!editable || target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+		if (key === 'd' && selection?.kind === 'node') {
+			event.preventDefault();
+			duplicate(selection.id);
+		} else if (key === 'z' && !event.shiftKey) {
+			event.preventDefault();
+			undo();
+		} else if ((key === 'z' && event.shiftKey) || key === 'y') {
+			event.preventDefault();
+			redo();
 		}
 	}
 
 	function change(next: WorkflowGraph) {
+		if (next === graph) return;
+		const now = Date.now();
+		if (now - lastChange > 500) past = [...past.slice(-99), graph];
+		lastChange = now;
+		future = [];
 		graph = next;
 		dirty = true;
 	}
+
+	function undo() {
+		const previous = past.at(-1);
+		if (!previous) return;
+		future = [graph, ...future];
+		past = past.slice(0, -1);
+		graph = previous;
+		lastChange = 0;
+		dirty = true;
+		selection = null;
+	}
+
+	function redo() {
+		const next = future[0];
+		if (!next) return;
+		past = [...past, graph];
+		future = future.slice(1);
+		graph = next;
+		lastChange = 0;
+		dirty = true;
+		selection = null;
+	}
+
+	function addAt(type: WorkflowNodeType, at?: { x: number; y: number }) {
+		const node = newNode(graph, type, nodeTypeLabel(type), at);
+		lastChange = 0;
+		change({ ...graph, nodes: [...graph.nodes, node] });
+		select({ kind: 'node', id: node.id });
+	}
+
+	function addAfter(source: string, type: WorkflowNodeType) {
+		const added = addNext(graph, source, type, nodeTypeLabel(type), profiles);
+		if (!added.id) return;
+		lastChange = 0;
+		change(added.graph);
+		select({ kind: 'node', id: added.id });
+	}
+
+	function connectTo(source: string, target: string) {
+		const next = connect(graph, source, target, profiles);
+		if (next === graph) return;
+		lastChange = 0;
+		change(next);
+		select({ kind: 'edge', id: next.edges.at(-1)!.id });
+	}
+
+	function duplicate(id: string) {
+		const copied = duplicateNode(graph, id);
+		if (!copied.id) return;
+		lastChange = 0;
+		change(copied.graph);
+		select({ kind: 'node', id: copied.id });
+	}
+
+	// The context menu opens on the canvas; the canvas reports whether a step
+	// or a transition was under the pointer before the menu reads the target.
+	function contextAt(event: MouseEvent) {
+		menuTarget = { kind: 'pane', id: '', at: flow?.toFlow({ x: event.clientX, y: event.clientY }) ?? { x: 0, y: 0 } };
+	}
+	const menuNode = $derived(menuTarget.kind === 'node' ? graph.nodes.find((n) => n.id === menuTarget.id) : undefined);
+	const menuEdge = $derived(menuTarget.kind === 'edge' ? graph.edges.find((e) => e.id === menuTarget.id) : undefined);
+	const connectable = (source: string) =>
+		graph.nodes.filter((n) => n.id !== source && n.type !== 'start' && sourceConditions(source).length > 0);
 
 	// Server-side validation, debounced while editing.
 	let validateTimer: ReturnType<typeof setTimeout> | undefined;
@@ -140,26 +248,11 @@
 		return () => clearTimeout(validateTimer);
 	});
 
-	function addNode(type: WorkflowNodeType) {
-		const node = newNode(graph, type, nodeTypeLabel(type));
-		change({ ...graph, nodes: [...graph.nodes, node] });
-		select({ kind: 'node', id: node.id });
-	}
-
-	function addTransition(event: SubmitEvent) {
-		event.preventDefault();
-		if (!newFrom || !newTo) return;
-		const next = connect(graph, newFrom, newTo, profiles, newCondition || undefined);
-		if (next === graph) return;
-		change(next);
-		select({ kind: 'edge', id: next.edges.at(-1)!.id });
-		newCondition = '';
-	}
-
 	function remove(nodes: string[], edges: string[]) {
 		let next = graph;
 		for (const id of edges) next = removeEdge(next, id);
 		for (const id of nodes) if (next.nodes.find((n) => n.id === id)?.type !== 'start') next = removeNode(next, id);
+		lastChange = 0;
 		change(next);
 		selection = null;
 	}
@@ -295,56 +388,199 @@
 
 	<div class="grid min-h-0 flex-1 grid-rows-[minmax(22rem,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_22rem] lg:grid-rows-1">
 		<div class="relative min-h-0 bg-muted/30">
-			<WorkflowCanvas
-				{graph}
-				{profiles}
-				{issues}
-				{editable}
-				{selection}
-				class="h-full rounded-none border-0 bg-transparent"
-				label={m['workflows.editor.canvas']()}
-				onselect={select}
-				onmove={(id, position) => change(updateNode(graph, id, { position }))}
-				onconnect={(source, target) => {
-					const next = connect(graph, source, target, profiles);
-					if (next !== graph) {
-						change(next);
-						select({ kind: 'edge', id: next.edges.at(-1)!.id });
-					}
-				}}
-				ondelete={remove}
-			/>
+			{#snippet canvas()}
+				<WorkflowCanvas
+					{graph}
+					{profiles}
+					{issues}
+					{editable}
+					{selection}
+					controls={!editable}
+					bind:api={flow}
+					class="h-full rounded-none border-0 bg-transparent"
+					label={m['workflows.editor.canvas']()}
+					onselect={select}
+					onmove={(id, position) => {
+						lastChange = 0;
+						change(updateNode(graph, id, { position }));
+					}}
+					onconnect={connectTo}
+					onaddnext={addAfter}
+					oncontext={(target) => {
+						if (target) menuTarget = { ...menuTarget, kind: target.kind, id: target.id };
+					}}
+					ondelete={remove}
+				/>
+			{/snippet}
 			{#if editable}
-				<div class="absolute top-3 left-3 z-10 flex gap-2">
-					<DropdownMenu.Root>
-						<DropdownMenu.Trigger>
-							{#snippet child({ props })}<Button {...props} size="sm" variant="outline" class="bg-background shadow-sm"
-									><Plus />{m['workflows.editor.palette']()}</Button
-								>{/snippet}
-						</DropdownMenu.Trigger>
-						<DropdownMenu.Content align="start" class="w-72">
-							{#each PALETTE as type (type)}
-								{@const Icon = nodeIcon({ type })}
-								<DropdownMenu.Item onclick={() => addNode(type)} class="gap-3 py-2" data-testid="workflow-add-{type}">
-									<span class={cn('flex size-7 shrink-0 items-center justify-center rounded-md', nodeTone({ type }))}
-										><Icon class="size-4" /></span
+				<ContextMenu.Root>
+					<ContextMenu.Trigger class="block h-full" oncontextmenucapture={contextAt} data-testid="workflow-canvas-menu">
+						{@render canvas()}
+					</ContextMenu.Trigger>
+					<ContextMenu.Content class="w-60">
+						{#if menuNode}
+							{@const node = menuNode}
+							<ContextMenu.Label class="truncate text-xs text-muted-foreground">{node.label}</ContextMenu.Label>
+							<ContextMenu.Item onclick={() => select({ kind: 'node', id: node.id })}
+								><Pencil />{m['workflows.editor.edit']()}</ContextMenu.Item
+							>
+							{#if node.type !== 'end'}
+								<ContextMenu.Sub>
+									<ContextMenu.SubTrigger><Plus />{m['workflows.editor.add_next']()}</ContextMenu.SubTrigger>
+									<ContextMenu.SubContent class="w-56">
+										{#each PALETTE as type (type)}
+											{@const Icon = nodeIcon({ type })}
+											<ContextMenu.Item onclick={() => addAfter(node.id, type)}
+												><Icon />{nodeTypeLabel(type)}</ContextMenu.Item
+											>
+										{/each}
+									</ContextMenu.SubContent>
+								</ContextMenu.Sub>
+								<ContextMenu.Sub>
+									<ContextMenu.SubTrigger disabled={connectable(node.id).length === 0}
+										><Link2 />{m['workflows.editor.connect_to']()}</ContextMenu.SubTrigger
 									>
-									<span class="min-w-0">
-										<span class="block text-sm font-medium">{nodeTypeLabel(type)}</span>
-										<span class="block text-xs text-muted-foreground">{nodeHint(type)}</span>
-									</span>
-								</DropdownMenu.Item>
-							{/each}
-						</DropdownMenu.Content>
-					</DropdownMenu.Root>
-					<Button
-						size="sm"
-						variant="outline"
-						class="bg-background shadow-sm"
-						onclick={() => change(tidy(graph))}
-						data-testid="workflow-tidy"><LayoutGrid />{m['workflows.editor.tidy']()}</Button
+									<ContextMenu.SubContent class="max-h-72 w-56 overflow-y-auto">
+										{#each connectable(node.id) as target (target.id)}
+											{@const Icon = nodeIcon(target)}
+											<ContextMenu.Item onclick={() => connectTo(node.id, target.id)}
+												><Icon /><span class="truncate">{target.label}</span></ContextMenu.Item
+											>
+										{/each}
+									</ContextMenu.SubContent>
+								</ContextMenu.Sub>
+							{/if}
+							{#if node.type !== 'start'}
+								<ContextMenu.Item onclick={() => duplicate(node.id)}
+									><Copy />{m['workflows.editor.duplicate']()}<ContextMenu.Shortcut>⌘D</ContextMenu.Shortcut
+									></ContextMenu.Item
+								>
+								<ContextMenu.Separator />
+								<ContextMenu.Item variant="destructive" onclick={() => remove([node.id], [])}
+									><Trash2 />{m['workflows.editor.delete_node']()}<ContextMenu.Shortcut>⌫</ContextMenu.Shortcut
+									></ContextMenu.Item
+								>
+							{/if}
+						{:else if menuEdge}
+							{@const edge = menuEdge}
+							<ContextMenu.Label class="truncate text-xs text-muted-foreground"
+								>{m['workflows.editor.transition_named']({
+									from: nodeName(edge.source),
+									to: nodeName(edge.target)
+								})}</ContextMenu.Label
+							>
+							<ContextMenu.Sub>
+								<ContextMenu.SubTrigger
+									><ArrowRight />{m['workflows.editor.edge_condition']()}: {conditionLabel(
+										edge.condition
+									)}</ContextMenu.SubTrigger
+								>
+								<ContextMenu.SubContent class="w-56">
+									<ContextMenu.RadioGroup
+										value={edge.condition}
+										onValueChange={(value) => {
+											lastChange = 0;
+											change(updateEdge(graph, edge.id, { condition: value as WorkflowCondition }));
+										}}
+									>
+										{#each [edge.condition, ...sourceConditions(edge.source, edge.id).filter((c) => c !== edge.condition)] as condition (condition)}
+											<ContextMenu.RadioItem value={condition}>{conditionLabel(condition)}</ContextMenu.RadioItem>
+										{/each}
+									</ContextMenu.RadioGroup>
+								</ContextMenu.SubContent>
+							</ContextMenu.Sub>
+							<ContextMenu.Separator />
+							<ContextMenu.Item variant="destructive" onclick={() => remove([], [edge.id])}
+								><Trash2 />{m['workflows.editor.delete_edge']()}</ContextMenu.Item
+							>
+						{:else}
+							{@const at = menuTarget.at}
+							<ContextMenu.Sub>
+								<ContextMenu.SubTrigger><Plus />{m['workflows.editor.add_step_here']()}</ContextMenu.SubTrigger>
+								<ContextMenu.SubContent class="w-56">
+									{#each PALETTE as type (type)}
+										{@const Icon = nodeIcon({ type })}
+										<ContextMenu.Item onclick={() => addAt(type, at)}><Icon />{nodeTypeLabel(type)}</ContextMenu.Item>
+									{/each}
+								</ContextMenu.SubContent>
+							</ContextMenu.Sub>
+							<ContextMenu.Item onclick={() => change(tidy(graph))}
+								><LayoutGrid />{m['workflows.editor.tidy']()}</ContextMenu.Item
+							>
+							<ContextMenu.Item onclick={() => flow?.fit()}
+								><Maximize />{m['workflows.editor.fit_view']()}</ContextMenu.Item
+							>
+							<ContextMenu.Separator />
+							<ContextMenu.Item disabled={past.length === 0} onclick={undo}
+								><Undo2 />{m['workflows.editor.undo']()}<ContextMenu.Shortcut>⌘Z</ContextMenu.Shortcut
+								></ContextMenu.Item
+							>
+							<ContextMenu.Item disabled={future.length === 0} onclick={redo}
+								><Redo2 />{m['workflows.editor.redo']()}<ContextMenu.Shortcut>⇧⌘Z</ContextMenu.Shortcut
+								></ContextMenu.Item
+							>
+						{/if}
+					</ContextMenu.Content>
+				</ContextMenu.Root>
+
+				<!-- The editing toolbar floats over the canvas. -->
+				<Tooltip.Provider delayDuration={300}>
+					<div
+						class="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-xl border bg-background/95 p-1 shadow-lg backdrop-blur"
+						role="toolbar"
+						aria-label={m['workflows.editor.toolbar']()}
+						data-testid="workflow-toolbar"
 					>
-				</div>
+						<DropdownMenu.Root>
+							<DropdownMenu.Trigger>
+								{#snippet child({ props })}<Button {...props} size="sm" class="gap-1.5" data-testid="workflow-add-step"
+										><Plus />{m['workflows.editor.palette']()}</Button
+									>{/snippet}
+							</DropdownMenu.Trigger>
+							<DropdownMenu.Content side="top" align="start" class="w-72">
+								{#each PALETTE as type (type)}
+									{@const Icon = nodeIcon({ type })}
+									<DropdownMenu.Item onclick={() => addAt(type)} class="gap-3 py-2" data-testid="workflow-add-{type}">
+										<span class={cn('flex size-7 shrink-0 items-center justify-center rounded-md', nodeTone({ type }))}
+											><Icon class="size-4" /></span
+										>
+										<span class="min-w-0">
+											<span class="block text-sm font-medium">{nodeTypeLabel(type)}</span>
+											<span class="block text-xs text-muted-foreground">{nodeHint(type)}</span>
+										</span>
+									</DropdownMenu.Item>
+								{/each}
+							</DropdownMenu.Content>
+						</DropdownMenu.Root>
+						<span class="mx-1 h-5 w-px bg-border"></span>
+						{#snippet tool(label: string, Icon: typeof Plus, action: () => void, disabled = false, shortcut = '')}
+							<Tooltip.Root>
+								<Tooltip.Trigger>
+									{#snippet child({ props })}<Button
+											{...props}
+											size="icon-sm"
+											variant="ghost"
+											aria-label={label}
+											{disabled}
+											onclick={action}><Icon /></Button
+										>{/snippet}
+								</Tooltip.Trigger>
+								<Tooltip.Content side="top"
+									>{label}{#if shortcut}<span class="ml-2 text-muted-foreground">{shortcut}</span>{/if}</Tooltip.Content
+								>
+							</Tooltip.Root>
+						{/snippet}
+						{@render tool(m['workflows.editor.undo'](), Undo2, undo, past.length === 0, '⌘Z')}
+						{@render tool(m['workflows.editor.redo'](), Redo2, redo, future.length === 0, '⇧⌘Z')}
+						<span class="mx-1 h-5 w-px bg-border"></span>
+						{@render tool(m['workflows.editor.tidy'](), LayoutGrid, () => change(tidy(graph)))}
+						{@render tool(m['workflows.editor.zoom_out'](), ZoomOut, () => flow?.zoomOut())}
+						{@render tool(m['workflows.editor.zoom_in'](), ZoomIn, () => flow?.zoomIn())}
+						{@render tool(m['workflows.editor.fit_view'](), Maximize, () => flow?.fit())}
+					</div>
+				</Tooltip.Provider>
+			{:else}
+				{@render canvas()}
 			{/if}
 		</div>
 
@@ -620,51 +856,6 @@
 								</li>
 							{/each}
 						</ul>
-						{#if editable}<form
-								class="mt-3 space-y-2 rounded-lg border bg-muted/30 p-3"
-								onsubmit={addTransition}
-								data-testid="workflow-add-transition"
-							>
-								<p class="text-xs font-medium">{m['workflows.editor.add_transition']()}</p>
-								<div class="grid grid-cols-2 gap-2">
-									<div class="space-y-1">
-										<Label for="transition-from" class="text-xs">{m['workflows.editor.transition_from']()}</Label>
-										<SelectField
-											id="transition-from"
-											bind:value={newFrom}
-											options={[
-												{ value: '', label: m['workflows.editor.transition_from']() },
-												...graph.nodes.filter((n) => n.type !== 'end').map((n) => ({ value: n.id, label: n.label }))
-											]}
-										/>
-									</div>
-									<div class="space-y-1">
-										<Label for="transition-to" class="text-xs">{m['workflows.editor.transition_to']()}</Label>
-										<SelectField
-											id="transition-to"
-											bind:value={newTo}
-											options={[
-												{ value: '', label: m['workflows.editor.transition_to']() },
-												...graph.nodes.filter((n) => n.type !== 'start').map((n) => ({ value: n.id, label: n.label }))
-											]}
-										/>
-									</div>
-								</div>
-								{#if newFrom}<div class="space-y-1">
-										<Label for="transition-condition" class="text-xs">{m['workflows.editor.edge_condition']()}</Label>
-										<SelectField
-											id="transition-condition"
-											bind:value={newCondition}
-											options={[
-												{ value: '', label: m['workflows.editor.edge_condition']() },
-												...sourceConditions(newFrom).map((c) => ({ value: c, label: conditionLabel(c) }))
-											]}
-										/>
-									</div>{/if}
-								<Button type="submit" size="sm" variant="outline" class="w-full" disabled={!newFrom || !newTo}
-									><Plus />{m['workflows.editor.add_transition']()}</Button
-								>
-							</form>{/if}
 					</section>
 				</Tabs.Content>
 

@@ -319,3 +319,40 @@ export function tidy(graph: WorkflowGraph): WorkflowGraph {
 	}
 	return { ...graph, nodes: graph.nodes.map((n) => ({ ...n, position: positions.get(n.id) ?? n.position })) };
 }
+
+/**
+ * Adds a step of the given type below the source and connects them on the
+ * source's first free condition. Returns the new graph and the step's ID; the
+ * step stays unconnected when the source has no free condition (or is an end).
+ */
+export function addNext(
+	graph: WorkflowGraph,
+	source: string,
+	type: WorkflowNodeType,
+	label: string,
+	profiles: AgentProfile[]
+): { graph: WorkflowGraph; id: string } {
+	const from = graph.nodes.find((n) => n.id === source);
+	if (!from) return { graph, id: '' };
+	const centre = from.position.x + nodeWidth(from.type) / 2;
+	// Below the source, beside any step already there.
+	let x = centre - nodeWidth(type) / 2;
+	const y = from.position.y + ROW;
+	while (graph.nodes.some((n) => Math.abs(n.position.y - y) < ROW / 2 && Math.abs(n.position.x - x) < COLUMN - 40))
+		x += COLUMN;
+	const node = newNode(graph, type, label, { x, y });
+	const added = { ...graph, nodes: [...graph.nodes, node] };
+	return { graph: connect(added, source, node.id, profiles), id: node.id };
+}
+
+/** Copies a step (not the start) beside itself, without its transitions. */
+export function duplicateNode(graph: WorkflowGraph, id: string): { graph: WorkflowGraph; id: string } {
+	const node = graph.nodes.find((n) => n.id === id);
+	if (!node || node.type === 'start') return { graph, id: '' };
+	const copy: WorkflowNode = {
+		...structuredClone(node),
+		id: uniqueId(node.type, new Set(graph.nodes.map((n) => n.id))),
+		position: { x: node.position.x + 40, y: node.position.y + 40 }
+	};
+	return { graph: { ...graph, nodes: [...graph.nodes, copy] }, id: copy.id };
+}

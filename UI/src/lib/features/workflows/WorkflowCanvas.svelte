@@ -13,6 +13,8 @@
 	import type { AgentProfile, WorkflowGraph, WorkflowIssue } from '$lib/api/workflows';
 	import { m } from '$lib/paraglide/messages.js';
 	import WorkflowNodeCard, { type WorkflowFlowNode } from './WorkflowNodeCard.svelte';
+	import FlowBridge, { type FlowApi } from './FlowBridge.svelte';
+	import type { WorkflowNodeType } from '$lib/api/workflows';
 	import { conditionLabel, issueLabel, roleLabel } from './labels';
 	import { layering, placeIssues, type FiredTransition } from './workflow-graph';
 
@@ -30,7 +32,11 @@
 		run,
 		label,
 		class: className = 'h-[520px]',
+		controls = true,
+		api = $bindable(),
 		onselect,
+		onaddnext,
+		oncontext,
 		onmove,
 		onconnect,
 		ondelete
@@ -49,7 +55,15 @@
 		};
 		label: string;
 		class?: string;
+		/** Svelte Flow's own zoom controls; the editor has its own toolbar. */
+		controls?: boolean;
+		/** Svelte Flow's API, for the editor's menus and toolbar. */
+		api?: FlowApi;
 		onselect?: (selection: Selection) => void;
+		/** Adds a step after the given one (its hover "+" button). */
+		onaddnext?: (source: string, type: WorkflowNodeType) => void;
+		/** A right click on a step or a transition, before the menu opens. */
+		oncontext?: (target: Selection) => void;
 		onmove?: (id: string, position: { x: number; y: number }) => void;
 		onconnect?: (source: string, target: string) => void;
 		ondelete?: (nodes: string[], edges: string[]) => void;
@@ -100,7 +114,11 @@
 				problems: (placed.nodes.get(node.id) ?? []).map((issue) => issueLabel(issue.code, issue.message)),
 				current: run?.current === node.id,
 				visited: run?.visited.has(node.id),
-				visits: run ? (run.visits[node.id] ?? 0) : undefined
+				visits: run ? (run.visits[node.id] ?? 0) : undefined,
+				onaddnext:
+					editable && onaddnext && node.type !== 'end'
+						? (type: WorkflowNodeType) => onaddnext(node.id, type)
+						: undefined
 			}
 		}));
 		// Loops back to an earlier step leave and enter on the left and failures
@@ -174,6 +192,8 @@
 		onnodeclick={({ node }) => onselect?.({ kind: 'node', id: node.id })}
 		onedgeclick={({ edge }) => onselect?.({ kind: 'edge', id: edge.id })}
 		onpaneclick={() => onselect?.(null)}
+		onnodecontextmenu={({ node }) => oncontext?.({ kind: 'node', id: node.id })}
+		onedgecontextmenu={({ edge }) => oncontext?.({ kind: 'edge', id: edge.id })}
 		onnodedragstop={({ targetNode }) => targetNode && onmove?.(targetNode.id, targetNode.position)}
 		onconnect={connected}
 		onbeforedelete={async ({ nodes: deleting }) => editable && !deleting.some((n) => n.data.node.type === 'start')}
@@ -184,7 +204,8 @@
 			)}
 	>
 		<Background variant={BackgroundVariant.Dots} gap={18} size={1.2} />
-		<Controls showLock={false} />
+		{#if controls}<Controls showLock={false} />{/if}
+		<FlowBridge bind:api />
 	</SvelteFlow>
 </div>
 
@@ -239,6 +260,9 @@
 		width: 8px;
 		height: 8px;
 		border: 2px solid var(--background);
+	}
+	.workflow-canvas :global(.svelte-flow__node:hover .workflow-add-next) {
+		opacity: 1;
 	}
 	.workflow-canvas :global(.workflow-loop-handle) {
 		opacity: 0;

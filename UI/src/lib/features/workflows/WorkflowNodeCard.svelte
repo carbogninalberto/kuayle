@@ -1,6 +1,6 @@
 <script lang="ts" module>
 	import type { Node } from '@xyflow/svelte';
-	import type { WorkflowNode } from '$lib/api/workflows';
+	import type { WorkflowNode, WorkflowNodeType } from '$lib/api/workflows';
 
 	export interface WorkflowNodeData extends Record<string, unknown> {
 		node: WorkflowNode;
@@ -12,18 +12,22 @@
 		current?: boolean;
 		visited?: boolean;
 		visits?: number;
+		/** In the editor: adds a step of this type after this one. */
+		onaddnext?: (type: WorkflowNodeType) => void;
 	}
 	export type WorkflowFlowNode = Node<WorkflowNodeData, 'workflow'>;
 </script>
 
 <script lang="ts">
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
-	import { CircleAlert } from '@lucide/svelte';
+	import { CircleAlert, Plus } from '@lucide/svelte';
+	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
+	import { PALETTE } from './workflow-graph';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { cn } from '$lib/utils.js';
 	import { m } from '$lib/paraglide/messages.js';
 	import { nodeTypeLabel } from './labels';
-	import { nodeIcon, nodeTone } from './node-style';
+	import { nodeHint, nodeIcon, nodeTone } from './node-style';
 
 	// One step on the workflow canvas: a typed icon, its name and what it
 	// uses. Svelte Flow makes it focusable and selectable from the keyboard;
@@ -56,7 +60,7 @@
 	<Handle id="loop-in" type="target" position={Position.Left} class="workflow-loop-handle" isConnectable={false} />{/if}
 <div
 	class={cn(
-		'flex items-center gap-2.5 rounded-xl border bg-card p-2 pr-3 text-card-foreground shadow-sm transition-shadow',
+		'relative flex items-center gap-2.5 rounded-xl border bg-card p-2 pr-3 text-card-foreground shadow-sm transition-shadow',
 		terminal ? 'w-44' : 'w-60',
 		data.visited && 'border-primary/50',
 		data.current && 'ring-2 ring-primary',
@@ -82,6 +86,40 @@
 			aria-label={data.problems.join('. ')}
 		/>{/if}
 </div>
+{#if data.onaddnext}
+	{@const add = data.onaddnext}
+	<!-- Adds the next step, connected; shown on hover and when selected. -->
+	<div
+		class={cn(
+			'workflow-add-next nodrag nopan absolute -bottom-9 left-1/2 z-10 -translate-x-1/2 opacity-0 transition-opacity focus-within:opacity-100',
+			selected && 'opacity-100'
+		)}
+	>
+		<DropdownMenu.Root>
+			<DropdownMenu.Trigger
+				class="flex size-6 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm hover:text-foreground"
+				aria-label={m['workflows.editor.add_next']()}
+				title={m['workflows.editor.add_next']()}><Plus class="size-3.5" /></DropdownMenu.Trigger
+			>
+			<DropdownMenu.Content align="center" class="w-64">
+				<DropdownMenu.Label class="text-xs text-muted-foreground">{m['workflows.editor.add_next']()}</DropdownMenu.Label
+				>
+				{#each PALETTE as type (type)}
+					{@const TypeIcon = nodeIcon({ type })}
+					<DropdownMenu.Item onclick={() => add(type)} class="gap-2.5">
+						<span class={cn('flex size-6 shrink-0 items-center justify-center rounded-md', nodeTone({ type }))}
+							><TypeIcon class="size-3.5" /></span
+						>
+						<span class="min-w-0">
+							<span class="block text-sm">{nodeTypeLabel(type)}</span>
+							<span class="block truncate text-xs text-muted-foreground">{nodeHint(type)}</span>
+						</span>
+					</DropdownMenu.Item>
+				{/each}
+			</DropdownMenu.Content>
+		</DropdownMenu.Root>
+	</div>
+{/if}
 {#if node.type !== 'end'}<Handle type="source" position={Position.Bottom} />
 	<Handle id="loop-out" type="source" position={Position.Left} class="workflow-loop-handle" isConnectable={false} />
 	<Handle
