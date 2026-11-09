@@ -50,7 +50,8 @@
 		ChevronRight,
 		SquareUser,
 		Box,
-		Settings2
+		Settings2,
+		Pencil
 	} from '@lucide/svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
@@ -202,6 +203,57 @@
 		}
 	}
 
+	let renaming = $state(false);
+	let nameDraft = $state('');
+
+	function startRename() {
+		if (!project || !canManage) return;
+		nameDraft = project.name;
+		renaming = true;
+	}
+
+	function cancelRename() {
+		renaming = false;
+	}
+
+	async function commitRename() {
+		if (!renaming || !project || !canManage) return;
+		const next = nameDraft.trim();
+		if (next === project.name) {
+			renaming = false;
+			return;
+		}
+		if (next.length === 0 || next.length > 200) {
+			appToast.error(m['projects.toast.invalid_name']());
+			return;
+		}
+		renaming = false;
+		try {
+			await updateProject(slug, project.id, { name: next });
+			const id = project.id;
+			sidebarState.projects = sidebarState.projects.map((p) => (p.id === id ? { ...p, name: next } : p));
+			await refreshProject();
+			appToast.success(m['projects.toast.renamed']());
+		} catch (err: any) {
+			appToast.apiError(err, m['projects.toast.failed_rename']());
+		}
+	}
+
+	function renameKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			void commitRename();
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			cancelRename();
+		}
+	}
+
+	function focusOnMount(node: HTMLInputElement) {
+		node.focus();
+		node.select();
+	}
+
 	async function handleDateChange(field: 'start_date' | 'target_date', value: string | null) {
 		if (!project || !canManage) return;
 		try {
@@ -300,7 +352,30 @@
 						</a>
 						<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
 					{/if}
-					<span class="truncate font-medium text-[var(--color-text-primary)]">{project.name}</span>
+					{#if renaming}
+						<input
+							use:focusOnMount
+							bind:value={nameDraft}
+							onkeydown={renameKeydown}
+							onblur={commitRename}
+							maxlength={200}
+							aria-label={m['projects.rename']()}
+							class="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-transparent px-1 font-medium text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
+						/>
+					{:else}
+						<span class="truncate font-medium text-[var(--color-text-primary)]">{project.name}</span>
+						{#if canManage}
+							<button
+								type="button"
+								onclick={startRename}
+								aria-label={m['projects.rename']()}
+								title={m['projects.rename']()}
+								class="shrink-0 rounded p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+							>
+								<Pencil size={12} />
+							</button>
+						{/if}
+					{/if}
 				</nav>
 				<Popover.Root bind:open={statusOpen}>
 					<Popover.Trigger disabled={!canManage}>
