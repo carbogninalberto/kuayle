@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -176,6 +177,70 @@ func (h *WikiHandler) Rework(kind domain.WikiScopeKind) echo.HandlerFunc {
 	}
 }
 
+// Settings reports the wiki's opt-in features.
+func (h *WikiHandler) Settings(kind domain.WikiScopeKind) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		scope, ok := wikiScopeFromRoute(c, kind)
+		if !ok {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid "+string(kind)+" ID")
+		}
+		enabled, err := h.wikiSvc.RegistryEnabled(c.Request().Context(), middleware.GetWorkspace(c).ID, scope)
+		if err != nil {
+			return wikiErrorResponse(c, err)
+		}
+		return response.Success(c, http.StatusOK, dto.WikiSettingsResponse{RegistryEnabled: enabled})
+	}
+}
+
+// UpdateSettings turns the wiki's registry on or off.
+func (h *WikiHandler) UpdateSettings(kind domain.WikiScopeKind) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		scope, ok := wikiScopeFromRoute(c, kind)
+		if !ok {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid "+string(kind)+" ID")
+		}
+		var req dto.WikiSettingsRequest
+		if err := c.Bind(&req); err != nil {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+		}
+		if req.RegistryEnabled == nil {
+			return response.ValidationError(c, []dto.ErrorDetail{{Field: "registry_enabled", Message: "is required"}})
+		}
+		ws := middleware.GetWorkspace(c)
+		if err := h.wikiSvc.SetRegistryEnabled(c.Request().Context(), ws.ID, scope, middleware.GetUserID(c), *req.RegistryEnabled); err != nil {
+			return wikiErrorResponse(c, err)
+		}
+		return response.Success(c, http.StatusOK, dto.WikiSettingsResponse{RegistryEnabled: *req.RegistryEnabled})
+	}
+}
+
+// AppendRegistry adds an entry to today's (UTC) registry page.
+func (h *WikiHandler) AppendRegistry(kind domain.WikiScopeKind) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		scope, ok := wikiScopeFromRoute(c, kind)
+		if !ok {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid "+string(kind)+" ID")
+		}
+		var req dto.WikiRegistryRequest
+		if err := c.Bind(&req); err != nil {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+		}
+		page, err := h.wikiSvc.AppendRegistry(c.Request().Context(), middleware.GetWorkspace(c).ID, scope, middleware.GetUserID(c), req.Text)
+		if err != nil {
+			return wikiErrorResponse(c, err)
+		}
+		return response.Success(c, http.StatusOK, toWikiPage(*page))
+	}
+}
+
+func registryDate(day *time.Time) *string {
+	if day == nil {
+		return nil
+	}
+	value := day.UTC().Format(time.DateOnly)
+	return &value
+}
+
 func wikiPageFromRoute(c *echo.Context, kind domain.WikiScopeKind) (domain.WikiScope, uuid.UUID, bool) {
 	scope, ok := wikiScopeFromRoute(c, kind)
 	pageID, err := uuid.Parse(c.Param("pageId"))
@@ -189,6 +254,8 @@ func wikiErrorResponse(c *echo.Context, err error) error {
 		return response.ValidationError(c, []dto.ErrorDetail{{Field: invalid.Field, Message: invalid.Message}})
 	case errors.Is(err, service.ErrWikiNotFound):
 		return response.NotFound(c, "Wiki page")
+	case errors.Is(err, service.ErrWikiRegistryDisabled):
+		return response.Error(c, http.StatusConflict, "WIKI_REGISTRY_DISABLED", "The registry of this wiki is turned off.")
 	case errors.Is(err, service.ErrWikiConflict):
 		return response.Error(c, http.StatusConflict, "WIKI_VERSION_CONFLICT", "This page was changed by someone else. Reload it before saving.")
 	}
@@ -212,6 +279,7 @@ func toWikiPageSummary(page domain.WikiPage) dto.WikiPageSummaryResponse {
 		Version:       page.Version,
 		UpdatedBy:     optionalUUIDString(page.UpdatedBy),
 		UpdatedByName: page.UpdatedByName,
+		RegistryDate:  registryDate(page.RegistryDate),
 		CreatedAt:     page.CreatedAt,
 		UpdatedAt:     page.UpdatedAt,
 	}

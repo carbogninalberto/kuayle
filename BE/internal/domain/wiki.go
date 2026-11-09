@@ -58,8 +58,10 @@ type WikiPage struct {
 	CreatedBy     *uuid.UUID `db:"created_by"`
 	UpdatedBy     *uuid.UUID `db:"updated_by"`
 	UpdatedByName *string    `db:"updated_by_name"`
-	CreatedAt     time.Time  `db:"created_at"`
-	UpdatedAt     time.Time  `db:"updated_at"`
+	// RegistryDate is set on registry pages: the UTC day they log.
+	RegistryDate *time.Time `db:"registry_date"`
+	CreatedAt    time.Time  `db:"created_at"`
+	UpdatedAt    time.Time  `db:"updated_at"`
 }
 
 // Scope returns the team or project the page belongs to.
@@ -92,4 +94,12 @@ type WikiRevision struct {
 	EditedByName *string    `db:"edited_by_name"`
 	CreatedAt    time.Time  `db:"created_at"`
 	UpdatedAt    time.Time  `db:"updated_at"`
+}
+
+// WikiRegistryEntryMaxRunes bounds one registry entry's text.
+const WikiRegistryEntryMaxRunes = 2000
+
+// WikiRegistryTitle is the title of the registry page for day (UTC).
+func WikiRegistryTitle(day time.Time) string {
+	return "Registry " + day.UTC().Format(time.DateOnly)
 }

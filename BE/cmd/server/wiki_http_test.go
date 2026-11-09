@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -258,6 +260,53 @@ func TestWikiHTTPAccessAndPersistence(t *testing.T) {
 	decode(request(ownerJWT, "GET", projectWiki, "", http.StatusOK), &listed)
 	require.Len(t, listed, 1)
 	require.Equal(t, "Project notes", listed[0].Title)
+
+	// The registry is opt-in per wiki; writers turn it on, and entries land on
+	// one page per UTC day, also under concurrent appends.
+	require.JSONEq(t, `{"registry_enabled":false}`, string(request(guestJWT, "GET", projectWiki+"/settings", "", http.StatusOK)))
+	request(memberJWT, "POST", projectWiki+"/registry", `{"text":"KUA-20 implemented"}`, http.StatusConflict)
+	request(guestJWT, "PATCH", projectWiki+"/settings", `{"registry_enabled":true}`, http.StatusForbidden)
+	request(memberJWT, "PATCH", projectWiki+"/settings", `{}`, http.StatusBadRequest)
+	require.JSONEq(t, `{"registry_enabled":true}`, string(request(memberJWT, "PATCH", projectWiki+"/settings", `{"registry_enabled":true}`, http.StatusOK)))
+	require.JSONEq(t, `{"registry_enabled":true}`, string(request(guestJWT, "GET", projectWiki+"/settings", "", http.StatusOK)))
+	require.JSONEq(t, `{"registry_enabled":false}`, string(request(memberJWT, "GET", teamWiki+"/settings", "", http.StatusOK)), "settings are per wiki")
+	request(guestJWT, "POST", projectWiki+"/registry", `{"text":"guest"}`, http.StatusForbidden)
+	request(memberJWT, "POST", projectWiki+"/registry", `{"text":"   "}`, http.StatusBadRequest)
+	var registryPage struct {
+		page
+		RegistryDate *string `json:"registry_date"`
+	}
+	decode(request(memberJWT, "POST", projectWiki+"/registry", `{"text":"KUA-20 implemented"}`, http.StatusOK), &registryPage)
+	today := time.Now().UTC().Format(time.DateOnly)
+	require.Equal(t, "Registry "+today, registryPage.Title)
+	require.Equal(t, today, *registryPage.RegistryDate)
+	require.Contains(t, registryPage.Content, " KUA-20 implemented</p>")
+	var appends sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		appends.Add(1)
+		go func() {
+			defer appends.Done()
+			request(ownerJWT, "POST", projectWiki+"/registry", `{"text":"parallel entry"}`, http.StatusOK)
+		}()
+	}
+	appends.Wait()
+	decode(request(guestJWT, "GET", projectWiki+"/"+registryPage.ID, "", http.StatusOK), &registryPage)
+	require.Equal(t, 9, registryPage.Version)
+	require.Equal(t, 8, strings.Count(registryPage.Content, "parallel entry"))
+	var registryList []struct {
+		Title        string  `json:"title"`
+		RegistryDate *string `json:"registry_date"`
+	}
+	decode(request(guestJWT, "GET", projectWiki, "", http.StatusOK), &registryList)
+	require.Len(t, registryList, 2, "one registry page for the day, next to the project notes")
+	decode(request(guestJWT, "GET", projectWiki+"/"+registryPage.ID+"/versions", "", http.StatusOK), &revisions)
+	require.NotEmpty(t, revisions, "appends are recorded as versions")
+	request(ownerJWT, "PATCH", privateProjectWiki+"/settings", `{"registry_enabled":true}`, http.StatusOK)
+	request(memberJWT, "GET", privateProjectWiki+"/settings", "", http.StatusNotFound)
+	request(memberJWT, "PATCH", privateProjectWiki+"/settings", `{"registry_enabled":false}`, http.StatusNotFound)
+	request(memberJWT, "POST", privateProjectWiki+"/registry", `{"text":"planted"}`, http.StatusNotFound)
+	request(memberJWT, "PATCH", projectWiki+"/settings", `{"registry_enabled":false}`, http.StatusOK)
+	request(memberJWT, "POST", projectWiki+"/registry", `{"text":"after off"}`, http.StatusConflict)
 
 	// Outsiders and members of another workspace are denied.
 	request(jwt(outsider), "GET", teamWiki, "", http.StatusForbidden)

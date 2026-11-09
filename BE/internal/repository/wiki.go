@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -19,6 +20,10 @@ var (
 	ErrWikiPageNotFound  = errors.New("wiki page not found")
 	// ErrWikiVersionConflict means the page changed since the caller read it.
 	ErrWikiVersionConflict = errors.New("wiki page was changed by someone else")
+	// ErrWikiRegistryDisabled means the scope's registry is turned off.
+	ErrWikiRegistryDisabled = errors.New("wiki registry is disabled")
+	// ErrWikiRegistryFull means today's registry page has no room left.
+	ErrWikiRegistryFull = errors.New("wiki registry page is full")
 )
 
 type WikiRepository struct {
@@ -60,7 +65,7 @@ func wikiPageInScope(ctx context.Context, scope domain.WikiScope) string {
 
 const wikiPageColumns = `wiki_pages.id, wiki_pages.workspace_id, wiki_pages.team_id, wiki_pages.project_id,
 	wiki_pages.title, wiki_pages.content, wiki_pages.version, wiki_pages.created_by, wiki_pages.updated_by,
-	wiki_editor.name AS updated_by_name, wiki_pages.created_at, wiki_pages.updated_at`
+	wiki_editor.name AS updated_by_name, wiki_pages.registry_date, wiki_pages.created_at, wiki_pages.updated_at`
 
 const wikiEditorJoin = ` LEFT JOIN users wiki_editor ON wiki_editor.id = wiki_pages.updated_by`
 
@@ -85,7 +90,7 @@ func (r *WikiRepository) List(ctx context.Context, workspaceID uuid.UUID, scope 
 	pages := []domain.WikiPage{}
 	query := `SELECT wiki_pages.id, wiki_pages.workspace_id, wiki_pages.team_id, wiki_pages.project_id,
 		wiki_pages.title, '' AS content, wiki_pages.version, wiki_pages.created_by, wiki_pages.updated_by,
-		wiki_editor.name AS updated_by_name, wiki_pages.created_at, wiki_pages.updated_at
+		wiki_editor.name AS updated_by_name, wiki_pages.registry_date, wiki_pages.created_at, wiki_pages.updated_at
 		FROM wiki_pages` + wikiEditorJoin + ` WHERE ` + wikiPageInScope(ctx, scope) + `
 		ORDER BY wiki_pages.updated_at DESC, wiki_pages.id`
 	err := r.db.SelectContext(ctx, &pages, query, workspaceID, scope.ID)
@@ -236,4 +241,148 @@ func (r *WikiRepository) Delete(ctx context.Context, workspaceID uuid.UUID, scop
 		return ErrWikiPageNotFound
 	}
 	return nil
+}
+
+// wikiSettingsScope returns the settings column and the ON CONFLICT target
+// of a scope kind; both are trusted SQL.
+func wikiSettingsScope(kind domain.WikiScopeKind) (column, conflict string) {
+	if kind == domain.WikiScopeProject {
+		return "wiki_settings.project_id", "(project_id) WHERE project_id IS NOT NULL"
+	}
+	return "wiki_settings.team_id", "(team_id) WHERE team_id IS NOT NULL"
+}
+
+// RegistryEnabled reports whether the visible scope's registry is on. A scope
+// without settings has it off.
+func (r *WikiRepository) RegistryEnabled(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) (bool, error) {
+	if err := r.RequireScope(ctx, workspaceID, scope); err != nil {
+		return false, err
+	}
+	return registryEnabled(ctx, r.db, workspaceID, scope, "")
+}
+
+func registryEnabled(ctx context.Context, db sqlx.QueryerContext, workspaceID uuid.UUID, scope domain.WikiScope, lock string) (bool, error) {
+	column, _ := wikiSettingsScope(scope.Kind)
+	var enabled bool
+	err := sqlx.GetContext(ctx, db, &enabled, `SELECT wiki_settings.registry_enabled FROM wiki_settings
+		WHERE wiki_settings.workspace_id = $1 AND `+column+` = $2`+lock, workspaceID, scope.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return enabled, err
+}
+
+// SetRegistryEnabled turns the visible scope's registry on or off; the
+// visibility check and the write are one statement.
+func (r *WikiRepository) SetRegistryEnabled(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, enabled bool) error {
+	if !scope.Valid() {
+		return ErrWikiScopeNotFound
+	}
+	_, conflict := wikiSettingsScope(scope.Kind)
+	var teamID, projectID *uuid.UUID
+	if scope.Kind == domain.WikiScopeTeam {
+		teamID = &scope.ID
+	} else {
+		projectID = &scope.ID
+	}
+	result, err := r.db.ExecContext(ctx, `INSERT INTO wiki_settings (workspace_id, team_id, project_id, registry_enabled, updated_by)
+		SELECT $1, $2, $3, $4, $5 WHERE `+wikiScopeVisible(ctx, scope.Kind, uuidSQL(scope.ID), "CAST($1 AS uuid)")+`
+		ON CONFLICT `+conflict+` DO UPDATE SET registry_enabled = EXCLUDED.registry_enabled, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+		WHERE wiki_settings.workspace_id = EXCLUDED.workspace_id`,
+		workspaceID, teamID, projectID, enabled, userID)
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return err
+	} else if affected == 0 {
+		return ErrWikiScopeNotFound
+	}
+	return nil
+}
+
+// AppendRegistry appends entry (sanitized editor HTML) to the scope's
+// registry page for day, creating the page when it is the day's first entry.
+// It requires the scope to be visible and its registry on, holds the settings
+// and page rows locked until done, and records the change as a version like
+// any other save. created reports whether the page was new.
+func (r *WikiRepository) AppendRegistry(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, day time.Time, entry string) (page *domain.WikiPage, created bool, err error) {
+	if !scope.Valid() {
+		return nil, false, ErrWikiScopeNotFound
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := requireVisible(ctx, tx, wikiScopeVisible(ctx, scope.Kind, uuidSQL(scope.ID), uuidSQL(workspaceID))); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, ErrWikiScopeNotFound
+		}
+		return nil, false, err
+	}
+	// Locking the settings row orders appends against turning the registry off.
+	enabled, err := registryEnabled(ctx, tx, workspaceID, scope, " FOR SHARE")
+	if err != nil {
+		return nil, false, err
+	}
+	if !enabled {
+		return nil, false, ErrWikiRegistryDisabled
+	}
+
+	date := day.UTC().Format(time.DateOnly)
+	var teamID, projectID *uuid.UUID
+	conflict := "(team_id, registry_date) WHERE team_id IS NOT NULL AND registry_date IS NOT NULL"
+	if scope.Kind == domain.WikiScopeTeam {
+		teamID = &scope.ID
+	} else {
+		projectID = &scope.ID
+		conflict = "(project_id, registry_date) WHERE project_id IS NOT NULL AND registry_date IS NOT NULL"
+	}
+	var newID uuid.UUID
+	err = tx.GetContext(ctx, &newID, `INSERT INTO wiki_pages (id, workspace_id, team_id, project_id, title, content, created_by, updated_by, registry_date)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $7, CAST($8 AS date))
+		ON CONFLICT `+conflict+` DO NOTHING RETURNING id`,
+		uuid.New(), workspaceID, teamID, projectID, domain.WikiRegistryTitle(day), entry, userID, date)
+	switch {
+	case err == nil:
+		created = true
+	case errors.Is(err, sql.ErrNoRows):
+		var before struct {
+			ID      uuid.UUID `db:"id"`
+			Title   string    `db:"title"`
+			Content string    `db:"content"`
+		}
+		err = tx.GetContext(ctx, &before, `SELECT wiki_pages.id, wiki_pages.title, wiki_pages.content FROM wiki_pages
+			WHERE `+wikiPageInScope(ctx, scope)+` AND wiki_pages.registry_date = CAST($3 AS date) FOR UPDATE OF wiki_pages`,
+			workspaceID, scope.ID, date)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, ErrWikiScopeNotFound
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		if len(before.Content)+len(entry) > domain.WikiContentMaxBytes {
+			return nil, false, ErrWikiRegistryFull
+		}
+		newID = before.ID
+		changed := &domain.WikiPage{ID: before.ID, Title: before.Title, Content: before.Content + entry, UpdatedBy: &userID}
+		err = tx.QueryRowContext(ctx, `UPDATE wiki_pages SET content = $2, updated_by = $3, version = version + 1, updated_at = NOW()
+			WHERE id = $1 RETURNING version`, changed.ID, changed.Content, userID).Scan(&changed.Version)
+		if err != nil {
+			return nil, false, err
+		}
+		if err := recordWikiRevision(ctx, tx, changed, before.Title, before.Content); err != nil {
+			return nil, false, err
+		}
+	default:
+		return nil, false, err
+	}
+	page = &domain.WikiPage{}
+	err = tx.GetContext(ctx, page, `SELECT `+wikiPageColumns+` FROM wiki_pages`+wikiEditorJoin+` WHERE `+wikiPageInScope(ctx, scope)+` AND wiki_pages.id = $3`,
+		workspaceID, scope.ID, newID)
+	if err != nil {
+		return nil, false, err
+	}
+	return page, created, tx.Commit()
 }

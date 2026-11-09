@@ -18,15 +18,17 @@ type UpdateWikiPageRequest struct {
 }
 
 type WikiPageSummaryResponse struct {
-	ID            string    `json:"id"`
-	TeamID        *string   `json:"team_id"`
-	ProjectID     *string   `json:"project_id"`
-	Title         string    `json:"title"`
-	Version       int       `json:"version"`
-	UpdatedBy     *string   `json:"updated_by"`
-	UpdatedByName *string   `json:"updated_by_name"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            string  `json:"id"`
+	TeamID        *string `json:"team_id"`
+	ProjectID     *string `json:"project_id"`
+	Title         string  `json:"title"`
+	Version       int     `json:"version"`
+	UpdatedBy     *string `json:"updated_by"`
+	UpdatedByName *string `json:"updated_by_name"`
+	// RegistryDate is the UTC day (YYYY-MM-DD) a registry page logs.
+	RegistryDate *string   `json:"registry_date"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type WikiPageResponse struct {
@@ -52,4 +54,18 @@ type WikiRevisionResponse struct {
 	EditedByName *string   `json:"edited_by_name"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// WikiSettingsRequest turns a wiki's opt-in features on or off.
+type WikiSettingsRequest struct {
+	RegistryEnabled *bool `json:"registry_enabled"`
+}
+
+type WikiSettingsResponse struct {
+	RegistryEnabled bool `json:"registry_enabled"`
+}
+
+// WikiRegistryRequest is one plain-text entry for today's registry page.
+type WikiRegistryRequest struct {
+	Text string `json:"text"`
 }

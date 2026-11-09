@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"errors"
+	"html"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -18,6 +20,8 @@ var (
 	// ErrWikiNotFound hides whether a scope or page is missing or invisible.
 	ErrWikiNotFound = errors.New("wiki page not found")
 	ErrWikiConflict = errors.New("wiki page was changed by someone else; reload it before saving")
+	// ErrWikiRegistryDisabled: the scope's registry is off; turn it on in the wiki first.
+	ErrWikiRegistryDisabled = errors.New("the registry of this wiki is turned off")
 )
 
 // WikiValidationError rejects a request field without touching storage.
@@ -34,6 +38,8 @@ func (e *WikiValidationError) Error() string { return e.Field + ": " + e.Message
 type WikiService struct {
 	repo   repository.WikiRepo
 	events WikiEvents
+	// now is the clock that picks the registry day; tests replace it.
+	now func() time.Time
 }
 
 // WikiEvents receives realtime events; the hub withholds them from members
@@ -53,7 +59,7 @@ type WikiEventPayload struct {
 }
 
 func NewWikiService(repo repository.WikiRepo, events ...WikiEvents) *WikiService {
-	svc := &WikiService{repo: repo}
+	svc := &WikiService{repo: repo, now: time.Now}
 	if len(events) > 0 {
 		svc.events = events[0]
 	}
@@ -164,6 +170,49 @@ func (s *WikiService) Revisions(ctx context.Context, workspaceID uuid.UUID, scop
 	return revisions, wikiError(err)
 }
 
+// RegistryEnabled reports whether the scope's registry is on.
+func (s *WikiService) RegistryEnabled(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) (bool, error) {
+	enabled, err := s.repo.RegistryEnabled(ctx, workspaceID, scope)
+	return enabled, wikiError(err)
+}
+
+// SetRegistryEnabled turns the scope's registry on or off.
+func (s *WikiService) SetRegistryEnabled(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, enabled bool) error {
+	return wikiError(s.repo.SetRegistryEnabled(ctx, workspaceID, scope, userID, enabled))
+}
+
+// AppendRegistry adds a timestamped plain-text entry to today's (UTC)
+// registry page of the scope, creating the page for the day's first entry.
+func (s *WikiService) AppendRegistry(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, text string) (*domain.WikiPage, error) {
+	entry, err := wikiRegistryEntry(text, s.now())
+	if err != nil {
+		return nil, err
+	}
+	page, created, err := s.repo.AppendRegistry(ctx, workspaceID, scope, userID, s.now(), entry)
+	if err != nil {
+		return nil, wikiError(err)
+	}
+	if created {
+		s.publish("wiki.created", page)
+	} else {
+		s.publish("wiki.updated", page)
+	}
+	return page, nil
+}
+
+// wikiRegistryEntry renders one registry entry as editor HTML: the UTC time
+// in bold, then the escaped text on one line.
+func wikiRegistryEntry(raw string, at time.Time) (string, error) {
+	text := strings.Join(strings.Fields(sanitize.PlainText(raw)), " ")
+	if text == "" {
+		return "", &WikiValidationError{Field: "text", Message: "is required"}
+	}
+	if utf8.RuneCountInString(text) > domain.WikiRegistryEntryMaxRunes {
+		return "", &WikiValidationError{Field: "text", Message: "must be at most 2000 characters"}
+	}
+	return "<p><strong>" + at.UTC().Format("15:04") + "</strong> " + html.EscapeString(text) + "</p>", nil
+}
+
 func wikiTitle(raw string) (string, error) {
 	title := strings.TrimSpace(sanitize.PlainText(raw))
 	if title == "" {
@@ -196,6 +245,10 @@ func wikiError(err error) error {
 		return ErrWikiNotFound
 	case errors.Is(err, repository.ErrWikiVersionConflict):
 		return ErrWikiConflict
+	case errors.Is(err, repository.ErrWikiRegistryDisabled):
+		return ErrWikiRegistryDisabled
+	case errors.Is(err, repository.ErrWikiRegistryFull):
+		return &WikiValidationError{Field: "text", Message: "today's registry page is full"}
 	}
 	return err
 }

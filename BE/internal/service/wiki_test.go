@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -17,13 +18,16 @@ import (
 // fakeWikiRepo keeps pages in memory and treats only `visible` scopes as
 // accessible, mirroring the repository's not-found contract.
 type fakeWikiRepo struct {
-	visible map[domain.WikiScope]bool
-	pages   map[uuid.UUID]domain.WikiPage
-	writes  int
+	visible  map[domain.WikiScope]bool
+	pages    map[uuid.UUID]domain.WikiPage
+	writes   int
+	registry map[domain.WikiScope]bool
+	// appended records each registry append's scope, day and entry.
+	appended []string
 }
 
 func newFakeWikiRepo(visible ...domain.WikiScope) *fakeWikiRepo {
-	repo := &fakeWikiRepo{visible: map[domain.WikiScope]bool{}, pages: map[uuid.UUID]domain.WikiPage{}}
+	repo := &fakeWikiRepo{visible: map[domain.WikiScope]bool{}, pages: map[uuid.UUID]domain.WikiPage{}, registry: map[domain.WikiScope]bool{}}
 	for _, scope := range visible {
 		repo.visible[scope] = true
 	}
@@ -98,6 +102,49 @@ func (f *fakeWikiRepo) ListRevisions(ctx context.Context, ws uuid.UUID, scope do
 		return nil, err
 	}
 	return []domain.WikiRevision{{PageID: id, Version: 2}}, nil
+}
+
+func (f *fakeWikiRepo) RegistryEnabled(ctx context.Context, ws uuid.UUID, scope domain.WikiScope) (bool, error) {
+	if err := f.RequireScope(ctx, ws, scope); err != nil {
+		return false, err
+	}
+	return f.registry[scope], nil
+}
+
+func (f *fakeWikiRepo) SetRegistryEnabled(ctx context.Context, ws uuid.UUID, scope domain.WikiScope, _ uuid.UUID, enabled bool) error {
+	if err := f.RequireScope(ctx, ws, scope); err != nil {
+		return err
+	}
+	f.registry[scope] = enabled
+	return nil
+}
+
+// AppendRegistry keeps one page per scope and day, like the unique index.
+func (f *fakeWikiRepo) AppendRegistry(ctx context.Context, ws uuid.UUID, scope domain.WikiScope, user uuid.UUID, day time.Time, entry string) (*domain.WikiPage, bool, error) {
+	if err := f.RequireScope(ctx, ws, scope); err != nil {
+		return nil, false, err
+	}
+	if !f.registry[scope] {
+		return nil, false, repository.ErrWikiRegistryDisabled
+	}
+	f.appended = append(f.appended, scope.String()+" "+day.UTC().Format(time.DateOnly)+" "+entry)
+	date := time.Date(day.UTC().Year(), day.UTC().Month(), day.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	for id, page := range f.pages {
+		if page.Scope() == scope && page.RegistryDate != nil && page.RegistryDate.Equal(date) {
+			page.Content += entry
+			page.Version++
+			f.pages[id] = page
+			return &page, false, nil
+		}
+	}
+	page := domain.WikiPage{ID: uuid.New(), WorkspaceID: ws, Title: domain.WikiRegistryTitle(day), Content: entry, Version: 1, CreatedBy: &user, UpdatedBy: &user, RegistryDate: &date}
+	if scope.Kind == domain.WikiScopeTeam {
+		page.TeamID = &scope.ID
+	} else {
+		page.ProjectID = &scope.ID
+	}
+	f.pages[page.ID] = page
+	return &page, true, nil
 }
 
 func TestWikiServiceCreateAndReopenPreservesContent(t *testing.T) {
@@ -271,4 +318,52 @@ func TestWikiServicePublishesChangesWithoutContent(t *testing.T) {
 		require.Equal(t, team.ID.String(), *payload.TeamID)
 	}
 	require.Equal(t, 2, events.events[1].Payload.(WikiEventPayload).Version)
+}
+
+// The registry is opt-in, entries land on the current UTC day's page with
+// their time, and the text cannot inject markup.
+func TestWikiServiceRegistryAppendsToToday(t *testing.T) {
+	ctx, ws, user := context.Background(), uuid.New(), uuid.New()
+	team, hidden := domain.TeamWiki(uuid.New()), domain.TeamWiki(uuid.New())
+	repo := newFakeWikiRepo(team)
+	events := &recordedWikiEvents{}
+	svc := NewWikiService(repo, events)
+	clock := time.Date(2026, 11, 9, 23, 58, 0, 0, time.FixedZone("CET", 3600))
+	svc.now = func() time.Time { return clock }
+
+	_, err := svc.AppendRegistry(ctx, ws, team, user, "KUA-20 implemented")
+	require.ErrorIs(t, err, ErrWikiRegistryDisabled, "off by default")
+	enabled, err := svc.RegistryEnabled(ctx, ws, team)
+	require.NoError(t, err)
+	require.False(t, enabled)
+
+	require.NoError(t, svc.SetRegistryEnabled(ctx, ws, team, user, true))
+	page, err := svc.AppendRegistry(ctx, ws, team, user, "  KUA-20 implemented,\n PR #161 <b>opened</b> ")
+	require.NoError(t, err)
+	require.Equal(t, "Registry 2026-11-09", page.Title)
+	require.Equal(t, "<p><strong>22:58</strong> KUA-20 implemented, PR #161 &lt;b&gt;opened&lt;/b&gt;</p>", page.Content)
+
+	page, err = svc.AppendRegistry(ctx, ws, team, user, "merged")
+	require.NoError(t, err)
+	require.Equal(t, 2, page.Version, "same day: appended to the same page")
+	require.Contains(t, page.Content, "<p><strong>22:58</strong> merged</p>")
+
+	clock = clock.Add(2 * time.Hour) // next UTC day
+	page, err = svc.AppendRegistry(ctx, ws, team, user, "released")
+	require.NoError(t, err)
+	require.Equal(t, "Registry 2026-11-10", page.Title)
+	require.Equal(t, 1, page.Version)
+
+	require.Len(t, events.events, 3)
+	require.Equal(t, []string{"wiki.created", "wiki.updated", "wiki.created"}, []string{events.events[0].Type, events.events[1].Type, events.events[2].Type})
+
+	for _, text := range []string{"   ", strings.Repeat("x", domain.WikiRegistryEntryMaxRunes+1)} {
+		_, err = svc.AppendRegistry(ctx, ws, team, user, text)
+		var invalid *WikiValidationError
+		require.ErrorAs(t, err, &invalid)
+	}
+	_, err = svc.AppendRegistry(ctx, ws, hidden, user, "leak")
+	require.ErrorIs(t, err, ErrWikiNotFound)
+	require.ErrorIs(t, svc.SetRegistryEnabled(ctx, ws, hidden, user, true), ErrWikiNotFound)
+	require.Len(t, repo.appended, 3)
 }
