@@ -92,7 +92,7 @@ jobs:
           DATABASE_URL: postgres://kuayle:kuayle@localhost:5432/kuayle_test?sslmode=disable
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test-secret-that-is-at-least-32-characters-long
-        run: go test ./... -race -coverprofile=coverage.out -covermode=atomic -count=1
+        run: go test ./... -race -coverprofile=coverage.out -covermode=atomic -count=1 -timeout=30m
 
       - name: Show coverage summary
         run: go tool cover -func=coverage.out

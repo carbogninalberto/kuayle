@@ -144,6 +144,12 @@ func (r *WorkspaceRepository) Delete(ctx context.Context, id uuid.UUID) ([]domai
 		}
 		return nil, ErrWorkspaceEnvironmentCleanupPending
 	}
+	// The DELETE below takes the privacy barrier exclusively. Take it before the
+	// team row locks: an icon upload holds the barrier shared while it waits for
+	// a team row, so locking the rows first deadlocks with it.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(610046,0)`); err != nil {
+		return nil, err
+	}
 	// Lock every team, not only those with an image now: an upload in flight
 	// may be turning an emoji icon into an image.
 	var teams []domain.TeamIconImage
