@@ -35,7 +35,7 @@
 			label: 'Version history',
 			title: 'See who changed what, and when',
 			description:
-				'Browse recorded title and description edits with the author, time and complete before and after values, rendered or as HTML source.',
+				'Browse recorded title and description edits with the author and time, as a unified or split diff or as full before and after values.',
 			href: '/features/issue-tracking',
 			image: 'tour-history',
 			alt: 'Kuayle issue version history dialog comparing an earlier and a later issue description'
