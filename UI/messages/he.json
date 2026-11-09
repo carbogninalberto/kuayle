@@ -2393,7 +2393,7 @@
 	"tasks.sign_in_token_continue": "שמירת הטוקן והמשך",
 	"tasks.sign_in_terminal_instead": "או התחברו פעם אחת בטרמינל של המכונה, ואז המשיכו.",
 	"tasks.sign_in_manage": "ניהול ההתחברויות שלך",
-	"settings.dev_machines.providers_moved": "בחירת סוכני הקידוד שחברים יכולים להפעיל ב",
+	"settings.dev_machines.providers_moved": "סוכני הקידוד שחברים יכולים להפעיל נבחרים תחת:",
 	"tasks.model_server": "שרת מודלים",
 	"tasks.own_sign_in": "משתמש בהתחברות של הסוכן עצמו",
 	"tasks.sign_in_title": "{agent} דורש שתתחברו",
