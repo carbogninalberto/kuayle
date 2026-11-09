@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -17,10 +18,16 @@ import (
 // handler for one scope kind; the scope ID always comes from the route.
 type WikiHandler struct {
 	wikiSvc *service.WikiService
+	ai      wikiAI
 }
 
-func NewWikiHandler(wikiSvc *service.WikiService) *WikiHandler {
-	return &WikiHandler{wikiSvc: wikiSvc}
+// wikiAI rewrites a selection of a page with the workspace's AI settings.
+type wikiAI interface {
+	ReworkWikiSelection(ctx context.Context, workspaceID uuid.UUID, title, content, selectedText string) (string, error)
+}
+
+func NewWikiHandler(wikiSvc *service.WikiService, ai wikiAI) *WikiHandler {
+	return &WikiHandler{wikiSvc: wikiSvc, ai: ai}
 }
 
 // wikiScopeParam names the route parameter that carries each scope's ID.
@@ -109,10 +116,63 @@ func (h *WikiHandler) Delete(kind domain.WikiScopeKind) echo.HandlerFunc {
 		if !ok {
 			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid wiki page ID")
 		}
-		if err := h.wikiSvc.Delete(c.Request().Context(), middleware.GetWorkspace(c).ID, scope, pageID); err != nil {
+		if err := h.wikiSvc.Delete(c.Request().Context(), middleware.GetWorkspace(c).ID, scope, pageID, middleware.GetUserID(c)); err != nil {
 			return wikiErrorResponse(c, err)
 		}
 		return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
+	}
+}
+
+// Revisions lists what earlier saves changed on a page, newest first.
+func (h *WikiHandler) Revisions(kind domain.WikiScopeKind) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		scope, pageID, ok := wikiPageFromRoute(c, kind)
+		if !ok {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid wiki page ID")
+		}
+		revisions, err := h.wikiSvc.Revisions(c.Request().Context(), middleware.GetWorkspace(c).ID, scope, pageID)
+		if err != nil {
+			return wikiErrorResponse(c, err)
+		}
+		resp := make([]dto.WikiRevisionResponse, len(revisions))
+		for i, revision := range revisions {
+			resp[i] = dto.WikiRevisionResponse{
+				ID:           revision.ID.String(),
+				Version:      revision.Version,
+				OldTitle:     revision.OldTitle,
+				NewTitle:     revision.NewTitle,
+				OldContent:   revision.OldContent,
+				NewContent:   revision.NewContent,
+				EditedBy:     optionalUUIDString(revision.EditedBy),
+				EditedByName: revision.EditedByName,
+				CreatedAt:    revision.CreatedAt,
+				UpdatedAt:    revision.UpdatedAt,
+			}
+		}
+		return response.Success(c, http.StatusOK, resp)
+	}
+}
+
+// Rework rewrites selected text of a saved page with the workspace's AI
+// model, like an issue description's rework. The page is read through the
+// wiki service first, so only callers who can see it reach the model.
+func (h *WikiHandler) Rework(kind domain.WikiScopeKind) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		scope, pageID, ok := wikiPageFromRoute(c, kind)
+		if !ok {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid wiki page ID")
+		}
+		var req dto.WikiReworkRequest
+		if ok, err := bindExpansionRequest(c, &req); !ok {
+			return err
+		}
+		ws := middleware.GetWorkspace(c)
+		page, err := h.wikiSvc.Get(c.Request().Context(), ws.ID, scope, pageID)
+		if err != nil {
+			return wikiErrorResponse(c, err)
+		}
+		text, err := h.ai.ReworkWikiSelection(c.Request().Context(), ws.ID, page.Title, page.Content, req.SelectedText)
+		return expansionResponse(c, text, err)
 	}
 }
 

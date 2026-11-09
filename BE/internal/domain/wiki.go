@@ -72,3 +72,24 @@ func (p WikiPage) Scope() WikiScope {
 	}
 	return WikiScope{}
 }
+
+// WikiRevisionMergeWindow is how long consecutive saves by the same person
+// keep extending one revision. Autosave writes every few seconds; history
+// should show editing sessions, not keystrokes.
+const WikiRevisionMergeWindow = 5 * time.Minute
+
+// WikiRevision is one recorded change to a page: its title and content before
+// and after, who made it and the version it produced.
+type WikiRevision struct {
+	ID           uuid.UUID  `db:"id"`
+	PageID       uuid.UUID  `db:"page_id"`
+	Version      int        `db:"version"`
+	OldTitle     string     `db:"old_title"`
+	NewTitle     string     `db:"new_title"`
+	OldContent   string     `db:"old_content"`
+	NewContent   string     `db:"new_content"`
+	EditedBy     *uuid.UUID `db:"edited_by"`
+	EditedByName *string    `db:"edited_by_name"`
+	CreatedAt    time.Time  `db:"created_at"`
+	UpdatedAt    time.Time  `db:"updated_at"`
+}

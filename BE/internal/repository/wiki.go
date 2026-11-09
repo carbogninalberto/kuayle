@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -131,24 +132,94 @@ func (r *WikiRepository) Create(ctx context.Context, page *domain.WikiPage) erro
 }
 
 // Update writes title and content when the stored version still equals
-// expectedVersion, then increments it. A stale version reports
-// ErrWikiVersionConflict; an invisible or missing page ErrWikiPageNotFound.
+// expectedVersion, then increments it and records the change as a revision.
+// A stale version reports ErrWikiVersionConflict; an invisible or missing page
+// ErrWikiPageNotFound. The page row stays locked until the revision is
+// written, so concurrent saves cannot interleave their history.
 func (r *WikiRepository) Update(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, page *domain.WikiPage, expectedVersion int) error {
 	if !scope.Valid() {
 		return ErrWikiPageNotFound
 	}
-	query := `UPDATE wiki_pages SET title = $4, content = $5, updated_by = $6, version = wiki_pages.version + 1, updated_at = NOW()
-		WHERE ` + wikiPageInScope(ctx, scope) + ` AND wiki_pages.id = $3 AND wiki_pages.version = $7
-		RETURNING version, updated_at, (SELECT wiki_editor.name FROM users wiki_editor WHERE wiki_editor.id = wiki_pages.updated_by)`
-	err := r.db.QueryRowContext(ctx, query, workspaceID, scope.ID, page.ID, page.Title, page.Content, page.UpdatedBy, expectedVersion).
-		Scan(&page.Version, &page.UpdatedAt, &page.UpdatedByName)
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var before struct {
+		Title   string `db:"title"`
+		Content string `db:"content"`
+		Version int    `db:"version"`
+	}
+	err = tx.GetContext(ctx, &before, `SELECT wiki_pages.title, wiki_pages.content, wiki_pages.version FROM wiki_pages
+		WHERE `+wikiPageInScope(ctx, scope)+` AND wiki_pages.id = $3 FOR UPDATE OF wiki_pages`, workspaceID, scope.ID, page.ID)
 	if errors.Is(err, sql.ErrNoRows) {
-		if _, getErr := r.Get(ctx, workspaceID, scope, page.ID); getErr != nil {
-			return getErr
-		}
+		return ErrWikiPageNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if before.Version != expectedVersion {
 		return ErrWikiVersionConflict
 	}
+
+	query := `UPDATE wiki_pages SET title = $4, content = $5, updated_by = $6, version = wiki_pages.version + 1, updated_at = NOW()
+		WHERE ` + wikiPageInScope(ctx, scope) + ` AND wiki_pages.id = $3
+		RETURNING version, updated_at, (SELECT wiki_editor.name FROM users wiki_editor WHERE wiki_editor.id = wiki_pages.updated_by)`
+	err = tx.QueryRowContext(ctx, query, workspaceID, scope.ID, page.ID, page.Title, page.Content, page.UpdatedBy).
+		Scan(&page.Version, &page.UpdatedAt, &page.UpdatedByName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrWikiPageNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if before.Title != page.Title || before.Content != page.Content {
+		if err := recordWikiRevision(ctx, tx, page, before.Title, before.Content); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// recordWikiRevision extends the page's latest revision when the same person
+// made it within WikiRevisionMergeWindow, and otherwise starts a new one.
+func recordWikiRevision(ctx context.Context, tx *sqlx.Tx, page *domain.WikiPage, oldTitle, oldContent string) error {
+	result, err := tx.ExecContext(ctx, `UPDATE wiki_page_versions SET new_title = $2, new_content = $3, version = $4, updated_at = NOW()
+		WHERE id = (SELECT latest.id FROM wiki_page_versions latest WHERE latest.page_id = $1 ORDER BY latest.updated_at DESC, latest.id DESC LIMIT 1)
+		AND edited_by = $5 AND updated_at > NOW() - make_interval(secs => $6)`,
+		page.ID, page.Title, page.Content, page.Version, page.UpdatedBy, domain.WikiRevisionMergeWindow.Seconds())
+	if err != nil {
+		return err
+	}
+	if merged, err := result.RowsAffected(); err != nil || merged > 0 {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO wiki_page_versions (page_id, version, old_title, new_title, old_content, new_content, edited_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		page.ID, page.Version, oldTitle, page.Title, oldContent, page.Content, page.UpdatedBy)
 	return err
+}
+
+// wikiRevisionLimit caps how much history one request returns.
+const wikiRevisionLimit = 100
+
+// ListRevisions returns a visible page's most recent revisions, newest first.
+func (r *WikiRepository) ListRevisions(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) ([]domain.WikiRevision, error) {
+	if _, err := r.Get(ctx, workspaceID, scope, pageID); err != nil {
+		return nil, err
+	}
+	revisions := []domain.WikiRevision{}
+	query := `SELECT wiki_revision.id, wiki_revision.page_id, wiki_revision.version, wiki_revision.old_title, wiki_revision.new_title,
+		wiki_revision.old_content, wiki_revision.new_content, wiki_revision.edited_by, wiki_editor.name AS edited_by_name,
+		wiki_revision.created_at, wiki_revision.updated_at
+		FROM wiki_page_versions wiki_revision
+		JOIN wiki_pages ON wiki_pages.id = wiki_revision.page_id
+		LEFT JOIN users wiki_editor ON wiki_editor.id = wiki_revision.edited_by
+		WHERE ` + wikiPageInScope(ctx, scope) + ` AND wiki_pages.id = $3
+		ORDER BY wiki_revision.updated_at DESC, wiki_revision.id DESC LIMIT ` + strconv.Itoa(wikiRevisionLimit)
+	err := r.db.SelectContext(ctx, &revisions, query, workspaceID, scope.ID, pageID)
+	return revisions, err
 }
 
 func (r *WikiRepository) Delete(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) error {

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 )
@@ -31,11 +32,48 @@ func (e *WikiValidationError) Error() string { return e.Field + ": " + e.Message
 // enforced by the repository for every operation, using the caller's access
 // in the request context; the scope always comes from the route.
 type WikiService struct {
-	repo repository.WikiRepo
+	repo   repository.WikiRepo
+	events WikiEvents
 }
 
-func NewWikiService(repo repository.WikiRepo) *WikiService {
-	return &WikiService{repo: repo}
+// WikiEvents receives realtime events; the hub withholds them from members
+// of workspaces with private teams, who get a generic refresh instead.
+type WikiEvents interface {
+	Broadcast(workspaceID uuid.UUID, event realtime.Event)
+}
+
+// WikiEventPayload tells open wikis that a page changed. It carries no title
+// or content: clients reload the page through the API, which checks access.
+type WikiEventPayload struct {
+	ID        string  `json:"id"`
+	TeamID    *string `json:"team_id"`
+	ProjectID *string `json:"project_id"`
+	Version   int     `json:"version"`
+	UpdatedBy *string `json:"updated_by"`
+}
+
+func NewWikiService(repo repository.WikiRepo, events ...WikiEvents) *WikiService {
+	svc := &WikiService{repo: repo}
+	if len(events) > 0 {
+		svc.events = events[0]
+	}
+	return svc
+}
+
+func (s *WikiService) publish(kind string, page *domain.WikiPage) {
+	if s.events == nil {
+		return
+	}
+	payload := WikiEventPayload{ID: page.ID.String(), Version: page.Version, TeamID: uuidString(page.TeamID), ProjectID: uuidString(page.ProjectID), UpdatedBy: uuidString(page.UpdatedBy)}
+	s.events.Broadcast(page.WorkspaceID, realtime.Event{Type: kind, Payload: payload})
+}
+
+func uuidString(id *uuid.UUID) *string {
+	if id == nil {
+		return nil
+	}
+	value := id.String()
+	return &value
 }
 
 func (s *WikiService) List(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) ([]domain.WikiPage, error) {
@@ -72,6 +110,7 @@ func (s *WikiService) Create(ctx context.Context, workspaceID uuid.UUID, scope d
 	if err := s.repo.Create(ctx, page); err != nil {
 		return nil, wikiError(err)
 	}
+	s.publish("wiki.created", page)
 	return page, nil
 }
 
@@ -101,11 +140,28 @@ func (s *WikiService) Update(ctx context.Context, workspaceID uuid.UUID, scope d
 	if err := s.repo.Update(ctx, workspaceID, scope, page, req.Version); err != nil {
 		return nil, wikiError(err)
 	}
+	s.publish("wiki.updated", page)
 	return page, nil
 }
 
-func (s *WikiService) Delete(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) error {
-	return wikiError(s.repo.Delete(ctx, workspaceID, scope, pageID))
+func (s *WikiService) Delete(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID, userID uuid.UUID) error {
+	if err := s.repo.Delete(ctx, workspaceID, scope, pageID); err != nil {
+		return wikiError(err)
+	}
+	page := &domain.WikiPage{ID: pageID, WorkspaceID: workspaceID, UpdatedBy: &userID}
+	if scope.Kind == domain.WikiScopeTeam {
+		page.TeamID = &scope.ID
+	} else {
+		page.ProjectID = &scope.ID
+	}
+	s.publish("wiki.deleted", page)
+	return nil
+}
+
+// Revisions returns the recorded changes of a visible page, newest first.
+func (s *WikiService) Revisions(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) ([]domain.WikiRevision, error) {
+	revisions, err := s.repo.ListRevisions(ctx, workspaceID, scope, pageID)
+	return revisions, wikiError(err)
 }
 
 func wikiTitle(raw string) (string, error) {

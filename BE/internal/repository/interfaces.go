@@ -275,6 +275,7 @@ type WikiRepo interface {
 	Create(ctx context.Context, page *domain.WikiPage) error
 	Update(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, page *domain.WikiPage, expectedVersion int) error
 	Delete(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) error
+	ListRevisions(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) ([]domain.WikiRevision, error)
 }
 
 var _ WikiRepo = (*WikiRepository)(nil)

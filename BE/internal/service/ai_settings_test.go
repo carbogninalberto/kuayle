@@ -4,10 +4,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -69,6 +73,29 @@ func TestDescriptionExpansionPromptIncludesDraftAndSelection(t *testing.T) {
 	blank := "   "
 	assert.NotContains(t, descriptionExpansionPrompt("Expand it.", "T", "", &blank), "Selected text")
 	assert.NotContains(t, descriptionExpansionPrompt("Expand it.", "T", "", nil), "Selected text")
+}
+
+// A wiki rework uses wiki instructions, not the workspace's issue prompt, and
+// asks only for the selection's replacement.
+func TestWikiReworkPromptAsksForTheSelectionOnly(t *testing.T) {
+	prompt := wikiReworkPrompt("Runbook", "<p>restart the api</p>", "  restart the api  ")
+	assert.True(t, strings.HasPrefix(prompt, WikiReworkInstructions))
+	assert.NotContains(t, prompt, "issue")
+	assert.Contains(t, prompt, "Page title:\nRunbook\n\nCurrent page content:\n<p>restart the api</p>")
+	assert.True(t, strings.HasSuffix(prompt, "not the whole page:\nrestart the api"))
+}
+
+func TestWikiReworkRequiresConfiguredAI(t *testing.T) {
+	svc := NewAISettingsService(&fakeAISettingsRepo{}, nil, nil, []byte("01234567890123456789012345678901"))
+	_, err := svc.ReworkWikiSelection(context.Background(), uuid.New(), "Runbook", "<p>x</p>", "x")
+	require.ErrorIs(t, err, ErrAISettingsNotConfigured)
+}
+
+// fakeAISettingsRepo stores nothing: every workspace has default settings.
+type fakeAISettingsRepo struct{ repository.AISettingsRepo }
+
+func (*fakeAISettingsRepo) GetByWorkspaceID(context.Context, uuid.UUID) (*domain.AISettings, error) {
+	return nil, nil
 }
 
 func TestDraftDescriptionExpansionRequiresConfiguredAI(t *testing.T) {

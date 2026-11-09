@@ -62,11 +62,12 @@ func TestWikiHTTPAccessAndPersistence(t *testing.T) {
 	teams := repository.NewTeamRepository(db)
 	tokens := repository.NewPersonalAccessTokenRepository(db)
 	hub := realtime.NewHub(workspaces.RealtimeAccess)
+	ai := &fakeWikiAI{}
 	handlers := &appHandlers{
 		workspace: handler.NewWorkspaceHandler(service.NewWorkspaceService(workspaces, users, hub)),
 		team:      handler.NewTeamHandler(service.NewTeamService(teams, repository.NewTeamStatusRepository(db), hub)),
 		project:   handler.NewProjectHandler(service.NewProjectService(repository.NewProjectRepository(db))),
-		wiki:      handler.NewWikiHandler(service.NewWikiService(repository.NewWikiRepository(db))),
+		wiki:      handler.NewWikiHandler(service.NewWikiService(repository.NewWikiRepository(db)), ai),
 	}
 	secret := "wiki-http-test-secret"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
@@ -181,6 +182,46 @@ func TestWikiHTTPAccessAndPersistence(t *testing.T) {
 	require.Equal(t, "<p>Second draft</p>", reopened.Content)
 	require.Equal(t, 2, reopened.Version)
 
+	// Each save is recorded as a revision; saves by the same person in quick
+	// succession (autosave) extend one revision instead of adding rows.
+	type revision struct {
+		Version      int     `json:"version"`
+		OldTitle     string  `json:"old_title"`
+		NewTitle     string  `json:"new_title"`
+		OldContent   string  `json:"old_content"`
+		NewContent   string  `json:"new_content"`
+		EditedByName *string `json:"edited_by_name"`
+	}
+	var revisions []revision
+	decode(request(guestJWT, "GET", pagePath+"/versions", "", http.StatusOK), &revisions)
+	require.Len(t, revisions, 1)
+	require.Equal(t, revision{Version: 2, OldTitle: "Releases", NewTitle: "Releases", OldContent: `<h2>Release checklist</h2><ul><li><p>Tag</p></li></ul>`, NewContent: "<p>Second draft</p>", EditedByName: revisions[0].EditedByName}, revisions[0])
+	request(ownerJWT, "PATCH", pagePath, `{"title":"Release guide","version":2}`, http.StatusOK)
+	decode(request(guestJWT, "GET", pagePath+"/versions", "", http.StatusOK), &revisions)
+	require.Len(t, revisions, 1, "the owner's quick follow-up joins their revision")
+	require.Equal(t, 3, revisions[0].Version)
+	require.Equal(t, "Releases", revisions[0].OldTitle)
+	require.Equal(t, "Release guide", revisions[0].NewTitle)
+	require.Equal(t, "<p>Second draft</p>", revisions[0].NewContent)
+	request(memberJWT, "PATCH", pagePath, `{"title":"Release guide","version":3}`, http.StatusOK)
+	decode(request(guestJWT, "GET", pagePath+"/versions", "", http.StatusOK), &revisions)
+	require.Len(t, revisions, 1, "a save that changes nothing records nothing")
+	request(memberJWT, "PATCH", pagePath, `{"title":"Releases","version":4}`, http.StatusOK)
+	decode(request(guestJWT, "GET", pagePath+"/versions", "", http.StatusOK), &revisions)
+	require.Len(t, revisions, 2, "another editor starts a new revision")
+	require.Equal(t, revision{Version: 5, OldTitle: "Release guide", NewTitle: "Releases", OldContent: "<p>Second draft</p>", NewContent: "<p>Second draft</p>", EditedByName: revisions[0].EditedByName}, revisions[0])
+	require.Equal(t, 3, revisions[1].Version)
+
+	// AI rework reads the stored page; guests cannot write, so they cannot ask.
+	request(guestJWT, "POST", pagePath+"/rework", `{"selected_text":"Second draft"}`, http.StatusForbidden)
+	request(memberJWT, "POST", pagePath+"/rework", `{"selected_text":""}`, http.StatusBadRequest)
+	var reworked struct {
+		Description string `json:"description"`
+	}
+	decode(request(memberJWT, "POST", pagePath+"/rework", `{"selected_text":"Second draft"}`, http.StatusOK), &reworked)
+	require.Equal(t, "<p>Reworked</p>", reworked.Description)
+	require.Equal(t, []string{"Releases", "<p>Second draft</p>", "Second draft"}, ai.calls[0])
+
 	// Private team and private-team project wikis are invisible to non-members,
 	// for reads and writes alike; the response does not reveal that they exist.
 	privatePage := created(request(ownerJWT, "POST", privateWiki, `{"title":"Secrets","content":"<p>classified</p>"}`, http.StatusCreated))
@@ -192,6 +233,8 @@ func TestWikiHTTPAccessAndPersistence(t *testing.T) {
 	}
 	for _, path := range []string{privateWiki + "/" + privatePage, privateProjectWiki + "/" + privateProjectPage} {
 		request(memberJWT, "GET", path, "", http.StatusNotFound)
+		request(memberJWT, "GET", path+"/versions", "", http.StatusNotFound)
+		request(memberJWT, "POST", path+"/rework", `{"selected_text":"classified"}`, http.StatusNotFound)
 		request(memberJWT, "PATCH", path, `{"title":"Defaced","version":1}`, http.StatusNotFound)
 		request(memberJWT, "DELETE", path, "", http.StatusNotFound)
 	}
@@ -209,6 +252,8 @@ func TestWikiHTTPAccessAndPersistence(t *testing.T) {
 	request(ownerJWT, "PATCH", privateWiki+"/"+createdPage.ID, `{"title":"Moved","version":2}`, http.StatusNotFound)
 	request(ownerJWT, "GET", projectWiki+"/"+createdPage.ID, "", http.StatusNotFound)
 	request(ownerJWT, "GET", teamWiki+"/"+projectPage, "", http.StatusNotFound)
+	request(ownerJWT, "GET", privateWiki+"/"+createdPage.ID+"/versions", "", http.StatusNotFound)
+	require.Len(t, ai.calls, 1, "denied rework requests never reach the model")
 	request(ownerJWT, "GET", base+"/projects/"+publicTeam+"/wiki", "", http.StatusNotFound)
 	decode(request(ownerJWT, "GET", projectWiki, "", http.StatusOK), &listed)
 	require.Len(t, listed, 1)
@@ -234,4 +279,12 @@ func TestWikiHTTPAccessAndPersistence(t *testing.T) {
 	request(ownerJWT, "DELETE", base+"/teams/"+privateTeam, "", http.StatusOK)
 	require.NoError(t, db.Get(&count, `SELECT COUNT(*) FROM wiki_pages WHERE team_id=$1`, privateTeam))
 	require.Zero(t, count)
+}
+
+// fakeWikiAI records rework requests instead of calling a model.
+type fakeWikiAI struct{ calls [][]string }
+
+func (f *fakeWikiAI) ReworkWikiSelection(_ context.Context, _ uuid.UUID, title, content, selected string) (string, error) {
+	f.calls = append(f.calls, []string{title, content, selected})
+	return "<p>Reworked</p>", nil
 }

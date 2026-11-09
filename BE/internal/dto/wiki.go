@@ -34,3 +34,22 @@ type WikiPageResponse struct {
 	Content   string  `json:"content"`
 	CreatedBy *string `json:"created_by"`
 }
+
+// WikiReworkRequest asks the AI model to rewrite selected text of a saved
+// page; the page itself is read from storage.
+type WikiReworkRequest struct {
+	SelectedText string `json:"selected_text" validate:"required,max=8000"`
+}
+
+type WikiRevisionResponse struct {
+	ID           string    `json:"id"`
+	Version      int       `json:"version"`
+	OldTitle     string    `json:"old_title"`
+	NewTitle     string    `json:"new_title"`
+	OldContent   string    `json:"old_content"`
+	NewContent   string    `json:"new_content"`
+	EditedBy     *string   `json:"edited_by"`
+	EditedByName *string   `json:"edited_by_name"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/require"
 )
@@ -90,6 +91,13 @@ func (f *fakeWikiRepo) Delete(ctx context.Context, ws uuid.UUID, scope domain.Wi
 	f.writes++
 	delete(f.pages, id)
 	return nil
+}
+
+func (f *fakeWikiRepo) ListRevisions(ctx context.Context, ws uuid.UUID, scope domain.WikiScope, id uuid.UUID) ([]domain.WikiRevision, error) {
+	if _, err := f.Get(ctx, ws, scope, id); err != nil {
+		return nil, err
+	}
+	return []domain.WikiRevision{{PageID: id, Version: 2}}, nil
 }
 
 func TestWikiServiceCreateAndReopenPreservesContent(t *testing.T) {
@@ -190,7 +198,7 @@ func TestWikiServiceKeepsScopesApart(t *testing.T) {
 		require.ErrorIs(t, err, ErrWikiNotFound, scope.String())
 		_, err = svc.Update(ctx, ws, scope, page.ID, uuid.New(), dto.UpdateWikiPageRequest{Title: ptr("x"), Version: 1})
 		require.ErrorIs(t, err, ErrWikiNotFound, scope.String())
-		require.ErrorIs(t, svc.Delete(ctx, ws, scope, page.ID), ErrWikiNotFound, scope.String())
+		require.ErrorIs(t, svc.Delete(ctx, ws, scope, page.ID, uuid.New()), ErrWikiNotFound, scope.String())
 	}
 	_, err = svc.Get(ctx, uuid.New(), teamA, page.ID)
 	require.ErrorIs(t, err, ErrWikiNotFound, "another workspace")
@@ -203,7 +211,15 @@ func TestWikiServiceKeepsScopesApart(t *testing.T) {
 	_, err = svc.Create(ctx, ws, hidden, uuid.New(), dto.CreateWikiPageRequest{Title: "Leak"})
 	require.ErrorIs(t, err, ErrWikiNotFound)
 
-	require.NoError(t, svc.Delete(ctx, ws, teamA, page.ID))
+	for _, scope := range []domain.WikiScope{teamB, project, hidden} {
+		_, err = svc.Revisions(ctx, ws, scope, page.ID)
+		require.ErrorIs(t, err, ErrWikiNotFound, scope.String())
+	}
+	revisions, err := svc.Revisions(ctx, ws, teamA, page.ID)
+	require.NoError(t, err)
+	require.Len(t, revisions, 1)
+
+	require.NoError(t, svc.Delete(ctx, ws, teamA, page.ID, uuid.New()))
 	_, err = svc.Get(ctx, ws, teamA, page.ID)
 	require.ErrorIs(t, err, ErrWikiNotFound)
 }
@@ -223,4 +239,36 @@ type failingWikiRepo struct {
 
 func (f failingWikiRepo) List(context.Context, uuid.UUID, domain.WikiScope) ([]domain.WikiPage, error) {
 	return nil, f.err
+}
+
+type recordedWikiEvents struct{ events []realtime.Event }
+
+func (r *recordedWikiEvents) Broadcast(_ uuid.UUID, event realtime.Event) {
+	r.events = append(r.events, event)
+}
+
+// Open wikis learn about changes, but events never carry page text: clients
+// reload through the API, which applies visibility.
+func TestWikiServicePublishesChangesWithoutContent(t *testing.T) {
+	ctx, ws, user := context.Background(), uuid.New(), uuid.New()
+	team := domain.TeamWiki(uuid.New())
+	events := &recordedWikiEvents{}
+	svc := NewWikiService(newFakeWikiRepo(team), events)
+
+	page, err := svc.Create(ctx, ws, team, user, dto.CreateWikiPageRequest{Title: "Secret plan", Content: "<p>classified</p>"})
+	require.NoError(t, err)
+	_, err = svc.Update(ctx, ws, team, page.ID, user, dto.UpdateWikiPageRequest{Content: ptr("<p>v2</p>"), Version: 1})
+	require.NoError(t, err)
+	_, err = svc.Update(ctx, ws, team, page.ID, user, dto.UpdateWikiPageRequest{Content: ptr("<p>stale</p>"), Version: 1})
+	require.ErrorIs(t, err, ErrWikiConflict)
+	require.NoError(t, svc.Delete(ctx, ws, team, page.ID, user))
+
+	require.Len(t, events.events, 3, "failed writes publish nothing")
+	for i, kind := range []string{"wiki.created", "wiki.updated", "wiki.deleted"} {
+		require.Equal(t, kind, events.events[i].Type)
+		payload := events.events[i].Payload.(WikiEventPayload)
+		require.Equal(t, page.ID.String(), payload.ID)
+		require.Equal(t, team.ID.String(), *payload.TeamID)
+	}
+	require.Equal(t, 2, events.events[1].Payload.(WikiEventPayload).Version)
 }
