@@ -25,16 +25,16 @@ Full guide: [docs/cli.md](../docs/cli.md).
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/uiYzzi/kuayle_cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/carbogninalberto/kuayle/main/CLI/install.sh | sh
 ```
 
 Windows (PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/uiYzzi/kuayle_cli/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/carbogninalberto/kuayle/main/CLI/install.ps1 | iex
 ```
 
-Or via cargo: `cargo install --git https://github.com/uiYzzi/kuayle_cli kuayle`
+Or via cargo: `cargo install --git https://github.com/carbogninalberto/kuayle kuayle`
 
 Shell completions: `kuayle completion <bash|zsh|fish>`
 
@@ -66,7 +66,7 @@ kuayle auth login --token "$KUAYLE_TOKEN"
 Install the bundled agent skill ([skills](https://skills.sh) compatible):
 
 ```sh
-npx skills add uiYzzi/kuayle_cli
+npx skills add carbogninalberto/kuayle --skill kuayle
 ```
 
 Or add these lines to your agent's context file (`CLAUDE.md`, `AGENTS.md`, system prompt, etc.):

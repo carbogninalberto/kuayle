@@ -78,7 +78,7 @@ their API accepts only signed-in browser sessions, not access tokens.
 
 ## Agents
 
-Install the bundled skill with `npx skills add carbogninalberto/kuayle`, or add
+Install the bundled skill with `npx skills add carbogninalberto/kuayle --skill kuayle`, or add
 to your agent instructions: "Use the `kuayle` CLI to work with our Kuayle
 tracker. Run `kuayle usage` for the command reference and prefer `--format json`."
 

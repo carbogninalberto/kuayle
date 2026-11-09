@@ -24,16 +24,16 @@
 macOS / Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/uiYzzi/kuayle_cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/carbogninalberto/kuayle/main/CLI/install.sh | sh
 ```
 
 Windows(PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/uiYzzi/kuayle_cli/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/carbogninalberto/kuayle/main/CLI/install.ps1 | iex
 ```
 
-或通过 cargo:`cargo install --git https://github.com/uiYzzi/kuayle_cli kuayle`
+或通过 cargo:`cargo install --git https://github.com/carbogninalberto/kuayle kuayle`
 
 Shell 补全:`kuayle completion <bash|zsh|fish>`
 
@@ -65,7 +65,7 @@ kuayle auth login --token "$KUAYLE_TOKEN"
 安装内置的 agent skill(兼容 [skills](https://skills.sh)):
 
 ```sh
-npx skills add uiYzzi/kuayle_cli
+npx skills add carbogninalberto/kuayle --skill kuayle
 ```
 
 或者把下面几行加入 agent 的上下文文件(`CLAUDE.md`、`AGENTS.md`、system prompt 等):
