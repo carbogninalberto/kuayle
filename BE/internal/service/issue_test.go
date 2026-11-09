@@ -2,6 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +18,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"nhooyr.io/websocket"
 )
 
 // --- Mocks ---
@@ -881,4 +887,84 @@ func TestIssueService_BulkUpdate_ProjectNotifiesRecipientsOncePerUser(t *testing
 	assert.Equal(t, 2, updated)
 	notifRepo.AssertNumberOfCalls(t, "CreateOrRefresh", 1) // the actor is never notified
 	notifRepo.AssertExpectations(t)
+}
+
+func TestIssueService_BulkUpdate_ProjectFailureStillSignalsMovedIssues(t *testing.T) {
+	issueRepo := new(mockIssueRepo)
+	historyRepo := new(mockIssueHistoryRepo)
+	notifRepo := new(mockNotificationRepo)
+	hub := realtime.NewHub(func(context.Context, uuid.UUID, uuid.UUID) (bool, bool, error) { return true, false, nil })
+	svc := NewIssueService(issueRepo, new(mockTeamRepo), new(mockTeamStatusRepo), historyRepo, hub, NewNotificationService(notifRepo))
+
+	ctx := context.Background()
+	wsID, actorID, creatorID, teamID, projectID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	movedID, failedID := uuid.New(), uuid.New()
+	moved := &domain.Issue{ID: movedID, WorkspaceID: wsID, TeamID: teamID, CreatorID: creatorID}
+	failed := &domain.Issue{ID: failedID, WorkspaceID: wsID, TeamID: teamID, CreatorID: uuid.New()}
+	projectString := projectID.String()
+	updateFailure := errors.New("update failed")
+
+	for _, issue := range []*domain.Issue{moved, failed} {
+		issueRepo.On("GetByID", ctx, issue.ID).Return(issue, nil)
+		issueRepo.On("GetLabels", ctx, issue.ID).Return([]domain.Label{}, nil)
+		issueRepo.On("GetAssignees", ctx, issue.ID).Return([]uuid.UUID{}, nil)
+	}
+	issueRepo.On("Update", mock.Anything, moved).Return(nil)
+	issueRepo.On("Update", mock.Anything, failed).Return(updateFailure)
+	historyRepo.On("Create", ctx, movedID, actorID, "project", mock.Anything, mock.Anything).Return(nil).Once()
+	notifRepo.On("CreateOrRefresh", ctx, mock.MatchedBy(func(n *domain.Notification) bool {
+		return n.UserID == creatorID && n.Title == "1 issues updated: project"
+	}), mock.Anything).Return(nil).Once()
+
+	// A real websocket client observes what the hub publishes to the workspace.
+	registered := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		client := hub.Register(conn, wsID, actorID)
+		close(registered)
+		hub.WritePump(r.Context(), client)
+	}))
+	defer server.Close()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	assert.NoError(t, err)
+	defer conn.CloseNow()
+	<-registered
+
+	updated, err := svc.BulkUpdate(ctx, wsID, actorID, dto.BulkUpdateIssueRequest{
+		IssueIDs:  []string{movedID.String(), failedID.String()},
+		ProjectID: &projectString,
+	})
+
+	assert.ErrorIs(t, err, updateFailure)
+	assert.Equal(t, 1, updated)
+	notifRepo.AssertNumberOfCalls(t, "CreateOrRefresh", 1)
+	historyRepo.AssertNumberOfCalls(t, "Create", 1)
+	// Events arrive in order: issue.updated for the moved issue, then the bulk event.
+	// Nothing is published for the issue whose update failed.
+	readCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	for _, wantType := range []string{"issue.updated", "issues.bulk_updated"} {
+		_, data, err := conn.Read(readCtx)
+		if !assert.NoError(t, err) {
+			return
+		}
+		var event struct {
+			Type    string          `json:"type"`
+			Payload json.RawMessage `json:"payload"`
+		}
+		assert.NoError(t, json.Unmarshal(data, &event))
+		assert.Equal(t, wantType, event.Type)
+		if wantType == "issue.updated" {
+			assert.Contains(t, string(event.Payload), movedID.String())
+		} else {
+			assert.JSONEq(t, `{"count":1}`, string(event.Payload))
+		}
+	}
+	shortCtx, shortCancel := context.WithTimeout(ctx, 150*time.Millisecond)
+	defer shortCancel()
+	_, _, err = conn.Read(shortCtx)
+	assert.Error(t, err, "no further events")
 }

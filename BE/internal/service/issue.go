@@ -1192,6 +1192,7 @@ func (s *IssueService) bulkUpdateProject(ctx context.Context, workspaceID, userI
 		newVal = projectID.String()
 	}
 	updated := 0
+	var updateErr error
 	recipientCounts := make(map[uuid.UUID]int)
 	recipientTeams := make(map[uuid.UUID][]uuid.UUID)
 	for _, issue := range issues {
@@ -1205,7 +1206,9 @@ func (s *IssueService) bulkUpdateProject(ctx context.Context, workspaceID, userI
 		labelsBefore := s.labelSnapshot(ctx, issue.ID)
 		issue.ProjectID = projectID
 		if err := s.issueRepo.Update(repository.WithIssueHistoryActor(ctx, userID), issue); err != nil {
-			return updated, err
+			// Earlier issues are already committed: still signal them below.
+			updateErr = err
+			break
 		}
 		s.recordHistory(ctx, issue.ID, userID, "project", &old, &newVal)
 		s.recordLabelChange(ctx, issue.ID, userID, labelsBefore)
@@ -1227,7 +1230,7 @@ func (s *IssueService) bulkUpdateProject(ctx context.Context, workspaceID, userI
 		title := fmt.Sprintf("%d issues updated: project", count)
 		s.notifyWorkspace(ctx, workspaceID, uid, "issues_updated", title, true, recipientTeams[uid]...)
 	}
-	return updated, nil
+	return updated, updateErr
 }
 
 func (s *IssueService) applyStatusAutomation(ctx context.Context, workspaceID, actorID uuid.UUID, issue *domain.Issue, visited map[uuid.UUID]bool) {
