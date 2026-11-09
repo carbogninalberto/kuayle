@@ -13,14 +13,20 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 )
 
-// assistantWiki is the wiki service as the assistant uses it. Every call
-// applies the conversation creator's visibility of the wiki's team or project.
+// assistantWiki is the wiki service as the assistant uses it: the same
+// methods as the HTTP routes. Every call applies the conversation creator's
+// visibility of the wiki's team or project.
 type assistantWiki interface {
 	List(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) ([]domain.WikiPage, error)
 	Get(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) (*domain.WikiPage, error)
 	Create(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, req dto.CreateWikiPageRequest) (*domain.WikiPage, error)
 	Update(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID, userID uuid.UUID, req dto.UpdateWikiPageRequest) (*domain.WikiPage, error)
+	Delete(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID, userID uuid.UUID) error
+	Revisions(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) ([]domain.WikiRevision, error)
 	AppendRegistry(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, text string) (*domain.WikiPage, error)
+	Settings(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) (domain.WikiSettings, error)
+	UpdateSettings(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, registry *bool, schedule *domain.WikiOverviewSchedule) (domain.WikiSettings, error)
+	GenerateOverview(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID *uuid.UUID, start, end time.Time, trigger string) (*domain.WikiOverview, error)
 }
 
 type assistantProjects interface {
@@ -34,46 +40,69 @@ func (t *AssistantTools) SetWiki(wiki assistantWiki, projects assistantProjects)
 
 const wikiScopeParams = `"team_key":{"type":"string","maxLength":16,"description":"Key of the team whose wiki to use (see list_teams)."},"project":{"type":"string","maxLength":200,"description":"Name or ID of the project whose wiki to use, instead of team_key."}`
 
-// assistantWikiReadContentRunes bounds a page's text in get_wiki_page.
-const assistantWikiReadContentRunes = 12000
+const (
+	// assistantWikiReadContentRunes bounds a page's text in get_wiki_page.
+	assistantWikiReadContentRunes = 12000
+	assistantWikiWriteRunes       = 16000
+)
+
+// Destructive wiki actions; each always asks the user, whatever else the
+// workspace lets the assistant do on its own.
+const (
+	wikiDeleteAction          = "delete_wiki_page"
+	wikiRestoreAction         = "restore_wiki_page_version"
+	wikiDisableRegistryAction = "disable_wiki_registry"
+)
 
 var assistantWikiToolCatalog = []assistantTool{
 	{name: "list_wiki_pages", wiki: true, description: "List the pages of a team's or project's wiki the user can see, newest first, with their IDs and versions. Registry pages (the wiki's daily log) carry registry_date. Give team_key or project.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `},"additionalProperties":false}`},
-	{name: "get_wiki_page", wiki: true, description: "Read one wiki page as text, with its version (needed to update it). Give team_key or project and the page_id from list_wiki_pages.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36}},"required":["page_id"],"additionalProperties":false}`},
+	{name: "get_wiki_page", wiki: true, description: "Read one wiki page as text, with its headings and its version (needed to change it). Give team_key or project and the page_id from list_wiki_pages.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36}},"required":["page_id"],"additionalProperties":false}`},
+	{name: "list_wiki_page_versions", wiki: true, description: "List a wiki page's recorded changes, newest first: version_id, version, who and when, and the title before and after. Use a version_id with restore_wiki_page_version.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36}},"required":["page_id"],"additionalProperties":false}`},
 	{name: "create_wiki_page", wiki: true, write: true, description: "Create a page in a team's or project's wiki. content is Markdown or simple HTML. Only call this when the user asked to write to the wiki.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"title":{"type":"string","minLength":1,"maxLength":200},"content":{"type":"string","maxLength":16000}},"required":["title"],"additionalProperties":false}`},
-	{name: "update_wiki_page", wiki: true, write: true, description: "Change a wiki page: a new title, and content (Markdown or simple HTML) that replaces the page (mode \"replace\", needs the version from get_wiki_page) or is added at its end (mode \"append\"). A stale version fails because someone else changed the page: read it again. Only call this when the user asked to change the page.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36},"title":{"type":"string","minLength":1,"maxLength":200},"content":{"type":"string","maxLength":16000},"mode":{"type":"string","enum":["replace","append"]},"version":{"type":"integer","minimum":1}},"required":["page_id"],"additionalProperties":false}`},
+	{name: "update_wiki_page", wiki: true, write: true, description: "Change a wiki page. title renames it. content (Markdown or simple HTML) is applied by mode: \"replace\" replaces the whole page, \"append\" adds it at the end, \"replace_section\" replaces what is under heading (up to the next heading of its level), \"insert_after_heading\" inserts it right after heading. version is the version from get_wiki_page; it is required for replace and recommended otherwise. If the page changed since, the call fails as a conflict: read the page again and redo the change, never retry blindly. Only call this when the user asked to change the page.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36},"title":{"type":"string","minLength":1,"maxLength":200},"content":{"type":"string","maxLength":16000},"mode":{"type":"string","enum":["replace","append","replace_section","insert_after_heading"]},"heading":{"type":"string","maxLength":200},"version":{"type":"integer","minimum":1}},"required":["page_id"],"additionalProperties":false}`},
+	{name: wikiDeleteAction, wiki: true, approval: true, description: "Ask the user to approve deleting a wiki page. Nothing is deleted until the user approves in Kuayle. Only call this when the user asked to delete the page.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36}},"required":["page_id"],"additionalProperties":false}`},
+	{name: wikiRestoreAction, wiki: true, approval: true, description: "Ask the user to approve restoring a wiki page to a recorded version: the state after that change (state \"after\", the default) or before it (\"before\"). It replaces the page's current title and content once the user approves, and fails as a conflict if the page changed after you asked. Only call this when the user asked to restore.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36},"version_id":{"type":"string","maxLength":36},"state":{"type":"string","enum":["after","before"]}},"required":["page_id","version_id"],"additionalProperties":false}`},
 	{name: "append_wiki_registry", wiki: true, write: true, description: "Add one short plain-text line to today's page of a wiki's registry, the team's or project's daily log of what happened (for example \"KUA-20 implemented, PR #161 opened\"). Kuayle adds the time and picks today's page. Only works when the wiki's registry is turned on; use it when the user asks to log something or after finishing work they asked you to record.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"text":{"type":"string","minLength":1,"maxLength":2000}},"required":["text"],"additionalProperties":false}`},
+	{name: "manage_wiki_registry", wiki: true, write: true, description: "Manage a wiki's registry. action \"status\" reads whether it is on and its overview schedule; \"enable\" turns it on; \"set_overview_schedule\" saves when AI overviews are generated (frequency daily or weekly, weekday 0=Sunday..6, time HH:MM UTC, period_days 1..31, enabled); \"generate_overview\" summarises period_start..period_end (YYYY-MM-DD, at most 31 days) now with the workspace's AI settings. Turning the registry off is disable_wiki_registry. Only change settings when the user asked.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"action":{"type":"string","enum":["status","enable","set_overview_schedule","generate_overview"]},"enabled":{"type":"boolean"},"frequency":{"type":"string","enum":["daily","weekly"]},"weekday":{"type":"integer","minimum":0,"maximum":6},"time":{"type":"string","maxLength":5},"period_days":{"type":"integer","minimum":1,"maximum":31},"period_start":{"type":"string","maxLength":10},"period_end":{"type":"string","maxLength":10}},"required":["action"],"additionalProperties":false}`},
+	{name: wikiDisableRegistryAction, wiki: true, approval: true, description: "Ask the user to approve turning a wiki's registry off; agents and the assistant then cannot log to it. Existing registry pages stay. Only call this when the user asked.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `},"additionalProperties":false}`},
+}
+
+// wikiToolScopeInput addresses a team wiki by key or a project wiki by name or ID.
+type wikiToolScopeInput struct {
+	TeamKey string `json:"team_key"`
+	Project string `json:"project"`
 }
 
 // wikiToolScope resolves team_key or project among the teams and projects
 // the user can see; anything else, hidden or missing, gives the same answer.
-func (t *AssistantTools) wikiToolScope(ctx context.Context, ws uuid.UUID, teamKey, project string) (domain.WikiScope, error) {
-	teamKey, project = strings.TrimSpace(teamKey), strings.TrimSpace(project)
+// It also returns the name shown on approval cards.
+func (t *AssistantTools) wikiToolScope(ctx context.Context, ws uuid.UUID, input wikiToolScopeInput) (domain.WikiScope, string, error) {
+	teamKey, project := strings.TrimSpace(input.TeamKey), strings.TrimSpace(input.Project)
 	if (teamKey == "") == (project == "") {
-		return domain.WikiScope{}, toolFailure("give either team_key or project")
+		return domain.WikiScope{}, "", toolFailure("give either team_key or project")
 	}
 	if teamKey != "" {
 		teams, err := t.teams.ListByWorkspace(ctx, ws)
 		if err != nil {
-			return domain.WikiScope{}, err
+			return domain.WikiScope{}, "", err
 		}
 		for _, team := range teams {
 			if strings.EqualFold(team.Key, teamKey) {
-				return domain.TeamWiki(team.ID), nil
+				return domain.TeamWiki(team.ID), team.Key, nil
 			}
 		}
-		return domain.WikiScope{}, toolFailure("team %q is not available; call list_teams", truncateRunes(teamKey, 16))
+		return domain.WikiScope{}, "", toolFailure("team %q is not available; call list_teams", truncateRunes(teamKey, 16))
 	}
 	projects, err := t.wikiProjects.ListByWorkspace(ctx, ws)
 	if err != nil {
-		return domain.WikiScope{}, err
+		return domain.WikiScope{}, "", err
 	}
 	for _, p := range projects {
 		if p.ID.String() == strings.ToLower(project) || strings.EqualFold(p.Name, project) {
-			return domain.ProjectWiki(p.ID), nil
+			return domain.ProjectWiki(p.ID), p.Name, nil
 		}
 	}
-	return domain.WikiScope{}, toolFailure("project %q is not available", truncateRunes(project, 64))
+	return domain.WikiScope{}, "", toolFailure("project %q is not available", truncateRunes(project, 64))
 }
 
 func wikiToolFailure(err error, action string) error {
@@ -84,11 +113,15 @@ func wikiToolFailure(err error, action string) error {
 	case errors.Is(err, ErrWikiNotFound):
 		return toolFailure("wiki page not found")
 	case errors.Is(err, ErrWikiConflict):
-		return toolFailure("the page changed since you read it; call get_wiki_page and try again")
+		return toolFailure("conflict: the page changed since you read it; call get_wiki_page and redo the change on the current text")
 	case errors.Is(err, ErrWikiRegistryDisabled):
-		return toolFailure("the registry of this wiki is turned off; someone who can edit the wiki can turn it on in the wiki")
+		return toolFailure("the registry of this wiki is turned off; manage_wiki_registry with action enable turns it on")
+	case errors.Is(err, ErrNoRegistryEntries):
+		return toolFailure("nothing was logged in the registry for this period")
+	case errors.Is(err, ErrAISettingsNotConfigured), errors.Is(err, ErrAIProviderRequestFailed):
+		return toolFailure("%s", WikiOverviewErrorText(err))
 	}
-	return toolFailure("the wiki page could not be %s", action)
+	return toolFailure("the wiki could not be %s", action)
 }
 
 func wikiPageSummary(page domain.WikiPage) map[string]any {
@@ -99,48 +132,44 @@ func wikiPageSummary(page domain.WikiPage) map[string]any {
 	return summary
 }
 
+func wikiSettingsSummary(settings domain.WikiSettings) map[string]any {
+	s := settings.WikiOverviewSchedule
+	result := map[string]any{
+		"registry_enabled": settings.RegistryEnabled,
+		"overview_schedule": map[string]any{
+			"enabled": s.Enabled, "frequency": s.Frequency, "weekday": s.Weekday, "time": s.Time, "period_days": s.PeriodDays, "timezone": WikiOverviewTimezone.String(),
+		},
+	}
+	if settings.NextRunAt != nil {
+		result["overview_next_run_at"] = settings.NextRunAt.UTC().Format(time.RFC3339)
+	}
+	if settings.LastError != nil {
+		result["overview_last_error"] = *settings.LastError
+	}
+	return result
+}
+
+func parseWikiPageID(raw string) (uuid.UUID, error) {
+	id, err := uuid.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return uuid.Nil, toolFailure("wiki page not found")
+	}
+	return id, nil
+}
+
 // runWikiTool executes a wiki tool for the conversation creator, whose role
 // run has already checked for wiki:read (and wiki:write for writes).
 func (t *AssistantTools) runWikiTool(ctx context.Context, ws, user uuid.UUID, name, arguments string) (any, *uuid.UUID, error) {
-	var input struct {
-		TeamKey string  `json:"team_key"`
-		Project string  `json:"project"`
-		PageID  string  `json:"page_id"`
-		Title   *string `json:"title"`
-		Content *string `json:"content"`
-		Mode    string  `json:"mode"`
-		Version int     `json:"version"`
-		Text    string  `json:"text"`
-	}
-	if err := decodeToolInput(arguments, &input); err != nil {
-		return nil, nil, err
-	}
-	// Each tool accepts only its own fields.
-	allowed := map[string]bool{
-		"list_wiki_pages":      input.PageID == "" && input.Title == nil && input.Content == nil && input.Mode == "" && input.Version == 0 && input.Text == "",
-		"get_wiki_page":        input.Title == nil && input.Content == nil && input.Mode == "" && input.Version == 0 && input.Text == "",
-		"create_wiki_page":     input.PageID == "" && input.Mode == "" && input.Version == 0 && input.Text == "",
-		"update_wiki_page":     input.Text == "",
-		"append_wiki_registry": input.PageID == "" && input.Title == nil && input.Content == nil && input.Mode == "" && input.Version == 0,
-	}
-	if !allowed[name] {
-		return nil, nil, toolFailure("invalid arguments")
-	}
-	if input.Content != nil && utf8.RuneCountInString(*input.Content) > 16000 {
-		return nil, nil, toolFailure("content must be at most 16000 characters")
-	}
-	scope, err := t.wikiToolScope(ctx, ws, input.TeamKey, input.Project)
-	if err != nil {
-		return nil, nil, err
-	}
-	var pageID uuid.UUID
-	if name == "get_wiki_page" || name == "update_wiki_page" {
-		if pageID, err = uuid.Parse(strings.TrimSpace(input.PageID)); err != nil {
-			return nil, nil, toolFailure("wiki page not found")
-		}
-	}
 	switch name {
 	case "list_wiki_pages":
+		var input wikiToolScopeInput
+		if err := decodeToolInput(arguments, &input); err != nil {
+			return nil, nil, err
+		}
+		scope, _, err := t.wikiToolScope(ctx, ws, input)
+		if err != nil {
+			return nil, nil, err
+		}
 		pages, err := t.wiki.List(ctx, ws, scope)
 		if err != nil {
 			return nil, nil, wikiToolFailure(err, "listed")
@@ -150,66 +179,335 @@ func (t *AssistantTools) runWikiTool(ctx context.Context, ws, user uuid.UUID, na
 			result = append(result, wikiPageSummary(page))
 		}
 		return map[string]any{"pages": result}, nil, nil
-	case "get_wiki_page":
+	case "get_wiki_page", "list_wiki_page_versions":
+		var input struct {
+			wikiToolScopeInput
+			PageID string `json:"page_id"`
+		}
+		if err := decodeToolInput(arguments, &input); err != nil {
+			return nil, nil, err
+		}
+		scope, _, err := t.wikiToolScope(ctx, ws, input.wikiToolScopeInput)
+		if err != nil {
+			return nil, nil, err
+		}
+		pageID, err := parseWikiPageID(input.PageID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if name == "list_wiki_page_versions" {
+			revisions, err := t.wiki.Revisions(ctx, ws, scope, pageID)
+			if err != nil {
+				return nil, nil, wikiToolFailure(err, "read")
+			}
+			result := make([]map[string]any, 0, len(revisions))
+			for _, revision := range revisions {
+				entry := map[string]any{"version_id": revision.ID.String(), "version": revision.Version, "at": revision.UpdatedAt.UTC().Format(time.RFC3339), "title_before": revision.OldTitle, "title_after": revision.NewTitle, "content_changed": revision.OldContent != revision.NewContent}
+				if revision.EditedByName != nil {
+					entry["by"] = *revision.EditedByName
+				}
+				result = append(result, entry)
+			}
+			return map[string]any{"versions": result}, nil, nil
+		}
 		page, err := t.wiki.Get(ctx, ws, scope, pageID)
 		if err != nil {
 			return nil, nil, wikiToolFailure(err, "read")
 		}
 		result := wikiPageSummary(*page)
+		result["headings"] = wikiHeadings(page.Content)
 		result["content"] = truncateRunes(sanitize.StripHTML(page.Content), assistantWikiReadContentRunes)
 		return result, nil, nil
 	case "create_wiki_page":
-		if input.Title == nil {
-			return nil, nil, toolFailure("title is required")
+		var input struct {
+			wikiToolScopeInput
+			Title   string `json:"title"`
+			Content string `json:"content"`
 		}
-		request := dto.CreateWikiPageRequest{Title: *input.Title}
-		if input.Content != nil {
-			request.Content = *input.Content
+		if err := decodeToolInput(arguments, &input); err != nil {
+			return nil, nil, err
 		}
-		page, err := t.wiki.Create(ctx, ws, scope, user, request)
+		if utf8.RuneCountInString(input.Content) > assistantWikiWriteRunes {
+			return nil, nil, toolFailure("content must be at most 16000 characters")
+		}
+		scope, _, err := t.wikiToolScope(ctx, ws, input.wikiToolScopeInput)
+		if err != nil {
+			return nil, nil, err
+		}
+		page, err := t.wiki.Create(ctx, ws, scope, user, dto.CreateWikiPageRequest{Title: input.Title, Content: input.Content})
 		if err != nil {
 			return nil, nil, wikiToolFailure(err, "created")
 		}
 		return wikiPageSummary(*page), nil, nil
 	case "update_wiki_page":
-		request := dto.UpdateWikiPageRequest{Title: input.Title, Version: input.Version}
-		switch input.Mode {
-		case "", "replace":
-			if input.Content != nil {
-				request.Content = input.Content
-			}
-			if input.Version < 1 {
-				return nil, nil, toolFailure("version is required; read it with get_wiki_page")
-			}
-		case "append":
-			if input.Content == nil || strings.TrimSpace(*input.Content) == "" {
-				return nil, nil, toolFailure("content to append is required")
-			}
-			page, err := t.wiki.Get(ctx, ws, scope, pageID)
-			if err != nil {
-				return nil, nil, wikiToolFailure(err, "updated")
-			}
-			if request.Version < 1 {
-				request.Version = page.Version
-			}
-			// Convert the addition on its own so Markdown is not read as
-			// part of the page's HTML.
-			combined := page.Content + sanitize.SanitizeEditorContent(*input.Content)
-			request.Content = &combined
-		default:
-			return nil, nil, toolFailure("mode must be replace or append")
-		}
-		page, err := t.wiki.Update(ctx, ws, scope, pageID, user, request)
-		if err != nil {
-			return nil, nil, wikiToolFailure(err, "updated")
-		}
-		return wikiPageSummary(*page), nil, nil
+		return t.updateWikiPage(ctx, ws, user, arguments)
 	case "append_wiki_registry":
+		var input struct {
+			wikiToolScopeInput
+			Text string `json:"text"`
+		}
+		if err := decodeToolInput(arguments, &input); err != nil {
+			return nil, nil, err
+		}
+		scope, _, err := t.wikiToolScope(ctx, ws, input.wikiToolScopeInput)
+		if err != nil {
+			return nil, nil, err
+		}
 		page, err := t.wiki.AppendRegistry(ctx, ws, scope, user, input.Text)
 		if err != nil {
 			return nil, nil, wikiToolFailure(err, "updated")
 		}
 		return wikiPageSummary(*page), nil, nil
+	case "manage_wiki_registry":
+		return t.manageWikiRegistry(ctx, ws, user, arguments)
 	}
 	return nil, nil, toolFailure("unknown tool")
+}
+
+func (t *AssistantTools) updateWikiPage(ctx context.Context, ws, user uuid.UUID, arguments string) (any, *uuid.UUID, error) {
+	var input struct {
+		wikiToolScopeInput
+		PageID  string  `json:"page_id"`
+		Title   *string `json:"title"`
+		Content *string `json:"content"`
+		Mode    string  `json:"mode"`
+		Heading string  `json:"heading"`
+		Version int     `json:"version"`
+	}
+	if err := decodeToolInput(arguments, &input); err != nil {
+		return nil, nil, err
+	}
+	if input.Content != nil && utf8.RuneCountInString(*input.Content) > assistantWikiWriteRunes {
+		return nil, nil, toolFailure("content must be at most 16000 characters")
+	}
+	scope, _, err := t.wikiToolScope(ctx, ws, input.wikiToolScopeInput)
+	if err != nil {
+		return nil, nil, err
+	}
+	pageID, err := parseWikiPageID(input.PageID)
+	if err != nil {
+		return nil, nil, err
+	}
+	request := dto.UpdateWikiPageRequest{Title: input.Title, Version: input.Version}
+	mode := input.Mode
+	if mode == "" {
+		mode = "replace"
+	}
+	if input.Content == nil {
+		if input.Title == nil {
+			return nil, nil, toolFailure("give a new title or content")
+		}
+		mode = "rename"
+	}
+	switch mode {
+	case "rename":
+	case "replace":
+		if input.Version < 1 {
+			return nil, nil, toolFailure("version is required to replace a page; read it with get_wiki_page")
+		}
+		request.Content = input.Content
+	case "append", "replace_section", "insert_after_heading":
+		if strings.TrimSpace(*input.Content) == "" && mode != "replace_section" {
+			return nil, nil, toolFailure("content to add is required")
+		}
+		page, err := t.wiki.Get(ctx, ws, scope, pageID)
+		if err != nil {
+			return nil, nil, wikiToolFailure(err, "updated")
+		}
+		if request.Version < 1 {
+			request.Version = page.Version
+		} else if request.Version != page.Version {
+			// The edit would be computed on text the model has not read.
+			return nil, nil, wikiToolFailure(ErrWikiConflict, "updated")
+		}
+		// Convert the addition on its own so Markdown is not read as part of
+		// the page's HTML.
+		addition := sanitize.SanitizeEditorContent(*input.Content)
+		var changed string
+		ok := true
+		switch mode {
+		case "append":
+			changed = page.Content + addition
+		case "replace_section":
+			changed, ok = replaceWikiSection(page.Content, input.Heading, addition)
+		case "insert_after_heading":
+			changed, ok = insertAfterWikiHeading(page.Content, input.Heading, addition)
+		}
+		if !ok {
+			return nil, nil, toolFailure("heading %q is not on the page; get_wiki_page lists its headings", truncateRunes(input.Heading, 200))
+		}
+		request.Content = &changed
+	default:
+		return nil, nil, toolFailure("unknown mode")
+	}
+	if request.Version < 1 {
+		page, err := t.wiki.Get(ctx, ws, scope, pageID)
+		if err != nil {
+			return nil, nil, wikiToolFailure(err, "updated")
+		}
+		request.Version = page.Version
+	}
+	page, err := t.wiki.Update(ctx, ws, scope, pageID, user, request)
+	if err != nil {
+		return nil, nil, wikiToolFailure(err, "updated")
+	}
+	return wikiPageSummary(*page), nil, nil
+}
+
+func (t *AssistantTools) manageWikiRegistry(ctx context.Context, ws, user uuid.UUID, arguments string) (any, *uuid.UUID, error) {
+	var input struct {
+		wikiToolScopeInput
+		Action      string `json:"action"`
+		Enabled     *bool  `json:"enabled"`
+		Frequency   string `json:"frequency"`
+		Weekday     *int   `json:"weekday"`
+		Time        string `json:"time"`
+		PeriodDays  int    `json:"period_days"`
+		PeriodStart string `json:"period_start"`
+		PeriodEnd   string `json:"period_end"`
+	}
+	if err := decodeToolInput(arguments, &input); err != nil {
+		return nil, nil, err
+	}
+	scope, _, err := t.wikiToolScope(ctx, ws, input.wikiToolScopeInput)
+	if err != nil {
+		return nil, nil, err
+	}
+	switch input.Action {
+	case "status":
+		settings, err := t.wiki.Settings(ctx, ws, scope)
+		if err != nil {
+			return nil, nil, wikiToolFailure(err, "read")
+		}
+		return wikiSettingsSummary(settings), nil, nil
+	case "enable":
+		on := true
+		settings, err := t.wiki.UpdateSettings(ctx, ws, scope, user, &on, nil)
+		if err != nil {
+			return nil, nil, wikiToolFailure(err, "updated")
+		}
+		return wikiSettingsSummary(settings), nil, nil
+	case "set_overview_schedule":
+		// Unset fields keep the saved schedule's values.
+		current, err := t.wiki.Settings(ctx, ws, scope)
+		if err != nil {
+			return nil, nil, wikiToolFailure(err, "updated")
+		}
+		schedule := current.WikiOverviewSchedule
+		if input.Enabled != nil {
+			schedule.Enabled = *input.Enabled
+		}
+		if input.Frequency != "" {
+			schedule.Frequency = input.Frequency
+		}
+		if input.Weekday != nil {
+			schedule.Weekday = *input.Weekday
+		}
+		if input.Time != "" {
+			schedule.Time = input.Time
+		}
+		if input.PeriodDays != 0 {
+			schedule.PeriodDays = input.PeriodDays
+		}
+		settings, err := t.wiki.UpdateSettings(ctx, ws, scope, user, nil, &schedule)
+		if err != nil {
+			return nil, nil, wikiToolFailure(err, "updated")
+		}
+		return wikiSettingsSummary(settings), nil, nil
+	case "generate_overview":
+		start, startErr := time.Parse(time.DateOnly, input.PeriodStart)
+		end, endErr := time.Parse(time.DateOnly, input.PeriodEnd)
+		if startErr != nil || endErr != nil {
+			return nil, nil, toolFailure("period_start and period_end must be dates (YYYY-MM-DD)")
+		}
+		overview, err := t.wiki.GenerateOverview(ctx, ws, scope, &user, start, end, domain.WikiOverviewTriggerManual)
+		if err != nil {
+			return nil, nil, wikiToolFailure(err, "summarised")
+		}
+		return map[string]any{"overview_id": overview.ID.String(), "period_start": input.PeriodStart, "period_end": input.PeriodEnd, "content": truncateRunes(sanitize.StripHTML(overview.Content), 4000)}, nil, nil
+	}
+	return nil, nil, toolFailure("unknown action")
+}
+
+// prepareWikiApproval validates a destructive wiki action for approval and
+// binds it to what the user will see: the wiki, the page and, for a restore,
+// the recorded version and the page version it applies to.
+func (t *AssistantTools) prepareWikiApproval(ctx context.Context, ws, user uuid.UUID, action, arguments string) (domain.WikiApprovalPayload, error) {
+	member, err := t.members.GetMember(ctx, ws, user)
+	if err != nil || member == nil || member.Role == domain.RoleGuest {
+		return domain.WikiApprovalPayload{}, toolFailure("you no longer have access to this workspace")
+	}
+	if !domain.HasPermission(member.Role, domain.PermWikiWrite) {
+		return domain.WikiApprovalPayload{}, toolFailure("your role cannot edit wikis")
+	}
+	if t.wiki == nil || t.wikiProjects == nil {
+		return domain.WikiApprovalPayload{}, toolFailure("unknown tool")
+	}
+	var input struct {
+		wikiToolScopeInput
+		PageID    string `json:"page_id"`
+		VersionID string `json:"version_id"`
+		State     string `json:"state"`
+	}
+	if err := decodeToolInput(arguments, &input); err != nil {
+		return domain.WikiApprovalPayload{}, err
+	}
+	if action == wikiDisableRegistryAction && (input.PageID != "" || input.VersionID != "" || input.State != "") ||
+		action == wikiDeleteAction && (input.VersionID != "" || input.State != "") {
+		return domain.WikiApprovalPayload{}, toolFailure("invalid arguments")
+	}
+	scope, name, err := t.wikiToolScope(ctx, ws, input.wikiToolScopeInput)
+	if err != nil {
+		return domain.WikiApprovalPayload{}, err
+	}
+	payload := domain.WikiApprovalPayload{Wiki: scope.Kind, ScopeID: scope.ID, ScopeName: name}
+	if action == wikiDisableRegistryAction {
+		settings, err := t.wiki.Settings(ctx, ws, scope)
+		if err != nil {
+			return payload, wikiToolFailure(err, "read")
+		}
+		if !settings.RegistryEnabled {
+			return payload, toolFailure("the registry of this wiki is already off")
+		}
+		return payload, nil
+	}
+	pageID, err := parseWikiPageID(input.PageID)
+	if err != nil {
+		return payload, err
+	}
+	page, err := t.wiki.Get(ctx, ws, scope, pageID)
+	if err != nil {
+		return payload, wikiToolFailure(err, "read")
+	}
+	payload.PageID, payload.Title, payload.Version = &page.ID, page.Title, page.Version
+	if action == wikiRestoreAction {
+		versionID, err := uuid.Parse(strings.TrimSpace(input.VersionID))
+		if err != nil {
+			return payload, toolFailure("version not found; call list_wiki_page_versions")
+		}
+		state := input.State
+		if state == "" {
+			state = "after"
+		}
+		if state != "after" && state != "before" {
+			return payload, toolFailure("state must be after or before")
+		}
+		revisions, err := t.wiki.Revisions(ctx, ws, scope, pageID)
+		if err != nil {
+			return payload, wikiToolFailure(err, "read")
+		}
+		for _, revision := range revisions {
+			if revision.ID == versionID {
+				title := revision.NewTitle
+				if state == "before" {
+					title = revision.OldTitle
+				}
+				at := revision.UpdatedAt
+				payload.VersionID, payload.RestoreState, payload.RestoreTitle, payload.VersionAt = &revision.ID, state, title, &at
+				return payload, nil
+			}
+		}
+		return payload, toolFailure("version not found; call list_wiki_page_versions")
+	}
+	return payload, nil
 }

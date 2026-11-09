@@ -337,7 +337,7 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return nil, nil, toolFailure("your role cannot edit wikis")
 	}
 	switch name {
-	case "list_wiki_pages", "get_wiki_page", "create_wiki_page", "update_wiki_page", "append_wiki_registry":
+	case "list_wiki_pages", "get_wiki_page", "list_wiki_page_versions", "create_wiki_page", "update_wiki_page", "append_wiki_registry", "manage_wiki_registry":
 		return t.runWikiTool(ctx, ws, user, name, arguments)
 	case "list_teams":
 		if err := decodeToolInput(arguments, &struct{}{}); err != nil {

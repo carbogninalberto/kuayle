@@ -276,6 +276,7 @@ func main() {
 	githubSvc.SetTaskReviews(repository.NewAgentTaskRepository(db))
 	devMachineSvc.SetRepositoryManifests(githubSvc)
 	assistantApprovals.SetMerging(repository.NewAgentTaskRepository(db), workspaceRepo, githubSvc)
+	assistantApprovals.SetWiki(wikiSvc, workspaceRepo)
 	assistantApprovals.SetPullRequests(githubSvc, repository.NewAgentTaskRepository(db))
 	assistantTools.SetPullRequests(githubSvc, repository.NewAgentTaskRepository(db))
 	assistantTools.SetReleases(githubSvc, devMachineRepo, assistantSkills)

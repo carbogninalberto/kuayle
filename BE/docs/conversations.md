@@ -267,15 +267,28 @@ and the read-only research tools `web_search`, `repo_list_files`, `repo_glob`,
 (see [research tools](#research-tools)).
 `link_repository`, and the live channel tools `message_task` and
 `get_task_messages` (see [agent messages in chat](#agent-messages-in-chat)).
-The wiki tools `list_wiki_pages`, `get_wiki_page`, `create_wiki_page`,
-`update_wiki_page` (replace with the page's version, or append) and
-`append_wiki_registry` (one timestamped line on today's UTC registry page,
-only while that wiki's registry is on) address a team wiki by `team_key` or a
-project wiki by `project` name or ID, resolved among the teams and projects the
-user can see. They run through `WikiService`, so every call applies the
-repository's wiki visibility predicates; reading needs `wiki:read`, and the
-three writes need `wiki:write` and count toward the change limit like the
-issue writes. Pages are returned as text, never as stored HTML.
+The wiki tools address a team wiki by `team_key` or a project wiki by
+`project` name or ID, resolved among the teams and projects the user can see,
+and call the same `WikiService` methods as the HTTP routes, so every call
+applies the repository's wiki visibility predicates as the conversation
+creator. Reads (`list_wiki_pages`, `get_wiki_page` with its headings,
+`list_wiki_page_versions`) need `wiki:read` and no approval. Writes need
+`wiki:write` and count toward the change limit: `create_wiki_page`,
+`update_wiki_page` (rename, and content by `mode`: `replace` with the page's
+version, `append`, `replace_section` or `insert_after_heading` by heading text),
+`append_wiki_registry` and `manage_wiki_registry` (`status`, `enable`,
+`set_overview_schedule`, `generate_overview`). A stale version always fails as
+a conflict that tells the model to read the page again; nothing is
+overwritten. The destructive actions `delete_wiki_page`,
+`restore_wiki_page_version` (the state before or after a recorded change,
+bound to the page version shown on the card) and `disable_wiki_registry` are
+approval tools (migration 128): nothing happens until the user approves, and
+approving re-checks `wiki:write`, the wiki's visibility and, for a restore, the
+page version. Pages are returned as text, never as stored HTML. A new wiki
+action is one catalog entry in `assistant_wiki_tools.go`, a case in
+`runWikiTool` (or, for an approval tool, in `prepareWikiApproval`, the
+`requestApproval` switch, `AssistantApprovals.wikiAction`, the policy table and
+the approvals' action constraint).
 `create_issue` accepts a `parent_identifier`. The write tools (`create_issue`,
 `update_issue`, `link_issues` and `link_repository`) count toward the per-reply
 change limit. The model only proposes calls.

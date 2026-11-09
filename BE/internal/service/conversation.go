@@ -493,6 +493,9 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 		var ship domain.ShipPayload
 		issueID, ship, err = s.tools.prepareShip(ctx, ws, actor, arguments)
 		payload, identifier = ship, ship.Identifier
+	case wikiDeleteAction, wikiRestoreAction, wikiDisableRegistryAction:
+		// Destructive wiki actions belong to a wiki, not to an issue.
+		payload, err = s.tools.prepareWikiApproval(ctx, ws, actor, action, arguments)
 	case "run_check":
 		var check domain.RunCheckPayload
 		issueID, check, err = s.tools.prepareRunCheck(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)

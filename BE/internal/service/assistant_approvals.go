@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	gh "github.com/kuayle/kuayle-backend/pkg/github"
 )
@@ -55,6 +56,15 @@ type AssistantApprovals struct {
 	releases releaseGitHub
 	// ships runs approved ship_pull_request chains in the background.
 	ships *shipRunner
+	// Wiki actions are unavailable until SetWiki wires them.
+	wiki        assistantWiki
+	wikiMembers assistantMemberRepo
+}
+
+// SetWiki enables approving delete_wiki_page, restore_wiki_page_version and
+// disable_wiki_registry.
+func (s *AssistantApprovals) SetWiki(wiki assistantWiki, members assistantMemberRepo) {
+	s.wiki, s.wikiMembers = wiki, members
 }
 
 type approvalToolSettings interface {
@@ -265,6 +275,8 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 		return s.runCustomTool(ctx, ws, conversation, approval)
 	case "reply_to_review_comment", "resolve_review_thread", "update_pull_request_branch", "mark_pull_request_ready":
 		return s.pullRequestAction(ctx, ws, conversation, approval)
+	case wikiDeleteAction, wikiRestoreAction, wikiDisableRegistryAction:
+		return s.wikiAction(ctx, ws, conversation, approval)
 	}
 	var payload domain.DelegationPayload
 	if approval.Action != "delegate_issue" || json.Unmarshal(approval.Payload, &payload) != nil {
@@ -599,4 +611,73 @@ func shortSHA(sha string) string {
 		return sha[:8]
 	}
 	return sha
+}
+
+// wikiAction performs an approved destructive wiki action as the approver,
+// who is the bound actor, with their current role and wiki visibility. A
+// restore applies only to the page version the card showed: a newer page
+// fails as a conflict instead of being overwritten.
+func (s *AssistantApprovals) wikiAction(ctx context.Context, ws, conversation uuid.UUID, approval *domain.ConversationApproval) (*domain.ConversationApproval, error) {
+	finish := func(failure string) (*domain.ConversationApproval, error) {
+		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, failure)
+	}
+	var payload domain.WikiApprovalPayload
+	if s.wiki == nil || s.wikiMembers == nil || json.Unmarshal(approval.Payload, &payload) != nil || !payload.Scope().Valid() {
+		return finish("This approval cannot be executed")
+	}
+	member, err := s.wikiMembers.GetMember(ctx, ws, approval.ActorID)
+	if err != nil {
+		return nil, err
+	}
+	if member == nil || member.Role == domain.RoleGuest || !domain.HasPermission(member.Role, domain.PermWikiWrite) {
+		return finish("Your role can no longer edit this wiki")
+	}
+	scope := payload.Scope()
+	switch approval.Action {
+	case wikiDisableRegistryAction:
+		off := false
+		_, err = s.wiki.UpdateSettings(ctx, ws, scope, approval.ActorID, &off, nil)
+	case wikiDeleteAction:
+		if payload.PageID == nil {
+			return finish("This approval cannot be executed")
+		}
+		err = s.wiki.Delete(ctx, ws, scope, *payload.PageID, approval.ActorID)
+	case wikiRestoreAction:
+		err = s.restoreWikiPage(ctx, ws, scope, approval.ActorID, payload)
+	}
+	switch {
+	case err == nil:
+		return finish("")
+	case errors.Is(err, ErrWikiNotFound):
+		return finish("The wiki page is gone or no longer visible to you")
+	case errors.Is(err, ErrWikiConflict):
+		return finish("The page changed after this was requested, so it was not overwritten. Ask again to restore the current page")
+	}
+	var invalid *WikiValidationError
+	if errors.As(err, &invalid) {
+		return finish(upperFirst(invalid.Error()))
+	}
+	return nil, err
+}
+
+func (s *AssistantApprovals) restoreWikiPage(ctx context.Context, ws uuid.UUID, scope domain.WikiScope, actor uuid.UUID, payload domain.WikiApprovalPayload) error {
+	if payload.PageID == nil || payload.VersionID == nil {
+		return ErrWikiNotFound
+	}
+	revisions, err := s.wiki.Revisions(ctx, ws, scope, *payload.PageID)
+	if err != nil {
+		return err
+	}
+	for _, revision := range revisions {
+		if revision.ID != *payload.VersionID {
+			continue
+		}
+		title, content := revision.NewTitle, revision.NewContent
+		if payload.RestoreState == "before" {
+			title, content = revision.OldTitle, revision.OldContent
+		}
+		_, err = s.wiki.Update(ctx, ws, scope, *payload.PageID, actor, dto.UpdateWikiPageRequest{Title: &title, Content: &content, Version: payload.Version})
+		return err
+	}
+	return ErrWikiNotFound
 }

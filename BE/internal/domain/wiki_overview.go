@@ -149,3 +149,27 @@ func (d DueWikiOverview) Scope() WikiScope {
 	}
 	return WikiScope{}
 }
+
+// WikiApprovalPayload binds an approval for a destructive wiki action to the
+// wiki, page and exact state the user saw on the card.
+type WikiApprovalPayload struct {
+	// Wiki is "team" or "project"; ScopeID its ID and ScopeName its team key
+	// or project name.
+	Wiki      WikiScopeKind `json:"wiki"`
+	ScopeID   uuid.UUID     `json:"scope_id"`
+	ScopeName string        `json:"scope_name"`
+	PageID    *uuid.UUID    `json:"page_id,omitempty"`
+	Title     string        `json:"title,omitempty"`
+	// Version is the page version the restore applies to; a newer page fails
+	// as a conflict instead of being overwritten.
+	Version int `json:"version,omitempty"`
+	// VersionID and RestoreState name the recorded change to restore and
+	// whether to restore the state before or after it.
+	VersionID    *uuid.UUID `json:"version_id,omitempty"`
+	RestoreState string     `json:"restore_state,omitempty"`
+	RestoreTitle string     `json:"restore_title,omitempty"`
+	VersionAt    *time.Time `json:"version_at,omitempty"`
+}
+
+// Scope returns the wiki the approval acts on.
+func (p WikiApprovalPayload) Scope() WikiScope { return WikiScope{Kind: p.Wiki, ID: p.ScopeID} }
