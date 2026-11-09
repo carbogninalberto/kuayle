@@ -56,13 +56,52 @@ type WikiRevisionResponse struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// WikiSettingsRequest turns a wiki's opt-in features on or off.
+// WikiOverviewSchedule is when registry overviews are generated: daily, or
+// weekly on weekday (0 = Sunday), at time (HH:MM, in overview_timezone),
+// over the period_days days ending on the day of the run.
+type WikiOverviewSchedule struct {
+	Enabled    bool   `json:"enabled"`
+	Frequency  string `json:"frequency"`
+	Weekday    int    `json:"weekday"`
+	Time       string `json:"time"`
+	PeriodDays int    `json:"period_days"`
+}
+
+// WikiSettingsRequest changes the fields that are present.
 type WikiSettingsRequest struct {
-	RegistryEnabled *bool `json:"registry_enabled"`
+	RegistryEnabled  *bool                 `json:"registry_enabled"`
+	OverviewSchedule *WikiOverviewSchedule `json:"overview_schedule"`
 }
 
 type WikiSettingsResponse struct {
-	RegistryEnabled bool `json:"registry_enabled"`
+	RegistryEnabled   bool                 `json:"registry_enabled"`
+	OverviewSchedule  WikiOverviewSchedule `json:"overview_schedule"`
+	OverviewTimezone  string               `json:"overview_timezone"`
+	OverviewNextRunAt *time.Time           `json:"overview_next_run_at"`
+	OverviewLastRunAt *time.Time           `json:"overview_last_run_at"`
+	OverviewLastError *string              `json:"overview_last_error"`
+}
+
+// WikiOverviewRequest asks for an overview of the registry from
+// period_start to period_end (YYYY-MM-DD, inclusive, at most 31 days).
+type WikiOverviewRequest struct {
+	PeriodStart string `json:"period_start"`
+	PeriodEnd   string `json:"period_end"`
+}
+
+type WikiOverviewResponse struct {
+	ID              string    `json:"id"`
+	PeriodStart     string    `json:"period_start"`
+	PeriodEnd       string    `json:"period_end"`
+	Content         string    `json:"content"`
+	GeneratedAt     time.Time `json:"generated_at"`
+	GeneratedByName *string   `json:"generated_by_name"`
+	Trigger         string    `json:"trigger"`
+}
+
+type WikiOverviewListResponse struct {
+	Overviews  []WikiOverviewResponse `json:"overviews"`
+	NextBefore *string                `json:"next_before"`
 }
 
 // WikiRegistryRequest is one plain-text entry for today's registry page.

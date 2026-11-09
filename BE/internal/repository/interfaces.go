@@ -281,6 +281,14 @@ type WikiRepo interface {
 	AppendRegistry(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, day time.Time, entry string) (*domain.WikiPage, bool, error)
 	AppendIssueRegistry(ctx context.Context, workspaceID, issueID, userID uuid.UUID, now time.Time, text string) (*domain.WikiPage, bool, error)
 	RegistryDays(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, before *time.Time, limit int) ([]domain.WikiPage, error)
+	Settings(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) (domain.WikiSettings, error)
+	SetOverviewSchedule(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, schedule domain.WikiOverviewSchedule, nextRun *time.Time) error
+	RegistryRange(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, start, end time.Time) ([]domain.WikiPage, error)
+	CreateOverview(ctx context.Context, overview *domain.WikiOverview) error
+	ListOverviews(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, before *time.Time, limit int) ([]domain.WikiOverview, error)
+	DueOverviewSchedules(ctx context.Context, now time.Time, limit int) ([]domain.DueWikiOverview, error)
+	ClaimOverviewRun(ctx context.Context, settingsID uuid.UUID, slot, next time.Time) (bool, error)
+	RecordOverviewRun(ctx context.Context, settingsID uuid.UUID, at time.Time, runErr *string) error
 }
 
 var _ WikiRepo = (*WikiRepository)(nil)

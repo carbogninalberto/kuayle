@@ -255,6 +255,8 @@ func TestWikiRoutesRequireWikiPermissions(t *testing.T) {
 		want["PATCH "+base+"/settings"] = "perm:wiki:write"
 		want["GET "+base+"/registry"] = "perm:wiki:read"
 		want["POST "+base+"/registry"] = "perm:wiki:write"
+		want["GET "+base+"/registry/overviews"] = "perm:wiki:read"
+		want["POST "+base+"/registry/overviews"] = "perm:wiki:write"
 	}
 	require.Equal(t, want, got)
 }

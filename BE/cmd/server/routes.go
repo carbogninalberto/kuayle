@@ -262,6 +262,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 		scoped(ws, http.MethodPatch, wiki.base+"/settings", h.wiki.UpdateSettings(wiki.kind), domain.PermWikiWrite)
 		scoped(ws, http.MethodPost, wiki.base+"/registry", h.wiki.AppendRegistry(wiki.kind), domain.PermWikiWrite)
 		scoped(ws, http.MethodGet, wiki.base+"/registry", h.wiki.RegistryFeed(wiki.kind), domain.PermWikiRead)
+		scoped(ws, http.MethodGet, wiki.base+"/registry/overviews", h.wiki.Overviews(wiki.kind), domain.PermWikiRead)
+		scoped(ws, http.MethodPost, wiki.base+"/registry/overviews", h.wiki.GenerateOverview(wiki.kind), domain.PermWikiWrite)
 		scoped(ws, http.MethodPost, wiki.base, h.wiki.Create(wiki.kind), domain.PermWikiWrite)
 		scoped(ws, http.MethodGet, wiki.base+"/:pageId", h.wiki.Get(wiki.kind), domain.PermWikiRead)
 		scoped(ws, http.MethodPatch, wiki.base+"/:pageId", h.wiki.Update(wiki.kind), domain.PermWikiWrite)

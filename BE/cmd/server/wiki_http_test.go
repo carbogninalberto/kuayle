@@ -65,11 +65,14 @@ func TestWikiHTTPAccessAndPersistence(t *testing.T) {
 	tokens := repository.NewPersonalAccessTokenRepository(db)
 	hub := realtime.NewHub(workspaces.RealtimeAccess)
 	ai := &fakeWikiAI{}
+	wikiRepo := repository.NewWikiRepository(db)
+	wikiSvc := service.NewWikiService(wikiRepo)
+	wikiSvc.SetOverviewAI(ai)
 	handlers := &appHandlers{
 		workspace: handler.NewWorkspaceHandler(service.NewWorkspaceService(workspaces, users, hub)),
 		team:      handler.NewTeamHandler(service.NewTeamService(teams, repository.NewTeamStatusRepository(db), hub)),
 		project:   handler.NewProjectHandler(service.NewProjectService(repository.NewProjectRepository(db))),
-		wiki:      handler.NewWikiHandler(service.NewWikiService(repository.NewWikiRepository(db)), ai),
+		wiki:      handler.NewWikiHandler(wikiSvc, ai),
 	}
 	secret := "wiki-http-test-secret"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
@@ -263,13 +266,23 @@ func TestWikiHTTPAccessAndPersistence(t *testing.T) {
 
 	// The registry is opt-in per wiki; writers turn it on, and entries land on
 	// one page per UTC day, also under concurrent appends.
-	require.JSONEq(t, `{"registry_enabled":false}`, string(request(guestJWT, "GET", projectWiki+"/settings", "", http.StatusOK)))
+	registryOn := func(token, path string) bool {
+		t.Helper()
+		var settings struct {
+			RegistryEnabled  bool   `json:"registry_enabled"`
+			OverviewTimezone string `json:"overview_timezone"`
+		}
+		decode(request(token, "GET", path+"/settings", "", http.StatusOK), &settings)
+		require.Equal(t, "UTC", settings.OverviewTimezone)
+		return settings.RegistryEnabled
+	}
+	require.False(t, registryOn(guestJWT, projectWiki))
 	request(memberJWT, "POST", projectWiki+"/registry", `{"text":"KUA-20 implemented"}`, http.StatusConflict)
 	request(guestJWT, "PATCH", projectWiki+"/settings", `{"registry_enabled":true}`, http.StatusForbidden)
 	request(memberJWT, "PATCH", projectWiki+"/settings", `{}`, http.StatusBadRequest)
-	require.JSONEq(t, `{"registry_enabled":true}`, string(request(memberJWT, "PATCH", projectWiki+"/settings", `{"registry_enabled":true}`, http.StatusOK)))
-	require.JSONEq(t, `{"registry_enabled":true}`, string(request(guestJWT, "GET", projectWiki+"/settings", "", http.StatusOK)))
-	require.JSONEq(t, `{"registry_enabled":false}`, string(request(memberJWT, "GET", teamWiki+"/settings", "", http.StatusOK)), "settings are per wiki")
+	request(memberJWT, "PATCH", projectWiki+"/settings", `{"registry_enabled":true}`, http.StatusOK)
+	require.True(t, registryOn(guestJWT, projectWiki))
+	require.False(t, registryOn(memberJWT, teamWiki), "settings are per wiki")
 	request(guestJWT, "POST", projectWiki+"/registry", `{"text":"guest"}`, http.StatusForbidden)
 	request(memberJWT, "POST", projectWiki+"/registry", `{"text":"   "}`, http.StatusBadRequest)
 	var registryPage struct {
@@ -340,6 +353,86 @@ func TestWikiHTTPAccessAndPersistence(t *testing.T) {
 	request(guestJWT, "GET", projectWiki+"/registry?before=yesterday", "", http.StatusBadRequest)
 	request(memberJWT, "GET", privateProjectWiki+"/registry", "", http.StatusNotFound)
 
+	// AI overviews: writers generate them, readers list them; the schedule
+	// is validated and claimed once per slot.
+	request(guestJWT, "POST", projectWiki+"/registry/overviews", `{"period_start":"2026-01-01","period_end":"2026-01-02"}`, http.StatusForbidden)
+	request(memberJWT, "POST", projectWiki+"/registry/overviews", `{"period_start":"2026-01-01","period_end":"2026-03-01"}`, http.StatusBadRequest)
+	require.Contains(t, string(request(memberJWT, "POST", projectWiki+"/registry/overviews", `{"period_start":"2025-01-01","period_end":"2025-01-02"}`, http.StatusBadRequest)), "NO_REGISTRY_ENTRIES")
+	var overview struct {
+		ID              string  `json:"id"`
+		PeriodStart     string  `json:"period_start"`
+		PeriodEnd       string  `json:"period_end"`
+		Content         string  `json:"content"`
+		GeneratedByName *string `json:"generated_by_name"`
+		Trigger         string  `json:"trigger"`
+	}
+	decode(request(memberJWT, "POST", projectWiki+"/registry/overviews", `{"period_start":"2026-01-01","period_end":"2026-01-02"}`, http.StatusCreated), &overview)
+	require.Equal(t, "<h3>Shipped</h3><ul><li>old work</li></ul>", overview.Content)
+	require.Equal(t, "manual", overview.Trigger)
+	require.Equal(t, "2026-01-01", overview.PeriodStart)
+	require.Equal(t, "Wiki tester", *overview.GeneratedByName)
+	require.Contains(t, ai.summaries[0], "2026-01-01:\n- 09:00 old")
+	request(memberJWT, "POST", projectWiki+"/registry/overviews", `{"period_start":"2026-01-02","period_end":"2026-01-02"}`, http.StatusCreated)
+	var overviews struct {
+		Overviews []struct {
+			ID string `json:"id"`
+		} `json:"overviews"`
+		NextBefore *string `json:"next_before"`
+	}
+	decode(request(guestJWT, "GET", projectWiki+"/registry/overviews?limit=1", "", http.StatusOK), &overviews)
+	require.Len(t, overviews.Overviews, 1)
+	require.NotEqual(t, overview.ID, overviews.Overviews[0].ID, "newest first")
+	decode(request(guestJWT, "GET", projectWiki+"/registry/overviews?before="+*overviews.NextBefore, "", http.StatusOK), &overviews)
+	require.Equal(t, overview.ID, overviews.Overviews[0].ID)
+	require.Nil(t, overviews.NextBefore)
+	request(memberJWT, "GET", privateProjectWiki+"/registry/overviews", "", http.StatusNotFound)
+	request(memberJWT, "POST", privateProjectWiki+"/registry/overviews", `{"period_start":"2026-01-01","period_end":"2026-01-02"}`, http.StatusNotFound)
+
+	request(memberJWT, "PATCH", projectWiki+"/settings", `{"overview_schedule":{"enabled":true,"frequency":"monthly","weekday":1,"time":"09:00","period_days":7}}`, http.StatusBadRequest)
+	request(guestJWT, "PATCH", projectWiki+"/settings", `{"overview_schedule":{"enabled":true,"frequency":"weekly","weekday":1,"time":"09:00","period_days":7}}`, http.StatusForbidden)
+	var scheduled struct {
+		Schedule struct {
+			Enabled    bool   `json:"enabled"`
+			Frequency  string `json:"frequency"`
+			Weekday    int    `json:"weekday"`
+			Time       string `json:"time"`
+			PeriodDays int    `json:"period_days"`
+		} `json:"overview_schedule"`
+		NextRunAt *time.Time `json:"overview_next_run_at"`
+	}
+	decode(request(memberJWT, "PATCH", projectWiki+"/settings", `{"overview_schedule":{"enabled":true,"frequency":"weekly","weekday":5,"time":"17:30","period_days":7}}`, http.StatusOK), &scheduled)
+	require.True(t, scheduled.Schedule.Enabled)
+	require.Equal(t, time.Friday, scheduled.NextRunAt.UTC().Weekday())
+	require.Equal(t, "17:30", scheduled.NextRunAt.UTC().Format("15:04"))
+	require.True(t, registryOn(guestJWT, projectWiki) == false, "the registry switch is unchanged by a schedule save")
+
+	// Two replicas claiming the same due slot: exactly one wins.
+	var settingsID uuid.UUID
+	require.NoError(t, db.Get(&settingsID, `SELECT id FROM wiki_settings WHERE project_id=$1`, publicProject))
+	slot := time.Now().Add(-time.Minute).UTC().Truncate(time.Microsecond)
+	_, err = db.Exec(`UPDATE wiki_settings SET overview_next_run_at=$2 WHERE id=$1`, settingsID, slot)
+	require.NoError(t, err)
+	var wins sync.WaitGroup
+	won := make(chan bool, 2)
+	for range 2 {
+		wins.Add(1)
+		go func() {
+			defer wins.Done()
+			ok, err := wikiRepo.ClaimOverviewRun(context.Background(), settingsID, slot, slot.Add(7*24*time.Hour))
+			require.NoError(t, err)
+			won <- ok
+		}()
+	}
+	wins.Wait()
+	close(won)
+	winners := 0
+	for ok := range won {
+		if ok {
+			winners++
+		}
+	}
+	require.Equal(t, 1, winners)
+
 	// Outsiders and members of another workspace are denied.
 	request(jwt(outsider), "GET", teamWiki, "", http.StatusForbidden)
 	request(jwt(stranger), "GET", teamWiki, "", http.StatusForbidden)
@@ -362,8 +455,16 @@ func TestWikiHTTPAccessAndPersistence(t *testing.T) {
 	require.Zero(t, count)
 }
 
-// fakeWikiAI records rework requests instead of calling a model.
-type fakeWikiAI struct{ calls [][]string }
+// fakeWikiAI records rework and overview requests instead of calling a model.
+type fakeWikiAI struct {
+	calls     [][]string
+	summaries []string
+}
+
+func (f *fakeWikiAI) SummarizeRegistry(_ context.Context, _ uuid.UUID, _, _, _, entries string) (string, error) {
+	f.summaries = append(f.summaries, entries)
+	return "<h3>Shipped</h3><ul><li>old work</li></ul>", nil
+}
 
 func (f *fakeWikiAI) ReworkWikiSelection(_ context.Context, _ uuid.UUID, title, content, selected string) (string, error) {
 	f.calls = append(f.calls, []string{title, content, selected})

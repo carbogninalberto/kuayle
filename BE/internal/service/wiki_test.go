@@ -25,6 +25,11 @@ type fakeWikiRepo struct {
 	registry map[domain.WikiScope]bool
 	// appended records each registry append's scope, day and entry.
 	appended []string
+	// schedules and overviews back the overview methods.
+	schedules map[domain.WikiScope]domain.WikiSettings
+	overviews []domain.WikiOverview
+	claims    map[uuid.UUID]time.Time
+	runs      map[uuid.UUID]*string
 }
 
 func newFakeWikiRepo(visible ...domain.WikiScope) *fakeWikiRepo {
@@ -168,6 +173,83 @@ func (f *fakeWikiRepo) RegistryDays(ctx context.Context, ws uuid.UUID, scope dom
 		pages = pages[:limit]
 	}
 	return pages, nil
+}
+
+func (f *fakeWikiRepo) Settings(ctx context.Context, ws uuid.UUID, scope domain.WikiScope) (domain.WikiSettings, error) {
+	if err := f.RequireScope(ctx, ws, scope); err != nil {
+		return domain.WikiSettings{}, err
+	}
+	settings, ok := f.schedules[scope]
+	if !ok {
+		settings.WikiOverviewSchedule = domain.DefaultWikiOverviewSchedule()
+	}
+	settings.RegistryEnabled = f.registry[scope]
+	return settings, nil
+}
+
+func (f *fakeWikiRepo) SetOverviewSchedule(ctx context.Context, ws uuid.UUID, scope domain.WikiScope, _ uuid.UUID, schedule domain.WikiOverviewSchedule, next *time.Time) error {
+	if err := f.RequireScope(ctx, ws, scope); err != nil {
+		return err
+	}
+	if f.schedules == nil {
+		f.schedules = map[domain.WikiScope]domain.WikiSettings{}
+	}
+	f.schedules[scope] = domain.WikiSettings{WikiOverviewSchedule: schedule, NextRunAt: next}
+	return nil
+}
+
+func (f *fakeWikiRepo) RegistryRange(ctx context.Context, ws uuid.UUID, scope domain.WikiScope, start, end time.Time) ([]domain.WikiPage, error) {
+	pages, err := f.RegistryDays(ctx, ws, scope, nil, 1000)
+	in := []domain.WikiPage{}
+	for i := len(pages) - 1; i >= 0; i-- {
+		if !pages[i].RegistryDate.Before(start) && !pages[i].RegistryDate.After(end) {
+			in = append(in, pages[i])
+		}
+	}
+	return in, err
+}
+
+func (f *fakeWikiRepo) CreateOverview(_ context.Context, overview *domain.WikiOverview) error {
+	overview.ID, overview.GeneratedAt = uuid.New(), time.Now()
+	f.overviews = append(f.overviews, *overview)
+	return nil
+}
+
+func (f *fakeWikiRepo) ListOverviews(ctx context.Context, ws uuid.UUID, scope domain.WikiScope, _ *time.Time, limit int) ([]domain.WikiOverview, error) {
+	if err := f.RequireScope(ctx, ws, scope); err != nil {
+		return nil, err
+	}
+	return f.overviews[:min(limit, len(f.overviews))], nil
+}
+
+func (f *fakeWikiRepo) DueOverviewSchedules(_ context.Context, now time.Time, _ int) ([]domain.DueWikiOverview, error) {
+	due := []domain.DueWikiOverview{}
+	for scope, settings := range f.schedules {
+		if settings.Enabled && settings.NextRunAt != nil && !settings.NextRunAt.After(now) {
+			id := scope.ID
+			due = append(due, domain.DueWikiOverview{SettingsID: id, TeamID: &id, NextRunAt: *settings.NextRunAt, Actor: &id, WikiOverviewSchedule: settings.WikiOverviewSchedule})
+		}
+	}
+	return due, nil
+}
+
+func (f *fakeWikiRepo) ClaimOverviewRun(_ context.Context, id uuid.UUID, slot, next time.Time) (bool, error) {
+	if f.claims == nil {
+		f.claims = map[uuid.UUID]time.Time{}
+	}
+	if claimed, ok := f.claims[id]; ok && !claimed.Equal(slot) {
+		return false, nil
+	}
+	f.claims[id] = next
+	return true, nil
+}
+
+func (f *fakeWikiRepo) RecordOverviewRun(_ context.Context, id uuid.UUID, _ time.Time, runErr *string) error {
+	if f.runs == nil {
+		f.runs = map[uuid.UUID]*string{}
+	}
+	f.runs[id] = runErr
+	return nil
 }
 
 func TestWikiServiceCreateAndReopenPreservesContent(t *testing.T) {
@@ -416,4 +498,85 @@ func TestWikiServiceRegistryFeedPagesByDay(t *testing.T) {
 	require.ErrorAs(t, err, &invalid)
 	_, _, err = svc.RegistryDays(ctx, ws, domain.TeamWiki(uuid.New()), nil, 0)
 	require.ErrorIs(t, err, ErrWikiNotFound)
+}
+
+type fakeOverviewAI struct {
+	prompts []string
+	err     error
+}
+
+func (f *fakeOverviewAI) SummarizeRegistry(_ context.Context, _ uuid.UUID, _, start, end, entries string) (string, error) {
+	f.prompts = append(f.prompts, start+".."+end+"\n"+entries)
+	return `<h3>Shipped</h3><ul><li>KUA-20</li></ul><script>x</script>`, f.err
+}
+
+// Overviews summarise only the period's registry text, are sanitized, and
+// report an empty period instead of calling the model.
+func TestWikiServiceGeneratesOverviews(t *testing.T) {
+	ctx, ws, user := context.Background(), uuid.New(), uuid.New()
+	team := domain.TeamWiki(uuid.New())
+	repo := newFakeWikiRepo(team)
+	repo.registry[team] = true
+	svc := NewWikiService(repo)
+	day := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	for i, text := range []string{"KUA-19 merged", "KUA-20 implemented", "later"} {
+		svc.now = func() time.Time { return day.AddDate(0, 0, i) }
+		_, err := svc.AppendRegistry(ctx, ws, team, user, text)
+		require.NoError(t, err)
+	}
+	_, err := svc.GenerateOverview(ctx, ws, team, &user, day, day, domain.WikiOverviewTriggerManual)
+	require.ErrorIs(t, err, ErrAISettingsNotConfigured)
+	ai := &fakeOverviewAI{}
+	svc.SetOverviewAI(ai)
+
+	overview, err := svc.GenerateOverview(ctx, ws, team, &user, day, day.AddDate(0, 0, 1), domain.WikiOverviewTriggerManual)
+	require.NoError(t, err)
+	require.Equal(t, "<h3>Shipped</h3><ul><li>KUA-20</li></ul>", overview.Content)
+	require.Equal(t, team.ID, *overview.TeamID)
+	require.Equal(t, "2026-11-02..2026-11-03\n2026-11-02:\n- 09:00 KUA-19 merged\n\n2026-11-03:\n- 09:00 KUA-20 implemented\n", ai.prompts[0])
+
+	_, err = svc.GenerateOverview(ctx, ws, team, &user, day.AddDate(0, 0, 10), day.AddDate(0, 0, 11), domain.WikiOverviewTriggerManual)
+	require.ErrorIs(t, err, ErrNoRegistryEntries)
+	var invalid *WikiValidationError
+	_, err = svc.GenerateOverview(ctx, ws, team, &user, day, day.AddDate(0, 0, 31), domain.WikiOverviewTriggerManual)
+	require.ErrorAs(t, err, &invalid)
+	_, err = svc.GenerateOverview(ctx, ws, team, &user, day, day.AddDate(0, 0, -1), domain.WikiOverviewTriggerManual)
+	require.ErrorAs(t, err, &invalid)
+	_, err = svc.GenerateOverview(ctx, ws, domain.TeamWiki(uuid.New()), &user, day, day, domain.WikiOverviewTriggerManual)
+	require.ErrorIs(t, err, ErrWikiNotFound)
+	require.Len(t, ai.prompts, 1)
+}
+
+// Saving a schedule computes its next run; a due slot is claimed once and
+// its outcome recorded, with a readable error when AI fails.
+func TestWikiServiceSchedulesOverviews(t *testing.T) {
+	ctx, ws, user := context.Background(), uuid.New(), uuid.New()
+	team := domain.TeamWiki(uuid.New())
+	repo := newFakeWikiRepo(team)
+	svc := NewWikiService(repo)
+	now := time.Date(2026, 11, 9, 8, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+
+	_, err := svc.UpdateSettings(ctx, ws, team, user, nil, &domain.WikiOverviewSchedule{Enabled: true, Frequency: "hourly", Time: "09:00", PeriodDays: 7})
+	var invalid *WikiValidationError
+	require.ErrorAs(t, err, &invalid)
+	_, err = svc.UpdateSettings(ctx, ws, team, user, nil, nil)
+	require.ErrorAs(t, err, &invalid)
+	on := true
+	settings, err := svc.UpdateSettings(ctx, ws, team, user, &on, &domain.WikiOverviewSchedule{Enabled: true, Frequency: domain.WikiOverviewDaily, Time: "09:00", PeriodDays: 1})
+	require.NoError(t, err)
+	require.True(t, settings.RegistryEnabled)
+	require.Equal(t, time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC), *settings.NextRunAt)
+
+	require.Zero(t, svc.runDueOverviews(ctx), "nothing is due before the slot")
+	now = now.Add(2 * time.Hour)
+	repo.schedules[team] = domain.WikiSettings{WikiOverviewSchedule: settings.WikiOverviewSchedule, NextRunAt: settings.NextRunAt}
+	ai := &fakeOverviewAI{err: ErrAISettingsNotConfigured}
+	svc.SetOverviewAI(ai)
+	_, err = svc.AppendRegistry(ctx, ws, team, user, "KUA-20 implemented")
+	require.NoError(t, err)
+	require.Equal(t, 1, svc.runDueOverviews(ctx))
+	require.Contains(t, *repo.runs[team.ID], "Settings → AI")
+	require.Equal(t, time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC), repo.claims[team.ID], "claimed for the next slot")
+	require.Zero(t, svc.runDueOverviews(ctx), "a slot another claimer moved is not run again")
 }

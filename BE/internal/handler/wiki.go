@@ -11,6 +11,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/labstack/echo/v5"
@@ -178,22 +179,22 @@ func (h *WikiHandler) Rework(kind domain.WikiScopeKind) echo.HandlerFunc {
 	}
 }
 
-// Settings reports the wiki's opt-in features.
+// Settings reports the wiki's opt-in features and overview schedule.
 func (h *WikiHandler) Settings(kind domain.WikiScopeKind) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		scope, ok := wikiScopeFromRoute(c, kind)
 		if !ok {
 			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid "+string(kind)+" ID")
 		}
-		enabled, err := h.wikiSvc.RegistryEnabled(c.Request().Context(), middleware.GetWorkspace(c).ID, scope)
+		settings, err := h.wikiSvc.Settings(c.Request().Context(), middleware.GetWorkspace(c).ID, scope)
 		if err != nil {
 			return wikiErrorResponse(c, err)
 		}
-		return response.Success(c, http.StatusOK, dto.WikiSettingsResponse{RegistryEnabled: enabled})
+		return response.Success(c, http.StatusOK, toWikiSettings(settings))
 	}
 }
 
-// UpdateSettings turns the wiki's registry on or off.
+// UpdateSettings turns the registry on or off and saves the overview schedule.
 func (h *WikiHandler) UpdateSettings(kind domain.WikiScopeKind) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		scope, ok := wikiScopeFromRoute(c, kind)
@@ -204,14 +205,120 @@ func (h *WikiHandler) UpdateSettings(kind domain.WikiScopeKind) echo.HandlerFunc
 		if err := c.Bind(&req); err != nil {
 			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
 		}
-		if req.RegistryEnabled == nil {
-			return response.ValidationError(c, []dto.ErrorDetail{{Field: "registry_enabled", Message: "is required"}})
+		var schedule *domain.WikiOverviewSchedule
+		if s := req.OverviewSchedule; s != nil {
+			schedule = &domain.WikiOverviewSchedule{Enabled: s.Enabled, Frequency: s.Frequency, Weekday: s.Weekday, Time: s.Time, PeriodDays: s.PeriodDays}
 		}
 		ws := middleware.GetWorkspace(c)
-		if err := h.wikiSvc.SetRegistryEnabled(c.Request().Context(), ws.ID, scope, middleware.GetUserID(c), *req.RegistryEnabled); err != nil {
+		settings, err := h.wikiSvc.UpdateSettings(c.Request().Context(), ws.ID, scope, middleware.GetUserID(c), req.RegistryEnabled, schedule)
+		if err != nil {
 			return wikiErrorResponse(c, err)
 		}
-		return response.Success(c, http.StatusOK, dto.WikiSettingsResponse{RegistryEnabled: *req.RegistryEnabled})
+		return response.Success(c, http.StatusOK, toWikiSettings(settings))
+	}
+}
+
+func toWikiSettings(settings domain.WikiSettings) dto.WikiSettingsResponse {
+	s := settings.WikiOverviewSchedule
+	return dto.WikiSettingsResponse{
+		RegistryEnabled:   settings.RegistryEnabled,
+		OverviewSchedule:  dto.WikiOverviewSchedule{Enabled: s.Enabled, Frequency: s.Frequency, Weekday: s.Weekday, Time: s.Time, PeriodDays: s.PeriodDays},
+		OverviewTimezone:  service.WikiOverviewTimezone.String(),
+		OverviewNextRunAt: settings.NextRunAt,
+		OverviewLastRunAt: settings.LastRunAt,
+		OverviewLastError: settings.LastError,
+	}
+}
+
+// Overviews lists the registry's AI overviews, newest first:
+// ?before=<RFC3339 generated_at> and ?limit=1..50 (default 10).
+func (h *WikiHandler) Overviews(kind domain.WikiScopeKind) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		scope, ok := wikiScopeFromRoute(c, kind)
+		if !ok {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid "+string(kind)+" ID")
+		}
+		var before *time.Time
+		if raw := c.QueryParam("before"); raw != "" {
+			at, err := time.Parse(time.RFC3339Nano, raw)
+			if err != nil {
+				return response.ValidationError(c, []dto.ErrorDetail{{Field: "before", Message: "must be an RFC 3339 time"}})
+			}
+			before = &at
+		}
+		limit := 0
+		if raw := c.QueryParam("limit"); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value < 1 {
+				return response.ValidationError(c, []dto.ErrorDetail{{Field: "limit", Message: "must be 1 to 50"}})
+			}
+			limit = value
+		}
+		overviews, next, err := h.wikiSvc.Overviews(c.Request().Context(), middleware.GetWorkspace(c).ID, scope, before, limit)
+		if err != nil {
+			return wikiErrorResponse(c, err)
+		}
+		resp := dto.WikiOverviewListResponse{Overviews: make([]dto.WikiOverviewResponse, len(overviews))}
+		for i, overview := range overviews {
+			resp.Overviews[i] = toWikiOverview(overview)
+		}
+		if next != nil {
+			cursor := next.UTC().Format(time.RFC3339Nano)
+			resp.NextBefore = &cursor
+		}
+		return response.Success(c, http.StatusOK, resp)
+	}
+}
+
+// GenerateOverview summarises a period of the registry with the workspace's
+// AI model and stores the overview.
+func (h *WikiHandler) GenerateOverview(kind domain.WikiScopeKind) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		scope, ok := wikiScopeFromRoute(c, kind)
+		if !ok {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid "+string(kind)+" ID")
+		}
+		var req dto.WikiOverviewRequest
+		if err := c.Bind(&req); err != nil {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+		}
+		start, startErr := time.Parse(time.DateOnly, req.PeriodStart)
+		end, endErr := time.Parse(time.DateOnly, req.PeriodEnd)
+		if startErr != nil || endErr != nil {
+			return response.ValidationError(c, []dto.ErrorDetail{{Field: "period_start", Message: "period_start and period_end must be dates (YYYY-MM-DD)"}})
+		}
+		user := middleware.GetUserID(c)
+		overview, err := h.wikiSvc.GenerateOverview(c.Request().Context(), middleware.GetWorkspace(c).ID, scope, &user, start, end, domain.WikiOverviewTriggerManual)
+		if err != nil {
+			return wikiOverviewErrorResponse(c, err)
+		}
+		return response.Success(c, http.StatusCreated, toWikiOverview(*overview))
+	}
+}
+
+func wikiOverviewErrorResponse(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, service.ErrNoRegistryEntries):
+		return response.Error(c, http.StatusBadRequest, "NO_REGISTRY_ENTRIES", "Nothing was logged in the registry for this period.")
+	case errors.Is(err, repository.ErrPrivateWorkspaceOperation):
+		return response.Error(c, http.StatusForbidden, "PRIVATE_WORKSPACE_OPERATION_DISABLED", "AI overviews are unavailable after private teams are enabled")
+	case errors.Is(err, service.ErrAISettingsNotConfigured):
+		return response.Error(c, http.StatusBadRequest, "AI_NOT_CONFIGURED", "AI settings are incomplete. Configure a base URL, model, and API key first.")
+	case errors.Is(err, service.ErrAIProviderRequestFailed):
+		return response.Error(c, http.StatusBadGateway, "AI_PROVIDER_ERROR", err.Error())
+	}
+	return wikiErrorResponse(c, err)
+}
+
+func toWikiOverview(overview domain.WikiOverview) dto.WikiOverviewResponse {
+	return dto.WikiOverviewResponse{
+		ID:              overview.ID.String(),
+		PeriodStart:     overview.PeriodStart.UTC().Format(time.DateOnly),
+		PeriodEnd:       overview.PeriodEnd.UTC().Format(time.DateOnly),
+		Content:         overview.Content,
+		GeneratedAt:     overview.GeneratedAt,
+		GeneratedByName: overview.GeneratedByName,
+		Trigger:         overview.Trigger,
 	}
 }
 

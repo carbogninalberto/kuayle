@@ -39,6 +39,8 @@ type WikiService struct {
 	events WikiEvents
 	// now is the clock that picks the registry day; tests replace it.
 	now func() time.Time
+	// overviewAI writes registry overviews; nil until SetOverviewAI.
+	overviewAI WikiOverviewAI
 }
 
 // WikiEvents receives realtime events; the hub withholds them from members
