@@ -169,6 +169,12 @@ type WikiApprovalPayload struct {
 	RestoreState string     `json:"restore_state,omitempty"`
 	RestoreTitle string     `json:"restore_title,omitempty"`
 	VersionAt    *time.Time `json:"version_at,omitempty"`
+	// PublishMode, PublishChildren and Rotate are what share_wiki_page will
+	// set; PublishedFrom is the page's publication when it was requested.
+	PublishMode     string `json:"publish_mode,omitempty"`
+	PublishChildren bool   `json:"publish_children,omitempty"`
+	Rotate          bool   `json:"rotate,omitempty"`
+	PublishedFrom   string `json:"published_from,omitempty"`
 }
 
 // Scope returns the wiki the approval acts on.

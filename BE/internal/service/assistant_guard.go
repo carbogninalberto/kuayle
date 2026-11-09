@@ -58,8 +58,11 @@ var assistantActionPolicies = map[string]assistantActionPolicy{
 	wikiDeleteAction:          {},
 	wikiRestoreAction:         {},
 	wikiDisableRegistryAction: {},
-	"merge_pull_request":      {github: map[string]string{"pull_requests": "write", "contents": "write"}, role: roleAdminOrCreator, refusal: "only workspace admins or the task's creator can merge"},
-	"upgrade_instance":        {role: roleInstanceAdmin, refusal: "only an instance administrator can upgrade this instance; ask one to upgrade it"},
+	// Public links: also the workspace's share role, checked by the
+	// publishing service when requested and again when approved.
+	wikiShareAction:      {},
+	"merge_pull_request": {github: map[string]string{"pull_requests": "write", "contents": "write"}, role: roleAdminOrCreator, refusal: "only workspace admins or the task's creator can merge"},
+	"upgrade_instance":   {role: roleInstanceAdmin, refusal: "only an instance administrator can upgrade this instance; ask one to upgrade it"},
 	// Pull request tools (KUA-87). Reads use the pull request, the base
 	// comparison (contents), check runs and commit statuses; changes post
 	// replies, resolve threads and change the draft state (pull requests), and

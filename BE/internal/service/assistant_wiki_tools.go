@@ -27,6 +27,24 @@ type assistantWiki interface {
 	Settings(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) (domain.WikiSettings, error)
 	UpdateSettings(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, registry *bool, schedule *domain.WikiOverviewSchedule) (domain.WikiSettings, error)
 	GenerateOverview(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID *uuid.UUID, start, end time.Time, trigger string) (*domain.WikiOverview, error)
+	Tree(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) ([]domain.WikiTreeNode, error)
+	Move(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID, userID uuid.UUID, parent *uuid.UUID, index int) ([]domain.WikiTreeNode, error)
+	CreateIn(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, req dto.CreateWikiPageRequest, kind string, parent *uuid.UUID) (*domain.WikiPage, error)
+}
+
+// assistantWikiPublisher is the publishing service as the HTTP route uses it.
+type assistantWikiPublisher interface {
+	State(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) (*domain.WikiPublication, error)
+	Publish(ctx context.Context, ws *domain.Workspace, role string, userID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID, mode string, children, rotate bool) (*domain.WikiPublication, error)
+}
+
+type assistantWorkspaces interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Workspace, error)
+}
+
+// SetWikiPublishing enables publish_wiki_page and share_wiki_page.
+func (t *AssistantTools) SetWikiPublishing(publish assistantWikiPublisher, workspaces assistantWorkspaces) {
+	t.wikiPublish, t.wikiWorkspaces = publish, workspaces
 }
 
 type assistantProjects interface {
@@ -52,13 +70,19 @@ const (
 	wikiDeleteAction          = "delete_wiki_page"
 	wikiRestoreAction         = "restore_wiki_page_version"
 	wikiDisableRegistryAction = "disable_wiki_registry"
+	// wikiShareAction makes a page public, replaces its public link or takes
+	// a public page off the web: every change to what anonymous readers see.
+	wikiShareAction = "share_wiki_page"
 )
 
 var assistantWikiToolCatalog = []assistantTool{
 	{name: "list_wiki_pages", wiki: true, description: "List the pages of a team's or project's wiki the user can see, newest first, with their IDs and versions. Registry pages (the wiki's daily log) carry registry_date. Give team_key or project.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `},"additionalProperties":false}`},
 	{name: "get_wiki_page", wiki: true, description: "Read one wiki page as text, with its headings and its version (needed to change it). Give team_key or project and the page_id from list_wiki_pages.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36}},"required":["page_id"],"additionalProperties":false}`},
 	{name: "list_wiki_page_versions", wiki: true, description: "List a wiki page's recorded changes, newest first: version_id, version, who and when, and the title before and after. Use a version_id with restore_wiki_page_version.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36}},"required":["page_id"],"additionalProperties":false}`},
-	{name: "create_wiki_page", wiki: true, write: true, description: "Create a page in a team's or project's wiki. content is Markdown or simple HTML. Only call this when the user asked to write to the wiki.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"title":{"type":"string","minLength":1,"maxLength":200},"content":{"type":"string","maxLength":16000}},"required":["title"],"additionalProperties":false}`},
+	{name: "create_wiki_page", wiki: true, write: true, description: "Create a page in a team's or project's wiki. content is Markdown or simple HTML. kind \"folder\" creates a folder (a page that groups others); parent_id places it inside a page or folder from list_wiki_pages, last among its siblings. Only call this when the user asked to write to the wiki.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"title":{"type":"string","minLength":1,"maxLength":200},"content":{"type":"string","maxLength":16000},"kind":{"type":"string","enum":["page","folder"]},"parent_id":{"type":"string","maxLength":36}},"required":["title"],"additionalProperties":false}`},
+	{name: "move_wiki_page", wiki: true, write: true, description: "Move a wiki page or folder: parent_id is the page or folder to put it in (null or omitted for the top level) and index its position among its new siblings, 0 first. Pages nest at most 6 levels, never inside themselves, and only within the same wiki. Only call this when the user asked to reorganise the wiki.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36},"parent_id":{"type":["string","null"],"maxLength":36},"index":{"type":"integer","minimum":0}},"required":["page_id"],"additionalProperties":false}`},
+	{name: "publish_wiki_page", wiki: true, write: true, publish: true, description: "Read or set how a wiki page is published inside the workspace. mode \"status\" reads it; \"internal\" gives members who can see the wiki a clean read-only reader; \"off\" stops that. children includes the pages nested under it. Making a page public, replacing its public link or taking a public page off the web is share_wiki_page. Only change it when the user asked.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36},"mode":{"type":"string","enum":["status","off","internal"]},"children":{"type":"boolean"}},"required":["page_id","mode"],"additionalProperties":false}`},
+	{name: wikiShareAction, wiki: true, approval: true, publish: true, description: "Ask the user to approve a change to what anyone on the web can read: mode \"public\" publishes the page (children also its nested pages) at a link anyone can open without signing in; rotate replaces a public page's link so the old one stops working; mode \"internal\" or \"off\" takes a public page off the web. Nothing changes until the user approves in Kuayle. Only call this when the user asked.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36},"mode":{"type":"string","enum":["public","internal","off"]},"children":{"type":"boolean"},"rotate":{"type":"boolean"}},"required":["page_id","mode"],"additionalProperties":false}`},
 	{name: "update_wiki_page", wiki: true, write: true, description: "Change a wiki page. title renames it. content (Markdown or simple HTML) is applied by mode: \"replace\" replaces the whole page, \"append\" adds it at the end, \"replace_section\" replaces what is under heading (up to the next heading of its level), \"insert_after_heading\" inserts it right after heading. version is the version from get_wiki_page; it is required for replace and recommended otherwise. If the page changed since, the call fails as a conflict: read the page again and redo the change, never retry blindly. Only call this when the user asked to change the page.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36},"title":{"type":"string","minLength":1,"maxLength":200},"content":{"type":"string","maxLength":16000},"mode":{"type":"string","enum":["replace","append","replace_section","insert_after_heading"]},"heading":{"type":"string","maxLength":200},"version":{"type":"integer","minimum":1}},"required":["page_id"],"additionalProperties":false}`},
 	{name: wikiDeleteAction, wiki: true, approval: true, description: "Ask the user to approve deleting a wiki page. Nothing is deleted until the user approves in Kuayle. Only call this when the user asked to delete the page.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36}},"required":["page_id"],"additionalProperties":false}`},
 	{name: wikiRestoreAction, wiki: true, approval: true, description: "Ask the user to approve restoring a wiki page to a recorded version: the state after that change (state \"after\", the default) or before it (\"before\"). It replaces the page's current title and content once the user approves, and fails as a conflict if the page changed after you asked. Only call this when the user asked to restore.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36},"version_id":{"type":"string","maxLength":36},"state":{"type":"string","enum":["after","before"]}},"required":["page_id","version_id"],"additionalProperties":false}`},
@@ -174,9 +198,24 @@ func (t *AssistantTools) runWikiTool(ctx context.Context, ws, user uuid.UUID, na
 		if err != nil {
 			return nil, nil, wikiToolFailure(err, "listed")
 		}
+		// Where each page sits: the same tree the wiki shows. A store
+		// without a tree lists the pages flat.
+		placed := map[uuid.UUID]domain.WikiTreeNode{}
+		if nodes, err := t.wiki.Tree(ctx, ws, scope); err == nil {
+			for _, node := range nodes {
+				placed[node.ID] = node
+			}
+		}
 		result := make([]map[string]any, 0, len(pages))
 		for _, page := range pages {
-			result = append(result, wikiPageSummary(page))
+			summary := wikiPageSummary(page)
+			if node, ok := placed[page.ID]; ok && page.RegistryDate == nil {
+				summary["kind"], summary["position"] = node.Kind, node.Position
+				if node.ParentID != nil {
+					summary["parent_id"] = node.ParentID.String()
+				}
+			}
+			result = append(result, summary)
 		}
 		return map[string]any{"pages": result}, nil, nil
 	case "get_wiki_page", "list_wiki_page_versions":
@@ -221,8 +260,10 @@ func (t *AssistantTools) runWikiTool(ctx context.Context, ws, user uuid.UUID, na
 	case "create_wiki_page":
 		var input struct {
 			wikiToolScopeInput
-			Title   string `json:"title"`
-			Content string `json:"content"`
+			Title    string `json:"title"`
+			Content  string `json:"content"`
+			Kind     string `json:"kind"`
+			ParentID string `json:"parent_id"`
 		}
 		if err := decodeToolInput(arguments, &input); err != nil {
 			return nil, nil, err
@@ -234,11 +275,75 @@ func (t *AssistantTools) runWikiTool(ctx context.Context, ws, user uuid.UUID, na
 		if err != nil {
 			return nil, nil, err
 		}
-		page, err := t.wiki.Create(ctx, ws, scope, user, dto.CreateWikiPageRequest{Title: input.Title, Content: input.Content})
+		req := dto.CreateWikiPageRequest{Title: input.Title, Content: input.Content}
+		var page *domain.WikiPage
+		if input.Kind == "" && input.ParentID == "" {
+			page, err = t.wiki.Create(ctx, ws, scope, user, req)
+		} else {
+			var parent *uuid.UUID
+			if input.ParentID != "" {
+				id, perr := parseWikiPageID(input.ParentID)
+				if perr != nil {
+					return nil, nil, perr
+				}
+				parent = &id
+			}
+			page, err = t.wiki.CreateIn(ctx, ws, scope, user, req, input.Kind, parent)
+		}
 		if err != nil {
 			return nil, nil, wikiToolFailure(err, "created")
 		}
-		return wikiPageSummary(*page), nil, nil
+		summary := wikiPageSummary(*page)
+		if input.Kind != "" {
+			summary["kind"] = input.Kind
+		}
+		return summary, nil, nil
+	case "move_wiki_page":
+		var input struct {
+			wikiToolScopeInput
+			PageID   string  `json:"page_id"`
+			ParentID *string `json:"parent_id"`
+			Index    *int    `json:"index"`
+		}
+		if err := decodeToolInput(arguments, &input); err != nil {
+			return nil, nil, err
+		}
+		scope, _, err := t.wikiToolScope(ctx, ws, input.wikiToolScopeInput)
+		if err != nil {
+			return nil, nil, err
+		}
+		pageID, err := parseWikiPageID(input.PageID)
+		if err != nil {
+			return nil, nil, err
+		}
+		var parent *uuid.UUID
+		if input.ParentID != nil && *input.ParentID != "" {
+			id, err := parseWikiPageID(*input.ParentID)
+			if err != nil {
+				return nil, nil, err
+			}
+			parent = &id
+		}
+		index := 1 << 30 // last
+		if input.Index != nil {
+			index = *input.Index
+		}
+		nodes, err := t.wiki.Move(ctx, ws, scope, pageID, user, parent, index)
+		if err != nil {
+			return nil, nil, wikiToolFailure(err, "moved")
+		}
+		for _, node := range nodes {
+			if node.ID == pageID {
+				moved := map[string]any{"page_id": pageID.String(), "position": node.Position}
+				if node.ParentID != nil {
+					moved["parent_id"] = node.ParentID.String()
+				}
+				return moved, nil, nil
+			}
+		}
+		return map[string]any{"page_id": pageID.String()}, nil, nil
+	case "publish_wiki_page":
+		return t.publishWikiPage(ctx, ws, user, arguments)
 	case "update_wiki_page":
 		return t.updateWikiPage(ctx, ws, user, arguments)
 	case "append_wiki_registry":
@@ -262,6 +367,82 @@ func (t *AssistantTools) runWikiTool(ctx context.Context, ws, user uuid.UUID, na
 		return t.manageWikiRegistry(ctx, ws, user, arguments)
 	}
 	return nil, nil, toolFailure("unknown tool")
+}
+
+// publishWikiPage reads or sets a page's publication inside the workspace.
+// Anything anonymous readers would notice (a public link appearing,
+// changing or disappearing) goes through share_wiki_page and its approval.
+func (t *AssistantTools) publishWikiPage(ctx context.Context, ws, user uuid.UUID, arguments string) (any, *uuid.UUID, error) {
+	var input struct {
+		wikiToolScopeInput
+		PageID   string `json:"page_id"`
+		Mode     string `json:"mode"`
+		Children *bool  `json:"children"`
+	}
+	if err := decodeToolInput(arguments, &input); err != nil {
+		return nil, nil, err
+	}
+	scope, _, err := t.wikiToolScope(ctx, ws, input.wikiToolScopeInput)
+	if err != nil {
+		return nil, nil, err
+	}
+	pageID, err := parseWikiPageID(input.PageID)
+	if err != nil {
+		return nil, nil, err
+	}
+	current, err := t.wikiPublish.State(ctx, ws, scope, pageID)
+	if err != nil {
+		return nil, nil, wikiToolFailure(err, "read")
+	}
+	if input.Mode == "status" {
+		return wikiPublicationSummary(pageID, current), nil, nil
+	}
+	if input.Mode != domain.WikiPublishOff && input.Mode != domain.WikiPublishInternal {
+		return nil, nil, toolFailure("mode must be status, off or internal; public links go through share_wiki_page")
+	}
+	if current.Mode == domain.WikiPublishPublic {
+		return nil, nil, toolFailure("this page is public; taking it off the web needs the user's approval through share_wiki_page")
+	}
+	children := current.Children
+	if input.Children != nil {
+		children = *input.Children
+	}
+	workspace, member, err := t.wikiPublisherContext(ctx, ws, user)
+	if err != nil {
+		return nil, nil, err
+	}
+	state, err := t.wikiPublish.Publish(ctx, workspace, member.Role, user, scope, pageID, input.Mode, children, false)
+	if err != nil {
+		return nil, nil, wikiPublishFailure(err)
+	}
+	return wikiPublicationSummary(pageID, state), nil, nil
+}
+
+func (t *AssistantTools) wikiPublisherContext(ctx context.Context, ws, user uuid.UUID) (*domain.Workspace, *domain.WorkspaceMember, error) {
+	member, err := t.members.GetMember(ctx, ws, user)
+	if err != nil || member == nil || member.Role == domain.RoleGuest {
+		return nil, nil, toolFailure("you no longer have access to this workspace")
+	}
+	workspace, err := t.wikiWorkspaces.GetByID(ctx, ws)
+	if err != nil || workspace == nil {
+		return nil, nil, toolFailure("you no longer have access to this workspace")
+	}
+	return workspace, member, nil
+}
+
+func wikiPublishFailure(err error) error {
+	switch {
+	case errors.Is(err, ErrWikiPublishForbidden):
+		return toolFailure("your role cannot share pages publicly in this workspace")
+	case errors.Is(err, ErrWikiPublishPrivate):
+		return toolFailure("pages of private teams cannot be public")
+	}
+	return wikiToolFailure(err, "published")
+}
+
+func wikiPublicationSummary(pageID uuid.UUID, state *domain.WikiPublication) map[string]any {
+	// The link itself stays out of the transcript; the user copies it in the wiki.
+	return map[string]any{"page_id": pageID.String(), "mode": state.Mode, "children": state.Children, "has_public_link": state.Token != nil}
 }
 
 func (t *AssistantTools) updateWikiPage(ctx context.Context, ws, user uuid.UUID, arguments string) (any, *uuid.UUID, error) {
@@ -448,9 +629,15 @@ func (t *AssistantTools) prepareWikiApproval(ctx context.Context, ws, user uuid.
 		PageID    string `json:"page_id"`
 		VersionID string `json:"version_id"`
 		State     string `json:"state"`
+		Mode      string `json:"mode"`
+		Children  *bool  `json:"children"`
+		Rotate    bool   `json:"rotate"`
 	}
 	if err := decodeToolInput(arguments, &input); err != nil {
 		return domain.WikiApprovalPayload{}, err
+	}
+	if action != wikiShareAction && (input.Mode != "" || input.Children != nil || input.Rotate) {
+		return domain.WikiApprovalPayload{}, toolFailure("invalid arguments")
 	}
 	if action == wikiDisableRegistryAction && (input.PageID != "" || input.VersionID != "" || input.State != "") ||
 		action == wikiDeleteAction && (input.VersionID != "" || input.State != "") {
@@ -480,6 +667,9 @@ func (t *AssistantTools) prepareWikiApproval(ctx context.Context, ws, user uuid.
 		return payload, wikiToolFailure(err, "read")
 	}
 	payload.PageID, payload.Title, payload.Version = &page.ID, page.Title, page.Version
+	if action == wikiShareAction {
+		return t.prepareWikiShare(ctx, ws, user, scope, payload, input.Mode, input.Children, input.Rotate)
+	}
 	if action == wikiRestoreAction {
 		versionID, err := uuid.Parse(strings.TrimSpace(input.VersionID))
 		if err != nil {
@@ -509,5 +699,44 @@ func (t *AssistantTools) prepareWikiApproval(ctx context.Context, ws, user uuid.
 		}
 		return payload, toolFailure("version not found; call list_wiki_page_versions")
 	}
+	return payload, nil
+}
+
+// prepareWikiShare validates a change to what anonymous readers see before
+// it is offered for approval: the page is visible, the user's role may share
+// publicly when the page is or becomes public, and the change actually
+// involves a public link (other changes are publish_wiki_page's).
+func (t *AssistantTools) prepareWikiShare(ctx context.Context, ws, user uuid.UUID, scope domain.WikiScope, payload domain.WikiApprovalPayload, mode string, children *bool, rotate bool) (domain.WikiApprovalPayload, error) {
+	if t.wikiPublish == nil || t.wikiWorkspaces == nil {
+		return payload, toolFailure("unknown tool")
+	}
+	if mode != domain.WikiPublishPublic && mode != domain.WikiPublishInternal && mode != domain.WikiPublishOff {
+		return payload, toolFailure("mode must be public, internal or off")
+	}
+	current, err := t.wikiPublish.State(ctx, ws, scope, *payload.PageID)
+	if err != nil {
+		return payload, wikiToolFailure(err, "read")
+	}
+	if rotate && (mode != domain.WikiPublishPublic || current.Mode != domain.WikiPublishPublic) {
+		return payload, toolFailure("only a public page's link can be replaced; keep mode public")
+	}
+	if mode != domain.WikiPublishPublic && current.Mode != domain.WikiPublishPublic {
+		return payload, toolFailure("this page is not public; use publish_wiki_page for internal publishing")
+	}
+	include := current.Children
+	if children != nil {
+		include = *children
+	}
+	if mode == domain.WikiPublishPublic && current.Mode == domain.WikiPublishPublic && !rotate && include == current.Children {
+		return payload, toolFailure("this page is already public that way")
+	}
+	workspace, member, err := t.wikiPublisherContext(ctx, ws, user)
+	if err != nil {
+		return payload, err
+	}
+	if mode == domain.WikiPublishPublic && !CanCreateSharedLink(member.Role, workspace.ShareLinkMinRole) {
+		return payload, toolFailure("your role cannot share pages publicly in this workspace")
+	}
+	payload.PublishMode, payload.PublishChildren, payload.Rotate, payload.PublishedFrom = mode, include, rotate, current.Mode
 	return payload, nil
 }

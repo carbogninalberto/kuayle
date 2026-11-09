@@ -110,6 +110,9 @@ type AssistantTools struct {
 	// The wiki tools are unavailable until SetWiki wires them.
 	wiki         assistantWiki
 	wikiProjects assistantProjects
+	// publish_wiki_page and share_wiki_page need SetWikiPublishing.
+	wikiPublish    assistantWikiPublisher
+	wikiWorkspaces assistantWorkspaces
 }
 
 type assistantToolSettings interface {
@@ -197,6 +200,8 @@ type assistantTool struct {
 	subagents bool
 	// wiki tools need SetWiki.
 	wiki bool
+	// publish tools also need SetWikiPublishing.
+	publish bool
 }
 
 var assistantToolCatalog = []assistantTool{
@@ -263,7 +268,7 @@ func (tool assistantTool) spec() chatToolSpec {
 
 // available reports whether a tool's dependencies are wired.
 func (t *AssistantTools) available(tool assistantTool) bool {
-	return (!tool.wiki || (t.wiki != nil && t.wikiProjects != nil)) && (!tool.agentWork || t.work != nil) && (!tool.repositories || t.repositories != nil) &&
+	return (!tool.wiki || (t.wiki != nil && t.wikiProjects != nil)) && (!tool.publish || (t.wikiPublish != nil && t.wikiWorkspaces != nil)) && (!tool.agentWork || t.work != nil) && (!tool.repositories || t.repositories != nil) &&
 		(!tool.machines || (t.machineTasks != nil && t.machinePorts != nil)) &&
 		(!tool.live || t.live != nil) &&
 		(!tool.skills || t.skills != nil) &&
@@ -337,7 +342,7 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return nil, nil, toolFailure("your role cannot edit wikis")
 	}
 	switch name {
-	case "list_wiki_pages", "get_wiki_page", "list_wiki_page_versions", "create_wiki_page", "update_wiki_page", "append_wiki_registry", "manage_wiki_registry":
+	case "list_wiki_pages", "get_wiki_page", "list_wiki_page_versions", "create_wiki_page", "update_wiki_page", "append_wiki_registry", "manage_wiki_registry", "move_wiki_page", "publish_wiki_page":
 		return t.runWikiTool(ctx, ws, user, name, arguments)
 	case "list_teams":
 		if err := decodeToolInput(arguments, &struct{}{}); err != nil {

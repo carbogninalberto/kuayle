@@ -59,6 +59,14 @@ type AssistantApprovals struct {
 	// Wiki actions are unavailable until SetWiki wires them.
 	wiki        assistantWiki
 	wikiMembers assistantMemberRepo
+	// share_wiki_page is unavailable until SetWikiPublishing wires it.
+	wikiPublish    assistantWikiPublisher
+	wikiWorkspaces assistantWorkspaces
+}
+
+// SetWikiPublishing enables approving share_wiki_page.
+func (s *AssistantApprovals) SetWikiPublishing(publish assistantWikiPublisher, workspaces assistantWorkspaces) {
+	s.wikiPublish, s.wikiWorkspaces = publish, workspaces
 }
 
 // SetWiki enables approving delete_wiki_page, restore_wiki_page_version and
@@ -275,7 +283,7 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 		return s.runCustomTool(ctx, ws, conversation, approval)
 	case "reply_to_review_comment", "resolve_review_thread", "update_pull_request_branch", "mark_pull_request_ready":
 		return s.pullRequestAction(ctx, ws, conversation, approval)
-	case wikiDeleteAction, wikiRestoreAction, wikiDisableRegistryAction:
+	case wikiDeleteAction, wikiRestoreAction, wikiDisableRegistryAction, wikiShareAction:
 		return s.wikiAction(ctx, ws, conversation, approval)
 	}
 	var payload domain.DelegationPayload
@@ -644,10 +652,16 @@ func (s *AssistantApprovals) wikiAction(ctx context.Context, ws, conversation uu
 		err = s.wiki.Delete(ctx, ws, scope, *payload.PageID, approval.ActorID)
 	case wikiRestoreAction:
 		err = s.restoreWikiPage(ctx, ws, scope, approval.ActorID, payload)
+	case wikiShareAction:
+		err = s.shareWikiPage(ctx, ws, scope, approval.ActorID, member.Role, payload)
 	}
 	switch {
 	case err == nil:
 		return finish("")
+	case errors.Is(err, ErrWikiPublishForbidden):
+		return finish("Your role can no longer share pages publicly in this workspace")
+	case errors.Is(err, ErrWikiPublishPrivate):
+		return finish("Pages of private teams cannot be published publicly")
 	case errors.Is(err, ErrWikiNotFound):
 		return finish("The wiki page is gone or no longer visible to you")
 	case errors.Is(err, ErrWikiConflict):
@@ -658,6 +672,21 @@ func (s *AssistantApprovals) wikiAction(ctx context.Context, ws, conversation uu
 		return finish(upperFirst(invalid.Error()))
 	}
 	return nil, err
+}
+
+// shareWikiPage applies an approved publication as the approver: the
+// publishing service re-checks the page's visibility, the workspace's share
+// role and the team's privacy, as the HTTP route does.
+func (s *AssistantApprovals) shareWikiPage(ctx context.Context, ws uuid.UUID, scope domain.WikiScope, actor uuid.UUID, role string, payload domain.WikiApprovalPayload) error {
+	if s.wikiPublish == nil || s.wikiWorkspaces == nil || payload.PageID == nil {
+		return ErrWikiNotFound
+	}
+	workspace, err := s.wikiWorkspaces.GetByID(ctx, ws)
+	if err != nil || workspace == nil {
+		return ErrWikiNotFound
+	}
+	_, err = s.wikiPublish.Publish(ctx, workspace, role, actor, scope, *payload.PageID, payload.PublishMode, payload.PublishChildren, payload.Rotate)
+	return err
 }
 
 func (s *AssistantApprovals) restoreWikiPage(ctx context.Context, ws uuid.UUID, scope domain.WikiScope, actor uuid.UUID, payload domain.WikiApprovalPayload) error {
