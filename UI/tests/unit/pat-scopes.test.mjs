@@ -48,9 +48,10 @@ test('read_only preset expands to all read scopes including dev_machine:read', (
 	assert.equal(PRESET_SCOPES.read_only.length, 16);
 });
 
-test('developer preset adds issue create/update and label manage, but not delete', () => {
+test('developer preset adds issue create/update, label manage and wiki write, but not delete', () => {
 	const scopes = PRESET_SCOPES.developer;
-	for (const s of ['issue:create', 'issue:update', 'label:manage']) {
+	// The Kuayle CLI's documented preset: it edits wiki pages and the registry.
+	for (const s of ['issue:create', 'issue:update', 'label:manage', 'wiki:read', 'wiki:write']) {
 		assert.ok(scopes.includes(s), `missing ${s}`);
 	}
 	assert.ok(!scopes.includes('issue:delete_own'));

@@ -1238,7 +1238,7 @@
 	"settings.tokens.preset": "预设",
 	"settings.tokens.preset_custom": "自定义",
 	"settings.tokens.preset_developer": "开发者(CLI)",
-	"settings.tokens.preset_developer_desc": "kuayle-cli 全功能:读取、创建和更新议题、管理标签;不含议题删除权限。",
+	"settings.tokens.preset_developer_desc": "Kuayle CLI 全功能:读取、创建和更新议题、管理标签、编辑 Wiki 页面和日志;不含议题删除权限。",
 	"settings.tokens.preset_full_access": "完全访问",
 	"settings.tokens.preset_full_access_desc": "全部权限,包括管理类和开发机。",
 	"settings.tokens.preset_full_warning": "完全访问包括工作区导入导出和开发机管理。令牌权限不会超越账号角色权限。请仅用于可信自动化。",

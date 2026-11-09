@@ -1238,7 +1238,7 @@
 	"settings.tokens.preset": "Preset",
 	"settings.tokens.preset_custom": "Custom",
 	"settings.tokens.preset_developer": "Developer (CLI)",
-	"settings.tokens.preset_developer_desc": "Full kuayle-cli workflow: read, create and update issues, manage labels. Does not include issue deletion.",
+	"settings.tokens.preset_developer_desc": "Full Kuayle CLI workflow: read, create and update issues, manage labels, edit wiki pages and the registry. Does not include issue deletion.",
 	"settings.tokens.preset_full_access": "Full access",
 	"settings.tokens.preset_full_access_desc": "Every scope, including admin and dev machines.",
 	"settings.tokens.preset_full_warning": "Full access includes workspace import/export and dev machine admin. Token scopes do not override your account’s role permissions. Only use it for trusted automation.",

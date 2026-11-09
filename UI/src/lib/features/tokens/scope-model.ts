@@ -56,7 +56,8 @@ const ALL_SCOPES = RESOURCE_ROWS.flatMap((row) => [...row.readScopes, ...row.wri
 // explicitly by setting the Issues row to Read & write.
 export const PRESET_SCOPES: Record<PresetKey, string[]> = {
 	read_only: ALL_READ_SCOPES,
-	developer: [...ALL_READ_SCOPES, 'issue:create', 'issue:update', 'label:manage'],
+	// The Kuayle CLI's preset: issues, labels and wiki/registry editing.
+	developer: [...ALL_READ_SCOPES, 'issue:create', 'issue:update', 'label:manage', 'wiki:write'],
 	triage_bot: [
 		'issues:read',
 		'comments:read',
