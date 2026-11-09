@@ -12,6 +12,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/audit"
+	"github.com/kuayle/kuayle-backend/pkg/storage"
 )
 
 var (
@@ -26,6 +27,7 @@ type WorkspaceService struct {
 	workspaceRepo repository.WorkspaceRepo
 	userRepo      repository.UserRepo
 	hub           *realtime.Hub
+	teamIconStore storage.Backend
 }
 
 func NewWorkspaceService(workspaceRepo repository.WorkspaceRepo, userRepo repository.UserRepo, hubs ...*realtime.Hub) *WorkspaceService {
@@ -35,6 +37,9 @@ func NewWorkspaceService(workspaceRepo repository.WorkspaceRepo, userRepo reposi
 	}
 	return s
 }
+
+// SetTeamIconStore lets Delete remove the icon images of the workspace's teams.
+func (s *WorkspaceService) SetTeamIconStore(store storage.Backend) { s.teamIconStore = store }
 
 func (s *WorkspaceService) refreshAccess(workspaceID uuid.UUID) {
 	if s.hub != nil {
@@ -166,7 +171,8 @@ func (s *WorkspaceService) Delete(ctx context.Context, slug string, userID uuid.
 		return ErrNotWorkspaceOwner
 	}
 
-	if err := s.workspaceRepo.Delete(ctx, ws.ID); err != nil {
+	teamIcons, err := s.workspaceRepo.Delete(ctx, ws.ID)
+	if err != nil {
 		if errors.Is(err, repository.ErrWorkspaceHasDevMachineRuntimes) {
 			return ErrWorkspaceHasDevMachineRuntimes
 		}
@@ -174,6 +180,10 @@ func (s *WorkspaceService) Delete(ctx context.Context, slug string, userID uuid.
 			return ErrWorkspaceEnvironmentCleanupPending
 		}
 		return err
+	}
+	// The workspace is committed as deleted; its teams' icon files go after.
+	for _, team := range teamIcons {
+		deleteTeamIconImage(ctx, s.teamIconStore, team.TeamID, &team.Icon)
 	}
 
 	audit.Log("workspace.deleted", userID, map[string]interface{}{

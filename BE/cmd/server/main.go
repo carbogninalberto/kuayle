@@ -233,6 +233,8 @@ func main() {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}
 	authH.SetAvatarStore(store)
+	teamSvc.SetIconStore(store)
+	workspaceSvc.SetTeamIconStore(store)
 	uploadH := handler.NewUploadHandler(store, assetRepo, issueRepo, cfg.JWTSecret)
 	conversationImages := service.NewImageStore(store)
 	conversationSvc.SetAttachments(conversationImages, assetRepo, commentSvc, workspaceRepo)

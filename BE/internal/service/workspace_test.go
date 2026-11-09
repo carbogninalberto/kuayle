@@ -50,9 +50,10 @@ func (m *mockWorkspaceRepo) Update(ctx context.Context, ws *domain.Workspace) er
 	return args.Error(0)
 }
 
-func (m *mockWorkspaceRepo) Delete(ctx context.Context, id uuid.UUID) error {
+func (m *mockWorkspaceRepo) Delete(ctx context.Context, id uuid.UUID) ([]domain.TeamIconImage, error) {
 	args := m.Called(ctx, id)
-	return args.Error(0)
+	icons, _ := args.Get(0).([]domain.TeamIconImage)
+	return icons, args.Error(1)
 }
 
 func (m *mockWorkspaceRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.Workspace, error) {
@@ -355,7 +356,7 @@ func TestWorkspaceService_Delete_Owner(t *testing.T) {
 	ownerID := uuid.New()
 	ws := &domain.Workspace{ID: uuid.New(), Slug: "test", OwnerID: ownerID}
 	wsRepo.On("GetBySlug", ctx, "test").Return(ws, nil)
-	wsRepo.On("Delete", ctx, ws.ID).Return(nil)
+	wsRepo.On("Delete", ctx, ws.ID).Return(nil, nil)
 
 	err := svc.Delete(ctx, "test", ownerID)
 
@@ -401,7 +402,7 @@ func TestWorkspaceService_Delete_BlocksActiveDevMachines(t *testing.T) {
 	ownerID := uuid.New()
 	ws := &domain.Workspace{ID: uuid.New(), Slug: "test", OwnerID: ownerID}
 	wsRepo.On("GetBySlug", ctx, "test").Return(ws, nil)
-	wsRepo.On("Delete", ctx, ws.ID).Return(repository.ErrWorkspaceHasDevMachineRuntimes)
+	wsRepo.On("Delete", ctx, ws.ID).Return(nil, repository.ErrWorkspaceHasDevMachineRuntimes)
 
 	err := svc.Delete(ctx, "test", ownerID)
 
@@ -416,11 +417,29 @@ func TestWorkspaceService_DeleteReportsEnvironmentCleanup(t *testing.T) {
 	ownerID := uuid.New()
 	ws := &domain.Workspace{ID: uuid.New(), Slug: "test", OwnerID: ownerID}
 	wsRepo.On("GetBySlug", ctx, "test").Return(ws, nil)
-	wsRepo.On("Delete", ctx, ws.ID).Return(repository.ErrWorkspaceEnvironmentCleanupPending)
+	wsRepo.On("Delete", ctx, ws.ID).Return(nil, repository.ErrWorkspaceEnvironmentCleanupPending)
 
 	err := svc.Delete(ctx, "test", ownerID)
 
 	assert.ErrorIs(t, err, ErrWorkspaceEnvironmentCleanupPending)
+}
+
+func TestWorkspaceService_DeleteRemovesTeamIconImages(t *testing.T) {
+	wsRepo := new(mockWorkspaceRepo)
+	svc := NewWorkspaceService(wsRepo, new(mockUserRepo))
+	store := &iconStore{files: map[string][]byte{}}
+	svc.SetTeamIconStore(store)
+	ctx := context.Background()
+	ownerID := uuid.New()
+	ws := &domain.Workspace{ID: uuid.New(), Slug: "test", OwnerID: ownerID}
+	team, file := uuid.New(), uuid.NewString()+".png"
+	store.files[teamIconKey(team, file)] = []byte("png")
+	store.files["avatar-unrelated"] = []byte("keep")
+	wsRepo.On("GetBySlug", ctx, "test").Return(ws, nil)
+	wsRepo.On("Delete", ctx, ws.ID).Return([]domain.TeamIconImage{{TeamID: team, Icon: domain.TeamIconImagePrefix + file}}, nil)
+
+	assert.NoError(t, svc.Delete(ctx, "test", ownerID))
+	assert.Equal(t, map[string][]byte{"avatar-unrelated": []byte("keep")}, store.files, "only the deleted teams' icons are removed")
 }
 
 func TestWorkspaceService_UpdateMemberRole_PreventsOwnerDemotion(t *testing.T) {
