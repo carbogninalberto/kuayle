@@ -206,17 +206,23 @@ test('admins list, filter, create, edit, activate, restore and delete skills', a
 	await expect.poll(() => state.writes.at(-1)).toEqual({ method: 'PUT', path: '/skill-release/enabled', body: { enabled: false } });
 	await expect(page.getByRole('switch', { name: 'Enable How we release' })).not.toBeChecked();
 
-	// Create a team skill for a private team the admin can see, with a preview.
+	// Create a team skill for a private team the admin can see, with a preview,
+	// writing the draft by hand.
 	await page.getByRole('button', { name: 'New skill' }).click();
 	const create = page.getByRole('dialog', { name: 'New skill' });
-	await create.getByRole('combobox', { name: 'Scope' }).click();
-	await page.getByRole('option', { name: 'Security' }).click();
-	await create.getByRole('textbox', { name: 'Name' }).fill('On-call');
-	await create.getByRole('textbox', { name: 'Description' }).fill('Use for incidents.');
-	await create.getByRole('textbox', { name: 'Instructions (Markdown)' }).fill('# Pager\n\nCall **ops**.\n\n<script>window.__xss=1</script>');
+	await create.getByRole('textbox', { name: 'What is it for?' }).fill('Pager duty');
+	await create.getByRole('button', { name: 'Next' }).click();
+	await create.getByRole('textbox', { name: 'SKILL.md' }).fill(
+		'---\nname: on-call\ndescription: Use for incidents.\n---\n\n# Pager\n\nCall **ops**.\n\n<script>window.__xss=1</script>'
+	);
 	await create.getByRole('tab', { name: 'Preview' }).click();
 	await expect(create.getByRole('heading', { name: 'Pager' })).toBeVisible();
 	await expect(create.locator('strong', { hasText: 'ops' })).toBeVisible();
+	await create.getByRole('button', { name: 'Next' }).click();
+	await create.getByRole('combobox', { name: 'Scope' }).click();
+	await page.getByRole('option', { name: 'Security' }).click();
+	await create.getByRole('textbox', { name: 'Name' }).fill('On-call');
+	await expect(create.getByRole('textbox', { name: 'Description' })).toHaveValue('Use for incidents.');
 	await create.getByRole('button', { name: 'Create', exact: true }).click();
 	await expect.poll(() => state.writes.at(-1)).toEqual({
 		method: 'POST',
@@ -315,4 +321,91 @@ test('a deep link opens one skill and both views fit a phone', async ({ page }) 
 	await expect(page.getByRole('list', { name: 'Skills' }).getByRole('listitem')).toHaveCount(2);
 	expect(await noHorizontalScroll(page)).toBe(true);
 	await page.screenshot({ path: test.info().outputPath('assistant-skills-phone.png'), fullPage: true });
+});
+
+test('the skill wizard drafts a SKILL.md with AI, checks it and saves it as a draft', async ({ page }) => {
+	const state = await fixture(page, 'admin');
+	const asked: Array<Record<string, string>> = [];
+	await page.route('**/api/workspaces/test/ai/write', async (route) => {
+		asked.push(route.request().postDataJSON());
+		await route.fulfill({
+			json: {
+				text: '---\nname: review-migrations\ndescription: Use when a change adds a SQL migration.\n---\n\n# Review migrations\n\n1. Check the down file.'
+			}
+		});
+	});
+	await page.goto('/test/settings/assistant?tab=skills');
+	await page.getByRole('button', { name: 'New skill' }).click();
+	const wizard = page.getByRole('dialog', { name: 'New skill' });
+	const current = wizard.getByRole('list', { name: 'Progress' }).locator('[aria-current="step"]');
+	await expect(current).toHaveText(/Describe/);
+	await expect(wizard.getByRole('button', { name: 'Next' })).toBeDisabled();
+	await wizard.getByRole('textbox', { name: 'What is it for?' }).fill('Review SQL migrations');
+	await wizard.getByRole('textbox', { name: 'When should the assistant use it?' }).fill('When a change adds a migration');
+	await wizard.getByRole('textbox', { name: /Examples or reference/ }).fill('Check the down file.');
+	await wizard.getByRole('button', { name: 'Next' }).click();
+
+	await expect(current).toHaveText(/Draft/);
+	await wizard.getByRole('button', { name: 'Generate with AI' }).click();
+	const editor = wizard.getByRole('textbox', { name: 'SKILL.md' });
+	await expect(editor).toHaveValue(/name: review-migrations/);
+	expect(asked).toHaveLength(1);
+	expect(asked[0]).toMatchObject({ kind: 'skill', mode: 'generate' });
+	expect(asked[0].instruction).toContain('Purpose: Review SQL migrations');
+	expect(asked[0].instruction).toContain('When to use: When a change adds a migration');
+	expect(asked[0].source).toContain('Check the down file.');
+
+	// A broken draft shows what is wrong and cannot go on.
+	const draft = await editor.inputValue();
+	await editor.fill('Just notes');
+	await expect(wizard.getByRole('alert')).toContainText('Start with front matter between two --- lines.');
+	await expect(wizard.getByRole('button', { name: 'Next' })).toBeDisabled();
+	await editor.fill(draft);
+	await wizard.getByRole('button', { name: 'Next' }).click();
+
+	await expect(current).toHaveText(/Review/);
+	await expect(wizard.getByRole('textbox', { name: 'Name' })).toHaveValue('review-migrations');
+	await expect(wizard.getByRole('textbox', { name: 'Description' })).toHaveValue('Use when a change adds a SQL migration.');
+	await expect(wizard.getByRole('heading', { name: 'Review migrations' })).toBeVisible();
+	await wizard.getByRole('combobox', { name: 'Status' }).click();
+	await page.getByRole('option', { name: 'Draft' }).click();
+	await wizard.getByRole('button', { name: 'Create', exact: true }).click();
+	await expect.poll(() => state.writes.at(-1)).toEqual({
+		method: 'POST',
+		path: '',
+		body: {
+			team_id: null,
+			name: 'review-migrations',
+			description: 'Use when a change adds a SQL migration.',
+			body: '# Review migrations\n\n1. Check the down file.',
+			status: 'draft'
+		}
+	});
+	await expect(wizard).toBeHidden();
+	await expect(page.getByRole('heading', { name: 'review-migrations', level: 2 })).toBeVisible();
+});
+
+test('without AI the skill wizard starts from a template of the answers', async ({ page }) => {
+	const state = await fixture(page, 'admin');
+	await page.route('**/api/workspaces/test/ai/write', (route) =>
+		route.fulfill({ status: 400, json: { error: { code: 'AI_NOT_CONFIGURED', message: 'AI settings are incomplete.' } } })
+	);
+	await page.goto('/test/settings/assistant?tab=skills');
+	await page.getByRole('button', { name: 'New skill' }).click();
+	const wizard = page.getByRole('dialog', { name: 'New skill' });
+	await wizard.getByRole('textbox', { name: 'What is it for?' }).fill('Pager duty for incidents');
+	await wizard.getByRole('textbox', { name: 'When should the assistant use it?' }).fill('When production is down');
+	await wizard.getByRole('button', { name: 'Next' }).click();
+	await wizard.getByRole('button', { name: 'Generate with AI' }).click();
+	await expect(wizard.getByText('AI is off, so the draft is a template made from your answers.')).toBeVisible();
+	await expect(wizard.getByRole('link', { name: 'AI settings' })).toHaveAttribute('href', '/test/settings/ai');
+	await expect(wizard.getByRole('textbox', { name: 'SKILL.md' })).toHaveValue(
+		/^---\nname: pager-duty-for-incidents\ndescription: When production is down\n---/
+	);
+	await wizard.getByRole('button', { name: 'Next' }).click();
+	await wizard.getByRole('button', { name: 'Create', exact: true }).click();
+	await expect.poll(() => state.writes.at(-1)).toMatchObject({
+		method: 'POST',
+		body: { name: 'pager-duty-for-incidents', description: 'When production is down', status: 'active' }
+	});
 });

@@ -51,8 +51,9 @@ type ExpandDraftIssueDescriptionRequest struct {
 // selected part of one.
 type WriteSkillRequest struct {
 	Mode string `json:"mode" validate:"required,oneof=generate rewrite"`
-	// Kind is what is written: skill (default), instructions or step_prompt.
-	Kind        string  `json:"kind" validate:"omitempty,oneof=skill instructions step_prompt"`
+	// Kind is what is written: skill (default), instructions, step_prompt or
+	// custom_tool (a JSON tool definition, generate only).
+	Kind        string  `json:"kind" validate:"omitempty,oneof=skill instructions step_prompt custom_tool"`
 	Instruction string  `json:"instruction" validate:"max=2000"`
 	Source      string  `json:"source" validate:"max=70000"`
 	Selection   *string `json:"selection" validate:"omitempty,max=20000"`

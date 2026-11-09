@@ -38,6 +38,7 @@
 	import CustomToolEditorDialog from './CustomToolEditorDialog.svelte';
 	import CustomToolReviewDialog from './CustomToolReviewDialog.svelte';
 	import CustomToolTestRunDialog from './CustomToolTestRunDialog.svelte';
+	import CustomToolWizardDialog from './CustomToolWizardDialog.svelte';
 	import ToolRunView, { runStatusLabel } from './ToolRunView.svelte';
 	import { runModeLabel } from './custom-tool-labels';
 
@@ -133,6 +134,10 @@
 			tool = one;
 			versions = history.versions;
 			runs = ran.runs;
+			if (testAfterLoad === id) {
+				testAfterLoad = null;
+				testing = true;
+			}
 		} catch (err) {
 			if (request !== detailRequest) return;
 			appToast.apiError(err, m['assistant_custom_tools.failed_load']());
@@ -175,6 +180,13 @@
 		await load();
 		if (selected === updated.id) await loadDetail(updated.id);
 		else await open(updated.id);
+	}
+
+	// A tool made with the wizard opens; "save draft and test" also opens the test run.
+	let testAfterLoad: string | null = null;
+	async function created(saved: AssistantCustomTool, { test }: { test: boolean }) {
+		testAfterLoad = test ? saved.id : null;
+		await refresh(saved);
 	}
 
 	async function toggle(entry: AssistantCustomTool, enabled: boolean) {
@@ -557,7 +569,7 @@
 		{/if}
 	</section>
 	{#if manage}
-		<CustomToolEditorDialog bind:open={creating} {slug} {interpreters} onsaved={refresh} />
+		<CustomToolWizardDialog bind:open={creating} {slug} {interpreters} onsaved={created} />
 	{/if}
 {:else if failed}
 	<Button variant="outline" onclick={load}>{m['assistant_custom_tools.reload']()}</Button>

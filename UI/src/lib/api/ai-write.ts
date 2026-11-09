@@ -1,7 +1,7 @@
 import { api } from './client';
 
-/** What the AI writes: a SKILL.md, an agent profile's instructions or a workflow step's prompt. */
-export type AiWriteKind = 'skill' | 'instructions' | 'step_prompt';
+/** What the AI writes: a SKILL.md, an agent profile's instructions, a workflow step's prompt, or a custom tool's definition (JSON, generate only). */
+export type AiWriteKind = 'skill' | 'instructions' | 'step_prompt' | 'custom_tool';
 
 export interface AiWriteRequest {
 	kind: AiWriteKind;

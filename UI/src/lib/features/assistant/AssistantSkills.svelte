@@ -25,6 +25,7 @@
 	import Markdown from './Markdown.svelte';
 	import SkillEditorDialog from './SkillEditorDialog.svelte';
 	import SkillReviewDialog from './SkillReviewDialog.svelte';
+	import SkillWizardDialog from './SkillWizardDialog.svelte';
 
 	// Settings → Assistant → Skills. Write controls are shown to owners and
 	// admins (`can_manage`); the server enforces every write on its own.
@@ -414,7 +415,7 @@
 			</p>
 		{/if}
 	</section>
-	<SkillEditorDialog bind:open={creating} {slug} {teams} onsaved={refresh} />
+	<SkillWizardDialog bind:open={creating} {slug} {teams} onsaved={refresh} />
 {:else if failed}
 	<Button variant="outline" onclick={load}>{m['assistant_skills.reload']()}</Button>
 {:else}

@@ -182,6 +182,13 @@ async function settings(page: Page, role: 'admin' | 'member') {
 			state.runs.unshift(run({ status: 'queued', started_at: null }));
 			return route.fulfill({ status: 202, json: state.runs[0] });
 		}
+		if (rest === '' && method === 'PUT') {
+			const input = request.postDataJSON();
+			const next = tool.latest_version + 1;
+			state.versions[tool.id].unshift({ ...state.versions[tool.id][0], ...input, version: next, status: input.status ?? tool.status, author_kind: 'user' });
+			Object.assign(tool, { latest_version: next, pending_version: input.status === 'draft' && tool.status === 'active' ? next : tool.pending_version });
+			return route.fulfill({ json: tool });
+		}
 		if (rest === '' && method === 'DELETE') {
 			state.tools = state.tools.filter((entry) => entry.id !== tool.id);
 			return route.fulfill({ status: 204 });
@@ -218,12 +225,14 @@ test('admins build a tool, activate a reviewed draft and test-run it', async ({ 
 	await expect(toggle).toBeChecked();
 	expect(state.writes.at(-1)).toEqual({ method: 'PUT', path: `/${branchesId}/enabled`, body: { enabled: true } });
 
-	// Create with the parameter builder.
+	// Create by hand with the parameter builder, through the wizard's steps.
 	await page.getByRole('button', { name: 'New tool' }).click();
 	const editor = page.getByRole('dialog', { name: 'New custom tool' });
+	await editor.getByLabel('What should it do?').fill('Run a Playwright spec I name.');
+	await editor.getByRole('button', { name: 'Next' }).click();
+	await expect(editor.getByLabel('Description', { exact: true })).toHaveValue('Run a Playwright spec I name.');
 	await editor.getByLabel('Name', { exact: true }).fill('run_spec');
 	await expect(editor.getByText('custom_run_spec')).toBeVisible();
-	await editor.getByLabel('Description', { exact: true }).fill('Run a Playwright spec I name.');
 	await editor.getByRole('combobox', { name: 'Interpreter' }).click();
 	await page.getByRole('option', { name: 'bash' }).click();
 	await editor.getByLabel('Script', { exact: true }).fill('npx playwright test "$KUAYLE_ARG_SPEC"');
@@ -240,9 +249,13 @@ test('admins build a tool, activate a reviewed draft and test-run it', async ({ 
 	await editor.getByRole('button', { name: 'Add parameter' }).click();
 	await editor.getByLabel('Parameter name').nth(2).fill('Bad Name');
 	await expect(editor.getByText('Parameter names use lowercase letters')).toBeVisible();
-	await expect(editor.getByRole('button', { name: 'Create and activate' })).toBeDisabled();
+	await expect(editor.getByRole('button', { name: 'Next' })).toBeDisabled();
 	await editor.getByRole('button', { name: 'Remove parameter Bad Name' }).click();
+	await editor.getByRole('tab', { name: 'JSON' }).click();
+	await expect(editor.getByText('"additionalProperties": false')).toBeVisible();
+	await editor.getByRole('button', { name: 'Next' }).click();
 	// Auto runs need the read-only mark.
+	await expect(editor.getByText('spec: string*, browser: chromium | webkit')).toBeVisible();
 	const mode = editor.getByRole('combobox', { name: 'Run mode' });
 	await mode.click();
 	await expect(page.getByRole('option', { name: 'Runs automatically' })).toHaveAttribute('data-disabled');
@@ -251,9 +264,7 @@ test('admins build a tool, activate a reviewed draft and test-run it', async ({ 
 	await mode.click();
 	await page.getByRole('option', { name: 'Runs automatically' }).click();
 	await editor.getByLabel('Timeout (seconds)').fill('120');
-	await editor.getByRole('tab', { name: 'JSON' }).click();
-	await expect(editor.getByText('"additionalProperties": false')).toBeVisible();
-	await editor.getByRole('button', { name: 'Create and activate' }).click();
+	await editor.getByRole('button', { name: 'Create', exact: true }).click();
 	await expect(editor).toBeHidden();
 	const created = state.writes.find((write) => write.method === 'POST' && write.path === '');
 	expect(created?.body).toEqual({
@@ -490,4 +501,113 @@ test('a custom tool run waits for approval with its exact inputs, then shows its
 	await expect(page.getByText('Exit code 1')).toBeVisible();
 	await expect(page.getByText('1 failed', { exact: true })).toBeVisible();
 	expect(state.decisions).toEqual(['approve']);
+});
+
+test('the tool wizard drafts the fields with AI, never keeps extra fields, and saves a draft to test', async ({ page }) => {
+	const state = await settings(page, 'admin');
+	const asked: Array<Record<string, string>> = [];
+	await page.route('**/api/workspaces/test/ai/write', async (route) => {
+		asked.push(route.request().postDataJSON());
+		await route.fulfill({
+			json: {
+				text: JSON.stringify({
+					name: 'open_prs',
+					description: 'List the open pull requests of a GitHub repository.',
+					interpreter: 'bash',
+					script: 'curl -fsS "https://api.github.com/repos/$KUAYLE_ARG_REPO/pulls?state=open"',
+					parameters: {
+						type: 'object',
+						properties: { repo: { type: 'string', description: 'owner/name', maxLength: 200 } },
+						required: ['repo'],
+						additionalProperties: false
+					},
+					read_only: true,
+					timeout_seconds: 60,
+					api_key: 'dropped-by-kuayle',
+					run_mode: 'auto'
+				})
+			}
+		});
+	});
+	await page.goto('/test/settings/assistant?tab=custom-tools');
+	await page.getByRole('button', { name: 'New tool' }).click();
+	const wizard = page.getByRole('dialog', { name: 'New custom tool' });
+	const current = wizard.getByRole('list', { name: 'Progress' }).locator('[aria-current="step"]');
+	await expect(current).toHaveText(/Describe/);
+	await expect(wizard.getByText('Tools run without credentials.')).toBeVisible();
+	await wizard.getByLabel('What should it do?').fill('List the open pull requests of a repository');
+	await wizard.getByLabel('Service or URL (optional)').fill('https://api.github.com');
+	await wizard.getByLabel('Inputs (optional)').fill('repo as owner/name');
+	await wizard.getByRole('button', { name: 'Next' }).click();
+
+	await expect(current).toHaveText(/Draft/);
+	await wizard.getByRole('button', { name: 'Generate with AI' }).click();
+	await expect(wizard.getByLabel('Name', { exact: true })).toHaveValue('open_prs');
+	expect(asked).toHaveLength(1);
+	expect(asked[0]).toMatchObject({ kind: 'custom_tool', mode: 'generate', source: '' });
+	expect(asked[0].instruction).toContain('What it does: List the open pull requests of a repository');
+	expect(asked[0].instruction).toContain('Service or URL: https://api.github.com');
+	expect(asked[0].instruction).toContain('Inputs: repo as owner/name');
+	await expect(wizard.getByLabel('Script', { exact: true })).toHaveValue(/KUAYLE_ARG_REPO/);
+	await expect(wizard.getByLabel('Parameter name')).toHaveValue('repo');
+	await wizard.getByRole('button', { name: 'Next' }).click();
+
+	await expect(current).toHaveText(/Review/);
+	await expect(wizard.getByText('custom_open_prs')).toBeVisible();
+	await expect(wizard.getByText('repo: string*')).toBeVisible();
+	// The run mode is the user's choice, never the AI's.
+	await expect(wizard.getByRole('combobox', { name: 'Run mode' })).toHaveText('Approval each run');
+	await expect(wizard.getByRole('checkbox', { name: /^Read-only/ })).toBeChecked();
+	await expect(wizard.getByLabel('Timeout (seconds)')).toHaveValue('60');
+	await wizard.getByRole('button', { name: 'Save draft and test' }).click();
+	await expect(wizard).toBeHidden();
+	const created = state.writes.find((write) => write.method === 'POST' && write.path === '');
+	expect(created?.body).toEqual({
+		name: 'open_prs',
+		description: 'List the open pull requests of a GitHub repository.',
+		interpreter: 'bash',
+		script: 'curl -fsS "https://api.github.com/repos/$KUAYLE_ARG_REPO/pulls?state=open"',
+		parameters: {
+			type: 'object',
+			properties: { repo: { type: 'string', description: 'owner/name', maxLength: 200 } },
+			required: ['repo'],
+			additionalProperties: false
+		},
+		run_mode: 'approval',
+		read_only: true,
+		timeout_seconds: 60,
+		status: 'draft'
+	});
+	await expect(page.getByRole('dialog', { name: 'Test run open_prs' })).toBeVisible();
+	await page.getByRole('dialog', { name: 'Test run open_prs' }).getByRole('button', { name: 'Close' }).first().click();
+
+	// The editor, which shares the wizard's fields, opens on the saved tool.
+	await page.getByRole('button', { name: 'Edit', exact: true }).click();
+	const edit = page.getByRole('dialog', { name: 'Edit open_prs' });
+	await expect(edit.getByLabel('Name', { exact: true })).toHaveValue('open_prs');
+	await expect(edit.getByLabel('Parameter name')).toHaveValue('repo');
+	await expect(edit.getByLabel('Timeout (seconds)')).toHaveValue('60');
+	await edit.getByLabel('Timeout (seconds)').fill('90');
+	await edit.getByRole('button', { name: 'Save draft' }).click();
+	await expect(edit).toBeHidden();
+	expect(state.writes.at(-1)).toMatchObject({ method: 'PUT', path: '/tool-new', body: { name: 'open_prs', timeout_seconds: 90 } });
+});
+
+test('without AI the tool wizard leaves the fields to fill by hand', async ({ page }) => {
+	await settings(page, 'admin');
+	await page.route('**/api/workspaces/test/ai/write', (route) =>
+		route.fulfill({ status: 400, json: { error: { code: 'AI_NOT_CONFIGURED', message: 'AI settings are incomplete.' } } })
+	);
+	await page.goto('/test/settings/assistant?tab=custom-tools');
+	await page.getByRole('button', { name: 'New tool' }).click();
+	const wizard = page.getByRole('dialog', { name: 'New custom tool' });
+	await wizard.getByLabel('What should it do?').fill('Count lines of code');
+	await wizard.getByRole('button', { name: 'Next' }).click();
+	await wizard.getByRole('button', { name: 'Generate with AI' }).click();
+	await expect(wizard.getByText('AI is off. Fill in the fields yourself')).toBeVisible();
+	await expect(wizard.getByLabel('Name', { exact: true })).toHaveValue('count_lines_of_code');
+	await expect(wizard.getByLabel('Description', { exact: true })).toHaveValue('Count lines of code');
+	await expect(wizard.getByRole('button', { name: 'Next' })).toBeDisabled();
+	await wizard.getByLabel('Script', { exact: true }).fill('git ls-files | xargs wc -l | tail -1');
+	await expect(wizard.getByRole('button', { name: 'Next' })).toBeEnabled();
 });
