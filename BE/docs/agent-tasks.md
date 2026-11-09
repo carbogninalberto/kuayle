@@ -298,8 +298,8 @@ and write, checks that the checkout is the task's own ready checkout, then:
 
 1. Commits pending changes in the developer container **without any credential**,
    as `DEV_MACHINE_AGENT_GIT_NAME <DEV_MACHINE_AGENT_GIT_EMAIL>` (default
-   `Kuayle Agent <agent@kuayle.invalid>`), with repository hooks, fsmonitor and
-   signing programs disabled and system/global configuration ignored. The message
+   `Kuayle Agent <agent@kuayle.invalid>`), without loading the checkout's git
+   configuration (see [what publication runs](#what-publication-runs)). The message
    is `<ISSUE-ID>: <issue title>`. Commits since the last published commit (the
    floor Kuayle recorded, or the task branch as fetched from GitHub when that
    descends from it) by any other author or carrying co-author trailers are
@@ -310,7 +310,7 @@ and write, checks that the checkout is the task's own ready checkout, then:
    floor and that base commit, so the pull request is neither behind its base nor
    re-adds the base's commits. A branch with no commits ahead of the
    base is recorded as `skipped` and blocks the task; it is never reviewable.
-2. Fetches exactly that branch tip into a new temporary repository outside the
+2. Copies exactly that branch tip into a new temporary repository outside the
    workspace volume, verifies it is still the recorded commit, and only then reads
    a fresh repository-scoped GitHub App token from stdin. It fetches the base and
    task branches from GitHub and refuses a push that would add a commit by
@@ -318,8 +318,8 @@ and write, checks that the checkout is the task's own ready checkout, then:
    remote-tracking refs the commit step relied on are agent-writable. It pushes
    the commit to the fixed `https://github.com/<checkout repository>` URL without
    force. The agent-writable checkout's configuration (hooks, URL rewrites,
-   credential helpers) is never loaded while the token exists, and the token is
-   never written to the workspace volume.
+   credential helpers) is never loaded, and the token is never written to the
+   workspace volume.
 3. Reuses an open pull request from the task branch into the base branch, or opens
    one with the GitHub App, as a draft when the attempt's check was skipped. A
    reused pull request gets this attempt's description, so a later passing check
@@ -339,9 +339,33 @@ Retries after a lost result recommit nothing, push the same commit and reuse the
 open pull request. Push or GitHub errors are retried up to the operation limit with
 the token redacted; exhausted or terminal failures mark the step failed and block
 the task with its validated work intact. Cancellation marks open steps cancelled.
-Agent-controlled git configuration can still run programs during the
-credential-free commit step (for example clean filters); that runs with the same
-privileges the agent already had and no publication credential.
+
+### What publication runs
+
+The commit, push and sync steps run in the developer container, which holds
+secrets and sign-ins an agent run is not given, while agent runs can write the
+checkout's git directory. Its `config`, hooks and `info/attributes` can name
+programs: filter, diff and merge drivers, hooks (in `core.hooksPath` or defined
+in configuration), fsmonitor, credential helpers, ssh and proxy commands,
+pagers, editors, signing programs and URL rewrites to the `ext` transport. No
+set of command-line overrides covers them all, so git never runs in that
+directory. Each step creates a git directory under `/tmp` with its own empty
+configuration and no hooks, which borrows only the checkout's objects, refs
+and `info/exclude` (so `.kuayle/` stays out), and runs git there against the
+checkout's working tree and index, with system and global configuration
+ignored and only the `file` and `https` transports allowed
+(`publishCheckoutScript`). Nested repositories are recorded at their current
+commit without running git inside them, and fetches do not recurse into them.
+
+Consequences: in-tree `.gitattributes` still apply, but the drivers they name
+are undefined, so content is committed and checked out as it is in the working
+tree. A repository that relies on a filter defined in its local configuration
+(for example Git LFS installed with `--local`) gets the raw files in the
+published commit. The checkout's `info/attributes`, `core.excludesFile`,
+per-worktree configuration and reflogs are not used or written, and a checkout
+with reftable refs is refused. These steps still run in the
+developer container; running them in a container without its secrets would be
+a further hardening.
 
 ## Agent sandboxing
 
