@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 description = "Official command-line interface for Kuayle, the self-hosted issue tracker"
 
 [features]
@@ -23,14 +24,18 @@ serde_json = "1"
 toml = "0.8"
 dirs = "6"
 keyring = "4"
-tabled = "0.19"
-rpassword = "7"
 chrono = { version = "0.4", features = ["serde"] }
 url = "2"
-anyhow = "1"
 futures-util = "0.3"
 bitflags = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+sha2 = "0.10"
+flate2 = "1"
+tar = "0.4"
+self-replace = "1"
+
+[target.'cfg(windows)'.dependencies]
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 assert_cmd = "2"
