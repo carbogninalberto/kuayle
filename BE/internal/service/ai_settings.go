@@ -31,7 +31,7 @@ var (
 	ErrAIProviderRequestFailed = errors.New("AI provider request failed")
 	// ErrInvalidSkillWrite: the skill writing request lacks what its mode needs.
 	ErrInvalidSkillWrite = errors.New("invalid skill writing request")
-	ErrIssueNotFound           = errors.New("issue not found")
+	ErrIssueNotFound     = errors.New("issue not found")
 )
 
 type AISettingsService struct {
