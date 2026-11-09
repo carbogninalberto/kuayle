@@ -12,7 +12,8 @@ optional internal `voice/` transcription service (Python).
 - Use [AGENTS/TOOLS.md](AGENTS/TOOLS.md) for reusable tools and verified command
   sources. Search narrowly with `rg`; do not load the entire codebase or every skill.
 - Inspect the affected implementation and tests, state acceptance criteria, and
-  preserve unrelated work. Read [TECHNICAL.md](TECHNICAL.md) by relevant section.
+  preserve unrelated work. Read [TECHNICAL.md](TECHNICAL.md) by relevant section;
+  operator and development guides are indexed in [docs/README.md](docs/README.md).
 
 ## Required implementation rules
 

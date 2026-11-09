@@ -55,7 +55,7 @@ run component additions from this package and preserve the site's custom theme.
 - **Breadcrumbs**: Every page includes a `<Breadcrumbs>` component with structured data.
 - **CTA**: Every content page ends with a `<CtaSection>`.
 - **Comparisons**: Neutral language, methodology notes, and separate visible dates for Kuayle details (verified against v0.2.15) and competitor details (checked November 6, 2026). Re-check sources before changing a reviewed date.
-- **Self-hosting pages**: Aligned with the actual README and `selfhosting/` configs. No secrets exposed.
+- **Self-hosting pages**: Aligned with [docs/self-hosting.md](../docs/self-hosting.md) and `selfhosting/` configs. No secrets exposed.
 
 ## Route map
 

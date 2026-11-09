@@ -2,7 +2,7 @@
  * Content registry for self-hosting guide pages.
  * Each entry maps to /self-hosting/[slug].
  *
- * Content is aligned with the actual README and selfhosting/ configs.
+ * Content is aligned with docs/self-hosting.md and selfhosting/ configs.
  */
 import type { ContentRegistry } from './routes';
 
