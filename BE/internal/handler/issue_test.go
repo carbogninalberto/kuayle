@@ -207,9 +207,22 @@ func (r *testTeamRepo) Update(_ context.Context, team *domain.Team) error {
 	return nil
 }
 
-func (r *testTeamRepo) Delete(_ context.Context, id uuid.UUID) error {
+func (r *testTeamRepo) SetIcon(_ context.Context, id uuid.UUID, icon string) (*domain.Team, error) {
+	team := r.teams[id]
+	if team == nil {
+		return nil, nil
+	}
+	team.ReplacedIcon, team.Icon = team.Icon, &icon
+	return team, nil
+}
+
+func (r *testTeamRepo) Delete(_ context.Context, id uuid.UUID) (*string, error) {
+	var icon *string
+	if team := r.teams[id]; team != nil {
+		icon = team.Icon
+	}
 	delete(r.teams, id)
-	return nil
+	return icon, nil
 }
 
 func (r *testTeamRepo) AddMember(_ context.Context, _ *domain.TeamMember) error {

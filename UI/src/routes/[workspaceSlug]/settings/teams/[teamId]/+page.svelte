@@ -9,7 +9,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import type { Team } from '$lib/types/team';
-	import { listTeams, updateTeam } from '$lib/api/teams';
+	import { listTeams, updateTeam, uploadTeamIcon } from '$lib/api/teams';
 	import { getWorkspace } from '$lib/api/workspaces';
 	import TeamPrivacySettings from '$lib/features/teams/TeamPrivacySettings.svelte';
 	import TeamIcon from '$lib/components/shared/TeamIcon.svelte';
@@ -28,7 +28,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
-	import { Check, Search, X } from '@lucide/svelte';
+	import { Check, Search, Trash2, Upload, X } from '@lucide/svelte';
 	import * as LucideIcons from '@lucide/svelte';
 	import type { Component } from 'svelte';
 	import Database from 'emoji-picker-element/database';
@@ -128,6 +128,32 @@
 	const selectedIconName = $derived(
 		team?.icon && !team.icon.startsWith('emoji:') ? (LEGACY_ICON_NAMES[team.icon] ?? team.icon) : 'SquareUser'
 	);
+
+	const TEAM_ICON_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/x-icon', 'image/vnd.microsoft.icon'];
+	const TEAM_ICON_MAX_BYTES = 1024 * 1024;
+	let iconInput = $state<HTMLInputElement | null>(null);
+	let uploadingIcon = $state(false);
+	const hasImageIcon = $derived(team?.icon?.startsWith('image:') ?? false);
+
+	async function pickIconImage(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file || !team) return;
+		if (!TEAM_ICON_TYPES.includes(file.type) || file.size > TEAM_ICON_MAX_BYTES) {
+			appToast.error(m['team_settings.icon_image_invalid']());
+			return;
+		}
+		uploadingIcon = true;
+		try {
+			team = await uploadTeamIcon(slug, teamId, file);
+			appToast.success(m['team_settings.toast.appearance_updated']());
+		} catch (err: any) {
+			appToast.apiError(err, m['team_settings.toast.appearance_update_failed']());
+		} finally {
+			uploadingIcon = false;
+		}
+	}
 
 	function selectIcon(icon: string) {
 		updateTeamVisual({ icon });
@@ -630,6 +656,29 @@
 							</div>
 						</Popover.Content>
 					</Popover.Root>
+					<div class="mt-2 flex flex-wrap items-center gap-2">
+						<Input
+							bind:ref={iconInput}
+							type="file"
+							variant="plain"
+							accept=".png,.jpg,.jpeg,.webp,.gif,.ico,image/png,image/jpeg,image/webp,image/gif,image/x-icon,image/vnd.microsoft.icon"
+							class="hidden"
+							tabindex={-1}
+							aria-hidden="true"
+							onchange={pickIconImage}
+						/>
+						<Button variant="outline" size="sm" type="button" disabled={uploadingIcon} onclick={() => iconInput?.click()}>
+							<Upload size={13} />
+							{m['team_settings.upload_icon_image']()}
+						</Button>
+						{#if hasImageIcon}
+							<Button variant="outline" size="sm" type="button" disabled={uploadingIcon} onclick={() => selectIcon('SquareUser')}>
+								<Trash2 size={13} />
+								{m['team_settings.remove_icon_image']()}
+							</Button>
+						{/if}
+						<p class="text-xs text-[var(--color-text-tertiary)]">{m['team_settings.icon_image_hint']()}</p>
+					</div>
 				</div>
 				<div>
 					<p class="mb-2 text-xs font-medium text-[var(--color-text-secondary)]">{m['team_settings.color']()}</p>

@@ -21,6 +21,14 @@ type Team struct {
 	IssueCopyPrompt          *string   `json:"issue_copy_prompt" db:"issue_copy_prompt"`
 	CreatedAt                time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt                time.Time `json:"updated_at" db:"updated_at"`
+
+	// IconSet tells Update to write Icon. Without it the stored icon is kept,
+	// so an update of other fields never restores an icon it read earlier.
+	IconSet bool `json:"-" db:"-"`
+
+	// ReplacedIcon is the icon the last Update replaced, read under the row
+	// lock, so the caller can delete the file of an image icon it displaced.
+	ReplacedIcon *string `json:"-" db:"replaced_icon"`
 }
 
 type TeamMember struct {

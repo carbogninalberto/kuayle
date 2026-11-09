@@ -70,7 +70,11 @@ type TeamRepo interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Team, error)
 	ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.Team, error)
 	Update(ctx context.Context, team *domain.Team) error
-	Delete(ctx context.Context, id uuid.UUID) error
+	// SetIcon writes only the icon and returns the team with ReplacedIcon set.
+	// It returns nil when the team does not exist or is not visible.
+	SetIcon(ctx context.Context, id uuid.UUID, icon string) (*domain.Team, error)
+	// Delete removes the team and returns the icon it had at deletion.
+	Delete(ctx context.Context, id uuid.UUID) (*string, error)
 	AddMember(ctx context.Context, member *domain.TeamMember) error
 	GetMember(ctx context.Context, teamID, userID uuid.UUID) (*domain.TeamMember, error)
 	ListMembers(ctx context.Context, teamID uuid.UUID) ([]domain.TeamMember, error)

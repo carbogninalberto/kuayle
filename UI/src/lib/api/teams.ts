@@ -1,5 +1,6 @@
 import { api } from './client';
 import { emitAppRefresh } from './refresh';
+import { uploadWithProgress } from './upload';
 import type { Team, TeamMember, CreateTeamInput } from '$lib/types/team';
 
 export function listTeams(slug: string): Promise<Team[]> {
@@ -30,6 +31,13 @@ export async function updateTeam(
 	}>
 ): Promise<Team> {
 	const team = await api.patch<Team>(`/api/workspaces/${slug}/teams/${teamId}`, data);
+	emitAppRefresh(['workspace', 'teams', 'issues', 'projects', 'views', 'favorites', 'members'], slug);
+	return team;
+}
+
+/** Stores an image as the team's icon (PNG, JPEG, WebP, GIF or ICO, up to 1 MB). */
+export async function uploadTeamIcon(slug: string, teamId: string, file: File): Promise<Team> {
+	const team = await uploadWithProgress<Team>(`/api/workspaces/${slug}/teams/${teamId}/icon`, file);
 	emitAppRefresh(['workspace', 'teams', 'issues', 'projects', 'views', 'favorites', 'members'], slug);
 	return team;
 }
