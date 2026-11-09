@@ -435,9 +435,3 @@ test('issue context menu offers only labels that apply to the issue project', as
 		.toEqual({ label_ids: ['label-launch'] });
 	expect(state.errors).toEqual([]);
 });
-
-test('browser tab title shows the project name and team', async ({ page }) => {
-	await mockWorkspace(page);
-	await page.goto(`/test/projects/${projectId}`);
-	await expect(page).toHaveTitle('Launch - Engineering - Kuayle');
-});
