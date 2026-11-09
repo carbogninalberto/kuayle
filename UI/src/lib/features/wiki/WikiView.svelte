@@ -219,7 +219,7 @@
 		creating = true;
 		try {
 			const title = kind === 'folder' ? m['wiki.tree.untitled_folder']() : m['wiki.untitled']();
-			const created = await createWikiTreePage(slug, scope, { title, kind, parent_id: parentId });
+			const created = await createWikiTreePage(slug, scope, { title, content: '', kind, parent_id: parentId });
 			pages = [summaryOf(created), ...pages];
 			treeNodes = [...treeNodes, { id: created.id, parent_id: parentId, position: Number.MAX_SAFE_INTEGER, kind }];
 			current = created;

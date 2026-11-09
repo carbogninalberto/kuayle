@@ -27,6 +27,11 @@ export interface WikiAutosaveOptions<P extends SavedPage> {
 
 export const AUTOSAVE_DELAY_MS = 2000;
 
+// A page without content (a new one, or a partial response) counts as empty.
+function snapshot(page: SavedPage): SavedPage {
+	return { title: page.title ?? '', content: page.content ?? '', version: page.version };
+}
+
 function isConflict(error: unknown): boolean {
 	return (error as { status?: number } | null)?.status === 409;
 }
@@ -42,7 +47,7 @@ export class WikiAutosave<P extends SavedPage> {
 
 	constructor(page: SavedPage, options: WikiAutosaveOptions<P>) {
 		this.options = options;
-		this.saved = { title: page.title, content: page.content, version: page.version };
+		this.saved = snapshot(page);
 		this.delay = options.delay ?? AUTOSAVE_DELAY_MS;
 	}
 
@@ -83,7 +88,7 @@ export class WikiAutosave<P extends SavedPage> {
 	/** Adopts a page loaded from the server, dropping any local edits. */
 	reset(page: SavedPage) {
 		this.clearTimer();
-		this.saved = { title: page.title, content: page.content, version: page.version };
+		this.saved = snapshot(page);
 		this.pending = {};
 		this.conflicted = false;
 		this.options.onstate('idle');
@@ -91,7 +96,7 @@ export class WikiAutosave<P extends SavedPage> {
 
 	/** The server's copy changed without local edits pending: track it. */
 	follow(page: SavedPage) {
-		this.saved = { title: page.title, content: page.content, version: page.version };
+		this.saved = snapshot(page);
 	}
 
 	private changes(): Partial<WikiFields> {
@@ -108,7 +113,7 @@ export class WikiAutosave<P extends SavedPage> {
 		this.options.onstate('saving');
 		try {
 			const page = await this.options.save(changes, this.saved.version);
-			this.saved = { title: page.title, content: changes.content ?? page.content, version: page.version };
+			this.saved = snapshot({ ...page, content: changes.content ?? page.content });
 			this.options.onsaved(page);
 			this.options.onstate(this.dirty ? 'pending' : 'saved');
 			if (this.dirty) await this.send();

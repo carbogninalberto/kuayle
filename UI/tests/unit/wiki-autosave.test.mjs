@@ -93,3 +93,12 @@ test('a failed save keeps the edit and retries with the next one', async () => {
 	assert.deepEqual(h.calls.at(-1).changes, { title: 'Runbook 2', content: '<p>v2</p>' });
 	assert.equal(h.states.at(-1), 'saved');
 });
+
+test('a page that arrives without content is treated as empty', async () => {
+	const h = harness({ title: 'New', content: undefined, version: 1 });
+	h.autosave.edit({ content: '<p></p>' });
+	assert.equal(h.autosave.dirty, false);
+	h.autosave.edit({ content: '<p>typed</p>' });
+	await h.autosave.flush();
+	assert.deepEqual(h.calls, [{ changes: { content: '<p>typed</p>' }, version: 1 }]);
+});

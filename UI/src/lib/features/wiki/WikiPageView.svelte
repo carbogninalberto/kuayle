@@ -102,6 +102,15 @@
 		void autosave.flush();
 	}
 
+	// Navigation keeps focus where it was, which can win over autofocus on a
+	// page just created; focus the title once the page has settled.
+	function focusTitle(node: HTMLInputElement) {
+		const timer = setTimeout(() => {
+			if (document.activeElement !== node) node.focus();
+		}, 50);
+		return () => clearTimeout(timer);
+	}
+
 	function onContent(html: string) {
 		liveContent = html;
 		autosave.edit({ content: html });
@@ -239,6 +248,7 @@
 							}
 						}}
 						autofocus
+						{@attach focusTitle}
 						class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none"
 					/>
 				{:else if canWrite}
