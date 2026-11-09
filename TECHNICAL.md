@@ -1078,8 +1078,12 @@ The `kuayle` CLI and Rust SDK live in [`CLI/`](CLI/) (MIT, originally by @uiYzzi
 see [NOTICE](NOTICE)). The CLI is a REST client authenticated by a personal access
 token: every call is checked by the same `scoped` route annotation, token scope and
 workspace RBAC as any other PAT request, and it adds no server permissions. Routes
-registered `sessionOnly` (agent tasks, workflows, agent profiles, Dev Machine
-management) are therefore unavailable to it. Wiki and registry commands use the
+registered `sessionOnly` are unavailable to it. Agent task reads (queue, task,
+history, runs) and workflow reads (list, get, agent profiles) accept tokens with
+`agent_tasks:read` / `workflows:read`; only owner, admin and member roles hold these
+codes, and the repositories apply the same task and member visibility as for
+sessions. Task writes, run logs, diffs, artifacts, sessions and live messages stay
+session-only. Wiki and registry commands use the
 `/teams/:teamId/wiki` and `/projects/:id/wiki` routes with `wiki:read` and
 `wiki:write`; restoring a revision is an ordinary versioned update, as in the web
 app. Releases are `cli-v*` tags built by `cli-release.yml`; installers and

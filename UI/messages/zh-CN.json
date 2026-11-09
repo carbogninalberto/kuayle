@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "评论",
 	"settings.tokens.res_cycles": "周期",
 	"settings.tokens.res_dev_machines": "开发机",
+	"settings.tokens.res_agent_tasks": "智能体任务",
+	"settings.tokens.res_workflows": "智能体工作流",
 	"settings.tokens.res_issues": "议题",
 	"settings.tokens.res_labels": "标签",
 	"settings.tokens.res_members": "成员",

@@ -45,7 +45,7 @@ test(
 test('read_only preset expands to all read scopes including dev_machine:read', () => {
 	const expected = RESOURCE_ROWS.flatMap((row) => row.readScopes);
 	assert.deepEqual(sorted(PRESET_SCOPES.read_only), sorted(expected));
-	assert.equal(PRESET_SCOPES.read_only.length, 16);
+	assert.equal(PRESET_SCOPES.read_only.length, 18);
 });
 
 test('developer preset adds issue create/update, label manage and wiki write, but not delete', () => {

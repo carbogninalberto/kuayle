@@ -36,6 +36,9 @@ export const RESOURCE_ROWS: ResourceRow[] = [
 	{ key: 'notifications', readScopes: ['notifications:read'], writeScopes: [] },
 	{ key: 'account', readScopes: ['account:read'], writeScopes: [] },
 	{ key: 'assets', readScopes: ['assets:read'], writeScopes: [] },
+	// Read-only, member-only (guests never hold them); for the Kuayle CLI.
+	{ key: 'agent_tasks', readScopes: ['agent_tasks:read'], writeScopes: [], advanced: true },
+	{ key: 'workflows', readScopes: ['workflows:read'], writeScopes: [], advanced: true },
 	{
 		key: 'dev_machines',
 		readScopes: ['dev_machine:read'],

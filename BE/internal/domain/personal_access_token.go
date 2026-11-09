@@ -117,4 +117,7 @@ var validTokenScopes = map[string]bool{
 	PermAccountRead:       true,
 	PermAssetsRead:        true,
 	PermWikiRead:          true,
+	// Member-only read codes (not held by guests)
+	PermAgentTasksRead: true,
+	PermWorkflowsRead:  true,
 }

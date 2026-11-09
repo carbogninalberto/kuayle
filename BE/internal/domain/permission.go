@@ -19,6 +19,10 @@ const (
 	PermDevMachineManage  = "dev_machine:manage"
 	PermDevMachineAdmin   = "dev_machine:admin"
 	PermWikiWrite         = "wiki:write"
+	// Agent task and workflow reads. Unlike the *:read codes below, guests
+	// do not hold them: the agent features are for workspace members.
+	PermAgentTasksRead = "agent_tasks:read"
+	PermWorkflowsRead  = "workflows:read"
 )
 
 // Read permission codes for read routes. Every workspace role holds all of
@@ -55,20 +59,20 @@ var RolePermissions = map[string][]string{
 		PermIssueUpdate, PermIssueDelete, PermIssueDeleteOwn, PermProjectManage, PermLabelManage,
 		PermMemberInvite, PermCycleManage, PermViewManage,
 		PermDevMachineRead, PermDevMachineCreate, PermDevMachineManage, PermDevMachineAdmin,
-		PermWikiWrite,
+		PermWikiWrite, PermAgentTasksRead, PermWorkflowsRead,
 	}, readPermissions...),
 	RoleAdmin: append([]string{
 		PermWorkspaceTransfer, PermTeamManage, PermIssueCreate, PermIssueUpdate,
 		PermIssueDelete, PermIssueDeleteOwn, PermProjectManage, PermLabelManage, PermMemberInvite,
 		PermCycleManage, PermViewManage,
 		PermDevMachineRead, PermDevMachineCreate, PermDevMachineManage, PermDevMachineAdmin,
-		PermWikiWrite,
+		PermWikiWrite, PermAgentTasksRead, PermWorkflowsRead,
 	}, readPermissions...),
 	RoleMember: append([]string{
 		PermIssueCreate, PermIssueUpdate, PermIssueDeleteOwn, PermProjectManage,
 		PermLabelManage, PermCycleManage, PermViewManage,
 		PermDevMachineRead, PermDevMachineCreate, PermDevMachineManage,
-		PermWikiWrite,
+		PermWikiWrite, PermAgentTasksRead, PermWorkflowsRead,
 	}, readPermissions...),
 	RoleGuest: append([]string{}, readPermissions...),
 }

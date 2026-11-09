@@ -68,6 +68,8 @@
 		res_account: m['settings.tokens.res_account'],
 		res_assets: m['settings.tokens.res_assets'],
 		res_dev_machines: m['settings.tokens.res_dev_machines'],
+		res_agent_tasks: m['settings.tokens.res_agent_tasks'],
+		res_workflows: m['settings.tokens.res_workflows'],
 		comments_write_note: m['settings.tokens.comments_write_note'],
 		expiry_30d: m['settings.tokens.expiry_30d'],
 		expiry_90d: m['settings.tokens.expiry_90d'],
