@@ -58,8 +58,7 @@ const one = (slug: string, id: string) => `${base(slug)}/${encodeURIComponent(id
 export const assistantSkills = {
 	list: (slug: string) => api.get<AssistantSkillList>(base(slug)),
 	get: (slug: string, id: string) => api.get<AssistantSkill>(one(slug, id)),
-	versions: (slug: string, id: string) =>
-		api.get<{ versions: AssistantSkillVersion[] }>(`${one(slug, id)}/versions`),
+	versions: (slug: string, id: string) => api.get<{ versions: AssistantSkillVersion[] }>(`${one(slug, id)}/versions`),
 	create: (slug: string, input: AssistantSkillContent & { team_id?: string | null }) =>
 		api.post<AssistantSkill>(base(slug), input),
 	update: (slug: string, id: string, input: AssistantSkillContent) => api.put<AssistantSkill>(one(slug, id), input),
@@ -70,5 +69,10 @@ export const assistantSkills = {
 		api.post<AssistantSkill>(`${one(slug, id)}/activate`, version === undefined ? {} : { version }),
 	restore: (slug: string, id: string, version: number) =>
 		api.post<AssistantSkill>(`${one(slug, id)}/versions/${version}/restore`),
-	remove: (slug: string, id: string) => api.delete<void>(one(slug, id))
+	remove: (slug: string, id: string) => api.delete<void>(one(slug, id)),
+	/** Asks the workspace's AI model to generate a SKILL.md, or rewrite the selected part of one. Nothing is saved. */
+	write: (
+		slug: string,
+		input: { mode: 'generate' | 'rewrite'; instruction: string; source: string; selection?: string }
+	) => api.post<{ text: string }>(`${base(slug)}/write`, input)
 };

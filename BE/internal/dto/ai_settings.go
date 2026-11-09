@@ -46,3 +46,16 @@ type ExpandDraftIssueDescriptionRequest struct {
 	Description  string  `json:"description" validate:"max=100000"`
 	SelectedText *string `json:"selected_text" validate:"omitempty,max=8000"`
 }
+
+// WriteSkillRequest asks the AI model to generate a SKILL.md or rewrite the
+// selected part of one.
+type WriteSkillRequest struct {
+	Mode        string  `json:"mode" validate:"required,oneof=generate rewrite"`
+	Instruction string  `json:"instruction" validate:"max=2000"`
+	Source      string  `json:"source" validate:"max=70000"`
+	Selection   *string `json:"selection" validate:"omitempty,max=20000"`
+}
+
+type WriteSkillResponse struct {
+	Text string `json:"text"`
+}

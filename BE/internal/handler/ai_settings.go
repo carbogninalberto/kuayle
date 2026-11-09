@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
@@ -126,6 +127,28 @@ func expansionResponse(c *echo.Context, description string, err error) error {
 		}
 	}
 	return response.Success(c, http.StatusOK, dto.ExpandIssueDescriptionResponse{Description: description})
+}
+
+// WriteSkill generates a SKILL.md or rewrites a selection of one with the
+// workspace's AI model, for owners and admins, who write skills. Nothing is
+// saved.
+func (h *AISettingsHandler) WriteSkill(c *echo.Context) error {
+	if role := middleware.GetWorkspaceRole(c); role != domain.RoleOwner && role != domain.RoleAdmin {
+		return response.Forbidden(c)
+	}
+	var req dto.WriteSkillRequest
+	if ok, err := bindExpansionRequest(c, &req); !ok {
+		return err
+	}
+	ws := c.Get("workspace").(*domain.Workspace)
+	text, err := h.aiSvc.WriteSkill(c.Request().Context(), ws.ID, req.Mode, req.Instruction, req.Source, req.Selection)
+	if errors.Is(err, service.ErrInvalidSkillWrite) {
+		return response.Error(c, http.StatusBadRequest, "INVALID_SKILL_WRITE", strings.TrimPrefix(err.Error(), service.ErrInvalidSkillWrite.Error()+": "))
+	}
+	if err != nil {
+		return expansionResponse(c, "", err)
+	}
+	return response.Success(c, http.StatusOK, dto.WriteSkillResponse{Text: text})
 }
 
 // CheckVision probes the saved assistant model with a tiny image and reports

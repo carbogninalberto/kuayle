@@ -29,6 +29,8 @@ const DefaultIssueCopyPrompt = "Work on issue {{issue_identifier}}:\n\n{{issue_x
 var (
 	ErrAISettingsNotConfigured = errors.New("AI settings are not configured")
 	ErrAIProviderRequestFailed = errors.New("AI provider request failed")
+	// ErrInvalidSkillWrite: the skill writing request lacks what its mode needs.
+	ErrInvalidSkillWrite = errors.New("invalid skill writing request")
 	ErrIssueNotFound           = errors.New("issue not found")
 )
 
@@ -356,10 +358,15 @@ type chatCompletionResponse struct {
 }
 
 func (s *AISettingsService) complete(ctx context.Context, baseURL, model, apiKey, prompt string) (string, error) {
+	return s.completeWith(ctx, baseURL, model, apiKey, "You produce safe TipTap/ProseMirror-compatible HTML fragments. Return only parseable HTML nodes, never Markdown fences or surrounding prose.", prompt)
+}
+
+// completeWith sends one system and one user message and returns the answer.
+func (s *AISettingsService) completeWith(ctx context.Context, baseURL, model, apiKey, system, prompt string) (string, error) {
 	payload := chatCompletionRequest{
 		Model: model,
 		Messages: []chatCompletionMessage{
-			{Role: "system", Content: "You produce safe TipTap/ProseMirror-compatible HTML fragments. Return only parseable HTML nodes, never Markdown fences or surrounding prose."},
+			{Role: "system", Content: system},
 			{Role: "user", Content: prompt},
 		},
 		Temperature: 0.2,

@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { ChevronDown, FileUp, Plus, X } from '@lucide/svelte';
+	import { ChevronDown, FileUp, Plus, Sparkles, Undo2, X } from '@lucide/svelte';
 	import * as Tabs from '$lib/components/ui/tabs/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import { assistantSkills, type AssistantSkill } from '$lib/api/assistant-skills';
 	import { appToast } from '$lib/features/toast/toast';
@@ -30,7 +31,49 @@
 		source = $state(SKILL_TEMPLATE),
 		view = $state<'write' | 'preview'>('write'),
 		saving = $state(false),
-		file = $state<HTMLInputElement | null>(null);
+		file = $state<HTMLInputElement | null>(null),
+		editor = $state<HTMLTextAreaElement | null>(null),
+		ask = $state(''),
+		asking = $state(false),
+		// The editor's selection, kept when focus moves to the AI bar.
+		selection = $state<{ start: number; end: number } | null>(null),
+		// The text before the last AI change, for Undo.
+		before = $state<string | null>(null);
+
+	function trackSelection() {
+		if (!editor) return;
+		const { selectionStart: start, selectionEnd: end } = editor;
+		selection = end > start ? { start, end } : null;
+	}
+
+	// Asks the workspace's AI model to write the whole skill, or to rewrite
+	// only the selected text; the result replaces it in the editor, with Undo.
+	async function askAI(mode: 'generate' | 'rewrite') {
+		if (asking) return;
+		const range = mode === 'rewrite' ? selection : null;
+		if (mode === 'rewrite' && !range) return;
+		asking = true;
+		try {
+			const { text } = await assistantSkills.write(slug, {
+				mode,
+				instruction: ask.trim(),
+				source,
+				...(range ? { selection: source.slice(range.start, range.end) } : {})
+			});
+			before = source;
+			source = range ? source.slice(0, range.start) + text + source.slice(range.end) : text + '\n';
+			selection = null;
+			ask = '';
+			view = 'write';
+			appToast.success(m['profiles.ai_done']());
+		} catch (error) {
+			const code = (error as { error?: { code?: string } }).error?.code;
+			if (code === 'AI_NOT_CONFIGURED') appToast.error(m['profiles.ai_not_configured']());
+			else appToast.apiError(error, m['profiles.ai_failed']());
+		} finally {
+			asking = false;
+		}
+	}
 
 	async function load() {
 		loading = true;
@@ -159,10 +202,64 @@
 			{#if view === 'write'}
 				<Textarea
 					aria-label={m['profiles.skill_new']()}
+					bind:ref={editor}
 					bind:value={source}
 					spellcheck={false}
+					disabled={asking}
+					onselect={trackSelection}
+					onkeyup={trackSelection}
+					onmouseup={trackSelection}
+					oninput={() => (selection = null)}
 					class="min-h-72 resize-y bg-background font-mono text-[13px] leading-relaxed"
 				/>
+				<form
+					class="flex flex-wrap items-center gap-2"
+					onsubmit={(event) => {
+						event.preventDefault();
+						void askAI(selection ? 'rewrite' : 'generate');
+					}}
+					data-testid="profile-skill-ai"
+				>
+					<div class="relative min-w-0 flex-1">
+						<Sparkles
+							class="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+						/>
+						<Input
+							bind:value={ask}
+							maxlength={2000}
+							disabled={asking}
+							placeholder={m['profiles.ai_placeholder']()}
+							aria-label={m['profiles.ai_label']()}
+							title={m['profiles.ai_label']()}
+							class="h-8 bg-background pl-8 text-sm"
+						/>
+					</div>
+					<Button
+						type="button"
+						size="sm"
+						variant="outline"
+						disabled={asking || !ask.trim()}
+						onclick={() => askAI('generate')}>{m['profiles.ai_generate']()}</Button
+					>
+					<Button
+						type="button"
+						size="sm"
+						variant="outline"
+						disabled={asking || !selection}
+						title={selection ? undefined : m['profiles.ai_select_hint']()}
+						onclick={() => askAI('rewrite')}>{m['profiles.ai_rewrite']()}</Button
+					>
+					{#if before !== null && !asking}<Button
+							type="button"
+							size="sm"
+							variant="ghost"
+							onclick={() => {
+								source = before ?? source;
+								before = null;
+							}}><Undo2 />{m['profiles.ai_undo']()}</Button
+						>{/if}
+					{#if asking}<span role="status" class="text-xs text-muted-foreground">{m['profiles.ai_working']()}</span>{/if}
+				</form>
 			{:else}
 				<div class="min-h-72 space-y-2 rounded-md border bg-background px-4 py-3">
 					<div class="flex flex-wrap items-baseline gap-2 border-b pb-2">

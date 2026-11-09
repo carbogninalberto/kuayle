@@ -304,6 +304,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// owners and admins write them.
 	sessionOnly(ws, http.MethodGet, "/assistant-skills", h.assistantSkill.List)
 	sessionOnly(ws, http.MethodPost, "/assistant-skills", h.assistantSkill.Create)
+	sessionOnly(ws, http.MethodPost, "/assistant-skills/write", h.aiSettings.WriteSkill)
 	sessionOnly(ws, http.MethodGet, "/assistant-skills/:skillId", h.assistantSkill.Get)
 	sessionOnly(ws, http.MethodPut, "/assistant-skills/:skillId", h.assistantSkill.Update)
 	sessionOnly(ws, http.MethodDelete, "/assistant-skills/:skillId", h.assistantSkill.Delete)
