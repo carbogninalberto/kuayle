@@ -512,3 +512,70 @@ func TestWorkflowStopCancelsTheOpenReview(t *testing.T) {
 	require.NoError(t, db.Get(&state, `SELECT state FROM agent_tasks WHERE id=$1`, *step.ReviewTaskID))
 	require.Equal(t, "cancelling", state, "the open review is asked to stop")
 }
+
+// A workflow that ends at Failed can be retried: the task goes back to its
+// last implementing step with a new iteration, the workflow runs again from
+// there, and the step history records the retry.
+func TestRetryRestartsAFailedWorkflowOnItsImplementingStep(t *testing.T) {
+	db, repo, ctx, legacy, fixture := taskRecoveryFixture(t)
+	_, err := db.Exec(`UPDATE agent_tasks SET state='completed' WHERE id=$1`, legacy.ID)
+	require.NoError(t, err)
+	ws := legacy.WorkspaceID
+	workflows := NewWorkflowRepository(db)
+	implementer, reviewer := builtinIDs(t, workflows, ws)
+	graph := domain.ReviewLoopWorkflowGraph(implementer, reviewer)
+	raw, err := json.Marshal(graph)
+	require.NoError(t, err)
+	created, err := workflows.CreateWorkflow(ctx, ws, fixture.userID, "Retry loop", "", raw, "created")
+	require.NoError(t, err)
+	chosen := created.ID.String()
+	version, err := workflows.ResolveWorkflow(ctx, ws, legacy.IssueID, &chosen)
+	require.NoError(t, err)
+	task, err := repo.Create(ctx, ws, *legacy.ConversationID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Add dark mode", Provider: "claude-code",
+		Workflow: version, WorkflowInstructions: "Agent profile \"Implementer\" (implementer):\nWrite tests."})
+	require.NoError(t, err)
+
+	// The implementing agent fails and the workflow ends at Failed.
+	claimed := prepareTaskStart(t, db, repo, ctx, *task, fixture)
+	_, err = repo.Start(ctx, *claimed)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='failed',completed_at=now(),exit_code=1 WHERE id=$1`, task.RunID)
+	require.NoError(t, err)
+	toFailed := graph.Decide(claimed.Cursor(), domain.WorkflowAgentFailed, time.Now(), nil)
+	require.Equal(t, "failed", toFailed.To.ID)
+	failed, err := repo.ApplyWorkflow(ctx, *claimed, WorkflowApply{Sequence: 2, Outcome: domain.WorkflowAgentFailed, Moves: []WorkflowMove{{Decision: toFailed}},
+		Entry: WorkflowEntry{Kind: WorkflowEnterFail, Reason: "Workflow · " + toFailed.Reason}})
+	require.NoError(t, err)
+	require.Equal(t, "cancelling", failed.State, "a failure cleans up the runtime first")
+	require.Equal(t, domain.WorkflowStatusFailed, *failed.WorkflowStatus)
+	require.Equal(t, "failed", *failed.WorkflowNode)
+	// The manager confirms the attempt's runtime cleanup; the task then fails.
+	_, err = db.Exec(`INSERT INTO dev_machine_operations(workspace_id,machine_id,agent_run_id,action,status,generation,idempotency_key) VALUES($1,$2,$3,'cancel_agent','completed',1,$4)`,
+		ws, *failed.MachineID, failed.RunID, "task-cancel:"+failed.ID.String()+":"+failed.RunID.String())
+	require.NoError(t, err)
+	require.NoError(t, repo.FinishCancellation(ctx, *claimed, "Cleanup confirmed"))
+	failed, err = repo.Get(ctx, ws, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, "failed", failed.State)
+
+	retried, err := repo.Retry(ctx, ws, task.ID, domain.AgentTaskRetryRequest{RequestID: uuid.New(), Generation: failed.Generation, Prompt: "Add dark mode, and keep the toggle accessible"})
+	require.NoError(t, err)
+	require.Equal(t, "queued", retried.State)
+	require.Equal(t, failed.Generation+1, retried.Generation)
+	require.Equal(t, "implement", *retried.WorkflowNode, "the workflow continues on its implementing step")
+	require.Equal(t, domain.WorkflowStatusRunning, *retried.WorkflowStatus)
+	require.Equal(t, failed.WorkflowSequence+1, retried.WorkflowSequence)
+	require.Equal(t, "claude-code", retried.Provider)
+	require.Contains(t, retried.Prompt, "keep the toggle accessible")
+	require.Contains(t, retried.AgentInstructions, "Write tests.", "the step's profile instructions still apply")
+	steps, err := repo.WorkflowSteps(ctx, ws, task.ID)
+	require.NoError(t, err)
+	last := steps[len(steps)-1]
+	require.Equal(t, "implement", last.NodeID)
+	require.Equal(t, "Retried by a person", last.Reason)
+	require.EqualValues(t, retried.Generation, *last.Generation)
+	require.Equal(t, 2, last.Visit, "the retry is the step's second visit")
+	bundle, err := repo.ProfileBundle(ctx, *retried)
+	require.NoError(t, err)
+	require.NotNil(t, bundle, "the retried iteration gets the implementer's profile files")
+}
