@@ -188,18 +188,14 @@ func (t *AssistantTools) proposeSkill(ctx context.Context, a domain.Conversation
 	}
 	var teamKey *string
 	if key := strings.TrimSpace(input.TeamKey); key != "" {
-		teams, err := t.teams.ListByWorkspace(ctx, a.Conversation.WorkspaceID)
+		team, err := t.teamByKey(ctx, a.Conversation.WorkspaceID, key)
 		if err != nil {
 			return nil, "", err
 		}
-		for _, team := range teams {
-			if strings.EqualFold(team.Key, key) {
-				in.TeamID, teamKey = &team.ID, &team.Key
-			}
-		}
-		if in.TeamID == nil {
+		if team == nil {
 			return nil, "", toolFailure("team %q is not available; call list_teams", truncateRunes(key, 16))
 		}
+		in.TeamID, teamKey = &team.ID, &team.Key
 	}
 	skill, version, err := t.skills.Propose(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, in)
 	switch {

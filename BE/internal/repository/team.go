@@ -50,6 +50,17 @@ func (r *TeamRepository) ListByWorkspace(ctx context.Context, workspaceID uuid.U
 	return teams, err
 }
 
+// TeamIDForRetiredKey returns the team that used key before a rename, or
+// uuid.Nil when no team the caller can see did.
+func (r *TeamRepository) TeamIDForRetiredKey(ctx context.Context, workspaceID uuid.UUID, key string) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := r.db.GetContext(ctx, &id, `SELECT a.team_id FROM team_key_aliases a JOIN teams ON teams.id = a.team_id WHERE a.workspace_id = $1 AND a.old_key = $2 AND `+teamVisible(ctx, "teams.id"), workspaceID, key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return uuid.Nil, nil
+	}
+	return id, err
+}
+
 func (r *TeamRepository) Update(ctx context.Context, team *domain.Team) error {
 	query := `UPDATE teams SET name = $1, description = $2, color = $3, icon = $4, triage_enabled = $5, parent_auto_close_enabled = $6, sub_issue_auto_close_enabled = $7, issue_copy_prompt = $8, updated_at = NOW() WHERE id = $9 AND ` + teamVisible(ctx, "teams.id") + ` RETURNING updated_at`
 	return r.db.QueryRowContext(ctx, query, team.Name, team.Description, team.Color, team.Icon, team.TriageEnabled, team.ParentAutoCloseEnabled, team.SubIssueAutoCloseEnabled, team.IssueCopyPrompt, team.ID).Scan(&team.UpdatedAt)
