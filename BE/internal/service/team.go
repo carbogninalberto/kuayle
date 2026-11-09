@@ -47,15 +47,20 @@ func teamIconKey(team uuid.UUID, file string) string {
 	return "team-icon-" + team.String() + "-" + file
 }
 
-// deleteIconImage removes the stored image behind an icon value, if it is one.
-func (s *TeamService) deleteIconImage(ctx context.Context, teamID uuid.UUID, icon *string) {
+// deleteTeamIconImage removes the stored image behind an icon value, if it is
+// one. It is best effort: a failure is logged and leaves only an unused file.
+func deleteTeamIconImage(ctx context.Context, store storage.Backend, teamID uuid.UUID, icon *string) {
 	file, ok := domain.TeamIconImageFile(icon)
-	if !ok || s.iconStore == nil {
+	if !ok || store == nil {
 		return
 	}
-	if err := s.iconStore.Delete(ctx, teamIconKey(teamID, file)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := store.Delete(ctx, teamIconKey(teamID, file)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.WithError(err).Warn("failed to delete team icon image")
 	}
+}
+
+func (s *TeamService) deleteIconImage(ctx context.Context, teamID uuid.UUID, icon *string) {
+	deleteTeamIconImage(ctx, s.iconStore, teamID, icon)
 }
 
 // deleteReplacedIcon removes the image the last Update displaced. The

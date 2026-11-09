@@ -410,3 +410,78 @@ func TestTeamServiceIconUploadKeepsConcurrentRenamePostgres(t *testing.T) {
 	_, ok := domain.TeamIconImageFile(&icon)
 	assert.True(t, ok)
 }
+
+// Deleting a workspace removes the icon images of all its teams, including one
+// an upload stores while the delete runs, and leaves other workspaces' alone.
+func TestWorkspaceDeleteRemovesTeamIconsPostgres(t *testing.T) {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	db, err := sqlx.Connect("pgx", url)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	exec := func(query string, args ...any) {
+		t.Helper()
+		_, err := db.Exec(query, args...)
+		require.NoError(t, err)
+	}
+	user := uuid.New()
+	exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Workspace icon delete','hash')`, user, user.String()+"@example.test")
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM users WHERE id=$1`, user) })
+	workspaces := repository.NewWorkspaceRepository(db)
+	teams := NewTeamService(repository.NewTeamRepository(db), repository.NewTeamStatusRepository(db))
+	store := &iconStore{files: map[string][]byte{}}
+	teams.SetIconStore(store)
+	svc := NewWorkspaceService(workspaces, repository.NewUserRepository(db))
+	svc.SetTeamIconStore(store)
+	newWorkspace := func() (uuid.UUID, []uuid.UUID, context.Context) {
+		t.Helper()
+		id := uuid.New()
+		exec(`INSERT INTO workspaces(id,name,slug,owner_id) VALUES($1,'Workspace icon delete',$2,$3)`, id, id.String(), user)
+		t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM workspaces WHERE id=$1`, id) })
+		exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'owner')`, id, user)
+		ids := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
+		for i, team := range ids {
+			exec(`INSERT INTO teams(id,workspace_id,name,key,icon,is_private) VALUES($1,$2,'Icon',$3,$4,$5)`, team, id, "WI"+string(rune('A'+i)), "emoji:🚀", i == 1)
+		}
+		return id, ids, domain.WithAccess(context.Background(), domain.Access{UserID: user, WorkspaceID: id})
+	}
+
+	kept, keptTeams, keptCtx := newWorkspace()
+	_, err = teams.UploadIcon(keptCtx, kept, keptTeams[0], strings.NewReader("png"), "image/png", ".png")
+	require.NoError(t, err)
+	store.mu.Lock()
+	keptFiles := len(store.files)
+	store.mu.Unlock()
+	require.Equal(t, 1, keptFiles)
+
+	for round := 0; round < 10; round++ {
+		ws, ids, ctx := newWorkspace()
+		// Two teams (one private) have an image; the third keeps its emoji.
+		for _, team := range ids[:2] {
+			_, err := teams.UploadIcon(ctx, ws, team, strings.NewReader("png"), "image/png", ".png")
+			require.NoError(t, err)
+		}
+		var wg sync.WaitGroup
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				// Either outcome is fine: the workspace may already be gone.
+				_, _ = teams.UploadIcon(ctx, ws, ids[i%3], strings.NewReader("png"), "image/png", ".png")
+			}()
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			assert.NoError(t, svc.Delete(context.Background(), ws.String(), user))
+		}()
+		wg.Wait()
+
+		store.mu.Lock()
+		left := len(store.files)
+		store.mu.Unlock()
+		require.Equal(t, keptFiles, left, "round %d: only the other workspace's icon is left", round)
+	}
+}

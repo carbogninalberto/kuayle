@@ -3,6 +3,8 @@ package domain
 import (
 	"regexp"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 // TeamIconImagePrefix marks a team icon that is an uploaded image. The value is
@@ -51,4 +53,11 @@ func TeamIconImageFile(icon *string) (string, bool) {
 	}
 	file := strings.TrimPrefix(*icon, TeamIconImagePrefix)
 	return file, TeamIconFilePattern.MatchString(file)
+}
+
+// TeamIconImage is a team's image icon value, reported when the team is removed
+// so its stored file can be deleted.
+type TeamIconImage struct {
+	TeamID uuid.UUID `db:"id"`
+	Icon   string    `db:"icon"`
 }
