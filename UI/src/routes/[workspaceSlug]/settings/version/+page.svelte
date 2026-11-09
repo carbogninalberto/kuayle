@@ -10,8 +10,8 @@
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { renderMarkdown } from '$lib/markdown';
+	import { formatDate } from '$lib/utils/format';
 	import {
-		buildChangelog,
 		compareVersions,
 		currentReleaseUrl,
 		currentVersion,
@@ -39,7 +39,16 @@
 	const visible = $derived(getVisibleReleases(releases, includePrerelease));
 	const latestRelease = $derived(visible[0] ?? null);
 	const releaseIsNewer = $derived(latestRelease ? compareVersions(latestRelease.tag_name, currentVersion) > 0 : false);
-	const changelogHtml = $derived(renderMarkdown(buildChangelog(visible), isTrustedReleaseNoteUrl));
+	const installedRelease = $derived(releases.find((release) => release.tag_name.replace(/^v/i, '') === currentVersion) ?? null);
+	const changelogEntries = $derived(
+		visible
+			.filter((release) => compareVersions(release.tag_name, currentVersion) > 0)
+			.map((release) => ({
+				tag: release.prerelease ? `${release.tag_name} (prerelease)` : release.tag_name,
+				date: formatReleaseDate(release.published_at),
+				html: renderMarkdown((release.body ?? '').trim() || '_No notes._', isTrustedReleaseNoteUrl)
+			}))
+	);
 	const canStartUpdate = $derived(
 		isSysadmin && updateStatus?.enabled === true && updateStatus?.running !== true && !startingUpdate
 	);
@@ -96,6 +105,11 @@
 		if (updateStatus?.running && !destroyed) statusPoll = setTimeout(() => void loadUpdateStatus(true), 3000);
 	}
 
+	function formatReleaseDate(value?: string | null) {
+		if (!value || Number.isNaN(new Date(value).getTime())) return '';
+		return formatDate(value, getLocale());
+	}
+
 	function formatTime(value?: string) {
 		return value ? new Date(value).toLocaleString(getLocale(), { dateStyle: 'medium', timeStyle: 'short' }) : '';
 	}
@@ -140,6 +154,9 @@
 				<span class="rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-1 font-mono text-sm text-[var(--color-text-primary)]">
 					{currentVersionLabel}
 				</span>
+				{#if formatReleaseDate(installedRelease?.published_at)}
+					<span class="text-xs text-[var(--color-text-tertiary)]">{formatReleaseDate(installedRelease?.published_at)}</span>
+				{/if}
 				<Button variant="outline" size="sm" href={currentReleaseUrl} target="_blank" rel="noopener">
 					<ExternalLink size={13} />
 					{m['settings.version.release']()}
@@ -168,6 +185,9 @@
 				<span class="rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-1 font-mono text-sm text-[var(--color-text-primary)]">
 					{latestRelease?.tag_name ?? m['settings.unknown']()}
 				</span>
+				{#if formatReleaseDate(latestRelease?.published_at)}
+					<span class="text-xs text-[var(--color-text-tertiary)]">{formatReleaseDate(latestRelease?.published_at)}</span>
+				{/if}
 				{#if latestRelease}
 					<Button variant="outline" size="sm" href={latestRelease.html_url} target="_blank" rel="noopener">
 						<ExternalLink size={13} />
@@ -175,35 +195,6 @@
 					</Button>
 				{/if}
 			</div>
-		</div>
-	</div>
-
-	<div class="mt-6 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-		<div class="flex flex-col gap-3 border-b border-[var(--app-border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-			<div>
-				<h2 class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.version.changelog']()}</h2>
-				<p class="text-xs text-[var(--color-text-tertiary)]">
-					{m['settings.version.changelog_desc']({ version: currentVersionLabel })}
-				</p>
-			</div>
-			<Button variant="plain" type="button"
-				class="w-fit rounded-md px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-				onclick={() => (includePrerelease = !includePrerelease)}
-			>
-				{m['settings.version.pre_releases']()}
-			</Button>
-		</div>
-		<div class="px-5 py-4">
-			{#if loadingReleases}
-				<p class="text-sm text-[var(--color-text-secondary)]">{m['settings.version.loading_changelog']()}</p>
-			{:else if changelogHtml}
-				<!-- eslint-disable svelte/no-at-html-tags -->
-				<div class="changelog-md text-sm leading-relaxed text-[var(--color-text-secondary)]">
-					{@html changelogHtml}
-				</div>
-			{:else}
-				<p class="text-sm text-[var(--color-text-secondary)]">{m['settings.version.no_release_notes']()}</p>
-			{/if}
 		</div>
 	</div>
 
@@ -310,6 +301,42 @@
 						{m['settings.version.non_sysadmin']()}
 					</p>
 				</div>
+			{/if}
+		</div>
+	</div>
+
+	<div class="mt-6 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+		<div class="flex flex-col gap-3 border-b border-[var(--app-border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+			<div>
+				<h2 class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.version.changelog']()}</h2>
+				<p class="text-xs text-[var(--color-text-tertiary)]">
+					{m['settings.version.changelog_desc']({ version: currentVersionLabel })}
+				</p>
+			</div>
+			<Button variant="plain" type="button"
+				class="w-fit rounded-md px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+				onclick={() => (includePrerelease = !includePrerelease)}
+			>
+				{m['settings.version.pre_releases']()}
+			</Button>
+		</div>
+		<div class="px-5 py-4">
+			{#if loadingReleases}
+				<p class="text-sm text-[var(--color-text-secondary)]">{m['settings.version.loading_changelog']()}</p>
+			{:else if changelogEntries.length > 0}
+				<div class="changelog-md text-sm leading-relaxed text-[var(--color-text-secondary)]">
+					{#each changelogEntries as entry, i (entry.tag)}
+						{#if i > 0}<hr />{/if}
+						<h2>
+							{entry.tag}
+							{#if entry.date}<span class="ml-1 text-xs font-normal text-[var(--color-text-tertiary)]">{entry.date}</span>{/if}
+						</h2>
+						<!-- eslint-disable svelte/no-at-html-tags -->
+						{@html entry.html}
+					{/each}
+				</div>
+			{:else}
+				<p class="text-sm text-[var(--color-text-secondary)]">{m['settings.version.no_release_notes']()}</p>
 			{/if}
 		</div>
 	</div>
