@@ -92,7 +92,7 @@ jobs:
           DATABASE_URL: postgres://kuayle:kuayle@localhost:5432/kuayle_test?sslmode=disable
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test-secret-that-is-at-least-32-characters-long
-        run: go test ./... -race -coverprofile=coverage.out -covermode=atomic -count=1
+        run: go test ./... -race -coverprofile=coverage.out -covermode=atomic -count=1 -timeout=30m
 
       - name: Show coverage summary
         run: go tool cover -func=coverage.out
@@ -123,6 +123,16 @@ jobs:
         with:
           go-version-file: BE/go.mod
           cache-dependency-path: BE/go.sum
+
+      - name: Free runner disk space
+        working-directory: .
+        # The runtime images and the 32G XFS file below share the runner's root
+        # disk; drop preinstalled toolchains this job never uses.
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift
+          sudo docker image prune --all --force > /dev/null || true
+          df -h /
 
       - name: Configure quota-capable Docker storage
         working-directory: .

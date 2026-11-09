@@ -52,7 +52,7 @@ and `ISSUE_TEST_IDENTIFIER` identifying an existing fixture. Point database URLs
 at disposable test databases and prepare the required fixtures as needed.
 CI uses PostgreSQL 16, Redis 7, `REDIS_URL` and a test `JWT_SECRET` (at least 32
 characters), applies migrations with `go run ./cmd/server migrate up`, then runs
-`go test ./... -race -coverprofile=coverage.out -covermode=atomic -count=1`.
+`go test ./... -race -coverprofile=coverage.out -covermode=atomic -count=1 -timeout=30m`.
 Some migration tests need permission to create isolated databases. Do not source
 an arbitrary `.env` and assume its database is safe to modify.
 

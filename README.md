@@ -8,7 +8,9 @@
 [![License: Apache 2.0](https://img.shields.io/github/license/carbogninalberto/kuayle)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/sponsor-%E2%9D%A4-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/carbogninalberto)
 
-[Features](#highlights) · [Screenshots](#feature-tour) · [Quick start](#quick-start) · [Self-hosting](#self-hosting) · [Docs](docs/README.md) · [Sponsor](https://github.com/sponsors/carbogninalberto)
+<a href="https://kuayle.bakney.com/share/0e77186c14e75dc74efdbe2509cdb79897d375d4090140b5e6d8383a5e1429c8"><img src="https://img.shields.io/badge/%F0%9F%97%BA%EF%B8%8F%20KUAYLE%20ROADMAP-See%20what%20we%27re%20building%20next-6d28d9?style=for-the-badge" alt="Kuayle roadmap: see what we're building next" height="40"></a>
+
+[Features](#highlights) · [Screenshots](#feature-tour) · [Quick start](#quick-start) · [Self-hosting](#self-hosting) · [Docs](docs/README.md) · [Roadmap](https://kuayle.bakney.com/share/0e77186c14e75dc74efdbe2509cdb79897d375d4090140b5e6d8383a5e1429c8) · [Sponsor](https://github.com/sponsors/carbogninalberto)
 
 [Report Bug](https://github.com/carbogninalberto/kuayle/issues/new?labels=bug) · [Request Feature](https://github.com/carbogninalberto/kuayle/issues/new?labels=enhancement)
 
@@ -252,6 +254,13 @@ The [self-hosting guide](docs/self-hosting.md) covers install, updates, storage,
 Dev Machines, voice, web search, private teams and workspace transfer. GitHub
 setup is in [GitHub integration](docs/github-integration.md). All docs are
 indexed in [docs/](docs/README.md).
+
+## Roadmap
+
+The issues we plan to work on next are tracked in Kuayle itself:
+see the roadmap (read-only, no account needed).
+
+<a href="https://kuayle.bakney.com/share/0e77186c14e75dc74efdbe2509cdb79897d375d4090140b5e6d8383a5e1429c8"><img src="https://img.shields.io/badge/%F0%9F%97%BA%EF%B8%8F%20KUAYLE%20ROADMAP-Open-6d28d9?style=for-the-badge" alt="Open the Kuayle roadmap" height="36"></a>
 
 ## Command-line interface
 

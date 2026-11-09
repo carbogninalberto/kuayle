@@ -104,12 +104,40 @@ test('the machine Docker daemon image and the shared Docker CLI installer select
   assert.ok(ids(planForPaths(['devmachine/common/new-shared-file']).devImages).includes('docker'), 'unknown shared inputs select every runtime image');
 });
 
-test('self-hosting scripts and smoke tests retain their checks and packaged runtime coverage', () => {
-  for (const path of ['selfhosting/update.sh', 'selfhosting/docker-compose.yml', 'selfhosting/image_smoke_test.py']) {
+test('self-hosting files select their tests; only the image smoke test also builds images', () => {
+  for (const path of ['selfhosting/update.sh', 'selfhosting/docker-compose.yml', 'selfhosting/Caddyfile', 'selfhosting/release_update.py']) {
     const plan = planForPaths([path]);
     assert.equal(plan.selfhosting, true);
-    assert.deepEqual(ids(plan.releaseImages), ['all-in-one', 'api', 'web']);
+    assert.deepEqual(plan.releaseImages, []);
+    assert.deepEqual(selected(plan), { tests: ['agent-harness', 'selfhosting-check'], security: [], build: [], readiness: [] });
   }
+  const smoke = planForPaths(['selfhosting/image_smoke_test.py']);
+  assert.equal(smoke.selfhosting, true);
+  assert.deepEqual(ids(smoke.releaseImages), ['all-in-one', 'api', 'web']);
+  assert.deepEqual(smoke.architectures, ['amd64', 'arm64']);
+  assert.deepEqual(selected(planForPaths(['selfhosting/RELEASE_UPDATER.md'])), { tests: ['agent-harness'], security: [], build: [], readiness: [] });
+});
+
+test('repository metadata and root documentation run only the harness', () => {
+  for (const path of ['.github/FUNDING.yml', '.github/ISSUE_TEMPLATE/bug.yml', '.github/CODEOWNERS', '.env.example', '.gitignore', 'NOTICE', 'CONTRIBUTING.md', 'SECURITY_AUDIT.md', 'docs/self-hosting.md']) {
+    assert.deepEqual(selected(planForPaths([path])), { tests: ['agent-harness'], security: [], build: [], readiness: [] }, path);
+  }
+  // Markdown that ships with an app keeps its checks.
+  assert.equal(planForPaths(['WEB/src/content/page.md']).web, true);
+  assert.ok(planForPaths(['devmachine/agent/skills/kuayle/SKILL.md']).devImages.length > 0);
+});
+
+test('PR images build on amd64 only unless an input is architecture-sensitive', () => {
+  for (const path of ['UI/src/routes/+page.svelte', 'BE/internal/service/issue.go', 'WEB/src/lib/data/features.ts']) {
+    assert.deepEqual(planForPaths([path]).architectures, ['amd64'], path);
+  }
+  for (const path of ['UI/package-lock.json', 'BE/go.sum', 'BE/Dockerfile', 'Dockerfile', 'UI/Dockerfile', 'devmachine/agent/Dockerfile', 'devmachine/common/install-agent-clis.sh', '.trivyignore.yaml']) {
+    assert.deepEqual(planForPaths([path]).architectures, ['amd64', 'arm64'], path);
+  }
+  assert.deepEqual(planForPaths(['UI/src/app.css', 'BE/go.mod']).architectures, ['amd64', 'arm64'], 'mixed changes take the union');
+  assert.deepEqual(planForPaths(['.github/workflows/test.yml']).architectures, ['amd64', 'arm64'], 'routing changes run broadly');
+  assert.deepEqual(planForPaths([], 'push').architectures, ['amd64', 'arm64'], 'pushes and releases always build both');
+  assert.deepEqual(planForPaths([], 'release').architectures, ['amd64', 'arm64']);
 });
 
 test('workflow, routing, unknown and shared root changes conservatively exercise all areas', () => {
