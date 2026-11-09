@@ -117,7 +117,7 @@ checks are never a boundary.
   profiles, skills, more harnesses, more channels), does the design leave a clean
   seam or force a rewrite? Flag the specific spot, not "consider abstracting".
 - **Docs match the system.** [TECHNICAL.md](../../../TECHNICAL.md),
-  [BE/docs](../../../BE/docs), the README and the agent harness describe what the
+  [BE/docs](../../../BE/docs), the README, [docs](../../../docs/README.md) and the agent harness describe what the
   code actually does. Outdated docs mislead agents and are a finding.
 
 ## 4. Maintainability and refactoring

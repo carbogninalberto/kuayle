@@ -1105,7 +1105,7 @@ Installation requires HTTPS (or `localhost`). Chrome and Edge offer Install in t
 The optional [release updater](selfhosting/RELEASE_UPDATER.md) supports detached release checkouts and digest-pinned production Compose deployments. It exports release source without changing the checkout, prepares images before downtime (pulling digest-pinned API, UI and, when active, Dev Machines control-plane/runtime images published by the release workflow; a Dev Machines image missing from GHCR is built locally from the release source), stops application/control-plane writers before a database backup and migrations, and waits for health before removing maintenance mode. Failure after migrations begin leaves writers stopped; it never restarts old binaries against a potentially changed schema.
 
 The optional `searxng` Compose profile runs a pinned SearXNG image for the
-assistant's `web_search` (see [self-hosted web search](README.md#self-hosted-web-search-optional)).
+assistant's `web_search` (see [self-hosted web search](docs/self-hosting.md#self-hosted-web-search-optional)).
 It has no published port and shares only the internal `search-control` network
 with the backend; `search-egress` reaches the upstream engines. It runs
 read-only as the image's non-root user (977) with all capabilities dropped and
@@ -1134,7 +1134,7 @@ Prerequisites:
 - `FRONTEND_URL` set to the exact public Kuayle origin, including scheme and any non-default port, for native terminal WebSocket `Origin` validation;
 - a separate registrable domain for machine workloads by default (e.g. `kuayle-machines.example.net`), or the explicit personal/trusted `DEV_MACHINE_ALLOW_SAME_SITE` opt-in;
 - wildcard DNS for `*.${DEV_MACHINE_DOMAIN}`;
-- production TLS via DNS-01 wildcard certificates, an operator-provided wildcard certificate, or restricted on-demand individual certificates (see the README setup);
+- production TLS via DNS-01 wildcard certificates, an operator-provided wildcard certificate, or restricted on-demand individual certificates (see [personal instances](docs/self-hosting.md#personal-instances-same-site-machines-and-https-without-dns-api-credentials));
 - sufficient host CPU, memory, and disk for configured concurrency;
 - a GitHub App with scoped write permissions for autonomous push/PR workflows;
 - runtime images built locally or available from a trusted registry.
@@ -1231,7 +1231,7 @@ It validates the exact requested hostname against a live route and checks runnin
 status, desired status and expiry with a two-second database deadline and bounded
 concurrency. This listener has no Docker or application credential access. It must
 not be published; Caddy uses it to restrict on-demand issuance. Public workload
-traffic remains on port 8090. See README for a stock-Caddy setup without DNS API keys.
+traffic remains on port 8090. See [personal instances](docs/self-hosting.md#personal-instances-same-site-machines-and-https-without-dns-api-credentials) for a stock-Caddy setup without DNS API keys.
 
 IDE dependency refreshes are pinned in `devmachine/ide/Dockerfile` and
 `devmachine/ide/patch-security.cjs`. The latter installs body-parser with its
@@ -1321,7 +1321,7 @@ stored encrypted and never returned; or, from migration 116, a self-hosted
 SearXNG without a key, offered only when the operator sets
 `WEB_SEARCH_SEARXNG_URL`, the one private host the search client may dial; the
 self-hosting `searxng` Compose profile runs it, see
-[self-hosted web search](README.md#self-hosted-web-search-optional)); the `repo_*` tools list, glob, grep, read
+[self-hosted web search](docs/self-hosting.md#self-hosted-web-search-optional)); the `repo_*` tools list, glob, grep, read
 and list symbols of a temporary checkout that the API server extracts from a
 linked repository's tarball (read-only, repository-scoped installation token,
 no git, `.gitignore`, link and traversal protection, size caps, 15-minute TTL,
