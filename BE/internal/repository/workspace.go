@@ -199,8 +199,22 @@ func (r *WorkspaceRepository) ListMembers(ctx context.Context, workspaceID uuid.
 }
 
 func (r *WorkspaceRepository) UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role string) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE workspace_members SET role = $1 WHERE workspace_id = $2 AND user_id = $3`, role, workspaceID, userID)
-	return err
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `UPDATE workspace_members SET role = $1 WHERE workspace_id = $2 AND user_id = $3`, role, workspaceID, userID); err != nil {
+		return err
+	}
+	// Invite links carry their creator's authority; a role that can no longer
+	// invite must not leave working links behind.
+	if !domain.HasPermission(role, domain.PermMemberInvite) {
+		if err := revokeInviteLinksCreatedBy(ctx, tx, workspaceID, userID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (r *WorkspaceRepository) RemoveMember(ctx context.Context, workspaceID, userID uuid.UUID) error {
@@ -221,6 +235,11 @@ func (r *WorkspaceRepository) RemoveMember(ctx context.Context, workspaceID, use
 	}
 	// A later workspace invitation must not revive old private-team grants or
 	// subscriptions. Remove all three memberships atomically.
+	// The removed user's invite links are revoked with them, after the membership
+	// row lock, so they cannot be used to rejoin.
+	if err := revokeInviteLinksCreatedBy(ctx, tx, workspaceID, userID); err != nil {
+		return err
+	}
 	for _, query := range []string{
 		`DELETE FROM team_members WHERE user_id=$2 AND team_id IN (SELECT id FROM teams WHERE workspace_id=$1)`,
 		`DELETE FROM issue_subscribers WHERE user_id=$2 AND issue_id IN (SELECT id FROM issues WHERE workspace_id=$1)`,

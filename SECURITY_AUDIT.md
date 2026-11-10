@@ -286,6 +286,8 @@ return 413. Test: `TestGitHubWebhookBoundsUnauthenticatedBody`.
   `DEV_MACHINE_ENCRYPTION_KEY` (≥ 32) fail closed; there are no weak fallbacks.
 - **Invites and shares.** Invite tokens and PATs are stored as SHA-256 hashes;
   invite links grant only member/guest and never change an existing role.
+  A link works only while its creator is a member whose role holds
+  `member:invite`; removing or demoting the creator revokes their links.
   Share tokens are 256-bit; public queries can only narrow scope.
 - **System and demo.** `/system/update*` requires a sysadmin. Demo mode fails
   closed and the gateway rechecks sysadmin status.
