@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
@@ -23,21 +24,8 @@ func NewWikiPublishHandler(svc *service.WikiPublishService, frontendURL string) 
 	return &WikiPublishHandler{svc: svc, frontendURL: strings.TrimRight(frontendURL, "/")}
 }
 
-type wikiPublicationResponse struct {
-	Mode     string  `json:"mode"`
-	Children bool    `json:"children"`
-	URL      *string `json:"url"`
-}
-
-type wikiPublishRequest struct {
-	Mode     string `json:"mode"`
-	Children bool   `json:"children"`
-	// Rotate replaces the public link with a new one; the old link stops working.
-	Rotate bool `json:"rotate"`
-}
-
-func (h *WikiPublishHandler) publication(state *domain.WikiPublication) wikiPublicationResponse {
-	resp := wikiPublicationResponse{Mode: state.Mode, Children: state.Children}
+func (h *WikiPublishHandler) publication(state *domain.WikiPublication) dto.WikiPublicationResponse {
+	resp := dto.WikiPublicationResponse{Mode: state.Mode, Children: state.Children}
 	if state.Mode == domain.WikiPublishPublic && state.Token != nil {
 		url := h.frontendURL + "/share/wiki/" + *state.Token
 		resp.URL = &url
@@ -67,7 +55,7 @@ func (h *WikiPublishHandler) Publish(kind domain.WikiScopeKind) echo.HandlerFunc
 		if !ok {
 			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid wiki page ID")
 		}
-		var req wikiPublishRequest
+		var req dto.WikiPublishRequest
 		if err := c.Bind(&req); err != nil {
 			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
 		}

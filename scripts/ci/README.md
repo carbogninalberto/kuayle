@@ -18,6 +18,7 @@ advances. Product checks and images continue to verify the recorded PR head.
 | Root documentation (`*.md`, `LICENSE`, `NOTICE`), README files anywhere, `BE/docs/`, `docs/`, `assets/`, `selfhosting/*.md`, `AGENTS.md`, `AGENTS/`, `.env.example`, `.gitignore`, and `.github/` files outside `workflows/` and `actions/` (funding, templates, CODEOWNERS) | Agent Harness only, plus lightweight planning/result jobs. Harness runs on every PR because its links reference all repository areas. |
 | `BE/` code, migrations, module dependencies | Backend tests and Go security; Docker lifecycle; API and all-in-one readiness on amd64/arm64; gateway/manager builds and scans on both architectures; updater scan. Backend dependencies are conservatively shared across its Go binaries. |
 | Backend token/permission definitions | Also Frontend Checks: the UI PAT scope contract test reads both backend files. |
+| Sanitizer class allowlist (`BE/pkg/sanitize/editor_classes.go` and its `testdata/editor_html_contract.json`) | Also Frontend Checks: the UI sanitizer unit and browser tests read the shared contract. |
 | `BE/**/*_test.go` | Backend tests and Go security. Docker lifecycle is also selected for its integration test file; no production image builds for test-only changes. |
 | `UI/` runtime, translations, assets and dependencies | Frontend type/unit/browser checks and npm audit; web and all-in-one readiness on both architectures. WEB fetches the release manifest from main at runtime, so a PR manifest edit does not select WEB. |
 | `UI/tests/`, `UI/playwright*.ts` | Frontend checks and audit; no production container checks. |
@@ -161,13 +162,35 @@ and fail closed on a missing or mismatched checksum.
 On `release.published`, Build & Push runs `node scripts/ci/upgrade-agent-clis.mjs`
 before its existing release commit and image publishing. Node 22 and network
 access to npm and GitHub are required; `GH_TOKEN` authenticates only GitHub
-metadata requests. The helper resolves npm's `latest` versions for Claude Code,
-OpenCode, Codex and Qwen Code, and GitHub's latest stable releases for Crush,
-Goose and Kimi. It updates the shared installer, all provider Dockerfile pins,
-and Goose/Kimi SHA-256 pins for amd64 and arm64 from release asset metadata.
+metadata requests. The helper picks, for Claude Code, OpenCode, Codex and Qwen
+Code (npm) and for Crush, Goose and Kimi (GitHub releases), the newest stable
+version published at least `DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS` ago (default 48,
+range 0-720, the same setting and default as the runtime refresh), so a
+compromised release has time to be withdrawn before it reaches published images.
+It updates the shared installer, all provider Dockerfile pins, and Goose/Kimi
+SHA-256 pins for amd64 and arm64 from the chosen release's asset metadata.
 Missing assets/digests, invalid versions, HTTP failures or unexpected pin layouts
 stop the refresh before any files are written. Run it only when an update is
-intended: it writes four tracked runtime files and prints the resolved versions.
+intended: it writes four tracked runtime files, prints the resolved versions as
+JSON on stdout and one line per CLI on stderr saying what it chose and why.
+
+Selection rules:
+
+- npm: the full package document. Candidates are stable `X.Y.Z` versions that
+  are not deprecated, not above the `latest` dist-tag (other dist-tags are
+  pre-release lines) and whose `time` entry is old enough.
+- GitHub: the first 100 entries of the releases list. Drafts, prereleases and
+  tags that are not `X.Y.Z` or `vX.Y.Z` are skipped; `published_at` must be old
+  enough. A list without any stable release fails the refresh.
+- A pin is never lowered. If no newer version is old enough, the pin and its
+  checksums stay as they are and the output says so, naming the newer version
+  that is still inside the waiting period.
+- Setting the variable to 0 for the release step turns the waiting period off;
+  an invalid value fails the refresh. The workflow does not set it, so releases
+  use 48 hours.
+
+npm CLIs are installed by pinned version; the installer does not yet verify
+their tarball integrity hashes (Goose and Kimi archives are checksum-verified).
 
 The existing release commit persists these pins on main. Release dev-machine
 builds wait for publishing and check out that exact refreshed commit, so their
@@ -177,7 +200,8 @@ or image selections are removed; workflow/helper edits select broad verification
 This refresh follows the existing main-based release workflow and does not move
 the published release tag or change running machines. Tests use isolated fixtures
 and mocked metadata (`node --test scripts/ci/upgrade-agent-clis.test.mjs`); they
-require no network and cover success, repeated runs and failure without edits.
+require no network and cover success, repeated runs, the minimum age, skipped
+prereleases, kept pins and failure without edits.
 
 Upstream contracts: [npm registry metadata](https://github.com/npm/registry/blob/main/docs/responses/package-metadata.md)
 and [GitHub release assets](https://docs.github.com/en/rest/releases/releases).

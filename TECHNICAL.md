@@ -289,7 +289,9 @@ with or without sudo, and the upgrade survives restarts on the workspace volume
 using their images' pinned CLIs). Project and `~/.npmrc` settings override `/etc/npmrc`.
 
 **Agent CLI updates.** Releases pin every built-in agent CLI in the images
-(`scripts/ci/upgrade-agent-clis.mjs` raises the pins at release time). Between
+(`scripts/ci/upgrade-agent-clis.mjs` raises the pins at release time, to the
+newest stable versions published at least 48 hours earlier, and never lowers
+them; see [release agent CLI refresh](scripts/ci/README.md#release-agent-cli-refresh)). Between
 releases the machine manager keeps the npm-distributed ones current for every
 machine: every `DEV_MACHINE_AGENT_CLI_REFRESH_HOURS` (default 6; 0 turns it off)
 it runs a helper container from the headless image that installs the latest
@@ -439,6 +441,17 @@ The Kuayle UI renders `@xterm/xterm` and speaks ttyd's native WebSocket protocol
 Opening a paused machine service queues an idempotent resume operation and returns a `resuming` response with `retry_after_seconds`; the UI polls/retries. Queued or spawning machines return `pending`. Stopped, destroyed and invalid states do not auto-resume.
 
 Machine access decisions are persisted in `dev_machine_access_logs` without query strings.
+
+### Public demo mode
+
+With `PUBLIC_DEMO_MODE` on, only the users listed in `SYSADMINS` may use Dev Machines; an empty list admits no one. The rule (`config.DemoDevMachineAllowed`) is enforced in four places:
+
+- **Routes.** `DevMachineDemoGuard` answers 403 on every Dev Machine, coding task, automation, agent message and agent sign-in route.
+- **Services.** `service.MachineAccess` applies the same rule wherever work reaches a machine without those routes. The task service refuses creating, retrying, reviewing, checking, previewing, messaging, continuing after sign-in and opening a terminal for the caller, so assistant approvals, automations, review follow-ups and GitHub mentions are covered. The Dev Machine service refuses creating or starting a machine, checkouts, agent runs, service and terminal launches, app ports and environment snapshots for the user it acts for. The task worker acts as the task's creator: a task of an excluded user fails with the reason instead of running. A custom tool's test run answers the same 403 as the routes. The services do not refuse stopping a machine or a preview, or cancelling a task: those only release resources.
+- **Assistant.** Tools and approvals marked `machine` in the action policy table (`delegate_issue`, `request_agent_review`, `follow_up_task`, `message_task`, `start_preview`, `expose_port`, `run_check`, `run_custom_tool`) are refused when requested, and again when approved: the approval ends as failed with the reason and nothing is queued. The preview and port tools that need no approval are refused too.
+- **Gateway.** Ticket exchanges and existing machine sessions recheck `SYSADMINS` on every request.
+
+A new path that starts work on a machine must call `MachineAccess` (through `DevMachineService.RequireMachineUse` or the task service) rather than rely on the route guard.
 
 The xterm client preserves the PTY byte stream by disabling end-of-line conversion, uses a line height of `1` and letter spacing `0`, and enables the Unicode 11 addon with `allowProposedApi` for full-screen TUIs. End-of-line conversion must remain off because rewriting LF as CRLF returns the cursor to column zero and corrupts TUIs that use LF to move rows while preserving their column. It renders with `@xterm/addon-webgl` and `customGlyphs`, so box-drawing, block and Powerline characters are drawn by xterm and borders join regardless of the font; on WebGL context loss or without WebGL2 it falls back to the DOM renderer (xterm 6 has no canvas renderer), and the terminal container's `data-renderer` attribute records which one is active. The font is JetBrains Mono, self-hosted from `@fontsource/jetbrains-mono` (OFL-1.1) with a system monospace and emoji fallback stack; the client waits up to three seconds for its regular and bold faces before xterm measures cells. Layout-driven fits are debounced (50 ms) and a resize frame reaches ttyd only when columns or rows change, so a dock drag produces one PTY/tmux resize rather than a storm; ttyd resizes the PTY and tmux follows. Binary output frames are passed to xterm as `Uint8Array` views, coalesced into one write per animation frame, and governed by ttyd flow control ([terminal-io.ts](UI/src/lib/features/dev-machines/terminal-io.ts)): every 100 KB a write carries a parse callback, more than 10 outstanding callbacks send ttyd `PAUSE` and fewer than 4 send `RESUME`, so neither the client queue nor xterm's buffer grows without bound; scrollback is 5,000 lines. The developer image installs `ncurses-term`, ttyd runs with `TERM=xterm-256color`, and tmux uses `tmux-256color` with RGB, synchronized-output, styled-underline, hyperlink, strikethrough and overline features for that outer terminal, focus and extended-key events, passthrough, and a 50,000-line history; terminal sessions export `COLORTERM=truecolor`. tmux keeps its default escape time (10 ms in the image's tmux 3.6) and mouse mode stays off: escape sequences cross a WebSocket and may arrive split, and a shorter escape time would turn the tail of a split sequence into typed text.
 
@@ -620,8 +633,8 @@ attempt the manager also collects the outbox every 5 seconds, and files
 addressed `{"to":"orchestrator"}` (optionally `"kind":"question"`) are recorded
 in the same channel as untrusted text. The task card's **Live messages** thread reads (and the
 assistant composer, aimed at the task's agent, sends) through `GET/POST /agent-tasks/:taskId/live-messages`; the assistant has
-`message_task` (no approval, it only delivers text) and the read-only
-`get_task_messages`; agent messages appear in the owning chat as escaped,
+`message_task` (the task's creator approves the exact text on a card before
+anything is sent) and the read-only `get_task_messages`; agent messages appear in the owning chat as escaped,
 untrusted items through `task.live_message` conversation events and history
 `agent_messages`, and questions also raise a toast and a Telegram notice
 ([agent messages in chat](BE/docs/conversations.md#agent-messages-in-chat)).
@@ -921,7 +934,7 @@ The IDE uses an ephemeral askpass helper for clone. Agent containers install an 
 
 Branches, commits, and pull requests are persisted in `dev_machine_git_refs` with workspace, machine, run, issue, repository, and URL linkage. Existing GitHub webhooks continue to populate the issue development timeline.
 
-Each workspace customizes its GitHub bot in Settings > GitHub > Kuayle bot (`workspace_github_bot_settings`, migration 119): a display name and profile picture that sign Kuayle's GitHub comments, and per-ability toggles enforced in `GitHubService` where the GitHub write happens (issue link comments, CI/review feedback to tasks, review comments, pull request actions, merges, releases). The opt-in `mention_reviews` ability handles `issue_comment` webhooks: a trusted `@<app-slug> … review` comment on a pull request a task published starts the same review as an approved `request_agent_review`, without an approval card, as the task's creator. See [GitHub integration](BE/docs/github-integration.md#kuayle-bot-identity-and-abilities-kua-96).
+Each workspace customizes its GitHub bot in Settings > GitHub > Kuayle bot (`workspace_github_bot_settings`, migration 119): a display name and profile picture that sign Kuayle's GitHub comments, and per-ability toggles enforced in `GitHubService` where the GitHub write happens (issue link comments, CI/review feedback to tasks, review comments, pull request actions, merges, releases). The opt-in `mention_reviews` ability handles `issue_comment` webhooks: an `@<app-slug> … review` comment by someone with write access to the repository (confirmed with GitHub for organization members and collaborators) on a pull request a task published starts the same review as an approved `request_agent_review`, without an approval card, as the task's creator. See [GitHub integration](BE/docs/github-integration.md#kuayle-bot-identity-and-abilities-kua-96).
 
 Each issue checkout is an idempotent `dev_machine_checkouts` record with its own working branch and workspace path under `/workspace/tasks/{issue-key}`. Agents and terminal sessions can target a checkout; if multiple checkouts exist, agent runs must name the checkout to avoid ambiguous writes.
 
@@ -1078,6 +1091,14 @@ Example create payload:
 
 Create requests accept `profile: "standard" | "headless"`; omission means standard. Headless requests must omit both `services.ide` and `services.browser`.
 
+### Public OpenAPI reference
+
+The stable, token-accessible part of the HTTP API is described by an OpenAPI 3.1
+document generated from the route registry and the DTOs, served at
+`GET /api/openapi.json` and rendered at kuayle.com/api-reference. Routes outside
+it, including every Dev Machine route above, are internal. See the
+[API guide](docs/api.md) for the generator and the tests that keep it in sync.
+
 ## MCP server
 
 `POST /mcp` is a stateless Streamable HTTP [MCP server](docs/mcp.md) in
@@ -1135,6 +1156,8 @@ Launched as the installed app (display mode `standalone`, `fullscreen` or `windo
 Installation requires HTTPS (or `localhost`). Chrome and Edge offer Install in the address bar or menu; on iOS use Safari's Share → Add to Home Screen.
 
 ## Self-Hosted Deployment
+
+Outside `ENVIRONMENT=development`, `config.Load` and `config.LoadMachineGateway` refuse published secret values: anything starting with `CHANGE_ME` (the self-hosting example placeholders) or `local_dev_`, ending in `_do_not_use_prod` (the root Compose development defaults), or written as `<...>`. The check covers `JWT_SECRET`, the passwords inside `DATABASE_URL` and `DEV_MACHINE_GATEWAY_DATABASE_URL`, `SYSTEM_UPDATER_TOKEN`, `VOICE_INTERNAL_TOKEN`, `DEV_MACHINE_ENCRYPTION_KEY`, `SMTP_PASSWORD`, `S3_SECRET_KEY` and the GitHub App client and webhook secrets. Errors name the setting and never the value. The `dev-machines` profile preflight and `selfhosting/update.sh` apply the same rule before provisioning the gateway role or stopping services. The root development Compose stack keeps its literal defaults and publishes its ports on `127.0.0.1` only. `server migrate` does not load the full configuration and is not covered. See [Secrets must be generated](docs/self-hosting.md#secrets-must-be-generated). A database password equal to the Compose fallback (what the Compose files use when `POSTGRES_PASSWORD` is unset) is refused too, and `update.sh` refuses an unset `POSTGRES_PASSWORD`.
 
 The optional [release updater](selfhosting/RELEASE_UPDATER.md) supports detached release checkouts and digest-pinned production Compose deployments. It exports release source without changing the checkout, prepares images before downtime (pulling digest-pinned API, UI and, when active, Dev Machines control-plane/runtime images published by the release workflow; a Dev Machines image missing from GHCR is built locally from the release source), stops application/control-plane writers before a database backup and migrations, and waits for health before removing maintenance mode. Failure after migrations begin leaves writers stopped; it never restarts old binaries against a potentially changed schema.
 
@@ -1255,9 +1278,12 @@ The October 2026 audit ([SECURITY_AUDIT.md](SECURITY_AUDIT.md)) added these inva
 
 - Session JWTs carry `typ` (`access` or `refresh`). The API authenticates only access tokens; untyped legacy tokens are accepted only with the 15-minute access lifetime.
 - Assets are served with their stored content type only when it is in `domain.AssetContentTypeExtensions`; any other type, including one restored from a workspace import, is served as `application/octet-stream` attachment. Import normalizes the type too.
+- A workspace archive is caller-supplied input. Import passes its rich-text columns through the sanitizers the write paths use (`importedTextSanitizers` in `internal/service/workspace_transfer.go`: issue titles and descriptions, comment bodies, project names and descriptions, template descriptions, recorded description versions); a new archive column that holds HTML must be added there. In the UI, stored HTML is turned into text only through `$lib/security/plain-text` (an inert `DOMParser` document, never `innerHTML`), and links read back from stored content (wiki file list, attachment nodes) go through `safeFileUrl`, which keeps `http(s)` and `/api/` addresses only.
+- Stored rich text keeps only the class names the editor and renderers emit: `editor-attachment`, `mention`, `mention-issue`, `registry-ref`, the editor link classes and `language-<name>` on code blocks. Both sanitizers drop every other class (`pkg/sanitize/editor_classes.go`, `$lib/security/editor-classes`), so stored content cannot use the app's utility classes to restyle the page. `BE/pkg/sanitize/testdata/editor_html_contract.json` is read by the Go, UI unit and browser tests; a new editor class must be added in both lists and that file. Issue template descriptions go through `sanitize.SanitizeEditorContent` on create and update, like issue descriptions.
+- Images in stored rich text load on their own only when the app serves them (uploaded assets, signed asset links, anything same-origin). The backend keeps accepting `http(s)` images and stored content is never rewritten; the rule is applied when rendering. `sanitizeHtml` (`$lib/security/sanitize`) moves the address of an image from any other host to `data-remote-src`, so rendering makes no request, and the `remoteImages` action on the document body (`src/routes/+layout.svelte`, `$lib/components/shared/remote-images.action`) puts a placeholder naming the host next to it, with "Load image" and "Always load from <host>" (kept per browser in `localStorage`). The editor's image node view follows the same rule, except for images the user pastes or drops in during the session. Because the sanitizer removes the `src`, a surface that renders sanitized HTML needs no code of its own, and one outside the action shows no remote image at all. `sanitizeEditorOutput` is the only variant that keeps remote addresses, for saving; release notes rendered through `renderMarkdown` with a link check load their already-restricted images directly.
 - Outbound requests to workspace-chosen URLs (AI provider `base_url`) dial through `validate.PublicAddressControl`, never follow redirects, and keep transport errors server-side. `AI_ALLOW_PRIVATE_NETWORK=true` lets operators use a private-network provider, which trusts every workspace owner with internal access.
-- With the shared GitHub App, installation callbacks require the installing user's OAuth code and the installation in `GET /user/installations`; enable "Request user authorization (OAuth) during installation" and set `GITHUB_APP_CLIENT_ID`/`GITHUB_APP_CLIENT_SECRET`.
-- Issue, project and template writes reject users who are not workspace members and labels, cycles and statuses from other workspaces; repository unlinks are workspace-scoped; the public GitHub webhook body is capped at 25 MB.
+- With the shared GitHub App, installation callbacks require the installing user's OAuth code and the installation in `GET /user/installations`; enable "Request user authorization (OAuth) during installation" and set `GITHUB_APP_CLIENT_ID`/`GITHUB_APP_CLIENT_SECRET`. Being listed is not enough, because GitHub lists an installation to every user who can reach one repository it covers: the installation is bound only when its account, as GitHub reports it for that grant, is the OAuth user's own account (`GET /user`, compared by numeric id) or an organization where `GET /user/memberships/orgs/{org}` returns `role: admin` and `state: active` for the same organization id. That lookup needs the shared app's organization permission **Members: Read-only**; when it fails or is forbidden, and for any other account type, the callback returns 403 `GITHUB_INSTALLATION_UNVERIFIED` and binds nothing. Per-workspace (manifest) apps skip this check because only their own workspace can resolve their installations, so the manifest does not request the permission.
+- Issue, project and template writes reject users who are not workspace members and labels, cycles and statuses from other workspaces; repository unlinks are workspace-scoped; the public GitHub webhook body is capped at 25 MB, and each signed delivery (`X-GitHub-Delivery`) is processed at most once (`github_webhook_deliveries`, kept seven days; see [replay protection](BE/docs/github-integration.md#replay-protection)).
 - The API (Echo v5) and the machine gateway resolve the client address with `internal/clientip`: `X-Forwarded-For` is honored only through hops on loopback, link-local or private networks (the bundled Caddy and Compose networks) and the nearest public hop is used; `X-Real-IP` is ignored. A client connecting from a public address therefore cannot choose its rate-limit, login-throttle, abuse-guard or audit address. Do not publish the backend or gateway port to a private network whose clients are untrusted; such peers are treated as proxies.
 
 The gateway also serves a private HTTP certificate-approval listener on port 8091.

@@ -16,6 +16,12 @@
 - [MCP server](mcp.md): connect Claude Code, Claude Desktop, Cursor or Codex with a
   token; tools, resources and authorization.
 
+## Integrators
+
+- [API reference](api.md): the OpenAPI 3.1 document every instance serves at
+  `/api/openapi.json`, how it is generated and tested, and a generated-client
+  smoke test.
+
 ## Contributors
 
 - [Development](development.md): run from source, `make` commands, tech stack,

@@ -13,6 +13,11 @@ make docker-up
 
 App at `http://localhost:5173` · API at `http://localhost:8080`
 
+The Compose stack publishes its ports on `127.0.0.1` only, and its `local_dev_*`
+secrets are public defaults that the backend accepts only with
+`ENVIRONMENT=development`. Do not expose this stack to a network; use the
+[self-hosting](self-hosting.md) bundle for that.
+
 ### Local dev
 
 ```sh

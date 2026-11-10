@@ -10,8 +10,8 @@ Native success is followed by an independent check (migration 58) and determinis
 publication of a pull request (migration 59), after which the task waits in
 `awaiting_review` until GitHub reports that pull request merged, an approved
 merge from chat completes it, or its creator or a workspace admin accepts it in
-Kuayle without merging ([accepting without merge](#accepting-without-merge)). CI failures, GitHub change requests and issue
-comments queue bounded follow-up attempts; reviews by a second agent run only on
+Kuayle without merging ([accepting without merge](#accepting-without-merge)). CI failures, GitHub change requests and the
+task creator's own issue comments queue bounded follow-up attempts; reviews by a second agent run only on
 request (migration 84). That fixed flow is the built-in Standard workflow;
 workspaces can design their own as [configurable workflows](#configurable-workflows)
 (migration 118). See [remaining workflow work](#remaining-workflow-work)
@@ -488,8 +488,11 @@ current task permissions, and the task card shows them in its execution details.
 While the task is `awaiting_review`, a CI `failure`/`timed_out` or a
 `changes_requested` review queues a follow-up attempt on the same branch through
 the existing retry path, acting as the task creator under their current
-permissions. Only reviewers with an `OWNER`, `MEMBER` or `COLLABORATOR`
-association can trigger one; other reviews are recorded as `untrusted`. Budgets
+permissions. Only reviewers who can push to the repository can trigger one:
+repository or organization owners, and members or collaborators whose `write`,
+`maintain` or `admin` permission GitHub confirms
+([details](github-integration.md#who-can-steer-an-agent-from-github)); other
+reviews are recorded as `untrusted`. Budgets
 are two automatic CI fixes and five review follow-ups per task; further signals
 are recorded as `budget_exhausted`. The follow-up keeps the original
 instructions, replaces any earlier follow-up section, and explains the failing
@@ -510,13 +513,28 @@ or an agent acting for a user) is feedback when the issue's latest task is
 `awaiting_review`. Under the task lock the repository re-checks that the author
 is a current non-guest member who can see the issue; other comments, comments on
 tasks in any other state and empty comments are not recorded. The comment is
-stored as bounded plain text (2,000 characters) and queues a follow-up attempt
-through the same retry path, acting as the task creator, with the comment fenced
-as untrusted feedback in the prompt. The budget is five comment follow-ups per
-task (`budget_exhausted` after that); the request ID is derived from the task,
-attempt and comment, and unqueued follow-ups are resumed by the same background
-loop. Because a follow-up moves the task out of `awaiting_review`, further
-comments wait for the next published attempt. Comment creation itself never
+stored as bounded plain text (2,000 characters).
+
+A follow-up runs with the task creator's agent sign-in, GitHub access and
+allowed secrets, so **only the creator's own comment queues one**. It goes
+through the same retry path, acting as the task creator. The budget is five
+comment follow-ups per task (`budget_exhausted` after that); the request ID is
+derived from the task, attempt and comment, and unqueued follow-ups are resumed
+by the same background loop. Because a follow-up moves the task out of
+`awaiting_review`, further comments wait for the next published attempt.
+
+A comment by anyone else, workspace admins and owners included, is stored with
+the action `recorded`: it starts no attempt and uses no budget. It stays on the
+issue and in the task's signal list, and the creator decides what to do with
+it: comment on the issue themselves, approve the assistant's `follow_up_task`
+([requested agent reviews](#requested-agent-reviews)) or retry the task. A
+comment by another member therefore never starts a run that carries the
+creator's credentials.
+
+In the prompt, the name of the commenter (or of the GitHub reviewer) and the
+text are both untrusted data inside one `~~~text` block. The name is reduced to
+a single line of at most 100 characters without control or formatting
+characters, and neither part can close the block. Comment creation itself never
 fails because of this hook.
 
 ## Review completion
@@ -1128,7 +1146,12 @@ agent works. The task card, the chat and the assistant use it as described in
 
 **Sending to the agent.** `AgentTaskService.QueueLiveMessage(ws, task, sender,
 body)` (repository `QueueLiveMessage`) records a message from `user` or
-`orchestrator`. Only the task's creator may send, under the same conversation
+`orchestrator`. The task card's composer sends as `user` directly. The
+assistant never calls it: its `message_task` tool only requests an approval,
+and the approved text is queued by `QueueApprovedLiveMessage(ws, task,
+request, body)` as `orchestrator`, under the same rules, with the approval's
+request ID stored in `request_id` (migration 134, unique per task) so one
+approval delivers one message. Only the task's creator may send, under the same conversation
 and team checks as the other task actions (another member gets not found);
 only implementing tasks that are not completed, cancelled or cancelling take
 messages; the body is cleaned like an outbox body (at most 4,000 characters);
@@ -1220,7 +1243,9 @@ volume once unused; the ended agent container keeps it until the run is
 cancelled (`CancelAgent` removes the run's inbox volumes after its containers)
 or the machine is torn down (`Teardown` removes the machine's inbox volumes).
 
-Rolling migration 95 back drops the live channel's messages.
+Rolling migration 95 back drops the live channel's messages. Rolling migration
+134 back removes `message_task` approvals and the `request_id` column; messages
+already delivered are kept.
 
 ## Configurable workflows
 
@@ -1351,7 +1376,11 @@ shared branches. A successful process exit must never mark an issue Done.
 ## HTTP controls and replay
 
 All task routes require an interactive session and the existing Dev Machine demo
-guard. PAT scopes do not grant task access. Current creator/conversation/issue
+guard. The task service applies the same demo rule itself (`service.MachineAccess`),
+so paths that skip these routes (assistant approvals, automations, review
+follow-ups, GitHub mentions) are refused for users outside `SYSADMINS`, and the
+worker fails a task whose creator is excluded; see
+[public demo mode](../../TECHNICAL.md#public-demo-mode). PAT scopes do not grant task access. Current creator/conversation/issue
 permissions apply to every page, including older attempts. Disabling execution
 policy blocks new work and sends running attempts through cleanup; historical reads
 and cancellation remain available to authorized users.

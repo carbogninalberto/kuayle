@@ -51,7 +51,8 @@ type GitHubService struct {
 	frontendURL    string
 	webhookURL     string                 // optional override (e.g. smee.io for dev)
 	globalApp      *GlobalGitHubAppConfig // nil = self-hosted mode
-	// installationAccess verifies a shared-app installation callback.
+	// installationAccess reports whether the user behind a shared-app
+	// installation callback owns the installation or administers its organization.
 	installationAccess func(ctx context.Context, code string, installationID int64) (bool, error)
 	// taskReviews finalizes agent tasks whose recorded pull request merged.
 	taskReviews mergedPullRequestCompleter
@@ -81,6 +82,9 @@ type GitHubService struct {
 	mentionReviews mentionReviewer
 	// githubHTTPClient replaces the GitHub API transport in tests.
 	githubHTTPClient *http.Client
+	// repositoryPermission asks GitHub which permission a user has on a linked
+	// repository (admin, write, read or none); replaced in tests.
+	repositoryPermission func(ctx context.Context, inst *domain.GitHubInstallation, repo *domain.GitHubRepoModel, login string) (string, error)
 }
 
 type mergedPullRequestCompleter interface {
@@ -119,7 +123,7 @@ func NewGitHubService(
 	webhookURL string,
 	globalApp *GlobalGitHubAppConfig,
 ) *GitHubService {
-	return &GitHubService{
+	s := &GitHubService{
 		ghRepo:         ghRepo,
 		apps:           &appCache{items: map[uuid.UUID]cachedApp{}},
 		issueRepo:      issueRepo,
@@ -131,10 +135,11 @@ func NewGitHubService(
 		frontendURL:    frontendURL,
 		webhookURL:     webhookURL,
 		globalApp:      globalApp,
-		installationAccess: func(ctx context.Context, code string, installationID int64) (bool, error) {
-			return gh.UserCanAccessInstallation(ctx, nil, globalApp.ClientID, globalApp.ClientSecret, code, installationID)
-		},
 	}
+	s.installationAccess = func(ctx context.Context, code string, installationID int64) (bool, error) {
+		return gh.UserControlsInstallation(ctx, s.githubHTTPClient, globalApp.ClientID, globalApp.ClientSecret, code, installationID)
+	}
+	return s
 }
 
 // getClient creates a GitHub API client. In global mode, uses shared credentials;
@@ -338,12 +343,13 @@ func (s *GitHubService) GetInstallURL(ctx context.Context, workspaceID uuid.UUID
 }
 
 // ErrGitHubInstallationUnverified reports a shared-app installation callback
-// that does not prove the installing user can access the installation.
-var ErrGitHubInstallationUnverified = errors.New("GitHub installation could not be verified for this user; enable \"Request user authorization (OAuth) during installation\" on the GitHub App and install again")
+// that does not prove the installing user controls the installation.
+var ErrGitHubInstallationUnverified = errors.New("GitHub installation could not be verified for this user; it must be connected by the GitHub account it is installed on or by an owner of that organization. The GitHub App needs \"Request user authorization (OAuth) during installation\" and the organization permission \"Members: Read-only\"")
 
 // HandleInstallationCallback processes the GitHub App installation callback.
 // A shared app's installations belong to many workspaces, so in global mode
-// code must be the OAuth code GitHub issued to the installing user.
+// code must be the OAuth code GitHub issued to the installing user, and that
+// user must own the installation's account or be an admin of its organization.
 func (s *GitHubService) HandleInstallationCallback(ctx context.Context, workspaceID, userID uuid.UUID, installationID int64, code string) (*domain.GitHubInstallation, error) {
 	existing, err := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
 	if err != nil {
@@ -1432,13 +1438,20 @@ func (s *GitHubService) processReviewEvent(ctx context.Context, payload []byte) 
 	if err = s.requireAbility(ctx, inst.WorkspaceID, domain.GitHubBotTaskFeedback); err != nil {
 		return ignoreDisabledAbility(err)
 	}
-	// Only reviewers with write association can steer a coding agent.
-	association := event.Review.AuthorAssociation
 	in := domain.AgentTaskSignalInput{
 		Kind: "review", ExternalID: strconv.FormatInt(event.Review.ID, 10), Outcome: normalizedOutcome(event.Review.State),
 		Name: truncateRunes(event.Review.User.Login, 200), Summary: truncateRunes(event.Review.Body, 4000),
-		URL:     fmt.Sprintf("https://github.com/%s/pull/%d", repo.FullName, event.PullRequest.Number),
-		Trusted: association == "OWNER" || association == "MEMBER" || association == "COLLABORATOR",
+		URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo.FullName, event.PullRequest.Number),
+	}
+	// Only reviewers who can push to the repository can steer a coding agent;
+	// see authorCanWrite. Trust only matters for a changes_requested review
+	// (the one that queues a follow-up), so other reviews are recorded without
+	// asking GitHub. A failed lookup fails the delivery and records nothing.
+	if in.Outcome == "changes_requested" {
+		if in.Trusted, err = s.authorCanWrite(ctx, inst, repo, event.Review.AuthorAssociation, event.Review.User.Login); err != nil {
+			log.WithFields(log.Fields{"workspace_id": inst.WorkspaceID, "repo_id": repo.ID, "pr_number": event.PullRequest.Number}).WithError(err).Warn("Could not confirm a reviewer can write; redeliver the event after recovery")
+			return err
+		}
 	}
 	if err := s.taskSignals.Record(ctx, inst.WorkspaceID, repo.FullName, event.PullRequest.Number, in); err != nil {
 		return fmt.Errorf("recording review: %w", err)

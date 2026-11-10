@@ -113,7 +113,13 @@ type AssistantTools struct {
 	// publish_wiki_page and share_wiki_page need SetWikiPublishing.
 	wikiPublish    assistantWikiPublisher
 	wikiWorkspaces assistantWorkspaces
+	// machineAccess is the public demo rule; nil restricts nothing.
+	machineAccess *MachineAccess
 }
+
+// SetMachineAccess applies the public demo rule to the tools that start work
+// on a Dev Machine or read one.
+func (t *AssistantTools) SetMachineAccess(access *MachineAccess) { t.machineAccess = access }
 
 type assistantToolSettings interface {
 	Disabled(ctx context.Context, ws uuid.UUID) (map[string]bool, error)
@@ -459,7 +465,7 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return result, nil, err
 	case "stop_preview", "list_ports":
 		return t.runMachineTool(ctx, ws, user, name, arguments)
-	case "message_task", "get_task_messages":
+	case "get_task_messages":
 		return t.runLiveTool(ctx, ws, user, name, arguments)
 	case "plan_issues":
 		return t.planIssues(ctx, ws, arguments)

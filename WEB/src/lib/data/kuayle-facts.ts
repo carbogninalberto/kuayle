@@ -36,7 +36,7 @@ export const KUAYLE = {
 	},
 	api: {
 		mark: 'partial',
-		text: 'HTTP API with scoped, expiring personal access tokens, plus HMAC-signed webhooks. No published OpenAPI reference yet.'
+		text: 'HTTP API with a published OpenAPI 3.1 reference and scoped, expiring personal access tokens. Webhooks can be registered and deliveries are HMAC-signed, but issue events are not sent to them yet.'
 	},
 	importers: {
 		mark: 'no',

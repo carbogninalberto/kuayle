@@ -99,10 +99,10 @@ func (s *WebhookService) Dispatch(ctx context.Context, workspaceID uuid.UUID, ev
 		return
 	}
 
-	body, err := json.Marshal(map[string]interface{}{
-		"event":     event,
-		"payload":   payload,
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	body, err := json.Marshal(dto.WebhookDelivery{
+		Event:     event,
+		Payload:   payload,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 	if err != nil {
 		log.WithError(err).Warn("failed to marshal webhook payload")

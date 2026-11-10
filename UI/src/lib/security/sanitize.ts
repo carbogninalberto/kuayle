@@ -1,4 +1,6 @@
 import DOMPurify from 'dompurify';
+import { filterEditorClasses } from './editor-classes';
+import { deferRemoteImage } from './remote-images';
 
 const ALLOWED_TAGS = [
 	'p', 'br', 'strong', 'b', 'em', 'i', 's', 'del', 'code', 'pre',
@@ -22,10 +24,20 @@ function isSafeResourceUrl(value: string): boolean {
 	return value.startsWith('/api/workspaces/') || value.startsWith('/api/public/assets/') || SAFE_URL_PATTERN.test(value);
 }
 
+// Set for the duration of one sanitize call; see sanitizeHtml.
+let loadRemoteImages = false;
+
 function createPurify() {
 	const purify = DOMPurify;
 
 	purify.addHook('afterSanitizeAttributes', (node) => {
+		// Stored content keeps only the classes the editor emits; see editor-classes.ts.
+		const classes = node.getAttribute('class');
+		if (classes !== null) {
+			const kept = filterEditorClasses(classes);
+			if (kept) node.setAttribute('class', kept);
+			else node.removeAttribute('class');
+		}
 		if (node.tagName === 'A') {
 			node.setAttribute('rel', 'noopener noreferrer nofollow');
 			const href = node.getAttribute('href') ?? '';
@@ -38,6 +50,8 @@ function createPurify() {
 			if (src && !isSafeResourceUrl(src)) {
 				node.removeAttribute('src');
 			}
+			// Images from other hosts are loaded by the reader, not by rendering.
+			if (!loadRemoteImages) deferRemoteImage(node, globalThis.location?.origin ?? '');
 		}
 	});
 
@@ -46,14 +60,30 @@ function createPurify() {
 
 const purify = createPurify();
 
-export function sanitizeHtml(dirty: string): string {
-	return purify.sanitize(dirty, {
-		ALLOWED_TAGS,
-		ALLOWED_ATTR,
-		ALLOW_DATA_ATTR: false
-	});
+function sanitize(dirty: string, remoteImages: boolean): string {
+	loadRemoteImages = remoteImages;
+	try {
+		return purify.sanitize(dirty, {
+			ALLOWED_TAGS,
+			ALLOWED_ATTR,
+			ALLOW_DATA_ATTR: false
+		});
+	} finally {
+		loadRemoteImages = false;
+	}
 }
 
+/**
+ * HTML that is safe to render. An image from another host comes out without a
+ * src (see remote-images.ts) and is loaded when the reader asks; never store
+ * this output. `remoteImages: 'load'` is for content the app's publisher wrote
+ * and whose addresses the caller has already restricted (release notes).
+ */
+export function sanitizeHtml(dirty: string, { remoteImages = 'defer' }: { remoteImages?: 'defer' | 'load' } = {}): string {
+	return sanitize(dirty, remoteImages === 'load');
+}
+
+/** HTML the editor produced, as it is stored: remote images keep their src. */
 export function sanitizeEditorOutput(dirty: string): string {
-	return sanitizeHtml(dirty);
+	return sanitize(dirty, true);
 }

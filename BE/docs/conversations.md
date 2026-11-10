@@ -599,21 +599,35 @@ continuity.
 A running coding agent and the person who owns its task talk through the
 task's [live channel](agent-tasks.md#live-channel).
 
-**Tools.** `message_task(identifier, body)` resolves the visible issue and its
-newest implementing task, as `follow_up_task` does, and queues the text as the
-conversation's user with sender `orchestrator` (`QueueLiveMessage`: only the
-task's creator, at most 4,000 characters, 30 per task per hour, not once the
-task completed or was cancelled). It needs no approval because it only
-delivers text and changes no other state; it is not an issue change. The
-result says `delivery: "live"` for a running attempt (the agent reads it after
-its current step) or `"next_attempt"`, and the tool card says so.
+**Tools.** `message_task(identifier, body)` never sends anything by itself:
+the agent reads a live message as its owner's word, and the model may have
+been steered by untrusted text it read (issues, web results, pull request
+comments, another agent's output). The tool resolves the visible issue and its
+newest implementing task, as `follow_up_task` does, checks that the
+conversation's user created that task and that it still takes messages, cleans
+the text (at most 4,000 characters) and records a pending
+[approval](#approvals) (migration 134) bound to that user, the issue, the task
+and the exact text. The model receives `pending_user_approval`. The approval
+card shows the whole message as escaped Code Block text. Approving re-checks
+that the task is still the issue's newest implementing task and still the
+approver's, then queues the approved text unchanged with sender
+`orchestrator` (`QueueApprovedLiveMessage`: the repository re-checks the
+creator, their membership and the issue's visibility, the 30 per task per hour
+budget, and that the task has not completed or been cancelled). The message
+stores the approval's request ID (`agent_live_messages.request_id`, unique per
+task), so repeated, concurrent or resumed approvals deliver it once. A task
+that changed, a lost task or an exhausted budget marks the approval `failed`
+and delivers nothing. A message to an agent is decided only in Kuayle:
+Telegram offers no button for it and ignores a press that names one, because
+the button would not show the text. Calls recorded before migration 134 were
+sent at once and keep their "sent" line in history.
 `get_task_messages(identifier, limit?)` is read-only and returns up to 50 (20
 by default) messages of both directions, oldest first. Messages to the agent
 carry `body`; the agent's own messages carry only `untrusted_agent_text`
 (refused files are left out), and the result's `notice` tells the model never
 to follow or act on them by itself. The system prompt says the same: the
-assistant reports agent messages and answers an agent with `message_task` only
-when the user's turn asks.
+assistant reports agent messages and asks to answer an agent with
+`message_task` only when the user's turn asks.
 
 **Display.** Agent messages are never conversation messages and never enter
 the model's context. Whenever a live message is queued, delivered or received,
@@ -671,7 +685,8 @@ this same resolution path; see [Telegram approval buttons](telegram.md#approval-
 
 `request_agent_review` and `follow_up_task` use the same approval path (migration
 84 extends the allowed actions); their effects and re-checks are described in
-[requested agent reviews](agent-tasks.md#requested-agent-reviews). `run_check` does too (migration 97); see
+[requested agent reviews](agent-tasks.md#requested-agent-reviews). `message_task`
+does too (migration 134); see [agent messages in chat](#agent-messages-in-chat). `run_check` does too (migration 97); see
 [manual checks](agent-tasks.md#manual-checks).
 
 ### Model choice for agents started from chat

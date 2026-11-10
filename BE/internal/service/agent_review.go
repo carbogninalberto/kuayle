@@ -16,6 +16,9 @@ var ReviewHarnesses = []string{"claude-code", "codex", "opencode"}
 // from the one that implemented the task; it must be allowed by the workspace
 // policy, like any coding task. Reviews never push or publish.
 func (s *AgentTaskService) RequestReview(ctx context.Context, ws, conversation, reviewed uuid.UUID, input domain.AgentReviewRequest) (*domain.AgentTask, *domain.AgentReview, error) {
+	if err := s.requireMachineUse(ctx); err != nil {
+		return nil, nil, err
+	}
 	input.Focus = strings.TrimSpace(input.Focus)
 	if err := s.validateRequest(ctx, ws, domain.AgentTaskRequest{Prompt: "Review the published pull request", Provider: input.Provider, Model: input.Model, Thinking: input.Thinking, ModelServerID: input.ModelServerID}); err != nil {
 		return nil, nil, err

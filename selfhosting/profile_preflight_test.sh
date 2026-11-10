@@ -36,19 +36,23 @@ run_case() {
 	local expected_status=$6
 	local expected_message=$7
 	local expect_psql=$8
+	local gateway_value=${CASE_GATEWAY_VALUE:-gateway-fixture}
 	local output status
 
 	: >"$psql_log"
 	set +e
 	output=$(PATH="$fake_bin:$PATH" PSQL_LOG="$psql_log" DEV_MACHINES_ENABLED="$enabled" \
 		ENVIRONMENT="$environment" DEV_MACHINE_DOMAIN="$domain" CADDYFILE_PATH="$caddyfile" \
-		GATEWAY_DB_PASSWORD=gateway-password POSTGRES_USER=kuayle POSTGRES_DB=kuayle \
+		GATEWAY_DB_PASSWORD="$gateway_value" POSTGRES_USER=kuayle POSTGRES_DB=kuayle \
 		sh -ec "$preflight" 2>&1)
 	status=$?
 	set -e
 
 	[ "$status" -eq "$expected_status" ] || fail "$name returned $status, expected $expected_status: $output"
 	case "$output" in *"$expected_message"*) ;; *) fail "$name did not report $expected_message: $output" ;; esac
+	if [ -n "${CASE_GATEWAY_VALUE:-}" ]; then
+		case "$output" in *"$CASE_GATEWAY_VALUE"*) fail "$name printed the configured password" ;; esac
+	fi
 	if [ "$expect_psql" = true ]; then
 		grep -Fq 'psql called' "$psql_log" || fail "$name did not reach psql"
 	elif [ -s "$psql_log" ]; then
@@ -73,5 +77,19 @@ run_case localhost-exception true production machines.localhost "$SCRIPT_DIR/Cad
 run_case non-production true development machines.example.net "$SCRIPT_DIR/Caddyfile" 0 '' true
 run_case production-certificate true production machines.example.net "$certificate_caddyfile" 0 '' true
 run_case commented-internal true production machines.example.net "$commented_caddyfile" 0 '' true
+
+# The gateway password shipped in the example files is public: the profile must
+# not provision the gateway role with it outside development.
+example_value() {
+	sed -n "s/^$2=//p" "$1" | tail -n 1
+}
+selfhost_placeholder=$(example_value "$SCRIPT_DIR/.env.example" DEV_MACHINE_GATEWAY_DB_PASSWORD)
+development_default=$(example_value "$SCRIPT_DIR/../.env.example" DEV_MACHINE_GATEWAY_DB_PASSWORD)
+[ -n "$selfhost_placeholder" ] && [ -n "$development_default" ] || fail "example env files no longer provide a gateway password placeholder"
+placeholder_message='DEV_MACHINE_GATEWAY_DB_PASSWORD is still an example placeholder or development default'
+CASE_GATEWAY_VALUE=$selfhost_placeholder run_case placeholder-password-production true production machines.example.net "$certificate_caddyfile" 1 "$placeholder_message" false
+CASE_GATEWAY_VALUE=$selfhost_placeholder run_case placeholder-password-other-environment true Staging machines.example.net "$certificate_caddyfile" 1 "$placeholder_message" false
+CASE_GATEWAY_VALUE=$development_default run_case development-default-production true production machines.example.net "$certificate_caddyfile" 1 "$placeholder_message" false
+CASE_GATEWAY_VALUE=$selfhost_placeholder run_case placeholder-password-development true development machines.example.net "$certificate_caddyfile" 0 '' true
 
 printf 'dev-machines profile preflight tests passed\n'

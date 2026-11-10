@@ -21,6 +21,9 @@
 	import SaveViewDialog from '$lib/components/shared/SaveViewDialog.svelte';
 	import * as Popover from '$lib/components/ui/popover';
 	import { listTeams } from '$lib/api/teams';
+	import { getCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
+	import { hasPermission } from '$lib/security/permissions';
+	import type { Role } from '$lib/security/roles';
 	import { listProjects } from '$lib/api/projects';
 	import { listLabels } from '$lib/api/labels';
 	import { listMembers } from '$lib/api/members';
@@ -64,6 +67,12 @@
 	let collapsedGroups = $state<Set<string>>(new Set());
 	let loadedCollapsedScope = '';
 	let initializationId = 0;
+	// The layout loads the workspace once. Visibility only; the API enforces view:manage.
+	const currentWorkspace = getCurrentWorkspace();
+	const canManageViews = $derived(
+		currentWorkspace.membership?.workspace.slug === slug &&
+			hasPermission(currentWorkspace.membership.workspace.current_user_role as Role, 'view:manage')
+	);
 	let lastSelectedId = $state<string | null>(null);
 	let dragOverGroup = $state<string | null>(null);
 	let dragSourceGroup = $state<string | null>(null);
@@ -469,7 +478,7 @@
 			<div class="hidden sm:block">
 				<ViewSwitcher bind:layout onchange={handleLayoutChange} />
 			</div>
-			{#if hasActiveFilters}
+			{#if hasActiveFilters && canManageViews}
 				<SaveViewDialog {filters} {slug} {teams} defaultTeamId={teamId} defaultScope="team" />
 			{/if}
 		</div>

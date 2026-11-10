@@ -22,3 +22,11 @@ type WebhookResponse struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// WebhookDelivery is the JSON body Kuayle posts to a webhook URL. The
+// X-Webhook-Signature header signs these exact bytes.
+type WebhookDelivery struct {
+	Event     string      `json:"event"`
+	Payload   interface{} `json:"payload"`
+	Timestamp string      `json:"timestamp"`
+}

@@ -137,6 +137,12 @@ func main() {
 	)
 	devMachineSvc.SetModelDiscovery(cfg.AIAllowPrivateNetwork)
 	devMachineSvc.SetDiskQuotaMode(cfg.DevMachine.EffectiveDiskQuotaMode())
+	// Public demo mode keeps Dev Machines for SYSADMINS. The route guard
+	// covers the Dev Machine routes; every service that reaches a machine
+	// another way (assistant tools and approvals, custom tool runs, the task
+	// service behind automations, follow-ups and workers) gets the same rule.
+	machineAccess := service.NewMachineAccess(cfg.DemoDevMachineAllowed)
+	devMachineSvc.SetMachineAccess(machineAccess)
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
@@ -172,7 +178,10 @@ func main() {
 	assistantSkillH := handler.NewAssistantSkillHandler(service.NewAssistantSkillService(assistantSkills, workspaceRepo))
 	assistantCustomTools := repository.NewAssistantCustomToolRepository(db)
 	assistantTools.SetCustomTools(assistantCustomTools)
-	assistantToolH := handler.NewAssistantCustomToolHandler(service.NewAssistantCustomToolService(assistantCustomTools, workspaceRepo, issueRepo, repository.NewAgentTaskRepository(db)))
+	assistantCustomToolSvc := service.NewAssistantCustomToolService(assistantCustomTools, workspaceRepo, issueRepo, repository.NewAgentTaskRepository(db))
+	assistantCustomToolSvc.SetMachineAccess(machineAccess)
+	assistantToolH := handler.NewAssistantCustomToolHandler(assistantCustomToolSvc)
+	assistantTools.SetMachineAccess(machineAccess)
 	// Research tools (KUA-93): web search with the workspace's provider key, and
 	// research sub-tasks on the assistant's own provider.
 	assistantResearch := service.NewAssistantResearchService(repository.NewAssistantResearchSettingsRepository(db), workspaceRepo, crypto.DeriveKey(cfg.JWTSecret+":assistant-research"))
@@ -200,6 +209,8 @@ func main() {
 	assistantTools.SetRepositories(devMachineRepo)
 	assistantTools.SetLiveChannel(repository.NewAgentTaskRepository(db))
 	assistantApprovals := service.NewAssistantApprovals(conversationSvc.Repo, agentTaskSvc)
+	assistantApprovals.SetMachineAccess(machineAccess)
+	assistantApprovals.SetLiveChannel(repository.NewAgentTaskRepository(db))
 	assistantTools.SetMachines(repository.NewAgentTaskRepository(db), devMachineSvc)
 	assistantApprovals.SetMachines(repository.NewAgentTaskRepository(db), devMachineSvc)
 	assistantApprovals.SetToolSettings(assistantToolSettings)
@@ -386,6 +397,7 @@ func main() {
 		githubBot:         handler.NewGitHubBotHandler(githubBotSvc),
 		wiki:              handler.NewWikiHandler(wikiSvc, aiSettingsSvc),
 		wikiPublish:       handler.NewWikiPublishHandler(wikiPublishSvc, cfg.FrontendURL),
+		openapi:           handler.NewOpenAPIHandler(buildinfo.Version),
 	}, &appMiddleware{
 		auth:                   mw.Auth(cfg.JWTSecret, patRepo, cfg.DevMachine.AllowSameSite),
 		authRateLimit:          mw.RateLimit(5, 10),
@@ -408,6 +420,8 @@ func main() {
 	go agentMessageSvc.Run(conversationCtx, 10*time.Second)
 	go automationSvc.Run(conversationCtx)
 	go githubSvc.RunMergeReconciliation(conversationCtx, 2*time.Minute)
+	// Replay markers of GitHub webhook deliveries expire after a few days.
+	go githubSvc.RunWebhookDeliveryCleanup(conversationCtx, time.Hour)
 	go githubSvc.RunReviewComments(conversationCtx, 15*time.Second)
 	go telegramSvc.Run(conversationCtx)
 	// Removes expired scan checkouts (and roots a crashed process left), and

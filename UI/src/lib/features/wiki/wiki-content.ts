@@ -1,6 +1,7 @@
 // Reads a wiki page's saved HTML for the side panel: its outline and the
 // files it embeds. Free of DOM and $lib imports for the Node unit tests.
 import { decodeEntities } from '../../components/shared/version-diff.ts';
+import { safeFileUrl } from '../../security/safe-url.ts';
 
 export interface OutlineItem {
 	level: number;
@@ -44,14 +45,17 @@ function fileName(href: string): string {
 	return decodeURIComponent(path.slice(path.lastIndexOf('/') + 1)) || href;
 }
 
-/** Attachments and images the page embeds, each once, in document order. */
+/**
+ * Attachments and images the page embeds, each once, in document order.
+ * Entries become links, so one whose address is not a web or API URL is left out.
+ */
 export function wikiFiles(html: string | null | undefined): PageFile[] {
 	const files: PageFile[] = [];
 	const seen = new Set<string>();
 	for (const match of (html ?? '').matchAll(/<a\b[^>]*data-type="attachment"[^>]*>|<img\b[^>]*>/gi)) {
 		const tag = match[0];
 		const image = tag.toLowerCase().startsWith('<img');
-		const href = attribute(tag, image ? 'src' : 'href');
+		const href = safeFileUrl(attribute(tag, image ? 'src' : 'href'));
 		if (!href || seen.has(href)) continue;
 		seen.add(href);
 		files.push({

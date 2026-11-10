@@ -8,8 +8,6 @@
 		ArrowUp,
 		Square,
 		Plus,
-		Copy,
-		Check,
 		RefreshCw,
 		MessageCircle,
 		ArrowDown,
@@ -46,6 +44,8 @@
 	import { ATTACHMENT_TYPES } from './attachment-rules';
 	import ToolCalls from './ToolCalls.svelte';
 	import AgentChatMessage from './AgentChatMessage.svelte';
+	import CopyMessageButton from './CopyMessageButton.svelte';
+	import { markdownToPlainText } from './message-text';
 	import ToolSources from './ToolSources.svelte';
 	import Markdown from './Markdown.svelte';
 	import LiveStatus from './LiveStatus.svelte';
@@ -285,7 +285,6 @@
 	let sending = $state(false);
 	let error = $state('');
 	let notice = $state('');
-	let copied = $state<string | null>(null);
 	let textarea = $state<HTMLTextAreaElement | null>(null);
 	let scroller = $state<ReturnType<typeof MessageScroller.useMessageScroller>>();
 	// Reloads after sending keep the transcript, header and task on screen, so
@@ -387,7 +386,6 @@
 	}
 	let retryRequest: { message: string; id: string } | null = null;
 	let disposed = false;
-	let copyTimer: ReturnType<typeof setTimeout> | undefined;
 	const suggestions = $derived(
 		chat.issue
 			? [
@@ -471,7 +469,6 @@
 			chat.dispose();
 			board?.dispose();
 			clearInterval(queueTimer);
-			clearTimeout(copyTimer);
 		};
 	});
 	// A task card can ask for a message, such as a review request; the user
@@ -599,16 +596,6 @@
 			error = m['assistant.error']();
 		} finally {
 			sending = false;
-		}
-	}
-	async function copy(id: string, content: string) {
-		try {
-			await navigator.clipboard.writeText(content);
-			copied = id;
-			clearTimeout(copyTimer);
-			copyTimer = setTimeout(() => (copied = null), 2000);
-		} catch {
-			error = m['assistant.error']();
 		}
 	}
 	function statusLabel(value: MessageStatus) {
@@ -865,14 +852,7 @@
 				<time datetime={message.created_at}
 					>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time
 				>
-				{#if message.content}<Button
-						variant="ghost"
-						size="icon-sm"
-						class="size-6"
-						aria-label={m['assistant.copy']()}
-						onclick={() => void copy(message.id, message.content)}
-						>{#if copied === message.id}<Check size={12} />{:else}<Copy size={12} />{/if}</Button
-					>{/if}
+				{#if message.content}<CopyMessageButton text={message.content} />{/if}
 			</Message.Footer>
 		</Message.Content>
 	</Message.Root>
@@ -907,14 +887,7 @@
 				>
 				<span role={message.status === 'streaming' ? 'status' : undefined}>{statusLabel(message.status)}</span>
 				{#if message.model}<span class="hidden sm:inline">· {message.model}</span>{/if}
-				{#if message.content}<Button
-						variant="ghost"
-						size="icon-sm"
-						class="size-6 opacity-70 group-hover:opacity-100 focus-visible:opacity-100"
-						aria-label={m['assistant.copy']()}
-						onclick={() => void copy(message.id, message.content)}
-						>{#if copied === message.id}<Check size={12} />{:else}<Copy size={12} />{/if}</Button
-					>{/if}
+				{#if message.content}<CopyMessageButton text={() => markdownToPlainText(message.content)} />{/if}
 				{#if ['failed', 'interrupted', 'cancelled'].includes(message.status) && message.id === chat.messages.at(-1)?.id}
 					<Button variant="ghost" size="sm" class="h-6 px-2 text-xs" disabled={sending} onclick={() => void retry(message.id)}
 						><RefreshCw size={12} />{m['assistant.retry']()}</Button

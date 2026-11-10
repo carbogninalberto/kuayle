@@ -16,6 +16,9 @@ import (
 // RunCheck runs the task's check, or the given command, on its latest
 // attempt for the caller, without an agent attempt or a state change.
 func (s *AgentTaskService) RunCheck(ctx context.Context, ws, id uuid.UUID, command []string) (*domain.DevMachineAgentRunStep, error) {
+	if err := s.requireMachineUse(ctx); err != nil {
+		return nil, err
+	}
 	return s.Repo.RunCheck(ctx, ws, id, command)
 }
 

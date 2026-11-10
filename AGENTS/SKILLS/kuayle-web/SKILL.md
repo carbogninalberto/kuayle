@@ -31,6 +31,10 @@ description: Maintain Kuayle WEB marketing pages, route registries, SEO, assets 
 - The production image is [WEB/deploy](../../../WEB/deploy): its Caddyfile owns the
   301s for moved pages (sync with `moved-pages.ts`) and the real 404. The build
   resolves the current release; do not hard-code version numbers in copy.
+- The [API reference page](../../../WEB/src/routes/api-reference/+page.svelte) renders
+  `src/lib/data/openapi.json`, a generated copy the backend tests keep equal to the
+  API. Never edit that file or describe endpoints by hand; regenerate it as the
+  [API guide](../../../docs/api.md) describes.
 - Check [content modification data](../../../WEB/src/lib/data/content-modified.json)
   when changing indexed content. Keep comparison claims, reviewed dates and
   self-hosting instructions accurate against the implementation and

@@ -1,6 +1,9 @@
 package config
 
 import (
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -323,5 +326,243 @@ func TestLoadValidatesTheSearXNGURL(t *testing.T) {
 		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "WEB_SEARCH_SEARXNG_URL") {
 			t.Fatalf("%s: want a WEB_SEARCH_SEARXNG_URL error, got %v", bad, err)
 		}
+	}
+}
+
+// exampleEnvValues reads KEY=value pairs from an example env file, including
+// commented-out examples, so the tests follow the placeholders actually shipped.
+func exampleEnvValues(t *testing.T, relativePath string) map[string]string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", filepath.FromSlash(relativePath)))
+	if err != nil {
+		t.Fatalf("reading %s: %v", relativePath, err)
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "#"))
+		key, value, found := strings.Cut(line, "=")
+		if !found || key == "" || strings.ContainsAny(key, " \t") {
+			continue
+		}
+		values[key] = strings.TrimSpace(value)
+	}
+	return values
+}
+
+// generatedFixture stands in for an operator-generated 48-character value.
+func generatedFixture(seed string) string {
+	return strings.Repeat(seed, 48/len(seed))
+}
+
+func setProductionLoadEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{
+		"SYSTEM_UPDATER_URL", "SYSTEM_UPDATER_TOKEN", "VOICE_URL", "VOICE_INTERNAL_TOKEN",
+		"DEV_MACHINE_ENCRYPTION_KEY", "SMTP_PASSWORD", "S3_SECRET_KEY", "WEB_SEARCH_SEARXNG_URL",
+		"GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_WEBHOOK_SECRET", "SYSADMINS",
+	} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("ENVIRONMENT", "production")
+	t.Setenv("DATABASE_URL", "postgres://kuayle:"+generatedFixture("dbfixture-12")+"@postgres:5432/kuayle?sslmode=disable")
+	t.Setenv("REDIS_URL", "redis://redis:6379")
+	t.Setenv("JWT_SECRET", generatedFixture("jwtfixture-0"))
+	t.Setenv("FRONTEND_URL", "https://app.example.com")
+	t.Setenv("DEV_MACHINES_ENABLED", "false")
+	t.Setenv("DEV_MACHINE_ALLOW_SAME_SITE", "false")
+}
+
+func databaseURLWithPassword(password string) string {
+	return (&url.URL{Scheme: "postgres", User: url.UserPassword("kuayle", password), Host: "postgres:5432", Path: "/kuayle", RawQuery: "sslmode=disable"}).String()
+}
+
+func TestLoadAcceptsGeneratedSecretsInProduction(t *testing.T) {
+	setProductionLoadEnv(t)
+	t.Setenv("SYSTEM_UPDATER_TOKEN", generatedFixture("updaterfix-0"))
+	t.Setenv("VOICE_URL", "http://voice:8000")
+	t.Setenv("VOICE_INTERNAL_TOKEN", generatedFixture("voicefixt-00"))
+	t.Setenv("DEV_MACHINE_ENCRYPTION_KEY", generatedFixture("machinekey-0"))
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load rejected generated production values: %v", err)
+	}
+}
+
+func TestLoadRejectsPlaceholderSecretsOutsideDevelopment(t *testing.T) {
+	selfhost := exampleEnvValues(t, "selfhosting/.env.example")
+	development := exampleEnvValues(t, ".env.example")
+	if selfhost["POSTGRES_PASSWORD"] == "" {
+		t.Fatal("the self-hosting example no longer provides POSTGRES_PASSWORD; update this test")
+	}
+
+	cases := []struct {
+		name     string
+		variable string // set to value
+		value    string
+		reported string // variable the error must name
+	}{
+		{"self-hosting JWT placeholder", "JWT_SECRET", selfhost["JWT_SECRET"], "JWT_SECRET"},
+		{"self-hosting database password placeholder", "DATABASE_URL", databaseURLWithPassword(selfhost["POSTGRES_PASSWORD"]), "DATABASE_URL"},
+		{"self-hosting updater token placeholder", "SYSTEM_UPDATER_TOKEN", selfhost["SYSTEM_UPDATER_TOKEN"], "SYSTEM_UPDATER_TOKEN"},
+		{"development JWT default", "JWT_SECRET", development["JWT_SECRET"], "JWT_SECRET"},
+		{"development encryption key default", "DEV_MACHINE_ENCRYPTION_KEY", development["DEV_MACHINE_ENCRYPTION_KEY"], "DEV_MACHINE_ENCRYPTION_KEY"},
+		{"development voice token default", "VOICE_INTERNAL_TOKEN", development["VOICE_INTERNAL_TOKEN"], "VOICE_INTERNAL_TOKEN"},
+		{"documentation angle-bracket placeholder", "JWT_SECRET", "<" + strings.Repeat("random-string-", 3) + ">", "JWT_SECRET"},
+		{"placeholder SMTP password", "SMTP_PASSWORD", "CHANGE_ME", "SMTP_PASSWORD"},
+		{"placeholder S3 secret", "S3_SECRET_KEY", "change_me_later", "S3_SECRET_KEY"},
+	}
+	for _, tc := range cases {
+		if tc.value == "" {
+			t.Fatalf("%s: the example file no longer provides a value; update this test", tc.name)
+		}
+		for _, environment := range []string{"production", " Production ", "staging"} {
+			t.Run(tc.name+" in "+strings.TrimSpace(environment), func(t *testing.T) {
+				setProductionLoadEnv(t)
+				t.Setenv("ENVIRONMENT", environment)
+				t.Setenv(tc.variable, tc.value)
+				_, err := Load()
+				if err == nil {
+					t.Fatalf("Load accepted a placeholder %s", tc.variable)
+				}
+				if !strings.Contains(err.Error(), tc.reported) || !strings.Contains(err.Error(), "placeholder") {
+					t.Fatalf("error does not name %s as a placeholder: %v", tc.reported, err)
+				}
+				for _, secret := range []string{tc.value, selfhost["POSTGRES_PASSWORD"]} {
+					if strings.Contains(err.Error(), secret) {
+						t.Fatalf("error leaks the configured value: %v", err)
+					}
+				}
+			})
+		}
+		t.Run(tc.name+" in development", func(t *testing.T) {
+			setProductionLoadEnv(t)
+			t.Setenv("ENVIRONMENT", "development")
+			t.Setenv(tc.variable, tc.value)
+			if _, err := Load(); err != nil {
+				t.Fatalf("development must keep accepting example values: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadMachineGatewayRejectsPlaceholderDatabasePasswordInProduction(t *testing.T) {
+	selfhost := exampleEnvValues(t, "selfhosting/.env.example")
+	development := exampleEnvValues(t, ".env.example")
+	gatewayURL := func(password string) string {
+		return (&url.URL{Scheme: "postgres", User: url.UserPassword("kuayle_gateway", password), Host: "postgres:5432", Path: "/kuayle"}).String()
+	}
+	for name, password := range map[string]string{
+		"self-hosting placeholder": selfhost["DEV_MACHINE_GATEWAY_DB_PASSWORD"],
+		"development default":      development["DEV_MACHINE_GATEWAY_DB_PASSWORD"],
+	} {
+		if password == "" {
+			t.Fatalf("%s: the example file no longer provides a value; update this test", name)
+		}
+		t.Run(name, func(t *testing.T) {
+			setMachineGatewayEnv(t)
+			t.Setenv("DATABASE_URL", "")
+			t.Setenv("ENVIRONMENT", "production")
+			t.Setenv("DEV_MACHINE_GATEWAY_DATABASE_URL", gatewayURL(password))
+			_, err := LoadMachineGateway()
+			if err == nil {
+				t.Fatal("LoadMachineGateway accepted a placeholder database password")
+			}
+			if !strings.Contains(err.Error(), "DEV_MACHINE_GATEWAY_DATABASE_URL") || !strings.Contains(err.Error(), "placeholder") {
+				t.Fatalf("error does not name the variable as a placeholder: %v", err)
+			}
+			if strings.Contains(err.Error(), password) {
+				t.Fatalf("error leaks the configured value: %v", err)
+			}
+
+			t.Setenv("ENVIRONMENT", "development")
+			if _, err := LoadMachineGateway(); err != nil {
+				t.Fatalf("development must keep accepting example values: %v", err)
+			}
+		})
+	}
+	t.Run("generated password", func(t *testing.T) {
+		setMachineGatewayEnv(t)
+		t.Setenv("DATABASE_URL", "")
+		t.Setenv("ENVIRONMENT", "production")
+		t.Setenv("DEV_MACHINE_GATEWAY_DATABASE_URL", gatewayURL(generatedFixture("gatewayfix-0")))
+		if _, err := LoadMachineGateway(); err != nil {
+			t.Fatalf("LoadMachineGateway rejected a generated password: %v", err)
+		}
+	})
+}
+
+func TestDatabaseURLPasswordHandlesUnencodedPasswords(t *testing.T) {
+	withPassword := func(password string) string {
+		return "postgres://kuayle" + ":" + password + "@db:5432/kuayle"
+	}
+	assert.Equal(t, "", databaseURLPassword("postgres://postgres@db/kuayle"))
+	assert.Equal(t, "", databaseURLPassword(""))
+	assert.Equal(t, "fixture@value here", databaseURLPassword(withPassword("fixture%40value%20here")))
+	// Compose interpolates POSTGRES_PASSWORD verbatim, so it may not be a valid URL.
+	invalid := withPassword("CHANGE_ME%zz")
+	assert.Equal(t, "CHANGE_ME%zz", databaseURLPassword(invalid))
+	assert.True(t, isPlaceholderSecret(databaseURLPassword(invalid)))
+}
+
+// shippedComposeFallback returns the password a Compose file uses
+// when POSTGRES_PASSWORD is not set. It is published in the repository, so it
+// is as public as the example placeholders.
+func shippedComposeFallback(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", path))
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	const marker = "POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-"
+	_, rest, found := strings.Cut(string(raw), marker)
+	if !found {
+		t.Fatalf("%s no longer defines a fallback database password; update this test", path)
+	}
+	fallback, _, _ := strings.Cut(rest, "}")
+	if fallback == "" {
+		t.Fatalf("%s has an empty fallback database password; update this test", path)
+	}
+	return fallback
+}
+
+func TestLoadRejectsComposeFallbackDatabasePasswordOutsideDevelopment(t *testing.T) {
+	for _, path := range []string{"selfhosting/docker-compose.yml", "docker-compose.yml"} {
+		fallback := shippedComposeFallback(t, path)
+		for _, environment := range []string{"production", "staging"} {
+			t.Run(path+" in "+environment, func(t *testing.T) {
+				setProductionLoadEnv(t)
+				t.Setenv("ENVIRONMENT", environment)
+				t.Setenv("DATABASE_URL", databaseURLWithPassword(fallback))
+				_, err := Load()
+				if err == nil {
+					t.Fatal("Load accepted the Compose fallback database password")
+				}
+				if !strings.Contains(err.Error(), "POSTGRES_PASSWORD") {
+					t.Fatalf("error does not name POSTGRES_PASSWORD: %v", err)
+				}
+			})
+		}
+		t.Run(path+" in development", func(t *testing.T) {
+			setProductionLoadEnv(t)
+			t.Setenv("ENVIRONMENT", "development")
+			t.Setenv("DATABASE_URL", databaseURLWithPassword(fallback))
+			if _, err := Load(); err != nil {
+				t.Fatalf("development must keep accepting the Compose fallback: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadMachineGatewayRejectsComposeFallbackDatabasePasswordInProduction(t *testing.T) {
+	fallback := shippedComposeFallback(t, "selfhosting/docker-compose.yml")
+	setMachineGatewayEnv(t)
+	t.Setenv("ENVIRONMENT", "production")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("DEV_MACHINE_GATEWAY_DATABASE_URL", databaseURLWithPassword(fallback))
+	_, err := LoadMachineGateway()
+	if err == nil {
+		t.Fatal("LoadMachineGateway accepted the Compose fallback database password")
+	}
+	if !strings.Contains(err.Error(), "DEV_MACHINE_GATEWAY_DATABASE_URL password") {
+		t.Fatalf("error does not name the gateway database password: %v", err)
 	}
 }

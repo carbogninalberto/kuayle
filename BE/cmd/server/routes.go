@@ -95,6 +95,7 @@ type appHandlers struct {
 	githubBot         *handler.GitHubBotHandler
 	wiki              *handler.WikiHandler
 	wikiPublish       *handler.WikiPublishHandler
+	openapi           *handler.OpenAPIHandler
 }
 
 // appMiddleware carries the pre-built route middleware whose construction
@@ -135,6 +136,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	public(e, http.MethodGet, "/api/config", h.config.Get, m.publicAssetRateLimit)
 	public(e, http.MethodGet, "/api/invite/:token", h.inviteLink.Preview, m.authRateLimit)
+	// The public API reference (internal/openapi); a test keeps it equal to the
+	// token-accessible routes below.
+	public(e, http.MethodGet, "/api/openapi.json", h.openapi.Spec, m.publicAssetRateLimit)
 
 	// Model Context Protocol server for external agents: personal access tokens
 	// only. Each tool call re-enters the scoped routes below through e, so it
@@ -291,10 +295,10 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Views
 	scoped(ws, http.MethodGet, "/views", h.view.List, "views:read")
-	sessionOnly(ws, http.MethodPost, "/views", h.view.Create)
+	sessionOnly(ws, http.MethodPost, "/views", h.view.Create, mw.RequirePermission(domain.PermViewManage))
 	scoped(ws, http.MethodGet, "/views/:id", h.view.Get, "views:read")
-	sessionOnly(ws, http.MethodPatch, "/views/:id", h.view.Update)
-	sessionOnly(ws, http.MethodDelete, "/views/:id", h.view.Delete)
+	sessionOnly(ws, http.MethodPatch, "/views/:id", h.view.Update, mw.RequirePermission(domain.PermViewManage))
+	sessionOnly(ws, http.MethodDelete, "/views/:id", h.view.Delete, mw.RequirePermission(domain.PermViewManage))
 
 	// Analytics
 	scoped(ws, http.MethodGet, "/analytics/overview", h.analytics.Overview, "analytics:read")

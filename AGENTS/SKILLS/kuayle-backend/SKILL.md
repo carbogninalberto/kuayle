@@ -36,6 +36,10 @@ description: Implement Kuayle Go API behavior, authorization, persistence and mi
   fixtures and documentation. Inspect history, notifications and realtime event
   publication for the affected service; avoid publishing effects before persistence
   succeeds. Preserve existing sanitization and asset visibility rules.
+- Routes a personal access token can reach are either published or classified as
+  internal in the [OpenAPI registry](../../../BE/internal/openapi/operations.go).
+  After changing such a route or a published DTO, regenerate the document and
+  review its diff as a public contract change; see the [API guide](../../../docs/api.md).
 - Use the toolchain declared by [go.mod](../../../BE/go.mod), format changed Go
   files with `gofmt`, and run the applicable checks. Do not treat skipped integration
   tests as evidence of persistence correctness or use production data for testing.
