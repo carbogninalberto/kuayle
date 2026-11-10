@@ -384,7 +384,7 @@ private teams, invite and shared links.
 | KS-32 | Low | Fixed (#181) | `view:manage` was never enforced | `BE/cmd/server/routes.go:286` |
 | KS-33 | Low | Fixed (#189) | Demo-mode machine restriction covered only the Dev Machine routes | `BE/cmd/server/routes.go:425` |
 | KS-34 | Low | Fixed (#180), operator action | Any GitHub user who could see an unbound shared-app installation could bind it | `BE/pkg/github/installation_access.go:41` |
-| KS-35 | Low | Fixed (#187, remote images in a follow-up PR) | Sanitizers allowed `class` on every tag; remote images in content | `BE/pkg/sanitize/html.go:36`, `UI/src/lib/security/sanitize.ts:12` |
+| KS-35 | Low | Fixed (#187, #197) | Sanitizers allowed `class` on every tag; remote images in content | `BE/pkg/sanitize/html.go:36`, `UI/src/lib/security/sanitize.ts:12` |
 | KS-36 | Low | Fixed (#184) | Release job upgraded agent CLIs to `latest` with no minimum age | `scripts/ci/upgrade-agent-clis.mjs:35` |
 | KS-37 | Low | Fixed (#190) | GitHub webhook had no replay protection; the write check accepted read-only collaborators | `BE/internal/handler/github.go:265`, `BE/internal/service/github_bot_abilities.go:155` |
 | KS-38 | Low | Fixed (#183) | Root `.gitignore` did not cover `.env.*` | `.gitignore` |
