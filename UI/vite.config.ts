@@ -21,7 +21,9 @@ export default defineConfig({
 				changeOrigin: true,
 				ws: true
 			},
-			'/mcp': {
+			// Exact path only: a plain key is a prefix match and would also catch
+			// a workspace whose slug starts with "mcp".
+			'^/mcp(\\?.*)?$': {
 				target: 'http://localhost:8080',
 				changeOrigin: true
 			},

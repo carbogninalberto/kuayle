@@ -7,7 +7,7 @@ import (
 
 type CreateWorkspaceRequest struct {
 	Name string `json:"name" validate:"required,min=1,max=100"`
-	Slug string `json:"slug" validate:"required,min=1,max=50,slug"`
+	Slug string `json:"slug" validate:"required,min=1,max=50,slug,workspace_slug"`
 }
 
 type OptionalString struct {

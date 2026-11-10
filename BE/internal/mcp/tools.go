@@ -3,6 +3,7 @@ package mcp
 import (
 	"net/http"
 	"regexp"
+	"strings"
 )
 
 // tool maps one MCP tool onto one route of the HTTP API. Arguments named in
@@ -183,4 +184,51 @@ var resourceTemplates = []struct {
 }{
 	{"kuayle://issue/{identifier}", "Issue", "An issue by its identifier, for example kuayle://issue/KUA-12.", "/issues/{identifier}"},
 	{"kuayle://wiki/{scope}/{scope_id}/{page_id}", "Wiki page", "A page of a team or project wiki; scope is team or project.", "/{scope}s/{scope_id}/wiki/{page_id}"},
+}
+
+// resourcePatterns holds, for each resource template, its URI as a pattern
+// with one named group per placeholder. Compiled once, at package init.
+var resourcePatterns = func() []*regexp.Regexp {
+	patterns := make([]*regexp.Regexp, len(resourceTemplates))
+	for i, template := range resourceTemplates {
+		pattern := regexp.QuoteMeta(template.URI)
+		for _, param := range pathParam.FindAllStringSubmatch(template.URI, -1) {
+			pattern = strings.Replace(pattern, regexp.QuoteMeta(param[0]), "(?P<"+param[1]+">[^/?#]+)", 1)
+		}
+		patterns[i] = regexp.MustCompile("^" + pattern + "$")
+	}
+	return patterns
+}()
+
+const workspacePrefix = "/api/workspaces/"
+
+// APIRoute is one API route the MCP server calls. Path keeps the
+// {placeholder} segments that arguments fill.
+type APIRoute struct {
+	Source, Method, Path string
+}
+
+// APIRoutes lists every API route a tool or resource can reach, so the
+// server package can check each against the routes it registers.
+func APIRoutes() []APIRoute {
+	var routes []APIRoute
+	add := func(source, method, path string, workspaceScoped bool) {
+		if workspaceScoped {
+			path = workspacePrefix + "{workspace}" + path
+		}
+		if !strings.Contains(path, "{scope}") {
+			routes = append(routes, APIRoute{source, method, path})
+			return
+		}
+		for _, scope := range wikiScopeProps[0].Enum {
+			routes = append(routes, APIRoute{source, method, strings.ReplaceAll(path, "{scope}", scope)})
+		}
+	}
+	for _, t := range tools {
+		add("tool "+t.Name, t.Method, t.Path, t.workspaceScoped())
+	}
+	for _, r := range resourceTemplates {
+		add("resource "+r.URI, http.MethodGet, r.Path, true)
+	}
+	return routes
 }

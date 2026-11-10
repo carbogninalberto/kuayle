@@ -39,9 +39,6 @@ const (
 // UUIDs and issue identifiers. Anything else is refused, never escaped.
 var safeSegment = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 
-// quotedPathParam finds a route placeholder in a regexp-quoted template.
-var quotedPathParam = regexp.MustCompile(`\\\{[a-z_]+\\\}`)
-
 // Server answers MCP requests by calling api, the application's own router.
 type Server struct {
 	api http.Handler
@@ -169,7 +166,10 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (any, *rpcErr
 		var text string
 		raw, ok := args[name]
 		delete(args, name)
-		return text, ok && json.Unmarshal(raw, &text) == nil
+		if !ok || json.Unmarshal(raw, &text) != nil {
+			return "", false
+		}
+		return text, true
 	})
 	if problem != "" {
 		return toolError(problem), nil
@@ -204,16 +204,17 @@ func (s *Server) readResource(r *http.Request, params json.RawMessage) (any, *rp
 	if err := json.Unmarshal(params, &read); err != nil || read.URI == "" {
 		return nil, invalidParams("uri is required.")
 	}
-	for _, template := range resourceTemplates {
-		// The URI template becomes a pattern with one group per placeholder.
-		pattern := "^" + quotedPathParam.ReplaceAllString(regexp.QuoteMeta(template.URI), "([^/?#]+)") + "$"
-		match := regexp.MustCompile(pattern).FindStringSubmatch(read.URI)
+	for i, template := range resourceTemplates {
+		pattern := resourcePatterns[i]
+		match := pattern.FindStringSubmatch(read.URI)
 		if match == nil {
 			continue
 		}
 		values := map[string]string{}
-		for i, name := range pathParam.FindAllStringSubmatch(template.URI, -1) {
-			values[name[1]] = match[i+1]
+		for group, name := range pattern.SubexpNames() {
+			if name != "" {
+				values[name] = match[group]
+			}
 		}
 		path, problem := s.route(r, template.Path, true, func(name string) (string, bool) {
 			value, ok := values[name]
@@ -250,7 +251,7 @@ func (s *Server) route(r *http.Request, template string, workspaceScoped bool, a
 		if !safeSegment.MatchString(slug) {
 			return "", "Invalid workspace."
 		}
-		template = "/api/workspaces/" + slug + template
+		template = workspacePrefix + slug + template
 	}
 	path = pathParam.ReplaceAllStringFunc(template, func(placeholder string) string {
 		name := placeholder[1 : len(placeholder)-1]

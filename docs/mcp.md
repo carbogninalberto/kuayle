@@ -69,8 +69,14 @@ a client over the limit gets `429` with `Retry-After`.
 
 Streamable HTTP, stateless, protocol version `2025-06-18`: one JSON-RPC message per
 `POST`, answered with JSON. The server offers no event stream, so `GET /mcp` returns
-`405`. Behind your own reverse proxy, route `/mcp` to the backend like `/api/*`
-(the bundled Caddyfile does).
+`405`. Behind your own reverse proxy, route `/mcp` to the backend like `/api/*`.
+The bundled configurations already do: the all-in-one image, the web image
+(`UI/Caddyfile`) and `selfhosting/Caddyfile`.
+
+Because the exact path `/mcp` belongs to the server, `mcp` is not accepted as the
+slug of a new or imported workspace. A workspace created with that slug before
+this release keeps working, except that its root page `/mcp` is not reachable in
+the browser; its other pages (`/mcp/issues`, ...) and the API are unaffected.
 
 ## Develop
 
