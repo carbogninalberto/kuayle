@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Input } from '$lib/components/ui/input/index.js';
-	import { onMount, onDestroy, tick } from 'svelte';
+	import { onMount, onDestroy, tick, untrack } from 'svelte';
 	import { Editor } from 'svelte-tiptap';
 	import { EditorContent } from 'svelte-tiptap';
 	import BubbleMenu from './EditorBubbleMenu.svelte';
@@ -155,6 +155,10 @@
 			wikiSuggestions = [];
 			return;
 		}
+		// Until the answer for this query arrives, keep only the pages it still
+		// matches, so Enter never inserts a page of the previous query.
+		const typed = query.trim().toLowerCase();
+		wikiSuggestions = untrack(() => wikiSuggestions).filter((page) => (page.title ?? '').toLowerCase().includes(typed));
 		let stale = false;
 		const timer = setTimeout(
 			() =>

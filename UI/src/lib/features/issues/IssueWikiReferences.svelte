@@ -105,8 +105,15 @@
 		const changed = (event: Event) => {
 			if ((event as CustomEvent<{ identifier?: string }>).detail?.identifier === issue) load(issue);
 		};
+		// A workspace with a private team gets one generic refresh for every
+		// change instead of the event itself.
+		const refreshed = () => load(issue);
 		window.addEventListener('ws:issue-wiki-references', changed);
-		return () => window.removeEventListener('ws:issue-wiki-references', changed);
+		window.addEventListener('app:refresh', refreshed);
+		return () => {
+			window.removeEventListener('ws:issue-wiki-references', changed);
+			window.removeEventListener('app:refresh', refreshed);
+		};
 	});
 
 	/** Attaches a page to the issue; the server checks access to both. */

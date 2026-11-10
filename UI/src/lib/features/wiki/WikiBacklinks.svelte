@@ -63,7 +63,9 @@
 			'ws:issue-updated',
 			'ws:issue-wiki-references',
 			'ws:comment-created',
-			'ws:reconnected'
+			'ws:reconnected',
+			// What a workspace with a private team gets instead of the events above.
+			'app:refresh'
 		];
 		for (const name of events) window.addEventListener(name, refresh);
 		document.addEventListener('visibilitychange', shown);

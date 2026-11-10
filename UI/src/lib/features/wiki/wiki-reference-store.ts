@@ -5,4 +5,7 @@ import { createReferenceResolver } from './wiki-references';
 export const wikiReferences = createReferenceResolver(resolveWikiReferences);
 
 // A page was renamed, moved or deleted somewhere: ask again next time.
-if (typeof window !== 'undefined') window.addEventListener('ws:wiki-changed', () => wikiReferences.clear());
+// A workspace with a private team gets a generic refresh instead.
+if (typeof window !== 'undefined') {
+	for (const name of ['ws:wiki-changed', 'app:refresh']) window.addEventListener(name, () => wikiReferences.clear());
+}
