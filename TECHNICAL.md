@@ -892,7 +892,7 @@ A Codex or Claude Code run without a model server (none serves the harness's pro
 
 ### Usage limits
 
-An agent whose provider refuses work until a quota resets (Claude Code's 5-hour or weekly limit, Codex's usage limit) does not fail its task (migration `000136_agent_task_usage_limits`, KUA-113).
+An agent whose provider refuses work until a quota resets (Claude Code's 5-hour or weekly limit, Codex's usage limit) does not fail its task (migration `000137_agent_task_usage_limits`, KUA-113).
 
 - **Detect:** when a run fails, the manager checks its output with `domain.DetectUsageLimit`. It reads Claude Code's rejected `rate_limit_event` (exact `resetsAt`) and the providers' messages ("You've hit your 5-hour limit · resets 4:10am (UTC)", "try again in 2 hours"). It stores the run error `usage_limit_reached: <message>` with `resets_at=`. Unknown wording stays an ordinary failure.
 - **Pause:** the task worker then pauses the task. The attempt goes through the usual runtime cleanup, which keeps the checkout, worktree and session transcripts, and ends in `blocked` rather than `failed`. The task carries `usage_limit_message`, `usage_limit_resets_at` and `usage_limit_resume_at` (the reset plus two minutes; 30 minutes when no time was given).
