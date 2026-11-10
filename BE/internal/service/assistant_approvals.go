@@ -64,7 +64,13 @@ type AssistantApprovals struct {
 	wikiWorkspaces assistantWorkspaces
 	// Task messages are unavailable until SetLiveChannel wires them.
 	live approvalLiveTasks
+	// machineAccess is the public demo rule; nil restricts nothing.
+	machineAccess *MachineAccess
 }
+
+// SetMachineAccess applies the public demo rule to approved actions that
+// start work on a Dev Machine.
+func (s *AssistantApprovals) SetMachineAccess(access *MachineAccess) { s.machineAccess = access }
 
 // approvalLiveTasks is the task repository's live channel, as approvals use it.
 type approvalLiveTasks interface {
@@ -238,8 +244,8 @@ func auditApprovalOutcome(ws uuid.UUID, approval, finished *domain.ConversationA
 
 // execute runs an approved action after the shared role and GitHub checks.
 func (s *AssistantApprovals) execute(ctx context.Context, ws, conversation, id uuid.UUID, approval *domain.ConversationApproval, choice ModelChoice) (*domain.ConversationApproval, error) {
-	refusal, err := "", error(nil)
-	if !ownerScoped(approval.Action) {
+	refusal, err := refuseMachineAction(s.machineAccess, approval.ActorID, approval.Action), error(nil)
+	if refusal == "" && !ownerScoped(approval.Action) {
 		refusal, err = authorizeAssistantAction(ctx, s.members, s.system, ws, approval.ActorID, approval.Action, uuid.Nil)
 	}
 	if err != nil {
@@ -262,6 +268,10 @@ func (s *AssistantApprovals) execute(ctx context.Context, ws, conversation, id u
 		}
 	}
 	finished, err := s.dispatch(ctx, ws, conversation, id, approval, choice)
+	if errors.Is(err, ErrDemoMachineForbidden) {
+		// A service under the action applied the demo rule; the refusal is final.
+		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, demoMachineRefusal)
+	}
 	if err != nil && isGitHubPermissionDenied(err) {
 		// GitHub refused for lack of a permission the preflight could not see.
 		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, deniedGap(ctx, s.access, ws, approval.Action).Message)
@@ -368,6 +378,8 @@ func delegationRequest(options *AgentTaskOptions, requestID uuid.UUID, instructi
 
 func delegationFailure(err error) (string, bool) {
 	switch {
+	case errors.Is(err, ErrDemoMachineForbidden):
+		return demoMachineRefusal, true
 	case errors.Is(err, ErrDevMachinesDisabled):
 		return "Coding agents are not enabled for this workspace", true
 	case errors.Is(err, ErrProviderNotAllowed):

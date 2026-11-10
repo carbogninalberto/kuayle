@@ -33,7 +33,7 @@ func customToolError(c *echo.Context, err error) error {
 	switch {
 	case errors.As(err, &invalid):
 		return response.Error(c, http.StatusBadRequest, "INVALID_ASSISTANT_TOOL", invalid.Message)
-	case errors.Is(err, service.ErrAssistantToolsDenied), errors.Is(err, repository.ErrAssistantToolDenied), errors.Is(err, repository.ErrToolRunForbidden):
+	case errors.Is(err, service.ErrAssistantToolsDenied), errors.Is(err, repository.ErrAssistantToolDenied), errors.Is(err, repository.ErrToolRunForbidden), errors.Is(err, service.ErrDemoMachineForbidden):
 		return response.Forbidden(c)
 	case errors.Is(err, repository.ErrAssistantToolNotFound), errors.Is(err, repository.ErrConversationNotFound):
 		return response.NotFound(c, "Custom tool")

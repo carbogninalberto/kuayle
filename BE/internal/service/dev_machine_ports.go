@@ -23,6 +23,9 @@ var (
 // portOwner returns the machine when the caller may manage its app ports: the
 // gateway only admits the machine's creator, so only they may manage them.
 func (s *DevMachineService) portOwner(ctx context.Context, workspaceID, machineID, userID uuid.UUID) (*domain.DevMachine, error) {
+	if err := s.RequireMachineUse(userID); err != nil {
+		return nil, err
+	}
 	if _, err := s.enabledPolicy(ctx, workspaceID); err != nil {
 		return nil, err
 	}

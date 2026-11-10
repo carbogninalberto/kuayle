@@ -1373,7 +1373,11 @@ shared branches. A successful process exit must never mark an issue Done.
 ## HTTP controls and replay
 
 All task routes require an interactive session and the existing Dev Machine demo
-guard. PAT scopes do not grant task access. Current creator/conversation/issue
+guard. The task service applies the same demo rule itself (`service.MachineAccess`),
+so paths that skip these routes (assistant approvals, automations, review
+follow-ups, GitHub mentions) are refused for users outside `SYSADMINS`, and the
+worker fails a task whose creator is excluded; see
+[public demo mode](../../TECHNICAL.md#public-demo-mode). PAT scopes do not grant task access. Current creator/conversation/issue
 permissions apply to every page, including older attempts. Disabling execution
 policy blocks new work and sends running attempts through cleanup; historical reads
 and cancellation remain available to authorized users.

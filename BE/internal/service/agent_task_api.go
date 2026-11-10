@@ -58,6 +58,28 @@ func (s *AgentTaskService) Options(ctx context.Context, ws, conversation uuid.UU
 	return result, err
 }
 
+// requireMachineUse applies the public demo rule to the caller in ctx. Every
+// method that starts or steers work on a machine calls it first, whichever
+// route, approval, automation or worker reached it.
+func (s *AgentTaskService) requireMachineUse(ctx context.Context) error {
+	if s.machines == nil {
+		return nil
+	}
+	return s.machines.access.RequireActor(ctx)
+}
+
+// RequestPreview queues the task's preview process (start) or its stop, as
+// the task's creator. Stopping only releases the process, so the demo rule
+// does not apply to it.
+func (s *AgentTaskService) RequestPreview(ctx context.Context, ws, id uuid.UUID, start bool) (*domain.AgentTask, error) {
+	if start {
+		if err := s.requireMachineUse(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return s.Repo.RequestPreview(ctx, ws, id, start)
+}
+
 func (s *AgentTaskService) validateRequest(ctx context.Context, ws uuid.UUID, input domain.AgentTaskRequest) error {
 	policy, err := s.machines.enabledPolicy(ctx, ws)
 	if err != nil {
@@ -80,6 +102,9 @@ func (s *AgentTaskService) validateRequest(ctx context.Context, ws uuid.UUID, in
 }
 
 func (s *AgentTaskService) Create(ctx context.Context, ws, conversation uuid.UUID, input domain.AgentTaskRequest) (*domain.AgentTask, error) {
+	if err := s.requireMachineUse(ctx); err != nil {
+		return nil, err
+	}
 	if accepted, err := s.Repo.ReplayCreate(ctx, ws, conversation, input); err != nil || accepted != nil {
 		return accepted, err
 	}
@@ -93,6 +118,9 @@ func (s *AgentTaskService) Create(ctx context.Context, ws, conversation uuid.UUI
 }
 
 func (s *AgentTaskService) Retry(ctx context.Context, ws, id uuid.UUID, input domain.AgentTaskRetryRequest) (*domain.AgentTask, error) {
+	if err := s.requireMachineUse(ctx); err != nil {
+		return nil, err
+	}
 	input.Model = strings.TrimSpace(input.Model)
 	if accepted, err := s.Repo.ReplayRetry(ctx, ws, id, input); err != nil || accepted != nil {
 		return accepted, err

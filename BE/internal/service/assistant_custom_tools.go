@@ -54,6 +54,14 @@ type AssistantCustomToolService struct {
 	members assistantMemberRepo
 	issues  repository.IssueRepo
 	targets toolRunTargets
+	// machineAccess is the public demo rule for the machine a test run uses;
+	// nil restricts nothing.
+	machineAccess *MachineAccess
+}
+
+// SetMachineAccess applies the public demo rule to test runs.
+func (s *AssistantCustomToolService) SetMachineAccess(access *MachineAccess) {
+	s.machineAccess = access
 }
 
 func NewAssistantCustomToolService(tools assistantCustomToolStore, members assistantMemberRepo, issues repository.IssueRepo, targets toolRunTargets) *AssistantCustomToolService {
@@ -274,6 +282,10 @@ func (s *AssistantCustomToolService) TestRun(ctx context.Context, ws, id uuid.UU
 	}
 	if !manage {
 		return nil, repository.ErrAssistantToolDenied
+	}
+	// A test run executes the script on a machine.
+	if err = s.machineAccess.Require(user); err != nil {
+		return nil, err
 	}
 	tool, err := s.tools.Get(ctx, ws, id)
 	if err != nil {

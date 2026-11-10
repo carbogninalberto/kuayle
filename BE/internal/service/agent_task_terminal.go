@@ -43,6 +43,9 @@ func (s *AgentTaskService) OpenInClaudeCode(ctx context.Context, ws, id uuid.UUI
 	if !ok || s.machines == nil {
 		return nil, repository.ErrAgentTaskUnauthorized
 	}
+	if err := s.requireMachineUse(ctx); err != nil {
+		return nil, err
+	}
 	task, err := s.Repo.Get(ctx, ws, id)
 	if err != nil {
 		return nil, err
@@ -100,6 +103,9 @@ func taskTerminalSession(task *domain.AgentTask, userID uuid.UUID, sessions *dom
 // session gets a new ticket, so reopening attaches to the same Claude Code
 // instead of starting a second one on the same transcript.
 func (s *DevMachineService) OpenTaskTerminal(ctx context.Context, workspaceID, machineID, userID, checkoutID uuid.UUID, provider string, taskID uuid.UUID, native string) (*dto.TerminalSessionLaunchResponse, error) {
+	if err := s.RequireMachineUse(userID); err != nil {
+		return nil, err
+	}
 	policy, err := s.enabledPolicy(ctx, workspaceID)
 	if err != nil {
 		return nil, err

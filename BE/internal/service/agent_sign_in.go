@@ -29,6 +29,9 @@ const signInWait = 25 * time.Second
 // they completed in their machine's terminal. requestID makes a double click
 // converge on one capture and one retry.
 func (s *AgentTaskService) ContinueAfterSignIn(ctx context.Context, ws, id, requestID uuid.UUID) (*domain.AgentTask, error) {
+	if err := s.requireMachineUse(ctx); err != nil {
+		return nil, err
+	}
 	if requestID != uuid.Nil {
 		task, err := s.Repo.Get(ctx, ws, id)
 		if err != nil {

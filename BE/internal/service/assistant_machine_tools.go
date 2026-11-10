@@ -102,6 +102,8 @@ func (t *AssistantTools) taskMachine(ctx context.Context, ws, user uuid.UUID, ta
 // machineToolFailure turns Dev Machine errors into user-safe tool failures.
 func machineToolFailure(err error) error {
 	switch {
+	case errors.Is(err, ErrDemoMachineForbidden):
+		return toolFailure("%s", demoMachineRefusal)
 	case errors.Is(err, ErrMachineNotFound):
 		return toolFailure("only the machine's owner can manage its ports")
 	case errors.Is(err, ErrDevMachinesDisabled):
@@ -191,6 +193,10 @@ func (t *AssistantTools) preparePort(ctx context.Context, ws, user uuid.UUID, ar
 
 // runMachineTool runs the machine tools that need no approval.
 func (t *AssistantTools) runMachineTool(ctx context.Context, ws, user uuid.UUID, name, arguments string) (any, *uuid.UUID, error) {
+	// As on the Dev Machine routes, the demo rule also covers reading ports.
+	if err := t.machineAccess.Require(user); err != nil {
+		return nil, nil, machineToolFailure(err)
+	}
 	var input struct {
 		Identifier string `json:"identifier"`
 	}
