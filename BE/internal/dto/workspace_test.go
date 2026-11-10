@@ -32,6 +32,9 @@ func TestCreateWorkspaceRequest_SlugValidation(t *testing.T) {
 		{name: "underscore", slug: "ada_lovelace", wantErr: true},
 		{name: "accented character", slug: "josé", wantErr: true},
 		{name: "over max length", slug: strings.Repeat("a", 51), wantErr: true},
+		// /mcp is the MCP endpoint, so a workspace there would lose its root page.
+		{name: "reserved for the MCP endpoint", slug: "mcp", wantErr: true},
+		{name: "starts with a reserved word", slug: "mcp-team", wantErr: false},
 	}
 
 	for _, tt := range tests {

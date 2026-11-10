@@ -31,6 +31,8 @@ type taskLifecycleStore interface {
 	RecordStepResult(context.Context, domain.AgentTask, bool) error
 	Fail(context.Context, domain.AgentTask, string) error
 	FailForSignIn(context.Context, domain.AgentTask, string) error
+	PauseForUsageLimit(context.Context, domain.AgentTask, domain.UsageLimit, string, string) error
+	ResumeDueUsageLimits(context.Context, string) (int, error)
 	CompleteReview(context.Context, domain.AgentTask) error
 }
 type taskExecutionRuntime interface {
@@ -102,11 +104,15 @@ func NewAgentTaskService(repo *repository.AgentTaskRepository, machines *DevMach
 func (s *AgentTaskService) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	for {
+	for tick := 0; ; tick++ {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		}
+		// Tasks paused by a usage limit resume once it has reset.
+		if tick%15 == 0 {
+			s.resumeUsageLimited(ctx)
 		}
 		task, err := s.store.Claim(ctx)
 		if err != nil {
@@ -269,6 +275,13 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		// A container that hit its memory or disk limit says so and how to fix it.
 		if run.ErrorMessage != nil && domain.IsResourceLimitReason(*run.ErrorMessage) {
 			return s.store.Fail(ctx, task, *run.ErrorMessage)
+		}
+		// The provider's usage limit pauses the task until it resets, also in
+		// a workflow: nothing failed, and the work and session are kept.
+		if run.ErrorMessage != nil {
+			if limit, ok := domain.ParseUsageLimitError(*run.ErrorMessage); ok {
+				return s.pauseForUsageLimit(ctx, task, limit)
+			}
 		}
 		// A workflow decides what an agent's failure leads to; a run that
 		// never started still fails through cleanup.
@@ -569,7 +582,7 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	session := taskSession(task, previous)
 	prompt := task.Prompt
 	if task.Generation > 1 {
-		prompt = withHandoff(prompt, previous, session.ResumeID != "")
+		prompt = withHandoff(prompt, previous, session.ResumeID != "", task.ResumeNativeSession)
 	}
 	// A review's prompt already names the published work it reads.
 	if r.attachments != nil && !review {
@@ -662,7 +675,7 @@ const handoffMarker = "\n\n---\nSuccessor attempt handoff"
 // harness sessions are not restored between attempts, so this successor is
 // explicitly identified and told what already happened on the same worktree.
 // The previous agent's summary is fenced as untrusted text.
-func withHandoff(prompt string, previous *domain.AgentHandoff, resumed bool) string {
+func withHandoff(prompt string, previous *domain.AgentHandoff, resumed, usageLimited bool) string {
 	if previous == nil {
 		return prompt
 	}
@@ -671,6 +684,9 @@ func withHandoff(prompt string, previous *domain.AgentHandoff, resumed bool) str
 		fmt.Fprintf(&b, "%s (previous attempt %s): this continues your previous session on the same branch and worktree. Kuayle recorded the following since then.\n", handoffMarker, previous.AttemptID)
 	} else {
 		fmt.Fprintf(&b, "%s (previous attempt %s): this is a new session on the same branch and worktree; the previous session cannot be resumed.\n", handoffMarker, previous.AttemptID)
+	}
+	if usageLimited {
+		b.WriteString("- The previous attempt was paused by the provider's usage limit, not by a failure. Continue exactly where it stopped: the worktree is unchanged; do not start over, reset or discard changes.\n")
 	}
 	fmt.Fprintf(&b, "- Previous native outcome: %s\n", previous.Status)
 	switch {
@@ -715,7 +731,8 @@ func taskSession(task domain.AgentTask, previous *domain.AgentHandoff) *agent.Se
 	session := &agent.SessionInput{Dir: "/workspace/.kuayle/agent-sessions/" + task.ID.String()}
 	// A failed attempt is resumed only when the user continued its session
 	// interactively, so the next attempt keeps the user's turns.
-	if previous != nil && task.MachineID != nil && (previous.Status == "succeeded" || previous.ContinuedInteractively) && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
+	// An attempt paused by a usage limit is resumed too: its session is intact.
+	if previous != nil && task.MachineID != nil && (previous.Status == "succeeded" || previous.ContinuedInteractively || task.ResumeNativeSession) && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
 		session.ResumeID = previous.NativeSessionID
 	} else if task.Provider == "claude-code" {
 		session.NewID = uuid.NewString()

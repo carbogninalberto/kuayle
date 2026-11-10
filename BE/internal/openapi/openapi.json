@@ -3840,7 +3840,7 @@
 				"x-kuayle-stability": "stable"
 			},
 			"post": {
-				"description": "The body is HTML and is sanitized; plain text is valid. Set parent_id to reply to a comment.\n\nRequired scope: `issue:create`.",
+				"description": "The body is Markdown or editor HTML and is sanitized. Set parent_id to reply to a comment.\n\nRequired scope: `issue:create`.",
 				"operationId": "createIssueComment",
 				"parameters": [
 					{
@@ -5966,7 +5966,7 @@
 		},
 		"/api/workspaces/{slug}/projects/{id}/wiki": {
 			"get": {
-				"description": "Required scope: `wiki:read`.",
+				"description": "Pages are returned without their content. With search, only pages whose title or text contains it.\n\nRequired scope: `wiki:read`.",
 				"operationId": "listProjectWikiPages",
 				"parameters": [
 					{
@@ -5985,6 +5985,14 @@
 						"required": true,
 						"schema": {
 							"format": "uuid",
+							"type": "string"
+						}
+					},
+					{
+						"description": "Text to find in the title or the text of a page, ignoring case.",
+						"in": "query",
+						"name": "search",
+						"schema": {
 							"type": "string"
 						}
 					}
@@ -8724,7 +8732,7 @@
 		},
 		"/api/workspaces/{slug}/teams/{teamId}/wiki": {
 			"get": {
-				"description": "Required scope: `wiki:read`.",
+				"description": "Pages are returned without their content. With search, only pages whose title or text contains it.\n\nRequired scope: `wiki:read`.",
 				"operationId": "listTeamWikiPages",
 				"parameters": [
 					{
@@ -8743,6 +8751,14 @@
 						"required": true,
 						"schema": {
 							"format": "uuid",
+							"type": "string"
+						}
+					},
+					{
+						"description": "Text to find in the title or the text of a page, ignoring case.",
+						"in": "query",
+						"name": "search",
+						"schema": {
 							"type": "string"
 						}
 					}

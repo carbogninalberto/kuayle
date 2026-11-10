@@ -90,6 +90,24 @@ func (s *WikiService) List(ctx context.Context, workspaceID uuid.UUID, scope dom
 	return pages, wikiError(err)
 }
 
+// wikiSearchRepo is the search part of the wiki repository, separate from
+// repository.WikiRepo for the same reason as wikiTreeRepo.
+type wikiSearchRepo interface {
+	Search(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, text string) ([]domain.WikiPage, error)
+}
+
+// Search lists the pages of a visible scope whose title or content contains
+// the text; an empty text lists every page.
+func (s *WikiService) Search(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, text string) ([]domain.WikiPage, error) {
+	text = strings.TrimSpace(text)
+	search, ok := s.repo.(wikiSearchRepo)
+	if text == "" || !ok {
+		return s.List(ctx, workspaceID, scope)
+	}
+	pages, err := search.Search(ctx, workspaceID, scope, text)
+	return pages, wikiError(err)
+}
+
 func (s *WikiService) Get(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) (*domain.WikiPage, error) {
 	page, err := s.repo.Get(ctx, workspaceID, scope, pageID)
 	if err != nil {

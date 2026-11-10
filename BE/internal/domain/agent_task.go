@@ -62,6 +62,17 @@ type AgentTask struct {
 	// SignInRequired means the attempt stopped because the agent needs the
 	// user's own sign-in; capturing it from their terminal continues the task.
 	SignInRequired bool `json:"sign_in_required" db:"sign_in_required"`
+	// UsageLimitMessage is set while the task is paused (blocked) because its
+	// agent hit the provider's usage limit: the provider's own text, with the
+	// reset time and when the task resumes on its own (nil: it does not).
+	UsageLimitMessage  *string    `json:"usage_limit_message,omitempty" db:"usage_limit_message"`
+	UsageLimitResetsAt *time.Time `json:"usage_limit_resets_at,omitempty" db:"usage_limit_resets_at"`
+	UsageLimitResumeAt *time.Time `json:"usage_limit_resume_at,omitempty" db:"usage_limit_resume_at"`
+	// UsageLimitResumes counts automatic resumes in a row (MaxUsageLimitAutoResumes).
+	UsageLimitResumes int `json:"usage_limit_resumes" db:"usage_limit_resumes"`
+	// ResumeNativeSession makes the next attempt continue the previous
+	// attempt's native session: set when a usage-limited task resumes.
+	ResumeNativeSession bool `json:"-" db:"resume_native_session"`
 	// Kind is "implement" or "review". A review task reviews the published
 	// pull request of ReviewOfTaskID and never validates or publishes.
 	Kind           string     `json:"kind" db:"kind"`
@@ -221,7 +232,9 @@ func ValidAgentTaskTransition(from, to string) bool {
 		return from == "queued" || from == "preparing" || from == "running" || from == "waiting_input" || from == "validating" || from == "publishing" || from == "awaiting_review" || from == "blocked" || from == "failed"
 	}
 	if to == "blocked" {
-		return from == "queued" || from == "preparing" || from == "running" || from == "waiting_input" || from == "validating" || from == "publishing"
+		// From cancelling: the runtime of an attempt paused by a usage limit
+		// was cleaned up, and the task waits for the reset.
+		return from == "queued" || from == "preparing" || from == "running" || from == "waiting_input" || from == "validating" || from == "publishing" || from == "cancelling"
 	}
 	switch from {
 	case "queued":

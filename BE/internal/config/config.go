@@ -49,6 +49,13 @@ type Config struct {
 	// token. Defaults to false, preserving open registration.
 	DisableRegistration bool `envconfig:"DISABLE_REGISTRATION" default:"false"`
 
+	// Passkeys (WebAuthn). The relying party defaults to FRONTEND_URL; see
+	// BE/docs/passkeys.md. PASSKEY_RP_ORIGINS is a comma-separated list.
+	PasskeysEnabled      bool   `envconfig:"PASSKEYS_ENABLED" default:"true"`
+	PasskeyRPID          string `envconfig:"PASSKEY_RP_ID"`
+	PasskeyRPOrigins     string `envconfig:"PASSKEY_RP_ORIGINS"`
+	PasskeyRPDisplayName string `envconfig:"PASSKEY_RP_DISPLAY_NAME" default:"Kuayle"`
+
 	// AIAllowPrivateNetwork lets workspace AI settings target providers on
 	// private or loopback addresses. Off by default: any workspace owner can
 	// set the base URL, so enabling it trusts every owner with internal access.

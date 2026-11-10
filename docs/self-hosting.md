@@ -223,6 +223,27 @@ The service has no published port: only the backend reaches it on the internal `
 
 See [GitHub integration](github-integration.md) for the GitHub App, webhooks on private networks and local development.
 
+## Passkeys
+
+Users can add passkeys under Settings → Profile and then sign in with a fingerprint,
+face, screen lock or security key instead of their password. Nothing needs configuring
+when the instance is served over HTTPS at `FRONTEND_URL`: that origin is the WebAuthn
+relying party.
+
+- Passkeys require HTTPS (or `http://localhost` for development). On a plain-http
+  address they are switched off, the server logs why at start-up, and password sign-in
+  works as before.
+- If people reach the instance at more than one origin, list them in
+  `PASSKEY_RP_ORIGINS` and set `PASSKEY_RP_ID` to their common parent domain.
+  Changing the relying party ID later invalidates the passkeys already registered.
+- `PASSKEYS_ENABLED=false` turns them off. They are always off in public demo mode.
+- A password reset removes the account's passkeys along with its sessions and tokens.
+
+Endpoints, the full configuration rules, reverse-proxy behaviour and the threat model
+are in the [passkey reference](../BE/docs/passkeys.md). The migration adds two tables and
+two nullable columns on `refresh_tokens`; rolling it back deletes the passkeys and
+ends the sessions that were signed in with one.
+
 ## Private teams
 
 Existing teams remain public. Workspace owners and admins can create private teams,

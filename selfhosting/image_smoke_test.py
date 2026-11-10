@@ -22,10 +22,10 @@ def docker(*args):
     return subprocess.check_output(["docker", *args], text=True).strip()
 
 
-def request(base, path, data=None):
+def request(base, path, data=None, headers=None):
     payload = None if data is None else json.dumps(data).encode()
     req = urllib.request.Request(
-        base + path, data=payload, headers={"Content-Type": "application/json"}
+        base + path, data=payload, headers={"Content-Type": "application/json", **(headers or {})}
     )
     try:
         response = urllib.request.urlopen(req, timeout=5)
@@ -136,6 +136,11 @@ def main():
                         "upstream": True, "path": route, "method": "POST" if data is not None else "GET"
                     }, (status, body)
                     print("PASS upstream receives original path and method:", route)
+                status, _, body = request(base, "/mcp", {})
+                assert status == 200 and json.loads(body) == {
+                    "upstream": True, "path": "/mcp", "method": "POST"
+                }, (status, body)
+                print("PASS upstream receives MCP POST")
             else:
                 status, _, body = request(base, "/api/auth/register", {
                     "name": "Image Smoke", "email": "image-smoke@example.test",
@@ -146,6 +151,10 @@ def main():
                 status, headers, body = request(base, "/uploads/missing.png")
                 assert status in (401, 403, 404) and "text/html" not in headers.get("Content-Type", ""), (status, body)
                 print("PASS uploads do not fall through to SPA")
+                status, headers, body = request(base, "/mcp", {"jsonrpc": "2.0", "id": 1, "method": "ping"})
+                assert status == 401 and "application/json" in headers.get("Content-Type", ""), (status, body)
+                assert json.loads(body)["error"]["code"] == "UNAUTHORIZED", body
+                print("PASS unauthenticated MCP POST gets the backend's 401, not the SPA")
 
             if kind != "api":
                 for route in ("/", "/smoke-workspace/issues"):
@@ -154,6 +163,10 @@ def main():
                     assert b"<!doctype html>" in body.lower(), body[:100]
                     assert headers.get("X-Content-Type-Options") == "nosniff", headers
                     print("PASS SPA root/deep-link and security header:", route)
+                status, headers, body = request(base, "/mcp", headers={"Accept": "text/html,application/xhtml+xml"})
+                assert status == 200 and "text/html" in headers.get("Content-Type", ""), (status, headers)
+                assert b"<!doctype html>" in body.lower(), body[:100]
+                print("PASS a browser opening /mcp gets the app, not the MCP endpoint")
                 status, headers, body = request(base, "/favicon.svg")
                 assert status == 200 and "image/svg+xml" in headers.get("Content-Type", ""), (status, headers)
                 print("PASS static asset is served without SPA rewrite")

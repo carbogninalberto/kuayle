@@ -5,6 +5,7 @@ import (
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/handler"
+	"github.com/kuayle/kuayle-backend/internal/mcp"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/labstack/echo/v5"
 )
@@ -57,6 +58,7 @@ type appHandlers struct {
 	workspaceTransfer *handler.WorkspaceTransferHandler
 	health            *handler.HealthHandler
 	auth              *handler.AuthHandler
+	passkey           *handler.PasskeyHandler
 	workspace         *handler.WorkspaceHandler
 	team              *handler.TeamHandler
 	issue             *handler.IssueHandler
@@ -108,6 +110,7 @@ type appMiddleware struct {
 	devMachineDemoGuard    echo.MiddlewareFunc
 	machineEventsRateLimit echo.MiddlewareFunc
 	machineLogsRateLimit   echo.MiddlewareFunc
+	mcpRateLimit           echo.MiddlewareFunc
 }
 
 func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
@@ -123,6 +126,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	public(auth, http.MethodPost, "/logout", h.auth.Logout)
 	public(auth, http.MethodPost, "/forgot-password", h.auth.ForgotPassword)
 	public(auth, http.MethodPost, "/reset-password", h.auth.ResetPassword)
+	// Passkey sign-in is anonymous: the assertion is the credential.
+	public(auth, http.MethodPost, "/passkey/login/begin", h.passkey.BeginLogin)
+	public(auth, http.MethodPost, "/passkey/login/complete", h.passkey.FinishLogin)
 
 	// Public share routes (no auth, rate limited)
 	pub := e.Group("/api/public", m.publicRateLimit)
@@ -138,6 +144,12 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// token-accessible routes below.
 	public(e, http.MethodGet, "/api/openapi.json", h.openapi.Spec, m.publicAssetRateLimit)
 
+	// Model Context Protocol server for external agents: personal access tokens
+	// only. Each tool call re-enters the scoped routes below through e, so it
+	// passes their permission checks; other methods get 405, as the transport
+	// allows for a server without a stream.
+	addNamedRoute(e, http.MethodPost, "/mcp", mcp.NewServer(e).Handle, "token", m.mcpRateLimit, m.auth)
+
 	// Authenticated routes
 	api := e.Group("/api", m.auth)
 
@@ -146,6 +158,13 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(api, http.MethodPatch, "/auth/me", h.auth.UpdateProfile)
 	sessionOnly(api, http.MethodPost, "/auth/me/avatar", h.auth.UploadAvatar)
 	scoped(api, http.MethodGet, "/users/:userId/avatar/:file", h.auth.GetAvatar, "account:read")
+	// Passkey management is for interactive sessions only; a token can neither
+	// add a way to sign in nor inspect the existing ones.
+	sessionOnly(api, http.MethodPost, "/auth/passkey/register/begin", h.passkey.BeginRegistration, m.authRateLimit)
+	sessionOnly(api, http.MethodPost, "/auth/passkey/register/complete", h.passkey.FinishRegistration, m.authRateLimit)
+	sessionOnly(api, http.MethodGet, "/auth/passkey/credentials", h.passkey.List)
+	sessionOnly(api, http.MethodPatch, "/auth/passkey/credentials/:id", h.passkey.Rename)
+	sessionOnly(api, http.MethodDelete, "/auth/passkey/credentials/:id", h.passkey.Delete)
 	scoped(api, http.MethodGet, "/preferences", h.prefs.Get, "account:read", mw.RequireUnrestrictedTokenWorkspaces())
 	sessionOnly(api, http.MethodPatch, "/preferences", h.prefs.Update)
 
@@ -481,6 +500,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/live-messages", h.agentTask.SendLiveMessage)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/cancel", h.agentTask.Cancel)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/retry", h.agentTask.Retry)
+	// A task paused by its agent's usage limit: resume now, or don't resume.
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/resume", h.agentTask.ResumeUsageLimit)
+	sessionOnly(dm, http.MethodDelete, "/agent-tasks/:taskId/resume", h.agentTask.CancelUsageLimitResume)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/accept", h.agentTask.Accept)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/workflow", h.workflow.TaskWorkflow)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/workflow/decision", h.workflow.Decide)
