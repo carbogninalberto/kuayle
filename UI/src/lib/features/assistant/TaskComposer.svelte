@@ -9,6 +9,9 @@
 	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { preferredServer, serversFor } from '$lib/features/agents/model-choice';
+	import { allowedEfforts, effortAfterModelChange } from '$lib/features/agents/model-catalog';
+	import { agentModelCatalog } from '$lib/api/dev-machines';
+	import type { CatalogModel, ThinkingLevel } from '$lib/types/dev-machine';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { agentTasks, type AgentTask, type TaskOptions, type TaskInput } from '$lib/api/agent-tasks';
 	import { workflows as workflowsApi, type WorkflowList } from '$lib/api/workflows';
@@ -64,6 +67,29 @@
 	const compatibleServers = $derived(serversFor(options?.model_servers, provider));
 	const server = $derived(compatibleServers.find((item) => item.id === serverId));
 	const canOverride = $derived(!!server);
+	// An agent no model server runs (OpenCode) chooses among its own models:
+	// the server's catalog for it. A model belongs to its agent, so changing
+	// the agent always starts from that agent's default again, and a catalog
+	// of the workspace's model servers is left to the server picker.
+	const LEVELS: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max'];
+	let ownModels = $state<CatalogModel[]>([]);
+	let catalogRequest = 0;
+	const ownEfforts = $derived(allowedEfforts(ownModels, model, LEVELS));
+	async function loadOwnModels(harness: string) {
+		const request = ++catalogRequest;
+		ownModels = [];
+		if (!harness || serversFor(options?.model_servers, harness).length) return;
+		try {
+			const catalog = await agentModelCatalog(slug, harness);
+			if (!disposed && request === catalogRequest && catalog.source !== 'workspace') ownModels = catalog.models;
+		} catch {
+			/* Without the list the task starts with the agent's own default. */
+		}
+	}
+	function chooseOwnModel(value: string) {
+		model = value;
+		thinking = effortAfterModelChange(ownModels, value, thinking).effort;
+	}
 	function chooseProvider(value: string) {
 		if (!value) return;
 		provider = value;
@@ -71,6 +97,7 @@
 		serverId = preferred?.id ?? '';
 		model = preferred?.default_model ?? '';
 		thinking = preferred?.thinking ?? '';
+		void loadOwnModels(value);
 	}
 	function chooseServer(value: string) {
 		const next = compatibleServers.find((item) => item.id === value);
@@ -109,6 +136,10 @@
 						serverId = saved.model_server_id;
 						model = saved.model;
 						thinking = saved.thinking;
+					} else if (!saved.model_server_id && !serversFor(options?.model_servers, saved.provider).length) {
+						// A model of the agent's own, kept so the pending request is replayed unchanged.
+						model = typeof saved.model === 'string' ? saved.model : '';
+						thinking = typeof saved.thinking === 'string' ? saved.thinking : '';
 					}
 				}
 			}
@@ -132,8 +163,9 @@
 			prompt: prompt.trim(),
 			test_command: command,
 			provider,
-			model: canOverride ? model : '',
-			thinking: canOverride ? thinking : '',
+			// Without a model server only a model of the agent's own catalog is set.
+			model: canOverride || !compatibleServers.length ? model : '',
+			thinking: canOverride || !compatibleServers.length ? thinking : '',
 			...(server ? { model_server_id: server.id } : {}),
 			...(!task && workflowChoice !== DEFAULT_WORKFLOW ? { workflow_id: workflowChoice } : {})
 		};
@@ -263,6 +295,49 @@
 						{#if !compatibleServers.length && provider}<span class="px-1 text-xs text-muted-foreground"
 								>{m['tasks.own_sign_in']()}</span
 							>{/if}
+						{#if !compatibleServers.length && ownModels.length}
+							<DropdownMenu.Root
+								><DropdownMenu.Trigger
+									>{#snippet child({ props })}<InputGroup.Button
+											{...props}
+											disabled={saving}
+											aria-label={m['tasks.model']()}
+											>{model || m['profiles.model_placeholder']()}<ChevronDown size={14} /></InputGroup.Button
+										>{/snippet}</DropdownMenu.Trigger
+								><DropdownMenu.Content class="max-h-72 overflow-y-auto"
+									><DropdownMenu.RadioGroup value={model} onValueChange={chooseOwnModel}
+										><DropdownMenu.RadioItem value="" closeOnSelect
+											>{m['profiles.model_placeholder']()}</DropdownMenu.RadioItem
+										>{#if model && !ownModels.some((item) => item.id === model)}<DropdownMenu.RadioItem
+												value={model}
+												closeOnSelect>{model}</DropdownMenu.RadioItem
+											>{/if}{#each ownModels as item (item.id)}<DropdownMenu.RadioItem value={item.id} closeOnSelect
+												>{item.id}</DropdownMenu.RadioItem
+											>{/each}</DropdownMenu.RadioGroup
+									></DropdownMenu.Content
+								></DropdownMenu.Root
+							>
+							<DropdownMenu.Root
+								><DropdownMenu.Trigger
+									>{#snippet child({ props })}<InputGroup.Button
+											{...props}
+											disabled={saving}
+											aria-label={m['tasks.effort']()}
+											>{m['tasks.effort']()}: {thinking || m['settings.agents.effort_agent']()}<ChevronDown
+												size={14}
+											/></InputGroup.Button
+										>{/snippet}</DropdownMenu.Trigger
+								><DropdownMenu.Content
+									><DropdownMenu.RadioGroup bind:value={thinking}
+										><DropdownMenu.RadioItem value="" closeOnSelect
+											>{m['settings.agents.effort_agent']()}</DropdownMenu.RadioItem
+										>{#each ownEfforts as value (value)}<DropdownMenu.RadioItem {value} closeOnSelect
+												>{value}</DropdownMenu.RadioItem
+											>{/each}</DropdownMenu.RadioGroup
+									></DropdownMenu.Content
+								></DropdownMenu.Root
+							>
+						{/if}
 						{#if canOverride}
 							<DropdownMenu.Root
 								><DropdownMenu.Trigger

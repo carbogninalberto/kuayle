@@ -254,6 +254,29 @@ type ModelServerResponse struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+// AgentCatalogModel is one model a profile or task can choose for a coding
+// agent. ID is the exact string to save. Efforts are the effort levels the
+// model allows; empty means they are not known and any level is accepted.
+type AgentCatalogModel struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Efforts []string `json:"efforts"`
+}
+
+// AgentModelCatalogResponse lists the models known for a coding agent. Source
+// says where they come from: "opencode-go" (OpenCode's public Go plan list),
+// "workspace" (model servers and the agent's default) or "" (none known).
+// Stale marks a list kept from an earlier fetch because the last one failed;
+// Unavailable means no list could be read at all. The field stays free text.
+type AgentModelCatalogResponse struct {
+	Harness     string              `json:"harness"`
+	Models      []AgentCatalogModel `json:"models"`
+	Source      string              `json:"source"`
+	UpdatedAt   *time.Time          `json:"updated_at,omitempty"`
+	Stale       bool                `json:"stale"`
+	Unavailable bool                `json:"unavailable"`
+}
+
 // SaveAgentModelDefaultRequest sets a coding agent's workspace default. Both empty
 // removes it.
 type SaveAgentModelDefaultRequest struct {

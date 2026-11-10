@@ -346,3 +346,44 @@ func TestUsageLimitResumeRoutesAreSessionOnly(t *testing.T) {
 		require.Equal(t, "session", names[key], key)
 	}
 }
+
+// The model catalog is read like the model servers it summarises: members and
+// tokens with dev_machine:read, never guests or tokens without the scope.
+func TestModelCatalogRouteIsReadWithTheDevMachineReadPermission(t *testing.T) {
+	e := echo.New()
+	registerRoutes(e, &appHandlers{}, testMiddleware(noopMiddleware()))
+	names := map[string]string{}
+	for _, route := range e.Router().Routes() {
+		names[route.Method+" "+route.Path] = route.Name
+	}
+	require.Equal(t, "perm:dev_machine:read", names["GET /api/workspaces/:slug/agent-model-catalog"])
+	require.Equal(t, names["GET /api/workspaces/:slug/agent-model-servers"], names["GET /api/workspaces/:slug/agent-model-catalog"])
+
+	for _, tc := range []struct {
+		name   string
+		role   string
+		scopes []string
+	}{
+		{"guest session", domain.RoleGuest, nil},
+		{"guest token with the scope", domain.RoleGuest, []string{domain.PermDevMachineRead}},
+		{"owner token without the scope", domain.RoleOwner, []string{domain.PermIssuesRead, domain.PermWorkflowsRead}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			auth := func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c *echo.Context) error {
+					if tc.scopes != nil {
+						c.Set(mw.TokenScopesKey, tc.scopes)
+					}
+					c.Set("workspace_role", tc.role)
+					return next(c)
+				}
+			}
+			registerRoutes(e, &appHandlers{}, testMiddleware(auth))
+			rec := httptest.NewRecorder()
+			// The nil handler panics if the request gets past authorization.
+			e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workspaces/acme/agent-model-catalog?harness=opencode&refresh=true", nil))
+			require.Equal(t, http.StatusForbidden, rec.Code)
+		})
+	}
+}

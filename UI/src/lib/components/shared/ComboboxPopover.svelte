@@ -10,9 +10,11 @@
 		width = 'w-48',
 		align = 'start' as 'start' | 'center' | 'end',
 		showSearch = true,
+		filter = true,
 		shortcutKey,
 		trigger,
 		children,
+		footer,
 	}: {
 		open?: boolean;
 		placeholder?: string;
@@ -20,9 +22,13 @@
 		width?: string;
 		align?: 'start' | 'center' | 'end';
 		showSearch?: boolean;
+		/** false: the caller filters its items from the search text it is given. */
+		filter?: boolean;
 		shortcutKey?: string;
 		trigger: Snippet<[Record<string, unknown>]>;
 		children: Snippet<[string]>;
+		/** Shown under the list, for a status line or an action about the list. */
+		footer?: Snippet;
 	} = $props();
 
 	let searchValue = $state('');
@@ -45,7 +51,7 @@
 		{/snippet}
 	</Popover.Trigger>
 	<Popover.Content class="{width} p-1.5" {align}>
-		<Command.Root class="flex size-full flex-col overflow-hidden" shouldFilter={showSearch}>
+		<Command.Root class="flex size-full flex-col overflow-hidden" shouldFilter={showSearch && filter}>
 			{#if showSearch}
 				<div class="flex items-center gap-2 px-1.5 pb-1.5">
 					<Command.Input
@@ -73,6 +79,10 @@
 				<Command.Empty class="py-4 text-center text-xs text-[var(--color-text-tertiary)]">{emptyMessage}</Command.Empty>
 				{@render children(searchValue)}
 			</Command.List>
+			{#if footer}
+				<div class="h-px bg-[var(--app-border)] -mx-1.5 mt-1"></div>
+				{@render footer()}
+			{/if}
 		</Command.Root>
 	</Popover.Content>
 </Popover.Root>

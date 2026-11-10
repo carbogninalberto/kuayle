@@ -1310,8 +1310,14 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   and, in `model_formats`, the form and an example of a harness's model
   names when they are not bare names, which the profile form shows.
   OpenCode's model is `provider/model` (`opencode-go/deepseek-v4.1-flash`)
-  and its effort is passed on as the model's variant; Kuayle accepts any of
-  its own levels because it does not know the variants each model has.
+  and its effort is passed on as the model's variant; a task start accepts
+  any of Kuayle's levels. A profile save also checks a model of OpenCode's
+  Go plan (`opencode-go/…`) and its effort against the
+  [model catalog](../../TECHNICAL.md#agent-model-catalog) when that list is
+  in memory (`validateCatalogModel`): an unknown model or an effort the
+  model does not allow is a `400` with the reason. The check runs only on a
+  save; a task start, retry or workflow step never reads the catalog or the
+  network, so a stored profile keeps running if the list drops its model.
   OpenCode never runs on a model server (`harnessRunsOnModelServer`: Codex
   and Claude Code), so a step, task, retry or review on it gets no server
   and no server's default model or thinking level; with no model it runs the
@@ -1491,6 +1497,17 @@ the task left empty from the workspace default of its agent on its own sign-in
 when the run is created, so open tasks pick up a changed default on their next
 attempt while an existing run keeps its own; see
 [agent model defaults](../../TECHNICAL.md#agent-model-defaults).
+
+`GET /agent-model-catalog?harness=<id>` (`dev_machine:read`) lists the models a
+profile or task can choose for a coding agent, each with the effort levels it
+allows: for OpenCode the public model list of its Go plan, which the API
+server fetches from `opencode.ai` and caches in memory for an hour; for Codex
+and Claude Code the models the workspace's model servers and agent defaults
+already name. It always answers `200`: when the upstream cannot be reached
+the last good list is marked `stale`, or the list is empty and `unavailable`,
+and every model field stays free text. Sources, caching, the refresh rate
+limit and the behaviour with blocked egress are in
+[agent model catalog](../../TECHNICAL.md#agent-model-catalog).
 
 
 ## Web task controls

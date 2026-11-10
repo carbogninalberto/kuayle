@@ -243,6 +243,26 @@ export interface AgentModelDefaultInput {
 	thinking: ThinkingLevel | '';
 }
 
+// One model a profile or task can choose for a coding agent: `id` is the exact
+// string to save. `efforts` are the levels the model allows; empty or absent
+// means they are not known and any level is accepted.
+export interface CatalogModel {
+	id: string;
+	name: string;
+	efforts?: ThinkingLevel[];
+}
+
+// The models known for a coding agent. `stale`: the last good list, kept
+// because it could not be updated. `unavailable`: no list could be read.
+export interface AgentModelCatalog {
+	harness: string;
+	models: CatalogModel[];
+	source: string;
+	updated_at?: string;
+	stale: boolean;
+	unavailable: boolean;
+}
+
 // A workspace model server. Codex uses its OpenAI-compatible URL and Claude
 // Code its Anthropic-compatible URL; `harnesses` lists who can use it. The API
 // key is never returned.

@@ -61,8 +61,11 @@ func newProfileFixture(t *testing.T) profileFixture {
 	machines := &devMachineStoreFake{policy: testPolicy(ws)}
 	machines.policy.AllowedProviders = json.RawMessage(`["codex","claude-code","opencode","qwen-code"]`)
 	repo := repository.NewWorkflowRepository(db)
-	tasks := NewAgentTaskService(repository.NewAgentTaskRepository(db),
-		NewDevMachineService(machines, registry, true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{}), nil)
+	dev := NewDevMachineService(machines, registry, true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{})
+	// Profile saves read OpenCode's Go plan list: a fake one, never the network.
+	dev.SetModelDiscovery(true)
+	dev.openCodeGo.url = newGoPlanUpstream(t).server.URL
+	tasks := NewAgentTaskService(repository.NewAgentTaskRepository(db), dev, nil)
 	tasks.SetWorkflows(repo)
 	return profileFixture{db: db, ctx: domain.WithAccess(context.Background(), domain.Access{WorkspaceID: ws, UserID: user}),
 		ws: ws, user: user, issue: issue, machines: machines, repo: repo, tasks: tasks, workflows: NewWorkflowService(repo, registry, tasks)}
@@ -344,4 +347,40 @@ func TestOpenCodeProfileStartsATaskWithItsModelAndEffort(t *testing.T) {
 	require.Empty(t, task.Model, "OpenCode keeps the model it is configured with")
 	require.Empty(t, task.Thinking)
 	require.Nil(t, task.ModelServerID)
+}
+
+// Saving an OpenCode profile checks a Go plan model and its effort against
+// the catalog; a profile stored earlier keeps loading and starting tasks when
+// the list no longer has its model.
+func TestOpenCodeProfileSaveChecksTheGoPlanCatalog(t *testing.T) {
+	f := newProfileFixture(t)
+	request := func(name, model, effort string) AgentProfileRequest {
+		return AgentProfileRequest{Name: name, Role: domain.AgentRoleImplementer, Harness: "opencode", Model: model, Effort: effort}
+	}
+
+	_, err := f.workflows.CreateProfile(f.ctx, f.ws, request("Typo", "opencode-go/deepseek-v4.1-flahs", ""))
+	requireProfileRefusal(t, err, `OpenCode Go does not offer the model "opencode-go/deepseek-v4.1-flahs"`)
+	_, err = f.workflows.CreateProfile(f.ctx, f.ws, request("Loud", "opencode-go/deepseek-v4.1-flash", "medium"))
+	requireProfileRefusal(t, err, "opencode-go/deepseek-v4.1-flash allows the effort levels off, low, high, max")
+	_, err = f.workflows.CreateProfile(f.ctx, f.ws, request("Flash", "opencode-go/deepseek-v4.1-flash", "max"))
+	require.NoError(t, err)
+	_, err = f.workflows.CreateProfile(f.ctx, f.ws, request("Other provider", "anthropic/claude-sonnet-5", "medium"))
+	require.NoError(t, err, "only the Go plan's models can be checked")
+
+	dropped := f.storedProfile(t, "Dropped", "opencode", "opencode-go/retired-model", "medium")
+	list, err := f.workflows.Profiles(f.ctx, f.ws)
+	require.NoError(t, err)
+	names := []string{}
+	for _, profile := range list.Profiles {
+		names = append(names, profile.Name)
+	}
+	require.Contains(t, names, "Dropped")
+	issues, err := f.workflows.Validate(f.ctx, f.ws, oneStepGraph(t, dropped.ID))
+	require.NoError(t, err)
+	require.Empty(t, issues, "a workflow keeps using a profile the list dropped")
+	problem, err := f.tasks.profileProblem(f.ctx, f.ws, *dropped)
+	require.NoError(t, err)
+	require.Empty(t, problem, "and it still starts tasks")
+	_, err = f.workflows.UpdateProfile(f.ctx, f.ws, dropped.ID, request("Dropped", dropped.Model, dropped.Effort))
+	requireProfileRefusal(t, err, `OpenCode Go does not offer the model "opencode-go/retired-model"`)
 }

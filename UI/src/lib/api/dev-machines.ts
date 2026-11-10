@@ -25,6 +25,7 @@ import type {
 	TerminalSessionLaunchResponse,
 	ModelServer,
 	ModelServerInput,
+	AgentModelCatalog,
 	AgentModelDefault,
 	AgentModelDefaultInput
 } from '$lib/types/dev-machine';
@@ -386,6 +387,13 @@ export const agentModelDefaults = {
 	save: (slug: string, provider: string, input: AgentModelDefaultInput) =>
 		api.put<AgentModelDefault>(`${base(slug)}/agent-model-defaults/${encodeURIComponent(provider)}`, input)
 };
+
+// The models a profile or task can choose for a coding agent. refresh asks the
+// server to fetch its list again; the server limits how often it does.
+export function agentModelCatalog(slug: string, harness: string, refresh = false): Promise<AgentModelCatalog> {
+	const query = new URLSearchParams({ harness, ...(refresh ? { refresh: 'true' } : {}) });
+	return api.get(`${base(slug)}/agent-model-catalog?${query}`);
+}
 
 export const modelServers = {
 	list: (slug: string) => api.get<ModelServer[]>(`${base(slug)}/agent-model-servers`),

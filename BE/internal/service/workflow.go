@@ -141,7 +141,9 @@ func singleLine(value string) bool { return !strings.ContainsFunc(value, unicode
 // effort must be able to start a task (profileProblem), so a profile that
 // could never run is refused here instead of failing every task later.
 // Profiles stored before that rule keep loading; it applies when they are
-// saved again.
+// saved again. A model of OpenCode's Go plan must also be one its model list
+// offers, with an effort that model allows, when that list is known; that
+// check is made on a save only, never when a task or workflow step starts.
 func (s *WorkflowService) validateProfile(ctx context.Context, ws uuid.UUID, in AgentProfileRequest) (domain.AgentProfileInput, error) {
 	out := domain.AgentProfileInput{Name: strings.TrimSpace(in.Name), Role: in.Role, Harness: in.Harness, Model: strings.TrimSpace(in.Model), Effort: strings.TrimSpace(in.Effort), Instructions: strings.TrimSpace(in.Instructions), SkillIDs: in.SkillIDs}
 	seen := map[uuid.UUID]bool{}
@@ -175,6 +177,14 @@ func (s *WorkflowService) validateProfile(ctx context.Context, ws uuid.UUID, in 
 		reason, err := s.tasks.profileProblem(ctx, ws, domain.AgentProfile{Harness: out.Harness, Model: out.Model, Effort: out.Effort})
 		if err != nil {
 			return out, err
+		}
+		if reason == "" {
+			// What the user is saving is also checked against the model
+			// catalog. Only a save does this; see validateCatalogModel.
+			reason, err = invocationReason(s.tasks.machines.validateCatalogModel(ctx, out.Harness, out.Model, out.Effort))
+			if err != nil {
+				return out, err
+			}
 		}
 		if reason != "" {
 			return out, &ErrInvalidWorkflowInput{reason}
