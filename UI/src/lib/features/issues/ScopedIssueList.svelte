@@ -8,7 +8,7 @@
 	import { listCycles } from '$lib/api/cycles';
 	import { listTeamStatuses } from '$lib/api/team-statuses';
 	import { createIssue, updateIssue } from '$lib/api/issues';
-	import type { Issue, CreateIssueRequest, IssuePriority, RelationType, UpdateIssueRequest } from '$lib/types/issue';
+	import type { Issue, CreateIssueRequest, IssuePriority, RelationType } from '$lib/types/issue';
 	import type { Team } from '$lib/types/team';
 	import type { TeamStatus } from '$lib/types/team-status';
 	import type { Project } from '$lib/types/project';
@@ -236,7 +236,7 @@
 			return;
 		}
 		try {
-			await issuesState.update(slug, identifier, result.patch as UpdateIssueRequest);
+			await issuesState.update(slug, identifier, result.patch);
 			changed();
 		} catch (error) {
 			appToast.apiError(error, m['common.toast.failed_move_issue']());

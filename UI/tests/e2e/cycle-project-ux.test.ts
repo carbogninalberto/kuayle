@@ -475,10 +475,6 @@ test('dragging an issue to another status group sets its status, mapped to the i
 	await page.route('**/api/workspaces/test/issues?**', (route) =>
 		route.fulfill({ json: { data: issues, total_count: issues.length, page: 1, has_more: false } })
 	);
-	await page.route('**/api/workspaces/test/issues/ENG-*', (route) => {
-		const found = issues.find((i) => route.request().url().endsWith(`/${i.identifier}`));
-		return route.fulfill({ json: { ...found, ...route.request().postDataJSON() } });
-	});
 	// A workspace-wide project mixes teams, so statuses of both teams are in play.
 	await page.route(`**/api/workspaces/test/projects/${projectId}`, (route) =>
 		route.fulfill({
@@ -487,7 +483,7 @@ test('dragging an issue to another status group sets its status, mapped to the i
 	);
 	await page.goto(`/test/projects/${projectId}`);
 	const groups = page.getByTestId('issue-group');
-	await expect(groups).toHaveCount(2);
+	await expect(groups).toHaveCount(3);
 	const patches = () => state.mutations.filter((m) => m.method === 'PATCH' && m.path.includes('/issues/'));
 
 	// Same team: the Done group of Engineering.

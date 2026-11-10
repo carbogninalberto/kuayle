@@ -1,3 +1,5 @@
+import type { IssuePriority } from '../../types/issue';
+
 // Shared by the grouped issue lists: what dropping an issue on a group changes.
 // Pure on purpose, so it is unit tested without a browser.
 
@@ -20,11 +22,13 @@ export interface DropStatus {
 	position: number;
 }
 
+// The API treats JSON null as "no change": clearing a project is '' and clearing
+// assignees is an empty assignee_ids list. assignee_ids also keeps issue_assignees in step.
 export type GroupDropPatch = Partial<{
 	status_id: string;
-	priority: number;
-	assignee_id: string | null;
-	project_id: string | null;
+	priority: IssuePriority;
+	assignee_ids: string[];
+	project_id: string;
 }>;
 
 export type GroupDropResult = { kind: 'noop' } | { kind: 'invalid' } | { kind: 'update'; patch: GroupDropPatch };
@@ -86,11 +90,13 @@ export function resolveGroupDrop(
 	if (issueGroupKey(issue, groupBy) === groupKey) return { kind: 'noop' };
 	if (groupBy === 'priority') {
 		const priority = Number(groupKey);
-		return Number.isNaN(priority) ? { kind: 'invalid' } : { kind: 'update', patch: { priority } };
+		return Number.isNaN(priority)
+			? { kind: 'invalid' }
+			: { kind: 'update', patch: { priority: priority as IssuePriority } };
 	}
 	if (groupBy === 'assignee')
-		return { kind: 'update', patch: { assignee_id: groupKey === 'unassigned' ? null : groupKey } };
-	return { kind: 'update', patch: { project_id: groupKey === 'no-project' ? null : groupKey } };
+		return { kind: 'update', patch: { assignee_ids: groupKey === 'unassigned' ? [] : [groupKey] } };
+	return { kind: 'update', patch: { project_id: groupKey === 'no-project' ? '' : groupKey } };
 }
 
 export const ISSUE_DRAG_TYPE = 'application/issue-id';

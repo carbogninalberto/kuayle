@@ -63,15 +63,15 @@ test('priority, assignee and project drops', () => {
 	assert.deepEqual(resolveGroupDrop(issue(), 'priority', '2', statuses), { kind: 'noop' });
 	assert.deepEqual(resolveGroupDrop(issue(), 'assignee', 'u1', statuses), {
 		kind: 'update',
-		patch: { assignee_id: 'u1' }
+		patch: { assignee_ids: ['u1'] }
 	});
 	assert.deepEqual(resolveGroupDrop(issue({ assignee_id: 'u1' }), 'assignee', 'unassigned', statuses), {
 		kind: 'update',
-		patch: { assignee_id: null }
+		patch: { assignee_ids: [] }
 	});
 	assert.deepEqual(resolveGroupDrop(issue({ project_id: 'p1' }), 'project', 'no-project', statuses), {
 		kind: 'update',
-		patch: { project_id: null }
+		patch: { project_id: '' }
 	});
 	assert.deepEqual(resolveGroupDrop(issue(), 'project', 'no-project', statuses), { kind: 'noop' });
 });
