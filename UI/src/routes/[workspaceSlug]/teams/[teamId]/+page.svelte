@@ -7,6 +7,7 @@
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import type { GroupByField } from '$lib/features/issues/issues.state.svelte';
+	import { issueGroupKey } from '$lib/features/issues/group-drop';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
 	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
 	import IssueGroupHeader from '$lib/features/issues/IssueGroupHeader.svelte';
@@ -191,20 +192,7 @@
 		goto(`/${slug}/issue/${issue.identifier}`);
 	}
 
-	function getIssueGroupKey(issue: Issue, groupBy: GroupByField) {
-		switch (groupBy) {
-			case 'status':
-				return issue.status_id ?? issue.status;
-			case 'priority':
-				return String(issue.priority);
-			case 'assignee':
-				return issue.assignee_id ?? 'unassigned';
-			case 'project':
-				return issue.project_id ?? 'no-project';
-			default:
-				return 'all';
-		}
-	}
+	const getIssueGroupKey = issueGroupKey;
 
 	function calculateSortOrder(items: Issue[], index: number): number {
 		const prev = index > 0 ? items[index - 1].sort_order : undefined;

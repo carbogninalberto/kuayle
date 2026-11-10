@@ -8,7 +8,7 @@
 	import { listCycles } from '$lib/api/cycles';
 	import { listTeamStatuses } from '$lib/api/team-statuses';
 	import { createIssue, updateIssue } from '$lib/api/issues';
-	import type { Issue, CreateIssueRequest, IssuePriority, RelationType } from '$lib/types/issue';
+	import type { Issue, CreateIssueRequest, IssuePriority, RelationType, UpdateIssueRequest } from '$lib/types/issue';
 	import type { Team } from '$lib/types/team';
 	import type { TeamStatus } from '$lib/types/team-status';
 	import type { Project } from '$lib/types/project';
@@ -22,6 +22,7 @@
 	import { issuesState, type GroupByField } from './issues.state.svelte';
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import { belongsToScope, scopedIssueParams, updateIssueMembership, type IssueScope } from './scoped-issues';
+	import { resolveGroupDrop } from './group-drop';
 	import IssueRow from './IssueRow.svelte';
 	import IssueGroupHeader from './IssueGroupHeader.svelte';
 	import IssueListLoadMore from './IssueListLoadMore.svelte';
@@ -81,6 +82,7 @@
 	let collapsed = $state(new Set<string>());
 	let groupOpen = $state(false);
 	let lastSelectedId = $state<string | null>(null);
+	let dragOverGroup = $state<string | null>(null);
 	let saving = $state(false);
 	let relationIssue = $state<Issue | null>(null);
 	let relationOpen = $state(false);
@@ -223,6 +225,23 @@
 		if (version) untrack(() => void loadIssues());
 	});
 
+	async function dropOnGroup(identifier: string, groupKey: string) {
+		if (!canUpdate || !groupBy) return;
+		const issue = issuesState.issues.find((item) => item.identifier === identifier);
+		if (!issue) return;
+		const result = resolveGroupDrop(issue, groupBy, groupKey, statuses);
+		if (result.kind === 'noop') return;
+		if (result.kind === 'invalid') {
+			appToast.error(m['common.toast.failed_move_issue']());
+			return;
+		}
+		try {
+			await issuesState.update(slug, identifier, result.patch as UpdateIssueRequest);
+			changed();
+		} catch (error) {
+			appToast.apiError(error, m['common.toast.failed_move_issue']());
+		}
+	}
 	function openIssue(issue: Issue) {
 		lastSelectedId = issue.id;
 		void goto(`/${slug}/issue/${issue.identifier}`);
@@ -380,23 +399,49 @@
 				/>
 			{:else if groupBy}
 				{#each issuesState.groupedIssues as group (group.key)}
-					<IssueGroupHeader
-						groupKey={group.key}
-						{groupBy}
-						groupLabel={group.label}
-						count={group.issues.length}
-						collapsed={collapsed.has(group.key)}
-						{members}
-						{projects}
-						ontoggle={() => {
-							const next = new Set(collapsed);
-							if (next.has(group.key)) next.delete(group.key);
-							else next.add(group.key);
-							collapsed = next;
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						data-testid="issue-group"
+						data-group-key={group.key}
+						class={dragOverGroup === group.key ? 'border border-[var(--app-accent)]' : ''}
+						ondragover={canUpdate
+							? (e) => {
+									e.preventDefault();
+									if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+									dragOverGroup = group.key;
+								}
+							: undefined}
+						ondragleave={(e) => {
+							if (!e.currentTarget.contains(e.relatedTarget as Node)) dragOverGroup = null;
 						}}
-						onquickadd={canCreate ? openCreate : undefined}
-					/>
-					{#if !collapsed.has(group.key)}{#each group.issues as issue (issue.id)}{@render row(issue)}{/each}{/if}
+						ondrop={canUpdate
+							? (e) => {
+									e.preventDefault();
+									dragOverGroup = null;
+									const id = e.dataTransfer?.getData('text/plain');
+									if (id) void dropOnGroup(id, group.key);
+								}
+							: undefined}
+						ondragend={() => (dragOverGroup = null)}
+					>
+						<IssueGroupHeader
+							groupKey={group.key}
+							{groupBy}
+							groupLabel={group.label}
+							count={group.issues.length}
+							collapsed={collapsed.has(group.key)}
+							{members}
+							{projects}
+							ontoggle={() => {
+								const next = new Set(collapsed);
+								if (next.has(group.key)) next.delete(group.key);
+								else next.add(group.key);
+								collapsed = next;
+							}}
+							onquickadd={canCreate ? openCreate : undefined}
+						/>
+						{#if !collapsed.has(group.key)}{#each group.issues as issue (issue.id)}{@render row(issue)}{/each}{/if}
+					</div>
 				{/each}
 			{:else}{#each issuesState.issues as issue (issue.id)}{@render row(issue)}{/each}{/if}
 			<IssueListLoadMore />
