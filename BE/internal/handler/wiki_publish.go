@@ -86,6 +86,14 @@ type publicWikiResponse struct {
 	WorkspaceName string                   `json:"workspace_name"`
 	RootID        string                   `json:"root_id"`
 	Pages         []publicWikiPageResponse `json:"pages"`
+	// References are the titles of mentioned pages an anonymous reader may
+	// know: those among Pages become links, the others plain text.
+	References []publicWikiReferenceResponse `json:"references"`
+}
+
+type publicWikiReferenceResponse struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
 }
 
 // Public serves a public wiki link: the page and, if published with it, its
@@ -99,6 +107,10 @@ func (h *WikiPublishHandler) Public(c *echo.Context) error {
 	resp := publicWikiResponse{WorkspaceName: wiki.WorkspaceName, RootID: wiki.RootID.String(), Pages: make([]publicWikiPageResponse, len(wiki.Pages))}
 	for i, page := range wiki.Pages {
 		resp.Pages[i] = publicWikiPageResponse{ID: page.ID.String(), ParentID: optionalUUIDString(page.ParentID), Title: page.Title, Content: page.Content, Position: page.Position, UpdatedAt: page.UpdatedAt}
+	}
+	resp.References = make([]publicWikiReferenceResponse, len(wiki.References))
+	for i, reference := range wiki.References {
+		resp.References[i] = publicWikiReferenceResponse{ID: reference.ID.String(), Title: reference.Title}
 	}
 	return response.Success(c, http.StatusOK, resp)
 }

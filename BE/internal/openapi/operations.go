@@ -338,8 +338,33 @@ func wikiOperations() []Operation {
 			Operation{Method: http.MethodPut, Path: scope.base + "/:pageId/publish", Scope: write, ID: "publish" + scope.id + "WikiPage", Tag: "Wiki",
 				Summary: "Publish or unpublish a " + scope.noun + " wiki page", Description: "Mode is off, internal or public. Only roles allowed by the workspace may publish publicly.",
 				Body: dto.WikiPublishRequest{}, Status: 200, Response: dto.WikiPublicationResponse{}, Conflict: "Pages of a private team cannot be published publicly."},
+			Operation{Method: http.MethodGet, Path: scope.base + "/:pageId/backlinks", Scope: read, ID: "list" + scope.id + "WikiPageBacklinks", Tag: "Wiki",
+				Summary:     "List where a " + scope.noun + " wiki page is referenced",
+				Description: "Issues that mention the page in their description or a comment or have it attached, and pages that mention it, limited to what the caller can see. The issues are listed only with issues:read.",
+				Status:      200, Response: dto.WikiBacklinksResponse{}},
 		)
 	}
+	read := domain.PermWikiRead
+	ops = append(ops,
+		Operation{Method: http.MethodGet, Path: ws + "/wiki/references", Scope: read, ID: "searchWikiReferences", Tag: "Wiki",
+			Summary: "Search wiki pages to reference", Description: "Pages of every team and project the caller can see, most recently updated first.",
+			Params: []Param{
+				{Name: "q", Type: "string", Description: "Text the page title contains."},
+				{Name: "limit", Type: "integer", Description: "Pages to return, 1 to 20."},
+			}, Status: 200, Response: []dto.WikiReferenceResponse{}},
+		Operation{Method: http.MethodPost, Path: ws + "/wiki/references/resolve", Scope: read, ID: "resolveWikiReferences", Tag: "Wiki",
+			Summary:     "Resolve wiki page references",
+			Description: "Answers every requested page ID: with title and team or project when the caller can see the page, and with accessible false otherwise.",
+			Body:        dto.ResolveWikiReferencesRequest{}, Status: 200, Response: []dto.WikiReferenceResponse{}},
+		Operation{Method: http.MethodGet, Path: ws + "/issues/:identifier/wiki-references", Scope: domain.PermIssuesRead, AlsoRequires: []string{read}, ID: "listIssueWikiReferences", Tag: "Wiki",
+			Summary: "List the wiki pages attached to an issue", Description: "Pages the caller cannot see are returned with accessible false and no title.",
+			Status: 200, Response: []dto.WikiReferenceResponse{}},
+		Operation{Method: http.MethodPost, Path: ws + "/issues/:identifier/wiki-references", Scope: domain.PermIssueUpdate, AlsoRequires: []string{read}, ID: "attachIssueWikiReference", Tag: "Wiki",
+			Summary: "Attach a wiki page to an issue", Description: "Returns the issue's attached pages.",
+			Body: dto.AttachWikiReferenceRequest{}, Status: 200, Response: []dto.WikiReferenceResponse{}},
+		Operation{Method: http.MethodDelete, Path: ws + "/issues/:identifier/wiki-references/:pageId", Scope: domain.PermIssueUpdate, ID: "detachIssueWikiReference", Tag: "Wiki",
+			Summary: "Remove a wiki page from an issue", Status: 200, Response: StatusResult{}},
+	)
 	return ops
 }
 

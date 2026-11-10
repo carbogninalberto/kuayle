@@ -50,6 +50,11 @@
 			<Skeleton class="h-4 w-5/6" />
 		</div>
 	{:else}
-		<WikiReader pages={wiki.pages} selectedId={selected ?? wiki.root_id} hrefFor={(id) => `?page=${id}`} />
+		<WikiReader
+			pages={wiki.pages}
+			selectedId={selected ?? wiki.root_id}
+			hrefFor={(id) => `?page=${id}`}
+			references={new Map((wiki.references ?? []).map((reference) => [reference.id, reference.title]))}
+		/>
 	{/if}
 </div>

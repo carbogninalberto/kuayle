@@ -1,0 +1,11 @@
+DROP TRIGGER IF EXISTS wiki_pages_wiki_mentions_update ON wiki_pages;
+DROP TRIGGER IF EXISTS wiki_pages_wiki_mentions_insert ON wiki_pages;
+DROP TRIGGER IF EXISTS comments_wiki_mentions_update ON comments;
+DROP TRIGGER IF EXISTS comments_wiki_mentions_insert ON comments;
+DROP TRIGGER IF EXISTS issues_wiki_mentions_update ON issues;
+DROP TRIGGER IF EXISTS issues_wiki_mentions_insert ON issues;
+DROP FUNCTION IF EXISTS kuayle_index_page_wiki_mentions();
+DROP FUNCTION IF EXISTS kuayle_index_comment_wiki_mentions();
+DROP FUNCTION IF EXISTS kuayle_index_issue_wiki_mentions();
+DROP FUNCTION IF EXISTS kuayle_wiki_mention_ids(TEXT);
+DROP TABLE IF EXISTS wiki_page_mentions;

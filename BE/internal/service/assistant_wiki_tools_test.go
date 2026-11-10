@@ -71,6 +71,10 @@ func TestAssistantWikiToolsWriteReadAndAppend(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, read["content"], "Run make deploy.")
 	require.NotContains(t, read["content"], "<h2>", "pages are read as text")
+	// A reference such as @[Runbook](wiki:<page id>) is read by the page ID alone.
+	byReference, err := f.run(t, "get_wiki_page", map[string]any{"page_id": pageID})
+	require.NoError(t, err)
+	require.Equal(t, read["content"], byReference["content"])
 
 	appended, err := f.run(t, "update_wiki_page", map[string]any{"team_key": "ENG", "page_id": pageID, "mode": "append", "content": "**Rollback**: redeploy the previous tag."})
 	require.NoError(t, err)
@@ -141,6 +145,10 @@ func TestAssistantWikiToolsRespectRolesAndScopes(t *testing.T) {
 		require.Error(t, err, args)
 	}
 	_, err = f.run(t, "get_wiki_page", map[string]any{"team_key": "ENG", "page_id": uuid.NewString()})
+	require.ErrorContains(t, err, "wiki page not found")
+	// A page reference gives only the page ID: an unknown or invisible page
+	// is the same not-found.
+	_, err = f.run(t, "get_wiki_page", map[string]any{"page_id": uuid.NewString()})
 	require.ErrorContains(t, err, "wiki page not found")
 	_, err = f.run(t, "list_wiki_pages", map[string]any{"team_key": "ENG", "title": "x"})
 	require.ErrorContains(t, err, "invalid arguments", "tools accept only their own fields")
