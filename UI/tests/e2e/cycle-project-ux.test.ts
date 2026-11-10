@@ -416,6 +416,100 @@ test('bulk actions set the project of the selected issues and can remove it', as
 	expect(state.errors).toEqual([]);
 });
 
+test('dragging an issue to another status group sets its status, mapped to the issue team', async ({ page }) => {
+	const state = await mockWorkspace(page);
+	const otherTeamId = '00000000-0000-0000-0000-000000000011';
+	const doneId = '00000000-0000-0000-0000-000000000031';
+	const otherTodoId = '00000000-0000-0000-0000-000000000032';
+	const otherDoneId = '00000000-0000-0000-0000-000000000033';
+	const status = (id: string, team_id: string, name: string, category: string, position: number) => ({
+		id,
+		team_id,
+		name,
+		slug: name.toLowerCase(),
+		category,
+		position,
+		is_default: position === 0,
+		project_ids: []
+	});
+	const info = (id: string, name: string, category: string, position: number) => ({ id, name, category, color: '#6366f1', position });
+	const issue = (n: number, team_id: string, status_id: string, status_info: object) => ({
+		id: `00000000-0000-0000-0000-${String(500 + n).padStart(12, '0')}`,
+		identifier: `ENG-${n}`,
+		title: `Drag issue ${n}`,
+		team_id,
+		status_id,
+		status: 'todo',
+		priority: 3,
+		status_info,
+		cycle_id: cycleId,
+		project_id: projectId,
+		labels: [],
+		assignees: [],
+		sort_order: n * 1000,
+		created_at: now,
+		updated_at: now
+	});
+	const todo = info(statusId, 'Todo', 'unstarted', 0);
+	const done = info(doneId, 'Done', 'completed', 1);
+	const issues = [
+		issue(1, teamId, statusId, todo),
+		issue(2, teamId, doneId, done),
+		issue(3, otherTeamId, otherTodoId, info(otherTodoId, 'todo', 'unstarted', 0))
+	];
+	await page.route('**/api/workspaces/test/teams', (route) =>
+		route.fulfill({
+			json: [
+				{ id: teamId, name: 'Engineering', key: 'ENG', created_at: now },
+				{ id: otherTeamId, name: 'Design', key: 'DES', created_at: now }
+			]
+		})
+	);
+	await page.route('**/api/workspaces/test/teams/*/statuses', (route) =>
+		route.fulfill({
+			json: route.request().url().includes(otherTeamId)
+				? [status(otherTodoId, otherTeamId, 'todo', 'unstarted', 0), status(otherDoneId, otherTeamId, 'Finished', 'completed', 1)]
+				: [status(statusId, teamId, 'Todo', 'unstarted', 0), status(doneId, teamId, 'Done', 'completed', 1)]
+		})
+	);
+	await page.route('**/api/workspaces/test/issues?**', (route) =>
+		route.fulfill({ json: { data: issues, total_count: issues.length, page: 1, has_more: false } })
+	);
+	await page.route(`**/api/workspaces/test/teams/${otherTeamId}/cycles`, (route) => route.fulfill({ json: [] }));
+	// A workspace-wide project mixes teams, so statuses of both teams are in play.
+	await page.route(`**/api/workspaces/test/projects/${projectId}`, (route) =>
+		route.fulfill({
+			json: { id: projectId, name: 'Launch', team_id: null, status: 'planned', created_at: now, progress: { total: 3, completed: 0, cancelled: 0 } }
+		})
+	);
+	await page.goto(`/test/projects/${projectId}`);
+	const groups = page.getByTestId('issue-group');
+	await expect(groups).toHaveCount(3);
+	const patches = () => state.mutations.filter((m) => m.method === 'PATCH' && m.path.includes('/issues/'));
+
+	// Same team: the Done group of Engineering.
+	await page.getByText('Drag issue 1', { exact: true }).dragTo(groups.filter({ hasText: 'Drag issue 2' }));
+	await expect.poll(patches).toHaveLength(1);
+	expect(patches()[0].path).toMatch(/\/issues\/ENG-1$/);
+	expect(patches()[0].body).toEqual({ status_id: doneId });
+
+	// Another team: the Design issue lands on its own team status of the same category.
+	await page.getByText('Drag issue 3', { exact: true }).dragTo(groups.filter({ hasText: 'Drag issue 2' }));
+	await expect.poll(patches).toHaveLength(2);
+	expect(patches()[1].body).toEqual({ status_id: otherDoneId });
+
+	// Text dragged in from elsewhere that matches an identifier changes nothing.
+	await page.getByTestId('issue-group').first().evaluate((el) => {
+		const data = new DataTransfer();
+		data.setData('text/plain', 'ENG-2');
+		el.dispatchEvent(new DragEvent('dragover', { dataTransfer: data, bubbles: true, cancelable: true }));
+		el.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
+	});
+	await page.waitForTimeout(300);
+	expect(patches()).toHaveLength(2);
+	expect(state.errors).toEqual([]);
+});
+
 for (const path of [`${cyclePath}/${cycleId}`, `/test/teams/${teamId}`]) {
 	test(`bulk Set project offers only projects the selected issues can join on ${path}`, async ({ page }) => {
 		await mockWorkspace(page);

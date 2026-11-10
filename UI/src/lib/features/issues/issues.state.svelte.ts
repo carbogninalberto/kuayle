@@ -72,7 +72,7 @@ class IssuesState {
 					label = issue.assignee?.name ?? key;
 					break;
 				case 'project':
-					key = issue.project_id ?? 'no-project';
+					key = issue.project_id || 'no-project';
 					label = key;
 					break;
 				default:

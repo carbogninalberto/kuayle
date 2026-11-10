@@ -7,6 +7,7 @@
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import type { GroupByField } from '$lib/features/issues/issues.state.svelte';
+	import { isIssueDrag, issueGroupKey, resolveGroupDrop } from '$lib/features/issues/group-drop';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
 	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
 	import IssueGroupHeader from '$lib/features/issues/IssueGroupHeader.svelte';
@@ -43,7 +44,7 @@
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
 	import type { Issue } from '$lib/types/issue';
-	import type { IssueStatus, IssuePriority, RelationType } from '$lib/types/issue';
+	import type { IssueStatus, IssuePriority, RelationType, UpdateIssueRequest } from '$lib/types/issue';
 	import AddRelationDialog from '$lib/features/issues/AddRelationDialog.svelte';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
 	import { viewLayoutState } from '$lib/features/issues/view-layout.state.svelte';
@@ -72,6 +73,10 @@
 	const canManageViews = $derived(
 		currentWorkspace.membership?.workspace.slug === slug &&
 			hasPermission(currentWorkspace.membership.workspace.current_user_role as Role, 'view:manage')
+	);
+	const canUpdateIssues = $derived(
+		currentWorkspace.membership?.workspace.slug === slug &&
+			hasPermission(currentWorkspace.membership.workspace.current_user_role as Role, 'issue:update')
 	);
 	let lastSelectedId = $state<string | null>(null);
 	let dragOverGroup = $state<string | null>(null);
@@ -191,20 +196,7 @@
 		goto(`/${slug}/issue/${issue.identifier}`);
 	}
 
-	function getIssueGroupKey(issue: Issue, groupBy: GroupByField) {
-		switch (groupBy) {
-			case 'status':
-				return issue.status_id ?? issue.status;
-			case 'priority':
-				return String(issue.priority);
-			case 'assignee':
-				return issue.assignee_id ?? 'unassigned';
-			case 'project':
-				return issue.project_id ?? 'no-project';
-			default:
-				return 'all';
-		}
-	}
+	const getIssueGroupKey = issueGroupKey;
 
 	function calculateSortOrder(items: Issue[], index: number): number {
 		const prev = index > 0 ? items[index - 1].sort_order : undefined;
@@ -237,7 +229,7 @@
 		targetPosition: 'above' | 'below' = dropPosition
 	) {
 		const gb = issuesState.groupBy;
-		if (!gb) return;
+		if (!gb || !canUpdateIssues) return;
 
 		const sourceIssue = issuesState.issues.find((issue) => issue.identifier === issueIdentifier);
 		if (!sourceIssue) return;
@@ -265,23 +257,17 @@
 
 		if (isSameGroup && sortOrder === undefined) return;
 
-		const fieldMap: Record<string, string> = {
-			status: 'status_id',
-			priority: 'priority',
-			assignee: 'assignee_id',
-			project: 'project_id'
-		};
-		const field = fieldMap[gb];
-		if (!field) return;
-
-		const req: Record<string, any> = {};
-		if (!isSameGroup) {
-			let value: any = groupKey;
-			if (gb === 'assignee' && groupKey === 'unassigned') value = null;
-			if (gb === 'project' && groupKey === 'no-project') value = null;
-			if (gb === 'priority') value = Number(groupKey);
-			req[field] = value;
+		// One team on this page, so a status group key is already this team's status id.
+		const drop = isSameGroup
+			? ({ kind: 'noop' } as const)
+			: gb === 'status'
+				? ({ kind: 'update', patch: { status_id: groupKey } } as const)
+				: resolveGroupDrop(sourceIssue, gb, groupKey, []);
+		if (drop.kind === 'invalid') {
+			appToast.error(m['common.toast.failed_move_issue']());
+			return;
 		}
+		const req: UpdateIssueRequest = drop.kind === 'update' ? { ...drop.patch } : {};
 		if (sortOrder !== undefined) {
 			req.sort_order = sortOrder;
 		}
@@ -515,6 +501,7 @@
 							dragOverIssueId = null;
 						}}
 						ondragover={(e) => {
+							if (!canUpdateIssues || !isIssueDrag(e.dataTransfer)) return;
 							e.preventDefault();
 							if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
 							dragOverGroup = dropKey;
@@ -526,6 +513,7 @@
 							}
 						}}
 						ondrop={(e) => {
+							if (!canUpdateIssues || !isIssueDrag(e.dataTransfer)) return;
 							e.preventDefault();
 							dragOverGroup = null;
 							dragOverIssueId = null;
@@ -550,6 +538,7 @@
 								<div
 									class="relative"
 									ondragover={(e) => {
+										if (!canUpdateIssues || !isIssueDrag(e.dataTransfer)) return;
 										e.preventDefault();
 										dragOverIssueId = issue.id;
 										const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -560,6 +549,7 @@
 										dragOverIssueId = null;
 									}}
 									ondrop={(e) => {
+										if (!canUpdateIssues || !isIssueDrag(e.dataTransfer)) return;
 										e.preventDefault();
 										e.stopPropagation();
 										dragOverGroup = null;
@@ -577,6 +567,7 @@
 									{/if}
 									<IssueRow
 										{issue}
+										readOnly={!canUpdateIssues}
 										{slug}
 										{members}
 										{labels}
@@ -596,6 +587,7 @@
 				{#each issuesState.issues as issue (issue.id)}
 					<IssueRow
 						{issue}
+						readOnly={!canUpdateIssues}
 						{slug}
 						{members}
 						{labels}
