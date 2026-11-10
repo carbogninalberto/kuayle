@@ -98,13 +98,19 @@ type Runtime interface {
 	// deletes the finished run's container.
 	RunTool(context.Context, *domain.DevMachine, *domain.AssistantToolRunExecution, string, *AgentObserver) (*AgentExecution, error)
 	RemoveTool(context.Context, *domain.DevMachine, uuid.UUID) error
-	// StartPreview (re)starts one task's preview process; StopPreview stops it.
-	// Neither affects another task's preview.
-	StartPreview(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, taskID uuid.UUID, argv []string, port int) error
-	StopPreview(ctx context.Context, services []domain.DevMachineService, taskID uuid.UUID) error
-	// ScanPorts lists the developer container's listening TCP ports and takes
-	// the agents' port requests; WritePortState publishes the result to them.
-	ScanPorts(ctx context.Context, services []domain.DevMachineService) (PortScan, error)
+	// StartPreview (re)starts one task's preview command in that task's own
+	// preview container, never in the developer container; StopPreview
+	// removes it. Neither affects another task's preview. RemovePreviews
+	// removes every preview container of the machine.
+	// docker is the Docker daemon client material of a machine with a daemon,
+	// or empty; a preview receives nothing else.
+	StartPreview(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, taskID uuid.UUID, argv []string, port int, docker map[string]string) error
+	StopPreview(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, taskID uuid.UUID) error
+	RemovePreviews(ctx context.Context, machine *domain.DevMachine) error
+	// ScanPorts lists the developer container's listening TCP ports, the
+	// listening preview ports, and takes the agents' port requests;
+	// WritePortState publishes the result to them.
+	ScanPorts(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) (PortScan, error)
 	WritePortState(ctx context.Context, services []domain.DevMachineService, state []byte) error
 	ReadSignIn(ctx context.Context, services []domain.DevMachineService, provider string) (string, error)
 	TakeSignInReturn(ctx context.Context, services []domain.DevMachineService, runID uuid.UUID) (string, error)

@@ -878,12 +878,23 @@ const (
 
 // App port targets: the container that serves the port. Ports published by
 // containers of the machine's Docker daemon are served by its docker service.
+// A task's preview port is served by that task's preview container (or by the
+// daemon, when the preview command publishes it there), never by the developer
+// container.
 const (
 	DevMachinePortTargetDeveloper = "developer"
 	DevMachinePortTargetDocker    = "docker"
+	DevMachinePortTargetPreview   = "preview"
 )
 
-// DevMachinePort exposes one TCP port of the developer container on its own
+// PreviewPortHost is the machine network name of the preview container that
+// serves an app port. It is derived from the port alone, so the gateway routes
+// a preview port without reading which task owns it.
+func PreviewPortHost(routingKey string, port int) string {
+	return routingKey + "-preview-" + strconv.Itoa(port)
+}
+
+// DevMachinePort exposes one TCP port of the machine (see Target) on its own
 // authenticated gateway host, <routing key>-<port>.<machine domain>.
 type DevMachinePort struct {
 	ID          uuid.UUID `json:"id" db:"id"`

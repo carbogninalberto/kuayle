@@ -402,8 +402,9 @@ export interface AppPort {
 	task_identifier: string | null;
 	host: string;
 	listening: boolean;
-	// The container serving it; "docker" for a port published by the machine's Docker daemon.
-	target?: 'developer' | 'docker';
+	// The container serving it; "docker" for a port published by the machine's Docker daemon,
+	// "preview" for a task preview, which runs in its own container.
+	target?: 'developer' | 'docker' | 'preview';
 	created_at: string;
 }
 

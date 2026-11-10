@@ -22,7 +22,7 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 		t.Skip("set KUAYLE_DOCKER_INTEGRATION=1 to run Docker runtime tests")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	routingKey := strings.ReplaceAll(uuid.NewString(), "-", "")[:20]
@@ -40,7 +40,7 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 		Config: &container.Config{
 			Image:      "kuayle/dev-machine-ide:0.1.0",
 			Entrypoint: []string{"/bin/sleep"},
-			Cmd:        []string{"120"},
+			Cmd:        []string{"180"},
 		},
 		Name: gatewayName,
 	})
@@ -163,6 +163,8 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 		requireContainerRunning(t, ctx, runtime, service.ServiceKey, *service.ContainerID)
 	}
 
+	requirePreviewRunsOutsideTheDeveloperContainer(t, ctx, runtime, machine, services, gateway.ID)
+
 	command, err := json.Marshal([]string{"git", "config", "--global", "--get", "credential.helper"})
 	require.NoError(t, err)
 	run := &domain.DevMachineAgentRun{
@@ -258,4 +260,83 @@ func requireContainerRunning(t *testing.T, ctx context.Context, runtime *DockerR
 	defer logs.Close()
 	output, _ := io.ReadAll(logs)
 	t.Fatalf("%s container is not running (status=%s exit=%d error=%q path=%q args=%q): %s", serviceKey, inspection.State.Status, inspection.State.ExitCode, inspection.State.Error, inspection.Path, inspection.Args, output)
+}
+
+// requirePreviewRunsOutsideTheDeveloperContainer starts a task preview on a
+// machine that allows sudo and whose developer container holds a
+// developer-scoped secret and the owner's agent sign-ins. The preview command
+// stands for code an agent wrote: it reports what it can reach. It must run
+// in its own container, see neither the secret nor the sign-ins, be unable to
+// use sudo, and be reachable from the gateway by the preview port's name
+// while the developer container serves nothing on that port.
+func requirePreviewRunsOutsideTheDeveloperContainer(t *testing.T, ctx context.Context, runtime *DockerRuntime, machine *domain.DevMachine, services []domain.DevMachineService, gatewayID string) {
+	t.Helper()
+	developer := developerContainerID(services)
+	require.NoError(t, runtime.copySecrets(ctx, developer, map[string]string{"DEV_ONLY_FIXTURE": "developer-only-fixture"}))
+	require.NoError(t, runtime.SyncAgentSignIns(ctx, services, map[string]string{"claude-code.json": "sign-in-fixture"}))
+	_, err := runtime.execOutput(ctx, developer, []string{"/bin/sh", "-c", `test -s /run/kuayle-secrets/DEV_ONLY_FIXTURE && test -s "${HOME:-/home/kuayle}/.kuayle/agent-sign-ins/claude-code.json" && mkdir -p /workspace/tasks/preview-fixture`})
+	require.NoError(t, err, "the developer container holds the secret and the sign-ins")
+
+	// The policy allows sudo on this machine; only the developer container
+	// would be relaxed by it.
+	sudoMachine := *machine
+	sudoMachine.SudoEnabled = true
+	const port = 4100
+	task := uuid.New()
+	checkout := &domain.DevMachineCheckout{WorkspacePath: "/workspace/tasks/preview-fixture"}
+	argv := []string{"/bin/sh", "-c", `{
+  if [ -e /run/kuayle-secrets/DEV_ONLY_FIXTURE ] || [ -n "$(ls -A /run/kuayle-secrets 2>/dev/null)" ]; then echo scoped=visible; else echo scoped=absent; fi
+  if [ -e "$HOME/.kuayle/agent-sign-ins" ] || [ -e "$HOME/.kuayle" ]; then echo sign-ins=visible; else echo sign-ins=absent; fi
+  if sudo -n true 2>/dev/null; then echo sudo=works; else echo sudo=refused; fi
+  if touch /usr/local/bin/kuayle-preview-probe 2>/dev/null; then echo rootfs=writable; else echo rootfs=read-only; fi
+  echo "uid=$(id -u)"
+  echo "port=$PORT host=$HOST"
+  env | cut -d= -f1 | sort | tr '\n' ' '
+} > report.txt
+exec python3 -m http.server "$PORT" --bind "$HOST"`}
+	require.NoError(t, runtime.StartPreview(ctx, &sudoMachine, services, checkout, task, argv, port, nil))
+	name := previewContainerName(machine, task)
+	inspection, err := runtime.client.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
+	require.NoError(t, err)
+	require.NotEqual(t, developer, inspection.Container.ID, "the preview has its own container")
+	require.True(t, inspection.Container.State.Running)
+	require.True(t, inspection.Container.HostConfig.ReadonlyRootfs)
+	require.False(t, inspection.Container.HostConfig.Privileged)
+	require.Equal(t, []string{"ALL"}, []string(inspection.Container.HostConfig.CapDrop))
+	require.Contains(t, inspection.Container.HostConfig.SecurityOpt, "no-new-privileges=true")
+	require.NotZero(t, inspection.Container.HostConfig.Memory)
+	require.NotNil(t, inspection.Container.HostConfig.PidsLimit)
+	require.Len(t, inspection.Container.Mounts, 1, "only the workspace volume")
+	require.Equal(t, "/workspace", inspection.Container.Mounts[0].Destination)
+
+	// The gateway reaches the preview by the name the port router uses.
+	host := domain.PreviewPortHost(machine.RoutingKey, port)
+	var report string
+	require.Eventually(t, func() bool {
+		report, err = runtime.execOutput(ctx, gatewayID, []string{"curl", "-fsS", "--noproxy", "*", "--max-time", "5", "http://" + host + ":4100/report.txt"})
+		return err == nil
+	}, 30*time.Second, 500*time.Millisecond, "the preview answers on the machine network")
+	for _, line := range []string{"scoped=absent", "sign-ins=absent", "sudo=refused", "rootfs=read-only", "uid=1000", "port=4100 host=0.0.0.0"} {
+		require.Contains(t, report, line)
+	}
+	for _, forbidden := range []string{"DEV_ONLY_FIXTURE", "developer-only-fixture", "sign-in-fixture", "TOKEN", "API_KEY", "KUAYLE_SECRET", "KUAYLE_MACHINE", "DOCKER_"} {
+		require.NotContains(t, report, forbidden)
+	}
+	_, err = runtime.execOutput(ctx, gatewayID, []string{"curl", "-fsS", "--noproxy", "*", "--max-time", "3", "http://" + machine.RoutingKey + "-ide:4100/report.txt"})
+	require.Error(t, err, "the developer container serves nothing on the preview port")
+	scan, err := runtime.ScanPorts(ctx, machine, services)
+	require.NoError(t, err)
+	require.Equal(t, []int{port}, scan.Preview)
+	require.NotContains(t, scan.Listening, port)
+
+	// Stopping the preview (the task finished or was cancelled) and stopping
+	// the machine both remove the container.
+	require.NoError(t, runtime.StopPreview(ctx, machine, services, task))
+	_, err = runtime.client.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
+	require.True(t, errdefs.IsNotFound(err), "a stopped preview leaves no container")
+	require.NoError(t, runtime.StartPreview(ctx, &sudoMachine, services, checkout, task, argv, port, nil))
+	require.NoError(t, runtime.RemovePreviews(ctx, machine))
+	_, err = runtime.client.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
+	require.True(t, errdefs.IsNotFound(err), "a stopping machine takes its previews with it")
+	requireContainerRunning(t, ctx, runtime, "ide", developer)
 }

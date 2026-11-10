@@ -373,7 +373,7 @@ private teams, invite and shared links.
 | --- | --- | --- | --- | --- |
 | KS-22 | High | Fixed (#175) | Workspace import stored unsanitized HTML that UI helpers parsed with `innerHTML` | `BE/internal/service/workspace_transfer.go:685`, `UI/src/lib/components/layout/CommandPalette.svelte:134` |
 | KS-23 | High | Fixed (#173) | Publication ran git with the agent-writable checkout configuration in the developer container | `BE/internal/machine/docker_publication.go:34` |
-| KS-24 | High | Fixed (#172), residual noted | Task previews ran agent-written code in the developer container without approval | `BE/internal/repository/agent_task.go:273` |
+| KS-24 | High | Fixed (#172, #196) | Task previews ran agent-written code in the developer container without approval | `BE/internal/repository/agent_task.go:273`, `BE/internal/machine/docker_preview.go` |
 | KS-25 | Medium | Fixed (#176) | Public share search matched fields the share hides | `BE/internal/service/shared_link.go:467`, `BE/internal/repository/issue.go:206` |
 | KS-26 | Medium | Fixed (#176) | Public query parameters replaced a share's stored filters | `BE/internal/service/shared_link.go:458` |
 | KS-27 | Medium | Fixed (#177) | Any member's comment started a follow-up run with the task creator's credentials | `BE/internal/repository/agent_signals.go:137` |
@@ -441,14 +441,38 @@ the developer container. What that command runs is decided by files the agent
 just wrote, so agent-written code started there before anyone had seen it.
 
 **Fix.** Reaching review starts nothing; a preview starts only on the task
-creator's request or the assistant's approved `start_preview`.
+creator's request or the assistant's approved `start_preview` (#172). A
+preview the creator starts no longer runs in the developer container either
+(#196):
+each task's preview runs in its own container, created like a check container
+(read-only root, no capabilities, `no-new-privileges` even on machines that
+allow sudo), with `PORT`, `HOST`, the proxy and a temporary directory as its
+whole added environment. It receives no developer-scoped secret, model server
+key or agent sign-in; on a machine with a Docker daemon it gets the daemon
+client an attempt gets, and nothing else. The port router has a third target,
+`preview` (migration 136), reached as `{routing-key}-preview-{port}`; a task's
+preview port never routes to the developer container. The container is removed
+when the preview stops, when its task completes, is cancelled or fails, and
+when the machine stops, is re-provisioned or deleted.
 
-**Residual.** A preview the creator starts still runs in the developer
-container. Moving previews to a container without developer secrets needs a
-third port-routing target and is tracked as follow-up work.
+**Residual.** Like every attempt and check, a preview shares the machine's
+workspace volume and private network: it can change files a person later runs
+in the terminal and reach the machine's other containers, including the
+IDE and terminal ports that listen there without authentication (KS-17). A
+preview has the isolation of an agent attempt, not more. A preview started
+before the upgrade keeps running in the developer container until it is
+stopped or started again.
 
 **Tests.** `TestReachingReviewQueuesNoPreview`,
-`TestTaskPreviewsStartOnRequestAndStopWithTheTask`.
+`TestTaskPreviewsStartOnRequestAndStopWithTheTask`,
+`TestPreviewStartsInItsOwnContainerNotTheDeveloperContainer`,
+`TestPreviewOnAMachineWithADockerDaemonGetsOnlyTheDaemonClient`,
+`TestTaskPreviewPortsRouteToThePreviewContainerNotTheDeveloper`,
+`TestStopPreviewRemovesOnlyThatTasksPreviewContainer`,
+`TestMachineStopAndProvisioningRemoveThePreviewContainers`,
+`TestDevMachinePortPreviewTargetKeepsExistingPortsAndRollsBack`, and the
+preview case of `TestDockerRuntimeLifecycle` (real containers: a
+developer-scoped secret, the sign-in directory and sudo are out of reach).
 
 ### KS-25, KS-26 — Public shares (Medium)
 
@@ -611,7 +635,6 @@ The root `.gitignore` ignores `.env.*` except `.env.example`.
 
 ## Open follow-ups from this audit
 
-- Run task previews in a container without developer secrets (KS-24).
 - Add an `img-src` Content-Security-Policy for the app, now that content no longer loads remote images by itself (KS-35).
 - Stop returning stored filters from the public share metadata endpoint (KS-25).
 - Verify npm tarball integrity in the agent CLI installer (KS-36).

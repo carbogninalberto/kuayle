@@ -67,7 +67,7 @@ func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMa
 	// A check may start compose services beside it, so it keeps the agent
 	// share of a machine with a daemon (35%), split with the other tasks on
 	// the machine, unless the machine shares its memory.
-	hostConfig, err := r.agentHostConfig(ctx, machine, run.ID, true)
+	hostConfig, err := r.agentHostConfig(ctx, machine, run.ID.String(), true)
 	if err != nil {
 		return nil, err
 	}

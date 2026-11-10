@@ -148,7 +148,8 @@ The gateway uses Go's reverse proxy with WebSocket upgrades, streaming flushes, 
 ### App ports
 
 A machine exposes any number of TCP ports of its developer container (or,
-since migration 89, ports published by containers of its Docker daemon) as
+since migration 89, ports published by containers of its Docker daemon, and
+since migration 136 the port of a task's preview container) as
 **app ports**, the reviewer's entrypoints for manual QA. Each is served on its own
 host, `{routing-key}-{port}.{DEV_MACHINE_DOMAIN}`, with a canonical port number
 (1024–65535, no leading zero). Migration 85 stores them in `dev_machine_ports`
@@ -170,7 +171,8 @@ also read the list):
 - `POST /dev-machines/:machineId/ports` `{port, label?}` → 201; 409
   `PORT_EXISTS`, 422 `PORT_RESERVED` (a service port). The number of ports is
   not limited (migration 89 removed the ten-port limit and `PORT_LIMIT`).
-  Each port has a `target`, `developer` or `docker`.
+  Each port has a `target`: `developer`, `docker` or, for a task preview,
+  `preview`.
 - `PATCH /dev-machines/:machineId/ports/:portId` `{label}` renames it (`null`
   or `""` clears); `DELETE` removes it and revokes that host's sessions.
 - `POST /dev-machines/:machineId/ports/:portId/launch` returns the launch
@@ -207,7 +209,15 @@ container now listening on it (`target` `docker` when the daemon publishes it,
 else `developer`); a new port starts on the daemon when only it publishes the
 port. The gateway then proxies to `{routing-key}-docker:{port}`, while tickets
 and sessions keep naming the developer service row, so authorization is
-unchanged.
+unchanged. A task's preview port (`source` `task`) is the exception: its
+`target` is `preview` and the gateway proxies to the task's preview container,
+`{routing-key}-preview-{port}`, a name derived from the port alone, so the
+gateway role needs no further column. The scan asks each running preview
+container only whether its own port listens (never for port requests) and adds
+it to `listening_ports`. Such a port moves only between `preview` and `docker`
+(a preview command may publish it with `docker compose up`), never to
+`developer`: a process in the developer container on the same number does not
+receive the preview's traffic. Tickets and sessions are unchanged here too.
 
 Agents and people in the developer container use `kuayle-ports` (IDE and
 headless images): `kuayle-ports [list]` shows listening ports and their URLs,
@@ -230,13 +240,19 @@ with the run, so their prompt points the reviewer at the task preview below or
 at `kuayle-ports` in the machine terminal instead.
 
 Task previews (see the [agent task contract](BE/docs/agent-tasks.md#app-ports-and-qa))
-add `task` ports. A preview runs agent-written code in the developer container,
-next to its developer-scoped secrets, agent sign-ins and optional sudo, so it
-never starts by itself: only the task's creator starts it, from the task card
-or by approving the assistant's `start_preview`. Stopping or re-provisioning a
-machine ends their processes:
+add `task` ports. A preview runs agent-written code, so it runs in a container
+of its own, `kuayle-{routing-key}-preview-{taskId}`, created like a check
+container: the developer image and the workspace volume, but none of the
+developer container's secrets, agent sign-ins or sudo (read-only root, no
+capabilities, `no-new-privileges` even where the workspace allows sudo), and
+only `PORT`, `HOST`, the proxy and its temporary directory in its environment
+(plus the Docker daemon client on a machine with a daemon, as attempts get).
+It still serves that code to the creator's browser, so it never starts by
+itself: only the task's creator starts it, from the task card or by approving
+the assistant's `start_preview`. Stopping or re-provisioning a machine removes
+its preview containers:
 task ports are removed and their previews marked stopped, while user and agent
-ports are kept. Pausing freezes the processes, which resume with the machine.
+ports are kept. Pausing pauses the containers, which resume with the machine.
 The machine page lists ports, detected listeners, and expose, rename, open and
 remove controls; a task card starts, stops and opens its app.
 
@@ -274,9 +290,11 @@ inert under the locked configuration, and their `PATH` omits the workspace npm
 prefix below, so they run the image's pinned CLIs. Anything an agent writes to
 `/workspace` (including that prefix and Git hooks) can still run later in a
 person's terminal, with sudo if the machine has it; review agent changes as
-before. A task preview is such a run: it executes the worktree's preview
-command in the developer container, so Kuayle starts it only when the task's
-creator asks (see [App ports](#app-ports)), never when a task reaches review.
+before. A task preview is not such a run: Kuayle executes the worktree's
+preview command in the task's own preview container, which is never relaxed
+for sudo and holds none of the developer container's secrets (see
+[App ports](#app-ports)), and only when the task's creator asks, never when a
+task reaches review.
 
 **Upgrading CLIs without sudo.** Both developer images point npm's global
 config at `/etc/npmrc` (`NPM_CONFIG_GLOBALCONFIG`), which sets
@@ -1255,6 +1273,7 @@ The self-hosting `dev-machine-images` profile builds the IDE, headless developer
 - With sudo allowed (opt-in, `allow_sudo`), machine users are root in their IDE and terminal containers, with Docker's default capabilities minus `NET_RAW`, a writable root filesystem and no `no-new-privileges`. It is never privileged or given `NET_ADMIN`/`SYS_ADMIN`, and egress still goes through the proxy, but root in a container exposes more kernel surface (and anything readable inside the container regardless of file ownership) than the confined default. Agent attempts never get sudo.
 - Compose support for checks is a constrained subset run by the manager, not `docker compose`. Builds, mounts, privileges, host networking and published ports are rejected, because arbitrary untrusted Compose execution needs an isolated Docker daemon. Image pulls run on the host daemon, outside the egress proxy, so `DEV_MACHINE_COMPOSE_IMAGES` restricts them to official Docker Hub images by default.
 - The default model server's key is delivered into every developer container, and a run's server key into its agent container, so any member who can create a machine can read it from a terminal or have an agent reveal it. The API never returns it, but treat model server keys as shared with those members (SECURITY_AUDIT.md KS-08).
+- A task preview runs in its own container without the developer container's secrets, sign-ins or sudo, but, like every agent attempt and check, it shares the machine's workspace volume and private network. It can therefore change files a person later runs in the terminal, and reach the machine's other containers on that network, where code-server and the terminal listen without the gateway's authentication (SECURITY_AUDIT.md KS-17). A preview has the isolation of an agent attempt, not more. Review agent changes before running them yourself (SECURITY_AUDIT.md KS-24).
 - Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.
 - Provider adapters can construct interactive invocations, but agent tasks queue autonomous agent runs and no interactive-agent attach endpoint is exposed. Direct interactive use of the built-in CLIs is available through Kuayle's native xterm terminal; ttyd's web page is not exposed.
 - Workspace hard quotas require Docker local-volume project-quota support; the manager intentionally fails startup rather than run machines with an unbounded workspace.

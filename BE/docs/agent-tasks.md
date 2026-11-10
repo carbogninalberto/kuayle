@@ -193,8 +193,9 @@ On machines with their own Docker daemon (workspace policy `allow_docker`, see
 [Machine Docker daemon](../../TECHNICAL.md#machine-docker-daemon)) the agent's
 attempt and the developer terminal can run the full `docker compose` against
 that daemon (builds, volumes, `env_file`, profiles, any number of services),
-and a preview command may be `docker compose up`: its published port becomes
-the task's app port on the daemon. The independent check still uses the subset
+and a preview command may be `docker compose up`: the task's preview container
+gets the same client access to the daemon as an attempt, and its published port
+becomes the task's app port on the daemon. The independent check still uses the subset
 above, because the check container cannot join the daemon's Compose networks.
 
 
@@ -957,11 +958,12 @@ A preview starts only when the task's creator asks for it: `POST
 without a preview command, or without the task's ready checkout on a running
 machine) or the assistant's `start_preview` tool, which needs their approval.
 Reaching `awaiting_review` queues nothing. The preview command runs files the
-agent just wrote, in the developer container, which holds the creator's
-developer-scoped secrets and synced agent sign-ins and may allow sudo; starting
-it is therefore the same decision as running the agent's code in the machine
-terminal, and it is left to the person who owns that machine. Review the
-change before starting its preview. `DELETE /agent-tasks/:taskId/preview` (202)
+agent just wrote, so it never runs in the developer container, which holds the
+creator's developer-scoped secrets and synced agent sign-ins and may allow
+sudo. It runs in the task's own **preview container**, with the isolation of a
+check container (below). Starting it still serves agent-written code to the
+creator's browser, so it stays their decision: review the change before
+starting its preview. `DELETE /agent-tasks/:taskId/preview` (202)
 queues its stop. Preview operations name the task in
 `dev_machine_operations.agent_task_id`. The manager then:
 
@@ -970,18 +972,50 @@ queues its stop. Preview operations name the task in
 - picks the task's existing port, else the preferred port when free, else the
   first free port in 4100–4999; free means not a service port, not listening
   and not exposed (the number of app ports is not limited);
-- exposes it as a `task` app port labelled with the issue identifier;
-- runs the command in the task worktree on the developer container as UID 1000
-  with `PORT` and `HOST=0.0.0.0`, in its own session, with pidfile
-  `/tmp/kuayle-preview-<taskId>.pid` and a log `/tmp/kuayle-preview-<taskId>.log`
-  truncated beyond 8 MiB. A restart stops only that task's previous process
-  group.
+- exposes it as a `task` app port labelled with the issue identifier, served
+  by the preview container (`target` `preview`, migration 136);
+- creates and starts the container `kuayle-{routing-key}-preview-{taskId}` and
+  runs the command in the task worktree as UID 1000. A restart replaces only
+  that task's previous container. A command that exits with an error within a
+  second fails the preview with its exit code and last error line.
 
-A stop kills that task's process group, removes its `task` port and revokes
-the port host's sessions. It is queued when the task becomes completed,
-cancelled or failed, when the user stops it, or when the user removes the task
-port. Stopping or re-provisioning the machine marks its previews stopped and
-removes task ports; pausing keeps them (the processes are frozen and resume).
+**Preview container.** It is created like a check container: the developer
+image (or the machine's environment image), the workspace volume, the machine
+network (egress only through the proxy), a read-only root filesystem, no
+capabilities, `no-new-privileges` (also on a machine that allows sudo), the
+confinement profiles of agent containers, an empty in-memory home and
+`/run/kuayle-secrets`, and bounded Docker logs. Its whole environment is the
+image's plus `HOME`, `PORT`, `HOST=0.0.0.0`, the proxy variables and the run
+directory variables (`/workspace/.kuayle/tmp/preview-{taskId}`, removed with
+the preview). It receives no developer-scoped (`ide`/`terminal`) secret, no
+model server key, no GitHub token, no agent sign-in, no live inbox and no agent
+CLI mount; nothing is executed in the developer container to start it. On a
+machine with its own Docker daemon it additionally gets what an attempt on that
+machine gets for the daemon, and nothing else: the `docker-client` certificate,
+written to its in-memory `~/.docker`, and `DOCKER_HOST`. Like an attempt it
+shares the workspace volume and the machine network with the machine's other
+containers; see [security limitations](../../TECHNICAL.md#security-limitations). It is labelled as an agent-class container
+(`com.kuayle.service=agent`, `com.kuayle.preview-task-id`,
+`com.kuayle.preview-port`), so it takes the agent share of the machine's CPU,
+memory and process limits, counts as one more task when that memory share is
+split, follows resizes and shared machine memory, and is included in the
+machine's usage. The gateway reaches it on the machine network as
+`{routing-key}-preview-{port}`; the port scan asks each running preview
+container only whether its own port listens, and takes no port requests from
+it. A daemon that publishes the task's port (a `docker compose up` preview)
+serves it instead, until it stops; the developer container never serves a
+task's preview port, whatever listens there.
+
+A stop asks the command to end (SIGTERM, five seconds), removes the task's
+preview container, removes its `task` port and revokes the port host's
+sessions. It is queued when the task becomes completed, cancelled or failed,
+when the user stops it, or when the user removes the task port, and is carried
+out in any machine state. Stopping or re-provisioning the machine removes its
+preview containers, marks its previews stopped and removes task ports; pausing
+keeps them (the containers are paused and resume with the machine); deleting
+the machine removes them with its other containers. A preview that an earlier
+release started inside the developer container keeps running and keeps its
+route until it is stopped or started again; both also end that process.
 Task payloads carry `preview: {state, port_id, port, error} | null`; changes
 are published as `task.updated` conversation events. The assistant's
 `start_preview` (with approval), `stop_preview`, `expose_port` (with approval)
