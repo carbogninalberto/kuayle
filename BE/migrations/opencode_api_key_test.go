@@ -38,7 +38,7 @@ func TestOpenCodeAPIKeyMigrationKeepsExistingSignIns(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 	fixture := insertBaseMigrationFixture(t, db)
-	require.NoError(t, m.Migrate(138))
+	require.NoError(t, m.Migrate(140))
 	insert := func(provider, kind string) error {
 		_, err := db.Exec(`INSERT INTO agent_sign_ins(workspace_id,user_id,provider,kind,encrypted_credential) VALUES($1,$2,$3,$4,'sealed')`,
 			fixture.workspaceA, fixture.userA, provider, kind)
@@ -48,7 +48,7 @@ func TestOpenCodeAPIKeyMigrationKeepsExistingSignIns(t *testing.T) {
 	require.NoError(t, insert("claude-code", "token"))
 	require.NoError(t, insert("codex", "credentials"))
 	require.Error(t, insert("opencode", "token"), "before the migration only Claude Code has a token")
-	require.NoError(t, m.Migrate(139))
+	require.NoError(t, m.Migrate(141))
 
 	require.NoError(t, insert("opencode", "token"))
 	var expires sql.NullTime
