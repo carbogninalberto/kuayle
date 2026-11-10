@@ -1,0 +1,23 @@
+{
+	"name": "kuayle-api-client-smoke",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"description": "Generates a TypeScript client from a Kuayle instance's OpenAPI document and uses it to create an issue and a comment.",
+	"scripts": {
+		"generate": "openapi-typescript \"${KUAYLE_URL:-http://localhost:8080}/api/openapi.json\" -o generated/kuayle.d.ts",
+		"typecheck": "tsc --noEmit",
+		"smoke": "npm run generate && npm run typecheck && node smoke.ts"
+	},
+	"dependencies": {
+		"openapi-fetch": "^0.14.0"
+	},
+	"devDependencies": {
+		"@types/node": "^22.0.0",
+		"openapi-typescript": "^7.8.0",
+		"typescript": "^5.9.0"
+	},
+	"engines": {
+		"node": ">=22.18"
+	}
+}

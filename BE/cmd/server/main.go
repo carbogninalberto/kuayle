@@ -397,6 +397,7 @@ func main() {
 		githubBot:         handler.NewGitHubBotHandler(githubBotSvc),
 		wiki:              handler.NewWikiHandler(wikiSvc, aiSettingsSvc),
 		wikiPublish:       handler.NewWikiPublishHandler(wikiPublishSvc, cfg.FrontendURL),
+		openapi:           handler.NewOpenAPIHandler(buildinfo.Version),
 	}, &appMiddleware{
 		auth:                   mw.Auth(cfg.JWTSecret, patRepo, cfg.DevMachine.AllowSameSite),
 		authRateLimit:          mw.RateLimit(5, 10),

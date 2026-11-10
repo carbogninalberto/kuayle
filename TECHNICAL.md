@@ -1091,6 +1091,14 @@ Example create payload:
 
 Create requests accept `profile: "standard" | "headless"`; omission means standard. Headless requests must omit both `services.ide` and `services.browser`.
 
+### Public OpenAPI reference
+
+The stable, token-accessible part of the HTTP API is described by an OpenAPI 3.1
+document generated from the route registry and the DTOs, served at
+`GET /api/openapi.json` and rendered at kuayle.com/api-reference. Routes outside
+it, including every Dev Machine route above, are internal. See the
+[API guide](docs/api.md) for the generator and the tests that keep it in sync.
+
 ## Command-line interface
 
 The `kuayle` CLI and Rust SDK live in [`CLI/`](CLI/) (MIT, originally by @uiYzzi;
