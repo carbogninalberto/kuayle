@@ -52,7 +52,11 @@ COPY <<'EOF' /etc/caddy/Caddyfile
 		reverse_proxy localhost:8080
 	}
 
-	handle /mcp {
+	@mcp {
+		path /mcp
+		not header Accept *text/html*
+	}
+	handle @mcp {
 		reverse_proxy localhost:8080
 	}
 

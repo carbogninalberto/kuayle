@@ -59,8 +59,10 @@ func NewCommentService(commentRepo repository.CommentRepo, issueRepo repository.
 }
 
 func (s *CommentService) Create(ctx context.Context, issueID, userID uuid.UUID, req dto.CreateCommentRequest) (*domain.Comment, error) {
-	// Sanitize HTML in comment body
-	req.Body = sanitize.SanitizeHTML(req.Body)
+	// The editor sends HTML; API clients and agents write Markdown. Both are
+	// stored as the sanitized HTML the comment thread renders, as issue
+	// descriptions are.
+	req.Body = sanitize.SanitizeEditorContent(req.Body)
 
 	comment := &domain.Comment{
 		ID:      uuid.New(),

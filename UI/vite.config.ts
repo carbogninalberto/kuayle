@@ -25,7 +25,10 @@ export default defineConfig({
 			// a workspace whose slug starts with "mcp".
 			'^/mcp(\\?.*)?$': {
 				target: 'http://localhost:8080',
-				changeOrigin: true
+				changeOrigin: true,
+				// A browser opening /mcp wants the app (a workspace may have that
+				// slug); MCP clients do not ask for HTML.
+				bypass: (req) => (req.headers.accept?.includes('text/html') ? req.url : undefined)
 			},
 			'/uploads': {
 				target: 'http://localhost:8080',

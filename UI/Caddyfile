@@ -16,7 +16,13 @@
 		reverse_proxy {$API_URL:http://localhost:8080}
 	}
 
-	handle /mcp {
+	# MCP clients reach the backend; a browser opening /mcp (Accept: text/html)
+	# gets the app, so a workspace with that slug still loads.
+	@mcp {
+		path /mcp
+		not header Accept *text/html*
+	}
+	handle @mcp {
 		reverse_proxy {$API_URL:http://localhost:8080}
 	}
 

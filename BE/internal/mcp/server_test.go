@@ -53,7 +53,8 @@ type rpcResult struct {
 				Required   []string       `json:"required"`
 			} `json:"inputSchema"`
 			Annotations struct {
-				ReadOnlyHint bool `json:"readOnlyHint"`
+				ReadOnlyHint    bool  `json:"readOnlyHint"`
+				DestructiveHint *bool `json:"destructiveHint"`
 			} `json:"annotations"`
 		} `json:"tools"`
 		ProtocolVersion string `json:"protocolVersion"`
@@ -105,8 +106,11 @@ func TestInitializeAndToolList(t *testing.T) {
 
 	_, out = post(t, &fakeAPI{}, "/mcp", `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`, false)
 	readOnly := map[string]bool{}
+	destructive := map[string]bool{}
 	for _, tool := range out.Result.Tools {
 		readOnly[tool.Name] = tool.Annotations.ReadOnlyHint
+		require.NotNil(t, tool.Annotations.DestructiveHint, "%s must state destructiveHint", tool.Name)
+		destructive[tool.Name] = *tool.Annotations.DestructiveHint
 		if tool.Name == "create_issue" {
 			require.ElementsMatch(t, []string{"title", "team_id"}, tool.InputSchema.Required)
 			require.Contains(t, tool.InputSchema.Properties, "workspace")
@@ -118,6 +122,12 @@ func TestInitializeAndToolList(t *testing.T) {
 	for _, name := range []string{"create_issue", "update_issue", "add_comment", "create_wiki_page", "update_wiki_page"} {
 		write, listed := readOnly[name]
 		require.True(t, listed && !write, "%s must be listed as a write tool", name)
+	}
+
+	// Updates replace what was there (assignees, labels, a whole wiki page), so
+	// clients must be able to ask before running them; creating only adds.
+	for name, replaces := range map[string]bool{"update_issue": true, "update_wiki_page": true, "create_issue": false, "add_comment": false, "create_wiki_page": false, "get_issue": false} {
+		require.Equal(t, replaces, destructive[name], "destructiveHint of %s", name)
 	}
 
 	_, out = post(t, &fakeAPI{}, "/mcp", `{"jsonrpc":"2.0","id":3,"method":"nope"}`, false)

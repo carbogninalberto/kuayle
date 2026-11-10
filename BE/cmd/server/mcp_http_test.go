@@ -243,6 +243,10 @@ func TestMCPToolsFollowTokenScopesAndTeamPrivacy(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(ok(ownerWrite, "create_wiki_page", map[string]any{"scope": "team", "scope_id": team.ID, "title": "Runbook", "content": "Restart the zeppelin service."})), &page))
 	require.Contains(t, ok(ownerRead, "search_wiki_pages", map[string]any{"scope": "team", "scope_id": team.ID, "search": "ZEPPELIN"}), page.ID)
 	require.NotContains(t, ok(ownerRead, "search_wiki_pages", map[string]any{"scope": "team", "scope_id": team.ID, "search": "100%_missing"}), page.ID)
+	// The search reads the text of a page, not its markup: the content is stored
+	// as HTML, so a tag name must not match every page.
+	require.NotContains(t, ok(ownerRead, "search_wiki_pages", map[string]any{"scope": "team", "scope_id": team.ID, "search": "<p>"}), page.ID)
+	require.NotContains(t, ok(ownerRead, "search_wiki_pages", map[string]any{"scope": "team", "scope_id": team.ID, "search": "/p"}), page.ID)
 	require.Contains(t, ok(ownerRead, "search_wiki_pages", wiki), page.ID)
 	ok(ownerWrite, "update_wiki_page", map[string]any{"scope": "team", "scope_id": team.ID, "page_id": page.ID, "version": page.Version, "content": "Restart twice."})
 	refused(ownerWrite, "update_wiki_page", map[string]any{"scope": "team", "scope_id": team.ID, "page_id": page.ID, "version": page.Version, "content": "Stale edit."}, "WIKI_VERSION_CONFLICT")

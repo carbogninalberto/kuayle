@@ -36,6 +36,11 @@ func (t tool) workspaceScoped() bool { return len(t.Path) < 4 || t.Path[:4] != "
 
 func (t tool) readOnly() bool { return t.Method == http.MethodGet }
 
+// destructive reports whether a call can replace what was there: an update
+// overwrites the fields it names (assignees, labels, a whole wiki page), while
+// a create only adds. Clients use it to decide whether to ask first.
+func (t tool) destructive() bool { return t.Method == http.MethodPatch }
+
 func (t tool) props() []prop {
 	if t.workspaceScoped() {
 		return append([]prop{workspaceProp}, t.Props...)
@@ -64,7 +69,7 @@ func (t tool) descriptor() map[string]any {
 		"name":        t.Name,
 		"description": t.Description,
 		"inputSchema": map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false},
-		"annotations": map[string]any{"readOnlyHint": t.readOnly(), "destructiveHint": false, "openWorldHint": false},
+		"annotations": map[string]any{"readOnlyHint": t.readOnly(), "destructiveHint": t.destructive(), "openWorldHint": false},
 	}
 }
 

@@ -29,8 +29,14 @@
 		reverse_proxy backend:8080
 	}
 
-	# MCP server for external agents
-	handle /mcp {
+	# MCP server for external agents. A browser opening /mcp asks for a page
+	# (Accept: text/html) and gets the app, so a workspace with that slug still
+	# loads; MCP clients ask for JSON or an event stream and reach the backend.
+	@mcp {
+		path /mcp
+		not header Accept *text/html*
+	}
+	handle @mcp {
 		reverse_proxy backend:8080
 	}
 

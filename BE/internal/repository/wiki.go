@@ -98,8 +98,10 @@ func (r *WikiRepository) List(ctx context.Context, workspaceID uuid.UUID, scope 
 	return pages, err
 }
 
-// Search returns the scope's pages whose title or content contains the text
+// Search returns the scope's pages whose title or text contains the text
 // (case-insensitive), without their content, most recently updated first.
+// Content is stored as HTML, so tags are removed before matching: a search
+// finds what a reader sees, not markup.
 func (r *WikiRepository) Search(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, text string) ([]domain.WikiPage, error) {
 	if err := r.RequireScope(ctx, workspaceID, scope); err != nil {
 		return nil, err
@@ -109,7 +111,7 @@ func (r *WikiRepository) Search(ctx context.Context, workspaceID uuid.UUID, scop
 		wiki_pages.title, '' AS content, wiki_pages.version, wiki_pages.created_by, wiki_pages.updated_by,
 		wiki_editor.name AS updated_by_name, wiki_pages.registry_date, wiki_pages.created_at, wiki_pages.updated_at
 		FROM wiki_pages` + wikiEditorJoin + ` WHERE ` + wikiPageInScope(ctx, scope) + `
-		AND (wiki_pages.title ILIKE $3 OR wiki_pages.content ILIKE $3)
+		AND (wiki_pages.title ILIKE $3 OR regexp_replace(wiki_pages.content, '<[^>]*>', ' ', 'g') ILIKE $3)
 		ORDER BY wiki_pages.updated_at DESC, wiki_pages.id`
 	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(text) + "%"
 	err := r.db.SelectContext(ctx, &pages, query, workspaceID, scope.ID, pattern)

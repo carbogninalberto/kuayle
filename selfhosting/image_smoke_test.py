@@ -22,10 +22,10 @@ def docker(*args):
     return subprocess.check_output(["docker", *args], text=True).strip()
 
 
-def request(base, path, data=None):
+def request(base, path, data=None, headers=None):
     payload = None if data is None else json.dumps(data).encode()
     req = urllib.request.Request(
-        base + path, data=payload, headers={"Content-Type": "application/json"}
+        base + path, data=payload, headers={"Content-Type": "application/json", **(headers or {})}
     )
     try:
         response = urllib.request.urlopen(req, timeout=5)
@@ -163,6 +163,10 @@ def main():
                     assert b"<!doctype html>" in body.lower(), body[:100]
                     assert headers.get("X-Content-Type-Options") == "nosniff", headers
                     print("PASS SPA root/deep-link and security header:", route)
+                status, headers, body = request(base, "/mcp", headers={"Accept": "text/html,application/xhtml+xml"})
+                assert status == 200 and "text/html" in headers.get("Content-Type", ""), (status, headers)
+                assert b"<!doctype html>" in body.lower(), body[:100]
+                print("PASS a browser opening /mcp gets the app, not the MCP endpoint")
                 status, headers, body = request(base, "/favicon.svg")
                 assert status == 200 and "image/svg+xml" in headers.get("Content-Type", ""), (status, headers)
                 print("PASS static asset is served without SPA rewrite")

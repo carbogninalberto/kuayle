@@ -75,8 +75,10 @@ The bundled configurations already do: the all-in-one image, the web image
 
 Because the exact path `/mcp` belongs to the server, `mcp` is not accepted as the
 slug of a new or imported workspace. A workspace created with that slug before
-this release keeps working, except that its root page `/mcp` is not reachable in
-the browser; its other pages (`/mcp/issues`, ...) and the API are unaffected.
+this release keeps working: the bundled proxy configurations send `/mcp` to the
+backend unless the request asks for a page (`Accept: text/html`), so a browser
+still opens the workspace. Behind your own reverse proxy, apply the same rule if
+you have such a workspace.
 
 ## Develop
 
