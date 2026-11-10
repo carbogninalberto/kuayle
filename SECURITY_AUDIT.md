@@ -273,7 +273,8 @@ return 413. Test: `TestGitHubWebhookBoundsUnauthenticatedBody`.
 - **Routing.** Every route is registered through `scoped`/`sessionOnly`/
   `ownerOnly` (or annotated public), so PATs are denied by default and scopes
   intersect RBAC. Workspace membership is re-read per request and PAT workspace
-  restrictions apply before handlers.
+  restrictions apply before handlers. Saved-view create, update and delete
+  require `view:manage`, which guests do not hold.
 - **Tenant isolation.** Repositories apply `workspaceVisible`/`teamVisible`/
   `projectVisible` predicates from the request access context, which blocks
   IDOR on teams, projects, cycles, statuses, templates, views, webhooks,
