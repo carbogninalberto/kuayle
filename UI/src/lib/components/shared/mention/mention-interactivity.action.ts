@@ -4,6 +4,10 @@ import type { Issue } from '$lib/types/issue';
 import type { WorkspaceMember } from '$lib/types/workspace';
 import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 import MentionHoverCard from './MentionHoverCard.svelte';
+import WikiReferenceBody from '$lib/features/wiki/WikiReferenceBody.svelte';
+import { wikiReferences } from '$lib/features/wiki/wiki-reference-store';
+import { wikiReferenceHref, type WikiReference } from '$lib/features/wiki/wiki-references';
+import { m } from '$lib/features/i18n/messages';
 
 export interface MentionInteractivityOptions {
 	slug: string;
@@ -19,6 +23,47 @@ export function mentionInteractivity(node: HTMLElement, options: MentionInteract
 	let hoverCard: MountedComponent | null = null;
 	let hoverTimer: ReturnType<typeof setTimeout> | null = null;
 	const statusIcons = new Map<HTMLElement, MountedComponent>();
+	// Wiki page chips: what each one shows, and the reference once resolved.
+	const wikiBodies = new Map<HTMLElement, MountedComponent>();
+	const wikiResolved = new WeakMap<HTMLElement, WikiReference>();
+
+	// A wiki chip holds only a page ID. It shows a neutral chip until the
+	// server says what this reader may see of the page: its title and scope,
+	// or nothing, which renders as the inaccessible placeholder.
+	function renderWiki(mention: HTMLElement, reference: WikiReference | null) {
+		const previous = wikiBodies.get(mention);
+		if (previous) void unmount(previous);
+		mention.replaceChildren();
+		wikiBodies.set(mention, mount(WikiReferenceBody, { target: mention, props: { reference } }));
+		mention.classList.toggle('mention-unavailable', !!reference && !reference.accessible);
+		if (!reference) {
+			mention.removeAttribute('role');
+			mention.setAttribute('aria-busy', 'true');
+			return;
+		}
+		mention.removeAttribute('aria-busy');
+		if (reference.accessible) {
+			mention.setAttribute('role', 'link');
+			mention.setAttribute('aria-label', m['wiki.reference.open']({ title: reference.title ?? '' }));
+		} else {
+			mention.setAttribute('role', 'note');
+			mention.setAttribute('aria-label', m['wiki.reference.unavailable_hint']());
+		}
+	}
+
+	function enhanceWiki(mention: HTMLElement) {
+		const id = mention.dataset.id ?? '';
+		// A chip that was already resolved keeps its answer while it is checked again.
+		const known = wikiResolved.get(mention);
+		renderWiki(mention, known?.id === id.toLowerCase() ? known : null);
+		void wikiReferences.resolve(currentOptions.slug, id).then((reference) => {
+			if (!wikiBodies.has(mention) || mention.dataset.id !== id) return;
+			wikiResolved.set(mention, reference);
+			observer.disconnect();
+			renderWiki(mention, reference);
+			observer.observe(node, { childList: true, subtree: true });
+		});
+	}
 
 	function issueFor(mention: HTMLElement): Issue | undefined {
 		const id = mention.dataset.id;
@@ -35,7 +80,9 @@ export function mentionInteractivity(node: HTMLElement, options: MentionInteract
 		mention.dataset.mentionEnhanced = 'true';
 		mention.tabIndex = 0;
 
-		if (mention.dataset.kind === 'issue') {
+		if (mention.dataset.kind === 'wiki') {
+			enhanceWiki(mention);
+		} else if (mention.dataset.kind === 'issue') {
 			const issue = issueFor(mention);
 			const identifier = issue?.identifier || issueIdentifier(mention);
 			mention.setAttribute('role', 'link');
@@ -69,6 +116,13 @@ export function mentionInteractivity(node: HTMLElement, options: MentionInteract
 			mention.querySelector(':scope > .mention-status-icon')?.remove();
 		}
 		statusIcons.clear();
+		for (const [mention, component] of wikiBodies) {
+			void unmount(component);
+			mention.replaceChildren();
+			mention.classList.remove('mention-unavailable');
+			mention.removeAttribute('aria-busy');
+		}
+		wikiBodies.clear();
 		node.querySelectorAll<HTMLElement>('[data-mention-enhanced="true"]').forEach((mention) => {
 			delete mention.dataset.mentionEnhanced;
 			mention.removeAttribute('tabindex');
@@ -97,6 +151,15 @@ export function mentionInteractivity(node: HTMLElement, options: MentionInteract
 
 	function showHoverCard(mention: HTMLElement) {
 		hideHoverCard();
+		if (mention.dataset.kind === 'wiki') {
+			const reference = wikiResolved.get(mention);
+			if (!reference) return;
+			hoverCard = mount(MentionHoverCard, {
+				target: document.body,
+				props: { anchor: mention.getBoundingClientRect(), kind: 'wiki', label: '', reference }
+			});
+			return;
+		}
 		const isIssue = mention.dataset.kind === 'issue';
 		const member = currentOptions.members?.find((candidate) => candidate.user_id === mention.dataset.id);
 		hoverCard = mount(MentionHoverCard, {
@@ -117,6 +180,15 @@ export function mentionInteractivity(node: HTMLElement, options: MentionInteract
 	}
 
 	function openMention(mention: HTMLElement) {
+		if (mention.dataset.kind === 'wiki') {
+			const reference = wikiResolved.get(mention);
+			const href = reference && currentOptions.slug ? wikiReferenceHref(currentOptions.slug, reference) : null;
+			if (href) {
+				hideHoverCard();
+				void goto(href);
+			} else showHoverCard(mention);
+			return;
+		}
 		if (mention.dataset.kind !== 'issue') {
 			showHoverCard(mention);
 			return;

@@ -19,6 +19,7 @@ import (
 type assistantWiki interface {
 	List(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope) ([]domain.WikiPage, error)
 	Get(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) (*domain.WikiPage, error)
+	ResolveReferences(ctx context.Context, workspaceID uuid.UUID, pageIDs []uuid.UUID) ([]ResolvedWikiReference, error)
 	Create(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, userID uuid.UUID, req dto.CreateWikiPageRequest) (*domain.WikiPage, error)
 	Update(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID, userID uuid.UUID, req dto.UpdateWikiPageRequest) (*domain.WikiPage, error)
 	Delete(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID, userID uuid.UUID) error
@@ -77,7 +78,7 @@ const (
 
 var assistantWikiToolCatalog = []assistantTool{
 	{name: "list_wiki_pages", wiki: true, description: "List the pages of a team's or project's wiki the user can see, newest first, with their IDs and versions. Registry pages (the wiki's daily log) carry registry_date. Give team_key or project.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `},"additionalProperties":false}`},
-	{name: "get_wiki_page", wiki: true, description: "Read one wiki page as text, with its headings and its version (needed to change it). Give team_key or project and the page_id from list_wiki_pages.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36}},"required":["page_id"],"additionalProperties":false}`},
+	{name: "get_wiki_page", wiki: true, description: "Read one wiki page as text, with its headings and its version (needed to change it). Give team_key or project and the page_id from list_wiki_pages. A reference written as @[title](wiki:<page id> ...) in a message, an issue or a page names a wiki page: read it with that page_id alone.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36}},"required":["page_id"],"additionalProperties":false}`},
 	{name: "list_wiki_page_versions", wiki: true, description: "List a wiki page's recorded changes, newest first: version_id, version, who and when, and the title before and after. Use a version_id with restore_wiki_page_version.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36}},"required":["page_id"],"additionalProperties":false}`},
 	{name: "create_wiki_page", wiki: true, write: true, description: "Create a page in a team's or project's wiki. content is Markdown or simple HTML. kind \"folder\" creates a folder (a page that groups others); parent_id places it inside a page or folder from list_wiki_pages, last among its siblings. Only call this when the user asked to write to the wiki.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"title":{"type":"string","minLength":1,"maxLength":200},"content":{"type":"string","maxLength":16000},"kind":{"type":"string","enum":["page","folder"]},"parent_id":{"type":"string","maxLength":36}},"required":["title"],"additionalProperties":false}`},
 	{name: "move_wiki_page", wiki: true, write: true, description: "Move a wiki page or folder: parent_id is the page or folder to put it in (null or omitted for the top level) and index its position among its new siblings, 0 first. Pages nest at most 6 levels, never inside themselves, and only within the same wiki. Only call this when the user asked to reorganise the wiki.", parameters: `{"type":"object","properties":{` + wikiScopeParams + `,"page_id":{"type":"string","maxLength":36},"parent_id":{"type":["string","null"],"maxLength":36},"index":{"type":"integer","minimum":0}},"required":["page_id"],"additionalProperties":false}`},
@@ -127,6 +128,29 @@ func (t *AssistantTools) wikiToolScope(ctx context.Context, ws uuid.UUID, input 
 		}
 	}
 	return domain.WikiScope{}, "", toolFailure("project %q is not available", truncateRunes(project, 64))
+}
+
+// wikiPageToolScope is wikiToolScope for reading one page. A page reference
+// (@[title](wiki:<page id>)) names the page but not always a team key, so
+// without team_key and project the wiki is found from the page itself,
+// through the caller's own access: an invisible page is simply not found.
+func (t *AssistantTools) wikiPageToolScope(ctx context.Context, ws uuid.UUID, input wikiToolScopeInput, pageID uuid.UUID) (domain.WikiScope, error) {
+	if strings.TrimSpace(input.TeamKey) != "" || strings.TrimSpace(input.Project) != "" {
+		scope, _, err := t.wikiToolScope(ctx, ws, input)
+		return scope, err
+	}
+	resolved, err := t.wiki.ResolveReferences(ctx, ws, []uuid.UUID{pageID})
+	if err != nil {
+		return domain.WikiScope{}, err
+	}
+	if len(resolved) == 1 && resolved[0].Accessible {
+		if page := resolved[0].Page; page.TeamID != nil {
+			return domain.TeamWiki(*page.TeamID), nil
+		} else if page.ProjectID != nil {
+			return domain.ProjectWiki(*page.ProjectID), nil
+		}
+	}
+	return domain.WikiScope{}, toolFailure("wiki page not found")
 }
 
 func wikiToolFailure(err error, action string) error {
@@ -226,11 +250,11 @@ func (t *AssistantTools) runWikiTool(ctx context.Context, ws, user uuid.UUID, na
 		if err := decodeToolInput(arguments, &input); err != nil {
 			return nil, nil, err
 		}
-		scope, _, err := t.wikiToolScope(ctx, ws, input.wikiToolScopeInput)
+		pageID, err := parseWikiPageID(input.PageID)
 		if err != nil {
 			return nil, nil, err
 		}
-		pageID, err := parseWikiPageID(input.PageID)
+		scope, err := t.wikiPageToolScope(ctx, ws, input.wikiToolScopeInput, pageID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -255,7 +279,7 @@ func (t *AssistantTools) runWikiTool(ctx context.Context, ws, user uuid.UUID, na
 		}
 		result := wikiPageSummary(*page)
 		result["headings"] = wikiHeadings(page.Content)
-		result["content"] = truncateRunes(sanitize.StripHTML(page.Content), assistantWikiReadContentRunes)
+		result["content"] = truncateRunes(sanitize.StripHTMLKeepingWikiReferences(page.Content), assistantWikiReadContentRunes)
 		return result, nil, nil
 	case "create_wiki_page":
 		var input struct {

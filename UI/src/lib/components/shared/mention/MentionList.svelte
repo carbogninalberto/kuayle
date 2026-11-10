@@ -4,17 +4,21 @@
 	import type { MentionItem } from './mention.extension';
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
+	import { FileText } from '@lucide/svelte';
 
 	let {
 		items,
 		selectedIndex,
 		position,
+		anchorHeight = 24,
 		onselect,
 		onclose
 	}: {
 		items: MentionItem[];
 		selectedIndex: number;
 		position: { x: number; y: number };
+		/** Height of what the menu hangs under, to clear it when it opens above instead. */
+		anchorHeight?: number;
 		onselect: (item: MentionItem) => void;
 		onclose: () => void;
 	} = $props();
@@ -24,6 +28,7 @@
 
 	const users = $derived(items.filter((i) => i.kind === 'user'));
 	const issues = $derived(items.filter((i) => i.kind === 'issue'));
+	const pages = $derived(items.filter((i) => i.kind === 'wiki'));
 
 	$effect(() => {
 		if (!menuRef || items.length === 0) return;
@@ -39,7 +44,7 @@
 
 	function computedTop(): number {
 		if (!flipAbove || !menuRef) return position.y;
-		return position.y - menuRef.offsetHeight - 28;
+		return position.y - menuRef.offsetHeight - anchorHeight - 4;
 	}
 
 	function handlePointerDown(e: PointerEvent) {
@@ -68,7 +73,7 @@
 	style="position: fixed; left: {position.x}px; top: {flipAbove ? computedTop() : position.y}px;"
 >
 	{#if users.length > 0}
-		{#if issues.length > 0}
+		{#if issues.length > 0 || pages.length > 0}
 			<div class="mention-section-label">{m['sharedComponents.mention_list.members']()}</div>
 		{/if}
 		{#each users as item (item.id)}
@@ -115,6 +120,29 @@
 							{item.title}
 						{/if}
 					</span>
+				</div>
+			</Button>
+		{/each}
+	{/if}
+
+	{#if pages.length > 0}
+		{#if users.length > 0 || issues.length > 0}
+			<div class="mention-separator"></div>
+		{/if}
+		<div class="mention-section-label">{m['wiki.reference.pages']()}</div>
+		{#each pages as item (item.id)}
+			{@const idx = globalIndex(item)}
+			<Button variant="plain" type="button"
+				data-index={idx}
+				class={`mention-item ${idx === selectedIndex ? "selected" : ""}`}
+				onpointerdown={(e) => { e.preventDefault(); onselect(item); }}
+			>
+				<div class="mention-issue-icon"><FileText size={14} /></div>
+				<div class="mention-info">
+					{#if item.kind === 'wiki'}
+						<span class="mention-name">{item.title}</span>
+						<span class="mention-email">{item.scope}</span>
+					{/if}
 				</div>
 			</Button>
 		{/each}

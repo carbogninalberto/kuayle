@@ -751,7 +751,7 @@ func withIssue(prompt string, brief *domain.IssueBrief) string {
 	}
 	section := "Issue " + brief.Identifier + ": " + oneLine(brief.Title, 500) + "\n"
 	if brief.Description != nil {
-		if description := strings.TrimSpace(html.UnescapeString(sanitize.StripHTML(*brief.Description))); description != "" {
+		if description := strings.TrimSpace(html.UnescapeString(sanitize.StripHTMLKeepingWikiReferences(*brief.Description))); description != "" {
 			section += "\n" + truncateRunes(description, 8000) + "\n"
 		}
 	}

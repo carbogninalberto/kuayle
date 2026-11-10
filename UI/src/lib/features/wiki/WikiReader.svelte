@@ -7,6 +7,7 @@
 	import { FileText } from '@lucide/svelte';
 	import { buildTree, type TreeNode } from './wiki-tree';
 	import { wikiOutline } from './wiki-content';
+	import { renderReaderReferences } from './wiki-references';
 
 	// A published page read-only: its pages on the left when several are
 	// published, the text in the middle and its outline on the right. Used by
@@ -15,11 +16,18 @@
 		pages,
 		selectedId,
 		hrefFor,
+		references,
 		header
 	}: {
 		pages: ReaderPage[];
 		selectedId: string;
 		hrefFor: (id: string) => string;
+		/**
+		 * Titles of mentioned pages this reader may know. A mentioned page that
+		 * is published here is a link; one that is only named here is plain
+		 * text, since the reader cannot open it; any other is a placeholder.
+		 */
+		references?: Map<string, string>;
 		header?: Snippet;
 	} = $props();
 
@@ -28,6 +36,14 @@
 	const current = $derived(pages.find((p) => p.id === selectedId) ?? pages[0]);
 	const outline = $derived(wikiOutline(current?.content));
 	let article = $state<HTMLElement | null>(null);
+	const body = $derived(
+		renderReaderReferences(sanitizeHtml(current?.content ?? '').replace(/<input\b/g, '<input disabled'), {
+			published: new Map(pages.map((p) => [p.id, p.title])),
+			named: references ?? new Map(),
+			hrefFor,
+			unavailable: m['wiki.reference.unavailable']()
+		})
+	);
 
 	function jumpTo(index: number) {
 		article?.querySelectorAll('h1, h2, h3, h4, h5, h6')[index]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -77,7 +93,7 @@
 				<div
 					class="prose prose-sm mt-6 max-w-none break-words text-[var(--color-text-primary)] dark:prose-invert [&_img]:max-w-full [&_pre]:whitespace-pre-wrap"
 				>
-					{@html sanitizeHtml(current.content).replace(/<input\b/g, '<input disabled')}
+					{@html body}
 				</div>
 			</article>
 		{/if}

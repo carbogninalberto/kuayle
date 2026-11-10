@@ -14,6 +14,7 @@ export const EDITOR_CLASS_NAMES: readonly string[] = [
 	'editor-attachment', // file attachment link
 	'mention', // @user and issue mentions
 	'mention-issue', // issue mentions
+	'mention-wiki', // wiki page references
 	'registry-ref', // pull request reference in the wiki registry
 	...EDITOR_LINK_CLASS.split(' ')
 ];

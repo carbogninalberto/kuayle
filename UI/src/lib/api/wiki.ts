@@ -12,7 +12,9 @@ import type {
 	WikiSettings,
 	WikiTreeNode,
 	WikiPublication,
-	WikiPublishMode
+	WikiPublishMode,
+	WikiReference,
+	WikiBacklinks
 } from '$lib/types/wiki';
 
 function wikiPath(slug: string, scope: WikiScope): string {
@@ -141,4 +143,38 @@ export function publishWikiPage(
 	data: { mode: WikiPublishMode; children: boolean; rotate?: boolean }
 ): Promise<WikiPublication> {
 	return api.put<WikiPublication>(`${wikiPath(slug, scope)}/${pageId}/publish`, data);
+}
+
+/** Pages to mention, from every wiki of the workspace the caller can see. */
+export function searchWikiReferences(slug: string, query: string, limit = 6): Promise<WikiReference[]> {
+	const params = new URLSearchParams({ q: query, limit: String(limit) });
+	return api.get<WikiReference[]>(`/api/workspaces/${slug}/wiki/references?${params}`);
+}
+
+/** What reference chips show: pages the caller cannot see come back inaccessible, without a title. */
+export function resolveWikiReferences(slug: string, ids: string[]): Promise<WikiReference[]> {
+	return api.post<WikiReference[]>(`/api/workspaces/${slug}/wiki/references/resolve`, { ids });
+}
+
+/** Issues and pages that reference a page, limited to what the caller can see. */
+export function getWikiBacklinks(slug: string, scope: WikiScope, pageId: string): Promise<WikiBacklinks> {
+	return api.get<WikiBacklinks>(`${wikiPath(slug, scope)}/${pageId}/backlinks`);
+}
+
+function issueReferencesPath(slug: string, identifier: string): string {
+	return `/api/workspaces/${slug}/issues/${encodeURIComponent(identifier)}/wiki-references`;
+}
+
+/** Pages attached to an issue as references. */
+export function listIssueWikiReferences(slug: string, identifier: string): Promise<WikiReference[]> {
+	return api.get<WikiReference[]>(issueReferencesPath(slug, identifier));
+}
+
+/** Attaches a page to an issue; returns the issue's attached pages. */
+export function attachIssueWikiReference(slug: string, identifier: string, pageId: string): Promise<WikiReference[]> {
+	return api.post<WikiReference[]>(issueReferencesPath(slug, identifier), { page_id: pageId });
+}
+
+export function detachIssueWikiReference(slug: string, identifier: string, pageId: string): Promise<void> {
+	return api.delete<void>(`${issueReferencesPath(slug, identifier)}/${pageId}`);
 }

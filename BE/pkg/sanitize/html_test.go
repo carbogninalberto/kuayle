@@ -100,3 +100,104 @@ func assertNotContains(t *testing.T, value, substring string) {
 		t.Fatalf("expected %q not to contain %q", value, substring)
 	}
 }
+
+// A wiki page reference keeps only the page ID: whatever title or text a
+// client sends with it is dropped, so stored content never carries the title
+// of a page its readers may not see.
+func TestSanitizeStoresWikiMentionsWithoutTitles(t *testing.T) {
+	const id = "0b0e7a52-6a0f-4a56-9d3e-0d2b3f6a9c11"
+	canonical := `<span data-type="mention" data-kind="wiki" data-id="` + id + `" class="mention mention-wiki"></span>`
+
+	for name, input := range map[string]string{
+		"editor chip":     `<p>See <span class="mention mention-wiki" data-type="mention" data-id="` + id + `" data-label="Secret plan" data-kind="wiki">Secret plan</span> first</p>`,
+		"nested markup":   `<p>See <span data-kind="wiki" data-id="` + id + `"><strong>Secret</strong> <span>plan</span></span> first</p>`,
+		"uppercase id":    `<p>See <span data-type="mention" data-kind="wiki" data-id="0B0E7A52-6A0F-4A56-9D3E-0D2B3F6A9C11">Secret plan</span> first</p>`,
+		"already cleaned": `<p>See ` + canonical + ` first</p>`,
+	} {
+		got := SanitizeEditorContent(input)
+		if got != `<p>See `+canonical+` first</p>` {
+			t.Errorf("%s: got %q", name, got)
+		}
+	}
+
+	comment := SanitizeHTML(`<p><span data-type="mention" data-kind="wiki" data-id="` + id + `" data-label="Secret plan">Secret plan</span></p>`)
+	if strings.Contains(comment, "Secret") || !strings.Contains(comment, canonical) {
+		t.Errorf("comment body kept the title: %q", comment)
+	}
+
+	invalid := SanitizeHTML(`<p>a <span data-type="mention" data-kind="wiki" data-id="not-a-page">Secret plan</span> b</p>`)
+	if invalid != `<p>a  b</p>` {
+		t.Errorf("a reference without a page ID should be dropped, got %q", invalid)
+	}
+
+	// Other mentions are untouched.
+	issue := `<p><span data-type="mention" data-id="` + id + `" data-label="KUA-1 Title" data-kind="issue" class="mention mention-issue">KUA-1 Title</span></p>`
+	if got := SanitizeHTML(issue); got != issue {
+		t.Errorf("issue mention changed: %q", got)
+	}
+}
+
+func TestWikiMentionIDs(t *testing.T) {
+	const first, second = "0b0e7a52-6a0f-4a56-9d3e-0d2b3f6a9c11", "7c2b1d4e-9f3a-4b6c-8d5e-1a2b3c4d5e6f"
+	content := SanitizeHTML(`<p><span data-kind="wiki" data-id="` + first + `">A</span> <span data-kind="wiki" data-id="` + second + `">B</span> <span data-kind="wiki" data-id="` + first + `">A</span></p>`)
+	got := WikiMentionIDs(content)
+	if len(got) != 2 || got[0].String() != first || got[1].String() != second {
+		t.Fatalf("WikiMentionIDs() = %v", got)
+	}
+	if ids := WikiMentionIDs(`<p>none</p>`); len(ids) != 0 {
+		t.Fatalf("expected no IDs, got %v", ids)
+	}
+}
+
+// Only a span is a reference. The mark on any other element would be read as
+// one by whatever looks for references in stored HTML, so it is not stored.
+func TestSanitizeDropsWikiMentionMarkOnOtherElements(t *testing.T) {
+	id := "0b0e7a52-6a0f-4a56-9d3e-0d2b3f6a9c11"
+	for _, input := range []string{
+		`<p data-kind="wiki" data-id="` + id + `">x</p>`,
+		`<p data-label="&lt;span" data-kind="wiki" data-id="` + id + `">x<span>y</span></p>`,
+		`<a href="https://example.com" data-kind="wiki" data-id="` + id + `">x</a>`,
+	} {
+		got := SanitizeHTML(input)
+		if strings.Contains(got, wikiMentionKind) {
+			t.Errorf("SanitizeHTML(%q) kept the reference mark: %q", input, got)
+		}
+		if !strings.Contains(got, "x") {
+			t.Errorf("SanitizeHTML(%q) lost the content: %q", input, got)
+		}
+		if len(WikiMentionIDs(got)) != 0 {
+			t.Errorf("SanitizeHTML(%q) left a reference: %q", input, got)
+		}
+	}
+}
+
+// The sanitizer does not balance tags, so a mention whose </span> is missing
+// must not swallow the rest of the content.
+func TestSanitizeKeepsContentAfterUnclosedWikiMention(t *testing.T) {
+	id := "0b0e7a52-6a0f-4a56-9d3e-0d2b3f6a9c11"
+	chip := `<span data-type="mention" data-kind="wiki" data-id="` + id + `" class="mention mention-wiki"></span>`
+	open := `<span data-kind="wiki" data-id="` + id + `">`
+	for name, tc := range map[string]struct{ in, want string }{
+		"closed by the block":       {`<p>See ` + open + `x</p><p>after</p>`, `<p>See ` + chip + `x</p><p>after</p>`},
+		"never closed":              {`<p>See ` + open + `x`, `<p>See ` + chip + `x`},
+		"later span is not its end": {`<p>See ` + open + `x</p><p>after <span>y</span></p>`, `<p>See ` + chip + `x</p><p>after <span>y</span></p>`},
+		"line break inside":         {`<p>See ` + open + `a<br>b</span> after</p>`, `<p>See ` + chip + ` after</p>`},
+	} {
+		if got := SanitizeHTML(tc.in); got != tc.want {
+			t.Errorf("%s: SanitizeHTML() = %q, want %q", name, got, tc.want)
+		}
+	}
+}
+
+// Readers without chips (the assistant, coding agents) still learn that a
+// page is referenced, and which one.
+func TestStripHTMLKeepingWikiReferencesNamesThePage(t *testing.T) {
+	id := "0b0e7a52-6a0f-4a56-9d3e-0d2b3f6a9c11"
+	content := SanitizeHTML(`<p>Follow <span data-kind="wiki" data-id="` + id + `">Secret plan</span> <strong>first</strong></p>`)
+	if got, want := StripHTMLKeepingWikiReferences(content), "Follow @[wiki page](wiki:"+id+") first"; got != want {
+		t.Fatalf("StripHTMLKeepingWikiReferences() = %q, want %q", got, want)
+	}
+	if got := StripHTML(content); got != "Follow  first" {
+		t.Fatalf("StripHTML() = %q", got)
+	}
+}

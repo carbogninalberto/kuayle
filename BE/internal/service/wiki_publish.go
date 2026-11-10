@@ -20,6 +20,7 @@ type wikiPublishRepo interface {
 	DeleteWikiPageLinks(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) error
 	PublishedPages(ctx context.Context, workspaceID, rootID uuid.UUID) ([]repository.PublicWikiPage, error)
 	PublicPageReachable(ctx context.Context, workspaceID, pageID uuid.UUID) (bool, error)
+	ResolveReferences(ctx context.Context, workspaceID uuid.UUID, pageIDs []uuid.UUID) ([]domain.WikiReference, error)
 }
 
 var (
@@ -117,6 +118,11 @@ type PublicWiki struct {
 	WorkspaceName string
 	RootID        uuid.UUID
 	Pages         []repository.PublicWikiPage
+	// References are the pages the published content mentions that an
+	// anonymous reader may know by title: pages of teams and projects that
+	// are not private. The reader links the ones in Pages and prints the
+	// rest as plain text; any other mention stays an anonymous placeholder.
+	References []domain.WikiReference
 }
 
 // ResolvePublic returns the pages a public token publishes, or not found
@@ -139,10 +145,14 @@ func (s *WikiPublishService) ResolvePublic(ctx context.Context, token string) (*
 	if len(pages) == 0 {
 		return nil, ErrWikiNotFound
 	}
+	references, err := publicWikiReferences(ctx, s.repo, link.WorkspaceID, pages)
+	if err != nil {
+		return nil, err
+	}
 	for i := range pages {
 		pages[i].Content = signPublicAssetURLs(pages[i].Content, s.assetSigningKey, link.WorkspaceID, pages[i].ID)
 	}
-	return &PublicWiki{WorkspaceName: ws.Name, RootID: *link.ScopeID, Pages: pages}, nil
+	return &PublicWiki{WorkspaceName: ws.Name, RootID: *link.ScopeID, Pages: pages, References: references}, nil
 }
 
 // PublicPageReachable lets the public asset route serve a file signed for a
