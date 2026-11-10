@@ -4,7 +4,14 @@
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "kuayle", version, about, long_about = None, arg_required_else_help = true)]
+#[command(
+    name = "kuayle",
+    bin_name = "kuayle",
+    version,
+    about,
+    long_about = None,
+    arg_required_else_help = true
+)]
 pub struct Cli {
     #[arg(long, global = true, env = "KUAYLE_PROFILE")]
     pub profile: Option<String>,
