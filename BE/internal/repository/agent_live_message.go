@@ -31,6 +31,22 @@ const liveMessagesPerDelivery = 10
 // Only the creator may message the agent, within the hourly budget, until the
 // task is completed or cancelled. The task row lock orders sequence numbers.
 func (r *AgentTaskRepository) QueueLiveMessage(ctx context.Context, ws, id uuid.UUID, sender, body string) (*domain.AgentLiveMessage, error) {
+	return r.queueLiveMessage(ctx, ws, id, sender, body, nil)
+}
+
+// QueueApprovedLiveMessage queues the message of an approved message_task
+// request, from the orchestrator acting for the task's creator, under the
+// same rules as QueueLiveMessage. The approval's request ID makes it
+// idempotent: repeating or resuming the approval returns the message it
+// already queued instead of sending the text again.
+func (r *AgentTaskRepository) QueueApprovedLiveMessage(ctx context.Context, ws, id, request uuid.UUID, body string) (*domain.AgentLiveMessage, error) {
+	if request == uuid.Nil {
+		return nil, ErrAgentLiveMessageInvalid
+	}
+	return r.queueLiveMessage(ctx, ws, id, domain.AgentLiveSenderOrchestrator, body, &request)
+}
+
+func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.UUID, sender, body string, request *uuid.UUID) (*domain.AgentLiveMessage, error) {
 	actor, err := conversationActor(ctx, ws)
 	if err != nil {
 		return nil, err
@@ -53,6 +69,17 @@ func (r *AgentTaskRepository) QueueLiveMessage(ctx context.Context, ws, id uuid.
 	if task.Kind != domain.AgentTaskKindImplement {
 		return nil, ErrAgentLiveMessageInvalid
 	}
+	var message domain.AgentLiveMessage
+	if request != nil {
+		// The task row lock serializes requests, so a replay finds the first one.
+		err = tx.GetContext(ctx, &message, `SELECT * FROM agent_live_messages WHERE task_id=$1 AND request_id=$2`, id, *request)
+		if err == nil {
+			return &message, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+	}
 	if task.State == "completed" || task.State == "cancelled" || task.State == "cancelling" {
 		return nil, ErrAgentLiveMessageClosed
 	}
@@ -63,9 +90,8 @@ func (r *AgentTaskRepository) QueueLiveMessage(ctx context.Context, ws, id uuid.
 	if sent >= domain.AgentLiveMessagesPerHour {
 		return nil, ErrAgentLiveMessageRateLimited
 	}
-	var message domain.AgentLiveMessage
-	err = tx.GetContext(ctx, &message, `INSERT INTO agent_live_messages(workspace_id,task_id,direction,seq,sender,author_id,body,state)
- SELECT $1,$2,'to_agent',COALESCE(max(seq),0)+1,$3,$4,$5,'queued' FROM agent_live_messages WHERE task_id=$2 RETURNING *`, ws, id, sender, actor, body)
+	err = tx.GetContext(ctx, &message, `INSERT INTO agent_live_messages(workspace_id,task_id,direction,seq,sender,author_id,body,state,request_id)
+ SELECT $1,$2,'to_agent',COALESCE(max(seq),0)+1,$3,$4,$5,'queued',$6 FROM agent_live_messages WHERE task_id=$2 RETURNING *`, ws, id, sender, actor, body, request)
 	if err != nil {
 		return nil, err
 	}

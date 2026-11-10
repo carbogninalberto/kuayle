@@ -1143,7 +1143,12 @@ agent works. The task card, the chat and the assistant use it as described in
 
 **Sending to the agent.** `AgentTaskService.QueueLiveMessage(ws, task, sender,
 body)` (repository `QueueLiveMessage`) records a message from `user` or
-`orchestrator`. Only the task's creator may send, under the same conversation
+`orchestrator`. The task card's composer sends as `user` directly. The
+assistant never calls it: its `message_task` tool only requests an approval,
+and the approved text is queued by `QueueApprovedLiveMessage(ws, task,
+request, body)` as `orchestrator`, under the same rules, with the approval's
+request ID stored in `request_id` (migration 134, unique per task) so one
+approval delivers one message. Only the task's creator may send, under the same conversation
 and team checks as the other task actions (another member gets not found);
 only implementing tasks that are not completed, cancelled or cancelling take
 messages; the body is cleaned like an outbox body (at most 4,000 characters);
@@ -1235,7 +1240,9 @@ volume once unused; the ended agent container keeps it until the run is
 cancelled (`CancelAgent` removes the run's inbox volumes after its containers)
 or the machine is torn down (`Teardown` removes the machine's inbox volumes).
 
-Rolling migration 95 back drops the live channel's messages.
+Rolling migration 95 back drops the live channel's messages. Rolling migration
+134 back removes `message_task` approvals and the `request_id` column; messages
+already delivered are kept.
 
 ## Configurable workflows
 

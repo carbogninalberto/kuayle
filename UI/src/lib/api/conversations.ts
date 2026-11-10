@@ -186,6 +186,13 @@ export interface FollowUpPayload {
 	harness?: string;
 	model_server_id?: string;
 }
+/** A message the assistant asks to send to a task's coding agent; `body` is delivered unchanged. */
+export interface TaskMessagePayload {
+	identifier: string;
+	title: string;
+	task_id: string;
+	body: string;
+}
 // Who can open an app port link: only the machine's owner, signed in.
 export type AppPortAudience = 'owner';
 export interface PreviewPayload {
@@ -349,6 +356,7 @@ export type ConversationApproval = ApprovalBase &
 		| { action: 'accept_agent_work'; payload: AcceptPayload }
 		| { action: 'request_agent_review'; payload: ReviewPayload }
 		| { action: 'follow_up_task'; payload: FollowUpPayload }
+		| { action: 'message_task'; payload: TaskMessagePayload }
 		| { action: 'start_preview'; payload: PreviewPayload }
 		| { action: 'expose_port'; payload: ExposePortPayload }
 		| { action: 'run_check'; payload: RunCheckPayload }

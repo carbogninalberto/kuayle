@@ -448,8 +448,10 @@ func (r *TelegramRepository) Deliver(ctx context.Context, d domain.TelegramDeliv
 		// Offer buttons only for this reply's pending approvals bound to the
 		// recipient; resolving them re-authorizes on the server. Releases and
 		// upgrades belong to no issue, so their button names the tag or version.
+		// A message to a coding agent is approved only in Kuayle, where the card
+		// shows its whole text: a button would approve text the user cannot see.
 		if err = tx.SelectContext(ctx, &d.Approvals, `SELECT a.id,COALESCE(a.payload->>'identifier','release '||(a.payload->>'tag'),'upgrade '||(a.payload->>'latest_version'),'') AS identifier FROM conversation_approvals a JOIN conversation_tool_calls c ON c.id=a.tool_call_id
- WHERE c.message_id=$1 AND a.actor_id=$2 AND a.status='pending' AND a.expires_at>now() ORDER BY c.sequence LIMIT 3`, d.MessageID, d.UserID); err != nil {
+ WHERE c.message_id=$1 AND a.actor_id=$2 AND a.status='pending' AND a.expires_at>now() AND a.action<>'message_task' ORDER BY c.sequence LIMIT 3`, d.MessageID, d.UserID); err != nil {
 			return err
 		}
 		// Name the drafts the reply saved; their full text stays in Kuayle.
