@@ -230,7 +230,11 @@ with the run, so their prompt points the reviewer at the task preview below or
 at `kuayle-ports` in the machine terminal instead.
 
 Task previews (see the [agent task contract](BE/docs/agent-tasks.md#app-ports-and-qa))
-add `task` ports. Stopping or re-provisioning a machine ends their processes:
+add `task` ports. A preview runs agent-written code in the developer container,
+next to its developer-scoped secrets, agent sign-ins and optional sudo, so it
+never starts by itself: only the task's creator starts it, from the task card
+or by approving the assistant's `start_preview`. Stopping or re-provisioning a
+machine ends their processes:
 task ports are removed and their previews marked stopped, while user and agent
 ports are kept. Pausing freezes the processes, which resume with the machine.
 The machine page lists ports, detected listeners, and expose, rename, open and
@@ -270,7 +274,9 @@ inert under the locked configuration, and their `PATH` omits the workspace npm
 prefix below, so they run the image's pinned CLIs. Anything an agent writes to
 `/workspace` (including that prefix and Git hooks) can still run later in a
 person's terminal, with sudo if the machine has it; review agent changes as
-before.
+before. A task preview is such a run: it executes the worktree's preview
+command in the developer container, so Kuayle starts it only when the task's
+creator asks (see [App ports](#app-ports)), never when a task reaches review.
 
 **Upgrading CLIs without sudo.** Both developer images point npm's global
 config at `/etc/npmrc` (`NPM_CONFIG_GLOBALCONFIG`), which sets

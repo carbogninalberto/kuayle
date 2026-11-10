@@ -344,7 +344,7 @@
 			agent: agentLabel(harness)
 		});
 	}
-	// The task's app: its preview command, started on review or on request,
+	// The task's app: its preview command, started only on its creator's request,
 	// plus the ports its agent exposed. They are the reviewer's QA entrypoints.
 	const appTaskStates = ['awaiting_review', 'blocked', 'failed'];
 	const appState = $derived.by(() => {

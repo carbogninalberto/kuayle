@@ -267,36 +267,23 @@ func recordAgentTaskTransition(ctx context.Context, tx *sqlx.Tx, task domain.Age
 	return purgeTaskSession(ctx, tx, task)
 }
 
-// taskPreviewTransition queues the project's QA preview for a task that
-// reached review, once per attempt, so reviewers can open the running change,
-// and stops a running preview when the task finishes.
+// taskPreviewTransition stops a running preview when its task finishes. It
+// never starts one: the preview command runs files the agent just wrote, in
+// the developer container with its developer secrets, agent sign-ins and
+// optional sudo, so a start needs the creator's own request (RequestPreview).
 func taskPreviewTransition(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask) error {
 	switch task.State {
 	case "completed", "cancelled", "failed":
-		if task.PreviewState == nil || (*task.PreviewState != domain.AgentTaskPreviewStarting && *task.PreviewState != domain.AgentTaskPreviewRunning) {
-			return nil
-		}
-		if err := queueStopPreview(ctx, tx, task.ID, nil); err != nil {
-			return err
-		}
-		return tx.GetContext(ctx, task, `SELECT * FROM agent_tasks WHERE id=$1`, task.ID)
-	case "awaiting_review":
 	default:
 		return nil
 	}
-	if task.MachineID == nil || len(previewArgv(task.PreviewCommand)) == 0 {
+	if task.PreviewState == nil || (*task.PreviewState != domain.AgentTaskPreviewStarting && *task.PreviewState != domain.AgentTaskPreviewRunning) {
 		return nil
 	}
-	var generation int64
-	err := tx.GetContext(ctx, &generation, `SELECT m.generation FROM dev_machines m JOIN dev_machine_checkouts c ON c.machine_id=m.id AND c.id=$3
- WHERE m.id=$1 AND m.workspace_id=$2 AND m.status<>'destroyed'`, task.MachineID, task.WorkspaceID, task.CheckoutID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
+	if err := queueStopPreview(ctx, tx, task.ID, nil); err != nil {
 		return err
 	}
-	return queueStartPreview(ctx, tx, task, generation, "task-preview:"+task.RunID.String())
+	return tx.GetContext(ctx, task, `SELECT * FROM agent_tasks WHERE id=$1`, task.ID)
 }
 
 // purgeTaskSession queues removal of a finished task's native harness

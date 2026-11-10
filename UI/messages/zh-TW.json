@@ -2186,7 +2186,7 @@
 	"tasks.app_stop_error": "無法停止應用程式。",
 	"tasks.preview_command": "預覽指令",
 	"tasks.preview_port": "偏好的連接埠（選填）",
-	"tasks.preview_help": "選填。任務進入審查或你啟動其應用程式時，會在任務工作樹中執行，並設定 PORT 與 HOST=0.0.0.0。偏好的連接埠被占用時，Kuayle 會選擇一個空閒的連接埠。",
+	"tasks.preview_help": "選填。你啟動任務的應用程式時，會在任務工作樹中執行，並設定 PORT 與 HOST=0.0.0.0；它不會自動啟動。偏好的連接埠被占用時，Kuayle 會選擇一個空閒的連接埠。",
 	"tasks.preview_invalid": "請輸入 JSON 陣列形式的指令。偏好的連接埠必須介於 1024 到 65535 之間。",
 	"tasks.agent_session": "代理工作階段",
 	"tasks.agent_session_help": "在此任務的工作樹中開啟終端機，並以互動方式繼續代理自己的工作階段。",

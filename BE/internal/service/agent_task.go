@@ -762,11 +762,12 @@ func oneLine(value string, limit int) string {
 
 // withQA tells an implementing attempt how the reviewer will try the change.
 // Attempts run in a temporary container whose servers stop with the run, so
-// the app is started for the reviewer by Kuayle or from the machine terminal.
+// the reviewer starts the app from the task or from the machine terminal.
+// Kuayle never starts the preview by itself.
 func withQA(prompt string, task domain.AgentTask) string {
 	line := "Manual QA: this attempt runs in a temporary container, so servers you start stop when it ends. To let the reviewer try the app, say in your final summary how to start it (command and port) and what to test; from the machine's terminal they can expose it with the kuayle-qa skill (run `kuayle-ports`)."
 	if len(previewCommand(task)) > 0 {
-		line = "Manual QA: when you finish, Kuayle starts the project's preview command in this worktree with $PORT and HOST=0.0.0.0 set, so the reviewer can open the app; keep it working, and say in your final summary what to test (see the kuayle-qa skill)."
+		line = "Manual QA: after you finish, the reviewer can start the project's preview command in this worktree with $PORT and HOST=0.0.0.0 set to open the app; keep it working, and say in your final summary what to test (see the kuayle-qa skill)."
 	}
 	if len(prompt)+len(line) > 31000 {
 		return prompt
