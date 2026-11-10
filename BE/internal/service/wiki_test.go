@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -30,6 +32,10 @@ type fakeWikiRepo struct {
 	overviews []domain.WikiOverview
 	claims    map[uuid.UUID]time.Time
 	runs      map[uuid.UUID]*string
+	// attached holds the pages attached to each issue; searches records
+	// every suggestion query and its limit.
+	attached map[uuid.UUID][]uuid.UUID
+	searches []string
 }
 
 func newFakeWikiRepo(visible ...domain.WikiScope) *fakeWikiRepo {
@@ -579,4 +585,64 @@ func TestWikiServiceSchedulesOverviews(t *testing.T) {
 	require.Contains(t, *repo.runs[team.ID], "Settings → AI")
 	require.Equal(t, time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC), repo.claims[team.ID], "claimed for the next slot")
 	require.Zero(t, svc.runDueOverviews(ctx), "a slot another claimer moved is not run again")
+}
+
+// The reference methods of the fake mirror the repository: a page is only
+// found through a visible scope of the same workspace.
+func (f *fakeWikiRepo) reference(ws uuid.UUID, id uuid.UUID) (domain.WikiReference, bool) {
+	page, ok := f.pages[id]
+	if !ok || page.WorkspaceID != ws || !f.visible[page.Scope()] {
+		return domain.WikiReference{}, false
+	}
+	return domain.WikiReference{ID: page.ID, TeamID: page.TeamID, ProjectID: page.ProjectID, Title: page.Title, ScopeName: "Scope"}, true
+}
+
+func (f *fakeWikiRepo) SearchReferences(_ context.Context, ws uuid.UUID, query string, limit int) ([]domain.WikiReference, error) {
+	f.searches = append(f.searches, fmt.Sprintf("%s|%d", query, limit))
+	found := []domain.WikiReference{}
+	for id := range f.pages {
+		if page, ok := f.reference(ws, id); ok && strings.Contains(strings.ToLower(page.Title), strings.ToLower(query)) {
+			found = append(found, page)
+		}
+	}
+	return found, nil
+}
+
+func (f *fakeWikiRepo) ResolveReferences(_ context.Context, ws uuid.UUID, ids []uuid.UUID) ([]domain.WikiReference, error) {
+	found := []domain.WikiReference{}
+	for _, id := range ids {
+		if page, ok := f.reference(ws, id); ok {
+			found = append(found, page)
+		}
+	}
+	return found, nil
+}
+
+func (f *fakeWikiRepo) Backlinks(ctx context.Context, ws uuid.UUID, scope domain.WikiScope, id uuid.UUID) (*domain.WikiBacklinks, error) {
+	if _, err := f.Get(ctx, ws, scope, id); err != nil {
+		return nil, err
+	}
+	return &domain.WikiBacklinks{Issues: []domain.WikiBacklinkIssue{}, Pages: []domain.WikiReference{}}, nil
+}
+
+func (f *fakeWikiRepo) IssueReferences(_ context.Context, _, issue uuid.UUID) ([]uuid.UUID, error) {
+	return f.attached[issue], nil
+}
+
+func (f *fakeWikiRepo) AttachIssueReference(_ context.Context, ws, issue, page, _ uuid.UUID) error {
+	if _, ok := f.reference(ws, page); !ok {
+		return repository.ErrWikiReferenceTarget
+	}
+	if f.attached == nil {
+		f.attached = map[uuid.UUID][]uuid.UUID{}
+	}
+	if !slices.Contains(f.attached[issue], page) {
+		f.attached[issue] = append(f.attached[issue], page)
+	}
+	return nil
+}
+
+func (f *fakeWikiRepo) DetachIssueReference(_ context.Context, _, issue, page uuid.UUID) error {
+	f.attached[issue] = slices.DeleteFunc(f.attached[issue], func(id uuid.UUID) bool { return id == page })
+	return nil
 }

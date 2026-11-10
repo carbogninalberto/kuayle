@@ -34,9 +34,18 @@ async function mockWorkspace(
 		conflict?: boolean;
 		seed?: Partial<StoredPage>[];
 		versions?: unknown[];
+		/** What the backlinks of any page answer. */
+		backlinks?: { issues: unknown[]; pages: unknown[] };
 	} = {}
 ) {
-	const { role = 'member', wikiStatus, conflict = false, seed = [], versions = [] } = options;
+	const {
+		role = 'member',
+		wikiStatus,
+		conflict = false,
+		seed = [],
+		versions = [],
+		backlinks = { issues: [], pages: [] }
+	} = options;
 	await page.routeWebSocket('**/ws', () => {});
 	const errors: string[] = [];
 	page.on('pageerror', (error) => errors.push(error.message));
@@ -65,6 +74,23 @@ async function mockWorkspace(
 		url: null
 	};
 	let nextId = 1;
+	// Pages attached to ENG-1, the one issue of this workspace.
+	const attached: string[] = [];
+	// Every stored page is visible to the signed-in member; any other page ID
+	// resolves as the server answers for a page they cannot see.
+	const reference = (id: string) => {
+		const found = pages.find((p) => p.id === id);
+		return found
+			? {
+					id,
+					accessible: true,
+					title: found.title,
+					team_id: found.team_id ?? undefined,
+					project_id: found.project_id ?? undefined,
+					scope_name: found.team_id ? 'Engineering' : 'Launch'
+				}
+			: { id, accessible: false };
+	};
 	const team = { id: teamId, name: 'Engineering', key: 'ENG', color: '#6366f1', created_at: now };
 	const project = { id: projectId, name: 'Launch', team_id: teamId, status: 'planned', created_at: now };
 	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
@@ -86,6 +112,56 @@ async function mockWorkspace(
 			return route.fulfill({ json: [project] });
 		if (path === `/api/workspaces/test/projects/${projectId}`)
 			return route.fulfill({ json: { ...project, progress: { total: 0, completed: 0, cancelled: 0 } } });
+
+		if (path === '/api/workspaces/test/wiki/references') {
+			const query = (new URL(request.url()).searchParams.get('q') ?? '').toLowerCase();
+			return route.fulfill({
+				json: pages
+					.filter((p) => !p.registry_date && p.title.toLowerCase().includes(query))
+					.map((p) => reference(p.id))
+			});
+		}
+		if (path === '/api/workspaces/test/wiki/references/resolve')
+			return route.fulfill({ json: (request.postDataJSON().ids as string[]).map(reference) });
+		if (/\/wiki\/[^/]+\/backlinks$/.test(path)) return route.fulfill({ json: backlinks });
+		const issueReferences = path.match(/^\/api\/workspaces\/test\/issues\/ENG-1\/wiki-references(?:\/([^/]+))?$/);
+		if (issueReferences) {
+			if (method !== 'GET') writes.push({ method, path, body: request.postData() ? request.postDataJSON() : null });
+			if (method === 'POST') attached.push(request.postDataJSON().page_id);
+			if (method === 'DELETE') attached.splice(attached.indexOf(issueReferences[1]), 1);
+			return route.fulfill({ json: method === 'DELETE' ? { status: 'deleted' } : attached.map(reference) });
+		}
+		if (path === '/api/workspaces/test/issues/ENG-1')
+			return route.fulfill({
+				json: {
+					id: '00000000-0000-0000-0000-000000000101',
+					identifier: 'ENG-1',
+					title: 'Attach target',
+					description: null,
+					status: 'todo',
+					status_id: statusId,
+					status_info: { id: statusId, name: 'Todo', category: 'unstarted', color: '#6366f1', position: 0 },
+					priority: 3,
+					team_id: teamId,
+					project_id: null,
+					cycle_id: null,
+					creator_id: 'user',
+					assignee_id: null,
+					assignees: [],
+					parent_id: null,
+					due_date: null,
+					sort_order: 1000,
+					labels: [],
+					sub_issue_count: 0,
+					sub_issue_done: 0,
+					created_at: now,
+					updated_at: now
+				}
+			});
+		if (path === '/api/workspaces/test/issues/ENG-1/github')
+			return route.fulfill({ json: { pull_requests: [], branches: [], commits: [] } });
+		if (/^\/api\/workspaces\/test\/issues\/ENG-1\/(comments|history|relations|sub-issues)$/.test(path))
+			return route.fulfill({ json: [] });
 
 		const wiki = path.match(
 			/^\/api\/workspaces\/test\/(teams|projects)\/([^/]+)\/wiki(?:\/([^/]+))?(?:\/(versions|rework|overviews|move|publish))?$/
@@ -497,4 +573,193 @@ test('a wiki the API denies shows that it is unavailable', async ({ page }) => {
 	await expect(page.getByText('This wiki is not available.', { exact: false })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Create the first page' })).toHaveCount(0);
 	expect(state.errors).toEqual([]);
+});
+
+const mention = (id: string, extra = '') =>
+	`<span data-type="mention" data-kind="wiki" data-id="${id}"${extra} class="mention mention-wiki"></span>`;
+const seededId = (index: number) => `00000000-0000-0000-0000-${String(800 + index).padStart(12, '0')}`;
+
+test('typing @ suggests pages of other wikis and stores the reference without its title', async ({ page }) => {
+	const state = await mockWorkspace(page, {
+		seed: [
+			{ title: 'Notes', content: '<p>Start</p>' },
+			{ title: 'Roadmap', team_id: null, project_id: projectId }
+		]
+	});
+	await page.goto(teamWikiPath);
+	await expect(page.getByRole('heading', { name: 'Notes', level: 1 })).toBeVisible();
+
+	await editor(page).click();
+	await page.keyboard.press('End');
+	await page.keyboard.type(' @Road');
+	// The project wiki's page is offered from the team wiki, with its project.
+	const suggestion = page.locator('.mention-menu').getByRole('button', { name: /Roadmap/ });
+	await expect(suggestion).toContainText('Launch');
+	await page.keyboard.press('Enter');
+
+	const chip = editor(page).locator('[data-kind="wiki"]');
+	await expect(chip).toContainText('Roadmap');
+	await expect(chip).toContainText('Launch');
+	await expect(chip).toHaveAttribute('role', 'link');
+
+	// What is saved names the page by ID only; the title is looked up on display.
+	await expect.poll(() => patches(state.writes).length, { timeout: 5000 }).toBe(1);
+	const saved = patches(state.writes)[0].body.content as string;
+	expect(saved).toContain(`data-kind="wiki" data-id="${seededId(1)}"`);
+	expect(saved).not.toContain('Roadmap');
+
+	await chip.click();
+	await expect(page).toHaveURL(`${projectWikiPath}?page=${seededId(1)}`);
+	expect(state.errors).toEqual([]);
+});
+
+test('a reference to a page the reader cannot see is a placeholder without its title', async ({ page }) => {
+	const hidden = '00000000-0000-0000-0000-00000000dead';
+	const state = await mockWorkspace(page, {
+		role: 'guest',
+		seed: [
+			{
+				title: 'Notes',
+				// Even a title smuggled into the stored chip is not shown.
+				content: `<p>See <span data-type="mention" data-kind="wiki" data-id="${hidden}" data-label="Secret plan">Secret plan</span> and ${mention(seededId(1))}</p>`
+			},
+			{ title: 'Guide' }
+		]
+	});
+	await page.goto(`${teamWikiPath}?page=${seededId(0)}`);
+	const chips = page.getByTestId('wiki-editor').locator('[data-kind="wiki"]');
+	await expect(chips).toHaveCount(2);
+	await expect(chips.nth(0)).toHaveText('Restricted page');
+	await expect(chips.nth(0)).toHaveClass(/mention-unavailable/);
+	await expect(chips.nth(1)).toContainText('Guide');
+	await expect(page.getByText('Secret plan')).toHaveCount(0);
+
+	// The placeholder explains itself and leads nowhere.
+	await chips.nth(0).click();
+	await expect(page.getByRole('tooltip')).toHaveText('You do not have access to this wiki page.');
+	await expect(page).toHaveURL(`${teamWikiPath}?page=${seededId(0)}`);
+	expect(state.errors).toEqual([]);
+});
+
+test('the side panel lists the issues and pages that reference the page', async ({ page }) => {
+	const state = await mockWorkspace(page, {
+		seed: [{ title: 'Guide' }],
+		backlinks: {
+			issues: [{ id: 'issue-7', identifier: 'ENG-7', title: 'Ship the docs' }],
+			pages: [{ id: seededId(5), accessible: true, title: 'Roadmap', project_id: projectId, scope_name: 'Launch' }]
+		}
+	});
+	await page.goto(teamWikiPath);
+	const panel = page.getByTestId('wiki-backlinks');
+	await expect(panel.getByRole('link', { name: /ENG-7.*Ship the docs/ })).toHaveAttribute('href', '/test/issue/ENG-7');
+	await expect(panel.getByRole('link', { name: /Roadmap.*Launch/ })).toHaveAttribute(
+		'href',
+		`${projectWikiPath}?page=${seededId(5)}`
+	);
+	await page.getByRole('button', { name: 'Referenced in' }).click();
+	await expect(panel).toHaveCount(0);
+	expect(state.errors).toEqual([]);
+});
+
+test('a page nothing references says so', async ({ page }) => {
+	await mockWorkspace(page, { seed: [{ title: 'Guide' }] });
+	await page.goto(teamWikiPath);
+	await expect(page.getByTestId('wiki-backlinks')).toHaveText('No issue or page references this page yet.');
+});
+
+test('dragging a page from the tree into the editor inserts a reference to it', async ({ page }) => {
+	const state = await mockWorkspace(page, {
+		seed: [
+			{ title: 'Notes', content: '<p>Start</p>' },
+			{ title: 'Guide', content: '<p>How to</p>' }
+		]
+	});
+	await page.goto(`${teamWikiPath}?page=${seededId(0)}`);
+	await expect(page.getByRole('heading', { name: 'Notes', level: 1 })).toBeVisible();
+
+	await page
+		.getByRole('navigation', { name: 'Pages' })
+		.getByRole('link', { name: 'Guide' })
+		.dragTo(editor(page));
+	const chip = editor(page).locator('[data-kind="wiki"]');
+	await expect(chip).toContainText('Guide');
+	await expect.poll(() => patches(state.writes).length, { timeout: 5000 }).toBe(1);
+	expect(patches(state.writes)[0].body.content).toContain(`data-id="${seededId(1)}"`);
+	// Dropping on the editor references the page; it does not move it.
+	expect(state.writes.filter((w) => w.path.endsWith('/move'))).toEqual([]);
+	expect(state.errors).toEqual([]);
+});
+
+test('dropping a wiki page on an issue attaches it as a reference', async ({ page }) => {
+	const state = await mockWorkspace(page, { seed: [{ title: 'Guide' }] });
+	await page.goto('/test/issue/ENG-1');
+	const title = page.getByText('Attach target').first();
+	await expect(title).toBeVisible();
+	await expect(page.getByTestId('issue-wiki-references')).toHaveCount(0);
+
+	// The drag starts in a wiki tree, possibly in another window: all it
+	// carries is the page ID.
+	const dataTransfer = await page.evaluateHandle((id) => {
+		const data = new DataTransfer();
+		data.setData('application/x-kuayle-wiki-page', id);
+		return data;
+	}, seededId(0));
+	await title.dispatchEvent('dragover', { dataTransfer });
+	await expect(page.getByTestId('issue-wiki-references')).toContainText('Drop to attach this page to the issue');
+	await title.dispatchEvent('drop', { dataTransfer });
+
+	const section = page.getByTestId('issue-wiki-references');
+	const chip = section.getByTestId('wiki-reference');
+	await expect(chip).toContainText('Guide');
+	await expect(chip).toContainText('Engineering');
+	await expect(chip).toHaveAttribute('href', `${teamWikiPath}?page=${seededId(0)}`);
+	expect(state.writes).toEqual([
+		{ method: 'POST', path: '/api/workspaces/test/issues/ENG-1/wiki-references', body: { page_id: seededId(0) } }
+	]);
+
+	await section.getByRole('button', { name: 'Remove reference' }).click();
+	await expect(section).toHaveCount(0);
+	expect(state.writes[1]).toMatchObject({ method: 'DELETE', path: `/api/workspaces/test/issues/ENG-1/wiki-references/${seededId(0)}` });
+	expect(state.errors).toEqual([]);
+});
+
+test('a public page links pages published with it and prints other references as plain text', async ({ browser }) => {
+	const anonymous = await browser.newContext();
+	const reader = await anonymous.newPage();
+	const errors: string[] = [];
+	reader.on('pageerror', (error) => errors.push(error.message));
+	const [root, child, unpublished, hidden] = [seededId(0), seededId(1), seededId(2), seededId(3)];
+	await reader.route('**/api/**', (route) => {
+		const path = new URL(route.request().url()).pathname;
+		if (path === '/api/public/wiki/tok123')
+			return route.fulfill({
+				json: {
+					workspace_name: 'Test',
+					root_id: root,
+					pages: [
+						{
+							id: root,
+							parent_id: null,
+							title: 'Handbook',
+							content: `<p>Read ${mention(child)}, then ${mention(unpublished)} and ${mention(hidden)}.</p>`,
+							position: 0,
+							updated_at: now
+						},
+						{ id: child, parent_id: root, title: 'Setup', content: '<p>Run make dev</p>', position: 0, updated_at: now }
+					],
+					// The server names only what an anonymous reader may know.
+					references: [{ id: unpublished, title: 'Roadmap' }]
+				}
+			});
+		return route.fulfill({ status: 401, json: { error: { code: 'UNAUTHORIZED' } } });
+	});
+	await reader.goto('/share/wiki/tok123');
+	const article = reader.getByRole('article');
+	await expect(article).toContainText('Read Setup, then Roadmap and Restricted page.');
+	// Only the page published with this one can be opened.
+	await expect(article.getByRole('link')).toHaveCount(1);
+	await article.getByRole('link', { name: 'Setup' }).click();
+	await expect(reader.getByRole('heading', { name: 'Setup', level: 1 })).toBeVisible();
+	expect(errors).toEqual([]);
+	await anonymous.close();
 });

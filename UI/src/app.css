@@ -863,3 +863,37 @@ html.pointer-cursors [data-slot="switch"] {
 	font-size: 0.65rem;
 	text-transform: uppercase;
 }
+
+/* A reference to a wiki page: the issue-reference chip with a page icon, the
+   title and, muted, the team or project the page belongs to. */
+.mention-wiki {
+	max-width: 100%;
+	background: color-mix(in srgb, var(--color-text-tertiary) 15%, transparent);
+	color: var(--color-text-secondary);
+	font-weight: 600;
+	text-decoration: none;
+}
+
+.mention-wiki-title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.mention-wiki-scope {
+	color: var(--color-text-tertiary);
+	font-weight: 400;
+}
+
+/* A page the reader cannot see: no title, and nothing to open. */
+.mention-unavailable {
+	color: var(--color-text-tertiary);
+	font-weight: 400;
+	font-style: italic;
+	cursor: default;
+}
+
+/* A stored reference is an empty element until it is resolved; where nothing
+   resolves it (a public issue share), it takes no room. */
+.mention-wiki:empty {
+	display: none;
+}

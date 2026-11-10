@@ -124,3 +124,39 @@ type WikiRegistryFeedResponse struct {
 	Days       []WikiRegistryDay `json:"days"`
 	NextBefore *string           `json:"next_before"`
 }
+
+// WikiReferenceResponse is a page as a reference chip shows it. A page the
+// caller cannot see (or that does not exist) has accessible false and no
+// other field than the ID that was asked for.
+type WikiReferenceResponse struct {
+	ID         string  `json:"id"`
+	Accessible bool    `json:"accessible"`
+	Title      string  `json:"title,omitempty"`
+	TeamID     *string `json:"team_id,omitempty"`
+	ProjectID  *string `json:"project_id,omitempty"`
+	// ScopeName is the name of the page's team or project.
+	ScopeName string `json:"scope_name,omitempty"`
+}
+
+// ResolveWikiReferencesRequest asks which of up to 200 pages the caller can see.
+type ResolveWikiReferencesRequest struct {
+	IDs []string `json:"ids"`
+}
+
+// AttachWikiReferenceRequest attaches a page to an issue as a reference.
+type AttachWikiReferenceRequest struct {
+	PageID string `json:"page_id"`
+}
+
+type WikiBacklinkIssueResponse struct {
+	ID         string `json:"id"`
+	Identifier string `json:"identifier"`
+	Title      string `json:"title"`
+}
+
+// WikiBacklinksResponse is where a page is referenced, limited to the
+// issues and pages the caller can see.
+type WikiBacklinksResponse struct {
+	Issues []WikiBacklinkIssueResponse `json:"issues"`
+	Pages  []WikiReferenceResponse     `json:"pages"`
+}

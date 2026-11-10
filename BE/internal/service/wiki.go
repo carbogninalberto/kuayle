@@ -41,6 +41,8 @@ type WikiService struct {
 	now func() time.Time
 	// overviewAI writes registry overviews; nil until SetOverviewAI.
 	overviewAI WikiOverviewAI
+	// issues resolves issue identifiers for attached references; nil until SetIssues.
+	issues WikiIssueLookup
 }
 
 // WikiEvents receives realtime events; the hub withholds them from members

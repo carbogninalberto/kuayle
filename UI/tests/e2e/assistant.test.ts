@@ -2414,3 +2414,55 @@ test('a proposed skill shows its full draft and links to Settings; a loaded skil
 		`/test/settings/assistant?tab=skills&skill=${skillId}`
 	);
 });
+
+test('the composer references wiki pages chosen with @ or dropped from a wiki tree', async ({ page }) => {
+	const state = await fixture(page);
+	state.appendSends = true;
+	const guide = '00000000-0000-0000-0000-000000000801';
+	const plan = '00000000-0000-0000-0000-000000000802';
+	const pages = [
+		{ id: guide, accessible: true, title: 'Deploy guide', team_id: 'team-1', scope_name: 'Engineering' },
+		{ id: plan, accessible: true, title: 'Launch plan', project_id: 'project-1', scope_name: 'Launch' }
+	];
+	await page.route('**/api/workspaces/test/wiki/references**', (route) => {
+		const request = route.request();
+		if (request.method() === 'POST')
+			return route.fulfill({
+				json: (request.postDataJSON().ids as string[]).map(
+					(id) => pages.find((p) => p.id === id) ?? { id, accessible: false }
+				)
+			});
+		const query = (new URL(request.url()).searchParams.get('q') ?? '').toLowerCase();
+		return route.fulfill({ json: pages.filter((p) => p.title.toLowerCase().includes(query)) });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	const composer = page.getByRole('textbox', { name: 'Message' });
+	await composer.click();
+	await composer.pressSequentially('Summarise @dep');
+	const option = page.locator('.mention-menu').getByRole('button', { name: /Deploy guide/ });
+	await expect(option).toContainText('Engineering');
+	// Enter picks the page instead of sending the message.
+	await composer.press('Enter');
+	const guideToken = `@[Deploy guide](wiki:${guide} team Engineering)`;
+	await expect(composer).toHaveValue(`Summarise ${guideToken} `);
+	expect(state.sends).toEqual([]);
+
+	// A page dragged from a wiki tree carries only its ID.
+	const dataTransfer = await page.evaluateHandle((id) => {
+		const data = new DataTransfer();
+		data.setData('application/x-kuayle-wiki-page', id);
+		return data;
+	}, plan);
+	await composer.dispatchEvent('drop', { dataTransfer });
+	const planToken = `@[Launch plan](wiki:${plan} project Launch)`;
+	await expect(composer).toHaveValue(`Summarise ${guideToken} ${planToken} `);
+
+	await composer.press('Enter');
+	await expect.poll(() => state.sends).toEqual([`Summarise ${guideToken} ${planToken} `]);
+	// The sent message shows the references as chips, not as tokens.
+	const chips = page.getByTestId('wiki-reference');
+	await expect(chips).toHaveCount(2);
+	await expect(chips.nth(0)).toHaveText(/Deploy guide\s*Engineering/);
+	await expect(chips.nth(0)).toHaveAttribute('href', `/test/teams/team-1/wiki?page=${guide}`);
+	await expect(page.getByText('wiki:', { exact: false })).toHaveCount(0);
+});

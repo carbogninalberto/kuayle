@@ -100,3 +100,51 @@ func assertNotContains(t *testing.T, value, substring string) {
 		t.Fatalf("expected %q not to contain %q", value, substring)
 	}
 }
+
+// A wiki page reference keeps only the page ID: whatever title or text a
+// client sends with it is dropped, so stored content never carries the title
+// of a page its readers may not see.
+func TestSanitizeStoresWikiMentionsWithoutTitles(t *testing.T) {
+	const id = "0b0e7a52-6a0f-4a56-9d3e-0d2b3f6a9c11"
+	canonical := `<span data-type="mention" data-kind="wiki" data-id="` + id + `" class="mention mention-wiki"></span>`
+
+	for name, input := range map[string]string{
+		"editor chip":     `<p>See <span class="mention mention-wiki" data-type="mention" data-id="` + id + `" data-label="Secret plan" data-kind="wiki">Secret plan</span> first</p>`,
+		"nested markup":   `<p>See <span data-kind="wiki" data-id="` + id + `"><strong>Secret</strong> <span>plan</span></span> first</p>`,
+		"uppercase id":    `<p>See <span data-type="mention" data-kind="wiki" data-id="0B0E7A52-6A0F-4A56-9D3E-0D2B3F6A9C11">Secret plan</span> first</p>`,
+		"already cleaned": `<p>See ` + canonical + ` first</p>`,
+	} {
+		got := SanitizeEditorContent(input)
+		if got != `<p>See `+canonical+` first</p>` {
+			t.Errorf("%s: got %q", name, got)
+		}
+	}
+
+	comment := SanitizeHTML(`<p><span data-type="mention" data-kind="wiki" data-id="` + id + `" data-label="Secret plan">Secret plan</span></p>`)
+	if strings.Contains(comment, "Secret") || !strings.Contains(comment, canonical) {
+		t.Errorf("comment body kept the title: %q", comment)
+	}
+
+	invalid := SanitizeHTML(`<p>a <span data-type="mention" data-kind="wiki" data-id="not-a-page">Secret plan</span> b</p>`)
+	if invalid != `<p>a  b</p>` {
+		t.Errorf("a reference without a page ID should be dropped, got %q", invalid)
+	}
+
+	// Other mentions are untouched.
+	issue := `<p><span data-type="mention" data-id="` + id + `" data-label="KUA-1 Title" data-kind="issue" class="mention mention-issue">KUA-1 Title</span></p>`
+	if got := SanitizeHTML(issue); got != issue {
+		t.Errorf("issue mention changed: %q", got)
+	}
+}
+
+func TestWikiMentionIDs(t *testing.T) {
+	const first, second = "0b0e7a52-6a0f-4a56-9d3e-0d2b3f6a9c11", "7c2b1d4e-9f3a-4b6c-8d5e-1a2b3c4d5e6f"
+	content := SanitizeHTML(`<p><span data-kind="wiki" data-id="` + first + `">A</span> <span data-kind="wiki" data-id="` + second + `">B</span> <span data-kind="wiki" data-id="` + first + `">A</span></p>`)
+	got := WikiMentionIDs(content)
+	if len(got) != 2 || got[0].String() != first || got[1].String() != second {
+		t.Fatalf("WikiMentionIDs() = %v", got)
+	}
+	if ids := WikiMentionIDs(`<p>none</p>`); len(ids) != 0 {
+		t.Fatalf("expected no IDs, got %v", ids)
+	}
+}

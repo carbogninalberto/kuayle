@@ -136,7 +136,7 @@ async function mockWorkspace(page: Page, history: unknown[] = []) {
 				'/api/workspaces/test/views'
 			].includes(path) ||
 			path.match(/^\/api\/workspaces\/test\/teams\/[^/]+\/cycles$/) ||
-			path.match(/^\/api\/workspaces\/test\/issues\/ENG-[123]\/(comments|history|relations|sub-issues)$/)
+			path.match(/^\/api\/workspaces\/test\/issues\/ENG-[123]\/(comments|history|relations|sub-issues|wiki-references)$/)
 		)
 			return route.fulfill({ json: [] });
 		unhandledPaths.push(path);

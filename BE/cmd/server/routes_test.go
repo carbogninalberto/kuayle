@@ -262,7 +262,15 @@ func TestWikiRoutesRequireWikiPermissions(t *testing.T) {
 		want["POST "+base+"/:pageId/move"] = "perm:wiki:write"
 		want["GET "+base+"/:pageId/publish"] = "perm:wiki:read"
 		want["PUT "+base+"/:pageId/publish"] = "perm:wiki:write"
+		want["GET "+base+"/:pageId/backlinks"] = "perm:wiki:read"
 	}
+	// Page references: suggestions and chips need wiki:read; attaching a page
+	// to an issue is an issue edit.
+	want["GET /api/workspaces/:slug/wiki/references"] = "perm:wiki:read"
+	want["POST /api/workspaces/:slug/wiki/references/resolve"] = "perm:wiki:read"
+	want["GET /api/workspaces/:slug/issues/:identifier/wiki-references"] = "perm:issues:read"
+	want["POST /api/workspaces/:slug/issues/:identifier/wiki-references"] = "perm:issue:update"
+	want["DELETE /api/workspaces/:slug/issues/:identifier/wiki-references/:pageId"] = "perm:issue:update"
 	// A public wiki link is anonymous and rate limited like issue shares.
 	want["GET /api/public/wiki/:token"] = "public"
 	require.Equal(t, want, got)

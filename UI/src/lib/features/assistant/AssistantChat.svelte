@@ -51,6 +51,19 @@
 	import LiveStatus from './LiveStatus.svelte';
 	import ScrollerHandle from './ScrollerHandle.svelte';
 	import TaskComposer from './TaskComposer.svelte';
+	import MentionList from '$lib/components/shared/mention/MentionList.svelte';
+	import type { MentionItem } from '$lib/components/shared/mention/mention.extension';
+	import WikiReferenceChip from '$lib/features/wiki/WikiReferenceChip.svelte';
+	import { searchWikiReferences } from '$lib/api/wiki';
+	import { wikiReferences } from '$lib/features/wiki/wiki-reference-store';
+	import {
+		chatReferenceParts,
+		chatReferenceToken,
+		isWikiPageDrag,
+		mentionQueryAt,
+		wikiPageDragData,
+		type WikiReference
+	} from '$lib/features/wiki/wiki-references';
 	import TaskStep from './TaskStep.svelte';
 	import AgentThread from './AgentThread.svelte';
 	import { indicatorDot } from './task-tone';
@@ -372,6 +385,74 @@
 	let draftConversation: string | null = null;
 	let fileInput = $state<HTMLInputElement | null>(null);
 	let dragging = $state(false);
+
+	// Wiki page references. The composer is plain text, so a page chosen with
+	// "@" or dragged in from a wiki tree goes in as a token naming the page;
+	// sent messages show it as the usual reference chip.
+	let pageMention = $state<{ from: number; query: string } | null>(null);
+	let pageSuggestions = $state<WikiReference[]>([]);
+	let pageIndex = $state(0);
+	let pageMenu = $state({ x: 0, y: 0, height: 0 });
+	const pageItems = $derived<MentionItem[]>(
+		pageSuggestions.map((page) => ({ kind: 'wiki', id: page.id, title: page.title ?? '', scope: page.scope_name ?? '' }))
+	);
+	function trackPageMention() {
+		const found = textarea ? mentionQueryAt(textarea.value, textarea.selectionStart) : null;
+		if (found && textarea && !pageMention) {
+			const rect = textarea.getBoundingClientRect();
+			pageMenu = { x: rect.left, y: rect.bottom + 4, height: rect.height };
+		}
+		if (found?.query !== pageMention?.query) pageIndex = 0;
+		pageMention = found;
+	}
+	$effect(() => {
+		const mention = pageMention;
+		if (!mention) {
+			pageSuggestions = [];
+			return;
+		}
+		let stale = false;
+		const timer = setTimeout(
+			() =>
+				void searchWikiReferences(slug, mention.query)
+					.then((found) => {
+						if (!stale) pageSuggestions = found;
+					})
+					.catch(() => {
+						if (!stale) pageSuggestions = [];
+					}),
+			mention.query ? 120 : 0
+		);
+		return () => {
+			stale = true;
+			clearTimeout(timer);
+		};
+	});
+	/** Puts a page reference in the draft, replacing [from, to) of it. */
+	function insertPageReference(reference: WikiReference, from: number, to: number) {
+		const token = chatReferenceToken(reference);
+		const before = text.slice(0, from);
+		const lead = before && !/\s$/.test(before) ? ' ' : '';
+		text = `${before}${lead}${token} ${text.slice(to).replace(/^ /, '')}`;
+		const caret = before.length + lead.length + token.length + 1;
+		pageMention = null;
+		void tick().then(() => {
+			textarea?.focus();
+			textarea?.setSelectionRange(caret, caret);
+		});
+	}
+	function choosePage(item: MentionItem | undefined) {
+		const reference = pageSuggestions.find((page) => page.id === item?.id);
+		if (!reference || !pageMention || !textarea) return;
+		insertPageReference(reference, pageMention.from, textarea.selectionStart);
+	}
+	async function dropPage(pageId: string) {
+		const reference = await wikiReferences.resolve(slug, pageId);
+		if (!reference.accessible) return;
+		const at = textarea?.selectionStart ?? text.length;
+		insertPageReference(reference, at, at);
+	}
+
 	async function ensureConversation(fallbackTitle = m['assistant.image_title']()) {
 		const existing = conversationId ?? pending?.conversation ?? draftConversation;
 		if (existing) return existing;
@@ -855,7 +936,9 @@
 			{#if message.content}
 				<Bubble.Root variant="muted">
 					<Bubble.Content class="rounded-2xl rounded-br-md px-3.5 py-2">
-						<p class="break-words whitespace-pre-wrap">{message.content}</p>
+						<!-- Kept on one line: the paragraph preserves whitespace. -->
+						<!-- prettier-ignore -->
+						<p class="break-words whitespace-pre-wrap">{#each chatReferenceParts(message.content) as part, index (index)}{#if part.pageId}<WikiReferenceChip {slug} pageId={part.pageId} />{:else}{part.text}{/if}{/each}</p>
 					</Bubble.Content>
 				</Bubble.Root>
 			{/if}
@@ -973,6 +1056,11 @@
 				onsubmit={send}
 				aria-label={m['assistant.composer']()}
 				ondragover={(event) => {
+					if (isWikiPageDrag(event.dataTransfer) && !chat.unavailable) {
+						event.preventDefault();
+						dragging = true;
+						return;
+					}
 					if (toAgent || !status.configured || chat.unavailable || !event.dataTransfer?.types.includes('Files')) return;
 					event.preventDefault();
 					dragging = true;
@@ -982,6 +1070,12 @@
 				}}
 				ondrop={(event) => {
 					dragging = false;
+					const pageId = wikiPageDragData(event.dataTransfer);
+					if (pageId) {
+						event.preventDefault();
+						if (!chat.unavailable) void dropPage(pageId);
+						return;
+					}
 					if (toAgent) return;
 					const files = imageFiles(event.dataTransfer?.files);
 					if (!files.length) return;
@@ -1025,7 +1119,31 @@
 						maxlength={16000}
 						disabled={!toAgent && (!initialized || !status.configured || chat.unavailable)}
 						class="max-h-48 min-h-11"
+						oninput={trackPageMention}
+						onclick={trackPageMention}
+						onkeyup={(event) => {
+							if (event.key.startsWith('Arrow') && !(pageMention && pageItems.length)) trackPageMention();
+						}}
+						onblur={() => (pageMention = null)}
 						onkeydown={(event) => {
+							// The page menu takes the keys the rich editor's mention menu takes.
+							if (pageMention && pageItems.length && !event.isComposing) {
+								if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+									event.preventDefault();
+									pageIndex = (pageIndex + (event.key === 'ArrowDown' ? 1 : pageItems.length - 1)) % pageItems.length;
+									return;
+								}
+								if (event.key === 'Enter' || event.key === 'Tab') {
+									event.preventDefault();
+									choosePage(pageItems[pageIndex]);
+									return;
+								}
+								if (event.key === 'Escape') {
+									event.preventDefault();
+									pageMention = null;
+									return;
+								}
+							}
 							if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
 								event.preventDefault();
 								void send();
@@ -1132,6 +1250,16 @@
 						>{/if}
 				</p>
 			</form>
+			{#if pageMention && pageItems.length}
+				<MentionList
+					items={pageItems}
+					selectedIndex={pageIndex}
+					position={pageMenu}
+					anchorHeight={pageMenu.height}
+					onselect={choosePage}
+					onclose={() => (pageMention = null)}
+				/>
+			{/if}
 		</div>
 	</div>
 {/snippet}

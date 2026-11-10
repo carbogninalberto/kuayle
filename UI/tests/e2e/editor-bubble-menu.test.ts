@@ -91,7 +91,7 @@ async function openIssue(
 		if (/\/issues\/ENG-[12]\/github$/.test(path))
 			return route.fulfill({ json: { pull_requests: [], branches: [], commits: [] } });
 		if (path.endsWith('/issue-copy-prompt')) return route.fulfill({ json: { prompt: '' } });
-		if (/\/(projects|labels|members|views|statuses|cycles|comments|history|relations|dev-machines)$/.test(path))
+		if (/\/(projects|labels|members|views|statuses|cycles|comments|history|relations|wiki-references|dev-machines)$/.test(path))
 			return route.fulfill({ json: [] });
 		unexpected.push(path);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });

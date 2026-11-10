@@ -166,6 +166,7 @@ func main() {
 	assistantTools.SetSettings(assistantToolSettings)
 	wikiSvc := service.NewWikiService(repository.NewWikiRepository(db), hub)
 	wikiSvc.SetOverviewAI(aiSettingsSvc)
+	wikiSvc.SetIssues(issueRepo)
 	assistantTools.SetWiki(wikiSvc, projectRepo)
 	assistantSkills := repository.NewAssistantSkillRepository(db)
 	assistantTools.SetSkills(assistantSkills)

@@ -49,6 +49,8 @@
 	import { MentionNode, createMentionPlugin, type MentionItem } from './mention/mention.extension';
 	import MentionList from './mention/MentionList.svelte';
 	import { mentionInteractivity } from './mention/mention-interactivity.action';
+	import { searchWikiReferences } from '$lib/api/wiki';
+	import { wikiPageDragData, type WikiReference } from '$lib/features/wiki/wiki-references';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Issue } from '$lib/types/issue';
 	import { Attachment } from './attachment.extension';
@@ -134,6 +136,34 @@
 	let lastSelection = $state<{ from: number; to: number; text: string } | null>(null);
 	let rewriteAnimationTimer: ReturnType<typeof setTimeout> | null = null;
 
+	// Wiki pages to mention come from the server: pages of every team and
+	// project this person can see, matched against what they typed after "@".
+	let wikiSuggestions = $state<WikiReference[]>([]);
+	$effect(() => {
+		const slug = workspaceSlug;
+		const query = mentionQuery;
+		if (!mentionActive || !slug) {
+			wikiSuggestions = [];
+			return;
+		}
+		let stale = false;
+		const timer = setTimeout(
+			() =>
+				void searchWikiReferences(slug, query)
+					.then((found) => {
+						if (!stale) wikiSuggestions = found;
+					})
+					.catch(() => {
+						if (!stale) wikiSuggestions = [];
+					}),
+			query ? 120 : 0
+		);
+		return () => {
+			stale = true;
+			clearTimeout(timer);
+		};
+	});
+
 	const mentionFilteredItems: MentionItem[] = $derived.by(() => {
 		const q = mentionQuery.toLowerCase();
 		const userItems = members.map((m) => ({ kind: 'user' as const, id: m.user_id, name: m.name, email: m.email }));
@@ -147,7 +177,11 @@
 			status_color: i.status_info?.color ?? null
 		}));
 
-		if (!q) return [...userItems.slice(0, 6), ...issueItems.slice(0, 4)];
+		const wikiItems = wikiSuggestions
+			.slice(0, 5)
+			.map((page) => ({ kind: 'wiki' as const, id: page.id, title: page.title ?? '', scope: page.scope_name ?? '' }));
+
+		if (!q) return [...userItems.slice(0, 6), ...issueItems.slice(0, 4), ...wikiItems];
 
 		const filteredUsers = userItems.filter(
 			(u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
@@ -156,7 +190,7 @@
 			(i) => i.identifier.toLowerCase().includes(q) || i.title.toLowerCase().includes(q)
 		).slice(0, 4);
 
-		return [...filteredUsers, ...filteredIssues];
+		return [...filteredUsers, ...filteredIssues, ...wikiItems];
 	});
 
 	const lowlight = createLowlight(common);
@@ -567,6 +601,15 @@
 								return false;
 							},
 							handleDrop(view: any, event: DragEvent) {
+								// A page dragged from a wiki tree becomes a reference chip.
+								const pageId = wikiPageDragData(event.dataTransfer);
+								if (pageId) {
+									event.preventDefault();
+									if (!view.editable) return true;
+									const at = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+									insertWikiReference(pageId, at);
+									return true;
+								}
 								const files = event.dataTransfer?.files;
 								if (!files || files.length === 0) return false;
 								event.preventDefault();
@@ -916,11 +959,22 @@
 		slashRange = null;
 	}
 
+	/** Inserts a reference chip to a wiki page at a document position, or at the cursor. */
+	function insertWikiReference(pageId: string, position?: number) {
+		if (!editor) return;
+		const content = [{ type: 'mention', attrs: { id: pageId, kind: 'wiki' } }, { type: 'text', text: ' ' }];
+		if (position === undefined) editor.chain().focus().insertContent(content).run();
+		else editor.chain().focus().insertContentAt(position, content).run();
+	}
+
 	function handleMentionSelect(item: MentionItem | undefined) {
 		if (!item || !editor || !mentionRange) return;
+		// A wiki reference stores only the page ID; see MentionNode.
 		const attrs = item.kind === 'user'
 			? { id: item.id, label: item.name || item.email, kind: 'user' }
-			: { id: item.id, label: `${item.identifier} ${item.title}`, kind: 'issue', identifier: item.identifier };
+			: item.kind === 'wiki'
+				? { id: item.id, kind: 'wiki' }
+				: { id: item.id, label: `${item.identifier} ${item.title}`, kind: 'issue', identifier: item.identifier };
 		editor.chain().focus()
 			.deleteRange({ from: mentionRange.from, to: mentionRange.to })
 			.insertContent({ type: 'mention', attrs })
@@ -1095,7 +1149,7 @@
 	{/if}
 
 	<!-- Mention menu -->
-	{#if mentionActive && editor && (members.length > 0 || issues.length > 0)}
+	{#if mentionActive && editor && (members.length > 0 || issues.length > 0 || wikiSuggestions.length > 0)}
 		<MentionList
 			items={mentionFilteredItems}
 			selectedIndex={mentionSelectedIndex}

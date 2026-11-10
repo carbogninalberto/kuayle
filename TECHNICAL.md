@@ -1274,6 +1274,42 @@ the composite ownership foreign keys and null-dependency checks remain enforced.
 Deleting only a service retains the machine/workspace audit context. Rolling back
 removes the triggers but cannot restore references to parents already deleted.
 
+## Wiki page references
+
+Issue descriptions, comments, wiki pages and assistant messages can reference a
+wiki page of any team or project.
+
+- **Stored form.** A reference in editor content is a mention chip that holds only
+  the page ID: `<span data-type="mention" data-kind="wiki" data-id="<page>">`.
+  `sanitize.SanitizeHTML` rewrites every wiki mention to that exact form
+  (`sanitize.WikiMentionHTML`) and drops any label, text or nested markup sent
+  with it, so stored content, revisions and realtime payloads never carry a page
+  title. Because issue, comment and wiki writes all pass through the sanitizer,
+  this holds for the web editor, the API, the CLI and agents alike.
+- **Rendering.** Chips ask `POST /wiki/references/resolve` what to show. Pages the
+  caller can see through `wikiScopeVisible` (the predicate the wiki itself uses)
+  answer with title and team or project; every other ID, whether invisible,
+  foreign or unknown, answers `{id, accessible: false}` and renders as the
+  "Restricted page" placeholder. `GET /wiki/references?q=` suggests pages for `@`
+  with the same predicate, across all teams and projects of the workspace.
+- **Attached references.** `issue_wiki_references` holds pages attached to an
+  issue (dropping a page from a wiki tree onto the issue page). Attaching needs
+  `issue:update` plus `wiki:read` and both the issue and the page visible;
+  listing returns attached pages the reader cannot see as inaccessible IDs, and
+  anyone who may edit the issue may remove them.
+- **Backlinks.** `GET <wiki>/:pageId/backlinks` lists issues (description, comment
+  or attached) and pages that reference a page, each filtered by the caller's
+  visibility. Mentions are found by a substring match on the canonical stored
+  form, scoped to the workspace; there is no reference index to keep in sync.
+- **Published pages.** Readers have no chips. A reference to a page published in
+  the same reader is a link; a reference to any other page the reader may know by
+  title is plain text; the rest is the placeholder. For public links the server
+  resolves the mentioned pages under `domain.PublicContext` (so private teams'
+  pages are never named) and returns them as `references`.
+- **Chat.** The composer is plain text: `@` or a dropped page inserts
+  `@[Title](wiki:<page id> team|project <name>)`, which sent messages show as a
+  chip. The assistant reads the page with its wiki tools, as the user.
+
 ## Persistent assistant chat
 
 The Global Assistant reuses workspace AI settings, PostgreSQL and the existing
