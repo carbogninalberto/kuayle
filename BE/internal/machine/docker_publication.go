@@ -25,17 +25,91 @@ var (
 	publishCommitPattern     = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 )
 
-// The commit step runs without any credential. Repository-local hooks, fsmonitor
-// and signing programs are disabled; the agent's identity claims are replaced.
+// publishCheckoutScript opens the task checkout without loading anything the
+// agent can configure. Agent runs write the checkout's git directory, so its
+// config, hooks and info/attributes can name programs (filter, diff and merge
+// drivers, hooks read from core.hooksPath or defined in config, fsmonitor,
+// credential helpers, ssh and proxy commands, pagers, editors, signing
+// programs, URL rewrites to the ext transport), and no command-line override
+// covers them all. Git therefore never runs in that directory. $work/checkout is
+// a new git directory with its own empty config and no hooks that borrows only
+// the checkout's objects, refs and ignore patterns; g runs git there against
+// the checkout's working tree and index. In-tree .gitattributes still apply,
+// but the drivers they name are undefined, so content is committed and checked
+// out as it is. System and global configuration are ignored and only the file
+// and https transports are allowed.
+//
+// It expects $path, $branch and $step, and leaves $work (removed on exit),
+// $gitdir (the checkout's own git directory, read as plain files only) and g.
+const publishCheckoutScript = `export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+export GIT_ALLOW_PROTOCOL=file:https GIT_NO_LAZY_FETCH=1
+work=$(mktemp -d "/tmp/kuayle-$step.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work"; exit 130' INT
+trap 'rm -rf "$work"; exit 143' TERM
+cd "$work"
+gitdir=$path/.git
+if [ -f "$gitdir" ]; then
+  link=$(head -n 1 "$gitdir")
+  case $link in "gitdir: "*) link=${link#gitdir: } ;; *) echo "checkout is not a git repository" >&2; exit 1 ;; esac
+  case $link in /*) gitdir=$link ;; *) gitdir=$path/$link ;; esac
+fi
+common=$gitdir
+if [ -f "$gitdir/commondir" ]; then
+  link=$(head -n 1 "$gitdir/commondir")
+  case $link in /*) common=$link ;; *) common=$gitdir/$link ;; esac
+fi
+if [ ! -f "$gitdir/HEAD" ] || [ ! -d "$common/objects" ] || [ ! -d "$common/refs" ]; then echo "checkout is not a git repository" >&2; exit 1; fi
+if [ -e "$common/reftable" ]; then echo "checkout uses an unsupported ref storage" >&2; exit 1; fi
+# The object format is read from the checkout's config as data; nothing in that
+# file is applied.
+case $(git config --file "$common/config" --get extensions.objectformat </dev/null || true) in
+  sha256) git init -q --bare --object-format=sha256 "$work/checkout" ;;
+  *) git init -q --bare "$work/checkout" ;;
+esac
+rm -rf "$work/checkout/objects" "$work/checkout/refs" "$work/checkout/info/exclude"
+mkdir -p "$work/checkout/info"
+ln -s "$common/objects" "$work/checkout/objects"
+ln -s "$common/refs" "$work/checkout/refs"
+ln -s "$common/packed-refs" "$work/checkout/packed-refs"
+ln -s "$common/shallow" "$work/checkout/shallow"
+ln -s "$common/info/exclude" "$work/checkout/info/exclude"
+printf 'ref: refs/heads/%s\n' "$branch" > "$work/checkout/HEAD"
+# Housekeeping here would not see the repository's other worktrees.
+git --git-dir="$work/checkout" config gc.auto 0
+git --git-dir="$work/checkout" config maintenance.auto false
+# A split index would leave its shared part in this directory, which is removed.
+git --git-dir="$work/checkout" config core.splitIndex false
+# Listing the refs of a repository the checkout names as an alternate would run
+# git under that repository's configuration.
+git --git-dir="$work/checkout" config core.alternateRefsCommand :
+gi() { GIT_INDEX_FILE="$gitdir/index" git -C "$path" --git-dir="$work/checkout" --work-tree="$path" "$@"; }
+g() { gi "$@" </dev/null; }
+on_task_branch() { [ "$(head -n 1 "$gitdir/HEAD")" = "ref: refs/heads/$branch" ] || { echo "checkout is not on the task branch" >&2; exit 1; }; }
+`
+
+// The commit step runs without any credential and through publishCheckoutScript,
+// so no program named by the checkout's configuration, attributes or nested
+// repositories runs; the agent's identity claims are replaced.
 const publishCommitScript = `set -eu
-path=$1 branch=$2 base=$3
-export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+path=$1 branch=$2 base=$3 step=commit
 export GIT_AUTHOR_NAME="$4" GIT_AUTHOR_EMAIL="$5" GIT_COMMITTER_NAME="$4" GIT_COMMITTER_EMAIL="$5"
-g() { git -C "$path" -c core.hooksPath=/dev/null -c core.fsmonitor=false -c commit.gpgSign=false "$@" </dev/null; }
 message=$(cat)
 [ -n "$message" ] || { echo "missing commit message" >&2; exit 1; }
-[ "$(g symbolic-ref --short HEAD)" = "$branch" ] || { echo "checkout is not on the task branch" >&2; exit 1; }
-g add -A
+` + publishCheckoutScript + `on_task_branch
+# A merge the agent left uncommitted is concluded as it would be in the checkout.
+for state in MERGE_HEAD MERGE_MODE MERGE_MSG; do
+  [ ! -f "$gitdir/$state" ] || ln -s "$gitdir/$state" "$work/checkout/$state"
+done
+# Staging compares a nested repository by running git inside it, under that
+# repository's own configuration. Nested repositories are left out of that
+# comparison and recorded afterwards at their current commit, which reads
+# their HEAD without running anything in them.
+nested() { g ls-files -s | grep '^160000 [0-9a-f]* 0' | cut -f 2- || true; }
+nested | gi update-index --skip-worktree --stdin
+g -c advice.addEmbeddedRepo=false add -A
+nested | gi update-index --no-skip-worktree --stdin
+g diff-files --ignore-submodules=dirty --name-only -z | gi update-index --add --remove -z --stdin
 # Commits made since the last publication by anyone but the configured author,
 # or carrying co-author trailers, are folded into one commit by that author.
 # The floor is the commit Kuayle recorded as published ($6), never a marker in
@@ -79,6 +153,7 @@ if [ -n "$rebuilt" ] || [ -n "$foreign" ] || g log --format=%B "$floor..HEAD" --
 fi
 if ! g diff --cached --quiet; then
   g commit --no-verify -q -m "$message"
+  rm -f "$gitdir/MERGE_HEAD" "$gitdir/MERGE_MODE" "$gitdir/MERGE_MSG"
 fi
 if [ -z "$(g rev-list -n 1 "refs/remotes/origin/$base..HEAD")" ]; then echo none; exit 0; fi
 g rev-parse --verify HEAD
@@ -86,17 +161,13 @@ g rev-parse --verify HEAD
 
 // The push step copies only the recorded commit into a new temporary repository
 // with no hooks or inherited configuration, then pushes it non-forcefully. The
-// agent-writable checkout's configuration never runs while the token exists.
+// commit is read through publishCheckoutScript, so the agent-writable
+// checkout's configuration is never loaded, with or without the token.
 const publishPushScript = `set -eu
-repository=$1 branch=$2 path=$3 commit=$4 base=$5 email=$6
-export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+repository=$1 branch=$2 path=$3 commit=$4 base=$5 email=$6 step=publish
 umask 077
-work=$(mktemp -d /tmp/kuayle-publish.XXXXXX)
-trap 'rm -rf "$work"' EXIT
-trap 'rm -rf "$work"; exit 130' INT
-trap 'rm -rf "$work"; exit 143' TERM
-git init -q --bare "$work/repo"
-git --git-dir="$work/repo" fetch -q --no-tags "$path" "+refs/heads/$branch:refs/kuayle/publish" </dev/null
+` + publishCheckoutScript + `git init -q --bare "$work/repo"
+git --git-dir="$work/repo" fetch -q --no-tags --no-recurse-submodules "$work/checkout" "+refs/heads/$branch:refs/kuayle/publish" </dev/null
 [ "$(git --git-dir="$work/repo" rev-parse --verify refs/kuayle/publish)" = "$commit" ] || { echo "task branch moved before publishing" >&2; exit 1; }
 IFS= read -r token
 [ -n "$token" ] || { echo "missing repository credential" >&2; exit 1; }
@@ -116,9 +187,9 @@ url="https://github.com/$repository"
 # carry no co-author trailers. The commit step trusted the checkout's
 # remote-tracking refs to keep base and task-branch commits; here they come from
 # GitHub itself.
-remote fetch -q --no-tags "$url" "+refs/heads/$base:refs/kuayle/remote/base"
+remote fetch -q --no-tags --no-recurse-submodules "$url" "+refs/heads/$base:refs/kuayle/remote/base"
 if remote ls-remote --exit-code --heads "$url" "refs/heads/$branch" >/dev/null; then
-  remote fetch -q --no-tags "$url" "+refs/heads/$branch:refs/kuayle/remote/branch"
+  remote fetch -q --no-tags --no-recurse-submodules "$url" "+refs/heads/$branch:refs/kuayle/remote/branch"
 fi
 authors=$(git --git-dir="$work/repo" log --format='%ae%n%ce' "$commit" --not --glob='refs/kuayle/remote/*')
 messages=$(git --git-dir="$work/repo" log --format=%B "$commit" --not --glob='refs/kuayle/remote/*')
@@ -166,21 +237,13 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 // The sync step brings the checkout up to the task branch on GitHub before it is
 // published: commits others pushed (a maintainer merging the base branch into
 // the pull request) are fetched and fast-forwarded to, never overwritten. The
-// credential is used only in a fresh bare repository; the checkout, which the
-// agent can configure, fetches from that repository without a credential.
+// credential is used only in a fresh bare repository. The checkout is updated
+// from that repository through publishCheckoutScript, after the credential is
+// gone, so no program named by its configuration or attributes runs.
 const publishSyncScript = `set -eu
-repository=$1 branch=$2 path=$3
-export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+repository=$1 branch=$2 path=$3 step=sync
 umask 077
-g() { git -C "$path" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@" </dev/null; }
-# Everything that runs git in the agent-configurable checkout happens while no
-# credential exists: first the checks, then, after the token file is gone, the
-# fetch from the temporary repository and the fast-forward.
-[ "$(g symbolic-ref --short HEAD)" = "$branch" ] || { echo "checkout is not on the task branch" >&2; exit 1; }
-work=$(mktemp -d /tmp/kuayle-sync.XXXXXX)
-trap 'rm -rf "$work"' EXIT
-trap 'rm -rf "$work"; exit 130' INT
-trap 'rm -rf "$work"; exit 143' TERM
+` + publishCheckoutScript + `on_task_branch
 IFS= read -r token
 [ -n "$token" ] || { echo "missing repository credential" >&2; exit 1; }
 printf '%s' "$token" > "$work/token"
@@ -198,14 +261,14 @@ remote() { GIT_ASKPASS="$work/askpass" KUAYLE_PUBLISH_TOKEN_FILE="$work/token" g
 url="https://github.com/$repository"
 # A branch that is not on GitHub yet has nothing to bring in.
 if remote ls-remote --exit-code --heads "$url" "refs/heads/$branch" >/dev/null; then
-  remote fetch -q --no-tags "$url" "+refs/heads/$branch:refs/kuayle/branch"
+  remote fetch -q --no-tags --no-recurse-submodules "$url" "+refs/heads/$branch:refs/kuayle/branch"
   fetched=1
 else
   fetched=
 fi
 rm -f "$work/token" "$work/askpass"
 [ -n "$fetched" ] || exit 0
-g fetch -q --no-tags "$work/repo" "+refs/kuayle/branch:refs/remotes/origin/$branch"
+g fetch -q --no-tags --no-recurse-submodules "$work/repo" "+refs/kuayle/branch:refs/remotes/origin/$branch"
 tip=$(g rev-parse --verify "refs/remotes/origin/$branch^{commit}")
 g merge-base --is-ancestor "$tip" HEAD && exit 0
 if g merge-base --is-ancestor HEAD "$tip"; then

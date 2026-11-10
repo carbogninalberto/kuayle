@@ -60,9 +60,9 @@ func TestSyncScriptFastForwardsToCommitsOthersPushedAndNeverRewrites(t *testing.
 	require.NoError(t, err, output)
 	require.Equal(t, published, run(worktree, "rev-parse", "HEAD"), "nothing to bring in")
 
-	// A smudge filter configured in the checkout runs during the fast-forward. It
-	// must find neither the credential nor its files, which are gone before any
-	// git command runs in the checkout.
+	// A smudge filter configured in the checkout would run during the
+	// fast-forward and look for the credential. The checkout's configuration is
+	// never loaded, so it does not run at all.
 	marker := filepath.Join(root, "filter-ran")
 	filter := filepath.Join(root, "filter.sh")
 	require.NoError(t, os.WriteFile(filter, []byte("#!/bin/sh\necho ran >> "+marker+"\nfor f in /tmp/kuayle-sync.*/*; do echo \"$f\" >> "+marker+"; cat \"$f\" >> "+marker+" 2>/dev/null; done\ncat\n"), 0o755))
@@ -83,11 +83,8 @@ func TestSyncScriptFastForwardsToCommitsOthersPushedAndNeverRewrites(t *testing.
 	output, err = sync()
 	require.NoError(t, err, output)
 	require.Equal(t, merged, run(worktree, "rev-parse", "HEAD"), "the checkout fast-forwarded to the new head")
-	spied, err := os.ReadFile(marker)
-	require.NoError(t, err, "the checkout's filter ran during the fast-forward")
-	require.NotContains(t, string(spied), "fixture-credential")
-	require.NotContains(t, string(spied), "/token")
-	require.NotContains(t, string(spied), "askpass")
+	spied, _ := os.ReadFile(marker)
+	require.Empty(t, string(spied), "the checkout's filter ran during the fast-forward")
 
 	// Local commits GitHub does not have, on top of what it has, are kept.
 	local := commitFile(worktree, "local.txt")

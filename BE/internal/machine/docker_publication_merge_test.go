@@ -254,3 +254,50 @@ func TestPublishScriptsKeepTheBaseOfARebaseOntoANewerBase(t *testing.T) {
 	require.Equal(t, "agent@kuayle.invalid agent@kuayle.invalid", run(nil, "log", "-1", "--format=%ae %ce", rebuilt))
 	require.Equal(t, "feature.txt", run(nil, "diff", "--name-only", "refs/remotes/origin/main", rebuilt), "the base's commits are not re-added")
 }
+
+// The checkout's git directory is not used as one, so a merge the agent left
+// uncommitted there is still published as a merge and concluded.
+func TestPublishScriptsConcludeAMergeLeftUncommitted(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is unavailable")
+	}
+	root := t.TempDir()
+	run := func(args ...string) string {
+		t.Helper()
+		command := exec.Command(realGit, args...)
+		command.Dir = root
+		command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "HOME="+root,
+			"GIT_AUTHOR_NAME=Kuayle Agent", "GIT_AUTHOR_EMAIL=agent@kuayle.invalid", "GIT_COMMITTER_NAME=Kuayle Agent", "GIT_COMMITTER_EMAIL=agent@kuayle.invalid")
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		return strings.TrimSpace(string(output))
+	}
+	commit := func(name string) string {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(name+"\n"), 0o644))
+		run("add", name)
+		run("commit", "-q", "-m", name)
+		return run("rev-parse", "HEAD")
+	}
+	run("init", "-q", "-b", "main")
+	commit("README.md")
+	run("checkout", "-q", "-b", "kuayle/rec-1")
+	published := commit("feature.txt")
+	run("checkout", "-q", "main")
+	mainTip := commit("main-1.txt")
+	run("update-ref", "refs/remotes/origin/main", mainTip)
+	run("checkout", "-q", "kuayle/rec-1")
+	run("merge", "-q", "--no-commit", "refs/remotes/origin/main")
+
+	command := exec.Command("sh", "-c", publishCommitScript, "kuayle-publish", root, "kuayle/rec-1", "main", "Kuayle Agent", "agent@kuayle.invalid", published)
+	command.Env = append(os.Environ(), "HOME="+root)
+	command.Stdin = strings.NewReader("REC-1: Feature")
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, string(output))
+	merged := strings.TrimSpace(string(output))
+	require.Equal(t, published+" "+mainTip, run("log", "-1", "--format=%P", merged))
+	require.Equal(t, merged, run("rev-parse", "HEAD"))
+	require.NoFileExists(t, filepath.Join(root, ".git", "MERGE_HEAD"))
+	require.Empty(t, run("status", "--porcelain"))
+}
