@@ -3258,6 +3258,7 @@
 	"profiles.model": "Model",
 	"profiles.model_placeholder": "Implicit al agentului",
 	"profiles.effort": "Efort",
+	"profiles.model_unsupported": "{agent} nu acceptă aici un model sau un nivel de efort; folosește propriile setări.",
 	"profiles.instructions": "Instrucțiuni",
 	"profiles.instructions_placeholder": "Pe ce să se concentreze acest agent; adăugat în prompt ca configurație",
 	"profiles.builtin": "Integrat",

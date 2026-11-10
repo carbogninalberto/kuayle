@@ -3258,6 +3258,7 @@
 	"profiles.model": "مدل",
 	"profiles.model_placeholder": "پیش‌فرض عامل",
 	"profiles.effort": "میزان تلاش",
+	"profiles.model_unsupported": "{agent} در اینجا مدل یا سطح تلاش نمی‌پذیرد و از تنظیمات خودش استفاده می‌کند.",
 	"profiles.instructions": "دستورالعمل‌ها",
 	"profiles.instructions_placeholder": "این عامل روی چه چیزی تمرکز کند؛ به‌عنوان پیکربندی به پرامپت آن اضافه می‌شود",
 	"profiles.builtin": "داخلی",

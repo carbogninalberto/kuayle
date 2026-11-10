@@ -3258,6 +3258,7 @@
 	"profiles.model": "Modell",
 	"profiles.model_placeholder": "Agent alapértéke",
 	"profiles.effort": "Ráfordítás",
+	"profiles.model_unsupported": "A(z) {agent} itt nem fogad el modellt vagy erőfeszítési szintet; a saját beállításait használja.",
 	"profiles.instructions": "Utasítások",
 	"profiles.instructions_placeholder": "Mire összpontosítson ez az agent; konfigurációként kerül a promptjába",
 	"profiles.builtin": "Beépített",

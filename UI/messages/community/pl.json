@@ -3258,6 +3258,7 @@
 	"profiles.model": "Model",
 	"profiles.model_placeholder": "Domyślny agenta",
 	"profiles.effort": "Wysiłek",
+	"profiles.model_unsupported": "{agent} nie przyjmuje tutaj modelu ani poziomu wysiłku; używa własnych ustawień.",
 	"profiles.instructions": "Instrukcje",
 	"profiles.instructions_placeholder": "Na czym ma się skupić ten agent; dodawane do jego promptu jako konfiguracja",
 	"profiles.builtin": "Wbudowany",

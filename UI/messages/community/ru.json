@@ -3258,6 +3258,7 @@
 	"profiles.model": "Модель",
 	"profiles.model_placeholder": "По умолчанию у агента",
 	"profiles.effort": "Усилие",
+	"profiles.model_unsupported": "{agent} не принимает здесь модель или уровень усилий и использует собственные настройки.",
 	"profiles.instructions": "Инструкции",
 	"profiles.instructions_placeholder": "На чём должен сосредоточиться этот агент; добавляется в его промпт как конфигурация",
 	"profiles.builtin": "Встроенный",

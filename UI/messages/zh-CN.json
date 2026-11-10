@@ -3258,6 +3258,7 @@
 	"profiles.model": "模型",
 	"profiles.model_placeholder": "智能体默认",
 	"profiles.effort": "推理强度",
+	"profiles.model_unsupported": "{agent} 在此不接受模型或推理强度设置，将使用其自身的设置。",
 	"profiles.instructions": "指令",
 	"profiles.instructions_placeholder": "该智能体应关注的内容；作为配置加入其提示",
 	"profiles.builtin": "内置",

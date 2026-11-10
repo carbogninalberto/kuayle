@@ -249,7 +249,7 @@ func TestCreateAgentRunRejectsOverridesForOtherProviders(t *testing.T) {
 		}, uuid.New(),
 	)
 	require.ErrorIs(t, err, ErrInvalidMachineInput)
-	require.ErrorContains(t, err, "codex and claude-code")
+	require.ErrorContains(t, err, "OpenCode does not accept a model or effort")
 }
 
 func TestMachineTokenAuthenticationDistinguishesCredentialsFromStorageFailure(t *testing.T) {

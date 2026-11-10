@@ -2492,40 +2492,59 @@ func redactText(value string, secrets []string) string {
 	return sanitize.SecretReplacer(secrets).Replace(value)
 }
 
+// AgentModelError is a model, effort or model server a coding agent cannot
+// run with. Reason is written for the person who chose them: it names only
+// the coding agent, the model server and the model, never internal detail.
+type AgentModelError struct{ Reason string }
+
+func (e *AgentModelError) Error() string { return ErrInvalidMachineInput.Error() + ": " + e.Reason }
+func (e *AgentModelError) Unwrap() error { return ErrInvalidMachineInput }
+
+// harnessAcceptsModel is the one rule for which coding agents take a model,
+// an effort or a model server. Task starts, profile saves and the profile
+// form (through the profile list's model_harnesses) all follow it.
+func harnessAcceptsModel(provider string) bool {
+	return provider == "codex" || provider == "claude-code"
+}
+
 // Shared by direct native runs and conversation delegation; model selectors must
 // describe the same overrides that the harness actually accepts. A model on a
 // model server must be one it offers; without a server that speaks the
 // harness's protocol the harness uses its own sign-in, which takes any model.
+// Every refusal is an AgentModelError.
 func (s *DevMachineService) validateAgentModel(ctx context.Context, workspaceID uuid.UUID, provider string, serverID *uuid.UUID, model, thinking string) error {
-	if model != "" || thinking != "" || serverID != nil {
-		if provider != "codex" && provider != "claude-code" {
-			return fmt.Errorf("%w: model servers and thinking overrides are supported only for codex and claude-code", ErrInvalidMachineInput)
+	if !harnessAcceptsModel(provider) {
+		if serverID != nil {
+			return &AgentModelError{harnessName(provider) + " does not run on a model server"}
+		}
+		if model != "" || thinking != "" {
+			return &AgentModelError{harnessName(provider) + " does not accept a model or effort"}
 		}
 	}
 	if thinking != "" && !containsString(modelThinkingLevels, thinking) {
-		return fmt.Errorf("%w: unsupported thinking level", ErrInvalidMachineInput)
+		return &AgentModelError{"the effort is one of " + strings.Join(modelThinkingLevels, ", ")}
 	}
 	if model == "" && serverID == nil {
 		return nil
 	}
 	if model != "" && !modelNamePattern.MatchString(model) {
-		return fmt.Errorf("%w: invalid model name", ErrInvalidMachineInput)
+		return &AgentModelError{"the model name is not valid"}
 	}
 	server, err := s.store.GetModelServer(ctx, workspaceID, serverID)
 	if err != nil {
 		return err
 	}
 	if server == nil && serverID != nil {
-		return fmt.Errorf("%w: model server not found", ErrInvalidMachineInput)
+		return &AgentModelError{"the model server no longer exists"}
 	}
 	if server == nil || (serverID == nil && !server.Serves(provider)) {
 		return nil
 	}
 	if !server.Serves(provider) {
-		return fmt.Errorf("%w: %s does not offer the protocol this agent needs", ErrInvalidMachineInput, server.Name)
+		return &AgentModelError{fmt.Sprintf("the model server %s does not offer the protocol %s needs", server.Name, harnessName(provider))}
 	}
 	if models := server.ModelList(); model != "" && len(models) > 0 && !containsString(models, model) {
-		return fmt.Errorf("%w: %s does not offer model %q", ErrInvalidMachineInput, server.Name, model)
+		return &AgentModelError{fmt.Sprintf("the model server %s does not offer the model %q", server.Name, model)}
 	}
 	return nil
 }

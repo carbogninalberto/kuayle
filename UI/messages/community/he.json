@@ -3258,6 +3258,7 @@
 	"profiles.model": "מודל",
 	"profiles.model_placeholder": "ברירת המחדל של הסוכן",
 	"profiles.effort": "רמת מאמץ",
+	"profiles.model_unsupported": "{agent} אינו מקבל כאן מודל או רמת מאמץ; הוא משתמש בהגדרות שלו.",
 	"profiles.instructions": "הנחיות",
 	"profiles.instructions_placeholder": "במה הסוכן הזה צריך להתמקד; מתווסף לפרומפט שלו כהגדרה",
 	"profiles.builtin": "מובנה",

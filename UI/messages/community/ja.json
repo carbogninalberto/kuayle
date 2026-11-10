@@ -3258,6 +3258,7 @@
 	"profiles.model": "モデル",
 	"profiles.model_placeholder": "エージェントのデフォルト",
 	"profiles.effort": "労力",
+	"profiles.model_unsupported": "{agent} はここでモデルや推論レベルを受け付けず、独自の設定を使用します。",
 	"profiles.instructions": "指示",
 	"profiles.instructions_placeholder": "このエージェントが重点を置くこと。設定としてプロンプトに追加されます",
 	"profiles.builtin": "組み込み",

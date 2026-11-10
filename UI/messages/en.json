@@ -3258,6 +3258,7 @@
 	"profiles.model": "Model",
 	"profiles.model_placeholder": "Agent default",
 	"profiles.effort": "Effort",
+	"profiles.model_unsupported": "{agent} does not take a model or effort here; it uses its own settings.",
 	"profiles.instructions": "Instructions",
 	"profiles.instructions_placeholder": "What this agent should focus on; added to its prompt as configuration",
 	"profiles.builtin": "Built-in",

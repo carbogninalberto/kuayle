@@ -3258,6 +3258,7 @@
 	"profiles.model": "Modell",
 	"profiles.model_placeholder": "Agent-Standard",
 	"profiles.effort": "Aufwand",
+	"profiles.model_unsupported": "{agent} akzeptiert hier weder Modell noch Aufwand und verwendet die eigenen Einstellungen.",
 	"profiles.instructions": "Anweisungen",
 	"profiles.instructions_placeholder": "Worauf sich dieser Agent konzentrieren soll; wird als Konfiguration an seinen Prompt angehängt",
 	"profiles.builtin": "Integriert",

@@ -3258,6 +3258,7 @@
 	"profiles.model": "Modelo",
 	"profiles.model_placeholder": "Padrão do agente",
 	"profiles.effort": "Esforço",
+	"profiles.model_unsupported": "{agent} não aceita um modelo nem um nível de esforço aqui; ele usa as próprias configurações.",
 	"profiles.instructions": "Instruções",
 	"profiles.instructions_placeholder": "No que este agente deve se concentrar; adicionado ao prompt dele como configuração",
 	"profiles.builtin": "Integrado",

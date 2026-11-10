@@ -3258,6 +3258,7 @@
 	"profiles.model": "Model",
 	"profiles.model_placeholder": "Ajan varsayılanı",
 	"profiles.effort": "Efor",
+	"profiles.model_unsupported": "{agent} burada model veya efor düzeyi kabul etmez; kendi ayarlarını kullanır.",
 	"profiles.instructions": "Talimatlar",
 	"profiles.instructions_placeholder": "Bu ajanın neye odaklanması gerektiği; yapılandırma olarak isteminin sonuna eklenir",
 	"profiles.builtin": "Yerleşik",

@@ -3258,6 +3258,7 @@
 	"profiles.model": "Modell",
 	"profiles.model_placeholder": "Agentens standard",
 	"profiles.effort": "Innsats",
+	"profiles.model_unsupported": "{agent} godtar ikke modell eller innsatsnivå her; den bruker sine egne innstillinger.",
 	"profiles.instructions": "Instruksjoner",
 	"profiles.instructions_placeholder": "Hva denne agenten skal fokusere på; legges til i prompten som konfigurasjon",
 	"profiles.builtin": "Innebygd",

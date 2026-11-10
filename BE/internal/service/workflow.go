@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -56,7 +57,10 @@ type AgentProfileList struct {
 	Profiles  []domain.AgentProfile `json:"profiles"`
 	CanManage bool                  `json:"can_manage"`
 	Harnesses []string              `json:"harnesses"`
-	Roles     []string              `json:"roles"`
+	// ModelHarnesses are the harnesses that take a model and an effort; a
+	// profile for any other harness leaves both empty.
+	ModelHarnesses []string `json:"model_harnesses"`
+	Roles          []string `json:"roles"`
 }
 
 func (s *WorkflowService) harnesses() []string {
@@ -76,6 +80,17 @@ func (s *WorkflowService) harnesses() []string {
 	return out
 }
 
+// modelHarnesses lists the harnesses a profile can set a model and effort for.
+func (s *WorkflowService) modelHarnesses() []string {
+	out := []string{}
+	for _, harness := range s.harnesses() {
+		if harnessAcceptsModel(harness) {
+			out = append(out, harness)
+		}
+	}
+	return out
+}
+
 func (s *WorkflowService) Profiles(ctx context.Context, ws uuid.UUID) (*AgentProfileList, error) {
 	_, canManage, err := s.access(ctx, ws)
 	if err != nil {
@@ -88,7 +103,7 @@ func (s *WorkflowService) Profiles(ctx context.Context, ws uuid.UUID) (*AgentPro
 	if err != nil {
 		return nil, err
 	}
-	return &AgentProfileList{Profiles: profiles, CanManage: canManage, Harnesses: s.harnesses(),
+	return &AgentProfileList{Profiles: profiles, CanManage: canManage, Harnesses: s.harnesses(), ModelHarnesses: s.modelHarnesses(),
 		Roles: []string{domain.AgentRoleImplementer, domain.AgentRoleReviewer, domain.AgentRoleTester, domain.AgentRoleDocsWriter, domain.AgentRoleSecurityReviewer}}, nil
 }
 
@@ -108,7 +123,12 @@ type AgentProfileRequest struct {
 
 func singleLine(value string) bool { return !strings.ContainsFunc(value, unicode.IsControl) }
 
-func (s *WorkflowService) validateProfile(in AgentProfileRequest) (domain.AgentProfileInput, error) {
+// validateProfile checks a profile as it is saved. Its coding agent, model and
+// effort must be able to start a task (profileProblem), so a profile that
+// could never run is refused here instead of failing every task later.
+// Profiles stored before that rule keep loading; it applies when they are
+// saved again.
+func (s *WorkflowService) validateProfile(ctx context.Context, ws uuid.UUID, in AgentProfileRequest) (domain.AgentProfileInput, error) {
 	out := domain.AgentProfileInput{Name: strings.TrimSpace(in.Name), Role: in.Role, Harness: in.Harness, Model: strings.TrimSpace(in.Model), Effort: strings.TrimSpace(in.Effort), Instructions: strings.TrimSpace(in.Instructions), SkillIDs: in.SkillIDs}
 	seen := map[uuid.UUID]bool{}
 	for _, id := range in.SkillIDs {
@@ -137,6 +157,15 @@ func (s *WorkflowService) validateProfile(in AgentProfileRequest) (domain.AgentP
 	case len(out.Instructions) > domain.AgentProfileInstructionsMaxBytes || !utf8.ValidString(out.Instructions):
 		return out, &ErrInvalidWorkflowInput{"the instructions are at most 64 KB"}
 	}
+	if s.tasks != nil {
+		reason, err := s.tasks.profileProblem(ctx, ws, domain.AgentProfile{Harness: out.Harness, Model: out.Model, Effort: out.Effort})
+		if err != nil {
+			return out, err
+		}
+		if reason != "" {
+			return out, &ErrInvalidWorkflowInput{reason}
+		}
+	}
 	return out, nil
 }
 
@@ -145,7 +174,7 @@ func (s *WorkflowService) CreateProfile(ctx context.Context, ws uuid.UUID, in Ag
 	if err != nil {
 		return nil, err
 	}
-	input, err := s.validateProfile(in)
+	input, err := s.validateProfile(ctx, ws, in)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +186,7 @@ func (s *WorkflowService) UpdateProfile(ctx context.Context, ws, id uuid.UUID, i
 	if err != nil {
 		return nil, err
 	}
-	input, err := s.validateProfile(in)
+	input, err := s.validateProfile(ctx, ws, in)
 	if err != nil {
 		return nil, err
 	}
@@ -395,6 +424,9 @@ func (s *WorkflowService) Create(ctx context.Context, ws uuid.UUID, in WorkflowR
 			return nil, err
 		}
 	}
+	if err = s.requireStartable(ctx, ws, graph); err != nil {
+		return nil, err
+	}
 	created, err := s.repo.CreateWorkflow(ctx, ws, actor, name, description, graph, "created")
 	if err != nil {
 		return nil, err
@@ -404,9 +436,12 @@ func (s *WorkflowService) Create(ctx context.Context, ws uuid.UUID, in WorkflowR
 }
 
 func (s *WorkflowService) Save(ctx context.Context, ws uuid.UUID, id string, in WorkflowRequest) (*WorkflowSummary, error) {
-	actor, _, err := s.access(ctx, ws)
+	actor, canManage, err := s.access(ctx, ws)
 	if err != nil {
 		return nil, err
+	}
+	if !canManage {
+		return nil, repository.ErrWorkflowDenied
 	}
 	if id == domain.StandardWorkflowID {
 		return s.saveStandard(ctx, ws, actor, in)
@@ -417,6 +452,9 @@ func (s *WorkflowService) Save(ctx context.Context, ws uuid.UUID, id string, in 
 	}
 	name, description, err := validateWorkflowMeta(in.Name, in.Description)
 	if err != nil {
+		return nil, err
+	}
+	if err = s.requireStartable(ctx, ws, in.Graph); err != nil {
 		return nil, err
 	}
 	saved, err := s.repo.SaveVersion(ctx, ws, workflowID, actor, in.ExpectedVersion, name, description, in.Graph)
@@ -433,6 +471,9 @@ func (s *WorkflowService) Save(ctx context.Context, ws uuid.UUID, id string, in 
 func (s *WorkflowService) saveStandard(ctx context.Context, ws, actor uuid.UUID, in WorkflowRequest) (*WorkflowSummary, error) {
 	_, description, err := validateWorkflowMeta("Standard", in.Description)
 	if err != nil {
+		return nil, err
+	}
+	if err = s.requireStartable(ctx, ws, in.Graph); err != nil {
 		return nil, err
 	}
 	override, err := s.repo.StandardOverride(ctx, ws)
@@ -547,9 +588,12 @@ type WorkflowDefaultRequest struct {
 }
 
 func (s *WorkflowService) SetDefault(ctx context.Context, ws uuid.UUID, in WorkflowDefaultRequest) (*WorkflowList, error) {
-	actor, _, err := s.access(ctx, ws)
+	actor, canManage, err := s.access(ctx, ws)
 	if err != nil {
 		return nil, err
+	}
+	if !canManage {
+		return nil, repository.ErrWorkflowDenied
 	}
 	switch in.Scope {
 	case domain.WorkflowScopeWorkspace, domain.WorkflowScopeTeam, domain.WorkflowScopeProject:
@@ -571,6 +615,24 @@ func (s *WorkflowService) SetDefault(ctx context.Context, ws uuid.UUID, in Workf
 		}
 		workflow = &id
 	}
+	// A default starts every task of its scope, so one that cannot start is
+	// refused with the same problems the editor shows.
+	if !inherit {
+		var chosen *repository.WorkflowDetail
+		if workflow != nil {
+			chosen, err = s.repo.Workflow(ctx, ws, *workflow)
+		} else {
+			chosen, err = s.repo.StandardOverride(ctx, ws)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if chosen != nil {
+			if err = s.requireStartable(ctx, ws, chosen.Graph); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if err = s.repo.SetDefault(ctx, ws, actor, in.Scope, in.ScopeID, workflow, inherit); err != nil {
 		return nil, err
 	}
@@ -582,6 +644,13 @@ func (s *WorkflowService) Validate(ctx context.Context, ws uuid.UUID, raw json.R
 	if _, _, err := s.access(ctx, ws); err != nil {
 		return nil, err
 	}
+	return s.graphIssues(ctx, ws, raw)
+}
+
+// graphIssues is every problem of a graph: its structure
+// (domain.ValidateWorkflowGraph) and each agent step whose profile cannot
+// start a task, reported on that step with the step and profile named.
+func (s *WorkflowService) graphIssues(ctx context.Context, ws uuid.UUID, raw json.RawMessage) ([]domain.WorkflowIssue, error) {
 	graph, err := domain.ParseWorkflowGraph(raw)
 	if err != nil {
 		var invalid *domain.WorkflowInvalidError
@@ -594,7 +663,46 @@ func (s *WorkflowService) Validate(ctx context.Context, ws uuid.UUID, raw json.R
 	if err != nil {
 		return nil, err
 	}
-	return domain.ValidateWorkflowGraph(*graph, profiles), nil
+	issues := domain.ValidateWorkflowGraph(*graph, profiles)
+	if s.tasks == nil {
+		return issues, nil
+	}
+	reasons := map[uuid.UUID]string{}
+	for _, node := range graph.Nodes {
+		if node.Type != domain.WorkflowNodeAgent || node.ProfileID == nil {
+			continue
+		}
+		profile, ok := profiles[*node.ProfileID]
+		if !ok {
+			continue
+		}
+		reason, checked := reasons[profile.ID]
+		if !checked {
+			if reason, err = s.tasks.profileProblem(ctx, ws, profile); err != nil {
+				return nil, err
+			}
+			reasons[profile.ID] = reason
+		}
+		if reason != "" {
+			issues = append(issues, domain.WorkflowIssue{Code: "unusable_profile", NodeID: node.ID,
+				Message: fmt.Sprintf("%s: the profile %q cannot start a task: %s", strings.TrimSpace(node.Label), profile.Name, reason)})
+		}
+	}
+	return issues, nil
+}
+
+// requireStartable refuses a graph that has problems, with all of them, as a
+// save does. The repository validates the structure again in the saving
+// transaction; the profile checks need the task service, so they run here.
+func (s *WorkflowService) requireStartable(ctx context.Context, ws uuid.UUID, raw json.RawMessage) error {
+	issues, err := s.graphIssues(ctx, ws, raw)
+	if err != nil {
+		return err
+	}
+	if len(issues) > 0 {
+		return &domain.WorkflowInvalidError{Issues: issues}
+	}
+	return nil
 }
 
 func (s *WorkflowService) Audit(ctx context.Context, ws uuid.UUID, entity string, id uuid.UUID) ([]repository.WorkflowAuditEvent, error) {
