@@ -13,6 +13,14 @@ fn kuayle(home: &TempDir, server: &MockServer) -> Command {
     cmd.env("HOME", home.path())
         .env("XDG_CONFIG_HOME", home.path().join(".config"))
         .env("XDG_CACHE_HOME", home.path().join(".cache"))
+        .env(
+            "KUAYLE_CONFIG_DIR",
+            home.path().join(".config").join("kuayle"),
+        )
+        .env(
+            "KUAYLE_CACHE_DIR",
+            home.path().join(".cache").join("kuayle"),
+        )
         .env("KUAYLE_URL", server.uri())
         .env("KUAYLE_WORKSPACE", "acme")
         .env("KUAYLE_CREDENTIAL_STORE", "file");

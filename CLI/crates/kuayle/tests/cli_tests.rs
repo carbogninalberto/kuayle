@@ -29,6 +29,14 @@ fn kuayle_cmd(home: &TempDir, server_uri: &str) -> Command {
     cmd.env("HOME", home.path())
         .env("XDG_CONFIG_HOME", home.path().join(".config"))
         .env("XDG_CACHE_HOME", home.path().join(".cache"))
+        .env(
+            "KUAYLE_CONFIG_DIR",
+            home.path().join(".config").join("kuayle"),
+        )
+        .env(
+            "KUAYLE_CACHE_DIR",
+            home.path().join(".cache").join("kuayle"),
+        )
         .env("KUAYLE_URL", server_uri)
         .env("KUAYLE_CREDENTIAL_STORE", "file");
     cmd
@@ -54,6 +62,14 @@ fn auth_status_not_logged_in() {
     cmd.env("HOME", home.path())
         .env("XDG_CONFIG_HOME", home.path().join(".config"))
         .env("XDG_CACHE_HOME", home.path().join(".cache"))
+        .env(
+            "KUAYLE_CONFIG_DIR",
+            home.path().join(".config").join("kuayle"),
+        )
+        .env(
+            "KUAYLE_CACHE_DIR",
+            home.path().join(".cache").join("kuayle"),
+        )
         .env("KUAYLE_CREDENTIAL_STORE", "file")
         .arg("auth")
         .arg("status")
@@ -193,6 +209,14 @@ async fn auth_logout_removes_session() {
     cmd.env("HOME", home.path())
         .env("XDG_CONFIG_HOME", home.path().join(".config"))
         .env("XDG_CACHE_HOME", home.path().join(".cache"))
+        .env(
+            "KUAYLE_CONFIG_DIR",
+            home.path().join(".config").join("kuayle"),
+        )
+        .env(
+            "KUAYLE_CACHE_DIR",
+            home.path().join(".cache").join("kuayle"),
+        )
         .env("KUAYLE_CREDENTIAL_STORE", "file")
         .arg("auth")
         .arg("status");
@@ -244,6 +268,14 @@ async fn whoami_not_logged_in_fails() {
     cmd.env("HOME", home.path())
         .env("XDG_CONFIG_HOME", home.path().join(".config"))
         .env("XDG_CACHE_HOME", home.path().join(".cache"))
+        .env(
+            "KUAYLE_CONFIG_DIR",
+            home.path().join(".config").join("kuayle"),
+        )
+        .env(
+            "KUAYLE_CACHE_DIR",
+            home.path().join(".cache").join("kuayle"),
+        )
         .env("KUAYLE_CREDENTIAL_STORE", "file")
         .arg("whoami");
 
@@ -501,6 +533,14 @@ workspace = "acme"
     cmd.env("HOME", home.path())
         .env("XDG_CONFIG_HOME", home.path().join(".config"))
         .env("XDG_CACHE_HOME", home.path().join(".cache"))
+        .env(
+            "KUAYLE_CONFIG_DIR",
+            home.path().join(".config").join("kuayle"),
+        )
+        .env(
+            "KUAYLE_CACHE_DIR",
+            home.path().join(".cache").join("kuayle"),
+        )
         .env("KUAYLE_CREDENTIAL_STORE", "file")
         .args(["workspaces", "list", "--format", "human"]);
 
@@ -549,6 +589,14 @@ async fn json_error_output_on_auth_failure() {
     cmd.env("HOME", home.path())
         .env("XDG_CONFIG_HOME", home.path().join(".config"))
         .env("XDG_CACHE_HOME", home.path().join(".cache"))
+        .env(
+            "KUAYLE_CONFIG_DIR",
+            home.path().join(".config").join("kuayle"),
+        )
+        .env(
+            "KUAYLE_CACHE_DIR",
+            home.path().join(".cache").join("kuayle"),
+        )
         .env("KUAYLE_CREDENTIAL_STORE", "file")
         .env("KUAYLE_URL", server.uri())
         .args(["whoami", "--format", "json"]);

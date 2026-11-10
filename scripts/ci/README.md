@@ -35,7 +35,7 @@ advances. Product checks and images continue to verify the recorded PR head.
 | Shared terminal, checkout and shell scripts | IDE and headless images; backend tests and Docker lifecycle. |
 | Shared npm security patch/cache tests | IDE, headless and all three provider images; backend tests and Docker lifecycle. |
 | `devmachine/security/` | Backend and Docker lifecycle checks for host policy; no independent image build. |
-| `CLI/` (Rust CLI and SDK, installers, `deny.toml`) | CLI Checks (`fmt`, `clippy -D warnings` for source and release features, tests, installer tests) and CLI Security Scan (`cargo deny`: RustSec advisories, licenses, bans, sources). No image consumes the CLI. `CLI/README.md` follows the documentation rule. |
+| `CLI/` (Rust CLI and SDK, installers, `deny.toml`) | CLI Checks on Linux and Windows (`fmt`, `clippy -D warnings` for source and release features, tests; installer tests on Linux) and CLI Security Scan (`cargo deny`: RustSec advisories, licenses, bans, sources). No image consumes the CLI. `CLI/README.md` follows the documentation rule. |
 | `selfhosting/` scripts and configuration | Update-recovery and profile-preflight tests only; no image is built from these files. |
 | `selfhosting/image_smoke_test.py` | Also all three application images' readiness, which runs this smoke test. |
 | `.github/workflows/`, `.github/actions/`, CI helpers, shared root configuration and unmapped inputs | Broad verification. Workflow/helper edits exercise the routing tests and actionlint as well. |

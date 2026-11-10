@@ -306,12 +306,19 @@ jobs:
           bash selfhosting/profile_preflight_test.sh
 
   cli-check:
-    name: CLI Checks
+    name: CLI Checks (${{ matrix.os }})
     needs: changes
     if: ${{ fromJSON(needs.changes.outputs.plan).cli }}
-    runs-on: ubuntu-latest
+    # Windows too: config and credential paths differ there, and releases
+    # ship a Windows binary.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
+        shell: bash
         working-directory: ./CLI
     steps:
       - uses: actions/checkout@v7.0.0
@@ -328,6 +335,7 @@ jobs:
       - name: Build and test
         run: cargo test --locked --features binary-release
       - name: Test the installer
+        if: runner.os == 'Linux'
         run: sh scripts/install_test.sh
 
   result:

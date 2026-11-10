@@ -86,7 +86,9 @@ pub fn check_version(current: &str) {
 }
 
 fn version_cache_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("kuayle").join("version-check"))
+    crate::config::config_dir()
+        .ok()
+        .map(|d| d.join("version-check"))
 }
 
 #[derive(Debug, Clone, Deserialize)]

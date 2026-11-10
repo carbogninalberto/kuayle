@@ -168,10 +168,27 @@ pub fn config_path() -> Result<PathBuf, String> {
 
 /// Compute the kuayle config directory: `~/.config/kuayle/`.
 /// 计算 kuayle 配置目录：`~/.config/kuayle/`。
+/// KUAYLE_CONFIG_DIR replaces it (portable installs, CI, tests: on Windows
+/// the OS config folder ignores HOME and XDG variables).
 pub fn config_dir() -> Result<PathBuf, String> {
+    if let Some(dir) = env_dir("KUAYLE_CONFIG_DIR") {
+        return Ok(dir);
+    }
     dirs::config_dir()
         .map(|d| d.join("kuayle"))
         .ok_or_else(|| "could not determine config directory".to_string())
+}
+
+/// The cache directory (name lookups): the OS cache folder's `kuayle`, or
+/// KUAYLE_CACHE_DIR.
+pub fn cache_dir() -> Option<PathBuf> {
+    env_dir("KUAYLE_CACHE_DIR").or_else(|| dirs::cache_dir().map(|d| d.join("kuayle")))
+}
+
+fn env_dir(var: &str) -> Option<PathBuf> {
+    std::env::var_os(var)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
 }
 
 /// Compute the credential store directory: `~/.config/kuayle/credentials/`.
