@@ -15,7 +15,10 @@ type IssueHistory struct {
 	OldValue *string   `json:"old_value" db:"old_value"`
 	NewValue *string   `json:"new_value" db:"new_value"`
 	// Agent names the harness or assistant that acted for the user, if any.
-	Agent     *string   `json:"agent,omitempty" db:"agent"`
+	Agent *string `json:"agent,omitempty" db:"agent"`
+	// AgentName is the agent identity (an assigned or mentioned agent) that
+	// acted for the user, when the change came from its task.
+	AgentName *string   `json:"agent_name,omitempty" db:"agent_name"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 

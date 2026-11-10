@@ -944,6 +944,92 @@ access stops its unattended runs.
 - `POST /agent-automation-runs/:id/approve|dismiss` is open to the rule owner
   or an administrator.
 
+## Agents as issue assignees
+
+Migration 139 makes an agent profile a member that can be assigned issues and
+mentioned in comments (KUA-107). It adds no second execution path: assigning or
+mentioning an agent creates a task through `AgentTaskService.Create`, in the
+acting member's own issue conversation, exactly as chat delegation and
+automations do.
+
+**Identity.** An agent identity is an active `agent_profiles` row; its ID is the
+profile's. `agent_identities` holds the avatar colour, and
+`agent_team_policies` the teams where the agent can be assigned and mentioned.
+A team without an `assignable` row does not offer the agent, so agents are
+opt-in per team. Only current owners and administrators change either table,
+re-checked in the writing transaction. `GET /agents` also reports whether the
+workspace's machine policy lets each agent's harness and model run now.
+
+**Permissions.** An agent holds none. Its task's creator is the member who
+assigned or mentioned it, so every step runs under that member's current
+workspace role, team visibility, machine policy and credentials, re-checked by
+the worker as for any task. A guest cannot assign, unassign or mention an
+agent; a member who cannot see the issue's team cannot either. The routes are
+session-only: a personal access token never puts an agent to work.
+
+**Assignment.** `issue_agent_assignees` is one row per (issue, agent), beside
+`issue_assignees`, which stays people-only. `PUT /issues/:identifier/agents`
+with `{agent_ids}` replaces the set in one transaction that locks the issue,
+refuses a guest (`AGENT_ASSIGN_FORBIDDEN`) or an agent that is archived, from
+another workspace or not enabled for the issue's team (`AGENT_NOT_ASSIGNABLE`),
+and records an `agent_assignees` history entry. A refusal changes nothing.
+
+Each added agent then starts a task as the assigner. The task stores
+`agent_profile_id` and takes its harness, model and effort from the profile.
+The profile's instructions join the inherited project instructions, and its
+skills and profile files are given as for a workflow step. It follows the
+built-in flow (implement, validate, publish, await review), not the issue's
+default workflow, whose first step would otherwise replace the agent. The
+assignment's `request_id` makes the start idempotent. A refusal that cannot
+succeed as things are (agents disabled, provider not allowed, the assigner lost
+access, the team policy switched off) is recorded on the assignment as `error`.
+A transient failure is retried by a worker every 20 seconds.
+
+**Unassignment.** Removing an agent cancels its task when the task is still
+working: `queued`, `preparing`, `running`, `waiting_input`, `validating`,
+`publishing`, `blocked` or `failed`. Cancellation is the normal `cancelling`
+transition, recorded with the member who unassigned as its actor, so the
+runtime is stopped and cleaned up as for a cancelled task. A task
+`awaiting_review` keeps its pull request and stays reviewable, and a finished
+task is left as it is. The task lifecycle has no "stop after the current
+attempt" state, which is why unassignment cancels instead. The web app asks
+before unassigning an agent whose task would be cancelled.
+
+**Mentions.** A comment posted in a signed-in session that @mentions an agent
+enabled for the issue's team is delivered once the comment is saved:
+
+- no open task of that agent on the issue: a task starts for the commenter
+  with the comment as its request, fenced as text; the agent is not assigned;
+- an open task the commenter started: the comment is queued on its
+  [live channel](#live-channel); a task `awaiting_review` is left to the
+  [comment follow-up](#kuayle-issue-comments), which already starts an attempt;
+- an open task someone else started: nothing is sent, because that task
+  carries its creator's permissions and credentials.
+
+Comments from tokens, the assistant and agents never reach a mentioned agent.
+
+**Status and history.** Issue responses carry `agent_assignees`, each with the
+assigner and the task's state and reason, so the agent shows as an assignee to
+everyone who can see the issue. A workspace event `issue.agents_updated` with
+only the issue ID follows every assignment change and every state change of a
+task that runs as an agent; clients reload the issue's agents under their own
+access. History rows written by such a task set `agent_profile_id`, and the
+history API returns `agent_name`: the entry reads as the agent acting on behalf
+of the row's user.
+
+**Lists.** The `assignee` list filter accepts an agent ID as well as a user ID,
+and `none` means no person and no agent. `agent_assigned_by` keeps issues with
+an agent the given user assigned. Grouping by assignee orders people first,
+then issues assigned only to agents, then unassigned ones.
+
+- `GET /agents` lists agents for non-guest members; `PUT /agents/:agentId`
+  (`{avatar_color, team_ids}`) is administrator-only.
+- `GET /issues/:identifier/agents` and `PUT /issues/:identifier/agents`.
+
+Not built yet: choosing agents in the create-issue dialog, bulk actions and
+issue templates; assigning from tokens, the MCP server or the assistant; an
+agent's own page listing its work.
+
 ## App ports and QA
 
 Migration 71 adds an inherited preview setting: an argv command and a port,

@@ -629,6 +629,14 @@ transaction. Agent reviews of a published pull request run only when requested
 from chat, as separate review tasks that never validate, publish or receive a
 push credential; see [requested agent reviews](BE/docs/agent-tasks.md#requested-agent-reviews).
 
+Agent profiles are also members ([agents as issue assignees](BE/docs/agent-tasks.md#agents-as-issue-assignees),
+migration 139): an issue can be assigned to an agent beside people, and an agent
+can be @mentioned in a comment, in the teams an administrator enables
+(`agent_team_policies`). Assigning starts a task through the delegation path as
+the assigning member, so the agent never has more permissions than that member;
+unassigning cancels a task that is still working. `issue_agent_assignees` sits
+beside the people-only `issue_assignees`.
+
 Agents of related tasks can [message each other](BE/docs/agent-tasks.md#agent-messaging)
 (migration 88): they write `.kuayle/outbox/*.json` files in their worktree, which
 the manager takes during its port scan and at the end of each attempt; the API

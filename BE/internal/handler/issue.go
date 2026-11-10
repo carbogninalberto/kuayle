@@ -26,7 +26,18 @@ type IssueHandler struct {
 	teamStatusRepo repository.TeamStatusRepo
 	projectRepo    repository.ProjectRepo
 	cycleRepo      repository.CycleRepo
+	// agents adds assigned AI agents to issue responses; nil adds none.
+	agents issueAgents
 }
+
+// issueAgents is the agent assignee service, as issue responses use it.
+type issueAgents interface {
+	ForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]domain.IssueAgentAssignee, error)
+	AgentNames(ctx context.Context, ws uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
+// SetAgentAssignees makes issue responses carry their assigned AI agents.
+func (h *IssueHandler) SetAgentAssignees(agents issueAgents) { h.agents = agents }
 
 type userBatchRepo interface {
 	ListByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]domain.User, error)
@@ -52,6 +63,7 @@ func (h *IssueHandler) List(c *echo.Context) error {
 	}{
 		{"assignee", params.AssigneeID, true},
 		{"creator", params.CreatorID, false},
+		{"agent_assigned_by", params.AgentAssignedBy, false},
 		{"team", params.TeamID, false},
 		{"project", params.ProjectID, true},
 		{"cycle", params.CycleID, true},
@@ -87,6 +99,10 @@ func (h *IssueHandler) List(c *echo.Context) error {
 	}
 	labelsMap, _ := h.issueSvc.GetLabelsForIssues(ctx, issueIDs)
 	assigneesMap, _ := h.issueSvc.GetAssigneesForIssues(ctx, issueIDs)
+	agentsMap := map[uuid.UUID][]domain.IssueAgentAssignee{}
+	if h.agents != nil {
+		agentsMap, _ = h.agents.ForIssues(ctx, issueIDs)
+	}
 	subscribedIssueIDs, _ := h.issueSvc.GetSubscribedIssueIDs(ctx, issueIDs, middleware.GetUserID(c))
 	subIssueCounts, _ := h.issueSvc.CountSubIssuesForIssues(ctx, issueIDs)
 	usersMap := h.usersForIssueList(ctx, issues, assigneesMap)
@@ -136,6 +152,8 @@ func (h *IssueHandler) List(c *echo.Context) error {
 				}
 			}
 		}
+
+		resp.AgentAssignees = agentsMap[issue.ID]
 
 		// Populate status_info from batch
 		if issue.StatusID != nil {
@@ -621,6 +639,7 @@ func (h *IssueHandler) toIssueHistoryResponse(ctx context.Context, entry domain.
 		OldDisplayValue: h.historyDisplayValue(ctx, entry.Field, entry.OldValue),
 		NewDisplayValue: h.historyDisplayValue(ctx, entry.Field, entry.NewValue),
 		Agent:           entry.Agent,
+		AgentName:       entry.AgentName,
 		CreatedAt:       entry.CreatedAt,
 	}
 }
@@ -705,6 +724,30 @@ func (h *IssueHandler) historyDisplayValue(ctx context.Context, field string, va
 			return stringPtr("None")
 		}
 		return stringPtr(strings.Join(names, ", "))
+	case "agent_assignees":
+		access, ok := domain.AccessFromContext(ctx)
+		if h.agents == nil || !ok {
+			return value
+		}
+		var ids []uuid.UUID
+		for _, part := range strings.Split(raw, ",") {
+			if id, err := uuid.Parse(strings.TrimSpace(part)); err == nil {
+				ids = append(ids, id)
+			}
+		}
+		known, _ := h.agents.AgentNames(ctx, access.WorkspaceID, ids)
+		names := make([]string, 0, len(ids))
+		for _, id := range ids {
+			if name, ok := known[id]; ok {
+				names = append(names, name)
+			} else {
+				names = append(names, "Deleted agent")
+			}
+		}
+		if len(names) == 0 {
+			return stringPtr("None")
+		}
+		return stringPtr(strings.Join(names, ", "))
 	case "status", "status_id":
 		if id, err := uuid.Parse(raw); err == nil {
 			status, _ := h.teamStatusRepo.GetByID(ctx, id)
@@ -769,6 +812,12 @@ func (h *IssueHandler) enrichIssueResponse(ctx context.Context, resp *dto.IssueR
 					AvatarURL:   user.AvatarURL,
 				})
 			}
+		}
+	}
+
+	if h.agents != nil {
+		if agents, err := h.agents.ForIssues(ctx, []uuid.UUID{issue.ID}); err == nil {
+			resp.AgentAssignees = agents[issue.ID]
 		}
 	}
 

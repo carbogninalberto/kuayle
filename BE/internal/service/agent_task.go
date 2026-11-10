@@ -145,6 +145,22 @@ func (s *AgentTaskService) process(ctx context.Context, task domain.AgentTask) {
 	if releaseErr := s.store.Release(finalCtx, task); releaseErr != nil && !errors.Is(releaseErr, repository.ErrAgentTaskConflict) {
 		log.WithField("task_id", task.ID).Error("Could not release agent task lease")
 	}
+	s.announceAgentStatus(finalCtx, task)
+}
+
+// announceAgentStatus tells clients that the task of an agent identity (an
+// assigned or mentioned agent) changed state, so issue views show its live
+// status. The event carries only the issue ID; clients re-read the issue's
+// agents under their own access.
+func (s *AgentTaskService) announceAgentStatus(ctx context.Context, task domain.AgentTask) {
+	if task.AgentProfileID == nil || s.events == nil || s.Repo == nil {
+		return
+	}
+	state, reason, err := s.Repo.TaskStatus(ctx, task.ID)
+	if err != nil || (state == task.State && reason == task.Reason) {
+		return
+	}
+	s.events.Broadcast(task.WorkspaceID, realtime.Event{Type: "issue.agents_updated", Payload: map[string]string{"issue_id": task.IssueID.String()}})
 }
 
 // unvalidatedPublishingReason marks a publication that follows a skipped
@@ -921,3 +937,9 @@ func (s *AgentTaskService) profilePolicy(ctx context.Context, ws uuid.UUID, prof
 
 // Workflow returns the runner, or nil when workflows are not wired.
 func (s *AgentTaskService) Workflow() *WorkflowRunner { return s.workflow }
+
+// ProfilePolicy reports why the workspace's machine policy does not let the
+// profile's harness and model run now, or nil.
+func (s *AgentTaskService) ProfilePolicy(ctx context.Context, ws uuid.UUID, profile domain.AgentProfile) error {
+	return s.profilePolicy(ctx, ws, profile)
+}

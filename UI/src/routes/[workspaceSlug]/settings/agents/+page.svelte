@@ -13,6 +13,7 @@
 	import AgentModelDefaultsCard from '$lib/features/agents/AgentModelDefaultsCard.svelte';
 	import AgentSignInsCard from '$lib/features/agents/AgentSignInsCard.svelte';
 	import AgentProfilesCard from '$lib/features/workflows/AgentProfilesCard.svelte';
+	import AgentIdentitiesCard from '$lib/features/agents/AgentIdentitiesCard.svelte';
 	import { m } from '$lib/features/i18n/messages';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -75,6 +76,7 @@
 		<ModelServersCard {slug} {canAdmin} />
 		<AgentModelDefaultsCard {slug} {canAdmin} />
 		<AgentProfilesCard {slug} />
+		<AgentIdentitiesCard {slug} />
 		<CodingAgentsCard {policy} {canAdmin} {saving} onchange={saveAgents} />
 		<AgentSignInsCard {slug} />
 	</div>

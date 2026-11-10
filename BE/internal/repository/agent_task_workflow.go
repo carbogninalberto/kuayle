@@ -831,27 +831,36 @@ func (r *AgentTaskRepository) ScopeInstructions(ctx context.Context, task domain
 // enabled skills shared with the whole workspace are given, so a skill turned
 // off or moved to a team after it was attached never reaches the agent.
 func (r *AgentTaskRepository) ProfileBundle(ctx context.Context, task domain.AgentTask) (*domain.AgentProfileBundle, error) {
-	if !task.RunsWorkflow() || task.WorkflowNode == nil {
-		return nil, nil
+	// A task run as an agent identity (an assigned or mentioned agent) uses
+	// that profile; a workflow task uses its current step's.
+	profileID := task.AgentProfileID
+	if task.RunsWorkflow() {
+		if task.WorkflowNode == nil {
+			return nil, nil
+		}
+		var raw json.RawMessage
+		err := r.db.GetContext(ctx, &raw, `SELECT graph FROM workflow_versions WHERE id=$1 AND workspace_id=$2`, task.WorkflowVersionID, task.WorkspaceID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		var graph domain.WorkflowGraph
+		if err = json.Unmarshal(raw, &graph); err != nil {
+			return nil, err
+		}
+		node, ok := graph.Node(*task.WorkflowNode)
+		if !ok {
+			return nil, nil
+		}
+		profileID = node.ProfileID
 	}
-	var raw json.RawMessage
-	err := r.db.GetContext(ctx, &raw, `SELECT graph FROM workflow_versions WHERE id=$1 AND workspace_id=$2`, task.WorkflowVersionID, task.WorkspaceID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var graph domain.WorkflowGraph
-	if err = json.Unmarshal(raw, &graph); err != nil {
-		return nil, err
-	}
-	node, ok := graph.Node(*task.WorkflowNode)
-	if !ok || node.ProfileID == nil {
+	if profileID == nil {
 		return nil, nil
 	}
 	var profile domain.AgentProfile
-	err = r.db.GetContext(ctx, &profile, `SELECT * FROM agent_profiles WHERE id=$1 AND workspace_id=$2`, *node.ProfileID, task.WorkspaceID)
+	err := r.db.GetContext(ctx, &profile, `SELECT * FROM agent_profiles WHERE id=$1 AND workspace_id=$2`, *profileID, task.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

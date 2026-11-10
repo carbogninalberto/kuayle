@@ -2,6 +2,8 @@ import type { Issue, IssueStatus, IssuePriority, CreateIssueRequest, UpdateIssue
 import * as issueApi from '$lib/api/issues';
 import { preferencesState, type GroupByField } from '$lib/features/preferences/preferences.state.svelte';
 import type { StatusCategory } from '$lib/types/team-status';
+import type { IssueAgentAssignee } from '$lib/api/agents';
+import { assigneeGroup } from '$lib/features/agents/agent-assignees';
 
 export type { GroupByField } from '$lib/features/preferences/preferences.state.svelte';
 
@@ -68,8 +70,8 @@ class IssuesState {
 					label = key;
 					break;
 				case 'assignee':
-					key = issue.assignee_id ?? 'unassigned';
-					label = issue.assignee?.name ?? key;
+					// People first; an issue assigned only to agents groups under its agent.
+					({ key, label } = assigneeGroup(issue));
 					break;
 				case 'project':
 					key = issue.project_id ?? 'no-project';
@@ -305,6 +307,17 @@ class IssuesState {
 		this.totalCount--;
 		if (this.selectedIssue?.identifier === identifier) {
 			this.selectedIssue = null;
+		}
+	}
+
+	/** Replaces the agents shown on a loaded issue after they changed. */
+	setAgentAssignees(identifier: string, agents: IssueAgentAssignee[]) {
+		const idx = this.issues.findIndex((i) => i.identifier === identifier);
+		if (idx >= 0) {
+			this.issues[idx] = { ...this.issues[idx], agent_assignees: agents };
+		}
+		if (this.selectedIssue?.identifier === identifier) {
+			this.selectedIssue = { ...this.selectedIssue, agent_assignees: agents };
 		}
 	}
 

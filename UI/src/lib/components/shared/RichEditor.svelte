@@ -79,9 +79,11 @@
 		uploadUrl,
 		workspaceSlug = '',
 		members = [],
+		agents = [],
 		issues = [],
 		remoteCursors,
 		onfocus: onFocusProp,
+		onmentionstart,
 		onblur: onBlurProp,
 		oncursorchange,
 		oncreateissue,
@@ -104,8 +106,12 @@
 		uploadUrl?: string;
 		workspaceSlug?: string;
 		members?: WorkspaceMember[];
+		/** AI agents that can be @mentioned here (issue comments). */
+		agents?: { id: string; name: string; harness: string }[];
 		issues?: Issue[];
 		remoteCursors?: Array<{ name: string; color: string; position: number; anchor?: number }>;
+		/** Called when an @mention starts, to load what can be mentioned. */
+		onmentionstart?: () => void;
 		onfocus?: () => void;
 		onblur?: () => void;
 		oncursorchange?: (position: number, anchor: number) => void;
@@ -156,7 +162,12 @@
 			status_color: i.status_info?.color ?? null
 		}));
 
-		if (!q) return [...userItems.slice(0, 6), ...issueItems.slice(0, 4)];
+		const agentItems = agents
+			.map((a) => ({ kind: 'agent' as const, id: a.id, name: a.name, harness: a.harness }))
+			.filter((a) => !q || a.name.toLowerCase().includes(q) || 'agent'.startsWith(q))
+			.slice(0, 4);
+
+		if (!q) return [...userItems.slice(0, 6), ...agentItems, ...issueItems.slice(0, 4)];
 
 		const filteredUsers = userItems.filter(
 			(u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
@@ -165,7 +176,7 @@
 			(i) => i.identifier.toLowerCase().includes(q) || i.title.toLowerCase().includes(q)
 		).slice(0, 4);
 
-		return [...filteredUsers, ...filteredIssues];
+		return [...filteredUsers, ...agentItems, ...filteredIssues];
 	});
 
 	const lowlight = createLowlight(common);
@@ -646,6 +657,7 @@
 
 		const mentionPlugin = createMentionPlugin({
 			onStateChange(state) {
+				if (state.active && !mentionActive) onmentionstart?.();
 				mentionActive = state.active;
 				mentionQuery = state.query;
 				mentionPosition = { x: state.x, y: state.y };
@@ -968,6 +980,8 @@
 		if (!item || !editor || !mentionRange) return;
 		const attrs = item.kind === 'user'
 			? { id: item.id, label: item.name || item.email, kind: 'user' }
+			: item.kind === 'agent'
+			? { id: item.id, label: item.name, kind: 'agent' }
 			: { id: item.id, label: `${item.identifier} ${item.title}`, kind: 'issue', identifier: item.identifier };
 		editor.chain().focus()
 			.deleteRange({ from: mentionRange.from, to: mentionRange.to })
@@ -1143,7 +1157,7 @@
 	{/if}
 
 	<!-- Mention menu -->
-	{#if mentionActive && editor && (members.length > 0 || issues.length > 0)}
+	{#if mentionActive && editor && (members.length > 0 || issues.length > 0 || agents.length > 0)}
 		<MentionList
 			items={mentionFilteredItems}
 			selectedIndex={mentionSelectedIndex}

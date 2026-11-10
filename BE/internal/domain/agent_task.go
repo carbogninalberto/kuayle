@@ -77,6 +77,9 @@ type AgentTask struct {
 	// pull request of ReviewOfTaskID and never validates or publishes.
 	Kind           string     `json:"kind" db:"kind"`
 	ReviewOfTaskID *uuid.UUID `json:"review_of_task_id,omitempty" db:"review_of_task_id"`
+	// AgentProfileID is the agent identity the task runs as (an assigned or
+	// mentioned agent); nil for delegations and workflow tasks.
+	AgentProfileID *uuid.UUID `json:"agent_profile_id,omitempty" db:"agent_profile_id"`
 
 	// WorkflowVersionID pins the configurable workflow the task runs; nil
 	// runs the built-in Standard flow. The cursor fields are the durable
@@ -172,6 +175,10 @@ type AgentTaskRequest struct {
 	// agent step's profile and step instructions; the service sets them.
 	Workflow             *WorkflowVersion `json:"-"`
 	WorkflowInstructions string           `json:"-"`
+	// AgentProfile makes the task run as that agent identity: the built-in
+	// flow with the profile's harness, model, instructions and skills. Only
+	// services set it; it is never decoded from a request.
+	AgentProfile *AgentProfile `json:"-"`
 }
 
 type AgentTaskRetryRequest struct {

@@ -230,6 +230,14 @@ func main() {
 	agentMessageH := handler.NewAgentMessageHandler(agentMessageSvc)
 	automationSvc := service.NewAgentAutomationService(repository.NewAgentAutomationRepository(db), conversationSvc.Repo, agentTaskSvc, notifSvc, hub)
 	agentAutomationH := handler.NewAgentAutomationHandler(automationSvc)
+	// AI agents as issue assignees (KUA-107): assignments and mentions start
+	// tasks through the same task service as delegation and automations.
+	agentAssigneeSvc := service.NewAgentAssigneeService(repository.NewAgentAssigneeRepository(db), conversationSvc.Repo, agentTaskSvc, agentTaskSvc.Repo, agentTaskSvc, hub)
+	agentAssigneeSvc.SetMachinePolicy(agentTaskSvc.ProfilePolicy)
+	agentAssigneeSvc.SetProfileSeeder(workflowRepo)
+	commentSvc.SetAgentMentions(agentAssigneeSvc)
+	issueH.SetAgentAssignees(agentAssigneeSvc)
+	agentAssigneeH := handler.NewAgentAssigneeHandler(agentAssigneeSvc, issueSvc)
 	telegramSvc := service.NewTelegramService(repository.NewTelegramRepository(db), workspaceRepo, aiSettingsSvc, crypto.DeriveKey(cfg.JWTSecret+":telegram"), cfg.FrontendURL)
 	if err := telegramSvc.SetWebhookURL(cfg.TelegramWebhookURL); err != nil {
 		log.Fatal(err)
@@ -389,6 +397,7 @@ func main() {
 		agentTask:         agentTaskH,
 		workflow:          workflowH,
 		agentAutomation:   agentAutomationH,
+		agentAssignee:     agentAssigneeH,
 		agentMessage:      agentMessageH,
 		telegram:          telegramH,
 		voice:             voiceH,
@@ -425,6 +434,7 @@ func main() {
 	go wikiSvc.RunOverviewSchedules(conversationCtx)
 	go agentMessageSvc.Run(conversationCtx, 10*time.Second)
 	go automationSvc.Run(conversationCtx)
+	go agentAssigneeSvc.Run(conversationCtx)
 	go githubSvc.RunMergeReconciliation(conversationCtx, 2*time.Minute)
 	// Replay markers of GitHub webhook deliveries expire after a few days.
 	go githubSvc.RunWebhookDeliveryCleanup(conversationCtx, time.Hour)

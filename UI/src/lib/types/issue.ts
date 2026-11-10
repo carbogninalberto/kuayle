@@ -2,6 +2,7 @@ import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 import type { Label } from './label';
 import type { User } from './auth';
+import type { IssueAgentAssignee } from '$lib/api/agents';
 
 export type IssueStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'cancelled';
 export type IssuePriority = 0 | 1 | 2 | 3 | 4;
@@ -35,6 +36,8 @@ export interface Issue {
 	creator?: User;
 	assignee?: User;
 	assignees?: User[];
+	/** AI agents assigned to the issue, with their task's live state. */
+	agent_assignees?: IssueAgentAssignee[];
 	parent?: IssueSummary;
 	sub_issue_count?: number;
 	sub_issue_done?: number;
@@ -113,6 +116,8 @@ export interface IssueHistory {
 	old_display_value?: string | null;
 	new_display_value?: string | null;
 	agent?: string | null;
+	/** The agent identity that acted for the user, when its task made the change. */
+	agent_name?: string | null;
 	created_at: string;
 }
 

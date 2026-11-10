@@ -10,6 +10,9 @@
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import type { GroupByField } from './issues.state.svelte';
 	import { ChevronDown, ChevronRight, User, Plus } from '@lucide/svelte';
+	import AgentAvatar from '$lib/features/agents/AgentAvatar.svelte';
+	import { groupAgentId } from '$lib/features/agents/agent-assignees';
+	import { agentIdentities } from '$lib/features/agents/agent-identities.state.svelte';
 
 	let {
 		groupKey,
@@ -45,6 +48,8 @@
 				return getPriorityLabel(Number(groupKey) as IssuePriority) ?? groupKey;
 			case 'assignee': {
 				if (groupKey === 'unassigned') return m['sharedComponents.filter_builder.unassigned']();
+				const agentId = groupAgentId(groupKey);
+				if (agentId) return m['sharedComponents.filter_builder.agent_suffix']({ name: agentIdentities.byId(agentId)?.name ?? groupLabel ?? agentId });
 				const member = members.find((m) => m.user_id === groupKey);
 				return member ? member.name || member.email : groupKey;
 			}
@@ -75,7 +80,9 @@
 		{:else if groupBy === 'priority'}
 			<IssuePriorityIcon priority={Number(groupKey) as IssuePriority} size={14} />
 		{:else if groupBy === 'assignee'}
-			{#if groupKey !== 'unassigned'}
+			{#if groupAgentId(groupKey)}
+				<AgentAvatar name={label} color={agentIdentities.byId(groupAgentId(groupKey) ?? '')?.avatar_color} size={16} />
+			{:else if groupKey !== 'unassigned'}
 				<div
 					class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-[var(--app-accent-foreground)]"
 				>

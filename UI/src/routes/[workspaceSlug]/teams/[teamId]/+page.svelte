@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { assigneeGroup, groupAgentId } from '$lib/features/agents/agent-assignees';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
@@ -198,7 +199,7 @@
 			case 'priority':
 				return String(issue.priority);
 			case 'assignee':
-				return issue.assignee_id ?? 'unassigned';
+				return assigneeGroup(issue).key;
 			case 'project':
 				return issue.project_id ?? 'no-project';
 			default:
@@ -274,6 +275,10 @@
 		const field = fieldMap[gb];
 		if (!field) return;
 
+		// Dropping into an agent's group does not assign the agent: that starts
+		// a task, which the assignee picker does explicitly.
+		if (!isSameGroup && gb === 'assignee' && groupAgentId(groupKey)) return;
+
 		const req: Record<string, any> = {};
 		if (!isSameGroup) {
 			let value: any = groupKey;
@@ -315,7 +320,7 @@
 		} else if (gb === 'priority') {
 			quickAddDefaults = { priority: Number(groupKey) as IssuePriority };
 		} else if (gb === 'assignee') {
-			quickAddDefaults = { assigneeIds: groupKey === 'unassigned' ? [] : [groupKey] };
+			quickAddDefaults = { assigneeIds: groupKey === 'unassigned' || groupAgentId(groupKey) ? [] : [groupKey] };
 		}
 		showCreateIssue = true;
 	}

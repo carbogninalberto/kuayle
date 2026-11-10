@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { agentName } from './history-agent';
+	import { historyActor } from './history-agent';
 	import OpenIssueChatButton from '$lib/features/assistant/OpenIssueChatButton.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -133,6 +133,7 @@
 		switch (field) {
 			case 'assignee_id': return 'assignee';
 			case 'assignees': return 'assignees';
+			case 'agent_assignees': return m['issue.history.agent_assignees']();
 			case 'due_date': return 'due date';
 			case 'parent_id': return 'parent';
 			case 'project_id': return 'project';
@@ -302,7 +303,10 @@
 											<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(entry.field, entry.new_value, entry.new_display_value)}</code>
 										{/if}
 									{/if}
-									{#if entry.agent}<span class="text-[var(--color-text-secondary)]">{m['issue.via_agent']({ agent: agentName(entry.agent) })}</span>{/if}
+									{#if historyActor(entry, members)}
+										{@const actor = historyActor(entry, members)}
+										{#if actor}<span class="text-[var(--color-text-secondary)]">{actor.kind === 'identity' ? m['issue.by_agent_for']({ agent: actor.agent, user: actor.user }) : m['issue.via_agent']({ agent: actor.agent })}</span>{/if}
+									{/if}
 									<span class="text-[var(--color-text-tertiary)]">&middot;</span>
 									<span>{formatRelativeTime(entry.created_at, getLocale())}</span>
 								</div>

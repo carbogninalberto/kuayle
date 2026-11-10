@@ -53,7 +53,9 @@ func replayAgentTaskCreate(ctx context.Context, tx *sqlx.Tx, c *domain.Conversat
 	}
 	// A workflow task took its harness and model from the first agent step's
 	// profile, not from the request, so only the rest of the request compares.
-	sameAgent := accepted.WorkflowVersionID != nil || (accepted.Provider == input.Provider && accepted.Model == input.Model && accepted.Thinking == input.Thinking && sameUUIDPointer(accepted.ModelServerID, input.ModelServerID))
+	// A task run as an agent identity took them from that profile likewise.
+	sameProfile := (accepted.AgentProfileID == nil) == (input.AgentProfile == nil) && (input.AgentProfile == nil || *accepted.AgentProfileID == input.AgentProfile.ID)
+	sameAgent := sameProfile && (accepted.WorkflowVersionID != nil || accepted.AgentProfileID != nil || (accepted.Provider == input.Provider && accepted.Model == input.Model && accepted.Thinking == input.Thinking && sameUUIDPointer(accepted.ModelServerID, input.ModelServerID)))
 	if accepted.Prompt != strings.TrimSpace(input.Prompt) || !sameAgent || !sameAgentTaskCommand(accepted.TestCommand, input.TestCommand) {
 		return nil, ErrConversationConflict
 	}

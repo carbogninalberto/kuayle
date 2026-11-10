@@ -155,11 +155,20 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 	}
 	if params.AssigneeID != "" {
 		if params.AssigneeID == "none" {
-			where = append(where, "NOT EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = i.id)")
+			// Unassigned means no person and no agent.
+			where = append(where, "NOT EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = i.id)",
+				"NOT EXISTS (SELECT 1 FROM issue_agent_assignees iaa WHERE iaa.issue_id = i.id)")
 		} else {
-			where = append(where, "EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = i.id AND ia.user_id = :assignee_id)")
+			// The ID is a user's or an agent's (an agent profile); the two
+			// never collide.
+			where = append(where, `(EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = i.id AND ia.user_id = :assignee_id)
+				OR EXISTS (SELECT 1 FROM issue_agent_assignees iaa WHERE iaa.issue_id = i.id AND iaa.profile_id = :assignee_id))`)
 			args["assignee_id"] = params.AssigneeID
 		}
+	}
+	if params.AgentAssignedBy != "" {
+		where = append(where, "EXISTS (SELECT 1 FROM issue_agent_assignees iaa WHERE iaa.issue_id = i.id AND iaa.assigned_by = :agent_assigned_by)")
+		args["agent_assigned_by"] = params.AgentAssignedBy
 	}
 	if params.CreatorID != "" {
 		where = append(where, "i.creator_id = :creator_id")
@@ -358,7 +367,10 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 	case "priority":
 		orderParts = append(orderParts, "i.priority ASC")
 	case "assignee":
-		orderParts = append(orderParts, "i.assignee_id IS NULL ASC", "i.assignee_id ASC")
+		// People first, then issues assigned only to agents (grouped by the
+		// agent with the lowest ID, as clients do), then unassigned ones.
+		const firstAgent = "(SELECT min(CAST(iaa.profile_id AS text)) FROM issue_agent_assignees iaa WHERE iaa.issue_id = i.id)"
+		orderParts = append(orderParts, "i.assignee_id IS NULL ASC", "i.assignee_id ASC", firstAgent+" IS NULL ASC", firstAgent+" ASC")
 	case "project":
 		orderParts = append(orderParts, "i.project_id IS NULL ASC", "i.project_id ASC")
 	}
