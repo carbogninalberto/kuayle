@@ -17,6 +17,8 @@ tmp/
 
 # Environment
 .env
+.env.*
+!.env.example
 .dev.pids
 uploads/
 selfhosting/runtime/upgrading
