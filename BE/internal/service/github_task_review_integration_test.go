@@ -122,6 +122,9 @@ func TestCheckSuiteAndReviewWebhooksRecordTaskSignals(t *testing.T) {
 	recorder := &signalRecorder{}
 	svc := NewGitHubService(repo, repository.NewIssueRepository(db), nil, nil, nil, nil, nil, "https://kuayle.test", "", nil)
 	svc.SetTaskSignals(recorder)
+	svc.repositoryPermission = func(context.Context, *domain.GitHubInstallation, *domain.GitHubRepoModel, string) (string, error) {
+		return "write", nil
+	}
 	send := func(kind string, body map[string]any) {
 		body["repository"] = map[string]any{"id": linked.GitHubRepoID, "full_name": "attacker/other"}
 		body["installation"] = map[string]any{"id": inst.InstallationID}

@@ -38,6 +38,9 @@ func TestMentionOnPullRequestStartsOneReviewWhenEnabled(t *testing.T) {
 	svc := NewGitHubService(githubRepo, repository.NewIssueRepository(f.db), nil, nil, nil, nil, nil, "https://kuayle.test", "", &GlobalGitHubAppConfig{Slug: "kuayle-acme"})
 	svc.SetBotSettings(bot)
 	svc.SetMentionReviews(NewGitHubMentionReviews(work, f.repo, reviews))
+	svc.repositoryPermission = func(context.Context, *domain.GitHubInstallation, *domain.GitHubRepoModel, string) (string, error) {
+		return "write", nil
+	}
 
 	comment := func(id int64, number int, body, association, userType string) {
 		t.Helper()

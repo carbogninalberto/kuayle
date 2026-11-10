@@ -488,8 +488,11 @@ current task permissions, and the task card shows them in its execution details.
 While the task is `awaiting_review`, a CI `failure`/`timed_out` or a
 `changes_requested` review queues a follow-up attempt on the same branch through
 the existing retry path, acting as the task creator under their current
-permissions. Only reviewers with an `OWNER`, `MEMBER` or `COLLABORATOR`
-association can trigger one; other reviews are recorded as `untrusted`. Budgets
+permissions. Only reviewers who can push to the repository can trigger one:
+repository or organization owners, and members or collaborators whose `write`,
+`maintain` or `admin` permission GitHub confirms
+([details](github-integration.md#who-can-steer-an-agent-from-github)); other
+reviews are recorded as `untrusted`. Budgets
 are two automatic CI fixes and five review follow-ups per task; further signals
 are recorded as `budget_exhausted`. The follow-up keeps the original
 instructions, replaces any earlier follow-up section, and explains the failing
