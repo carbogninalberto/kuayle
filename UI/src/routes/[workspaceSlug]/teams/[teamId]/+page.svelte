@@ -21,7 +21,7 @@
 	import SaveViewDialog from '$lib/components/shared/SaveViewDialog.svelte';
 	import * as Popover from '$lib/components/ui/popover';
 	import { listTeams } from '$lib/api/teams';
-	import { getWorkspace } from '$lib/api/workspaces';
+	import { getCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
 	import { hasPermission } from '$lib/security/permissions';
 	import type { Role } from '$lib/security/roles';
 	import { listProjects } from '$lib/api/projects';
@@ -67,7 +67,12 @@
 	let collapsedGroups = $state<Set<string>>(new Set());
 	let loadedCollapsedScope = '';
 	let initializationId = 0;
-	let canManageViews = $state(false);
+	// The layout loads the workspace once. Visibility only; the API enforces view:manage.
+	const currentWorkspace = getCurrentWorkspace();
+	const canManageViews = $derived(
+		currentWorkspace.membership?.workspace.slug === slug &&
+			hasPermission(currentWorkspace.membership.workspace.current_user_role as Role, 'view:manage')
+	);
 	let lastSelectedId = $state<string | null>(null);
 	let dragOverGroup = $state<string | null>(null);
 	let dragSourceGroup = $state<string | null>(null);
@@ -103,14 +108,6 @@
 		const t = teamId;
 		if (!s || !t) return;
 		const currentInitialization = ++initializationId;
-		// Visibility only; the API enforces view:manage.
-		canManageViews = false;
-		void getWorkspace(s)
-			.then((workspace) => {
-				if (currentInitialization !== initializationId || s !== slug || t !== teamId) return;
-				canManageViews = hasPermission(workspace.current_user_role as Role, 'view:manage');
-			})
-			.catch(() => {});
 		void preferencesState
 			.syncRemote()
 			.then(() => {
