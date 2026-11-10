@@ -132,9 +132,12 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 }
 
 // RecordCommentSignal records a Kuayle issue comment as feedback on the
-// issue's latest task while it awaits review. Only current, non-guest members
-// who can see the issue may steer the agent; other comments are not recorded.
-// A comment is recorded once, and replaying it resumes the same request ID.
+// issue's latest task while it awaits review. Comments by current, non-guest
+// members who can see the issue are recorded; other comments are not. A
+// follow-up runs with the task creator's sign-in, GitHub access and secrets, so
+// only the creator's own comment queues one: anyone else's, admins included, is
+// recorded for the creator to act on and uses no budget. A comment is recorded
+// once, and replaying it resumes the same request ID.
 func (r *AgentTaskRepository) RecordCommentSignal(ctx context.Context, ws, issue, comment, author uuid.UUID, summary string) (*domain.AgentTaskFollowUp, error) {
 	var id uuid.UUID
 	err := r.db.GetContext(ctx, &id, `SELECT id FROM agent_tasks WHERE workspace_id=$1 AND issue_id=$2 AND kind='implement' ORDER BY created_at DESC,id LIMIT 1`, ws, issue)
@@ -166,8 +169,9 @@ func (r *AgentTaskRepository) RecordCommentSignal(ctx context.Context, ws, issue
 	}
 	signal := &domain.AgentTaskSignal{}
 	err = tx.GetContext(ctx, signal, `SELECT * FROM agent_task_signals WHERE task_id=$1 AND kind='comment' AND external_id=$2 FOR UPDATE`, task.ID, comment.String())
+	byCreator := author == task.CreatorID
 	if err == nil {
-		if signal.Action == "follow_up" && signal.FollowUpGeneration == nil {
+		if byCreator && signal.Action == "follow_up" && signal.FollowUpGeneration == nil {
 			return &domain.AgentTaskFollowUp{Signal: *signal, Task: *task}, tx.Commit()
 		}
 		return nil, tx.Commit()
@@ -183,8 +187,9 @@ func (r *AgentTaskRepository) RecordCommentSignal(ctx context.Context, ws, issue
 	if used >= CommentFollowUpBudget {
 		action = "budget_exhausted"
 	}
-	// A workflow task follows its own graph; a comment is recorded only.
-	if task.RunsWorkflow() {
+	// A workflow task follows its own graph, and another member must not start
+	// a run that carries the creator's credentials; such comments are recorded only.
+	if task.RunsWorkflow() || !byCreator {
 		action = "recorded"
 	}
 	requestID := uuid.NewSHA1(signalNamespace, []byte(task.ID.String()+"/"+task.RunID.String()+"/comment/"+comment.String()))
