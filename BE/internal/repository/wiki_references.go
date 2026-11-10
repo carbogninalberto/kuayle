@@ -76,7 +76,7 @@ func (r *WikiRepository) Backlinks(ctx context.Context, workspaceID uuid.UUID, s
 		return nil, err
 	}
 	// Mentions in content are indexed in wiki_page_mentions by database
-	// triggers (migration 138), so the referencing issues and pages are found
+	// triggers (migration 140), so the referencing issues and pages are found
 	// by page ID first and only those few rows are checked for visibility.
 	limit := strconv.Itoa(domain.WikiBacklinkLimit)
 	links := &domain.WikiBacklinks{Issues: []domain.WikiBacklinkIssue{}, Pages: []domain.WikiReference{}}

@@ -1379,7 +1379,7 @@ wiki page of any team or project.
   or attached) and pages that reference a page, each filtered by the caller's
   visibility. Mentions in content are indexed in `wiki_page_mentions` (mentioned
   page → issue, comment or page) by triggers on `issues.description`,
-  `comments.body` and `wiki_pages.content` (migration 138, which also backfills),
+  `comments.body` and `wiki_pages.content` (migration 140, which also backfills),
   so every write path keeps the index current and a backlink query is an index
   lookup followed by the visibility check on the few matching rows. The side
   panel reloads at most once per burst of workspace events, never for edits of
