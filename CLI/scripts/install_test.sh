@@ -61,7 +61,7 @@ case "\$url" in
     *) exit 22 ;;
 esac
 [ -f "\$src" ] || exit 22
-if [ -n "\$out" ]; then cp "\$src" "\$out"; else cat "\$src"; fi
+if [ -n "\$out" ]; then cp "\$src" "\$out"; else cat "\$src" || { echo "curl: (56) Failure writing output to destination" >&2; exit 23; }; fi
 EOF
 chmod +x "$work/bin/curl"
 
@@ -102,7 +102,17 @@ if (KUAYLE_VERSION='v9.0.0' run) > "$work/out" 2>&1; then not_ok "server tag mus
 if (KUAYLE_VERSION='cli-v1.0.0;rm' run) > "$work/out" 2>&1; then not_ok "bad tag must be rejected"; fi
 ok "rejects tags that are not CLI releases"
 
-# 5. Minified API JSON resolves the same release.
+# 5. A releases list larger than a pipe buffer is read to the end, so curl
+#    never reports a broken pipe (curl: (56) Failure writing output).
+{ printf '['; i=0; while [ $i -lt 1500 ]; do printf '{"tag_name": "v1.%s.0", "prerelease": false, "body": "%s"},\n' "$i" "padding padding padding padding"; i=$((i + 1)); done
+  printf '{"tag_name": "cli-v0.2.0", "prerelease": false}]\n'; } > "$work/big.json"
+sed 's/^\[/[{"tag_name": "cli-v0.2.0", "prerelease": false},/' "$work/big.json" > "$work/releases.json"
+rm -rf "$work/install"
+run > "$work/out" 2>&1 || { cat "$work/out"; not_ok "install with a large releases list"; }
+if grep -q 'curl:' "$work/out"; then cat "$work/out"; not_ok "no broken-pipe noise"; fi
+ok "reads a large releases list without broken-pipe noise"
+
+# 6. Minified API JSON resolves the same release.
 tr -d ' \n' < "$work/releases.json" > "$work/min.json" && mv "$work/min.json" "$work/releases.json"
 rm -rf "$work/install"
 run > "$work/out" 2>&1 || { cat "$work/out"; not_ok "install from minified JSON"; }

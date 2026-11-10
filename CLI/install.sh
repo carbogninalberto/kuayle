@@ -32,8 +32,9 @@ if [ "$VERSION" = "latest" ]; then
     # One JSON field per line, whether the API pretty-prints or not.
     VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100" | tr ',{' '\n\n' | awk '
         /"tag_name":/ { tag = $0; sub(/.*"tag_name": *"/, "", tag); sub(/".*/, "", tag) }
-        /"prerelease": *false/ && tag ~ /^cli-v/ { print tag; exit }
+        /"prerelease": *false/ && tag ~ /^cli-v/ && !found { print tag; found = 1 }
     ') || fail "could not look up the latest release"
+    # awk reads to the end: stopping early would make curl report a broken pipe.
 fi
 echo "$VERSION" | grep -Eq '^cli-v[0-9]+\.[0-9]+\.[0-9]+$' || fail "invalid or missing CLI release tag: '$VERSION'"
 
