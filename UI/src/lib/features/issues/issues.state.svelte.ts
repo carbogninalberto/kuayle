@@ -112,6 +112,13 @@ class IssuesState {
 		return result;
 	});
 
+	/** Category order of the workflow sort preference, or null when statuses sort by position only. */
+	get statusCategoryOrder(): string[] | null {
+		const teamId = this.filters.team;
+		if (preferencesState.getWorkflowSortMode(this.currentSlug, teamId) === 'default') return null;
+		return preferencesState.getWorkflowSortOrder(this.currentSlug, teamId);
+	}
+
 	/** Flat issue order matching the visual rendering (respects grouping). */
 	private visibleOrder = $derived<Issue[]>(this.groupBy ? this.groupedIssues.flatMap((g) => g.issues) : this.issues);
 

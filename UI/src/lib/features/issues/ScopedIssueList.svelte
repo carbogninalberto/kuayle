@@ -22,6 +22,7 @@
 	import { issuesState, type GroupByField } from './issues.state.svelte';
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import { belongsToScope, scopedIssueParams, updateIssueMembership, type IssueScope } from './scoped-issues';
+	import { showEmptyStatusGroups, withEmptyStatusGroups } from './empty-status-groups';
 	import { isIssueDrag, resolveGroupDrop } from './group-drop';
 	import IssueRow from './IssueRow.svelte';
 	import IssueGroupHeader from './IssueGroupHeader.svelte';
@@ -79,6 +80,15 @@
 	let gantt = $state(false);
 	let groupBy = $state<GroupByField>('status');
 	let filters = $state<ViewFilter>({});
+	// Statuses of the scope's team, else of the teams that have issues here, are groups even when empty.
+	let displayGroups = $derived(
+		showEmptyStatusGroups(groupBy, filters, issuesState.hasMore)
+			? withEmptyStatusGroups(issuesState.groupedIssues, statuses, {
+					teamIds: scope.teamId ? [scope.teamId] : [...new Set(issuesState.issues.map((issue) => issue.team_id))],
+					categoryOrder: issuesState.statusCategoryOrder
+				})
+			: issuesState.groupedIssues
+	);
 	let collapsed = $state(new Set<string>());
 	let groupOpen = $state(false);
 	let lastSelectedId = $state<string | null>(null);
@@ -398,7 +408,7 @@
 					}}
 				/>
 			{:else if groupBy}
-				{#each issuesState.groupedIssues as group (group.key)}
+				{#each displayGroups as group (group.key)}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						data-testid="issue-group"

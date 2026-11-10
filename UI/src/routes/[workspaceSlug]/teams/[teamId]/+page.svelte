@@ -7,6 +7,7 @@
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import type { GroupByField } from '$lib/features/issues/issues.state.svelte';
+	import { showEmptyStatusGroups, withEmptyStatusGroups } from '$lib/features/issues/empty-status-groups';
 	import { isIssueDrag, issueGroupKey, resolveGroupDrop } from '$lib/features/issues/group-drop';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
 	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
@@ -62,6 +63,15 @@
 	let showShareLink = $state(false);
 	let quickAddDefaults = $state<{ statusId?: string; priority?: IssuePriority; assigneeIds?: string[] }>({});
 	let filters = $state<ViewFilter>({});
+	// Every status of this team is a group, empty ones included, so an issue can be dropped on an unused status.
+	let displayGroups = $derived(
+		showEmptyStatusGroups(issuesState.groupBy, filters, issuesState.hasMore)
+			? withEmptyStatusGroups(issuesState.groupedIssues, teamStatusesState.statusOrder, {
+					teamIds: [teamId],
+					categoryOrder: issuesState.statusCategoryOrder
+				})
+			: issuesState.groupedIssues
+	);
 	let hasActiveFilters = $derived(Object.values(filters).some((value) => value !== undefined && value !== ''));
 	let layout = $state<ViewLayout>(viewLayoutState.layout);
 	let groupByOpen = $state(false);
@@ -485,7 +495,7 @@
 					action={{ label: 'New Issue', onclick: openCreateIssue }}
 				/>
 			{:else if issuesState.groupBy}
-				{#each issuesState.groupedIssues as group (group.key)}
+				{#each displayGroups as group (group.key)}
 					{@const dropKey = group.key}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
