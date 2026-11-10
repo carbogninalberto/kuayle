@@ -5,6 +5,7 @@ import (
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/handler"
+	"github.com/kuayle/kuayle-backend/internal/mcp"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/labstack/echo/v5"
 )
@@ -107,6 +108,7 @@ type appMiddleware struct {
 	devMachineDemoGuard    echo.MiddlewareFunc
 	machineEventsRateLimit echo.MiddlewareFunc
 	machineLogsRateLimit   echo.MiddlewareFunc
+	mcpRateLimit           echo.MiddlewareFunc
 }
 
 func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
@@ -133,6 +135,12 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	public(e, http.MethodGet, "/api/config", h.config.Get, m.publicAssetRateLimit)
 	public(e, http.MethodGet, "/api/invite/:token", h.inviteLink.Preview, m.authRateLimit)
+
+	// Model Context Protocol server for external agents: personal access tokens
+	// only. Each tool call re-enters the scoped routes below through e, so it
+	// passes their permission checks; other methods get 405, as the transport
+	// allows for a server without a stream.
+	addNamedRoute(e, http.MethodPost, "/mcp", mcp.NewServer(e).Handle, "token", m.mcpRateLimit, m.auth)
 
 	// Authenticated routes
 	api := e.Group("/api", m.auth)

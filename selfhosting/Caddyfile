@@ -29,6 +29,11 @@
 		reverse_proxy backend:8080
 	}
 
+	# MCP server for external agents
+	handle /mcp {
+		reverse_proxy backend:8080
+	}
+
 	handle /uploads/* {
 		reverse_proxy backend:8080
 	}

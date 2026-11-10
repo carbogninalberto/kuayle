@@ -395,6 +395,8 @@ func main() {
 		devMachineDemoGuard:    mw.DevMachineDemoGuard(cfg.DemoDevMachineAllowed),
 		machineEventsRateLimit: mw.MachineTokenRateLimit(20, 40),
 		machineLogsRateLimit:   mw.MachineTokenRateLimit(50, 100),
+		// Per client address, like the other limits; tool calls are single requests.
+		mcpRateLimit: mw.RateLimit(10, 20),
 	})
 
 	conversationCtx, stopConversations := context.WithCancel(context.Background())

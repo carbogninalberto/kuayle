@@ -16,6 +16,10 @@
 		reverse_proxy {$API_URL:http://localhost:8080}
 	}
 
+	handle /mcp {
+		reverse_proxy {$API_URL:http://localhost:8080}
+	}
+
 	handle /uploads/* {
 		reverse_proxy {$API_URL:http://localhost:8080}
 	}

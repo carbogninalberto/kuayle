@@ -40,6 +40,10 @@ description: Implement Kuayle Go API behavior, authorization, persistence and mi
   files with `gofmt`, and run the applicable checks. Do not treat skipped integration
   tests as evidence of persistence correctness or use production data for testing.
 
+The [MCP server](../../../docs/mcp.md) exposes API routes as tools. Add a tool as a
+row in [tools.go](../../../BE/internal/mcp/tools.go) pointing at a `scoped` route;
+never call services from that package, which would bypass the route's checks.
+
 For persistent chat, follow the [conversation contract](../../../BE/docs/conversations.md).
 Keep conversation cursors serialized by the conversation transaction, generation
 writes fenced by the lease, and reconnects read-only. Conversation audience and

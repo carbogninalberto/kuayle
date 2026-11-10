@@ -167,6 +167,7 @@ assistant that can hand issues to coding agents running on your own machines.
 
 - GitHub App: links branches, commits and pull requests to issues, moves issues through configurable status rules, and comments on pull requests.
 - Outgoing webhooks, personal access tokens with scopes, and Telegram.
+- [MCP server](docs/mcp.md) at `/mcp`: Claude Code, Claude Desktop, Cursor and Codex read and update issues and wiki pages with a scoped token.
 - Workspace export/import between instances, with assets and ID remapping.
 
 </details>

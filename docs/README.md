@@ -13,6 +13,8 @@
 
 - [Kuayle CLI](cli.md): install with checksum verification, sign in with a token,
   issues, wiki and registry from the terminal or a coding agent.
+- [MCP server](mcp.md): connect Claude Code, Claude Desktop, Cursor or Codex with a
+  token; tools, resources and authorization.
 
 ## Contributors
 

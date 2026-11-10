@@ -21,6 +21,10 @@ export default defineConfig({
 				changeOrigin: true,
 				ws: true
 			},
+			'/mcp': {
+				target: 'http://localhost:8080',
+				changeOrigin: true
+			},
 			'/uploads': {
 				target: 'http://localhost:8080',
 				changeOrigin: true
