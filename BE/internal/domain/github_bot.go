@@ -154,3 +154,17 @@ func (s *GitHubBotSettings) Signature(frontendURL string) string {
 	}
 	return "**" + name + "**\n\n"
 }
+
+// WithoutSignature returns a pull request description without the signature
+// Kuayle starts it with. The description is searched for issue identifiers,
+// and the bot's name or picture address is not something its author wrote.
+func (s *GitHubBotSettings) WithoutSignature(frontendURL, body string) string {
+	signature := s.Signature(frontendURL)
+	if signature == "" {
+		return body
+	}
+	if rest, ok := strings.CutPrefix(strings.ReplaceAll(body, "\r\n", "\n"), signature); ok {
+		return rest
+	}
+	return body
+}

@@ -756,10 +756,17 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 		state = "merged"
 	}
 
+	// The bot signature Kuayle starts agent descriptions with is not searched:
+	// a bot name or picture address that looks like an identifier is no link.
+	// Without the settings the description is searched as it is.
+	description := event.PullRequest.Body
+	if bot, botErr := s.botSettings(ctx, inst.WorkspaceID); botErr == nil {
+		description = bot.WithoutSignature(s.frontendURL, description)
+	}
 	issue, err := s.resolvePullRequestIssue(ctx, inst.WorkspaceID,
 		event.PullRequest.Head.Ref,
 		event.PullRequest.Title,
-		event.PullRequest.Body,
+		description,
 	)
 
 	if err != nil {
