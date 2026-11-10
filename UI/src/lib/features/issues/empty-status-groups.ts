@@ -20,8 +20,6 @@ export interface EmptyGroupOptions {
 	teamIds: string[];
 	/** Category order of the workflow sort preference; null keeps the plain position order. */
 	categoryOrder?: string[] | null;
-	/** Status ids of the first issue of each group, to rank groups the way the list does. */
-	statusOf?: (group: GroupLike) => { category?: string; position?: number } | undefined;
 }
 
 /**
@@ -41,7 +39,6 @@ export function withEmptyStatusGroups<I>(
 	const keys = new Set(groups.map((group) => group.key));
 	const names = new Set(groups.map((group) => group.label.trim().toLowerCase()));
 	const added: GroupLike<I>[] = [];
-	const rank = new Map<string, { category?: string; position?: number }>();
 	for (const status of [...statuses].sort((a, b) => a.position - b.position)) {
 		if (!teams.has(status.team_id) || keys.has(status.id)) continue;
 		const name = status.name.trim().toLowerCase();
@@ -49,12 +46,11 @@ export function withEmptyStatusGroups<I>(
 		names.add(name);
 		keys.add(status.id);
 		added.push({ key: status.id, label: status.name, issues: [] });
-		rank.set(status.id, status);
 	}
 	if (added.length === 0) return groups;
 
 	const order = options.categoryOrder ?? null;
-	const info = (group: GroupLike<I>) => rank.get(group.key) ?? byId.get(group.key) ?? options.statusOf?.(group);
+	const info = (group: GroupLike<I>) => byId.get(group.key);
 	const categoryRank = (category?: string) => {
 		const index = category ? (order?.indexOf(category) ?? -1) : -1;
 		return index === -1 ? 999 : index;
