@@ -384,7 +384,7 @@ private teams, invite and shared links.
 | KS-32 | Low | Fixed (#181) | `view:manage` was never enforced | `BE/cmd/server/routes.go:286` |
 | KS-33 | Low | Fixed (#189) | Demo-mode machine restriction covered only the Dev Machine routes | `BE/cmd/server/routes.go:425` |
 | KS-34 | Low | Fixed (#180), operator action | Any GitHub user who could see an unbound shared-app installation could bind it | `BE/pkg/github/installation_access.go:41` |
-| KS-35 | Low | Partly fixed (#187) | Sanitizers allowed `class` on every tag; remote images in content | `BE/pkg/sanitize/html.go:36`, `UI/src/lib/security/sanitize.ts:12` |
+| KS-35 | Low | Fixed (#187, remote images in a follow-up PR) | Sanitizers allowed `class` on every tag; remote images in content | `BE/pkg/sanitize/html.go:36`, `UI/src/lib/security/sanitize.ts:12` |
 | KS-36 | Low | Fixed (#184) | Release job upgraded agent CLIs to `latest` with no minimum age | `scripts/ci/upgrade-agent-clis.mjs:35` |
 | KS-37 | Low | Fixed (#190) | GitHub webhook had no replay protection; the write check accepted read-only collaborators | `BE/internal/handler/github.go:265`, `BE/internal/service/github_bot_abilities.go:155` |
 | KS-38 | Low | Fixed (#183) | Root `.gitignore` did not cover `.env.*` | `.gitignore` |
@@ -550,15 +550,23 @@ against a live app. Tests:
 `TestUserControlsInstallationRequiresOwnerOrOrganizationAdmin`,
 `TestGlobalInstallationCallbackRequiresOwnerOrOrganizationAdminPostgres`.
 
-### KS-35 — Sanitizer class allowlist (Low, partly fixed)
+### KS-35 — Sanitizer class allowlist and remote images (Low, fixed)
 
 Both sanitizers kept any `class`, so content posted through the API could
 reuse the application's utility classes to cover the page with an invisible
 link. They now keep only the classes the editor emits, from one contract file
 read by the Go tests, the UI unit test and the browser test. Issue template
-descriptions are sanitized on create and update. **Not fixed:** remote images
-in content still load without a click. Tests: `pkg/sanitize` contract tests,
-`UI/tests/e2e/sanitizer-classes.test.ts`.
+descriptions are sanitized on create and update. Tests: `pkg/sanitize`
+contract tests, `UI/tests/e2e/sanitizer-classes.test.ts`.
+
+Remote images: content could make a reader's browser fetch an image from any
+host, telling that host who looked and when. Rendering now leaves such an
+image unloaded behind a placeholder naming the host; the reader loads it, or
+trusts the host in that browser. Uploaded assets and same-origin images load
+as before, and stored content and the backend allowlist are unchanged. This is
+a rendering rule in the UI, not a Content-Security-Policy: an `img-src` policy
+for the app is still open. Tests: `UI/tests/unit/remote-images.test.mjs`,
+`UI/tests/e2e/remote-images.test.ts`.
 
 ### KS-36 — Release-time CLI upgrade (Low)
 
@@ -604,7 +612,7 @@ The root `.gitignore` ignores `.env.*` except `.env.example`.
 ## Open follow-ups from this audit
 
 - Run task previews in a container without developer secrets (KS-24).
-- Load remote images in content only on request (KS-35).
+- Add an `img-src` Content-Security-Policy for the app, now that content no longer loads remote images by itself (KS-35).
 - Stop returning stored filters from the public share metadata endpoint (KS-25).
 - Refuse the Compose fallback database password outside development (KS-29).
 - Verify npm tarball integrity in the agent CLI installer (KS-36).

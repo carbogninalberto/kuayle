@@ -10,7 +10,7 @@ const user = {
 };
 const workspace = { id: '00000000-0000-0000-0000-000000000002', name: 'Test Workspace', slug: 'test' };
 const description =
-	'<p>Select this text for formatting.</p><pre><code>const example = true;</code></pre><p><img src="https://assets.example.test/editor-test-image.svg" alt="Example"></p>' +
+	'<p>Select this text for formatting.</p><pre><code>const example = true;</code></pre><p><img src="/api/workspaces/test/assets/editor-test-image.svg" alt="Example"></p>' +
 	Array.from({ length: 45 }, (_, i) => `<p>Description paragraph ${i + 1}.</p>`).join('');
 
 async function openIssue(
@@ -41,12 +41,6 @@ async function openIssue(
 	const errors: string[] = [];
 	page.on('pageerror', (error) => errors.push(error.message));
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
-	await page.route('**/editor-test-image.svg', (route) =>
-		route.fulfill({
-			contentType: 'image/svg+xml',
-			body: '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="green"/></svg>'
-		})
-	);
 	await page.route('https://raw.githubusercontent.com/**', (route) => route.fulfill({ json: [] }));
 	await page.route('**/api/**', async (route) => {
 		const path = new URL(route.request().url()).pathname;
@@ -96,6 +90,13 @@ async function openIssue(
 		unexpected.push(path);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
 	});
+	// An uploaded asset, registered last so it wins over the API mock above.
+	await page.route('**/editor-test-image.svg', (route) =>
+		route.fulfill({
+			contentType: 'image/svg+xml',
+			body: '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="green"/></svg>'
+		})
+	);
 	await page.goto('/test/issue/ENG-1');
 	await expect(page.locator('.tiptap')).toHaveCount(2);
 	await expect(page.locator('.tiptap').first()).toContainText('Select this text');
