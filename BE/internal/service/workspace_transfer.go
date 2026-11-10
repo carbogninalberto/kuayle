@@ -730,8 +730,8 @@ type deferredTransferReference struct {
 // HTML sink, with the function the owning service applies before storing them
 // (IssueService, CommentService, ProjectService). An archive is caller-supplied
 // input, so import must store what those write paths would have stored.
-// Template descriptions become issue descriptions and are edited as rich text;
-// the template service stores them as sent, so import applies the issue rule.
+// Template descriptions become issue descriptions and are edited as rich text,
+// so IssueTemplateService and import both apply the issue rule.
 // Wiki pages are not part of the archive. Add a column here when a service
 // starts sanitizing it or a new table with rich text joins the archive.
 var importedTextSanitizers = map[string]map[string]func(string) string{

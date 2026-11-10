@@ -255,6 +255,13 @@ test('backend token scope contracts also exercise the UI consumer', () => {
   }
 });
 
+test('the sanitizer class contract also exercises the UI consumer', () => {
+  for (const path of ['BE/pkg/sanitize/editor_classes.go', 'BE/pkg/sanitize/testdata/editor_html_contract.json']) {
+    assert.equal(planForPaths([path]).frontend, true);
+  }
+  assert.equal(planForPaths(['BE/pkg/sanitize/html.go']).frontend, false);
+});
+
 test('gates reject unregistered jobs and incomplete dependency declarations', () => {
   const plan = planForPaths(['README.md']);
   const needs = { changes: { result: 'success', outputs: { plan: JSON.stringify(plan) } }, 'agent-harness': { result: 'success' } };

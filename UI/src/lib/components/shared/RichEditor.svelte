@@ -43,6 +43,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import { sanitizeEditorOutput } from '$lib/security/sanitize';
+	import { EDITOR_LINK_CLASS } from '$lib/security/editor-classes';
 	import { createSlashCommandExtension } from './slash-command/slash-command.extension';
 	import { filterSlashItems, flatFilteredItems, type SlashMenuItem } from './slash-command/slash-items';
 	import SlashCommandMenu from './slash-command/SlashCommandMenu.svelte';
@@ -651,7 +652,7 @@
 			TaskItem.configure({ nested: true }),
 			Link.configure({
 				openOnClick: false,
-				HTMLAttributes: { class: 'text-[var(--app-accent-light)] underline' }
+				HTMLAttributes: { class: EDITOR_LINK_CLASS }
 			}),
 			CodeBlockLowlight.configure({ lowlight }),
 			ResizableImage.configure({ inline: true, allowBase64: false }),

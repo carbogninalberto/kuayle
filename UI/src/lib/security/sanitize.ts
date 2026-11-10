@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify';
+import { filterEditorClasses } from './editor-classes';
 
 const ALLOWED_TAGS = [
 	'p', 'br', 'strong', 'b', 'em', 'i', 's', 'del', 'code', 'pre',
@@ -26,6 +27,13 @@ function createPurify() {
 	const purify = DOMPurify;
 
 	purify.addHook('afterSanitizeAttributes', (node) => {
+		// Stored content keeps only the classes the editor emits; see editor-classes.ts.
+		const classes = node.getAttribute('class');
+		if (classes !== null) {
+			const kept = filterEditorClasses(classes);
+			if (kept) node.setAttribute('class', kept);
+			else node.removeAttribute('class');
+		}
 		if (node.tagName === 'A') {
 			node.setAttribute('rel', 'noopener noreferrer nofollow');
 			const href = node.getAttribute('href') ?? '';

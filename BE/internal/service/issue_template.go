@@ -11,7 +11,18 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 )
+
+// sanitizeTemplateDescription applies the issue description rule: a template
+// description is rendered as rich text and becomes an issue description.
+func sanitizeTemplateDescription(description *string) *string {
+	if description == nil {
+		return nil
+	}
+	clean := sanitize.SanitizeEditorContent(*description)
+	return &clean
+}
 
 type IssueTemplateService struct {
 	templateRepo repository.IssueTemplateRepo
@@ -47,7 +58,7 @@ func (s *IssueTemplateService) Create(ctx context.Context, workspaceID, creatorI
 		WorkspaceID:       workspaceID,
 		Title:             req.Title,
 		DefaultIssueTitle: defaultIssueTitle,
-		Description:       req.Description,
+		Description:       sanitizeTemplateDescription(req.Description),
 		Status:            req.Status,
 		Priority:          req.Priority,
 		LabelIDs:          labelIDsJSON,
@@ -104,7 +115,7 @@ func (s *IssueTemplateService) Update(ctx context.Context, id uuid.UUID, req dto
 		}
 	}
 	if req.Description != nil {
-		tmpl.Description = req.Description
+		tmpl.Description = sanitizeTemplateDescription(req.Description)
 	}
 	if req.Status.Set {
 		if req.Status.Value != nil && !validTemplateStatus(*req.Status.Value) {
