@@ -14,7 +14,7 @@ if [ "$command_name" = docker ]; then
 		exit 0
 		;;
 	*" ps --status running --services "*)
-		printf '%s\n' machine-gateway machine-manager
+		[ "${DEV_MACHINES_RUNNING:-true}" = true ] && printf '%s\n' machine-gateway machine-manager
 		exit 0
 		;;
 	esac
@@ -183,6 +183,70 @@ existing=0123456789abcdef0123456789abcdef0123456789abcdef
 [ "$(run_searxng_case searxng-keeps-secret '' "JWT_SECRET=keep-me\nSEARXNG_SECRET=$existing\n")" = "$existing" ] || fail "update.sh replaced an existing SEARXNG_SECRET"
 run_searxng_case searxng-generates-secret '' 'JWT_SECRET=keep-me\nSEARXNG_SECRET=\n' >/dev/null
 run_searxng_case searxng-restart-failure searxng-up 'JWT_SECRET=keep-me\n' >/dev/null
+
+# Published example values are refused before anything is rebuilt or stopped,
+# naming the setting and never printing its value.
+example_value() {
+	sed -n "s/^#\{0,1\} \{0,1\}$2=//p" "$1" | tail -n 1
+}
+run_placeholder_case() {
+	local name=$1 env_content=$2 dev_machines_running=$3 expected=$4
+	local test_root repo_root fake_bin command_log output status
+	test_root=$(mktemp -d)
+	repo_root="$test_root/repo"
+	fake_bin="$test_root/bin"
+	command_log="$test_root/commands.log"
+	mkdir -p "$repo_root/selfhosting/runtime" "$fake_bin"
+	cp "$SCRIPT_DIR/update.sh" "$repo_root/selfhosting/update.sh"
+	printf '%b' "$env_content" >"$repo_root/selfhosting/.env"
+	ln -s "$SCRIPT_DIR/update_test.sh" "$fake_bin/git"
+	ln -s "$SCRIPT_DIR/update_test.sh" "$fake_bin/docker"
+	: >"$command_log"
+	set +e
+	output=$(PATH="$fake_bin:$PATH" COMMAND_LOG="$command_log" FAIL_POINT='' DEV_MACHINES_RUNNING="$dev_machines_running" \
+		bash "$repo_root/selfhosting/update.sh" 2>&1)
+	status=$?
+	set -e
+	if [ -z "$expected" ]; then
+		[ "$status" -eq 0 ] || fail "$name returned $status: $output"
+		grep -Fq 'docker compose up -d caddy backend frontend' "$command_log" || fail "$name did not update the application"
+	else
+		[ "$status" -ne 0 ] || fail "$name updated a stack that still uses a published example value"
+		case "$output" in *"$expected is still an example placeholder or development default"*) ;; *) fail "$name did not name $expected: $output" ;; esac
+		if grep -Eq ' (build|stop|run|up) ' "$command_log"; then
+			fail "$name touched containers before refusing: $(cat "$command_log")"
+		fi
+		[ ! -e "$repo_root/selfhosting/runtime/upgrading" ] || fail "$name left the upgrade marker"
+	fi
+	local value
+	for value in "$selfhost_jwt" "$selfhost_postgres" "$selfhost_gateway" "$selfhost_updater" "$development_jwt"; do
+		case "$output" in *"$value"*) fail "$name printed a configured value" ;; esac
+	done
+}
+
+selfhost_jwt=$(example_value "$SCRIPT_DIR/.env.example" JWT_SECRET)
+selfhost_postgres=$(example_value "$SCRIPT_DIR/.env.example" POSTGRES_PASSWORD)
+selfhost_gateway=$(example_value "$SCRIPT_DIR/.env.example" DEV_MACHINE_GATEWAY_DB_PASSWORD)
+selfhost_updater=$(example_value "$SCRIPT_DIR/.env.example" SYSTEM_UPDATER_TOKEN)
+development_jwt=$(example_value "$SCRIPT_DIR/../.env.example" JWT_SECRET)
+for value in "$selfhost_jwt" "$selfhost_postgres" "$selfhost_gateway" "$selfhost_updater" "$development_jwt"; do
+	[ -n "$value" ] || fail "example env files no longer provide the expected placeholders"
+done
+generated=0123456789abcdef0123456789abcdef0123456789abcdef
+gateway_url="postgres://kuayle_gateway"
+gateway_url="$gateway_url:$selfhost_gateway"
+gateway_url="$gateway_url@postgres:5432/kuayle"
+run_placeholder_case unedited-example "$(cat "$SCRIPT_DIR/.env.example")\n" false JWT_SECRET
+run_placeholder_case placeholder-jwt "POSTGRES_PASSWORD=$generated\nJWT_SECRET=$selfhost_jwt\n" false JWT_SECRET
+run_placeholder_case quoted-development-jwt "ENVIRONMENT=production\nJWT_SECRET=\"$development_jwt\"\n" false JWT_SECRET
+run_placeholder_case placeholder-database-password "POSTGRES_PASSWORD=$selfhost_postgres\nJWT_SECRET=$generated\n" false POSTGRES_PASSWORD
+run_placeholder_case placeholder-updater-token "JWT_SECRET=$generated\nSYSTEM_UPDATER_TOKEN=$selfhost_updater\n" false SYSTEM_UPDATER_TOKEN
+run_placeholder_case placeholder-gateway-password "JWT_SECRET=$generated\nDEV_MACHINE_GATEWAY_DB_PASSWORD=$selfhost_gateway\n" true DEV_MACHINE_GATEWAY_DB_PASSWORD
+run_placeholder_case placeholder-gateway-url "JWT_SECRET=$generated\nDEV_MACHINE_GATEWAY_DATABASE_URL=$gateway_url\n" true DEV_MACHINE_GATEWAY_DATABASE_URL
+# The example ships a gateway placeholder for a profile that is off by default.
+run_placeholder_case unused-gateway-placeholder "JWT_SECRET=$generated\nPOSTGRES_PASSWORD=$generated\nDEV_MACHINE_GATEWAY_DB_PASSWORD=$selfhost_gateway\n" false ''
+run_placeholder_case generated-values "JWT_SECRET=$generated\nPOSTGRES_PASSWORD=$generated\nDEV_MACHINE_GATEWAY_DB_PASSWORD=$generated\n# SYSTEM_UPDATER_TOKEN=$selfhost_updater\n" true ''
+run_placeholder_case development-placeholders "ENVIRONMENT=development\nJWT_SECRET=$development_jwt\nPOSTGRES_PASSWORD=$selfhost_postgres\n" false ''
 
 # name fail-point status control-plane-restore control-restore-fails backend-restore backend-restore-fails backend-held
 run_case runtime-build-failure runtime-build 41 false

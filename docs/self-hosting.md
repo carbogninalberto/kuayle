@@ -29,6 +29,33 @@ POSTGRES_PASSWORD=<strong-random-password>
 JWT_SECRET=<random-string-at-least-32-chars>
 ```
 
+#### Secrets must be generated
+
+Every `CHANGE_ME_*` value in `.env.example` is a public placeholder. Generate each secret yourself, with a different value per setting:
+
+```sh
+openssl rand -hex 32
+```
+
+This applies to `POSTGRES_PASSWORD` and `JWT_SECRET`, and to `SYSTEM_UPDATER_TOKEN`, `VOICE_INTERNAL_TOKEN`, `DEV_MACHINE_ENCRYPTION_KEY` and `DEV_MACHINE_GATEWAY_DB_PASSWORD` when you enable those features.
+
+Unless `ENVIRONMENT=development`, Kuayle refuses to start while one of these settings (or `SMTP_PASSWORD`, `S3_SECRET_KEY`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_WEBHOOK_SECRET`) still holds an example placeholder, a development default from the repository's root `.env.example`, or a `<...>` value copied from this guide. The backend and the machine gateway exit with an error that names the setting (never its value), the `dev-machines` profile preflight fails, and `update.sh` stops before rebuilding or stopping anything. Check `docker compose logs backend` if the site does not come up.
+
+To replace a placeholder on an instance that is already running:
+
+- `JWT_SECRET`, `SYSTEM_UPDATER_TOKEN`, `VOICE_INTERNAL_TOKEN`: set the new value in `.env` and recreate the services that use it (`docker compose up -d`, adding `--profile updater` or `--profile voice` when those are in use). Changing `JWT_SECRET` signs everyone out.
+- `POSTGRES_PASSWORD`: PostgreSQL keeps the password it was initialised with, so change it in the database first, then set the same value in `.env` and recreate the services. Use a URL-safe value such as the `openssl` output above:
+
+  ```sh
+  docker compose exec postgres psql -U kuayle -d kuayle -c '\password kuayle'
+  # then edit POSTGRES_PASSWORD in .env
+  docker compose up -d
+  ```
+
+  Replace `kuayle` with your `POSTGRES_USER`/`POSTGRES_DB` if you changed them. On a fresh install with no data yet, `docker compose down -v` and starting again also works; it deletes the database volume.
+- `DEV_MACHINE_GATEWAY_DB_PASSWORD`: set the new value in `.env` and run `docker compose --profile dev-machines up -d`; the provisioning step updates the gateway role.
+- `DEV_MACHINE_ENCRYPTION_KEY`: stored machine secrets are encrypted with it, so they cannot be read after it changes. Replace it before storing secrets, or re-enter them afterwards.
+
 `FRONTEND_URL` must be the exact public browser origin, including scheme and any non-default port. Dev Machine native terminal WebSockets use this value for strict `Origin` validation.
 
 ### 2. Launch
@@ -55,7 +82,7 @@ cd kuayle
 bash selfhosting/update.sh
 ```
 
-The update script pulls the latest code, rebuilds images, applies pending migrations, and recreates containers. If Dev Machines services are running, it rebuilds their control-plane and runtime images first, stops the existing gateway and manager only while migrations and restricted gateway-role grants are applied, then starts the updated control plane. A failure after the stop clears the upgrade marker, preserves logs, restarts the same previous containers, and returns the original nonzero status. Disabled optional profiles remain disabled.
+The update script pulls the latest code, refuses to continue while a secret in `.env` is still an example placeholder (see [Secrets must be generated](#secrets-must-be-generated)), rebuilds images, applies pending migrations, and recreates containers. If Dev Machines services are running, it rebuilds their control-plane and runtime images first, stops the existing gateway and manager only while migrations and restricted gateway-role grants are applied, then starts the updated control plane. A failure after the stop clears the upgrade marker, preserves logs, restarts the same previous containers, and returns the original nonzero status. Disabled optional profiles remain disabled.
 
 Instance sysadmins can also enable one-click updates from **Settings → Version**:
 

@@ -57,6 +57,66 @@ handle_terminate() {
 	exit 143
 }
 
+# Value of a setting as Compose resolves it: the caller's environment wins
+# over selfhosting/.env. Values are only compared, never printed.
+env_setting() {
+	local name=$1 line value
+	if [ -n "${!name+x}" ]; then
+		printf '%s' "${!name}"
+		return 0
+	fi
+	[ -f "$SELFHOST_DIR/.env" ] || return 0
+	line=$(grep -E "^[[:space:]]*(export[[:space:]]+)?$name=" "$SELFHOST_DIR/.env" | tail -n 1 || true)
+	value=${line#*=}
+	value=${value%$'\r'}
+	case "$value" in
+	\"*\") value=${value#\"} value=${value%\"} ;;
+	\'*\') value=${value#\'} value=${value%\'} ;;
+	esac
+	printf '%s' "$value"
+}
+
+# Matches the values published in the example env files, the development
+# Compose defaults and the documentation (same rule as the backend).
+is_placeholder_secret() {
+	case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+	change_me* | change-me* | changeme* | local_dev_* | *_do_not_use_prod | encoded_password | "<"*">") return 0 ;;
+	esac
+	return 1
+}
+
+# The backend refuses to start outside development while a secret is still a
+# published example value. Refuse here first, before anything is stopped.
+refuse_placeholder_secrets() {
+	local environment names name value found=false
+	environment=$(env_setting ENVIRONMENT | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+	if [ "$environment" = development ]; then
+		return 0
+	fi
+	names="JWT_SECRET POSTGRES_PASSWORD SYSTEM_UPDATER_TOKEN VOICE_INTERNAL_TOKEN DEV_MACHINE_ENCRYPTION_KEY SMTP_PASSWORD S3_SECRET_KEY GITHUB_APP_CLIENT_SECRET GITHUB_APP_WEBHOOK_SECRET"
+	if [ "$DEV_MACHINES_ACTIVE" = true ]; then
+		names="$names DEV_MACHINE_GATEWAY_DB_PASSWORD DEV_MACHINE_GATEWAY_DATABASE_URL"
+	fi
+	for name in $names; do
+		value=$(env_setting "$name")
+		if [ "$name" = DEV_MACHINE_GATEWAY_DATABASE_URL ]; then
+			# Only the password between "user:" and the last "@" matters.
+			value=${value#*://}
+			case "$value" in *:*@*) value=${value%@*} value=${value#*:} ;; *) value= ;; esac
+		fi
+		if is_placeholder_secret "$value"; then
+			echo "$name is still an example placeholder or development default." >&2
+			found=true
+		fi
+	done
+	if [ "$found" = true ]; then
+		echo "Update refused: nothing was stopped or changed. Generate a unique value for each setting above" >&2
+		echo "(for example: openssl rand -hex 32), set it in selfhosting/.env and rerun this script." >&2
+		echo "See 'Secrets must be generated' in docs/self-hosting.md before changing POSTGRES_PASSWORD or a gateway password." >&2
+		exit 1
+	fi
+}
+
 echo "=== Kuayle - Self-host Update ==="
 
 # 1. Pull latest code
@@ -70,6 +130,8 @@ if docker compose -f "$SELFHOST_DIR/docker-compose.yml" --profile dev-machines p
 	DEV_MACHINES_ACTIVE=true
 	echo "Dev Machines services detected - including control plane and runtime images"
 fi
+
+refuse_placeholder_secrets
 
 # Detect a running SearXNG (optional "searxng" profile) the same way.
 SEARXNG_ACTIVE=false
