@@ -10,8 +10,8 @@ Native success is followed by an independent check (migration 58) and determinis
 publication of a pull request (migration 59), after which the task waits in
 `awaiting_review` until GitHub reports that pull request merged, an approved
 merge from chat completes it, or its creator or a workspace admin accepts it in
-Kuayle without merging ([accepting without merge](#accepting-without-merge)). CI failures, GitHub change requests and issue
-comments queue bounded follow-up attempts; reviews by a second agent run only on
+Kuayle without merging ([accepting without merge](#accepting-without-merge)). CI failures, GitHub change requests and the
+task creator's own issue comments queue bounded follow-up attempts; reviews by a second agent run only on
 request (migration 84). That fixed flow is the built-in Standard workflow;
 workspaces can design their own as [configurable workflows](#configurable-workflows)
 (migration 118). See [remaining workflow work](#remaining-workflow-work)
@@ -510,13 +510,28 @@ or an agent acting for a user) is feedback when the issue's latest task is
 `awaiting_review`. Under the task lock the repository re-checks that the author
 is a current non-guest member who can see the issue; other comments, comments on
 tasks in any other state and empty comments are not recorded. The comment is
-stored as bounded plain text (2,000 characters) and queues a follow-up attempt
-through the same retry path, acting as the task creator, with the comment fenced
-as untrusted feedback in the prompt. The budget is five comment follow-ups per
-task (`budget_exhausted` after that); the request ID is derived from the task,
-attempt and comment, and unqueued follow-ups are resumed by the same background
-loop. Because a follow-up moves the task out of `awaiting_review`, further
-comments wait for the next published attempt. Comment creation itself never
+stored as bounded plain text (2,000 characters).
+
+A follow-up runs with the task creator's agent sign-in, GitHub access and
+allowed secrets, so **only the creator's own comment queues one**. It goes
+through the same retry path, acting as the task creator. The budget is five
+comment follow-ups per task (`budget_exhausted` after that); the request ID is
+derived from the task, attempt and comment, and unqueued follow-ups are resumed
+by the same background loop. Because a follow-up moves the task out of
+`awaiting_review`, further comments wait for the next published attempt.
+
+A comment by anyone else, workspace admins and owners included, is stored with
+the action `recorded`: it starts no attempt and uses no budget. It stays on the
+issue and in the task's signal list, and the creator decides what to do with
+it: comment on the issue themselves, approve the assistant's `follow_up_task`
+([requested agent reviews](#requested-agent-reviews)) or retry the task. A
+comment by another member therefore never starts a run that carries the
+creator's credentials.
+
+In the prompt, the name of the commenter (or of the GitHub reviewer) and the
+text are both untrusted data inside one `~~~text` block. The name is reduced to
+a single line of at most 100 characters without control or formatting
+characters, and neither part can close the block. Comment creation itself never
 fails because of this hook.
 
 ## Review completion
