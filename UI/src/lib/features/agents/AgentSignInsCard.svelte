@@ -37,7 +37,10 @@
 	onMount(load);
 
 	const date = (value: string | null | undefined) => (value ? formatDate(value, getLocale()) : '');
+	// An OpenCode sign-in is an API key: it has no expiry and its own wording.
+	const isKey = (signIn: AgentSignIn) => signIn.provider === 'opencode';
 	const badges = {
+		key: { label: () => m['settings.agents.sign_in_badge_key'](), variant: 'secondary' },
 		token: { label: () => m['settings.agents.sign_in_badge_token'](), variant: 'secondary' },
 		terminal: { label: () => m['settings.agents.sign_in_badge_terminal'](), variant: 'secondary' },
 		expired: { label: () => m['settings.agents.sign_in_badge_expired'](), variant: 'destructive' },
@@ -46,7 +49,7 @@
 
 	async function saved(signIn: AgentSignIn) {
 		signIns = signIns.map((item) => (item.provider === signIn.provider ? signIn : item));
-		appToast.success(m['settings.agents.claude_token_saved']());
+		appToast.success(isKey(signIn) ? m['settings.agents.opencode_key_saved']() : m['settings.agents.claude_token_saved']());
 	}
 
 	async function remove() {
@@ -81,17 +84,20 @@
 			{#each signIns as signIn (signIn.provider)}
 				{@const name = agentInfo(signIn.provider).name}
 				{@const state = signInState(signIn)}
+				{@const badge = badges[state === 'token' && isKey(signIn) ? 'key' : state]}
 				<div class="space-y-3 rounded-lg border p-3" data-testid="sign-in-{signIn.provider}">
 					<Item.Root size="sm" class="p-0">
 						<Item.Media><AgentLogo agent={signIn.provider} size="lg" /></Item.Media>
 						<Item.Content class="min-w-0">
 							<Item.Title class="flex flex-wrap items-center gap-2"
-								>{name}<Badge variant={badges[state].variant}>{badges[state].label()}</Badge></Item.Title
+								>{name}<Badge variant={badge.variant}>{badge.label()}</Badge></Item.Title
 							>
 							{#if signIn.token}
 								<Item.Description class="text-xs"
-									>{signIn.token.expired
-										? m['settings.agents.sign_in_token_expired_info']({
+									>{isKey(signIn)
+										? m['settings.agents.sign_in_key_info']({ saved: date(signIn.token.saved_at) })
+										: signIn.token.expired
+											? m['settings.agents.sign_in_token_expired_info']({
 												saved: date(signIn.token.saved_at),
 												expires: date(signIn.token.expires_at)
 											})
@@ -113,9 +119,11 @@
 										size="sm"
 										variant="ghost"
 										class="text-destructive hover:text-destructive"
-										aria-label={m['settings.agents.remove_token_named']({ name })}
+										aria-label={isKey(signIn) ? undefined : m['settings.agents.remove_token_named']({ name })}
 										onclick={() => (removing = { provider: signIn.provider, kind: 'token' })}
-										><Trash2 />{m['settings.agents.remove_token']()}</Button
+										><Trash2 />{isKey(signIn)
+											? m['settings.agents.remove_key']()
+											: m['settings.agents.remove_token']()}</Button
 									>{/if}
 								{#if signIn.terminal}<Button
 										size="sm"
@@ -128,7 +136,10 @@
 							</Item.Actions>
 						{/if}
 					</Item.Root>
-					{#if signIn.supports_token}
+					{#if isKey(signIn)}
+						<p class="text-xs text-muted-foreground">{m['settings.agents.opencode_key_help']()}</p>
+						{#if signIn.supports_token}<ClaudeTokenForm {slug} provider="opencode" saved={!!signIn.token} onsaved={saved} />{/if}
+					{:else if signIn.supports_token}
 						<div class="space-y-2 text-xs text-muted-foreground">
 							<p>{m['settings.agents.claude_token_help']()}</p>
 							<code class="block w-fit rounded-md border bg-muted px-2 py-1 font-mono text-foreground"
@@ -151,7 +162,9 @@
 		<AlertDialog.Header>
 			<AlertDialog.Title>{m['settings.agents.remove_sign_in_title']()}</AlertDialog.Title>
 			<AlertDialog.Description
-				>{m['settings.agents.remove_sign_in_desc']({ name: agentInfo(removing?.provider ?? '').name })}</AlertDialog.Description
+				>{removing?.provider === 'opencode'
+					? m['settings.agents.remove_key_desc']({ name: agentInfo(removing.provider).name })
+					: m['settings.agents.remove_sign_in_desc']({ name: agentInfo(removing?.provider ?? '').name })}</AlertDialog.Description
 			>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>

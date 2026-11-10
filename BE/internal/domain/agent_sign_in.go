@@ -7,7 +7,8 @@ const (
 	// AgentSignInCredentials is the agent's credentials file captured from
 	// the user's terminal (Claude Code or Codex).
 	AgentSignInCredentials = "credentials"
-	// AgentSignInToken is a Claude Code token from `claude setup-token`.
+	// AgentSignInToken is a token the user pasted: a Claude Code token from
+	// `claude setup-token` or an OpenCode API key.
 	AgentSignInToken = "token"
 )
 

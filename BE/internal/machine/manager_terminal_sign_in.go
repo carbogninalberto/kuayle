@@ -25,6 +25,8 @@ const (
 	terminalClaudeTokenExpires = "claude-code.token-expires"
 	terminalClaudeCredentials  = "claude-code.credentials.json"
 	terminalCodexAuth          = "codex.auth.json"
+	// terminalOpenCodeKey is exported as OPENCODE_API_KEY.
+	terminalOpenCodeKey = "opencode.api-key"
 )
 
 // terminalSignIns are the sign-ins the machine owner's own terminal and IDE
@@ -33,8 +35,11 @@ const (
 // credentials file). An agent the terminal already reaches through the
 // workspace's model server or an API key secret is left out. "managed" lists
 // the agents Kuayle signs in, so the shell can hint how to sign in to one that
-// has no sign-in yet. Only the machine's creator in the machine's workspace is
-// read: a machine never receives another user's sign-in.
+// has no sign-in yet. A saved OpenCode API key is added under the same
+// conditions, without listing OpenCode as managed: it can be configured in
+// other ways, so a missing key is no reason for a hint. Only the machine's
+// creator in the machine's workspace is read: a machine never receives
+// another user's sign-in.
 func (m *Manager) terminalSignIns(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) (map[string]string, error) {
 	files := map[string]string{}
 	if machine.CreatedByUserID == nil {
@@ -87,6 +92,15 @@ func (m *Manager) terminalSignIns(ctx context.Context, machine *domain.DevMachin
 			files[terminalClaudeCredentials] = strings.TrimSpace(content)
 		} else {
 			files[terminalCodexAuth] = strings.TrimSpace(content)
+		}
+	}
+	if containsString(allowed, "opencode") && !configured["opencode"] {
+		key, err := m.decryptSignIn(m.store.GetAgentSignInToken(ctx, machine.WorkspaceID, owner, "opencode"))
+		if err != nil {
+			return nil, err
+		}
+		if key != "" {
+			files[terminalOpenCodeKey] = key
 		}
 	}
 	if len(managed) > 0 {
