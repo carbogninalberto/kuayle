@@ -128,3 +128,48 @@ func TestAgentSignInTokensAreKeptPerUserNextToTheCapturedFile(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), removed)
 }
+
+// An OpenCode API key is a token without an expiry: it is saved, replaced and
+// removed per user, and OpenCode has no captured credentials file.
+func TestOpenCodeAPIKeyIsKeptPerUserWithoutAnExpiry(t *testing.T) {
+	db, _, ctx, task, _ := publishingTask(t)
+	store := NewDevMachineRepository(db)
+	ws, user := task.WorkspaceID, task.CreatorID
+	other := uuid.New()
+	_, err := db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Other','test')`, other, other.String()+"@example.test")
+	require.NoError(t, err)
+
+	key, err := store.GetAgentSignInToken(ctx, ws, user, "opencode")
+	require.NoError(t, err)
+	require.Empty(t, key)
+	require.NoError(t, store.SaveAgentSignInToken(ctx, ws, user, "opencode", "sealed-key-1", time.Time{}))
+	require.NoError(t, store.SaveAgentSignInToken(ctx, ws, user, "opencode", "sealed-key-2", time.Time{}))
+	key, err = store.GetAgentSignInToken(ctx, ws, user, "opencode")
+	require.NoError(t, err)
+	require.Equal(t, "sealed-key-2", key, "a new key replaces the old one")
+	require.Error(t, store.SaveAgentSignIn(ctx, ws, user, "opencode", "sealed"), "OpenCode has no credentials file")
+
+	signIns, err := store.ListAgentSignIns(ctx, ws, user)
+	require.NoError(t, err)
+	require.Len(t, signIns, 1)
+	require.Equal(t, "opencode", signIns[0].Provider)
+	require.Equal(t, domain.AgentSignInToken, signIns[0].Kind)
+	require.Nil(t, signIns[0].ExpiresAt, "an API key has no expiry")
+
+	key, err = store.GetAgentSignInToken(ctx, ws, other, "opencode")
+	require.NoError(t, err)
+	require.Empty(t, key, "another user has no key")
+	key, err = store.GetAgentSignInToken(ctx, ws, user, "claude-code")
+	require.NoError(t, err)
+	require.Empty(t, key, "the key is not a Claude Code token")
+	removed, err := store.DeleteAgentSignIns(ctx, ws, other, "opencode", "")
+	require.NoError(t, err)
+	require.Zero(t, removed, "another user cannot remove it")
+
+	removed, err = store.DeleteAgentSignIns(ctx, ws, user, "opencode", domain.AgentSignInToken)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), removed)
+	key, err = store.GetAgentSignInToken(ctx, ws, user, "opencode")
+	require.NoError(t, err)
+	require.Empty(t, key)
+}

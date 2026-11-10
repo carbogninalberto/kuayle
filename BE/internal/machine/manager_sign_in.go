@@ -21,12 +21,15 @@ var signInSecretNames = map[string]string{
 var apiKeySecrets = map[string][]string{
 	"claude-code": {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"},
 	"codex":       {"OPENAI_API_KEY", "CODEX_API_KEY"},
+	"opencode":    {"OPENCODE_API_KEY"},
 }
 
-// signInTokenSecrets carries a saved token (Claude Code's `claude setup-token`)
-// straight into the agent's environment; it needs no file and no write-back.
+// signInTokenSecrets carries a saved token (Claude Code's `claude setup-token`,
+// an OpenCode API key) straight into the agent's environment; it needs no
+// file and no write-back.
 var signInTokenSecrets = map[string]string{
 	"claude-code": "CLAUDE_CODE_OAUTH_TOKEN",
+	"opencode":    "OPENCODE_API_KEY",
 }
 
 var agentNames = map[string]string{"claude-code": "Claude Code", "codex": "Codex"}
@@ -71,13 +74,20 @@ func signInTokens(content string) []string {
 	return tokens
 }
 
-// agentSignInSecrets adds the user's stored sign-in to a Codex or Claude Code
-// run without a model server: a saved token first, then the credentials file
-// captured from the terminal. Without either, and without an API key secret,
-// the run stops so the task can ask the user to sign in.
+// agentSignInSecrets adds the user's stored sign-in to a run. A Codex or
+// Claude Code run without a model server gets a saved token first, then the
+// credentials file captured from the terminal; without either, and without an
+// API key secret, the run stops so the task can ask the user to sign in.
+// OpenCode has only a saved API key, which every OpenCode run of that user
+// receives; it can be configured in other ways, so a run without one starts.
 func (m *Manager) agentSignInSecrets(ctx context.Context, run *domain.DevMachineAgentRun, secrets, redactions map[string]string) error {
-	name, ok := signInSecretNames[run.ProviderID]
-	if !ok || run.ModelServerID != nil {
+	name, hasFile := signInSecretNames[run.ProviderID]
+	tokenName := signInTokenSecrets[run.ProviderID]
+	if !hasFile && tokenName == "" {
+		return nil
+	}
+	// Only Codex and Claude Code are served by a model server.
+	if hasFile && run.ModelServerID != nil {
 		return nil
 	}
 	for _, key := range apiKeySecrets[run.ProviderID] {
@@ -88,7 +98,7 @@ func (m *Manager) agentSignInSecrets(ctx context.Context, run *domain.DevMachine
 	var encrypted string
 	var err error
 	if run.RequestedByUserID != nil {
-		if tokenName := signInTokenSecrets[run.ProviderID]; tokenName != "" {
+		if tokenName != "" {
 			if encrypted, err = m.store.GetAgentSignInToken(ctx, run.WorkspaceID, *run.RequestedByUserID, run.ProviderID); err != nil {
 				return err
 			}
@@ -101,9 +111,14 @@ func (m *Manager) agentSignInSecrets(ctx context.Context, run *domain.DevMachine
 				return nil
 			}
 		}
-		if encrypted, err = m.store.GetAgentSignIn(ctx, run.WorkspaceID, *run.RequestedByUserID, run.ProviderID); err != nil {
-			return err
+		if hasFile {
+			if encrypted, err = m.store.GetAgentSignIn(ctx, run.WorkspaceID, *run.RequestedByUserID, run.ProviderID); err != nil {
+				return err
+			}
 		}
+	}
+	if !hasFile {
+		return nil
 	}
 	if encrypted == "" {
 		return &terminalOperationError{code: "sign_in_required", message: agentNames[run.ProviderID] + " needs you to sign in"}

@@ -182,3 +182,46 @@ func TestManagerSyncsTerminalSignInsWhenTheMachineStarts(t *testing.T) {
 		}
 	}
 }
+
+// The owner's saved OpenCode key reaches their terminal like a saved Claude
+// Code token. OpenCode is not listed as managed: without a key the shell
+// prints no sign-in hint, because OpenCode can be configured in other ways.
+func TestManagerSyncsTheOwnersOpenCodeKeyIntoTheirTerminal(t *testing.T) {
+	store, runtime, manager, owner, key := terminalSignInFixture(t)
+	ctx := context.Background()
+	other := uuid.New()
+	require.NoError(t, store.SaveAgentSignInToken(ctx, store.machine.WorkspaceID, other, "opencode", sealSignIn(t, key, "fixture-other-opencode-key"), time.Time{}))
+	require.NoError(t, syncTerminalSignIns(t, manager, store))
+	require.Equal(t, map[string]string{"managed": "claude-code\ncodex\n"}, runtime.terminalSignIns, "another user's key never reaches the terminal")
+
+	require.NoError(t, store.SaveAgentSignInToken(ctx, store.machine.WorkspaceID, owner, "opencode", sealSignIn(t, key, openCodeKeyFixture), time.Time{}))
+	require.NoError(t, syncTerminalSignIns(t, manager, store))
+	require.Equal(t, map[string]string{"managed": "claude-code\ncodex\n", "opencode.api-key": openCodeKeyFixture}, runtime.terminalSignIns)
+
+	store.envVars = []domain.DevMachineEnvVar{{Name: "OPENCODE_API_KEY", EncryptedValue: sealSignIn(t, key, "fixture-opencode-machine-key")}}
+	require.NoError(t, syncTerminalSignIns(t, manager, store))
+	require.Equal(t, map[string]string{"managed": "claude-code\ncodex\n"}, runtime.terminalSignIns, "the terminal's own OPENCODE_API_KEY secret is kept")
+
+	store.envVars = nil
+	store.policy.AllowedProviders = json.RawMessage(`["claude-code","codex"]`)
+	require.NoError(t, syncTerminalSignIns(t, manager, store))
+	require.Equal(t, map[string]string{"managed": "claude-code\ncodex\n"}, runtime.terminalSignIns, "the policy does not allow OpenCode")
+}
+
+// A machine start never puts the key into the container-wide secrets.
+func TestManagerKeepsTheOpenCodeKeyOutOfContainerSecrets(t *testing.T) {
+	store, runtime, manager, owner, key := terminalSignInFixture(t)
+	store.machine.Status = domain.DevMachineStatusQueued
+	require.NoError(t, store.SaveAgentSignInToken(context.Background(), store.machine.WorkspaceID, owner, "opencode", sealSignIn(t, key, openCodeKeyFixture), time.Time{}))
+
+	require.NoError(t, manager.processOperation(context.Background(), &domain.DevMachineOperation{
+		MachineID: store.machine.ID, WorkspaceID: store.machine.WorkspaceID, Action: domain.DevMachineOpSpawn, Generation: 1,
+	}))
+	require.Equal(t, openCodeKeyFixture, runtime.terminalSignIns["opencode.api-key"])
+	for _, secrets := range runtime.spawnSecrets {
+		require.NotContains(t, secrets, "OPENCODE_API_KEY")
+		for _, value := range secrets {
+			require.NotEqual(t, openCodeKeyFixture, value)
+		}
+	}
+}
