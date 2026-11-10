@@ -14,6 +14,12 @@
 - [Kuayle CLI](cli.md): install with checksum verification, sign in with a token,
   issues, wiki and registry from the terminal or a coding agent.
 
+## Integrators
+
+- [API reference](api.md): the OpenAPI 3.1 document every instance serves at
+  `/api/openapi.json`, how it is generated and tested, and a generated-client
+  smoke test.
+
 ## Contributors
 
 - [Development](development.md): run from source, `make` commands, tech stack,

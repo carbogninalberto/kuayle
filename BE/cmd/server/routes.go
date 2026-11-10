@@ -94,6 +94,7 @@ type appHandlers struct {
 	githubBot         *handler.GitHubBotHandler
 	wiki              *handler.WikiHandler
 	wikiPublish       *handler.WikiPublishHandler
+	openapi           *handler.OpenAPIHandler
 }
 
 // appMiddleware carries the pre-built route middleware whose construction
@@ -133,6 +134,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	public(e, http.MethodGet, "/api/config", h.config.Get, m.publicAssetRateLimit)
 	public(e, http.MethodGet, "/api/invite/:token", h.inviteLink.Preview, m.authRateLimit)
+	// The public API reference (internal/openapi); a test keeps it equal to the
+	// token-accessible routes below.
+	public(e, http.MethodGet, "/api/openapi.json", h.openapi.Spec, m.publicAssetRateLimit)
 
 	// Authenticated routes
 	api := e.Group("/api", m.auth)

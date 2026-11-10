@@ -3,12 +3,12 @@ package handler
 import (
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 )
 
@@ -141,6 +141,9 @@ func (h *CycleHandler) Velocity(c *echo.Context) error {
 	if err != nil {
 		return response.InternalError(c)
 	}
+	if points == nil {
+		points = []dto.VelocityPoint{} // an empty list, not null
+	}
 	return response.Success(c, http.StatusOK, points)
 }
 
@@ -166,6 +169,9 @@ func (h *CycleHandler) Burndown(c *echo.Context) error {
 	points, err := h.cycleSvc.GetBurndown(c.Request().Context(), id)
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+	if points == nil {
+		points = []dto.BurndownPoint{} // an empty list, not null
 	}
 
 	return response.Success(c, http.StatusOK, points)

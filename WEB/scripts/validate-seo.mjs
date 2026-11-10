@@ -32,6 +32,7 @@ const ROUTES = [
 	'/open-source',
 	'/license',
 	'/security',
+	'/api-reference',
 	'/about',
 	'/roadmap',
 	'/privacy',
