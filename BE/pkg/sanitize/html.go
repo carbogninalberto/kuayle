@@ -32,6 +32,7 @@ func init() {
 		"span", "div", "label",
 	)
 
+	// Class values are narrowed to the editor's own names by restrictClasses.
 	policy.AllowAttrs("class").Globally()
 	policy.AllowAttrs("data-type").Globally()
 	policy.AllowAttrs("data-checked").Globally()
@@ -56,9 +57,10 @@ func init() {
 	policy.AllowAttrs("alt", "width", "height").OnElements("img")
 }
 
-// SanitizeHTML sanitizes HTML input, stripping dangerous tags and attributes.
+// SanitizeHTML sanitizes HTML input, stripping dangerous tags and attributes
+// and every class name the editor does not emit.
 func SanitizeHTML(input string) string {
-	return policy.Sanitize(input)
+	return restrictClasses(policy.Sanitize(input))
 }
 
 // SanitizeEditorContent accepts either the editor's HTML output or markdown

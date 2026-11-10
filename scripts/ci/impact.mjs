@@ -84,6 +84,8 @@ export function planForPaths(paths, event = 'pull_request') {
       flags.backend = true;
       // The UI PAT scope contract test reads these backend definitions.
       if (['BE/internal/domain/personal_access_token.go', 'BE/internal/domain/permission.go'].includes(path)) flags.frontend = true;
+      // The UI sanitizer tests read the class allowlist contract shared with the Go sanitizer.
+      if (['BE/pkg/sanitize/editor_classes.go', 'BE/pkg/sanitize/testdata/editor_html_contract.json'].includes(path)) flags.frontend = true;
       if (path.endsWith('_test.go')) {
         if (path === 'BE/internal/machine/docker_integration_test.go') flags.runtime = true;
       } else {

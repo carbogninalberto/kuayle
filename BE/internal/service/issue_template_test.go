@@ -257,3 +257,74 @@ func TestIssueTemplateService_Delete(t *testing.T) {
 func strPtr(s string) *string {
 	return &s
 }
+
+// Template descriptions are rendered as rich text and copied into issue
+// descriptions, so they follow the rule issue descriptions follow.
+func TestIssueTemplateService_CreateSanitizesDescription(t *testing.T) {
+	repo := new(mockIssueTemplateRepo)
+	svc := NewIssueTemplateService(repo)
+	ctx := context.Background()
+
+	var stored *domain.IssueTemplate
+	repo.On("Create", ctx, mock.AnythingOfType("*domain.IssueTemplate")).
+		Run(func(args mock.Arguments) { stored = args.Get(1).(*domain.IssueTemplate) }).
+		Return(nil)
+
+	tmpl, err := svc.Create(ctx, uuid.New(), uuid.New(), dto.CreateIssueTemplateRequest{
+		Title:       "Bug Report",
+		Description: strPtr(`<p>Steps</p><script>alert(1)</script><img src="x" onerror="alert(2)"><a href="javascript:alert(3)" class="fixed inset-0">go</a>`),
+	})
+
+	assert.NoError(t, err)
+	if assert.NotNil(t, stored) && assert.NotNil(t, stored.Description) {
+		assert.Contains(t, *stored.Description, "<p>Steps</p>")
+		for _, unsafe := range []string{"<script", "alert(", "onerror", "javascript:", "inset-0"} {
+			assert.NotContains(t, *stored.Description, unsafe)
+		}
+		assert.Equal(t, *stored.Description, *tmpl.Description)
+	}
+}
+
+func TestIssueTemplateService_CreateConvertsMarkdownDescriptionLikeIssues(t *testing.T) {
+	repo := new(mockIssueTemplateRepo)
+	svc := NewIssueTemplateService(repo)
+	ctx := context.Background()
+	repo.On("Create", ctx, mock.AnythingOfType("*domain.IssueTemplate")).Return(nil)
+
+	tmpl, err := svc.Create(ctx, uuid.New(), uuid.New(), dto.CreateIssueTemplateRequest{
+		Title:       "Bug Report",
+		Description: strPtr("## Steps\n\n- [ ] Reproduce"),
+	})
+
+	assert.NoError(t, err)
+	if assert.NotNil(t, tmpl.Description) {
+		assert.Contains(t, *tmpl.Description, "<h2>Steps</h2>")
+		assert.Contains(t, *tmpl.Description, `data-type="taskList"`)
+	}
+}
+
+func TestIssueTemplateService_UpdateSanitizesDescription(t *testing.T) {
+	repo := new(mockIssueTemplateRepo)
+	svc := NewIssueTemplateService(repo)
+	ctx := context.Background()
+	id := uuid.New()
+
+	existing := &domain.IssueTemplate{ID: id, Title: "Bug Report", Description: strPtr("<p>Old</p>")}
+	repo.On("GetByID", ctx, id).Return(existing, nil)
+	var stored *domain.IssueTemplate
+	repo.On("Update", ctx, mock.AnythingOfType("*domain.IssueTemplate")).
+		Run(func(args mock.Arguments) { stored = args.Get(1).(*domain.IssueTemplate) }).
+		Return(nil)
+
+	_, err := svc.Update(ctx, id, dto.UpdateIssueTemplateRequest{
+		Description: strPtr(`<p>New</p><script>alert(1)</script><span class="fixed inset-0" onclick="alert(2)">x</span>`),
+	})
+
+	assert.NoError(t, err)
+	if assert.NotNil(t, stored) && assert.NotNil(t, stored.Description) {
+		assert.Contains(t, *stored.Description, "<p>New</p>")
+		for _, unsafe := range []string{"<script", "alert(", "onclick", "inset-0"} {
+			assert.NotContains(t, *stored.Description, unsafe)
+		}
+	}
+}
