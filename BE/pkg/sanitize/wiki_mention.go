@@ -47,7 +47,8 @@ func WikiMentionIDs(sanitized string) []uuid.UUID {
 
 // canonicalWikiMentions rewrites every wiki mention of already sanitized HTML
 // to WikiMentionHTML, dropping its label, text and any nested markup. A
-// mention without a valid page ID is removed. Only a mention closed by its
+// mention without a valid page ID is removed, and the mark is dropped from
+// any element that is not a span. Only a mention closed by its
 // own </span> loses its content: the sanitizer does not balance tags, so an
 // unclosed one becomes the chip alone and whatever follows it is kept.
 func canonicalWikiMentions(sanitized string) string {
@@ -95,8 +96,22 @@ func canonicalWikiMentions(sanitized string) string {
 	for i := 0; i < len(pieces); i++ {
 		p := pieces[i]
 		opens := p.kind == html.StartTagToken || p.kind == html.SelfClosingTagToken
-		if !opens || p.token.Data != "span" || tokenAttr(p.token, "data-kind") != "wiki" {
+		if !opens || tokenAttr(p.token, "data-kind") != "wiki" {
 			out.WriteString(p.raw)
+			continue
+		}
+		if p.token.Data != "span" {
+			// Only a span is a reference: any other element keeps its content
+			// and loses the mark, so nothing reading the stored HTML takes it
+			// for one.
+			kept := p.token
+			kept.Attr = nil
+			for _, attr := range p.token.Attr {
+				if attr.Key != "data-kind" {
+					kept.Attr = append(kept.Attr, attr)
+				}
+			}
+			out.WriteString(kept.String())
 			continue
 		}
 		if id, err := uuid.Parse(tokenAttr(p.token, "data-id")); err == nil && id != uuid.Nil {

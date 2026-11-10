@@ -111,6 +111,25 @@ test('a reader links published pages, prints known unpublished ones as text and 
 	);
 });
 
+// Browsers that leave "<" as is inside attribute values serialize markup in
+// which a tag seems to start inside another tag's attribute. Rewriting from
+// there would cut the attribute open and turn its text into attributes.
+test('a reader only rewrites real reference elements, not text inside attributes', () => {
+	const options = { published: new Map([[GUIDE, 'Guide']]), named: new Map(), hrefFor: (id) => `?page=${id}`, unavailable: 'Restricted page' };
+	const hostile =
+		`<p data-label="<span" data-kind="wiki" data-id="${GUIDE}">x<span>y</span>` +
+		`<span data-label=" autofocus tabindex=0 onfocus=alert(1) x=">z</span><span data-label="q">w</span></p>`;
+	assert.equal(renderReaderReferences(hostile, options), hostile);
+	assert.deepEqual(wikiMentionIds(hostile), []);
+
+	// A quoted ">" does not end the tag, and nested spans end with the chip.
+	const nested = `<p>a <span data-label="1 > 0" data-kind="wiki" data-id="${GUIDE}">x<span>y</span>z</span> b</p>`;
+	assert.equal(renderReaderReferences(nested, options), `<p>a <a class="mention mention-wiki" href="?page=${GUIDE}">Guide</a> b</p>`);
+	// An unclosed chip is replaced alone; what follows it stays.
+	const unclosed = `<p>a <span data-kind="wiki" data-id="${GUIDE}">x</p>`;
+	assert.equal(renderReaderReferences(unclosed, options), `<p>a <a class="mention mention-wiki" href="?page=${GUIDE}">Guide</a>x</p>`);
+});
+
 test('a dragged page is recognised by its drag type and id', () => {
 	const data = new Map([[WIKI_PAGE_DRAG_TYPE, GUIDE]]);
 	const transfer = { types: [...data.keys()], getData: (type) => data.get(type) ?? '' };
@@ -127,6 +146,8 @@ test('typing @ at the start of a word asks for suggestions', () => {
 	assert.equal(mentionQueryAt('mail me@example', 15), null, 'an @ inside a word is not a mention');
 	assert.equal(mentionQueryAt('see @dep\nnext', 13), null, 'a mention does not span lines');
 	assert.equal(mentionQueryAt('no mention', 5), null);
+	assert.equal(mentionQueryAt('ping me @ ', 10), null, 'an @ followed by a space is not a mention');
+	assert.equal(mentionQueryAt('ping me @ later', 15), null);
 });
 
 test('a chat reference round-trips through message text', () => {

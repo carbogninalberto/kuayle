@@ -149,6 +149,28 @@ func TestWikiMentionIDs(t *testing.T) {
 	}
 }
 
+// Only a span is a reference. The mark on any other element would be read as
+// one by whatever looks for references in stored HTML, so it is not stored.
+func TestSanitizeDropsWikiMentionMarkOnOtherElements(t *testing.T) {
+	id := "0b0e7a52-6a0f-4a56-9d3e-0d2b3f6a9c11"
+	for _, input := range []string{
+		`<p data-kind="wiki" data-id="` + id + `">x</p>`,
+		`<p data-label="&lt;span" data-kind="wiki" data-id="` + id + `">x<span>y</span></p>`,
+		`<a href="https://example.com" data-kind="wiki" data-id="` + id + `">x</a>`,
+	} {
+		got := SanitizeHTML(input)
+		if strings.Contains(got, wikiMentionKind) {
+			t.Errorf("SanitizeHTML(%q) kept the reference mark: %q", input, got)
+		}
+		if !strings.Contains(got, "x") {
+			t.Errorf("SanitizeHTML(%q) lost the content: %q", input, got)
+		}
+		if len(WikiMentionIDs(got)) != 0 {
+			t.Errorf("SanitizeHTML(%q) left a reference: %q", input, got)
+		}
+	}
+}
+
 // The sanitizer does not balance tags, so a mention whose </span> is missing
 // must not swallow the rest of the content.
 func TestSanitizeKeepsContentAfterUnclosedWikiMention(t *testing.T) {

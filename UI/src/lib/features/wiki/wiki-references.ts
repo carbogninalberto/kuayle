@@ -37,20 +37,57 @@ export function wikiMentionHtml(pageId: string): string {
 	return `<span data-type="mention" data-kind="wiki" data-id="${pageId}" class="mention mention-wiki"></span>`;
 }
 
-const mentionSpan = /<span\b[^>]*\bdata-kind="wiki"[^>]*>[\s\S]*?<\/span>/gi;
+// Tags are read one after the other, quotes included, so text that looks like
+// a tag inside an attribute value ("<span" in a label) is never taken for one.
+const anyTag = /<(\/?)([a-zA-Z][^\s/>]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
+const attribute = /([^\s"'=<>/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
 
-function mentionId(tag: string): string | null {
-	const id = /\bdata-id="([^"]*)"/i.exec(tag)?.[1] ?? '';
-	return UUID.test(id) ? id.toLowerCase() : null;
+function attributeOf(attributes: string, name: string): string | null {
+	for (const match of attributes.matchAll(attribute)) {
+		if (match[1].toLowerCase() === name) return match[2] ?? match[3] ?? match[4] ?? '';
+	}
+	return null;
+}
+
+/**
+ * Replaces every reference chip (a span marked data-kind="wiki", with its
+ * content) by what `replace` returns for its page ID, null without a valid
+ * one. A chip that is never closed is replaced alone.
+ */
+function replaceMentions(html: string, replace: (id: string | null) => string): string {
+	const tags = [...html.matchAll(anyTag)];
+	let out = '';
+	let position = 0;
+	for (let index = 0; index < tags.length; index++) {
+		const tag = tags[index];
+		const start = tag.index ?? 0;
+		if (start < position) continue; // inside a chip already replaced
+		if (tag[1] || tag[2].toLowerCase() !== 'span' || attributeOf(tag[3], 'data-kind') !== 'wiki') continue;
+		let end = start + tag[0].length;
+		let open = 0; // spans opened inside the chip
+		for (let next = index + 1; next < tags.length; next++) {
+			if (tags[next][2].toLowerCase() !== 'span') continue;
+			if (!tags[next][1]) open++;
+			else if (open > 0) open--;
+			else {
+				end = (tags[next].index ?? 0) + tags[next][0].length;
+				break;
+			}
+		}
+		const id = attributeOf(tag[3], 'data-id') ?? '';
+		out += html.slice(position, start) + replace(UUID.test(id) ? id.toLowerCase() : null);
+		position = end;
+	}
+	return out + html.slice(position);
 }
 
 /** Pages some HTML references, each once, in document order. */
 export function wikiMentionIds(html: string | null | undefined): string[] {
 	const ids = new Set<string>();
-	for (const match of (html ?? '').matchAll(mentionSpan)) {
-		const id = mentionId(match[0]);
+	replaceMentions(html ?? '', (id) => {
 		if (id) ids.add(id);
-	}
+		return '';
+	});
 	return [...ids];
 }
 
@@ -79,8 +116,7 @@ export function renderReaderReferences(
 		unavailable: string;
 	}
 ): string {
-	return html.replace(mentionSpan, (tag) => {
-		const id = mentionId(tag);
+	return replaceMentions(html, (id) => {
 		const published = id ? options.published.get(id) : undefined;
 		if (id && published !== undefined)
 			return `<a class="mention mention-wiki" href="${escapeHtml(options.hrefFor(id))}">${escapeHtml(published)}</a>`;
@@ -174,8 +210,8 @@ export function isWikiPageDrag(transfer: { types: readonly string[] } | null | u
 
 /**
  * The @-query being typed at the caret of a plain text field, as the rich
- * editor detects it: an @ at the start of a line or after a space, with no
- * line break up to the caret.
+ * editor detects it: an @ at the start of a line or after a space, followed
+ * directly by the query, with no line break up to the caret.
  */
 export function mentionQueryAt(text: string, caret: number): { from: number; query: string } | null {
 	const before = text.slice(0, caret);
@@ -183,7 +219,7 @@ export function mentionQueryAt(text: string, caret: number): { from: number; que
 	if (from < 0) return null;
 	if (from > 0 && !/\s/.test(before[from - 1])) return null;
 	const query = before.slice(from + 1);
-	if (query.includes('\n') || query.length > 50) return null;
+	if (/^\s/.test(query) || query.includes('\n') || query.length > 50) return null;
 	return { from, query };
 }
 
