@@ -402,7 +402,7 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		}
 		result := issueSummary(*issue)
 		if issue.Description != nil {
-			result["description"] = truncateRunes(sanitize.StripHTML(*issue.Description), 4000)
+			result["description"] = truncateRunes(sanitize.StripHTMLKeepingWikiReferences(*issue.Description), 4000)
 		}
 		if t.repositories != nil {
 			repository, err := issueDevelopmentRepository(ctx, t.repositories, ws, issue)

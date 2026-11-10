@@ -176,14 +176,17 @@ test('comments keep editor classes and lose every other class', async ({ page })
 	await expect(page.getByText('requirements.pdf (2 KB)')).toBeVisible();
 
 	// Classes present in each rendered comment body, ignoring what the app adds
-	// after sanitizing (the status icon inside an issue mention).
+	// after sanitizing: the status icon inside an issue mention, and the title
+	// and unavailable state it resolves for a wiki reference.
 	const rendered = await page.evaluate(() =>
 		[...document.querySelectorAll('.prose')]
 			.filter((body) => !body.closest('.ProseMirror') && !body.querySelector('.ProseMirror') && !body.classList.contains('ProseMirror'))
 			.map((body) =>
 				[...body.querySelectorAll('[class]')]
-					.filter((element) => !element.closest('.mention-status-icon'))
-					.map((element) => element.getAttribute('class'))
+					.filter((element) => !element.closest('.mention-status-icon, .mention-wiki-title'))
+					.map((element) =>
+						[...element.classList].filter((name) => !(name === 'mention-unavailable' && element.matches('.mention-wiki'))).join(' ')
+					)
 			)
 	);
 	const expected = [

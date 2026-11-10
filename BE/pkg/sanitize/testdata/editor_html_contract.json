@@ -4,6 +4,7 @@
     "editor-attachment",
     "mention",
     "mention-issue",
+    "mention-wiki",
     "registry-ref",
     "text-[var(--app-accent-light)]",
     "underline"
@@ -19,6 +20,10 @@
     {
       "input": "mention mention-issue",
       "output": "mention mention-issue"
+    },
+    {
+      "input": "mention mention-wiki",
+      "output": "mention mention-wiki"
     },
     {
       "input": "editor-attachment",
@@ -101,6 +106,10 @@
     {
       "name": "mentions",
       "html": "<p>Ping <span data-type=\"mention\" data-id=\"123e4567-e89b-12d3-a456-426614174000\" data-label=\"Ada\" data-kind=\"user\" class=\"mention\">@Ada</span> about <span data-type=\"mention\" data-id=\"123e4567-e89b-12d3-a456-426614174000\" data-label=\"ENG-7\" data-kind=\"issue\" data-identifier=\"ENG-7\" class=\"mention mention-issue\">ENG-7</span></p>"
+    },
+    {
+      "name": "wiki page reference",
+      "html": "<p>See <span data-type=\"mention\" data-kind=\"wiki\" data-id=\"123e4567-e89b-12d3-a456-426614174000\" class=\"mention mention-wiki\"></span> first</p>"
     },
     {
       "name": "attachment",

@@ -95,15 +95,17 @@ func (s *AgentTaskService) retryAfterSignIn(ctx context.Context, ws, id, request
 }
 
 // signInAgents are the agents with their own sign-in, in display order.
-var signInAgents = []string{"claude-code", "codex"}
+var signInAgents = []string{"claude-code", "codex", "opencode"}
 
-// tokenAgents accept a pasted token instead of a captured credentials file.
-var tokenAgents = map[string]bool{"claude-code": true}
+// tokenAgents accept a pasted token instead of a captured credentials file:
+// Claude Code's `claude setup-token` token and an OpenCode API key.
+var tokenAgents = map[string]bool{"claude-code": true, "opencode": true}
 
-// signInTokenLifetime is how long a `claude setup-token` token lasts. Kuayle
-// counts it from when the token was saved, so its estimate is never later
-// than the real expiry.
-const signInTokenLifetime = 365 * 24 * time.Hour
+// signInTokenLifetimes is how long each agent's token lasts, where that is
+// known: a `claude setup-token` token lasts a year. Kuayle counts it from when
+// the token was saved, so its estimate is never later than the real expiry.
+// An agent without an entry (an OpenCode API key) gets no expiry estimate.
+var signInTokenLifetimes = map[string]time.Duration{"claude-code": 365 * 24 * time.Hour}
 
 const (
 	minSignInTokenLength = 20
@@ -112,7 +114,8 @@ const (
 
 // validSignInToken accepts one line of printable ASCII without whitespace:
 // Claude Code tokens look like sk-ant-oat01-..., but the prefix is not
-// required in case Anthropic changes it.
+// required in case Anthropic changes it. The same rule fits an OpenCode API
+// key, whose format Kuayle does not assume either.
 func validSignInToken(token string) bool {
 	if len(token) < minSignInTokenLength || len(token) > maxSignInTokenLength {
 		return false
@@ -176,7 +179,12 @@ func (s *DevMachineService) SaveAgentSignInToken(ctx context.Context, workspaceI
 	if err != nil {
 		return nil, err
 	}
-	if err = s.store.SaveAgentSignInToken(ctx, workspaceID, userID, provider, encrypted, time.Now().Add(signInTokenLifetime)); err != nil {
+	// The zero time saves the token without an expiry.
+	var expiresAt time.Time
+	if lifetime, ok := signInTokenLifetimes[provider]; ok {
+		expiresAt = time.Now().Add(lifetime)
+	}
+	if err = s.store.SaveAgentSignInToken(ctx, workspaceID, userID, provider, encrypted, expiresAt); err != nil {
 		return nil, err
 	}
 	signIns, err := s.ListAgentSignIns(ctx, workspaceID, userID)

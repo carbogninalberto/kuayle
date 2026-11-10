@@ -7,21 +7,46 @@
 	import { m } from '$lib/features/i18n/messages';
 	import { tokenProblem } from './sign-in';
 
-	// Saves the user's Claude Code token (the output of `claude setup-token`).
-	// The value never comes back from the API, so the field is cleared once saved.
+	// Saves a token the user pastes for an agent: the Claude Code token (the
+	// output of `claude setup-token`) or an OpenCode API key. The value never
+	// comes back from the API, so the field is cleared once saved.
 	let {
 		slug,
+		provider = 'claude-code',
 		saved = false,
 		submitLabel,
 		onsaved
 	}: {
 		slug: string;
+		provider?: 'claude-code' | 'opencode';
 		/** A token is already saved: the field replaces it. */
 		saved?: boolean;
 		submitLabel?: string;
 		onsaved: (signIn: AgentSignIn) => void | Promise<void>;
 	} = $props();
 	const id = $props.id();
+	const copy = $derived(
+		provider === 'opencode'
+			? {
+					label: m['settings.agents.opencode_key_label'](),
+					// Kuayle assumes no key format, so it suggests none.
+					placeholder: '',
+					replace: m['settings.agents.opencode_key_replace'](),
+					save: m['settings.agents.opencode_key_save'](),
+					empty: m['settings.agents.opencode_key_invalid'](),
+					invalid: m['settings.agents.opencode_key_invalid'](),
+					failed: m['settings.agents.opencode_key_failed']()
+				}
+			: {
+					label: m['settings.agents.claude_token_label'](),
+					placeholder: 'sk-ant-oat01-…',
+					replace: m['settings.agents.claude_token_replace'](),
+					save: m['settings.agents.claude_token_save'](),
+					empty: m['settings.agents.claude_token_empty'](),
+					invalid: m['settings.agents.claude_token_invalid'](),
+					failed: m['settings.agents.claude_token_failed']()
+				}
+	);
 	let value = $state(''),
 		busy = $state(false),
 		error = $state('');
@@ -31,18 +56,18 @@
 		if (busy) return;
 		const problem = tokenProblem(value);
 		if (problem) {
-			error = problem === 'empty' ? m['settings.agents.claude_token_empty']() : m['settings.agents.claude_token_invalid']();
+			error = problem === 'empty' ? copy.empty : copy.invalid;
 			return;
 		}
 		busy = true;
 		error = '';
 		try {
-			const signIn = await agentSignIns.saveToken(slug, 'claude-code', value.trim());
+			const signIn = await agentSignIns.saveToken(slug, provider, value.trim());
 			value = '';
 			await onsaved(signIn);
 		} catch (cause) {
 			const status = (cause as { status?: number }).status;
-			error = status === 400 ? m['settings.agents.claude_token_invalid']() : m['settings.agents.claude_token_failed']();
+			error = status === 400 ? copy.invalid : copy.failed;
 		} finally {
 			busy = false;
 		}
@@ -50,7 +75,7 @@
 </script>
 
 <form class="space-y-2" onsubmit={submit} novalidate>
-	<Label for="{id}-token">{m['settings.agents.claude_token_label']()}</Label>
+	<Label for="{id}-token">{copy.label}</Label>
 	<div class="flex flex-col gap-2 sm:flex-row">
 		<div class="min-w-0 sm:flex-1">
 			<Password
@@ -59,7 +84,7 @@
 				class="font-mono"
 				autocomplete="off"
 				spellcheck={false}
-				placeholder={saved ? m['settings.agents.claude_token_replace']() : 'sk-ant-oat01-…'}
+				placeholder={saved ? copy.replace : copy.placeholder}
 				aria-invalid={error ? true : undefined}
 				aria-describedby={error ? `${id}-error` : undefined}
 				disabled={busy}
@@ -67,8 +92,7 @@
 			/>
 		</div>
 		<Button type="submit" size="sm" class="sm:self-center" disabled={busy}
-			>{#if busy}<LoaderCircle class="animate-spin" />{m['settings.agents.claude_token_saving']()}{:else}{submitLabel ??
-					m['settings.agents.claude_token_save']()}{/if}</Button
+			>{#if busy}<LoaderCircle class="animate-spin" />{m['settings.agents.claude_token_saving']()}{:else}{submitLabel ?? copy.save}{/if}</Button
 		>
 	</div>
 	{#if error}<p id="{id}-error" role="alert" class="text-xs text-destructive">{error}</p>{/if}

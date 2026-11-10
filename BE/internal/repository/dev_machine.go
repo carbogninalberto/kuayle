@@ -990,8 +990,9 @@ func (r *DevMachineRepository) changeAgentSignIns(ctx context.Context, workspace
 	return tx.Commit()
 }
 
-// GetAgentSignInToken returns a user's encrypted Claude Code token, or "" when
-// there is none or it has expired.
+// GetAgentSignInToken returns a user's encrypted token for an agent (a Claude
+// Code token or an OpenCode API key), or "" when there is none or it has
+// expired.
 func (r *DevMachineRepository) GetAgentSignInToken(ctx context.Context, workspaceID, userID uuid.UUID, provider string) (string, error) {
 	var encrypted string
 	err := r.db.GetContext(ctx, &encrypted, `SELECT encrypted_credential FROM agent_sign_ins
@@ -1002,12 +1003,13 @@ func (r *DevMachineRepository) GetAgentSignInToken(ctx context.Context, workspac
 	return encrypted, err
 }
 
-// SaveAgentSignInToken stores or replaces a user's encrypted token.
+// SaveAgentSignInToken stores or replaces a user's encrypted token. A zero
+// expiresAt saves it without an expiry.
 func (r *DevMachineRepository) SaveAgentSignInToken(ctx context.Context, workspaceID, userID uuid.UUID, provider, encrypted string, expiresAt time.Time) error {
 	return r.changeAgentSignIns(ctx, workspaceID, userID, func(tx *sqlx.Tx) (int64, error) {
 		result, err := tx.ExecContext(ctx, `INSERT INTO agent_sign_ins(workspace_id,user_id,provider,kind,encrypted_credential,expires_at) VALUES($1,$2,$3,'token',$4,$5)
 		ON CONFLICT (workspace_id,user_id,provider,kind) DO UPDATE SET encrypted_credential=EXCLUDED.encrypted_credential, expires_at=EXCLUDED.expires_at, created_at=now(), updated_at=now()`,
-			workspaceID, userID, provider, encrypted, expiresAt)
+			workspaceID, userID, provider, encrypted, sql.NullTime{Time: expiresAt, Valid: !expiresAt.IsZero()})
 		if err != nil {
 			return 0, err
 		}

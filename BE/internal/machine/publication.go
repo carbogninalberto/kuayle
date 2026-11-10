@@ -25,6 +25,12 @@ func (m *Manager) SetAgentGitIdentity(identity GitIdentity) {
 	m.agentGitIdentity = identity
 }
 
+// SetFrontendURL is Kuayle's public address, which links an uploaded bot
+// picture in pull request descriptions.
+func (m *Manager) SetFrontendURL(frontendURL string) {
+	m.frontendURL = frontendURL
+}
+
 func (m *Manager) gitIdentity() GitIdentity {
 	if m.agentGitIdentity.Name == "" || m.agentGitIdentity.Email == "" {
 		return defaultAgentGitIdentity
@@ -94,7 +100,7 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	}
 	result := domain.AgentPublicationResult{}
 	if commit != "" {
-		body := publicationBody(publication, run)
+		body := publication.Bot.Signature(m.frontendURL) + publicationBody(publication, run)
 		pullRequest, prErr := githubAPI.FindOpenPullRequest(token, owner, repository, checkout.WorkingBranch, checkout.BaseBranch)
 		if prErr == nil && pullRequest == nil {
 			// Without an independent check the change opens as a draft, so it

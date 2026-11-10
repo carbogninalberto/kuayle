@@ -120,3 +120,37 @@ func WikiRegistryEntryHTML(raw string, at time.Time) (string, error) {
 	}
 	return "<p><strong>" + at.UTC().Format("15:04") + "</strong> " + html.EscapeString(text) + "</p>", nil
 }
+
+// WikiReference is what a reference chip shows of a page: its title and the
+// team or project it belongs to, never its content.
+type WikiReference struct {
+	ID        uuid.UUID  `db:"id"`
+	TeamID    *uuid.UUID `db:"team_id"`
+	ProjectID *uuid.UUID `db:"project_id"`
+	Title     string     `db:"title"`
+	ScopeName string     `db:"scope_name"`
+}
+
+// WikiBacklinkIssue is an issue that references a page in its description,
+// in a comment or as an attached reference.
+type WikiBacklinkIssue struct {
+	ID         uuid.UUID `db:"id"`
+	Identifier string    `db:"identifier_text"`
+	Title      string    `db:"title"`
+}
+
+// WikiBacklinks is where a page is referenced, limited to what the caller
+// can see.
+type WikiBacklinks struct {
+	Issues []WikiBacklinkIssue
+	Pages  []WikiReference
+}
+
+const (
+	// WikiReferenceSearchLimit caps one page of mention suggestions.
+	WikiReferenceSearchLimit = 20
+	// WikiReferenceResolveLimit caps how many chips one request resolves.
+	WikiReferenceResolveLimit = 200
+	// WikiBacklinkLimit caps each list of a page's backlinks.
+	WikiBacklinkLimit = 100
+)

@@ -90,6 +90,13 @@ func TestPublicationRecordsPullRequestOnceAndGatesReview(t *testing.T) {
 	require.Equal(t, "carbogninalberto", publication.AuthorName)
 	require.Equal(t, "dev@example.com", publication.AuthorEmail)
 	require.Empty(t, publication.PublishedCommit, "nothing published yet")
+	require.Empty(t, publication.Bot.Signature("https://kuayle.test"), "no bot identity, no signature")
+	_, err = db.Exec(`INSERT INTO workspace_github_bot_settings(workspace_id,display_name,avatar_url) VALUES($1,'Acme','https://img.test/bot.png')`, task.WorkspaceID)
+	require.NoError(t, err)
+	publication, err = store.GetPublication(ctx, op)
+	require.NoError(t, err)
+	require.Equal(t, "Acme", publication.Bot.Name())
+	require.Equal(t, "https://img.test/bot.png", *publication.Bot.AvatarURL)
 	// Later publications fold agent commits only above what Kuayle published on
 	// this checkout's branch. Commits only observed in the checkout, and other
 	// branches or repositories, do not count.

@@ -154,7 +154,7 @@ async function mockWorkspace(page: Page) {
 			});
 		if (path === '/api/workspaces/test/issues/OLD-1') return route.fulfill({ json: { ...issues[0], identifier: 'PLT-1' } });
 		if (path === '/api/workspaces/test/issues/PLT-1') return route.fulfill({ json: { ...issues[0], identifier: 'PLT-1' } });
-		if (path.match(/^\/api\/workspaces\/test\/issues\/(OLD|PLT)-1\/(github|comments|history|relations|sub-issues)$/))
+		if (path.match(/^\/api\/workspaces\/test\/issues\/(OLD|PLT)-1\/(github|comments|history|relations|sub-issues|wiki-references)$/))
 			return route.fulfill({ json: path.endsWith('/github') ? { pull_requests: [], branches: [], commits: [] } : [] });
 		const detailMatch = path.match(/^\/api\/workspaces\/test\/issues\/(ENG-[123])$/);
 		if (detailMatch && revoked) return route.fulfill({status: 404, json: {error: {message: 'Not found'}}});
@@ -169,7 +169,7 @@ async function mockWorkspace(page: Page) {
 				'/api/workspaces/test/views'
 			].includes(path) ||
 			path.match(/^\/api\/workspaces\/test\/teams\/[^/]+\/cycles$/) ||
-			path.match(/^\/api\/workspaces\/test\/issues\/ENG-[123]\/(comments|history|relations|sub-issues)$/)
+			path.match(/^\/api\/workspaces\/test\/issues\/ENG-[123]\/(comments|history|relations|sub-issues|wiki-references)$/)
 		)
 			return route.fulfill({ json: [] });
 		unhandledPaths.push(path);
