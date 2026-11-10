@@ -503,6 +503,10 @@
 				window.dispatchEvent(new CustomEvent('ws:wiki-changed', { detail: { ...msg.payload, type: msg.type } }));
 				break;
 			}
+			case 'issue.wiki_references_changed': {
+				window.dispatchEvent(new CustomEvent('ws:issue-wiki-references', { detail: msg.payload }));
+				break;
+			}
 			case 'comment.created': {
 				window.dispatchEvent(new CustomEvent('ws:comment-created', { detail: msg.payload }));
 				break;

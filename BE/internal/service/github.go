@@ -203,6 +203,10 @@ func (s *GitHubService) getClientByInstallationID(ctx context.Context, installat
 
 // --- Manifest Flow ---
 
+// GitHubAppDescription is the description new GitHub Apps get from the
+// manifest; GitHub shows it on the app's public page and install screen.
+const GitHubAppDescription = "Kuayle connects this repository to your Kuayle workspace. It links pull requests, branches and commits to issues, moves issues along as pull requests progress, and lets Kuayle agents open pull requests, post review findings and respond to CI and review feedback, only for the abilities your workspace turns on."
+
 // GetManifest returns the GitHub App manifest and the URL to submit it to.
 func (s *GitHubService) GetManifest(workspaceID uuid.UUID, slug string) (map[string]any, string) {
 	callbackURL := fmt.Sprintf("%s/%s/settings/github", s.frontendURL, slug)
@@ -213,6 +217,7 @@ func (s *GitHubService) GetManifest(workspaceID uuid.UUID, slug string) (map[str
 	manifest := map[string]any{
 		"name":                fmt.Sprintf("Kuayle (%s)", slug),
 		"url":                 s.frontendURL,
+		"description":         GitHubAppDescription,
 		"redirect_url":        callbackURL,
 		"setup_url":           callbackURL,
 		"setup_on_update":     true,
@@ -751,10 +756,17 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 		state = "merged"
 	}
 
+	// The bot signature Kuayle starts agent descriptions with is not searched:
+	// a bot name or picture address that looks like an identifier is no link.
+	// Without the settings the description is searched as it is.
+	description := event.PullRequest.Body
+	if bot, botErr := s.botSettings(ctx, inst.WorkspaceID); botErr == nil {
+		description = bot.WithoutSignature(s.frontendURL, description)
+	}
 	issue, err := s.resolvePullRequestIssue(ctx, inst.WorkspaceID,
 		event.PullRequest.Head.Ref,
 		event.PullRequest.Title,
-		event.PullRequest.Body,
+		description,
 	)
 
 	if err != nil {

@@ -297,3 +297,27 @@ func TestPublishAgentSyncsTheCheckoutFirstAndStopsWhenItCannotFastForward(t *tes
 	require.Equal(t, 1, base.syncs)
 	require.Equal(t, 1, runtime.calls)
 }
+
+// GitHub shows the description as the bot's first comment, so it starts with
+// the workspace's bot name and picture like the bot's comments do.
+func TestPublishAgentDescriptionStartsWithBotSignature(t *testing.T) {
+	machine, store := publicationFixture()
+	store.publication.CheckArgv, store.publication.CheckExitCode = nil, nil
+	store.publication.Bot = &domain.GitHubBotSettings{WorkspaceID: machine.WorkspaceID, DisplayName: ptr("Acme"), AvatarURL: ptr("https://img.test/bot.png")}
+	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: "0123456789abcdef0123456789abcdef01234567"}
+	github := &publicationGitHubFake{created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
+	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	manager.SetFrontendURL("https://kuayle.test")
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.True(t, strings.HasPrefix(github.body, "<img src=\"https://img.test/bot.png\" alt=\"\" width=\"20\" height=\"20\" align=\"top\"> **Acme**\n\n> [!WARNING]"), github.body)
+
+	// An uploaded picture is linked from Kuayle's public address.
+	machine, store = publicationFixture()
+	file := uuid.NewString() + ".png"
+	store.publication.Bot = &domain.GitHubBotSettings{WorkspaceID: machine.WorkspaceID, AvatarFile: &file}
+	github = &publicationGitHubFake{existing: &githubclient.PullRequest{Number: 3, HTMLURL: "https://github.com/acme/app/pull/3"}}
+	manager = &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	manager.SetFrontendURL("https://kuayle.test/")
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.True(t, strings.HasPrefix(github.body, `<img src="https://kuayle.test/api/github-bot/`+machine.WorkspaceID.String()+`/avatar/`+file+`"`), github.body)
+}

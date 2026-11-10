@@ -7,6 +7,8 @@
 	import { m } from '$lib/features/i18n/messages';
 	import WikiReader from './WikiReader.svelte';
 	import { subtreeIds } from './wiki-tree';
+	import { wikiMentionIds } from './wiki-references';
+	import { wikiReferences } from './wiki-reference-store';
 
 	// The internal reader of a published page, for members who can see the
 	// wiki: the same read-only layout as a public link. Access is the wiki's
@@ -17,6 +19,9 @@
 	let pages = $state<ReaderPage[]>([]);
 	let readerState = $state<'loading' | 'ready' | 'unpublished' | 'failed'>('loading');
 	const selected = $derived(appPage.url.searchParams.get('page') ?? rootId);
+	// Titles of the mentioned pages this member can see, for the reader to
+	// print; pages they cannot see stay placeholders.
+	let references = $state(new Map<string, string>());
 
 	$effect(() => {
 		const root = rootId;
@@ -58,6 +63,10 @@
 		void getWikiPage(slug, scope, id)
 			.then((loaded) => {
 				pages = pages.map((p) => (p.id === id ? { ...p, content: loaded.content, title: loaded.title } : p));
+				for (const mentioned of wikiMentionIds(loaded.content))
+					void wikiReferences.resolve(slug, mentioned).then((reference) => {
+						if (reference.accessible) references = new Map(references).set(reference.id, reference.title ?? '');
+					});
 			})
 			.catch(() => {});
 	});
@@ -80,5 +89,6 @@
 		{pages}
 		selectedId={pages.some((p) => p.id === selected) ? selected : rootId}
 		hrefFor={(id) => `?page=${id}`}
+		{references}
 	/>
 {/if}

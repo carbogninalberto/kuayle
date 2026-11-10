@@ -17,6 +17,7 @@
 	import { ChevronRight, FileText, Image as ImageIcon, Paperclip } from '@lucide/svelte';
 	import { WikiAutosave, type SaveState } from './wiki-autosave';
 	import { wikiFiles, wikiOutline } from './wiki-content';
+	import WikiBacklinks from './WikiBacklinks.svelte';
 
 	// One wiki page laid out like the full issue page: title and description
 	// editor on the left, property cards on the right. Edits autosave like an
@@ -65,6 +66,7 @@
 	let detailsExpanded = $state(true);
 	let outlineExpanded = $state(true);
 	let filesExpanded = $state(true);
+	let backlinksExpanded = $state(true);
 	let editorHost = $state<HTMLElement | null>(null);
 	let lastLocalSave = 0;
 	let disposed = false;
@@ -379,6 +381,17 @@
 						</ul>
 					{/if}
 				</div>
+			{/if}
+		</div>
+
+		<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+			{@render cardHeader(
+				m['wiki.backlinks.title'](),
+				backlinksExpanded,
+				() => (backlinksExpanded = !backlinksExpanded)
+			)}
+			{#if backlinksExpanded}
+				<WikiBacklinks {slug} {scope} pageId={page.id} />
 			{/if}
 		</div>
 	</aside>

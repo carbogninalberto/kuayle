@@ -159,6 +159,7 @@ type Manager struct {
 	diskQuota     DiskQuotaConfig
 
 	agentGitIdentity GitIdentity
+	frontendURL      string
 	// attachmentFiles reads task images from storage; nil copies none.
 	attachmentFiles attachmentReader
 

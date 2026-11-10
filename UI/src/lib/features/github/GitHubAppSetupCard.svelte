@@ -5,9 +5,15 @@
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { CircleAlert, CircleCheck, ExternalLink, LoaderCircle, RefreshCw } from '@lucide/svelte';
+	import { CircleAlert, CircleCheck, Download, ExternalLink, LoaderCircle, RefreshCw } from '@lucide/svelte';
 	import { m } from '$lib/features/i18n/messages';
-	import { githubAppSetupView, type GitHubAppSetup, type GitHubAppSetupMessage } from './app-setup';
+	import {
+		GITHUB_APP_LOGO_PATH,
+		githubAppLogoSettingsUrl,
+		githubAppSetupView,
+		type GitHubAppSetup,
+		type GitHubAppSetupMessage
+	} from './app-setup';
 
 	let { slug }: { slug: string } = $props();
 
@@ -16,6 +22,7 @@
 	let failed = $state(false);
 	const view = $derived(setup ? githubAppSetupView(setup) : null);
 	const account = $derived(setup?.account_login || setup?.app_slug || 'GitHub');
+	const logoSettingsUrl = $derived(setup ? githubAppLogoSettingsUrl(setup) : null);
 
 	async function check() {
 		if (checking) return;
@@ -150,5 +157,20 @@
 					]()}{/if}
 			</Button>
 		</div>
+		{#if logoSettingsUrl}
+			<div class="space-y-2 border-t pt-3" data-testid="github-app-logo">
+				<p class="text-xs text-muted-foreground">{m['settings.github.app_setup.logo_hint']()}</p>
+				<div class="flex flex-wrap gap-2">
+					<Button size="sm" variant="outline" href={GITHUB_APP_LOGO_PATH} download="kuayle-logo.png">
+						<Download />{m['settings.github.logo_download']()}
+					</Button>
+					<Button size="sm" variant="outline" href={logoSettingsUrl} target="_blank" rel="noopener noreferrer">
+						<ExternalLink />{m['settings.github.app_setup.update_logo']()}<span class="sr-only"
+							>{m['settings.github.app_setup.opens_new_tab']()}</span
+						>
+					</Button>
+				</div>
+			</div>
+		{/if}
 	</Card.Content>
 </Card.Root>

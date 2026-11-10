@@ -128,4 +128,15 @@ export interface PublicWiki {
 	workspace_name: string;
 	root_id: string;
 	pages: ReaderPage[];
+	/** Titles of mentioned pages an anonymous reader may know. */
+	references?: Array<{ id: string; title: string }>;
+}
+
+export type { WikiReference } from '$lib/features/wiki/wiki-references';
+import type { WikiReference } from '$lib/features/wiki/wiki-references';
+
+/** Where a page is referenced, limited to what the reader can see. */
+export interface WikiBacklinks {
+	issues: Array<{ id: string; identifier: string; title: string }>;
+	pages: WikiReference[];
 }

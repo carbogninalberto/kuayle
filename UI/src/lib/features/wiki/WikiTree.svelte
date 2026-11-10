@@ -75,11 +75,14 @@
 	let dragging = $state<string | null>(null);
 	let target = $state<{ id: string | null; zone: DropZone } | null>(null);
 
+	// A drag carries the page's ID. Inside the tree it moves the page (writers
+	// only); dropped on an editor, an issue or the chat it becomes a reference
+	// to the page, which readers may create too.
 	function dragStart(event: DragEvent, id: string) {
-		if (!canWrite || !event.dataTransfer) return;
+		if (!event.dataTransfer) return;
 		event.dataTransfer.setData(WIKI_PAGE_DRAG_TYPE, id);
-		event.dataTransfer.effectAllowed = 'move';
-		dragging = id;
+		event.dataTransfer.effectAllowed = canWrite ? 'copyMove' : 'copy';
+		if (canWrite) dragging = id;
 	}
 	function dragEnd() {
 		dragging = null;
@@ -168,7 +171,7 @@
 			? 'ring-1 ring-[var(--app-accent)]'
 			: ''}"
 		style="padding-left: {node.depth * 0.75}rem"
-		draggable={canWrite && renaming?.id !== item.id}
+		draggable={renaming?.id !== item.id}
 		ondragstart={(event) => dragStart(event, item.id)}
 		ondragend={dragEnd}
 		ondragover={(event) => dragOver(event, item.id)}

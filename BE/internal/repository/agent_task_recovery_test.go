@@ -224,3 +224,30 @@ func TestAgentTaskRetrySwitchesModelAndReplaysOnlyTheSameModel(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, next.RunID, again.RunID)
 }
+
+// A workflow that stops a task says why (a step's visit limit, the budget, an
+// outcome nothing follows). That stays the failed task's reason instead of
+// the generic text; other failures keep the generic text (KUA-120).
+func TestWorkflowFailureKeepsItsReason(t *testing.T) {
+	for name, tc := range map[string]struct{ reason, want string }{
+		"workflow limit": {
+			"Workflow · Automated review reached its limit of 3 visits after pull request published",
+			"Workflow · Automated review reached its limit of 3 visits after pull request published",
+		},
+		"native failure": {"Native coding iteration failed; stopping execution before retry", "Execution failed; runtime cleanup confirmed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, repo, ctx, task, _ := taskRecoveryFixture(t)
+			claimed, err := repo.Claim(ctx)
+			require.NoError(t, err)
+			require.NotNil(t, claimed)
+			require.NoError(t, repo.Transition(ctx, *claimed, "preparing", "Preparing"))
+			require.NoError(t, repo.Fail(ctx, *claimed, tc.reason))
+			require.NoError(t, repo.FinishCancellation(ctx, *claimed, "Runtime cancellation confirmed"))
+			failed, err := repo.Get(ctx, task.WorkspaceID, task.ID)
+			require.NoError(t, err)
+			require.Equal(t, "failed", failed.State)
+			require.Equal(t, tc.want, failed.Reason)
+		})
+	}
+}

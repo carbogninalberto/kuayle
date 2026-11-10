@@ -125,6 +125,9 @@
 					{m['wiki.publish.children']()}
 				</Label>
 			{/if}
+			{#if mode === 'public'}
+				<p class="text-xs text-[var(--color-text-tertiary)]">{m['wiki.publish.public_references']()}</p>
+			{/if}
 			{#if publication.mode === 'public' && publication.url && !changed}
 				<div class="grid gap-1.5">
 					<Label for="publish-link" class="text-xs">{m['wiki.publish.public_link']()}</Label>
