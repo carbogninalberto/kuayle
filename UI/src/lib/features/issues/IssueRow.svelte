@@ -23,6 +23,8 @@
 	import { Ban, CalendarDays, CircleUser, Copy, Link, OctagonAlert, RefreshCw } from '@lucide/svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
+	import AgentAvatar from '$lib/features/agents/AgentAvatar.svelte';
+	import AgentAssigneeItems from '$lib/features/agents/AgentAssigneeItems.svelte';
 
 	let {
 		issue,
@@ -268,6 +270,7 @@
 							{getPriorityLabel(value)}
 						</Button>
 					{/each}
+					<AgentAssigneeItems {slug} teamId={issue.team_id} {issue} variant="plain" onchanged={() => onchanged?.()} />
 				</Popover.Content>
 			</Popover.Root>
 		</span>
@@ -440,7 +443,10 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<span class="shrink-0 flex items-center" onclick={(e) => e.stopPropagation()}>
 			<Popover.Root bind:open={assigneeOpen}>
-				<Popover.Trigger disabled={readOnly} class="flex items-center cursor-pointer transition-all">
+				<Popover.Trigger disabled={readOnly} class="flex items-center gap-1 cursor-pointer transition-all">
+					{#each issue.agent_assignees ?? [] as agent (agent.id)}
+						<AgentAvatar name={agent.name} color={agent.avatar_color} size={20} state={agent.task_state} />
+					{/each}
 					{#if issue.assignees && issue.assignees.length > 1}
 						<div class="flex -space-x-2 rounded-full hover:ring-2 hover:ring-[var(--app-accent)]">
 							<div
@@ -469,7 +475,7 @@
 						>
 							{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
 						</div>
-					{:else}
+					{:else if (issue.agent_assignees ?? []).length === 0}
 						<span
 							class="text-[var(--color-text-tertiary)] opacity-40 hover:opacity-100 hover:text-[var(--color-text-secondary)] transition-all"
 						>

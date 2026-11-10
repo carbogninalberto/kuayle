@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { page } from '$app/state';
+	import AgentAvatar from '$lib/features/agents/AgentAvatar.svelte';
+	import { agentIdentities } from '$lib/features/agents/agent-identities.state.svelte';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Popover from '$lib/components/ui/popover';
@@ -37,6 +40,13 @@
 		excludedFilters?: string[];
 		onchange: (filters: ViewFilter) => void;
 	} = $props();
+
+	// Agents load when the assignee filter is opened, or to name a saved
+	// filter that points at an agent rather than a member.
+	$effect(() => {
+		const unresolved = !!filters.assignee && filters.assignee !== 'none' && members.length > 0 && !members.some((member) => member.user_id === filters.assignee);
+		if ((assigneeOpen || unresolved) && page.params.workspaceSlug) void agentIdentities.ensure(page.params.workspaceSlug);
+	});
 
 	let addFilterOpen = $state(false);
 	let statusOpen = $state(false);
@@ -213,6 +223,8 @@
 		if (!filters.assignee) return m['sharedComponents.filter_builder.assignee']();
 		if (filters.assignee === 'none') return m['sharedComponents.filter_builder.unassigned']();
 		const member = members.find((member) => member.user_id === filters.assignee);
+		const agent = member ? undefined : agentIdentities.byId(filters.assignee);
+		if (agent) return m['sharedComponents.filter_builder.agent_suffix']({ name: agent.name });
 		return member?.name || member?.email || m['sharedComponents.filter_builder.assignee']();
 	}
 
@@ -481,6 +493,22 @@
 							{member.name || member.email}
 						</Button>
 					{/each}
+					{#if agentIdentities.agents.length > 0}
+						<Separator class="my-1" />
+						<div class="px-2 py-1 text-[10px] font-medium tracking-wide text-[var(--color-text-tertiary)] uppercase">{m['agents.assignee.section']()}</div>
+						{#each agentIdentities.agents as agent (agent.id)}
+							<Button variant="plain" onclick={() => updateFilter('assignee', agent.id)}
+								data-agent-filter={agent.name}
+								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.assignee ===
+								agent.id
+									? 'bg-[var(--color-bg-hover)]'
+									: ''}"
+							>
+								<AgentAvatar name={agent.name} color={agent.avatar_color} size={14} />
+								{agent.name}
+							</Button>
+						{/each}
+					{/if}
 					<Separator class="my-1" />
 					<Button variant="plain" onclick={() => removeFilter('assignee')}
 						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"

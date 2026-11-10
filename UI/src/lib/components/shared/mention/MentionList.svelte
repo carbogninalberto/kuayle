@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Bot from '@lucide/svelte/icons/bot';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount, onDestroy } from 'svelte';
 	import type { MentionItem } from './mention.extension';
@@ -27,6 +28,7 @@
 	let flipAbove = $state(false);
 
 	const users = $derived(items.filter((i) => i.kind === 'user'));
+	const agents = $derived(items.filter((i) => i.kind === 'agent'));
 	const issues = $derived(items.filter((i) => i.kind === 'issue'));
 	const pages = $derived(items.filter((i) => i.kind === 'wiki'));
 
@@ -96,8 +98,32 @@
 		{/each}
 	{/if}
 
-	{#if issues.length > 0}
+	{#if agents.length > 0}
 		{#if users.length > 0}
+			<div class="mention-separator"></div>
+		{/if}
+		<div class="mention-section-label">{m['sharedComponents.mention_list.agents']()}</div>
+		{#each agents as item (item.id)}
+			{@const idx = globalIndex(item)}
+			<Button variant="plain" type="button"
+				data-index={idx}
+				data-mention-agent={item.kind === 'agent' ? item.name : ''}
+				class={`mention-item ${idx === selectedIndex ? "selected" : ""}`}
+				onpointerdown={(e) => { e.preventDefault(); onselect(item); }}
+			>
+				<div class="mention-avatar"><Bot size={12} aria-hidden="true" /></div>
+				<div class="mention-info">
+					<span class="mention-name">{item.kind === 'agent' ? item.name : ''}</span>
+					{#if item.kind === 'agent'}
+						<span class="mention-email">{item.harness}</span>
+					{/if}
+				</div>
+			</Button>
+		{/each}
+	{/if}
+
+	{#if issues.length > 0}
+		{#if users.length > 0 || agents.length > 0}
 			<div class="mention-separator"></div>
 		{/if}
 		<div class="mention-section-label">{m['sharedComponents.mention_list.issues']()}</div>

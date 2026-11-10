@@ -58,26 +58,34 @@ func (r *AgentTaskRepository) Create(ctx context.Context, ws, conversation uuid.
 	if err != nil {
 		return nil, err
 	}
-	if input.Workflow != nil && input.ModelServerID == nil {
+	var agentProfile *uuid.UUID
+	if input.AgentProfile != nil {
+		if input.AgentProfile.WorkspaceID != ws || input.AgentProfile.ArchivedAt != nil || input.Workflow != nil {
+			return nil, ErrConversationInvalid
+		}
+		agentProfile = &input.AgentProfile.ID
+	}
+	if (input.Workflow != nil || input.AgentProfile != nil) && input.ModelServerID == nil {
 		// The first agent step runs on the default model server like every
 		// later step (defaultModelServer).
 		if input.ModelServerID, err = defaultModelServer(ctx, tx, ws, input.Provider); err != nil {
 			return nil, err
 		}
 	}
-	err = tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,reason,issue_status_id,issue_updated_at,test_command,validation_command,agent_instructions,compose_file,preview_command,preview_port,model_server_id) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Waiting for execution',i.status_id,i.updated_at,$11,$12,$13,$14,$15,$16,$17 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`, ws, conversation, c.CreatorID, c.IssueID, c.TeamID, input.RequestID, input.Prompt, input.Provider, input.Model, input.Thinking, requested, command, instructions, compose, preview, previewPort, input.ModelServerID)
+	err = tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,reason,issue_status_id,issue_updated_at,test_command,validation_command,agent_instructions,compose_file,preview_command,preview_port,model_server_id,agent_profile_id) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Waiting for execution',i.status_id,i.updated_at,$11,$12,$13,$14,$15,$16,$17,$18 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`, ws, conversation, c.CreatorID, c.IssueID, c.TeamID, input.RequestID, input.Prompt, input.Provider, input.Model, input.Thinking, requested, command, instructions, compose, preview, previewPort, input.ModelServerID, agentProfile)
 	if err != nil {
 		return nil, err
 	}
-	if input.Workflow != nil {
-		// The first agent step's profile and step instructions join the
-		// inherited instructions; the version is pinned before the queued
-		// snapshot is recorded, so a replay returns it.
-		if input.WorkflowInstructions != "" {
-			if err = tx.GetContext(ctx, &task, `UPDATE agent_tasks SET agent_instructions=$2 WHERE id=$1 RETURNING *`, task.ID, joinInstructions(instructions, input.WorkflowInstructions)); err != nil {
-				return nil, err
-			}
+	// The profile's instructions (of the first workflow step, or of the agent
+	// identity the task runs as) join the inherited instructions.
+	if (input.Workflow != nil || input.AgentProfile != nil) && input.WorkflowInstructions != "" {
+		if err = tx.GetContext(ctx, &task, `UPDATE agent_tasks SET agent_instructions=$2 WHERE id=$1 RETURNING *`, task.ID, joinInstructions(instructions, input.WorkflowInstructions)); err != nil {
+			return nil, err
 		}
+	}
+	if input.Workflow != nil {
+		// The version is pinned before the queued snapshot is recorded, so a
+		// replay returns it.
 		if input.Workflow.WorkspaceID != ws {
 			return nil, ErrConversationInvalid
 		}

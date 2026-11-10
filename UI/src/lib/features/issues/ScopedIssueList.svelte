@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { groupAgentId } from '$lib/features/agents/agent-assignees';
 	import { onMount, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { listTeams } from '$lib/api/teams';
@@ -261,7 +262,7 @@
 		quickDefaults = {};
 		if (key && groupBy === 'status') quickDefaults.statusId = key;
 		if (key && groupBy === 'priority') quickDefaults.priority = Number(key) as IssuePriority;
-		if (key && groupBy === 'assignee') quickDefaults.assigneeIds = key === 'unassigned' ? [] : [key];
+		if (key && groupBy === 'assignee') quickDefaults.assigneeIds = key === 'unassigned' || groupAgentId(key) ? [] : [key];
 		if (key && groupBy === 'project') quickDefaults.projectId = key === 'no-project' ? null : key;
 		showCreate = true;
 	}

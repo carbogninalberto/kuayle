@@ -78,6 +78,7 @@ type appHandlers struct {
 	agentTask         *handler.AgentTaskHandler
 	workflow          *handler.WorkflowHandler
 	agentAutomation   *handler.AgentAutomationHandler
+	agentAssignee     *handler.AgentAssigneeHandler
 	agentMessage      *handler.AgentMessageHandler
 	conversation      *handler.ConversationHandler
 	assistantSkill    *handler.AssistantSkillHandler
@@ -358,6 +359,17 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodPost, "/agent-profiles", h.workflow.CreateProfile)
 	sessionOnly(ws, http.MethodPut, "/agent-profiles/:profileId", h.workflow.UpdateProfile)
 	sessionOnly(ws, http.MethodDelete, "/agent-profiles/:profileId", h.workflow.ArchiveProfile)
+	// AI agents as members (KUA-107). Session only: an agent's task runs with
+	// the permissions of the person who assigned or mentioned it, so tokens
+	// and automations never put an agent to work. The service and SQL refuse
+	// guests and agents not enabled for the issue's team; only owners and
+	// admins change an agent's teams.
+	if h.agentAssignee != nil {
+		sessionOnly(ws, http.MethodGet, "/agents", h.agentAssignee.List)
+		sessionOnly(ws, http.MethodPut, "/agents/:agentId", h.agentAssignee.Update)
+		sessionOnly(ws, http.MethodGet, "/issues/:identifier/agents", h.agentAssignee.IssueAgents)
+		sessionOnly(ws, http.MethodPut, "/issues/:identifier/agents", h.agentAssignee.SetIssueAgents)
+	}
 	scoped(ws, http.MethodGet, "/workflows", h.workflow.List, domain.PermWorkflowsRead)
 	sessionOnly(ws, http.MethodPost, "/workflows", h.workflow.Create)
 	sessionOnly(ws, http.MethodPost, "/workflows/validate", h.workflow.Validate)

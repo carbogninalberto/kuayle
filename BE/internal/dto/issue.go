@@ -1,6 +1,10 @@
 package dto
 
-import "time"
+import (
+	"time"
+
+	"github.com/kuayle/kuayle-backend/internal/domain"
+)
 
 type CreateIssueRequest struct {
 	Title       string   `json:"title" validate:"required,min=1,max=500"`
@@ -57,26 +61,29 @@ type UpdateIssueRequest struct {
 }
 
 type IssueResponse struct {
-	ID              string                        `json:"id"`
-	Identifier      string                        `json:"identifier"`
-	Title           string                        `json:"title"`
-	Description     *string                       `json:"description"`
-	Status          string                        `json:"status"`
-	StatusID        *string                       `json:"status_id,omitempty"`
-	StatusInfo      *StatusInfoResponse           `json:"status_info,omitempty"`
-	Priority        int                           `json:"priority"`
-	TeamID          string                        `json:"team_id"`
-	ProjectID       *string                       `json:"project_id"`
-	CycleID         *string                       `json:"cycle_id"`
-	CreatorID       string                        `json:"creator_id"`
-	AssigneeID      *string                       `json:"assignee_id"`
-	ParentID        *string                       `json:"parent_id"`
-	DueDate         *time.Time                    `json:"due_date"`
-	SortOrder       float64                       `json:"sort_order"`
-	Labels          []LabelResponse               `json:"labels,omitempty"`
-	Creator         *UserResponse                 `json:"creator,omitempty"`
-	Assignee        *UserResponse                 `json:"assignee,omitempty"`
-	Assignees       []UserResponse                `json:"assignees,omitempty"`
+	ID          string              `json:"id"`
+	Identifier  string              `json:"identifier"`
+	Title       string              `json:"title"`
+	Description *string             `json:"description"`
+	Status      string              `json:"status"`
+	StatusID    *string             `json:"status_id,omitempty"`
+	StatusInfo  *StatusInfoResponse `json:"status_info,omitempty"`
+	Priority    int                 `json:"priority"`
+	TeamID      string              `json:"team_id"`
+	ProjectID   *string             `json:"project_id"`
+	CycleID     *string             `json:"cycle_id"`
+	CreatorID   string              `json:"creator_id"`
+	AssigneeID  *string             `json:"assignee_id"`
+	ParentID    *string             `json:"parent_id"`
+	DueDate     *time.Time          `json:"due_date"`
+	SortOrder   float64             `json:"sort_order"`
+	Labels      []LabelResponse     `json:"labels,omitempty"`
+	Creator     *UserResponse       `json:"creator,omitempty"`
+	Assignee    *UserResponse       `json:"assignee,omitempty"`
+	Assignees   []UserResponse      `json:"assignees,omitempty"`
+	// AgentAssignees are the AI agents assigned to the issue, each with the
+	// state of the task it runs for the member who assigned it.
+	AgentAssignees  []domain.IssueAgentAssignee   `json:"agent_assignees,omitempty"`
 	Parent          *IssueSummaryResponse         `json:"parent,omitempty"`
 	SubIssueCount   *int                          `json:"sub_issue_count,omitempty"`
 	SubIssueDone    *int                          `json:"sub_issue_done,omitempty"`
@@ -123,6 +130,7 @@ type IssueHistoryResponse struct {
 	OldDisplayValue *string   `json:"old_display_value,omitempty"`
 	NewDisplayValue *string   `json:"new_display_value,omitempty"`
 	Agent           *string   `json:"agent,omitempty"`
+	AgentName       *string   `json:"agent_name,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 
@@ -167,19 +175,21 @@ type IssueFilterParams struct {
 	Priority   string `query:"priority"`
 	AssigneeID string `query:"assignee"`
 	CreatorID  string `query:"creator"`
-	TeamID     string `query:"team"`
-	ProjectID  string `query:"project"`
-	CycleID    string `query:"cycle"`
-	LabelID    string `query:"label"`
-	Search     string `query:"search"`
-	DueBefore  string `query:"due_before"`
-	DueAfter   string `query:"due_after"`
-	Triaged    string `query:"triaged"`
-	SubIssues  string `query:"sub_issues"`
-	ParentID   string `query:"parent_id"`
-	GroupBy    string `query:"group_by" validate:"omitempty,oneof=status priority assignee project"`
-	Sort       string `query:"sort" validate:"omitempty,oneof=created_at updated_at priority sort_order status due_date"`
-	Order      string `query:"order" validate:"omitempty,oneof=asc desc"`
+	// AgentAssignedBy keeps issues with an agent assigned by this user.
+	AgentAssignedBy string `query:"agent_assigned_by"`
+	TeamID          string `query:"team"`
+	ProjectID       string `query:"project"`
+	CycleID         string `query:"cycle"`
+	LabelID         string `query:"label"`
+	Search          string `query:"search"`
+	DueBefore       string `query:"due_before"`
+	DueAfter        string `query:"due_after"`
+	Triaged         string `query:"triaged"`
+	SubIssues       string `query:"sub_issues"`
+	ParentID        string `query:"parent_id"`
+	GroupBy         string `query:"group_by" validate:"omitempty,oneof=status priority assignee project"`
+	Sort            string `query:"sort" validate:"omitempty,oneof=created_at updated_at priority sort_order status due_date"`
+	Order           string `query:"order" validate:"omitempty,oneof=asc desc"`
 	// StatusCategoryOrder is an optional comma separated list of status
 	// categories. With group_by=status it orders the groups (and so the pages)
 	// by this category order before the team's status position.

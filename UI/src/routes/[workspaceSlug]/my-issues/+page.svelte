@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Bot from '@lucide/svelte/icons/bot';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -32,7 +33,7 @@
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
-	type MyTab = 'assigned' | 'created';
+	type MyTab = 'assigned' | 'created' | 'agents';
 	const DRILL_DOWN_FILTERS = [
 		'status',
 		'status_type',
@@ -90,6 +91,9 @@
 		// Tab-specific filter
 		if (!drillDownMode && activeTab === 'assigned') {
 			params.assignee = authState.user.id;
+		} else if (!drillDownMode && activeTab === 'agents') {
+			// Issues with an agent working on my behalf.
+			params.agent_assigned_by = authState.user.id;
 		} else if (!drillDownMode) {
 			params.creator = authState.user.id;
 		}
@@ -189,6 +193,13 @@
 			>
 				<PenLine size={13} class="mr-1" />
 				{m['my_issues.tab.created']()}
+			</Tabs.Trigger>
+			<Tabs.Trigger
+					value="agents"
+					class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none"
+				>
+					<Bot size={13} class="mr-1" />
+					{m['my_issues.tab.agents']()}
 			</Tabs.Trigger>
 		</Tabs.List>
 	</Tabs.Root>

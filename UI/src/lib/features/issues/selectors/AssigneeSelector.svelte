@@ -15,6 +15,7 @@
 		width = 'w-48',
 		align = 'start' as 'start' | 'center' | 'end',
 		shortcutKey,
+		extra,
 	}: {
 		open?: boolean;
 		members: WorkspaceMember[];
@@ -24,6 +25,8 @@
 		width?: string;
 		align?: 'start' | 'center' | 'end';
 		shortcutKey?: string;
+		/** More options after the members, such as AI agents. */
+		extra?: Snippet;
 	} = $props();
 </script>
 
@@ -43,4 +46,5 @@
 			{member.name || member.email}
 		</Command.Item>
 	{/each}
+	{@render extra?.()}
 </ComboboxPopover>

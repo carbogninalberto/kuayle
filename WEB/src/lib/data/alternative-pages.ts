@@ -656,8 +656,8 @@ export const alternativePages: AlternativePageContent[] = [
 			'Compare Kuayle and It’s a Plan, two self-hosted open source issue trackers: AGPL vs Apache 2.0, Community vs Pro, SSO, AI agents, MCP and integrations.',
 		h1: 'An It’s a Plan alternative with no paid tier',
 		intro:
-			'It’s a Plan and Kuayle are both self-hosted issue trackers with no per-seat price. It’s a Plan is AGPL-3.0 with a $240-a-year Pro edition and AI agents as project members. Kuayle is Apache 2.0, with no Pro edition and a smaller feature set.',
-		difference: 'It’s a Plan has more features, including agents as project members and SSO, with some behind Pro; Kuayle has no paid edition and a permissive licence.',
+			'It’s a Plan and Kuayle are both self-hosted issue trackers with no per-seat price. It’s a Plan is AGPL-3.0 with a $240-a-year Pro edition. Kuayle is Apache 2.0, with no Pro edition and a smaller feature set. Both let you assign issues to AI agents.',
+		difference: 'It’s a Plan has more features, including SSO and more importers, with some behind Pro; Kuayle has no paid edition and a permissive licence.',
 		whyLeave: [
 			{ heading: 'Some features need Pro', body: 'Multiple workspaces, per-workspace SSO and SCIM, the audit log and event-triggered agents are in the $240-a-year Pro edition.' },
 			{ heading: 'AGPL-3.0 terms', body: 'It’s a Plan is AGPL-3.0, with a commercial licence also offered; some organisations prefer permissive licences.' },
@@ -680,7 +680,7 @@ export const alternativePages: AlternativePageContent[] = [
 			'It’s a Plan Community is free; Pro is $240 a year flat per domain with any number of people, checked 6 November 2026, so per-seat columns do not apply. Kuayle has no licence fee and no paid edition.',
 		migration: SELF_HOSTED_MIGRATION('It’s a Plan', 'Read your projects and issues through its REST API; a full export is not documented.'),
 		stayIf: [
-			'You want AI agents as project members or OIDC sign-in today.',
+			'You want OIDC sign-in or SCIM today.',
 			'You need importers from Linear, Plane or Trello.',
 			'Pull-request linking with GitLab, Gitea, Forgejo or Bitbucket matters to you.'
 		],
@@ -692,9 +692,9 @@ export const alternativePages: AlternativePageContent[] = [
 		],
 		others: ['plane', 'linear', 'openproject', 'taiga', 'jira', 'gitlab'],
 		faq: [
-			{ question: 'What is the difference between Kuayle and It’s a Plan?', answer: 'Both are self-hosted with no per-seat price. It’s a Plan is AGPL-3.0 with a $240-a-year Pro edition and more features such as AI agents as project members and SSO. Kuayle is Apache 2.0 with no paid edition.' },
+			{ question: 'What is the difference between Kuayle and It’s a Plan?', answer: 'Both are self-hosted with no per-seat price. It’s a Plan is AGPL-3.0 with a $240-a-year Pro edition and more features such as SSO and importers. Kuayle is Apache 2.0 with no paid edition.' },
 			{ question: 'Is It’s a Plan free?', answer: 'Its Community edition is free for any number of people. Pro costs $240 a year per domain.' },
-			{ question: 'Does Kuayle have AI agents like It’s a Plan?', answer: 'Not as project members or assignees. Kuayle’s assistant delegates issues to coding agents that run on opt-in, self-hosted Dev Machines, and automations can start them on a label or status. External agents can also read and update issues through Kuayle’s MCP server.' },
+			{ question: 'Does Kuayle have AI agents like It’s a Plan?', answer: 'Yes. In Kuayle an agent can be assigned an issue, alone or beside people, and @mentioned in a comment; assigning starts a coding task on an opt-in, self-hosted Dev Machine and the issue shows its status. Admins choose the teams each agent works in, and an agent acts with the permissions of the person who assigned it. Automations and workflows can also start agents on a label or status, and external agents reach issues through Kuayle’s MCP server.' },
 			{ question: 'Which licence is more permissive?', answer: 'Apache 2.0, which Kuayle uses, is permissive. AGPL-3.0, which It’s a Plan uses, requires sharing source for modified versions offered over a network.' }
 		]
 	}

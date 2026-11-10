@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { decodeHtmlEntities, htmlToPlainText, parseInertHtml } from '$lib/security/plain-text';
-	import { agentName } from './history-agent';
 	import OpenIssueChatButton from '$lib/features/assistant/OpenIssueChatButton.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -38,7 +37,7 @@
 		Copy, Link as LinkIcon, GitBranch, SquareMousePointer,
 		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil, Layers,
 		Tag, RefreshCw, ArrowUp, MoreHorizontal, Check, Bell,
-		Trash2, CornerDownRight, Ban, ArrowRight, Bot, BookOpen
+		Trash2, CornerDownRight, Ban, ArrowRight, Bot, BookOpen, X
 	} from '@lucide/svelte';
 	import { listCycles } from '$lib/api/cycles';
 	import type { Cycle } from '$lib/types/cycle';
@@ -62,6 +61,16 @@
 	import { listTeams } from '$lib/api/teams';
 	import { getIssueCopyPrompt } from '$lib/api/ai-settings';
 	import HistoryAssignees from './HistoryAssignees.svelte';
+	import { agentsApi, type IssueAgentAssignee } from '$lib/api/agents';
+	import AgentAvatar from '$lib/features/agents/AgentAvatar.svelte';
+	import AgentAssigneeItems from '$lib/features/agents/AgentAssigneeItems.svelte';
+	import { agentIdentities } from '$lib/features/agents/agent-identities.state.svelte';
+	import { agentIsLive } from '$lib/features/agents/agent-assignees';
+	import { toggleIssueAgent } from '$lib/features/agents/issue-agents.svelte';
+	import { taskLabel } from '$lib/features/assistant/task-labels';
+	import { taskTone, toneText } from '$lib/features/assistant/task-tone';
+	import type { TaskState } from '$lib/api/agent-tasks';
+	import { historyActor } from './history-agent';
 	import IssueVersionHistory from './IssueVersionHistory.svelte';
 	import IssueMachineActions from '$lib/features/dev-machines/IssueMachineActions.svelte';
 	import IssueMachinePickerDialog, { type IssueMachineIntent } from '$lib/features/dev-machines/IssueMachinePickerDialog.svelte';
@@ -79,6 +88,34 @@
 		onnavigate?: (direction: 'prev' | 'next') => void;
 		onupdated?: (issue: Issue) => void;
 	} = $props();
+
+	// AI agents assigned to the issue. Their status is live: a realtime event
+	// reloads it, and a slow poll covers a missed event while a task works.
+	let agentAssignees = $state<IssueAgentAssignee[]>([]);
+	$effect(() => {
+		agentAssignees = issue.agent_assignees ?? [];
+	});
+	// Agents are loaded when first needed (opening the assignee picker or
+	// typing @ in a comment), not with every issue.
+	const mentionAgents = $derived(agentIdentities.forTeam(issue.team_id));
+	async function refreshAgents() {
+		try {
+			const agents = await agentsApi.forIssue(slug, issue.identifier);
+			if (disposed) return;
+			agentAssignees = agents;
+			issuesState.setAgentAssignees(issue.identifier, agents);
+		} catch {
+			// Keep what is shown; the next event or poll retries.
+		}
+	}
+	$effect(() => {
+		if (!agentAssignees.some(agentIsLive)) return;
+		const timer = setInterval(refreshAgents, 10000);
+		return () => clearInterval(timer);
+	});
+	function onAgentsUpdated(e: Event) {
+		if ((e as CustomEvent).detail?.issue_id === issue.id) void refreshAgents();
+	}
 
 	let comments = $state<Comment[]>([]);
 	let history = $state<IssueHistory[]>([]);
@@ -245,6 +282,7 @@
 		window.addEventListener('ws:issue-updated', onIssueUpdated);
 		window.addEventListener('ws:issue-deleted', onIssueDeleted);
 		window.addEventListener('ws:comment-created', onCommentCreated);
+		window.addEventListener('ws:issue-agents-updated', onAgentsUpdated);
 		window.addEventListener('ws:presence.join', onPresenceJoin);
 		window.addEventListener('ws:presence.leave', onPresenceLeave);
 		window.addEventListener('ws:presence.sync', onPresenceSync);
@@ -265,6 +303,7 @@
 		window.removeEventListener('ws:issue-updated', onIssueUpdated);
 		window.removeEventListener('ws:issue-deleted', onIssueDeleted);
 		window.removeEventListener('ws:comment-created', onCommentCreated);
+		window.removeEventListener('ws:issue-agents-updated', onAgentsUpdated);
 		window.removeEventListener('ws:presence.join', onPresenceJoin);
 		window.removeEventListener('ws:presence.leave', onPresenceLeave);
 		window.removeEventListener('ws:presence.sync', onPresenceSync);
@@ -425,6 +464,7 @@
 		switch (field) {
 			case 'assignee_id': return m['issue.history.assignee']();
 			case 'assignees': return m['issue.history.assignees']();
+			case 'agent_assignees': return m['issue.history.agent_assignees']();
 			case 'due_date': return m['issue.history.due_date']();
 			case 'parent_id': return m['issue.history.parent']();
 			case 'project_id': return m['issue.history.project']();
@@ -1089,7 +1129,7 @@
 									{@const iconColor = items.length > 1 ? 'text-[var(--color-text-tertiary)]' : historyColor(firstField)}
 									{@const textFields = [...new Set(items.filter(c => c.field === 'title' || c.field === 'description').map(c => c.field))]}
 									{@const valueItems = items.filter((c, i, arr) => c.field !== 'title' && c.field !== 'description' && arr.findIndex(x => x.field === c.field) === i)}
-									{@const agent = items.find((c) => c.agent)?.agent}
+									{@const actor = historyActor(items.find((c) => c.agent_name) ?? items.find((c) => c.agent) ?? {}, members)}
 									<div class="relative flex items-center gap-3 pb-2.5">
 										<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center ring-2 ring-[var(--color-bg)] rounded-full bg-[var(--color-bg)] {iconColor}">
 											<IconComponent size={12} />
@@ -1117,7 +1157,7 @@
 													<code class="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(change.field, change.new_value, change.new_display_value)}</code>
 												{/if}
 											{/each}
-											{#if agent}<span class="shrink-0 text-[var(--color-text-secondary)]">{m['issue.via_agent']({ agent: agentName(agent) })}</span>{/if}
+											{#if actor}<span class="shrink-0 text-[var(--color-text-secondary)]" data-history-actor>{actor.kind === 'identity' ? m['issue.by_agent_for']({ agent: actor.agent, user: actor.user }) : m['issue.via_agent']({ agent: actor.agent })}</span>{/if}
 											<span>&middot;</span>
 											<span class="shrink-0">{formatRelativeTime(entry.time, getLocale())}</span>
 										</div>
@@ -1219,10 +1259,12 @@
 													bubbleMenu={true}
 													uploadUrl={imageUploadUrl}
 													{members}
+													agents={mentionAgents}
 													issues={issuesState.issues}
 													onupdate={(html) => { replyContents[comment.id] = html; replyContents = replyContents; }}
 													onsubmit={() => handleReply(comment.id)}
 													remoteCursors={getRemoteCursors(`reply-${comment.id}`)}
+													onmentionstart={() => void agentIdentities.ensure(slug)}
 													onfocus={() => presenceState.sendFocus(issue.id, `reply-${comment.id}`, 0)}
 													onblur={() => presenceState.sendFocusLeave(issue.id)}
 													oncursorchange={(pos, anchor) => presenceState.sendFocus(issue.id, `reply-${comment.id}`, pos, anchor)}
@@ -1266,10 +1308,12 @@
 								bubbleMenu={true}
 								uploadUrl={imageUploadUrl}
 								{members}
+								agents={mentionAgents}
 								issues={issuesState.issues}
 								onupdate={(html) => newComment = html}
 								onsubmit={handleAddComment}
 								remoteCursors={getRemoteCursors('new-comment')}
+								onmentionstart={() => void agentIdentities.ensure(slug)}
 								onfocus={() => presenceState.sendFocus(issue.id, 'new-comment', 0)}
 								onblur={() => presenceState.sendFocusLeave(issue.id)}
 								oncursorchange={(pos, anchor) => presenceState.sendFocus(issue.id, 'new-comment', pos, anchor)}
@@ -1359,6 +1403,9 @@
 										} catch { appToast.error(m['issue.toast.failed_assignees']()); }
 									}}
 								>
+									{#snippet extra()}
+										<AgentAssigneeItems {slug} teamId={issue.team_id} issue={{ id: issue.id, identifier: issue.identifier, agent_assignees: agentAssignees }} onchanged={(agents) => (agentAssignees = agents)} />
+									{/snippet}
 									{#snippet trigger(props)}
 										<!-- inline-flex keeps the line box the former nested trigger button produced. -->
 										<Button {...props} variant="plain" class="inline-flex min-h-5 flex-wrap items-center gap-1 rounded-md text-left align-baseline transition-colors">
@@ -1389,6 +1436,50 @@
 								</AssigneeSelector>
 							</div>
 						</div>
+
+						{#if agentAssignees.length > 0}
+							<!-- Agents row: each assigned agent with its task's live status -->
+							<div class="flex items-start gap-3 rounded-md px-2 py-1.5" data-testid="issue-agents">
+								<span class="w-20 shrink-0 pt-0.5 text-xs text-[var(--color-text-tertiary)]">{m['agents.assignee.label']()}</span>
+								<ul class="flex min-w-0 flex-1 flex-col gap-1.5">
+									{#each agentAssignees as agent (agent.id)}
+										<li class="flex min-w-0 items-start gap-2" data-agent-assignee={agent.name}>
+											<AgentAvatar name={agent.name} color={agent.avatar_color} size={18} class="mt-0.5" />
+											<div class="min-w-0 flex-1">
+												<div class="flex flex-wrap items-center gap-x-2 text-sm text-[var(--color-text-primary)]">
+													<span class="truncate">{agent.name}</span>
+													{#if agent.error}
+														<span class="text-xs text-[var(--status-error)]" data-agent-status>{agent.error}</span>
+													{:else if agent.task_state}
+														<span class="text-xs {toneText[taskTone(agent.task_state)]}" data-agent-status aria-live="polite">{taskLabel(agent.task_state as TaskState)}</span>
+													{:else}
+														<span class="text-xs text-[var(--color-text-tertiary)]" data-agent-status aria-live="polite">{m['agents.assignee.starting']()}</span>
+													{/if}
+												</div>
+												{#if agent.task_reason && !agent.error}
+													<p class="text-xs break-words text-[var(--color-text-tertiary)]">{agent.task_reason}</p>
+												{/if}
+												{#if agent.assigned_by_name}
+													<p class="text-[11px] text-[var(--color-text-tertiary)]">{m['agents.assignee.assigned_by']({ name: agent.assigned_by_name })}</p>
+												{/if}
+											</div>
+											<Button
+												variant="plain"
+												aria-label={m['agents.assignee.unassign_title']({ name: agent.name })}
+												title={m['agents.assignee.unassign_title']({ name: agent.name })}
+												onclick={async () => {
+													const agents = await toggleIssueAgent(slug, { id: issue.id, identifier: issue.identifier, agent_assignees: agentAssignees }, agent.id);
+													if (agents) agentAssignees = agents;
+												}}
+												class="rounded p-0.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+											>
+												<X size={12} />
+											</Button>
+										</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
 
 						<!-- Due date row -->
 						<div class="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-[var(--color-bg-hover)] transition-colors">

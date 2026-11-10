@@ -1,4 +1,5 @@
 import type { IssuePriority } from '../../types/issue';
+import { assigneeGroup, groupAgentId } from '../agents/agent-assignees.ts';
 
 // Shared by the grouped issue lists: what dropping an issue on a group changes.
 // Pure on purpose, so it is unit tested without a browser.
@@ -12,6 +13,7 @@ export interface DropIssue {
 	priority: number;
 	assignee_id?: string | null;
 	assignees?: { id: string }[];
+	agent_assignees?: { id: string; name: string }[];
 	project_id?: string | null;
 }
 
@@ -48,7 +50,8 @@ export function issueGroupKey(issue: DropIssue, groupBy: DropGroupBy): string {
 		case 'priority':
 			return String(issue.priority);
 		case 'assignee':
-			return issue.assignee_id ?? 'unassigned';
+			// People first; an issue assigned only to agents is in its agent's group.
+			return assigneeGroup({ assignee_id: issue.assignee_id ?? null, agent_assignees: issue.agent_assignees }).key;
 		case 'project':
 			return issue.project_id || 'no-project';
 		default:
@@ -105,6 +108,9 @@ export function resolveGroupDrop(
 			? { kind: 'invalid' }
 			: { kind: 'update', patch: { priority: priority as IssuePriority } };
 	}
+	// Dropping on an agent's group does not assign the agent: that starts a task,
+	// which the assignee picker does explicitly. The key is not a user ID either.
+	if (groupBy === 'assignee' && groupAgentId(groupKey)) return { kind: 'noop' };
 	if (groupBy === 'assignee') return { kind: 'update', patch: { assignee_ids: assigneesAfterDrop(issue, groupKey) } };
 	return { kind: 'update', patch: { project_id: groupKey === 'no-project' ? '' : groupKey } };
 }

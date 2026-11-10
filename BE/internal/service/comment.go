@@ -26,10 +26,26 @@ var (
 // unique user UUIDs. Chips for issues and wiki pages are mentions too, but of
 // another kind; a chip without a kind is a user mention.
 func extractMentionedUserIDs(html string) []uuid.UUID {
+	return extractMentionedIDs(html, func(kind string) bool { return kind == "" || kind == "user" })
+}
+
+// extractMentionedAgentIDs returns the IDs of the chips that mention an AI
+// agent (kind "agent"), which are not user mentions.
+func extractMentionedAgentIDs(html string) []uuid.UUID {
+	return extractMentionedIDs(html, func(kind string) bool { return kind == "agent" })
+}
+
+// extractMentionedIDs returns the unique IDs of the mention chips whose kind
+// (empty when the chip has none) is wanted.
+func extractMentionedIDs(html string, wanted func(kind string) bool) []uuid.UUID {
 	seen := make(map[uuid.UUID]bool)
 	var result []uuid.UUID
 	for _, tag := range mentionSpanRegex.FindAllString(html, -1) {
-		if kind := mentionKindRegex.FindStringSubmatch(tag); kind != nil && kind[1] != "user" {
+		kind := ""
+		if match := mentionKindRegex.FindStringSubmatch(tag); match != nil {
+			kind = match[1]
+		}
+		if !wanted(kind) {
 			continue
 		}
 		id := mentionIDRegex.FindStringSubmatch(tag)
@@ -50,7 +66,18 @@ type CommentService struct {
 	hub         *realtime.Hub
 	notifSvc    *NotificationService
 	feedback    commentFeedback
+	agents      commentAgents
 }
+
+// commentAgents delivers a comment to the agents it @mentions.
+type commentAgents interface {
+	HandleComment(ctx context.Context, ws, issue uuid.UUID, comment domain.Comment) error
+	// AgentNames tells agents apart from people among mentioned IDs.
+	AgentNames(ctx context.Context, ws uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
+// SetAgentMentions makes @mentions of agents in comments reach them.
+func (s *CommentService) SetAgentMentions(agents commentAgents) { s.agents = agents }
 
 // commentFeedback turns a comment into review feedback for the issue's coding task.
 type commentFeedback interface {
@@ -111,6 +138,14 @@ func (s *CommentService) Create(ctx context.Context, issueID, userID uuid.UUID, 
 			}
 		}
 
+		// An @mention of an agent sends it the comment. The same rule
+		// applies: only people in a signed-in session reach agents.
+		if s.agents != nil && domain.InteractiveSession(ctx) && domain.ActingAgent(ctx) == nil {
+			if err := s.agents.HandleComment(ctx, issue.WorkspaceID, issue.ID, *comment); err != nil {
+				log.WithError(err).Warn("failed to deliver a comment to a mentioned agent")
+			}
+		}
+
 		// Notify issue creator + assignees (except the commenter)
 		recipients := make(map[uuid.UUID]bool)
 		if issue.CreatorID != userID {
@@ -147,7 +182,15 @@ func (s *CommentService) Create(ctx context.Context, issueID, userID uuid.UUID, 
 		// Notify @mentioned users (skip commenter and already-notified recipients)
 		mentionedIDs := extractMentionedUserIDs(comment.Body)
 		mentionTitle := fmt.Sprintf("You were mentioned in %s: %s", issue.Identifier, issue.Title)
+		// Agents have no inbox; a mention reaches them through their task.
+		var mentionedAgents map[uuid.UUID]string
+		if s.agents != nil && len(mentionedIDs) > 0 {
+			mentionedAgents, _ = s.agents.AgentNames(ctx, issue.WorkspaceID, mentionedIDs)
+		}
 		for _, uid := range mentionedIDs {
+			if _, agent := mentionedAgents[uid]; agent {
+				continue
+			}
 			if uid == userID || recipients[uid] {
 				continue
 			}

@@ -112,11 +112,14 @@ func (s *AgentTaskService) Create(ctx context.Context, ws, conversation uuid.UUI
 	if err := s.requireMachineUse(ctx); err != nil {
 		return nil, err
 	}
+	applyAgentProfile(&input)
 	if accepted, err := s.Repo.ReplayCreate(ctx, ws, conversation, input); err != nil || accepted != nil {
 		return accepted, err
 	}
-	if err := s.resolveWorkflow(ctx, ws, conversation, &input); err != nil {
-		return nil, err
+	if input.AgentProfile == nil {
+		if err := s.resolveWorkflow(ctx, ws, conversation, &input); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.validateRequest(ctx, ws, input); err != nil {
 		return nil, err
@@ -293,4 +296,18 @@ func (s *AgentTaskService) resolveWorkflow(ctx context.Context, ws, conversation
 	input.Workflow = version
 	input.WorkflowInstructions = workflowInstructions("", profile, first)
 	return nil
+}
+
+// applyAgentProfile makes a request that runs as an agent identity take its
+// harness, model and instructions from that profile and follow the built-in
+// flow. The profile is then checked against the workspace policy like any
+// request; a request without a profile is left as it is.
+func applyAgentProfile(input *domain.AgentTaskRequest) {
+	if input.AgentProfile == nil {
+		return
+	}
+	profile := *input.AgentProfile
+	input.Provider, input.Model, input.Thinking, input.ModelServerID = profile.Harness, profile.Model, profile.Effort, nil
+	input.Workflow, input.WorkflowID = nil, nil
+	input.WorkflowInstructions = workflowInstructions("", profile, domain.WorkflowNode{})
 }

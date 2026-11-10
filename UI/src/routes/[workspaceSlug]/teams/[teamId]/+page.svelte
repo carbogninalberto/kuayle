@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { groupAgentId } from '$lib/features/agents/agent-assignees';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
@@ -277,6 +278,9 @@
 			appToast.error(m['common.toast.failed_move_issue']());
 			return;
 		}
+		// A drop that changes nothing in another group (an agent's group) must
+		// not reorder the issue inside the group it stays in.
+		if (!isSameGroup && drop.kind === 'noop') return;
 		const req: UpdateIssueRequest = drop.kind === 'update' ? { ...drop.patch } : {};
 		if (sortOrder !== undefined) {
 			req.sort_order = sortOrder;
@@ -311,7 +315,7 @@
 		} else if (gb === 'priority') {
 			quickAddDefaults = { priority: Number(groupKey) as IssuePriority };
 		} else if (gb === 'assignee') {
-			quickAddDefaults = { assigneeIds: groupKey === 'unassigned' ? [] : [groupKey] };
+			quickAddDefaults = { assigneeIds: groupKey === 'unassigned' || groupAgentId(groupKey) ? [] : [groupKey] };
 		}
 		showCreateIssue = true;
 	}

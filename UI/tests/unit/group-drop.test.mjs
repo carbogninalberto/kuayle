@@ -76,6 +76,21 @@ test('priority, assignee and project drops', () => {
 	assert.deepEqual(resolveGroupDrop(issue(), 'project', 'no-project', statuses), { kind: 'noop' });
 });
 
+test('agent groups: agent-only issues group under their agent and a drop never assigns one', () => {
+	const fixer = { id: 'a1', name: 'Fixer' };
+	assert.equal(issueGroupKey(issue({ agent_assignees: [fixer] }), 'assignee'), 'agent:a1');
+	assert.equal(issueGroupKey(issue({ assignee_id: 'u1', agent_assignees: [fixer] }), 'assignee'), 'u1');
+	assert.equal(issueGroupKey(issue(), 'assignee'), 'unassigned');
+	// Dropping on an agent group changes nothing: 'agent:a1' is never sent as a user ID.
+	assert.deepEqual(resolveGroupDrop(issue({ assignee_id: 'u1', assignees: [{ id: 'u1' }] }), 'assignee', 'agent:a1', statuses), { kind: 'noop' });
+	assert.deepEqual(resolveGroupDrop(issue(), 'assignee', 'agent:a1', statuses), { kind: 'noop' });
+	// Dragging out of an agent group onto a person assigns the person and keeps co-assignees.
+	assert.deepEqual(resolveGroupDrop(issue({ agent_assignees: [fixer] }), 'assignee', 'u2', statuses), {
+		kind: 'update',
+		patch: { assignee_ids: ['u2'] }
+	});
+});
+
 test('no grouping does nothing and group keys follow the list grouping', () => {
 	assert.deepEqual(resolveGroupDrop(issue(), null, 'x', statuses), { kind: 'noop' });
 	assert.equal(issueGroupKey(issue(), 'status'), 'a-todo');

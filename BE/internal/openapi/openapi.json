@@ -927,6 +927,12 @@
 			},
 			"Issue": {
 				"properties": {
+					"agent_assignees": {
+						"items": {
+							"$ref": "#/components/schemas/IssueAgentAssignee"
+						},
+						"type": "array"
+					},
 					"assignee": {
 						"$ref": "#/components/schemas/User"
 					},
@@ -1060,9 +1066,94 @@
 				],
 				"type": "object"
 			},
+			"IssueAgentAssignee": {
+				"properties": {
+					"assigned_by": {
+						"format": "uuid",
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"assigned_by_name": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"avatar_color": {
+						"type": "string"
+					},
+					"created_at": {
+						"format": "date-time",
+						"type": "string"
+					},
+					"error": {
+						"type": "string"
+					},
+					"harness": {
+						"type": "string"
+					},
+					"id": {
+						"format": "uuid",
+						"type": "string"
+					},
+					"issue_id": {
+						"format": "uuid",
+						"type": "string"
+					},
+					"model": {
+						"type": "string"
+					},
+					"name": {
+						"type": "string"
+					},
+					"role": {
+						"type": "string"
+					},
+					"task_id": {
+						"format": "uuid",
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"task_reason": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"task_state": {
+						"type": [
+							"string",
+							"null"
+						]
+					}
+				},
+				"required": [
+					"issue_id",
+					"id",
+					"name",
+					"role",
+					"harness",
+					"model",
+					"avatar_color",
+					"assigned_by",
+					"assigned_by_name",
+					"task_id",
+					"task_state",
+					"task_reason",
+					"created_at"
+				],
+				"type": "object"
+			},
 			"IssueHistory": {
 				"properties": {
 					"agent": {
+						"type": "string"
+					},
+					"agent_name": {
 						"type": "string"
 					},
 					"created_at": {
@@ -3166,7 +3257,7 @@
 						}
 					},
 					{
-						"description": "User ID, or \"none\" for unassigned issues.",
+						"description": "User ID or agent ID, or \"none\" for issues assigned to nobody.",
 						"in": "query",
 						"name": "assignee",
 						"schema": {
@@ -3177,6 +3268,14 @@
 						"description": "User ID of the creator.",
 						"in": "query",
 						"name": "creator",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "User ID: issues with an AI agent that this user assigned.",
+						"in": "query",
+						"name": "agent_assigned_by",
 						"schema": {
 							"type": "string"
 						}

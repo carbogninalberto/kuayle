@@ -24,6 +24,8 @@
 	import CreateTeamDialog from '$lib/features/teams/CreateTeamDialog.svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import ShortcutHelp from '$lib/components/shared/ShortcutHelp.svelte';
+	import { agentsApi } from '$lib/api/agents';
+	import AgentUnassignConfirm from '$lib/features/agents/AgentUnassignConfirm.svelte';
 	import * as Sheet from '$lib/components/ui/sheet';
 	import { Button } from '$lib/components/ui/button';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
@@ -503,6 +505,19 @@
 				window.dispatchEvent(new CustomEvent('ws:wiki-changed', { detail: { ...msg.payload, type: msg.type } }));
 				break;
 			}
+			case 'issue.agents_updated': {
+				// An agent was (un)assigned or its task changed state: refresh the
+				// agents of that issue where it is listed. The event has only the ID.
+				const listed = issuesState.issues.find((issue) => issue.id === msg.payload?.issue_id);
+				if (slug && listed) {
+					agentsApi
+						.forIssue(slug, listed.identifier)
+						.then((agents) => issuesState.setAgentAssignees(listed.identifier, agents))
+						.catch(() => {});
+				}
+				window.dispatchEvent(new CustomEvent('ws:issue-agents-updated', { detail: msg.payload }));
+				break;
+			}
 			case 'issue.wiki_references_changed': {
 				window.dispatchEvent(new CustomEvent('ws:issue-wiki-references', { detail: msg.payload }));
 				break;
@@ -683,6 +698,7 @@
 		</Dialog.Content>
 	</Dialog.Root>
 
+	<AgentUnassignConfirm />
 	<ShortcutHelp
 		bind:open={showShortcutHelp}
 		shortcuts={shortcutDefs}

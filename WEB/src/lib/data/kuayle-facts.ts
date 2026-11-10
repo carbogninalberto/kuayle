@@ -28,7 +28,7 @@ export const KUAYLE = {
 	},
 	ai: {
 		mark: 'yes',
-		text: 'A built-in assistant on your own OpenAI-compatible model searches, creates and updates issues and delegates them to coding agents (Claude Code, Codex, OpenCode and others) on opt-in, self-hosted Dev Machines. Each task is checked independently and opens a pull request; automations and editable workflows start agents on a label or status. Agents are not issue assignees yet.'
+		text: 'A built-in assistant on your own OpenAI-compatible model searches, creates and updates issues and delegates them to coding agents (Claude Code, Codex, OpenCode and others) on opt-in, self-hosted Dev Machines. Each task is checked independently and opens a pull request; automations and editable workflows start agents on a label or status. Agents are also members: assign an issue to an agent, alone or with people, or @mention it in a comment, in the teams an admin enables; it works with the permissions of the person who assigned it.'
 	},
 	mcp: {
 		mark: 'yes',
