@@ -1,0 +1,24 @@
+[package]
+name = "kuayle-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Official Rust SDK for the Kuayle REST API"
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+url = "2"
+futures-core = "0.3"
+rand = "0.9"
+
+[dev-dependencies]
+wiremock = "0.6"
+tokio-test = "0.4"
+futures-util = "0.3"

@@ -173,10 +173,30 @@ jobs:
           severity: CRITICAL,HIGH
           trivyignores: .trivyignore.yaml
 
+  cli-security:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.plan).cli }}
+    name: CLI Security Scan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./CLI
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Install cargo-deny
+        run: cargo install --locked cargo-deny@0.20.2
+      # RustSec advisories (what cargo audit reports), licenses, bans and
+      # sources, per CLI/deny.toml.
+      - name: Run cargo deny
+        run: cargo deny check
+
   result:
     name: Security CI Result
     if: always()
-    needs: [changes, go-security, frontend-security, docker-security, dev-machine-security]
+    needs: [changes, go-security, frontend-security, docker-security, dev-machine-security, cli-security]
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -9,6 +9,11 @@
   private networks and local development.
 - [Dev Machines](dev-machines.md): architecture, modes and machine sizes.
 
+## Users
+
+- [Kuayle CLI](cli.md): install with checksum verification, sign in with a token,
+  issues, wiki and registry from the terminal or a coding agent.
+
 ## Contributors
 
 - [Development](development.md): run from source, `make` commands, tech stack and

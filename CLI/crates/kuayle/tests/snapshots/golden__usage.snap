@@ -1,0 +1,137 @@
+---
+source: crates/kuayle/tests/golden.rs
+expression: stdout
+---
+kuayle — the official Kuayle CLI
+
+## Global Flags
+
+  --profile NAME, --url URL, --workspace SLUG (env: KUAYLE_PROFILE, KUAYLE_URL, KUAYLE_WORKSPACE)
+  --format human|json (default: human on a terminal, JSON when piped; errors too)
+  --no-cache (env: KUAYLE_NO_CACHE) skips the 5-minute name cache
+
+## Authentication
+
+  kuayle auth login --url URL --workspace SLUG --token <PAT>
+
+## Commands
+
+  kuayle auth login
+  kuayle auth logout
+  kuayle auth status
+  kuayle whoami
+  kuayle workspaces list
+  kuayle issues list
+  kuayle issues read
+  kuayle issues create
+  kuayle issues update
+  kuayle issues delete
+  kuayle issues batch-update
+  kuayle issues batch-delete
+  kuayle issues history
+  kuayle issues sub-issues-list
+    List sub-issues
+  kuayle issues sub-issues-create
+    Create a sub-issue
+  kuayle comments list
+  kuayle comments create
+  kuayle comments resolve
+  kuayle comments reopen
+  kuayle relations list
+  kuayle relations create
+  kuayle relations delete
+  kuayle labels list
+  kuayle labels create
+  kuayle labels update
+  kuayle labels delete
+  kuayle teams list
+  kuayle teams read
+  kuayle statuses list
+  kuayle projects list
+  kuayle projects read
+  kuayle cycles list
+  kuayle cycles read
+  kuayle cycles burndown
+  kuayle cycles velocity
+  kuayle templates list
+  kuayle templates read
+  kuayle templates create
+  kuayle templates update
+  kuayle templates delete
+  kuayle views list
+  kuayle views read
+  kuayle members list
+  kuayle favorites list
+  kuayle notifications list
+  kuayle assets upload
+    Upload a file (max 10 MB); prints its asset ID and URL
+  kuayle assets download
+    Download an asset to a file (default ./asset-<id>), or "-" for stdout
+  kuayle wiki list
+    List pages (registry days are hidden unless --registry)
+  kuayle wiki tree
+    Show the page tree (folders and nesting)
+  kuayle wiki read
+    Read a page
+  kuayle wiki create
+    Create a page or folder
+  kuayle wiki update
+    Update a page's title and/or content
+  kuayle wiki delete
+    Delete a page
+  kuayle wiki move
+    Move a page under a parent (or top level) at a position
+  kuayle wiki history
+    List a page's revisions, newest first
+  kuayle wiki restore
+    Restore a page to a revision from its history
+  kuayle registry settings
+    Show whether the registry is on; --enable or --disable to change it
+  kuayle registry append
+    Add an entry to today's (UTC) registry page
+  kuayle registry feed
+    Show registry days, newest first
+  kuayle registry overview
+    List AI overviews of the registry, newest first
+  kuayle registry generate-overview
+    Generate an AI overview for a period (at most 31 days)
+  kuayle agent-tasks list
+    List the workspace's agent task queue
+  kuayle agent-tasks read
+    Show one agent task
+  kuayle agent-tasks history
+    Show a task's state transitions
+  kuayle agent-tasks runs
+    List a task's runs
+  kuayle workflows list
+    List workflows and the workspace defaults
+  kuayle workflows read
+    Show one workflow, including its graph
+  kuayle workflows profiles
+    List agent profiles
+  kuayle usage
+    Show command reference
+  kuayle completion
+    Generate shell completion script
+  kuayle self-update
+    Check for updates or update the binary
+## Name Resolution
+
+  Teams, projects, labels and people accept a name, key, email or UUID
+  (case-insensitive); an unknown name lists candidates and exits 3.
+
+## Wiki and Registry
+
+  wiki/registry commands need --team <name|key|id> or --project <name|id>.
+  Content is HTML or Markdown (--content, or --file PATH|-).
+  Token scopes: wiki:read to read, wiki:write to change.
+  agent-tasks/workflows need agent_tasks:read / workflows:read (members only).
+
+## Exit Codes
+
+  0 ok, 1 error, 2 auth, 3 not found, 4 invalid input, 5 forbidden,
+  6 rate limited, 7 network/server
+
+## Output Format
+
+  Prefer --format json in scripts and agents.

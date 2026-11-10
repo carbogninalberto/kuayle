@@ -1,0 +1,5 @@
+# CI, releases and local builds use the same toolchain.
+[toolchain]
+channel = "1.93"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

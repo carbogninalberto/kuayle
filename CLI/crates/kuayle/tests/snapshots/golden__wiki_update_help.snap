@@ -1,0 +1,24 @@
+---
+source: crates/kuayle/tests/golden.rs
+expression: stdout
+---
+Update a page's title and/or content
+
+Usage: kuayle wiki update [OPTIONS] <--team <TEAM>|--project <PROJECT>> <PAGE>
+
+Arguments:
+  <PAGE>  
+
+Options:
+      --profile <PROFILE>      [env: KUAYLE_PROFILE=]
+      --team <TEAM>            Team name, key or UUID
+      --project <PROJECT>      Project name or UUID
+      --url <URL>              [env: KUAYLE_URL=]
+      --title <TITLE>          
+      --workspace <WORKSPACE>  [env: KUAYLE_WORKSPACE=]
+      --content <CONTENT>      Page content (HTML or Markdown)
+      --format <FORMAT>        [default: auto]
+      --file <FILE>            Read the content from a file, or "-" for stdin
+      --no-cache               Disable resolve disk cache [env: KUAYLE_NO_CACHE=]
+      --version <VERSION>      Version the edit is based on (default: the current version)
+  -h, --help                   Print help

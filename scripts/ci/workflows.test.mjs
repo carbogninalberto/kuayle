@@ -92,3 +92,19 @@ test('release API image is built with the release number', () => {
   const build = workflow.split('  build:\n')[1].split('  dev-machine-images:\n')[0];
   assert.match(build, /echo "number=\$\{version#v\}" >> "\$GITHUB_OUTPUT"/);
 });
+
+test('server release jobs skip cli-v* releases, which CLI Release publishes', () => {
+  const build = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
+  const source = build.split('  release-source:\n')[1].split('\n    name:')[0];
+  assert.match(source, /if: github.event_name == 'release' && !startsWith\(github.event.release.tag_name, 'cli-v'\)/);
+  const impact = readFileSync(new URL('../../.github/workflows/ci-impact.yml', import.meta.url), 'utf8');
+  assert.match(impact, /RELEASE_TAG: \$\{\{ github.event.release.tag_name \}\}/);
+  const cli = readFileSync(new URL('../../.github/workflows/cli-release.yml', import.meta.url), 'utf8');
+  assert.match(cli, /tags: \['cli-v\*'\]/);
+  assert.match(cli, /--latest=false/);
+  assert.match(cli, /sha256sum -c checksums.txt/);
+  assert.ok(cli.indexOf('sha256sum -c checksums.txt') < cli.indexOf('gh release create'));
+  // Only the publishing job may write; the release is cut from the verified tag.
+  assert.equal(cli.match(/contents: write/g).length, 1);
+  assert.match(cli, /--verify-tag/);
+});

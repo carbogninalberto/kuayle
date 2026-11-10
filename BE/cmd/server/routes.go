@@ -319,16 +319,16 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodPut, "/assistant-research-settings", h.assistantResearch.Update)
 	// Agent profiles and workflows (KUA-95): non-guest members read and
 	// choose them; the repository lets only current owners and admins write,
-	// and audits every change.
-	sessionOnly(ws, http.MethodGet, "/agent-profiles", h.workflow.Profiles)
+	// and audits every change. Tokens may read with workflows:read.
+	scoped(ws, http.MethodGet, "/agent-profiles", h.workflow.Profiles, domain.PermWorkflowsRead)
 	sessionOnly(ws, http.MethodPost, "/agent-profiles", h.workflow.CreateProfile)
 	sessionOnly(ws, http.MethodPut, "/agent-profiles/:profileId", h.workflow.UpdateProfile)
 	sessionOnly(ws, http.MethodDelete, "/agent-profiles/:profileId", h.workflow.ArchiveProfile)
-	sessionOnly(ws, http.MethodGet, "/workflows", h.workflow.List)
+	scoped(ws, http.MethodGet, "/workflows", h.workflow.List, domain.PermWorkflowsRead)
 	sessionOnly(ws, http.MethodPost, "/workflows", h.workflow.Create)
 	sessionOnly(ws, http.MethodPost, "/workflows/validate", h.workflow.Validate)
 	sessionOnly(ws, http.MethodPut, "/workflow-defaults", h.workflow.SetDefault)
-	sessionOnly(ws, http.MethodGet, "/workflows/:workflowId", h.workflow.Get)
+	scoped(ws, http.MethodGet, "/workflows/:workflowId", h.workflow.Get, domain.PermWorkflowsRead)
 	sessionOnly(ws, http.MethodPut, "/workflows/:workflowId", h.workflow.Save)
 	sessionOnly(ws, http.MethodPost, "/workflows/:workflowId/duplicate", h.workflow.Duplicate)
 	sessionOnly(ws, http.MethodPost, "/workflows/:workflowId/archive", h.workflow.Archive)
@@ -426,9 +426,12 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodGet, "/conversations/:conversationId/task-options", h.agentTask.Options)
 	sessionOnly(dm, http.MethodGet, "/conversations/:conversationId/tasks", h.agentTask.List)
 	sessionOnly(dm, http.MethodPost, "/conversations/:conversationId/tasks", h.agentTask.Create)
-	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId", h.agentTask.Get)
-	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/history", h.agentTask.History)
-	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs", h.agentTask.Runs)
+	// Tokens may read a task, its history and its runs with agent_tasks:read;
+	// the repository applies the same task visibility as for sessions. Logs,
+	// diffs, artifacts, sessions and live messages stay session-only.
+	scoped(dm, http.MethodGet, "/agent-tasks/:taskId", h.agentTask.Get, domain.PermAgentTasksRead)
+	scoped(dm, http.MethodGet, "/agent-tasks/:taskId/history", h.agentTask.History, domain.PermAgentTasksRead)
+	scoped(dm, http.MethodGet, "/agent-tasks/:taskId/runs", h.agentTask.Runs, domain.PermAgentTasksRead)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/logs", h.agentTask.Logs)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/validation", h.agentTask.Validation)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/checks", h.agentTask.ManualChecks)
@@ -439,7 +442,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/signals", h.agentTask.Signals)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/sessions", h.agentTask.Sessions)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/live-messages", h.agentTask.LiveMessages)
-	sessionOnly(dm, http.MethodGet, "/agent-tasks", h.agentTask.Queue)
+	scoped(dm, http.MethodGet, "/agent-tasks", h.agentTask.Queue, domain.PermAgentTasksRead)
 	sessionOnly(dm, http.MethodGet, "/dev-machines/:machineId/tasks", h.agentTask.MachineTasks)
 	if h.agentAutomation != nil {
 		sessionOnly(dm, http.MethodGet, "/agent-automations", h.agentAutomation.List)

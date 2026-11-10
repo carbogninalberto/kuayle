@@ -28,6 +28,7 @@ with `npm ci` in each package. Commands below run in the stated directory.
 | Backend / BE | `go test ./... -race -count=1`, `go vet ./...`, `go build ./...` | Unit checks work without services, but integration tests may skip. See database requirements below. |
 | WEB / WEB | `npm run check`, `npm run validate` | Types, production build, SEO/internal-link validation. Output in `build/`. |
 | Voice service / voice | `python -m pytest` (with `pytest` from [requirements-dev.txt](../../../voice/requirements-dev.txt)); `docker build -t kuayle/voice:dev .` | Fake engines, no model downloads; ffmpeg decoding cases skip without ffmpeg. A real smoke test needs the image and network access to the pinned model sources. See [voice transcription](../../../TECHNICAL.md#voice-transcription). |
+| CLI / CLI | `cargo fmt --all --check`, `cargo clippy --all-targets [--features binary-release] -- -D warnings`, `cargo test --features binary-release`, `sh scripts/install_test.sh`, `cargo deny check` | Toolchain from [rust-toolchain.toml](../../../CLI/rust-toolchain.toml); wiremock tests need no server. Live contract tests need a running server and token; see the [CLI guide](../../../docs/cli.md#develop). |
 | WEB browser / WEB | `npx playwright install chromium`, then `npm run test:responsive` | Run `npm run validate` first; preview uses existing build on port 4175. Tests visit sitemap routes at 320px. |
 
 On supported Linux runners, Playwright installation may need `--with-deps` as in

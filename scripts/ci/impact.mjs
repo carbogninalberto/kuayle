@@ -41,7 +41,7 @@ export function platformSensitive(path) {
 // Unknown inputs and changes to the routing/workflow implementation run broadly.
 export function planForPaths(paths, event = 'pull_request') {
   const pr = event === 'pull_request';
-  const flags = { harness: true, backend: false, frontend: false, web: false, runtime: false, selfhosting: false, ci: false };
+  const flags = { harness: true, backend: false, frontend: false, web: false, runtime: false, selfhosting: false, ci: false, cli: false };
   const release = new Set(), dev = new Set(), security = new Set();
   let reason = pr ? 'PR merge-base diff' : `full ${event} coverage`;
   // PRs build images on amd64 only, unless an input can behave differently per
@@ -63,6 +63,8 @@ export function planForPaths(paths, event = 'pull_request') {
     if (path.startsWith('.github/workflows/') || path.startsWith('.github/actions/') || path.startsWith('scripts/ci/')) { all(); continue; }
     // Other .github files (funding, issue and PR templates, CODEOWNERS) never reach a job.
     if (path.startsWith('.github/')) continue;
+    // The Rust CLI is built only from CLI/; no image or other package uses it.
+    if (path.startsWith('CLI/')) { flags.cli = true; continue; }
     if (path === 'Dockerfile') { release.add('all-in-one'); continue; }
     if (path === 'UI/Dockerfile' || path === 'UI/Caddyfile') { release.add('web'); continue; }
     if (path.startsWith('BE/Dockerfile')) {
@@ -135,8 +137,8 @@ export function planForPaths(paths, event = 'pull_request') {
   const plan = { ...flags, reason, architectures: arm ? ['amd64', 'arm64'] : ['amd64'], releaseImages: releaseImages.filter((image) => release.has(image.id)), devImages: devImages.filter((image) => dev.has(image.id)), securityImages: pr ? [updater].filter((image) => security.has(image.id)) : [updater, ...devImages] };
   const enabled = (jobs) => Object.entries(jobs).filter(([, run]) => run).map(([id]) => id);
   const jobs = {
-    tests: { 'agent-harness': plan.harness, 'backend-test': plan.backend, 'frontend-check': plan.frontend, 'web-check': plan.web, 'docker-integration': plan.runtime, 'selfhosting-check': plan.selfhosting, 'ci-validation': plan.ci },
-    security: { 'go-security': plan.backend, 'frontend-security': plan.frontend, 'docker-security': !pr, 'dev-machine-security': plan.securityImages.length > 0 },
+    tests: { 'agent-harness': plan.harness, 'backend-test': plan.backend, 'frontend-check': plan.frontend, 'web-check': plan.web, 'docker-integration': plan.runtime, 'selfhosting-check': plan.selfhosting, 'ci-validation': plan.ci, 'cli-check': plan.cli },
+    security: { 'go-security': plan.backend, 'frontend-security': plan.frontend, 'docker-security': !pr, 'dev-machine-security': plan.securityImages.length > 0, 'cli-security': plan.cli },
     // Build & Push runs only for PRs and releases. A release builds, scans and
     // publishes every runtime image once in dev-machine-publish instead.
     build: { 'release-source': !pr, build: !pr, 'dev-machine-images': pr && plan.devImages.length > 0, 'dev-machine-publish': !pr, 'dev-machine-manifests': !pr },
@@ -155,7 +157,18 @@ export function changedPaths(cwd, base, head) {
   return output.split('\0').filter(Boolean);
 }
 
-export function detectPlan({ cwd = process.cwd(), event, base, head }) {
+// A cli-v* release belongs to CLI Release (cli-release.yml). The server
+// release jobs in Build & Push must not run for it, so nothing is selected.
+export function cliReleasePlan() {
+  const plan = planForPaths([]);
+  plan.harness = false;
+  plan.reason = 'CLI release: published by CLI Release; server release jobs skipped';
+  plan.required = Object.fromEntries(Object.keys(plan.required).map((scope) => [scope, []]));
+  return plan;
+}
+
+export function detectPlan({ cwd = process.cwd(), event, base, head, releaseTag = '' }) {
+  if (event === 'release' && releaseTag.startsWith('cli-v')) return cliReleasePlan();
   if (event !== 'pull_request') return planForPaths([], event || 'unknown');
   try {
     return planForPaths(changedPaths(cwd, base, head));
@@ -167,7 +180,7 @@ export function detectPlan({ cwd = process.cwd(), event, base, head }) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const plan = detectPlan({ event: process.env.GITHUB_EVENT_NAME, base: process.env.PR_BASE_SHA, head: process.env.PR_HEAD_SHA });
+  const plan = detectPlan({ event: process.env.GITHUB_EVENT_NAME, base: process.env.PR_BASE_SHA, head: process.env.PR_HEAD_SHA, releaseTag: process.env.RELEASE_TAG });
   const json = JSON.stringify(plan);
   console.log(JSON.stringify(plan, null, 2));
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `plan=${json}\n`);

@@ -35,6 +35,7 @@ advances. Product checks and images continue to verify the recorded PR head.
 | Shared terminal, checkout and shell scripts | IDE and headless images; backend tests and Docker lifecycle. |
 | Shared npm security patch/cache tests | IDE, headless and all three provider images; backend tests and Docker lifecycle. |
 | `devmachine/security/` | Backend and Docker lifecycle checks for host policy; no independent image build. |
+| `CLI/` (Rust CLI and SDK, installers, `deny.toml`) | CLI Checks (`fmt`, `clippy -D warnings` for source and release features, tests, installer tests) and CLI Security Scan (`cargo deny`: RustSec advisories, licenses, bans, sources). No image consumes the CLI. `CLI/README.md` follows the documentation rule. |
 | `selfhosting/` scripts and configuration | Update-recovery and profile-preflight tests only; no image is built from these files. |
 | `selfhosting/image_smoke_test.py` | Also all three application images' readiness, which runs this smoke test. |
 | `.github/workflows/`, `.github/actions/`, CI helpers, shared root configuration and unmapped inputs | Broad verification. Workflow/helper edits exercise the routing tests and actionlint as well. |
@@ -141,6 +142,19 @@ results on the final commit; distinguish intentionally omitted jobs from verifie
 coverage. A routing change itself selects broad checks so it cannot validate only
 its cheapest scenario. Compare heavyweight execution counts separately from the
 small planning/gate overhead; scenario estimates are not observed wall-clock wins.
+
+## CLI releases
+
+[CLI Release](../../.github/workflows/cli-release.yml) is separate from the server
+release. Pushing a `cli-vX.Y.Z` tag that matches `CLI/Cargo.toml` builds, tests and
+packages the CLI for `x86_64`/`aarch64` Linux (musl), `aarch64` macOS and `x86_64`
+Windows; the publish job writes `checksums.txt`, re-verifies it with
+`sha256sum -c`, runs the installer tests and creates a release marked not
+"latest". Running it manually is a dry run that uploads the same files as an
+artifact. A `cli-v*` release event selects no jobs in the planner and
+`release-source` skips it, so it never bumps the server version or publishes
+images. Installers and `kuayle self-update` download only from this repository
+and fail closed on a missing or mismatched checksum.
 
 ## Release agent CLI refresh
 

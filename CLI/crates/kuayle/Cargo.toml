@@ -1,0 +1,46 @@
+[package]
+name = "kuayle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Official command-line interface for Kuayle, the self-hosted issue tracker"
+
+[features]
+binary-release = []
+
+[[bin]]
+name = "kuayle"
+path = "src/main.rs"
+
+[dependencies]
+kuayle-sdk = { path = "../kuayle-sdk" }
+clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+dirs = "6"
+keyring = "4"
+chrono = { version = "0.4", features = ["serde"] }
+url = "2"
+futures-util = "0.3"
+bitflags = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+sha2 = "0.10"
+flate2 = "1"
+tar = "0.4"
+self-replace = "1"
+
+[target.'cfg(windows)'.dependencies]
+zip = { version = "9", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+wiremock = "0.6"
+insta = { version = "1", features = ["yaml"] }
+tokio = { version = "1", features = ["full"] }

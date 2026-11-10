@@ -267,3 +267,68 @@ func TestWikiRoutesRequireWikiPermissions(t *testing.T) {
 	want["GET /api/public/wiki/:token"] = "public"
 	require.Equal(t, want, got)
 }
+
+// Agent task and workflow reads are open to tokens with their own opt-in
+// scopes (the Kuayle CLI); the repositories still apply task and member
+// visibility. Writes and reads that can expose code or secrets (logs, diffs,
+// artifacts, sessions, live messages) stay session-only.
+func TestAgentTaskAndWorkflowReadRoutes(t *testing.T) {
+	e := echo.New()
+	registerRoutes(e, &appHandlers{}, testMiddleware(noopMiddleware()))
+	names := map[string]string{}
+	for _, route := range e.Router().Routes() {
+		names[route.Method+" "+route.Path] = route.Name
+	}
+	const ws = "/api/workspaces/:slug"
+	for path, want := range map[string]string{
+		"GET " + ws + "/agent-tasks":                               "perm:agent_tasks:read",
+		"GET " + ws + "/agent-tasks/:taskId":                       "perm:agent_tasks:read",
+		"GET " + ws + "/agent-tasks/:taskId/history":               "perm:agent_tasks:read",
+		"GET " + ws + "/agent-tasks/:taskId/runs":                  "perm:agent_tasks:read",
+		"GET " + ws + "/workflows":                                 "perm:workflows:read",
+		"GET " + ws + "/workflows/:workflowId":                     "perm:workflows:read",
+		"GET " + ws + "/agent-profiles":                            "perm:workflows:read",
+		"GET " + ws + "/agent-tasks/:taskId/runs/:runId/logs":      "session",
+		"GET " + ws + "/agent-tasks/:taskId/runs/:runId/diff":      "session",
+		"GET " + ws + "/agent-tasks/:taskId/runs/:runId/artifacts": "session",
+		"GET " + ws + "/agent-tasks/:taskId/sessions":              "session",
+		"GET " + ws + "/agent-tasks/:taskId/live-messages":         "session",
+		"POST " + ws + "/agent-tasks/:taskId/cancel":               "session",
+		"POST " + ws + "/workflows":                                "session",
+		"GET " + ws + "/workflows/:workflowId/audit":               "session",
+	} {
+		require.Equal(t, want, names[path], path)
+	}
+}
+
+func TestAgentTaskAndWorkflowReadsRejectGuestsAndUnscopedTokens(t *testing.T) {
+	for _, path := range []string{"/agent-tasks", "/agent-tasks/task", "/workflows", "/agent-profiles"} {
+		for _, tc := range []struct {
+			name   string
+			role   string
+			scopes []string
+		}{
+			{"guest session", domain.RoleGuest, nil},
+			{"guest token with the scopes", domain.RoleGuest, []string{domain.PermAgentTasksRead, domain.PermWorkflowsRead}},
+			{"owner token without the scopes", domain.RoleOwner, []string{domain.PermIssuesRead, domain.PermWikiRead}},
+		} {
+			t.Run(tc.name+" "+path, func(t *testing.T) {
+				e := echo.New()
+				auth := func(next echo.HandlerFunc) echo.HandlerFunc {
+					return func(c *echo.Context) error {
+						if tc.scopes != nil {
+							c.Set(mw.TokenScopesKey, tc.scopes)
+						}
+						c.Set("workspace_role", tc.role)
+						return next(c)
+					}
+				}
+				registerRoutes(e, &appHandlers{}, testMiddleware(auth))
+				rec := httptest.NewRecorder()
+				// The nil handler panics if the request gets past authorization.
+				e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workspaces/acme"+path, nil))
+				require.Equal(t, http.StatusForbidden, rec.Code)
+			})
+		}
+	}
+}

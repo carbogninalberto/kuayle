@@ -262,11 +262,22 @@ see the roadmap (read-only, no account needed).
 
 <a href="https://kuayle.bakney.com/share/0e77186c14e75dc74efdbe2509cdb79897d375d4090140b5e6d8383a5e1429c8"><img src="https://img.shields.io/badge/%F0%9F%97%BA%EF%B8%8F%20KUAYLE%20ROADMAP-Open-6d28d9?style=for-the-badge" alt="Open the Kuayle roadmap" height="36"></a>
 
-## Community and ecosystem
+## Command-line interface
 
-- [kuayle_cli](https://github.com/uiYzzi/kuayle_cli) by [@uiYzzi](https://github.com/uiYzzi):
-  an unofficial Rust CLI and SDK for using Kuayle from the terminal, by people or
-  coding agents.
+[`CLI/`](CLI/) holds the official `kuayle` CLI and Rust SDK, for people and coding
+agents. Install it with checksum verification:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/carbogninalberto/kuayle/main/CLI/install.sh | sh
+kuayle auth login --url https://kuayle.example.com --workspace acme --token kuayle_pat_...
+kuayle usage
+```
+
+Originally created by [@uiYzzi](https://github.com/uiYzzi) as
+[kuayle_cli](https://github.com/uiYzzi/kuayle_cli); contributed to and now
+maintained in the Kuayle repository. Thank you! The CLI keeps its MIT license
+([`CLI/LICENSE`](CLI/LICENSE)); see [`NOTICE`](NOTICE) and the
+[CLI guide](docs/cli.md).
 
 ## Contributing
 
@@ -280,7 +291,8 @@ If Kuayle is useful to you, you can support it through
 
 ## License
 
-Apache 2.0, see [`LICENSE`](LICENSE).
+Apache 2.0, see [`LICENSE`](LICENSE). The CLI in [`CLI/`](CLI/) is MIT licensed;
+see [`NOTICE`](NOTICE).
 
 ## Contact
 

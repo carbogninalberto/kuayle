@@ -1,0 +1,13 @@
+Kuayle
+Copyright Alberto Carbognin and Kuayle contributors.
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This repository includes third-party code under a different license:
+
+CLI/ — kuayle CLI and Rust SDK
+  Originally created by @uiYzzi (https://github.com/uiYzzi) as kuayle_cli
+  (https://github.com/uiYzzi/kuayle_cli); contributed to and now maintained
+  in the Kuayle repository. Imported with its full commit history at
+  663d0341 (v0.1.1).
+  Licensed under the MIT License; the license text and copyright notice are
+  in CLI/LICENSE and apply to that directory.
