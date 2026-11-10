@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "パスキーを読み込めませんでした",
 	"passkeys.prompt_title": "次回はもっとすばやくサインイン",
 	"passkeys.prompt_desc": "パスキーを追加すると、指紋、顔、または画面ロックでサインインできます。パスワードは不要です。",
-	"passkeys.prompt_later": "後で"
+	"passkeys.prompt_later": "後で",
+	"reset.passkeys_notice": "パスワードをリセットすると、すべての場所でサインアウトされ、パスキーが削除されます。パスキーは後で再度追加できます。"
 }

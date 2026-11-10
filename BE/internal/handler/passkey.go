@@ -38,12 +38,15 @@ func (h *PasskeyHandler) BeginRegistration(c *echo.Context) error {
 	}
 	userID := middleware.GetUserID(c)
 	// Password re-entry is a password check like sign-in and is throttled the
-	// same way, per account.
+	// same way, per account. A fresh session's password is never compared, so
+	// it neither meets the lock nor clears it.
 	throttleKey := "passkey-reauth:" + userID.String()
-	if req.Password != "" && h.auth.loginThrottle.IsLocked(throttleKey) {
+	authenticatedAt := middleware.GetSessionAuthTime(c)
+	passwordChecked := req.Password != "" && !h.passkeys.SessionFresh(authenticatedAt)
+	if passwordChecked && h.auth.loginThrottle.IsLocked(throttleKey) {
 		return response.Error(c, http.StatusTooManyRequests, "ACCOUNT_LOCKED", "Too many failed attempts, please try again later")
 	}
-	options, handle, err := h.passkeys.BeginRegistration(c.Request().Context(), userID, middleware.GetSessionAuthTime(c), req.Password, c.Request().Header.Get("Origin"))
+	options, handle, err := h.passkeys.BeginRegistration(c.Request().Context(), userID, authenticatedAt, req.Password, c.Request().Header.Get("Origin"))
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidCredentials) {
 			h.auth.loginThrottle.RecordFailure(throttleKey)
@@ -52,7 +55,7 @@ func (h *PasskeyHandler) BeginRegistration(c *echo.Context) error {
 		}
 		return h.fail(c, "auth.passkey_register_failed", err)
 	}
-	if req.Password != "" {
+	if passwordChecked {
 		h.auth.loginThrottle.RecordSuccess(throttleKey)
 	}
 	h.setChallengeCookie(c, handle)

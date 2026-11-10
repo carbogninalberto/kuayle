@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "No se pudieron cargar las llaves de acceso",
 	"passkeys.prompt_title": "Inicia sesión más rápido la próxima vez",
 	"passkeys.prompt_desc": "Añade una llave de acceso para iniciar sesión con tu huella dactilar, tu cara o el bloqueo de pantalla. Sin contraseña.",
-	"passkeys.prompt_later": "Ahora no"
+	"passkeys.prompt_later": "Ahora no",
+	"reset.passkeys_notice": "Restablecer la contraseña cierra tu sesión en todas partes y quita tus llaves de acceso. Podrás volver a añadirlas después."
 }

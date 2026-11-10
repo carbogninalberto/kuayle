@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Cheile de acces nu au putut fi încărcate",
 	"passkeys.prompt_title": "Autentifică-te mai rapid data viitoare",
 	"passkeys.prompt_desc": "Adaugă o cheie de acces pentru a te autentifica cu amprenta, fața sau blocarea ecranului. Fără parolă.",
-	"passkeys.prompt_later": "Nu acum"
+	"passkeys.prompt_later": "Nu acum",
+	"reset.passkeys_notice": "Resetarea parolei te deconectează peste tot și îți elimină cheile de acces. Le poți adăuga din nou după aceea."
 }

@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Passkeys konnten nicht geladen werden",
 	"passkeys.prompt_title": "Beim nächsten Mal schneller anmelden",
 	"passkeys.prompt_desc": "Füge einen Passkey hinzu, um dich mit Fingerabdruck, Gesicht oder Bildschirmsperre anzumelden. Ganz ohne Passwort.",
-	"passkeys.prompt_later": "Nicht jetzt"
+	"passkeys.prompt_later": "Nicht jetzt",
+	"reset.passkeys_notice": "Beim Zurücksetzen des Passworts wirst du überall abgemeldet und deine Passkeys werden entfernt. Du kannst sie danach wieder hinzufügen."
 }

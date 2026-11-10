@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Não foi possível carregar as chaves de acesso",
 	"passkeys.prompt_title": "Entre mais rápido na próxima vez",
 	"passkeys.prompt_desc": "Adicione uma chave de acesso para entrar com sua impressão digital, seu rosto ou o bloqueio de tela. Sem precisar de senha.",
-	"passkeys.prompt_later": "Agora não"
+	"passkeys.prompt_later": "Agora não",
+	"reset.passkeys_notice": "Redefinir a senha desconecta você de todos os lugares e remove suas chaves de acesso. Você pode adicioná-las novamente depois."
 }

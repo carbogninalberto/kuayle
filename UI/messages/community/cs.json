@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Přístupové klíče se nepodařilo načíst",
 	"passkeys.prompt_title": "Příště se přihlaste rychleji",
 	"passkeys.prompt_desc": "Přidejte si přístupový klíč a přihlašujte se otiskem prstu, obličejem nebo zámkem obrazovky. Bez hesla.",
-	"passkeys.prompt_later": "Teď ne"
+	"passkeys.prompt_later": "Teď ne",
+	"reset.passkeys_notice": "Obnovením hesla se všude odhlásíte a odeberou se vaše přístupové klíče. Poté je můžete přidat znovu."
 }

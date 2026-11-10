@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Det gick inte att läsa in lösennycklar",
 	"passkeys.prompt_title": "Logga in snabbare nästa gång",
 	"passkeys.prompt_desc": "Lägg till en lösennyckel för att logga in med fingeravtryck, ansikte eller skärmlås. Inget lösenord behövs.",
-	"passkeys.prompt_later": "Inte nu"
+	"passkeys.prompt_later": "Inte nu",
+	"reset.passkeys_notice": "När du återställer lösenordet loggas du ut överallt och dina lösennycklar tas bort. Du kan lägga till dem igen efteråt."
 }

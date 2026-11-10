@@ -260,6 +260,39 @@ test.describe('sign-in page', () => {
 		expect(complete.body.credential.id).toBe(credentialId);
 	});
 
+	test('renews the autofill request before its challenge expires on a page left open', async ({ page }) => {
+		const api = await mockApi(page, { signedIn: false });
+		await page.clock.install();
+		// A browser waiting for the user to pick a passkey from the field.
+		await page.addInitScript(() => {
+			PublicKeyCredential.isConditionalMediationAvailable = async () => true;
+			const state = ((window as any).autofill = { requests: 0, aborted: 0 });
+			navigator.credentials.get = (options) =>
+				new Promise((_, reject) => {
+					state.requests++;
+					options?.signal?.addEventListener('abort', () => {
+						state.aborted++;
+						reject(new DOMException('aborted', 'AbortError'));
+					});
+				});
+		});
+		await page.goto('/login');
+		const begins = () => api.calls.filter((call) => call.path === '/api/auth/passkey/login/begin').length;
+		await expect.poll(begins).toBe(1);
+		await expect.poll(() => page.evaluate(() => (window as any).autofill)).toEqual({ requests: 1, aborted: 0 });
+
+		// Challenges live five minutes; shortly before that nothing has changed yet.
+		await page.clock.fastForward('03:50');
+		expect(begins()).toBe(1);
+		await page.clock.fastForward('00:15');
+		await expect.poll(begins).toBe(2);
+		await expect.poll(() => page.evaluate(() => (window as any).autofill)).toEqual({ requests: 2, aborted: 1 });
+		await page.clock.fastForward('04:05');
+		await expect.poll(begins).toBe(3);
+		// Replacing the request is silent.
+		await expect(page.getByText(/passkey request expired|Could not sign in/)).toBeHidden();
+	});
+
 	test('a failed start of autofill stays silent and the page keeps working', async ({ page }) => {
 		const api = await mockApi(page, { signedIn: false });
 		api.handlers['POST /api/auth/passkey/login/begin'] = (route) =>
@@ -354,6 +387,12 @@ test.describe('offer after a password sign-in', () => {
 		expect(api.calls).toEqual([]);
 		await other.close();
 	});
+});
+
+test('the reset page says that passkeys are removed', async ({ page }) => {
+	await mockApi(page, { signedIn: false });
+	await page.goto('/reset-password?token=example');
+	await expect(page.getByText('Resetting your password signs you out everywhere and removes your passkeys.', { exact: false })).toBeVisible();
 });
 
 test.describe('passkey settings', () => {

@@ -387,6 +387,29 @@ func TestPasskeyHTTP(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, s.browser(t).do(http.MethodGet, "/api/auth/passkey/credentials", nil).Status)
 	})
 
+	// A fresh session's password is not compared, so sending one must not wipe
+	// the count of wrong guesses made from an old session of the same account.
+	t.Run("a fresh session cannot clear the password lock", func(t *testing.T) {
+		fresh := s.browser(t)
+		email, userID := fresh.signUp()
+		old := s.browser(t)
+		old.signIn(email)
+		_, err := s.db.Exec(`UPDATE refresh_tokens SET authenticated_at = NOW() - INTERVAL '1 hour' WHERE user_id = $1`, userID)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, old.do(http.MethodPost, "/api/auth/refresh", nil).Status)
+
+		wrong := map[string]string{"password": "Not-the-password-1"}
+		for i := 0; i < 4; i++ {
+			require.Equal(t, "INVALID_PASSWORD", old.do(http.MethodPost, "/api/auth/passkey/register/begin", wrong).Code)
+		}
+		reply := fresh.do(http.MethodPost, "/api/auth/passkey/register/begin", wrong)
+		require.Equal(t, http.StatusOK, reply.Status, "a fresh session needs no password, whatever it sends: %s", reply.Code)
+		require.Equal(t, "INVALID_PASSWORD", old.do(http.MethodPost, "/api/auth/passkey/register/begin", wrong).Code)
+		reply = old.do(http.MethodPost, "/api/auth/passkey/register/begin", map[string]string{"password": passkeyHTTPPassword})
+		require.Equal(t, http.StatusTooManyRequests, reply.Status, "the fifth wrong guess locks; the fresh session did not reset the count")
+		require.Equal(t, http.StatusOK, fresh.do(http.MethodPost, "/api/auth/passkey/register/begin", wrong).Status, "the lock does not apply where no password is compared")
+	})
+
 	t.Run("a cloned authenticator and an unknown passkey are refused", func(t *testing.T) {
 		b := s.browser(t)
 		_, userID := b.signUp()

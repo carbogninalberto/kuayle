@@ -6,7 +6,7 @@ verified with [go-webauthn](https://github.com/go-webauthn/webauthn).
 
 Code: [service](../internal/service/passkey.go), [relying party validation](../internal/service/passkey_rp.go),
 [handler](../internal/handler/passkey.go), [repository](../internal/repository/passkey.go),
-[migration](../migrations/000137_passkeys.up.sql), [session check](../internal/middleware/auth.go).
+[migration](../migrations/000138_passkeys.up.sql), [session check](../internal/middleware/auth.go).
 Tests: [service](../internal/service/passkey_test.go) (no database),
 [HTTP + PostgreSQL](../cmd/server/passkey_http_test.go), with the software authenticator in
 [internal/passkeytest](../internal/passkeytest/authenticator.go).
@@ -25,7 +25,7 @@ Tests: [service](../internal/service/passkey_test.go) (no database),
   with a passkey it has, which makes the session fresh.
 - **A password reset removes every passkey of the account**, together with its sessions
   and personal access tokens. Reset is the recovery path for a taken-over account, and
-  whoever took it over may have added a passkey.
+  whoever took it over may have added a passkey. The reset page tells the user so.
 - **User verification is required** (biometric or PIN) at registration and sign-in. A
   passkey replaces the password, so presence alone is not enough.
 - **Passkeys are discoverable credentials** (`residentKey: required`). Sign-in names no
@@ -164,6 +164,9 @@ except inside the options.
   registration is additionally bound to the user: it completes only for the user who
   began it. A login challenge cannot complete a registration and vice versa.
 - **Expiring.** Five minutes, enforced by `expires_at` and by the library's own deadline.
+- **Renewed by the sign-in page.** The page starts a ceremony on load so the browser can
+  offer passkeys in the email field, and replaces it every four minutes while it stays
+  open, so the offer never outlives its challenge.
 - **Not kept across attempts.** A new registration deletes the user's previous one; a new
   login deletes the one the same browser held. Expired rows are purged on every `begin`.
 

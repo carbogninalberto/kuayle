@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "No s'han pogut carregar les claus d'accés",
 	"passkeys.prompt_title": "Inicia la sessió més ràpidament la propera vegada",
 	"passkeys.prompt_desc": "Afegeix una clau d'accés per iniciar la sessió amb l'empremta digital, la cara o el bloqueig de pantalla. Sense contrasenya.",
-	"passkeys.prompt_later": "Ara no"
+	"passkeys.prompt_later": "Ara no",
+	"reset.passkeys_notice": "Restablir la contrasenya tanca la sessió a tot arreu i elimina les teves claus d'accés. Les podràs tornar a afegir després."
 }

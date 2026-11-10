@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Impossibile caricare le passkey",
 	"passkeys.prompt_title": "Accedi più velocemente la prossima volta",
 	"passkeys.prompt_desc": "Aggiungi una passkey per accedere con l'impronta digitale, il volto o il blocco schermo. Senza password.",
-	"passkeys.prompt_later": "Non ora"
+	"passkeys.prompt_later": "Non ora",
+	"reset.passkeys_notice": "Reimpostare la password ti disconnette ovunque e rimuove le tue passkey. Potrai aggiungerle di nuovo in seguito."
 }

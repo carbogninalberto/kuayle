@@ -184,6 +184,12 @@ func HasUsablePassword(user *domain.User) bool {
 	return err == nil
 }
 
+// SessionFresh reports whether a session that signed in at authenticatedAt may
+// add a passkey without the account password. The zero time is never fresh.
+func (s *PasskeyService) SessionFresh(authenticatedAt time.Time) bool {
+	return !authenticatedAt.IsZero() && s.now().Sub(authenticatedAt) <= PasskeyFreshSession
+}
+
 // BeginRegistration starts adding a passkey to the signed-in user. The session
 // must be fresh (authenticatedAt within PasskeyFreshSession) or the request
 // must carry the account password, so a stolen session cannot add a passkey
@@ -200,8 +206,7 @@ func (s *PasskeyService) BeginRegistration(ctx context.Context, userID uuid.UUID
 	if user == nil {
 		return nil, "", ErrPasskeyNotFound
 	}
-	fresh := !authenticatedAt.IsZero() && s.now().Sub(authenticatedAt) <= PasskeyFreshSession
-	if !fresh {
+	if !s.SessionFresh(authenticatedAt) {
 		if password == "" {
 			return nil, "", ErrPasskeyReauthRequired
 		}

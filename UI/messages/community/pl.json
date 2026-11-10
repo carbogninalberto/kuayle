@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Nie udało się wczytać kluczy dostępu",
 	"passkeys.prompt_title": "Następnym razem zaloguj się szybciej",
 	"passkeys.prompt_desc": "Dodaj klucz dostępu, aby logować się odciskiem palca, twarzą lub blokadą ekranu. Bez hasła.",
-	"passkeys.prompt_later": "Nie teraz"
+	"passkeys.prompt_later": "Nie teraz",
+	"reset.passkeys_notice": "Zresetowanie hasła wylogowuje Cię wszędzie i usuwa Twoje klucze dostępu. Możesz je potem dodać ponownie."
 }

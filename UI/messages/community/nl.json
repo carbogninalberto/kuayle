@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Kan passkeys niet laden",
 	"passkeys.prompt_title": "Log de volgende keer sneller in",
 	"passkeys.prompt_desc": "Voeg een passkey toe om in te loggen met je vingerafdruk, gezicht of schermvergrendeling. Geen wachtwoord nodig.",
-	"passkeys.prompt_later": "Niet nu"
+	"passkeys.prompt_later": "Niet nu",
+	"reset.passkeys_notice": "Als je je wachtwoord reset, word je overal uitgelogd en worden je passkeys verwijderd. Je kunt ze daarna opnieuw toevoegen."
 }

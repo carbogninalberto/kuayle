@@ -27,12 +27,28 @@
 	let busy = $state(false);
 	let pending: AbortController | null = null;
 	let autofillStarted = false;
+	// The server keeps a challenge for five minutes. A sign-in page left open
+	// would offer a passkey in autofill that can no longer complete, so the
+	// pending request is replaced with a new one before that.
+	const AUTOFILL_REFRESH_MS = 4 * 60 * 1000;
+	// Set when the refresh came due in a hidden tab; it happens on return.
+	let autofillStale = false;
 	// Server answers to a completed ceremony, as opposed to failing to start one.
 	const PICKED_PASSKEY_ERRORS = new Set(['PASSKEY_UNKNOWN', 'PASSKEY_INVALID', 'PASSKEY_CHALLENGE_EXPIRED']);
 
 	onMount(() => {
 		supported = passkeysSupported();
-		return () => pending?.abort();
+		const refreshOnReturn = () => {
+			if (document.hidden || !autofillStale || pending || busy) return;
+			autofillStale = false;
+			void offerInAutofill();
+		};
+		document.addEventListener('visibilitychange', refreshOnReturn);
+		return () => {
+			document.removeEventListener('visibilitychange', refreshOnReturn);
+			pending?.abort();
+			pending = null;
+		};
 	});
 
 	$effect(() => {
@@ -54,6 +70,13 @@
 		if (!(await conditionalMediationAvailable())) return;
 		const controller = new AbortController();
 		pending = controller;
+		const refresh = setTimeout(() => {
+			if (pending !== controller) return;
+			controller.abort();
+			pending = null;
+			if (document.hidden) autofillStale = true;
+			else void offerInAutofill();
+		}, AUTOFILL_REFRESH_MS);
 		try {
 			const user = await signInWithPasskey({ conditional: true, signal: controller.signal });
 			if (user) await onSignedIn(user);
@@ -67,6 +90,7 @@
 				void offerInAutofill();
 			}
 		} finally {
+			clearTimeout(refresh);
 			if (pending === controller) pending = null;
 		}
 	}
@@ -76,6 +100,7 @@
 		// Only one WebAuthn request can be pending: the prompt replaces autofill.
 		pending?.abort();
 		pending = null;
+		autofillStale = false;
 		busy = true;
 		try {
 			const user = await signInWithPasskey();

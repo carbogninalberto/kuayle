@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "패스키를 불러올 수 없습니다",
 	"passkeys.prompt_title": "다음에는 더 빠르게 로그인하세요",
 	"passkeys.prompt_desc": "패스키를 추가하면 지문, 얼굴 또는 화면 잠금으로 로그인할 수 있습니다. 비밀번호가 필요 없습니다.",
-	"passkeys.prompt_later": "나중에"
+	"passkeys.prompt_later": "나중에",
+	"reset.passkeys_notice": "비밀번호를 재설정하면 모든 곳에서 로그아웃되고 패스키가 제거됩니다. 이후에 다시 추가할 수 있습니다."
 }

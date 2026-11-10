@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Could not load passkeys",
 	"passkeys.prompt_title": "Sign in faster next time",
 	"passkeys.prompt_desc": "Add a passkey to sign in with your fingerprint, face or screen lock. No password needed.",
-	"passkeys.prompt_later": "Not now"
+	"passkeys.prompt_later": "Not now",
+	"reset.passkeys_notice": "Resetting your password signs you out everywhere and removes your passkeys. You can add them again afterwards."
 }

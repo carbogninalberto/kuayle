@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Tidak dapat memuat kunci sandi",
 	"passkeys.prompt_title": "Masuk lebih cepat lain kali",
 	"passkeys.prompt_desc": "Tambahkan kunci sandi untuk masuk dengan sidik jari, wajah, atau kunci layar. Tanpa kata sandi.",
-	"passkeys.prompt_later": "Nanti saja"
+	"passkeys.prompt_later": "Nanti saja",
+	"reset.passkeys_notice": "Mengatur ulang kata sandi akan mengeluarkan Anda dari semua perangkat dan menghapus kunci sandi Anda. Anda dapat menambahkannya lagi setelahnya."
 }

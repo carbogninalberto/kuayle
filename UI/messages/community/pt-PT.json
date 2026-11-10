@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Não foi possível carregar as chaves de acesso",
 	"passkeys.prompt_title": "Inicie sessão mais depressa da próxima vez",
 	"passkeys.prompt_desc": "Adicione uma chave de acesso para iniciar sessão com a impressão digital, o rosto ou o bloqueio de ecrã. Sem palavra-passe.",
-	"passkeys.prompt_later": "Agora não"
+	"passkeys.prompt_later": "Agora não",
+	"reset.passkeys_notice": "Repor a palavra-passe termina a sessão em todo o lado e remove as suas chaves de acesso. Pode voltar a adicioná-las depois."
 }

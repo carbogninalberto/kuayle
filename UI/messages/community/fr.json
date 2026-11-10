@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Impossible de charger les clés d’accès",
 	"passkeys.prompt_title": "Connectez-vous plus vite la prochaine fois",
 	"passkeys.prompt_desc": "Ajoutez une clé d’accès pour vous connecter avec votre empreinte digitale, votre visage ou le verrouillage de l’écran. Sans mot de passe.",
-	"passkeys.prompt_later": "Pas maintenant"
+	"passkeys.prompt_later": "Pas maintenant",
+	"reset.passkeys_notice": "Réinitialiser votre mot de passe vous déconnecte partout et retire vos clés d’accès. Vous pourrez les ajouter à nouveau ensuite."
 }

@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Tidak dapat memuatkan kunci laluan",
 	"passkeys.prompt_title": "Log masuk lebih pantas pada masa akan datang",
 	"passkeys.prompt_desc": "Tambah kunci laluan untuk log masuk dengan cap jari, wajah atau kunci skrin. Tiada kata laluan diperlukan.",
-	"passkeys.prompt_later": "Bukan sekarang"
+	"passkeys.prompt_later": "Bukan sekarang",
+	"reset.passkeys_notice": "Menetapkan semula kata laluan akan melog keluar anda di semua tempat dan mengalih keluar kunci laluan anda. Anda boleh menambahkannya semula selepas itu."
 }

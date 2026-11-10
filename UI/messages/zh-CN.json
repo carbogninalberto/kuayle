@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "无法加载通行密钥",
 	"passkeys.prompt_title": "下次登录更快捷",
 	"passkeys.prompt_desc": "添加通行密钥，即可使用指纹、面容或屏幕锁登录，无需密码。",
-	"passkeys.prompt_later": "暂不"
+	"passkeys.prompt_later": "暂不",
+	"reset.passkeys_notice": "重置密码会让你在所有设备上退出登录，并移除你的通行密钥。之后可以重新添加。"
 }

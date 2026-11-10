@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Avainkoodien lataaminen epäonnistui",
 	"passkeys.prompt_title": "Kirjaudu ensi kerralla nopeammin",
 	"passkeys.prompt_desc": "Lisää avainkoodi, niin voit kirjautua sormenjäljellä, kasvoilla tai näytön lukituksella. Salasanaa ei tarvita.",
-	"passkeys.prompt_later": "Ei nyt"
+	"passkeys.prompt_later": "Ei nyt",
+	"reset.passkeys_notice": "Salasanan nollaaminen kirjaa sinut ulos kaikkialta ja poistaa avainkoodisi. Voit lisätä ne myöhemmin uudelleen."
 }

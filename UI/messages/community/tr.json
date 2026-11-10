@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Geçiş anahtarları yüklenemedi",
 	"passkeys.prompt_title": "Bir dahaki sefere daha hızlı giriş yapın",
 	"passkeys.prompt_desc": "Parmak iziniz, yüzünüz veya ekran kilidinizle giriş yapmak için bir geçiş anahtarı ekleyin. Parola gerekmez.",
-	"passkeys.prompt_later": "Şimdi değil"
+	"passkeys.prompt_later": "Şimdi değil",
+	"reset.passkeys_notice": "Parolanızı sıfırlamak tüm oturumlarınızı kapatır ve geçiş anahtarlarınızı kaldırır. Sonrasında bunları yeniden ekleyebilirsiniz."
 }

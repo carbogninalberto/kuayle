@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Kunne ikke laste inn passnøkler",
 	"passkeys.prompt_title": "Logg inn raskere neste gang",
 	"passkeys.prompt_desc": "Legg til en passnøkkel for å logge inn med fingeravtrykk, ansikt eller skjermlås. Du trenger ikke passord.",
-	"passkeys.prompt_later": "Ikke nå"
+	"passkeys.prompt_later": "Ikke nå",
+	"reset.passkeys_notice": "Når du tilbakestiller passordet, logges du ut overalt, og passnøklene dine fjernes. Du kan legge dem til igjen etterpå."
 }

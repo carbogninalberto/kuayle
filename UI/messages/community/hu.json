@@ -3749,5 +3749,6 @@
 	"passkeys.failed_load": "Nem sikerült betölteni az azonosítókulcsokat",
 	"passkeys.prompt_title": "Jelentkezz be gyorsabban legközelebb",
 	"passkeys.prompt_desc": "Adj hozzá egy azonosítókulcsot, és jelentkezz be ujjlenyomattal, arccal vagy képernyőzárral. Jelszó nélkül.",
-	"passkeys.prompt_later": "Most nem"
+	"passkeys.prompt_later": "Most nem",
+	"reset.passkeys_notice": "A jelszó visszaállítása mindenhol kijelentkeztet, és eltávolítja az azonosítókulcsaidat. Utána újra hozzáadhatod őket."
 }
