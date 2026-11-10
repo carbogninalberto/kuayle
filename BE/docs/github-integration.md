@@ -257,6 +257,8 @@ hand under Display information in the app's settings. Settings > GitHub offers
 the Kuayle logo (`/icons/icon-512.png`) before the app is created and, for a
 workspace-owned installed app, an **Update logo on GitHub** link to that page.
 Operator-managed apps are changed by the operator.
+New apps get a default description from the manifest (`GitHubAppDescription`);
+for an existing app, paste it into the same Display information section.
 
 **Abilities.** Each is a toggle refused where the GitHub write happens, so a
 turned-off ability also refuses actions someone approves in Kuayle:
