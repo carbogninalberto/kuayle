@@ -1,12 +1,16 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -268,8 +272,16 @@ func (s *SharedLinkService) ListPublicIssues(ctx context.Context, token string, 
 		return nil, err
 	}
 
-	// Build filter params: start from link scope, then merge stored filters, then narrow with query params
-	params := s.buildPublicFilterParams(link, queryParams)
+	// Stored filters and scope first, then public parameters, which only
+	// narrow. A share whose filters cannot be enforced shows nothing.
+	params, ok := s.buildPublicFilterParams(link, queryParams)
+	if !ok {
+		return &dto.ListResponse[dto.PublicIssueResponse]{
+			Data:    []dto.PublicIssueResponse{},
+			Page:    params.Page,
+			PerPage: params.PerPage,
+		}, nil
+	}
 
 	issues, total, err := s.issueRepo.List(ctx, link.WorkspaceID, params)
 	if err != nil {
@@ -416,103 +428,280 @@ func (s *SharedLinkService) resolveActiveLink(ctx context.Context, token string)
 	return link, nil
 }
 
-// buildPublicFilterParams merges the link's scope and stored filters with public query parameters.
-// Public query params can only narrow, never widen the scope.
-func (s *SharedLinkService) buildPublicFilterParams(link *domain.SharedLink, query dto.IssueFilterParams) dto.IssueFilterParams {
-	params := dto.IssueFilterParams{}
-
-	// 1. Set scope-based filters (immutable from link)
-	switch link.Scope {
-	case domain.SharedLinkScopeTeam:
-		if link.ScopeID != nil {
-			params.TeamID = link.ScopeID.String()
-		}
-	case domain.SharedLinkScopeProject:
-		if link.ScopeID != nil {
-			params.ProjectID = link.ScopeID.String()
-		}
-	case domain.SharedLinkScopeView:
-		// For view scope, apply the view's stored filters
-		if link.ScopeID != nil {
-			view, err := s.viewRepo.GetByID(context.Background(), *link.ScopeID)
-			if err != nil || view == nil {
-				// A deleted/disabled view must never become an unfiltered share.
-				params.TeamID = uuid.Nil.String()
-			}
-			if err == nil && view != nil {
-				var viewFilters map[string]string
-				if err := json.Unmarshal(view.Filters, &viewFilters); err == nil {
-					applyStoredFilters(&params, viewFilters)
-				}
-			}
-		}
-	}
-
-	// 2. Apply link's stored base filters (can further restrict)
-	var storedFilters map[string]string
-	if err := json.Unmarshal(link.Filters, &storedFilters); err == nil {
-		applyStoredFilters(&params, storedFilters)
-	}
-
-	// 3. Layer on public query params (can only narrow, not replace scope params)
-	if query.Status != "" {
-		params.Status = query.Status
-	}
-	if query.Priority != "" {
-		params.Priority = query.Priority
-	}
-	if query.LabelID != "" {
-		params.LabelID = query.LabelID
-	}
-	if query.Search != "" {
-		params.Search = query.Search
-	}
-	if query.DueBefore != "" {
-		params.DueBefore = query.DueBefore
-	}
-	if query.DueAfter != "" {
-		params.DueAfter = query.DueAfter
-	}
-	if query.GroupBy != "" {
-		params.GroupBy = query.GroupBy
-	}
-	if query.Sort != "" {
-		params.Sort = query.Sort
-	}
-	if query.Order != "" {
-		params.Order = query.Order
-	}
-
-	// Pagination from query
-	params.Page = query.Page
-	params.PerPage = query.PerPage
+// buildPublicFilterParams builds the issue query of a public share from the
+// link's scope, the stored filters (the view's and the link's) and the public
+// query parameters. Stored filters are all enforced, and public parameters
+// are combined with them so that they only narrow the result. It reports
+// false when the share must show nothing: the view is gone, the stored
+// filters cannot be read or enforced, or a public value excludes everything
+// the stored filters allow.
+func (s *SharedLinkService) buildPublicFilterParams(link *domain.SharedLink, query dto.IssueFilterParams) (dto.IssueFilterParams, bool) {
+	params := dto.IssueFilterParams{PublicSearchDescription: link.IncludeDescription}
+	params.Page = max(query.Page, 0)
+	params.PerPage = min(max(query.PerPage, 0), 100)
 	params.Defaults()
 
-	return params
+	// 1. Stored filters. For a view share the view's current value wins per
+	// key; the link's own filters apply to the keys the view leaves open.
+	stored, ok := parseStoredFilters(link.Filters)
+	if !ok {
+		return params, false
+	}
+	if link.Scope == domain.SharedLinkScopeView {
+		if link.ScopeID == nil {
+			return params, false
+		}
+		view, err := s.viewRepo.GetByID(context.Background(), *link.ScopeID)
+		if err != nil || view == nil {
+			// A deleted/disabled view must never become an unfiltered share.
+			return params, false
+		}
+		viewFilters, ok := parseStoredFilters(view.Filters)
+		if !ok {
+			return params, false
+		}
+		for key, value := range viewFilters {
+			stored[key] = value
+		}
+	}
+	if !applyStoredFilters(&params, stored) {
+		return params, false
+	}
+
+	// 2. The link's scope is fixed and overrides a stored team or project.
+	switch link.Scope {
+	case domain.SharedLinkScopeTeam:
+		if link.ScopeID == nil {
+			return params, false
+		}
+		params.TeamID = link.ScopeID.String()
+	case domain.SharedLinkScopeProject:
+		if link.ScopeID == nil {
+			return params, false
+		}
+		params.ProjectID = link.ScopeID.String()
+	}
+
+	// 3. Public query parameters: each is intersected with the stored value
+	// of its key, so it can remove issues from the share but never add any.
+	if query.Status != "" {
+		public, ok := normalizeStatusList(query.Status)
+		if !ok {
+			return params, false
+		}
+		if params.Status, ok = narrowList(params.Status, public); !ok {
+			return params, false
+		}
+	}
+	if query.Priority != "" {
+		public, ok := normalizePriorityList(query.Priority)
+		if !ok {
+			return params, false
+		}
+		if params.Priority, ok = narrowList(params.Priority, public); !ok {
+			return params, false
+		}
+	}
+	if query.LabelID != "" {
+		public, ok := normalizeFilterID(query.LabelID, true)
+		if !ok || (params.LabelID != "" && params.LabelID != public) {
+			return params, false
+		}
+		params.LabelID = public
+	}
+	if query.DueBefore != "" {
+		public, ok := normalizeFilterDate(query.DueBefore)
+		if !ok {
+			return params, false
+		}
+		if params.DueBefore == "" || public < params.DueBefore {
+			params.DueBefore = public
+		}
+	}
+	if query.DueAfter != "" {
+		public, ok := normalizeFilterDate(query.DueAfter)
+		if !ok {
+			return params, false
+		}
+		if params.DueAfter == "" || public > params.DueAfter {
+			params.DueAfter = public
+		}
+	}
+	// Search is added to a stored search, and looks only at fields the share
+	// shows (see IssueFilterParams.PublicSearch).
+	if term := strings.TrimSpace(query.Search); term != "" {
+		params.PublicSearch = append(params.PublicSearch, term)
+	}
+
+	// Presentation. Grouping by assignee or project would order the page by
+	// identifiers the share does not show.
+	if query.GroupBy == "status" || query.GroupBy == "priority" {
+		params.GroupBy = query.GroupBy
+	}
+	params.Sort = query.Sort
+	params.Order = query.Order
+
+	return params, true
 }
 
-func applyStoredFilters(params *dto.IssueFilterParams, filters map[string]string) {
-	if v, ok := filters["status"]; ok && params.Status == "" {
-		params.Status = v
+// parseStoredFilters reads the filters of a link or a view: a flat JSON
+// object of strings, as the application writes them. Empty values are no
+// filter. Anything else is reported as unreadable.
+func parseStoredFilters(raw json.RawMessage) (map[string]string, bool) {
+	filters := map[string]string{}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return filters, true
 	}
-	if v, ok := filters["priority"]; ok && params.Priority == "" {
-		params.Priority = v
+	var values map[string]any
+	if err := json.Unmarshal(trimmed, &values); err != nil {
+		return nil, false
 	}
-	if v, ok := filters["assignee"]; ok && params.AssigneeID == "" {
-		params.AssigneeID = v
+	for key, value := range values {
+		text, ok := value.(string)
+		if !ok {
+			return nil, false
+		}
+		if text != "" {
+			filters[key] = text
+		}
 	}
-	if v, ok := filters["team"]; ok && params.TeamID == "" {
-		params.TeamID = v
+	return filters, true
+}
+
+// applyStoredFilters copies stored filters into the issue query. It reports
+// false for a key or a value the query cannot enforce, so that an unknown
+// filter never widens a share.
+func applyStoredFilters(params *dto.IssueFilterParams, filters map[string]string) bool {
+	for key, value := range filters {
+		ok := true
+		switch key {
+		case "view_scope", "view_team", "group_by", "sort", "order", "status_category_order":
+			// View metadata and presentation: they select no issues.
+		case "status":
+			var list []string
+			if list, ok = normalizeStatusList(value); ok {
+				params.Status = strings.Join(list, ",")
+			}
+		case "status_type":
+			params.StatusType = value
+		case "priority":
+			var list []string
+			if list, ok = normalizePriorityList(value); ok {
+				params.Priority = strings.Join(list, ",")
+			}
+		case "assignee":
+			params.AssigneeID, ok = normalizeFilterID(value, true)
+		case "creator":
+			params.CreatorID, ok = normalizeFilterID(value, false)
+		case "team":
+			params.TeamID, ok = normalizeFilterID(value, false)
+		case "project":
+			params.ProjectID, ok = normalizeFilterID(value, true)
+		case "cycle":
+			params.CycleID, ok = normalizeFilterID(value, true)
+		case "label":
+			params.LabelID, ok = normalizeFilterID(value, true)
+		case "parent_id":
+			params.ParentID, ok = normalizeFilterID(value, true)
+		case "sub_issues":
+			switch value {
+			case "exclude", "top_level", "only", "has_sub_issues":
+				params.SubIssues = value
+			default:
+				ok = false
+			}
+		case "triaged":
+			if ok = value == "true" || value == "false"; ok {
+				params.Triaged = value
+			}
+		case "search":
+			if term := strings.TrimSpace(value); term != "" {
+				params.PublicSearch = append(params.PublicSearch, term)
+			}
+		case "due_before":
+			params.DueBefore, ok = normalizeFilterDate(value)
+		case "due_after":
+			params.DueAfter, ok = normalizeFilterDate(value)
+		default:
+			ok = false
+		}
+		if !ok {
+			return false
+		}
 	}
-	if v, ok := filters["project"]; ok && params.ProjectID == "" {
-		params.ProjectID = v
+	return true
+}
+
+// narrowList intersects a stored comma separated filter with a public one.
+// With no stored value the public one applies as it is. It reports false
+// when nothing is left.
+func narrowList(stored string, public []string) (string, bool) {
+	if stored == "" {
+		return strings.Join(public, ","), len(public) > 0
 	}
-	if v, ok := filters["label"]; ok && params.LabelID == "" {
-		params.LabelID = v
+	kept := make([]string, 0, len(public))
+	for _, value := range strings.Split(stored, ",") {
+		if slices.Contains(public, value) {
+			kept = append(kept, value)
+		}
 	}
-	if v, ok := filters["cycle"]; ok && params.CycleID == "" {
-		params.CycleID = v
+	return strings.Join(kept, ","), len(kept) > 0
+}
+
+// normalizeStatusList accepts status ids or status slugs, not a mix: the
+// issue query picks the column from the kind of value.
+func normalizeStatusList(value string) ([]string, bool) {
+	parts := strings.Split(value, ",")
+	ids := 0
+	for i, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return nil, false
+		}
+		if id, ok := normalizeFilterID(part, false); ok {
+			part = id
+			ids++
+		}
+		parts[i] = part
 	}
+	return parts, ids == 0 || ids == len(parts)
+}
+
+func normalizePriorityList(value string) ([]string, bool) {
+	parts := strings.Split(value, ",")
+	for i, part := range parts {
+		priority, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || priority < 0 || priority > 4 {
+			return nil, false
+		}
+		parts[i] = strconv.Itoa(priority)
+	}
+	return parts, true
+}
+
+// normalizeFilterID accepts a UUID in its standard form, and "none" where the
+// issue query understands it.
+func normalizeFilterID(value string, allowNone bool) (string, bool) {
+	if allowNone && value == "none" {
+		return value, true
+	}
+	id, err := uuid.Parse(value)
+	if err != nil || len(value) != 36 {
+		return "", false
+	}
+	return id.String(), true
+}
+
+// normalizeFilterDate returns the day of a date or timestamp as YYYY-MM-DD,
+// which also orders correctly as text.
+func normalizeFilterDate(value string) (string, bool) {
+	for _, layout := range []string{"2006-01-02", time.RFC3339} {
+		if day, err := time.Parse(layout, value); err == nil {
+			return day.Format("2006-01-02"), true
+		}
+	}
+	return "", false
 }
 
 func (s *SharedLinkService) loadTeamStatuses(ctx context.Context, teamID uuid.UUID) []dto.PublicStatusResponse {

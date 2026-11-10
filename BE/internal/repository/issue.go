@@ -103,6 +103,11 @@ func (r *IssueRepository) GetByIdentifier(ctx context.Context, workspaceID uuid.
 	return &issue, err
 }
 
+// escapeLike makes a term literal in a LIKE pattern that uses ESCAPE '\'.
+func escapeLike(term string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(term)
+}
+
 func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, params dto.IssueFilterParams) ([]domain.Issue, int, error) {
 	where := []string{"i.workspace_id = :workspace_id", teamVisible(ctx, "i.team_id")}
 	args := map[string]interface{}{"workspace_id": workspaceID}
@@ -261,6 +266,18 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 		}
 		where = append(where, "("+strings.Join(searchFields, " OR ")+")")
 		args["search"] = "%" + params.Search + "%"
+	}
+	for n, term := range params.PublicSearch {
+		key := fmt.Sprintf("public_search_%d", n)
+		like := " ILIKE :" + key + ` ESCAPE '\'`
+		fields := []string{"i.title" + like, "i.identifier_text" + like}
+		if params.PublicSearchDescription {
+			// The text a reader sees, not the markup: tags hold asset and
+			// workspace identifiers the public page replaces.
+			fields = append(fields, `regexp_replace(COALESCE(i.description, ''), '<[^>]*>', ' ', 'g')`+like)
+		}
+		where = append(where, "("+strings.Join(fields, " OR ")+")")
+		args[key] = "%" + escapeLike(term) + "%"
 	}
 	if params.DueBefore != "" {
 		where = append(where, "i.due_date <= :due_before")
