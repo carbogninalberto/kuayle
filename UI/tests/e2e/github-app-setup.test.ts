@@ -94,7 +94,14 @@ test('guides the owner from a missing app setting to accepted permissions', asyn
 	await page.evaluate(() => window.dispatchEvent(new Event('focus')));
 	await expect(card).toContainText('Agents now receive CI results and review requests.');
 	expect(calls.length).toBeGreaterThan(before);
-	await expect(card.getByRole('link')).toHaveCount(0);
+	// Nothing is left to fix: the only links are the logo ones, since GitHub has
+	// no API for an app's logo and the owner uploads it by hand.
+	const logo = card.getByTestId('github-app-logo');
+	await expect(logo.getByRole('link', { name: 'Download Kuayle logo' })).toHaveAttribute('href', '/icons/icon-512.png');
+	const updateLogo = logo.getByRole('link', { name: /Update logo on GitHub/ });
+	await expect(updateLogo).toHaveAttribute('href', appSettings.replace(/\/permissions$/, ''));
+	await expect(updateLogo).toHaveAttribute('target', '_blank');
+	await expect(card.getByRole('link')).toHaveCount(2);
 
 	// Once OK, regaining focus does not keep asking GitHub.
 	const settled = calls.length;

@@ -1,7 +1,10 @@
 package domain
 
 import (
+	"fmt"
+	"net/url"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -106,4 +109,62 @@ func IsGitHubBotAbility(name string) bool {
 		}
 	}
 	return false
+}
+
+// GitHubBotAvatarPath is where Kuayle serves an uploaded bot picture. It is
+// public: GitHub must load it to show it in the bot's comments.
+func GitHubBotAvatarPath(ws uuid.UUID, file string) string {
+	return "/api/github-bot/" + ws.String() + "/avatar/" + file
+}
+
+// ValidGitHubBotAvatarURL accepts an absolute https URL without credentials
+// or characters that could escape the HTML attribute it is rendered in.
+func ValidGitHubBotAvatarURL(raw string) bool {
+	if len(raw) > 2048 || strings.ContainsAny(raw, "\"'<>\\` \t\r\n") {
+		return false
+	}
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && u.Opaque == ""
+}
+
+var githubBotNameEscaper = strings.NewReplacer("@", "@\u200b", "<", "", ">", "", "`", "", "[", "", "]", "", "\\", "", "*", "", "_", "", "~", "", "|", "", "#", "", "\n", " ", "\r", " ")
+
+// Signature is the line Kuayle starts its GitHub comments and pull request
+// descriptions with: the configured picture and name. GitHub itself always
+// shows the GitHub App as the author, so this is how the workspace's identity
+// appears there. It is empty until something is configured. An uploaded
+// picture is linked only when Kuayle has a public https address.
+func (s *GitHubBotSettings) Signature(frontendURL string) string {
+	if s == nil || (s.DisplayName == nil && s.AvatarURL == nil && s.AvatarFile == nil) {
+		return ""
+	}
+	image := ""
+	switch {
+	case s.AvatarURL != nil:
+		image = *s.AvatarURL
+	case s.AvatarFile != nil:
+		if base, err := url.Parse(frontendURL); err == nil && base.Scheme == "https" && base.Host != "" {
+			image = strings.TrimRight(base.String(), "/") + GitHubBotAvatarPath(s.WorkspaceID, *s.AvatarFile)
+		}
+	}
+	// Names are validated on save; escaping again keeps older or edited rows inert.
+	name := githubBotNameEscaper.Replace(s.Name())
+	if image != "" && ValidGitHubBotAvatarURL(image) {
+		return fmt.Sprintf("<img src=\"%s\" alt=\"\" width=\"20\" height=\"20\" align=\"top\"> **%s**\n\n", image, name)
+	}
+	return "**" + name + "**\n\n"
+}
+
+// WithoutSignature returns a pull request description without the signature
+// Kuayle starts it with. The description is searched for issue identifiers,
+// and the bot's name or picture address is not something its author wrote.
+func (s *GitHubBotSettings) WithoutSignature(frontendURL, body string) string {
+	signature := s.Signature(frontendURL)
+	if signature == "" {
+		return body
+	}
+	if rest, ok := strings.CutPrefix(strings.ReplaceAll(body, "\r\n", "\n"), signature); ok {
+		return rest
+	}
+	return body
 }
