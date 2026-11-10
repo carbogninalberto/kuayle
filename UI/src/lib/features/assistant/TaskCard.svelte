@@ -28,7 +28,8 @@
 		ChevronDown,
 		BadgeCheck,
 		FlaskConical,
-		ScanSearch
+		ScanSearch,
+		CirclePause
 	} from '@lucide/svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import TaskActions from './TaskActions.svelte';
@@ -557,8 +558,14 @@
 	// A recorded approval shows the task is ready to merge; merging completes it.
 	const approver = $derived(task.state === 'awaiting_review' ? approvedBy(signals, task.run_id) : undefined);
 	const tone = $derived(approver ? 'success' : taskTone(task.state));
-	const stateLabel = $derived(approver ? m['tasks.approved']() : taskLabel(task.state));
-	const reason = $derived(approver ? m['tasks.approved_reason']({ name: approver }) : task.reason);
+	// Paused by the agent's usage limit: the alert below explains it.
+	const usageLimited = $derived(task.state === 'blocked' && !!task.usage_limit_message);
+	const stateLabel = $derived(
+		approver ? m['tasks.approved']() : usageLimited ? m['tasks.state.paused']() : taskLabel(task.state)
+	);
+	const reason = $derived(
+		approver ? m['tasks.approved_reason']({ name: approver }) : usageLimited ? '' : task.reason
+	);
 	$effect(() => {
 		const observed = [task.state, chat.taskSignalCursor[task.id]];
 		if (observed[0] !== 'awaiting_review') return;
@@ -827,6 +834,26 @@
 		}
 	}
 
+	// A task paused at the agent's usage limit resumes on its own after the
+	// reset; the creator can resume it now or keep it paused.
+	let usageAction = $state<'resume' | 'cancel' | null>(null);
+	const when = (value?: string | null) => (value ? new Date(value).toLocaleString() : '');
+	async function usageLimitAction(kind: 'resume' | 'cancel') {
+		if (usageAction) return;
+		usageAction = kind;
+		try {
+			const next =
+				kind === 'resume'
+					? await agentTasks.resumeUsageLimit(chat.slug, task.id)
+					: await agentTasks.cancelUsageLimitResume(chat.slug, task.id);
+			if (!disposed) chat.acceptTask(next);
+		} catch (e) {
+			failure(e);
+		} finally {
+			if (!disposed) usageAction = null;
+		}
+	}
+
 	async function olderRuns() {
 		if (!runsBefore || loading) return;
 		loading = true;
@@ -940,6 +967,41 @@
 								href="/{chat.slug}/settings/agents#your-sign-ins">{m['tasks.sign_in_manage']()}</a
 							>{/if}
 						{#if signInError}<p role="alert" class="text-destructive">{signInError}</p>{/if}
+					</Alert.Description>
+				</Alert.Root>
+			{/if}
+			{#if usageLimited}
+				<Alert.Root
+					data-testid="task-usage-limit"
+					class="border-[var(--status-warning)]/40 bg-[var(--status-warning)]/5"
+				>
+					<CirclePause class="text-[var(--status-warning)]" />
+					<Alert.Title>{m['tasks.usage_limit_title']({ agent: agentLabel(task.provider) })}</Alert.Title>
+					<Alert.Description class="space-y-3">
+						<p class="break-words">{task.usage_limit_message}</p>
+						{#if task.usage_limit_resets_at}<p>
+								{m['tasks.usage_limit_resets']({ time: when(task.usage_limit_resets_at) })}
+							</p>{/if}
+						<p>
+							{task.usage_limit_resume_at
+								? m['tasks.usage_limit_resumes']({ time: when(task.usage_limit_resume_at) })
+								: m['tasks.usage_limit_manual']()}
+						</p>
+						<div class="flex flex-wrap gap-2">
+							<Button size="sm" disabled={!!usageAction} onclick={() => void usageLimitAction('resume')}
+								>{#if usageAction === 'resume'}<LoaderCircle class="animate-spin" />{:else}<Play
+									/>{/if}{m['tasks.usage_limit_resume_now']()}</Button
+							>
+							{#if task.usage_limit_resume_at}<Button
+									size="sm"
+									variant="outline"
+									disabled={!!usageAction}
+									onclick={() => void usageLimitAction('cancel')}
+									>{#if usageAction === 'cancel'}<LoaderCircle class="animate-spin" />{/if}{m[
+										'tasks.usage_limit_dont_resume'
+									]()}</Button
+								>{/if}
+						</div>
 					</Alert.Description>
 				</Alert.Root>
 			{/if}
