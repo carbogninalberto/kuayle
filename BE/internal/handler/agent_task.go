@@ -172,7 +172,7 @@ func (h *AgentTaskHandler) preview(c *echo.Context, start bool) error {
 	if err != nil {
 		return agentTaskError(c, err)
 	}
-	task, err := h.svc.Repo.RequestPreview(c.Request().Context(), middleware.GetWorkspace(c).ID, id, start)
+	task, err := h.svc.RequestPreview(c.Request().Context(), middleware.GetWorkspace(c).ID, id, start)
 	if err != nil {
 		return agentTaskError(c, err)
 	}
@@ -194,7 +194,7 @@ func (h *AgentTaskHandler) RunCheck(c *echo.Context) error {
 			return agentTaskError(c, err)
 		}
 	}
-	step, err := h.svc.Repo.RunCheck(c.Request().Context(), middleware.GetWorkspace(c).ID, id, input.Command)
+	step, err := h.svc.RunCheck(c.Request().Context(), middleware.GetWorkspace(c).ID, id, input.Command)
 	if err != nil {
 		return agentTaskError(c, err)
 	}
