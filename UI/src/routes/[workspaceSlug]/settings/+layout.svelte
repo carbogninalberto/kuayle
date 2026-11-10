@@ -19,6 +19,7 @@
 		Menu,
 		RefreshCw,
 		KeyRound,
+		Plug,
 		Bot,
 		MessagesSquare,
 		Mic,
@@ -92,7 +93,8 @@
 			items: [
 				{ label: m['settings.nav.profile'](), href: `/${slug}/settings/profile`, icon: User },
 				{ label: m['settings.nav.preferences'](), href: `/${slug}/settings/preferences`, icon: Settings2 },
-				{ label: m['settings.nav.api_tokens'](), href: `/${slug}/settings/tokens`, icon: KeyRound }
+				{ label: m['settings.nav.api_tokens'](), href: `/${slug}/settings/tokens`, icon: KeyRound },
+				{ label: m['settings.mcp.title'](), href: `/${slug}/settings/mcp`, icon: Plug }
 			]
 		},
 		{

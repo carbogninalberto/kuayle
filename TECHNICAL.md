@@ -890,6 +890,18 @@ The IDE and headless start scripts and the autonomous agent runner create `$HOME
 
 A Codex or Claude Code run without a model server (none serves the harness's protocol) uses the agent's own account. An API key secret on the machine (`OPENAI_API_KEY`/`CODEX_API_KEY`, or `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`/`CLAUDE_CODE_OAUTH_TOKEN`) still takes precedence. Otherwise the manager uses the requesting user's stored sign-in, in this order: a saved Claude Code token (Claude Code only), then the credentials file captured from the terminal. With neither, it stops the run with the terminal error `sign_in_required` before starting a container. The task then fails with `sign_in_required=true` (migration `000077_agent_sign_ins`). For Claude Code the task panel first offers a field to paste a token and then, as an alternative, the terminal sign-in; for Codex only the terminal sign-in. The terminal sign-in opens the machine's terminal with `claude /login` or `codex login --device-auth`. Once the user has signed in, `POST /agent-tasks/:taskId/sign-in` (`request_id` makes repeats converge) queues a `capture_sign_in` operation: only the task's creator may request it, only while the task is stopped for sign-in. The manager reads `~/.claude/.credentials.json` or `~/.codex/auth.json` from the machine's terminal (then IDE) container, accepts only a JSON object of at most 64 KiB, encrypts it with `DEV_MACHINE_ENCRYPTION_KEY` into `agent_sign_ins` keyed by workspace, user and agent, and the request starts a new attempt. A missing sign-in answers `409 SIGN_IN_NOT_FOUND`.
 
+### Usage limits
+
+An agent whose provider refuses work until a quota resets (Claude Code's 5-hour or weekly limit, Codex's usage limit) does not fail its task (migration `000137_agent_task_usage_limits`, KUA-113).
+
+- **Detect:** when a run fails, the manager checks its output with `domain.DetectUsageLimit`. It reads Claude Code's rejected `rate_limit_event` (exact `resetsAt`) and the providers' messages ("You've hit your 5-hour limit · resets 4:10am (UTC)", "try again in 2 hours"). It stores the run error `usage_limit_reached: <message>` with `resets_at=`. Unknown wording stays an ordinary failure.
+- **Pause:** the task worker then pauses the task. The attempt goes through the usual runtime cleanup, which keeps the checkout, worktree and session transcripts, and ends in `blocked` rather than `failed`. The task carries `usage_limit_message`, `usage_limit_resets_at` and `usage_limit_resume_at` (the reset plus two minutes; 30 minutes when no time was given).
+- **Hold:** for a task using the creator's own sign-in (no model server), `agent_usage_limit_holds` records the limit per user and agent. `Claim` skips that user's queued tasks for the agent until it expires, so they wait instead of starting and failing.
+- **Resume:** every 15 seconds the worker starts the next attempt of paused tasks that are due. That is a new generation and run, `resume_native_session=true`, so the attempt continues the previous native session (`claude --resume`) with a handoff telling the agent it was paused, not failed. A task resumes on its own at most five times in a row; after that the user resumes it.
+- **Controls:** `POST /agent-tasks/:taskId/resume` is "Resume now" (it also lifts the creator's hold) and `DELETE /agent-tasks/:taskId/resume` is "Don't resume". Both are session-only and limited to the task's creator; cancel and retry work as for any blocked task, and a manual retry forgets the pause.
+
+The task card shows the provider's message, the reset time and the two controls; the transcript shows "Paused at the usage limit" instead of "Stopped with an error".
+
 Later runs of that user receive the sign-in as the scoped secret `KUAYLE_CLAUDE_CREDENTIALS` or `KUAYLE_CODEX_AUTH`; its token strings are added as further secrets so output redaction covers them. The runner writes the file into the run's in-memory home (mode 0600) and unsets the variable. Because agents may rotate refresh tokens, the runner then runs the harness as a child (forwarding stop signals and keeping its exit status) and afterwards copies the possibly refreshed file to `/workspace/.kuayle/sign-in-return/<run-id>.json` (mode 0600); the manager reads and deletes it right after the run and stores it when it changed. The sign-in is therefore briefly on the user's own machine volume at the end of each such run. Sign-ins are never returned by the API.
 
 **Claude Code token.** `claude setup-token` prints a one-year OAuth token for a Claude Pro, Max, Team or Enterprise subscription; it can only make model requests. A user saves it with `PUT /agent-sign-ins/claude-code/token` (`{"token": "..."}`; one line of 20-1024 printable ASCII characters, surrounding whitespace trimmed; the `sk-ant-oat01-` prefix is not required). It is encrypted with `DEV_MACHINE_ENCRYPTION_KEY` into `agent_sign_ins` with `kind='token'` next to any captured `kind='credentials'` file (migration `000081_agent_sign_in_tokens`; a token is allowed only for `claude-code`; rolling back deletes saved tokens). `expires_at` is set to one year after saving: never later than the real expiry, so a token past it is skipped (the run falls back to the captured file, or asks to sign in again). A run receives it as the scoped secret `CLAUDE_CODE_OAUTH_TOKEN`, redacted from output; nothing is written to the run's home and nothing is handed back. When the task's creator has saved a token, `POST /agent-tasks/:taskId/sign-in` skips the terminal capture and starts the new attempt directly.
@@ -1116,6 +1128,16 @@ document generated from the route registry and the DTOs, served at
 `GET /api/openapi.json` and rendered at kuayle.com/api-reference. Routes outside
 it, including every Dev Machine route above, are internal. See the
 [API guide](docs/api.md) for the generator and the tests that keep it in sync.
+
+## MCP server
+
+`POST /mcp` is a stateless Streamable HTTP [MCP server](docs/mcp.md) in
+[`BE/internal/mcp`](BE/internal/mcp). It accepts personal access tokens only and has
+no logic of its own: each tool and resource is a row naming an API route, and a call
+is dispatched in-process through the application router with the caller's token and
+client address. The `scoped` annotation, token scope, workspace RBAC, team privacy
+and validation of that route therefore apply unchanged, and services record the
+token's user. `/mcp` has its own per-address rate limit.
 
 ## Command-line interface
 

@@ -42,7 +42,7 @@ export type SessionEntry =
 	| { kind: 'omitted'; key: string; reason: 'oversized' | 'limit' }
 	| { kind: 'plain'; key: string; text: string; stream: string }
 	| { kind: 'event'; key: string; type: string; raw: string }
-	| { kind: 'result'; key: string; failed: boolean; ms?: number; text?: string }
+	| { kind: 'result'; key: string; failed: boolean; ms?: number; text?: string; usageLimit?: boolean }
 	| { kind: 'error'; key: string; message: string };
 
 type StepEntry = Extract<SessionEntry, { kind: 'tool' | 'thinking' }>;
@@ -246,7 +246,8 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 				key: line.key,
 				failed,
 				ms: num(event.duration_ms),
-				...(failed && str(event.result) ? { text: str(event.result) } : {})
+				...(failed && str(event.result) ? { text: str(event.result) } : {}),
+				...(failed && isUsageLimitText(str(event.result)) ? { usageLimit: true } : {})
 			});
 		}
 		// ── Codex exec --json
@@ -437,4 +438,13 @@ export function outputPreview(text: string, maxLines = 12, maxChars = 2000) {
 	if (preview.length > maxChars) preview = preview.slice(0, maxChars);
 	if (preview.length >= text.length) return { preview: text, hidden: 0 };
 	return { preview, hidden: Math.max(1, all.length - preview.split('\n').length) };
+}
+
+// The provider's usage limit (Claude Code's 5-hour or weekly limit, Codex's
+// usage limit): the task pauses and resumes after the reset, so the result is
+// shown as a pause rather than as an error. Mirrors BE domain/usage_limit.go.
+const usageLimitText =
+	/you've hit your [\w-]*\s*(?:usage |weekly |session )?limit|usage limit reached|usage_limit_reached|limit will reset at/i;
+export function isUsageLimitText(text: string): boolean {
+	return usageLimitText.test(text);
 }

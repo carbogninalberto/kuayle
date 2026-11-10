@@ -212,6 +212,8 @@ func (r *AgentTaskRepository) Claim(ctx context.Context) (*domain.AgentTask, err
   OR (state='awaiting_review' AND workflow_wake_at<=now() AND next_poll_at<=now()))
  AND (lease_expires_at IS NULL OR lease_expires_at<=now())
  AND NOT (state='queued' AND kind='implement' AND `+openBlockersExist("agent_tasks.issue_id")+`)
+ -- The creator's agent subscription is at its usage limit until a reset.
+ AND NOT `+usageLimitHeld+`
  ORDER BY LEAST(next_poll_at,COALESCE(workflow_wake_at,next_poll_at)),created_at,id FOR UPDATE SKIP LOCKED LIMIT 1)
  UPDATE agent_tasks t SET lease_token=gen_random_uuid(),lease_expires_at=now()+interval '30 seconds'
  FROM candidate c WHERE t.id=c.id RETURNING t.*`)
@@ -450,7 +452,10 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 		return err
 	}
 	target := "cancelled"
-	if task.FailurePending {
+	if task.FailurePending && task.UsageLimitMessage != nil {
+		// A usage limit pauses the task; the reason says until when.
+		target, reason = "blocked", task.Reason
+	} else if task.FailurePending {
 		target = "failed"
 		// A resource limit stays the final reason: it tells the user what to change.
 		if !domain.IsResourceLimitReason(task.Reason) {
@@ -843,7 +848,7 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 	if err != nil {
 		return nil, err
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET model=COALESCE(NULLIF($9::text,''),t.model),thinking=CASE WHEN $9::text<>'' THEN $10::text ELSE t.thinking END,model_server_id=CASE WHEN $9::text<>'' THEN $11::uuid ELSE t.model_server_id END,prompt=$2,test_command=$3,validation_command=$4,agent_instructions=CASE WHEN t.workflow_version_id IS NOT NULL AND t.kind<>'review' THEN t.agent_instructions ELSE $5 END,compose_file=$6,preview_command=$7,preview_port=$8,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,sign_in_required=false,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, req.Prompt, requested, command, instructions, compose, preview, previewPort, req.Model, req.Thinking, req.ModelServerID); err != nil {
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET model=COALESCE(NULLIF($9::text,''),t.model),thinking=CASE WHEN $9::text<>'' THEN $10::text ELSE t.thinking END,model_server_id=CASE WHEN $9::text<>'' THEN $11::uuid ELSE t.model_server_id END,prompt=$2,test_command=$3,validation_command=$4,agent_instructions=CASE WHEN t.workflow_version_id IS NOT NULL AND t.kind<>'review' THEN t.agent_instructions ELSE $5 END,compose_file=$6,preview_command=$7,preview_port=$8,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,sign_in_required=false,usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,usage_limit_resumes=0,resume_native_session=false,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, req.Prompt, requested, command, instructions, compose, preview, previewPort, req.Model, req.Thinking, req.ModelServerID); err != nil {
 		return nil, err
 	}
 	// A workflow task continues on its implementing agent step, keeping that

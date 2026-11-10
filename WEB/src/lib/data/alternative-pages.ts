@@ -82,7 +82,7 @@ export const alternativePages: AlternativePageContent[] = [
 		),
 		stayIf: [
 			'You want someone else to run, patch and back up the tracker.',
-			'You rely on Linear’s importers, initiatives, agent platform or MCP server today.',
+			'You rely on Linear’s importers, initiatives or agent platform today.',
 			'You need SAML SSO now (on Linear Enterprise) and Kuayle does not offer SSO yet.',
 			'Per-seat cost is fine and product maturity matters more than control of the code.'
 		],
@@ -112,7 +112,7 @@ export const alternativePages: AlternativePageContent[] = [
 			},
 			{
 				question: 'Does Kuayle have SSO and an MCP server like Linear?',
-				answer: 'Not yet. Kuayle uses email and password sign-in with invite links and has no MCP server today. If either is a hard requirement now, Linear covers it.'
+				answer: 'An MCP server, yes: every Kuayle instance serves one at /mcp, where agents sign in with a scoped personal access token (OAuth sign-in is not available yet). SSO, not yet: Kuayle uses email and password sign-in with invite links. If SSO is a hard requirement now, Linear covers it.'
 			},
 			{
 				question: 'How does Kuayle feel compared with Linear?',
@@ -255,7 +255,7 @@ export const alternativePages: AlternativePageContent[] = [
 			'Workspace admins can export projects as CSV, Excel or JSON; the REST API reads the rest.'
 		),
 		stayIf: [
-			'You use Plane’s importers, pages, AI or MCP server.',
+			'You use Plane’s importers, pages or AI.',
 			'You are on the free tier with 12 users or fewer and need nothing paid.',
 			'You need SSO now; Kuayle does not offer SSO yet.'
 		],
@@ -285,7 +285,7 @@ export const alternativePages: AlternativePageContent[] = [
 			},
 			{
 				question: 'Does Kuayle have AI features like Plane?',
-				answer: 'Kuayle has a built-in assistant that runs on your own OpenAI-compatible model and delegates issues to coding agents such as Claude Code or Codex on opt-in Dev Machines on your own servers. There are no AI credits to buy. It has no MCP server yet.'
+				answer: 'Kuayle has a built-in assistant that runs on your own OpenAI-compatible model and delegates issues to coding agents such as Claude Code or Codex on opt-in Dev Machines on your own servers. There are no AI credits to buy. External agents reach issues and wiki pages through its built-in MCP server.'
 			}
 		]
 	},
@@ -581,7 +581,7 @@ export const alternativePages: AlternativePageContent[] = [
 		stayIf: [
 			'Your code, merge requests and CI/CD already live in GitLab and the built-in issues are enough.',
 			'You need epics, iterations or SAML across groups and already pay for Premium.',
-			'You use GitLab Duo or its MCP server.'
+			'You use GitLab Duo, or its MCP server for merge requests.'
 		],
 		switchIf: [
 			'You want a dedicated, keyboard-first tracker rather than issues inside a DevOps platform.',
@@ -657,7 +657,7 @@ export const alternativePages: AlternativePageContent[] = [
 		h1: 'An It’s a Plan alternative with no paid tier',
 		intro:
 			'It’s a Plan and Kuayle are both self-hosted issue trackers with no per-seat price. It’s a Plan is AGPL-3.0 with a $240-a-year Pro edition and AI agents as project members. Kuayle is Apache 2.0, with no Pro edition and a smaller feature set.',
-		difference: 'It’s a Plan has more features, including agents, MCP and SSO, with some behind Pro; Kuayle has no paid edition and a permissive licence.',
+		difference: 'It’s a Plan has more features, including agents as project members and SSO, with some behind Pro; Kuayle has no paid edition and a permissive licence.',
 		whyLeave: [
 			{ heading: 'Some features need Pro', body: 'Multiple workspaces, per-workspace SSO and SCIM, the audit log and event-triggered agents are in the $240-a-year Pro edition.' },
 			{ heading: 'AGPL-3.0 terms', body: 'It’s a Plan is AGPL-3.0, with a commercial licence also offered; some organisations prefer permissive licences.' },
@@ -680,7 +680,7 @@ export const alternativePages: AlternativePageContent[] = [
 			'It’s a Plan Community is free; Pro is $240 a year flat per domain with any number of people, checked 6 November 2026, so per-seat columns do not apply. Kuayle has no licence fee and no paid edition.',
 		migration: SELF_HOSTED_MIGRATION('It’s a Plan', 'Read your projects and issues through its REST API; a full export is not documented.'),
 		stayIf: [
-			'You want AI agents as project members, an MCP server or OIDC sign-in today.',
+			'You want AI agents as project members or OIDC sign-in today.',
 			'You need importers from Linear, Plane or Trello.',
 			'Pull-request linking with GitLab, Gitea, Forgejo or Bitbucket matters to you.'
 		],
@@ -692,9 +692,9 @@ export const alternativePages: AlternativePageContent[] = [
 		],
 		others: ['plane', 'linear', 'openproject', 'taiga', 'jira', 'gitlab'],
 		faq: [
-			{ question: 'What is the difference between Kuayle and It’s a Plan?', answer: 'Both are self-hosted with no per-seat price. It’s a Plan is AGPL-3.0 with a $240-a-year Pro edition and more features such as AI agents, MCP and SSO. Kuayle is Apache 2.0 with no paid edition.' },
+			{ question: 'What is the difference between Kuayle and It’s a Plan?', answer: 'Both are self-hosted with no per-seat price. It’s a Plan is AGPL-3.0 with a $240-a-year Pro edition and more features such as AI agents as project members and SSO. Kuayle is Apache 2.0 with no paid edition.' },
 			{ question: 'Is It’s a Plan free?', answer: 'Its Community edition is free for any number of people. Pro costs $240 a year per domain.' },
-			{ question: 'Does Kuayle have AI agents like It’s a Plan?', answer: 'Not as project members or assignees. Kuayle’s assistant delegates issues to coding agents that run on opt-in, self-hosted Dev Machines, and automations can start them on a label or status. There is no MCP server yet.' },
+			{ question: 'Does Kuayle have AI agents like It’s a Plan?', answer: 'Not as project members or assignees. Kuayle’s assistant delegates issues to coding agents that run on opt-in, self-hosted Dev Machines, and automations can start them on a label or status. External agents can also read and update issues through Kuayle’s MCP server.' },
 			{ question: 'Which licence is more permissive?', answer: 'Apache 2.0, which Kuayle uses, is permissive. AGPL-3.0, which It’s a Plan uses, requires sharing source for modified versions offered over a network.' }
 		]
 	}

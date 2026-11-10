@@ -24,6 +24,7 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/audit"
 	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 	"github.com/kuayle/kuayle-backend/pkg/storage"
+	"github.com/kuayle/kuayle-backend/pkg/validate"
 )
 
 const (
@@ -562,7 +563,7 @@ func (s *WorkspaceTransferService) userMapping(ctx context.Context, parsed *pars
 func (s *WorkspaceTransferService) Import(ctx context.Context, path, name, slug string, importerID uuid.UUID) (*dto.WorkspaceImportResult, error) {
 	name = strings.TrimSpace(name)
 	slug = strings.ToLower(strings.TrimSpace(slug))
-	if name == "" || len([]rune(name)) > 100 || len(slug) > 50 || !transferSlugPattern.MatchString(slug) {
+	if name == "" || len([]rune(name)) > 100 || len(slug) > 50 || !transferSlugPattern.MatchString(slug) || validate.IsReservedWorkspaceSlug(slug) {
 		return nil, &WorkspaceTransferError{Code: "VALIDATION_ERROR", Message: "Workspace name or slug is invalid"}
 	}
 	exists, err := s.repo.SlugExists(ctx, slug)

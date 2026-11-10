@@ -4,6 +4,7 @@
 		Brain,
 		CircleAlert,
 		CircleCheck,
+		CirclePause,
 		FileDiff,
 		Globe,
 		LoaderCircle,
@@ -254,16 +255,24 @@
 	{:else if block.kind === 'result'}
 		{@const time = block.ms !== undefined ? formatDuration(block.ms) : ''}
 		<Trace.Root class="min-w-0">
-			<Trace.Line status={block.failed ? 'error' : 'success'}
+			<Trace.Line status={block.usageLimit ? 'warning' : block.failed ? 'error' : 'success'}
 				><Trace.Icon
-					>{#if block.failed}<CircleAlert />{:else}<CircleCheck />{/if}</Trace.Icon
+					>{#if block.usageLimit}<CirclePause />{:else if block.failed}<CircleAlert />{:else}<CircleCheck />{/if}</Trace.Icon
 				><Trace.Title class="break-words whitespace-normal"
-					>{block.failed
-						? m['tasks.transcript_finished_failed']({ time: time || '—' })
-						: m['tasks.transcript_finished']({ time: time || '—' })}</Trace.Title
+					>{block.usageLimit
+						? m['tasks.transcript_finished_limited']({ time: time || '—' })
+						: block.failed
+							? m['tasks.transcript_finished_failed']({ time: time || '—' })
+							: m['tasks.transcript_finished']({ time: time || '—' })}</Trace.Title
 				></Trace.Line
 			>
-			{#if block.text}<p class="text-xs break-words whitespace-pre-wrap text-destructive">{block.text}</p>{/if}
+			{#if block.text}<p
+					class="text-xs break-words whitespace-pre-wrap {block.usageLimit
+						? 'text-[var(--status-warning)]'
+						: 'text-destructive'}"
+				>
+					{block.text}
+				</p>{/if}
 		</Trace.Root>
 	{:else if block.kind === 'error'}
 		<Trace.Root class="min-w-0"
