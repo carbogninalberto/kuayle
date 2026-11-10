@@ -19,6 +19,7 @@
 	import { getWorkspace } from '$lib/api/workspaces';
 	import { githubRepositoryHomeUrl } from '$lib/security/github-url';
 	import GitHubAppSetupCard from '$lib/features/github/GitHubAppSetupCard.svelte';
+	import { GITHUB_APP_LOGO_PATH } from '$lib/features/github/app-setup';
 	import GitHubBotSettings from '$lib/features/github/GitHubBotSettings.svelte';
 	import type { GitHubStatus, GitHubAvailableRepo, GitHubAutoTransition } from '$lib/types/github';
 	import { Button } from '$lib/components/ui/button';
@@ -27,7 +28,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { appToast } from '$lib/features/toast/toast';
-	import { ExternalLink, Plus, Trash2, Loader2, Search } from '@lucide/svelte';
+	import { Download, ExternalLink, Plus, Trash2, Loader2, Search } from '@lucide/svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
@@ -264,6 +265,12 @@
 			<p class="text-xs text-[var(--color-text-tertiary)]">
 				{m['settings.github.setup_note']()}
 			</p>
+			<p class="mt-2 text-xs text-[var(--color-text-tertiary)]">
+				{m['settings.github.logo_setup_note']()}
+			</p>
+			<Button class="mt-2" size="sm" variant="outline" href={GITHUB_APP_LOGO_PATH} download="kuayle-logo.png">
+				<Download size={14} />{m['settings.github.logo_download']()}
+			</Button>
 		</div>
 	{:else if !status?.installed}
 		<!-- State 2: App configured but not installed -->

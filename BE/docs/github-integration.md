@@ -243,11 +243,20 @@ content of at most 2 MB, detected from the bytes; a linked image is downloaded
 once through a public-address-only client without redirects before it is saved.
 GitHub always shows the GitHub App as the comment author and offers no API to
 change that per comment, so Kuayle starts its comments (issue link and agent
-review findings) with the configured picture and **name**. Default settings add
-nothing, so existing comments are unchanged. An uploaded picture is served
-publicly at `/api/github-bot/:workspaceId/avatar/:file` (only the file the
-settings reference) so GitHub can load it; it is linked from comments only when
-`FRONTEND_URL` is `https://`. Replacing or removing a picture deletes the upload.
+review findings) and the descriptions of pull requests agent tasks open (KUA-112;
+the machine manager reads the settings with the publication) with the configured
+picture and **name**. Default settings add nothing, so existing comments are
+unchanged. An uploaded picture is served publicly at
+`/api/github-bot/:workspaceId/avatar/:file` (only the file the settings
+reference) so GitHub can load it; it is linked only when `FRONTEND_URL` is
+`https://`. Replacing or removing a picture deletes the upload.
+
+**App logo.** The avatar GitHub shows as the author is the GitHub App's own
+logo. Neither the app manifest nor the API accepts a logo, so it is uploaded by
+hand under Display information in the app's settings. Settings > GitHub offers
+the Kuayle logo (`/icons/icon-512.png`) before the app is created and, for a
+workspace-owned installed app, an **Update logo on GitHub** link to that page.
+Operator-managed apps are changed by the operator.
 
 **Abilities.** Each is a toggle refused where the GitHub write happens, so a
 turned-off ability also refuses actions someone approves in Kuayle:

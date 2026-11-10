@@ -131,3 +131,17 @@ export function githubAppSetupView(setup: GitHubAppSetup): GitHubAppSetupView {
 			return view;
 	}
 }
+
+/** Where Kuayle's logo for the GitHub App is served (a PNG, as GitHub requires). */
+export const GITHUB_APP_LOGO_PATH = '/icons/icon-512.png';
+
+/**
+ * The app's general settings page, whose Display information section holds
+ * the logo. GitHub has no API for an app's logo, so this is where it is
+ * changed. Null for an operator-managed app, which the workspace cannot edit.
+ */
+export function githubAppLogoSettingsUrl(setup: GitHubAppSetup): string | null {
+	if (setup.managed) return null;
+	const url = githubPage(setup.app_settings_url);
+	return url ? url.replace(/\/permissions$/, '') : null;
+}

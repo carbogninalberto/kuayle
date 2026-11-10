@@ -317,6 +317,8 @@ type AgentPublication struct {
 	AuthorName, AuthorEmail string
 	// The last commit Kuayle published on the task branch, if any.
 	PublishedCommit string
+	// The workspace's GitHub bot identity, for the description's signature.
+	Bot *GitHubBotSettings
 }
 
 // AgentPublicationResult is recorded only after the branch was pushed and the

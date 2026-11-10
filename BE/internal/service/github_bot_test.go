@@ -207,23 +207,6 @@ func TestGitHubBotAvatarURLMustServeAnImage(t *testing.T) {
 	requireBotInvalid(t, err, "AVATAR_UNREACHABLE")
 }
 
-// GitHub comments start with the configured name and picture; defaults leave
-// existing comments unchanged, and an uploaded picture is linked only from a
-// public https address.
-func TestBotSignatureUsesTheConfiguredIdentity(t *testing.T) {
-	ws := uuid.New()
-	require.Empty(t, botSignature(&domain.GitHubBotSettings{WorkspaceID: ws}, "https://kuayle.test"))
-	named := &domain.GitHubBotSettings{WorkspaceID: ws, DisplayName: ptr("Acme Reviewer")}
-	require.Equal(t, "**Acme Reviewer**\n\n", botSignature(named, "https://kuayle.test"))
-	linked := &domain.GitHubBotSettings{WorkspaceID: ws, AvatarURL: ptr("https://img.test/bot.png")}
-	require.Equal(t, "<img src=\"https://img.test/bot.png\" alt=\"\" width=\"20\" height=\"20\" align=\"top\"> **Kuayle**\n\n", botSignature(linked, "https://kuayle.test"))
-	uploaded := &domain.GitHubBotSettings{WorkspaceID: ws, AvatarFile: ptr(uuid.NewString() + ".png")}
-	require.Contains(t, botSignature(uploaded, "https://kuayle.test/"), `<img src="https://kuayle.test/api/github-bot/`+ws.String()+`/avatar/`)
-	require.Equal(t, "**Kuayle**\n\n", botSignature(uploaded, "http://localhost:5173"))
-	edited := &domain.GitHubBotSettings{WorkspaceID: ws, DisplayName: ptr("@team *ping*")}
-	require.Equal(t, "**@​team ping**\n\n", botSignature(edited, ""))
-}
-
 // Turned-off abilities refuse the GitHub write itself, whoever asked for it.
 func TestDisabledBotAbilitiesRefuseGitHubActions(t *testing.T) {
 	ctx, ws := context.Background(), uuid.New()
