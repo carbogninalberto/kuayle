@@ -35,7 +35,8 @@ cargo install --git https://github.com/carbogninalberto/kuayle kuayle
 
 Create a personal access token in **Settings → API Tokens**. The **Developer**
 preset covers the CLI, including wiki editing (`wiki:write`); **Read only** is
-enough for reading. Then:
+enough for reading. Resetting your password through the emailed link revokes
+all of your tokens, so create a new one and sign in again afterwards. Then:
 
 ```sh
 kuayle auth login --url https://kuayle.example.com --workspace acme --token kuayle_pat_...

@@ -284,6 +284,8 @@ return 413. Test: `TestGitHubWebhookBoundsUnauthenticatedBody`.
   mode adds exact-Origin checks for mutations and WebSockets. JWT validation
   pins HMAC. `JWT_SECRET` (≥ 32 chars), `SYSTEM_UPDATER_TOKEN` (≥ 32) and
   `DEV_MACHINE_ENCRYPTION_KEY` (≥ 32) fail closed; there are no weak fallbacks.
+  A password reset deletes the user's refresh tokens and revokes their
+  personal access tokens in the same transaction.
 - **Invites and shares.** Invite tokens and PATs are stored as SHA-256 hashes;
   invite links grant only member/guest and never change an existing role.
   A link works only while its creator is a member whose role holds
