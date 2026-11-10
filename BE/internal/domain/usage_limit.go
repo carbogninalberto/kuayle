@@ -81,7 +81,7 @@ var (
 	// Wording the providers use for a quota, never for an ordinary failure.
 	usageLimitText = regexp.MustCompile(`(?i)(you've hit your [\w-]*\s*(?:usage |weekly |session )?limit|usage limit reached|usage_limit_reached|limit will reset at)`)
 	legacyEpoch    = regexp.MustCompile(`(?i)usage limit reached\|(\d{9,11})`)
-	clockReset     = regexp.MustCompile(`(?i)reset(?:s| at)\s+(?:at\s+)?(?:(mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*\(([^)]+)\)`)
+	clockReset     = regexp.MustCompile(`(?i)reset(?:s| at)\s+(?:at\s+)?(?:(mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+)?(?:(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2}),?\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*\(([^)]+)\)`)
 	relativeReset  = regexp.MustCompile(`(?i)try again in\s+((?:\d+\s*(?:days?|hours?|hrs?|minutes?|mins?|seconds?|secs?)[\s,and]*)+)`)
 	durationPart   = regexp.MustCompile(`(?i)(\d+)\s*(day|hour|hr|minute|min|second|sec)`)
 )
@@ -226,15 +226,16 @@ func resetFromText(text string, now time.Time) *time.Time {
 	return nil
 }
 
-// clockTime resolves "4:10am (UTC)" or "Thu 9am (Europe/Rome)" to the next
-// such moment after now.
+// clockTime resolves "4:10am (UTC)", "Thu 9am (Europe/Rome)" or
+// "Nov 15, 11am (UTC)" to the next such moment after now.
 func clockTime(match []string, now time.Time) (time.Time, bool) {
-	hour, _ := strconv.Atoi(match[2])
+	weekday, month, day := match[1], match[2], match[3]
+	hour, _ := strconv.Atoi(match[4])
 	minute := 0
-	if match[3] != "" {
-		minute, _ = strconv.Atoi(match[3])
+	if match[5] != "" {
+		minute, _ = strconv.Atoi(match[5])
 	}
-	switch strings.ToLower(match[4]) {
+	switch strings.ToLower(match[6]) {
 	case "am":
 		if hour == 12 {
 			hour = 0
@@ -247,19 +248,32 @@ func clockTime(match []string, now time.Time) (time.Time, bool) {
 	if hour > 23 || minute > 59 {
 		return time.Time{}, false
 	}
-	location, err := time.LoadLocation(strings.TrimSpace(match[5]))
+	location, err := time.LoadLocation(strings.TrimSpace(match[7]))
 	if err != nil {
 		return time.Time{}, false
 	}
 	local := now.In(location)
+	if month != "" {
+		// A calendar date: this year, or next year once it has passed.
+		months := map[string]time.Month{"jan": time.January, "feb": time.February, "mar": time.March, "apr": time.April, "may": time.May, "jun": time.June, "jul": time.July, "aug": time.August, "sep": time.September, "oct": time.October, "nov": time.November, "dec": time.December}
+		dayOfMonth, _ := strconv.Atoi(day)
+		if dayOfMonth < 1 || dayOfMonth > 31 {
+			return time.Time{}, false
+		}
+		reset := time.Date(local.Year(), months[strings.ToLower(month[:3])], dayOfMonth, hour, minute, 0, 0, location)
+		if !reset.After(now) {
+			reset = reset.AddDate(1, 0, 0)
+		}
+		return reset.UTC(), true
+	}
 	reset := time.Date(local.Year(), local.Month(), local.Day(), hour, minute, 0, 0, location)
-	if match[1] != "" {
+	if weekday != "" {
 		weekdays := map[string]time.Weekday{"sun": time.Sunday, "mon": time.Monday, "tue": time.Tuesday, "wed": time.Wednesday, "thu": time.Thursday, "fri": time.Friday, "sat": time.Saturday}
-		days := (int(weekdays[strings.ToLower(match[1][:3])]) - int(local.Weekday()) + 7) % 7
+		days := (int(weekdays[strings.ToLower(weekday[:3])]) - int(local.Weekday()) + 7) % 7
 		reset = reset.AddDate(0, 0, days)
 	}
 	for !reset.After(now) {
-		if match[1] != "" {
+		if weekday != "" {
 			reset = reset.AddDate(0, 0, 7)
 		} else {
 			reset = reset.AddDate(0, 0, 1)
