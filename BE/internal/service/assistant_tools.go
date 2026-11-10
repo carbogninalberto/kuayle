@@ -459,7 +459,7 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return result, nil, err
 	case "stop_preview", "list_ports":
 		return t.runMachineTool(ctx, ws, user, name, arguments)
-	case "message_task", "get_task_messages":
+	case "get_task_messages":
 		return t.runLiveTool(ctx, ws, user, name, arguments)
 	case "plan_issues":
 		return t.planIssues(ctx, ws, arguments)

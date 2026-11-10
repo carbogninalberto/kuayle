@@ -2311,7 +2311,59 @@ test('a failed ship step is reported with its reason, and later steps show they 
 	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
 });
 
-test('message_task says where the message went without asking for approval', async ({ page }) => {
+test('message_task shows the whole message and sends it only when approved', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Approve the message to send it.' };
+	state.messages = [userMessage, answered];
+	const body = 'Also add tests.\nKeep the v1 route until the migration lands.';
+	state.tools = [
+		{
+			id: 'tool-live-1',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_1',
+			name: 'message_task',
+			input: { identifier: 'ENG-1', body },
+			status: 'completed',
+			output: { approval_id: 'approval-live-1', status: 'pending_user_approval', identifier: 'ENG-1' },
+			created_at: conversation.created_at
+		}
+	];
+	state.approvals = [
+		{
+			id: 'approval-live-1',
+			conversation_id: 'chat-1',
+			tool_call_id: 'tool-live-1',
+			action: 'message_task',
+			actor_id: 'user-1',
+			issue_id: 'issue-1',
+			payload: { identifier: 'ENG-1', title: 'Dark mode', task_id: 'task-9', body },
+			status: 'pending',
+			expires_at: '2026-10-27T10:00:00Z',
+			created_at: conversation.created_at,
+			updated_at: conversation.created_at
+		}
+	] as any;
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Send this message to the agent on ENG-1?', { exact: true })).toBeVisible();
+	await expect(
+		page.getByText('The coding agent working on Dark mode receives exactly this text as a message from you:', {
+			exact: true
+		})
+	).toBeVisible();
+	const shown = page.locator('[data-slot="code-block-code"]');
+	await expect(shown.getByText('Also add tests.', { exact: false })).toBeVisible();
+	await expect(shown.getByText('Keep the v1 route until the migration lands.', { exact: false })).toBeVisible();
+	await expect(page.getByText('Message sent to the running agent of ENG-1')).toHaveCount(0);
+	expect(state.decisions).toEqual([]);
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Message sent to the agent on ENG-1', { exact: true })).toBeVisible();
+	expect(state.decisions).toEqual(['approve']);
+});
+
+// Calls recorded before messages needed approval were sent at once.
+test('an earlier message_task call still says where its message went', async ({ page }) => {
 	const state = await fixture(page);
 	const answered = { ...reply, status: 'completed', content: 'I told the agent.' };
 	state.messages = [userMessage, answered];

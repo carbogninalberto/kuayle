@@ -49,6 +49,7 @@ var assistantActionPolicies = map[string]assistantActionPolicy{
 	"accept_agent_work":    {},
 	"request_agent_review": {},
 	"follow_up_task":       {},
+	"message_task":         {},
 	"start_preview":        {},
 	"expose_port":          {},
 	"run_check":            {},

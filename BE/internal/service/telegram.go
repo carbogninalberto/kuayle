@@ -784,6 +784,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: the agent review is starting.", true
 		case "follow_up_task":
 			return "Approved: the follow-up is starting.", true
+		case "message_task":
+			return "Approved: the message was sent to the coding agent.", true
 		case "run_check":
 			return "Approved: the check is starting.", true
 		case "run_custom_tool":
@@ -819,6 +821,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			message = "The pull request was not changed."
 		case "accept_agent_work":
 			message = "The work could not be accepted."
+		case "message_task":
+			message = "The message was not sent."
 		case "start_preview":
 			message = "The preview could not be started."
 		case "expose_port":

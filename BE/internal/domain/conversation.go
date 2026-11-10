@@ -236,6 +236,15 @@ type ReviewPayload struct {
 	Commit            string    `json:"commit"`
 }
 
+// TaskMessagePayload binds a message_task approval to the task the user saw
+// and the exact message shown to them, which is delivered unchanged.
+type TaskMessagePayload struct {
+	Identifier string    `json:"identifier"`
+	Title      string    `json:"title"`
+	TaskID     uuid.UUID `json:"task_id"`
+	Body       string    `json:"body"`
+}
+
 // FollowUpPayload binds a follow-up approval to the task attempt the user saw
 // and the exact instructions shown to them.
 type FollowUpPayload struct {
