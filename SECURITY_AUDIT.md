@@ -273,7 +273,8 @@ return 413. Test: `TestGitHubWebhookBoundsUnauthenticatedBody`.
 - **Routing.** Every route is registered through `scoped`/`sessionOnly`/
   `ownerOnly` (or annotated public), so PATs are denied by default and scopes
   intersect RBAC. Workspace membership is re-read per request and PAT workspace
-  restrictions apply before handlers.
+  restrictions apply before handlers. Saved-view create, update and delete
+  require `view:manage`, which guests do not hold.
 - **Tenant isolation.** Repositories apply `workspaceVisible`/`teamVisible`/
   `projectVisible` predicates from the request access context, which blocks
   IDOR on teams, projects, cycles, statuses, templates, views, webhooks,
@@ -284,8 +285,12 @@ return 413. Test: `TestGitHubWebhookBoundsUnauthenticatedBody`.
   mode adds exact-Origin checks for mutations and WebSockets. JWT validation
   pins HMAC. `JWT_SECRET` (≥ 32 chars), `SYSTEM_UPDATER_TOKEN` (≥ 32) and
   `DEV_MACHINE_ENCRYPTION_KEY` (≥ 32) fail closed; there are no weak fallbacks.
+  A password reset deletes the user's refresh tokens and revokes their
+  personal access tokens in the same transaction.
 - **Invites and shares.** Invite tokens and PATs are stored as SHA-256 hashes;
   invite links grant only member/guest and never change an existing role.
+  A link works only while its creator is a member whose role holds
+  `member:invite`; removing or demoting the creator revokes their links.
   Share tokens are 256-bit; public queries can only narrow scope.
 - **System and demo.** `/system/update*` requires a sysadmin. Demo mode fails
   closed and the gateway rechecks sysadmin status.

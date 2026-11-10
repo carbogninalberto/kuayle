@@ -17,6 +17,8 @@
 	}
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import type { Workspace } from '$lib/types/workspace';
+	import { hasPermission } from '$lib/security/permissions';
+	import type { Role } from '$lib/security/roles';
 	import type { Team } from '$lib/types/team';
 	import type { View } from '$lib/types/view';
 	import { isPersonalView, isTeamView, isWorkspaceView } from '$lib/types/view';
@@ -360,6 +362,9 @@
 		navigator.clipboard.writeText(`${window.location.origin}${path}`);
 		appToast.success(m['sidebar.link_copied']());
 	}
+
+	// Visibility only; the API enforces view:manage.
+	const canManageViews = $derived(hasPermission(workspace.current_user_role as Role, 'view:manage'));
 
 	function requestDeleteView(view: View) {
 		pendingDeleteView = view;
@@ -1056,14 +1061,16 @@
 																		<Copy class={menuIconClass} />
 																		{m['sidebar.copy_link']()}
 																	</ContextMenu.Item>
-																	<ContextMenu.Separator />
-																	<ContextMenu.Item
-																		onclick={() => requestDeleteView(view)}
-																		class="text-[var(--color-error)] focus:text-[var(--color-error)]"
-																	>
-																		<Trash2 class={menuIconClass} />
-																		{m['sidebar.delete_view']()}
-																	</ContextMenu.Item>
+																	{#if canManageViews}
+																		<ContextMenu.Separator />
+																		<ContextMenu.Item
+																			onclick={() => requestDeleteView(view)}
+																			class="text-[var(--color-error)] focus:text-[var(--color-error)]"
+																		>
+																			<Trash2 class={menuIconClass} />
+																			{m['sidebar.delete_view']()}
+																		</ContextMenu.Item>
+																	{/if}
 																</ContextMenu.Content>
 															</ContextMenu.Root>
 														</div>
@@ -1162,14 +1169,16 @@
 													<Copy class={menuIconClass} />
 													{m['sidebar.copy_link']()}
 												</ContextMenu.Item>
-												<ContextMenu.Separator />
-												<ContextMenu.Item
-													onclick={() => requestDeleteView(view)}
-													class="text-[var(--color-error)] focus:text-[var(--color-error)]"
-												>
-													<Trash2 class={menuIconClass} />
-													{m['sidebar.delete_view']()}
-												</ContextMenu.Item>
+												{#if canManageViews}
+													<ContextMenu.Separator />
+													<ContextMenu.Item
+														onclick={() => requestDeleteView(view)}
+														class="text-[var(--color-error)] focus:text-[var(--color-error)]"
+													>
+														<Trash2 class={menuIconClass} />
+														{m['sidebar.delete_view']()}
+													</ContextMenu.Item>
+												{/if}
 											</ContextMenu.Content>
 										</ContextMenu.Root>
 									</div>

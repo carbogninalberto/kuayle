@@ -283,10 +283,10 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Views
 	scoped(ws, http.MethodGet, "/views", h.view.List, "views:read")
-	sessionOnly(ws, http.MethodPost, "/views", h.view.Create)
+	sessionOnly(ws, http.MethodPost, "/views", h.view.Create, mw.RequirePermission(domain.PermViewManage))
 	scoped(ws, http.MethodGet, "/views/:id", h.view.Get, "views:read")
-	sessionOnly(ws, http.MethodPatch, "/views/:id", h.view.Update)
-	sessionOnly(ws, http.MethodDelete, "/views/:id", h.view.Delete)
+	sessionOnly(ws, http.MethodPatch, "/views/:id", h.view.Update, mw.RequirePermission(domain.PermViewManage))
+	sessionOnly(ws, http.MethodDelete, "/views/:id", h.view.Delete, mw.RequirePermission(domain.PermViewManage))
 
 	// Analytics
 	scoped(ws, http.MethodGet, "/analytics/overview", h.analytics.Overview, "analytics:read")
