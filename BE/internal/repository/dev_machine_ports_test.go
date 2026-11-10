@@ -77,6 +77,71 @@ func TestAppPortsRouteToTheDeveloperServiceWithoutALimit(t *testing.T) {
 	require.True(t, removed)
 }
 
+// A task's preview port is served by that task's preview container, by a
+// name derived from the port, and never by the developer container: not when
+// it is created, not when the developer container or the daemon listens on
+// the same number, and not for a port created before previews had their own
+// container once that preview is started again.
+func TestTaskPreviewPortsRouteToThePreviewContainerNotTheDeveloper(t *testing.T) {
+	db, _, ctx, task := reviewableTask(t)
+	store := NewDevMachineRepository(db)
+	machine := taskMachine(t, db, task)
+	ide := runningIDE(t, store, machine)
+	route := func(port int) *domain.DevMachineService {
+		t.Helper()
+		_, service, err := store.GetRoute(ctx, machine.RoutingKey, domain.AppPortService(port))
+		require.NoError(t, err)
+		return service
+	}
+	target := func(port int) string {
+		t.Helper()
+		var value string
+		require.NoError(t, db.Get(&value, `SELECT target FROM dev_machine_ports WHERE machine_id=$1 AND port=$2`, machine.ID, port))
+		return value
+	}
+	preview := appPort(machine, 4100, "task", &task.ID)
+	require.NoError(t, store.CreatePort(ctx, preview))
+	require.NoError(t, store.CreatePort(ctx, appPort(machine, 5173, "user", nil)))
+	require.Equal(t, domain.DevMachinePortTargetPreview, preview.Target)
+	served := route(4100)
+	require.NotNil(t, served)
+	require.Equal(t, machine.RoutingKey+"-preview-4100", served.InternalHost, "the preview container's name on the machine network")
+	require.NotEqual(t, ide.InternalHost, served.InternalHost)
+	require.Equal(t, 4100, served.InternalPort)
+	require.Equal(t, "port:4100", served.ServiceType)
+	require.Equal(t, ide.ID, served.ID, "tickets and sessions keep naming the developer service, bound to the port's host")
+	require.Equal(t, "ide", route(5173).InternalHost, "the owner's ports are unchanged")
+
+	require.NoError(t, store.SetListeningPorts(ctx, machine.ID, []int{4100, 5173}, nil))
+	require.Equal(t, domain.DevMachinePortTargetPreview, target(4100), "a developer process on the same number never takes the preview's route")
+	require.Equal(t, machine.RoutingKey+"-preview-4100", route(4100).InternalHost)
+
+	// A preview command may be docker compose up: the daemon then publishes
+	// the port, as an agent run could, and serves it until it stops.
+	runningDocker(t, store, machine)
+	require.NoError(t, store.SetListeningPorts(ctx, machine.ID, []int{4100, 5173}, []int{4100, 5173}))
+	require.Equal(t, domain.DevMachinePortTargetDocker, target(4100))
+	require.Equal(t, domain.DevMachinePortTargetDocker, target(5173))
+	require.Equal(t, machine.RoutingKey+"-docker", route(4100).InternalHost)
+	require.NoError(t, store.SetListeningPorts(ctx, machine.ID, []int{4100, 5173}, nil))
+	require.Equal(t, domain.DevMachinePortTargetPreview, target(4100), "it returns to its preview container, not to the developer container")
+	require.Equal(t, domain.DevMachinePortTargetDeveloper, target(5173), "the owner's port returns to the developer container")
+	daemonFirst := appPort(machine, 8025, "task", &task.ID)
+	require.NoError(t, store.SetListeningPorts(ctx, machine.ID, []int{4100, 8025}, []int{8025}))
+	require.NoError(t, store.CreatePort(ctx, daemonFirst))
+	require.Equal(t, domain.DevMachinePortTargetDocker, daemonFirst.Target, "a preview port the daemon already publishes starts there")
+
+	// A preview started before the upgrade runs in the developer container
+	// and keeps its route until it is started again.
+	_, err := db.Exec(`UPDATE dev_machine_ports SET target='developer' WHERE id=$1`, preview.ID)
+	require.NoError(t, err)
+	require.NoError(t, store.SetListeningPorts(ctx, machine.ID, []int{4100, 5173}, nil))
+	require.Equal(t, "ide", route(4100).InternalHost)
+	require.NoError(t, store.SetTaskPreview(ctx, task.ID, domain.AgentTaskPreviewRunning, nil, preview))
+	require.Equal(t, domain.DevMachinePortTargetPreview, target(4100), "starting it again moves it to its container")
+	require.Equal(t, domain.DevMachinePortTargetDeveloper, target(5173), "other ports are not touched")
+}
+
 func runningDocker(t *testing.T, store *DevMachineRepository, machine domain.DevMachine) *domain.DevMachineService {
 	t.Helper()
 	docker := &domain.DevMachineService{ID: uuid.New(), WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, ServiceType: "docker", ServiceKey: "docker", ContainerName: "docker", ImageRef: "fixture", InternalHost: machine.RoutingKey + "-docker", InternalPort: 2376, Status: "pending", HealthStatus: "unknown"}

@@ -126,7 +126,7 @@ docker compose ps --services | sort | tr '\n' ' '`
 	require.Contains(t, output, "hello")
 	require.Contains(t, output, "extra web")
 
-	scan, err := runtime.ScanPorts(ctx, services)
+	scan, err := runtime.ScanPorts(ctx, machine, services)
 	require.NoError(t, err)
 	require.True(t, slices.Contains(scan.Docker, 3000), "published ports are scanned: %v", scan.Docker)
 	page, err := run(gateway.ID, "wget -q -T 10 -O- http://"+routingKey+"-docker:3000/")
