@@ -260,6 +260,17 @@ func TestWikiReferencesHTTP(t *testing.T) {
 	issues, _ = linked(memberJWT)
 	require.Equal(t, []string{"DOC-1"}, issues)
 
+	// Backlinks follow the content: a mention edited out of a description, a
+	// comment or a page is no longer listed.
+	_, err = db.Exec(`UPDATE issues SET description='<p>Follow nothing</p>' WHERE workspace_id=$1 AND identifier_text='DOC-1'`, ws)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE comments SET body='<p>Edited</p>' WHERE issue_id=$1`, hiddenIssue)
+	require.NoError(t, err)
+	request(ownerJWT, "PATCH", privateWiki+"/"+secretPage, `{"version":2,"content":"<p>Rewritten</p>"}`, http.StatusOK)
+	issues, pages = linked(ownerJWT)
+	require.Empty(t, issues)
+	require.Equal(t, []string{"Launch plan"}, pages)
+
 	// A public link names a mentioned page only when an anonymous reader
 	// may know it: the unpublished project page by title (the reader prints
 	// it as plain text), the private team's page not at all.

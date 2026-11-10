@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Impossibile aggiornare le pagine wiki di questa issue",
 	"wiki.reference.detach": "Rimuovi riferimento",
 	"wiki.reference.drop_hint": "Rilascia per allegare questa pagina alla issue",
+	"wiki.reference.add": "Aggiungi pagina wiki",
+	"wiki.reference.search": "Cerca nelle pagine wiki di tutti i team e progetti",
 	"wiki.backlinks.title": "Riferimenti",
 	"wiki.backlinks.empty": "Nessuna issue o pagina fa ancora riferimento a questa pagina.",
 	"wiki.backlinks.failed": "Impossibile caricare i riferimenti.",

@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Die Wiki-Seiten dieses Issues konnten nicht aktualisiert werden",
 	"wiki.reference.detach": "Verweis entfernen",
 	"wiki.reference.drop_hint": "Loslassen, um diese Seite an das Issue anzuhängen",
+	"wiki.reference.add": "Wiki-Seite hinzufügen",
+	"wiki.reference.search": "Wiki-Seiten aller Teams und Projekte durchsuchen",
 	"wiki.backlinks.title": "Referenziert in",
 	"wiki.backlinks.empty": "Noch kein Issue und keine Seite verweist auf diese Seite.",
 	"wiki.backlinks.failed": "Verweise konnten nicht geladen werden.",

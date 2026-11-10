@@ -36,6 +36,8 @@ async function mockWorkspace(
 		versions?: unknown[];
 		/** What the backlinks of any page answer. */
 		backlinks?: { issues: unknown[]; pages: unknown[] };
+		/** Pages already attached to ENG-1. */
+		attached?: string[];
 	} = {}
 ) {
 	const {
@@ -75,7 +77,7 @@ async function mockWorkspace(
 	};
 	let nextId = 1;
 	// Pages attached to ENG-1, the one issue of this workspace.
-	const attached: string[] = [];
+	const attached: string[] = [...(options.attached ?? [])];
 	// Every stored page is visible to the signed-in member; any other page ID
 	// resolves as the server answers for a page they cannot see.
 	const reference = (id: string) => {
@@ -661,6 +663,33 @@ test('the side panel lists the issues and pages that reference the page', async 
 	expect(state.errors).toEqual([]);
 });
 
+test('a burst of workspace changes reloads the references once, and edits of the page itself never do', async ({ page }) => {
+	await mockWorkspace(page, { seed: [{ title: 'Guide' }] });
+	let loads = 0;
+	page.on('request', (request) => {
+		if (new URL(request.url()).pathname.endsWith('/backlinks')) loads++;
+	});
+	await page.goto(teamWikiPath);
+	await expect(page.getByTestId('wiki-backlinks')).toHaveText('No issue or page references this page yet.');
+	expect(loads).toBe(1);
+
+	// Autosaves of the open page say nothing new about who references it.
+	await page.evaluate((id) => {
+		for (let i = 0; i < 3; i++) window.dispatchEvent(new CustomEvent('ws:wiki-changed', { detail: { id, version: 1 } }));
+	}, seededId(0));
+	await page.waitForTimeout(1500);
+	expect(loads).toBe(1);
+
+	await page.evaluate(() => {
+		for (let i = 0; i < 5; i++) window.dispatchEvent(new CustomEvent('ws:issue-updated', { detail: {} }));
+		window.dispatchEvent(new CustomEvent('ws:comment-created', { detail: {} }));
+		window.dispatchEvent(new CustomEvent('ws:wiki-changed', { detail: { id: 'another-page', version: 2 } }));
+	});
+	await expect.poll(() => loads, { timeout: 5000 }).toBe(2);
+	await page.waitForTimeout(1500);
+	expect(loads).toBe(2);
+});
+
 test('a page nothing references says so', async ({ page }) => {
 	await mockWorkspace(page, { seed: [{ title: 'Guide' }] });
 	await page.goto(teamWikiPath);
@@ -720,6 +749,56 @@ test('dropping a wiki page on an issue attaches it as a reference', async ({ pag
 	await section.getByRole('button', { name: 'Remove reference' }).click();
 	await expect(section).toHaveCount(0);
 	expect(state.writes[1]).toMatchObject({ method: 'DELETE', path: `/api/workspaces/test/issues/ENG-1/wiki-references/${seededId(0)}` });
+	expect(state.errors).toEqual([]);
+});
+
+test('a wiki page is attached to an issue by searching for it and choosing with the keyboard', async ({ page }) => {
+	const state = await mockWorkspace(page, { seed: [{ title: 'Guide' }, { title: 'Roadmap' }] });
+	await page.goto('/test/issue/ENG-1');
+	await expect(page.getByText('Attach target').first()).toBeVisible();
+	await expect(page.getByTestId('issue-wiki-references')).toHaveCount(0);
+
+	await page.getByRole('button', { name: 'Issue actions' }).click();
+	await page.getByRole('button', { name: 'Add wiki page' }).click();
+	const search = page.getByPlaceholder('Search wiki pages of every team and project');
+	await expect(search).toBeFocused();
+	await expect(page.getByRole('option')).toHaveCount(2);
+	await search.pressSequentially('road');
+	await expect(page.getByRole('option')).toHaveText([/Roadmap.*Engineering/]);
+	await page.keyboard.press('Enter');
+
+	const section = page.getByTestId('issue-wiki-references');
+	await expect(section.getByTestId('wiki-reference')).toContainText('Roadmap');
+	expect(state.writes).toEqual([
+		{ method: 'POST', path: '/api/workspaces/test/issues/ENG-1/wiki-references', body: { page_id: seededId(1) } }
+	]);
+
+	// The section now offers the search itself, without pages already attached.
+	await section.getByRole('button', { name: 'Add wiki page' }).click();
+	await expect(page.getByRole('option')).toHaveText([/Guide/]);
+	expect(state.errors).toEqual([]);
+});
+
+test('someone who cannot edit issues sees attached pages without controls to change them', async ({ page }) => {
+	const state = await mockWorkspace(page, { role: 'guest', seed: [{ title: 'Guide' }], attached: [seededId(0)] });
+	await page.goto('/test/issue/ENG-1');
+	const section = page.getByTestId('issue-wiki-references');
+	await expect(section.getByTestId('wiki-reference')).toContainText('Guide');
+	await expect(section.getByRole('button')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Issue actions' }).click();
+	await expect(page.getByRole('button', { name: 'Add relation' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Add wiki page' })).toHaveCount(0);
+
+	// A dragged page is not taken either.
+	const dataTransfer = await page.evaluateHandle((id) => {
+		const data = new DataTransfer();
+		data.setData('application/x-kuayle-wiki-page', id);
+		return data;
+	}, seededId(0));
+	await page.getByText('Attach target').first().dispatchEvent('dragover', { dataTransfer });
+	await page.getByText('Attach target').first().dispatchEvent('drop', { dataTransfer });
+	await expect(section).not.toContainText('Drop to attach');
+	expect(state.writes).toEqual([]);
 	expect(state.errors).toEqual([]);
 });
 

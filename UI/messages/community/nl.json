@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Kon de wikipagina's van dit issue niet bijwerken",
 	"wiki.reference.detach": "Verwijzing verwijderen",
 	"wiki.reference.drop_hint": "Laat los om deze pagina aan het issue te koppelen",
+	"wiki.reference.add": "Wikipagina toevoegen",
+	"wiki.reference.search": "Zoek in wikipagina's van alle teams en projecten",
 	"wiki.backlinks.title": "Naar verwezen in",
 	"wiki.backlinks.empty": "Nog geen issue of pagina verwijst naar deze pagina.",
 	"wiki.backlinks.failed": "Kon verwijzingen niet laden.",

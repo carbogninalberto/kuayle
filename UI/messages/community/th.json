@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "ไม่สามารถอัปเดตหน้าวิกิของงานนี้ได้",
 	"wiki.reference.detach": "ลบการอ้างอิง",
 	"wiki.reference.drop_hint": "ปล่อยเพื่อแนบหน้านี้กับงาน",
+	"wiki.reference.add": "เพิ่มหน้าวิกิ",
+	"wiki.reference.search": "ค้นหาหน้าวิกิของทุกทีมและโปรเจกต์",
 	"wiki.backlinks.title": "ถูกอ้างอิงใน",
 	"wiki.backlinks.empty": "ยังไม่มีงานหรือหน้าใดอ้างอิงหน้านี้",
 	"wiki.backlinks.failed": "ไม่สามารถโหลดการอ้างอิงได้",

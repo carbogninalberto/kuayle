@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Не удалось обновить страницы вики этой задачи",
 	"wiki.reference.detach": "Удалить ссылку",
 	"wiki.reference.drop_hint": "Отпустите, чтобы прикрепить эту страницу к задаче",
+	"wiki.reference.add": "Добавить страницу вики",
+	"wiki.reference.search": "Поиск по страницам вики всех команд и проектов",
 	"wiki.backlinks.title": "Упоминается в",
 	"wiki.backlinks.empty": "На эту страницу пока не ссылается ни одна задача или страница.",
 	"wiki.backlinks.failed": "Не удалось загрузить ссылки.",

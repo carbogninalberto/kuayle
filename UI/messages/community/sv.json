@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Det gick inte att uppdatera wikisidorna för det här ärendet",
 	"wiki.reference.detach": "Ta bort referens",
 	"wiki.reference.drop_hint": "Släpp för att bifoga den här sidan till ärendet",
+	"wiki.reference.add": "Lägg till wikisida",
+	"wiki.reference.search": "Sök bland wikisidor från alla team och projekt",
 	"wiki.backlinks.title": "Refererad i",
 	"wiki.backlinks.empty": "Inget ärende eller någon sida refererar till den här sidan ännu.",
 	"wiki.backlinks.failed": "Det gick inte att läsa in referenser.",

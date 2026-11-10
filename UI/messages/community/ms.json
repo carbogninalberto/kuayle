@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Tidak dapat mengemas kini halaman wiki isu ini",
 	"wiki.reference.detach": "Buang rujukan",
 	"wiki.reference.drop_hint": "Lepaskan untuk melampirkan halaman ini pada isu",
+	"wiki.reference.add": "Tambah halaman wiki",
+	"wiki.reference.search": "Cari halaman wiki semua pasukan dan projek",
 	"wiki.backlinks.title": "Dirujuk dalam",
 	"wiki.backlinks.empty": "Belum ada isu atau halaman yang merujuk halaman ini.",
 	"wiki.backlinks.failed": "Tidak dapat memuatkan rujukan.",

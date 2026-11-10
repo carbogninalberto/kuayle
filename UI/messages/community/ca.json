@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "No s'han pogut actualitzar les pàgines de la wiki d'aquesta incidència",
 	"wiki.reference.detach": "Elimina la referència",
 	"wiki.reference.drop_hint": "Deixa anar per adjuntar aquesta pàgina a la incidència",
+	"wiki.reference.add": "Afegeix una pàgina wiki",
+	"wiki.reference.search": "Cerca a les pàgines wiki de tots els equips i projectes",
 	"wiki.backlinks.title": "Referenciada a",
 	"wiki.backlinks.empty": "Cap incidència ni pàgina fa referència a aquesta pàgina encara.",
 	"wiki.backlinks.failed": "No s'han pogut carregar les referències.",

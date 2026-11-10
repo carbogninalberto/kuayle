@@ -5,6 +5,7 @@ import {
 	chatReferenceToken,
 	createReferenceResolver,
 	mentionQueryAt,
+	mentionQueryMayMatch,
 	renderReaderReferences,
 	wikiMentionHtml,
 	wikiMentionIds,
@@ -141,4 +142,12 @@ test('a chat reference round-trips through message text', () => {
 		chatReferenceToken({ id: GUIDE, accessible: true, title: 'Plan', project_id: 'p1', scope_name: 'Launch (2027)' }),
 		`@[Plan](wiki:${GUIDE} project Launch 2027)`
 	);
+});
+
+test('a chat @-query stops searching once a shorter one found no page', () => {
+	assert.equal(mentionQueryMayMatch('dep', []), true);
+	assert.equal(mentionQueryMayMatch('deploy guide', ['bob']), true);
+	assert.equal(mentionQueryMayMatch('bob how are you', ['bob']), false);
+	assert.equal(mentionQueryMayMatch('Bob', ['bob']), false);
+	assert.equal(mentionQueryMayMatch('anything', ['']), false, 'a workspace without pages has nothing to suggest');
 });

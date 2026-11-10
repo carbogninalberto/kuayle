@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Impossible de mettre à jour les pages du wiki de ce ticket",
 	"wiki.reference.detach": "Retirer la référence",
 	"wiki.reference.drop_hint": "Déposez pour joindre cette page au ticket",
+	"wiki.reference.add": "Ajouter une page wiki",
+	"wiki.reference.search": "Rechercher dans les pages wiki de toutes les équipes et de tous les projets",
 	"wiki.backlinks.title": "Référencée dans",
 	"wiki.backlinks.empty": "Aucun ticket ni aucune page ne fait encore référence à cette page.",
 	"wiki.backlinks.failed": "Impossible de charger les références.",

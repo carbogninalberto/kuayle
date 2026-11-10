@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
-	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 	"github.com/lib/pq"
 )
 
@@ -75,24 +74,31 @@ func (r *WikiRepository) Backlinks(ctx context.Context, workspaceID uuid.UUID, s
 		}
 		return nil, err
 	}
-	// Mentions are stored in one exact form (sanitize.WikiMentionHTML), so a
-	// substring match on it finds them all.
-	mention := "%" + strings.TrimSuffix(sanitize.WikiMentionHTML(pageID), "></span>") + "%"
+	// Mentions in content are indexed in wiki_page_mentions by database
+	// triggers (migration 135), so the referencing issues and pages are found
+	// by page ID first and only those few rows are checked for visibility.
 	limit := strconv.Itoa(domain.WikiBacklinkLimit)
 	links := &domain.WikiBacklinks{Issues: []domain.WikiBacklinkIssue{}, Pages: []domain.WikiReference{}}
-	err := r.db.SelectContext(ctx, &links.Issues, `SELECT backlink_issue.id, backlink_issue.identifier_text, backlink_issue.title
-		FROM issues backlink_issue
-		WHERE backlink_issue.workspace_id = $1 AND `+teamVisible(ctx, "backlink_issue.team_id")+` AND (
-			backlink_issue.description LIKE $2
-			OR EXISTS (SELECT 1 FROM comments backlink_comment WHERE backlink_comment.issue_id = backlink_issue.id AND backlink_comment.body LIKE $2)
-			OR EXISTS (SELECT 1 FROM issue_wiki_references attached WHERE attached.issue_id = backlink_issue.id AND attached.page_id = $3))
-		ORDER BY backlink_issue.updated_at DESC, backlink_issue.id LIMIT `+limit, workspaceID, mention, pageID)
+	err := r.db.SelectContext(ctx, &links.Issues, `WITH referencing AS MATERIALIZED (
+			SELECT mention.issue_id FROM wiki_page_mentions mention WHERE mention.page_id = $2 AND mention.issue_id IS NOT NULL
+			UNION SELECT backlink_comment.issue_id FROM wiki_page_mentions mention
+				JOIN comments backlink_comment ON backlink_comment.id = mention.comment_id WHERE mention.page_id = $2
+			UNION SELECT attached.issue_id FROM issue_wiki_references attached WHERE attached.page_id = $2
+		)
+		SELECT backlink_issue.id, backlink_issue.identifier_text, backlink_issue.title
+		FROM referencing JOIN issues backlink_issue ON backlink_issue.id = referencing.issue_id
+		WHERE backlink_issue.workspace_id = $1 AND `+teamVisible(ctx, "backlink_issue.team_id")+`
+		ORDER BY backlink_issue.updated_at DESC, backlink_issue.id LIMIT `+limit, workspaceID, pageID)
 	if err != nil {
 		return nil, err
 	}
-	err = r.db.SelectContext(ctx, &links.Pages, `SELECT `+wikiReferenceColumns+` FROM wiki_pages
-		WHERE wiki_pages.workspace_id = $1 AND wiki_pages.id <> $3 AND wiki_pages.content LIKE $2 AND `+wikiPageVisible(ctx)+`
-		ORDER BY wiki_pages.updated_at DESC, wiki_pages.id LIMIT `+limit, workspaceID, mention, pageID)
+	err = r.db.SelectContext(ctx, &links.Pages, `WITH referencing AS MATERIALIZED (
+			SELECT mention.source_page_id FROM wiki_page_mentions mention
+			WHERE mention.page_id = $2 AND mention.source_page_id IS NOT NULL AND mention.source_page_id <> $2
+		)
+		SELECT `+wikiReferenceColumns+` FROM referencing JOIN wiki_pages ON wiki_pages.id = referencing.source_page_id
+		WHERE wiki_pages.workspace_id = $1 AND `+wikiPageVisible(ctx)+`
+		ORDER BY wiki_pages.updated_at DESC, wiki_pages.id LIMIT `+limit, workspaceID, pageID)
 	if err != nil {
 		return nil, err
 	}

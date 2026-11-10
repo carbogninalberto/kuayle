@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "به‌روزرسانی صفحه‌های ویکی این مسئله ممکن نشد",
 	"wiki.reference.detach": "حذف ارجاع",
 	"wiki.reference.drop_hint": "برای پیوست این صفحه به مسئله رها کنید",
+	"wiki.reference.add": "افزودن صفحهٔ ویکی",
+	"wiki.reference.search": "جستجو در صفحه‌های ویکی همهٔ تیم‌ها و پروژه‌ها",
 	"wiki.backlinks.title": "ارجاع‌شده در",
 	"wiki.backlinks.empty": "هنوز هیچ مسئله یا صفحه‌ای به این صفحه ارجاع نداده است.",
 	"wiki.backlinks.failed": "بارگیری ارجاع‌ها ممکن نشد.",

@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Bu işin wiki sayfaları güncellenemedi",
 	"wiki.reference.detach": "Referansı kaldır",
 	"wiki.reference.drop_hint": "Bu sayfayı işe eklemek için bırakın",
+	"wiki.reference.add": "Wiki sayfası ekle",
+	"wiki.reference.search": "Tüm takımların ve projelerin wiki sayfalarında ara",
 	"wiki.backlinks.title": "Referans verilen yerler",
 	"wiki.backlinks.empty": "Henüz hiçbir iş veya sayfa bu sayfaya referans vermiyor.",
 	"wiki.backlinks.failed": "Referanslar yüklenemedi.",

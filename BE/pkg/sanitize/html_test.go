@@ -148,3 +148,21 @@ func TestWikiMentionIDs(t *testing.T) {
 		t.Fatalf("expected no IDs, got %v", ids)
 	}
 }
+
+// The sanitizer does not balance tags, so a mention whose </span> is missing
+// must not swallow the rest of the content.
+func TestSanitizeKeepsContentAfterUnclosedWikiMention(t *testing.T) {
+	id := "0b0e7a52-6a0f-4a56-9d3e-0d2b3f6a9c11"
+	chip := `<span data-type="mention" data-kind="wiki" data-id="` + id + `" class="mention mention-wiki"></span>`
+	open := `<span data-kind="wiki" data-id="` + id + `">`
+	for name, tc := range map[string]struct{ in, want string }{
+		"closed by the block":       {`<p>See ` + open + `x</p><p>after</p>`, `<p>See ` + chip + `x</p><p>after</p>`},
+		"never closed":              {`<p>See ` + open + `x`, `<p>See ` + chip + `x`},
+		"later span is not its end": {`<p>See ` + open + `x</p><p>after <span>y</span></p>`, `<p>See ` + chip + `x</p><p>after <span>y</span></p>`},
+		"line break inside":         {`<p>See ` + open + `a<br>b</span> after</p>`, `<p>See ` + chip + ` after</p>`},
+	} {
+		if got := SanitizeHTML(tc.in); got != tc.want {
+			t.Errorf("%s: SanitizeHTML() = %q, want %q", name, got, tc.want)
+		}
+	}
+}

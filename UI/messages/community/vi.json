@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Không thể cập nhật các trang wiki của vấn đề này",
 	"wiki.reference.detach": "Gỡ tham chiếu",
 	"wiki.reference.drop_hint": "Thả để đính kèm trang này vào vấn đề",
+	"wiki.reference.add": "Thêm trang wiki",
+	"wiki.reference.search": "Tìm trong các trang wiki của mọi nhóm và dự án",
 	"wiki.backlinks.title": "Được tham chiếu trong",
 	"wiki.backlinks.empty": "Chưa có vấn đề hoặc trang nào tham chiếu đến trang này.",
 	"wiki.backlinks.failed": "Không thể tải các tham chiếu.",

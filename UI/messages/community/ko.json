@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "이 이슈의 위키 페이지를 업데이트할 수 없습니다",
 	"wiki.reference.detach": "참조 제거",
 	"wiki.reference.drop_hint": "놓아서 이 페이지를 이슈에 첨부",
+	"wiki.reference.add": "위키 페이지 추가",
+	"wiki.reference.search": "모든 팀과 프로젝트의 위키 페이지 검색",
 	"wiki.backlinks.title": "참조된 곳",
 	"wiki.backlinks.empty": "아직 이 페이지를 참조하는 이슈나 페이지가 없습니다.",
 	"wiki.backlinks.failed": "참조를 불러올 수 없습니다.",

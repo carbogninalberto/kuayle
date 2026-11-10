@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Kunne ikke opdatere wiki-siderne for denne sag",
 	"wiki.reference.detach": "Fjern reference",
 	"wiki.reference.drop_hint": "Slip for at vedhæfte denne side til sagen",
+	"wiki.reference.add": "Tilføj wikiside",
+	"wiki.reference.search": "Søg i wikisider fra alle teams og projekter",
 	"wiki.backlinks.title": "Refereret i",
 	"wiki.backlinks.empty": "Ingen sag eller side refererer til denne side endnu.",
 	"wiki.backlinks.failed": "Kunne ikke indlæse referencer.",

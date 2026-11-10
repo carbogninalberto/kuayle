@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "इस इश्यू के विकी पृष्ठ अपडेट नहीं किए जा सके",
 	"wiki.reference.detach": "संदर्भ हटाएँ",
 	"wiki.reference.drop_hint": "इस पृष्ठ को इश्यू से जोड़ने के लिए छोड़ें",
+	"wiki.reference.add": "विकी पेज जोड़ें",
+	"wiki.reference.search": "सभी टीमों और प्रोजेक्ट के विकी पेज खोजें",
 	"wiki.backlinks.title": "यहाँ संदर्भित",
 	"wiki.backlinks.empty": "अभी तक कोई इश्यू या पृष्ठ इस पृष्ठ का संदर्भ नहीं देता।",
 	"wiki.backlinks.failed": "संदर्भ लोड नहीं किए जा सके।",

@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "לא ניתן היה לעדכן את דפי הוויקי של המשימה הזו",
 	"wiki.reference.detach": "הסרת ההפניה",
 	"wiki.reference.drop_hint": "שחררו כדי לצרף את הדף הזה למשימה",
+	"wiki.reference.add": "הוספת דף ויקי",
+	"wiki.reference.search": "חיפוש בדפי הוויקי של כל הצוותים והפרויקטים",
 	"wiki.backlinks.title": "מופנה מתוך",
 	"wiki.backlinks.empty": "עדיין אין משימה או דף שמפנים לדף הזה.",
 	"wiki.backlinks.failed": "לא ניתן היה לטעון את ההפניות.",

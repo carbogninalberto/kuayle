@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Stránky wiki tohoto úkolu se nepodařilo aktualizovat",
 	"wiki.reference.detach": "Odebrat odkaz",
 	"wiki.reference.drop_hint": "Puštěním připojíte tuto stránku k úkolu",
+	"wiki.reference.add": "Přidat stránku wiki",
+	"wiki.reference.search": "Hledat ve stránkách wiki všech týmů a projektů",
 	"wiki.backlinks.title": "Odkazováno v",
 	"wiki.backlinks.empty": "Na tuto stránku zatím neodkazuje žádný úkol ani stránka.",
 	"wiki.backlinks.failed": "Odkazy se nepodařilo načíst.",

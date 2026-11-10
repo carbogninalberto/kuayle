@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Could not update the wiki pages of this issue",
 	"wiki.reference.detach": "Remove reference",
 	"wiki.reference.drop_hint": "Drop to attach this page to the issue",
+	"wiki.reference.add": "Add wiki page",
+	"wiki.reference.search": "Search wiki pages of every team and project",
 	"wiki.backlinks.title": "Referenced in",
 	"wiki.backlinks.empty": "No issue or page references this page yet.",
 	"wiki.backlinks.failed": "Could not load references.",

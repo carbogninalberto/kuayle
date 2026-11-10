@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Nie udało się zaktualizować stron wiki tego zgłoszenia",
 	"wiki.reference.detach": "Usuń odwołanie",
 	"wiki.reference.drop_hint": "Upuść, aby dołączyć tę stronę do zgłoszenia",
+	"wiki.reference.add": "Dodaj stronę wiki",
+	"wiki.reference.search": "Szukaj w stronach wiki wszystkich zespołów i projektów",
 	"wiki.backlinks.title": "Odwołania w",
 	"wiki.backlinks.empty": "Żadne zgłoszenie ani strona nie odwołuje się jeszcze do tej strony.",
 	"wiki.backlinks.failed": "Nie udało się wczytać odwołań.",

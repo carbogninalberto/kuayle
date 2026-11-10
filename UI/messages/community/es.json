@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "No se pudieron actualizar las páginas de la wiki de esta incidencia",
 	"wiki.reference.detach": "Quitar referencia",
 	"wiki.reference.drop_hint": "Suelta para adjuntar esta página a la incidencia",
+	"wiki.reference.add": "Añadir página wiki",
+	"wiki.reference.search": "Buscar en las páginas wiki de todos los equipos y proyectos",
 	"wiki.backlinks.title": "Referenciada en",
 	"wiki.backlinks.empty": "Ninguna incidencia ni página hace referencia a esta página todavía.",
 	"wiki.backlinks.failed": "No se pudieron cargar las referencias.",

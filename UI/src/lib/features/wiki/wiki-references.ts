@@ -187,6 +187,16 @@ export function mentionQueryAt(text: string, caret: number): { from: number; que
 	return { from, query };
 }
 
+/**
+ * Whether searching for `query` can still find a page, given the queries
+ * that already found none: suggestions match the title as typed, so a query
+ * that continues an empty one ("@bob how are you") stays empty.
+ */
+export function mentionQueryMayMatch(query: string, emptyQueries: readonly string[]): boolean {
+	const typed = query.toLowerCase();
+	return !emptyQueries.some((empty) => typed.startsWith(empty.toLowerCase()));
+}
+
 // Chat messages are plain text, so a page is referenced by a token the
 // assistant can read (title, page ID, team or project) and the chat renders
 // as a chip.

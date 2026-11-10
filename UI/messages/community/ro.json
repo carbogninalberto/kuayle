@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Paginile wiki ale acestei probleme nu au putut fi actualizate",
 	"wiki.reference.detach": "Elimină referința",
 	"wiki.reference.drop_hint": "Eliberează pentru a atașa această pagină la problemă",
+	"wiki.reference.add": "Adaugă o pagină wiki",
+	"wiki.reference.search": "Caută în paginile wiki ale tuturor echipelor și proiectelor",
 	"wiki.backlinks.title": "Referită în",
 	"wiki.backlinks.empty": "Nicio problemă sau pagină nu face încă referire la această pagină.",
 	"wiki.backlinks.failed": "Referințele nu au putut fi încărcate.",

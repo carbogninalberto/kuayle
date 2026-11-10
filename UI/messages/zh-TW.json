@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "無法更新此議題的 Wiki 頁面",
 	"wiki.reference.detach": "移除參照",
 	"wiki.reference.drop_hint": "放開以將此頁面附加到議題",
+	"wiki.reference.add": "新增 Wiki 頁面",
+	"wiki.reference.search": "搜尋所有團隊與專案的 Wiki 頁面",
 	"wiki.backlinks.title": "被參照於",
 	"wiki.backlinks.empty": "尚無議題或頁面參照此頁面。",
 	"wiki.backlinks.failed": "無法載入參照。",

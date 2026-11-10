@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Tämän tehtävän wikisivuja ei voitu päivittää",
 	"wiki.reference.detach": "Poista viittaus",
 	"wiki.reference.drop_hint": "Pudota liittääksesi tämän sivun tehtävään",
+	"wiki.reference.add": "Lisää wikisivu",
+	"wiki.reference.search": "Hae kaikkien tiimien ja projektien wikisivuista",
 	"wiki.backlinks.title": "Viitattu kohteissa",
 	"wiki.backlinks.empty": "Mikään tehtävä tai sivu ei vielä viittaa tähän sivuun.",
 	"wiki.backlinks.failed": "Viittauksia ei voitu ladata.",

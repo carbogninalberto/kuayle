@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Не вдалося оновити сторінки вікі цього завдання",
 	"wiki.reference.detach": "Вилучити посилання",
 	"wiki.reference.drop_hint": "Відпустіть, щоб прикріпити цю сторінку до завдання",
+	"wiki.reference.add": "Додати сторінку вікі",
+	"wiki.reference.search": "Пошук у сторінках вікі всіх команд і проєктів",
 	"wiki.backlinks.title": "Згадується в",
 	"wiki.backlinks.empty": "На цю сторінку ще не посилається жодне завдання чи сторінка.",
 	"wiki.backlinks.failed": "Не вдалося завантажити посилання.",

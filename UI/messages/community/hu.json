@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Nem sikerült frissíteni a feladat wikioldalait",
 	"wiki.reference.detach": "Hivatkozás eltávolítása",
 	"wiki.reference.drop_hint": "Engedd el az oldal feladathoz csatolásához",
+	"wiki.reference.add": "Wikioldal hozzáadása",
+	"wiki.reference.search": "Keresés minden csapat és projekt wikioldalai között",
 	"wiki.backlinks.title": "Hivatkozások",
 	"wiki.backlinks.empty": "Erre az oldalra még egyetlen feladat vagy oldal sem hivatkozik.",
 	"wiki.backlinks.failed": "Nem sikerült betölteni a hivatkozásokat.",

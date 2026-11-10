@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Δεν ήταν δυνατή η ενημέρωση των σελίδων wiki αυτού του ζητήματος",
 	"wiki.reference.detach": "Αφαίρεση αναφοράς",
 	"wiki.reference.drop_hint": "Αφήστε για να επισυνάψετε αυτή τη σελίδα στο ζήτημα",
+	"wiki.reference.add": "Προσθήκη σελίδας wiki",
+	"wiki.reference.search": "Αναζήτηση στις σελίδες wiki όλων των ομάδων και έργων",
 	"wiki.backlinks.title": "Αναφέρεται σε",
 	"wiki.backlinks.empty": "Κανένα ζήτημα ή σελίδα δεν αναφέρεται ακόμη σε αυτή τη σελίδα.",
 	"wiki.backlinks.failed": "Δεν ήταν δυνατή η φόρτωση των αναφορών.",

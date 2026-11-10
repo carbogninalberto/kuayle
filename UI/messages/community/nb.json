@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "Kunne ikke oppdatere wiki-sidene for denne saken",
 	"wiki.reference.detach": "Fjern referanse",
 	"wiki.reference.drop_hint": "Slipp for å legge ved denne siden til saken",
+	"wiki.reference.add": "Legg til wikiside",
+	"wiki.reference.search": "Søk i wikisider fra alle team og prosjekter",
 	"wiki.backlinks.title": "Referert i",
 	"wiki.backlinks.empty": "Ingen sak eller side refererer til denne siden ennå.",
 	"wiki.backlinks.failed": "Kunne ikke laste inn referanser.",

@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "تعذّر تحديث صفحات الويكي لهذه المهمة",
 	"wiki.reference.detach": "إزالة المرجع",
 	"wiki.reference.drop_hint": "أفلت لإرفاق هذه الصفحة بالمهمة",
+	"wiki.reference.add": "إضافة صفحة ويكي",
+	"wiki.reference.search": "ابحث في صفحات الويكي لجميع الفرق والمشاريع",
 	"wiki.backlinks.title": "مُشار إليها في",
 	"wiki.backlinks.empty": "لا توجد مهمة أو صفحة تشير إلى هذه الصفحة بعد.",
 	"wiki.backlinks.failed": "تعذّر تحميل المراجع.",

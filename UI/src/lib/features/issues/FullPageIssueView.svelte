@@ -37,7 +37,7 @@
 		Copy, Link as LinkIcon, GitBranch, SquareMousePointer,
 		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil, Layers,
 		Tag, RefreshCw, ArrowUp, MoreHorizontal, Check, Bell,
-		Trash2, CornerDownRight, Ban, ArrowRight, Bot
+		Trash2, CornerDownRight, Ban, ArrowRight, Bot, BookOpen
 	} from '@lucide/svelte';
 	import { listCycles } from '$lib/api/cycles';
 	import type { Cycle } from '$lib/types/cycle';
@@ -45,6 +45,9 @@
 	import SubIssuesList from './SubIssuesList.svelte';
 	import IssueWikiReferences from './IssueWikiReferences.svelte';
 	import { isWikiPageDrag, wikiPageDragData } from '$lib/features/wiki/wiki-references';
+	import { getCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
+	import { hasPermission } from '$lib/security/permissions';
+	import type { Role } from '$lib/security/roles';
 	import IssueGitHubActivity from './IssueGitHubActivity.svelte';
 	import { goto } from '$app/navigation';
 	import { sanitizeHtml } from '$lib/security/sanitize';
@@ -123,8 +126,12 @@
 	// attaches it as a reference (an editor takes the drop as a chip instead).
 	let wikiReferences = $state<ReturnType<typeof IssueWikiReferences> | null>(null);
 	let wikiDropping = $state(false);
+	const currentWorkspace = getCurrentWorkspace();
+	const canUpdateIssue = $derived(
+		hasPermission((currentWorkspace?.membership?.workspace.current_user_role ?? 'guest') as Role, 'issue:update')
+	);
 	function onWikiDragOver(event: DragEvent) {
-		if (!isWikiPageDrag(event.dataTransfer)) return;
+		if (!canUpdateIssue || !isWikiPageDrag(event.dataTransfer)) return;
 		event.preventDefault();
 		if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
 		wikiDropping = true;
@@ -136,7 +143,7 @@
 		wikiDropping = false;
 		// An editor that took the drop has already handled the event.
 		if (event.defaultPrevented) return;
-		const pageId = wikiPageDragData(event.dataTransfer);
+		const pageId = canUpdateIssue ? wikiPageDragData(event.dataTransfer) : null;
 		if (!pageId) return;
 		event.preventDefault();
 		void wikiReferences?.attach(pageId);
@@ -842,6 +849,15 @@
 						{issue.parent ? m['issue.change_parent']() : m['issue.add_parent']()}
 					</Button>
 					<div class="my-1 h-px bg-[var(--app-border)]"></div>
+					{#if canUpdateIssue}
+						<Button variant="plain" type="button"
+							onclick={() => { issueActionsOpen = false; wikiReferences?.openPicker(); }}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+						>
+							<BookOpen size={14} />
+							{m['wiki.reference.add']()}
+						</Button>
+					{/if}
 					<Button variant="plain" type="button"
 						onclick={() => { issueActionsOpen = false; openAddRelation('related'); }}
 						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"

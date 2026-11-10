@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "无法更新此事项的 Wiki 页面",
 	"wiki.reference.detach": "移除引用",
 	"wiki.reference.drop_hint": "松开以将此页面附加到事项",
+	"wiki.reference.add": "添加 Wiki 页面",
+	"wiki.reference.search": "搜索所有团队和项目的 Wiki 页面",
 	"wiki.backlinks.title": "被引用于",
 	"wiki.backlinks.empty": "尚无事项或页面引用此页面。",
 	"wiki.backlinks.failed": "无法加载引用。",

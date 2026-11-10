@@ -13,6 +13,7 @@
 	let links = $state<WikiBacklinks | null>(null);
 	let failed = $state(false);
 	let request = 0;
+	const BACKLINKS_REFRESH_DELAY = 1000;
 
 	async function load() {
 		const current = ++request;
@@ -29,12 +30,36 @@
 	onMount(() => {
 		void load();
 		// References appear and disappear as pages, issues and comments change.
-		const refresh = () => void load();
+		// Those events arrive in bursts (every autosave of any page), so one
+		// reload follows the last of them, and none while the tab is hidden.
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		let pending = false;
+		const refresh = (event?: Event) => {
+			// Editing this page does not change what references it.
+			if (event?.type === 'ws:wiki-changed' && (event as CustomEvent<{ id?: string }>).detail?.id === pageId) return;
+			if (document.hidden) {
+				pending = true;
+				return;
+			}
+			if (timer) clearTimeout(timer);
+			timer = setTimeout(() => {
+				timer = null;
+				void load();
+			}, BACKLINKS_REFRESH_DELAY);
+		};
+		const shown = () => {
+			if (document.hidden || !pending) return;
+			pending = false;
+			refresh();
+		};
 		const events = ['ws:wiki-changed', 'ws:issue-updated', 'ws:comment-created', 'ws:reconnected'];
 		for (const name of events) window.addEventListener(name, refresh);
+		document.addEventListener('visibilitychange', shown);
 		return () => {
 			request++;
+			if (timer) clearTimeout(timer);
 			for (const name of events) window.removeEventListener(name, refresh);
+			document.removeEventListener('visibilitychange', shown);
 		};
 	});
 

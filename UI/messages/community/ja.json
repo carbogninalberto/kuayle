@@ -3656,6 +3656,8 @@
 	"wiki.reference.update_failed": "この課題の Wiki ページを更新できませんでした",
 	"wiki.reference.detach": "参照を削除",
 	"wiki.reference.drop_hint": "ドロップしてこのページを課題に添付",
+	"wiki.reference.add": "Wiki ページを追加",
+	"wiki.reference.search": "すべてのチームとプロジェクトの Wiki ページを検索",
 	"wiki.backlinks.title": "参照元",
 	"wiki.backlinks.empty": "このページを参照している課題やページはまだありません。",
 	"wiki.backlinks.failed": "参照を読み込めませんでした。",

@@ -1,21 +1,90 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { attachIssueWikiReference, detachIssueWikiReference, listIssueWikiReferences } from '$lib/api/wiki';
+	import * as Command from '$lib/components/ui/command/index.js';
+	import {
+		attachIssueWikiReference,
+		detachIssueWikiReference,
+		listIssueWikiReferences,
+		searchWikiReferences
+	} from '$lib/api/wiki';
+	import { getCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
+	import { hasPermission } from '$lib/security/permissions';
+	import type { Role } from '$lib/security/roles';
 	import type { WikiReference } from '$lib/types/wiki';
 	import WikiReferenceChip from '$lib/features/wiki/WikiReferenceChip.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
-	import { BookOpen, X } from '@lucide/svelte';
+	import { BookOpen, FileText, Plus, X } from '@lucide/svelte';
 
 	// Wiki pages attached to an issue as references. A page is attached by
-	// dragging it from a wiki tree onto the issue (the issue page calls
-	// attach); pages this reader cannot see show as placeholders, which
-	// anyone who may edit the issue can still remove.
+	// searching for it here (openPicker, also reachable from the issue's
+	// actions) or by dragging it from a wiki tree onto the issue (the issue
+	// page calls attach). Pages this reader cannot see show as placeholders,
+	// which anyone who may edit the issue can still remove. The controls
+	// follow the role; the server decides.
 	let { slug, identifier, dropping = false }: { slug: string; identifier: string; dropping?: boolean } = $props();
 
 	let references = $state<WikiReference[]>([]);
 	let request = 0;
+
+	const workspace = getCurrentWorkspace();
+	const canUpdate = $derived(
+		hasPermission((workspace?.membership?.workspace.current_user_role ?? 'guest') as Role, 'issue:update')
+	);
+
+	// The page picker: a search over every wiki page the reader can see.
+	let pickerOpen = $state(false);
+	let query = $state('');
+	let found = $state<WikiReference[]>([]);
+	let searching = $state(false);
+	const attachedIds = $derived(new Set(references.map((reference) => reference.id)));
+	const choices = $derived(found.filter((page) => !attachedIds.has(page.id)));
+	// Results arrive after the list is drawn, so the highlighted one is kept
+	// on a page that is still listed: Enter always has something to choose.
+	let highlighted = $state('');
+	$effect(() => {
+		if (!choices.some((page) => page.id === highlighted)) highlighted = choices[0]?.id ?? '';
+	});
+
+	/** Opens the page search, for people who may edit the issue. */
+	export function openPicker() {
+		if (canUpdate) pickerOpen = true;
+	}
+
+	$effect(() => {
+		if (!pickerOpen) {
+			query = '';
+			found = [];
+			return;
+		}
+		const text = query.trim();
+		let stale = false;
+		searching = true;
+		const timer = setTimeout(
+			() =>
+				void searchWikiReferences(slug, text, 20)
+					.then((pages) => {
+						if (!stale) found = Array.isArray(pages) ? pages : [];
+					})
+					.catch(() => {
+						if (!stale) found = [];
+					})
+					.finally(() => {
+						if (!stale) searching = false;
+					}),
+			text ? 150 : 0
+		);
+		return () => {
+			stale = true;
+			clearTimeout(timer);
+		};
+	});
+
+	function choose(pageId: string) {
+		pickerOpen = false;
+		void attach(pageId);
+	}
 
 	$effect(() => {
 		const issue = identifier;
@@ -59,15 +128,29 @@
 			? 'border-dashed border-[var(--app-accent)]'
 			: 'border-[var(--app-border)]'}"
 	>
-		<h3 class="flex items-center gap-2 text-sm font-medium text-[var(--color-text-secondary)]">
-			<BookOpen size={14} class="shrink-0" />
-			{m['wiki.reference.pages']()}
-		</h3>
+		<div class="flex items-center gap-2">
+			<h3 class="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium text-[var(--color-text-secondary)]">
+				<BookOpen size={14} class="shrink-0" />
+				{m['wiki.reference.pages']()}
+			</h3>
+			{#if canUpdate}
+				<Button
+					variant="plain"
+					onclick={openPicker}
+					class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+					title={m['wiki.reference.add']()}
+					aria-label={m['wiki.reference.add']()}
+				>
+					<Plus size={14} />
+				</Button>
+			{/if}
+		</div>
 		{#if references.length > 0}
 			<ul class="mt-1.5 flex flex-wrap gap-1.5">
 				{#each references as reference (reference.id)}
 					<li class="group/reference flex max-w-full items-center gap-0.5">
 						<WikiReferenceChip {slug} pageId={reference.id} {reference} />
+						{#if canUpdate}
 						<Button
 							variant="plain"
 							onclick={() => detach(reference.id)}
@@ -77,6 +160,7 @@
 						>
 							<X size={12} />
 						</Button>
+						{/if}
 					</li>
 				{/each}
 			</ul>
@@ -86,3 +170,29 @@
 		{/if}
 	</section>
 {/if}
+
+<Command.Dialog
+	bind:open={pickerOpen}
+	bind:value={highlighted}
+	shouldFilter={false}
+	title={m['wiki.reference.add']()}
+	description={m['wiki.reference.search']()}
+>
+	<Command.Input bind:value={query} placeholder={m['wiki.reference.search']()} />
+	<Command.List>
+		{#if searching && choices.length === 0}
+			<Command.Loading class="py-4 text-center text-xs text-[var(--color-text-tertiary)]">
+				{m['common.loading']()}
+			</Command.Loading>
+		{:else}
+			<Command.Empty>{m['common.no_results']()}</Command.Empty>
+		{/if}
+		{#each choices as page (page.id)}
+			<Command.Item value={page.id} onSelect={() => choose(page.id)}>
+				<FileText size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
+				<span class="min-w-0 flex-1 truncate">{page.title}</span>
+				<span class="max-w-[40%] shrink-0 truncate text-xs text-[var(--color-text-tertiary)]">{page.scope_name}</span>
+			</Command.Item>
+		{/each}
+	</Command.List>
+</Command.Dialog>

@@ -61,6 +61,7 @@
 		chatReferenceToken,
 		isWikiPageDrag,
 		mentionQueryAt,
+		mentionQueryMayMatch,
 		wikiPageDragData,
 		type WikiReference
 	} from '$lib/features/wiki/wiki-references';
@@ -405,9 +406,19 @@
 		if (found?.query !== pageMention?.query) pageIndex = 0;
 		pageMention = found;
 	}
+	// Queries of the "@" being typed that found no page: text that continues
+	// one of them is ordinary prose after an "@", not a search.
+	let emptyPageQueries: { from: number; queries: string[] } | null = null;
 	$effect(() => {
 		const mention = pageMention;
 		if (!mention) {
+			pageSuggestions = [];
+			emptyPageQueries = null;
+			return;
+		}
+		if (emptyPageQueries?.from !== mention.from) emptyPageQueries = { from: mention.from, queries: [] };
+		const empty = emptyPageQueries.queries;
+		if (!mentionQueryMayMatch(mention.query.trim(), empty)) {
 			pageSuggestions = [];
 			return;
 		}
@@ -416,6 +427,7 @@
 			() =>
 				void searchWikiReferences(slug, mention.query)
 					.then((found) => {
+						if (found.length === 0) empty.push(mention.query.trim());
 						if (!stale) pageSuggestions = found;
 					})
 					.catch(() => {
