@@ -51,7 +51,7 @@ func (h *WikiHandler) List(kind domain.WikiScopeKind) echo.HandlerFunc {
 		if !ok {
 			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid "+string(kind)+" ID")
 		}
-		pages, err := h.wikiSvc.List(c.Request().Context(), middleware.GetWorkspace(c).ID, scope)
+		pages, err := h.wikiSvc.Search(c.Request().Context(), middleware.GetWorkspace(c).ID, scope, c.QueryParam("search"))
 		if err != nil {
 			return wikiErrorResponse(c, err)
 		}

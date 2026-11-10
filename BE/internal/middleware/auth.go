@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
@@ -24,7 +25,34 @@ const (
 	TokenWorkspacesKey = "token_workspaces"
 )
 
+// Context keys describing an interactive session.
+const (
+	// SessionAuthTimeKey holds the time.Time the user signed in at.
+	SessionAuthTimeKey = "session_auth_time"
+	// SessionPasskeyKey holds the uuid.UUID of the passkey that minted the session.
+	SessionPasskeyKey = "session_passkey_id"
+)
+
+// SessionPasskeys tells whether the passkey a session was minted with still
+// belongs to the user. Removing a passkey must end its sessions at once, not
+// when their access tokens expire.
+type SessionPasskeys interface {
+	SessionPasskeyExists(ctx context.Context, passkeyID, userID uuid.UUID) (bool, error)
+}
+
+// GetSessionAuthTime returns when the session's user signed in, or the zero
+// time for a personal access token or a session older than that record.
+func GetSessionAuthTime(c *echo.Context) time.Time {
+	at, _ := c.Get(SessionAuthTimeKey).(time.Time)
+	return at
+}
+
 func Auth(jwtSecret string, patRepo repository.PersonalAccessTokenRepo, hostCookies ...bool) echo.MiddlewareFunc {
+	return AuthWithPasskeys(jwtSecret, patRepo, nil, hostCookies...)
+}
+
+// AuthWithPasskeys is Auth that also rejects sessions whose passkey was removed.
+func AuthWithPasskeys(jwtSecret string, patRepo repository.PersonalAccessTokenRepo, passkeys SessionPasskeys, hostCookies ...bool) echo.MiddlewareFunc {
 	cookieName := "access_token"
 	if len(hostCookies) > 0 && hostCookies[0] {
 		cookieName = "__Host-kuayle-access"
@@ -69,6 +97,25 @@ func Auth(jwtSecret string, patRepo repository.PersonalAccessTokenRepo, hostCook
 			claims, err := jwtpkg.ValidateAccessToken(tokenString, jwtSecret)
 			if err != nil {
 				return response.Unauthorized(c)
+			}
+
+			if claims.PasskeyID != "" {
+				passkeyID, err := uuid.Parse(claims.PasskeyID)
+				if err != nil || passkeys == nil {
+					return response.Unauthorized(c)
+				}
+				exists, err := passkeys.SessionPasskeyExists(c.Request().Context(), passkeyID, claims.UserID)
+				if err != nil {
+					log.WithError(err).Error("failed to check the session's passkey")
+					return response.InternalError(c)
+				}
+				if !exists {
+					return response.Unauthorized(c)
+				}
+				c.Set(SessionPasskeyKey, passkeyID)
+			}
+			if claims.AuthTime > 0 {
+				c.Set(SessionAuthTimeKey, time.Unix(claims.AuthTime, 0))
 			}
 
 			c.Set(string(UserIDKey), claims.UserID)

@@ -24,13 +24,16 @@ export const KUAYLE = {
 	},
 	sso: {
 		mark: 'no',
-		text: 'Email and password sign-in with invite links. No SSO (SAML/OIDC), SCIM, passkeys or magic links yet.'
+		text: 'Email and password sign-in, passkeys (WebAuthn) and invite links. No SSO (SAML/OIDC), SCIM or magic links yet.'
 	},
 	ai: {
 		mark: 'yes',
 		text: 'A built-in assistant on your own OpenAI-compatible model searches, creates and updates issues and delegates them to coding agents (Claude Code, Codex, OpenCode and others) on opt-in, self-hosted Dev Machines. Each task is checked independently and opens a pull request; automations and editable workflows start agents on a label or status. Agents are not issue assignees yet.'
 	},
-	mcp: { mark: 'no', text: 'No MCP server yet.' },
+	mcp: {
+		mark: 'yes',
+		text: 'Built-in remote MCP server at the instance /mcp endpoint (Streamable HTTP), authenticated with a scoped personal access token: Claude Code, Claude Desktop, Cursor and Codex read and update issues and wiki pages. No OAuth sign-in yet.'
+	},
 	api: {
 		mark: 'partial',
 		text: 'HTTP API with a published OpenAPI 3.1 reference and scoped, expiring personal access tokens. Webhooks can be registered and deliveries are HMAC-signed, but issue events are not sent to them yet.'

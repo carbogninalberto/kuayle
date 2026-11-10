@@ -17,6 +17,17 @@ func init() {
 	if err := V.RegisterValidation("slug", isSlug); err != nil {
 		panic(err)
 	}
+	if err := V.RegisterValidation("workspace_slug", func(fl validator.FieldLevel) bool {
+		return !IsReservedWorkspaceSlug(fl.Field().String())
+	}); err != nil {
+		panic(err)
+	}
+}
+
+// IsReservedWorkspaceSlug reports whether slug is a top-level path the server
+// keeps for itself, so a workspace at /<slug> would lose its root page.
+func IsReservedWorkspaceSlug(slug string) bool {
+	return slug == "mcp"
 }
 
 func isSlug(fl validator.FieldLevel) bool {
@@ -54,6 +65,8 @@ func formatMessage(e validator.FieldError) string {
 		return "must be a valid UUID"
 	case "oneof":
 		return "must be one of: " + e.Param()
+	case "workspace_slug":
+		return "is reserved; choose another"
 	case "slug":
 		return "must contain only lowercase letters, digits and single hyphens between them"
 	default:

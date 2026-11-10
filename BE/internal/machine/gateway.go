@@ -432,7 +432,8 @@ func (g *Gateway) parseHost(host string) (string, string, bool) {
 		serviceType = "terminal"
 		label = strings.TrimSuffix(label, "-terminal")
 	} else if index := strings.LastIndexByte(label, '-'); index >= 0 {
-		// <routing key>-<port> is an app port of the developer container.
+		// <routing key>-<port> is an app port of the machine: of its developer
+		// container, its Docker daemon or a task's preview container.
 		port, ok := domain.ParseAppPortNumber(label[index+1:])
 		if !ok {
 			return "", "", false

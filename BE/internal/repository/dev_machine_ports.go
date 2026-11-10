@@ -69,6 +69,8 @@ func (r *DevMachineRepository) GetPort(ctx context.Context, workspaceID, machine
 // CreatePort exposes a port. Ports of one machine are created one at a time
 // under the machine row lock. A port that, at the latest scan, only the
 // machine's Docker daemon publishes is served by the docker service.
+// A task's preview port is served by that task's preview container instead of
+// the developer container.
 func (r *DevMachineRepository) CreatePort(ctx context.Context, port *domain.DevMachinePort) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -97,6 +99,9 @@ func createPort(ctx context.Context, tx *sqlx.Tx, port *domain.DevMachinePort) e
 	}
 	if exists {
 		return ErrPortExists
+	}
+	if port.Source == domain.DevMachinePortSourceTask && target == domain.DevMachinePortTargetDeveloper {
+		target = domain.DevMachinePortTargetPreview
 	}
 	// The task, when named, must be the same workspace's and use this machine.
 	return tx.GetContext(ctx, port, `INSERT INTO dev_machine_ports(workspace_id,machine_id,port,label,source,agent_task_id,created_by_user_id,target)
@@ -165,7 +170,11 @@ func (r *DevMachineRepository) DeleteAgentPort(ctx context.Context, machineID uu
 // SetListeningPorts records the latest port scan: every listening port and
 // those published by the machine's Docker daemon. An exposed port moves to the
 // container that now listens on it (the daemon when it publishes the port);
-// a port nothing listens on keeps its target.
+// a port nothing listens on keeps its target. A task's preview port moves
+// only between its preview container and the daemon (a preview command may
+// publish the port with docker compose), never to the developer container,
+// whatever listens there. A preview port from before previews had their own
+// container keeps the developer container until that preview starts again.
 func (r *DevMachineRepository) SetListeningPorts(ctx context.Context, machineID uuid.UUID, listening, docker []int) error {
 	if docker == nil {
 		docker = []int{}
@@ -179,8 +188,9 @@ func (r *DevMachineRepository) SetListeningPorts(ctx context.Context, machineID 
 		machineID, pq.Array(listening), pq.Array(docker)); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_ports SET target=CASE WHEN port=ANY($3::int[]) THEN 'docker' ELSE 'developer' END,updated_at=now()
- WHERE machine_id=$1 AND port=ANY($2::int[]) AND target<>CASE WHEN port=ANY($3::int[]) THEN 'docker' ELSE 'developer' END`,
+	const served = `CASE WHEN port=ANY($3::int[]) THEN 'docker' WHEN source<>'task' OR target='developer' THEN 'developer' ELSE 'preview' END`
+	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_ports SET target=`+served+`,updated_at=now()
+ WHERE machine_id=$1 AND port=ANY($2::int[]) AND target<>`+served,
 		machineID, pq.Array(listening), pq.Array(docker)); err != nil {
 		return err
 	}
@@ -247,7 +257,8 @@ func (r *DevMachineRepository) PreviewTarget(ctx context.Context, taskID uuid.UU
 }
 
 // SetTaskPreview records a task's preview state and app port, and notifies
-// its conversation.
+// its conversation. A running preview's port is served by its preview
+// container, also when the port was created before previews had one.
 func (r *DevMachineRepository) SetTaskPreview(ctx context.Context, taskID uuid.UUID, state string, message *string, port *domain.DevMachinePort) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -270,6 +281,11 @@ func (r *DevMachineRepository) SetTaskPreview(ctx context.Context, taskID uuid.U
 	}
 	if err != nil {
 		return err
+	}
+	if portID != nil && state == domain.AgentTaskPreviewRunning {
+		if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_ports SET target='preview',updated_at=now() WHERE id=$1 AND agent_task_id=$2 AND source='task' AND target='developer'`, portID, taskID); err != nil {
+			return err
+		}
 	}
 	if err = previewChanged(ctx, tx, task); err != nil {
 		return err

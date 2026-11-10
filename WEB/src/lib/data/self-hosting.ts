@@ -128,7 +128,8 @@ export const selfHosting: ContentRegistry = {
 					'ENVIRONMENT — production or development (default: production)',
 					'FRONTEND_URL — the exact public origin of your instance',
 					'SYSADMINS — comma-separated user IDs allowed to trigger updates',
-					'DISABLE_REGISTRATION=true — require a valid invite link to sign up (default: open registration)'
+					'DISABLE_REGISTRATION=true — require a valid invite link to sign up (default: open registration)',
+					'PASSKEYS_ENABLED=false — turn passkey sign-in off (default: on over HTTPS, with FRONTEND_URL as the relying party)'
 				]
 			},
 			{
@@ -394,7 +395,7 @@ export const selfHosting: ContentRegistry = {
 				heading: 'What is never exported',
 				body: 'Credentials and runtime state stay on the source instance. Imported webhooks, shared links, GitHub repositories and automation, and Dev Machine policy are disabled or rotated where appropriate, so integrations must be reconfigured on the target.',
 				list: [
-					'Password hashes, refresh tokens and personal preferences',
+					'Password hashes, passkeys, refresh tokens and personal preferences',
 					'Webhook secrets, GitHub App credentials and access tokens, AI API keys',
 					'Dev Machine credentials, active machines, volumes, networks and environment images',
 					'Logs, sessions and runtime artifacts'

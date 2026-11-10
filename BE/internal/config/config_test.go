@@ -502,3 +502,67 @@ func TestDatabaseURLPasswordHandlesUnencodedPasswords(t *testing.T) {
 	assert.Equal(t, "CHANGE_ME%zz", databaseURLPassword(invalid))
 	assert.True(t, isPlaceholderSecret(databaseURLPassword(invalid)))
 }
+
+// shippedComposeFallback returns the password a Compose file uses
+// when POSTGRES_PASSWORD is not set. It is published in the repository, so it
+// is as public as the example placeholders.
+func shippedComposeFallback(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", path))
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	const marker = "POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-"
+	_, rest, found := strings.Cut(string(raw), marker)
+	if !found {
+		t.Fatalf("%s no longer defines a fallback database password; update this test", path)
+	}
+	fallback, _, _ := strings.Cut(rest, "}")
+	if fallback == "" {
+		t.Fatalf("%s has an empty fallback database password; update this test", path)
+	}
+	return fallback
+}
+
+func TestLoadRejectsComposeFallbackDatabasePasswordOutsideDevelopment(t *testing.T) {
+	for _, path := range []string{"selfhosting/docker-compose.yml", "docker-compose.yml"} {
+		fallback := shippedComposeFallback(t, path)
+		for _, environment := range []string{"production", "staging"} {
+			t.Run(path+" in "+environment, func(t *testing.T) {
+				setProductionLoadEnv(t)
+				t.Setenv("ENVIRONMENT", environment)
+				t.Setenv("DATABASE_URL", databaseURLWithPassword(fallback))
+				_, err := Load()
+				if err == nil {
+					t.Fatal("Load accepted the Compose fallback database password")
+				}
+				if !strings.Contains(err.Error(), "POSTGRES_PASSWORD") {
+					t.Fatalf("error does not name POSTGRES_PASSWORD: %v", err)
+				}
+			})
+		}
+		t.Run(path+" in development", func(t *testing.T) {
+			setProductionLoadEnv(t)
+			t.Setenv("ENVIRONMENT", "development")
+			t.Setenv("DATABASE_URL", databaseURLWithPassword(fallback))
+			if _, err := Load(); err != nil {
+				t.Fatalf("development must keep accepting the Compose fallback: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadMachineGatewayRejectsComposeFallbackDatabasePasswordInProduction(t *testing.T) {
+	fallback := shippedComposeFallback(t, "selfhosting/docker-compose.yml")
+	setMachineGatewayEnv(t)
+	t.Setenv("ENVIRONMENT", "production")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("DEV_MACHINE_GATEWAY_DATABASE_URL", databaseURLWithPassword(fallback))
+	_, err := LoadMachineGateway()
+	if err == nil {
+		t.Fatal("LoadMachineGateway accepted the Compose fallback database password")
+	}
+	if !strings.Contains(err.Error(), "DEV_MACHINE_GATEWAY_DATABASE_URL password") {
+		t.Fatalf("error does not name the gateway database password: %v", err)
+	}
+}

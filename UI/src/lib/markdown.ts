@@ -43,5 +43,6 @@ export function renderMarkdown(
 			}
 		}
 	}
-	return sanitizeHtml(restricted.renderer.render(tokens, restricted.options, {}));
+	// Images that passed the caller's check load at once; any other use waits for the reader.
+	return sanitizeHtml(restricted.renderer.render(tokens, restricted.options, {}), { remoteImages: 'load' });
 }

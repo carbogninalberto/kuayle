@@ -600,6 +600,10 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		if !updated {
 			return nil
 		}
+		// Task previews are not services: their containers go with the stop.
+		if err := m.runtime.RemovePreviews(ctx, machine); err != nil {
+			return err
+		}
 		if err := m.runtime.Stop(ctx, machine, services); err != nil {
 			return err
 		}
@@ -803,7 +807,10 @@ func (m *Manager) spawn(ctx context.Context, machine *domain.DevMachine, service
 	if !updated {
 		return nil
 	}
-	// Provisioning may replace the developer container and its processes.
+	// Provisioning starts the machine anew: task previews end with it.
+	if err := m.runtime.RemovePreviews(ctx, machine); err != nil {
+		return err
+	}
 	m.previewsEnded(ctx, machine)
 	runtimeServices := make([]domain.DevMachineService, 0, len(services))
 	for _, service := range services {
@@ -964,6 +971,17 @@ func (m *Manager) dockerClientSecrets(ctx context.Context, machine *domain.DevMa
 	return values, nil
 }
 
+// dockerDaemonAccess is what an agent attempt or a task preview on a machine
+// with a Docker daemon needs to use it: the client material and the address.
+func (m *Manager) dockerDaemonAccess(ctx context.Context, machine *domain.DevMachine) (map[string]string, error) {
+	client, err := m.dockerClientSecrets(ctx, machine)
+	if err != nil {
+		return nil, err
+	}
+	client["KUAYLE_DOCKER_HOST"] = "tcp://" + machine.RoutingKey + "-docker:" + strconv.Itoa(dockerDaemonPort)
+	return client, nil
+}
+
 // modelServerSecrets is the environment that points Codex and Claude Code at a
 // model server: the server with id, or the workspace default when id is nil.
 // Codex reads the OpenAI-compatible URL, Claude Code the Anthropic one.
@@ -1073,14 +1091,13 @@ func (m *Manager) agentRunSecrets(ctx context.Context, machine *domain.DevMachin
 	if services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID); err != nil {
 		return nil, err
 	} else if hasDockerService(services) {
-		client, err := m.dockerClientSecrets(ctx, machine)
+		client, err := m.dockerDaemonAccess(ctx, machine)
 		if err != nil {
 			return nil, err
 		}
 		for name, value := range client {
 			secrets[name] = value
 		}
-		secrets["KUAYLE_DOCKER_HOST"] = "tcp://" + machine.RoutingKey + "-docker:" + strconv.Itoa(dockerDaemonPort)
 		if value, ok := client["KUAYLE_DOCKER_KEY"]; ok {
 			redactions["KUAYLE_DOCKER_KEY"] = value
 		}
@@ -1381,6 +1398,10 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if run.Status == domain.DevMachineAgentRunStatusFailed {
 		if memoryLimit != "" {
 			run.ErrorMessage = &memoryLimit
+		} else if limit, ok := domain.DetectUsageLimit(stdout, stderr, result.Summary, time.Now()); ok {
+			// The provider's usage limit: the task pauses until the reset.
+			message := limit.ErrorMessage()
+			run.ErrorMessage = &message
 		} else if run.ErrorMessage == nil && execution.ExitCode == 137 {
 			message := "The agent process was killed (exit code 137) without an out-of-memory event; it may have been stopped by a signal."
 			run.ErrorMessage = &message

@@ -55,7 +55,7 @@ func (r *PasswordResetRepository) Issue(ctx context.Context, t *PasswordResetTok
 }
 
 // Reset atomically consumes an unexpired, unused token, sets the user's new
-// password hash and revokes all of their sessions and personal access tokens.
+// password hash and revokes all of their sessions, passkeys and personal access tokens.
 // It returns sql.ErrNoRows when the token is unknown, expired or already used.
 func (r *PasswordResetRepository) Reset(ctx context.Context, hash, passwordHash string) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
@@ -74,6 +74,11 @@ func (r *PasswordResetRepository) Reset(ctx context.Context, hash, passwordHash 
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	// A passkey is a credential in its own right: whoever took the account over
+	// may have added one, and it must not outlive the recovery.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM passkey_credentials WHERE user_id = $1`, userID); err != nil {
 		return err
 	}
 	// Personal access tokens authenticate without a session, so they would

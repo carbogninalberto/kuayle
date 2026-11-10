@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { groupSession, outputPreview, parseAgentSession } from '../../src/lib/features/assistant/agent-transcript.ts';
+import {
+	groupSession,
+	isUsageLimitText,
+	outputPreview,
+	parseAgentSession
+} from '../../src/lib/features/assistant/agent-transcript.ts';
 
 // One stored log chunk per native output line, as the manager records them.
 let id = 0;
@@ -351,4 +356,30 @@ test('long output is previewed with the rest behind "show more"', () => {
 	const wide = outputPreview('x'.repeat(5000));
 	assert.equal(wide.preview.length, 2000);
 	assert.ok(wide.hidden > 0);
+});
+
+// Production (KUA-98): Claude Code stopped at its 5-hour limit. The chat
+// shows a pause at the usage limit, with the provider's message, rather than
+// "Stopped with an error".
+test('a result refused at the usage limit is a pause, not an error', () => {
+	const message = "You've hit your 5-hour limit · resets 4:10am (UTC)";
+	const [limited] = parseAgentSession([
+		chunk({ type: 'result', subtype: 'success', is_error: true, duration_ms: 7563208, result: message })
+	]);
+	assert.equal(limited.kind, 'result');
+	assert.equal(limited.failed, true);
+	assert.equal(limited.usageLimit, true);
+	assert.equal(limited.text, message);
+	const [failed] = parseAgentSession([
+		chunk({ type: 'result', subtype: 'error_during_execution', is_error: true, result: '2 tests failed' })
+	]);
+	assert.equal(failed.usageLimit, undefined);
+	for (const text of [
+		message,
+		"You've hit your weekly limit · resets Thu 9am (UTC)",
+		"You've hit your usage limit. Upgrade to Pro or try again in 2 hours 15 minutes.",
+		'Claude AI usage limit reached|1794283800'
+	])
+		assert.equal(isUsageLimitText(text), true, text);
+	assert.equal(isUsageLimitText('the rate limiter test expects 429'), false);
 });

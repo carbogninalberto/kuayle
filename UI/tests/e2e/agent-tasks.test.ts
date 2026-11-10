@@ -51,6 +51,7 @@ async function fixture(page: Page) {
 		messages: [] as any[],
 		missingRun: false,
 		signIns: [] as any[],
+		resumes: [] as string[],
 		signInFound: false,
 		tokenSaves: [] as any[],
 		sessions: [] as any[],
@@ -235,6 +236,26 @@ async function fixture(page: Page) {
 				state.signIns.push(req.postDataJSON());
 				if (!state.signInFound) return route.fulfill({ status: 409, json: { error: { code: 'SIGN_IN_NOT_FOUND' } } });
 				state.task = { ...state.task, state: 'queued', generation: 2, run_id: 'run-2', sign_in_required: false };
+				return route.fulfill({ status: 202, json: state.task });
+			}
+			if (path.endsWith('/resume')) {
+				state.resumes.push(req.method());
+				if (req.method() === 'DELETE') {
+					// The server stamps updated_at, so the card takes the newer task.
+					const updated_at = new Date(Date.parse(state.task.updated_at) + 1000).toISOString();
+					state.task = { ...state.task, usage_limit_resume_at: null, updated_at };
+					return route.fulfill({ json: state.task });
+				}
+				state.task = {
+					...state.task,
+					state: 'queued',
+					generation: 2,
+					run_id: 'run-2',
+					reason: 'Resumed by request after the usage limit',
+					usage_limit_message: null,
+					usage_limit_resets_at: null,
+					usage_limit_resume_at: null
+				};
 				return route.fulfill({ status: 202, json: state.task });
 			}
 			if (path.endsWith('/accept')) {
@@ -1378,6 +1399,43 @@ test('a task stopped for the agent’s sign-in continues once the user signed in
 	await expect(tasks.getByText('Codex needs you to sign in', { exact: true })).toHaveCount(0);
 	expect(state.signIns).toHaveLength(2);
 	expect(state.signIns[0].request_id).not.toBe(state.signIns[1].request_id);
+});
+
+// Production (KUA-98): Claude Code stopped at its 5-hour limit. The task is
+// paused, not failed: the chat says why and when it resumes, and the creator
+// can keep it paused or resume it now.
+test('a task paused at the usage limit shows the reset and can be resumed', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	const message = "You've hit your 5-hour limit · resets 4:10am (UTC)";
+	state.task = {
+		...state.task,
+		provider: 'claude-code',
+		state: 'blocked',
+		reason: 'Paused: Claude Code usage limit reached. ' + message,
+		usage_limit_message: message,
+		usage_limit_resets_at: '2026-11-10T04:10:00Z',
+		usage_limit_resume_at: '2026-11-10T04:12:00Z'
+	};
+	emit('task.state_changed', state.task);
+	const paused = tasks.getByTestId('task-usage-limit');
+	await expect(paused.getByText('Claude Code usage limit reached', { exact: true })).toBeVisible();
+	await expect(paused.getByText(message, { exact: true })).toBeVisible();
+	await expect(paused.getByText(/resumes automatically at/)).toBeVisible();
+	await expect(tasks.getByText('Paused', { exact: true })).toBeVisible();
+	await expect(tasks.getByText('Failed', { exact: true })).toHaveCount(0);
+
+	await paused.getByRole('button', { name: "Don't resume" }).click();
+	await expect(paused.getByText(/Automatic resume is off/)).toBeVisible();
+	await expect(paused.getByRole('button', { name: "Don't resume" })).toHaveCount(0);
+
+	await paused.getByRole('button', { name: 'Resume now' }).click();
+	await expect(tasks.getByTestId('task-usage-limit')).toHaveCount(0);
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	expect(state.resumes).toEqual(['DELETE', 'POST']);
 });
 
 test('a Claude Code task stopped for sign-in continues with a pasted token', async ({ page }) => {

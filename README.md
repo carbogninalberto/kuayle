@@ -168,6 +168,7 @@ assistant that can hand issues to coding agents running on your own machines.
 - GitHub App: links branches, commits and pull requests to issues, moves issues through configurable status rules, and comments on pull requests.
 - HTTP API with scoped personal access tokens and an [OpenAPI 3.1 reference](docs/api.md) served by every instance at `/api/openapi.json`.
 - Outgoing webhook registration with signed deliveries (event delivery is not wired yet), and Telegram.
+- [MCP server](docs/mcp.md) at `/mcp`: Claude Code, Claude Desktop, Cursor and Codex read and update issues and wiki pages with a scoped token.
 - Workspace export/import between instances, with assets and ID remapping.
 
 </details>

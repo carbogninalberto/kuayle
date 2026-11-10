@@ -300,3 +300,16 @@ type WikiRepo interface {
 }
 
 var _ WikiRepo = (*WikiRepository)(nil)
+
+// PasskeyRepo stores WebAuthn credentials and the pending ceremonies' state.
+type PasskeyRepo interface {
+	Create(ctx context.Context, p *domain.PasskeyCredential) error
+	ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.PasskeyCredential, error)
+	GetByCredentialID(ctx context.Context, credentialID []byte) (*domain.PasskeyCredential, error)
+	Exists(ctx context.Context, id, userID uuid.UUID) (bool, error)
+	Rename(ctx context.Context, id, userID uuid.UUID, name string) (*domain.PasskeyCredential, error)
+	Delete(ctx context.Context, id, userID uuid.UUID, keepOne bool) (bool, error)
+	RecordUse(ctx context.Context, id uuid.UUID, previousCount, signCount uint32, backupState bool) (bool, error)
+	SaveChallenge(ctx context.Context, ch *domain.PasskeyChallenge, replacesHash string) error
+	ConsumeChallenge(ctx context.Context, handleHash string) (*domain.PasskeyChallenge, error)
+}
