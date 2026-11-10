@@ -7,6 +7,8 @@
 #   claude-code.token-expires     this time (Unix seconds); then the file below
 #   claude-code.credentials.json  installed as ~/.claude/.credentials.json
 #   codex.auth.json               installed as ~/.codex/auth.json
+#   opencode.api-key              exported as OPENCODE_API_KEY unless the shell
+#                                 already has one
 #   managed                       the agents Kuayle signs in
 # A credentials file is installed only where the user has no sign-in of their
 # own; a copy in ~/.kuayle/agent-sign-ins-installed recognises the installed
@@ -89,6 +91,11 @@ kuayle_load_agent_sign_ins() {
     [ "$kuayle_codex_status" != 2 ] || kuayle_codex_missing=1
   else
     kuayle_remove_installed "$HOME/.codex/auth.json" "$kuayle_sign_ins_installed/codex.auth.json"
+  fi
+  # OpenCode reads its saved API key from the environment, as in agent runs.
+  if [ -z "${OPENCODE_API_KEY:-}" ] && [ -s "$kuayle_sign_ins_dir/opencode.api-key" ]; then
+    OPENCODE_API_KEY=$(cat "$kuayle_sign_ins_dir/opencode.api-key")
+    export OPENCODE_API_KEY
   fi
 }
 

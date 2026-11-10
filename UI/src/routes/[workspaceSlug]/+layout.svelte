@@ -518,6 +518,10 @@
 				window.dispatchEvent(new CustomEvent('ws:issue-agents-updated', { detail: msg.payload }));
 				break;
 			}
+			case 'issue.wiki_references_changed': {
+				window.dispatchEvent(new CustomEvent('ws:issue-wiki-references', { detail: msg.payload }));
+				break;
+			}
 			case 'comment.created': {
 				window.dispatchEvent(new CustomEvent('ws:comment-created', { detail: msg.payload }));
 				break;

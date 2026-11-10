@@ -326,7 +326,7 @@ var mentionNamespace = uuid.MustParse("6f0b1a52-6c1e-4d57-9d0a-3a8f4b1d9c10")
 //   - the agent has no open task: a task starts for the author with the
 //     comment as its request.
 func (s *AgentAssigneeService) HandleComment(ctx context.Context, ws, issue uuid.UUID, comment domain.Comment) error {
-	ids := extractMentionedUserIDs(comment.Body)
+	ids := extractMentionedAgentIDs(comment.Body)
 	if len(ids) == 0 {
 		return nil
 	}

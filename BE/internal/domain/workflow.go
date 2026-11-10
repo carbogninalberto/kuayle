@@ -657,6 +657,16 @@ func (g WorkflowGraph) Decide(cursor WorkflowCursor, outcome string, now time.Ti
 	return decision
 }
 
+// WorkflowReasonPrefix starts every task reason a workflow writes. A reason
+// with it explains a decision of the workflow (a step's visit limit, the
+// budget, a person stopping it), so it stays the reason of a failed task.
+const WorkflowReasonPrefix = "Workflow · "
+
+// IsWorkflowReason reports whether a task reason was written by a workflow.
+func IsWorkflowReason(reason string) bool {
+	return strings.HasPrefix(reason, WorkflowReasonPrefix)
+}
+
 // OnExhausted is the budget's limit policy, failing by default.
 func (b WorkflowBudget) Policy() string {
 	if b.OnExhausted == WorkflowOnLimitAsk {

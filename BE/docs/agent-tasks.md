@@ -946,7 +946,7 @@ access stops its unattended runs.
 
 ## Agents as issue assignees
 
-Migration 139 makes an agent profile a member that can be assigned issues and
+Migration 142 makes an agent profile a member that can be assigned issues and
 mentioned in comments (KUA-107). It adds no second execution path: assigning or
 mentioning an agent creates a task through `AgentTaskService.Create`, in the
 acting member's own issue conversation, exactly as chat delegation and
@@ -1399,7 +1399,13 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   version runs (a reviewer step reviews and leaves on its verdict; other roles
   start iterations), so it cannot change while any saved version (archived
   workflows' included) uses the profile (`409 PROFILE_ROLE_IN_USE`); the
-  profile's row lock serializes this with saves.
+  profile's row lock serializes this with saves. Saving a profile applies the
+  model, effort and model server rules of a task start (not the allowed
+  providers, which can change later) and answers `400` with the reason, for
+  example a harness that takes no model or effort; `GET /agent-profiles`
+  lists the harnesses that take them in `model_harnesses`
+  (`harnessAcceptsModel` is the one rule). Profiles stored before that check
+  still load and are checked when they are saved again.
 - **Workflows** (`workflows`, `workflow_versions`): a save inserts the next
   immutable version (an update trigger refuses changes) with the graph as
   JSONB; `expected_version` refuses a stale save. Archiving hides a workflow
@@ -1425,7 +1431,13 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   reachable and able to leave, every cycle containing a node with
   `max_visits`, and every agent step naming an active profile in the
   workspace. The repository validates again inside the save transaction, so
-  an invalid graph is never stored.
+  an invalid graph is never stored. Validating, creating or saving a
+  workflow, and choosing one as a default, also reports each agent step whose
+  profile cannot start a task as an `unusable_profile` issue on that step,
+  naming the step and the profile (`422 INVALID_WORKFLOW`). A task start
+  refused for that reason says so: `WorkflowStepError` names the workflow,
+  the step, the profile and what is wrong, as the `400`/`403` message of the
+  task composer and as the error on the assistant's approval card.
 - **Budget**: `max_iterations`, `max_minutes` and `on_exhausted` (`fail` or
   `ask`). A visit limit or the budget either fails the task or pauses the
   workflow for a person to continue or stop. Limits are checked at every

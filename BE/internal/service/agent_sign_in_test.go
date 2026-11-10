@@ -48,7 +48,11 @@ func (f *signInStoreFake) SaveAgentSignInToken(_ context.Context, ws, user uuid.
 		f.rows = map[string]signInRow{}
 	}
 	now := time.Now()
-	f.rows[signInKey(ws, user, provider, domain.AgentSignInToken)] = signInRow{encrypted, domain.AgentSignIn{Provider: provider, Kind: domain.AgentSignInToken, CreatedAt: now, UpdatedAt: now, ExpiresAt: &expires}}
+	info := domain.AgentSignIn{Provider: provider, Kind: domain.AgentSignInToken, CreatedAt: now, UpdatedAt: now}
+	if !expires.IsZero() {
+		info.ExpiresAt = &expires
+	}
+	f.rows[signInKey(ws, user, provider, domain.AgentSignInToken)] = signInRow{encrypted, info}
 	return nil
 }
 
@@ -86,13 +90,16 @@ func TestClaudeCodeTokenIsEncryptedAndNeverReturned(t *testing.T) {
 
 	listed, err := svc.ListAgentSignIns(context.Background(), ws, user)
 	require.NoError(t, err)
-	require.Len(t, listed, 2, "every agent with a sign-in is listed")
+	require.Len(t, listed, 3, "every agent with a sign-in is listed")
 	require.Equal(t, "claude-code", listed[0].Provider)
 	require.True(t, listed[0].SupportsToken)
 	require.NotNil(t, listed[0].Token)
 	require.Nil(t, listed[0].Terminal)
 	require.Equal(t, "codex", listed[1].Provider)
 	require.False(t, listed[1].SupportsToken)
+	require.Equal(t, "opencode", listed[2].Provider)
+	require.True(t, listed[2].SupportsToken)
+	require.Nil(t, listed[2].Token, "a Claude Code token is not an OpenCode key")
 	for _, value := range []any{saved, listed} {
 		encoded, err := json.Marshal(value)
 		require.NoError(t, err)
@@ -108,6 +115,73 @@ func TestClaudeCodeTokenIsEncryptedAndNeverReturned(t *testing.T) {
 	has, err = svc.HasAgentSignInToken(context.Background(), ws, user, "claude-code")
 	require.NoError(t, err)
 	require.False(t, has)
+}
+
+const openCodeKeyFixture = "fixture-opencode-api-key-0001"
+
+// An OpenCode API key is saved, replaced and removed like the Claude Code
+// token, but has no expiry estimate: only `claude setup-token` tokens last a
+// known year.
+func TestOpenCodeKeyIsEncryptedHasNoExpiryAndIsNeverReturned(t *testing.T) {
+	ws, user := uuid.New(), uuid.New()
+	store := &signInStoreFake{}
+	svc := newTestDevMachineService(store)
+	ctx := context.Background()
+	stored := func() string {
+		t.Helper()
+		value, err := cryptoutil.Decrypt(store.rows[signInKey(ws, user, "opencode", domain.AgentSignInToken)].encrypted, cryptoutil.DeriveKey("test"))
+		require.NoError(t, err)
+		return value
+	}
+
+	saved, err := svc.SaveAgentSignInToken(ctx, ws, user, "opencode", " "+openCodeKeyFixture+"\n")
+	require.NoError(t, err)
+	require.Equal(t, "opencode", saved.Provider)
+	require.True(t, saved.SupportsToken)
+	require.NotNil(t, saved.Token)
+	require.Nil(t, saved.Token.ExpiresAt, "an API key has no expiry estimate")
+	require.False(t, saved.Token.Expired)
+	require.Nil(t, saved.Terminal)
+	require.NotContains(t, store.rows[signInKey(ws, user, "opencode", domain.AgentSignInToken)].encrypted, openCodeKeyFixture)
+	require.Equal(t, openCodeKeyFixture, stored())
+	has, err := svc.HasAgentSignInToken(ctx, ws, user, "opencode")
+	require.NoError(t, err)
+	require.True(t, has)
+	has, err = svc.HasAgentSignInToken(ctx, ws, user, "claude-code")
+	require.NoError(t, err)
+	require.False(t, has, "the key is not a Claude Code token")
+
+	const replacement = "fixture-opencode-api-key-0002"
+	_, err = svc.SaveAgentSignInToken(ctx, ws, user, "opencode", replacement)
+	require.NoError(t, err)
+	require.Equal(t, replacement, stored(), "a new key replaces the old one")
+
+	listed, err := svc.ListAgentSignIns(ctx, ws, user)
+	require.NoError(t, err)
+	require.Equal(t, "opencode", listed[2].Provider)
+	require.NotNil(t, listed[2].Token)
+	require.Nil(t, listed[0].Token)
+	for _, value := range []any{saved, listed} {
+		encoded, err := json.Marshal(value)
+		require.NoError(t, err)
+		require.NotContains(t, string(encoded), "fixture-opencode-api-key")
+		require.NotContains(t, string(encoded), "encrypted")
+	}
+	other, err := svc.ListAgentSignIns(ctx, ws, uuid.New())
+	require.NoError(t, err)
+	require.Nil(t, other[2].Token, "another user's key is not theirs")
+
+	_, err = svc.SaveAgentSignInToken(ctx, ws, user, "opencode", "key with spaces in it 0001")
+	require.ErrorIs(t, err, ErrInvalidMachineInput)
+	require.Equal(t, replacement, stored(), "a rejected key leaves the saved one")
+
+	require.NoError(t, svc.DeleteAgentSignIn(ctx, ws, user, "opencode", domain.AgentSignInToken))
+	has, err = svc.HasAgentSignInToken(ctx, ws, user, "opencode")
+	require.NoError(t, err)
+	require.False(t, has)
+	listed, err = svc.ListAgentSignIns(ctx, ws, user)
+	require.NoError(t, err)
+	require.Nil(t, listed[2].Token)
 }
 
 func TestClaudeCodeTokenRejectsInvalidValues(t *testing.T) {

@@ -19,6 +19,7 @@ var editorClassNames = []string{
 	"editor-attachment",              // file attachment link
 	"mention",                        // @user and issue mentions
 	"mention-issue",                  // issue mentions
+	"mention-wiki",                   // wiki page references
 	"registry-ref",                   // pull request reference in the wiki registry
 	"text-[var(--app-accent-light)]", // editor links
 	"underline",                      // editor links

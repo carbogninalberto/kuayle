@@ -9,6 +9,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 	"github.com/stretchr/testify/require"
 )
 
@@ -239,7 +240,7 @@ func TestUnassigningAnAgentCancelsItsTask(t *testing.T) {
 func mentionComment(author uuid.UUID, ids ...uuid.UUID) domain.Comment {
 	body := "<p>"
 	for _, id := range ids {
-		body += `<span data-type="mention" data-id="` + id.String() + `">@agent</span> `
+		body += `<span data-type="mention" data-kind="agent" data-id="` + id.String() + `">@agent</span> `
 	}
 	return domain.Comment{ID: uuid.New(), UserID: author, Body: body + "why does the import fail ~~~ on Windows?</p>"}
 }
@@ -278,6 +279,22 @@ func TestMentioningAnAgentReachesOnlyTheCommentersOwnOpenTask(t *testing.T) {
 	require.NoError(t, svc.HandleComment(context.Background(), ws, issue, mentionComment(user, profile.ID)))
 	require.Len(t, runtime.messages, 1)
 	require.Empty(t, runtime.requests)
+}
+
+// The editor marks an agent chip with kind "agent". It must survive the
+// comment sanitizer and be read as an agent mention, never as a person's;
+// chips of other kinds (people, issues, wiki pages) never reach an agent.
+func TestAgentMentionChipsAreToldApartFromPeopleIssuesAndWikiPages(t *testing.T) {
+	agent, person, issue, page := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	chip := func(kind string, id uuid.UUID) string {
+		return `<span data-type="mention" data-id="` + id.String() + `" data-label="x" data-kind="` + kind + `" class="mention">@x</span>`
+	}
+	body := sanitize.SanitizeEditorContent("<p>" + chip("agent", agent) + chip("user", person) + chip("issue", issue) + chip("wiki", page) + "</p>")
+	require.Equal(t, []uuid.UUID{agent}, extractMentionedAgentIDs(body))
+	require.Equal(t, []uuid.UUID{person}, extractMentionedUserIDs(body))
+	legacy := `<span data-type="mention" data-id="` + person.String() + `">@x</span>`
+	require.Equal(t, []uuid.UUID{person}, extractMentionedUserIDs(legacy), "a chip without a kind is a person")
+	require.Empty(t, extractMentionedAgentIDs(legacy))
 }
 
 func TestCommentsThatMentionNoAssignableAgentDoNothing(t *testing.T) {

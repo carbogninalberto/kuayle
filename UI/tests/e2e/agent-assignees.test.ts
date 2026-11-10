@@ -120,7 +120,7 @@ async function mockWorkspace(page: Page, options: { role?: string; assigned?: As
 		if (
 			['/api/workspaces/test/projects', '/api/workspaces/test/labels', '/api/workspaces/test/views'].includes(path) ||
 			path.match(/^\/api\/workspaces\/test\/teams\/[^/]+\/cycles$/) ||
-			path.match(/^\/api\/workspaces\/test\/issues\/ENG-1\/(comments|relations|sub-issues)$/)
+			path.match(/^\/api\/workspaces\/test\/issues\/ENG-1\/(comments|relations|sub-issues|wiki-references)$/)
 		)
 			return route.fulfill({ json: [] });
 		state.unhandled.push(`${request.method()} ${path}`);
@@ -218,6 +218,8 @@ test('an agent can be mentioned in a comment', async ({ page }) => {
 	await expect.poll(() => state.comments.length).toBe(1);
 	expect(state.comments[0]).toContain(`data-id="${fixerId}"`);
 	expect(state.comments[0]).toContain('data-type="mention"');
+	// The server tells agent chips from people by this kind.
+	expect(state.comments[0]).toContain('data-kind="agent"');
 });
 
 test('agents appear in the issue list, the assignee filter and my issues', async ({ page }) => {

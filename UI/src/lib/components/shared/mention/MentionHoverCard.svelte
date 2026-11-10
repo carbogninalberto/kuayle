@@ -5,19 +5,24 @@
 	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
+	import { FileText, Lock } from '@lucide/svelte';
+	import type { WikiReference } from '$lib/features/wiki/wiki-references';
 
 	let {
 		anchor,
 		kind,
 		label,
 		member,
-		issue
+		issue,
+		reference
 	}: {
 		anchor: DOMRect;
-		kind: 'user' | 'issue';
+		kind: 'user' | 'issue' | 'wiki';
 		label: string;
 		member?: WorkspaceMember;
 		issue?: Issue;
+		/** A wiki page reference as resolved for this reader. */
+		reference?: WikiReference;
 	} = $props();
 
 	let card: HTMLDivElement;
@@ -44,7 +49,20 @@
 	style:top="{top}px"
 	role="tooltip"
 >
-	{#if kind === 'issue'}
+	{#if kind === 'wiki'}
+		<div class="flex items-start gap-2">
+			{#if reference?.accessible}
+				<FileText size={14} class="mt-0.5 shrink-0 text-[var(--color-text-tertiary)]" />
+				<div class="min-w-0">
+					<div class="text-xs font-medium text-[var(--color-text-tertiary)]">{reference.scope_name}</div>
+					<div class="mt-0.5 font-medium break-words">{reference.title}</div>
+				</div>
+			{:else}
+				<Lock size={14} class="mt-0.5 shrink-0 text-[var(--color-text-tertiary)]" />
+				<div class="min-w-0 text-[var(--color-text-secondary)]">{m['wiki.reference.unavailable_hint']()}</div>
+			{/if}
+		</div>
+	{:else if kind === 'issue'}
 		<div class="flex items-start gap-2">
 			<IssueStatusIcon status={issue?.status} category={issue?.status_info?.category} color={issue?.status_info?.color} size={14} />
 			<div class="min-w-0">

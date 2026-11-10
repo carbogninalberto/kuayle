@@ -303,7 +303,18 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 		scoped(ws, http.MethodPost, wiki.base+"/:pageId/move", h.wiki.Move(wiki.kind), domain.PermWikiWrite)
 		scoped(ws, http.MethodGet, wiki.base+"/:pageId/publish", h.wikiPublish.State(wiki.kind), domain.PermWikiRead)
 		scoped(ws, http.MethodPut, wiki.base+"/:pageId/publish", h.wikiPublish.Publish(wiki.kind), domain.PermWikiWrite)
+		// Backlinks name referencing issues only to callers with issues:read.
+		scoped(ws, http.MethodGet, wiki.base+"/:pageId/backlinks", h.wiki.Backlinks(wiki.kind), domain.PermWikiRead)
 	}
+	// References to wiki pages from issues, comments and other pages. Pages
+	// of every team and project are suggested and resolved, each through the
+	// caller's current visibility of its wiki; a chip for any other page
+	// resolves to nothing but its ID.
+	scoped(ws, http.MethodGet, "/wiki/references", h.wiki.SearchReferences, domain.PermWikiRead)
+	scoped(ws, http.MethodPost, "/wiki/references/resolve", h.wiki.ResolveReferences, domain.PermWikiRead)
+	scoped(ws, http.MethodGet, "/issues/:identifier/wiki-references", h.wiki.IssueReferences, "issues:read", mw.RequirePermission(domain.PermWikiRead))
+	scoped(ws, http.MethodPost, "/issues/:identifier/wiki-references", h.wiki.AttachIssueReference, "issue:update", mw.RequirePermission(domain.PermWikiRead))
+	scoped(ws, http.MethodDelete, "/issues/:identifier/wiki-references/:pageId", h.wiki.DetachIssueReference, "issue:update")
 
 	// Views
 	scoped(ws, http.MethodGet, "/views", h.view.List, "views:read")

@@ -39,6 +39,8 @@ export interface AgentProfileList {
 	/** Owners and admins edit; the server enforces it. */
 	can_manage: boolean;
 	harnesses: string[];
+	/** The harnesses that take a model and an effort; absent on older servers. */
+	model_harnesses?: string[];
 	roles: AgentRole[];
 }
 

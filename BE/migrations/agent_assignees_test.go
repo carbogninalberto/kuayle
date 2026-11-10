@@ -38,7 +38,7 @@ func TestAgentAssigneesMigration(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 	fixture := insertBaseMigrationFixture(t, db)
-	require.NoError(t, m.Migrate(138))
+	require.NoError(t, m.Migrate(141))
 	var issue, team, conversation, task, profile uuid.UUID
 	require.NoError(t, db.QueryRow(`SELECT id,team_id FROM issues WHERE workspace_id=$1 LIMIT 1`, fixture.workspaceA).Scan(&issue, &team))
 	_, err = db.Exec(`INSERT INTO issue_assignees(issue_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, issue, fixture.userA)
@@ -47,7 +47,7 @@ func TestAgentAssigneesMigration(t *testing.T) {
 	require.NoError(t, db.QueryRow(`INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider) VALUES($1,$2,$3,$4,$5,$6,'Implement','codex') RETURNING id`, fixture.workspaceA, conversation, fixture.userA, issue, team, uuid.New()).Scan(&task))
 	require.NoError(t, db.QueryRow(`INSERT INTO agent_profiles(workspace_id,name,role,harness) VALUES($1,'Fixer','implementer','codex') RETURNING id`, fixture.workspaceA).Scan(&profile))
 
-	require.NoError(t, m.Migrate(139))
+	require.NoError(t, m.Migrate(142))
 	var existing *uuid.UUID
 	require.NoError(t, db.QueryRow(`SELECT agent_profile_id FROM agent_tasks WHERE id=$1`, task).Scan(&existing))
 	require.Nil(t, existing, "an existing task runs as no agent identity")
@@ -83,5 +83,5 @@ func TestAgentAssigneesMigration(t *testing.T) {
 	require.Zero(t, count)
 	require.NoError(t, db.QueryRow(`SELECT count(*) FROM issue_assignees WHERE issue_id=$1`, issue).Scan(&people))
 	require.Equal(t, 1, people)
-	require.NoError(t, m.Migrate(139), "the migration re-applies cleanly")
+	require.NoError(t, m.Migrate(142), "the migration re-applies cleanly")
 }

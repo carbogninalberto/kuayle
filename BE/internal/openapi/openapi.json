@@ -65,6 +65,14 @@
 				],
 				"type": "object"
 			},
+			"AttachWikiReferenceRequest": {
+				"properties": {
+					"page_id": {
+						"type": "string"
+					}
+				},
+				"type": "object"
+			},
 			"BulkCreateSubIssueRequest": {
 				"properties": {
 					"issues": {
@@ -1517,6 +1525,17 @@
 				],
 				"type": "object"
 			},
+			"ResolveWikiReferencesRequest": {
+				"properties": {
+					"ids": {
+						"items": {
+							"type": "string"
+						},
+						"type": "array"
+					}
+				},
+				"type": "object"
+			},
 			"SetTeamVisibilityRequest": {
 				"properties": {
 					"acknowledge_privacy_limitations": {
@@ -2280,6 +2299,46 @@
 				],
 				"type": "object"
 			},
+			"WikiBacklinkIssue": {
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"identifier": {
+						"type": "string"
+					},
+					"title": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"id",
+					"identifier",
+					"title"
+				],
+				"type": "object"
+			},
+			"WikiBacklinks": {
+				"properties": {
+					"issues": {
+						"items": {
+							"$ref": "#/components/schemas/WikiBacklinkIssue"
+						},
+						"type": "array"
+					},
+					"pages": {
+						"items": {
+							"$ref": "#/components/schemas/WikiReference"
+						},
+						"type": "array"
+					}
+				},
+				"required": [
+					"issues",
+					"pages"
+				],
+				"type": "object"
+			},
 			"WikiOverview": {
 				"properties": {
 					"content": {
@@ -2560,6 +2619,33 @@
 						"type": "boolean"
 					}
 				},
+				"type": "object"
+			},
+			"WikiReference": {
+				"properties": {
+					"accessible": {
+						"type": "boolean"
+					},
+					"id": {
+						"type": "string"
+					},
+					"project_id": {
+						"type": "string"
+					},
+					"scope_name": {
+						"type": "string"
+					},
+					"team_id": {
+						"type": "string"
+					},
+					"title": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"id",
+					"accessible"
+				],
 				"type": "object"
 			},
 			"WikiRegistryDay": {
@@ -4891,6 +4977,238 @@
 				"x-kuayle-stability": "stable"
 			}
 		},
+		"/api/workspaces/{slug}/issues/{identifier}/wiki-references": {
+			"get": {
+				"description": "Pages the caller cannot see are returned with accessible false and no title.\n\nRequired scope: `issues:read` and `wiki:read`.",
+				"operationId": "listIssueWikiReferences",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Issue identifier: the team key and issue number, for example ENG-42.",
+						"in": "path",
+						"name": "identifier",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"items": {
+										"$ref": "#/components/schemas/WikiReference"
+									},
+									"type": "array"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"issues:read",
+							"wiki:read"
+						]
+					}
+				],
+				"summary": "List the wiki pages attached to an issue",
+				"tags": [
+					"Wiki"
+				],
+				"x-kuayle-scopes": [
+					"issues:read",
+					"wiki:read"
+				],
+				"x-kuayle-stability": "stable"
+			},
+			"post": {
+				"description": "Returns the issue's attached pages.\n\nRequired scope: `issue:update` and `wiki:read`.",
+				"operationId": "attachIssueWikiReference",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Issue identifier: the team key and issue number, for example ENG-42.",
+						"in": "path",
+						"name": "identifier",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/AttachWikiReferenceRequest"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"items": {
+										"$ref": "#/components/schemas/WikiReference"
+									},
+									"type": "array"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"issue:update",
+							"wiki:read"
+						]
+					}
+				],
+				"summary": "Attach a wiki page to an issue",
+				"tags": [
+					"Wiki"
+				],
+				"x-kuayle-scopes": [
+					"issue:update",
+					"wiki:read"
+				],
+				"x-kuayle-stability": "stable"
+			}
+		},
+		"/api/workspaces/{slug}/issues/{identifier}/wiki-references/{pageId}": {
+			"delete": {
+				"description": "Required scope: `issue:update`.",
+				"operationId": "detachIssueWikiReference",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Issue identifier: the team key and issue number, for example ENG-42.",
+						"in": "path",
+						"name": "identifier",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Wiki page ID.",
+						"in": "path",
+						"name": "pageId",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/StatusResult"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"issue:update"
+						]
+					}
+				],
+				"summary": "Remove a wiki page from an issue",
+				"tags": [
+					"Wiki"
+				],
+				"x-kuayle-scopes": [
+					"issue:update"
+				],
+				"x-kuayle-stability": "stable"
+			}
+		},
 		"/api/workspaces/{slug}/labels": {
 			"get": {
 				"description": "Required scope: `labels:read`.",
@@ -6705,6 +7023,85 @@
 				],
 				"x-kuayle-scopes": [
 					"wiki:write"
+				],
+				"x-kuayle-stability": "stable"
+			}
+		},
+		"/api/workspaces/{slug}/projects/{id}/wiki/{pageId}/backlinks": {
+			"get": {
+				"description": "Issues that mention the page in their description or a comment or have it attached, and pages that mention it, limited to what the caller can see. The issues are listed only with issues:read.\n\nRequired scope: `wiki:read`.",
+				"operationId": "listProjectWikiPageBacklinks",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Resource ID.",
+						"in": "path",
+						"name": "id",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					},
+					{
+						"description": "Wiki page ID.",
+						"in": "path",
+						"name": "pageId",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/WikiBacklinks"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"wiki:read"
+						]
+					}
+				],
+				"summary": "List where a project wiki page is referenced",
+				"tags": [
+					"Wiki"
+				],
+				"x-kuayle-scopes": [
+					"wiki:read"
 				],
 				"x-kuayle-stability": "stable"
 			}
@@ -9396,6 +9793,85 @@
 				"x-kuayle-stability": "stable"
 			}
 		},
+		"/api/workspaces/{slug}/teams/{teamId}/wiki/{pageId}/backlinks": {
+			"get": {
+				"description": "Issues that mention the page in their description or a comment or have it attached, and pages that mention it, limited to what the caller can see. The issues are listed only with issues:read.\n\nRequired scope: `wiki:read`.",
+				"operationId": "listTeamWikiPageBacklinks",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Team ID.",
+						"in": "path",
+						"name": "teamId",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					},
+					{
+						"description": "Wiki page ID.",
+						"in": "path",
+						"name": "pageId",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/WikiBacklinks"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"wiki:read"
+						]
+					}
+				],
+				"summary": "List where a team wiki page is referenced",
+				"tags": [
+					"Wiki"
+				],
+				"x-kuayle-scopes": [
+					"wiki:read"
+				],
+				"x-kuayle-stability": "stable"
+			}
+		},
 		"/api/workspaces/{slug}/teams/{teamId}/wiki/{pageId}/move": {
 			"post": {
 				"description": "Returns the new tree.\n\nRequired scope: `wiki:write`.",
@@ -10148,6 +10624,156 @@
 				],
 				"x-kuayle-scopes": [
 					"workspace:manage"
+				],
+				"x-kuayle-stability": "stable"
+			}
+		},
+		"/api/workspaces/{slug}/wiki/references": {
+			"get": {
+				"description": "Pages of every team and project the caller can see, most recently updated first.\n\nRequired scope: `wiki:read`.",
+				"operationId": "searchWikiReferences",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Text the page title contains.",
+						"in": "query",
+						"name": "q",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Pages to return, 1 to 20.",
+						"in": "query",
+						"name": "limit",
+						"schema": {
+							"type": "integer"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"items": {
+										"$ref": "#/components/schemas/WikiReference"
+									},
+									"type": "array"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"wiki:read"
+						]
+					}
+				],
+				"summary": "Search wiki pages to reference",
+				"tags": [
+					"Wiki"
+				],
+				"x-kuayle-scopes": [
+					"wiki:read"
+				],
+				"x-kuayle-stability": "stable"
+			}
+		},
+		"/api/workspaces/{slug}/wiki/references/resolve": {
+			"post": {
+				"description": "Answers every requested page ID: with title and team or project when the caller can see the page, and with accessible false otherwise.\n\nRequired scope: `wiki:read`.",
+				"operationId": "resolveWikiReferences",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/ResolveWikiReferencesRequest"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"items": {
+										"$ref": "#/components/schemas/WikiReference"
+									},
+									"type": "array"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"wiki:read"
+						]
+					}
+				],
+				"summary": "Resolve wiki page references",
+				"tags": [
+					"Wiki"
+				],
+				"x-kuayle-scopes": [
+					"wiki:read"
 				],
 				"x-kuayle-stability": "stable"
 			}

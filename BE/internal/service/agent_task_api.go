@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -89,13 +90,19 @@ func (s *AgentTaskService) validateRequest(ctx context.Context, ws uuid.UUID, in
 	if !ok || provider.Metadata().Custom || !providerAllowed(policy.AllowedProviders, input.Provider) {
 		return ErrProviderNotAllowed
 	}
-	if err = s.machines.validateAgentModel(ctx, ws, input.Provider, input.ModelServerID, input.Model, input.Thinking); err != nil {
+	return s.validateInvocation(ctx, ws, provider, input)
+}
+
+// validateInvocation is the part of a request's check that depends on the
+// coding agent and the workspace's model servers, not on the workspace
+// policy: the model, effort and model server it can run with.
+func (s *AgentTaskService) validateInvocation(ctx context.Context, ws uuid.UUID, provider agent.Provider, input domain.AgentTaskRequest) error {
+	if err := s.machines.validateAgentModel(ctx, ws, input.Provider, input.ModelServerID, input.Model, input.Thinking); err != nil {
 		return err
 	}
 	// Use the native provider's mode/prompt checks too; HTTP input never supplies
 	// native harness argv, environment variables, runtime IDs or execution authority.
-	_, err = provider.BuildInvocation(agent.RunInput{Mode: agent.ModeAutonomous, Prompt: input.Prompt, Model: input.Model, Thinking: input.Thinking})
-	if err != nil {
+	if _, err := provider.BuildInvocation(agent.RunInput{Mode: agent.ModeAutonomous, Prompt: input.Prompt, Model: input.Model, Thinking: input.Thinking}); err != nil {
 		return ErrInvalidMachineInput
 	}
 	return nil
@@ -176,6 +183,68 @@ func (s *AgentTaskService) accept(ctx context.Context, ws, id uuid.UUID, generat
 // task now: it is archived, or one of its agent profiles was archived.
 var ErrWorkflowUnusable = errors.New("the workflow cannot start a task")
 
+// WorkflowStepError is a task start refused because the profile of one of the
+// workflow's agent steps cannot run. Its text is written for the user and
+// names only what they configured; the cause keeps the HTTP status.
+type WorkflowStepError struct {
+	Workflow, Step, Profile, Reason string
+	cause                           error
+}
+
+func (e *WorkflowStepError) Error() string {
+	return fmt.Sprintf("Workflow %q, step %q (profile %q): %s", e.Workflow, e.Step, e.Profile, e.Reason)
+}
+func (e *WorkflowStepError) Unwrap() error { return e.cause }
+
+// invocationReason turns a refused model, effort or model server into words
+// for the user. Other errors (a database failure) are returned as they are.
+func invocationReason(err error) (string, error) {
+	var model *AgentModelError
+	switch {
+	case err == nil:
+		return "", nil
+	case errors.As(err, &model):
+		return model.Reason, nil
+	case errors.Is(err, ErrInvalidMachineInput):
+		return "its model or effort was rejected", nil
+	}
+	return "", err
+}
+
+// profileProblem says why a profile's coding agent, model and effort cannot
+// start a task, or "" when they can. It applies the task-start rules except
+// the workspace policy (coding agents enabled and allowed), which can change
+// after a save and is checked again whenever a step runs.
+func (s *AgentTaskService) profileProblem(ctx context.Context, ws uuid.UUID, profile domain.AgentProfile) (string, error) {
+	provider, ok := s.machines.agents.Get(profile.Harness)
+	if !ok || provider.Metadata().Custom {
+		return "its coding agent is not available", nil
+	}
+	return invocationReason(s.validateInvocation(ctx, ws, provider, domain.AgentTaskRequest{Prompt: "Workflow step", Provider: profile.Harness, Model: profile.Model, Thinking: profile.Effort}))
+}
+
+// stepError names the workflow, step and profile a refused start is about.
+// Refusals that are not about the profile (coding agents disabled, a
+// database failure) are returned as they are.
+func (s *AgentTaskService) stepError(ctx context.Context, ws uuid.UUID, version *domain.WorkflowVersion, node domain.WorkflowNode, profile domain.AgentProfile, cause error) error {
+	reason := harnessName(profile.Harness) + " is not allowed in this workspace"
+	if !errors.Is(cause, ErrProviderNotAllowed) {
+		var err error
+		if reason, err = invocationReason(cause); err != nil {
+			return err
+		}
+	}
+	workflow, err := s.definitions.Workflow(ctx, ws, version.WorkflowID)
+	if err != nil {
+		return err
+	}
+	name := workflow.Name
+	if workflow.BuiltinKey != nil {
+		name = "Standard"
+	}
+	return &WorkflowStepError{Workflow: name, Step: strings.TrimSpace(node.Label), Profile: profile.Name, Reason: reason, cause: cause}
+}
+
 // resolveWorkflow pins the workflow a new task runs: the one the request
 // chose, else the issue's project, team or workspace default. The Standard
 // workflow (no version) keeps the request as it is. A custom workflow's
@@ -214,8 +283,9 @@ func (s *AgentTaskService) resolveWorkflow(ctx context.Context, ws, conversation
 	}
 	for _, node := range graph.Nodes {
 		if node.Type == domain.WorkflowNodeAgent {
-			if err = s.profilePolicy(ctx, ws, profiles[*node.ProfileID]); err != nil {
-				return err
+			profile := profiles[*node.ProfileID]
+			if err = s.profilePolicy(ctx, ws, profile); err != nil {
+				return s.stepError(ctx, ws, version, node, profile, err)
 			}
 		}
 	}

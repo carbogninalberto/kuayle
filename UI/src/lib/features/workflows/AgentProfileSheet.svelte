@@ -20,6 +20,7 @@
 	import { agentInfo } from '$lib/features/agents/agents';
 	import { AGENT_EFFORT, effortChoice } from '$lib/features/agents/model-choice';
 	import { roleLabel } from './labels';
+	import { profileSubmission, takesModel } from './profile-model';
 	import ProfileSkills from './ProfileSkills.svelte';
 	import AiMarkdownEditor from './AiMarkdownEditor.svelte';
 	import InfoHint from '$lib/components/shared/InfoHint.svelte';
@@ -78,6 +79,9 @@
 		if (draft.harness && !ids.includes(draft.harness)) ids.push(draft.harness);
 		return ids.map((id) => ({ value: id, label: agentInfo(id).name }));
 	});
+	// The server says which coding agents take a model and an effort; for the
+	// others both fields are off and nothing left in them is sent.
+	const modelAllowed = $derived(takesModel(list, draft.harness));
 	const sizeLabel = (n: number) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
 
 	// Refusals the server explains with a code get a translated message.
@@ -93,7 +97,7 @@
 		if (saving || !editable || tooLong) return;
 		saving = true;
 		try {
-			const input = { ...draft, name: draft.name.trim(), model: draft.model.trim() };
+			const input = profileSubmission(draft, list);
 			if (profile === 'new') await agentProfiles.create(slug, input);
 			else await agentProfiles.update(slug, profile.id, input);
 			appToast.success(m['profiles.saved']());
@@ -169,11 +173,12 @@
 							<Label for="profile-model">{m['profiles.model']()}</Label>
 							<Input
 								id="profile-model"
-								bind:value={draft.model}
+								bind:value={() => (modelAllowed ? draft.model : ''), (value: string) => (draft.model = value)}
 								maxlength={128}
 								autocomplete="off"
 								class="font-mono"
-								disabled={!editable}
+								disabled={!editable || !modelAllowed}
+								aria-describedby={modelAllowed ? undefined : 'profile-model-hint'}
 								placeholder={m['profiles.model_placeholder']()}
 							/>
 						</div>
@@ -181,9 +186,10 @@
 							<Label for="profile-effort">{m['profiles.effort']()}</Label>
 							<SelectField
 								id="profile-effort"
-								disabled={!editable}
+								disabled={!editable || !modelAllowed}
+								aria-describedby={modelAllowed ? undefined : 'profile-model-hint'}
 								bind:value={
-									() => effortChoice(draft.effort),
+									() => effortChoice(modelAllowed ? draft.effort : ''),
 									(value: string) => (draft.effort = value === AGENT_EFFORT ? '' : value)
 								}
 								options={[
@@ -192,6 +198,11 @@
 								]}
 							/>
 						</div>
+						{#if !modelAllowed}
+							<p id="profile-model-hint" class="text-xs text-muted-foreground sm:col-span-2">
+								{m['profiles.model_unsupported']({ agent: agentInfo(draft.harness).name })}
+							</p>
+						{/if}
 					</div>
 				</section>
 

@@ -297,3 +297,46 @@ func TestTaskClaudeResumesTheTasksSession(t *testing.T) {
 	cmd.Env = home.env("KUAYLE_WORKSPACE_ROOT=" + workspace)
 	require.Error(t, cmd.Run())
 }
+
+// openCodeKey sources the sign-in hook and reports the OPENCODE_API_KEY the
+// shell ends up with, and what the hook printed.
+func (h terminalHome) openCodeKey(t *testing.T, extra ...string) (key, output string) {
+	t.Helper()
+	cmd := exec.Command("/bin/sh", "-c", `. "$KUAYLE_AGENT_SIGN_IN"; printf 'KEY=%s\n' "${OPENCODE_API_KEY:-}"`)
+	cmd.Env = h.env(extra...)
+	raw, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(raw))
+	text := string(raw)
+	index := strings.LastIndex(text, "KEY=")
+	require.GreaterOrEqual(t, index, 0)
+	return strings.TrimSpace(text[index+len("KEY="):]), text[:index]
+}
+
+// A synced OpenCode key reaches each new shell as OPENCODE_API_KEY, follows
+// changes in Kuayle, and never replaces a key the shell already has. OpenCode
+// can be configured in other ways, so a missing key prints no hint.
+func TestTerminalShellUsesTheSyncedOpenCodeKey(t *testing.T) {
+	home := newTerminalHome(t)
+	home.sync(t, map[string]string{"opencode.api-key": "fixture-opencode-key-0001"})
+	info, err := os.Stat(filepath.Join(home.home, ".kuayle", "agent-sign-ins", "opencode.api-key"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	key, output := home.openCodeKey(t)
+	require.Equal(t, "fixture-opencode-key-0001", key)
+	require.Empty(t, output)
+	token, _ := home.shell(t)
+	require.Empty(t, token, "the key is not a Claude Code token")
+
+	key, _ = home.openCodeKey(t, "OPENCODE_API_KEY=fixture-own-opencode-key")
+	require.Equal(t, "fixture-own-opencode-key", key, "a key the shell already has is kept")
+
+	home.sync(t, map[string]string{"opencode.api-key": "fixture-opencode-key-0002"})
+	key, _ = home.openCodeKey(t)
+	require.Equal(t, "fixture-opencode-key-0002", key, "the next shell uses the replaced key")
+
+	home.sync(t, map[string]string{})
+	key, output = home.openCodeKey(t)
+	require.Empty(t, key, "a removed key is not used by the next shell")
+	require.Empty(t, output)
+}

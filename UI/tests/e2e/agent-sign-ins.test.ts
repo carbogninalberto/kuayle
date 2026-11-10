@@ -48,13 +48,19 @@ async function mockSettings(page: Page, signIns: SignIn[] | 'error') {
 			if (signIns === 'error') return route.fulfill({ status: 500, json: { error: { code: 'INTERNAL_ERROR' } } });
 			if (request.method() === 'GET') return route.fulfill({ json: signIns });
 			if (request.method() === 'PUT') {
+				const provider = path.split('/').at(-2) ?? '';
+				// Only a Claude Code token has an expiry estimate.
 				const saved = {
-					provider: 'claude-code',
+					provider,
 					supports_token: true,
-					token: { saved_at: '2026-10-28T10:00:00Z', expires_at: '2027-10-28T10:00:00Z', expired: false },
+					token: {
+						saved_at: '2026-10-28T10:00:00Z',
+						expires_at: provider === 'claude-code' ? '2027-10-28T10:00:00Z' : null,
+						expired: false
+					},
 					terminal: null
 				};
-				signIns = signIns.map((item) => (item.provider === 'claude-code' ? saved : item));
+				signIns = signIns.map((item) => (item.provider === provider ? saved : item));
 				return route.fulfill({ json: saved });
 			}
 			if (request.method() === 'DELETE') {
@@ -122,6 +128,66 @@ test('a member saves a Claude Code token and removes their sign-ins', async ({ p
 	expect(requests.filter((request) => request.method === 'DELETE').map((request) => request.path + request.search)).toEqual([
 		'/api/workspaces/test/agent-sign-ins/claude-code?kind=token',
 		'/api/workspaces/test/agent-sign-ins/codex?kind=credentials'
+	]);
+});
+
+test('a member saves, replaces and removes an OpenCode API key', async ({ page }) => {
+	const key = 'fixture-opencode-api-key-settings-0001';
+	const requests = await mockSettings(page, [
+		{ provider: 'claude-code', supports_token: true, token: null, terminal: null },
+		{ provider: 'codex', supports_token: false, token: null, terminal: null },
+		{ provider: 'opencode', supports_token: true, token: null, terminal: null }
+	]);
+	await page.goto('/test/settings/agents');
+	const card = page.getByRole('region', { name: 'Your sign-ins' });
+	const claude = card.getByTestId('sign-in-claude-code');
+	const opencode = card.getByTestId('sign-in-opencode');
+	await expect(opencode).toContainText('OpenCode');
+	await expect(opencode.getByText('Not signed in', { exact: true })).toBeVisible();
+	await expect(opencode.getByText('OPENCODE_API_KEY', { exact: false })).toBeVisible();
+	await expect(opencode.getByText('claude setup-token', { exact: false })).toHaveCount(0);
+	await expect(claude.getByLabel('OpenCode API key', { exact: true })).toHaveCount(0);
+
+	const field = opencode.getByLabel('OpenCode API key', { exact: true });
+	await expect(field).toHaveAttribute('type', 'password');
+	await opencode.getByRole('button', { name: 'Save key' }).click();
+	await expect(opencode.getByText('Paste the API key as a single line, without spaces.')).toBeVisible();
+	await field.fill('a key with spaces in it 0001');
+	await opencode.getByRole('button', { name: 'Save key' }).click();
+	await expect(opencode.getByText('Paste the API key as a single line, without spaces.')).toBeVisible();
+	expect(requests.filter((request) => request.method === 'PUT')).toHaveLength(0);
+
+	await field.fill(` ${key} `);
+	await opencode.getByRole('button', { name: 'Save key' }).click();
+	await expect(opencode.getByText('Key saved', { exact: true })).toBeVisible();
+	await expect(opencode.getByText('Key saved Oct 28, 2026.', { exact: true })).toBeVisible();
+	await expect(opencode.getByText('expires', { exact: false })).toHaveCount(0);
+	await expect(field).toHaveValue('');
+	await expect(field).toHaveAttribute('placeholder', 'Saved — paste a new key to replace it');
+	await expect(page.getByText(key)).toHaveCount(0);
+	await expect(claude.getByText('Not signed in', { exact: true })).toBeVisible();
+
+	await field.fill(`${key}-replacement`);
+	await opencode.getByRole('button', { name: 'Save key' }).click();
+	await expect(field).toHaveValue('');
+	expect(requests.filter((request) => request.method === 'PUT')).toEqual([
+		{ method: 'PUT', path: '/api/workspaces/test/agent-sign-ins/opencode/token', search: '', body: { token: key } },
+		{
+			method: 'PUT',
+			path: '/api/workspaces/test/agent-sign-ins/opencode/token',
+			search: '',
+			body: { token: `${key}-replacement` }
+		}
+	]);
+
+	await opencode.getByRole('button', { name: 'Remove key' }).click();
+	const confirm = page.getByRole('alertdialog');
+	await expect(confirm.getByText('use your OpenCode account', { exact: false })).toBeVisible();
+	await expect(confirm.getByText('claude.ai', { exact: false })).toHaveCount(0);
+	await confirm.getByRole('button', { name: 'Delete', exact: true }).click();
+	await expect(opencode.getByText('Not signed in', { exact: true })).toBeVisible();
+	expect(requests.filter((request) => request.method === 'DELETE').map((request) => request.path + request.search)).toEqual([
+		'/api/workspaces/test/agent-sign-ins/opencode?kind=token'
 	]);
 });
 

@@ -19,7 +19,9 @@ export interface MentionIssue {
 export type MentionItem =
 	| { kind: 'user'; id: string; name: string; email: string }
 	| { kind: 'agent'; id: string; name: string; harness: string }
-	| { kind: 'issue'; id: string; identifier: string; title: string; status?: string; status_category?: string; status_color?: string | null };
+	| { kind: 'issue'; id: string; identifier: string; title: string; status?: string; status_category?: string; status_color?: string | null }
+	/** A wiki page of any team or project the person can see; scope names that team or project. */
+	| { kind: 'wiki'; id: string; title: string; scope: string };
 
 export interface MentionState {
 	active: boolean;
@@ -72,6 +74,20 @@ export const MentionNode = Node.create({
 	},
 
 	renderHTML({ node, HTMLAttributes }) {
+		// A wiki page reference holds only the page ID. Its title is resolved
+		// when the chip is shown, through the reader's own access, so content
+		// never carries the title of a page a reader may not see.
+		if (node.attrs.kind === 'wiki') {
+			return [
+				'span',
+				{
+					'data-type': 'mention',
+					'data-kind': 'wiki',
+					'data-id': node.attrs.id,
+					class: 'mention mention-wiki'
+				}
+			];
+		}
 		const isIssue = node.attrs.kind === 'issue';
 		return [
 			'span',

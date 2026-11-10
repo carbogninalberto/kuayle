@@ -14,22 +14,47 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// mentionSpanRegex matches <span ...> tags that contain data-type="mention" and captures data-id UUID.
-// Uses two patterns to handle either attribute order.
-var mentionSpanRegex1 = regexp.MustCompile(`<span[^>]*data-type="mention"[^>]*data-id="([0-9a-f-]{36})"[^>]*>`)
-var mentionSpanRegex2 = regexp.MustCompile(`<span[^>]*data-id="([0-9a-f-]{36})"[^>]*data-type="mention"[^>]*>`)
+// mentionSpanRegex matches the opening tag of a mention chip; the attributes
+// are read from the tag, so their order does not matter.
+var (
+	mentionSpanRegex = regexp.MustCompile(`<span[^>]*data-type="mention"[^>]*>`)
+	mentionIDRegex   = regexp.MustCompile(`data-id="([0-9a-f-]{36})"`)
+	mentionKindRegex = regexp.MustCompile(`data-kind="([^"]*)"`)
+)
 
-// extractMentionedUserIDs parses mention spans from sanitized HTML and returns unique user UUIDs.
+// extractMentionedUserIDs parses mention spans from sanitized HTML and returns
+// unique user UUIDs. Chips for issues and wiki pages are mentions too, but of
+// another kind; a chip without a kind is a user mention.
 func extractMentionedUserIDs(html string) []uuid.UUID {
+	return extractMentionedIDs(html, func(kind string) bool { return kind == "" || kind == "user" })
+}
+
+// extractMentionedAgentIDs returns the IDs of the chips that mention an AI
+// agent (kind "agent"), which are not user mentions.
+func extractMentionedAgentIDs(html string) []uuid.UUID {
+	return extractMentionedIDs(html, func(kind string) bool { return kind == "agent" })
+}
+
+// extractMentionedIDs returns the unique IDs of the mention chips whose kind
+// (empty when the chip has none) is wanted.
+func extractMentionedIDs(html string, wanted func(kind string) bool) []uuid.UUID {
 	seen := make(map[uuid.UUID]bool)
 	var result []uuid.UUID
-	for _, re := range []*regexp.Regexp{mentionSpanRegex1, mentionSpanRegex2} {
-		matches := re.FindAllStringSubmatch(html, -1)
-		for _, m := range matches {
-			if uid, err := uuid.Parse(m[1]); err == nil && !seen[uid] {
-				seen[uid] = true
-				result = append(result, uid)
-			}
+	for _, tag := range mentionSpanRegex.FindAllString(html, -1) {
+		kind := ""
+		if match := mentionKindRegex.FindStringSubmatch(tag); match != nil {
+			kind = match[1]
+		}
+		if !wanted(kind) {
+			continue
+		}
+		id := mentionIDRegex.FindStringSubmatch(tag)
+		if id == nil {
+			continue
+		}
+		if uid, err := uuid.Parse(id[1]); err == nil && !seen[uid] {
+			seen[uid] = true
+			result = append(result, uid)
 		}
 	}
 	return result

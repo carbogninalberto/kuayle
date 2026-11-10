@@ -60,7 +60,7 @@ func init() {
 // SanitizeHTML sanitizes HTML input, stripping dangerous tags and attributes
 // and every class name the editor does not emit.
 func SanitizeHTML(input string) string {
-	return restrictClasses(policy.Sanitize(input))
+	return canonicalWikiMentions(restrictClasses(policy.Sanitize(input)))
 }
 
 // SanitizeEditorContent accepts either the editor's HTML output or markdown
