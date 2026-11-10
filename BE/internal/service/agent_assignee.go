@@ -22,7 +22,8 @@ type agentAssigneeStore interface {
 	Set(ctx context.Context, ws, issue, actor uuid.UUID, profiles []uuid.UUID) (added, removed []repository.AgentAssignment, err error)
 	Assignable(ctx context.Context, ws, issue, profile uuid.UUID) (*domain.AgentProfile, error)
 	Pending(ctx context.Context, limit int) ([]repository.AgentAssignment, error)
-	Finish(ctx context.Context, assignment repository.AgentAssignment, task *uuid.UUID, failure string) error
+	ExpirePending(ctx context.Context) ([]repository.AgentAssignment, error)
+	Finish(ctx context.Context, assignment repository.AgentAssignment, task *uuid.UUID, failure string) (bool, error)
 	MentionedAgents(ctx context.Context, ws, issue, actor uuid.UUID, ids []uuid.UUID) ([]domain.AgentProfile, error)
 	OpenAgentTask(ctx context.Context, ws, issue, profile uuid.UUID) (*domain.AgentTask, error)
 	AgentNames(ctx context.Context, ws uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]string, error)
@@ -199,25 +200,41 @@ func (s *AgentAssigneeService) changed(ws, issue uuid.UUID) {
 
 // startAssignment starts the assignment's task for the member who made it.
 // A permanent refusal is recorded on the assignment; a transient failure
-// leaves it for Run, and the request ID makes every repeat the same task.
-func (s *AgentAssigneeService) startAssignment(ctx context.Context, assignment repository.AgentAssignment) {
+// leaves it for Run, and the request ID makes every repeat the same task. It
+// reports whether the assignment changed. When the agent was unassigned while
+// its task was being created, the assignment is gone and nothing else would
+// stop that task, so it is cancelled here.
+func (s *AgentAssigneeService) startAssignment(ctx context.Context, assignment repository.AgentAssignment) bool {
 	if assignment.AssignedBy == nil {
-		return
+		return false
 	}
 	task, err := s.startTask(ctx, assignment.WorkspaceID, assignment.IssueID, assignment.ProfileID, *assignment.AssignedBy, assignment.RequestID, agentAssignmentPrompt)
 	if err != nil {
 		message, permanent := agentStartRefusal(err)
 		if !permanent {
 			log.WithError(err).WithField("issue_id", assignment.IssueID).Warn("Starting an assigned agent's task will be retried")
-			return
+			return false
 		}
-		err = s.repo.Finish(ctx, assignment, nil, message)
-	} else {
-		err = s.repo.Finish(ctx, assignment, &task.ID, "")
+		recorded, err := s.repo.Finish(ctx, assignment, nil, message)
+		if err != nil {
+			log.WithError(err).WithField("issue_id", assignment.IssueID).Warn("Could not record why an assigned agent's task did not start")
+		}
+		return recorded
 	}
+	recorded, err := s.repo.Finish(ctx, assignment, &task.ID, "")
 	if err != nil {
+		// Left unsettled: the worker repeats the start, which replays this task.
 		log.WithError(err).WithField("issue_id", assignment.IssueID).Warn("Could not record an assigned agent's task")
+		return false
 	}
+	if !recorded {
+		// CancelUnassigned leaves the task alone when an assignment refers to
+		// it, which is the case when a concurrent start already recorded it.
+		if _, err := s.cancel.CancelUnassigned(ctx, assignment.WorkspaceID, task.ID, assignment.IssueID, assignment.ProfileID, *assignment.AssignedBy); err != nil {
+			log.WithError(err).WithField("task_id", task.ID).Warn("Could not cancel the task of an agent unassigned while it started")
+		}
+	}
+	return recorded
 }
 
 // startTask creates the agent's task as actor: the agent must still be
@@ -267,6 +284,14 @@ func (s *AgentAssigneeService) Run(ctx context.Context) {
 }
 
 func (s *AgentAssigneeService) resume(ctx context.Context) {
+	// Starts that kept failing for the whole window stop being retried.
+	expired, err := s.repo.ExpirePending(ctx)
+	if err != nil && ctx.Err() == nil {
+		log.WithError(err).Warn("Could not expire agent assignments that never started")
+	}
+	for _, assignment := range expired {
+		s.changed(assignment.WorkspaceID, assignment.IssueID)
+	}
 	pending, err := s.repo.Pending(ctx, 20)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -275,8 +300,9 @@ func (s *AgentAssigneeService) resume(ctx context.Context) {
 		return
 	}
 	for _, assignment := range pending {
-		s.startAssignment(ctx, assignment)
-		s.changed(assignment.WorkspaceID, assignment.IssueID)
+		if s.startAssignment(ctx, assignment) {
+			s.changed(assignment.WorkspaceID, assignment.IssueID)
+		}
 	}
 }
 

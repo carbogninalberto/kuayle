@@ -336,3 +336,94 @@ func TestHistoryNamesTheAgentIdentityThatActedForAMember(t *testing.T) {
 		}
 	}
 }
+
+// The agent is unassigned between the creation of its task and the moment
+// the assignment would record it. Unassigning found no task to cancel, so the
+// start cancels the task itself rather than leave it running unassigned.
+func TestAnAgentUnassignedWhileItsTaskStartsLeavesNoRunningTask(t *testing.T) {
+	f := newAssigneeFixture(t)
+	added, _, err := f.repo.Set(f.ctx, f.ws, f.issue, f.user, []uuid.UUID{f.profile})
+	require.NoError(t, err)
+	require.Len(t, added, 1)
+	_, removed, err := f.repo.Set(f.ctx, f.ws, f.issue, f.user, nil)
+	require.NoError(t, err)
+	require.Nil(t, removed[0].TaskID, "unassigning saw no task to cancel")
+
+	require.False(t, f.svc.startAssignment(context.Background(), added[0]))
+	var state string
+	require.NoError(t, f.db.Get(&state, `SELECT state FROM agent_tasks WHERE workspace_id=$1`, f.ws))
+	require.Equal(t, "cancelling", state)
+
+	// A second start of a recorded assignment (worker and request racing)
+	// replays the same task and never cancels it.
+	agents, err := f.svc.SetIssueAgents(f.ctx, f.ws, f.issue, []uuid.UUID{f.profile})
+	require.NoError(t, err)
+	var assignment repository.AgentAssignment
+	require.NoError(t, f.db.Get(&assignment, `SELECT issue_id,profile_id,workspace_id,assigned_by,request_id FROM issue_agent_assignees WHERE issue_id=$1`, f.issue))
+	require.False(t, f.svc.startAssignment(context.Background(), assignment))
+	require.NoError(t, f.db.Get(&state, `SELECT state FROM agent_tasks WHERE id=$1`, *agents[0].TaskID))
+	require.Equal(t, "queued", state)
+}
+
+// A start that keeps failing is retried only within the start window; after
+// it the assignment records an error and is no longer picked up, so stuck
+// rows cannot crowd out newer ones.
+func TestAStartThatNeverSucceedsStopsBeingRetried(t *testing.T) {
+	f := newAssigneeFixture(t)
+	_, _, err := f.repo.Set(f.ctx, f.ws, f.issue, f.user, []uuid.UUID{f.profile})
+	require.NoError(t, err)
+	mine := func() (n int) {
+		pending, err := f.repo.Pending(f.ctx, 1000)
+		require.NoError(t, err)
+		for _, assignment := range pending {
+			if assignment.IssueID == f.issue {
+				n++
+			}
+		}
+		return
+	}
+	require.Zero(t, mine(), "a start made just now is still the request's own")
+	_, err = f.db.Exec(`UPDATE issue_agent_assignees SET created_at=now()-interval '1 minute' WHERE issue_id=$1`, f.issue)
+	require.NoError(t, err)
+	require.Equal(t, 1, mine(), "an interrupted start is resumed")
+
+	_, err = f.db.Exec(`UPDATE issue_agent_assignees SET created_at=now()-interval '16 minutes' WHERE issue_id=$1`, f.issue)
+	require.NoError(t, err)
+	require.Zero(t, mine())
+	f.svc.resume(context.Background())
+	agents, err := f.svc.ForIssues(f.ctx, []uuid.UUID{f.issue})
+	require.NoError(t, err)
+	require.Nil(t, agents[f.issue][0].TaskID)
+	require.Equal(t, "The task could not be started; assign the agent again to retry", *agents[f.issue][0].Error)
+	_, tasks := f.counts(t)
+	require.Zero(t, tasks)
+	require.Zero(t, f.tasks.creates)
+}
+
+// Switching a team off for an agent only refuses new assignments and
+// mentions: agents already assigned stay assigned and their tasks keep
+// running until someone unassigns them.
+func TestSwitchingATeamOffKeepsExistingAssignmentsAndTasks(t *testing.T) {
+	f := newAssigneeFixture(t)
+	agents, err := f.svc.SetIssueAgents(f.ctx, f.ws, f.issue, []uuid.UUID{f.profile})
+	require.NoError(t, err)
+	_, admin := f.member(t, "admin")
+	none := []uuid.UUID{}
+	require.NoError(t, f.svc.UpdateIdentity(admin, f.ws, f.profile, AgentIdentityInput{TeamIDs: &none}))
+
+	still, err := f.svc.ForIssues(f.ctx, []uuid.UUID{f.issue})
+	require.NoError(t, err)
+	require.Len(t, still[f.issue], 1)
+	require.Equal(t, "queued", *still[f.issue][0].TaskState)
+	// Keeping the same agents is not a new assignment, so it is not refused;
+	// unassigning still works and cancels the task.
+	_, err = f.svc.SetIssueAgents(f.ctx, f.ws, f.issue, []uuid.UUID{f.profile})
+	require.NoError(t, err)
+	_, err = f.svc.SetIssueAgents(f.ctx, f.ws, f.issue, nil)
+	require.NoError(t, err)
+	var state string
+	require.NoError(t, f.db.Get(&state, `SELECT state FROM agent_tasks WHERE id=$1`, *agents[0].TaskID))
+	require.Equal(t, "cancelling", state)
+	_, err = f.svc.SetIssueAgents(f.ctx, f.ws, f.issue, []uuid.UUID{f.profile})
+	require.ErrorIs(t, err, repository.ErrAgentNotAssignable)
+}

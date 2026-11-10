@@ -1064,6 +1064,8 @@
 	"settings.github.setup_desc": "Skapa en GitHub-app för att koppla dina repon. Tar ungefär 30 sekunder.",
 	"settings.github.setup_failed": "GitHub-konfigurationen misslyckades",
 	"settings.github.setup_note": "Om du klickar på \"Konfigurera\" skickas du vidare till GitHub...",
+	"settings.github.logo_download": "Ladda ned Kuayle-logotypen",
+	"settings.github.logo_setup_note": "GitHub tar inte emot en logotyp när appen skapas. När den finns laddar du upp logotypen under Display information i appens inställningar på GitHub.",
 	"settings.github.title": "GitHub",
 	"settings.labels.created": "Etiketten skapades",
 	"settings.labels.delete": "Ta bort",
@@ -3003,6 +3005,8 @@
 	"settings.github.app_setup.accept": "Godkänn på GitHub",
 	"settings.github.app_setup.open_installation": "Öppna installationen på GitHub",
 	"settings.github.app_setup.check_again": "Kontrollera igen",
+	"settings.github.app_setup.logo_hint": "GitHub visar appens egen logotyp som författare till varje pull request och kommentar och har inget API för att ändra den. Ladda ned Kuayle-logotypen och ladda upp den under Display information.",
+	"settings.github.app_setup.update_logo": "Uppdatera logotypen på GitHub",
 	"settings.github.app_setup.checking": "Kontrollerar…",
 	"settings.github.app_setup.opens_new_tab": "(öppnas i en ny flik)",
 	"settings.github.app_setup.load_failed": "Det gick inte att kontrollera GitHub-appens konfiguration.",
@@ -3165,7 +3169,7 @@
 	"github_bot.use_link": "Använd länk",
 	"github_bot.picture_hint": "PNG, JPEG, WebP eller GIF upp till 2 MB, uppladdad eller länkad från en https://-adress. Kuayle laddar ned en länkad bild en gång för att kontrollera den.",
 	"github_bot.picture_url_invalid": "Använd en https://-bildadress.",
-	"github_bot.identity_note": "GitHub visar alltid GitHub-appen som författare till botens kommentarer; Kuayle inleder varje kommentar med det här namnet och den här bilden. En uppladdad bild är publikt nåbar så att GitHub kan visa den.",
+	"github_bot.identity_note": "GitHub visar alltid GitHub-appens egen logotyp som författare; ändra den i appens inställningar på GitHub. Kuayle inleder varje kommentar och pull request-beskrivning med detta namn och denna bild. En uppladdad bild är offentligt nåbar så att GitHub kan visa den.",
 	"github_bot.abilities": "Förmågor",
 	"github_bot.abilities_desc": "Stäng av allt som boten inte ska göra i den här arbetsytan. En avstängd förmåga nekas även om någon godkänner den i Kuayle.",
 	"github_bot.ability_link_issues": "Länka ärenden på pull requests",
@@ -3775,5 +3779,6 @@
 	"issue.by_agent_for": "av {agent} för {user}",
 	"my_issues.tab.agents": "Tilldelade mina agenter",
 	"sharedComponents.mention_list.agents": "AI-agenter",
-	"sharedComponents.filter_builder.agent_suffix": "{name} (agent)"
+	"sharedComponents.filter_builder.agent_suffix": "{name} (agent)",
+	"agents.identity.disable_note": "Att stänga av ett team stoppar bara nya tilldelningar och omnämnanden där. Agenter som redan är tilldelade förblir tilldelade och deras uppgifter fortsätter att köras tills någon tar bort tilldelningen."
 }

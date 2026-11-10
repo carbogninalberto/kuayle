@@ -2,6 +2,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Command from '$lib/components/ui/command/index.js';
 	import { Checkbox } from '$lib/components/ui/checkbox';
+	import Check from '@lucide/svelte/icons/check';
 	import { m } from '$lib/features/i18n/messages';
 	import type { IssueAgentAssignee } from '$lib/api/agents';
 	import AgentAvatar from './AgentAvatar.svelte';
@@ -72,7 +73,7 @@
 			>
 				<AgentAvatar name={agent.name} color={agent.avatar_color} size={16} />
 				<span class="min-w-0 flex-1 truncate text-left">{agent.name}</span>
-				{#if assigned}<span aria-hidden="true">✓</span>{/if}
+				{#if assigned}<Check size={12} aria-hidden="true" />{/if}
 			</Button>
 		{/each}
 	{/if}

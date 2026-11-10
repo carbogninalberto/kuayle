@@ -61,6 +61,7 @@
 	<div>
 		<h2 id="agent-identities-title" class="text-sm font-semibold">{m['agents.identity.title']()}</h2>
 		<p class="text-xs text-muted-foreground">{m['agents.identity.description']()}</p>
+		<p class="mt-1 text-xs text-muted-foreground">{m['agents.identity.disable_note']()}</p>
 	</div>
 	{#if !canManage}
 		<p class="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">{m['agents.identity.read_only']()}</p>

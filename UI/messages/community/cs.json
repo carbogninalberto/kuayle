@@ -1064,6 +1064,8 @@
 	"settings.github.setup_desc": "Vytvořte GitHub App a připojte své repozitáře. Trvá to asi 30 sekund.",
 	"settings.github.setup_failed": "Nastavení GitHubu se nezdařilo",
 	"settings.github.setup_note": "Kliknutím na „Nastavit“ budete přesměrováni na GitHub...",
+	"settings.github.logo_download": "Stáhnout logo Kuayle",
+	"settings.github.logo_setup_note": "GitHub při vytváření aplikace logo nepřijímá. Jakmile aplikace existuje, nahrajte toto logo v části Display information v nastavení aplikace na GitHubu.",
 	"settings.github.title": "GitHub",
 	"settings.labels.created": "Štítek vytvořen",
 	"settings.labels.delete": "Smazat",
@@ -3003,6 +3005,8 @@
 	"settings.github.app_setup.accept": "Přijmout na GitHubu",
 	"settings.github.app_setup.open_installation": "Otevřít instalaci na GitHubu",
 	"settings.github.app_setup.check_again": "Zkontrolovat znovu",
+	"settings.github.app_setup.logo_hint": "GitHub zobrazuje logo aplikace jako autora každého pull requestu a komentáře a nemá API pro jeho změnu. Stáhněte logo Kuayle a nahrajte ho v části Display information.",
+	"settings.github.app_setup.update_logo": "Aktualizovat logo na GitHubu",
 	"settings.github.app_setup.checking": "Kontrola…",
 	"settings.github.app_setup.opens_new_tab": "(otevře se na nové kartě)",
 	"settings.github.app_setup.load_failed": "Nastavení GitHub App se nepodařilo zkontrolovat.",
@@ -3165,7 +3169,7 @@
 	"github_bot.use_link": "Použít odkaz",
 	"github_bot.picture_hint": "PNG, JPEG, WebP nebo GIF do 2 MB, nahraný nebo odkazovaný z adresy https://. Kuayle odkazovaný obrázek jednou stáhne a zkontroluje.",
 	"github_bot.picture_url_invalid": "Použijte adresu obrázku https://.",
-	"github_bot.identity_note": "GitHub jako autora komentářů bota vždy zobrazuje GitHub App; Kuayle každý komentář začíná tímto jménem a obrázkem. Nahraný obrázek je veřejně dostupný, aby jej GitHub mohl zobrazit.",
+	"github_bot.identity_note": "GitHub jako autora vždy zobrazuje logo samotné GitHub App; změňte ho v nastavení aplikace na GitHubu. Kuayle začíná každý komentář a popis pull requestu tímto jménem a obrázkem. Nahraný obrázek je veřejně dostupný, aby ho GitHub mohl zobrazit.",
 	"github_bot.abilities": "Schopnosti",
 	"github_bot.abilities_desc": "Vypněte vše, co by bot v tomto pracovním prostoru dělat neměl. Vypnutá schopnost je odmítnuta, i když ji někdo v Kuayle schválí.",
 	"github_bot.ability_link_issues": "Propojovat úkoly v pull requestech",
@@ -3775,5 +3779,6 @@
 	"issue.by_agent_for": "provedl {agent} jménem uživatele {user}",
 	"my_issues.tab.agents": "Přiřazené mým agentům",
 	"sharedComponents.mention_list.agents": "AI agenti",
-	"sharedComponents.filter_builder.agent_suffix": "{name} (agent)"
+	"sharedComponents.filter_builder.agent_suffix": "{name} (agent)",
+	"agents.identity.disable_note": "Vypnutí týmu pouze zastaví nová přiřazení a zmínky v něm. Již přiřazení agenti zůstávají přiřazeni a jejich úlohy běží dál, dokud jim někdo přiřazení nezruší."
 }

@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -99,12 +98,6 @@ func botAvatarKey(ws uuid.UUID, file string) string {
 	return "github-bot-avatar-" + ws.String() + "-" + file
 }
 
-// BotAvatarPath is where Kuayle serves an uploaded bot picture. It is public:
-// GitHub must load it to show it in the bot's comments.
-func BotAvatarPath(ws uuid.UUID, file string) string {
-	return "/api/github-bot/" + ws.String() + "/avatar/" + file
-}
-
 // Settings returns the workspace's bot settings as the API presents them.
 func (s *GitHubBotService) Settings(ctx context.Context, ws uuid.UUID) (*dto.GitHubBotSettingsResponse, error) {
 	settings, err := s.store.Get(ctx, ws)
@@ -126,7 +119,7 @@ func (s *GitHubBotService) response(ctx context.Context, settings *domain.GitHub
 	}
 	switch {
 	case settings.AvatarFile != nil:
-		out.AvatarSource, out.AvatarURL = "upload", BotAvatarPath(settings.WorkspaceID, *settings.AvatarFile)
+		out.AvatarSource, out.AvatarURL = "upload", domain.GitHubBotAvatarPath(settings.WorkspaceID, *settings.AvatarFile)
 	case settings.AvatarURL != nil:
 		out.AvatarSource, out.AvatarURL = "url", *settings.AvatarURL
 	}
@@ -296,13 +289,8 @@ func normalizeBotName(raw string) (string, error) {
 // validBotAvatarURL accepts an absolute https URL without credentials or
 // characters that could escape the HTML attribute it is rendered in.
 func validBotAvatarURL(raw string) error {
-	invalid := botInvalid("INVALID_AVATAR_URL", "Use an https:// image address")
-	if len(raw) > 2048 || strings.ContainsAny(raw, "\"'<>\\` \t\r\n") {
-		return invalid
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Opaque != "" {
-		return invalid
+	if !domain.ValidGitHubBotAvatarURL(raw) {
+		return botInvalid("INVALID_AVATAR_URL", "Use an https:// image address")
 	}
 	return nil
 }
@@ -345,30 +333,4 @@ func readBotImage(src io.Reader) ([]byte, string, string, error) {
 		return nil, "", "", botInvalid("UNSUPPORTED_IMAGE", "Use a PNG, JPEG, WebP or GIF image")
 	}
 	return data, detected, ext, nil
-}
-
-// botSignature is the line Kuayle starts its GitHub comments with: the
-// configured picture and name. GitHub itself always shows the GitHub App as
-// the author, so this is how the workspace's identity appears there. An
-// uploaded picture is linked only when Kuayle has a public https address.
-func botSignature(settings *domain.GitHubBotSettings, frontendURL string) string {
-	name := settings.Name()
-	if settings.DisplayName == nil && settings.AvatarURL == nil && settings.AvatarFile == nil {
-		return ""
-	}
-	image := ""
-	switch {
-	case settings.AvatarURL != nil:
-		image = *settings.AvatarURL
-	case settings.AvatarFile != nil:
-		if base, err := url.Parse(frontendURL); err == nil && base.Scheme == "https" && base.Host != "" {
-			image = strings.TrimRight(base.String(), "/") + BotAvatarPath(settings.WorkspaceID, *settings.AvatarFile)
-		}
-	}
-	// Names are validated on save; escaping again keeps older or edited rows inert.
-	name = strings.NewReplacer("@", "@\u200b", "<", "", ">", "", "`", "", "[", "", "]", "", "\\", "", "*", "", "_", "", "~", "", "|", "", "#", "", "\n", " ", "\r", " ").Replace(name)
-	if image != "" && validBotAvatarURL(image) == nil {
-		return fmt.Sprintf("<img src=\"%s\" alt=\"\" width=\"20\" height=\"20\" align=\"top\"> **%s**\n\n", image, name)
-	}
-	return "**" + name + "**\n\n"
 }

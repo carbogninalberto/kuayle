@@ -1064,6 +1064,8 @@
 	"settings.github.setup_desc": "Hozz létre egy GitHub Appot a repositoryk csatlakoztatásához. Körülbelül 30 másodpercet vesz igénybe.",
 	"settings.github.setup_failed": "A GitHub beállítása sikertelen",
 	"settings.github.setup_note": "A \"Beállítás\" gombra kattintva átirányítunk a GitHubra...",
+	"settings.github.logo_download": "Kuayle logó letöltése",
+	"settings.github.logo_setup_note": "A GitHub az alkalmazás létrehozásakor nem fogad el logót. Létrehozás után töltsd fel ezt a logót a Display information részben, az alkalmazás GitHub-beállításaiban.",
 	"settings.github.title": "GitHub",
 	"settings.labels.created": "Címke létrehozva",
 	"settings.labels.delete": "Törlés",
@@ -3003,6 +3005,8 @@
 	"settings.github.app_setup.accept": "Elfogadás a GitHubon",
 	"settings.github.app_setup.open_installation": "Telepítés megnyitása a GitHubon",
 	"settings.github.app_setup.check_again": "Újraellenőrzés",
+	"settings.github.app_setup.logo_hint": "A GitHub minden pull request és hozzászólás szerzőjeként az alkalmazás saját logóját mutatja, és nincs API a módosításához. Töltsd le a Kuayle logót, majd töltsd fel a Display information részben.",
+	"settings.github.app_setup.update_logo": "Logó frissítése a GitHubon",
 	"settings.github.app_setup.checking": "Ellenőrzés…",
 	"settings.github.app_setup.opens_new_tab": "(új lapon nyílik meg)",
 	"settings.github.app_setup.load_failed": "A GitHub App beállítása nem ellenőrizhető.",
@@ -3165,7 +3169,7 @@
 	"github_bot.use_link": "Hivatkozás használata",
 	"github_bot.picture_hint": "PNG, JPEG, WebP vagy GIF, legfeljebb 2 MB, feltöltve vagy https:// címről hivatkozva. A Kuayle egyszer letölti a hivatkozott képet az ellenőrzéshez.",
 	"github_bot.picture_url_invalid": "https:// képcímet használj.",
-	"github_bot.identity_note": "A GitHub a bot megjegyzéseinek szerzőjeként mindig a GitHub Appot mutatja; a Kuayle minden megjegyzést ezzel a névvel és képpel kezd. A feltöltött kép nyilvánosan elérhető, hogy a GitHub meg tudja jeleníteni.",
+	"github_bot.identity_note": "A GitHub szerzőként mindig a GitHub App saját logóját mutatja; ezt az alkalmazás GitHub-beállításaiban módosíthatod. A Kuayle minden hozzászólást és pull request leírást ezzel a névvel és képpel kezd. A feltöltött kép nyilvánosan elérhető, hogy a GitHub megjeleníthesse.",
 	"github_bot.abilities": "Képességek",
 	"github_bot.abilities_desc": "Kapcsold ki mindazt, amit a bot nem tehet ebben a munkaterületben. A kikapcsolt képességet akkor is elutasítjuk, ha valaki jóváhagyja a Kuayle-ben.",
 	"github_bot.ability_link_issues": "Feladatok összekapcsolása a pull requestekkel",
@@ -3775,5 +3779,6 @@
 	"issue.by_agent_for": "{agent} által, {user} nevében",
 	"my_issues.tab.agents": "Az agentjeimhez rendelt",
 	"sharedComponents.mention_list.agents": "AI agentek",
-	"sharedComponents.filter_builder.agent_suffix": "{name} (agent)"
+	"sharedComponents.filter_builder.agent_suffix": "{name} (agent)",
+	"agents.identity.disable_note": "Egy csapat kikapcsolása csak az ottani új hozzárendeléseket és említéseket állítja le. A már hozzárendelt agentek hozzárendelve maradnak, és a taszkjaik tovább futnak, amíg valaki meg nem szünteti a hozzárendelésüket."
 }

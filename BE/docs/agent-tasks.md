@@ -960,6 +960,11 @@ opt-in per team. Only current owners and administrators change either table,
 re-checked in the writing transaction. `GET /agents` also reports whether the
 workspace's machine policy lets each agent's harness and model run now.
 
+Switching a team off for an agent, or moving an issue to a team where the
+agent is not enabled, only refuses new assignments and mentions. Agents already
+assigned stay assigned, and their tasks keep running, until someone unassigns
+them; the settings page says so.
+
 **Permissions.** An agent holds none. Its task's creator is the member who
 assigned or mentioned it, so every step runs under that member's current
 workspace role, team visibility, machine policy and credentials, re-checked by
@@ -983,7 +988,11 @@ default workflow, whose first step would otherwise replace the agent. The
 assignment's `request_id` makes the start idempotent. A refusal that cannot
 succeed as things are (agents disabled, provider not allowed, the assigner lost
 access, the team policy switched off) is recorded on the assignment as `error`.
-A transient failure is retried by a worker every 20 seconds.
+A transient failure is retried by a worker every 20 seconds for 15 minutes
+after the assignment; then the assignment records an error and is no longer
+retried, so stuck starts cannot crowd out newer ones. Assigning the agent again
+retries. If the agent is unassigned while its task is being created, the start
+finds its assignment gone and cancels the task it just created.
 
 **Unassignment.** Removing an agent cancels its task when the task is still
 working: `queued`, `preparing`, `running`, `waiting_input`, `validating`,
@@ -992,7 +1001,10 @@ transition, recorded with the member who unassigned as its actor, so the
 runtime is stopped and cleaned up as for a cancelled task. A task
 `awaiting_review` keeps its pull request and stays reviewable, and a finished
 task is left as it is. The task lifecycle has no "stop after the current
-attempt" state, which is why unassignment cancels instead. The web app asks
+attempt" state, which is why unassignment cancels instead. As with people,
+any non-guest member who can see the issue may unassign an agent, including one
+another member assigned: this cancels that member's task but gives the
+unassigner nothing of the task's permissions, output or credentials. The web app asks
 before unassigning an agent whose task would be cancelled.
 
 **Mentions.** A comment posted in a signed-in session that @mentions an agent
@@ -1011,8 +1023,8 @@ Comments from tokens, the assistant and agents never reach a mentioned agent.
 **Status and history.** Issue responses carry `agent_assignees`, each with the
 assigner and the task's state and reason, so the agent shows as an assignee to
 everyone who can see the issue. A workspace event `issue.agents_updated` with
-only the issue ID follows every assignment change and every state change of a
-task that runs as an agent; clients reload the issue's agents under their own
+only the issue ID follows every assignment change, including a start the
+worker settles, and every state change of a task that runs as an agent; clients reload the issue's agents under their own
 access. History rows written by such a task set `agent_profile_id`, and the
 history API returns `agent_name`: the entry reads as the agent acting on behalf
 of the row's user.

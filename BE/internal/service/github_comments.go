@@ -55,6 +55,6 @@ func (s *GitHubService) commentOnPullRequest(ctx context.Context, inst *domain.G
 			return err
 		}
 		marker := "<!-- kuayle:pr-issue:" + inst.WorkspaceID.String() + " -->"
-		return client.EnsurePullRequestComment(ctx, token, repo.FullName, pr.Number, marker, botSignature(bot, s.frontendURL)+body)
+		return client.EnsurePullRequestComment(ctx, token, repo.FullName, pr.Number, marker, bot.Signature(s.frontendURL)+body)
 	})
 }

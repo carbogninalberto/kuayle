@@ -21,8 +21,11 @@ type assigneeStoreFake struct {
 	mentionable []domain.AgentProfile
 	open        map[uuid.UUID]*domain.AgentTask
 	pending     []repository.AgentAssignment
-	finished    map[uuid.UUID]string
-	started     map[uuid.UUID]uuid.UUID
+	expired     []repository.AgentAssignment
+	// gone makes Finish find no assignment, as after an unassignment.
+	gone     bool
+	finished map[uuid.UUID]string
+	started  map[uuid.UUID]uuid.UUID
 }
 
 func (f *assigneeStoreFake) Identities(context.Context, uuid.UUID) ([]domain.AgentIdentity, error) {
@@ -46,13 +49,19 @@ func (f *assigneeStoreFake) Assignable(_ context.Context, _, _, profile uuid.UUI
 func (f *assigneeStoreFake) Pending(context.Context, int) ([]repository.AgentAssignment, error) {
 	return f.pending, nil
 }
-func (f *assigneeStoreFake) Finish(_ context.Context, a repository.AgentAssignment, task *uuid.UUID, failure string) error {
+func (f *assigneeStoreFake) ExpirePending(context.Context) ([]repository.AgentAssignment, error) {
+	return f.expired, nil
+}
+func (f *assigneeStoreFake) Finish(_ context.Context, a repository.AgentAssignment, task *uuid.UUID, failure string) (bool, error) {
+	if f.gone {
+		return false, nil
+	}
 	if task != nil {
 		f.started[a.ProfileID] = *task
 	} else {
 		f.finished[a.ProfileID] = failure
 	}
-	return nil
+	return true, nil
 }
 func (f *assigneeStoreFake) MentionedAgents(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, []uuid.UUID) ([]domain.AgentProfile, error) {
 	return f.mentionable, nil
@@ -187,6 +196,35 @@ func TestTheWorkerResumesInterruptedStarts(t *testing.T) {
 	svc.resume(context.Background())
 	require.Len(t, runtime.requests, 1)
 	require.Contains(t, store.started, profile.ID)
+	require.Len(t, runtime.events, 1, "a start that changed the assignment is announced")
+
+	// A start that fails transiently changes nothing, so nothing is announced
+	// on every tick while it is retried.
+	runtime.createErr = errors.New("database unavailable")
+	svc.resume(context.Background())
+	require.Len(t, runtime.events, 1)
+
+	// Starts that never succeeded within the window are settled with an error
+	// by the store; each is announced once.
+	store.pending = nil
+	store.expired = []repository.AgentAssignment{{IssueID: uuid.New(), ProfileID: profile.ID, WorkspaceID: ws}}
+	svc.resume(context.Background())
+	require.Len(t, runtime.events, 2)
+}
+
+// The agent is unassigned after its task was created but before the
+// assignment recorded it: unassigning saw no task to cancel, so the start
+// cancels the task it just created instead of leaving it running unassigned.
+func TestATaskCreatedForAnAgentUnassignedMeanwhileIsCancelled(t *testing.T) {
+	svc, store, runtime := newAssigneeFakes()
+	ws, user := uuid.New(), uuid.New()
+	profile := assigneeProfile(store, ws)
+	store.gone = true
+	changed := svc.startAssignment(context.Background(), repository.AgentAssignment{IssueID: uuid.New(), ProfileID: profile.ID, WorkspaceID: ws, AssignedBy: &user, RequestID: uuid.New()})
+	require.False(t, changed)
+	require.Len(t, runtime.requests, 1)
+	require.Len(t, runtime.cancelled, 1, "the orphaned task is cancelled")
+	require.Empty(t, store.started)
 }
 
 func TestUnassigningAnAgentCancelsItsTask(t *testing.T) {

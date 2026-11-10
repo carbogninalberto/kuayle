@@ -46,8 +46,11 @@ func (s *agentStoreStub) Assignable(context.Context, uuid.UUID, uuid.UUID, uuid.
 func (s *agentStoreStub) Pending(context.Context, int) ([]repository.AgentAssignment, error) {
 	return nil, nil
 }
-func (s *agentStoreStub) Finish(context.Context, repository.AgentAssignment, *uuid.UUID, string) error {
-	return nil
+func (s *agentStoreStub) Finish(context.Context, repository.AgentAssignment, *uuid.UUID, string) (bool, error) {
+	return true, nil
+}
+func (s *agentStoreStub) ExpirePending(context.Context) ([]repository.AgentAssignment, error) {
+	return nil, nil
 }
 func (s *agentStoreStub) MentionedAgents(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, []uuid.UUID) ([]domain.AgentProfile, error) {
 	return nil, nil

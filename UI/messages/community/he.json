@@ -1064,6 +1064,8 @@
 	"settings.github.setup_desc": "יצירת אפליקציית GitHub לחיבור המאגרים. נמשך כ-30 שניות.",
 	"settings.github.setup_failed": "הגדרת GitHub נכשלה",
 	"settings.github.setup_note": "לחיצה על \"הגדרה\" תעביר אתכם ל-GitHub...",
+	"settings.github.logo_download": "הורדת הלוגו של Kuayle",
+	"settings.github.logo_setup_note": "GitHub לא מקבל לוגו בזמן יצירת האפליקציה. אחרי שהיא נוצרה, העלו את הלוגו הזה תחת Display information בהגדרות האפליקציה ב-GitHub.",
 	"settings.github.title": "GitHub",
 	"settings.labels.created": "התווית נוצרה",
 	"settings.labels.delete": "מחיקה",
@@ -3003,6 +3005,8 @@
 	"settings.github.app_setup.accept": "אישור ב-GitHub",
 	"settings.github.app_setup.open_installation": "פתיחת ההתקנה ב-GitHub",
 	"settings.github.app_setup.check_again": "בדיקה חוזרת",
+	"settings.github.app_setup.logo_hint": "GitHub מציג את הלוגו של האפליקציה עצמה כמחבר של כל pull request ותגובה, ואין API לשנות אותו. הורידו את הלוגו של Kuayle והעלו אותו תחת Display information.",
+	"settings.github.app_setup.update_logo": "עדכון הלוגו ב-GitHub",
 	"settings.github.app_setup.checking": "בודק…",
 	"settings.github.app_setup.opens_new_tab": "(נפתח בלשונית חדשה)",
 	"settings.github.app_setup.load_failed": "לא ניתן היה לבדוק את הגדרת אפליקציית GitHub.",
@@ -3165,7 +3169,7 @@
 	"github_bot.use_link": "שימוש בקישור",
 	"github_bot.picture_hint": "PNG, JPEG, WebP או GIF עד 2 MB, מועלית או מקושרת מכתובת https://. Kuayle מורידה תמונה מקושרת פעם אחת כדי לבדוק אותה.",
 	"github_bot.picture_url_invalid": "יש להשתמש בכתובת תמונה ב-https://.",
-	"github_bot.identity_note": "GitHub תמיד מציג את אפליקציית GitHub כמחברת של הערות הבוט; Kuayle פותחת כל הערה בשם ובתמונה האלה. תמונה שהועלתה נגישה לציבור כדי ש-GitHub יוכל להציג אותה.",
+	"github_bot.identity_note": "GitHub תמיד מציג כמחבר את הלוגו של ה-GitHub App עצמה; שנו אותו בהגדרות האפליקציה ב-GitHub. Kuayle פותח כל תגובה ותיאור pull request בשם ובתמונה האלה. תמונה שהועלתה נגישה לציבור כדי ש-GitHub יוכל להציג אותה.",
 	"github_bot.abilities": "יכולות",
 	"github_bot.abilities_desc": "כבו כל דבר שהבוט לא צריך לעשות בסביבת העבודה הזו. יכולת כבויה נדחית גם אם מישהו מאשר אותה ב-Kuayle.",
 	"github_bot.ability_link_issues": "קישור משימות ב-pull requests",
@@ -3775,5 +3779,6 @@
 	"issue.by_agent_for": "על ידי {agent} בשם {user}",
 	"my_issues.tab.agents": "ששויכו לסוכנים שלי",
 	"sharedComponents.mention_list.agents": "סוכני AI",
-	"sharedComponents.filter_builder.agent_suffix": "{name} (סוכן)"
+	"sharedComponents.filter_builder.agent_suffix": "{name} (סוכן)",
+	"agents.identity.disable_note": "כיבוי צוות רק מפסיק שיוכים ואזכורים חדשים בו. סוכנים שכבר שויכו נשארים משויכים ומשימות הסוכן שלהם ממשיכות לרוץ עד שמישהו מבטל את השיוך שלהם."
 }

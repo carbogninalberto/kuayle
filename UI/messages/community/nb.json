@@ -1064,6 +1064,8 @@
 	"settings.github.setup_desc": "Opprett en GitHub App for å koble til repositoriene dine. Tar omtrent 30 sekunder.",
 	"settings.github.setup_failed": "GitHub-oppsettet mislyktes",
 	"settings.github.setup_note": "Når du klikker «Sett opp», sendes du videre til GitHub...",
+	"settings.github.logo_download": "Last ned Kuayle-logoen",
+	"settings.github.logo_setup_note": "GitHub tar ikke imot en logo når appen opprettes. Når den finnes, laster du opp logoen under Display information i appinnstillingene på GitHub.",
 	"settings.github.title": "GitHub",
 	"settings.labels.created": "Etikett opprettet",
 	"settings.labels.delete": "Slett",
@@ -3003,6 +3005,8 @@
 	"settings.github.app_setup.accept": "Godta på GitHub",
 	"settings.github.app_setup.open_installation": "Åpne installasjonen på GitHub",
 	"settings.github.app_setup.check_again": "Sjekk på nytt",
+	"settings.github.app_setup.logo_hint": "GitHub viser appens egen logo som forfatter av hver pull request og kommentar, og har ikke noe API for å endre den. Last ned Kuayle-logoen og last den opp under Display information.",
+	"settings.github.app_setup.update_logo": "Oppdater logo på GitHub",
 	"settings.github.app_setup.checking": "Sjekker…",
 	"settings.github.app_setup.opens_new_tab": "(åpnes i ny fane)",
 	"settings.github.app_setup.load_failed": "Kunne ikke sjekke oppsettet av GitHub App.",
@@ -3165,7 +3169,7 @@
 	"github_bot.use_link": "Bruk lenke",
 	"github_bot.picture_hint": "PNG, JPEG, WebP eller GIF opptil 2 MB, lastet opp eller lenket fra en https://-adresse. Kuayle laster ned et lenket bilde én gang for å sjekke det.",
 	"github_bot.picture_url_invalid": "Bruk en https://-bildeadresse.",
-	"github_bot.identity_note": "GitHub viser alltid GitHub App som forfatter av botens kommentarer; Kuayle starter hver kommentar med dette navnet og bildet. Et opplastet bilde er offentlig tilgjengelig slik at GitHub kan vise det.",
+	"github_bot.identity_note": "GitHub viser alltid GitHub-appens egen logo som forfatter; endre den i appinnstillingene på GitHub. Kuayle starter hver kommentar og pull request-beskrivelse med dette navnet og bildet. Et opplastet bilde er offentlig tilgjengelig slik at GitHub kan vise det.",
 	"github_bot.abilities": "Evner",
 	"github_bot.abilities_desc": "Slå av alt boten ikke skal gjøre i dette arbeidsområdet. En evne som er slått av, avvises selv om noen godkjenner den i Kuayle.",
 	"github_bot.ability_link_issues": "Knytt saker til pull requests",
@@ -3775,5 +3779,6 @@
 	"issue.by_agent_for": "av {agent} på vegne av {user}",
 	"my_issues.tab.agents": "Tildelt agentene mine",
 	"sharedComponents.mention_list.agents": "AI-agenter",
-	"sharedComponents.filter_builder.agent_suffix": "{name} (agent)"
+	"sharedComponents.filter_builder.agent_suffix": "{name} (agent)",
+	"agents.identity.disable_note": "Når et team slås av, stoppes bare nye tildelinger og omtaler der. Agenter som allerede er tildelt, forblir tildelt, og oppgavene deres fortsetter å kjøre til noen fjerner tildelingen."
 }

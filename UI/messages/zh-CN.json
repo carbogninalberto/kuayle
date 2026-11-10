@@ -1064,6 +1064,8 @@
 	"settings.github.setup_desc": "创建 GitHub App 以连接您的仓库。大约需要 30 秒。",
 	"settings.github.setup_failed": "GitHub 设置失败",
 	"settings.github.setup_note": "点击\"设置\"将重定向到 GitHub...",
+	"settings.github.logo_download": "下载 Kuayle 徽标",
+	"settings.github.logo_setup_note": "创建应用时 GitHub 不接受徽标。应用创建后，请在 GitHub 上该应用设置的 Display information 中上传此徽标。",
 	"settings.github.title": "GitHub",
 	"settings.labels.created": "标签已创建",
 	"settings.labels.delete": "删除",
@@ -3003,6 +3005,8 @@
 	"settings.github.app_setup.accept": "在 GitHub 上接受",
 	"settings.github.app_setup.open_installation": "在 GitHub 上打开安装",
 	"settings.github.app_setup.check_again": "重新检查",
+	"settings.github.app_setup.logo_hint": "GitHub 会将应用自己的徽标显示为每个拉取请求和评论的作者，且没有可更改它的 API。请下载 Kuayle 徽标，然后在 Display information 中上传。",
+	"settings.github.app_setup.update_logo": "在 GitHub 上更新徽标",
 	"settings.github.app_setup.checking": "正在检查…",
 	"settings.github.app_setup.opens_new_tab": "（在新标签页中打开）",
 	"settings.github.app_setup.load_failed": "无法检查 GitHub App 设置。",
@@ -3165,7 +3169,7 @@
 	"github_bot.use_link": "使用链接",
 	"github_bot.picture_hint": "PNG、JPEG、WebP 或 GIF，最大 2 MB，可上传或使用 https:// 地址链接。Kuayle 会下载一次链接的图片进行检查。",
 	"github_bot.picture_url_invalid": "请使用 https:// 图片地址。",
-	"github_bot.identity_note": "GitHub 始终将 GitHub App 显示为机器人评论的作者；Kuayle 会在每条评论开头使用此名称和头像。上传的头像可公开访问，以便 GitHub 显示。",
+	"github_bot.identity_note": "GitHub 始终将 GitHub App 自己的徽标显示为作者；可在 GitHub 上该应用的设置中更改。Kuayle 会在每条评论和拉取请求描述开头使用此名称和头像。上传的头像可公开访问，以便 GitHub 显示。",
 	"github_bot.abilities": "能力",
 	"github_bot.abilities_desc": "关闭机器人在此工作区中不应执行的操作。已关闭的能力即使在 Kuayle 中获得批准也会被拒绝。",
 	"github_bot.ability_link_issues": "在拉取请求上关联议题",
@@ -3775,5 +3779,6 @@
 	"issue.by_agent_for": "由 {agent} 代表 {user}",
 	"my_issues.tab.agents": "分配给我的智能体",
 	"sharedComponents.mention_list.agents": "AI 智能体",
-	"sharedComponents.filter_builder.agent_suffix": "{name}（智能体）"
+	"sharedComponents.filter_builder.agent_suffix": "{name}（智能体）",
+	"agents.identity.disable_note": "关闭某个团队只会阻止在该团队中进行新的分配和提及。已分配的智能体保持分配状态，其任务会继续运行，直到有人取消分配。"
 }

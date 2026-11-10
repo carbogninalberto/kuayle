@@ -1064,6 +1064,8 @@
 	"settings.github.setup_desc": "Crea una aplicació de GitHub per connectar els teus repositoris. Triga uns 30 segons.",
 	"settings.github.setup_failed": "La configuració de GitHub ha fallat",
 	"settings.github.setup_note": "En fer clic a \"Configura\" se't redirigirà a GitHub...",
+	"settings.github.logo_download": "Baixa el logotip de Kuayle",
+	"settings.github.logo_setup_note": "GitHub no accepta un logotip en crear l'app. Quan existeixi, puja aquest logotip a Display information, a la configuració de l'app a GitHub.",
 	"settings.github.title": "GitHub",
 	"settings.labels.created": "S'ha creat l'etiqueta",
 	"settings.labels.delete": "Suprimeix",
@@ -3003,6 +3005,8 @@
 	"settings.github.app_setup.accept": "Accepta a GitHub",
 	"settings.github.app_setup.open_installation": "Obre la instal·lació a GitHub",
 	"settings.github.app_setup.check_again": "Torna a comprovar",
+	"settings.github.app_setup.logo_hint": "GitHub mostra el logotip de l'app com a autor de cada pull request i comentari, i no ofereix cap API per canviar-lo. Baixa el logotip de Kuayle i puja'l a Display information.",
+	"settings.github.app_setup.update_logo": "Actualitza el logotip a GitHub",
 	"settings.github.app_setup.checking": "S'està comprovant…",
 	"settings.github.app_setup.opens_new_tab": "(s'obre en una pestanya nova)",
 	"settings.github.app_setup.load_failed": "No s'ha pogut comprovar la configuració de l'aplicació de GitHub.",
@@ -3165,7 +3169,7 @@
 	"github_bot.use_link": "Utilitza l'enllaç",
 	"github_bot.picture_hint": "PNG, JPEG, WebP o GIF de fins a 2 MB, pujat o enllaçat des d'una adreça https://. Kuayle baixa una vegada la imatge enllaçada per comprovar-la.",
 	"github_bot.picture_url_invalid": "Utilitza una adreça d'imatge https://.",
-	"github_bot.identity_note": "GitHub sempre mostra l'aplicació de GitHub com a autora dels comentaris del bot; Kuayle comença cada comentari amb aquest nom i aquesta foto. Una foto pujada és accessible públicament perquè GitHub la pugui mostrar.",
+	"github_bot.identity_note": "GitHub sempre mostra el logotip de la GitHub App com a autor; canvia'l a la configuració de l'app a GitHub. Kuayle comença cada comentari i descripció de pull request amb aquest nom i imatge. Una imatge pujada és accessible públicament perquè GitHub la pugui mostrar.",
 	"github_bot.abilities": "Capacitats",
 	"github_bot.abilities_desc": "Desactiva tot el que el bot no hauria de fer en aquest espai de treball. Una capacitat desactivada es rebutja encara que algú l'aprovi a Kuayle.",
 	"github_bot.ability_link_issues": "Enllaça incidències a les pull requests",
@@ -3775,5 +3779,6 @@
 	"issue.by_agent_for": "per {agent} en nom de {user}",
 	"my_issues.tab.agents": "Assignades als meus agents",
 	"sharedComponents.mention_list.agents": "Agents d'IA",
-	"sharedComponents.filter_builder.agent_suffix": "{name} (agent)"
+	"sharedComponents.filter_builder.agent_suffix": "{name} (agent)",
+	"agents.identity.disable_note": "Desactivar un equip només hi atura les assignacions i mencions noves. Els agents que ja hi estan assignats ho continuen estant i les seves tasques segueixen en execució fins que algú en treu l'assignació."
 }

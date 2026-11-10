@@ -13,13 +13,14 @@ type Assigned = { id: string; task_state: string | null; task_reason?: string | 
 
 // A workspace with one issue, a "Fixer" agent enabled for its team and a
 // "Docs writer" agent enabled only elsewhere.
-async function mockWorkspace(page: Page, options: { role?: string; assigned?: Assigned[]; refuse?: string } = {}) {
+async function mockWorkspace(page: Page, options: { role?: string; assigned?: Assigned[]; refuse?: string; groupBy?: string; withPersonIssue?: boolean } = {}) {
 	const role = options.role ?? 'owner';
 	const state = {
 		assigned: options.assigned ?? [],
 		puts: [] as string[][],
 		updates: [] as { id: string; body: any }[],
 		issueQueries: [] as string[],
+		patches: [] as { path: string; body: any }[],
 		comments: [] as string[],
 		unhandled: [] as string[]
 	};
@@ -43,6 +44,8 @@ async function mockWorkspace(page: Page, options: { role?: string; assigned?: As
 		project_id: null, cycle_id: null, creator_id: userId, assignee_id: null, creator: user, assignees: [], agent_assignees: assignees(),
 		parent_id: null, due_date: null, sort_order: 1000, labels: [], sub_issue_count: 0, sub_issue_done: 0, created_at: createdAt, updated_at: createdAt
 	});
+	// A second issue assigned to a person, for grouping by assignee.
+	const personIssue = () => ({ ...issue(), id: '00000000-0000-0000-0000-000000000102', identifier: 'ENG-2', title: 'Person issue', assignee_id: userId, assignee: user, assignees: [user], agent_assignees: [], sort_order: 2000 });
 	await page.routeWebSocket('**/ws', () => {});
 	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) => route.fulfill({ json: [] }));
 	await page.route('**/api/**', async (route) => {
@@ -55,7 +58,7 @@ async function mockWorkspace(page: Page, options: { role?: string; assigned?: As
 			return route.fulfill({
 				json: {
 					font_size: 'default', pointer_cursors: true, theme_mode: 'dark', light_theme: 'light', dark_theme: 'dark', workflow_sort_mode: 'default',
-					workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'], team_workflow_sort_overrides: {}, issues_group_by: 'status'
+					workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'], team_workflow_sort_overrides: {}, issues_group_by: options.groupBy ?? 'status'
 				}
 			});
 		const workspace = { id: '00000000-0000-0000-0000-000000000002', name: 'Test Workspace', slug: 'test', logo_url: null, current_user_role: role, created_at: createdAt, updated_at: createdAt };
@@ -90,7 +93,12 @@ async function mockWorkspace(page: Page, options: { role?: string; assigned?: As
 		}
 		if (path === '/api/workspaces/test/issues' && request.method() === 'GET') {
 			state.issueQueries.push(url.search);
-			return route.fulfill({ json: { data: [issue()], total_count: 1, page: 1, has_more: false } });
+			const data = options.withPersonIssue ? [personIssue(), issue()] : [issue()];
+			return route.fulfill({ json: { data, total_count: data.length, page: 1, has_more: false } });
+		}
+		if (/^\/api\/workspaces\/test\/issues\/ENG-[12]$/.test(path) && request.method() === 'PATCH') {
+			state.patches.push({ path, body: request.postDataJSON() });
+			return route.fulfill({ json: path.endsWith('ENG-2') ? personIssue() : issue() });
 		}
 		if (path === '/api/workspaces/test/issues/ENG-1') return route.fulfill({ json: issue() });
 		if (path === '/api/workspaces/test/issues/ENG-1/comments' && request.method() === 'POST') {
@@ -248,4 +256,22 @@ test('administrators choose the teams where an agent can be assigned', async ({ 
 	await page.getByRole('option', { name: 'Docs' }).click();
 	await expect.poll(() => state.updates).toEqual([{ id: fixerId, body: { team_ids: [teamId, otherTeamId] } }]);
 	await expect(card.locator('[data-agent-teams="Fixer"]')).toHaveText('2 teams');
+});
+
+test('dropping an issue on an agent group neither assigns the agent nor sends its key as a user', async ({ page }) => {
+	const state = await mockWorkspace(page, { assigned: [{ id: fixerId, task_state: 'running' }], groupBy: 'assignee', withPersonIssue: true });
+	await page.goto(`/test/teams/${teamId}`);
+	// The agent-only issue is in the agent's group, not under "Unassigned".
+	await expect(page.getByText('Fixer (agent)')).toBeVisible();
+	await expect(page.getByText('Unassigned', { exact: true })).toHaveCount(0);
+
+	// Person's group -> agent's group: nothing is sent.
+	await page.getByText('Person issue', { exact: true }).dragTo(page.getByText('Flaky import', { exact: true }));
+	// Agent's group -> person's group: the person is assigned. This also
+	// proves drops are live, so the empty list above is not a dead drag.
+	await page.getByText('Flaky import', { exact: true }).dragTo(page.getByText('Person issue', { exact: true }));
+	await expect.poll(() => state.patches.length).toBe(1);
+	expect(state.patches[0].path).toMatch(/\/issues\/ENG-1$/);
+	expect(state.patches[0].body.assignee_ids).toEqual([userId]);
+	expect(state.puts).toEqual([]);
 });

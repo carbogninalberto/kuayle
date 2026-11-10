@@ -1064,6 +1064,8 @@
 	"settings.github.setup_desc": "Créez une GitHub App pour connecter vos dépôts. Cela prend environ 30 secondes.",
 	"settings.github.setup_failed": "Échec de la configuration de GitHub",
 	"settings.github.setup_note": "En cliquant sur « Configurer », vous serez redirigé vers GitHub…",
+	"settings.github.logo_download": "Télécharger le logo Kuayle",
+	"settings.github.logo_setup_note": "GitHub n'accepte pas de logo lors de la création de l'app. Une fois créée, importez ce logo dans Display information, dans les paramètres de l'app sur GitHub.",
 	"settings.github.title": "GitHub",
 	"settings.labels.created": "Étiquette créée",
 	"settings.labels.delete": "Supprimer",
@@ -3003,6 +3005,8 @@
 	"settings.github.app_setup.accept": "Accepter sur GitHub",
 	"settings.github.app_setup.open_installation": "Ouvrir l'installation sur GitHub",
 	"settings.github.app_setup.check_again": "Vérifier à nouveau",
+	"settings.github.app_setup.logo_hint": "GitHub affiche le logo de l'app comme auteur de chaque pull request et commentaire, et n'offre aucune API pour le modifier. Téléchargez le logo Kuayle, puis importez-le dans Display information.",
+	"settings.github.app_setup.update_logo": "Mettre à jour le logo sur GitHub",
 	"settings.github.app_setup.checking": "Vérification…",
 	"settings.github.app_setup.opens_new_tab": "(s'ouvre dans un nouvel onglet)",
 	"settings.github.app_setup.load_failed": "Impossible de vérifier la configuration de la GitHub App.",
@@ -3165,7 +3169,7 @@
 	"github_bot.use_link": "Utiliser le lien",
 	"github_bot.picture_hint": "PNG, JPEG, WebP ou GIF jusqu'à 2 Mo, téléversé ou lié depuis une adresse https://. Kuayle télécharge une fois une image liée pour la vérifier.",
 	"github_bot.picture_url_invalid": "Utilisez une adresse d'image https://.",
-	"github_bot.identity_note": "GitHub affiche toujours la GitHub App comme auteur des commentaires du bot ; Kuayle commence chaque commentaire par ce nom et cette photo. Une photo téléversée est accessible publiquement afin que GitHub puisse l'afficher.",
+	"github_bot.identity_note": "GitHub affiche toujours le logo de la GitHub App comme auteur ; modifiez-le dans les paramètres de l'app sur GitHub. Kuayle commence chaque commentaire et description de pull request par ce nom et cette image. Une image importée est accessible publiquement pour que GitHub puisse l'afficher.",
 	"github_bot.abilities": "Capacités",
 	"github_bot.abilities_desc": "Désactivez tout ce que le bot ne doit pas faire dans cet espace de travail. Une capacité désactivée est refusée même si quelqu'un l'approuve dans Kuayle.",
 	"github_bot.ability_link_issues": "Lier les tickets aux pull requests",
@@ -3775,5 +3779,6 @@
 	"issue.by_agent_for": "par {agent} pour le compte de {user}",
 	"my_issues.tab.agents": "Assignés à mes agents",
 	"sharedComponents.mention_list.agents": "Agents IA",
-	"sharedComponents.filter_builder.agent_suffix": "{name} (agent)"
+	"sharedComponents.filter_builder.agent_suffix": "{name} (agent)",
+	"agents.identity.disable_note": "Désactiver une équipe empêche seulement les nouvelles assignations et mentions dans celle-ci. Les agents déjà assignés le restent et leurs tâches continuent de s'exécuter jusqu'à ce que quelqu'un les désassigne."
 }

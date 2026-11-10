@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -295,22 +296,45 @@ func (r *AgentAssigneeRepository) Assignable(ctx context.Context, ws, issue, pro
 	return result, err
 }
 
+// AgentStartWindow is how long a start that keeps failing transiently is
+// retried before the assignment records an error instead.
+const AgentStartWindow = 15 * time.Minute
+
+// ExpirePending records an error on assignments whose task could not be
+// started within AgentStartWindow, so a start that never succeeds stops being
+// retried and cannot crowd out newer ones. It returns the assignments changed.
+func (r *AgentAssigneeRepository) ExpirePending(ctx context.Context) ([]AgentAssignment, error) {
+	expired := []AgentAssignment{}
+	err := r.db.SelectContext(ctx, &expired, `UPDATE issue_agent_assignees SET error='The task could not be started; assign the agent again to retry'
+ WHERE task_id IS NULL AND error IS NULL AND created_at < now()-make_interval(secs => $1)
+ RETURNING issue_id,profile_id,workspace_id,assigned_by,request_id,task_id`, AgentStartWindow.Seconds())
+	return expired, err
+}
+
 // Pending lists assignments whose task was not started yet and that did not
-// fail for good: a crash or a transient failure interrupted the start.
+// fail for good: a crash or a transient failure interrupted the start. Rows
+// older than AgentStartWindow are left to ExpirePending.
 func (r *AgentAssigneeRepository) Pending(ctx context.Context, limit int) ([]AgentAssignment, error) {
 	pending := []AgentAssignment{}
 	err := r.db.SelectContext(ctx, &pending, `SELECT issue_id,profile_id,workspace_id,assigned_by,request_id,task_id FROM issue_agent_assignees
- WHERE task_id IS NULL AND error IS NULL AND assigned_by IS NOT NULL AND created_at < now()-interval '20 seconds' ORDER BY created_at LIMIT $1`, limit)
+ WHERE task_id IS NULL AND error IS NULL AND assigned_by IS NOT NULL AND created_at < now()-interval '20 seconds'
+ AND created_at >= now()-make_interval(secs => $2) ORDER BY created_at LIMIT $1`, limit, AgentStartWindow.Seconds())
 	return pending, err
 }
 
 // Finish records the task an assignment started, or why none could start.
-// The request ID fences an assignment that was removed and made again.
-func (r *AgentAssigneeRepository) Finish(ctx context.Context, assignment AgentAssignment, task *uuid.UUID, failure string) error {
+// The request ID fences an assignment that was removed and made again. It
+// reports whether the assignment was updated: false means it is gone (the
+// agent was unassigned meanwhile) or was already settled.
+func (r *AgentAssigneeRepository) Finish(ctx context.Context, assignment AgentAssignment, task *uuid.UUID, failure string) (bool, error) {
 	message := sql.NullString{String: failure, Valid: task == nil}
-	_, err := r.db.ExecContext(ctx, `UPDATE issue_agent_assignees SET task_id=$4,error=left($5,1024) WHERE issue_id=$1 AND profile_id=$2 AND request_id=$3 AND task_id IS NULL`,
+	result, err := r.db.ExecContext(ctx, `UPDATE issue_agent_assignees SET task_id=$4,error=left($5,1024) WHERE issue_id=$1 AND profile_id=$2 AND request_id=$3 AND task_id IS NULL AND error IS NULL`,
 		assignment.IssueID, assignment.ProfileID, assignment.RequestID, task, message)
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, _ := result.RowsAffected()
+	return n > 0, nil
 }
 
 // MentionedAgents returns, among ids, the agents the caller can mention on

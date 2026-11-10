@@ -126,6 +126,7 @@ func main() {
 		})
 	}
 	manager.SetAgentGitIdentity(machine.GitIdentity{Name: configValue.DevMachine.AgentGitName, Email: configValue.DevMachine.AgentGitEmail})
+	manager.SetFrontendURL(configValue.FrontendURL)
 	// Task images are read from the API's storage; without it runs get none.
 	if files, err := storage.New(configValue.Storage); err == nil {
 		manager.SetAttachmentStorage(files)

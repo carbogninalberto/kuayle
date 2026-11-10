@@ -64,7 +64,7 @@ func (s *GitHubService) PostReviewComments(ctx context.Context) (int, error) {
 			err = &GitHubBotAbilityDisabledError{Ability: domain.GitHubBotReviewComments}
 		}
 		if err == nil {
-			err = post(ctx, review.WorkspaceID, review.Repository, review.PullRequestNumber, reviewCommentMarker(review.TaskID), botSignature(bot, s.frontendURL)+reviewCommentBody(*claimed))
+			err = post(ctx, review.WorkspaceID, review.Repository, review.PullRequestNumber, reviewCommentMarker(review.TaskID), bot.Signature(s.frontendURL)+reviewCommentBody(*claimed))
 		}
 		if err != nil {
 			log.WithError(err).WithField("review_task_id", review.TaskID).Warn("Could not post agent review comment")

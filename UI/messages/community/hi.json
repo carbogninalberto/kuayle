@@ -1064,6 +1064,8 @@
 	"settings.github.setup_desc": "अपनी रिपॉज़िटरी कनेक्ट करने के लिए GitHub App बनाएँ। इसमें लगभग 30 सेकंड लगते हैं।",
 	"settings.github.setup_failed": "GitHub सेटअप विफल रहा",
 	"settings.github.setup_note": "\"सेट अप करें\" पर क्लिक करने से आप GitHub पर भेज दिए जाएँगे...",
+	"settings.github.logo_download": "Kuayle लोगो डाउनलोड करें",
+	"settings.github.logo_setup_note": "ऐप बनाते समय GitHub लोगो स्वीकार नहीं करता। ऐप बनने के बाद, GitHub पर ऐप की सेटिंग्स में Display information के अंतर्गत यह लोगो अपलोड करें।",
 	"settings.github.title": "GitHub",
 	"settings.labels.created": "लेबल बनाया गया",
 	"settings.labels.delete": "हटाएँ",
@@ -3003,6 +3005,8 @@
 	"settings.github.app_setup.accept": "GitHub पर स्वीकार करें",
 	"settings.github.app_setup.open_installation": "GitHub पर इंस्टॉलेशन खोलें",
 	"settings.github.app_setup.check_again": "फिर से जाँचें",
+	"settings.github.app_setup.logo_hint": "GitHub हर पुल रिक्वेस्ट और टिप्पणी के लेखक के रूप में ऐप का अपना लोगो दिखाता है, और इसे बदलने का कोई API नहीं है। Kuayle लोगो डाउनलोड करें, फिर Display information में अपलोड करें।",
+	"settings.github.app_setup.update_logo": "GitHub पर लोगो अपडेट करें",
 	"settings.github.app_setup.checking": "जाँच हो रही है…",
 	"settings.github.app_setup.opens_new_tab": "(नए टैब में खुलता है)",
 	"settings.github.app_setup.load_failed": "GitHub App का सेटअप नहीं जाँचा जा सका।",
@@ -3165,7 +3169,7 @@
 	"github_bot.use_link": "लिंक उपयोग करें",
 	"github_bot.picture_hint": "अधिकतम 2 MB की PNG, JPEG, WebP या GIF, अपलोड की गई या https:// पते से जुड़ी। जुड़ी हुई इमेज को Kuayle जाँचने के लिए एक बार डाउनलोड करता है।",
 	"github_bot.picture_url_invalid": "https:// इमेज पता उपयोग करें।",
-	"github_bot.identity_note": "GitHub बॉट की टिप्पणियों के लेखक के रूप में हमेशा GitHub App को ही दिखाता है; Kuayle हर टिप्पणी इस नाम और फ़ोटो से शुरू करता है। अपलोड की गई फ़ोटो सार्वजनिक रूप से पहुँच योग्य होती है ताकि GitHub उसे दिखा सके।",
+	"github_bot.identity_note": "GitHub लेखक के रूप में हमेशा GitHub App का अपना लोगो दिखाता है; इसे GitHub पर ऐप की सेटिंग्स में बदलें। Kuayle हर टिप्पणी और पुल रिक्वेस्ट विवरण की शुरुआत इस नाम और चित्र से करता है। अपलोड किया गया चित्र सार्वजनिक रूप से उपलब्ध रहता है ताकि GitHub उसे दिखा सके।",
 	"github_bot.abilities": "क्षमताएँ",
 	"github_bot.abilities_desc": "वह सब बंद करें जो बॉट को इस वर्कस्पेस में नहीं करना चाहिए। बंद की गई क्षमता तब भी अस्वीकार हो जाती है जब कोई उसे Kuayle में स्वीकृत कर दे।",
 	"github_bot.ability_link_issues": "पुल रिक्वेस्ट पर इश्यू लिंक करें",
@@ -3775,5 +3779,6 @@
 	"issue.by_agent_for": "{user} की ओर से {agent} द्वारा",
 	"my_issues.tab.agents": "मेरे एजेंटों को असाइन",
 	"sharedComponents.mention_list.agents": "AI एजेंट",
-	"sharedComponents.filter_builder.agent_suffix": "{name} (एजेंट)"
+	"sharedComponents.filter_builder.agent_suffix": "{name} (एजेंट)",
+	"agents.identity.disable_note": "किसी टीम को बंद करने से वहाँ केवल नए असाइनमेंट और मेंशन रुकते हैं। पहले से असाइन किए गए एजेंट असाइन बने रहते हैं और उनके टास्क तब तक चलते रहते हैं जब तक कोई उन्हें अनअसाइन नहीं करता।"
 }
