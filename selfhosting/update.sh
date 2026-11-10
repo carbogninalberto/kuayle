@@ -107,6 +107,12 @@ refuse_placeholder_secrets() {
 		if is_placeholder_secret "$value"; then
 			echo "$name is still an example placeholder or development default." >&2
 			found=true
+		elif [ "$name" = POSTGRES_PASSWORD ] && { [ -z "$value" ] || [ "$value" = kuayle ]; }; then
+			# Unset means the Compose files fall back to a password published
+			# in this repository.
+			echo "$name is still an example placeholder or development default." >&2
+			echo "  (it is unset or equals the Compose fallback, so the database uses a published password)" >&2
+			found=true
 		fi
 	done
 	if [ "$found" = true ]; then

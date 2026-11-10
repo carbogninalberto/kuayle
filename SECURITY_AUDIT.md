@@ -378,7 +378,7 @@ private teams, invite and shared links.
 | KS-26 | Medium | Fixed (#176) | Public query parameters replaced a share's stored filters | `BE/internal/service/shared_link.go:458` |
 | KS-27 | Medium | Fixed (#177) | Any member's comment started a follow-up run with the task creator's credentials | `BE/internal/repository/agent_signals.go:137` |
 | KS-28 | Medium | Fixed (#182) | The assistant could message a running agent as its owner without approval | `BE/internal/service/assistant_live_tools.go:33` |
-| KS-29 | Medium | Fixed (#178) | Placeholder secrets from the example files were accepted in production | `BE/internal/config/config.go:327` |
+| KS-29 | Medium | Fixed (#178 and follow-up) | Placeholder secrets from the example files were accepted in production | `BE/internal/config/config.go:327` |
 | KS-30 | Low | Fixed (#181) | Invite links kept working after their creator lost access | `BE/internal/repository/workspace_invite_link.go:112` |
 | KS-31 | Low | Fixed (#181) | Password reset left personal access tokens valid | `BE/internal/repository/password_reset.go:76` |
 | KS-32 | Low | Fixed (#181) | `view:manage` was never enforced | `BE/cmd/server/routes.go:286` |
@@ -510,8 +510,8 @@ Compose ports bind to localhost. An instance that still uses a placeholder
 does not start after upgrading; see "Secrets must be generated" in
 `docs/self-hosting.md`.
 
-**Residual.** The Compose fallback database password used when
-`POSTGRES_PASSWORD` is unset is not refused.
+The Compose fallback database password used when `POSTGRES_PASSWORD` is unset
+is refused the same way (follow-up change).
 
 **Tests.** `TestLoadRejectsPlaceholderSecretsOutsideDevelopment`,
 `TestLoadMachineGatewayRejectsPlaceholderDatabasePasswordInProduction`,
@@ -606,6 +606,5 @@ The root `.gitignore` ignores `.env.*` except `.env.example`.
 - Run task previews in a container without developer secrets (KS-24).
 - Load remote images in content only on request (KS-35).
 - Stop returning stored filters from the public share metadata endpoint (KS-25).
-- Refuse the Compose fallback database password outside development (KS-29).
 - Verify npm tarball integrity in the agent CLI installer (KS-36).
 - Tell the task's creator when another member's comment is waiting (KS-27).

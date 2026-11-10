@@ -57,6 +57,10 @@ fail() {
 	exit 1
 }
 
+# A stand-in for the database credential an operator generates. update.sh refuses an
+# unset POSTGRES_PASSWORD outside development.
+database_fixture=$(printf 'dbfixture-%.0s' 1 2 3 4)
+
 run_case() {
 	local name=$1
 	local fail_point=$2
@@ -79,7 +83,7 @@ run_case() {
 	: >"$command_log"
 
 	set +e
-	output=$(PATH="$fake_bin:$PATH" COMMAND_LOG="$command_log" FAIL_POINT="$fail_point" FAIL_RESTORE="$fail_restore" FAIL_APP_RESTORE="$fail_app_restore" \
+	output=$(PATH="$fake_bin:$PATH" POSTGRES_PASSWORD="$database_fixture" COMMAND_LOG="$command_log" FAIL_POINT="$fail_point" FAIL_RESTORE="$fail_restore" FAIL_APP_RESTORE="$fail_app_restore" \
 		bash "$repo_root/selfhosting/update.sh" 2>&1)
 	status=$?
 	set -e
@@ -156,7 +160,7 @@ run_searxng_case() {
 	ln -s "$SCRIPT_DIR/update_test.sh" "$fake_bin/docker"
 	: >"$command_log"
 	set +e
-	output=$(PATH="$fake_bin:$PATH" COMMAND_LOG="$command_log" FAIL_POINT="$fail_point" SEARXNG_RUNNING=true \
+	output=$(PATH="$fake_bin:$PATH" POSTGRES_PASSWORD="$database_fixture" COMMAND_LOG="$command_log" FAIL_POINT="$fail_point" SEARXNG_RUNNING=true \
 		bash "$repo_root/selfhosting/update.sh" 2>&1)
 	status=$?
 	set -e
@@ -240,7 +244,14 @@ run_placeholder_case unedited-example "$(cat "$SCRIPT_DIR/.env.example")\n" fals
 run_placeholder_case placeholder-jwt "POSTGRES_PASSWORD=$generated\nJWT_SECRET=$selfhost_jwt\n" false JWT_SECRET
 run_placeholder_case quoted-development-jwt "ENVIRONMENT=production\nJWT_SECRET=\"$development_jwt\"\n" false JWT_SECRET
 run_placeholder_case placeholder-database-password "POSTGRES_PASSWORD=$selfhost_postgres\nJWT_SECRET=$generated\n" false POSTGRES_PASSWORD
-run_placeholder_case placeholder-updater-token "JWT_SECRET=$generated\nSYSTEM_UPDATER_TOKEN=$selfhost_updater\n" false SYSTEM_UPDATER_TOKEN
+run_placeholder_case placeholder-updater-token "POSTGRES_PASSWORD=$generated\nJWT_SECRET=$generated\nSYSTEM_UPDATER_TOKEN=$selfhost_updater\n" false SYSTEM_UPDATER_TOKEN
+# An unset POSTGRES_PASSWORD makes the Compose files use their published fallback.
+run_placeholder_case unset-database-password "JWT_SECRET=$generated\n" false POSTGRES_PASSWORD
+fallback_key=POSTGRES_PASSWORD
+compose_fallback=$(sed -n "s/.*$fallback_key. \${$fallback_key:-\([^}]*\)}.*/\1/p" "$SCRIPT_DIR/docker-compose.yml" | head -n 1)
+[ -n "$compose_fallback" ] || fail "the Compose file no longer defines a fallback database password; update this test"
+run_placeholder_case fallback-database-password "POSTGRES_PASSWORD=$compose_fallback\nJWT_SECRET=$generated\n" false POSTGRES_PASSWORD
+run_placeholder_case development-unset-database-password "ENVIRONMENT=development\nJWT_SECRET=$generated\n" false ''
 run_placeholder_case placeholder-gateway-password "JWT_SECRET=$generated\nDEV_MACHINE_GATEWAY_DB_PASSWORD=$selfhost_gateway\n" true DEV_MACHINE_GATEWAY_DB_PASSWORD
 run_placeholder_case placeholder-gateway-url "JWT_SECRET=$generated\nDEV_MACHINE_GATEWAY_DATABASE_URL=$gateway_url\n" true DEV_MACHINE_GATEWAY_DATABASE_URL
 # The example ships a gateway placeholder for a profile that is off by default.
