@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "Kommentarer",
 	"settings.tokens.res_cycles": "Cyklusser",
 	"settings.tokens.res_dev_machines": "Udviklermaskiner",
+	"settings.tokens.res_agent_tasks": "Agentopgaver",
+	"settings.tokens.res_workflows": "Agent-workflows",
 	"settings.tokens.res_issues": "Issues",
 	"settings.tokens.res_labels": "Labels",
 	"settings.tokens.res_members": "Medlemmer",

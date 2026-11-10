@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "Comentarii",
 	"settings.tokens.res_cycles": "Cicluri",
 	"settings.tokens.res_dev_machines": "Mașini de dezvoltare",
+	"settings.tokens.res_agent_tasks": "Sarcini ale agenților",
+	"settings.tokens.res_workflows": "Fluxuri de lucru ale agenților",
 	"settings.tokens.res_issues": "Probleme",
 	"settings.tokens.res_labels": "Etichete",
 	"settings.tokens.res_members": "Membri",

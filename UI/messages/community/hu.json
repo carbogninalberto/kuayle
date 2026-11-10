@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "Megjegyzések",
 	"settings.tokens.res_cycles": "Ciklusok",
 	"settings.tokens.res_dev_machines": "Fejlesztői gépek",
+	"settings.tokens.res_agent_tasks": "Agent taszkok",
+	"settings.tokens.res_workflows": "Agent munkafolyamatok",
 	"settings.tokens.res_issues": "Feladatok",
 	"settings.tokens.res_labels": "Címkék",
 	"settings.tokens.res_members": "Tagok",

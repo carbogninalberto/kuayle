@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "Yorumlar",
 	"settings.tokens.res_cycles": "Döngüler",
 	"settings.tokens.res_dev_machines": "Geliştirme makineleri",
+	"settings.tokens.res_agent_tasks": "Ajan görevleri",
+	"settings.tokens.res_workflows": "Ajan iş akışları",
 	"settings.tokens.res_issues": "Issue'lar",
 	"settings.tokens.res_labels": "Etiketler",
 	"settings.tokens.res_members": "Üyeler",

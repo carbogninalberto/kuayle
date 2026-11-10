@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "टिप्पणियाँ",
 	"settings.tokens.res_cycles": "साइकल",
 	"settings.tokens.res_dev_machines": "डेव मशीन",
+	"settings.tokens.res_agent_tasks": "एजेंट टास्क",
+	"settings.tokens.res_workflows": "एजेंट वर्कफ़्लो",
 	"settings.tokens.res_issues": "इश्यू",
 	"settings.tokens.res_labels": "लेबल",
 	"settings.tokens.res_members": "सदस्य",

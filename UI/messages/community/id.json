@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "Komentar",
 	"settings.tokens.res_cycles": "Siklus",
 	"settings.tokens.res_dev_machines": "Mesin dev",
+	"settings.tokens.res_agent_tasks": "Tugas agen",
+	"settings.tokens.res_workflows": "Workflow agen",
 	"settings.tokens.res_issues": "Issue",
 	"settings.tokens.res_labels": "Label",
 	"settings.tokens.res_members": "Anggota",

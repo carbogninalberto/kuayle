@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "Komentáře",
 	"settings.tokens.res_cycles": "Cykly",
 	"settings.tokens.res_dev_machines": "Vývojové stroje",
+	"settings.tokens.res_agent_tasks": "Úlohy agentů",
+	"settings.tokens.res_workflows": "Workflow agentů",
 	"settings.tokens.res_issues": "Úkoly",
 	"settings.tokens.res_labels": "Štítky",
 	"settings.tokens.res_members": "Členové",

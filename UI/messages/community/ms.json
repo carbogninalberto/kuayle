@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "Komen",
 	"settings.tokens.res_cycles": "Kitaran",
 	"settings.tokens.res_dev_machines": "Mesin dev",
+	"settings.tokens.res_agent_tasks": "Tugas ejen",
+	"settings.tokens.res_workflows": "Aliran kerja ejen",
 	"settings.tokens.res_issues": "Isu",
 	"settings.tokens.res_labels": "Label",
 	"settings.tokens.res_members": "Ahli",

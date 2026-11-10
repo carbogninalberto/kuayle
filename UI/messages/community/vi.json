@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "Bình luận",
 	"settings.tokens.res_cycles": "Chu kỳ",
 	"settings.tokens.res_dev_machines": "Máy dev",
+	"settings.tokens.res_agent_tasks": "Tác vụ của agent",
+	"settings.tokens.res_workflows": "Quy trình của agent",
 	"settings.tokens.res_issues": "Issue",
 	"settings.tokens.res_labels": "Nhãn",
 	"settings.tokens.res_members": "Thành viên",

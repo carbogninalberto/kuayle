@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "Comentarios",
 	"settings.tokens.res_cycles": "Ciclos",
 	"settings.tokens.res_dev_machines": "Máquinas de desarrollo",
+	"settings.tokens.res_agent_tasks": "Tareas de agentes",
+	"settings.tokens.res_workflows": "Workflows de agentes",
 	"settings.tokens.res_issues": "Incidencias",
 	"settings.tokens.res_labels": "Etiquetas",
 	"settings.tokens.res_members": "Miembros",

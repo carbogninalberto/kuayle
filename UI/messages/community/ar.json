@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "التعليقات",
 	"settings.tokens.res_cycles": "الدورات",
 	"settings.tokens.res_dev_machines": "أجهزة التطوير",
+	"settings.tokens.res_agent_tasks": "مهام الوكلاء",
+	"settings.tokens.res_workflows": "سير عمل الوكلاء",
 	"settings.tokens.res_issues": "المشكلات",
 	"settings.tokens.res_labels": "التسميات",
 	"settings.tokens.res_members": "الأعضاء",

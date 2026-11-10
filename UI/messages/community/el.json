@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "Σχόλια",
 	"settings.tokens.res_cycles": "Κύκλοι",
 	"settings.tokens.res_dev_machines": "Μηχανήματα ανάπτυξης",
+	"settings.tokens.res_agent_tasks": "Εργασίες πρακτόρων",
+	"settings.tokens.res_workflows": "Ροές εργασίας πρακτόρων",
 	"settings.tokens.res_issues": "Ζητήματα",
 	"settings.tokens.res_labels": "Ετικέτες",
 	"settings.tokens.res_members": "Μέλη",

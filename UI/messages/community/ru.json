@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "Комментарии",
 	"settings.tokens.res_cycles": "Циклы",
 	"settings.tokens.res_dev_machines": "Dev-машины",
+	"settings.tokens.res_agent_tasks": "Задачи агентов",
+	"settings.tokens.res_workflows": "Процессы агентов",
 	"settings.tokens.res_issues": "Задачи",
 	"settings.tokens.res_labels": "Метки",
 	"settings.tokens.res_members": "Участники",

@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "ความคิดเห็น",
 	"settings.tokens.res_cycles": "Cycle",
 	"settings.tokens.res_dev_machines": "เครื่องพัฒนา",
+	"settings.tokens.res_agent_tasks": "งานของ Agent",
+	"settings.tokens.res_workflows": "เวิร์กโฟลว์ของ Agent",
 	"settings.tokens.res_issues": "Issue",
 	"settings.tokens.res_labels": "ป้ายกำกับ",
 	"settings.tokens.res_members": "สมาชิก",

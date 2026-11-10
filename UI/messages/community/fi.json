@@ -1252,6 +1252,8 @@
 	"settings.tokens.res_comments": "Kommentit",
 	"settings.tokens.res_cycles": "Syklit",
 	"settings.tokens.res_dev_machines": "Kehityskoneet",
+	"settings.tokens.res_agent_tasks": "Agenttitehtävät",
+	"settings.tokens.res_workflows": "Agenttityönkulut",
 	"settings.tokens.res_issues": "Issuet",
 	"settings.tokens.res_labels": "Tunnisteet",
 	"settings.tokens.res_members": "Jäsenet",
