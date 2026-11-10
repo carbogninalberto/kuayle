@@ -289,7 +289,9 @@ with or without sudo, and the upgrade survives restarts on the workspace volume
 using their images' pinned CLIs). Project and `~/.npmrc` settings override `/etc/npmrc`.
 
 **Agent CLI updates.** Releases pin every built-in agent CLI in the images
-(`scripts/ci/upgrade-agent-clis.mjs` raises the pins at release time). Between
+(`scripts/ci/upgrade-agent-clis.mjs` raises the pins at release time, to the
+newest stable versions published at least 48 hours earlier, and never lowers
+them; see [release agent CLI refresh](scripts/ci/README.md#release-agent-cli-refresh)). Between
 releases the machine manager keeps the npm-distributed ones current for every
 machine: every `DEV_MACHINE_AGENT_CLI_REFRESH_HOURS` (default 6; 0 turns it off)
 it runs a helper container from the headless image that installs the latest
