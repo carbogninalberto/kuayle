@@ -123,6 +123,8 @@ the signed payload and the delivery ID:
 
 Redelivering a delivery that **succeeded** therefore does nothing for seven
 days. Use GitHub's redelivery for failed deliveries only.
+A relay or tunnel in front of the endpoint must forward `X-GitHub-Delivery`
+unchanged (smee-client and plain reverse proxies do).
 
 ## Auto-Transitions
 
