@@ -655,6 +655,19 @@ func (h *DevMachineHandler) DeleteModelServer(c *echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// ModelCatalog lists the models a profile or task can choose for the coding
+// agent named by ?harness=. It holds model names only, never a key, so
+// whoever may read the model servers may read it. ?refresh=true asks for a
+// new fetch of OpenCode's list; the service rate-limits that. An unreachable
+// upstream is reported in the body, not as an error.
+func (h *DevMachineHandler) ModelCatalog(c *echo.Context) error {
+	catalog, err := h.service.AgentModelCatalog(c.Request().Context(), middleware.GetWorkspace(c).ID, c.QueryParam("harness"), c.QueryParam("refresh") == "true")
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, catalog)
+}
+
 // ListAgentModelDefaults reports the workspace default model and effort of each
 // coding agent that takes them; members read them to know what tasks run with.
 func (h *DevMachineHandler) ListAgentModelDefaults(c *echo.Context) error {

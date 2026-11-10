@@ -542,6 +542,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(dm, http.MethodDelete, "/agent-model-servers/:serverId", h.devMachine.DeleteModelServer, "dev_machine:admin")
 	scoped(dm, http.MethodGet, "/agent-model-defaults", h.devMachine.ListAgentModelDefaults, "dev_machine:read")
 	scoped(dm, http.MethodPut, "/agent-model-defaults/:provider", h.devMachine.SaveAgentModelDefault, "dev_machine:admin")
+	scoped(dm, http.MethodGet, "/agent-model-catalog", h.devMachine.ModelCatalog, "dev_machine:read")
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId", h.devMachine.Get, "dev_machine:read")
 	scoped(dm, http.MethodPatch, "/dev-machines/:machineId", h.devMachine.Update, "dev_machine:manage")
 	scoped(dm, http.MethodDelete, "/dev-machines/:machineId", h.devMachine.Delete, "dev_machine:admin")

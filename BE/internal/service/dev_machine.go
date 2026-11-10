@@ -118,6 +118,8 @@ type DevMachineService struct {
 	images         DevMachineImages
 	// modelClient lists model server models; see SetModelDiscovery.
 	modelClient *http.Client
+	// openCodeGo caches OpenCode's Go plan model list; see AgentModelCatalog.
+	openCodeGo *openCodeGoCatalog
 	// diskQuotaMode is the configured workspace disk quota mode.
 	diskQuotaMode string
 	// manifests reads repositories for check suggestions; see
@@ -148,6 +150,9 @@ func NewDevMachineService(store repository.DevMachineStore, agents *agent.Regist
 	return &DevMachineService{
 		store: store, agents: agents, enabled: enabled, domain: strings.TrimSuffix(strings.ToLower(domain), "."),
 		frontendOrigin: frontendOrigin, encryptionKey: encryptionKey, ticketTTL: ticketTTL, images: images,
+		// Set here, not on first use: catalog requests read it concurrently.
+		modelClient: newAIProviderClient(false),
+		openCodeGo:  newOpenCodeGoCatalog(),
 	}
 }
 
@@ -2549,6 +2554,9 @@ func (s *DevMachineService) agentName(provider string) string {
 // harness's protocol the harness uses its own sign-in, which takes any model.
 // OpenCode's effort is passed on as its model variant: the variants a model
 // has are OpenCode's to check, so any of Kuayle's levels is accepted here.
+// A profile save additionally checks OpenCode Go models against the model
+// catalog (validateCatalogModel); this function never reads it, so starting a
+// task does not depend on that list or on the network.
 // Every refusal is an AgentModelError.
 func (s *DevMachineService) validateAgentModel(ctx context.Context, workspaceID uuid.UUID, provider string, serverID *uuid.UUID, model, thinking string) error {
 	if serverID != nil && !harnessRunsOnModelServer(provider) {

@@ -33,7 +33,8 @@ func (s *DevMachineService) SetModelDiscovery(allowPrivateNetwork bool) {
 
 func (s *DevMachineService) modelHTTPClient() *http.Client {
 	if s.modelClient == nil {
-		s.modelClient = newAIProviderClient(false)
+		// Only a service built without its constructor gets here.
+		return newAIProviderClient(false)
 	}
 	return s.modelClient
 }
