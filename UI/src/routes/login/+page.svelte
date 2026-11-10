@@ -13,8 +13,7 @@
 	import { getConfig } from '$lib/api/invite';
 	import { demoMode, demoUsers, type DemoUser } from '$lib/demo';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let mode = $state<'login' | 'register'>('login');
 	let email = $state('');

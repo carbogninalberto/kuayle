@@ -9,7 +9,7 @@
 	import { Switch } from '$lib/components/ui/switch/index.js';
 	import { voice, type VoiceModel, type VoiceStatus } from '$lib/api/voice';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { downloadPercent, modelTraits } from './voice-rules';
 
 	let { slug }: { slug: string } = $props();

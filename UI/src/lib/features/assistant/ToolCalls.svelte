@@ -29,9 +29,8 @@
 		WikiApprovalPayload
 	} from '$lib/api/conversations';
 	import { WIKI_APPROVAL_ACTIONS } from '$lib/api/conversations';
-	import { getLocale } from '$lib/paraglide/runtime.js';
+	import { getLocale, m } from '$lib/features/i18n/messages';
 	import ApprovalModelPicker from './ApprovalModelPicker.svelte';
-	import { m } from '$lib/paraglide/messages.js';
 	import AgentSubagent from './AgentSubagent.svelte';
 	import AppPortLinks from './AppPortLinks.svelte';
 	import UpgradeProgress from './UpgradeProgress.svelte';

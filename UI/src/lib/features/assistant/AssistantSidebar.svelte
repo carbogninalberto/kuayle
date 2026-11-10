@@ -8,7 +8,7 @@
 	import ConversationNav from './ConversationNav.svelte';
 	import type { ProjectFilter } from './project-filter';
 	import type { TaskIndicator } from './shell-rules';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// The assistant's own left column: new chat and the other assistant places,
 	// conversation search and project filter, the collapsible Recents list with

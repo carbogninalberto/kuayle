@@ -4,8 +4,7 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Snippet } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let {
 		open = $bindable(false),

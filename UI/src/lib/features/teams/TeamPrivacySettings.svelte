@@ -9,7 +9,7 @@
  import { listTeamMembers, addTeamMember, removeTeamMember, setTeamVisibility } from '$lib/api/teams';
  import { Button } from '$lib/components/ui/button';
  import * as Dialog from '$lib/components/ui/dialog';
- import { m } from '$lib/paraglide/messages.js';
+ import { m } from '$lib/features/i18n/messages';
  import { appToast } from '$lib/features/toast/toast';
  import PrivacyNotice from './PrivacyNotice.svelte';
  let { slug, team, onupdated }: { slug: string; team: Team; onupdated: (team: Team) => void } = $props();

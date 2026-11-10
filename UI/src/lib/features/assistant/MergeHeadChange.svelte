@@ -1,7 +1,7 @@
 <script lang="ts">
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import type { PullRequestHeadChange } from '$lib/api/conversations';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// Commits others pushed after Kuayle published the pull request, on a merge
 	// card (merge_pull_request or ship_pull_request): authors and whether the

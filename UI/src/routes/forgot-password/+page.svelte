@@ -5,7 +5,7 @@
 	import { Loader2 } from '@lucide/svelte';
 	import { forgotPassword } from '$lib/api/auth';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	let email = $state('');
 	let loading = $state(false);

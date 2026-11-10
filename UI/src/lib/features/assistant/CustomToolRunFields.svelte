@@ -4,7 +4,7 @@
 	import { Label } from '$lib/components/ui/label/index.js';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import type { AssistantToolRunMode } from '$lib/api/assistant-tools';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// How a custom tool runs: approval or automatic, its timeout and the
 	// read-only mark. Shared by the editor and the creation wizard.

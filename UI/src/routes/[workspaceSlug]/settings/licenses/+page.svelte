@@ -3,8 +3,7 @@
 	import { Input } from '$lib/components/ui/input/index.js';
 	import packageLock from '../../../../../package-lock.json';
 	import { Search } from '@lucide/svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	type LockPackage = {
 		version?: string;

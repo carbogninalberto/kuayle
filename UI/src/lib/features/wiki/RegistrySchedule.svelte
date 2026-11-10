@@ -8,8 +8,7 @@
 	import { getWikiSettings, updateWikiSettings } from '$lib/api/wiki';
 	import type { OverviewSchedule, WikiScope, WikiSettings } from '$lib/types/wiki';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale } from '$lib/features/i18n/messages';
 	import { CalendarClock } from '@lucide/svelte';
 
 	// When the registry writes its AI overview on its own. Only writers see

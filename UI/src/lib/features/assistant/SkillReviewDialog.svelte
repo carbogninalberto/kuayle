@@ -3,7 +3,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { assistantSkills, type AssistantSkill, type AssistantSkillVersion } from '$lib/api/assistant-skills';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { diffLines } from './skill-diff';
 
 	// Shows a draft against the version in effect before an admin activates it.

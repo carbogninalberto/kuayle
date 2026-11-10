@@ -2,7 +2,7 @@
 	import { isEqualMonth, type DateValue } from "@internationalized/date";
 	import { Calendar as CalendarPrimitive } from "bits-ui";
 	import { cn, type WithoutChildrenOrChild } from "$lib/utils.js";
-	import { getLocale } from "$lib/paraglide/runtime.js";
+	import { getLocale } from '$lib/features/i18n/messages';
 	import * as Calendar from "./index.js";
 	import type { ButtonVariant } from "../button/button.svelte";
 	import type { Snippet } from "svelte";

@@ -9,7 +9,7 @@
 	import BackgroundTasks from '../BackgroundTasks.svelte';
 	import { contextUsage } from '../shell-rules';
 	import type { PanelContext } from './panel-host.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// The conversation at a glance: where its work happens, how much of the
 	// model's context it fills, what its newest coding task changed and the

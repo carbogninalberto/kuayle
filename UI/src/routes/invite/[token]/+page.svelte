@@ -6,7 +6,7 @@
 	import { getInvitePreview, acceptInvite, type InvitePreview } from '$lib/api/invite';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { Loader2, Link2Off } from '@lucide/svelte';
 
 	const token = $derived(page.params.token ?? '');

@@ -4,7 +4,7 @@
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import { Ellipsis } from '@lucide/svelte';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import type { TaskAction, TaskMenuEntry } from './task-actions';
 	// The task card's one overflow menu: every action that is not a next step,
 	// each with an icon and a label. Tools come first, then the rest (retry,

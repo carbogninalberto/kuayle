@@ -163,8 +163,10 @@ Measured against the [frontend skill](../kuayle-frontend/SKILL.md).
 - **Svelte 5 practice.** Runes used as in neighboring code; no `$effect` that
   merely copies derived state; no stores or global state where props work.
 - **Translations.** Every user-facing string goes through the
-  [message catalogs](../../../UI/messages) in all four languages (en, it, zh-CN,
-  zh-TW); no hardcoded copy; no generated Paraglide files edited by hand.
+  [message catalogs](../../../UI/messages) in every configured locale (properly
+  for the full locales en, it, zh-CN, zh-TW; best effort for community locales, see
+  [translations](../../../docs/development.md#translations)); no hardcoded copy; no
+  generated Paraglide files edited by hand.
 - **Visual verification.** Judge layouts from screenshots taken with headless
   Playwright at desktop and phone widths in both themes, not from markup alone.
 

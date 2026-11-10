@@ -2,7 +2,7 @@
 	import { Label } from '$lib/components/ui/label/index.js';
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	let {
 		provider = $bindable('inherit'),
 		instructions = $bindable(''),

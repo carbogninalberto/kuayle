@@ -6,7 +6,7 @@
 	import { agentProfiles, workflows, type AgentProfile, type WorkflowDetail } from '$lib/api/workflows';
 	import { appToast } from '$lib/features/toast/toast';
 	import WorkflowEditor from '$lib/features/workflows/WorkflowEditor.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// One workflow in the editor. Owners and admins edit any workflow but an
 	// archived one, Standard included (their edits replace the built-in flow);

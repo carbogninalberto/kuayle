@@ -5,7 +5,7 @@
 	import { taskLabel } from '$lib/features/assistant/task-labels';
 	import { taskTone, toneText } from '$lib/features/assistant/task-tone';
 	import { useTerminalDock } from './terminal-dock-context.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// The dock's Agents tab: every task the user started, with a way into its
 	// conversation and a terminal in its worktree for direct (TUI) work.

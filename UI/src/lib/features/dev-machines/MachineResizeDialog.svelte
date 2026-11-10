@@ -8,7 +8,7 @@
 	import { updateDevMachine } from '$lib/api/dev-machines';
 	import type { DevMachine, DevMachinePolicy } from '$lib/types/dev-machine';
 	import { appToast, getErrorMessage } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	let {
 		open = $bindable(false),

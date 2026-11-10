@@ -8,7 +8,7 @@
 	import { resetPassword } from '$lib/api/auth';
 	import { validateNewPassword } from '$lib/features/auth/password-rules';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	const token = $derived(page.url.searchParams.get('token') ?? '');
 	let password = $state('');

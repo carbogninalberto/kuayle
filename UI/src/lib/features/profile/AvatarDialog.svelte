@@ -8,7 +8,7 @@
 	import { updateProfile, uploadAvatar } from '$lib/api/auth';
 	import type { User } from '$lib/types/auth';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { AVATAR_TYPES, validateAvatarFile, validateAvatarUrl, type AvatarIssue } from './avatar-rules';
 
 	let {

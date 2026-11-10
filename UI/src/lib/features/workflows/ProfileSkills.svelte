@@ -10,7 +10,7 @@
 	import { assistantSkills, type AssistantSkill } from '$lib/api/assistant-skills';
 	import { appToast } from '$lib/features/toast/toast';
 	import { cn } from '$lib/utils.js';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import Markdown from '$lib/features/assistant/Markdown.svelte';
 	import { SKILL_TEMPLATE, parseSkill, type SkillProblem } from './skill-md';
 

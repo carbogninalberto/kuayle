@@ -3,7 +3,7 @@
 	import { RangeCalendar as RangeCalendarPrimitive } from "bits-ui";
 	import type { ButtonVariant } from "$lib/components/ui/button/index.js";
 	import { cn, type WithoutChildrenOrChild } from "$lib/utils.js";
-	import { getLocale } from "$lib/paraglide/runtime.js";
+	import { getLocale } from '$lib/features/i18n/messages';
 	import * as RangeCalendar from "./index.js";
 	import type { Snippet } from "svelte";
 

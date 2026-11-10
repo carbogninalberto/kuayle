@@ -9,7 +9,7 @@
 	import AgentMessageRow from './AgentMessageRow.svelte';
 	import { messageTone, summarize, type MessageAction } from './agent-messages';
 	import { moderate, stateLabel } from './labels';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// The messages this task's issue sent and received, compact on the task
 	// card. Hidden while there are none; the navigator lists everything.

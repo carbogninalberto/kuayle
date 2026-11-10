@@ -30,7 +30,7 @@
 	import type { Issue } from '$lib/types/issue';
 	import { presenceState } from '$lib/features/presence/presence.state.svelte';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import {
 		BookOpen,
 		CalendarDays,

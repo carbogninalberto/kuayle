@@ -19,8 +19,7 @@
 	import { convertIssueToProject, duplicateIssue } from '$lib/api/issues';
 	import { showIssueDeletedToast } from './issue-deleted-toast';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import type { Snippet } from 'svelte';
 	import {
 		ArrowUpCircle,

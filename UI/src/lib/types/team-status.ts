@@ -1,4 +1,4 @@
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '$lib/features/i18n/messages';
 
 export type StatusCategory = 'backlog' | 'unstarted' | 'started' | 'completed' | 'cancelled';
 

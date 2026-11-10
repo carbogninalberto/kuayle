@@ -8,7 +8,7 @@
 	import { taskTone, toneBadge } from '$lib/features/assistant/task-tone';
 	import type { AgentQueueItem } from '$lib/api/agent-tasks';
 	import RecentList from './RecentList.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// The agent tasks that used this machine (active first, then recent), each
 	// linking to the issue chat where the task runs.

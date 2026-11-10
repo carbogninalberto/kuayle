@@ -2,7 +2,7 @@
 	import TaskPanel from '../TaskPanel.svelte';
 	import TaskWorkflowView from '$lib/features/workflows/TaskWorkflowView.svelte';
 	import type { PanelContext } from './panel-host.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// The issue chat's coding agents: each task as a conversation with its agent.
 	// When the newest task follows a configurable workflow, its graph, current

@@ -2,7 +2,7 @@
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import TaskWorkflowView from '$lib/features/workflows/TaskWorkflowView.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import type { PanelContext } from './panel-host.svelte';
 
 	// The issue chat's workflow: the graph a coding task follows, its current

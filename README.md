@@ -56,7 +56,7 @@ assistant that can hand issues to coding agents running on your own machines.
 <tr>
 <td width="33%" valign="top">🏠 <b>Self-hosted, no paid tier</b><br>One Apache 2.0 repository. No license keys, no per-user fees.</td>
 <td width="33%" valign="top">⚡ <b>Real-time and public links</b><br>Changes reach every open tab; share read-only links to issues and views.</td>
-<td width="33%" valign="top">🌐 <b>Multilingual (WIP)</b><br>English, Italian, Simplified and Traditional Chinese today; more languages in progress.</td>
+<td width="33%" valign="top">🌐 <b>33 languages</b><br>4 fully supported languages + 29 community languages. See <a href="#supported-languages">Supported languages</a>.</td>
 </tr>
 </table>
 
@@ -118,7 +118,7 @@ assistant that can hand issues to coding agents running on your own machines.
 - Saved views (personal, team or workspace), favorites, a notification inbox (read state, snooze, archive), a command palette with global search, keyboard shortcuts, and a Tiptap editor with code blocks, slash commands, mentions, task lists and file uploads.
 - Analytics: workspace and team overviews, burn-up trends, configurable insights.
 - Real-time updates and presence over WebSockets; read-only public links for issues and views.
-- Multilingual (WIP): English, Italian, Simplified and Traditional Chinese today; more languages in progress.
+- Multilingual: 4 fully supported languages + 29 community languages (see [Supported languages](#supported-languages)).
 
 </details>
 
@@ -288,6 +288,34 @@ and include relevant validation: fork, branch, commit, open a PR.
 
 If Kuayle is useful to you, you can support it through
 [GitHub Sponsors](https://github.com/sponsors/carbogninalberto).
+
+## Supported languages
+
+The app UI ships in 33 languages: **4 fully supported + 29 community languages**.
+Pick one in **Settings → Preferences → Language**.
+
+**Fully supported** (maintained and reviewed): English, Italiano (Italian),
+简体中文 (Simplified Chinese), 繁體中文 (Traditional Chinese).
+
+**Community** (machine-assisted, not yet reviewed by native speakers; wording may be
+off in places): Español (Spanish), Português (Brasil), Português (Portugal),
+Deutsch (German), Français (French), 日本語 (Japanese), 한국어 (Korean),
+Nederlands (Dutch), Türkçe (Turkish), Tiếng Việt (Vietnamese), Bahasa Indonesia,
+Bahasa Melayu (Malay), हिन्दी (Hindi), Svenska (Swedish), Dansk (Danish),
+Norsk bokmål (Norwegian), Català (Catalan).
+
+**Community, with known caveats:**
+
+- Plural forms: Русский (Russian), Polski (Polish), Українська (Ukrainian),
+  Čeština (Czech), Română (Romanian), Magyar (Hungarian), Ελληνικά (Greek),
+  Suomi (Finnish), العربية (Arabic). Counts use a single form, so some phrases
+  read awkwardly.
+- Line breaks: ไทย (Thai). Long text may wrap at odd places.
+- Right-to-left: العربية (Arabic), עברית (Hebrew), فارسی (Persian). Text is
+  translated but the layout is still left-to-right.
+
+The marketing site and emails are English only. Corrections from native speakers
+are welcome; see [Translations](docs/development.md#translations).
 
 ## License
 

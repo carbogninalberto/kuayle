@@ -32,8 +32,7 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale } from '$lib/features/i18n/messages';
 	import { expiresAt, localDateString, type ExpiryChoice } from '$lib/features/tokens/expiry';
 	import { formatDate, formatRelativeTime } from '$lib/utils/format';
 	import { Plus, Trash2, KeyRound, Copy, ChevronDown, TriangleAlert } from '@lucide/svelte';

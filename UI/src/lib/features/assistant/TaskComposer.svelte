@@ -15,7 +15,7 @@
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	let {
 		slug,
 		conversation,

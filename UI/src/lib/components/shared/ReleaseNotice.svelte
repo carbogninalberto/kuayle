@@ -20,8 +20,7 @@
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { renderMarkdown } from '$lib/markdown';
 	import Info from '@lucide/svelte/icons/info';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	const DISMISSED_KEY = 'kuayle_release_notice_dismissed';
 	const PRERELEASE_KEY = 'kuayle_release_notice_include_prerelease';

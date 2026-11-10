@@ -2,7 +2,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import type { DevMachineCheckSuggestion } from '$lib/types/dev-machine';
 	import { formatTestCommand, parseTestCommand } from './test-command';
 	// suggest proposes a check from the repository; null means no repository is

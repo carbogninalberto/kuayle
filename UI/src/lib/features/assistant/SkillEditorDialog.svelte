@@ -15,7 +15,7 @@
 	} from '$lib/api/assistant-skills';
 	import type { Team } from '$lib/types/team';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import Markdown from './Markdown.svelte';
 
 	// Creates a skill, or saves an edit of `skill` as its next version. The body

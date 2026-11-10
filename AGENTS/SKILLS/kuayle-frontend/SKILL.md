@@ -73,8 +73,11 @@ hover and keyboard focus, before declaring a migration done.
 - Keep requests in [UI API modules](../../../UI/src/lib/api) using the shared
   [client](../../../UI/src/lib/api/client.ts). Inspect feature `.svelte.ts` state,
   refresh/realtime handling and API types before changing contracts.
-- Translate new app strings through [message catalogs](../../../UI/messages);
-  generated `src/lib/paraglide/` is produced by tooling, not edited by hand.
+- Translate new app strings through [message catalogs](../../../UI/messages), adding
+  each key to every locale (including `messages/community/`) per
+  [translations](../../../docs/development.md#translations). Import `m` and locale
+  helpers from `$lib/features/i18n/messages`; generated `src/lib/paraglide/` is
+  produced by tooling, not edited by hand.
 - Preserve semantic labels, accessible icon-button names, visible keyboard focus,
   dialog focus return/Escape behavior, and disabled/pending states. Use button
   semantics for actions and links for navigation; avoid nested interactive elements.

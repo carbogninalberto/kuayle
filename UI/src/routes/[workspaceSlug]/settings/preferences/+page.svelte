@@ -10,15 +10,8 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale, locales } from '$lib/paraglide/runtime.js';
-
-	const LOCALE_LABELS: Record<string, string> = {
-		en: 'English',
-		it: 'Italiano',
-		'zh-CN': '简体中文',
-		'zh-TW': '繁體中文'
-	};
+	import { m, getLocale, setLocale, locales } from '$lib/features/i18n/messages';
+	import { localeLabel } from '$lib/features/i18n/locales';
 	import { clearIssueCreateDefaults, getIssueCreateDefaults, setIssueCreateDefaults, type IssueCreateDefaults } from '$lib/features/issues/create-defaults';
 	import { listLabels } from '$lib/api/labels';
 	import { listMembers } from '$lib/api/members';
@@ -221,12 +214,12 @@
 					if (v) setLocale(v as (typeof locales)[number]);
 				}}
 			>
-				<Select.Trigger size="sm" class="w-[130px]">
-					{LOCALE_LABELS[getLocale()] ?? 'English'}
+				<Select.Trigger size="sm" class="w-[190px]">
+					{localeLabel(getLocale())}
 				</Select.Trigger>
 				<Select.Content>
 					{#each locales as locale}
-						<Select.Item value={locale}>{LOCALE_LABELS[locale] ?? locale}</Select.Item>
+						<Select.Item value={locale}>{localeLabel(locale)}</Select.Item>
 					{/each}
 				</Select.Content>
 			</Select.Root>

@@ -6,7 +6,7 @@
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { CircleAlert, CircleCheck, ExternalLink, LoaderCircle, RefreshCw } from '@lucide/svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { githubAppSetupView, type GitHubAppSetup, type GitHubAppSetupMessage } from './app-setup';
 
 	let { slug }: { slug: string } = $props();

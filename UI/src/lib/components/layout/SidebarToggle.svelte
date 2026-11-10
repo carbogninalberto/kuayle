@@ -2,8 +2,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { PanelLeft } from '@lucide/svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 </script>
 
 {#if sidebarState.collapsed}

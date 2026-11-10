@@ -4,8 +4,7 @@
 	import { getIssueGitHubActivity } from '$lib/api/github';
 	import type { GitHubIssueActivity } from '$lib/types/github';
 	import { formatRelativeTime } from '$lib/utils/format';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import { GitBranch, GitPullRequest, GitCommitHorizontal, ExternalLink, Copy, Check, ChevronRight } from '@lucide/svelte';
 	import { appToast } from '$lib/features/toast/toast';
 

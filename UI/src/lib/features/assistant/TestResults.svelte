@@ -5,7 +5,7 @@
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
 	import type { ValidationStep } from '$lib/api/agent-tasks';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	let {
 		step,
 		output,

@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import type { AnalyticsOverview } from '$lib/api/analytics';
 
 	let { overview, teamScoped = false }: { overview: AnalyticsOverview | null; teamScoped?: boolean } = $props();

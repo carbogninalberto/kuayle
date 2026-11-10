@@ -13,8 +13,7 @@
 	import * as Select from '$lib/components/ui/select';
 	import { Trash2, Download, Loader2 } from '@lucide/svelte';
 	import WorkspaceImportDialog from '$lib/features/workspaces/WorkspaceImportDialog.svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	let workspace = $state<Workspace | null>(null);

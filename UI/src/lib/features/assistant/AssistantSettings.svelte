@@ -14,7 +14,7 @@
 		type AssistantCapability
 	} from '$lib/api/assistant-capabilities';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import AssistantSkills from './AssistantSkills.svelte';
 	import AssistantCustomTools from './AssistantCustomTools.svelte';
 	import AssistantResearchSettings from './AssistantResearchSettings.svelte';

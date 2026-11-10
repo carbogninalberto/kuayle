@@ -7,7 +7,7 @@
 	import { agentInfo } from '$lib/features/agents/agents';
 	import { agentTasks, type TaskOptions } from '$lib/api/agent-tasks';
 	import { conversations, type ApprovalModelChoice } from '$lib/api/conversations';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { serversFor } from '$lib/features/agents/model-choice';
 	import {
 		choiceFrom,

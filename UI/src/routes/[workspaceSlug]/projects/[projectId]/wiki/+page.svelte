@@ -5,7 +5,7 @@
 	import { canWriteWiki } from '$lib/features/wiki/wiki-access';
 	import { getProject } from '$lib/api/projects';
 	import type { Project } from '$lib/types/project';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const projectId = $derived(page.params.projectId ?? '');

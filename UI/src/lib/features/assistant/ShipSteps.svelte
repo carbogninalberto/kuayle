@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Circle, CircleAlert, CircleCheck, CircleMinus, ExternalLink, LoaderCircle } from '@lucide/svelte';
 	import type { ShipPayload, ShipStep } from '$lib/api/conversations';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// The steps of a ship_pull_request chain in the order they run: what each
 	// does, its status and what happened. Listed on the pending card so one

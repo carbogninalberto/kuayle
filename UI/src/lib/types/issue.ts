@@ -1,5 +1,4 @@
-import { m } from '$lib/paraglide/messages.js';
-import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 import type { Label } from './label';
 import type { User } from './auth';

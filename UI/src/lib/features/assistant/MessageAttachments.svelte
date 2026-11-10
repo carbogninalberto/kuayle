@@ -3,7 +3,7 @@
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { conversations, type ConversationAttachment } from '$lib/api/conversations';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// AI Elements Message attachments: thumbnails that open in a dialog. Images
 	// load from the authenticated conversation endpoint, never a public URL.

@@ -2,7 +2,7 @@
 	import { ExternalLink, ShieldCheck } from '@lucide/svelte';
 	import * as Item from '$lib/components/ui/item/index.js';
 	import type { ShipPayload } from '$lib/api/conversations';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import MergeHeadChange from './MergeHeadChange.svelte';
 	import ReleaseNotesField from './ReleaseNotesField.svelte';
 	import ShipSteps from './ShipSteps.svelte';

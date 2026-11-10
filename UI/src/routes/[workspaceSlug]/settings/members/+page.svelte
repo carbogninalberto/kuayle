@@ -18,8 +18,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale } from '$lib/features/i18n/messages';
 	import { formatDate } from '$lib/utils/format';
 	import { UserPlus, Trash2, Link2, Copy, Ban } from '@lucide/svelte';
 

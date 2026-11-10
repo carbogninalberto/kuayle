@@ -14,7 +14,7 @@
 	import TaskLiveThread from './TaskLiveThread.svelte';
 	import { taskLabel } from './task-labels';
 	import { taskTone, toneBadge } from './task-tone';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// One coding task's agent as the centre conversation: where it is (a
 	// breadcrumb back to the assistant), the readable session of its current

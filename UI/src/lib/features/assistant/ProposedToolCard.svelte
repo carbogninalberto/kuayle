@@ -54,7 +54,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
 	import * as Item from '$lib/components/ui/item/index.js';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { schemaSummary } from './tool-schema';
 
 	// The assistant's proposed tool is a draft: the card shows its full script

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import * as echarts from 'echarts';
 	import type { AnalyticsBurnup } from '$lib/api/analytics';
 	import { getAnalyticsChartTheme, observeAnalyticsTheme } from './chart-theme';

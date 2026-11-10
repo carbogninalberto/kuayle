@@ -8,7 +8,7 @@
 	import { getWikiPublication, publishWikiPage } from '$lib/api/wiki';
 	import type { WikiPublication, WikiPublishMode, WikiScope } from '$lib/types/wiki';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { Copy, Globe, RefreshCw } from '@lucide/svelte';
 
 	// Publishing one page read-only: off, internal (members who can see the

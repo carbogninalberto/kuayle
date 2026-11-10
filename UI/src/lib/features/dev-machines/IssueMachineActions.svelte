@@ -7,8 +7,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { Button } from '$lib/components/ui/button';
 	import type { IssueMachineIntent } from './IssueMachinePickerDialog.svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { demoMode } from '$lib/demo';
 

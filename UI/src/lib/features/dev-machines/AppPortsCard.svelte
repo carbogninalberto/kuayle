@@ -22,7 +22,7 @@
 	import { exposeMachinePort, listMachinePorts, removeMachinePort, renameMachinePort } from '$lib/api/dev-machines';
 	import type { AppPort } from '$lib/types/dev-machine';
 	import { appToast, getErrorMessage } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { detectedPorts, portName, validAppPort } from './app-ports';
 	import { openAppPort } from './open-app-port';
 

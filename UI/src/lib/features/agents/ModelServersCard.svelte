@@ -8,7 +8,7 @@
 	import { modelServers } from '$lib/api/dev-machines';
 	import type { ModelServer } from '$lib/types/dev-machine';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import AgentLogo from './AgentLogo.svelte';
 	import ModelServerDialog from './ModelServerDialog.svelte';
 

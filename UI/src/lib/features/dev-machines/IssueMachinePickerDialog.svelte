@@ -17,8 +17,7 @@
 	import type { Issue } from '$lib/types/issue';
 	import MachineStatusBadge from './MachineStatusBadge.svelte';
 	import { useTerminalDock } from './terminal-dock-context.svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let {
 		open = $bindable(false),

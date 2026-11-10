@@ -4,7 +4,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { conversations } from '$lib/api/conversations';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// Opens this issue's private assistant conversation on the assistant page,
 	// creating it the first time and reusing it afterwards (one per person,

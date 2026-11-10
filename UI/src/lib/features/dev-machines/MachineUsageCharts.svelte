@@ -6,8 +6,7 @@
 	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
 	import type { ResourceUsageWindow } from '$lib/api/dev-machines';
 	import type { DevMachine, ResourceSample } from '$lib/types/dev-machine';
-	import { getLocale } from '$lib/paraglide/runtime.js';
-	import { m } from '$lib/paraglide/messages.js';
+	import { getLocale, m } from '$lib/features/i18n/messages';
 
 	// CPU, memory and disk history of one machine: oldest first, one sample per
 	// time bucket of the selected window. Each chart's ceiling is the machine's

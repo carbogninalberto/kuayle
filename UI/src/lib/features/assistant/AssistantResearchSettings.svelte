@@ -11,7 +11,7 @@
 		type AssistantResearchUpdate
 	} from '$lib/api/assistant-research';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	let { slug }: { slug: string } = $props();
 	let settings = $state<AssistantResearchSettings | null>(null);

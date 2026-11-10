@@ -18,7 +18,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import NewWorkflowDialog from '$lib/features/workflows/NewWorkflowDialog.svelte';
 	import WorkflowDefaultsCard from '$lib/features/workflows/WorkflowDefaultsCard.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// Settings → Workflows: the built-in Standard workflow and the workspace's
 	// own, with the defaults new tasks use. Owners and admins manage them (the

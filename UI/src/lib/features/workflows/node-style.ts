@@ -13,7 +13,7 @@ import {
 import type { WorkflowNode, WorkflowNodeType } from '$lib/api/workflows';
 import type { Block } from './workflow-graph';
 import { nodeTypeLabel } from './labels';
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '$lib/features/i18n/messages';
 
 // How each step type looks on the canvas and in the editor's lists: one icon
 // and one accent per type, so a workflow reads at a glance.

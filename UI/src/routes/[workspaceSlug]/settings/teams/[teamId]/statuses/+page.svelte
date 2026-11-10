@@ -12,8 +12,7 @@
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 	import * as Select from '$lib/components/ui/select';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import { Plus, Trash2, Pencil, X, Check, GripVertical, ArrowUp, ArrowDown } from '@lucide/svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');

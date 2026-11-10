@@ -1,6 +1,6 @@
 import type { Component } from 'svelte';
 import type { ConversationToolCall } from '$lib/api/conversations';
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '$lib/features/i18n/messages';
 import { humanizeToolName } from './shell-rules';
 
 // How one tool call is shown as a step chip in the transcript.

@@ -4,7 +4,7 @@
 	import * as Message from '$lib/components/ui/message/index.js';
 	import * as Bubble from '$lib/components/ui/bubble/index.js';
 	import type { AgentLiveChatMessage } from '$lib/api/agent-tasks';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// A message a coding agent sent this conversation through its live channel.
 	// It is the agent's own untrusted text: shown escaped, never as Markdown, so

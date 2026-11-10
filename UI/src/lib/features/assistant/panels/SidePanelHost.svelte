@@ -2,7 +2,7 @@
 	import { X } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import type { PanelContext, PanelDefinition } from './panel-host.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// The side panel column: a switcher for the registered panels and the
 	// active panel's body, scrolling on its own. The same host is used inline

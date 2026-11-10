@@ -2,7 +2,7 @@
 	import { CircleAlert, CircleCheck, LoaderCircle } from '@lucide/svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import { getSystemUpdateStatus, type SystemUpdateStatus } from '$lib/api/system';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// Follows an approved upgrade through the same status route as Settings →
 	// Version. The instance restarts during the run, so failed reads while the

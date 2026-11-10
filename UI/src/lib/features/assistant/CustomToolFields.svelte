@@ -6,7 +6,7 @@
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import type { AssistantToolInterpreter } from '$lib/api/assistant-tools';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import ToolParameterBuilder from './ToolParameterBuilder.svelte';
 	import { buildSchema, type ParamDraft } from './tool-schema';
 	import { schemaIssueText } from './custom-tool-labels';

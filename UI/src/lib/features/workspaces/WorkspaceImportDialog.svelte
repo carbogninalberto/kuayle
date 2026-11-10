@@ -10,7 +10,7 @@
 		previewWorkspaceImport,
 		type WorkspaceImportPreview
 	} from '$lib/api/workspaces';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	let { compact = false }: { compact?: boolean } = $props();
 	let input = $state<HTMLInputElement | null>(null);

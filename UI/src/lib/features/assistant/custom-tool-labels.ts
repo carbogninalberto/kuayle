@@ -1,5 +1,5 @@
 // Translated text for custom tool schema problems and run modes.
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '$lib/features/i18n/messages';
 import type { AssistantToolRunMode } from '$lib/api/assistant-tools';
 import type { SchemaIssue } from './tool-schema';
 

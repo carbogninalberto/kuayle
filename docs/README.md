@@ -16,8 +16,8 @@
 
 ## Contributors
 
-- [Development](development.md): run from source, `make` commands, tech stack and
-  project layout.
+- [Development](development.md): run from source, `make` commands, tech stack,
+  project layout and [translations](development.md#translations).
 - [TECHNICAL.md](../TECHNICAL.md): Dev Machines specification and system reference.
 - Backend references in [BE/docs](../BE/docs): [assistant conversations](../BE/docs/conversations.md),
   [agent tasks](../BE/docs/agent-tasks.md), [GitHub integration](../BE/docs/github-integration.md)

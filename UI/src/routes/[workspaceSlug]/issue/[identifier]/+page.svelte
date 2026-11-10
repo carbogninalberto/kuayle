@@ -1,7 +1,7 @@
 <script lang="ts">
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { getIssue } from '$lib/api/issues';

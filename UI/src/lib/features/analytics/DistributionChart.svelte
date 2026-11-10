@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import * as echarts from 'echarts';
 	import type { AnalyticsDistribution } from '$lib/api/analytics';
 	import { getPriorityLabel, type IssuePriority } from '$lib/types/issue';

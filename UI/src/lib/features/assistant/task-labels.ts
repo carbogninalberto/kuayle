@@ -1,4 +1,4 @@
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '$lib/features/i18n/messages';
 import type { TaskState } from '$lib/api/agent-tasks';
 export function taskLabel(state: TaskState): string {
 	const labels: Record<TaskState, () => string> = {

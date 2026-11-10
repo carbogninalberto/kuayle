@@ -1,5 +1,5 @@
 import { FileSearch, FolderTree, Globe, Network } from '@lucide/svelte';
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '$lib/features/i18n/messages';
 import { registerToolChip } from './tool-chips';
 import RepoScanChip from './RepoScanChip.svelte';
 import SubagentsChip from './SubagentsChip.svelte';

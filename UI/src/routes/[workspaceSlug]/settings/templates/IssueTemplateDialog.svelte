@@ -20,7 +20,7 @@
 	import type { StatusCategory } from '$lib/types/team-status';
 	import type { Team } from '$lib/types/team';
 	import type { WorkspaceMember } from '$lib/types/workspace';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { FileText, ImagePlus, Paperclip, Tag, User } from '@lucide/svelte';
 
 	let {

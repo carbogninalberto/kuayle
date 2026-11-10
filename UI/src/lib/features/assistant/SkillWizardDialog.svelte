@@ -15,7 +15,7 @@
 	import { assistantSkills, type AssistantSkill, type AssistantSkillStatus } from '$lib/api/assistant-skills';
 	import type { Team } from '$lib/types/team';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import AiMarkdownEditor from '$lib/features/workflows/AiMarkdownEditor.svelte';
 	import { parseSkill, type SkillProblem } from '$lib/features/workflows/skill-md';
 	import Markdown from './Markdown.svelte';

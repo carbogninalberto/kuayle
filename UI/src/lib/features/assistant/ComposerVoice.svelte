@@ -6,7 +6,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { canRecord, VoiceRecorder } from '$lib/features/voice/voice-recorder.svelte';
 	import { formatDuration, type VoiceProblem } from '$lib/features/voice/voice-rules';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// Composer microphone (AI Elements Prompt Input speech button): records up
 	// to the workspace limit with a visible timer, can be cancelled, and puts

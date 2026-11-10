@@ -4,7 +4,7 @@
 	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
 	import { getWikiPage, getWikiPublication, getWikiTree, listWikiPages } from '$lib/api/wiki';
 	import type { ReaderPage, WikiScope } from '$lib/types/wiki';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import WikiReader from './WikiReader.svelte';
 	import { subtreeIds } from './wiki-tree';
 

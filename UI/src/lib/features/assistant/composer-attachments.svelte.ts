@@ -1,5 +1,5 @@
 import { conversations, type ConversationAttachment, type UploadError } from '$lib/api/conversations';
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '$lib/features/i18n/messages';
 import { acceptImages, type RejectedFile } from './attachment-rules';
 
 export interface DraftAttachment {

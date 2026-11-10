@@ -3,7 +3,7 @@
 	import { Info } from '@lucide/svelte';
 	import * as Popover from '$lib/components/ui/popover/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// A small (i) next to a title that opens its explanation, so long help
 	// text stays out of the way until someone wants it.

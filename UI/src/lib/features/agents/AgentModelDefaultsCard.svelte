@@ -7,7 +7,7 @@
 	import { agentModelDefaults, modelServers } from '$lib/api/dev-machines';
 	import type { AgentModelDefault, ModelServer } from '$lib/types/dev-machine';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import AgentLogo from './AgentLogo.svelte';
 	import { agentInfo } from './agents';
 	import { AGENT_EFFORT, effortChoice, modelDefaultInput, overridingServer } from './model-choice';

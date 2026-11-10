@@ -30,7 +30,7 @@
 		type SessionTool
 	} from './agent-transcript';
 	import { elapsed, formatDuration } from './shell-rules';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// A coding agent's run as a readable session: its messages, one chip per
 	// tool call (expandable to the command and its recorded result), thinking

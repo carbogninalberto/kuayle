@@ -21,7 +21,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { Plus, Trash2, FileText, Pencil } from '@lucide/svelte';
 	import IssueTemplateDialog from './IssueTemplateDialog.svelte';
 

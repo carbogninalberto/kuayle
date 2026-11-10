@@ -10,7 +10,7 @@
 	import type { GitHubBotAbilityKey, GitHubBotSettings, GitHubBotSettingsUpdate } from '$lib/types/github';
 	import { AVATAR_TYPES, validateAvatarFile } from '$lib/features/profile/avatar-rules';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import {
 		BOT_NAME_MAX,
 		DEFAULT_MENTION_HARNESS,

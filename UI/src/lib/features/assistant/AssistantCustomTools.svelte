@@ -33,8 +33,7 @@
 		type AssistantToolRun
 	} from '$lib/api/assistant-tools';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale } from '$lib/features/i18n/messages';
 	import CustomToolEditorDialog from './CustomToolEditorDialog.svelte';
 	import CustomToolReviewDialog from './CustomToolReviewDialog.svelte';
 	import CustomToolTestRunDialog from './CustomToolTestRunDialog.svelte';

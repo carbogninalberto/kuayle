@@ -40,7 +40,7 @@
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { Plus, Layers, BarChart3 } from '@lucide/svelte';
 
 	let {

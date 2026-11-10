@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { diffRows, foldRows, splitPairs, type DiffRow } from './version-diff';
 
 	// A git-style diff of two versions of a text: removed lines in red with

@@ -7,7 +7,7 @@
 	import { taskLabel } from './task-labels';
 	import { formatDuration, splitBackgroundTasks, taskIndicator } from './shell-rules';
 	import { indicatorDot } from './task-tone';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// The person's agent work across conversations, one row per task. Running,
 	// waiting and failed tasks stay listed; only completed or cancelled ones
