@@ -1,4 +1,5 @@
 import { Node, mergeAttributes } from '@tiptap/core';
+import { safeFileUrl } from '../../security/safe-url.ts';
 
 function formatFileSize(size: number): string {
 	if (!size) return '';
@@ -16,7 +17,11 @@ export const Attachment = Node.create({
 
 	addAttributes() {
 		return {
-			href: { default: null },
+			// Stored content decides this link; keep only web and API addresses.
+			href: {
+				default: null,
+				parseHTML: (element) => safeFileUrl(element.getAttribute('href'))
+			},
 			filename: {
 				default: 'Attachment',
 				parseHTML: (element) => element.getAttribute('data-filename') ?? element.textContent
@@ -42,7 +47,7 @@ export const Attachment = Node.create({
 				'data-type': 'attachment',
 				'data-filename': filename,
 				'data-size': String(HTMLAttributes.size || 0),
-				href: HTMLAttributes.href,
+				href: safeFileUrl(HTMLAttributes.href),
 				download: filename,
 				target: '_blank',
 				rel: 'noopener noreferrer'

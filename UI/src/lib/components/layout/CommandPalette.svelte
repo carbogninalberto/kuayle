@@ -11,6 +11,7 @@
 	import { LoaderCircle } from '@lucide/svelte';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import { onMount } from 'svelte';
+	import { htmlToPlainText } from '$lib/security/plain-text';
 
 	let {
 		slug,
@@ -125,27 +126,6 @@
 		close();
 	}
 
-	function plainText(html: string | null | undefined) {
-		if (!html) return '';
-
-		if (typeof document !== 'undefined') {
-			const el = document.createElement('div');
-			el.innerHTML = html;
-			return (el.textContent ?? '').replace(/\s+/g, ' ').trim();
-		}
-
-		return html
-			.replace(/<[^>]*>/g, ' ')
-			.replace(/&nbsp;/g, ' ')
-			.replace(/&amp;/g, '&')
-			.replace(/&lt;/g, '<')
-			.replace(/&gt;/g, '>')
-			.replace(/&quot;/g, '"')
-			.replace(/&#39;/g, "'")
-			.replace(/\s+/g, ' ')
-			.trim();
-	}
-
 	function highlightedSegments(value: string | null | undefined, query: string): HighlightSegment[] {
 		const text = value ?? '';
 		const term = query.trim();
@@ -178,7 +158,7 @@
 	}
 
 	function descriptionSnippet(description: string | null, query: string) {
-		const text = plainText(description);
+		const text = htmlToPlainText(description);
 		const term = query.trim();
 		if (!text || !term) return '';
 
