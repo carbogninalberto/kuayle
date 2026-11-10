@@ -40,6 +40,8 @@ export interface InviteAcceptResponse {
 
 export interface AppConfig {
 	registration_enabled: boolean;
+	/** Whether this instance can run passkey sign-in and registration. */
+	passkeys_enabled?: boolean;
 }
 
 export async function createInviteLink(slug: string, req: CreateInviteLinkRequest): Promise<InviteLink> {

@@ -24,7 +24,7 @@ export const KUAYLE = {
 	},
 	sso: {
 		mark: 'no',
-		text: 'Email and password sign-in with invite links. No SSO (SAML/OIDC), SCIM, passkeys or magic links yet.'
+		text: 'Email and password sign-in, passkeys (WebAuthn) and invite links. No SSO (SAML/OIDC), SCIM or magic links yet.'
 	},
 	ai: {
 		mark: 'yes',

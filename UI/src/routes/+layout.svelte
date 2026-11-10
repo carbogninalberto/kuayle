@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import { setCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
 	import ReleaseNotice from '$lib/components/shared/ReleaseNotice.svelte';
+	import PasskeyPrompt from '$lib/features/auth/PasskeyPrompt.svelte';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
 	import { registerServiceWorker } from '$lib/features/pwa/register-service-worker';
 	import { lockInstalledAppZoom } from '$lib/features/pwa/installed-viewport';
@@ -25,4 +26,5 @@
 
 <Toaster position="bottom-right" theme={preferencesState.resolvedMode} />
 <ReleaseNotice />
+<PasskeyPrompt />
 {@render children()}

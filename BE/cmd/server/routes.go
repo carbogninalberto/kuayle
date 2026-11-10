@@ -57,6 +57,7 @@ type appHandlers struct {
 	workspaceTransfer *handler.WorkspaceTransferHandler
 	health            *handler.HealthHandler
 	auth              *handler.AuthHandler
+	passkey           *handler.PasskeyHandler
 	workspace         *handler.WorkspaceHandler
 	team              *handler.TeamHandler
 	issue             *handler.IssueHandler
@@ -123,6 +124,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	public(auth, http.MethodPost, "/logout", h.auth.Logout)
 	public(auth, http.MethodPost, "/forgot-password", h.auth.ForgotPassword)
 	public(auth, http.MethodPost, "/reset-password", h.auth.ResetPassword)
+	// Passkey sign-in is anonymous: the assertion is the credential.
+	public(auth, http.MethodPost, "/passkey/login/begin", h.passkey.BeginLogin)
+	public(auth, http.MethodPost, "/passkey/login/complete", h.passkey.FinishLogin)
 
 	// Public share routes (no auth, rate limited)
 	pub := e.Group("/api/public", m.publicRateLimit)
@@ -146,6 +150,13 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(api, http.MethodPatch, "/auth/me", h.auth.UpdateProfile)
 	sessionOnly(api, http.MethodPost, "/auth/me/avatar", h.auth.UploadAvatar)
 	scoped(api, http.MethodGet, "/users/:userId/avatar/:file", h.auth.GetAvatar, "account:read")
+	// Passkey management is for interactive sessions only; a token can neither
+	// add a way to sign in nor inspect the existing ones.
+	sessionOnly(api, http.MethodPost, "/auth/passkey/register/begin", h.passkey.BeginRegistration, m.authRateLimit)
+	sessionOnly(api, http.MethodPost, "/auth/passkey/register/complete", h.passkey.FinishRegistration, m.authRateLimit)
+	sessionOnly(api, http.MethodGet, "/auth/passkey/credentials", h.passkey.List)
+	sessionOnly(api, http.MethodPatch, "/auth/passkey/credentials/:id", h.passkey.Rename)
+	sessionOnly(api, http.MethodDelete, "/auth/passkey/credentials/:id", h.passkey.Delete)
 	scoped(api, http.MethodGet, "/preferences", h.prefs.Get, "account:read", mw.RequireUnrestrictedTokenWorkspaces())
 	sessionOnly(api, http.MethodPatch, "/preferences", h.prefs.Update)
 

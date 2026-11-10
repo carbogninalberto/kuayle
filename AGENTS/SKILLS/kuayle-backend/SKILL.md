@@ -55,6 +55,12 @@ current allowlist plus verified Kuayle-account binding, atomic update receipts a
 conversation writes, owner-only encrypted credentials, and fresh outbound permission
 checks. Never log Telegram request URLs, which contain the bot token.
 
+For sign-in and session work, follow the [passkey contract](../../../BE/docs/passkeys.md):
+every sign-in path issues its session through `AuthService.issueSession`, ceremony
+challenges are consumed before verification, and a session minted by a passkey ends
+with that passkey. Test ceremonies with the software authenticator in
+[internal/passkeytest](../../../BE/internal/passkeytest/authenticator.go).
+
 For task/runtime work, follow the [agent task contract](../../../BE/docs/agent-tasks.md).
 Keep native task ownership, pre-dispatch encrypted credential snapshots, atomic
 log/activity persistence and physical cancellation checks intact. Its status

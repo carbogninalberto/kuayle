@@ -1,3 +1,4 @@
+DELETE /api/auth/passkey/credentials/:id
 DELETE /api/workspaces/:slug
 DELETE /api/workspaces/:slug/dev-machine-environments/:environmentId
 DELETE /api/workspaces/:slug/dev-machine-scope-setting
@@ -23,6 +24,7 @@ DELETE /api/workspaces/:slug/teams/:teamId/statuses/:statusId
 DELETE /api/workspaces/:slug/views/:id
 DELETE /api/workspaces/:slug/webhooks/:id
 GET /api/auth/me
+GET /api/auth/passkey/credentials
 GET /api/config
 GET /api/invite/:token
 GET /api/notifications
@@ -97,6 +99,7 @@ GET /api/workspaces/:slug/ws
 GET /health
 GET /ready
 PATCH /api/auth/me
+PATCH /api/auth/passkey/credentials/:id
 PATCH /api/notifications/:id
 PATCH /api/preferences
 PATCH /api/workspaces/:slug
@@ -118,6 +121,10 @@ PATCH /api/workspaces/:slug/views/:id
 PATCH /api/workspaces/:slug/webhooks/:id
 POST /api/auth/login
 POST /api/auth/logout
+POST /api/auth/passkey/login/begin
+POST /api/auth/passkey/login/complete
+POST /api/auth/passkey/register/begin
+POST /api/auth/passkey/register/complete
 POST /api/auth/refresh
 POST /api/auth/register
 POST /api/dev-machine-ingest/events

@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import { login } from '$lib/api/auth';
+	import { getConfig } from '$lib/api/invite';
+	import type { User } from '$lib/types/auth';
+	import PasskeySignInButton from './PasskeySignInButton.svelte';
+	import { markPasskeyPromptPending } from './passkey';
 	import { Loader2 } from '@lucide/svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Password } from '$lib/components/ui/password';
@@ -11,6 +16,20 @@
 	let email = $state('');
 	let password = $state('');
 	let loading = $state(false);
+	let passkeysEnabled = $state(false);
+
+	onMount(async () => {
+		try {
+			passkeysEnabled = (await getConfig()).passkeys_enabled === true;
+		} catch {
+			// Config unavailable: password sign-in only.
+		}
+	});
+
+	function signedIn(user: User) {
+		authState.setUser(user);
+		goto('/');
+	}
 	const authInputClass =
 		'h-auto w-full rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] focus-visible:ring-0';
 
@@ -19,8 +38,8 @@
 		loading = true;
 		try {
 			const user = await login({ email, password });
-			authState.setUser(user);
-			goto('/');
+			markPasskeyPromptPending();
+			signedIn(user);
 		} catch (err: any) {
 			appToast.apiError(err, 'Login failed');
 		} finally {
@@ -35,6 +54,7 @@
 		bind:value={email}
 		placeholder="Email"
 		required
+		autocomplete="username webauthn"
 		class={authInputClass}
 	/>
 	<Password
@@ -50,3 +70,6 @@
 		{#if loading}<Loader2 size={14} class="animate-spin" />{:else}Sign in{/if}
 	</Button>
 </form>
+<div class="mt-4">
+	<PasskeySignInButton enabled={passkeysEnabled} disabled={loading} autofill onSignedIn={signedIn} />
+</div>

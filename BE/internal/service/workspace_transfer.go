@@ -162,7 +162,7 @@ func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain
 		SourceWorkspaceSlug: workspace.Slug,
 		Counts:              counts,
 		Omitted: []string{
-			"users.password_hash", "refresh_tokens", "user_preferences", "webhooks.secret",
+			"users.password_hash", "passkey_credentials", "refresh_tokens", "user_preferences", "webhooks.secret",
 			"github_app_configs", "github_installations.access_token", "ai_settings.api_key_encrypted",
 			"dev machine instances, environments, images, volumes, logs, artifacts, sessions, tokens, credentials and secret environment variables",
 		},

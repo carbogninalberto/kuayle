@@ -14,6 +14,11 @@ type RefreshToken struct {
 	TokenHash string    `db:"token_hash"`
 	ExpiresAt time.Time `db:"expires_at"`
 	CreatedAt time.Time `db:"created_at"`
+	// AuthenticatedAt is when the user signed in; rotation carries it over.
+	AuthenticatedAt *time.Time `db:"authenticated_at"`
+	// PasskeyCredentialID is the passkey that minted the session, if any. The
+	// row is deleted with that passkey.
+	PasskeyCredentialID *uuid.UUID `db:"passkey_credential_id"`
 }
 
 type RefreshTokenRepository struct {
@@ -25,13 +30,14 @@ func NewRefreshTokenRepository(db *sqlx.DB) *RefreshTokenRepository {
 }
 
 func (r *RefreshTokenRepository) Create(ctx context.Context, rt *RefreshToken) error {
-	query := `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4) RETURNING created_at`
-	return r.db.QueryRowContext(ctx, query, rt.ID, rt.UserID, rt.TokenHash, rt.ExpiresAt).Scan(&rt.CreatedAt)
+	query := `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, authenticated_at, passkey_credential_id)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING created_at`
+	return r.db.QueryRowContext(ctx, query, rt.ID, rt.UserID, rt.TokenHash, rt.ExpiresAt, rt.AuthenticatedAt, rt.PasskeyCredentialID).Scan(&rt.CreatedAt)
 }
 
 func (r *RefreshTokenRepository) GetByHash(ctx context.Context, hash string) (*RefreshToken, error) {
 	var rt RefreshToken
-	err := r.db.GetContext(ctx, &rt, `SELECT * FROM refresh_tokens WHERE token_hash = $1 AND expires_at > NOW()`, hash)
+	err := r.db.GetContext(ctx, &rt, `SELECT id, user_id, token_hash, expires_at, created_at, authenticated_at, passkey_credential_id FROM refresh_tokens WHERE token_hash = $1 AND expires_at > NOW()`, hash)
 	if err != nil {
 		return nil, err
 	}
