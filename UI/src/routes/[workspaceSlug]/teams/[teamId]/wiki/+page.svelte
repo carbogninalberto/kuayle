@@ -4,7 +4,7 @@
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import WikiView from '$lib/features/wiki/WikiView.svelte';
 	import { canWriteWiki } from '$lib/features/wiki/wiki-access';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');

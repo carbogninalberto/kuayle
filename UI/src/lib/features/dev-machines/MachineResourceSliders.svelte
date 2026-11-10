@@ -2,7 +2,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Slider } from '$lib/components/ui/slider';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import {
 		formatMachineResource,
 		memoryGb,

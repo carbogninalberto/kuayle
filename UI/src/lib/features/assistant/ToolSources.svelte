@@ -2,7 +2,7 @@
 	import { ArrowUpRight, ListTree } from '@lucide/svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import type { ConversationToolCall } from '$lib/api/conversations';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	let { calls, slug }: { calls: ConversationToolCall[]; slug: string } = $props();
 	type Source = { identifier: string; title: string };
 	const identifierPattern = /^[A-Z][A-Z0-9]*-\d+$/;

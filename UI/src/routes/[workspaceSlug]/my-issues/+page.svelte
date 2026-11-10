@@ -28,8 +28,7 @@
 	import { CircleUser, PenLine } from '@lucide/svelte';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import BulkActionBar from '$lib/features/issues/BulkActionBar.svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 

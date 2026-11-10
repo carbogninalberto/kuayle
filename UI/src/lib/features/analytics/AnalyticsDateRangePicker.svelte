@@ -5,8 +5,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
 	import { RangeCalendar } from '$lib/components/ui/range-calendar';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let {
 		startDate = '',

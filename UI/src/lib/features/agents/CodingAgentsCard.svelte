@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Switch } from '$lib/components/ui/switch/index.js';
 	import type { DevMachinePolicy } from '$lib/types/dev-machine';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import AgentLogo from './AgentLogo.svelte';
 	import { agents } from './agents';
 

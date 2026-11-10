@@ -2,7 +2,7 @@
 	import { GitBranch, ShieldCheck, TriangleAlert } from '@lucide/svelte';
 	import * as Item from '$lib/components/ui/item/index.js';
 	import type { ReleasePayload } from '$lib/api/conversations';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import ReleaseNotesField from './ReleaseNotesField.svelte';
 
 	// The pending create_release card: what is tagged, what the gate and the

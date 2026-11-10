@@ -38,8 +38,7 @@
 	import type { GitHubRepo } from '$lib/types/github';
 	import type { DevMachineEnvironment } from '$lib/types/dev-machine';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import {
 		Trash2,
 		MoreHorizontal,

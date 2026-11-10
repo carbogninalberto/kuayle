@@ -5,7 +5,7 @@
 	import WikiReader from '$lib/features/wiki/WikiReader.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { BookOpen } from '@lucide/svelte';
 
 	// A wiki page anyone with the link can read. The API returns only the

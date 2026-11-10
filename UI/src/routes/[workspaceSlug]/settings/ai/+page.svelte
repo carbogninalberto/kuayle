@@ -5,8 +5,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import { Button } from '$lib/components/ui/button';
 	import * as Select from '$lib/components/ui/select';
 	import { Switch } from '$lib/components/ui/switch/index.js';

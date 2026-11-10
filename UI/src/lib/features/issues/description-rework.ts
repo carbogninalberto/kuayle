@@ -1,5 +1,5 @@
 import { appToast } from '$lib/features/toast/toast';
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '$lib/features/i18n/messages';
 
 /**
  * Runs an AI rework of the selected description text for the rich editor's

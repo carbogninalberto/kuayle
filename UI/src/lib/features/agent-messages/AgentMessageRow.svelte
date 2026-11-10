@@ -16,8 +16,7 @@
 	import type { AgentMessage } from '$lib/api/agent-messages';
 	import { messageActions, messageTone, type MessageAction } from './agent-messages';
 	import { stateLabel, actionLabel } from './labels';
-	import { getLocale } from '$lib/paraglide/runtime.js';
-	import { m } from '$lib/paraglide/messages.js';
+	import { getLocale, m } from '$lib/features/i18n/messages';
 
 	// One registry record: who wrote to whom, through which channel, its state
 	// and the moderator's controls. The body is agent text, shown escaped.

@@ -27,8 +27,7 @@
 	import { listTemplates } from '$lib/api/issue-templates';
 	import { expandDraftIssueDescription } from '$lib/api/issues';
 	import { reworkDescriptionSelection } from './description-rework';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import {
 		User,
 		Tag,

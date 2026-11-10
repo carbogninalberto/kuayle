@@ -7,10 +7,9 @@
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import { getErrorMessage } from '$lib/features/toast/toast';
 	import { agentTasks, type AgentLiveMessage, type AgentTask } from '$lib/api/agent-tasks';
-	import { getLocale } from '$lib/paraglide/runtime.js';
+	import { getLocale, m } from '$lib/features/i18n/messages';
 	import type { ConversationState } from './conversation-state.svelte';
 	import { isMessageableTask } from './shell-rules';
-	import { m } from '$lib/paraglide/messages.js';
 
 	// The task's live channel as a conversation with its coding agent: what its
 	// creator (or the assistant for them) told the agent and what the agent

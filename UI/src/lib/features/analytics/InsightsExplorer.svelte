@@ -36,8 +36,7 @@
 	import type { TeamStatus } from '$lib/types/team-status';
 	import AnalyticsDateRangePicker from './AnalyticsDateRangePicker.svelte';
 	import { getAnalyticsChartTheme, observeAnalyticsTheme, seriesChartColor, statusChartColor } from './chart-theme';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let {
 		slug,

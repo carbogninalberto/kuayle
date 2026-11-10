@@ -7,7 +7,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	let {
 		open = $bindable(false),

@@ -79,7 +79,7 @@
 	import { appToast, getErrorMessage } from '$lib/features/toast/toast';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import type { AgentLiveChatMessage, AgentTask } from '$lib/api/agent-tasks';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// The assistant page: a three-column shell. Left, the assistant's own
 	// sidebar (places, search, Recents with folders); centre, the conversation

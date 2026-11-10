@@ -13,8 +13,7 @@
 	import { Switch } from '$lib/components/ui/switch';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { Plus, Trash2, ExternalLink } from '@lucide/svelte';
 

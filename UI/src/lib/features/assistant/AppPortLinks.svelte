@@ -6,7 +6,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { openAppPort } from '$lib/features/dev-machines/open-app-port';
 	import { portName } from '$lib/features/dev-machines/app-ports';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// Open buttons for a machine's app ports in the chat. The ports are read
 	// from the API, never from tool output, and each opens through a one-time

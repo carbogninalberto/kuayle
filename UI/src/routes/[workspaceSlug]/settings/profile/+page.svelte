@@ -10,8 +10,7 @@
 	import { Copy } from '@lucide/svelte';
 	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import AvatarDialog from '$lib/features/profile/AvatarDialog.svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let user = $state<User | null>(null);
 	let name = $state('');

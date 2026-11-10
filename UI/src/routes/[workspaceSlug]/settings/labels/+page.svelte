@@ -10,8 +10,7 @@
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import { appToast } from '$lib/features/toast/toast';
 	import { Plus, Trash2, Pencil, MoreHorizontal } from '@lucide/svelte';
 

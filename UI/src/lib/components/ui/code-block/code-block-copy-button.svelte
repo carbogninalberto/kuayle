@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from "svelte";
- import { m } from "$lib/paraglide/messages.js";
+ import { m } from '$lib/features/i18n/messages';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import { Button, type ButtonProps } from "$lib/components/ui/button/index.js";

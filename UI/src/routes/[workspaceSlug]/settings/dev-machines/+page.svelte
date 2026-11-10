@@ -55,8 +55,7 @@
 	} from '$lib/types/dev-machine';
 	import type { GitHubRepo } from '$lib/types/github';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const issueId = $derived(page.url.searchParams.get('issue_id') ?? '');

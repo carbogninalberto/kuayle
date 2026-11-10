@@ -3,7 +3,7 @@
 	import { getMergeMethods, setMergeMethod, type MergeMethod } from '$lib/api/dev-machines';
 	import type { GitHubRepo } from '$lib/types/github';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// How the assistant's merge_pull_request merges each repository. Without a
 	// choice it uses the first method the repository allows on GitHub. A choice

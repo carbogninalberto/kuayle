@@ -2,8 +2,7 @@
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import { AlertTriangle, CircleCheck, CircleDashed, CircleX, ExternalLink, LoaderCircle, RefreshCw, ShieldCheck } from '@lucide/svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale } from '$lib/features/i18n/messages';
 	import * as Accordion from '$lib/components/ui/accordion';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';

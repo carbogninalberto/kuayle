@@ -14,7 +14,7 @@
 	import MachineStatusBadge from '$lib/features/dev-machines/MachineStatusBadge.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { Button } from '$lib/components/ui/button';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// The user's Dev Machines with manual creation and cleanup; shown in
 	// Settings → Dev Machines. Task cards and issues link to each machine page.

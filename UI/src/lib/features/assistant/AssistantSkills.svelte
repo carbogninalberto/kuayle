@@ -20,8 +20,7 @@
 	import { listTeams } from '$lib/api/teams';
 	import type { Team } from '$lib/types/team';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale } from '$lib/features/i18n/messages';
 	import Markdown from './Markdown.svelte';
 	import SkillEditorDialog from './SkillEditorDialog.svelte';
 	import SkillReviewDialog from './SkillReviewDialog.svelte';

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import type { Issue, RelationType } from '$lib/types/issue';
 	import type { TeamStatus } from '$lib/types/team-status';
 	import type { WorkspaceMember } from '$lib/types/workspace';

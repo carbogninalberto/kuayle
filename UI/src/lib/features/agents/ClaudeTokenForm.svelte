@@ -4,7 +4,7 @@
 	import { Label } from '$lib/components/ui/label/index.js';
 	import { Password } from '$lib/components/ui/password';
 	import { agentSignIns, type AgentSignIn } from '$lib/api/agent-sign-ins';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { tokenProblem } from './sign-in';
 
 	// Saves the user's Claude Code token (the output of `claude setup-token`).

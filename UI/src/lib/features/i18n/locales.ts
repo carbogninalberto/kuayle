@@ -1,8 +1,9 @@
 /**
  * Locale registry for the language switcher and docs.
  *
- * `full`: maintained by the project and reviewed by native speakers.
- * `community`: machine-assisted translations; may contain awkward wording.
+ * `full`: compiled by Paraglide from `UI/messages/<code>.json`, maintained and reviewed.
+ * `community`: machine-assisted catalogs in `UI/messages/community/<code>.json`, loaded
+ * lazily for the selected locale only (see `messages.ts`); missing keys fall back to English.
  * `caveats` lists known limitations documented in the README.
  */
 export type LocaleSupport = 'full' | 'community';
@@ -54,4 +55,19 @@ export const LOCALES: Record<string, LocaleInfo> = {
 /** Native display name for a locale code, falling back to the code itself. */
 export function localeLabel(code: string): string {
 	return LOCALES[code]?.label ?? code;
+}
+
+/** localStorage key holding the selected community locale (full locales use Paraglide's own key). */
+export const COMMUNITY_LOCALE_KEY = 'KUAYLE_COMMUNITY_LOCALE';
+
+export function isCommunityLocale(code: string): boolean {
+	return LOCALES[code]?.support === 'community';
+}
+
+/** Fill `{name}` placeholders; missing parameters render as an empty string. */
+export function interpolate(template: string, params?: Record<string, unknown>): string {
+	return template.replace(/\{([^{}]+)\}/g, (_, key: string) => {
+		const value = params?.[key];
+		return value == null ? '' : String(value);
+	});
 }

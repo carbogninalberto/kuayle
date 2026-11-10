@@ -10,7 +10,7 @@
 	import { modelServers } from '$lib/api/dev-machines';
 	import type { ModelServer, ModelServerInput, ThinkingLevel } from '$lib/types/dev-machine';
 	import { appToast, getErrorMessage } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import AgentLogo from './AgentLogo.svelte';
 
 	let {

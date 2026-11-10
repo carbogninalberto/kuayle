@@ -14,8 +14,7 @@
 	import type { Issue } from '$lib/types/issue';
 	import { sanitizeHtml } from '$lib/security/sanitize';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale } from '$lib/features/i18n/messages';
 	import { CalendarDays, ExternalLink, Search, Sparkles } from '@lucide/svelte';
 	import { registryEntries } from './wiki-content';
 	import { recentPeriod, relativeDay, validPeriod } from './registry';

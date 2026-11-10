@@ -10,7 +10,7 @@
 	import { createWorkspace, listWorkspaces } from '$lib/api/workspaces';
 	import { appToast } from '$lib/features/toast/toast';
 	import { toSlug } from '$lib/utils/slug';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	let name = $state('');
 	let slug = $state('');

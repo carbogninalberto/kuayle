@@ -6,7 +6,7 @@
 	import { Switch } from '$lib/components/ui/switch/index.js';
 	import { telegram, type TelegramSettings } from '$lib/api/telegram';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	let { slug }: { slug: string } = $props();
 	let settings = $state<TelegramSettings | null>(null);
 	let failed = $state(false);

@@ -46,7 +46,7 @@
 		type WorkflowSummary
 	} from '$lib/api/workflows';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import WorkflowCanvas, { type Selection } from './WorkflowCanvas.svelte';
 	import { conditionLabel, issueLabel, nodeTypeLabel, roleLabel } from './labels';
 	import { blockHint, blockIcon, blockLabel, blockTone, nodeIcon, nodeTone } from './node-style';

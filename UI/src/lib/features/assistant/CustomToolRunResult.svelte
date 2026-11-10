@@ -35,7 +35,7 @@
 	import { CircleAlert, CircleCheck, LoaderCircle } from '@lucide/svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import { assistantTools, type AssistantToolRun } from '$lib/api/assistant-tools';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import ToolRunView from './ToolRunView.svelte';
 
 	// A custom tool run in the chat. It starts from the stored result (an auto

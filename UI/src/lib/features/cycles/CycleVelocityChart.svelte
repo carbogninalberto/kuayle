@@ -1,8 +1,7 @@
 <script lang="ts">
 	import type { VelocityPoint } from '$lib/types/cycle';
 	import * as echarts from 'echarts';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let {
 		data

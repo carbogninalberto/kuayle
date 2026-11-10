@@ -2,7 +2,7 @@
 	import { Circle, CircleCheck, CircleDot, Route } from '@lucide/svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import type { PlanStep, PlanStatus } from './agent-trace';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	let { steps }: { steps: PlanStep[] } = $props();
 	const done = $derived(steps.filter((step) => step.status === 'done').length);
 	const lineStatus = (status: PlanStatus) =>

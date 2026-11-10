@@ -2,7 +2,7 @@
 	import { X, RefreshCw, TriangleAlert } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Progress } from '$lib/components/ui/progress/index.js';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import type { ComposerAttachments } from './composer-attachments.svelte';
 	import { formatBytes } from './attachment-rules';
 

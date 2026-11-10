@@ -1,6 +1,6 @@
 <script lang="ts">
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { page } from '$app/state';
 	import AssistantSettings from '$lib/features/assistant/AssistantSettings.svelte';
 </script>

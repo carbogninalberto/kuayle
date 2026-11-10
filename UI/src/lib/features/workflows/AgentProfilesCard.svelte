@@ -9,7 +9,7 @@
 	import { agentProfiles, type AgentProfile, type AgentProfileList } from '$lib/api/workflows';
 	import type { ThinkingLevel } from '$lib/types/dev-machine';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
 	import { roleLabel } from './labels';

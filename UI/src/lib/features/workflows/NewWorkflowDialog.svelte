@@ -7,7 +7,7 @@
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { agentProfiles, workflows, type WorkflowSaveInput, type WorkflowSummary } from '$lib/api/workflows';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { nodeTypeLabel } from './labels';
 	import { starterGraph } from './workflow-graph';
 

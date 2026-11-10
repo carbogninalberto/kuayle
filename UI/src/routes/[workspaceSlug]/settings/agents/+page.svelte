@@ -13,7 +13,7 @@
 	import AgentModelDefaultsCard from '$lib/features/agents/AgentModelDefaultsCard.svelte';
 	import AgentSignInsCard from '$lib/features/agents/AgentSignInsCard.svelte';
 	import AgentProfilesCard from '$lib/features/workflows/AgentProfilesCard.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	let policy = $state<DevMachinePolicy | null>(null),

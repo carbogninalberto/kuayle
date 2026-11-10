@@ -35,8 +35,7 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { dndzone } from 'svelte-dnd-action';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import {
 		ArrowUpRight,
 		Bookmark,

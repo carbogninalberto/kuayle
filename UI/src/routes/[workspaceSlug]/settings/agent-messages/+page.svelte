@@ -20,7 +20,7 @@
 	import { moderate, stateLabel } from '$lib/features/agent-messages/labels';
 	import { toneBadge } from '$lib/features/assistant/task-tone';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// The navigator: every message agents of related tasks sent each other,
 	// with filters, held conversations and the moderators' controls.

@@ -2,7 +2,7 @@
 	import { page } from '$app/state';
 	import InternalWikiReader from '$lib/features/wiki/InternalWikiReader.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');

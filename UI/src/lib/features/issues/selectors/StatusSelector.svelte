@@ -4,8 +4,7 @@
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 	import type { TeamStatus } from '$lib/types/team-status';
 	import type { Snippet } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let {
 		open = $bindable(false),

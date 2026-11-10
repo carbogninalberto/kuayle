@@ -12,7 +12,7 @@
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// Release notes on a pending card (create_release or ship_pull_request),
 	// editable until approved. `notes` is the edited text (undefined while it is

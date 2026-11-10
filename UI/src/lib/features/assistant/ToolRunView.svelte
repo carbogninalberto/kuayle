@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import type { AssistantToolRunStatus } from '$lib/api/assistant-tools';
 
 	export const runStatusLabel = (status: AssistantToolRunStatus | string) =>

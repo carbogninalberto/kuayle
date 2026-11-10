@@ -4,7 +4,7 @@
 	import type { ConversationState } from './conversation-state.svelte';
 	import type { TaskBoard } from './task-board.svelte';
 	import TaskCard from './TaskCard.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 
 	// The issue conversation's coding tasks, newest first. Each task reads as a

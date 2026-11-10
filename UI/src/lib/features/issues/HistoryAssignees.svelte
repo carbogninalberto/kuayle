@@ -1,8 +1,7 @@
 <script lang="ts">
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import UserHoverCard from '$lib/components/shared/UserHoverCard.svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let {
 		value,

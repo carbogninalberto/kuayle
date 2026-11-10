@@ -1,6 +1,6 @@
 import { dev } from '$app/environment';
 import { appToast } from '$lib/features/toast/toast';
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '$lib/features/i18n/messages';
 import { shouldRegisterServiceWorker } from './service-worker-policy';
 
 // Browser tests set this key before loading the page to exercise the worker.

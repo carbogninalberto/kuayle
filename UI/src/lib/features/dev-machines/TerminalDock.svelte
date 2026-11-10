@@ -6,8 +6,7 @@
 	import TerminalSession from './TerminalSession.svelte';
 	import AgentDockPanel from './AgentDockPanel.svelte';
 	import { agentTasks, type AgentQueueItem } from '$lib/api/agent-tasks';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	const dock = useTerminalDock();
 

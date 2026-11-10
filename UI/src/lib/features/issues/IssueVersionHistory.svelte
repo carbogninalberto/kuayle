@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { getIssueHistory } from '$lib/api/issues';
 	import type { IssueHistory } from '$lib/types/issue';
 	import type { WorkspaceMember } from '$lib/types/workspace';

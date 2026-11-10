@@ -1,4 +1,4 @@
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '$lib/features/i18n/messages';
 import type { AgentRole, WorkflowCondition, WorkflowNodeType } from '$lib/api/workflows';
 
 // Translated names of node types, transition conditions, roles, validation

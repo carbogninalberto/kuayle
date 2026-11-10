@@ -10,8 +10,7 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale, locales } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale, locales } from '$lib/features/i18n/messages';
 	import { localeLabel } from '$lib/features/i18n/locales';
 	import { clearIssueCreateDefaults, getIssueCreateDefaults, setIssueCreateDefaults, type IssueCreateDefaults } from '$lib/features/issues/create-defaults';
 	import { listLabels } from '$lib/api/labels';

@@ -1,5 +1,5 @@
 import type { DevelopmentRepository } from '$lib/types/dev-machine';
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '$lib/features/i18n/messages';
 
 /** Names the development-settings scope a repository was inherited from. */
 export function repositorySourceLabel(source: DevelopmentRepository['source']): string {

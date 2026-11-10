@@ -34,8 +34,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { demoMode } from '$lib/demo';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	function slideFade(node: HTMLElement, params: { duration?: number } = {}) {
 		const duration = params.duration ?? 200;

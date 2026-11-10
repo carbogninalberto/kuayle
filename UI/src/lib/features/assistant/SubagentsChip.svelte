@@ -2,7 +2,7 @@
 	import { ArrowUpRight, CircleAlert, CircleCheck } from '@lucide/svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import type { ToolChipRendererProps } from './tool-chips';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import { httpURL, subagentsOutput, formatMs } from './research-output';
 
 	let { call }: ToolChipRendererProps = $props();

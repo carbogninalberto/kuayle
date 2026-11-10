@@ -7,8 +7,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { agentSignIns, type AgentSignIn } from '$lib/api/agent-sign-ins';
 	import { appToast } from '$lib/features/toast/toast';
-	import { getLocale } from '$lib/paraglide/runtime.js';
-	import { m } from '$lib/paraglide/messages.js';
+	import { getLocale, m } from '$lib/features/i18n/messages';
 	import { formatDate } from '$lib/utils/format';
 	import AgentLogo from './AgentLogo.svelte';
 	import ClaudeTokenForm from './ClaudeTokenForm.svelte';

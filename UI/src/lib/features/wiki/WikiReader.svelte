@@ -3,8 +3,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { sanitizeHtml } from '$lib/security/sanitize';
 	import type { ReaderPage } from '$lib/types/wiki';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale } from '$lib/features/i18n/messages';
 	import { FileText } from '@lucide/svelte';
 	import { buildTree, type TreeNode } from './wiki-tree';
 	import { wikiOutline } from './wiki-content';

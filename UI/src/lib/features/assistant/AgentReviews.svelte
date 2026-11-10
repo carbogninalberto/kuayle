@@ -8,7 +8,7 @@
 	import { reviewTone, type ReviewTone } from './agent-review';
 	import { toneBadge } from './task-tone';
 	import type { AgentReview, AgentSession } from '$lib/api/agent-tasks';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	// Requested agent reviews of the task's published pull request. Findings are
 	// the reviewer's own text: rendered as sanitized Markdown, never trusted.
 	let { reviews }: { reviews: (AgentSession & { review: AgentReview })[] } = $props();

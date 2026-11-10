@@ -5,7 +5,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { workflows, type TaskWorkflow, type WorkflowDecision } from '$lib/api/workflows';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import WorkflowCanvas from './WorkflowCanvas.svelte';
 	import { conditionLabel, statusLabel } from './labels';
 	import { pendingDecision, runOverlay } from './workflow-graph';

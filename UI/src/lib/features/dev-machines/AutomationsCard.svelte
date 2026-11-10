@@ -14,7 +14,7 @@
 	import type { Label as IssueLabel } from '$lib/types/label';
 	import type { TeamStatus } from '$lib/types/team-status';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// Rules delegate matching issues to a coding agent. Each start acts for one
 	// user under their current permissions; the backend enforces every limit.

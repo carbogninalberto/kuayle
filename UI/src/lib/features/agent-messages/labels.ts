@@ -1,4 +1,4 @@
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '$lib/features/i18n/messages';
 import { agentMessages, type AgentMessage, type AgentMessageState } from '$lib/api/agent-messages';
 import type { MessageAction } from './agent-messages';
 

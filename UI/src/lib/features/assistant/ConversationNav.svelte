@@ -13,7 +13,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import type { Project } from '$lib/types/project';
 	import { matchesProjectFilter, type ProjectFilter } from './project-filter';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// The user's own conversations, grouped into private folders and tagged
 	// with projects; neither shares a conversation. Deleting a conversation is

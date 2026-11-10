@@ -13,8 +13,7 @@
 	import { reworkDescriptionSelection } from '$lib/features/issues/description-rework';
 	import { appToast } from '$lib/features/toast/toast';
 	import { formatRelativeTime } from '$lib/utils/format';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale } from '$lib/features/i18n/messages';
 	import { ChevronRight, FileText, Image as ImageIcon, Paperclip } from '@lucide/svelte';
 	import { WikiAutosave, type SaveState } from './wiki-autosave';
 	import { wikiFiles, wikiOutline } from './wiki-content';

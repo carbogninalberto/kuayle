@@ -11,7 +11,7 @@
 		type AssistantToolStatus
 	} from '$lib/api/assistant-tools';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import CustomToolFields from './CustomToolFields.svelte';
 	import CustomToolRunFields from './CustomToolRunFields.svelte';
 	import { buildSchema, paramsFromSchema, type ParamDraft } from './tool-schema';

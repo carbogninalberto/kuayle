@@ -3,7 +3,7 @@
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { workflows, type WorkflowList, type WorkflowScope } from '$lib/api/workflows';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// The workflow new tasks use by default: the workspace's, overridden per
 	// team and per project (the most specific wins). A missing team or project

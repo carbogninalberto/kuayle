@@ -5,7 +5,7 @@
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import { agentTasks } from '$lib/api/agent-tasks';
 	import { diffTotals, lineMatches, parseDiff, searchDiff, type DiffFile } from './diff';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// Layout decision (KUA-67): the aggregate total lives in the header; search and
 	// collapse/expand-all sit in a toolbar pinned above the scrolling list, not a

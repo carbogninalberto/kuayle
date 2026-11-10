@@ -36,8 +36,7 @@
 	import BurnupChart from '$lib/features/analytics/BurnupChart.svelte';
 	import InsightsExplorer from '$lib/features/analytics/InsightsExplorer.svelte';
 	import AnalyticsDateRangePicker from '$lib/features/analytics/AnalyticsDateRangePicker.svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	type Tab = 'overview' | 'explore';

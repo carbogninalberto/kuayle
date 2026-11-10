@@ -10,8 +10,7 @@
 	import { X, CalendarDays, ChevronUp, ChevronDown } from '@lucide/svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { onMount, onDestroy } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let {
 		issue = $bindable(),

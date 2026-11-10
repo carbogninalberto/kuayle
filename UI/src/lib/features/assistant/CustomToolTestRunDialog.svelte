@@ -16,7 +16,7 @@
 	import type { DevMachine } from '$lib/types/dev-machine';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import ToolRunView from './ToolRunView.svelte';
 	import { coerceInputs, type SchemaIssue } from './tool-schema';
 	import { schemaIssueText } from './custom-tool-labels';

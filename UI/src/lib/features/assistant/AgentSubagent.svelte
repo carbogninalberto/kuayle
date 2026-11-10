@@ -5,7 +5,7 @@
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { agentTasks, type AgentTask } from '$lib/api/agent-tasks';
 	import { taskLabel } from './task-labels';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	let { slug, taskId, identifier }: { slug: string; taskId: string; identifier: string } = $props();
 	let task = $state<AgentTask | null>(null);
 	let timer: ReturnType<typeof setInterval> | undefined;

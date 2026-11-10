@@ -2,8 +2,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount, onDestroy } from 'svelte';
 	import type { SlashGroup, SlashMenuItem } from './slash-items';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let {
 		groups,

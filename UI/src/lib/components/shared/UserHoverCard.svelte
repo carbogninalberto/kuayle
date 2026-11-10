@@ -2,8 +2,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import Avatar from './Avatar.svelte';
 	import * as HoverCard from '$lib/components/ui/hover-card';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let {
 		member,

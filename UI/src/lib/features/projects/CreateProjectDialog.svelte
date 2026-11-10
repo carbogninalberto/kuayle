@@ -6,8 +6,7 @@
 	import { Label } from '$lib/components/ui/label';
 
 	import type { Team } from '$lib/types/team';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let {
 		open = $bindable(false),

@@ -3,8 +3,7 @@
 	import type { Cycle } from '$lib/types/cycle';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Popover from '$lib/components/ui/popover';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import {
 		CirclePlay,
 		CircleDotDashed,

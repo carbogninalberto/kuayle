@@ -7,8 +7,7 @@
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
 	import { registerServiceWorker } from '$lib/features/pwa/register-service-worker';
 	import { lockInstalledAppZoom } from '$lib/features/pwa/installed-viewport';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let { children } = $props();
 	setCurrentWorkspace();

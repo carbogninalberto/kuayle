@@ -7,7 +7,7 @@
 	import type { AgentTask } from '$lib/api/agent-tasks';
 	import { taskLabel } from './task-labels';
 	import { elapsed, formatDuration, taskIndicator } from './shell-rules';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 
 	// A coding task where it happened in the conversation: one compact card
 	// with its agent, state and time, which opens the agent's own thread. It

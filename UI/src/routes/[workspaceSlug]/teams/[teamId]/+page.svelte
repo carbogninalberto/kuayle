@@ -35,8 +35,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { Layers, SquareUser, SquaresSubtract, ChevronRight, Share2, BookOpen } from '@lucide/svelte';
 	import ShareLinkDialog from '$lib/components/shared/ShareLinkDialog.svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';

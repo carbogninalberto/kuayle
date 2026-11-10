@@ -9,7 +9,7 @@
 	import { aiWrite, type AiWriteKind } from '$lib/api/ai-write';
 	import { appToast } from '$lib/features/toast/toast';
 	import { cn } from '$lib/utils.js';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/features/i18n/messages';
 	import Markdown from '$lib/features/assistant/Markdown.svelte';
 
 	// A Markdown editor with Write and Preview and an "Ask AI" bar inside its

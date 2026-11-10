@@ -1,8 +1,7 @@
 <script lang="ts">
 	import type { DevMachineStatus } from '$lib/types/dev-machine';
 	import { Badge } from '$lib/components/ui/badge';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let { status }: { status: DevMachineStatus } = $props();
 	const dynamicMessage = m as unknown as Record<string, () => string>;
