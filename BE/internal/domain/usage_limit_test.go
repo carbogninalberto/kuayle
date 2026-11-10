@@ -60,6 +60,10 @@ func TestDetectUsageLimitParsesProviderMessages(t *testing.T) {
 		{"past time rolls to tomorrow", "You've hit your 5-hour limit · resets 2am (UTC)", "2026-11-11T02:00:00Z"},
 		{"named zone", "Claude usage limit reached. Your limit will reset at 5pm (Europe/Rome).", "2026-11-10T16:00:00Z"},
 		{"weekly with weekday", "You've hit your weekly limit · resets Thu 9am (UTC)", "2026-11-12T09:00:00Z"},
+		// Production (KUA-107, 2026-11-10): the weekly limit names a date.
+		{"weekly with date", "You've hit your weekly limit · resets Nov 15, 11am (UTC)", "2026-11-15T11:00:00Z"},
+		{"date with minutes and zone", "You've hit your weekly limit · resets Nov 15, 5:30pm (Europe/Rome)", "2026-11-15T16:30:00Z"},
+		{"date next year", "You've hit your weekly limit · resets Jan 2, 9am (UTC)", "2027-01-02T09:00:00Z"},
 		{"legacy epoch", "Claude AI usage limit reached|1794283800", "2026-11-10T04:10:00Z"},
 		{"codex relative", "You've hit your usage limit. Upgrade to Pro (https://openai.com/chatgpt/pricing) or try again in 2 hours 15 minutes.", "2026-11-10T05:15:00Z"},
 		{"codex days", "You've hit your usage limit. Try again in 1 day 3 hours.", "2026-11-11T06:00:00Z"},
