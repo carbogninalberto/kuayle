@@ -3259,6 +3259,7 @@
 	"profiles.model_placeholder": "Lalai ejen",
 	"profiles.effort": "Usaha",
 	"profiles.model_unsupported": "{agent} tidak menerima model atau tahap usaha di sini; ia menggunakan tetapannya sendiri.",
+	"profiles.model_format": "Gunakan format {format}, contohnya {example}.",
 	"profiles.instructions": "Arahan",
 	"profiles.instructions_placeholder": "Perkara yang patut diberi tumpuan oleh ejen ini; ditambah pada gesaannya sebagai konfigurasi",
 	"profiles.builtin": "Terbina dalam",

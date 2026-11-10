@@ -3259,6 +3259,7 @@
 	"profiles.model_placeholder": "Mặc định của agent",
 	"profiles.effort": "Mức nỗ lực",
 	"profiles.model_unsupported": "{agent} không nhận mô hình hay mức nỗ lực ở đây; nó dùng cài đặt riêng của mình.",
+	"profiles.model_format": "Dùng định dạng {format}, ví dụ {example}.",
 	"profiles.instructions": "Hướng dẫn",
 	"profiles.instructions_placeholder": "Điều agent này nên tập trung; được thêm vào prompt của nó như một phần cấu hình",
 	"profiles.builtin": "Tích hợp sẵn",

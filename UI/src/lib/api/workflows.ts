@@ -34,6 +34,12 @@ export interface AgentProfileInput {
 	skill_ids?: string[];
 }
 
+/** The form of a coding agent's model names (`provider/model`) and an example. */
+export interface ModelFormat {
+	format: string;
+	example: string;
+}
+
 export interface AgentProfileList {
 	profiles: AgentProfile[];
 	/** Owners and admins edit; the server enforces it. */
@@ -41,6 +47,8 @@ export interface AgentProfileList {
 	harnesses: string[];
 	/** The harnesses that take a model and an effort; absent on older servers. */
 	model_harnesses?: string[];
+	/** How a harness writes its model names when not a bare name; absent on older servers. */
+	model_formats?: Record<string, ModelFormat>;
 	roles: AgentRole[];
 }
 

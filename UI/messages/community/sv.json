@@ -3259,6 +3259,7 @@
 	"profiles.model_placeholder": "Agentens standard",
 	"profiles.effort": "Ansträngning",
 	"profiles.model_unsupported": "{agent} accepterar ingen modell eller ansträngningsnivå här; den använder sina egna inställningar.",
+	"profiles.model_format": "Använd formatet {format}, till exempel {example}.",
 	"profiles.instructions": "Instruktioner",
 	"profiles.instructions_placeholder": "Vad agenten ska fokusera på; läggs till i dess prompt som konfiguration",
 	"profiles.builtin": "Inbyggd",

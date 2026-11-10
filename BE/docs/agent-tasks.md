@@ -1306,7 +1306,16 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   providers, which can change later) and answers `400` with the reason, for
   example a harness that takes no model or effort; `GET /agent-profiles`
   lists the harnesses that take them in `model_harnesses`
-  (`harnessAcceptsModel` is the one rule). Profiles stored before that check
+  (`harnessAcceptsModel` is the one rule: Codex, Claude Code and OpenCode)
+  and, in `model_formats`, the form and an example of a harness's model
+  names when they are not bare names, which the profile form shows.
+  OpenCode's model is `provider/model` (`opencode-go/deepseek-v4.1-flash`)
+  and its effort is passed on as the model's variant; Kuayle accepts any of
+  its own levels because it does not know the variants each model has.
+  OpenCode never runs on a model server (`harnessRunsOnModelServer`: Codex
+  and Claude Code), so a step, task, retry or review on it gets no server
+  and no server's default model or thinking level; with no model it runs the
+  one OpenCode is configured with. Profiles stored before that check
   still load and are checked when they are saved again.
 - **Workflows** (`workflows`, `workflow_versions`): a save inserts the next
   immutable version (an update trigger refuses changes) with the graph as

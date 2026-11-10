@@ -3259,6 +3259,7 @@
 	"profiles.model_placeholder": "افتراضي الوكيل",
 	"profiles.effort": "الجهد",
 	"profiles.model_unsupported": "{agent} لا يقبل نموذجًا أو مستوى جهد هنا؛ يستخدم إعداداته الخاصة.",
+	"profiles.model_format": "استخدم الصيغة {format}، مثل {example}.",
 	"profiles.instructions": "التعليمات",
 	"profiles.instructions_placeholder": "ما يجب أن يركز عليه هذا الوكيل؛ يُضاف إلى موجّهه كإعداد",
 	"profiles.builtin": "مضمّن",

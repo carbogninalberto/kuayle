@@ -3259,6 +3259,7 @@
 	"profiles.model_placeholder": "Типова для агента",
 	"profiles.effort": "Рівень зусиль",
 	"profiles.model_unsupported": "{agent} не приймає тут модель або рівень зусиль і використовує власні налаштування.",
+	"profiles.model_format": "Використовуйте формат {format}, наприклад {example}.",
 	"profiles.instructions": "Інструкції",
 	"profiles.instructions_placeholder": "На чому має зосередитися цей агент; додається до його промпту як конфігурація",
 	"profiles.builtin": "Вбудований",

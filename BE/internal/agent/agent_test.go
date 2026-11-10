@@ -224,13 +224,63 @@ func TestOpenCodeProviderBuildInvocation(t *testing.T) {
 	p := NewOpenCodeProvider("")
 	inv, err := p.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "fix bug"})
 	require.NoError(t, err)
-	require.Equal(t, "opencode", inv.Argv[0])
-	require.Equal(t, "run", inv.Argv[1])
-	require.Equal(t, "--format", inv.Argv[2])
-	require.Equal(t, "json", inv.Argv[3])
-	require.Equal(t, "fix bug", inv.Argv[4])
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--", "fix bug"}, inv.Argv)
 	require.Equal(t, "/workspace", inv.WorkingDir)
 	require.False(t, inv.Interactive)
+	require.Empty(t, inv.Environment)
+}
+
+// OpenCode takes its model as --model provider/model and Kuayle's effort as
+// --variant; "off" and an empty effort leave the variant to OpenCode.
+func TestOpenCodeProviderPassesModelAndEffort(t *testing.T) {
+	p := NewOpenCodeProvider("")
+	const model = "opencode-go/deepseek-v4.1-flash"
+	argv := func(input RunInput) []string {
+		t.Helper()
+		input.Prompt = "fix bug"
+		inv, err := p.BuildInvocation(input)
+		require.NoError(t, err)
+		return inv.Argv
+	}
+
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--model", model, "--variant", "high", "--", "fix bug"},
+		argv(RunInput{Mode: ModeAutonomous, Model: model, Thinking: "high"}))
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--model", model, "--", "fix bug"},
+		argv(RunInput{Mode: ModeAutonomous, Model: model}))
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--model", model, "--", "fix bug"},
+		argv(RunInput{Mode: ModeAutonomous, Model: model, Thinking: "off"}))
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--variant", "max", "--", "fix bug"},
+		argv(RunInput{Mode: ModeAutonomous, Thinking: "max"}))
+
+	// The terminal UI takes a model but has no variant flag.
+	require.Equal(t, []string{"opencode", "--model", model}, argv(RunInput{Mode: ModeInteractive, Model: model, Thinking: "high"}))
+	require.Equal(t, []string{"opencode"}, argv(RunInput{Mode: ModeInteractive}))
+}
+
+// The prompt is one argument after "--", so OpenCode never reads a prompt
+// that begins with a dash as its own flags; extra arguments stay before it.
+func TestOpenCodeProviderKeepsThePromptOutOfItsFlags(t *testing.T) {
+	p := NewOpenCodeProvider("")
+	for _, prompt := range []string{"--auto fix the build", "-m other/model", "--help"} {
+		inv, err := p.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: prompt, Model: "opencode-go/deepseek-v4.1-flash", ExtraArgs: []string{"--agent", "build"}})
+		require.NoError(t, err)
+		require.Equal(t, []string{"opencode", "run", "--format", "json", "--model", "opencode-go/deepseek-v4.1-flash", "--agent", "build", "--", prompt}, inv.Argv)
+	}
+}
+
+func TestOpenCodeProviderRejectsUnsafeModelAndEffort(t *testing.T) {
+	p := NewOpenCodeProvider("")
+	for name, input := range map[string]RunInput{
+		"model read as a flag":  {Model: "--auto"},
+		"model with a space":    {Model: "opencode-go/deepseek v4"},
+		"unknown effort":        {Thinking: "extreme"},
+		"effort read as a flag": {Thinking: "--auto"},
+		"model server base URL": {Model: "opencode-go/deepseek-v4.1-flash", OpenAIBaseURL: "https://models.example.test/v1"},
+	} {
+		input.Mode, input.Prompt = ModeAutonomous, "fix bug"
+		_, err := p.BuildInvocation(input)
+		require.Error(t, err, name)
+	}
 }
 
 func TestOpenCodeParseResultEmptyInput(t *testing.T) {

@@ -20,6 +20,7 @@ import (
 // task repository, so task identity, authorization and replay are genuine.
 type approvalTaskFake struct {
 	repo       *repository.AgentTaskRepository
+	providers  []string // the coding agents offered; codex when empty
 	optionsErr error
 	createErr  error
 	mu         sync.Mutex
@@ -30,7 +31,14 @@ func (f *approvalTaskFake) Options(context.Context, uuid.UUID, uuid.UUID) (*Agen
 	if f.optionsErr != nil {
 		return nil, f.optionsErr
 	}
-	return &AgentTaskOptions{Providers: []dto.AgentProviderResponse{{ID: "codex"}}, ModelServers: []dto.ModelServerResponse{{IsDefault: true, Harnesses: []string{"codex", "claude-code"}, DefaultModel: "deepseek-flash", Thinking: "high"}}}, nil
+	providers := []dto.AgentProviderResponse{{ID: "codex"}}
+	if len(f.providers) > 0 {
+		providers = nil
+		for _, id := range f.providers {
+			providers = append(providers, dto.AgentProviderResponse{ID: id})
+		}
+	}
+	return &AgentTaskOptions{Providers: providers, ModelServers: []dto.ModelServerResponse{{IsDefault: true, Harnesses: []string{"codex", "claude-code"}, DefaultModel: "deepseek-flash", Thinking: "high"}}}, nil
 }
 func (f *approvalTaskFake) Create(ctx context.Context, ws, conversation uuid.UUID, input domain.AgentTaskRequest) (*domain.AgentTask, error) {
 	f.mu.Lock()

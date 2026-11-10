@@ -20,7 +20,7 @@
 	import { agentInfo } from '$lib/features/agents/agents';
 	import { AGENT_EFFORT, effortChoice } from '$lib/features/agents/model-choice';
 	import { roleLabel } from './labels';
-	import { profileSubmission, takesModel } from './profile-model';
+	import { modelFormat, profileSubmission, takesModel } from './profile-model';
 	import ProfileSkills from './ProfileSkills.svelte';
 	import AiMarkdownEditor from './AiMarkdownEditor.svelte';
 	import InfoHint from '$lib/components/shared/InfoHint.svelte';
@@ -82,6 +82,8 @@
 	// The server says which coding agents take a model and an effort; for the
 	// others both fields are off and nothing left in them is sent.
 	const modelAllowed = $derived(takesModel(list, draft.harness));
+	// It also says how an agent writes its model names when not a bare name.
+	const format = $derived(modelFormat(list, draft.harness));
 	const sizeLabel = (n: number) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
 
 	// Refusals the server explains with a code get a translated message.
@@ -178,8 +180,8 @@
 								autocomplete="off"
 								class="font-mono"
 								disabled={!editable || !modelAllowed}
-								aria-describedby={modelAllowed ? undefined : 'profile-model-hint'}
-								placeholder={m['profiles.model_placeholder']()}
+								aria-describedby={modelAllowed ? (format ? 'profile-model-format' : undefined) : 'profile-model-hint'}
+								placeholder={format?.example ?? m['profiles.model_placeholder']()}
 							/>
 						</div>
 						<div class="space-y-1.5">
@@ -201,6 +203,10 @@
 						{#if !modelAllowed}
 							<p id="profile-model-hint" class="text-xs text-muted-foreground sm:col-span-2">
 								{m['profiles.model_unsupported']({ agent: agentInfo(draft.harness).name })}
+							</p>
+						{:else if format}
+							<p id="profile-model-format" class="text-xs text-muted-foreground sm:col-span-2">
+								{m['profiles.model_format']({ format: format.format, example: format.example })}
 							</p>
 						{/if}
 					</div>

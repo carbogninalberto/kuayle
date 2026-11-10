@@ -3259,6 +3259,7 @@
 	"profiles.model_placeholder": "Výchozí hodnota agenta",
 	"profiles.effort": "Úsilí",
 	"profiles.model_unsupported": "{agent} zde nepřijímá model ani úroveň úsilí; používá vlastní nastavení.",
+	"profiles.model_format": "Použijte tvar {format}, například {example}.",
 	"profiles.instructions": "Pokyny",
 	"profiles.instructions_placeholder": "Na co se má tento agent zaměřit; přidává se do jeho promptu jako konfigurace",
 	"profiles.builtin": "Vestavěný",
