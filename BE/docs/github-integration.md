@@ -35,6 +35,7 @@ A single GitHub App is pre-configured and shared across all workspaces. Users on
    | Checks | Read |
    | Commit statuses | Read |
    | Actions | Read |
+   | Members (organization permission) | Read |
 
    **Events to subscribe to:**
    - Pull request
@@ -51,6 +52,19 @@ A single GitHub App is pre-configured and shared across all workspaces. Users on
    installing user's OAuth code proves, via `GET /user/installations`, that the
    user can access it. Without it, an `installation_id` in the redirect could
    name another organization's installation.
+
+   **Organization permission — Members: Read-only.** GitHub lists an
+   installation to every user who can reach one repository it covers, so
+   Kuayle also requires the installing user to be the account the App is
+   installed on, or an owner (`role: admin`, active) of that organization,
+   read from `GET /user/memberships/orgs/{org}`. That request needs this
+   permission. Without it, installations on personal accounts still connect,
+   but organization installations are refused with
+   `GITHUB_INSTALLATION_UNVERIFIED`. After adding the permission to an existing
+   App, each organization must accept the new permission before one of its
+   owners can connect it. An organization member who is not an owner cannot
+   connect the installation, even when allowed to install the App on
+   repositories they administer; an owner has to do it.
    **Webhook URL:** `https://your-api-domain.com/api/github/webhook`
 
 2. Set environment variables:
@@ -69,7 +83,7 @@ A single GitHub App is pre-configured and shared across all workspaces. Users on
    cat private-key.pem | base64
    ```
 
-3. Each workspace user clicks "Install on GitHub" in Settings > GitHub, selects their org/account, and chooses which repos to grant access to.
+3. Each workspace user clicks "Install on GitHub" in Settings > GitHub, selects their org/account, and chooses which repos to grant access to. The user must be that account, or an owner of that organization.
 
 ### Self-Hosted Mode (Per-Workspace App)
 
