@@ -62,6 +62,25 @@ type AssistantApprovals struct {
 	// share_wiki_page is unavailable until SetWikiPublishing wires it.
 	wikiPublish    assistantWikiPublisher
 	wikiWorkspaces assistantWorkspaces
+	// Task messages are unavailable until SetLiveChannel wires them.
+	live approvalLiveTasks
+	// machineAccess is the public demo rule; nil restricts nothing.
+	machineAccess *MachineAccess
+}
+
+// SetMachineAccess applies the public demo rule to approved actions that
+// start work on a Dev Machine.
+func (s *AssistantApprovals) SetMachineAccess(access *MachineAccess) { s.machineAccess = access }
+
+// approvalLiveTasks is the task repository's live channel, as approvals use it.
+type approvalLiveTasks interface {
+	FollowUpTarget(ctx context.Context, ws, issue uuid.UUID) (*repository.FollowUpTarget, error)
+	QueueApprovedLiveMessage(ctx context.Context, ws, id, request uuid.UUID, body string) (*domain.AgentLiveMessage, error)
+}
+
+// SetLiveChannel enables approving message_task.
+func (s *AssistantApprovals) SetLiveChannel(tasks approvalLiveTasks) {
+	s.live = tasks
 }
 
 // SetWikiPublishing enables approving share_wiki_page.
@@ -225,8 +244,8 @@ func auditApprovalOutcome(ws uuid.UUID, approval, finished *domain.ConversationA
 
 // execute runs an approved action after the shared role and GitHub checks.
 func (s *AssistantApprovals) execute(ctx context.Context, ws, conversation, id uuid.UUID, approval *domain.ConversationApproval, choice ModelChoice) (*domain.ConversationApproval, error) {
-	refusal, err := "", error(nil)
-	if !ownerScoped(approval.Action) {
+	refusal, err := refuseMachineAction(s.machineAccess, approval.ActorID, approval.Action), error(nil)
+	if refusal == "" && !ownerScoped(approval.Action) {
 		refusal, err = authorizeAssistantAction(ctx, s.members, s.system, ws, approval.ActorID, approval.Action, uuid.Nil)
 	}
 	if err != nil {
@@ -249,6 +268,10 @@ func (s *AssistantApprovals) execute(ctx context.Context, ws, conversation, id u
 		}
 	}
 	finished, err := s.dispatch(ctx, ws, conversation, id, approval, choice)
+	if errors.Is(err, ErrDemoMachineForbidden) {
+		// A service under the action applied the demo rule; the refusal is final.
+		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, demoMachineRefusal)
+	}
 	if err != nil && isGitHubPermissionDenied(err) {
 		// GitHub refused for lack of a permission the preflight could not see.
 		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, deniedGap(ctx, s.access, ws, approval.Action).Message)
@@ -267,6 +290,8 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 		return s.review(ctx, ws, conversation, approval, choice)
 	case "follow_up_task":
 		return s.followUp(ctx, ws, conversation, approval, choice)
+	case "message_task":
+		return s.taskMessage(ctx, ws, conversation, approval)
 	case "start_preview":
 		return s.startPreview(ctx, ws, conversation, approval)
 	case "expose_port":
@@ -353,6 +378,8 @@ func delegationRequest(options *AgentTaskOptions, requestID uuid.UUID, instructi
 
 func delegationFailure(err error) (string, bool) {
 	switch {
+	case errors.Is(err, ErrDemoMachineForbidden):
+		return demoMachineRefusal, true
 	case errors.Is(err, ErrDevMachinesDisabled):
 		return "Coding agents are not enabled for this workspace", true
 	case errors.Is(err, ErrProviderNotAllowed):
@@ -550,6 +577,47 @@ func (s *AssistantApprovals) followUp(ctx context.Context, ws, conversation uuid
 		return nil, err
 	}
 	return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, &task.ID, "")
+}
+
+// taskMessage delivers an approved message to the task the user saw, as its
+// creator, exactly as the card showed it. The approver is the bound actor;
+// the task must still be the issue's newest coding task and theirs, and the
+// repository re-checks their membership, the issue's visibility and the
+// message budget. The approval's request ID makes a repeated or resumed
+// approval deliver the message once.
+func (s *AssistantApprovals) taskMessage(ctx context.Context, ws, conversation uuid.UUID, approval *domain.ConversationApproval) (*domain.ConversationApproval, error) {
+	finish := func(failure string) (*domain.ConversationApproval, error) {
+		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, failure)
+	}
+	var payload domain.TaskMessagePayload
+	if s.live == nil || json.Unmarshal(approval.Payload, &payload) != nil || payload.TaskID == uuid.Nil {
+		return finish("This approval cannot be executed")
+	}
+	target, err := s.live.FollowUpTarget(ctx, ws, approval.IssueID)
+	if errors.Is(err, repository.ErrNoMergeTarget) || (err == nil && target.TaskID != payload.TaskID) {
+		return finish("The issue's coding task changed after approval was requested; ask again")
+	}
+	if err != nil {
+		// A transient failure leaves the claim in place; approving again resumes it.
+		return nil, err
+	}
+	if target.CreatorID != approval.ActorID {
+		return finish("Only the task's creator can message its agent")
+	}
+	message, err := s.live.QueueApprovedLiveMessage(ctx, ws, payload.TaskID, approval.RequestID, payload.Body)
+	switch {
+	case errors.Is(err, repository.ErrConversationNotFound), errors.Is(err, repository.ErrAgentTaskUnauthorized):
+		return finish("Only the task's creator can message its agent")
+	case errors.Is(err, repository.ErrAgentLiveMessageInvalid):
+		return finish("The message could not be sent to this task")
+	case errors.Is(err, repository.ErrAgentLiveMessageClosed):
+		return finish("The task is finished and no longer takes messages")
+	case errors.Is(err, repository.ErrAgentLiveMessageRateLimited):
+		return finish("Too many messages for this task in the last hour; try again later")
+	case err != nil:
+		return nil, err
+	}
+	return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, &message.TaskID, "")
 }
 
 // followUpModel is the model, and the server picked for it, a follow-up

@@ -299,7 +299,7 @@ type WikiRepo interface {
 	RecordOverviewRun(ctx context.Context, settingsID uuid.UUID, at time.Time, runErr *string) error
 	SearchReferences(ctx context.Context, workspaceID uuid.UUID, query string, limit int) ([]domain.WikiReference, error)
 	ResolveReferences(ctx context.Context, workspaceID uuid.UUID, pageIDs []uuid.UUID) ([]domain.WikiReference, error)
-	Backlinks(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) (*domain.WikiBacklinks, error)
+	Backlinks(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID, withIssues bool) (*domain.WikiBacklinks, error)
 	IssueReferences(ctx context.Context, workspaceID, issueID uuid.UUID) ([]uuid.UUID, error)
 	AttachIssueReference(ctx context.Context, workspaceID, issueID, pageID, userID uuid.UUID) error
 	DetachIssueReference(ctx context.Context, workspaceID, issueID, pageID uuid.UUID) error

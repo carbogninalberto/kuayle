@@ -897,3 +897,8 @@ html.pointer-cursors [data-slot="switch"] {
 .mention-wiki:empty {
 	display: none;
 }
+
+/* A remote image waiting for the reader (see $lib/security/remote-images) shows only its placeholder. */
+img[data-remote-src] {
+	display: none !important;
+}

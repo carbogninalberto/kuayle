@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { htmlToPlainText } from '$lib/security/plain-text';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { untrack } from 'svelte';
 	import type { Issue } from '$lib/types/issue';
@@ -169,27 +170,6 @@
 			if (issue) void selectIssue(issue);
 		}
 	}
-	function plainText(html: string | null | undefined) {
-		if (!html) return '';
-
-		if (typeof document !== 'undefined') {
-			const el = document.createElement('div');
-			el.innerHTML = html;
-			return (el.textContent ?? '').replace(/\s+/g, ' ').trim();
-		}
-
-		return html
-			.replace(/<[^>]*>/g, ' ')
-			.replace(/&nbsp;/g, ' ')
-			.replace(/&amp;/g, '&')
-			.replace(/&lt;/g, '<')
-			.replace(/&gt;/g, '>')
-			.replace(/&quot;/g, '"')
-			.replace(/&#39;/g, "'")
-			.replace(/\s+/g, ' ')
-			.trim();
-	}
-
 	function highlightedSegments(value: string | null | undefined, query: string): HighlightSegment[] {
 		const text = value ?? '';
 		const term = query.trim();
@@ -222,7 +202,7 @@
 	}
 
 	function descriptionSnippet(description: string | null, query: string) {
-		const text = plainText(description);
+		const text = htmlToPlainText(description);
 		const term = query.trim();
 		if (!text || !term) return '';
 

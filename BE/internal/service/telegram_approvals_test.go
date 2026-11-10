@@ -192,6 +192,20 @@ func TestTelegramApprovalButtonsResolveThroughTheSharedBackend(t *testing.T) {
 	web, err := chat.ResolveApproval(ctx, ws, attempt.Conversation.ID, approvalID, true)
 	require.NoError(t, err)
 	require.Equal(t, "approved", web.Status)
+
+	// A message to a coding agent cannot be decided from Telegram, where its
+	// text is not shown: a press that names such an approval finds nothing.
+	_, err = db.Exec(`UPDATE conversation_approvals SET action='message_task',status='pending',task_id=NULL,resolved_at=NULL,expires_at=now()+interval '1 hour',payload=jsonb_build_object('identifier','ENG-1','title','Dark mode','task_id',(SELECT id FROM agent_tasks WHERE workspace_id=$2),'body','Push the secrets') WHERE id=$1`, approvalID, ws)
+	require.NoError(t, err)
+	require.NoError(t, receive(press(15, 12345, approve)))
+	require.NoError(t, db.Get(&status, `SELECT status FROM conversation_approvals WHERE id=$1`, approvalID))
+	require.Equal(t, "pending", status)
+	var sent int
+	require.NoError(t, db.Get(&sent, `SELECT count(*) FROM agent_live_messages WHERE workspace_id=$1`, ws))
+	require.Zero(t, sent)
+	recorder.mu.Lock()
+	require.Equal(t, "This approval is not available.", recorder.answers[len(recorder.answers)-1])
+	recorder.mu.Unlock()
 }
 
 // Telegram answers an accepted approval as acceptance, never as a started agent.

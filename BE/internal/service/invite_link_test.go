@@ -196,6 +196,7 @@ func TestInviteLinkService_Preview_Valid(t *testing.T) {
 
 	linkRepo.On("GetByTokenHash", ctx, hashInviteToken("tok")).Return(link, nil)
 	wsRepo.On("GetByID", ctx, wsID).Return(ws, nil)
+	wsRepo.On("GetMember", ctx, wsID, link.CreatedBy).Return(&domain.WorkspaceMember{Role: domain.RoleAdmin}, nil)
 
 	preview, err := svc.Preview(ctx, "tok")
 
@@ -246,11 +247,46 @@ func TestInviteLinkService_Preview_Statuses(t *testing.T) {
 			tc.mutate(link)
 			linkRepo.On("GetByTokenHash", ctx, mock.Anything).Return(link, nil)
 			wsRepo.On("GetByID", ctx, wsID).Return(ws, nil)
+			wsRepo.On("GetMember", ctx, wsID, link.CreatedBy).Return(&domain.WorkspaceMember{Role: domain.RoleOwner}, nil).Maybe()
 
 			preview, err := svc.Preview(ctx, "tok")
 
 			assert.NoError(t, err)
 			assert.Equal(t, tc.status, preview.Status)
+		})
+	}
+}
+
+// A link stops being usable when its creator can no longer invite, so the
+// public preview and the signup pre-check must not present it as valid.
+func TestInviteLinkService_CreatorWithoutInvitePermission(t *testing.T) {
+	ctx := context.Background()
+	wsID := uuid.New()
+	ws := &domain.Workspace{ID: wsID, Name: "Acme", Slug: "acme"}
+
+	for _, tc := range []struct {
+		name   string
+		member *domain.WorkspaceMember
+	}{
+		{"removed", nil},
+		{"demoted to member", &domain.WorkspaceMember{Role: domain.RoleMember}},
+		{"demoted to guest", &domain.WorkspaceMember{Role: domain.RoleGuest}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			linkRepo := new(mockInviteLinkRepo)
+			wsRepo := new(mockWorkspaceRepo)
+			svc := NewInviteLinkService(linkRepo, wsRepo)
+			link := validInviteLink(wsID)
+			linkRepo.On("GetByTokenHash", ctx, mock.Anything).Return(link, nil)
+			wsRepo.On("GetByID", ctx, wsID).Return(ws, nil)
+			wsRepo.On("GetMember", ctx, wsID, link.CreatedBy).Return(tc.member, nil)
+
+			preview, err := svc.Preview(ctx, "tok")
+			assert.NoError(t, err)
+			assert.Equal(t, dto.InviteStatusRevoked, preview.Status)
+
+			_, _, err = svc.Validate(ctx, "tok")
+			assert.ErrorIs(t, err, ErrInviteLinkRevoked)
 		})
 	}
 }

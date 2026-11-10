@@ -20,6 +20,17 @@ func WikiMentionHTML(pageID uuid.UUID) string {
 
 var wikiMentionPattern = regexp.MustCompile(`<span data-type="mention" data-kind="wiki" data-id="([0-9a-f-]{36})"`)
 
+var wikiMentionChipPattern = regexp.MustCompile(`<span data-type="mention" data-kind="wiki" data-id="([0-9a-f-]{36})"[^>]*></span>`)
+
+// StripHTMLKeepingWikiReferences is StripHTML for readers that cannot resolve
+// a chip (the assistant, coding agents): a wiki page reference, which is an
+// empty element, becomes the token @[wiki page](wiki:<page id>) instead of
+// vanishing. The token carries no title; the reader looks the page up with
+// its own access.
+func StripHTMLKeepingWikiReferences(sanitized string) string {
+	return StripHTML(wikiMentionChipPattern.ReplaceAllString(sanitized, "@[wiki page](wiki:$1)"))
+}
+
 // WikiMentionIDs lists the pages sanitized content references, each once, in
 // document order.
 func WikiMentionIDs(sanitized string) []uuid.UUID {

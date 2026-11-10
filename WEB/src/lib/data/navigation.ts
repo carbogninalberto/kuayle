@@ -52,6 +52,7 @@ export const NAV_GROUPS: NavGroup[] = [
 				href: child.href,
 				description: child.description
 			})),
+			{ label: 'API reference', href: '/api-reference', description: 'OpenAPI 3.1 reference: token scopes, endpoints, schemas and webhook signatures.' },
 			{ label: 'Security', href: '/security', description: 'Authentication, network exposure and operator responsibilities.' },
 			{ label: 'Open source and licence', href: '/open-source', description: 'Apache 2.0, one edition, nothing behind a key.' },
 			{ label: 'Roadmap', href: '/roadmap', description: 'What ships today, known gaps and proposed work.' }
@@ -66,6 +67,7 @@ export const FOOTER_COLUMNS: { title: string; links: NavLink[] }[] = [
 		links: [
 			{ label: 'Features', href: '/features' },
 			...featureLinks.slice(0, 6).map(({ label, href }) => ({ label, href })),
+			{ label: 'API reference', href: '/api-reference' },
 			{ label: 'Roadmap', href: '/roadmap' },
 			{ label: 'Live demo', href: 'https://demo.kuayle.com', external: true }
 		]

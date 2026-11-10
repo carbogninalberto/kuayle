@@ -15,6 +15,7 @@
 	import Underline from '@tiptap/extension-underline';
 	import { Extension, InputRule } from '@tiptap/core';
 	import { Plugin, PluginKey } from 'prosemirror-state';
+	import type { EditorProps } from 'prosemirror-view';
 	import { Decoration, DecorationSet } from 'prosemirror-view';
 	import { common, createLowlight } from 'lowlight';
 	import { Button } from '$lib/components/ui/button';
@@ -43,6 +44,14 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import { sanitizeEditorOutput } from '$lib/security/sanitize';
+	import {
+		REMOTE_IMAGE_ATTRIBUTE,
+		allowRemoteImage,
+		isRemoteImageAllowed,
+		remoteImageHost
+	} from '$lib/security/remote-images';
+	import { REMOTE_IMAGE_PLACEHOLDER_ATTRIBUTE } from './remote-images.action';
+	import { EDITOR_LINK_CLASS } from '$lib/security/editor-classes';
 	import { createSlashCommandExtension } from './slash-command/slash-command.extension';
 	import { filterSlashItems, flatFilteredItems, type SlashMenuItem } from './slash-command/slash-items';
 	import SlashCommandMenu from './slash-command/SlashCommandMenu.svelte';
@@ -233,6 +242,29 @@
 				}
 			};
 		},
+		addProseMirrorPlugins() {
+			// Images the user pastes or drops in from outside are theirs to see at once;
+			// content that arrives any other way (stored, synced) waits like the rest.
+			const allowImages = (slice: Parameters<NonNullable<EditorProps['handlePaste']>>[2]) => {
+				slice.content.descendants((node) => {
+					if (node.type.name === this.name && node.attrs.src) allowRemoteImage(String(node.attrs.src));
+				});
+			};
+			return [
+				new Plugin({
+					props: {
+						handlePaste(_view, _event, slice) {
+							allowImages(slice);
+							return false;
+						},
+						handleDrop(_view, _event, slice, moved) {
+							if (!moved) allowImages(slice);
+							return false;
+						}
+					}
+				})
+			];
+		},
 		addNodeView() {
 			return ({ node: initialNode, editor: nodeEditor, getPos }) => {
 				let currentNode = initialNode;
@@ -265,10 +297,22 @@
 				}
 
 				function syncDOM() {
-					for (const attribute of ['src', 'alt', 'title']) {
+					for (const attribute of ['alt', 'title']) {
 						const value = currentNode.attrs[attribute];
 						if (value) image.setAttribute(attribute, String(value));
 						else image.removeAttribute(attribute);
+					}
+					// An image from another host waits for the reader here as in rendered
+					// content: the body-level remoteImages action adds the placeholder.
+					const src = currentNode.attrs.src ? String(currentNode.attrs.src) : '';
+					const origin = window.location.origin;
+					if (src && remoteImageHost(src, origin) && !isRemoteImageAllowed(src, origin)) {
+						image.removeAttribute('src');
+						image.setAttribute(REMOTE_IMAGE_ATTRIBUTE, src);
+					} else {
+						image.removeAttribute(REMOTE_IMAGE_ATTRIBUTE);
+						if (src) image.setAttribute('src', src);
+						else image.removeAttribute('src');
 					}
 					const width = currentNode.attrs.width ? String(currentNode.attrs.width) : null;
 					if (width) {
@@ -385,7 +429,11 @@
 						dom.classList.remove('ProseMirror-selectednode');
 					},
 					stopEvent(event) {
-						return event.target === handle;
+						const target = event.target;
+						return (
+							target === handle ||
+							(target instanceof Element && target.closest(`[${REMOTE_IMAGE_PLACEHOLDER_ATTRIBUTE}]`) !== null)
+						);
 					},
 					ignoreMutation: () => true,
 					destroy() {
@@ -694,7 +742,7 @@
 			TaskItem.configure({ nested: true }),
 			Link.configure({
 				openOnClick: false,
-				HTMLAttributes: { class: 'text-[var(--app-accent-light)] underline' }
+				HTMLAttributes: { class: EDITOR_LINK_CLASS }
 			}),
 			CodeBlockLowlight.configure({ lowlight }),
 			ResizableImage.configure({ inline: true, allowBase64: false }),
@@ -1486,6 +1534,10 @@
 		border-radius: 0.375rem;
 		outline: 2px solid var(--app-accent);
 		outline-offset: 2px;
+	}
+	/* The placeholder of a waiting remote image sits in the zero line-height wrapper. */
+	:global(.rich-editor .tiptap .resizable-image-wrapper [data-remote-image-placeholder]) {
+		line-height: normal;
 	}
 	:global(.rich-editor .tiptap .image-resize-handle) {
 		position: absolute;

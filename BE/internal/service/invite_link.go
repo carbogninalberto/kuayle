@@ -116,7 +116,25 @@ func (s *InviteLinkService) Validate(ctx context.Context, token string) (*domain
 	if ws == nil {
 		return nil, nil, ErrInviteLinkInvalid
 	}
+	canInvite, err := s.creatorCanInvite(ctx, link)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !canInvite {
+		return nil, nil, ErrInviteLinkRevoked
+	}
 	return link, ws, nil
+}
+
+// creatorCanInvite reports whether the link's creator is still a member whose
+// role may invite. Join repeats this check inside its transaction; this copy
+// only keeps the preview and the signup pre-check consistent with it.
+func (s *InviteLinkService) creatorCanInvite(ctx context.Context, link *domain.WorkspaceInviteLink) (bool, error) {
+	member, err := s.workspaceRepo.GetMember(ctx, link.WorkspaceID, link.CreatedBy)
+	if err != nil {
+		return false, err
+	}
+	return member != nil && domain.HasPermission(member.Role, domain.PermMemberInvite), nil
 }
 
 // Preview returns public metadata about an invite token. Unknown tokens yield
@@ -146,6 +164,14 @@ func (s *InviteLinkService) Preview(ctx context.Context, token string) (*dto.Inv
 		status = dto.InviteStatusExpired
 	case link.MaxUses != nil && link.UseCount >= *link.MaxUses:
 		status = dto.InviteStatusExhausted
+	default:
+		canInvite, err := s.creatorCanInvite(ctx, link)
+		if err != nil {
+			return nil, err
+		}
+		if !canInvite {
+			status = dto.InviteStatusRevoked
+		}
 	}
 
 	return &dto.InvitePreviewResponse{

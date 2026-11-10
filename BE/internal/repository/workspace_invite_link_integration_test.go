@@ -36,6 +36,8 @@ func TestWorkspaceInviteLinkRepositoryPostgres(t *testing.T) {
 	require.NoError(t, userRepo.Create(ctx, owner))
 	ws := &domain.Workspace{ID: uuid.New(), Name: "Invite tests", Slug: uuid.NewString(), OwnerID: owner.ID}
 	require.NoError(t, NewWorkspaceRepository(db).Create(ctx, ws))
+	// Links are only usable while their creator can still invite.
+	require.NoError(t, NewWorkspaceRepository(db).AddMember(ctx, &domain.WorkspaceMember{WorkspaceID: ws.ID, UserID: owner.ID, Role: domain.RoleOwner}))
 	t.Cleanup(func() {
 		_, _ = db.Exec(`DELETE FROM workspaces WHERE id = $1`, ws.ID)
 		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, owner.ID)
@@ -177,6 +179,114 @@ func TestWorkspaceInviteLinkRepositoryPostgres(t *testing.T) {
 			require.Equal(t, before.UseCount, after.UseCount)
 		})
 	}
+
+	t.Run("links follow their creator's permission to invite", func(t *testing.T) {
+		wsRepo := NewWorkspaceRepository(db)
+		newCreator := func(t *testing.T, workspaceID uuid.UUID, role string) *domain.User {
+			creator := newUser(t)
+			require.NoError(t, userRepo.Create(ctx, creator))
+			require.NoError(t, wsRepo.AddMember(ctx, &domain.WorkspaceMember{WorkspaceID: workspaceID, UserID: creator.ID, Role: role}))
+			return creator
+		}
+		linkBy := func(t *testing.T, workspaceID, creatorID uuid.UUID) *domain.WorkspaceInviteLink {
+			unique := uuid.NewString()
+			link := &domain.WorkspaceInviteLink{ID: uuid.New(), WorkspaceID: workspaceID, TokenHash: unique, Role: domain.RoleMember, CreatedBy: creatorID, ExpiresAt: time.Now().Add(time.Hour)}
+			require.NoError(t, repo.Create(ctx, link))
+			return link
+		}
+		requireRejected := func(t *testing.T, link *domain.WorkspaceInviteLink) {
+			t.Helper()
+			signup := newUser(t)
+			_, err := repo.Join(ctx, link.ID, signup.ID, signup)
+			require.ErrorIs(t, err, ErrInviteLinkRevoked)
+			savedUser, err := userRepo.GetByID(ctx, signup.ID)
+			require.NoError(t, err)
+			require.Nil(t, savedUser, "a rejected signup must leave no account")
+			saved, err := repo.GetByID(ctx, link.ID)
+			require.NoError(t, err)
+			require.Zero(t, saved.UseCount)
+		}
+
+		t.Run("creator still admin", func(t *testing.T) {
+			creator := newCreator(t, ws.ID, domain.RoleAdmin)
+			link := linkBy(t, ws.ID, creator.ID)
+			invited := newUser(t)
+			role, err := repo.Join(ctx, link.ID, invited.ID, invited)
+			require.NoError(t, err)
+			require.Equal(t, domain.RoleMember, role)
+		})
+
+		t.Run("removed creator cannot rejoin through their own link", func(t *testing.T) {
+			creator := newCreator(t, ws.ID, domain.RoleAdmin)
+			link := linkBy(t, ws.ID, creator.ID)
+			require.NoError(t, wsRepo.RemoveMember(ctx, ws.ID, creator.ID))
+			_, err := repo.Join(ctx, link.ID, creator.ID, nil)
+			require.ErrorIs(t, err, ErrInviteLinkRevoked)
+			member, err := wsRepo.GetMember(ctx, ws.ID, creator.ID)
+			require.NoError(t, err)
+			require.Nil(t, member)
+			requireRejected(t, link)
+			saved, err := repo.GetByID(ctx, link.ID)
+			require.NoError(t, err)
+			require.NotNil(t, saved.RevokedAt, "removal revokes the creator's links")
+
+			// Being invited back later must not revive the old link.
+			require.NoError(t, wsRepo.AddMember(ctx, &domain.WorkspaceMember{WorkspaceID: ws.ID, UserID: creator.ID, Role: domain.RoleAdmin}))
+			requireRejected(t, link)
+		})
+
+		t.Run("demoted creator's links stop working", func(t *testing.T) {
+			creator := newCreator(t, ws.ID, domain.RoleAdmin)
+			link := linkBy(t, ws.ID, creator.ID)
+			require.NoError(t, wsRepo.UpdateMemberRole(ctx, ws.ID, creator.ID, domain.RoleMember))
+			requireRejected(t, link)
+			saved, err := repo.GetByID(ctx, link.ID)
+			require.NoError(t, err)
+			require.NotNil(t, saved.RevokedAt, "demotion revokes the creator's links")
+		})
+
+		t.Run("role change that keeps the permission keeps the links", func(t *testing.T) {
+			creator := newCreator(t, ws.ID, domain.RoleOwner)
+			link := linkBy(t, ws.ID, creator.ID)
+			require.NoError(t, wsRepo.UpdateMemberRole(ctx, ws.ID, creator.ID, domain.RoleAdmin))
+			invited := newUser(t)
+			_, err := repo.Join(ctx, link.ID, invited.ID, invited)
+			require.NoError(t, err)
+		})
+
+		// Links whose creator lost access before removal started revoking them.
+		t.Run("unrevoked link of a former or demoted creator is rejected", func(t *testing.T) {
+			for _, change := range []string{
+				`DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`,
+				`UPDATE workspace_members SET role = 'guest' WHERE workspace_id = $1 AND user_id = $2`,
+			} {
+				creator := newCreator(t, ws.ID, domain.RoleAdmin)
+				link := linkBy(t, ws.ID, creator.ID)
+				_, err := db.Exec(change, ws.ID, creator.ID)
+				require.NoError(t, err)
+				requireRejected(t, link)
+			}
+		})
+
+		t.Run("other workspaces are unaffected", func(t *testing.T) {
+			other := &domain.Workspace{ID: uuid.New(), Name: "Other invite tests", Slug: uuid.NewString(), OwnerID: owner.ID}
+			require.NoError(t, wsRepo.Create(ctx, other))
+			t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM workspaces WHERE id = $1`, other.ID) })
+			creator := newCreator(t, ws.ID, domain.RoleAdmin)
+			require.NoError(t, wsRepo.AddMember(ctx, &domain.WorkspaceMember{WorkspaceID: other.ID, UserID: creator.ID, Role: domain.RoleAdmin}))
+			colleague := newCreator(t, ws.ID, domain.RoleAdmin)
+			kept := []*domain.WorkspaceInviteLink{linkBy(t, other.ID, creator.ID), linkBy(t, ws.ID, colleague.ID)}
+			require.NoError(t, wsRepo.RemoveMember(ctx, ws.ID, creator.ID))
+			for _, link := range kept {
+				invited := newUser(t)
+				_, err := repo.Join(ctx, link.ID, invited.ID, invited)
+				require.NoError(t, err)
+			}
+			// Membership elsewhere does not authorize a link in this workspace.
+			foreign := linkBy(t, ws.ID, creator.ID)
+			requireRejected(t, foreign)
+		})
+	})
 
 	t.Run("duplicate email and failed membership leave usage unchanged", func(t *testing.T) {
 		link := newLink(t, nil)

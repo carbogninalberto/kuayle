@@ -166,3 +166,16 @@ func TestSanitizeKeepsContentAfterUnclosedWikiMention(t *testing.T) {
 		}
 	}
 }
+
+// Readers without chips (the assistant, coding agents) still learn that a
+// page is referenced, and which one.
+func TestStripHTMLKeepingWikiReferencesNamesThePage(t *testing.T) {
+	id := "0b0e7a52-6a0f-4a56-9d3e-0d2b3f6a9c11"
+	content := SanitizeHTML(`<p>Follow <span data-kind="wiki" data-id="` + id + `">Secret plan</span> <strong>first</strong></p>`)
+	if got, want := StripHTMLKeepingWikiReferences(content), "Follow @[wiki page](wiki:"+id+") first"; got != want {
+		t.Fatalf("StripHTMLKeepingWikiReferences() = %q, want %q", got, want)
+	}
+	if got := StripHTML(content); got != "Follow  first" {
+		t.Fatalf("StripHTML() = %q", got)
+	}
+}

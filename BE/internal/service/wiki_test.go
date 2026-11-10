@@ -618,7 +618,7 @@ func (f *fakeWikiRepo) ResolveReferences(_ context.Context, ws uuid.UUID, ids []
 	return found, nil
 }
 
-func (f *fakeWikiRepo) Backlinks(ctx context.Context, ws uuid.UUID, scope domain.WikiScope, id uuid.UUID) (*domain.WikiBacklinks, error) {
+func (f *fakeWikiRepo) Backlinks(ctx context.Context, ws uuid.UUID, scope domain.WikiScope, id uuid.UUID, _ bool) (*domain.WikiBacklinks, error) {
 	if _, err := f.Get(ctx, ws, scope, id); err != nil {
 		return nil, err
 	}

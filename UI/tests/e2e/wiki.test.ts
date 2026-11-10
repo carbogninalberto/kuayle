@@ -486,7 +486,11 @@ test('a page published publicly opens read-only from its link without signing in
 	await page.goto(teamWikiPath);
 	await page.getByRole('button', { name: 'Publish' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Publish page' });
+	const disclosure = dialog.getByText('Wiki pages mentioned in the content are shown by title even when they are not published.');
+	await expect(disclosure).toHaveCount(0);
 	await dialog.getByRole('radio', { name: /^Public/ }).click();
+	// Publishing publicly says what a reader learns about mentioned pages.
+	await expect(disclosure).toBeVisible();
 	await dialog.getByRole('checkbox', { name: 'Include pages inside it' }).check();
 	await dialog.getByRole('button', { name: 'Save' }).click();
 	await expect(dialog.getByLabel('Public link')).toHaveValue(/\/share\/wiki\/tok123$/);
@@ -688,6 +692,19 @@ test('a burst of workspace changes reloads the references once, and edits of the
 	await expect.poll(() => loads, { timeout: 5000 }).toBe(2);
 	await page.waitForTimeout(1500);
 	expect(loads).toBe(2);
+
+	// A page attached to an issue matters only when it is this page.
+	await page.evaluate(
+		(id) => window.dispatchEvent(new CustomEvent('ws:issue-wiki-references', { detail: { identifier: 'ENG-1', page_id: id } })),
+		seededId(7)
+	);
+	await page.waitForTimeout(1500);
+	expect(loads).toBe(2);
+	await page.evaluate(
+		(id) => window.dispatchEvent(new CustomEvent('ws:issue-wiki-references', { detail: { identifier: 'ENG-1', page_id: id } })),
+		seededId(0)
+	);
+	await expect.poll(() => loads, { timeout: 5000 }).toBe(3);
 });
 
 test('a page nothing references says so', async ({ page }) => {
@@ -776,6 +793,31 @@ test('a wiki page is attached to an issue by searching for it and choosing with 
 	// The section now offers the search itself, without pages already attached.
 	await section.getByRole('button', { name: 'Add wiki page' }).click();
 	await expect(page.getByRole('option')).toHaveText([/Guide/]);
+	expect(state.errors).toEqual([]);
+});
+
+test('pages someone else attaches to the open issue appear without a reload', async ({ page }) => {
+	const state = await mockWorkspace(page, { seed: [{ title: 'Guide' }] });
+	await page.goto('/test/issue/ENG-1');
+	await expect(page.getByText('Attach target').first()).toBeVisible();
+	const section = page.getByTestId('issue-wiki-references');
+	await expect(section).toHaveCount(0);
+
+	// Another member attaches the page; the server says only which issue changed.
+	await page.evaluate(
+		async ([path, id]) => {
+			await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ page_id: id }) });
+			window.dispatchEvent(new CustomEvent('ws:issue-wiki-references', { detail: { identifier: 'ENG-2', page_id: id } }));
+		},
+		['/api/workspaces/test/issues/ENG-1/wiki-references', seededId(0)]
+	);
+	await page.waitForTimeout(500);
+	await expect(section, 'another issue changing is not this one').toHaveCount(0);
+	await page.evaluate(
+		(id) => window.dispatchEvent(new CustomEvent('ws:issue-wiki-references', { detail: { identifier: 'ENG-1', page_id: id } })),
+		seededId(0)
+	);
+	await expect(section.getByTestId('wiki-reference')).toContainText('Guide');
 	expect(state.errors).toEqual([]);
 });
 

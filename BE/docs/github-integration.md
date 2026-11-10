@@ -35,6 +35,7 @@ A single GitHub App is pre-configured and shared across all workspaces. Users on
    | Checks | Read |
    | Commit statuses | Read |
    | Actions | Read |
+   | Members (organization permission) | Read |
 
    **Events to subscribe to:**
    - Pull request
@@ -51,6 +52,19 @@ A single GitHub App is pre-configured and shared across all workspaces. Users on
    installing user's OAuth code proves, via `GET /user/installations`, that the
    user can access it. Without it, an `installation_id` in the redirect could
    name another organization's installation.
+
+   **Organization permission — Members: Read-only.** GitHub lists an
+   installation to every user who can reach one repository it covers, so
+   Kuayle also requires the installing user to be the account the App is
+   installed on, or an owner (`role: admin`, active) of that organization,
+   read from `GET /user/memberships/orgs/{org}`. That request needs this
+   permission. Without it, installations on personal accounts still connect,
+   but organization installations are refused with
+   `GITHUB_INSTALLATION_UNVERIFIED`. After adding the permission to an existing
+   App, each organization must accept the new permission before one of its
+   owners can connect it. An organization member who is not an owner cannot
+   connect the installation, even when allowed to install the App on
+   repositories they administer; an owner has to do it.
    **Webhook URL:** `https://your-api-domain.com/api/github/webhook`
 
 2. Set environment variables:
@@ -69,7 +83,7 @@ A single GitHub App is pre-configured and shared across all workspaces. Users on
    cat private-key.pem | base64
    ```
 
-3. Each workspace user clicks "Install on GitHub" in Settings > GitHub, selects their org/account, and chooses which repos to grant access to.
+3. Each workspace user clicks "Install on GitHub" in Settings > GitHub, selects their org/account, and chooses which repos to grant access to. The user must be that account, or an owner of that organization.
 
 ### Self-Hosted Mode (Per-Workspace App)
 
@@ -86,6 +100,31 @@ Webhooks are how GitHub notifies Kuayle about events (PRs, pushes, branches).
 - **Dev override**: Set `GITHUB_WEBHOOK_URL` to a [smee.io](https://smee.io) URL to receive webhooks during local development.
 
 Webhook payloads are verified using HMAC-SHA256 signatures before processing.
+
+### Replay protection
+
+A signature stays valid forever, so each delivery is processed at most once.
+After the signature check the handler requires GitHub's `X-GitHub-Delivery`
+header (a signed request without a usable one gets `400`) and records it in
+`github_webhook_deliveries` (migration 135), keyed by the installation ID from
+the signed payload and the delivery ID:
+
+- A delivery that was already processed, or is being processed by another
+  request, is answered with `200` and not processed again.
+- The ID is claimed before processing and released when processing fails, so a
+  failed delivery can be redelivered from GitHub (a redelivery reuses the
+  delivery ID). A claim left by a request that died is taken over after ten
+  minutes.
+- When the marker cannot be recorded the delivery fails with `500` instead of
+  running unprotected; redeliver it from GitHub.
+- Markers are removed after seven days by an hourly cleanup. GitHub signs no
+  timestamp, so a delivery captured earlier than that can be replayed once
+  more. Rotating the webhook secret invalidates every captured delivery.
+
+Redelivering a delivery that **succeeded** therefore does nothing for seven
+days. Use GitHub's redelivery for failed deliveries only.
+A relay or tunnel in front of the endpoint must forward `X-GitHub-Delivery`
+unchanged (smee-client and plain reverse proxies do).
 
 ## Auto-Transitions
 
@@ -117,7 +156,7 @@ The existing GitHub App posts `Linked Kuayle issue: [KUA-60](https://your-domain
 
 Set `FRONTEND_URL` to the externally reachable Kuayle URL. Both the shared app and per-workspace manifest app use their existing installation credentials. **Pull requests: Read and write** permits PR comments through GitHub's issue-comments endpoint; **Issues: write** is not required. Existing installations need no permission change if they already grant the documented permissions. The app must subscribe to **Pull request**, and the repository must be linked and active in the workspace.
 
-Duplicate deliveries are serialized with a PostgreSQL advisory lock keyed by repository and PR number, including across API replicas. Before posting, the bot scans all comment pages for its workspace marker **and its GitHub App ID and bot author**, so a copied marker from another author does not suppress the bot. Redelivery also reconciles a successful POST whose response was lost. This uses the existing schema and requires no new migration. A deleted bot comment is recreated if the original opened event is redelivered.
+Duplicate deliveries are serialized with a PostgreSQL advisory lock keyed by repository and PR number, including across API replicas. Before posting, the bot scans all comment pages for its workspace marker **and its GitHub App ID and bot author**, so a copied marker from another author does not suppress the bot. Redelivery also reconciles a successful POST whose response was lost. This uses the existing schema and requires no new migration. A successfully processed `opened` delivery is not processed again when redelivered (see [replay protection](#replay-protection)), so a deleted bot comment is not recreated.
 
 The bot acquires the existing workspace publication guard before the PR advisory lock and rechecks public-team visibility. A privacy change waits before the database write barrier, so it cannot race publication and ordinary issue edits remain available during the GitHub request. It never publishes private-team issue links, even when the repository itself is private. Other authenticated Kuayle access controls remain in effect.
 
@@ -133,6 +172,26 @@ Existing apps and the shared app must add them in the GitHub App settings, and
 each installation owner must accept the updated permissions. Without them, tasks
 still publish and complete on merge but never receive CI or review signals. See
 the [agent task contract](agent-tasks.md#ci-and-review-feedback).
+
+### Who can steer an agent from GitHub
+
+A `changes_requested` review that queues a follow-up, and a mention that starts
+a review, are only accepted from someone who can push to the linked repository.
+The webhook's author association is not enough, because it does not say what
+the author may do:
+
+| Association | Decision |
+|---|---|
+| `OWNER` | accepted (owns the repository or its organization) |
+| `MEMBER`, `COLLABORATOR` | Kuayle asks GitHub (`GET /repos/{owner}/{repo}/collaborators/{username}/permission`, with the installation token, for the repository Kuayle linked) and accepts `admin`, `maintain` or `write`. Organization members and outside collaborators limited to read or triage are refused |
+| anything else | refused without a lookup |
+
+The lookup needs **Metadata: Read**, which the app already has, so no
+permission change is required. Nothing is cached: a revoked permission applies
+to the next event. When the lookup fails, nothing is started or recorded and
+the delivery fails, so it can be redelivered from GitHub once the API works
+again. Reviews with another outcome are recorded without a lookup, since they
+cannot queue work.
 
 The assistant's `get_pull_request_checks` also reads legacy commit statuses and
 needs **Commit statuses: Read**; apps created before it must add that permission
@@ -210,8 +269,9 @@ ability.
 **Mention-triggered reviews.** With `mention_reviews` on, a new
 `issue_comment` on a pull request of a linked, active repository that mentions
 the app (`@<app-slug>` or `@<app-slug>[bot]`) and contains the word "review"
-starts an agent review. The commenter must have OWNER, MEMBER or COLLABORATOR
-association; bots, edits and issue comments are ignored. The pull request must
+starts an agent review. The commenter must be able to push to the repository
+(see [who can steer an agent](#who-can-steer-an-agent-from-github)); bots, edits
+and issue comments are ignored. The pull request must
 be one a Kuayle implementing task published and that awaits review. The review
 goes through the same `RequestReview` path as an approved `request_agent_review`
 but without an approval card (enabling the ability is the approval): it acts for

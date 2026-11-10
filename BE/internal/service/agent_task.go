@@ -345,6 +345,10 @@ func (s *AgentTaskService) preparationError(ctx context.Context, task domain.Age
 	if errors.Is(err, repository.ErrConversationNotFound) {
 		return s.store.Revoke(ctx, task)
 	}
+	if errors.Is(err, ErrDemoMachineForbidden) {
+		// The creator may not use machines on this demo instance; never retry.
+		return s.store.Fail(ctx, task, demoMachineRefusal)
+	}
 	if errors.Is(err, ErrCheckoutFailed) {
 		// The checkout already retried; name the cause and invite a retry.
 		cause := "the repository could not be prepared"
@@ -399,6 +403,10 @@ func taskMachineRequest(task domain.AgentTask, profile string, resources domain.
 
 func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentTask) (bool, error) {
 	s := r.machines
+	// The worker acts as the task's creator, so the demo rule is theirs.
+	if err := s.RequireMachineUse(task.CreatorID); err != nil {
+		return false, err
+	}
 	rawIssue := task.IssueID.String()
 	issue, project, _, _, err := s.resolveRequestedContext(ctx, task.WorkspaceID, &rawIssue, nil)
 	if err != nil {
@@ -524,6 +532,9 @@ func (r *devMachineTaskRuntime) hostCapacityWait(ctx context.Context, machine *d
 
 func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTask) (*domain.DevMachineAgentRun, error) {
 	s := r.machines
+	if err := s.RequireMachineUse(task.CreatorID); err != nil {
+		return nil, err
+	}
 	if _, err := s.enabledPolicy(ctx, task.WorkspaceID); err != nil {
 		return nil, err
 	}
@@ -626,6 +637,9 @@ func (r *devMachineTaskRuntime) Cancel(ctx context.Context, task domain.AgentTas
 }
 
 func (r *devMachineTaskRuntime) Validate(ctx context.Context, task domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {
+	if err := r.machines.RequireMachineUse(task.CreatorID); err != nil {
+		return nil, err
+	}
 	if _, err := r.machines.enabledPolicy(ctx, task.WorkspaceID); err != nil {
 		return nil, err
 	}
@@ -633,6 +647,9 @@ func (r *devMachineTaskRuntime) Validate(ctx context.Context, task domain.AgentT
 }
 
 func (r *devMachineTaskRuntime) Publish(ctx context.Context, task domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {
+	if err := r.machines.RequireMachineUse(task.CreatorID); err != nil {
+		return nil, err
+	}
 	if _, err := r.machines.enabledPolicy(ctx, task.WorkspaceID); err != nil {
 		return nil, err
 	}
@@ -717,7 +734,7 @@ func withIssue(prompt string, brief *domain.IssueBrief) string {
 	}
 	section := "Issue " + brief.Identifier + ": " + oneLine(brief.Title, 500) + "\n"
 	if brief.Description != nil {
-		if description := strings.TrimSpace(html.UnescapeString(sanitize.StripHTML(*brief.Description))); description != "" {
+		if description := strings.TrimSpace(html.UnescapeString(sanitize.StripHTMLKeepingWikiReferences(*brief.Description))); description != "" {
 			section += "\n" + truncateRunes(description, 8000) + "\n"
 		}
 	}

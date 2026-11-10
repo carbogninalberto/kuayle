@@ -249,6 +249,13 @@ func TestWikiReferencesHTTP(t *testing.T) {
 	issues, pages = linked(ownerJWT)
 	require.ElementsMatch(t, []string{"DOC-1", "DOC-2", "SEC-1"}, issues)
 	require.ElementsMatch(t, []string{"Launch plan", "Acquisition plan"}, pages)
+	// A token limited to the wiki learns the referencing pages, not the issues.
+	wikiPAT, wikiHash, wikiPrefix, err := domain.GenerateToken()
+	require.NoError(t, err)
+	require.NoError(t, tokens.Create(context.Background(), &domain.PersonalAccessToken{ID: uuid.New(), UserID: member, Name: "Wiki only", TokenHash: wikiHash, TokenPrefix: wikiPrefix, Scopes: pq.StringArray{"wiki:read"}}))
+	issues, pages = linked(wikiPAT)
+	require.Empty(t, issues)
+	require.Equal(t, []string{"Launch plan"}, pages)
 	request(memberJWT, "GET", privateWiki+"/"+secretPage+"/backlinks", "", http.StatusNotFound)
 	request(memberJWT, "GET", projectWiki+"/"+guide+"/backlinks", "", http.StatusNotFound)
 

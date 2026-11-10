@@ -269,6 +269,20 @@
 					return m['assistant.custom_run_denied']({ identifier, tool });
 			}
 		}
+		if (approval.action === 'message_task') {
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.message_task_approving']({ identifier });
+				case 'approved':
+					return m['assistant.message_task_approved']({ identifier });
+				case 'failed':
+					return m['assistant.message_task_failed']({ identifier, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier });
+				default:
+					return m['assistant.message_task_denied']({ identifier });
+			}
+		}
 		if (approval.action === 'request_agent_review' || approval.action === 'follow_up_task') {
 			const review = approval.action === 'request_agent_review';
 			const agent = review ? agentInfo(approval.payload.harness).name : '';
@@ -341,10 +355,15 @@
 			? machine
 			: undefined;
 	}
-	// message_task only delivers text, so its card says where it went.
+	// A message_task call recorded before messages needed approval was sent at
+	// once, and its line says where it went. A newer call only requests an
+	// approval, whose card and outcome say the rest.
 	function sentTo(call: ConversationToolCall) {
-		const output = call.output as { identifier?: unknown; delivery?: unknown } | undefined;
-		return call.name === 'message_task' && call.status === 'completed' && typeof output?.identifier === 'string'
+		const output = call.output as { identifier?: unknown; delivery?: unknown; sent?: unknown } | undefined;
+		return call.name === 'message_task' &&
+			call.status === 'completed' &&
+			output?.sent === true &&
+			typeof output.identifier === 'string'
 			? { identifier: output.identifier, live: output.delivery === 'live' }
 			: undefined;
 	}
@@ -610,6 +629,15 @@
 										wrap
 										class="max-h-48 text-xs"
 									/></CodeBlock.Root
+								>
+							{:else if approval.action === 'message_task'}
+								<Item.Title>{m['assistant.message_task_title']({ identifier })}</Item.Title>
+								<Item.Description class="line-clamp-none"
+									>{m['assistant.message_task_description']({ title: approval.payload.title })}</Item.Description
+								>
+								<!-- The whole message, exactly as the agent receives it. -->
+								<CodeBlock.Root size="sm"
+									><CodeBlock.Content code={approval.payload.body} wrap class="max-h-64 text-xs" /></CodeBlock.Root
 								>
 							{:else if approval.action === 'start_preview'}
 								<Item.Title>{m['assistant.preview_title']({ identifier })}</Item.Title>

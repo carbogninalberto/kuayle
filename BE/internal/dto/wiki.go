@@ -160,3 +160,20 @@ type WikiBacklinksResponse struct {
 	Issues []WikiBacklinkIssueResponse `json:"issues"`
 	Pages  []WikiReferenceResponse     `json:"pages"`
 }
+
+// WikiPublishRequest sets how a page is published: "off", "internal" or
+// "public"; children publishes its nested pages with it.
+type WikiPublishRequest struct {
+	Mode     string `json:"mode"`
+	Children bool   `json:"children"`
+	// Rotate replaces the public link with a new one; the old link stops working.
+	Rotate bool `json:"rotate"`
+}
+
+// WikiPublicationResponse is a page's publication; URL is set only for a
+// public page.
+type WikiPublicationResponse struct {
+	Mode     string  `json:"mode"`
+	Children bool    `json:"children"`
+	URL      *string `json:"url"`
+}

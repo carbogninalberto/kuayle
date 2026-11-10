@@ -63,6 +63,8 @@ type AgentLiveMessage struct {
 	DedupeKey    *string    `json:"-" db:"dedupe_key"`
 	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
 	DeliveredAt  *time.Time `json:"delivered_at" db:"delivered_at"`
+	// RequestID is the approval request that sent an assistant's message.
+	RequestID *uuid.UUID `json:"-" db:"request_id"`
 }
 
 // AgentLiveInboxFile is one file of an attempt's inbox.

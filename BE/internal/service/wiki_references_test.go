@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 	"github.com/stretchr/testify/require"
@@ -107,11 +108,32 @@ func TestIssueReferencesRequireVisibleIssueAndPage(t *testing.T) {
 	require.ErrorIs(t, svc.DetachIssueReference(ctx, ws, "KUA-404", visible.ID), ErrWikiNotFound)
 }
 
+// Other viewers of the issue and of the page's backlinks learn that the
+// attached pages changed; the event names the page by ID only.
+func TestAttachingAndDetachingAReferenceIsBroadcast(t *testing.T) {
+	_, repo, ws, visible, hidden, _ := referenceFixture(t)
+	events := &recordedWikiEvents{}
+	svc := NewWikiService(repo, events)
+	issue := &domain.Issue{ID: uuid.New(), Identifier: "KUA-1"}
+	svc.SetIssues(fakeIssueLookup{"KUA-1": issue})
+	ctx := context.Background()
+
+	_, err := svc.AttachIssueReference(ctx, ws, "KUA-1", hidden.ID, uuid.New())
+	require.ErrorIs(t, err, ErrWikiNotFound)
+	require.Empty(t, events.events, "a refused attach says nothing")
+
+	_, err = svc.AttachIssueReference(ctx, ws, "KUA-1", visible.ID, uuid.New())
+	require.NoError(t, err)
+	require.NoError(t, svc.DetachIssueReference(ctx, ws, "KUA-1", visible.ID))
+	want := realtime.Event{Type: "issue.wiki_references_changed", Payload: IssueWikiReferencesEvent{IssueID: issue.ID.String(), Identifier: "KUA-1", PageID: visible.ID.String()}}
+	require.Equal(t, []realtime.Event{want, want}, events.events)
+}
+
 func TestBacklinksOfInvisiblePageAreNotFound(t *testing.T) {
 	svc, _, ws, visible, hidden, _ := referenceFixture(t)
-	_, err := svc.Backlinks(context.Background(), ws, hidden.Scope(), hidden.ID)
+	_, err := svc.Backlinks(context.Background(), ws, hidden.Scope(), hidden.ID, true)
 	require.ErrorIs(t, err, ErrWikiNotFound)
-	links, err := svc.Backlinks(context.Background(), ws, visible.Scope(), visible.ID)
+	links, err := svc.Backlinks(context.Background(), ws, visible.Scope(), visible.ID, true)
 	require.NoError(t, err)
 	require.NotNil(t, links)
 }

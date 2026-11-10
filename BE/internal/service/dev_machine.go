@@ -123,6 +123,21 @@ type DevMachineService struct {
 	// manifests reads repositories for check suggestions; see
 	// SetRepositoryManifests.
 	manifests RepositoryManifestReader
+	// access is the public demo rule; nil restricts nothing. See
+	// SetMachineAccess.
+	access *MachineAccess
+}
+
+// SetMachineAccess applies the public demo rule to every use of a machine
+// through this service and the task service built on it.
+func (s *DevMachineService) SetMachineAccess(access *MachineAccess) { s.access = access }
+
+// RequireMachineUse refuses a user the public demo rule keeps off machines.
+func (s *DevMachineService) RequireMachineUse(userID uuid.UUID) error {
+	if s == nil {
+		return nil
+	}
+	return s.access.Require(userID)
 }
 
 func NewDevMachineService(store repository.DevMachineStore, agents *agent.Registry, enabled bool, domain string, encryptionKey []byte, ticketTTL time.Duration, images DevMachineImages, frontendURL ...string) *DevMachineService {
@@ -140,6 +155,9 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 	return s.create(ctx, workspaceID, userID, req, uuid.New())
 }
 func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid.UUID, req dto.CreateDevMachineRequest, machineID uuid.UUID) (*domain.DevMachine, *domain.DevMachineOperation, error) {
+	if err := s.RequireMachineUse(userID); err != nil {
+		return nil, nil, err
+	}
 	profile := req.Profile
 	if profile == "" {
 		profile = domain.DevMachineProfileStandard
@@ -962,6 +980,9 @@ func (s *DevMachineService) checkoutTask(ctx context.Context, task domain.AgentT
 	return s.checkoutIssue(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CheckoutIssueRequest{IssueID: task.IssueID.String()}, task.ID.String(), task.CheckoutID, task.Generation)
 }
 func (s *DevMachineService) checkoutIssue(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.CheckoutIssueRequest, scope string, checkoutID uuid.UUID, retryGeneration int64) (*domain.DevMachineCheckout, error) {
+	if err := s.RequireMachineUse(userID); err != nil {
+		return nil, err
+	}
 	issueID, _ := uuid.Parse(request.IssueID)
 	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
 	if err != nil {
@@ -1120,6 +1141,9 @@ func (s *DevMachineService) RequestEnvironmentDeletion(ctx context.Context, work
 }
 
 func (s *DevMachineService) SnapshotEnvironment(ctx context.Context, workspaceID, userID uuid.UUID, request dto.CreateDevMachineEnvironmentRequest) (*domain.DevMachineEnvironment, error) {
+	if err := s.RequireMachineUse(userID); err != nil {
+		return nil, err
+	}
 	machineID, _ := uuid.Parse(request.SourceMachineID)
 	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
 	if err != nil {
@@ -1157,6 +1181,12 @@ func (s *DevMachineService) SnapshotEnvironment(ctx context.Context, workspaceID
 }
 
 func (s *DevMachineService) Lifecycle(ctx context.Context, workspaceID, machineID, userID uuid.UUID, action domain.DevMachineOperationAction, idempotencyKey string) (*domain.DevMachineOperation, error) {
+	// Stopping, pausing and tearing down stay open: they only release a machine.
+	if action == domain.DevMachineOpStart {
+		if err := s.RequireMachineUse(userID); err != nil {
+			return nil, err
+		}
+	}
 	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
 	if err != nil {
 		return nil, err
@@ -1348,6 +1378,9 @@ func containsString(values []string, candidate string) bool {
 }
 
 func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, machineID, userID uuid.UUID, req dto.CreateAgentRunRequest, runID uuid.UUID) (*domain.DevMachineAgentRun, error) {
+	if err := s.RequireMachineUse(userID); err != nil {
+		return nil, err
+	}
 	if err := s.validateAgentModel(ctx, workspaceID, req.Provider, req.ModelServerID, req.Model, req.Thinking); err != nil {
 		return nil, err
 	}
@@ -1613,6 +1646,9 @@ func selectReadyAgentCheckout(checkouts []domain.DevMachineCheckout) (*domain.De
 }
 
 func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, machineID, userID uuid.UUID, serviceKey string, checkoutID *uuid.UUID) (*dto.LaunchServiceResponse, error) {
+	if err := s.RequireMachineUse(userID); err != nil {
+		return nil, err
+	}
 	if _, err := s.enabledPolicy(ctx, workspaceID); err != nil {
 		return nil, err
 	}
@@ -1726,6 +1762,9 @@ func (s *DevMachineService) pendingLaunch(ctx context.Context, workspaceID uuid.
 }
 
 func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspaceID, machineID, userID uuid.UUID, req dto.CreateTerminalSessionRequest) (*dto.TerminalSessionLaunchResponse, error) {
+	if err := s.RequireMachineUse(userID); err != nil {
+		return nil, err
+	}
 	if _, err := s.enabledPolicy(ctx, workspaceID); err != nil {
 		return nil, err
 	}

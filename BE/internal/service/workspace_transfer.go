@@ -22,6 +22,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/audit"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 	"github.com/kuayle/kuayle-backend/pkg/storage"
 )
 
@@ -725,8 +726,38 @@ type deferredTransferReference struct {
 	ref   any
 }
 
+// importedTextSanitizers lists the archive columns that hold HTML or feed an
+// HTML sink, with the function the owning service applies before storing them
+// (IssueService, CommentService, ProjectService). An archive is caller-supplied
+// input, so import must store what those write paths would have stored.
+// Template descriptions become issue descriptions and are edited as rich text,
+// so IssueTemplateService and import both apply the issue rule.
+// Wiki pages are not part of the archive. Add a column here when a service
+// starts sanitizing it or a new table with rich text joins the archive.
+var importedTextSanitizers = map[string]map[string]func(string) string{
+	"issues":          {"title": sanitize.PlainText, "description": sanitize.SanitizeEditorContent},
+	"comments":        {"body": sanitize.SanitizeHTML},
+	"projects":        {"name": sanitize.StripHTML, "description": sanitize.SanitizeHTML},
+	"issue_templates": {"description": sanitize.SanitizeEditorContent},
+}
+
+func sanitizeImportedText(row dto.WorkspaceTransferRow, column string, clean func(string) string) {
+	if value, ok := row[column]; ok && value != nil {
+		row[column] = clean(transferString(value))
+	}
+}
+
 func prepareImportedRow(table string, row dto.WorkspaceTransferRow) {
+	for column, clean := range importedTextSanitizers[table] {
+		sanitizeImportedText(row, column, clean)
+	}
 	switch table {
+	case "issue_history":
+		// Recorded description versions are shown again as HTML in version history.
+		if transferString(row["field"]) == "description" {
+			sanitizeImportedText(row, "old_value", sanitize.SanitizeHTML)
+			sanitizeImportedText(row, "new_value", sanitize.SanitizeHTML)
+		}
 	case "workspace_members":
 		if transferString(row["role"]) == domain.RoleOwner {
 			row["role"] = domain.RoleAdmin

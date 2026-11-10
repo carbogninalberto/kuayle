@@ -86,10 +86,8 @@
 		void attach(pageId);
 	}
 
-	$effect(() => {
-		const issue = identifier;
+	function load(issue: string) {
 		const current = ++request;
-		untrack(() => (references = []));
 		listIssueWikiReferences(slug, issue)
 			.then((loaded) => {
 				if (current === request) references = Array.isArray(loaded) ? loaded : [];
@@ -97,6 +95,18 @@
 			.catch(() => {
 				/* The section stays hidden; attaching reports its own errors. */
 			});
+	}
+
+	$effect(() => {
+		const issue = identifier;
+		untrack(() => (references = []));
+		load(issue);
+		// Someone else attached or removed a page of this issue.
+		const changed = (event: Event) => {
+			if ((event as CustomEvent<{ identifier?: string }>).detail?.identifier === issue) load(issue);
+		};
+		window.addEventListener('ws:issue-wiki-references', changed);
+		return () => window.removeEventListener('ws:issue-wiki-references', changed);
 	});
 
 	/** Attaches a page to the issue; the server checks access to both. */

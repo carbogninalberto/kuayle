@@ -805,6 +805,9 @@ func operationResponse(operation *domain.DevMachineOperation) dto.DevMachineOper
 
 func machineError(c *echo.Context, err error) error {
 	switch {
+	case errors.Is(err, service.ErrDemoMachineForbidden):
+		// The same answer as the demo guard on the Dev Machine routes.
+		return response.Forbidden(c)
 	case errors.Is(err, service.ErrMachineNotFound):
 		return response.NotFound(c, "Dev Machine")
 	case errors.Is(err, service.ErrAgentRunNotFound):

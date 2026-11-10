@@ -118,6 +118,19 @@ func (r *WorkspaceInviteLinkRepository) Join(ctx context.Context, id, userID uui
 		return "", ErrInviteLinkExhausted
 	}
 
+	// A link carries its creator's authority to invite. Removal and demotion
+	// revoke the creator's links under this row lock; this check also covers
+	// links that predate that revocation. The membership row is read without a
+	// lock because those writers lock it before the link.
+	var creatorRole string
+	err = tx.GetContext(ctx, &creatorRole, `SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`, link.WorkspaceID, link.CreatedBy)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	if err != nil || !domain.HasPermission(creatorRole, domain.PermMemberInvite) {
+		return "", ErrInviteLinkRevoked
+	}
+
 	if newUser != nil {
 		err := tx.QueryRowContext(ctx, `INSERT INTO users (id, email, name, display_name, password_hash)
 			VALUES ($1, $2, $3, $4, $5) RETURNING created_at, updated_at`,
@@ -153,4 +166,13 @@ func (r *WorkspaceInviteLinkRepository) Join(ctx context.Context, id, userID uui
 		}
 	}
 	return role, tx.Commit()
+}
+
+// revokeInviteLinksCreatedBy revokes a user's active links in one workspace as
+// part of the membership change that ends their permission to invite.
+func revokeInviteLinksCreatedBy(ctx context.Context, tx *sqlx.Tx, workspaceID, userID uuid.UUID) error {
+	_, err := tx.ExecContext(ctx,
+		`UPDATE workspace_invite_links SET revoked_at = NOW() WHERE workspace_id = $1 AND created_by = $2 AND revoked_at IS NULL`,
+		workspaceID, userID)
+	return err
 }

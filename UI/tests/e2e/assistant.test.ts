@@ -2311,7 +2311,59 @@ test('a failed ship step is reported with its reason, and later steps show they 
 	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
 });
 
-test('message_task says where the message went without asking for approval', async ({ page }) => {
+test('message_task shows the whole message and sends it only when approved', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Approve the message to send it.' };
+	state.messages = [userMessage, answered];
+	const body = 'Also add tests.\nKeep the v1 route until the migration lands.';
+	state.tools = [
+		{
+			id: 'tool-live-1',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_1',
+			name: 'message_task',
+			input: { identifier: 'ENG-1', body },
+			status: 'completed',
+			output: { approval_id: 'approval-live-1', status: 'pending_user_approval', identifier: 'ENG-1' },
+			created_at: conversation.created_at
+		}
+	];
+	state.approvals = [
+		{
+			id: 'approval-live-1',
+			conversation_id: 'chat-1',
+			tool_call_id: 'tool-live-1',
+			action: 'message_task',
+			actor_id: 'user-1',
+			issue_id: 'issue-1',
+			payload: { identifier: 'ENG-1', title: 'Dark mode', task_id: 'task-9', body },
+			status: 'pending',
+			expires_at: '2026-10-27T10:00:00Z',
+			created_at: conversation.created_at,
+			updated_at: conversation.created_at
+		}
+	] as any;
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Send this message to the agent on ENG-1?', { exact: true })).toBeVisible();
+	await expect(
+		page.getByText('The coding agent working on Dark mode receives exactly this text as a message from you:', {
+			exact: true
+		})
+	).toBeVisible();
+	const shown = page.locator('[data-slot="code-block-code"]');
+	await expect(shown.getByText('Also add tests.', { exact: false })).toBeVisible();
+	await expect(shown.getByText('Keep the v1 route until the migration lands.', { exact: false })).toBeVisible();
+	await expect(page.getByText('Message sent to the running agent of ENG-1')).toHaveCount(0);
+	expect(state.decisions).toEqual([]);
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Message sent to the agent on ENG-1', { exact: true })).toBeVisible();
+	expect(state.decisions).toEqual(['approve']);
+});
+
+// Calls recorded before messages needed approval were sent at once.
+test('an earlier message_task call still says where its message went', async ({ page }) => {
 	const state = await fixture(page);
 	const answered = { ...reply, status: 'completed', content: 'I told the agent.' };
 	state.messages = [userMessage, answered];
@@ -2465,4 +2517,77 @@ test('the composer references wiki pages chosen with @ or dropped from a wiki tr
 	await expect(chips.nth(0)).toHaveText(/Deploy guide\s*Engineering/);
 	await expect(chips.nth(0)).toHaveAttribute('href', `/test/teams/team-1/wiki?page=${guide}`);
 	await expect(page.getByText('wiki:', { exact: false })).toHaveCount(0);
+});
+
+const copyCode = 'func main() {\n\tfmt.Println("**hi**")\n}';
+const copyPrompt = `Line one\n  indented line two\n\n${'long '.repeat(3000)}end https://example.com/a?b=1`;
+const copyAnswer = `## Plan\n\nUse **bold** and [the docs](https://example.com/docs).\n\n\`\`\`go\n${copyCode}\n\`\`\`\n\n- first\n- second`;
+
+test('copies a user message and an assistant reply in full, by pointer and by keyboard', async ({ page, context }) => {
+	await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+	const state = await fixture(page);
+	state.messages = [
+		{ ...userMessage, content: copyPrompt },
+		{ ...reply, content: copyAnswer, status: 'completed' }
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
+	// One control per message, in message order: the user's, then the reply's.
+	const buttons = page.getByRole('button', { name: 'Copy message' });
+	await expect(buttons).toHaveCount(2);
+
+	// Out of the way until its message is hovered.
+	await page.mouse.move(0, 0);
+	await expect(buttons.first()).toHaveCSS('opacity', '0');
+	await page.getByText('Line one', { exact: false }).hover();
+	await expect(buttons.first()).toHaveCSS('opacity', '1');
+	await buttons.first().click();
+	// The user's text is copied exactly, however long.
+	await expect.poll(clipboard).toBe(copyPrompt);
+	await expect(page.getByText('Copied', { exact: true })).toHaveCount(1);
+
+	// Keyboard: the control takes focus, shows itself and copies on Enter.
+	await page.mouse.move(0, 0);
+	await buttons.nth(1).focus();
+	await expect(buttons.nth(1)).toHaveCSS('opacity', '1');
+	await page.keyboard.press('Enter');
+	// The reply is copied as it reads: no Markdown markers, code and link address kept.
+	await expect
+		.poll(clipboard)
+		.toBe(`Plan\n\nUse bold and the docs (https://example.com/docs).\n\n${copyCode}\n\n- first\n- second`);
+	await expect(buttons.nth(1)).toBeFocused();
+	// Rendering is untouched: the reply is still Markdown.
+	await expect(page.getByRole('link', { name: 'the docs' })).toHaveAttribute('href', 'https://example.com/docs');
+	await expect(page.locator('pre')).toHaveText(copyCode);
+});
+
+test('the copy control is always shown where nothing can hover', async ({ browser }) => {
+	const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+	const page = await context.newPage();
+	const state = await fixture(page);
+	state.messages = [
+		{ ...userMessage, content: copyPrompt },
+		{ ...reply, content: copyAnswer, status: 'completed' }
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const buttons = page.getByRole('button', { name: 'Copy message' });
+	await expect(buttons).toHaveCount(2);
+	for (const button of await buttons.all()) await expect(button).toHaveCSS('opacity', '1');
+	await context.close();
+});
+
+test('a refused copy says so instead of confirming', async ({ page }) => {
+	await page.addInitScript(() => {
+		Object.defineProperty(navigator, 'clipboard', {
+			configurable: true,
+			value: { writeText: () => Promise.reject(new Error('denied')) }
+		});
+		document.execCommand = () => false;
+	});
+	const state = await fixture(page);
+	state.messages = [{ ...userMessage, content: copyPrompt }];
+	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByRole('button', { name: 'Copy message' }).click();
+	await expect(page.getByText('Could not copy the message')).toBeVisible();
+	await expect(page.getByText('Copied', { exact: true })).toHaveCount(0);
 });

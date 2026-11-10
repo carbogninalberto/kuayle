@@ -1,0 +1,156 @@
+{
+  "description": "Contract shared by the Go sanitizer (BE/pkg/sanitize) and the UI sanitizer (UI/src/lib/security). Both test suites read this file; change the allowlist in both places and here together.",
+  "allowed_classes": [
+    "editor-attachment",
+    "mention",
+    "mention-issue",
+    "mention-wiki",
+    "registry-ref",
+    "text-[var(--app-accent-light)]",
+    "underline"
+  ],
+  "allowed_class_prefixes": [
+    "language-"
+  ],
+  "class_cases": [
+    {
+      "input": "mention",
+      "output": "mention"
+    },
+    {
+      "input": "mention mention-issue",
+      "output": "mention mention-issue"
+    },
+    {
+      "input": "mention mention-wiki",
+      "output": "mention mention-wiki"
+    },
+    {
+      "input": "editor-attachment",
+      "output": "editor-attachment"
+    },
+    {
+      "input": "registry-ref",
+      "output": "registry-ref"
+    },
+    {
+      "input": "text-[var(--app-accent-light)] underline",
+      "output": "text-[var(--app-accent-light)] underline"
+    },
+    {
+      "input": "language-typescript",
+      "output": "language-typescript"
+    },
+    {
+      "input": "language-c++",
+      "output": "language-c++"
+    },
+    {
+      "input": "language-objective-c",
+      "output": "language-objective-c"
+    },
+    {
+      "input": "fixed inset-0 z-50 opacity-0",
+      "output": ""
+    },
+    {
+      "input": "mention fixed inset-0",
+      "output": "mention"
+    },
+    {
+      "input": "  editor-attachment\n\tabsolute ",
+      "output": "editor-attachment"
+    },
+    {
+      "input": "Mention",
+      "output": ""
+    },
+    {
+      "input": "mention-status-icon",
+      "output": ""
+    },
+    {
+      "input": "hljs-keyword",
+      "output": ""
+    },
+    {
+      "input": "text-[var(--app-accent-light)]x",
+      "output": ""
+    },
+    {
+      "input": "text-[999px]",
+      "output": ""
+    },
+    {
+      "input": "language-",
+      "output": ""
+    },
+    {
+      "input": "language-[position:fixed]",
+      "output": ""
+    },
+    {
+      "input": "language-a:b",
+      "output": ""
+    },
+    {
+      "input": "language-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "output": ""
+    },
+    {
+      "input": "",
+      "output": ""
+    }
+  ],
+  "documents": [
+    {
+      "name": "mentions",
+      "html": "<p>Ping <span data-type=\"mention\" data-id=\"123e4567-e89b-12d3-a456-426614174000\" data-label=\"Ada\" data-kind=\"user\" class=\"mention\">@Ada</span> about <span data-type=\"mention\" data-id=\"123e4567-e89b-12d3-a456-426614174000\" data-label=\"ENG-7\" data-kind=\"issue\" data-identifier=\"ENG-7\" class=\"mention mention-issue\">ENG-7</span></p>"
+    },
+    {
+      "name": "wiki page reference",
+      "html": "<p>See <span data-type=\"mention\" data-kind=\"wiki\" data-id=\"123e4567-e89b-12d3-a456-426614174000\" class=\"mention mention-wiki\"></span> first</p>"
+    },
+    {
+      "name": "attachment",
+      "html": "<p><a class=\"editor-attachment\" data-type=\"attachment\" data-filename=\"requirements.pdf\" data-size=\"2048\" href=\"/api/workspaces/acme/assets/123e4567-e89b-12d3-a456-426614174000?download=1\" download=\"requirements.pdf\" target=\"_blank\" rel=\"noopener noreferrer nofollow\">requirements.pdf (2 KB)</a></p>"
+    },
+    {
+      "name": "editor link",
+      "html": "<p>See <a target=\"_blank\" rel=\"noopener noreferrer nofollow\" class=\"text-[var(--app-accent-light)] underline\" href=\"https://example.com/docs\">the docs</a></p>"
+    },
+    {
+      "name": "code blocks",
+      "html": "<pre><code class=\"language-typescript\">const a = 1;</code></pre><pre><code>plain</code></pre>"
+    },
+    {
+      "name": "task list",
+      "html": "<ul data-type=\"taskList\"><li data-checked=\"true\" data-type=\"taskItem\"><input type=\"checkbox\" checked=\"checked\"><span></span><div><p>Done</p></div></li><li data-checked=\"false\" data-type=\"taskItem\"><input type=\"checkbox\"><span></span><div><p>Open</p></div></li></ul>"
+    },
+    {
+      "name": "formatting and image",
+      "html": "<h2>Notes</h2><p><strong>Bold</strong> <em>italic</em> <s>gone</s> <code>inline</code></p><blockquote><p>Quote</p></blockquote><hr><ol><li><p>One</p></li></ol><p><img src=\"/api/workspaces/acme/assets/123e4567-e89b-12d3-a456-426614174000\" alt=\"Screenshot\" width=\"50%\"></p>"
+    },
+    {
+      "name": "registry entry",
+      "html": "<p>Merged <span class=\"registry-ref\" data-kind=\"pull-request\">#12</span> for <span data-type=\"mention\" data-kind=\"issue\" data-id=\"\" data-label=\"ENG-7\" data-identifier=\"ENG-7\" class=\"mention mention-issue\">ENG-7</span></p>"
+    }
+  ],
+  "stripped": [
+    {
+      "name": "full-viewport overlay link",
+      "html": "<p><a href=\"https://example.com/x\" class=\"fixed inset-0 z-50 opacity-0\" rel=\"nofollow noreferrer noopener\" target=\"_blank\">overlay</a></p>",
+      "want": "<p><a href=\"https://example.com/x\" rel=\"nofollow noreferrer noopener\" target=\"_blank\">overlay</a></p>"
+    },
+    {
+      "name": "utility classes next to an editor class",
+      "html": "<p><span data-type=\"mention\" data-id=\"1\" data-label=\"Ada\" data-kind=\"user\" class=\"mention absolute inset-0\">@Ada</span></p>",
+      "want": "<p><span data-type=\"mention\" data-id=\"1\" data-label=\"Ada\" data-kind=\"user\" class=\"mention\">@Ada</span></p>"
+    },
+    {
+      "name": "classes on block elements and images",
+      "html": "<div class=\"fixed inset-0\"><p class=\"hidden\">text</p><img class=\"w-screen h-screen\" src=\"/api/workspaces/acme/assets/123e4567-e89b-12d3-a456-426614174000\" alt=\"x\"></div>",
+      "want": "<div><p>text</p><img src=\"/api/workspaces/acme/assets/123e4567-e89b-12d3-a456-426614174000\" alt=\"x\"></div>"
+    }
+  ]
+}

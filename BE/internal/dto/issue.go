@@ -184,4 +184,11 @@ type IssueFilterParams struct {
 	// categories. With group_by=status it orders the groups (and so the pages)
 	// by this category order before the team's status position.
 	StatusCategoryOrder string `query:"status_category_order"`
+	// PublicSearch is set by the public share path only and is never bound
+	// from a request. Every term must match, literally (no LIKE wildcards), in
+	// the title or the identifier, and in the description text only when
+	// PublicSearchDescription is set. It does not look at emails or at
+	// project, cycle, team, label or status text as Search does.
+	PublicSearch            []string `json:"-" xml:"-"`
+	PublicSearchDescription bool     `json:"-" xml:"-"`
 }

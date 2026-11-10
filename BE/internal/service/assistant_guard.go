@@ -42,17 +42,21 @@ type assistantActionPolicy struct {
 	role   assistantRole
 	// refusal is why the role check refuses, worded for a tool failure.
 	refusal string
+	// machine actions start or steer work on a Dev Machine, so the public
+	// demo rule (MachineAccess) applies when requested and when approved.
+	machine bool
 }
 
 var assistantActionPolicies = map[string]assistantActionPolicy{
-	"delegate_issue":       {},
+	"delegate_issue":       {machine: true},
 	"accept_agent_work":    {},
-	"request_agent_review": {},
-	"follow_up_task":       {},
-	"start_preview":        {},
-	"expose_port":          {},
-	"run_check":            {},
-	"run_custom_tool":      {},
+	"request_agent_review": {machine: true},
+	"follow_up_task":       {machine: true},
+	"message_task":         {machine: true},
+	"start_preview":        {machine: true},
+	"expose_port":          {machine: true},
+	"run_check":            {machine: true},
+	"run_custom_tool":      {machine: true},
 	// Destructive wiki actions: members who can write the wiki, checked
 	// (wiki:write and the wiki's visibility) when requested and approved.
 	wikiDeleteAction:          {},
@@ -190,10 +194,23 @@ func authorizeAssistantAction(ctx context.Context, members assistantMemberRepo, 
 	return "", nil
 }
 
+// refuseMachineAction is the public demo rule for an action: the refusal for
+// a user who may not use Dev Machines, or "".
+func refuseMachineAction(access *MachineAccess, actor uuid.UUID, action string) string {
+	if assistantActionPolicies[action].machine && access.Require(actor) != nil {
+		return demoMachineRefusal
+	}
+	return ""
+}
+
 // refuseRequest is the role check made when an approval is requested, for
 // actions whose role does not depend on the target; owner-scoped actions make
 // the same check where the target is loaded. A refusal is audited.
 func (s *ConversationService) refuseRequest(ctx context.Context, ws, actor uuid.UUID, action string) error {
+	if refusal := refuseMachineAction(s.tools.machineAccess, actor, action); refusal != "" {
+		auditAssistantAction("request_refused", actor, ws, action, map[string]interface{}{"reason": refusal})
+		return toolFailure("%s", refusal)
+	}
 	if ownerScoped(action) {
 		return nil
 	}

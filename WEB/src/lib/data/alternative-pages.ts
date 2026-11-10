@@ -27,7 +27,7 @@ const SELF_HOSTED_MIGRATION = (from: string, exportHow: string) => [
 	},
 	{
 		heading: 'Move open work through the API',
-		body: `Kuayle has no built-in ${from} importer yet. Script the move of open issues with a scoped personal access token, or start fresh with active work and keep ${from} read-only for history.`
+		body: `Kuayle has no built-in ${from} importer yet. Script the move of open issues with a scoped personal access token and the published API reference (kuayle.com/api-reference), or start fresh with active work and keep ${from} read-only for history.`
 	}
 ];
 
@@ -108,7 +108,7 @@ export const alternativePages: AlternativePageContent[] = [
 			},
 			{
 				question: 'Can I import my Linear workspace into Kuayle?',
-				answer: 'Not with a built-in importer yet. Export from Linear to CSV or read it through its API, then create issues in Kuayle with a scoped personal access token.'
+				answer: 'Not with a built-in importer yet. Export from Linear to CSV or read it through its API, then create issues in Kuayle through its documented HTTP API with a scoped personal access token.'
 			},
 			{
 				question: 'Does Kuayle have SSO and an MCP server like Linear?',
@@ -197,7 +197,7 @@ export const alternativePages: AlternativePageContent[] = [
 			},
 			{
 				question: 'Can I migrate from Jira to Kuayle?',
-				answer: 'There is no built-in Jira importer yet. Export to CSV or read the Jira REST API, then create issues in Kuayle with a scoped personal access token.'
+				answer: 'There is no built-in Jira importer yet. Export to CSV or read the Jira REST API, then create issues in Kuayle through its documented HTTP API with a scoped personal access token.'
 			},
 			{
 				question: 'Does Kuayle replace Jira Service Management?',
@@ -281,7 +281,7 @@ export const alternativePages: AlternativePageContent[] = [
 			},
 			{
 				question: 'Can I move from Plane to Kuayle?',
-				answer: 'There is no Plane importer yet. Export to CSV or JSON, or read Plane’s REST API, and create issues in Kuayle with a personal access token.'
+				answer: 'There is no Plane importer yet. Export to CSV or JSON, or read Plane’s REST API, and create issues in Kuayle through its documented HTTP API with a personal access token.'
 			},
 			{
 				question: 'Does Kuayle have AI features like Plane?',
@@ -338,7 +338,7 @@ export const alternativePages: AlternativePageContent[] = [
 			{ question: 'Can Asana be self-hosted?', answer: 'No. Asana runs only in its own cloud. To keep project data on your servers you need a self-hosted tool such as Kuayle.' },
 			{ question: 'Is there a free Asana alternative?', answer: 'Kuayle is free with no seat limit and no paid tier; you pay only for hosting. Asana’s own free plan covers 2 users.' },
 			{ question: 'Is Kuayle a good fit for non-technical teams?', answer: 'Kuayle is built for product and engineering work. Teams that mostly need task lists, forms and portfolios may be better served by a general tool.' },
-			{ question: 'Can I import Asana tasks into Kuayle?', answer: 'Not with a built-in importer yet. Export to CSV or use Asana’s REST API, then create issues through Kuayle’s API.' }
+			{ question: 'Can I import Asana tasks into Kuayle?', answer: 'Not with a built-in importer yet. Export to CSV or use Asana’s REST API, then create issues through Kuayle’s documented HTTP API.' }
 		]
 	},
 
@@ -390,7 +390,7 @@ export const alternativePages: AlternativePageContent[] = [
 			{ question: 'Can ClickUp be self-hosted?', answer: 'No. ClickUp is cloud-only. Kuayle runs on your own server with Docker Compose.' },
 			{ question: 'Is there a free ClickUp alternative without limits?', answer: 'Kuayle has no paid tier, seat cap or storage quota of its own; limits come only from the server you run it on.' },
 			{ question: 'Does Kuayle have docs and whiteboards like ClickUp?', answer: 'No. Kuayle is an issue tracker. It has issues, cycles, projects, views and GitHub linking, but no docs or whiteboards.' },
-			{ question: 'Can I import from ClickUp?', answer: 'There is no built-in importer yet. Export from ClickUp or use its API, then create issues in Kuayle through the API.' }
+			{ question: 'Can I import from ClickUp?', answer: 'There is no built-in importer yet. Export from ClickUp or use its API, then create issues in Kuayle through its documented HTTP API.' }
 		]
 	},
 
@@ -441,7 +441,7 @@ export const alternativePages: AlternativePageContent[] = [
 			{ question: 'Is YouTrack open source?', answer: 'No. YouTrack is proprietary JetBrains software, available as Cloud or self-hosted Server.' },
 			{ question: 'What is a good open source YouTrack alternative?', answer: 'Kuayle is an Apache 2.0, self-hosted issue tracker with no licence fee. OpenProject and Taiga are other open source options.' },
 			{ question: 'Is YouTrack free?', answer: 'YouTrack is free for up to 10 users and 3 helpdesk agents. Beyond that, JetBrains bills per user.' },
-			{ question: 'Can I migrate from YouTrack to Kuayle?', answer: 'There is no built-in importer. Export to CSV or JSON and create issues through Kuayle’s API.' }
+			{ question: 'Can I migrate from YouTrack to Kuayle?', answer: 'There is no built-in importer. Export to CSV or JSON and create issues through Kuayle’s documented HTTP API.' }
 		]
 	},
 
@@ -492,7 +492,7 @@ export const alternativePages: AlternativePageContent[] = [
 			{ question: 'Is OpenProject free?', answer: 'The Community edition is free and open source under GPL-3.0. SSO, SCIM, the MCP server and other features are paid Enterprise add-ons.' },
 			{ question: 'What is a lighter OpenProject alternative?', answer: 'Kuayle is a lighter, issue-first tracker for software teams, self-hosted under Apache 2.0, with cycles, projects and GitHub integration.' },
 			{ question: 'Does Kuayle have Gantt charts like OpenProject?', answer: 'Kuayle has a project Gantt view, cycles with burndown and velocity, and analytics. It has no time tracking or cost tracking.' },
-			{ question: 'Can I move from OpenProject to Kuayle?', answer: 'There is no built-in importer. Export work packages to CSV or read the REST API, then create issues through Kuayle’s API.' }
+			{ question: 'Can I move from OpenProject to Kuayle?', answer: 'There is no built-in importer. Export work packages to CSV or read the REST API, then create issues through Kuayle’s documented HTTP API.' }
 		]
 	},
 
@@ -541,7 +541,7 @@ export const alternativePages: AlternativePageContent[] = [
 		faq: [
 			{ question: 'Is Taiga still maintained?', answer: 'Yes. Taiga’s backend repository received commits in November 2026, and taiga.io still sells hosted plans.' },
 			{ question: 'What is a good Taiga alternative?', answer: 'Kuayle is an open source, self-hosted tracker with cycles, projects and GitHub automation. OpenProject and Plane are other open source options.' },
-			{ question: 'Can I migrate from Taiga to Kuayle?', answer: 'There is no Taiga importer. Export the project JSON or use Taiga’s REST API, then create issues through Kuayle’s API.' },
+			{ question: 'Can I migrate from Taiga to Kuayle?', answer: 'There is no Taiga importer. Export the project JSON or use Taiga’s REST API, then create issues through Kuayle’s documented HTTP API.' },
 			{ question: 'Does Kuayle support Scrum?', answer: 'Kuayle uses cycles (time-boxed iterations) with burndown, velocity and carry-over. It has no story points or estimates.' }
 		]
 	},
@@ -593,7 +593,7 @@ export const alternativePages: AlternativePageContent[] = [
 			{ question: 'Can GitLab be used just as an issue tracker?', answer: 'Yes, but it is a full DevOps platform, and several board and planning features need Premium. Kuayle is a dedicated tracker with no paid features.' },
 			{ question: 'Does Kuayle integrate with GitLab?', answer: 'Not yet. Kuayle integrates with GitHub through a GitHub App. GitLab, Bitbucket and Gitea are not supported today.' },
 			{ question: 'Is GitLab open source?', answer: 'GitLab’s core is MIT-licensed; Enterprise Edition code is under a separate licence.' },
-			{ question: 'Can I move GitLab issues to Kuayle?', answer: 'There is no GitLab importer. Export issues to CSV or read the GitLab API, then create issues through Kuayle’s API.' }
+			{ question: 'Can I move GitLab issues to Kuayle?', answer: 'There is no GitLab importer. Export issues to CSV or read the GitLab API, then create issues through Kuayle’s documented HTTP API.' }
 		]
 	},
 
@@ -644,7 +644,7 @@ export const alternativePages: AlternativePageContent[] = [
 			{ question: 'Is there an open source Trello alternative?', answer: 'Yes. Kuayle is an open source, self-hosted issue tracker with board and list layouts. WeKan and Kanboard are open source board tools closer to Trello itself.' },
 			{ question: 'Can Trello be self-hosted?', answer: 'No. Trello is Atlassian-hosted only. Kuayle runs on your own server with Docker Compose.' },
 			{ question: 'Is Kuayle as simple as Trello?', answer: 'Kuayle has board and list layouts, but it is an issue tracker with teams, cycles and projects, so it has more structure than Trello.' },
-			{ question: 'Can I import Trello boards into Kuayle?', answer: 'There is no Trello importer yet. Export boards to JSON and create issues through Kuayle’s API.' }
+			{ question: 'Can I import Trello boards into Kuayle?', answer: 'There is no Trello importer yet. Export boards to JSON and create issues through Kuayle’s documented HTTP API.' }
 		]
 	},
 

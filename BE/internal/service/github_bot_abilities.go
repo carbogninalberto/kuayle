@@ -119,9 +119,9 @@ type ghWebhookIssueComment struct {
 	} `json:"installation"`
 }
 
-// processIssueCommentEvent starts a review when a trusted commenter mentions
-// the bot on a pull request of a linked repository and asks for one, and the
-// workspace turned the mention trigger on. Edits, bots and comments on issues
+// processIssueCommentEvent starts a review when a commenter with write access
+// to the repository mentions the bot on a pull request of a linked repository
+// and asks for one, and the workspace turned the mention trigger on. Edits, bots and comments on issues
 // are ignored. The review itself re-checks the task and its creator's
 // permissions; see GitHubMentionReviews.
 func (s *GitHubService) processIssueCommentEvent(ctx context.Context, payload []byte) error {
@@ -148,11 +148,16 @@ func (s *GitHubService) processIssueCommentEvent(ctx context.Context, payload []
 	if !ok {
 		return nil
 	}
-	// Like review feedback, only people with write association can start work.
-	switch event.Comment.AuthorAssociation {
-	case "OWNER", "MEMBER", "COLLABORATOR":
-	default:
-		log.WithFields(log.Fields{"workspace_id": inst.WorkspaceID, "repo_id": repo.ID, "pr_number": event.Issue.Number}).Info("Ignored a review mention from a commenter without write association")
+	// Like review feedback, only people who can push to the repository can
+	// start work; see authorCanWrite. A failed permission lookup fails the
+	// delivery without starting anything.
+	trusted, err := s.authorCanWrite(ctx, inst, repo, event.Comment.AuthorAssociation, event.Comment.User.Login)
+	if err != nil {
+		log.WithFields(log.Fields{"workspace_id": inst.WorkspaceID, "repo_id": repo.ID, "pr_number": event.Issue.Number}).WithError(err).Warn("Could not confirm a review mention's author can write; redeliver the event after recovery")
+		return err
+	}
+	if !trusted {
+		log.WithFields(log.Fields{"workspace_id": inst.WorkspaceID, "repo_id": repo.ID, "pr_number": event.Issue.Number}).Info("Ignored a review mention from a commenter without write access")
 		return nil
 	}
 	return s.mentionReviews.ReviewMention(ctx, MentionReview{

@@ -94,6 +94,7 @@ type appHandlers struct {
 	githubBot         *handler.GitHubBotHandler
 	wiki              *handler.WikiHandler
 	wikiPublish       *handler.WikiPublishHandler
+	openapi           *handler.OpenAPIHandler
 }
 
 // appMiddleware carries the pre-built route middleware whose construction
@@ -133,6 +134,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	public(e, http.MethodGet, "/api/config", h.config.Get, m.publicAssetRateLimit)
 	public(e, http.MethodGet, "/api/invite/:token", h.inviteLink.Preview, m.authRateLimit)
+	// The public API reference (internal/openapi); a test keeps it equal to the
+	// token-accessible routes below.
+	public(e, http.MethodGet, "/api/openapi.json", h.openapi.Spec, m.publicAssetRateLimit)
 
 	// Authenticated routes
 	api := e.Group("/api", m.auth)
@@ -279,8 +283,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 		scoped(ws, http.MethodPost, wiki.base+"/:pageId/move", h.wiki.Move(wiki.kind), domain.PermWikiWrite)
 		scoped(ws, http.MethodGet, wiki.base+"/:pageId/publish", h.wikiPublish.State(wiki.kind), domain.PermWikiRead)
 		scoped(ws, http.MethodPut, wiki.base+"/:pageId/publish", h.wikiPublish.Publish(wiki.kind), domain.PermWikiWrite)
-		// Backlinks name the issues that reference a page, so they need both.
-		scoped(ws, http.MethodGet, wiki.base+"/:pageId/backlinks", h.wiki.Backlinks(wiki.kind), domain.PermWikiRead, mw.RequirePermission("issues:read"))
+		// Backlinks name referencing issues only to callers with issues:read.
+		scoped(ws, http.MethodGet, wiki.base+"/:pageId/backlinks", h.wiki.Backlinks(wiki.kind), domain.PermWikiRead)
 	}
 	// References to wiki pages from issues, comments and other pages. Pages
 	// of every team and project are suggested and resolved, each through the
@@ -294,10 +298,10 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Views
 	scoped(ws, http.MethodGet, "/views", h.view.List, "views:read")
-	sessionOnly(ws, http.MethodPost, "/views", h.view.Create)
+	sessionOnly(ws, http.MethodPost, "/views", h.view.Create, mw.RequirePermission(domain.PermViewManage))
 	scoped(ws, http.MethodGet, "/views/:id", h.view.Get, "views:read")
-	sessionOnly(ws, http.MethodPatch, "/views/:id", h.view.Update)
-	sessionOnly(ws, http.MethodDelete, "/views/:id", h.view.Delete)
+	sessionOnly(ws, http.MethodPatch, "/views/:id", h.view.Update, mw.RequirePermission(domain.PermViewManage))
+	sessionOnly(ws, http.MethodDelete, "/views/:id", h.view.Delete, mw.RequirePermission(domain.PermViewManage))
 
 	// Analytics
 	scoped(ws, http.MethodGet, "/analytics/overview", h.analytics.Overview, "analytics:read")

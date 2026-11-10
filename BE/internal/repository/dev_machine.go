@@ -742,8 +742,10 @@ func (r *DevMachineRepository) GetRoute(ctx context.Context, routingKey, service
 	var service domain.DevMachineService
 	if port, ok := domain.ParseAppPortService(serviceType); ok {
 		// An app port is served by the running developer container on that
-		// port, or by the running docker service for a port its daemon
-		// publishes. Its tickets and sessions reference the developer service
+		// port, by the running docker service for a port its daemon
+		// publishes, or by the task's preview container for a preview port
+		// (never by the developer container, whatever listens there). Its
+		// tickets and sessions reference the developer service
 		// row and are bound to the port's host, so they are never valid for
 		// the IDE. A port used by any of the machine's services is never routed.
 		var target string
@@ -776,6 +778,9 @@ func (r *DevMachineRepository) GetRoute(ctx context.Context, routingKey, service
 			return nil, nil, err
 		}
 		service.ServiceType, service.InternalPort = serviceType, port
+		if target == domain.DevMachinePortTargetPreview {
+			upstreamHost = domain.PreviewPortHost(machine.RoutingKey, port)
+		}
 		if upstreamHost != "" {
 			service.InternalHost = upstreamHost
 		}

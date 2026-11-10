@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/require"
@@ -101,6 +102,8 @@ type portRuntimeFake struct {
 	started  []startedPreview
 	stopped  []uuid.UUID
 	startErr error
+	// previewDocker is what each started preview was given.
+	previewDocker []map[string]string
 }
 
 type startedPreview struct {
@@ -110,7 +113,7 @@ type startedPreview struct {
 	cwd  string
 }
 
-func (f *portRuntimeFake) ScanPorts(context.Context, []domain.DevMachineService) (PortScan, error) {
+func (f *portRuntimeFake) ScanPorts(context.Context, *domain.DevMachine, []domain.DevMachineService) (PortScan, error) {
 	scan := f.scan
 	f.scan.Requests = nil
 	return scan, f.scanErr
@@ -119,14 +122,15 @@ func (f *portRuntimeFake) WritePortState(_ context.Context, _ []domain.DevMachin
 	f.states = append(f.states, state)
 	return nil
 }
-func (f *portRuntimeFake) StartPreview(_ context.Context, _ *domain.DevMachine, _ []domain.DevMachineService, checkout *domain.DevMachineCheckout, task uuid.UUID, argv []string, port int) error {
+func (f *portRuntimeFake) StartPreview(_ context.Context, _ *domain.DevMachine, _ []domain.DevMachineService, checkout *domain.DevMachineCheckout, task uuid.UUID, argv []string, port int, docker map[string]string) error {
 	if f.startErr != nil {
 		return f.startErr
 	}
+	f.previewDocker = append(f.previewDocker, docker)
 	f.started = append(f.started, startedPreview{task, argv, port, checkout.WorkspacePath})
 	return nil
 }
-func (f *portRuntimeFake) StopPreview(_ context.Context, _ []domain.DevMachineService, task uuid.UUID) error {
+func (f *portRuntimeFake) StopPreview(_ context.Context, _ *domain.DevMachine, _ []domain.DevMachineService, task uuid.UUID) error {
 	f.stopped = append(f.stopped, task)
 	return nil
 }
@@ -405,16 +409,69 @@ func TestTaskPreviewFailuresAreRecorded(t *testing.T) {
 	})
 }
 
-func TestStopPreviewKillsOnlyThatTask(t *testing.T) {
+// Stopping removes that task's preview only, and also when the machine does
+// not run: a task can finish while its machine is paused, and its preview
+// container must not outlive it. A destroyed machine has no containers.
+func TestStopPreviewRemovesOnlyThatTasksPreview(t *testing.T) {
 	manager, store, runtime := newPortManager()
 	task := uuid.New()
 	require.NoError(t, manager.stopPreview(context.Background(), store.machine, &domain.DevMachineOperation{AgentTaskID: &task}))
 	require.Equal(t, []uuid.UUID{task}, runtime.stopped)
 	require.Equal(t, []uuid.UUID{task}, store.appPorts.stoppedTasks)
 
-	store.machine.Status = domain.DevMachineStatusStopped
+	store.machine.Status = domain.DevMachineStatusPaused
 	other := uuid.New()
+	states := len(runtime.states)
 	require.NoError(t, manager.stopPreview(context.Background(), store.machine, &domain.DevMachineOperation{AgentTaskID: &other}))
-	require.Len(t, runtime.stopped, 1, "a stopped machine has no process to kill")
+	require.Equal(t, []uuid.UUID{task, other}, runtime.stopped, "a paused machine's preview container is removed too")
 	require.Equal(t, other, store.appPorts.stoppedTasks[1])
+	require.Len(t, runtime.states, states, "a machine that does not run is not scanned")
+
+	store.machine.Status = domain.DevMachineStatusDestroyed
+	gone := uuid.New()
+	require.NoError(t, manager.stopPreview(context.Background(), store.machine, &domain.DevMachineOperation{AgentTaskID: &gone}))
+	require.Len(t, runtime.stopped, 2, "a destroyed machine has nothing to remove")
+	require.Equal(t, gone, store.appPorts.stoppedTasks[2])
+}
+
+// A preview listens in its own container. Its port is still one of the
+// machine's listening ports, for the owner's page and for kuayle-ports.
+func TestPortScanReportsListeningPreviewPorts(t *testing.T) {
+	manager, store, runtime := newPortManager()
+	runtime.scan = PortScan{Listening: []int{5173}, Preview: []int{4100, 5173, 8080}}
+	require.NoError(t, manager.syncMachinePorts(context.Background(), store.machine, store.services))
+	require.Equal(t, []int{4100, 5173}, store.appPorts.listening, "reported once, and never a port of the machine's services")
+	require.Empty(t, store.appPorts.docker)
+	require.Equal(t, []int{4100, 5173}, portState(t, runtime).Listening)
+}
+
+// A machine's previews end when it stops or is provisioned again: their
+// containers are removed first, then the previews are recorded as stopped. A
+// stop whose previews cannot be removed is retried instead of leaving them.
+func TestMachineStopAndProvisioningRemoveThePreviewContainers(t *testing.T) {
+	machineID, workspaceID := uuid.New(), uuid.New()
+	store := &managerStoreFake{
+		machine:  &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusQueued},
+		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide"}},
+	}
+	runtime := &runtimeFake{}
+	manager := NewManager(store, runtime, agent.NewRegistry(), nil, make([]byte, 32), make([]byte, 32), "test")
+	ctx := context.Background()
+	require.NoError(t, manager.processOperation(ctx, &domain.DevMachineOperation{MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpSpawn}))
+	require.Equal(t, []string{"spawned=0 stopped=0 tornDown=0"}, runtime.previewRemovals, "before the containers are provisioned")
+	require.Equal(t, 1, store.appPorts.stoppedMachine)
+	require.Equal(t, domain.DevMachineStatusRunning, store.machine.Status)
+
+	runtime.removePreviewsErr = errors.New("docker is unavailable")
+	stop := &domain.DevMachineOperation{MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpStop}
+	require.Error(t, manager.processOperation(ctx, stop))
+	require.Zero(t, runtime.stopped)
+	require.Equal(t, 1, store.appPorts.stoppedMachine, "previews are not recorded as stopped while their containers may run")
+
+	runtime.removePreviewsErr = nil
+	require.NoError(t, manager.processOperation(ctx, stop))
+	require.Equal(t, "spawned=1 stopped=0 tornDown=0", runtime.previewRemovals[len(runtime.previewRemovals)-1], "before the services stop")
+	require.Equal(t, 1, runtime.stopped)
+	require.Equal(t, 2, store.appPorts.stoppedMachine)
+	require.Equal(t, domain.DevMachineStatusStopped, store.machine.Status)
 }

@@ -354,7 +354,7 @@ type CollectorLogInput struct {
 	Truncated  bool    `json:"truncated"`
 }
 
-// AppPort is one exposed port of a machine's developer container.
+// AppPort is one exposed port of a machine.
 type AppPort struct {
 	ID             uuid.UUID  `json:"id"`
 	Port           int        `json:"port"`
@@ -364,8 +364,9 @@ type AppPort struct {
 	TaskIdentifier *string    `json:"task_identifier"`
 	Host           string     `json:"host"`
 	Listening      bool       `json:"listening"`
-	// Target is the container serving it: "developer", or "docker" for a
-	// port published by a container of the machine's Docker daemon.
+	// Target is the container serving it: "developer", "docker" for a port
+	// published by a container of the machine's Docker daemon, or "preview"
+	// for a task preview, which runs in its own container.
 	Target    string    `json:"target"`
 	CreatedAt time.Time `json:"created_at"`
 }

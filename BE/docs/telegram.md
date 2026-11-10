@@ -181,14 +181,18 @@ followed by the question (at most 1,500 characters) in a code block, so
 Telegram shows the agent's untrusted text verbatim rather than as links or
 formatting (triple backticks in it are broken up), and a link to the issue
 conversation. Ordinary agent messages do not notify. The answer is given in
-Kuayle; a Telegram reply is an ordinary assistant turn, which may answer the
-agent with `message_task` when asked.
+Kuayle; a Telegram reply is an ordinary assistant turn, which may ask to
+answer the agent with `message_task` when asked. That message needs the
+user's approval in Kuayle, where the card shows its whole text; Telegram
+offers no button for it.
 
 ## Approval buttons
 
 When a delivered reply contains pending approvals bound to its recipient (for
 example a `delegate_issue` request), the message carries one inline row per
-approval (at most three): **Approve ENG-1** and **Deny**. Buttons are attached
+approval (at most three): **Approve ENG-1** and **Deny**. `message_task`
+approvals are left out and their callbacks are ignored: a message to a coding
+agent is approved only on its card in Kuayle, which shows the text. Buttons are attached
 inside the delivery transaction after the usual allowlist, membership, binding
 and issue-scope checks. Callback data only names the approval
 (`approve:<uuid>`/`deny:<uuid>`); it grants nothing by itself.

@@ -37,6 +37,12 @@
 		const refresh = (event?: Event) => {
 			// Editing this page does not change what references it.
 			if (event?.type === 'ws:wiki-changed' && (event as CustomEvent<{ id?: string }>).detail?.id === pageId) return;
+			// A page attached to or removed from an issue matters only when it is this one.
+			if (
+				event?.type === 'ws:issue-wiki-references' &&
+				(event as CustomEvent<{ page_id?: string }>).detail?.page_id !== pageId
+			)
+				return;
 			if (document.hidden) {
 				pending = true;
 				return;
@@ -52,7 +58,13 @@
 			pending = false;
 			refresh();
 		};
-		const events = ['ws:wiki-changed', 'ws:issue-updated', 'ws:comment-created', 'ws:reconnected'];
+		const events = [
+			'ws:wiki-changed',
+			'ws:issue-updated',
+			'ws:issue-wiki-references',
+			'ws:comment-created',
+			'ws:reconnected'
+		];
 		for (const name of events) window.addEventListener(name, refresh);
 		document.addEventListener('visibilitychange', shown);
 		return () => {

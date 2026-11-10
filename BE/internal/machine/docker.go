@@ -522,6 +522,9 @@ func (r *DockerRuntime) Start(ctx context.Context, machine *domain.DevMachine, s
 			return fmt.Errorf("start %s: %w", service.ServiceKey, err)
 		}
 	}
+	if machine.Status == domain.DevMachineStatusPaused {
+		return r.pausePreviews(ctx, machine, false)
+	}
 	return nil
 }
 
@@ -625,13 +628,14 @@ func (r *DockerRuntime) startContainerWithSecrets(ctx context.Context, container
 	return r.copySecrets(ctx, containerID, secrets)
 }
 
-func (r *DockerRuntime) Pause(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService) error {
+func (r *DockerRuntime) Pause(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) error {
 	for _, containerID := range uniqueContainerIDs(services) {
 		if _, err := r.client.ContainerPause(ctx, containerID, client.ContainerPauseOptions{}); err != nil && !errdefs.IsNotFound(err) && !errdefs.IsConflict(err) {
 			return err
 		}
 	}
-	return nil
+	// Task previews are not services; they pause and resume with the machine.
+	return r.pausePreviews(ctx, machine, true)
 }
 
 func (r *DockerRuntime) Stop(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService) error {
@@ -816,7 +820,7 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	} else if !errdefs.IsNotFound(inspectErr) {
 		return nil, inspectErr
 	}
-	hostConfig, err := r.agentHostConfig(ctx, machine, run.ID, docker)
+	hostConfig, err := r.agentHostConfig(ctx, machine, run.ID.String(), docker)
 	if err != nil {
 		return nil, err
 	}
@@ -1610,7 +1614,8 @@ func agentMemoryBytes(machine *domain.DevMachine, docker bool, tasks int) int64 
 
 // agentTaskCount counts the agent runs with a running attempt or check
 // container among containers of machine, plus run (the one being started,
-// when it has none yet). Each run belongs to one task.
+// when it has none yet). Each run belongs to one task. A running task preview
+// counts as one more: it is sized like an agent container.
 func agentTaskCount(items []container.Summary, machine *domain.DevMachine, run string) int {
 	runs := map[string]bool{}
 	if run != "" {
@@ -1623,14 +1628,17 @@ func agentTaskCount(items []container.Summary, machine *domain.DevMachine, run s
 		}
 		if id := item.Labels["com.kuayle.agent-run-id"]; id != "" {
 			runs[id] = true
+		} else if task := item.Labels[previewTaskLabel]; task != "" {
+			runs[previewTaskKey(task)] = true
 		}
 	}
 	return len(runs)
 }
 
 // agentHostConfig is secureHostConfig for an agent attempt or check container
-// of run, whose memory is split with the other tasks running on the machine.
-func (r *DockerRuntime) agentHostConfig(ctx context.Context, machine *domain.DevMachine, run uuid.UUID, docker bool) (*container.HostConfig, error) {
+// of run, or for a task preview container (run is then its previewTaskKey),
+// whose memory is split with the other tasks running on the machine.
+func (r *DockerRuntime) agentHostConfig(ctx context.Context, machine *domain.DevMachine, run string, docker bool) (*container.HostConfig, error) {
 	running, err := r.client.ContainerList(ctx, client.ContainerListOptions{
 		Filters: make(client.Filters).Add("label", "com.kuayle.machine-id="+machine.ID.String(), "com.kuayle.service=agent"),
 	})
@@ -1638,7 +1646,7 @@ func (r *DockerRuntime) agentHostConfig(ctx context.Context, machine *domain.Dev
 		return nil, fmt.Errorf("count agent tasks on the machine: %w", err)
 	}
 	hostConfig := r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName, docker)
-	memory := agentMemoryBytes(machine, docker, agentTaskCount(running.Items, machine, run.String()))
+	memory := agentMemoryBytes(machine, docker, agentTaskCount(running.Items, machine, run))
 	hostConfig.Resources.Memory, hostConfig.Resources.MemorySwap = memory, memory
 	return hostConfig, nil
 }

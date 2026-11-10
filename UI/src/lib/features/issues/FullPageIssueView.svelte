@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { decodeHtmlEntities, htmlToPlainText, parseInertHtml } from '$lib/security/plain-text';
 	import { agentName } from './history-agent';
 	import OpenIssueChatButton from '$lib/features/assistant/OpenIssueChatButton.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -618,24 +619,8 @@
 		}
 	}
 
-	function decodeHtmlEntities(text: string): string {
-		const el = document.createElement('textarea');
-		el.innerHTML = text;
-		return el.value;
-	}
-
-	function plainText(html: string | null | undefined): string {
-		if (!html) return '';
-		if (typeof document !== 'undefined') {
-			const el = document.createElement('div');
-			el.innerHTML = html;
-			return (el.textContent ?? '').replace(/\s+/g, ' ').trim();
-		}
-		return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-	}
-
 	function parentDescriptionPreview(description: string | null | undefined): string {
-		const text = plainText(description);
+		const text = htmlToPlainText(description);
 		return text.length > 180 ? `${text.slice(0, 177)}...` : text;
 	}
 
@@ -660,8 +645,9 @@
 	}
 
 	function htmlToPromptMarkdown(html: string, signedAssets: Record<string, string>): string {
-		const root = document.createElement('div');
-		root.innerHTML = html;
+		// An inert document: walking it loads no image and runs no handler.
+		const root = parseInertHtml(html)?.body;
+		if (!root) return htmlToPlainText(html);
 
 		const parts: string[] = [];
 		const blockTags = new Set([

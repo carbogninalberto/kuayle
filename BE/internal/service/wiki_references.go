@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 )
@@ -70,9 +71,10 @@ func (s *WikiService) ResolveReferences(ctx context.Context, workspaceID uuid.UU
 	return resolved, nil
 }
 
-// Backlinks lists the issues and pages that reference a visible page.
-func (s *WikiService) Backlinks(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) (*domain.WikiBacklinks, error) {
-	links, err := s.repo.Backlinks(ctx, workspaceID, scope, pageID)
+// Backlinks lists the issues and pages that reference a visible page; the
+// issues only for a caller that may read issues.
+func (s *WikiService) Backlinks(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID, withIssues bool) (*domain.WikiBacklinks, error) {
+	links, err := s.repo.Backlinks(ctx, workspaceID, scope, pageID, withIssues)
 	return links, wikiError(err)
 }
 
@@ -119,6 +121,7 @@ func (s *WikiService) AttachIssueReference(ctx context.Context, workspaceID uuid
 		}
 		return nil, err
 	}
+	s.publishIssueReferences(workspaceID, issue, pageID)
 	return s.IssueReferences(ctx, workspaceID, identifier)
 }
 
@@ -129,7 +132,28 @@ func (s *WikiService) DetachIssueReference(ctx context.Context, workspaceID uuid
 	if err != nil {
 		return err
 	}
-	return s.repo.DetachIssueReference(ctx, workspaceID, issue.ID, pageID)
+	if err := s.repo.DetachIssueReference(ctx, workspaceID, issue.ID, pageID); err != nil {
+		return err
+	}
+	s.publishIssueReferences(workspaceID, issue, pageID)
+	return nil
+}
+
+// IssueWikiReferencesEvent tells open issues and backlink panels that the
+// pages attached to an issue changed. It names nothing: clients reload
+// through the API, which checks access.
+type IssueWikiReferencesEvent struct {
+	IssueID    string `json:"issue_id"`
+	Identifier string `json:"identifier"`
+	PageID     string `json:"page_id"`
+}
+
+func (s *WikiService) publishIssueReferences(workspaceID uuid.UUID, issue *domain.Issue, pageID uuid.UUID) {
+	if s.events == nil {
+		return
+	}
+	s.events.Broadcast(workspaceID, realtime.Event{Type: "issue.wiki_references_changed",
+		Payload: IssueWikiReferencesEvent{IssueID: issue.ID.String(), Identifier: issue.Identifier, PageID: pageID.String()}})
 }
 
 // publicWikiReferences returns the pages that published content references

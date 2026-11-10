@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -81,7 +82,9 @@ func (h *WikiHandler) Backlinks(kind domain.WikiScopeKind) echo.HandlerFunc {
 		if !ok {
 			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid wiki page ID")
 		}
-		links, err := h.wikiSvc.Backlinks(c.Request().Context(), middleware.GetWorkspace(c).ID, scope, pageID)
+		// Referencing issues are listed only to callers that may read issues;
+		// a wiki-only token still gets the referencing pages.
+		links, err := h.wikiSvc.Backlinks(c.Request().Context(), middleware.GetWorkspace(c).ID, scope, pageID, callerMay(c, domain.PermIssuesRead))
 		if err != nil {
 			return wikiErrorResponse(c, err)
 		}
@@ -136,6 +139,16 @@ func (h *WikiHandler) DetachIssueReference(c *echo.Context) error {
 		return wikiReferenceErrorResponse(c, err)
 	}
 	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// callerMay reports whether the caller's token scopes and workspace role
+// both grant a permission, as middleware.RequirePermission decides it.
+func callerMay(c *echo.Context, permission string) bool {
+	if scopes, ok := c.Get(middleware.TokenScopesKey).([]string); ok && !slices.Contains(scopes, permission) {
+		return false
+	}
+	role, ok := c.Get("workspace_role").(string)
+	return !ok || domain.HasPermission(role, permission)
 }
 
 // wikiReferenceErrorResponse hides whether the issue or the page was the

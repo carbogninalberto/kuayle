@@ -13,6 +13,9 @@ import (
 // running attempt the next attempt's prompt carries it. It only delivers
 // text and changes no other state.
 func (s *AgentTaskService) QueueLiveMessage(ctx context.Context, ws, id uuid.UUID, sender, body string) (*domain.AgentLiveMessage, error) {
+	if err := s.requireMachineUse(ctx); err != nil {
+		return nil, err
+	}
 	return s.Repo.QueueLiveMessage(ctx, ws, id, sender, body)
 }
 

@@ -148,7 +148,8 @@ The gateway uses Go's reverse proxy with WebSocket upgrades, streaming flushes, 
 ### App ports
 
 A machine exposes any number of TCP ports of its developer container (or,
-since migration 89, ports published by containers of its Docker daemon) as
+since migration 89, ports published by containers of its Docker daemon, and
+since migration 136 the port of a task's preview container) as
 **app ports**, the reviewer's entrypoints for manual QA. Each is served on its own
 host, `{routing-key}-{port}.{DEV_MACHINE_DOMAIN}`, with a canonical port number
 (1024–65535, no leading zero). Migration 85 stores them in `dev_machine_ports`
@@ -170,7 +171,8 @@ also read the list):
 - `POST /dev-machines/:machineId/ports` `{port, label?}` → 201; 409
   `PORT_EXISTS`, 422 `PORT_RESERVED` (a service port). The number of ports is
   not limited (migration 89 removed the ten-port limit and `PORT_LIMIT`).
-  Each port has a `target`, `developer` or `docker`.
+  Each port has a `target`: `developer`, `docker` or, for a task preview,
+  `preview`.
 - `PATCH /dev-machines/:machineId/ports/:portId` `{label}` renames it (`null`
   or `""` clears); `DELETE` removes it and revokes that host's sessions.
 - `POST /dev-machines/:machineId/ports/:portId/launch` returns the launch
@@ -207,7 +209,15 @@ container now listening on it (`target` `docker` when the daemon publishes it,
 else `developer`); a new port starts on the daemon when only it publishes the
 port. The gateway then proxies to `{routing-key}-docker:{port}`, while tickets
 and sessions keep naming the developer service row, so authorization is
-unchanged.
+unchanged. A task's preview port (`source` `task`) is the exception: its
+`target` is `preview` and the gateway proxies to the task's preview container,
+`{routing-key}-preview-{port}`, a name derived from the port alone, so the
+gateway role needs no further column. The scan asks each running preview
+container only whether its own port listens (never for port requests) and adds
+it to `listening_ports`. Such a port moves only between `preview` and `docker`
+(a preview command may publish it with `docker compose up`), never to
+`developer`: a process in the developer container on the same number does not
+receive the preview's traffic. Tickets and sessions are unchanged here too.
 
 Agents and people in the developer container use `kuayle-ports` (IDE and
 headless images): `kuayle-ports [list]` shows listening ports and their URLs,
@@ -230,13 +240,19 @@ with the run, so their prompt points the reviewer at the task preview below or
 at `kuayle-ports` in the machine terminal instead.
 
 Task previews (see the [agent task contract](BE/docs/agent-tasks.md#app-ports-and-qa))
-add `task` ports. A preview runs agent-written code in the developer container,
-next to its developer-scoped secrets, agent sign-ins and optional sudo, so it
-never starts by itself: only the task's creator starts it, from the task card
-or by approving the assistant's `start_preview`. Stopping or re-provisioning a
-machine ends their processes:
+add `task` ports. A preview runs agent-written code, so it runs in a container
+of its own, `kuayle-{routing-key}-preview-{taskId}`, created like a check
+container: the developer image and the workspace volume, but none of the
+developer container's secrets, agent sign-ins or sudo (read-only root, no
+capabilities, `no-new-privileges` even where the workspace allows sudo), and
+only `PORT`, `HOST`, the proxy and its temporary directory in its environment
+(plus the Docker daemon client on a machine with a daemon, as attempts get).
+It still serves that code to the creator's browser, so it never starts by
+itself: only the task's creator starts it, from the task card or by approving
+the assistant's `start_preview`. Stopping or re-provisioning a machine removes
+its preview containers:
 task ports are removed and their previews marked stopped, while user and agent
-ports are kept. Pausing freezes the processes, which resume with the machine.
+ports are kept. Pausing pauses the containers, which resume with the machine.
 The machine page lists ports, detected listeners, and expose, rename, open and
 remove controls; a task card starts, stops and opens its app.
 
@@ -274,9 +290,11 @@ inert under the locked configuration, and their `PATH` omits the workspace npm
 prefix below, so they run the image's pinned CLIs. Anything an agent writes to
 `/workspace` (including that prefix and Git hooks) can still run later in a
 person's terminal, with sudo if the machine has it; review agent changes as
-before. A task preview is such a run: it executes the worktree's preview
-command in the developer container, so Kuayle starts it only when the task's
-creator asks (see [App ports](#app-ports)), never when a task reaches review.
+before. A task preview is not such a run: Kuayle executes the worktree's
+preview command in the task's own preview container, which is never relaxed
+for sudo and holds none of the developer container's secrets (see
+[App ports](#app-ports)), and only when the task's creator asks, never when a
+task reaches review.
 
 **Upgrading CLIs without sudo.** Both developer images point npm's global
 config at `/etc/npmrc` (`NPM_CONFIG_GLOBALCONFIG`), which sets
@@ -289,7 +307,9 @@ with or without sudo, and the upgrade survives restarts on the workspace volume
 using their images' pinned CLIs). Project and `~/.npmrc` settings override `/etc/npmrc`.
 
 **Agent CLI updates.** Releases pin every built-in agent CLI in the images
-(`scripts/ci/upgrade-agent-clis.mjs` raises the pins at release time). Between
+(`scripts/ci/upgrade-agent-clis.mjs` raises the pins at release time, to the
+newest stable versions published at least 48 hours earlier, and never lowers
+them; see [release agent CLI refresh](scripts/ci/README.md#release-agent-cli-refresh)). Between
 releases the machine manager keeps the npm-distributed ones current for every
 machine: every `DEV_MACHINE_AGENT_CLI_REFRESH_HOURS` (default 6; 0 turns it off)
 it runs a helper container from the headless image that installs the latest
@@ -439,6 +459,17 @@ The Kuayle UI renders `@xterm/xterm` and speaks ttyd's native WebSocket protocol
 Opening a paused machine service queues an idempotent resume operation and returns a `resuming` response with `retry_after_seconds`; the UI polls/retries. Queued or spawning machines return `pending`. Stopped, destroyed and invalid states do not auto-resume.
 
 Machine access decisions are persisted in `dev_machine_access_logs` without query strings.
+
+### Public demo mode
+
+With `PUBLIC_DEMO_MODE` on, only the users listed in `SYSADMINS` may use Dev Machines; an empty list admits no one. The rule (`config.DemoDevMachineAllowed`) is enforced in four places:
+
+- **Routes.** `DevMachineDemoGuard` answers 403 on every Dev Machine, coding task, automation, agent message and agent sign-in route.
+- **Services.** `service.MachineAccess` applies the same rule wherever work reaches a machine without those routes. The task service refuses creating, retrying, reviewing, checking, previewing, messaging, continuing after sign-in and opening a terminal for the caller, so assistant approvals, automations, review follow-ups and GitHub mentions are covered. The Dev Machine service refuses creating or starting a machine, checkouts, agent runs, service and terminal launches, app ports and environment snapshots for the user it acts for. The task worker acts as the task's creator: a task of an excluded user fails with the reason instead of running. A custom tool's test run answers the same 403 as the routes. The services do not refuse stopping a machine or a preview, or cancelling a task: those only release resources.
+- **Assistant.** Tools and approvals marked `machine` in the action policy table (`delegate_issue`, `request_agent_review`, `follow_up_task`, `message_task`, `start_preview`, `expose_port`, `run_check`, `run_custom_tool`) are refused when requested, and again when approved: the approval ends as failed with the reason and nothing is queued. The preview and port tools that need no approval are refused too.
+- **Gateway.** Ticket exchanges and existing machine sessions recheck `SYSADMINS` on every request.
+
+A new path that starts work on a machine must call `MachineAccess` (through `DevMachineService.RequireMachineUse` or the task service) rather than rely on the route guard.
 
 The xterm client preserves the PTY byte stream by disabling end-of-line conversion, uses a line height of `1` and letter spacing `0`, and enables the Unicode 11 addon with `allowProposedApi` for full-screen TUIs. End-of-line conversion must remain off because rewriting LF as CRLF returns the cursor to column zero and corrupts TUIs that use LF to move rows while preserving their column. It renders with `@xterm/addon-webgl` and `customGlyphs`, so box-drawing, block and Powerline characters are drawn by xterm and borders join regardless of the font; on WebGL context loss or without WebGL2 it falls back to the DOM renderer (xterm 6 has no canvas renderer), and the terminal container's `data-renderer` attribute records which one is active. The font is JetBrains Mono, self-hosted from `@fontsource/jetbrains-mono` (OFL-1.1) with a system monospace and emoji fallback stack; the client waits up to three seconds for its regular and bold faces before xterm measures cells. Layout-driven fits are debounced (50 ms) and a resize frame reaches ttyd only when columns or rows change, so a dock drag produces one PTY/tmux resize rather than a storm; ttyd resizes the PTY and tmux follows. Binary output frames are passed to xterm as `Uint8Array` views, coalesced into one write per animation frame, and governed by ttyd flow control ([terminal-io.ts](UI/src/lib/features/dev-machines/terminal-io.ts)): every 100 KB a write carries a parse callback, more than 10 outstanding callbacks send ttyd `PAUSE` and fewer than 4 send `RESUME`, so neither the client queue nor xterm's buffer grows without bound; scrollback is 5,000 lines. The developer image installs `ncurses-term`, ttyd runs with `TERM=xterm-256color`, and tmux uses `tmux-256color` with RGB, synchronized-output, styled-underline, hyperlink, strikethrough and overline features for that outer terminal, focus and extended-key events, passthrough, and a 50,000-line history; terminal sessions export `COLORTERM=truecolor`. tmux keeps its default escape time (10 ms in the image's tmux 3.6) and mouse mode stays off: escape sequences cross a WebSocket and may arrive split, and a shorter escape time would turn the tail of a split sequence into typed text.
 
@@ -620,8 +651,8 @@ attempt the manager also collects the outbox every 5 seconds, and files
 addressed `{"to":"orchestrator"}` (optionally `"kind":"question"`) are recorded
 in the same channel as untrusted text. The task card's **Live messages** thread reads (and the
 assistant composer, aimed at the task's agent, sends) through `GET/POST /agent-tasks/:taskId/live-messages`; the assistant has
-`message_task` (no approval, it only delivers text) and the read-only
-`get_task_messages`; agent messages appear in the owning chat as escaped,
+`message_task` (the task's creator approves the exact text on a card before
+anything is sent) and the read-only `get_task_messages`; agent messages appear in the owning chat as escaped,
 untrusted items through `task.live_message` conversation events and history
 `agent_messages`, and questions also raise a toast and a Telegram notice
 ([agent messages in chat](BE/docs/conversations.md#agent-messages-in-chat)).
@@ -921,7 +952,7 @@ The IDE uses an ephemeral askpass helper for clone. Agent containers install an 
 
 Branches, commits, and pull requests are persisted in `dev_machine_git_refs` with workspace, machine, run, issue, repository, and URL linkage. Existing GitHub webhooks continue to populate the issue development timeline.
 
-Each workspace customizes its GitHub bot in Settings > GitHub > Kuayle bot (`workspace_github_bot_settings`, migration 119): a display name and profile picture that sign Kuayle's GitHub comments, and per-ability toggles enforced in `GitHubService` where the GitHub write happens (issue link comments, CI/review feedback to tasks, review comments, pull request actions, merges, releases). The opt-in `mention_reviews` ability handles `issue_comment` webhooks: a trusted `@<app-slug> … review` comment on a pull request a task published starts the same review as an approved `request_agent_review`, without an approval card, as the task's creator. See [GitHub integration](BE/docs/github-integration.md#kuayle-bot-identity-and-abilities-kua-96).
+Each workspace customizes its GitHub bot in Settings > GitHub > Kuayle bot (`workspace_github_bot_settings`, migration 119): a display name and profile picture that sign Kuayle's GitHub comments, and per-ability toggles enforced in `GitHubService` where the GitHub write happens (issue link comments, CI/review feedback to tasks, review comments, pull request actions, merges, releases). The opt-in `mention_reviews` ability handles `issue_comment` webhooks: an `@<app-slug> … review` comment by someone with write access to the repository (confirmed with GitHub for organization members and collaborators) on a pull request a task published starts the same review as an approved `request_agent_review`, without an approval card, as the task's creator. See [GitHub integration](BE/docs/github-integration.md#kuayle-bot-identity-and-abilities-kua-96).
 
 Each issue checkout is an idempotent `dev_machine_checkouts` record with its own working branch and workspace path under `/workspace/tasks/{issue-key}`. Agents and terminal sessions can target a checkout; if multiple checkouts exist, agent runs must name the checkout to avoid ambiguous writes.
 
@@ -1078,6 +1109,14 @@ Example create payload:
 
 Create requests accept `profile: "standard" | "headless"`; omission means standard. Headless requests must omit both `services.ide` and `services.browser`.
 
+### Public OpenAPI reference
+
+The stable, token-accessible part of the HTTP API is described by an OpenAPI 3.1
+document generated from the route registry and the DTOs, served at
+`GET /api/openapi.json` and rendered at kuayle.com/api-reference. Routes outside
+it, including every Dev Machine route above, are internal. See the
+[API guide](docs/api.md) for the generator and the tests that keep it in sync.
+
 ## Command-line interface
 
 The `kuayle` CLI and Rust SDK live in [`CLI/`](CLI/) (MIT, originally by @uiYzzi;
@@ -1125,6 +1164,8 @@ Launched as the installed app (display mode `standalone`, `fullscreen` or `windo
 Installation requires HTTPS (or `localhost`). Chrome and Edge offer Install in the address bar or menu; on iOS use Safari's Share → Add to Home Screen.
 
 ## Self-Hosted Deployment
+
+Outside `ENVIRONMENT=development`, `config.Load` and `config.LoadMachineGateway` refuse published secret values: anything starting with `CHANGE_ME` (the self-hosting example placeholders) or `local_dev_`, ending in `_do_not_use_prod` (the root Compose development defaults), or written as `<...>`. The check covers `JWT_SECRET`, the passwords inside `DATABASE_URL` and `DEV_MACHINE_GATEWAY_DATABASE_URL`, `SYSTEM_UPDATER_TOKEN`, `VOICE_INTERNAL_TOKEN`, `DEV_MACHINE_ENCRYPTION_KEY`, `SMTP_PASSWORD`, `S3_SECRET_KEY` and the GitHub App client and webhook secrets. Errors name the setting and never the value. The `dev-machines` profile preflight and `selfhosting/update.sh` apply the same rule before provisioning the gateway role or stopping services. The root development Compose stack keeps its literal defaults and publishes its ports on `127.0.0.1` only. `server migrate` does not load the full configuration and is not covered. See [Secrets must be generated](docs/self-hosting.md#secrets-must-be-generated). A database password equal to the Compose fallback (what the Compose files use when `POSTGRES_PASSWORD` is unset) is refused too, and `update.sh` refuses an unset `POSTGRES_PASSWORD`.
 
 The optional [release updater](selfhosting/RELEASE_UPDATER.md) supports detached release checkouts and digest-pinned production Compose deployments. It exports release source without changing the checkout, prepares images before downtime (pulling digest-pinned API, UI and, when active, Dev Machines control-plane/runtime images published by the release workflow; a Dev Machines image missing from GHCR is built locally from the release source), stops application/control-plane writers before a database backup and migrations, and waits for health before removing maintenance mode. Failure after migrations begin leaves writers stopped; it never restarts old binaries against a potentially changed schema.
 
@@ -1232,6 +1273,7 @@ The self-hosting `dev-machine-images` profile builds the IDE, headless developer
 - With sudo allowed (opt-in, `allow_sudo`), machine users are root in their IDE and terminal containers, with Docker's default capabilities minus `NET_RAW`, a writable root filesystem and no `no-new-privileges`. It is never privileged or given `NET_ADMIN`/`SYS_ADMIN`, and egress still goes through the proxy, but root in a container exposes more kernel surface (and anything readable inside the container regardless of file ownership) than the confined default. Agent attempts never get sudo.
 - Compose support for checks is a constrained subset run by the manager, not `docker compose`. Builds, mounts, privileges, host networking and published ports are rejected, because arbitrary untrusted Compose execution needs an isolated Docker daemon. Image pulls run on the host daemon, outside the egress proxy, so `DEV_MACHINE_COMPOSE_IMAGES` restricts them to official Docker Hub images by default.
 - The default model server's key is delivered into every developer container, and a run's server key into its agent container, so any member who can create a machine can read it from a terminal or have an agent reveal it. The API never returns it, but treat model server keys as shared with those members (SECURITY_AUDIT.md KS-08).
+- A task preview runs in its own container without the developer container's secrets, sign-ins or sudo, but, like every agent attempt and check, it shares the machine's workspace volume and private network. It can therefore change files a person later runs in the terminal, and reach the machine's other containers on that network, where code-server and the terminal listen without the gateway's authentication (SECURITY_AUDIT.md KS-17). A preview has the isolation of an agent attempt, not more. Review agent changes before running them yourself (SECURITY_AUDIT.md KS-24).
 - Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.
 - Provider adapters can construct interactive invocations, but agent tasks queue autonomous agent runs and no interactive-agent attach endpoint is exposed. Direct interactive use of the built-in CLIs is available through Kuayle's native xterm terminal; ttyd's web page is not exposed.
 - Workspace hard quotas require Docker local-volume project-quota support; the manager intentionally fails startup rather than run machines with an unbounded workspace.
@@ -1245,9 +1287,12 @@ The October 2026 audit ([SECURITY_AUDIT.md](SECURITY_AUDIT.md)) added these inva
 
 - Session JWTs carry `typ` (`access` or `refresh`). The API authenticates only access tokens; untyped legacy tokens are accepted only with the 15-minute access lifetime.
 - Assets are served with their stored content type only when it is in `domain.AssetContentTypeExtensions`; any other type, including one restored from a workspace import, is served as `application/octet-stream` attachment. Import normalizes the type too.
+- A workspace archive is caller-supplied input. Import passes its rich-text columns through the sanitizers the write paths use (`importedTextSanitizers` in `internal/service/workspace_transfer.go`: issue titles and descriptions, comment bodies, project names and descriptions, template descriptions, recorded description versions); a new archive column that holds HTML must be added there. In the UI, stored HTML is turned into text only through `$lib/security/plain-text` (an inert `DOMParser` document, never `innerHTML`), and links read back from stored content (wiki file list, attachment nodes) go through `safeFileUrl`, which keeps `http(s)` and `/api/` addresses only.
+- Stored rich text keeps only the class names the editor and renderers emit: `editor-attachment`, `mention`, `mention-issue`, `registry-ref`, the editor link classes and `language-<name>` on code blocks. Both sanitizers drop every other class (`pkg/sanitize/editor_classes.go`, `$lib/security/editor-classes`), so stored content cannot use the app's utility classes to restyle the page. `BE/pkg/sanitize/testdata/editor_html_contract.json` is read by the Go, UI unit and browser tests; a new editor class must be added in both lists and that file. Issue template descriptions go through `sanitize.SanitizeEditorContent` on create and update, like issue descriptions.
+- Images in stored rich text load on their own only when the app serves them (uploaded assets, signed asset links, anything same-origin). The backend keeps accepting `http(s)` images and stored content is never rewritten; the rule is applied when rendering. `sanitizeHtml` (`$lib/security/sanitize`) moves the address of an image from any other host to `data-remote-src`, so rendering makes no request, and the `remoteImages` action on the document body (`src/routes/+layout.svelte`, `$lib/components/shared/remote-images.action`) puts a placeholder naming the host next to it, with "Load image" and "Always load from <host>" (kept per browser in `localStorage`). The editor's image node view follows the same rule, except for images the user pastes or drops in during the session. Because the sanitizer removes the `src`, a surface that renders sanitized HTML needs no code of its own, and one outside the action shows no remote image at all. `sanitizeEditorOutput` is the only variant that keeps remote addresses, for saving; release notes rendered through `renderMarkdown` with a link check load their already-restricted images directly.
 - Outbound requests to workspace-chosen URLs (AI provider `base_url`) dial through `validate.PublicAddressControl`, never follow redirects, and keep transport errors server-side. `AI_ALLOW_PRIVATE_NETWORK=true` lets operators use a private-network provider, which trusts every workspace owner with internal access.
-- With the shared GitHub App, installation callbacks require the installing user's OAuth code and the installation in `GET /user/installations`; enable "Request user authorization (OAuth) during installation" and set `GITHUB_APP_CLIENT_ID`/`GITHUB_APP_CLIENT_SECRET`.
-- Issue, project and template writes reject users who are not workspace members and labels, cycles and statuses from other workspaces; repository unlinks are workspace-scoped; the public GitHub webhook body is capped at 25 MB.
+- With the shared GitHub App, installation callbacks require the installing user's OAuth code and the installation in `GET /user/installations`; enable "Request user authorization (OAuth) during installation" and set `GITHUB_APP_CLIENT_ID`/`GITHUB_APP_CLIENT_SECRET`. Being listed is not enough, because GitHub lists an installation to every user who can reach one repository it covers: the installation is bound only when its account, as GitHub reports it for that grant, is the OAuth user's own account (`GET /user`, compared by numeric id) or an organization where `GET /user/memberships/orgs/{org}` returns `role: admin` and `state: active` for the same organization id. That lookup needs the shared app's organization permission **Members: Read-only**; when it fails or is forbidden, and for any other account type, the callback returns 403 `GITHUB_INSTALLATION_UNVERIFIED` and binds nothing. Per-workspace (manifest) apps skip this check because only their own workspace can resolve their installations, so the manifest does not request the permission.
+- Issue, project and template writes reject users who are not workspace members and labels, cycles and statuses from other workspaces; repository unlinks are workspace-scoped; the public GitHub webhook body is capped at 25 MB, and each signed delivery (`X-GitHub-Delivery`) is processed at most once (`github_webhook_deliveries`, kept seven days; see [replay protection](BE/docs/github-integration.md#replay-protection)).
 - The API (Echo v5) and the machine gateway resolve the client address with `internal/clientip`: `X-Forwarded-For` is honored only through hops on loopback, link-local or private networks (the bundled Caddy and Compose networks) and the nearest public hop is used; `X-Real-IP` is ignored. A client connecting from a public address therefore cannot choose its rate-limit, login-throttle, abuse-guard or audit address. Do not publish the backend or gateway port to a private network whose clients are untrusted; such peers are treated as proxies.
 
 The gateway also serves a private HTTP certificate-approval listener on port 8091.
@@ -1288,7 +1333,12 @@ wiki page of any team or project.
   this holds for the web editor, the API, the CLI and agents alike. Only a
   mention closed by its own `</span>` loses its content; an unclosed one becomes
   the chip alone, so malformed input never swallows what follows it. Mention
-  notifications read only user chips (`data-kind` absent or `user`).
+  notifications read only user chips (`data-kind` absent or `user`). The chip's
+  `mention-wiki` class is on the stored-class allowlist (`editor_classes.go`,
+  `editor-classes.ts` and the shared contract file). Readers without chips (the
+  assistant's issue and wiki tools, a coding agent's brief) get the content
+  through `sanitize.StripHTMLKeepingWikiReferences`, where a chip reads
+  `@[wiki page](wiki:<page id>)`; `get_wiki_page` accepts that page ID alone.
 - **Rendering.** Chips ask `POST /wiki/references/resolve` what to show. Pages the
   caller can see through `wikiScopeVisible` (the predicate the wiki itself uses)
   answer with title and team or project; every other ID, whether invisible,
@@ -1300,21 +1350,25 @@ wiki page of any team or project.
   wiki tree onto it; the UI offers both only with `issue:update`). Attaching needs
   `issue:update` plus `wiki:read` and both the issue and the page visible;
   listing returns attached pages the reader cannot see as inaccessible IDs, and
-  anyone who may edit the issue may remove them.
+  anyone who may edit the issue may remove them. Attaching and removing
+  broadcast `issue.wiki_references_changed` (issue ID, identifier and page ID
+  only), so the open issue and the page's backlinks reload.
 - **Backlinks.** `GET <wiki>/:pageId/backlinks` lists issues (description, comment
   or attached) and pages that reference a page, each filtered by the caller's
   visibility. Mentions in content are indexed in `wiki_page_mentions` (mentioned
   page → issue, comment or page) by triggers on `issues.description`,
-  `comments.body` and `wiki_pages.content` (migration 135, which also backfills),
+  `comments.body` and `wiki_pages.content` (migration 138, which also backfills),
   so every write path keeps the index current and a backlink query is an index
   lookup followed by the visibility check on the few matching rows. The side
   panel reloads at most once per burst of workspace events, never for edits of
-  the page itself, and not while the tab is hidden.
+  the page itself, and not while the tab is hidden. The route needs `wiki:read`;
+  referencing issues are included only for a caller that also has `issues:read`.
 - **Published pages.** Readers have no chips. A reference to a page published in
   the same reader is a link; a reference to any other page the reader may know by
   title is plain text; the rest is the placeholder. For public links the server
   resolves the mentioned pages under `domain.PublicContext` (so private teams'
-  pages are never named) and returns them as `references`.
+  pages are never named) and returns them as `references`. The publish dialog
+  states this when "Public" is chosen.
 - **Chat.** The composer is plain text: `@` or a dropped page inserts
   `@[Title](wiki:<page id> team|project <name>)`, which sent messages show as a
   chip. The assistant reads the page with its wiki tools, as the user.

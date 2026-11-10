@@ -61,8 +61,9 @@ func (r *WikiRepository) ResolveReferences(ctx context.Context, workspaceID uuid
 
 // Backlinks lists where a visible page is referenced: issues that mention it
 // in their description or a comment or have it attached, and other pages
-// that mention it. Only issues and pages the caller can see are returned.
-func (r *WikiRepository) Backlinks(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) (*domain.WikiBacklinks, error) {
+// that mention it. Only issues and pages the caller can see are returned;
+// without withIssues (a caller that may not read issues) only the pages.
+func (r *WikiRepository) Backlinks(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID, withIssues bool) (*domain.WikiBacklinks, error) {
 	if !scope.Valid() {
 		return nil, ErrWikiPageNotFound
 	}
@@ -75,11 +76,13 @@ func (r *WikiRepository) Backlinks(ctx context.Context, workspaceID uuid.UUID, s
 		return nil, err
 	}
 	// Mentions in content are indexed in wiki_page_mentions by database
-	// triggers (migration 135), so the referencing issues and pages are found
+	// triggers (migration 138), so the referencing issues and pages are found
 	// by page ID first and only those few rows are checked for visibility.
 	limit := strconv.Itoa(domain.WikiBacklinkLimit)
 	links := &domain.WikiBacklinks{Issues: []domain.WikiBacklinkIssue{}, Pages: []domain.WikiReference{}}
-	err := r.db.SelectContext(ctx, &links.Issues, `WITH referencing AS MATERIALIZED (
+	var err error
+	if withIssues {
+		err = r.db.SelectContext(ctx, &links.Issues, `WITH referencing AS MATERIALIZED (
 			SELECT mention.issue_id FROM wiki_page_mentions mention WHERE mention.page_id = $2 AND mention.issue_id IS NOT NULL
 			UNION SELECT backlink_comment.issue_id FROM wiki_page_mentions mention
 				JOIN comments backlink_comment ON backlink_comment.id = mention.comment_id WHERE mention.page_id = $2
@@ -89,8 +92,9 @@ func (r *WikiRepository) Backlinks(ctx context.Context, workspaceID uuid.UUID, s
 		FROM referencing JOIN issues backlink_issue ON backlink_issue.id = referencing.issue_id
 		WHERE backlink_issue.workspace_id = $1 AND `+teamVisible(ctx, "backlink_issue.team_id")+`
 		ORDER BY backlink_issue.updated_at DESC, backlink_issue.id LIMIT `+limit, workspaceID, pageID)
-	if err != nil {
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
 	}
 	err = r.db.SelectContext(ctx, &links.Pages, `WITH referencing AS MATERIALIZED (
 			SELECT mention.source_page_id FROM wiki_page_mentions mention

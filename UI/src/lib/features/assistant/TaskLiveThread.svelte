@@ -10,6 +10,7 @@
 	import { getLocale, m } from '$lib/features/i18n/messages';
 	import type { ConversationState } from './conversation-state.svelte';
 	import { isMessageableTask } from './shell-rules';
+	import CopyMessageButton from './CopyMessageButton.svelte';
 
 	// The task's live channel as a conversation with its coding agent: what its
 	// creator (or the assistant for them) told the agent and what the agent
@@ -109,7 +110,7 @@
 				{#each visible as message (message.id)}
 					{@const fromAgent = message.direction === 'from_agent'}
 					<li
-						class="flex min-w-0 flex-col gap-1 {fromAgent ? 'items-start' : 'items-end'}"
+						class="group/message flex min-w-0 flex-col gap-1 {fromAgent ? 'items-start' : 'items-end'}"
 						aria-label={sender(message)}
 					>
 						<div class="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -122,6 +123,7 @@
 								>{/if}
 							<time datetime={message.created_at}>{when(message)}</time>
 							{#if status(message)}<span>· {status(message)}</span>{/if}
+							<CopyMessageButton text={message.body} />
 						</div>
 						<p
 							class="max-w-[92%] rounded-2xl px-3 py-2 text-sm break-words whitespace-pre-wrap {fromAgent
