@@ -150,7 +150,12 @@ func main() {
 	authH := handler.NewAuthHandler(authSvc, cfg.Environment != "development", loginThrottle, cfg.IsSysAdmin, cfg.DevMachine.AllowSameSite)
 	workspaceH := handler.NewWorkspaceHandler(workspaceSvc)
 	inviteLinkH := handler.NewInviteLinkHandler(inviteLinkSvc, cfg.FrontendURL)
-	configH := handler.NewConfigHandler(!cfg.DisableRegistration)
+	passkeySvc, err := service.NewPasskeyService(authSvc, userRepo, repository.NewPasskeyRepository(db), passkeyRelyingParty(cfg))
+	if err != nil {
+		log.Fatalf("failed to set up passkeys: %v", err)
+	}
+	passkeyH := handler.NewPasskeyHandler(passkeySvc, authH)
+	configH := handler.NewConfigHandler(!cfg.DisableRegistration).WithPasskeys(passkeySvc.Enabled())
 	teamH := handler.NewTeamHandler(teamSvc)
 	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo, teamStatusRepo, projectRepo, cycleRepo, relationSvc)
 	labelH := handler.NewLabelHandler(labelSvc)
@@ -360,6 +365,7 @@ func main() {
 		config:            configH,
 		workspaceTransfer: workspaceTransferH,
 		auth:              authH,
+		passkey:           passkeyH,
 		workspace:         workspaceH,
 		team:              teamH,
 		issue:             issueH,
@@ -399,7 +405,7 @@ func main() {
 		wikiPublish:       handler.NewWikiPublishHandler(wikiPublishSvc, cfg.FrontendURL),
 		openapi:           handler.NewOpenAPIHandler(buildinfo.Version),
 	}, &appMiddleware{
-		auth:                   mw.Auth(cfg.JWTSecret, patRepo, cfg.DevMachine.AllowSameSite),
+		auth:                   mw.AuthWithPasskeys(cfg.JWTSecret, patRepo, passkeySvc, cfg.DevMachine.AllowSameSite),
 		authRateLimit:          mw.RateLimit(5, 10),
 		publicRateLimit:        mw.RateLimit(2, 5),
 		publicAssetRateLimit:   mw.RateLimit(10, 20),
@@ -503,4 +509,28 @@ func resetMailer(cfg *config.Config) mail.Sender {
 		return nil
 	}
 	return mail.NewSMTPSender(cfg.SMTP)
+}
+
+// passkeyRelyingParty returns the instance's WebAuthn relying party, or nil
+// when passkeys are switched off or cannot work at the configured address. A
+// plain-http address outside localhost is the common case: the instance keeps
+// running with password sign-in only.
+func passkeyRelyingParty(cfg *config.Config) *service.PasskeyRelyingParty {
+	if !cfg.PasskeysEnabled {
+		log.Info("passkeys are disabled (PASSKEYS_ENABLED=false)")
+		return nil
+	}
+	// Demo accounts are shared and their passwords public: a visitor's passkey
+	// would be a private way into an account everyone uses.
+	if cfg.PublicDemoMode {
+		log.Info("passkeys are disabled in public demo mode")
+		return nil
+	}
+	rp, err := service.NewPasskeyRelyingParty(cfg.PasskeyRPID, cfg.PasskeyRPOrigins, cfg.PasskeyRPDisplayName, cfg.FrontendURL)
+	if err != nil {
+		log.Warnf("passkeys are disabled: %v", err)
+		return nil
+	}
+	log.Infof("passkeys enabled for relying party %s (origins %v)", rp.ID, rp.Origins)
+	return rp
 }

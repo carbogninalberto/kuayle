@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -119,24 +120,8 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 		return nil, "", "", err
 	}
 
-	accessToken, err := jwtpkg.GenerateAccessToken(user.ID, s.jwtSecret)
+	accessToken, refreshToken, err := s.issueSession(ctx, user.ID, time.Now(), nil)
 	if err != nil {
-		return nil, "", "", err
-	}
-
-	refreshToken, expiresAt, err := jwtpkg.GenerateRefreshToken(user.ID, s.jwtSecret)
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	tokenHash := hashToken(refreshToken)
-	rt := &repository.RefreshToken{
-		ID:        uuid.New(),
-		UserID:    user.ID,
-		TokenHash: tokenHash,
-		ExpiresAt: expiresAt,
-	}
-	if err := s.refreshRepo.Create(ctx, rt); err != nil {
 		return nil, "", "", err
 	}
 
@@ -156,24 +141,8 @@ func (s *AuthService) Login(ctx context.Context, req dto.LoginRequest) (*domain.
 		return nil, "", "", ErrInvalidCredentials
 	}
 
-	accessToken, err := jwtpkg.GenerateAccessToken(user.ID, s.jwtSecret)
+	accessToken, refreshToken, err := s.issueSession(ctx, user.ID, time.Now(), nil)
 	if err != nil {
-		return nil, "", "", err
-	}
-
-	refreshToken, expiresAt, err := jwtpkg.GenerateRefreshToken(user.ID, s.jwtSecret)
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	tokenHash := hashToken(refreshToken)
-	rt := &repository.RefreshToken{
-		ID:        uuid.New(),
-		UserID:    user.ID,
-		TokenHash: tokenHash,
-		ExpiresAt: expiresAt,
-	}
-	if err := s.refreshRepo.Create(ctx, rt); err != nil {
 		return nil, "", "", err
 	}
 
@@ -195,27 +164,45 @@ func (s *AuthService) RefreshTokens(ctx context.Context, refreshToken string) (s
 	// Rotate refresh token
 	_ = s.refreshRepo.DeleteByHash(ctx, tokenHash)
 
-	newAccessToken, err := jwtpkg.GenerateAccessToken(claims.UserID, s.jwtSecret)
+	// The new session keeps when and how the user signed in: refreshing is not
+	// a new authentication.
+	var authenticatedAt time.Time
+	if rt.AuthenticatedAt != nil {
+		authenticatedAt = *rt.AuthenticatedAt
+	}
+	return s.issueSession(ctx, claims.UserID, authenticatedAt, rt.PasskeyCredentialID)
+}
+
+// issueSession mints the access and refresh tokens of a session and stores the
+// refresh token. Every sign-in path and refresh rotation goes through it.
+// authenticatedAt is when the user proved who they are (zero when unknown) and
+// passkeyID the passkey that did so, if any.
+func (s *AuthService) issueSession(ctx context.Context, userID uuid.UUID, authenticatedAt time.Time, passkeyID *uuid.UUID) (string, string, error) {
+	accessToken, err := jwtpkg.GenerateSessionAccessToken(userID, s.jwtSecret, jwtpkg.Session{AuthenticatedAt: authenticatedAt, PasskeyID: passkeyID})
 	if err != nil {
 		return "", "", err
 	}
 
-	newRefreshToken, expiresAt, err := jwtpkg.GenerateRefreshToken(claims.UserID, s.jwtSecret)
+	refreshToken, expiresAt, err := jwtpkg.GenerateRefreshToken(userID, s.jwtSecret)
 	if err != nil {
 		return "", "", err
 	}
 
-	newRT := &repository.RefreshToken{
-		ID:        uuid.New(),
-		UserID:    rt.UserID,
-		TokenHash: hashToken(newRefreshToken),
-		ExpiresAt: expiresAt,
+	rt := &repository.RefreshToken{
+		ID:                  uuid.New(),
+		UserID:              userID,
+		TokenHash:           hashToken(refreshToken),
+		ExpiresAt:           expiresAt,
+		PasskeyCredentialID: passkeyID,
 	}
-	if err := s.refreshRepo.Create(ctx, newRT); err != nil {
+	if !authenticatedAt.IsZero() {
+		rt.AuthenticatedAt = &authenticatedAt
+	}
+	if err := s.refreshRepo.Create(ctx, rt); err != nil {
 		return "", "", err
 	}
 
-	return newAccessToken, newRefreshToken, nil
+	return accessToken, refreshToken, nil
 }
 
 func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {

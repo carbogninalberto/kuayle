@@ -10,6 +10,7 @@
 	import { Copy } from '@lucide/svelte';
 	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import AvatarDialog from '$lib/features/profile/AvatarDialog.svelte';
+	import PasskeySettings from '$lib/features/auth/PasskeySettings.svelte';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let user = $state<User | null>(null);
@@ -151,6 +152,7 @@
 			<Button onclick={saveProfile} disabled={saving || !name.trim()}>{saving ? m['settings.profile.saving']() : m['settings.profile.save_profile']()}</Button>
 		</div>
 		<AvatarDialog bind:open={avatarOpen} name={user.display_name || user.name} onSaved={avatarSaved} />
+		<PasskeySettings />
 	{:else}
 		<div class="mt-8 flex justify-center py-8">
 			<div class="h-5 w-5 animate-spin rounded-full border-2 border-[var(--color-text-tertiary)] border-t-transparent"></div>

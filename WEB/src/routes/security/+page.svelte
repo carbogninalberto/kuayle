@@ -25,10 +25,11 @@
 		},
 		{
 			heading: 'Authentication',
-			body: 'Kuayle hashes passwords with bcrypt. Authentication uses signed access and refresh tokens; refresh-token hashes and expiry times are stored in PostgreSQL. Set a unique JWT_SECRET of at least 32 characters before starting the backend. Set DISABLE_REGISTRATION=true to require a valid invite link for new accounts.',
+			body: 'Kuayle hashes passwords with bcrypt. Users can add passkeys (WebAuthn) and sign in with a fingerprint, face, screen lock or security key instead; passkeys need HTTPS and use FRONTEND_URL as the relying party. Authentication uses signed access and refresh tokens; refresh-token hashes and expiry times are stored in PostgreSQL. Set a unique JWT_SECRET of at least 32 characters before starting the backend. Set DISABLE_REGISTRATION=true to require a valid invite link for new accounts.',
 			list: [
 				'Access and refresh tokens signed with JWT_SECRET',
 				'Passwords hashed with bcrypt before storage',
+				'Passkeys with required user verification; removing one ends its sessions',
 				'Expiring access and refresh tokens',
 				'Role-based access control: Owner, Admin, Member, Guest',
 				'Optional invite-only registration'

@@ -49,6 +49,7 @@
 			<h1 class="text-2xl font-bold text-[var(--color-text-primary)]">{m['reset.title']()}</h1>
 			{#if token && !linkInvalid}
 				<p class="mt-1 text-sm text-[var(--color-text-secondary)]">{m['reset.subtitle']()}</p>
+				<p class="mt-2 text-xs text-[var(--color-text-tertiary)]">{m['reset.passkeys_notice']()}</p>
 			{/if}
 		</div>
 

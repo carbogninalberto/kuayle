@@ -21,10 +21,28 @@ type Claims struct {
 	// Type separates access and refresh tokens, which share a signing key.
 	// Tokens issued before it existed have no type.
 	Type string `json:"typ,omitempty"`
+	// AuthTime is when the user last proved who they are (password or passkey),
+	// in Unix seconds. Refreshing a session keeps it, so it measures how fresh
+	// the sign-in is. Zero for sessions older than the claim.
+	AuthTime int64 `json:"auth_time,omitempty"`
+	// PasskeyID is the stored passkey that minted the session, if any.
+	PasskeyID string `json:"pkc,omitempty"`
 	jwt.RegisteredClaims
 }
 
+// Session describes how the session behind an access token was established.
+type Session struct {
+	AuthenticatedAt time.Time
+	PasskeyID       *uuid.UUID
+}
+
 func GenerateAccessToken(userID uuid.UUID, secret string) (string, error) {
+	return GenerateSessionAccessToken(userID, secret, Session{})
+}
+
+// GenerateSessionAccessToken issues an access token that also records when
+// and how its session was authenticated.
+func GenerateSessionAccessToken(userID uuid.UUID, secret string, session Session) (string, error) {
 	claims := Claims{
 		UserID: userID,
 		Type:   TokenTypeAccess,
@@ -32,6 +50,12 @@ func GenerateAccessToken(userID uuid.UUID, secret string) (string, error) {
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(accessTokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
+	}
+	if !session.AuthenticatedAt.IsZero() {
+		claims.AuthTime = session.AuthenticatedAt.Unix()
+	}
+	if session.PasskeyID != nil {
+		claims.PasskeyID = session.PasskeyID.String()
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(secret))

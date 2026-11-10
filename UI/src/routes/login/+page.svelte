@@ -9,6 +9,9 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Password } from '$lib/components/ui/password';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
+	import PasskeySignInButton from '$lib/features/auth/PasskeySignInButton.svelte';
+	import { markPasskeyPromptPending } from '$lib/features/auth/passkey';
+	import type { User } from '$lib/types/auth';
 	import { listWorkspaces } from '$lib/api/workspaces';
 	import { getConfig } from '$lib/api/invite';
 	import { demoMode, demoUsers, type DemoUser } from '$lib/demo';
@@ -22,6 +25,7 @@
 	let loading = $state(false);
 	let demoDrawerOpen = $state(false);
 	let registrationEnabled = $state(true);
+	let passkeysEnabled = $state(false);
 	const inviteToken = $derived(page.url.searchParams.get('invite') ?? '');
 	const authInputClass =
 		'mt-1 h-auto w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] focus-visible:border-[var(--app-accent)] focus-visible:ring-0';
@@ -30,6 +34,7 @@
 		try {
 			const config = await getConfig();
 			registrationEnabled = config.registration_enabled;
+			passkeysEnabled = config.passkeys_enabled === true;
 			// With an invite token, registration stays available even when
 			// public registration is disabled (the backend accepts the token).
 			if (!registrationEnabled && !inviteToken) mode = 'login';
@@ -55,24 +60,39 @@
 					...(inviteToken ? { invite_token: inviteToken } : {})
 				});
 			}
-			authState.setUser(user);
-
-			if (inviteToken) {
-				// The invite route resolves the intended workspace, including after atomic signup.
-				await goto(`/invite/${encodeURIComponent(inviteToken)}`);
-				return;
-			}
-
-			const workspaces = await listWorkspaces();
-			if (workspaces.length > 0) {
-				goto(`/${workspaces[0].slug}/inbox`);
-			} else {
-				goto('/workspace-setup');
-			}
+			// A password sign-in is the moment to offer a passkey for next time.
+			if (mode === 'login') markPasskeyPromptPending();
+			await enterApp(user);
 		} catch (err: any) {
 			appToast.apiError(err, m['login.error_generic']());
 		} finally {
 			loading = false;
+		}
+	}
+
+	// Where a signed-in user goes next; the same for password and passkey.
+	async function enterApp(user: User) {
+		authState.setUser(user);
+
+		if (inviteToken) {
+			// The invite route resolves the intended workspace, including after atomic signup.
+			await goto(`/invite/${encodeURIComponent(inviteToken)}`);
+			return;
+		}
+
+		const workspaces = await listWorkspaces();
+		if (workspaces.length > 0) {
+			goto(`/${workspaces[0].slug}/inbox`);
+		} else {
+			goto('/workspace-setup');
+		}
+	}
+
+	async function passkeySignedIn(user: User) {
+		try {
+			await enterApp(user);
+		} catch (err: any) {
+			appToast.apiError(err, m['login.error_generic']());
 		}
 	}
 
@@ -111,7 +131,14 @@
 
 			<div>
 				<label for="email" class="block text-sm text-[var(--color-text-secondary)]">{m['login.email']()}</label>
-				<Input id="email" type="email" bind:value={email} required class={authInputClass} />
+				<Input
+					id="email"
+					type="email"
+					bind:value={email}
+					required
+					autocomplete={mode === 'login' ? 'username webauthn' : 'email'}
+					class={authInputClass}
+				/>
 			</div>
 
 			<div>
@@ -133,6 +160,10 @@
 				</p>
 			{/if}
 		</form>
+
+		{#if mode === 'login'}
+			<PasskeySignInButton enabled={passkeysEnabled} disabled={loading} autofill onSignedIn={passkeySignedIn} />
+		{/if}
 
 		{#if registrationEnabled || inviteToken}
 			<p class="text-center text-sm text-[var(--color-text-secondary)]">
