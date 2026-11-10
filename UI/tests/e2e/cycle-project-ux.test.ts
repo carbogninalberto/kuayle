@@ -484,7 +484,8 @@ test('dragging an issue to another status group sets its status, mapped to the i
 	);
 	await page.goto(`/test/projects/${projectId}`);
 	const groups = page.getByTestId('issue-group');
-	await expect(groups).toHaveCount(3);
+	// Engineering Todo and Done, Design todo, plus Design's unused Finished as an empty group.
+	await expect(groups).toHaveCount(4);
 	const patches = () => state.mutations.filter((m) => m.method === 'PATCH' && m.path.includes('/issues/'));
 
 	// Same team: the Done group of Engineering.
@@ -507,6 +508,55 @@ test('dragging an issue to another status group sets its status, mapped to the i
 	});
 	await page.waitForTimeout(300);
 	expect(patches()).toHaveLength(2);
+	expect(state.errors).toEqual([]);
+});
+
+test('an issue can be dragged to a status that has no issues yet', async ({ page }) => {
+	const state = await mockWorkspace(page);
+	const doneId = '00000000-0000-0000-0000-000000000031';
+	const status = (id: string, name: string, category: string, position: number) => ({
+		id,
+		team_id: teamId,
+		name,
+		slug: name.toLowerCase(),
+		category,
+		position,
+		is_default: position === 0,
+		project_ids: []
+	});
+	const issue = {
+		id: '00000000-0000-0000-0000-000000000601',
+		identifier: 'ENG-1',
+		title: 'Only issue',
+		team_id: teamId,
+		status_id: statusId,
+		status: 'todo',
+		priority: 3,
+		status_info: { id: statusId, name: 'Todo', category: 'unstarted', color: '#6366f1', position: 0 },
+		cycle_id: cycleId,
+		project_id: projectId,
+		labels: [],
+		assignees: [],
+		sort_order: 1000,
+		created_at: now,
+		updated_at: now
+	};
+	await page.route('**/api/workspaces/test/teams/*/statuses', (route) =>
+		route.fulfill({ json: [status(statusId, 'Todo', 'unstarted', 0), status(doneId, 'Done', 'completed', 1)] })
+	);
+	await page.route('**/api/workspaces/test/issues?**', (route) =>
+		route.fulfill({ json: { data: [issue], total_count: 1, page: 1, has_more: false } })
+	);
+	await page.goto(`/test/teams/${teamId}`);
+	await expect(page.getByText('Only issue', { exact: true })).toBeVisible();
+	// Done has no issues but is still a group to drop on.
+	const done = page.getByText('Done', { exact: true }).first();
+	await expect(done).toBeVisible();
+	const patches = () => state.mutations.filter((m) => m.method === 'PATCH' && m.path.includes('/issues/'));
+	await page.getByText('Only issue', { exact: true }).dragTo(done);
+	await expect.poll(patches).toHaveLength(1);
+	expect(patches()[0].path).toMatch(/\/issues\/ENG-1$/);
+	expect(patches()[0].body).toEqual({ status_id: doneId });
 	expect(state.errors).toEqual([]);
 });
 
