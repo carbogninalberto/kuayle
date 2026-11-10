@@ -11,6 +11,7 @@ export interface DropIssue {
 	status?: string;
 	priority: number;
 	assignee_id?: string | null;
+	assignees?: { id: string }[];
 	project_id?: string | null;
 }
 
@@ -74,6 +75,16 @@ export function statusForIssueTeam(issue: DropIssue, targetStatusId: string, sta
 	return byCategory?.id ?? null;
 }
 
+// The first id becomes the primary assignee, which decides the group, so the dropped-on
+// person goes first. Co-assignees stay; only the old primary is replaced.
+function assigneesAfterDrop(issue: DropIssue, groupKey: string): string[] {
+	if (groupKey === 'unassigned') return [];
+	const others = (issue.assignees ?? [])
+		.map((assignee) => assignee.id)
+		.filter((id) => id !== groupKey && id !== issue.assignee_id);
+	return [groupKey, ...others];
+}
+
 export function resolveGroupDrop(
 	issue: DropIssue,
 	groupBy: DropGroupBy,
@@ -94,8 +105,7 @@ export function resolveGroupDrop(
 			? { kind: 'invalid' }
 			: { kind: 'update', patch: { priority: priority as IssuePriority } };
 	}
-	if (groupBy === 'assignee')
-		return { kind: 'update', patch: { assignee_ids: groupKey === 'unassigned' ? [] : [groupKey] } };
+	if (groupBy === 'assignee') return { kind: 'update', patch: { assignee_ids: assigneesAfterDrop(issue, groupKey) } };
 	return { kind: 'update', patch: { project_id: groupKey === 'no-project' ? '' : groupKey } };
 }
 

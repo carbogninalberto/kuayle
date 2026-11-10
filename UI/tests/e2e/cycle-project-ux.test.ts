@@ -475,6 +475,7 @@ test('dragging an issue to another status group sets its status, mapped to the i
 	await page.route('**/api/workspaces/test/issues?**', (route) =>
 		route.fulfill({ json: { data: issues, total_count: issues.length, page: 1, has_more: false } })
 	);
+	await page.route(`**/api/workspaces/test/teams/${otherTeamId}/cycles`, (route) => route.fulfill({ json: [] }));
 	// A workspace-wide project mixes teams, so statuses of both teams are in play.
 	await page.route(`**/api/workspaces/test/projects/${projectId}`, (route) =>
 		route.fulfill({

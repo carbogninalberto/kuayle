@@ -89,3 +89,19 @@ test('only drags that started on an issue row count', () => {
 	assert.equal(isIssueDrag({ types: ['text/uri-list', 'text/plain'] }), false);
 	assert.equal(isIssueDrag(null), false);
 });
+
+test('an assignee drop keeps co-assignees and replaces only the old primary', () => {
+	const shared = issue({ assignee_id: 'anna', assignees: [{ id: 'anna' }, { id: 'bo' }] });
+	assert.deepEqual(resolveGroupDrop(shared, 'assignee', 'carl', statuses), {
+		kind: 'update',
+		patch: { assignee_ids: ['carl', 'bo'] }
+	});
+	assert.deepEqual(resolveGroupDrop(shared, 'assignee', 'bo', statuses), {
+		kind: 'update',
+		patch: { assignee_ids: ['bo'] }
+	});
+	assert.deepEqual(resolveGroupDrop(shared, 'assignee', 'unassigned', statuses), {
+		kind: 'update',
+		patch: { assignee_ids: [] }
+	});
+});
