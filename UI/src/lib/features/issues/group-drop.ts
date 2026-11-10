@@ -92,3 +92,10 @@ export function resolveGroupDrop(
 		return { kind: 'update', patch: { assignee_id: groupKey === 'unassigned' ? null : groupKey } };
 	return { kind: 'update', patch: { project_id: groupKey === 'no-project' ? null : groupKey } };
 }
+
+export const ISSUE_DRAG_TYPE = 'application/issue-id';
+
+/** True only for a drag that started on an issue row (IssueRow sets this type), not for dragged text or links. */
+export function isIssueDrag(dataTransfer: { types?: readonly string[] } | null | undefined): boolean {
+	return Array.from(dataTransfer?.types ?? []).includes(ISSUE_DRAG_TYPE);
+}

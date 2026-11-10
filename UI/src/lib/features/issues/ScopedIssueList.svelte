@@ -22,7 +22,7 @@
 	import { issuesState, type GroupByField } from './issues.state.svelte';
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import { belongsToScope, scopedIssueParams, updateIssueMembership, type IssueScope } from './scoped-issues';
-	import { resolveGroupDrop } from './group-drop';
+	import { isIssueDrag, resolveGroupDrop } from './group-drop';
 	import IssueRow from './IssueRow.svelte';
 	import IssueGroupHeader from './IssueGroupHeader.svelte';
 	import IssueListLoadMore from './IssueListLoadMore.svelte';
@@ -406,6 +406,7 @@
 						class={dragOverGroup === group.key ? 'border border-[var(--app-accent)]' : ''}
 						ondragover={canUpdate
 							? (e) => {
+									if (!isIssueDrag(e.dataTransfer)) return;
 									e.preventDefault();
 									if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
 									dragOverGroup = group.key;
@@ -416,6 +417,7 @@
 						}}
 						ondrop={canUpdate
 							? (e) => {
+									if (!isIssueDrag(e.dataTransfer)) return;
 									e.preventDefault();
 									dragOverGroup = null;
 									const id = e.dataTransfer?.getData('text/plain');

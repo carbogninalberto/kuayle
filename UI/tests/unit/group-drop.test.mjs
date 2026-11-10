@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { issueGroupKey, resolveGroupDrop, statusForIssueTeam } from '../../src/lib/features/issues/group-drop.ts';
+import {
+	isIssueDrag,
+	issueGroupKey,
+	resolveGroupDrop,
+	statusForIssueTeam
+} from '../../src/lib/features/issues/group-drop.ts';
 
 const status = (id, team_id, name, category, position = 0) => ({ id, team_id, name, category, position });
 const statuses = [
@@ -76,4 +81,11 @@ test('no grouping does nothing and group keys follow the list grouping', () => {
 	assert.equal(issueGroupKey(issue(), 'status'), 'a-todo');
 	assert.equal(issueGroupKey(issue({ status_id: null, status: 'todo' }), 'status'), 'todo');
 	assert.equal(issueGroupKey(issue(), 'assignee'), 'unassigned');
+});
+
+test('only drags that started on an issue row count', () => {
+	assert.equal(isIssueDrag({ types: ['text/plain', 'application/issue-id'] }), true);
+	assert.equal(isIssueDrag({ types: ['text/plain'] }), false);
+	assert.equal(isIssueDrag({ types: ['text/uri-list', 'text/plain'] }), false);
+	assert.equal(isIssueDrag(null), false);
 });

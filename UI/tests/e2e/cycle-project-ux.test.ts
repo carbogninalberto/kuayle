@@ -500,6 +500,16 @@ test('dragging an issue to another status group sets its status, mapped to the i
 	await page.getByText('Drag issue 3', { exact: true }).dragTo(groups.filter({ hasText: 'Drag issue 2' }));
 	await expect.poll(patches).toHaveLength(2);
 	expect(patches()[1].body).toEqual({ status_id: otherDoneId });
+
+	// Text dragged in from elsewhere that matches an identifier changes nothing.
+	await page.getByTestId('issue-group').first().evaluate((el) => {
+		const data = new DataTransfer();
+		data.setData('text/plain', 'ENG-2');
+		el.dispatchEvent(new DragEvent('dragover', { dataTransfer: data, bubbles: true, cancelable: true }));
+		el.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
+	});
+	await page.waitForTimeout(300);
+	expect(patches()).toHaveLength(2);
 	expect(state.errors).toEqual([]);
 });
 

@@ -7,7 +7,7 @@
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import type { GroupByField } from '$lib/features/issues/issues.state.svelte';
-	import { issueGroupKey } from '$lib/features/issues/group-drop';
+	import { isIssueDrag, issueGroupKey } from '$lib/features/issues/group-drop';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
 	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
 	import IssueGroupHeader from '$lib/features/issues/IssueGroupHeader.svelte';
@@ -503,6 +503,7 @@
 							dragOverIssueId = null;
 						}}
 						ondragover={(e) => {
+							if (!isIssueDrag(e.dataTransfer)) return;
 							e.preventDefault();
 							if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
 							dragOverGroup = dropKey;
@@ -514,6 +515,7 @@
 							}
 						}}
 						ondrop={(e) => {
+							if (!isIssueDrag(e.dataTransfer)) return;
 							e.preventDefault();
 							dragOverGroup = null;
 							dragOverIssueId = null;
@@ -538,6 +540,7 @@
 								<div
 									class="relative"
 									ondragover={(e) => {
+										if (!isIssueDrag(e.dataTransfer)) return;
 										e.preventDefault();
 										dragOverIssueId = issue.id;
 										const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -548,6 +551,7 @@
 										dragOverIssueId = null;
 									}}
 									ondrop={(e) => {
+										if (!isIssueDrag(e.dataTransfer)) return;
 										e.preventDefault();
 										e.stopPropagation();
 										dragOverGroup = null;
