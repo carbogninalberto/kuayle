@@ -8,6 +8,7 @@
 	import { registerServiceWorker } from '$lib/features/pwa/register-service-worker';
 	import { lockInstalledAppZoom } from '$lib/features/pwa/installed-viewport';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
+	import { remoteImages } from '$lib/components/shared/remote-images.action';
 
 	let { children } = $props();
 	setCurrentWorkspace();
@@ -18,6 +19,9 @@
 		return lockInstalledAppZoom();
 	});
 </script>
+
+<!-- Remote images in user content wait for the reader, on every page. -->
+<svelte:body use:remoteImages />
 
 <Toaster position="bottom-right" theme={preferencesState.resolvedMode} />
 <ReleaseNotice />
