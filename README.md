@@ -26,8 +26,8 @@ Thanks to everyone who has contributed code, reviews and ideas. See the
 [contributors graph](https://github.com/carbogninalberto/kuayle/graphs/contributors).
 
 <!-- contributors:start -->
-<a href="https://github.com/carbogninalberto"><img src="https://avatars.githubusercontent.com/u/17618905?v=4&amp;s=64" width="64" height="64" alt="@carbogninalberto" title="@carbogninalberto"></a>
 <a href="https://github.com/carbninai"><img src="https://avatars.githubusercontent.com/u/346896133?v=4&amp;s=64" width="64" height="64" alt="@carbninai" title="@carbninai"></a>
+<a href="https://github.com/carbogninalberto"><img src="https://avatars.githubusercontent.com/u/17618905?v=4&amp;s=64" width="64" height="64" alt="@carbogninalberto" title="@carbogninalberto"></a>
 <a href="https://github.com/uiYzzi"><img src="https://avatars.githubusercontent.com/u/40852301?v=4&amp;s=64" width="64" height="64" alt="@uiYzzi" title="@uiYzzi"></a>
 <a href="https://github.com/kasperhartwich"><img src="https://avatars.githubusercontent.com/u/616231?v=4&amp;s=64" width="64" height="64" alt="@kasperhartwich" title="@kasperhartwich"></a>
 <a href="https://github.com/MarioGK"><img src="https://avatars.githubusercontent.com/u/8379079?v=4&amp;s=64" width="64" height="64" alt="@MarioGK" title="@MarioGK"></a>
