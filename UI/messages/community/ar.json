@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "تمت المقاطعة",
 	"assistant.cancelled": "تم الإيقاف",
 	"assistant.copy": "نسخ الرسالة",
+	"assistant.copy_failed": "تعذّر نسخ الرسالة",
 	"assistant.retry": "إعادة المحاولة",
 	"assistant.latest": "الانتقال إلى الأحدث",
 	"assistant.configure": "يمكن لمالك مساحة العمل ربط مزود نماذج في إعدادات الذكاء الاصطناعي.",

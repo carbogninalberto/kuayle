@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Afbrudt",
 	"assistant.cancelled": "Stoppet",
 	"assistant.copy": "Kopiér besked",
+	"assistant.copy_failed": "Kunne ikke kopiere beskeden",
 	"assistant.retry": "Prøv igen",
 	"assistant.latest": "Rul til seneste",
 	"assistant.configure": "Workspace-ejeren kan forbinde en modeludbyder i AI-indstillingerne.",

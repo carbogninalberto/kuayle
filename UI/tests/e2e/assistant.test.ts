@@ -2414,3 +2414,76 @@ test('a proposed skill shows its full draft and links to Settings; a loaded skil
 		`/test/settings/assistant?tab=skills&skill=${skillId}`
 	);
 });
+
+const copyCode = 'func main() {\n\tfmt.Println("**hi**")\n}';
+const copyPrompt = `Line one\n  indented line two\n\n${'long '.repeat(3000)}end https://example.com/a?b=1`;
+const copyAnswer = `## Plan\n\nUse **bold** and [the docs](https://example.com/docs).\n\n\`\`\`go\n${copyCode}\n\`\`\`\n\n- first\n- second`;
+
+test('copies a user message and an assistant reply in full, by pointer and by keyboard', async ({ page, context }) => {
+	await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+	const state = await fixture(page);
+	state.messages = [
+		{ ...userMessage, content: copyPrompt },
+		{ ...reply, content: copyAnswer, status: 'completed' }
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
+	// One control per message, in message order: the user's, then the reply's.
+	const buttons = page.getByRole('button', { name: 'Copy message' });
+	await expect(buttons).toHaveCount(2);
+
+	// Out of the way until its message is hovered.
+	await page.mouse.move(0, 0);
+	await expect(buttons.first()).toHaveCSS('opacity', '0');
+	await page.getByText('Line one', { exact: false }).hover();
+	await expect(buttons.first()).toHaveCSS('opacity', '1');
+	await buttons.first().click();
+	// The user's text is copied exactly, however long.
+	await expect.poll(clipboard).toBe(copyPrompt);
+	await expect(page.getByText('Copied', { exact: true })).toHaveCount(1);
+
+	// Keyboard: the control takes focus, shows itself and copies on Enter.
+	await page.mouse.move(0, 0);
+	await buttons.nth(1).focus();
+	await expect(buttons.nth(1)).toHaveCSS('opacity', '1');
+	await page.keyboard.press('Enter');
+	// The reply is copied as it reads: no Markdown markers, code and link address kept.
+	await expect
+		.poll(clipboard)
+		.toBe(`Plan\n\nUse bold and the docs (https://example.com/docs).\n\n${copyCode}\n\n- first\n- second`);
+	await expect(buttons.nth(1)).toBeFocused();
+	// Rendering is untouched: the reply is still Markdown.
+	await expect(page.getByRole('link', { name: 'the docs' })).toHaveAttribute('href', 'https://example.com/docs');
+	await expect(page.locator('pre')).toHaveText(copyCode);
+});
+
+test('the copy control is always shown where nothing can hover', async ({ browser }) => {
+	const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+	const page = await context.newPage();
+	const state = await fixture(page);
+	state.messages = [
+		{ ...userMessage, content: copyPrompt },
+		{ ...reply, content: copyAnswer, status: 'completed' }
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const buttons = page.getByRole('button', { name: 'Copy message' });
+	await expect(buttons).toHaveCount(2);
+	for (const button of await buttons.all()) await expect(button).toHaveCSS('opacity', '1');
+	await context.close();
+});
+
+test('a refused copy says so instead of confirming', async ({ page }) => {
+	await page.addInitScript(() => {
+		Object.defineProperty(navigator, 'clipboard', {
+			configurable: true,
+			value: { writeText: () => Promise.reject(new Error('denied')) }
+		});
+		document.execCommand = () => false;
+	});
+	const state = await fixture(page);
+	state.messages = [{ ...userMessage, content: copyPrompt }];
+	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByRole('button', { name: 'Copy message' }).click();
+	await expect(page.getByText('Could not copy the message')).toBeVisible();
+	await expect(page.getByText('Copied', { exact: true })).toHaveCount(0);
+});

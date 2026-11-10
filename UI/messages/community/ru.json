@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Прервано",
 	"assistant.cancelled": "Остановлено",
 	"assistant.copy": "Копировать сообщение",
+	"assistant.copy_failed": "Не удалось скопировать сообщение",
 	"assistant.retry": "Повторить",
 	"assistant.latest": "К последним сообщениям",
 	"assistant.configure": "Владелец рабочего пространства может подключить провайдера моделей в настройках ИИ.",

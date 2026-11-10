@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Keskeytetty",
 	"assistant.cancelled": "Pysäytetty",
 	"assistant.copy": "Kopioi viesti",
+	"assistant.copy_failed": "Viestin kopiointi epäonnistui",
 	"assistant.retry": "Yritä uudelleen",
 	"assistant.latest": "Vieritä uusimpaan",
 	"assistant.configure": "Työtilan omistaja voi yhdistää mallin palveluntarjoajan tekoälyasetuksissa.",

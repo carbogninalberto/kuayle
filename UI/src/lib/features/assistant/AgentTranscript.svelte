@@ -21,6 +21,8 @@
 	import { Toggle } from '$lib/components/ui/toggle/index.js';
 	import type { DevMachineLogChunk } from '$lib/types/dev-machine';
 	import Markdown from './Markdown.svelte';
+	import CopyMessageButton from './CopyMessageButton.svelte';
+	import { markdownToPlainText } from './message-text';
 	import {
 		groupSession,
 		outputPreview,
@@ -165,13 +167,16 @@
 		<Message.Root align="start" role="article" aria-label={m['tasks.live_from_agent']()}>
 			<Message.Content class="w-full">
 				<Bubble.Root variant="ghost"><Bubble.Content><Markdown source={block.text} /></Bubble.Content></Bubble.Root>
+				<Message.Footer><CopyMessageButton text={() => markdownToPlainText(block.text)} /></Message.Footer>
 			</Message.Content>
 		</Message.Root>
 	{:else if block.kind === 'user'}
 		<Message.Root align="end" role="article" aria-label={m['tasks.transcript_from_you']()}>
 			<Message.Content class="items-end">
 				<Message.Header class="gap-1 text-[11px]"
-					><User size={12} aria-hidden="true" />{m['tasks.transcript_from_you']()}</Message.Header
+					><User size={12} aria-hidden="true" />{m['tasks.transcript_from_you']()}<CopyMessageButton
+						text={block.text}
+					/></Message.Header
 				>
 				<Bubble.Root variant="muted"
 					><Bubble.Content class="rounded-2xl rounded-br-md px-3.5 py-2"

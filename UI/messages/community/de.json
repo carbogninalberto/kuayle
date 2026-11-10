@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Unterbrochen",
 	"assistant.cancelled": "Gestoppt",
 	"assistant.copy": "Nachricht kopieren",
+	"assistant.copy_failed": "Nachricht konnte nicht kopiert werden",
 	"assistant.retry": "Erneut versuchen",
 	"assistant.latest": "Zum Neuesten scrollen",
 	"assistant.configure": "Der Workspace-Eigentümer kann in den KI-Einstellungen einen Modellanbieter verbinden.",

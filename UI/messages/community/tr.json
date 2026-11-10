@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Kesintiye uğradı",
 	"assistant.cancelled": "Durduruldu",
 	"assistant.copy": "Mesajı kopyala",
+	"assistant.copy_failed": "Mesaj kopyalanamadı",
 	"assistant.retry": "Tekrar dene",
 	"assistant.latest": "En sona kaydır",
 	"assistant.configure": "Çalışma alanı sahibi, AI ayarlarından bir model sağlayıcı bağlayabilir.",

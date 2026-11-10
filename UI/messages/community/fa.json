@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "قطع شد",
 	"assistant.cancelled": "متوقف شد",
 	"assistant.copy": "کپی پیام",
+	"assistant.copy_failed": "کپی پیام ممکن نشد",
 	"assistant.retry": "تلاش دوباره",
 	"assistant.latest": "رفتن به آخرین پیام",
 	"assistant.configure": "مالک فضای کار می‌تواند در تنظیمات هوش مصنوعی یک ارائه‌دهنده مدل متصل کند.",

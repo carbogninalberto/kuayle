@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Terhenti",
 	"assistant.cancelled": "Dihentikan",
 	"assistant.copy": "Salin pesan",
+	"assistant.copy_failed": "Tidak dapat menyalin pesan",
 	"assistant.retry": "Coba lagi",
 	"assistant.latest": "Gulir ke terbaru",
 	"assistant.configure": "Pemilik workspace dapat menghubungkan penyedia model di pengaturan AI.",

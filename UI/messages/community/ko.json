@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "중단됨",
 	"assistant.cancelled": "중지됨",
 	"assistant.copy": "메시지 복사",
+	"assistant.copy_failed": "메시지를 복사할 수 없습니다",
 	"assistant.retry": "다시 시도",
 	"assistant.latest": "최신으로 스크롤",
 	"assistant.configure": "워크스페이스 소유자가 AI 설정에서 모델 제공자를 연결할 수 있습니다.",

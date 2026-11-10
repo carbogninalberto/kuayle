@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Megszakítva",
 	"assistant.cancelled": "Leállítva",
 	"assistant.copy": "Üzenet másolása",
+	"assistant.copy_failed": "Nem sikerült másolni az üzenetet",
 	"assistant.retry": "Újra",
 	"assistant.latest": "Ugrás a legutóbbihoz",
 	"assistant.configure": "A munkaterület tulajdonosa az AI beállításokban csatlakoztathat modellszolgáltatót.",
