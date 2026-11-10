@@ -78,8 +78,11 @@ func serverForModel(servers []dto.ModelServerResponse, harness, model string, pr
 // (no server ID: the default applies); otherwise nothing, and the run fills
 // the workspace's agent default for its own sign-in when it is created. An
 // explicit model takes the thinking level, and the server when it is not the
-// default, of the chosen server, else of the server that offers it. An unknown chosen server is kept so that
-// validation rejects it rather than silently running another server.
+// default, of the chosen server, else of the server that offers it. A chosen
+// server that is unknown or does not serve the harness is kept so that
+// validation rejects it rather than silently running another server. A
+// harness no model server serves (OpenCode) therefore keeps its model as it
+// was written, with no server, default model or thinking level attached.
 func chatModel(options *AgentTaskOptions, harness, model string, chosen *uuid.UUID) (string, string, *uuid.UUID) {
 	var defaultModel, thinking string
 	for _, server := range options.ModelServers {
@@ -92,7 +95,9 @@ func chatModel(options *AgentTaskOptions, harness, model string, chosen *uuid.UU
 	}
 	var server *dto.ModelServerResponse
 	if chosen != nil {
-		if server = findModelServer(options.ModelServers, *chosen); server == nil {
+		// A chosen server that does not speak the harness's protocol is kept
+		// too, and its thinking level is not borrowed.
+		if server = findModelServer(options.ModelServers, *chosen); server == nil || !containsString(server.Harnesses, harness) {
 			return model, "", chosen
 		}
 	} else {
@@ -115,7 +120,7 @@ func chatModel(options *AgentTaskOptions, harness, model string, chosen *uuid.UU
 // keeps its thinking level too. Otherwise the chosen server runs it, else the
 // one that offers it (the task's own first). The default server stays implicit
 // unless the task was pinned to a server. A chosen server that does not exist
-// is kept for validation to reject.
+// or does not serve the task's harness is kept for validation to reject.
 func retryModel(servers []dto.ModelServerResponse, task *domain.AgentTask, model string, chosen *uuid.UUID) (string, string, *uuid.UUID) {
 	if model == "" {
 		return task.Model, task.Thinking, task.ModelServerID
@@ -123,7 +128,7 @@ func retryModel(servers []dto.ModelServerResponse, task *domain.AgentTask, model
 	var server *dto.ModelServerResponse
 	if chosen != nil {
 		server = findModelServer(servers, *chosen)
-		if server == nil {
+		if server == nil || !containsString(server.Harnesses, task.Provider) {
 			return model, "", chosen
 		}
 		current := task.ModelServerID != nil && *task.ModelServerID == server.ID || task.ModelServerID == nil && server.IsDefault

@@ -1387,7 +1387,7 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 	// Codex and Claude Code use the chosen model server, or the workspace
 	// default when it speaks their protocol; otherwise their own sign-in.
 	var modelServer *domain.AgentModelServer
-	if req.Provider == "codex" || req.Provider == "claude-code" {
+	if harnessRunsOnModelServer(req.Provider) {
 		server, err := s.store.GetModelServer(ctx, workspaceID, req.ModelServerID)
 		if err != nil {
 			return nil, err
@@ -2500,26 +2500,62 @@ type AgentModelError struct{ Reason string }
 func (e *AgentModelError) Error() string { return ErrInvalidMachineInput.Error() + ": " + e.Reason }
 func (e *AgentModelError) Unwrap() error { return ErrInvalidMachineInput }
 
-// harnessAcceptsModel is the one rule for which coding agents take a model,
-// an effort or a model server. Task starts, profile saves and the profile
-// form (through the profile list's model_harnesses) all follow it.
+// harnessAcceptsModel is the one rule for which coding agents take a model
+// and an effort. Task starts, profile saves and the profile form (through the
+// profile list's model_harnesses) all follow it.
 func harnessAcceptsModel(provider string) bool {
+	return harnessRunsOnModelServer(provider) || provider == "opencode"
+}
+
+// harnessRunsOnModelServer is the one rule for which coding agents can run on
+// a workspace model server. OpenCode takes a model and an effort but brings
+// its own providers, so a model server (the workspace default included) and
+// its default model and thinking level never apply to it.
+func harnessRunsOnModelServer(provider string) bool {
 	return provider == "codex" || provider == "claude-code"
+}
+
+// HarnessModelFormat is how a coding agent writes its model names, when it is
+// not a bare name: the form and an example, shown beside the model field.
+type HarnessModelFormat struct {
+	Format  string `json:"format"`
+	Example string `json:"example"`
+}
+
+// harnessModelFormats is the one place that knows those forms. OpenCode names
+// a model by its provider and the provider's model ID.
+var harnessModelFormats = map[string]HarnessModelFormat{
+	"opencode": {Format: "provider/model", Example: "opencode-go/deepseek-v4.1-flash"},
+}
+
+// openCodeModelPattern is provider/model with both parts present; the model
+// part may contain further slashes (openrouter/anthropic/claude-sonnet-5).
+var openCodeModelPattern = regexp.MustCompile(`^[^/]+/[^/].*$`)
+
+// agentName is the coding agent's name for a person: its display name when
+// it is registered, else the harness name.
+func (s *DevMachineService) agentName(provider string) string {
+	if s.agents != nil {
+		if registered, ok := s.agents.Get(provider); ok && registered.Metadata().DisplayName != "" {
+			return registered.Metadata().DisplayName
+		}
+	}
+	return harnessName(provider)
 }
 
 // Shared by direct native runs and conversation delegation; model selectors must
 // describe the same overrides that the harness actually accepts. A model on a
 // model server must be one it offers; without a server that speaks the
 // harness's protocol the harness uses its own sign-in, which takes any model.
+// OpenCode's effort is passed on as its model variant: the variants a model
+// has are OpenCode's to check, so any of Kuayle's levels is accepted here.
 // Every refusal is an AgentModelError.
 func (s *DevMachineService) validateAgentModel(ctx context.Context, workspaceID uuid.UUID, provider string, serverID *uuid.UUID, model, thinking string) error {
-	if !harnessAcceptsModel(provider) {
-		if serverID != nil {
-			return &AgentModelError{harnessName(provider) + " does not run on a model server"}
-		}
-		if model != "" || thinking != "" {
-			return &AgentModelError{harnessName(provider) + " does not accept a model or effort"}
-		}
+	if serverID != nil && !harnessRunsOnModelServer(provider) {
+		return &AgentModelError{s.agentName(provider) + " does not run on a model server"}
+	}
+	if !harnessAcceptsModel(provider) && (model != "" || thinking != "") {
+		return &AgentModelError{s.agentName(provider) + " does not accept a model or effort"}
 	}
 	if thinking != "" && !containsString(modelThinkingLevels, thinking) {
 		return &AgentModelError{"the effort is one of " + strings.Join(modelThinkingLevels, ", ")}
@@ -2529,6 +2565,13 @@ func (s *DevMachineService) validateAgentModel(ctx context.Context, workspaceID 
 	}
 	if model != "" && !modelNamePattern.MatchString(model) {
 		return &AgentModelError{"the model name is not valid"}
+	}
+	if provider == "opencode" && model != "" && !openCodeModelPattern.MatchString(model) {
+		format := harnessModelFormats[provider]
+		return &AgentModelError{fmt.Sprintf("%s takes its model as %s, for example %s", s.agentName(provider), format.Format, format.Example)}
+	}
+	if !harnessRunsOnModelServer(provider) {
+		return nil
 	}
 	server, err := s.store.GetModelServer(ctx, workspaceID, serverID)
 	if err != nil {
@@ -2541,7 +2584,7 @@ func (s *DevMachineService) validateAgentModel(ctx context.Context, workspaceID 
 		return nil
 	}
 	if !server.Serves(provider) {
-		return &AgentModelError{fmt.Sprintf("the model server %s does not offer the protocol %s needs", server.Name, harnessName(provider))}
+		return &AgentModelError{fmt.Sprintf("the model server %s does not offer the protocol %s needs", server.Name, s.agentName(provider))}
 	}
 	if models := server.ModelList(); model != "" && len(models) > 0 && !containsString(models, model) {
 		return &AgentModelError{fmt.Sprintf("the model server %s does not offer the model %q", server.Name, model)}

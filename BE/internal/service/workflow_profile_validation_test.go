@@ -16,7 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const noModelForOpenCode = "OpenCode does not accept a model or effort"
+// Qwen Code is a coding agent that takes no model or effort.
+const noModelForQwen = "Qwen Code does not accept a model or effort"
 
 // profileFixture is a workspace whose owner manages profiles and workflows
 // through the real repositories; only the Dev Machine store is a fake.
@@ -56,9 +57,9 @@ func newProfileFixture(t *testing.T) profileFixture {
 	_, err = db.Exec(`INSERT INTO issues(id,workspace_id,team_id,number,identifier_text,title,creator_id,status_id) VALUES($1,$2,$3,1,'ENG-1','Dark mode',$4,(SELECT id FROM team_statuses WHERE team_id=$3 LIMIT 1))`, issue, ws, team, user)
 	require.NoError(t, err)
 
-	registry := agent.NewRegistry(agent.NewCodexProvider(""), agent.NewClaudeCodeProvider(""), agent.NewOpenCodeProvider(""))
+	registry := agent.NewRegistry(agent.NewCodexProvider(""), agent.NewClaudeCodeProvider(""), agent.NewOpenCodeProvider(""), agent.NewQwenCodeProvider(""))
 	machines := &devMachineStoreFake{policy: testPolicy(ws)}
-	machines.policy.AllowedProviders = json.RawMessage(`["codex","claude-code","opencode"]`)
+	machines.policy.AllowedProviders = json.RawMessage(`["codex","claude-code","opencode","qwen-code"]`)
 	repo := repository.NewWorkflowRepository(db)
 	tasks := NewAgentTaskService(repository.NewAgentTaskRepository(db),
 		NewDevMachineService(machines, registry, true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{}), nil)
@@ -109,7 +110,7 @@ func requireUnusableStep(t *testing.T, issues []domain.WorkflowIssue) {
 	require.Len(t, issues, 1)
 	require.Equal(t, "unusable_profile", issues[0].Code)
 	require.Equal(t, "implement", issues[0].NodeID, "the editor shows it on the step")
-	require.Equal(t, `Implementer: the profile "Cheap" cannot start a task: `+noModelForOpenCode, issues[0].Message)
+	require.Equal(t, `Implementer: the profile "Cheap" cannot start a task: `+noModelForQwen, issues[0].Message)
 }
 
 // Saving a profile applies the model and effort rules a task start applies,
@@ -120,25 +121,25 @@ func TestProfileSaveRefusesSettingsItsCodingAgentCannotRun(t *testing.T) {
 		return AgentProfileRequest{Name: name, Role: domain.AgentRoleImplementer, Harness: harness, Model: model, Effort: effort}
 	}
 
-	_, err := f.workflows.CreateProfile(f.ctx, f.ws, request("Cheap", "opencode", "deepseek-v4.1-flash", "high"))
-	requireProfileRefusal(t, err, noModelForOpenCode)
-	_, err = f.workflows.CreateProfile(f.ctx, f.ws, request("Cheap", "opencode", "", "high"))
-	requireProfileRefusal(t, err, noModelForOpenCode)
+	_, err := f.workflows.CreateProfile(f.ctx, f.ws, request("Cheap", "qwen-code", "deepseek-v4.1-flash", "high"))
+	requireProfileRefusal(t, err, noModelForQwen)
+	_, err = f.workflows.CreateProfile(f.ctx, f.ws, request("Cheap", "qwen-code", "", "high"))
+	requireProfileRefusal(t, err, noModelForQwen)
 	_, err = f.workflows.CreateProfile(f.ctx, f.ws, request("Loud", "codex", "gpt-5.5", "extreme"))
 	requireProfileRefusal(t, err, "the effort is one of off, low, medium, high, xhigh, max")
 	_, err = f.workflows.CreateProfile(f.ctx, f.ws, request("Odd", "codex", "not a model", ""))
 	requireProfileRefusal(t, err, "the model name is not valid")
 
-	plain, err := f.workflows.CreateProfile(f.ctx, f.ws, request("Plain", "opencode", "", ""))
+	plain, err := f.workflows.CreateProfile(f.ctx, f.ws, request("Plain", "qwen-code", "", ""))
 	require.NoError(t, err)
 	_, err = f.workflows.CreateProfile(f.ctx, f.ws, request("Tuned", "codex", "gpt-5.5", "high"))
 	require.NoError(t, err)
-	_, err = f.workflows.UpdateProfile(f.ctx, f.ws, plain.ID, request("Plain", "opencode", "deepseek-v4.1-flash", ""))
-	requireProfileRefusal(t, err, noModelForOpenCode)
+	_, err = f.workflows.UpdateProfile(f.ctx, f.ws, plain.ID, request("Plain", "qwen-code", "deepseek-v4.1-flash", ""))
+	requireProfileRefusal(t, err, noModelForQwen)
 
 	// The workspace policy can change after a save, so it is not a save rule.
 	f.machines.policy.AllowedProviders = json.RawMessage(`["codex"]`)
-	_, err = f.workflows.CreateProfile(f.ctx, f.ws, request("Later", "opencode", "", ""))
+	_, err = f.workflows.CreateProfile(f.ctx, f.ws, request("Later", "qwen-code", "", ""))
 	require.NoError(t, err, "an agent the workspace does not allow now can still have a profile")
 }
 
@@ -146,7 +147,7 @@ func TestProfileSaveRefusesSettingsItsCodingAgentCannotRun(t *testing.T) {
 // when it is next saved.
 func TestStoredProfileThatCannotRunStaysEditable(t *testing.T) {
 	f := newProfileFixture(t)
-	stored := f.storedProfile(t, "Cheap", "opencode", "deepseek-v4.1-flash", "high")
+	stored := f.storedProfile(t, "Cheap", "qwen-code", "deepseek-v4.1-flash", "high")
 
 	list, err := f.workflows.Profiles(f.ctx, f.ws)
 	require.NoError(t, err)
@@ -168,12 +169,12 @@ func TestStoredProfileThatCannotRunStaysEditable(t *testing.T) {
 		ModelHarnesses []string `json:"model_harnesses"`
 	}
 	require.NoError(t, json.Unmarshal(raw, &body))
-	require.ElementsMatch(t, []string{"codex", "claude-code", "opencode"}, body.Harnesses)
-	require.ElementsMatch(t, []string{"codex", "claude-code"}, body.ModelHarnesses)
+	require.ElementsMatch(t, []string{"codex", "claude-code", "opencode", "qwen-code"}, body.Harnesses)
+	require.ElementsMatch(t, []string{"codex", "claude-code", "opencode"}, body.ModelHarnesses)
 
-	update := AgentProfileRequest{Name: "Cheap", Role: stored.Role, Harness: "opencode", Model: stored.Model, Effort: stored.Effort}
+	update := AgentProfileRequest{Name: "Cheap", Role: stored.Role, Harness: "qwen-code", Model: stored.Model, Effort: stored.Effort}
 	_, err = f.workflows.UpdateProfile(f.ctx, f.ws, stored.ID, update)
-	requireProfileRefusal(t, err, noModelForOpenCode)
+	requireProfileRefusal(t, err, noModelForQwen)
 	update.Model, update.Effort = "", ""
 	fixed, err := f.workflows.UpdateProfile(f.ctx, f.ws, stored.ID, update)
 	require.NoError(t, err)
@@ -186,7 +187,7 @@ func TestStoredProfileThatCannotRunStaysEditable(t *testing.T) {
 // or chosen as a default.
 func TestWorkflowWithAProfileThatCannotStartIsReported(t *testing.T) {
 	f := newProfileFixture(t)
-	cheap := f.storedProfile(t, "Cheap", "opencode", "deepseek-v4.1-flash", "high")
+	cheap := f.storedProfile(t, "Cheap", "qwen-code", "deepseek-v4.1-flash", "high")
 	sound := f.storedProfile(t, "Sound", "codex", "gpt-5.5", "high")
 	issuesOf := func(err error) []domain.WorkflowIssue {
 		var invalid *domain.WorkflowInvalidError
@@ -230,7 +231,7 @@ func TestWorkflowWithAProfileThatCannotStartIsReported(t *testing.T) {
 // composer (the error's text) and on the assistant's approval card.
 func TestTaskStartNamesTheWorkflowStepThatCannotRun(t *testing.T) {
 	f := newProfileFixture(t)
-	cheap := f.storedProfile(t, "Cheap", "opencode", "deepseek-v4.1-flash", "high")
+	cheap := f.storedProfile(t, "Cheap", "qwen-code", "deepseek-v4.1-flash", "high")
 	legacy, err := f.repo.CreateWorkflow(f.ctx, f.ws, f.user, "Cheap Workflow", "", oneStepGraph(t, cheap.ID), "created")
 	require.NoError(t, err)
 	require.NoError(t, f.repo.SetDefault(f.ctx, f.ws, f.user, domain.WorkflowScopeWorkspace, f.ws, &legacy.ID, false))
@@ -241,7 +242,7 @@ func TestTaskStartNamesTheWorkflowStepThatCannotRun(t *testing.T) {
 		return err
 	}
 
-	const unusable = `Workflow "Cheap Workflow", step "Implementer" (profile "Cheap"): ` + noModelForOpenCode
+	const unusable = `Workflow "Cheap Workflow", step "Implementer" (profile "Cheap"): ` + noModelForQwen
 	err = start()
 	require.ErrorIs(t, err, ErrInvalidMachineInput, "the task composer still gets a 400")
 	require.Equal(t, unusable, err.Error())
@@ -259,16 +260,16 @@ func TestTaskStartNamesTheWorkflowStepThatCannotRun(t *testing.T) {
 	require.Equal(t, unusable, *failed.Error)
 
 	// An agent the workspace stopped allowing is named the same way.
-	_, err = f.workflows.UpdateProfile(f.ctx, f.ws, cheap.ID, AgentProfileRequest{Name: "Cheap", Role: cheap.Role, Harness: "opencode"})
+	_, err = f.workflows.UpdateProfile(f.ctx, f.ws, cheap.ID, AgentProfileRequest{Name: "Cheap", Role: cheap.Role, Harness: "qwen-code"})
 	require.NoError(t, err)
 	f.machines.policy.AllowedProviders = json.RawMessage(`["codex"]`)
 	err = start()
 	require.ErrorIs(t, err, ErrProviderNotAllowed)
 	message, permanent = delegationFailure(err)
 	require.True(t, permanent)
-	require.Equal(t, `Workflow "Cheap Workflow", step "Implementer" (profile "Cheap"): OpenCode is not allowed in this workspace`, message)
+	require.Equal(t, `Workflow "Cheap Workflow", step "Implementer" (profile "Cheap"): qwen-code is not allowed in this workspace`, message)
 
-	f.machines.policy.AllowedProviders = json.RawMessage(`["codex","opencode"]`)
+	f.machines.policy.AllowedProviders = json.RawMessage(`["codex","qwen-code"]`)
 	require.NoError(t, start(), "the repaired profile starts a task")
 }
 
@@ -280,7 +281,67 @@ func TestDelegationFailureKeepsTheGenericSentenceAsAFallback(t *testing.T) {
 	require.Equal(t, "The coding task request was rejected", message)
 
 	service := &DevMachineService{store: modelServerStore{}}
-	message, permanent = delegationFailure(service.validateAgentModel(context.Background(), uuid.New(), "opencode", nil, "gpt-5", ""))
+	message, permanent = delegationFailure(service.validateAgentModel(context.Background(), uuid.New(), "qwen-code", nil, "gpt-5", ""))
 	require.True(t, permanent)
-	require.Equal(t, "The coding task request was rejected: "+noModelForOpenCode, message)
+	require.Equal(t, "The coding task request was rejected: qwen-code does not accept a model or effort", message)
+}
+
+// An OpenCode profile chooses a provider/model and an effort: it saves, its
+// workflow validates and becomes a default, and a task started through it is
+// an OpenCode task with that model and effort and no model server, even when
+// the workspace has a default one.
+func TestOpenCodeProfileStartsATaskWithItsModelAndEffort(t *testing.T) {
+	f := newProfileFixture(t)
+	const model = "opencode-go/deepseek-v4.1-flash"
+	request := func(name, model, effort string) AgentProfileRequest {
+		return AgentProfileRequest{Name: name, Role: domain.AgentRoleImplementer, Harness: "opencode", Model: model, Effort: effort}
+	}
+	// The workspace's default model server serves Codex and Claude Code.
+	server := deepSeekModelServer(f.ws)
+	require.NoError(t, f.db.Get(&server.ID, `INSERT INTO agent_model_servers(workspace_id,name,openai_base_url,anthropic_base_url,encrypted_api_key,models,default_model,thinking,is_default) VALUES($1,'DeepSeek','https://api.deepseek.com','https://api.deepseek.com/anthropic','sealed','["deepseek-flash","deepseek-v4-pro"]','deepseek-flash','high',true) RETURNING id`, f.ws))
+	f.machines.modelServers = []domain.AgentModelServer{server}
+
+	_, err := f.workflows.CreateProfile(f.ctx, f.ws, request("Bare", "deepseek-v4.1-flash", "high"))
+	requireProfileRefusal(t, err, "OpenCode takes its model as provider/model, for example opencode-go/deepseek-v4.1-flash")
+	_, err = f.workflows.CreateProfile(f.ctx, f.ws, request("Loud", model, "minimal"))
+	requireProfileRefusal(t, err, "the effort is one of off, low, medium, high, xhigh, max")
+	flash, err := f.workflows.CreateProfile(f.ctx, f.ws, request("Flash", model, "high"))
+	require.NoError(t, err)
+	require.Equal(t, model, flash.Model)
+	require.Equal(t, "high", flash.Effort)
+	plain, err := f.workflows.CreateProfile(f.ctx, f.ws, request("Plain", "", ""))
+	require.NoError(t, err)
+
+	chat, err := repository.NewConversationRepository(f.db).OpenIssue(f.ctx, f.ws, f.issue)
+	require.NoError(t, err)
+	startThrough := func(name string, profile uuid.UUID) *domain.AgentTask {
+		t.Helper()
+		issues, err := f.workflows.Validate(f.ctx, f.ws, oneStepGraph(t, profile))
+		require.NoError(t, err)
+		require.Empty(t, issues)
+		workflow, err := f.workflows.Create(f.ctx, f.ws, WorkflowRequest{Name: name, Graph: oneStepGraph(t, profile)})
+		require.NoError(t, err)
+		_, err = f.workflows.SetDefault(f.ctx, f.ws, WorkflowDefaultRequest{Scope: domain.WorkflowScopeWorkspace, WorkflowID: &workflow.ID})
+		require.NoError(t, err)
+		// The composer asked for Codex; the workflow's first step decides.
+		task, err := f.tasks.Create(f.ctx, f.ws, chat.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Implement it", Provider: "codex", Model: "gpt-5.5", Thinking: "low"})
+		require.NoError(t, err)
+		var stored domain.AgentTask
+		require.NoError(t, f.db.Get(&stored, `SELECT * FROM agent_tasks WHERE id=$1`, task.ID))
+		return &stored
+	}
+
+	task := startThrough("Flash Workflow", flash.ID)
+	require.Equal(t, "opencode", task.Provider)
+	require.Equal(t, model, task.Model)
+	require.Equal(t, "high", task.Thinking)
+	require.Nil(t, task.ModelServerID, "OpenCode does not run on the default model server")
+
+	_, err = f.db.Exec(`UPDATE agent_tasks SET state='cancelled' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	task = startThrough("Plain Workflow", plain.ID)
+	require.Equal(t, "opencode", task.Provider)
+	require.Empty(t, task.Model, "OpenCode keeps the model it is configured with")
+	require.Empty(t, task.Thinking)
+	require.Nil(t, task.ModelServerID)
 }

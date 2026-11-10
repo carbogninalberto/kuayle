@@ -3274,6 +3274,7 @@
 	"profiles.model_placeholder": "Per defecte de l'agent",
 	"profiles.effort": "Esforç",
 	"profiles.model_unsupported": "{agent} no accepta un model ni un nivell d'esforç aquí; fa servir la seva pròpia configuració.",
+	"profiles.model_format": "Fes servir el format {format}, per exemple {example}.",
 	"profiles.instructions": "Instruccions",
 	"profiles.instructions_placeholder": "En què s'ha de centrar aquest agent; s'afegeix al seu prompt com a configuració",
 	"profiles.builtin": "Integrat",

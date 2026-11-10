@@ -1,8 +1,9 @@
-import type { AgentProfileInput, AgentProfileList } from '$lib/api/workflows';
+import type { AgentProfileInput, AgentProfileList, ModelFormat } from '$lib/api/workflows';
 
 // Which coding agents take a model and an effort is the server's rule: the
-// profile list names them in model_harnesses. Nothing here knows an agent by
-// name.
+// profile list names them in model_harnesses, and in model_formats how each
+// writes its model names when that is not a bare name. Nothing here knows an
+// agent by name.
 
 /**
  * Whether a profile for this coding agent can set a model and an effort. A
@@ -28,4 +29,16 @@ export function profileSubmission(
 		model: keep ? draft.model.trim() : '',
 		effort: keep ? draft.effort : ''
 	};
+}
+
+/**
+ * The form this coding agent's model names take (`provider/model`) with an
+ * example, for the model field's placeholder and hint; undefined for a bare
+ * name or a field that is off.
+ */
+export function modelFormat(
+	list: Pick<AgentProfileList, 'model_harnesses' | 'model_formats'>,
+	harness: string
+): ModelFormat | undefined {
+	return takesModel(list, harness) ? list.model_formats?.[harness] : undefined;
 }

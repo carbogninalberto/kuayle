@@ -60,7 +60,10 @@ type AgentProfileList struct {
 	// ModelHarnesses are the harnesses that take a model and an effort; a
 	// profile for any other harness leaves both empty.
 	ModelHarnesses []string `json:"model_harnesses"`
-	Roles          []string `json:"roles"`
+	// ModelFormats says how a harness writes its model names when it is not
+	// a bare name (OpenCode: provider/model), with an example for the form.
+	ModelFormats map[string]HarnessModelFormat `json:"model_formats"`
+	Roles        []string                      `json:"roles"`
 }
 
 func (s *WorkflowService) harnesses() []string {
@@ -91,6 +94,17 @@ func (s *WorkflowService) modelHarnesses() []string {
 	return out
 }
 
+// modelFormats is the model name form of each harness that has one.
+func (s *WorkflowService) modelFormats() map[string]HarnessModelFormat {
+	out := map[string]HarnessModelFormat{}
+	for _, harness := range s.modelHarnesses() {
+		if format, ok := harnessModelFormats[harness]; ok {
+			out[harness] = format
+		}
+	}
+	return out
+}
+
 func (s *WorkflowService) Profiles(ctx context.Context, ws uuid.UUID) (*AgentProfileList, error) {
 	_, canManage, err := s.access(ctx, ws)
 	if err != nil {
@@ -103,7 +117,7 @@ func (s *WorkflowService) Profiles(ctx context.Context, ws uuid.UUID) (*AgentPro
 	if err != nil {
 		return nil, err
 	}
-	return &AgentProfileList{Profiles: profiles, CanManage: canManage, Harnesses: s.harnesses(), ModelHarnesses: s.modelHarnesses(),
+	return &AgentProfileList{Profiles: profiles, CanManage: canManage, Harnesses: s.harnesses(), ModelHarnesses: s.modelHarnesses(), ModelFormats: s.modelFormats(),
 		Roles: []string{domain.AgentRoleImplementer, domain.AgentRoleReviewer, domain.AgentRoleTester, domain.AgentRoleDocsWriter, domain.AgentRoleSecurityReviewer}}, nil
 }
 

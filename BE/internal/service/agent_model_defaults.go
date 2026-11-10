@@ -10,7 +10,10 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/dto"
 )
 
-// agentModelDefaultProviders are the coding agents that take a model and an effort.
+// agentModelDefaultProviders are the coding agents with a workspace default
+// model and effort for runs on their own sign-in. OpenCode also takes a model
+// and an effort (harnessAcceptsModel) but has no workspace default: without a
+// model of its own it runs the model it is configured with.
 var agentModelDefaultProviders = []string{"codex", "claude-code"}
 
 // ListAgentModelDefaults reports every such agent's workspace default, set or not.

@@ -96,3 +96,27 @@ test('a follow-up opens on the server the task actually runs on, even if it no l
 		model: 'opus'
 	});
 });
+
+// OpenCode takes no model server, so the pickers offer no model for it: it
+// runs the model of its profile or its own configuration.
+const withOpenCode = { ...options, providers: [...options.providers, { id: 'opencode' }] };
+
+test('switching to an agent no model server serves sends neither the old model nor a server', () => {
+	const initial = initialSelection(withOpenCode, {});
+	assert.deepEqual(initial, { harness: 'codex', server: 's1', model: 'gpt-5' });
+	const picked = selectHarness(withOpenCode, 'opencode');
+	assert.deepEqual(picked, { harness: 'opencode', server: '', model: '' });
+	assert.deepEqual(choiceFrom(initial, picked), { harness: 'opencode' });
+	// From a card that opened on a model the assistant proposed, too.
+	const proposed = initialSelection(withOpenCode, { harness: 'claude-code', model: 'sonnet' });
+	assert.deepEqual(choiceFrom(proposed, selectHarness(withOpenCode, 'opencode')), { harness: 'opencode' });
+});
+
+test('a provider/model name the assistant proposed for that agent is kept as it is, with no server', () => {
+	const proposed = { harness: 'opencode', model: 'opencode-go/deepseek-v4.1-flash' };
+	const initial = initialSelection(withOpenCode, proposed);
+	assert.deepEqual(initial, { harness: 'opencode', server: '', model: 'opencode-go/deepseek-v4.1-flash' });
+	assert.deepEqual(choiceFrom(initial, { ...initial }), {}, 'untouched: the backend runs the proposal');
+	// Choosing a server is not possible for it: an unknown one falls back to none.
+	assert.deepEqual(selectServer(withOpenCode, initial, 's1'), { harness: 'opencode', server: '', model: '' });
+});

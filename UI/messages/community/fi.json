@@ -3274,6 +3274,7 @@
 	"profiles.model_placeholder": "Agentin oletus",
 	"profiles.effort": "Ajattelun taso",
 	"profiles.model_unsupported": "{agent} ei hyväksy tässä mallia tai ponnistustasoa, vaan käyttää omia asetuksiaan.",
+	"profiles.model_format": "Käytä muotoa {format}, esimerkiksi {example}.",
 	"profiles.instructions": "Ohjeet",
 	"profiles.instructions_placeholder": "Mihin tämän agentin tulisi keskittyä; lisätään sen promptiin konfiguraationa",
 	"profiles.builtin": "Sisäänrakennettu",

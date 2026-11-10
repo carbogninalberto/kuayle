@@ -245,11 +245,11 @@ func TestCreateAgentRunClaudeOverrideStoresNonSecretEnvironment(t *testing.T) {
 func TestCreateAgentRunRejectsOverridesForOtherProviders(t *testing.T) {
 	_, err := newTestDevMachineService(&devMachineStoreFake{}).createAgentRun(
 		context.Background(), uuid.New(), uuid.New(), uuid.New(), dto.CreateAgentRunRequest{
-			Provider: "opencode", Mode: "autonomous", Prompt: "test", Model: "deepseek-flash",
+			Provider: "qwen-code", Mode: "autonomous", Prompt: "test", Model: "deepseek-flash",
 		}, uuid.New(),
 	)
 	require.ErrorIs(t, err, ErrInvalidMachineInput)
-	require.ErrorContains(t, err, "OpenCode does not accept a model or effort")
+	require.ErrorContains(t, err, "qwen-code does not accept a model or effort")
 }
 
 func TestMachineTokenAuthenticationDistinguishesCredentialsFromStorageFailure(t *testing.T) {

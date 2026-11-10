@@ -3274,6 +3274,7 @@
 	"profiles.model_placeholder": "代理預設",
 	"profiles.effort": "推理強度",
 	"profiles.model_unsupported": "{agent} 在此不接受模型或推理強度設定，將使用其本身的設定。",
+	"profiles.model_format": "請使用 {format} 格式，例如 {example}。",
 	"profiles.instructions": "指示",
 	"profiles.instructions_placeholder": "此代理應關注的內容；作為設定加入其提示",
 	"profiles.builtin": "內建",

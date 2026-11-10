@@ -3274,6 +3274,7 @@
 	"profiles.model_placeholder": "Agentens standard",
 	"profiles.effort": "Indsats",
 	"profiles.model_unsupported": "{agent} accepterer ikke en model eller et indsatsniveau her; den bruger sine egne indstillinger.",
+	"profiles.model_format": "Brug formatet {format}, for eksempel {example}.",
 	"profiles.instructions": "Instruktioner",
 	"profiles.instructions_placeholder": "Hvad denne agent skal fokusere på; føjes til dens prompt som konfiguration",
 	"profiles.builtin": "Indbygget",

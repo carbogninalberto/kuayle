@@ -3274,6 +3274,7 @@
 	"profiles.model_placeholder": "Valeur par défaut de l'agent",
 	"profiles.effort": "Effort",
 	"profiles.model_unsupported": "{agent} n'accepte ni modèle ni niveau d'effort ici ; il utilise ses propres réglages.",
+	"profiles.model_format": "Utilisez le format {format}, par exemple {example}.",
 	"profiles.instructions": "Instructions",
 	"profiles.instructions_placeholder": "Sur quoi cet agent doit se concentrer ; ajouté à son prompt comme configuration",
 	"profiles.builtin": "Intégré",

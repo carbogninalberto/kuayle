@@ -111,21 +111,41 @@ func NewClaudeCodeProvider(image string) Provider {
 
 type openCodeProvider struct {
 	metadata Metadata
-	build    func(RunInput) []string
 }
 
 func (p *openCodeProvider) Metadata() Metadata { return p.metadata }
 
+// OpenCode takes its model as --model provider/model and Kuayle's effort as
+// --variant (its name for a model's reasoning effort; "off" leaves it to
+// OpenCode). The terminal UI has no variant flag. The prompt follows "--" as
+// one argument: without it OpenCode's argument parser reads a prompt that
+// begins with a dash as its own flags (--help, --auto), so extra arguments
+// go before it.
 func (p *openCodeProvider) BuildInvocation(input RunInput) (Invocation, error) {
 	if err := validateInput(p.metadata, input); err != nil {
+		return Invocation{}, err
+	}
+	if err := validateModelOverrides(p.metadata.ID, input); err != nil {
 		return Invocation{}, err
 	}
 	workingDir := input.WorkspacePath
 	if workingDir == "" {
 		workingDir = "/workspace"
 	}
-	argv := p.build(input)
+	argv := []string{"opencode"}
+	if input.Mode == ModeAutonomous {
+		argv = append(argv, "run", "--format", "json")
+	}
+	if input.Model != "" {
+		argv = append(argv, "--model", input.Model)
+	}
+	if input.Mode == ModeAutonomous && input.Thinking != "" && input.Thinking != "off" {
+		argv = append(argv, "--variant", input.Thinking)
+	}
 	argv = append(argv, input.ExtraArgs...)
+	if input.Mode == ModeAutonomous {
+		argv = append(argv, "--", input.Prompt)
+	}
 	return Invocation{
 		Image:       p.metadata.DefaultImage,
 		Argv:        argv,
@@ -239,12 +259,6 @@ func NewOpenCodeProvider(image string) Provider {
 			DefaultImage:    image,
 			RequiredSecrets: []string{},
 			SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
-		},
-		build: func(input RunInput) []string {
-			if input.Mode == ModeInteractive {
-				return []string{"opencode"}
-			}
-			return []string{"opencode", "run", "--format", "json", input.Prompt}
 		},
 	}
 }
@@ -390,10 +404,12 @@ var (
 	baseURLPattern       = regexp.MustCompile(`^https?://[^\s"'\\]{1,500}$`)
 )
 
-// Model values are interpolated into TOML strings, so they are restricted to
-// characters that need no quoting.
+// Model values are interpolated into TOML strings or passed as flag values,
+// so they are restricted to characters that need no quoting and cannot start
+// a flag. Only Codex runs on a model server URL. Providers that take no model
+// or effort ignore both.
 func validateModelOverrides(providerID string, input RunInput) error {
-	if providerID != "codex" && providerID != "claude-code" {
+	if providerID != "codex" && providerID != "claude-code" && providerID != "opencode" {
 		return nil
 	}
 	if input.Model != "" && !modelOverridePattern.MatchString(input.Model) {
