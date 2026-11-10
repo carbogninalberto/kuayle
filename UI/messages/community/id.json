@@ -3262,6 +3262,7 @@
 	"profiles.model": "Model",
 	"profiles.model_placeholder": "Default agen",
 	"profiles.effort": "Effort",
+	"profiles.model_unsupported": "{agent} tidak menerima model atau tingkat upaya di sini; ia memakai pengaturannya sendiri.",
 	"profiles.instructions": "Instruksi",
 	"profiles.instructions_placeholder": "Hal yang menjadi fokus agen ini; ditambahkan ke prompt-nya sebagai konfigurasi",
 	"profiles.builtin": "Bawaan",

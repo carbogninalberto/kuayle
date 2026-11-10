@@ -3262,6 +3262,7 @@
 	"profiles.model": "मॉडल",
 	"profiles.model_placeholder": "एजेंट का डिफ़ॉल्ट",
 	"profiles.effort": "प्रयास",
+	"profiles.model_unsupported": "{agent} यहाँ मॉडल या प्रयास स्तर स्वीकार नहीं करता; यह अपनी सेटिंग्स का उपयोग करता है।",
 	"profiles.instructions": "निर्देश",
 	"profiles.instructions_placeholder": "यह एजेंट किस पर फ़ोकस करे; कॉन्फ़िगरेशन के रूप में उसके प्रॉम्प्ट में जोड़ा जाता है",
 	"profiles.builtin": "बिल्ट-इन",

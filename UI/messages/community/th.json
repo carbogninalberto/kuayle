@@ -3262,6 +3262,7 @@
 	"profiles.model": "โมเดล",
 	"profiles.model_placeholder": "ค่าเริ่มต้นของ Agent",
 	"profiles.effort": "ระดับความพยายาม",
+	"profiles.model_unsupported": "{agent} ไม่รับโมเดลหรือระดับความพยายามที่นี่ และจะใช้การตั้งค่าของตัวเอง",
 	"profiles.instructions": "คำสั่ง",
 	"profiles.instructions_placeholder": "สิ่งที่ Agent นี้ควรให้ความสำคัญ จะถูกเพิ่มในพรอมต์เป็นการกำหนดค่า",
 	"profiles.builtin": "ในตัว",

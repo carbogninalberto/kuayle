@@ -3262,6 +3262,7 @@
 	"profiles.model": "Μοντέλο",
 	"profiles.model_placeholder": "Προεπιλογή πράκτορα",
 	"profiles.effort": "Προσπάθεια",
+	"profiles.model_unsupported": "Το {agent} δεν δέχεται μοντέλο ή επίπεδο προσπάθειας εδώ· χρησιμοποιεί τις δικές του ρυθμίσεις.",
 	"profiles.instructions": "Οδηγίες",
 	"profiles.instructions_placeholder": "Σε τι πρέπει να εστιάσει αυτός ο πράκτορας· προστίθεται στο prompt του ως ρύθμιση",
 	"profiles.builtin": "Ενσωματωμένο",

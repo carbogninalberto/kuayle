@@ -3262,6 +3262,7 @@
 	"profiles.model": "Model",
 	"profiles.model_placeholder": "Standaard van agent",
 	"profiles.effort": "Inspanning",
+	"profiles.model_unsupported": "{agent} accepteert hier geen model of inspanningsniveau en gebruikt de eigen instellingen.",
 	"profiles.instructions": "Instructies",
 	"profiles.instructions_placeholder": "Waar deze agent zich op moet richten; wordt als configuratie aan zijn prompt toegevoegd",
 	"profiles.builtin": "Ingebouwd",

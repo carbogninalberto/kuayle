@@ -376,8 +376,18 @@ func delegationRequest(options *AgentTaskOptions, requestID uuid.UUID, instructi
 	return request, nil
 }
 
+// delegationFailure is the reason a task could not start, for the user, and
+// whether retrying the same request would fail again. A cause with a specific
+// reason (a workflow step's profile, a refused model) says it; the others get
+// a fixed sentence.
 func delegationFailure(err error) (string, bool) {
+	var step *WorkflowStepError
+	var model *AgentModelError
 	switch {
+	case errors.As(err, &step):
+		return step.Error(), true
+	case errors.As(err, &model):
+		return "The coding task request was rejected: " + model.Reason, true
 	case errors.Is(err, ErrDemoMachineForbidden):
 		return demoMachineRefusal, true
 	case errors.Is(err, ErrDevMachinesDisabled):
