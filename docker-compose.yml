@@ -36,7 +36,8 @@ services:
     profiles: ["app"]
     build: ./BE
     ports:
-      - "8080:8080"
+      # Development only: reachable from this host, not from the network.
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -134,7 +135,7 @@ services:
         PUBLIC_DEMO_MODE: ${PUBLIC_DEMO_MODE:-true}
         PUBLIC_DEMO_USERS: ${PUBLIC_DEMO_USERS:-}
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     depends_on:
       backend:
         condition: service_healthy
