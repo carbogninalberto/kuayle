@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Διακόπηκε",
 	"assistant.cancelled": "Διακόπηκε",
 	"assistant.copy": "Αντιγραφή μηνύματος",
+	"assistant.copy_failed": "Δεν ήταν δυνατή η αντιγραφή του μηνύματος",
 	"assistant.retry": "Επανάληψη",
 	"assistant.latest": "Μετάβαση στο τελευταίο",
 	"assistant.configure": "Ο ιδιοκτήτης του χώρου εργασίας μπορεί να συνδέσει πάροχο μοντέλου στις ρυθμίσεις AI.",

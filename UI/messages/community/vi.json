@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Bị gián đoạn",
 	"assistant.cancelled": "Đã dừng",
 	"assistant.copy": "Sao chép tin nhắn",
+	"assistant.copy_failed": "Không thể sao chép tin nhắn",
 	"assistant.retry": "Thử lại",
 	"assistant.latest": "Cuộn đến mới nhất",
 	"assistant.configure": "Chủ sở hữu workspace có thể kết nối nhà cung cấp model trong cài đặt AI.",

@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Interrompu",
 	"assistant.cancelled": "Arrêté",
 	"assistant.copy": "Copier le message",
+	"assistant.copy_failed": "Impossible de copier le message",
 	"assistant.retry": "Réessayer",
 	"assistant.latest": "Aller au dernier message",
 	"assistant.configure": "Le propriétaire de l'espace de travail peut connecter un fournisseur de modèle dans les paramètres IA.",

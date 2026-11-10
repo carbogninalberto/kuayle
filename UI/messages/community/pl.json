@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Przerwane",
 	"assistant.cancelled": "Zatrzymane",
 	"assistant.copy": "Kopiuj wiadomość",
+	"assistant.copy_failed": "Nie udało się skopiować wiadomości",
 	"assistant.retry": "Ponów",
 	"assistant.latest": "Przewiń do najnowszych",
 	"assistant.configure": "Właściciel obszaru roboczego może połączyć dostawcę modelu w ustawieniach AI.",

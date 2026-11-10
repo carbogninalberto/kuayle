@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Перервано",
 	"assistant.cancelled": "Зупинено",
 	"assistant.copy": "Копіювати повідомлення",
+	"assistant.copy_failed": "Не вдалося скопіювати повідомлення",
 	"assistant.retry": "Повторити",
 	"assistant.latest": "Прокрутити до останнього",
 	"assistant.configure": "Власник робочого простору може підключити провайдера моделі в налаштуваннях AI.",

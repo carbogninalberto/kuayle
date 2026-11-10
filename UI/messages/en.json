@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Interrupted",
 	"assistant.cancelled": "Stopped",
 	"assistant.copy": "Copy message",
+	"assistant.copy_failed": "Could not copy the message",
 	"assistant.retry": "Retry",
 	"assistant.latest": "Scroll to latest",
 	"assistant.configure": "The workspace owner can connect a model provider in AI settings.",

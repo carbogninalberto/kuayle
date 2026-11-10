@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Interrompida",
 	"assistant.cancelled": "Interrompida",
 	"assistant.copy": "Copiar mensagem",
+	"assistant.copy_failed": "Não foi possível copiar a mensagem",
 	"assistant.retry": "Tentar novamente",
 	"assistant.latest": "Ir para a mais recente",
 	"assistant.configure": "O proprietário do workspace pode conectar um provedor de modelos nas configurações de IA.",

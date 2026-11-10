@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "ถูกขัดจังหวะ",
 	"assistant.cancelled": "หยุดแล้ว",
 	"assistant.copy": "คัดลอกข้อความ",
+	"assistant.copy_failed": "ไม่สามารถคัดลอกข้อความได้",
 	"assistant.retry": "ลองอีกครั้ง",
 	"assistant.latest": "เลื่อนไปล่าสุด",
 	"assistant.configure": "เจ้าของเวิร์กสเปซเชื่อมต่อผู้ให้บริการโมเดลได้ในการตั้งค่า AI",

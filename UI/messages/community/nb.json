@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Avbrutt",
 	"assistant.cancelled": "Stoppet",
 	"assistant.copy": "Kopier melding",
+	"assistant.copy_failed": "Kunne ikke kopiere meldingen",
 	"assistant.retry": "Prøv igjen",
 	"assistant.latest": "Rull til siste",
 	"assistant.configure": "Eieren av arbeidsområdet kan koble til en modelleverandør i AI-innstillingene.",

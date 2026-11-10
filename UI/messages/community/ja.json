@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "中断",
 	"assistant.cancelled": "停止",
 	"assistant.copy": "メッセージをコピー",
+	"assistant.copy_failed": "メッセージをコピーできませんでした",
 	"assistant.retry": "再試行",
 	"assistant.latest": "最新へスクロール",
 	"assistant.configure": "ワークスペースのオーナーは、AI設定でモデルプロバイダーを接続できます。",

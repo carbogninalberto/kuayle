@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Interromput",
 	"assistant.cancelled": "Aturat",
 	"assistant.copy": "Copia el missatge",
+	"assistant.copy_failed": "No s'ha pogut copiar el missatge",
 	"assistant.retry": "Reintenta",
 	"assistant.latest": "Ves al més recent",
 	"assistant.configure": "El propietari de l'espai de treball pot connectar un proveïdor de models a la configuració d'IA.",

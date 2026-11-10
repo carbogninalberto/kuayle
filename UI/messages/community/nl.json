@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Onderbroken",
 	"assistant.cancelled": "Gestopt",
 	"assistant.copy": "Bericht kopiëren",
+	"assistant.copy_failed": "Kan het bericht niet kopiëren",
 	"assistant.retry": "Opnieuw proberen",
 	"assistant.latest": "Naar laatste scrollen",
 	"assistant.configure": "De workspace-eigenaar kan in de AI-instellingen een modelprovider koppelen.",

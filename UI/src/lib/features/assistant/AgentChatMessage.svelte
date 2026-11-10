@@ -5,6 +5,7 @@
 	import * as Bubble from '$lib/components/ui/bubble/index.js';
 	import type { AgentLiveChatMessage } from '$lib/api/agent-tasks';
 	import { m } from '$lib/features/i18n/messages';
+	import CopyMessageButton from './CopyMessageButton.svelte';
 
 	// A message a coding agent sent this conversation through its live channel.
 	// It is the agent's own untrusted text: shown escaped, never as Markdown, so
@@ -44,6 +45,7 @@
 				>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time
 			>
 			<span>{m['assistant.agent_message_untrusted']()}</span>
+			<CopyMessageButton text={message.body} />
 		</Message.Footer>
 	</Message.Content>
 </Message.Root>

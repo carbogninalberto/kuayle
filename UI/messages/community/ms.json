@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Terganggu",
 	"assistant.cancelled": "Dihentikan",
 	"assistant.copy": "Salin mesej",
+	"assistant.copy_failed": "Tidak dapat menyalin mesej",
 	"assistant.retry": "Cuba lagi",
 	"assistant.latest": "Tatal ke terkini",
 	"assistant.configure": "Pemilik ruang kerja boleh menyambungkan penyedia model dalam tetapan AI.",

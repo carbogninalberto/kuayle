@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Întrerupt",
 	"assistant.cancelled": "Oprit",
 	"assistant.copy": "Copiază mesajul",
+	"assistant.copy_failed": "Mesajul nu a putut fi copiat",
 	"assistant.retry": "Încearcă din nou",
 	"assistant.latest": "Derulează la ultimul",
 	"assistant.configure": "Proprietarul spațiului de lucru poate conecta un furnizor de modele în setările AI.",

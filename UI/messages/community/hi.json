@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "बाधित",
 	"assistant.cancelled": "रोका गया",
 	"assistant.copy": "संदेश कॉपी करें",
+	"assistant.copy_failed": "संदेश कॉपी नहीं किया जा सका",
 	"assistant.retry": "फिर कोशिश करें",
 	"assistant.latest": "नवीनतम पर स्क्रॉल करें",
 	"assistant.configure": "वर्कस्पेस ओनर AI सेटिंग में मॉडल प्रोवाइडर कनेक्ट कर सकता है।",

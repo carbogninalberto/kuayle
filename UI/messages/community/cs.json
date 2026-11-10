@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "Přerušeno",
 	"assistant.cancelled": "Zastaveno",
 	"assistant.copy": "Kopírovat zprávu",
+	"assistant.copy_failed": "Zprávu se nepodařilo zkopírovat",
 	"assistant.retry": "Zkusit znovu",
 	"assistant.latest": "Přejít na nejnovější",
 	"assistant.configure": "Vlastník pracovního prostoru může připojit poskytovatele modelu v nastavení AI.",

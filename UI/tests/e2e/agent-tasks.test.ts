@@ -2100,3 +2100,36 @@ test('an unknown agent in the link says so and leads back to the assistant', asy
 	await page.getByRole('link', { name: 'Back to assistant' }).click();
 	await expect(page).not.toHaveURL(/agent=/);
 });
+
+test('coding agent messages copy in full from the chat, the live thread and the session', async ({
+	page,
+	context
+}) => {
+	await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+	const { state } = await fixture(page);
+	// Agent text is plain text: it is copied exactly as written, markup and all.
+	const body = `Tests added.\n\n\`\`\`sh\nnpm test\n\`\`\`\n<b>raw</b> https://example.com/pr/1\n${'x'.repeat(5000)} end`;
+	const message = { ...agentQuestion, kind: 'message', body };
+	state.task = runningTask();
+	state.logs = claudeRun();
+	state.chatAgentMessages = [message];
+	state.liveMessages = [message];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
+	const copy = { name: 'Copy message' };
+
+	const item = page.getByRole('article', { name: 'Message from the coding agent of ENG-1' });
+	await item.getByRole('button', copy).focus();
+	await page.keyboard.press('Enter');
+	await expect.poll(clipboard).toBe(body);
+	await expect(item.getByText('Copied', { exact: true })).toHaveCount(1);
+
+	await page.getByRole('button', { name: /^Agent · ENG-1/ }).click();
+	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+	// The session's message is copied as it reads, without its Markdown markers.
+	await thread.getByRole('region', { name: 'Agent session' }).getByRole('article', { name: 'Agent' }).getByRole('button', copy).click();
+	await expect.poll(clipboard).toBe('Up to date with main; next migration is 000116.');
+	const live = thread.getByRole('region', { name: 'Live messages' }).getByRole('listitem', { name: 'Agent' });
+	await live.getByRole('button', copy).click();
+	await expect.poll(clipboard).toBe(body);
+});

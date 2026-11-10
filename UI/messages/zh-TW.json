@@ -1846,6 +1846,7 @@
 	"assistant.interrupted": "已中斷",
 	"assistant.cancelled": "已停止",
 	"assistant.copy": "複製訊息",
+	"assistant.copy_failed": "無法複製訊息",
 	"assistant.retry": "重試",
 	"assistant.latest": "捲動至最新訊息",
 	"assistant.configure": "工作區擁有者可以在 AI 設定中連接模型供應商。",
