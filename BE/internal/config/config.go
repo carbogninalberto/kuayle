@@ -386,8 +386,8 @@ func LoadMachineGateway() (*Config, error) {
 			{"DEV_MACHINE_GATEWAY_DATABASE_URL", gatewayDatabaseURL},
 			{"DATABASE_URL", applicationDatabaseURL},
 		} {
-			if isPlaceholderSecret(databaseURLPassword(setting.value)) {
-				return nil, placeholderSecretError(setting.name + " password")
+			if isPublishedDatabasePassword(databaseURLPassword(setting.value)) {
+				return nil, placeholderSecretError(setting.name + " password (POSTGRES_PASSWORD or the gateway password in the Compose files)")
 			}
 		}
 	}
@@ -447,6 +447,17 @@ func isPlaceholderSecret(value string) bool {
 		(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">"))
 }
 
+// composeFallbackDatabasePassword is what the Compose files use when
+// POSTGRES_PASSWORD is not set. It is published in the repository, so a
+// database that still uses it is protected by nothing but its network.
+const composeFallbackDatabasePassword = "kuayle"
+
+// isPublishedDatabasePassword reports whether a database password is an
+// example placeholder, a development default or the Compose fallback.
+func isPublishedDatabasePassword(password string) bool {
+	return isPlaceholderSecret(password) || strings.TrimSpace(password) == composeFallbackDatabasePassword
+}
+
 // placeholderSecretError names the setting only; the value is never reported.
 func placeholderSecretError(setting string) error {
 	return fmt.Errorf("%s is still an example placeholder or development default; generate a unique value (for example with `openssl rand -hex 32`) before starting outside ENVIRONMENT=development", setting)
@@ -478,7 +489,7 @@ func (c *Config) rejectPlaceholderSecrets() error {
 	if developmentEnvironment(c.Environment) {
 		return nil
 	}
-	if isPlaceholderSecret(databaseURLPassword(c.DatabaseURL)) {
+	if isPublishedDatabasePassword(databaseURLPassword(c.DatabaseURL)) {
 		return placeholderSecretError("DATABASE_URL password (POSTGRES_PASSWORD in the Compose files)")
 	}
 	for _, setting := range []struct{ name, value string }{

@@ -518,6 +518,9 @@ type runtimeFake struct {
 	startErr                                    error
 	terminalSignIns                             map[string]string
 	terminalSignInSyncs                         int
+	// previewRemovals records, per RemovePreviews call, what had run before.
+	previewRemovals   []string
+	removePreviewsErr error
 }
 
 func (f *runtimeFake) SyncAgentSignIns(_ context.Context, _ []domain.DevMachineService, files map[string]string) error {
@@ -558,6 +561,10 @@ func (f *runtimeFake) Pause(context.Context, *domain.DevMachine, []domain.DevMac
 func (f *runtimeFake) Stop(context.Context, *domain.DevMachine, []domain.DevMachineService) error {
 	f.stopped++
 	return nil
+}
+func (f *runtimeFake) RemovePreviews(context.Context, *domain.DevMachine) error {
+	f.previewRemovals = append(f.previewRemovals, fmt.Sprintf("spawned=%d stopped=%d tornDown=%d", f.spawned, f.stopped, f.tornDown))
+	return f.removePreviewsErr
 }
 func (f *runtimeFake) Teardown(context.Context, *domain.DevMachine, []domain.DevMachineService) error {
 	f.tornDown++

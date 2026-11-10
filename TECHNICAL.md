@@ -148,7 +148,8 @@ The gateway uses Go's reverse proxy with WebSocket upgrades, streaming flushes, 
 ### App ports
 
 A machine exposes any number of TCP ports of its developer container (or,
-since migration 89, ports published by containers of its Docker daemon) as
+since migration 89, ports published by containers of its Docker daemon, and
+since migration 136 the port of a task's preview container) as
 **app ports**, the reviewer's entrypoints for manual QA. Each is served on its own
 host, `{routing-key}-{port}.{DEV_MACHINE_DOMAIN}`, with a canonical port number
 (1024–65535, no leading zero). Migration 85 stores them in `dev_machine_ports`
@@ -170,7 +171,8 @@ also read the list):
 - `POST /dev-machines/:machineId/ports` `{port, label?}` → 201; 409
   `PORT_EXISTS`, 422 `PORT_RESERVED` (a service port). The number of ports is
   not limited (migration 89 removed the ten-port limit and `PORT_LIMIT`).
-  Each port has a `target`, `developer` or `docker`.
+  Each port has a `target`: `developer`, `docker` or, for a task preview,
+  `preview`.
 - `PATCH /dev-machines/:machineId/ports/:portId` `{label}` renames it (`null`
   or `""` clears); `DELETE` removes it and revokes that host's sessions.
 - `POST /dev-machines/:machineId/ports/:portId/launch` returns the launch
@@ -207,7 +209,15 @@ container now listening on it (`target` `docker` when the daemon publishes it,
 else `developer`); a new port starts on the daemon when only it publishes the
 port. The gateway then proxies to `{routing-key}-docker:{port}`, while tickets
 and sessions keep naming the developer service row, so authorization is
-unchanged.
+unchanged. A task's preview port (`source` `task`) is the exception: its
+`target` is `preview` and the gateway proxies to the task's preview container,
+`{routing-key}-preview-{port}`, a name derived from the port alone, so the
+gateway role needs no further column. The scan asks each running preview
+container only whether its own port listens (never for port requests) and adds
+it to `listening_ports`. Such a port moves only between `preview` and `docker`
+(a preview command may publish it with `docker compose up`), never to
+`developer`: a process in the developer container on the same number does not
+receive the preview's traffic. Tickets and sessions are unchanged here too.
 
 Agents and people in the developer container use `kuayle-ports` (IDE and
 headless images): `kuayle-ports [list]` shows listening ports and their URLs,
@@ -230,13 +240,19 @@ with the run, so their prompt points the reviewer at the task preview below or
 at `kuayle-ports` in the machine terminal instead.
 
 Task previews (see the [agent task contract](BE/docs/agent-tasks.md#app-ports-and-qa))
-add `task` ports. A preview runs agent-written code in the developer container,
-next to its developer-scoped secrets, agent sign-ins and optional sudo, so it
-never starts by itself: only the task's creator starts it, from the task card
-or by approving the assistant's `start_preview`. Stopping or re-provisioning a
-machine ends their processes:
+add `task` ports. A preview runs agent-written code, so it runs in a container
+of its own, `kuayle-{routing-key}-preview-{taskId}`, created like a check
+container: the developer image and the workspace volume, but none of the
+developer container's secrets, agent sign-ins or sudo (read-only root, no
+capabilities, `no-new-privileges` even where the workspace allows sudo), and
+only `PORT`, `HOST`, the proxy and its temporary directory in its environment
+(plus the Docker daemon client on a machine with a daemon, as attempts get).
+It still serves that code to the creator's browser, so it never starts by
+itself: only the task's creator starts it, from the task card or by approving
+the assistant's `start_preview`. Stopping or re-provisioning a machine removes
+its preview containers:
 task ports are removed and their previews marked stopped, while user and agent
-ports are kept. Pausing freezes the processes, which resume with the machine.
+ports are kept. Pausing pauses the containers, which resume with the machine.
 The machine page lists ports, detected listeners, and expose, rename, open and
 remove controls; a task card starts, stops and opens its app.
 
@@ -274,9 +290,11 @@ inert under the locked configuration, and their `PATH` omits the workspace npm
 prefix below, so they run the image's pinned CLIs. Anything an agent writes to
 `/workspace` (including that prefix and Git hooks) can still run later in a
 person's terminal, with sudo if the machine has it; review agent changes as
-before. A task preview is such a run: it executes the worktree's preview
-command in the developer container, so Kuayle starts it only when the task's
-creator asks (see [App ports](#app-ports)), never when a task reaches review.
+before. A task preview is not such a run: Kuayle executes the worktree's
+preview command in the task's own preview container, which is never relaxed
+for sudo and holds none of the developer container's secrets (see
+[App ports](#app-ports)), and only when the task's creator asks, never when a
+task reaches review.
 
 **Upgrading CLIs without sudo.** Both developer images point npm's global
 config at `/etc/npmrc` (`NPM_CONFIG_GLOBALCONFIG`), which sets
@@ -1159,7 +1177,7 @@ Installation requires HTTPS (or `localhost`). Chrome and Edge offer Install in t
 
 ## Self-Hosted Deployment
 
-Outside `ENVIRONMENT=development`, `config.Load` and `config.LoadMachineGateway` refuse published secret values: anything starting with `CHANGE_ME` (the self-hosting example placeholders) or `local_dev_`, ending in `_do_not_use_prod` (the root Compose development defaults), or written as `<...>`. The check covers `JWT_SECRET`, the passwords inside `DATABASE_URL` and `DEV_MACHINE_GATEWAY_DATABASE_URL`, `SYSTEM_UPDATER_TOKEN`, `VOICE_INTERNAL_TOKEN`, `DEV_MACHINE_ENCRYPTION_KEY`, `SMTP_PASSWORD`, `S3_SECRET_KEY` and the GitHub App client and webhook secrets. Errors name the setting and never the value. The `dev-machines` profile preflight and `selfhosting/update.sh` apply the same rule before provisioning the gateway role or stopping services. The root development Compose stack keeps its literal defaults and publishes its ports on `127.0.0.1` only. `server migrate` does not load the full configuration and is not covered. See [Secrets must be generated](docs/self-hosting.md#secrets-must-be-generated).
+Outside `ENVIRONMENT=development`, `config.Load` and `config.LoadMachineGateway` refuse published secret values: anything starting with `CHANGE_ME` (the self-hosting example placeholders) or `local_dev_`, ending in `_do_not_use_prod` (the root Compose development defaults), or written as `<...>`. The check covers `JWT_SECRET`, the passwords inside `DATABASE_URL` and `DEV_MACHINE_GATEWAY_DATABASE_URL`, `SYSTEM_UPDATER_TOKEN`, `VOICE_INTERNAL_TOKEN`, `DEV_MACHINE_ENCRYPTION_KEY`, `SMTP_PASSWORD`, `S3_SECRET_KEY` and the GitHub App client and webhook secrets. Errors name the setting and never the value. The `dev-machines` profile preflight and `selfhosting/update.sh` apply the same rule before provisioning the gateway role or stopping services. The root development Compose stack keeps its literal defaults and publishes its ports on `127.0.0.1` only. `server migrate` does not load the full configuration and is not covered. See [Secrets must be generated](docs/self-hosting.md#secrets-must-be-generated). A database password equal to the Compose fallback (what the Compose files use when `POSTGRES_PASSWORD` is unset) is refused too, and `update.sh` refuses an unset `POSTGRES_PASSWORD`.
 
 The optional [release updater](selfhosting/RELEASE_UPDATER.md) supports detached release checkouts and digest-pinned production Compose deployments. It exports release source without changing the checkout, prepares images before downtime (pulling digest-pinned API, UI and, when active, Dev Machines control-plane/runtime images published by the release workflow; a Dev Machines image missing from GHCR is built locally from the release source), stops application/control-plane writers before a database backup and migrations, and waits for health before removing maintenance mode. Failure after migrations begin leaves writers stopped; it never restarts old binaries against a potentially changed schema.
 
@@ -1267,6 +1285,7 @@ The self-hosting `dev-machine-images` profile builds the IDE, headless developer
 - With sudo allowed (opt-in, `allow_sudo`), machine users are root in their IDE and terminal containers, with Docker's default capabilities minus `NET_RAW`, a writable root filesystem and no `no-new-privileges`. It is never privileged or given `NET_ADMIN`/`SYS_ADMIN`, and egress still goes through the proxy, but root in a container exposes more kernel surface (and anything readable inside the container regardless of file ownership) than the confined default. Agent attempts never get sudo.
 - Compose support for checks is a constrained subset run by the manager, not `docker compose`. Builds, mounts, privileges, host networking and published ports are rejected, because arbitrary untrusted Compose execution needs an isolated Docker daemon. Image pulls run on the host daemon, outside the egress proxy, so `DEV_MACHINE_COMPOSE_IMAGES` restricts them to official Docker Hub images by default.
 - The default model server's key is delivered into every developer container, and a run's server key into its agent container, so any member who can create a machine can read it from a terminal or have an agent reveal it. The API never returns it, but treat model server keys as shared with those members (SECURITY_AUDIT.md KS-08).
+- A task preview runs in its own container without the developer container's secrets, sign-ins or sudo, but, like every agent attempt and check, it shares the machine's workspace volume and private network. It can therefore change files a person later runs in the terminal, and reach the machine's other containers on that network, where code-server and the terminal listen without the gateway's authentication (SECURITY_AUDIT.md KS-17). A preview has the isolation of an agent attempt, not more. Review agent changes before running them yourself (SECURITY_AUDIT.md KS-24).
 - Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.
 - Provider adapters can construct interactive invocations, but agent tasks queue autonomous agent runs and no interactive-agent attach endpoint is exposed. Direct interactive use of the built-in CLIs is available through Kuayle's native xterm terminal; ttyd's web page is not exposed.
 - Workspace hard quotas require Docker local-volume project-quota support; the manager intentionally fails startup rather than run machines with an unbounded workspace.
@@ -1282,6 +1301,7 @@ The October 2026 audit ([SECURITY_AUDIT.md](SECURITY_AUDIT.md)) added these inva
 - Assets are served with their stored content type only when it is in `domain.AssetContentTypeExtensions`; any other type, including one restored from a workspace import, is served as `application/octet-stream` attachment. Import normalizes the type too.
 - A workspace archive is caller-supplied input. Import passes its rich-text columns through the sanitizers the write paths use (`importedTextSanitizers` in `internal/service/workspace_transfer.go`: issue titles and descriptions, comment bodies, project names and descriptions, template descriptions, recorded description versions); a new archive column that holds HTML must be added there. In the UI, stored HTML is turned into text only through `$lib/security/plain-text` (an inert `DOMParser` document, never `innerHTML`), and links read back from stored content (wiki file list, attachment nodes) go through `safeFileUrl`, which keeps `http(s)` and `/api/` addresses only.
 - Stored rich text keeps only the class names the editor and renderers emit: `editor-attachment`, `mention`, `mention-issue`, `registry-ref`, the editor link classes and `language-<name>` on code blocks. Both sanitizers drop every other class (`pkg/sanitize/editor_classes.go`, `$lib/security/editor-classes`), so stored content cannot use the app's utility classes to restyle the page. `BE/pkg/sanitize/testdata/editor_html_contract.json` is read by the Go, UI unit and browser tests; a new editor class must be added in both lists and that file. Issue template descriptions go through `sanitize.SanitizeEditorContent` on create and update, like issue descriptions.
+- Images in stored rich text load on their own only when the app serves them (uploaded assets, signed asset links, anything same-origin). The backend keeps accepting `http(s)` images and stored content is never rewritten; the rule is applied when rendering. `sanitizeHtml` (`$lib/security/sanitize`) moves the address of an image from any other host to `data-remote-src`, so rendering makes no request, and the `remoteImages` action on the document body (`src/routes/+layout.svelte`, `$lib/components/shared/remote-images.action`) puts a placeholder naming the host next to it, with "Load image" and "Always load from <host>" (kept per browser in `localStorage`). The editor's image node view follows the same rule, except for images the user pastes or drops in during the session. Because the sanitizer removes the `src`, a surface that renders sanitized HTML needs no code of its own, and one outside the action shows no remote image at all. `sanitizeEditorOutput` is the only variant that keeps remote addresses, for saving; release notes rendered through `renderMarkdown` with a link check load their already-restricted images directly.
 - Outbound requests to workspace-chosen URLs (AI provider `base_url`) dial through `validate.PublicAddressControl`, never follow redirects, and keep transport errors server-side. `AI_ALLOW_PRIVATE_NETWORK=true` lets operators use a private-network provider, which trusts every workspace owner with internal access.
 - With the shared GitHub App, installation callbacks require the installing user's OAuth code and the installation in `GET /user/installations`; enable "Request user authorization (OAuth) during installation" and set `GITHUB_APP_CLIENT_ID`/`GITHUB_APP_CLIENT_SECRET`. Being listed is not enough, because GitHub lists an installation to every user who can reach one repository it covers: the installation is bound only when its account, as GitHub reports it for that grant, is the OAuth user's own account (`GET /user`, compared by numeric id) or an organization where `GET /user/memberships/orgs/{org}` returns `role: admin` and `state: active` for the same organization id. That lookup needs the shared app's organization permission **Members: Read-only**; when it fails or is forbidden, and for any other account type, the callback returns 403 `GITHUB_INSTALLATION_UNVERIFIED` and binds nothing. Per-workspace (manifest) apps skip this check because only their own workspace can resolve their installations, so the manifest does not request the permission.
 - Issue, project and template writes reject users who are not workspace members and labels, cycles and statuses from other workspaces; repository unlinks are workspace-scoped; the public GitHub webhook body is capped at 25 MB, and each signed delivery (`X-GitHub-Delivery`) is processed at most once (`github_webhook_deliveries`, kept seven days; see [replay protection](BE/docs/github-integration.md#replay-protection)).

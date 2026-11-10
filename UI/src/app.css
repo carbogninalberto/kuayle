@@ -863,3 +863,8 @@ html.pointer-cursors [data-slot="switch"] {
 	font-size: 0.65rem;
 	text-transform: uppercase;
 }
+
+/* A remote image waiting for the reader (see $lib/security/remote-images) shows only its placeholder. */
+img[data-remote-src] {
+	display: none !important;
+}

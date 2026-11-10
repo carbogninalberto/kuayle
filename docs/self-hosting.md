@@ -41,6 +41,8 @@ This applies to `POSTGRES_PASSWORD` and `JWT_SECRET`, and to `SYSTEM_UPDATER_TOK
 
 Unless `ENVIRONMENT=development`, Kuayle refuses to start while one of these settings (or `SMTP_PASSWORD`, `S3_SECRET_KEY`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_WEBHOOK_SECRET`) still holds an example placeholder, a development default from the repository's root `.env.example`, or a `<...>` value copied from this guide. The backend and the machine gateway exit with an error that names the setting (never its value), the `dev-machines` profile preflight fails, and `update.sh` stops before rebuilding or stopping anything. Check `docker compose logs backend` if the site does not come up.
 
+The same applies when `POSTGRES_PASSWORD` is not set at all: the Compose files then fall back to a password that is published in this repository, and Kuayle and `update.sh` refuse it the same way. If your `.env` has no `POSTGRES_PASSWORD` line, your database uses that fallback today; change it as described below before upgrading.
+
 To replace a placeholder on an instance that is already running:
 
 - `JWT_SECRET`, `SYSTEM_UPDATER_TOKEN`, `VOICE_INTERNAL_TOKEN`: set the new value in `.env` and recreate the services that use it (`docker compose up -d`, adding `--profile updater` or `--profile voice` when those are in use). Changing `JWT_SECRET` signs everyone out.

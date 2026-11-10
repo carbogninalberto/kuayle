@@ -48,12 +48,14 @@ type PortRequest struct {
 }
 
 // PortScan is the developer container's listening TCP ports, the agent
-// requests taken (and removed) from it, and the ports published by containers
-// of the machine's Docker daemon (listening in the docker service container).
+// requests taken (and removed) from it, the ports published by containers
+// of the machine's Docker daemon (listening in the docker service container)
+// and the ports of the task preview containers that listen.
 type PortScan struct {
 	Listening []int
 	Requests  []PortRequest
 	Docker    []int
+	Preview   []int
 }
 
 // parsePortScan reads the scan script's output: /proc/net/tcp{,6} lines in
@@ -299,8 +301,9 @@ func (m *Manager) scanPorts(ctx context.Context) error {
 	return nil
 }
 
-// syncMachinePorts scans the developer container, applies the agent requests
-// it found, records the listening ports and publishes the result to agents.
+// syncMachinePorts scans the developer container, the Docker daemon and the
+// task preview containers, applies the agent requests it found, records the
+// listening ports and publishes the result to agents.
 // It also collects the agents' outbox messages.
 func (m *Manager) syncMachinePorts(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) error {
 	_, err := m.syncPorts(ctx, machine, services)
@@ -312,18 +315,18 @@ func (m *Manager) syncPorts(ctx context.Context, machine *domain.DevMachine, ser
 	if !developerRunning(services) {
 		return nil, nil
 	}
-	scan, err := m.runtime.ScanPorts(ctx, services)
+	scan, err := m.runtime.ScanPorts(ctx, machine, services)
 	if err != nil {
 		return nil, err
 	}
-	listening := make([]int, 0, len(scan.Listening)+len(scan.Docker))
+	listening := make([]int, 0, len(scan.Listening)+len(scan.Docker)+len(scan.Preview))
 	docker := make([]int, 0, len(scan.Docker))
 	for _, port := range scan.Docker {
 		if servicePortReason(services, port) == "" && !slices.Contains(docker, port) {
 			docker = append(docker, port)
 		}
 	}
-	for _, port := range append(append([]int{}, scan.Listening...), docker...) {
+	for _, port := range slices.Concat(scan.Listening, docker, scan.Preview) {
 		if servicePortReason(services, port) == "" && !slices.Contains(listening, port) {
 			listening = append(listening, port)
 		}
@@ -477,9 +480,11 @@ func choosePreviewPort(preferred *int, own *domain.DevMachinePort, services []do
 	return 0, false
 }
 
-// startPreview runs a task's preview command in its worktree on the developer
-// container, on its own port and app port. Other tasks' previews keep running.
-// Failures are recorded on the task; only infrastructure errors are retried.
+// startPreview runs a task's preview command in its worktree, in that task's
+// own preview container, on its own port and app port. The command is code
+// the agent wrote, so it never runs in the developer container. Other tasks'
+// previews keep running. Failures are recorded on the task; only
+// infrastructure errors are retried.
 func (m *Manager) startPreview(ctx context.Context, machine *domain.DevMachine, op *domain.DevMachineOperation) error {
 	if op.AgentTaskID == nil {
 		return nil
@@ -539,7 +544,15 @@ func (m *Manager) startPreview(ctx context.Context, machine *domain.DevMachine, 
 			return err
 		}
 	}
-	if err = m.runtime.StartPreview(ctx, machine, services, checkout, task.ID, argv, number); err != nil {
+	// On a machine with a Docker daemon the preview may use it, as an agent
+	// run of the task may. It receives nothing else.
+	var docker map[string]string
+	if hasDockerService(services) {
+		if docker, err = m.dockerDaemonAccess(ctx, machine); err != nil {
+			return err
+		}
+	}
+	if err = m.runtime.StartPreview(ctx, machine, services, checkout, task.ID, argv, number, docker); err != nil {
 		if stopErr := m.store.StopTaskPreview(ctx, task.ID); stopErr != nil {
 			return stopErr
 		}
@@ -556,28 +569,28 @@ func (m *Manager) startPreview(ctx context.Context, machine *domain.DevMachine, 
 	return nil
 }
 
-// stopPreview kills one task's preview process group, removes its app port and
-// records the preview as stopped. Other tasks' previews keep running.
+// stopPreview removes one task's preview container, removes its app port and
+// records the preview as stopped. Other tasks' previews keep running. The
+// container is removed in any machine state: a task can finish while its
+// machine is paused.
 func (m *Manager) stopPreview(ctx context.Context, machine *domain.DevMachine, op *domain.DevMachineOperation) error {
 	if op.AgentTaskID == nil {
 		return nil
 	}
 	var services []domain.DevMachineService
-	if machine.Status == domain.DevMachineStatusRunning {
+	if machine.Status != domain.DevMachineStatusDestroyed {
 		var err error
 		if services, err = m.store.ListServices(ctx, machine.WorkspaceID, machine.ID); err != nil {
 			return err
 		}
-		if developerRunning(services) {
-			if err = m.runtime.StopPreview(ctx, services, *op.AgentTaskID); err != nil {
-				return err
-			}
+		if err = m.runtime.StopPreview(ctx, machine, services, *op.AgentTaskID); err != nil {
+			return err
 		}
 	}
 	if err := m.store.StopTaskPreview(ctx, *op.AgentTaskID); err != nil {
 		return err
 	}
-	if len(services) > 0 {
+	if machine.Status == domain.DevMachineStatusRunning && len(services) > 0 {
 		if _, err := m.syncPorts(ctx, machine, services); err != nil {
 			log.WithFields(log.Fields{"machine_id": machine.ID, "event_type": "machine.port_scan"}).WithError(err).Debug("post-preview port scan failed")
 		}
@@ -598,8 +611,9 @@ func (m *Manager) stalePreview(ctx context.Context, op *domain.DevMachineOperati
 	return m.store.SetTaskPreview(ctx, target.Task.ID, domain.AgentTaskPreviewFailed, &message, nil)
 }
 
-// previewsEnded records that the machine's preview processes ended with its
-// containers. Owner and agent ports are kept.
+// previewsEnded records that the machine's previews ended: their containers
+// were removed with the machine's (Runtime.RemovePreviews, or a teardown).
+// Owner and agent ports are kept.
 func (m *Manager) previewsEnded(ctx context.Context, machine *domain.DevMachine) {
 	if err := m.store.StopMachinePreviews(ctx, machine.ID); err != nil {
 		log.WithFields(log.Fields{"machine_id": machine.ID, "event_type": "machine.preview_stop"}).WithError(err).Warn("failed to record stopped previews")
