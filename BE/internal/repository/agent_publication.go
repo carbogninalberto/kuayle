@@ -74,6 +74,12 @@ func (r *DevMachineRepository) GetPublication(ctx context.Context, op domain.Dev
 		return nil, err
 	}
 	publication.AuthorName, publication.AuthorEmail = name.String, email.String
+	// The bot's name and picture sign the description; abilities are not needed.
+	bot := domain.GitHubBotSettings{WorkspaceID: task.WorkspaceID}
+	if err = tx.QueryRowContext(ctx, `SELECT display_name,avatar_url,avatar_file FROM workspace_github_bot_settings WHERE workspace_id=$1`, task.WorkspaceID).Scan(&bot.DisplayName, &bot.AvatarURL, &bot.AvatarFile); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	publication.Bot = &bot
 	// The branch's last commit Kuayle pushed; commits merely observed in the
 	// checkout do not count.
 	var published sql.NullString

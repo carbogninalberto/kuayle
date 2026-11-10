@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+	githubAppLogoSettingsUrl,
 	githubAppSetupView,
 	githubEventLabel,
 	githubPermissionLabel
@@ -85,4 +86,19 @@ test('only GitHub pages are offered as links', () => {
 	assert.equal(view.action, null);
 	const pending = githubAppSetupView({ ...base, state: 'installation_pending', installation_url: 'javascript:alert(1)' });
 	assert.equal(pending.action, null);
+});
+
+test('logo: GitHub has no logo API, so link the app page that holds Display information', () => {
+	assert.equal(
+		githubAppLogoSettingsUrl({ ...base, state: 'ok' }),
+		'https://github.com/organizations/acme/settings/apps/kuayle-acme'
+	);
+	assert.equal(
+		githubAppLogoSettingsUrl({ ...base, state: 'ok', app_settings_url: 'https://github.com/settings/apps/kuayle-acme/permissions' }),
+		'https://github.com/settings/apps/kuayle-acme'
+	);
+	// An operator-managed app is not the workspace's to change.
+	assert.equal(githubAppLogoSettingsUrl({ ...base, state: 'ok', managed: true }), null);
+	assert.equal(githubAppLogoSettingsUrl({ ...base, state: 'ok', app_settings_url: undefined }), null);
+	assert.equal(githubAppLogoSettingsUrl({ ...base, state: 'ok', app_settings_url: 'https://evil.test/settings/apps/x/permissions' }), null);
 });
