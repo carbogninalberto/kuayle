@@ -261,7 +261,8 @@ func (h *GitHubHandler) AgentIssueLinks(c *echo.Context) error {
 	return response.Success(c, http.StatusOK, activity)
 }
 
-// HandleWebhook receives incoming GitHub webhook events (public endpoint).
+// HandleWebhook receives incoming GitHub webhook events (public endpoint):
+// bounded body, signature, then at-most-once processing per delivery ID.
 func (h *GitHubHandler) HandleWebhook(c *echo.Context) error {
 	signature := c.Request().Header.Get("X-Hub-Signature-256")
 	eventType := c.Request().Header.Get("X-GitHub-Event")
@@ -279,7 +280,17 @@ func (h *GitHubHandler) HandleWebhook(c *echo.Context) error {
 		return c.NoContent(http.StatusUnauthorized)
 	}
 
-	if err := h.ghSvc.HandleWebhookEvent(c.Request().Context(), eventType, body); err != nil {
+	// GitHub identifies every delivery. Without the ID a captured delivery
+	// could not be told apart from a replay, so it is required once the
+	// signature proved the sender.
+	deliveryID := c.Request().Header.Get("X-GitHub-Delivery")
+	if !service.ValidWebhookDeliveryID(deliveryID) {
+		return c.NoContent(http.StatusBadRequest)
+	}
+
+	// A delivery that was already processed is acknowledged without being
+	// processed again, so GitHub does not report it as failed.
+	if _, err := h.ghSvc.HandleWebhookDelivery(c.Request().Context(), eventType, deliveryID, body); err != nil {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 

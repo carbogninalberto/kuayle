@@ -352,7 +352,8 @@ type AgentTaskSignalInput struct {
 	Kind, ExternalID, Outcome, Name, Summary, URL string
 	// HeadSHA must match the published commit for CI; reviews leave it empty.
 	HeadSHA string
-	// Trusted is false for reviews by authors without write association.
+	// Trusted is true for a changes_requested review whose author GitHub
+	// confirmed can push to the repository.
 	Trusted bool
 }
 

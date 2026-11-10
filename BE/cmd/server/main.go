@@ -417,6 +417,8 @@ func main() {
 	go agentMessageSvc.Run(conversationCtx, 10*time.Second)
 	go automationSvc.Run(conversationCtx)
 	go githubSvc.RunMergeReconciliation(conversationCtx, 2*time.Minute)
+	// Replay markers of GitHub webhook deliveries expire after a few days.
+	go githubSvc.RunWebhookDeliveryCleanup(conversationCtx, time.Hour)
 	go githubSvc.RunReviewComments(conversationCtx, 15*time.Second)
 	go telegramSvc.Run(conversationCtx)
 	// Removes expired scan checkouts (and roots a crashed process left), and

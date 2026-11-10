@@ -82,6 +82,9 @@ type GitHubService struct {
 	mentionReviews mentionReviewer
 	// githubHTTPClient replaces the GitHub API transport in tests.
 	githubHTTPClient *http.Client
+	// repositoryPermission asks GitHub which permission a user has on a linked
+	// repository (admin, write, read or none); replaced in tests.
+	repositoryPermission func(ctx context.Context, inst *domain.GitHubInstallation, repo *domain.GitHubRepoModel, login string) (string, error)
 }
 
 type mergedPullRequestCompleter interface {
@@ -1435,13 +1438,20 @@ func (s *GitHubService) processReviewEvent(ctx context.Context, payload []byte) 
 	if err = s.requireAbility(ctx, inst.WorkspaceID, domain.GitHubBotTaskFeedback); err != nil {
 		return ignoreDisabledAbility(err)
 	}
-	// Only reviewers with write association can steer a coding agent.
-	association := event.Review.AuthorAssociation
 	in := domain.AgentTaskSignalInput{
 		Kind: "review", ExternalID: strconv.FormatInt(event.Review.ID, 10), Outcome: normalizedOutcome(event.Review.State),
 		Name: truncateRunes(event.Review.User.Login, 200), Summary: truncateRunes(event.Review.Body, 4000),
-		URL:     fmt.Sprintf("https://github.com/%s/pull/%d", repo.FullName, event.PullRequest.Number),
-		Trusted: association == "OWNER" || association == "MEMBER" || association == "COLLABORATOR",
+		URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo.FullName, event.PullRequest.Number),
+	}
+	// Only reviewers who can push to the repository can steer a coding agent;
+	// see authorCanWrite. Trust only matters for a changes_requested review
+	// (the one that queues a follow-up), so other reviews are recorded without
+	// asking GitHub. A failed lookup fails the delivery and records nothing.
+	if in.Outcome == "changes_requested" {
+		if in.Trusted, err = s.authorCanWrite(ctx, inst, repo, event.Review.AuthorAssociation, event.Review.User.Login); err != nil {
+			log.WithFields(log.Fields{"workspace_id": inst.WorkspaceID, "repo_id": repo.ID, "pr_number": event.PullRequest.Number}).WithError(err).Warn("Could not confirm a reviewer can write; redeliver the event after recovery")
+			return err
+		}
 	}
 	if err := s.taskSignals.Record(ctx, inst.WorkspaceID, repo.FullName, event.PullRequest.Number, in); err != nil {
 		return fmt.Errorf("recording review: %w", err)
