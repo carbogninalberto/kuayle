@@ -100,8 +100,23 @@ test('an assignee drop keeps co-assignees and replaces only the old primary', ()
 		kind: 'update',
 		patch: { assignee_ids: ['bo'] }
 	});
+	// To Unassigned removes only the source group's assignee.
 	assert.deepEqual(resolveGroupDrop(shared, 'assignee', 'unassigned', statuses), {
 		kind: 'update',
-		patch: { assignee_ids: [] }
+		patch: { assignee_ids: ['bo'] }
 	});
+	assert.deepEqual(
+		resolveGroupDrop(issue({ assignee_id: 'anna', assignees: [{ id: 'anna' }] }), 'assignee', 'unassigned', statuses),
+		{ kind: 'update', patch: { assignee_ids: [] } }
+	);
+	// From Unassigned adds the target.
+	assert.deepEqual(resolveGroupDrop(issue(), 'assignee', 'carl', statuses), {
+		kind: 'update',
+		patch: { assignee_ids: ['carl'] }
+	});
+});
+
+test('an optimistically cleared project (empty string) is the no-project group', () => {
+	assert.equal(issueGroupKey(issue({ project_id: '' }), 'project'), 'no-project');
+	assert.deepEqual(resolveGroupDrop(issue({ project_id: '' }), 'project', 'no-project', statuses), { kind: 'noop' });
 });

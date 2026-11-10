@@ -74,6 +74,10 @@
 		currentWorkspace.membership?.workspace.slug === slug &&
 			hasPermission(currentWorkspace.membership.workspace.current_user_role as Role, 'view:manage')
 	);
+	const canUpdateIssues = $derived(
+		currentWorkspace.membership?.workspace.slug === slug &&
+			hasPermission(currentWorkspace.membership.workspace.current_user_role as Role, 'issue:update')
+	);
 	let lastSelectedId = $state<string | null>(null);
 	let dragOverGroup = $state<string | null>(null);
 	let dragSourceGroup = $state<string | null>(null);
@@ -225,7 +229,7 @@
 		targetPosition: 'above' | 'below' = dropPosition
 	) {
 		const gb = issuesState.groupBy;
-		if (!gb) return;
+		if (!gb || !canUpdateIssues) return;
 
 		const sourceIssue = issuesState.issues.find((issue) => issue.identifier === issueIdentifier);
 		if (!sourceIssue) return;
@@ -497,7 +501,7 @@
 							dragOverIssueId = null;
 						}}
 						ondragover={(e) => {
-							if (!isIssueDrag(e.dataTransfer)) return;
+							if (!canUpdateIssues || !isIssueDrag(e.dataTransfer)) return;
 							e.preventDefault();
 							if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
 							dragOverGroup = dropKey;
@@ -509,7 +513,7 @@
 							}
 						}}
 						ondrop={(e) => {
-							if (!isIssueDrag(e.dataTransfer)) return;
+							if (!canUpdateIssues || !isIssueDrag(e.dataTransfer)) return;
 							e.preventDefault();
 							dragOverGroup = null;
 							dragOverIssueId = null;
@@ -534,7 +538,7 @@
 								<div
 									class="relative"
 									ondragover={(e) => {
-										if (!isIssueDrag(e.dataTransfer)) return;
+										if (!canUpdateIssues || !isIssueDrag(e.dataTransfer)) return;
 										e.preventDefault();
 										dragOverIssueId = issue.id;
 										const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -545,7 +549,7 @@
 										dragOverIssueId = null;
 									}}
 									ondrop={(e) => {
-										if (!isIssueDrag(e.dataTransfer)) return;
+										if (!canUpdateIssues || !isIssueDrag(e.dataTransfer)) return;
 										e.preventDefault();
 										e.stopPropagation();
 										dragOverGroup = null;
@@ -563,6 +567,7 @@
 									{/if}
 									<IssueRow
 										{issue}
+										readOnly={!canUpdateIssues}
 										{slug}
 										{members}
 										{labels}
@@ -582,6 +587,7 @@
 				{#each issuesState.issues as issue (issue.id)}
 					<IssueRow
 						{issue}
+						readOnly={!canUpdateIssues}
 						{slug}
 						{members}
 						{labels}

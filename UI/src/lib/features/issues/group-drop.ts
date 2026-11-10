@@ -50,7 +50,7 @@ export function issueGroupKey(issue: DropIssue, groupBy: DropGroupBy): string {
 		case 'assignee':
 			return issue.assignee_id ?? 'unassigned';
 		case 'project':
-			return issue.project_id ?? 'no-project';
+			return issue.project_id || 'no-project';
 		default:
 			return 'all';
 	}
@@ -76,13 +76,13 @@ export function statusForIssueTeam(issue: DropIssue, targetStatusId: string, sta
 }
 
 // The first id becomes the primary assignee, which decides the group, so the dropped-on
-// person goes first. Co-assignees stay; only the old primary is replaced.
+// person goes first. Only the source group's assignee (the old primary) is replaced or
+// removed; co-assignees stay. A drag from a group that is not an assignee just adds.
 function assigneesAfterDrop(issue: DropIssue, groupKey: string): string[] {
-	if (groupKey === 'unassigned') return [];
 	const others = (issue.assignees ?? [])
 		.map((assignee) => assignee.id)
 		.filter((id) => id !== groupKey && id !== issue.assignee_id);
-	return [groupKey, ...others];
+	return groupKey === 'unassigned' ? others : [groupKey, ...others];
 }
 
 export function resolveGroupDrop(
