@@ -332,3 +332,16 @@ func TestAgentTaskAndWorkflowReadsRejectGuestsAndUnscopedTokens(t *testing.T) {
 		}
 	}
 }
+
+// Resuming a task paused by a usage limit is a session-only control, like retry.
+func TestUsageLimitResumeRoutesAreSessionOnly(t *testing.T) {
+	e := echo.New()
+	registerRoutes(e, &appHandlers{}, testMiddleware(noopMiddleware()))
+	names := map[string]string{}
+	for _, route := range e.Router().Routes() {
+		names[route.Method+" "+route.Path] = route.Name
+	}
+	for _, key := range []string{"POST /api/workspaces/:slug/agent-tasks/:taskId/resume", "DELETE /api/workspaces/:slug/agent-tasks/:taskId/resume"} {
+		require.Equal(t, "session", names[key], key)
+	}
+}

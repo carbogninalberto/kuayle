@@ -1520,3 +1520,14 @@ or the task has published a newer commit:
 `request_agent_review` for the new head. Re-running a review still pins the
 commit Kuayle published; reviewing others' commits needs the checkout updated by
 the next publication.
+
+## Usage limits
+
+When the agent's provider refuses work until a quota resets (for example Claude
+Code's "You've hit your 5-hour limit · resets 4:10am (UTC)"), the task is paused,
+not failed: it becomes `blocked` with `usage_limit_message`,
+`usage_limit_resets_at` and `usage_limit_resume_at`, keeps its worktree and
+session, and resumes on its own after the reset by continuing the same native
+session. The creator's other queued tasks for that agent wait for the reset.
+`POST /agent-tasks/:taskId/resume` resumes now and `DELETE` on the same path
+turns the automatic resume off. See TECHNICAL.md, "Usage limits".
