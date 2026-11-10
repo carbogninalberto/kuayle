@@ -373,7 +373,7 @@ private teams, invite and shared links.
 | --- | --- | --- | --- | --- |
 | KS-22 | High | Fixed (#175) | Workspace import stored unsanitized HTML that UI helpers parsed with `innerHTML` | `BE/internal/service/workspace_transfer.go:685`, `UI/src/lib/components/layout/CommandPalette.svelte:134` |
 | KS-23 | High | Fixed (#173) | Publication ran git with the agent-writable checkout configuration in the developer container | `BE/internal/machine/docker_publication.go:34` |
-| KS-24 | High | Fixed (#172, preview container) | Task previews ran agent-written code in the developer container without approval | `BE/internal/repository/agent_task.go:273`, `BE/internal/machine/docker_preview.go` |
+| KS-24 | High | Fixed (#172, #196) | Task previews ran agent-written code in the developer container without approval | `BE/internal/repository/agent_task.go:273`, `BE/internal/machine/docker_preview.go` |
 | KS-25 | Medium | Fixed (#176) | Public share search matched fields the share hides | `BE/internal/service/shared_link.go:467`, `BE/internal/repository/issue.go:206` |
 | KS-26 | Medium | Fixed (#176) | Public query parameters replaced a share's stored filters | `BE/internal/service/shared_link.go:458` |
 | KS-27 | Medium | Fixed (#177) | Any member's comment started a follow-up run with the task creator's credentials | `BE/internal/repository/agent_signals.go:137` |
@@ -442,7 +442,8 @@ just wrote, so agent-written code started there before anyone had seen it.
 
 **Fix.** Reaching review starts nothing; a preview starts only on the task
 creator's request or the assistant's approved `start_preview` (#172). A
-preview the creator starts no longer runs in the developer container either:
+preview the creator starts no longer runs in the developer container either
+(#196):
 each task's preview runs in its own container, created like a check container
 (read-only root, no capabilities, `no-new-privileges` even on machines that
 allow sudo), with `PORT`, `HOST`, the proxy and a temporary directory as its
