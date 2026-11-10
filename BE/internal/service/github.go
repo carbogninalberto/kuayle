@@ -51,7 +51,8 @@ type GitHubService struct {
 	frontendURL    string
 	webhookURL     string                 // optional override (e.g. smee.io for dev)
 	globalApp      *GlobalGitHubAppConfig // nil = self-hosted mode
-	// installationAccess verifies a shared-app installation callback.
+	// installationAccess reports whether the user behind a shared-app
+	// installation callback owns the installation or administers its organization.
 	installationAccess func(ctx context.Context, code string, installationID int64) (bool, error)
 	// taskReviews finalizes agent tasks whose recorded pull request merged.
 	taskReviews mergedPullRequestCompleter
@@ -119,7 +120,7 @@ func NewGitHubService(
 	webhookURL string,
 	globalApp *GlobalGitHubAppConfig,
 ) *GitHubService {
-	return &GitHubService{
+	s := &GitHubService{
 		ghRepo:         ghRepo,
 		apps:           &appCache{items: map[uuid.UUID]cachedApp{}},
 		issueRepo:      issueRepo,
@@ -131,10 +132,11 @@ func NewGitHubService(
 		frontendURL:    frontendURL,
 		webhookURL:     webhookURL,
 		globalApp:      globalApp,
-		installationAccess: func(ctx context.Context, code string, installationID int64) (bool, error) {
-			return gh.UserCanAccessInstallation(ctx, nil, globalApp.ClientID, globalApp.ClientSecret, code, installationID)
-		},
 	}
+	s.installationAccess = func(ctx context.Context, code string, installationID int64) (bool, error) {
+		return gh.UserControlsInstallation(ctx, s.githubHTTPClient, globalApp.ClientID, globalApp.ClientSecret, code, installationID)
+	}
+	return s
 }
 
 // getClient creates a GitHub API client. In global mode, uses shared credentials;
@@ -338,12 +340,13 @@ func (s *GitHubService) GetInstallURL(ctx context.Context, workspaceID uuid.UUID
 }
 
 // ErrGitHubInstallationUnverified reports a shared-app installation callback
-// that does not prove the installing user can access the installation.
-var ErrGitHubInstallationUnverified = errors.New("GitHub installation could not be verified for this user; enable \"Request user authorization (OAuth) during installation\" on the GitHub App and install again")
+// that does not prove the installing user controls the installation.
+var ErrGitHubInstallationUnverified = errors.New("GitHub installation could not be verified for this user; it must be connected by the GitHub account it is installed on or by an owner of that organization. The GitHub App needs \"Request user authorization (OAuth) during installation\" and the organization permission \"Members: Read-only\"")
 
 // HandleInstallationCallback processes the GitHub App installation callback.
 // A shared app's installations belong to many workspaces, so in global mode
-// code must be the OAuth code GitHub issued to the installing user.
+// code must be the OAuth code GitHub issued to the installing user, and that
+// user must own the installation's account or be an admin of its organization.
 func (s *GitHubService) HandleInstallationCallback(ctx context.Context, workspaceID, userID uuid.UUID, installationID int64, code string) (*domain.GitHubInstallation, error) {
 	existing, err := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
 	if err != nil {
