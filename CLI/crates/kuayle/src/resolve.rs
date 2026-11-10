@@ -141,12 +141,11 @@ impl Resolver {
     }
 
     fn cache_path(&self, kind: ResolveKind) -> Option<PathBuf> {
-        let dir = dirs::cache_dir()?;
+        let dir = crate::config::cache_dir()?;
         let url_str = self.client.base_url().to_string();
         let hash = hash_url(&url_str);
         Some(
-            dir.join("kuayle")
-                .join("resolve")
+            dir.join("resolve")
                 .join(&hash)
                 .join(&self.workspace)
                 .join(kind.cache_file_name())

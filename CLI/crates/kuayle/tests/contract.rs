@@ -51,6 +51,14 @@ impl Live {
         cmd.env("HOME", self.home.path())
             .env("XDG_CONFIG_HOME", self.home.path().join(".config"))
             .env("XDG_CACHE_HOME", self.home.path().join(".cache"))
+            .env(
+                "KUAYLE_CONFIG_DIR",
+                self.home.path().join(".config").join("kuayle"),
+            )
+            .env(
+                "KUAYLE_CACHE_DIR",
+                self.home.path().join(".cache").join("kuayle"),
+            )
             .env("KUAYLE_URL", &self.url)
             .env("KUAYLE_WORKSPACE", &self.workspace)
             .env("KUAYLE_CREDENTIAL_STORE", "file")

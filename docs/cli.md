@@ -42,7 +42,9 @@ kuayle auth login --url https://kuayle.example.com --workspace acme --token kuay
 kuayle auth status
 ```
 
-The token is stored in the OS keychain (or a `0600` file). `--workspace` is saved
+The token is stored in the OS keychain (or a `0600` file). Configuration lives in
+the OS config folder (`~/.config/kuayle` on Linux); set `KUAYLE_CONFIG_DIR` or
+`KUAYLE_CACHE_DIR` to use other directories. `--workspace` is saved
 to the profile; `--workspace` or `KUAYLE_WORKSPACE` overrides it per command.
 Commands that need a workspace fail with exit code 4 when none is set.
 
