@@ -58,3 +58,28 @@ func TestIssueCommentsFromSessionsBecomeTaskFeedback(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, feedback.comments, 1, "a comment an agent posts for the user is not feedback")
 }
+
+// API clients and agents write comments as Markdown; the editor sends HTML.
+// Both are stored as the HTML the comment thread renders.
+func TestCommentBodiesAcceptMarkdownAndHTML(t *testing.T) {
+	issueRepo := newTestIssueRepo()
+	hub := realtime.NewHub()
+	comments := service.NewCommentService(&testCommentRepo{}, issueRepo, hub, service.NewNotificationService(&testNotifRepo{}))
+	create := func(body string) string {
+		t.Helper()
+		comment, err := comments.Create(context.Background(), uuid.New(), uuid.New(), dto.CreateCommentRequest{Body: body})
+		require.NoError(t, err)
+		return comment.Body
+	}
+
+	markdown := create("## Done\n\n- first\n- **second**")
+	require.Contains(t, markdown, "<h2>Done</h2>")
+	require.Contains(t, markdown, "<li>")
+	require.Contains(t, markdown, "<strong>second</strong>")
+	require.NotContains(t, markdown, "##")
+	require.NotContains(t, markdown, "**")
+
+	require.Equal(t, "<p>Rename the <strong>flag</strong></p>", create("<p>Rename the <strong>flag</strong></p>"), "editor HTML is kept")
+	require.Contains(t, create("Looks done"), "Looks done")
+	require.NotContains(t, create(`plain <script>alert(1)</script> text`), "<script")
+}

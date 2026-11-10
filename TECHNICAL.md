@@ -1129,6 +1129,16 @@ document generated from the route registry and the DTOs, served at
 it, including every Dev Machine route above, are internal. See the
 [API guide](docs/api.md) for the generator and the tests that keep it in sync.
 
+## MCP server
+
+`POST /mcp` is a stateless Streamable HTTP [MCP server](docs/mcp.md) in
+[`BE/internal/mcp`](BE/internal/mcp). It accepts personal access tokens only and has
+no logic of its own: each tool and resource is a row naming an API route, and a call
+is dispatched in-process through the application router with the caller's token and
+client address. The `scoped` annotation, token scope, workspace RBAC, team privacy
+and validation of that route therefore apply unchanged, and services record the
+token's user. `/mcp` has its own per-address rate limit.
+
 ## Command-line interface
 
 The `kuayle` CLI and Rust SDK live in [`CLI/`](CLI/) (MIT, originally by @uiYzzi;

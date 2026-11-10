@@ -35,6 +35,7 @@ func TestRoutePermissionAnnotations(t *testing.T) {
 		devMachineDemoGuard:    noopMiddleware(),
 		machineEventsRateLimit: noopMiddleware(),
 		machineLogsRateLimit:   noopMiddleware(),
+		mcpRateLimit:           noopMiddleware(),
 	})
 
 	count := 0
@@ -87,7 +88,7 @@ func testMiddleware(auth echo.MiddlewareFunc) *appMiddleware {
 		auth: auth, authRateLimit: noopMiddleware(), publicRateLimit: noopMiddleware(),
 		publicAssetRateLimit: noopMiddleware(), workspaceMembership: noopMiddleware(),
 		devMachineDemoGuard: noopMiddleware(), machineEventsRateLimit: noopMiddleware(),
-		machineLogsRateLimit: noopMiddleware(),
+		machineLogsRateLimit: noopMiddleware(), mcpRateLimit: noopMiddleware(),
 	}
 }
 
