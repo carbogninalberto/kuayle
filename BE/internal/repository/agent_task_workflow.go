@@ -472,7 +472,7 @@ func workflowIteration(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 			return err
 		}
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET prompt=$2,agent_instructions=$3,provider=$4,model=$5,thinking=$6,model_server_id=$7,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,sign_in_required=false,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET prompt=$2,agent_instructions=$3,provider=$4,model=$5,thinking=$6,model_server_id=$7,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,sign_in_required=false,usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,resume_native_session=false,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at
  FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`,
 		task.ID, entry.Prompt, entry.Instructions, entry.Provider, entry.Model, entry.Thinking, entry.ModelServerID); err != nil {
 		return err

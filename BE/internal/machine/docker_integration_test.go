@@ -11,6 +11,7 @@ import (
 
 	"github.com/containerd/errdefs"
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
@@ -191,6 +192,62 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, customExecution.ExitCode)
 	require.Contains(t, customExecution.Stdout, "TEST_SECRET=custom-secret-value")
+	// KUA-113: a stub agent in the machine prints what Claude Code printed in
+	// production at its 5-hour limit and exits 1. The limit and its reset time
+	// are recognised from the container's real output, so the task pauses.
+	limitScript := `cat <<'STREAM'
+{"type":"system","subtype":"init","session_id":"ae361499-0008-48b7-b8a7-d9df1193e4d3"}
+{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1794283800,"rateLimitType":"five_hour","overageStatus":"rejected"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"You've hit your 5-hour limit · resets 4:10am (UTC)"}]},"error":"rate_limit","api_error_status":429,"api_error":"usage_limit_reached"}
+{"type":"result","subtype":"success","is_error":true,"result":"You've hit your 5-hour limit · resets 4:10am (UTC)"}
+STREAM
+exit 1`
+	limitCommand, err := json.Marshal([]string{"/bin/sh", "-c", limitScript})
+	require.NoError(t, err)
+	limitedExecution, err := runtime.RunAgent(ctx, machine, &domain.DevMachineAgentRun{
+		ID: uuid.New(), Mode: "task", CommandArgv: limitCommand,
+	}, &domain.DevMachineAgentProvider{ImageRef: "kuayle/dev-machine-ide:0.1.0", IsCustom: true}, nil, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, limitedExecution.ExitCode)
+	usageLimit, limited := domain.DetectUsageLimit(limitedExecution.Stdout, limitedExecution.Stderr, "", time.Now())
+	require.True(t, limited, "stdout: %s", limitedExecution.Stdout)
+	require.Equal(t, "You've hit your 5-hour limit · resets 4:10am (UTC)", usageLimit.Message)
+	require.NotNil(t, usageLimit.ResetsAt)
+	require.True(t, usageLimit.ResetsAt.Equal(time.Unix(1794283800, 0)))
+	pausedError, ok := domain.ParseUsageLimitError(usageLimit.ErrorMessage())
+	require.True(t, ok)
+	require.True(t, pausedError.ResetsAt.Equal(*usageLimit.ResetsAt))
+	// The same stub through the real manager on this live machine: the run it
+	// records is failed with the usage-limit error the task worker pauses on,
+	// and the run log keeps the provider's message.
+	managedMachine := *machine
+	managedMachine.DesiredStatus, managedMachine.Generation = domain.DevMachineStatusRunning, 1
+	limitedRunID, limitedTaskID := uuid.New(), uuid.New()
+	managerStore := &managerStoreFake{
+		machine:  &managedMachine,
+		services: services,
+		agentRun: &domain.DevMachineAgentRun{
+			ID: limitedRunID, MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, TaskID: &limitedTaskID,
+			ProviderID: "opencode", Mode: "task", Status: domain.DevMachineAgentRunStatusQueued, MaxRuntimeSeconds: 60, CommandArgv: limitCommand,
+		},
+		provider: &domain.DevMachineAgentProvider{MachineID: machine.ID, ProviderID: "opencode", ImageRef: "kuayle/dev-machine-ide:0.1.0", Enabled: true, IsCustom: true},
+	}
+	manager := NewManager(managerStore, runtime, agent.NewRegistry(agent.NewOpenCodeProvider("kuayle/dev-machine-ide:0.1.0")), nil, make([]byte, 32), make([]byte, 32), "test")
+	require.NoError(t, manager.runAgent(ctx, &managedMachine, &domain.DevMachineOperation{
+		MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, AgentRunID: &limitedRunID, Action: domain.DevMachineOpRunAgent, Generation: 1,
+	}))
+	require.NotNil(t, managerStore.completedRun)
+	require.Equal(t, domain.DevMachineAgentRunStatusFailed, managerStore.completedRun.Status)
+	require.NotNil(t, managerStore.completedRun.ErrorMessage)
+	managedLimit, ok := domain.ParseUsageLimitError(*managerStore.completedRun.ErrorMessage)
+	require.True(t, ok, *managerStore.completedRun.ErrorMessage)
+	require.Equal(t, "You've hit your 5-hour limit · resets 4:10am (UTC)", managedLimit.Message)
+	require.True(t, managedLimit.ResetsAt.Equal(time.Unix(1794283800, 0)))
+	var managedLog strings.Builder
+	for _, chunk := range managerStore.outputChunks {
+		managedLog.WriteString(chunk.Content)
+	}
+	require.Contains(t, managedLog.String(), "You've hit your 5-hour limit")
 	// A live message written before the attempt starts is readable at
 	// /run/kuayle/inbox, which the agent cannot write.
 	inboxCommand, err := json.Marshal([]string{"/bin/sh", "-c", `cat /run/kuayle/inbox/1.json; echo; touch /run/kuayle/inbox/2.json 2>/dev/null && echo inbox-writable || echo inbox-read-only`})

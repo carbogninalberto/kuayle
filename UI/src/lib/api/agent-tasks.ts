@@ -36,6 +36,13 @@ export interface AgentTask {
 	run_id: string;
 	// The attempt stopped because the agent needs the creator's own sign-in.
 	sign_in_required?: boolean;
+	// Paused (blocked) because the agent hit its provider's usage limit: the
+	// provider's message, when the limit resets, and when the task resumes on
+	// its own (absent: automatic resume is off).
+	usage_limit_message?: string | null;
+	usage_limit_resets_at?: string | null;
+	usage_limit_resume_at?: string | null;
+	usage_limit_resumes?: number;
 	// A review task reviews another task's published pull request; it is shown
 	// on that task's card, never as a task of its own.
 	kind?: 'implement' | 'review';
@@ -253,6 +260,8 @@ export const agentTasks = {
 	// Keeps the sign-in finished in the machine's terminal and starts a new attempt.
 	continueAfterSignIn: (slug: string, id: string, requestId: string) =>
 		api.post<AgentTask>(`${task(slug, id)}/sign-in`, { request_id: requestId }),
+	resumeUsageLimit: (slug: string, id: string) => api.post<AgentTask>(`${task(slug, id)}/resume`, {}),
+	cancelUsageLimitResume: (slug: string, id: string) => api.delete<AgentTask>(`${task(slug, id)}/resume`),
 	retry: (
 		slug: string,
 		id: string,

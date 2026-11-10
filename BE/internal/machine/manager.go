@@ -1397,6 +1397,10 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if run.Status == domain.DevMachineAgentRunStatusFailed {
 		if memoryLimit != "" {
 			run.ErrorMessage = &memoryLimit
+		} else if limit, ok := domain.DetectUsageLimit(stdout, stderr, result.Summary, time.Now()); ok {
+			// The provider's usage limit: the task pauses until the reset.
+			message := limit.ErrorMessage()
+			run.ErrorMessage = &message
 		} else if run.ErrorMessage == nil && execution.ExitCode == 137 {
 			message := "The agent process was killed (exit code 137) without an out-of-memory event; it may have been stopped by a signal."
 			run.ErrorMessage = &message

@@ -268,6 +268,33 @@ func (h *AgentTaskHandler) Retry(c *echo.Context) error {
 	return response.Success(c, http.StatusAccepted, result)
 }
 
+// ResumeUsageLimit is "Resume now" on a task paused by its agent's usage
+// limit: the next attempt starts at once and continues the same session.
+func (h *AgentTaskHandler) ResumeUsageLimit(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.ResumeUsageLimitNow(c.Request().Context(), middleware.GetWorkspace(c).ID, id)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusAccepted, result)
+}
+
+// CancelUsageLimitResume is "Don't resume": the paused task stays paused.
+func (h *AgentTaskHandler) CancelUsageLimitResume(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.CancelUsageLimitResume(c.Request().Context(), middleware.GetWorkspace(c).ID, id)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
+}
+
 // Accept completes the creator's task awaiting review without merging its pull
 // request. The generation is the attempt the user reviewed; repeating it
 // returns the accepted task.
