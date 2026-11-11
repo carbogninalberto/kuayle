@@ -56,6 +56,42 @@ func (o *TeamWorkflowSortOverrides) Scan(value interface{}) error {
 	return scanJSON(value, o)
 }
 
+// NotificationEventKeys are the events a user can switch browser notifications
+// on or off for.
+var NotificationEventKeys = []string{"approval_requested", "task_finished", "review_needed", "assigned", "mentioned", "comment", "issue_updated"}
+
+// NotificationSounds are the selectable notification sounds; "off" is silent.
+var NotificationSounds = []string{"off", "chime", "bell", "pop", "drop", "pulse"}
+
+const DefaultNotificationSound = "chime"
+
+// NotificationEvents maps an event key to whether it notifies. A stored map
+// may be partial: a missing key is enabled (see Complete).
+type NotificationEvents map[string]bool
+
+func (e NotificationEvents) Value() (driver.Value, error) {
+	if e == nil {
+		return "{}", nil
+	}
+	data, err := json.Marshal(e)
+	return string(data), err
+}
+
+func (e *NotificationEvents) Scan(value interface{}) error {
+	return scanJSON(value, e)
+}
+
+// Complete returns every known event key, enabled unless the map disables it.
+// Keys that are not known are dropped.
+func (e NotificationEvents) Complete() NotificationEvents {
+	complete := make(NotificationEvents, len(NotificationEventKeys))
+	for _, key := range NotificationEventKeys {
+		enabled, stored := e[key]
+		complete[key] = !stored || enabled
+	}
+	return complete
+}
+
 func scanJSON(value interface{}, target interface{}) error {
 	if value == nil {
 		return nil
@@ -87,5 +123,8 @@ type UserPreferences struct {
 	TeamWorkflowSortOverrides TeamWorkflowSortOverrides `json:"team_workflow_sort_overrides" db:"team_workflow_sort_overrides"`
 	RecentDueDates            RecentDueDates            `json:"recent_due_dates" db:"recent_due_dates"`
 	IssuesGroupBy             string                    `json:"issues_group_by" db:"issues_group_by"`
+	BrowserNotifications      bool                      `json:"browser_notifications" db:"browser_notifications"`
+	NotificationSound         string                    `json:"notification_sound" db:"notification_sound"`
+	NotificationEvents        NotificationEvents        `json:"notification_events" db:"notification_events"`
 	UpdatedAt                 time.Time                 `json:"updated_at" db:"updated_at"`
 }
