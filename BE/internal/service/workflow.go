@@ -775,6 +775,10 @@ type TaskWorkflow struct {
 	TaskState      string                `json:"task_state"`
 	TaskReason     string                `json:"task_reason"`
 	TaskGeneration int64                 `json:"task_generation"`
+
+	// Runs are the task's agent runs, each on the step that started it, with
+	// the runs of the review tasks its steps created.
+	Runs []domain.WorkflowStepRun `json:"runs"`
 	// PausedAt is set while a person's pause holds the workflow, and
 	// PauseRequest while one waits for the current step. Pauses are its
 	// pauses and resumes so far, oldest first, each naming its step.
@@ -783,13 +787,18 @@ type TaskWorkflow struct {
 	Pauses       []domain.WorkflowPauseEvent `json:"pauses"`
 }
 
-func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID) (*TaskWorkflow, error) {
+// TaskWorkflow reads a task's workflow view. summariesSince, when set, leaves
+// out the summaries of runs that completed at or before it.
+func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID, summariesSince *time.Time) (*TaskWorkflow, error) {
 	task, err := s.tasks.Repo.Get(ctx, ws, id)
 	if err != nil {
 		return nil, err
 	}
 	out := &TaskWorkflow{TaskState: task.State, TaskReason: task.Reason, TaskGeneration: task.Generation, Steps: []domain.WorkflowStep{}, Profiles: []domain.AgentProfile{}, Visits: map[string]int{},
 		PausedAt: task.WorkflowPausedAt, PauseRequest: task.WorkflowPauseRequest, Pauses: []domain.WorkflowPauseEvent{}}
+	if out.Runs, err = s.tasks.Repo.StepRuns(ctx, ws, id, summariesSince); err != nil {
+		return nil, err
+	}
 	if !task.RunsWorkflow() {
 		standard := standardSummary()
 		out.WorkflowID, out.Name, out.Version, out.Builtin, out.Graph = standard.ID, standard.Name, 1, true, standard.Graph

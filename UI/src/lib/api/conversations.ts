@@ -68,6 +68,7 @@ export interface ConversationEvent {
 		| 'task.publication_updated'
 		| 'task.signal_recorded'
 		| 'task.review_updated'
+		| 'task.workflow_updated'
 		| 'task.live_message'
 		| 'tool.started'
 		| 'tool.completed'

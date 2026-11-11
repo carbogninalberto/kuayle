@@ -1781,12 +1781,30 @@ Routes (workspace, session only): `GET/POST /agent-profiles`,
 `POST /workflows/validate`, `GET/PUT /workflows/:workflowId`,
 `POST /workflows/:workflowId/duplicate|archive`, `GET /workflows/:workflowId/audit`,
 `PUT /workflow-defaults`; under dev machines `GET /agent-tasks/:taskId/workflow`
-(graph, path and visit counts) and `POST /agent-tasks/:taskId/workflow/decision`
+(graph, path, visit counts and `runs`) and `POST /agent-tasks/:taskId/workflow/decision`
 (`approve`/`deny` an approval node, `continue`/`stop` at a limit; only the
 task's creator or an owner or admin who can see the issue, for the step
 `sequence` they saw). The UI edits workflows in Settings → Workflows and the
 assistant's Workflow side panel (Svelte Flow), profiles in Settings → Agents,
 and shows a task's run in its Agents panel.
+
+`runs` is what the agent view's timeline is built from: the task's newest 200
+agent runs, oldest first, as `id`, `task_id`, `provider`, `model`, `status`,
+`created_at`, `started_at`, `completed_at` and `step`, the sequence of the
+workflow step that started the run. Steps do not store their run: a run
+belongs to the latest step that started an iteration (`generation` set) and
+was entered before the run was created, so a step resumed after a usage limit
+has several. The runs of the review task a reviewer step created
+(`review_task_id`) are listed on that step with the review's `task_id`; a
+review requested outside the workflow is not. `summary` is returned only when
+the harness reported a final message (`result.final_message`), never a run's
+raw output, prompt or secrets. A finished run's summary never changes, so a
+view that reloads passes `?summaries_since=<RFC 3339 time>`, the newest
+`completed_at` it has, and gets no summary for runs completed at or before it
+(`400` for an unreadable time). A task without a workflow gets its runs with no
+`step`. The read has the task's own authorization (its creator, still a member
+who can see the issue's team); a review task has the same creator, issue and
+conversation as the task it reviews.
 
 Not implemented: per-profile skills and tool sets, sharing across workspaces,
 parallel branches and workflows for non-coding automations.

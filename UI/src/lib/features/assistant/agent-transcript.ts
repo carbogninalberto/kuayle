@@ -709,6 +709,20 @@ export function groupSession(entries: SessionEntry[]): SessionBlock[] {
 	return blocks;
 }
 
+/**
+ * The message a run ended with: its last text, when no tool call, subagent or
+ * prompt came after it. A finished step shows it first, above its trace.
+ */
+export function finalMessage(blocks: SessionBlock[]): Extract<SessionBlock, { kind: 'text' }> | undefined {
+	for (let i = blocks.length - 1; i >= 0; i--) {
+		const block = blocks[i];
+		if (block.kind === 'text') return block;
+		if (block.kind !== 'result' && block.kind !== 'thinking' && block.kind !== 'events' && block.kind !== 'omitted')
+			return undefined;
+	}
+	return undefined;
+}
+
 /** The start of a long tool output and how many lines are behind "show more". */
 export function outputPreview(text: string, maxLines = 12, maxChars = 2000) {
 	const all = text.split('\n');
