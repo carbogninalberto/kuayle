@@ -40,6 +40,11 @@
 	const tone = $derived(taskTone(task.state));
 	const followsWorkflow = $derived(!!task.workflow_version_id);
 	let stopError = $state('');
+	// A refused stop is about the state the task was in.
+	$effect(() => {
+		void task.state;
+		stopError = '';
+	});
 
 	let view = $state<TaskWorkflow | null>(null),
 		attempts = $state<AgentRun[]>([]),
