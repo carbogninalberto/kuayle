@@ -158,12 +158,14 @@ func (w *WorkflowRunner) AgentFinished(ctx context.Context, task domain.AgentTas
 		return err
 	}
 	node, _ := graph.Node(task.Cursor().Node)
-	if node.Type != domain.WorkflowNodeAgent || node.ProfileID == nil || !profiles[*node.ProfileID].Plans() {
-		return w.Outcome(ctx, task, domain.WorkflowAgentFinished, "")
-	}
 	run, err := w.tasks.WorkflowRun(ctx, task)
 	if err != nil {
 		return err
+	}
+	// A step whose agent did not update the notebook still finished; the
+	// step's detail says so.
+	if node.Type != domain.WorkflowNodeAgent || node.ProfileID == nil || !profiles[*node.ProfileID].Plans() {
+		return w.Outcome(ctx, task, domain.WorkflowAgentFinished, run.NotebookNote)
 	}
 	if problem := planProblem(node.Label, *run); problem != "" {
 		apply, err := w.plan(ctx, task, domain.WorkflowAgentFailed, problem, false)
@@ -179,7 +181,7 @@ func (w *WorkflowRunner) AgentFinished(ctx context.Context, task domain.AgentTas
 		return err
 	}
 	produced := neutralisePlan(run.Summary)
-	apply, err := w.planWith(ctx, task, domain.WorkflowAgentFinished, "", produced, false)
+	apply, err := w.planWith(ctx, task, domain.WorkflowAgentFinished, run.NotebookNote, produced, false)
 	if err != nil {
 		return err
 	}
@@ -231,13 +233,26 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 	}
 	now := w.now()
 	cursor := task.Cursor()
-	apply := &repository.WorkflowApply{Sequence: task.WorkflowSequence, Outcome: outcome, Detail: detail}
+	apply := &repository.WorkflowApply{Sequence: task.WorkflowSequence, Version: task.WorkflowVersionID, Outcome: outcome, Detail: detail}
 	vars, err := w.variables(ctx, task, *graph, profiles, cursor.Node, outcome, detail)
 	if err != nil {
 		return nil, err
 	}
 	if produced != "" {
 		vars.Plan = produced
+	}
+	// What sends the work back is recorded in the task's notebook, so
+	// every later step sees it, not only the next one.
+	current, _ := graph.Node(cursor.Node)
+	switch {
+	case outcome == domain.WorkflowReviewChangesRequested && strings.TrimSpace(vars.ReviewComments) != "":
+		apply.Notes = append(apply.Notes, domain.NotebookNote{FindingSource: domain.NotebookFindingReview, Finding: vars.ReviewComments})
+	case outcome == domain.WorkflowChecksFailed && strings.TrimSpace(vars.FailingChecks) != "":
+		source := domain.NotebookFindingCheck
+		if current.Check == domain.WorkflowCheckCI {
+			source = domain.NotebookFindingCI
+		}
+		apply.Notes = append(apply.Notes, domain.NotebookNote{FindingSource: source, Finding: vars.FailingChecks})
 	}
 	// A planning step that failed left no plan (an earlier visit's is stale
 	// now) and maybe a changed worktree.
@@ -270,6 +285,7 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 			apply.Moves = append(apply.Moves, repository.WorkflowMove{Decision: decision, Stop: true})
 			if graph.Budget.Policy() == domain.WorkflowOnLimitAsk {
 				apply.Entry = repository.WorkflowEntry{Kind: repository.WorkflowEnterPause, Reason: reason + ". Continue or stop the workflow"}
+				apply.Notes = append(apply.Notes, domain.NotebookNote{Event: "Paused for a person's decision: " + decision.Reason})
 			} else {
 				apply.Entry = repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: reason}
 			}
@@ -439,10 +455,10 @@ func workflowInstructions(scope string, profile domain.AgentProfile, node domain
 	// Harnesses that read profile files get the instructions there, whole
 	// and outside the prompt's size limit (domain.ProfileFiles).
 	if !domain.ProfileFilesSupported(profile.Harness) {
-		section("Agent profile "+profile.Title(), profile.Instructions)
+		section(workflowProfileTitle+profile.Title(), profile.Instructions)
 	}
 	if node.ID != "" {
-		section("Workflow step "+node.Label, domain.RenderWorkflowPrompt(node.Prompt, domain.WorkflowVariables{}))
+		section(workflowStepTitle+node.Label, domain.RenderWorkflowPrompt(node.Prompt, domain.WorkflowVariables{}))
 	}
 	return truncateUTF8Bytes(b.String(), 32000)
 }
@@ -561,7 +577,7 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 			if waiting != "" {
 				reason += " (" + waiting + ")"
 			}
-			apply := repository.WorkflowApply{Sequence: task.WorkflowSequence, Hold: true, Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: reason}}
+			apply := repository.WorkflowApply{Sequence: task.WorkflowSequence, Version: task.WorkflowVersionID, Hold: true, Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: reason}}
 			if graph.Budget.Policy() == domain.WorkflowOnLimitAsk {
 				apply.Entry = repository.WorkflowEntry{Kind: repository.WorkflowEnterPause, Reason: reason + ". Continue or stop the workflow"}
 			}
@@ -693,7 +709,7 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 				return nil, err
 			}
 		case WorkflowDecisionStop:
-			apply = &repository.WorkflowApply{Sequence: task.WorkflowSequence,
+			apply = &repository.WorkflowApply{Sequence: task.WorkflowSequence, Version: task.WorkflowVersionID,
 				Moves: []repository.WorkflowMove{{Decision: domain.WorkflowDecision{From: node, Reason: "Stopped by a person at the workflow's limit"}, Stop: true}},
 				Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: domain.WorkflowReasonPrefix + "stopped by a person at its limit"}}
 		default:
@@ -702,6 +718,9 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 	default:
 		return nil, ErrWorkflowDecision
 	}
+	// The decision is a person's: the notebook records it as an event, with
+	// the person in its history.
+	apply.Notes = append(apply.Notes, domain.NotebookNote{Event: fmt.Sprintf("A person chose %q at %s", decision, node.Label)})
 	return w.tasks.DecideWorkflow(ctx, ws, id, *apply)
 }
 
@@ -714,7 +733,7 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 // are passed along as they would have been.
 func (w *WorkflowRunner) continuePast(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, node domain.WorkflowNode, step domain.WorkflowStep) (*repository.WorkflowApply, error) {
 	if step.FinishedAt == nil {
-		return &repository.WorkflowApply{Sequence: task.WorkflowSequence, Hold: true, ExtendBudget: true,
+		return &repository.WorkflowApply{Sequence: task.WorkflowSequence, Version: task.WorkflowVersionID, Hold: true, ExtendBudget: true,
 			Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: domain.WorkflowReasonPrefix + "continued past the time budget by a person; " + node.Label + " waits again", WakeAt: ptr(w.now())}}, nil
 	}
 	outcome := ""

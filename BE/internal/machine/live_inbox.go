@@ -45,14 +45,14 @@ type liveInboxRuntime interface {
 	CloseLiveInbox(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun) error
 }
 
-// liveReplyGrace is how close to an attempt's end an inbox message may have
-// been written and still not been read: it is queued again instead.
+// liveReplyGrace is how long before the harness exited an inbox message may
+// have been written and still not been read: it is queued again instead.
 const liveReplyGrace = 20 * time.Second
 
 // liveReplyStore knows which of an attempt's messages still owe a reply.
 type liveReplyStore interface {
 	UnansweredLiveMessages(ctx context.Context, run uuid.UUID) ([]int64, error)
-	SettleLiveMessages(ctx context.Context, run uuid.UUID, grace time.Duration) ([]int64, error)
+	SettleLiveMessages(ctx context.Context, run uuid.UUID, unread time.Time) ([]int64, error)
 }
 
 type liveInboxStore interface {
@@ -168,19 +168,67 @@ func (m *Manager) writeUnanswered(ctx context.Context, machine *domain.DevMachin
 	return string(data), nil
 }
 
-// settleLiveMessages closes the ended attempt's side of the live channel and
-// returns the messages it received and never replied to.
-func (m *Manager) settleLiveMessages(ctx context.Context, run *domain.DevMachineAgentRun) []int64 {
+// liveCollectFailedNote is what an attempt's result says when Kuayle could
+// not read the agent's last messages: a reply may exist that nobody saw.
+const liveCollectFailedNote = "Kuayle could not collect the agent's messages when the attempt ended, so a reply the agent wrote may be missing. This is a problem on Kuayle's side, not the agent's."
+
+// liveReplySettlement is what is known about an ended attempt's replies.
+type liveReplySettlement struct {
+	// unanswered are the messages it received and never replied to.
+	unanswered []int64
+	// unknown: the agent's last messages could not be collected, so whether
+	// it replied is not known and nothing is said to be unanswered.
+	unknown bool
+	// notes are for the attempt's result.
+	notes []string
+}
+
+// settleReplies closes the ended attempt's side of the live channel, once
+// its outbox was collected (collected says whether that worked; exited is
+// when the harness exited). A message that reached the inbox just before the
+// harness exited is queued again either way. Which messages the attempt
+// received and never replied to is decided only when the collection worked:
+// otherwise a reply may exist unseen, so nothing is concluded. What is
+// unanswered here is asked for in the attempt's closing continuation
+// (settleClosing), and looked at again after it (repliesAfterClosing).
+func (m *Manager) settleReplies(ctx context.Context, run *domain.DevMachineAgentRun, exited time.Time, collected bool) liveReplySettlement {
 	store, ok := m.store.(liveReplyStore)
-	if !ok {
-		return nil
+	if !ok || run.Mode == "interactive" {
+		return liveReplySettlement{}
 	}
-	seqs, err := store.SettleLiveMessages(ctx, run.ID, liveReplyGrace)
+	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	unanswered, err := store.SettleLiveMessages(settleCtx, run.ID, exited.Add(-liveReplyGrace))
 	if err != nil {
 		log.WithFields(log.Fields{"agent_run_id": run.ID, "event_type": "agent_live_messages.settle"}).WithError(err).Warn("live messages could not be settled")
-		return nil
+		return liveReplySettlement{unknown: !collected}
 	}
-	return seqs
+	if !collected {
+		// Only an attempt that owes a reply has one that could be missing.
+		return liveReplySettlement{unknown: len(unanswered) > 0}
+	}
+	return liveReplySettlement{unanswered: unanswered}
+}
+
+// repliesAfterClosing looks again once the closing continuation ran and its
+// outbox was collected (collected): what is still unanswered, or unknown
+// when that collection failed.
+func (m *Manager) repliesAfterClosing(ctx context.Context, run *domain.DevMachineAgentRun, collected bool) liveReplySettlement {
+	store, ok := m.store.(liveReplyStore)
+	if !ok {
+		return liveReplySettlement{}
+	}
+	if !collected {
+		return liveReplySettlement{unknown: true}
+	}
+	againCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	unanswered, err := store.UnansweredLiveMessages(againCtx, run.ID)
+	if err != nil {
+		log.WithFields(log.Fields{"agent_run_id": run.ID, "event_type": "agent_live_messages.settle"}).WithError(err).Warn("live messages could not be settled")
+		return liveReplySettlement{}
+	}
+	return liveReplySettlement{unanswered: unanswered}
 }
 
 // closeLiveInbox removes the run's inbox writer once the attempt ended.

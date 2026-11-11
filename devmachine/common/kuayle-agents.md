@@ -1,6 +1,6 @@
 ---
 name: kuayle-agents
-description: Use when you need to declare the tests Kuayle re-runs for your change (.kuayle/validation.json), to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, to log what you did in the project's or team's wiki registry, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox) Every such message needs a reply that names it ("reply_to"), or your step cannot finish.
+description: Use when you need to declare the tests Kuayle re-runs for your change (.kuayle/validation.json), to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, to log what you did in the project's or team's wiki registry, to propose a lesson about the repository for later agents, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox). Every such message needs a reply that names it ("reply_to").
 ---
 
 # Declare the tests Kuayle re-runs
@@ -115,6 +115,73 @@ Use one short line of plain text (at most 2,000 characters) per notable step,
 not a running commentary. When the registry is off the entry is refused and
 shown as refused in Kuayle; nothing else happens.
 
+## Propose a lesson for the repository
+
+When you learned something that the next agent working on this repository
+would otherwise have to rediscover (how to run the checks, a convention, a
+trap), or when the person who owns your task corrected you about how this
+repository works, propose it with `"to":"memory"` and a `lesson` through the
+same outbox, typically before you finish:
+
+```json
+{"to":"memory","lesson":"Migration numbers collide with main: renumber yours after merging main."}
+```
+
+A lesson is one or two plain sentences about the repository, at most 400
+characters, with only those two fields, in your own words; never put
+credentials, anything about this one task or a person's message in it. It is a proposal: a workspace admin approves,
+edits or drops it, and only approved lessons appear in later agents' prompts.
+The same lesson is proposed once, and a task may propose 3; more are refused
+and shown as refused in Kuayle. Review tasks cannot propose lessons.
+
+## kuayle-notebook: update the task notebook before you finish
+
+Kuayle keeps one notebook per task, outside the worktree, and gives it whole
+to the agent of every step as instructions: what people asked, the plan,
+decisions, what is done, what remains, how to verify, and open findings of
+reviews and checks. Read it first and do not repeat work it records as done.
+
+Before your final message, record your step by writing
+`.kuayle/outbox/notebook.json` in your worktree (write it under a hidden name
+and rename it, as for messages). It is one JSON object with any of these
+fields and no others:
+
+```json
+{
+  "done": ["Added migration 000150 and the repository"],
+  "remaining": ["Wire the API route"],
+  "verify": ["cd BE && go test ./internal/repository -run Notebook"],
+  "decisions": [{"decision": "One JSON document per task", "why": "small and bounded"}],
+  "plan": {"steps": [{"title": "Add the route", "files": ["BE/cmd/server/routes.go"], "commands": ["go test ./..."], "acceptance": "GET returns the notebook", "done": false}]},
+  "findings": [{"text": "The fixture needs a database"}],
+  "resolved": [3]
+}
+```
+
+`done`, `decisions` and `findings` are added to the notebook; `plan.steps`,
+`remaining` and `verify` replace what was there, so send the whole list (`[]`
+clears it; `null` or leaving the field out keeps it); `resolved` lists the
+numbers of findings you fixed. An update may do only that, for example
+`{"resolved":[3]}`. Write the update in the attempt it belongs to: a file left
+from an earlier attempt does not count, and an update that changes nothing
+counts only when you changed nothing in the worktree either.
+
+Limits: each text at most 600 bytes, each list at most 40 entries (a step's
+`files` and `commands` included), the file at most 16 KB. Longer texts and
+lists are cut, keeping the first entries, and unknown fields are ignored;
+the notebook's events then say what was cut or ignored, so check the field
+names if you see such a line. You
+cannot write what people asked (`instructions`), Kuayle's `events` or the
+plan's text (`plan.text`): an update that names one of them is refused whole.
+
+If you finish without a valid update, Kuayle asks you once more in the same
+session (Claude Code and Codex): write the file then and nothing else.
+Otherwise, or if it is still missing, Kuayle records your final message in
+the notebook itself and marks your step as not having updated it; your work
+is kept either way. A planning step writes an update too (its worktree is
+read-only except `.kuayle/`), usually with `plan.steps` and `decisions`.
+Never put credentials in the notebook; Kuayle redacts the ones it knows.
+
 ## kuayle-live-channel: read messages while you work
 
 The person who owns your task (directly, or through the Kuayle orchestrator on
@@ -161,15 +228,16 @@ mv "$dir/.reply-3.json" "$dir/reply-3.json"
 
 Only that counts as a reply: text in your final message, a file without
 `reply_to`, or a `reply_to` that names no message you received does not.
-Kuayle enforces it, whatever agent you are:
+Kuayle asks for it, whatever agent you are:
 
 - `/run/kuayle/inbox/unanswered.json` (`{"unanswered":[3]}`) lists the
   messages you still owe a reply to; it empties a few seconds after Kuayle
   takes your reply. Check it before you finish.
 - Claude Code is not allowed to stop while it names a message.
-- An attempt that ends with a message unanswered **fails**, even when the work
-  is done, and the next attempt is given the message again.
-
+- When you finish with a message unanswered, Kuayle continues your session
+  once more only to get the reply (Claude Code, Codex). Your work is kept
+  either way, but a message you never answered is shown to the person as
+  unanswered and given again to the next attempt.
 
 ## Delivery
 

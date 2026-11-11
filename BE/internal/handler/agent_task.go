@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -261,6 +262,10 @@ func (h *AgentTaskHandler) Retry(c *echo.Context) error {
 	if err = bindTask(c, &input); err != nil {
 		return agentTaskError(c, err)
 	}
+	// A person retried with these instructions: when they differ from what
+	// the task's notebook already holds, they are recorded in it.
+	request, _, _ := strings.Cut(input.Prompt, domain.TaskFollowUpMarker)
+	input.Note = &domain.NotebookNote{Instruction: &domain.NotebookInstruction{Source: domain.NotebookInstructionRetry, Text: request}}
 	result, err := h.svc.Retry(c.Request().Context(), middleware.GetWorkspace(c).ID, id, input)
 	if err != nil {
 		return agentTaskError(c, err)
@@ -286,6 +291,38 @@ func (h *AgentTaskHandler) Pause(c *echo.Context) error {
 		return agentTaskError(c, err)
 	}
 	return response.Success(c, http.StatusAccepted, result)
+}
+
+// WorkflowSwitch says what moving the creator's task to the newest version
+// of its workflow would do: where it continues, or why it cannot be moved.
+// It changes nothing.
+func (h *AgentTaskHandler) WorkflowSwitch(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	plan, _, err := h.svc.SwitchWorkflow(c.Request().Context(), middleware.GetWorkspace(c).ID, id, false)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, plan)
+}
+
+// SwitchWorkflow moves the creator's task to the newest version of its
+// workflow. A task that cannot be moved is a conflict that names the reason.
+func (h *AgentTaskHandler) SwitchWorkflow(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	plan, task, err := h.svc.SwitchWorkflow(c.Request().Context(), middleware.GetWorkspace(c).ID, id, true)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	if task == nil {
+		return response.Error(c, http.StatusConflict, "WORKFLOW_SWITCH_REFUSED", plan.Refused)
+	}
+	return response.Success(c, http.StatusOK, map[string]any{"switch": plan, "task": task})
 }
 
 // ResumeUsageLimit is "Resume" on a paused task: a workflow its creator
@@ -383,6 +420,40 @@ func (h *AgentTaskHandler) Logs(c *echo.Context) error {
 	if err != nil {
 		return agentTaskError(c, err)
 	}
+	return response.Success(c, http.StatusOK, result)
+}
+
+// Notebook returns the task's notebook and its newest changes to the task's
+// creator. There is no write route: agents update it through their outbox,
+// and people add instructions through the task's message routes.
+func (h *AgentTaskHandler) Notebook(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.Notebook(c.Request().Context(), middleware.GetWorkspace(c).ID, id)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	c.Response().Header().Set("Cache-Control", "private, no-store")
+	return response.Success(c, http.StatusOK, result)
+}
+
+// Prompt returns the prompt an attempt received, split by source.
+func (h *AgentTaskHandler) Prompt(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	run, err := taskID(c, "runId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.RunPrompt(c.Request().Context(), middleware.GetWorkspace(c).ID, id, run)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	c.Response().Header().Set("Cache-Control", "private, no-store")
 	return response.Success(c, http.StatusOK, result)
 }
 

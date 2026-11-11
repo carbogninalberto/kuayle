@@ -128,7 +128,7 @@ const stopHook = `{"hook_event_name":"Stop","stop_hook_active":false}`
 // A reply is mandatory and the hook enforces it for Claude Code: it may not
 // stop while a message it received has no reply. It is asked again, a
 // bounded number of times per message; after that it may stop, and Kuayle
-// fails the attempt for the unanswered message.
+// asks once more itself when the attempt has ended.
 func TestLiveInboxHookDoesNotLetClaudeStopWithAnUnansweredMessage(t *testing.T) {
 	hook := newLiveHook(t)
 	hook.write(3, domain.AgentLiveSenderUser, domain.AgentLiveKindMessage, "Keep the v1 route")
@@ -146,7 +146,7 @@ func TestLiveInboxHookDoesNotLetClaudeStopWithAnUnansweredMessage(t *testing.T) 
 		require.Contains(t, reason, `{"to":"orchestrator","reply_to":<message number>,"body":"..."}`)
 		require.Contains(t, reason, "Message 3:\n~~~text\nKeep the v1 route\n~~~", "the message is shown again")
 	}
-	require.Nil(t, hook.run(stopHook), "the reminders are bounded; Kuayle then fails the attempt")
+	require.Nil(t, hook.run(stopHook), "the reminders are bounded: the work is not held hostage to a reply")
 	require.Equal(t, 3, hook.delivered(), "asking again does not lose the delivery record")
 
 	// Another unanswered message is asked for in its own right, with the old one.

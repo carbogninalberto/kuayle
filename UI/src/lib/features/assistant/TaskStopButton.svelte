@@ -24,12 +24,11 @@
 		onerror: (message: string) => void;
 	} = $props();
 
-	const stoppable = $derived(
-		task.kind !== 'review' &&
-			!['completed', 'cancelled', 'cancelling', 'failed'].includes(task.state) &&
-			!!authState.user &&
-			task.creator_id === authState.user.id
-	);
+	const mine = $derived(task.kind !== 'review' && !!authState.user && task.creator_id === authState.user.id);
+	const stoppable = $derived(mine && !['completed', 'cancelled', 'cancelling', 'failed'].includes(task.state));
+	// A cancellation whose cleanup did not finish is asked for again here too,
+	// without another confirmation: the person already decided.
+	const retryable = $derived(mine && task.state === 'cancelling');
 	let open = $state(false),
 		busy = $state(false);
 
@@ -37,6 +36,9 @@
 		if (busy) return;
 		busy = true;
 		onerror('');
+		// The dialog closes before the task changes: accepting the cancelling
+		// task removes this button, and the dialog with it.
+		open = false;
 		const previous = chat.liveTasks[task.id] ?? null;
 		try {
 			await agentTasks.cancel(chat.slug, task.id);
@@ -45,7 +47,6 @@
 			onerror(getErrorMessage(error, m['tasks.stop_error']()));
 		} finally {
 			busy = false;
-			open = false;
 		}
 	}
 </script>
@@ -66,4 +67,8 @@
 			</AlertDialog.Footer>
 		</AlertDialog.Content>
 	</AlertDialog.Root>
+{:else if retryable}
+	<Button variant="outline" size="sm" class="shrink-0" disabled={busy} onclick={() => void stop()}>
+		{#if busy}<LoaderCircle class="animate-spin" />{/if}{m['tasks.retry_cancel']()}
+	</Button>
 {/if}

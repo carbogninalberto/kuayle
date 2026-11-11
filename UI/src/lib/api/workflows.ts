@@ -217,6 +217,8 @@ export interface WorkflowStepRun {
 	/** The agent's final message, when its harness reported one. */
 	summary?: string | null;
 	summary_truncated?: boolean;
+	/** The agent's last messages could not be collected: whether it replied is not known. */
+	replies_unknown?: boolean;
 	created_at: string;
 	started_at?: string | null;
 	completed_at?: string | null;

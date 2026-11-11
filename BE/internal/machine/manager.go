@@ -1211,6 +1211,8 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		}
 		return err
 	}
+	// Only the first start of an attempt clears what earlier attempts left.
+	firstStart := run.Status == domain.DevMachineAgentRunStatusQueued
 	if err := m.store.MarkAgentRunStarting(ctx, run.ID); err != nil {
 		if errors.Is(err, repository.ErrAgentTaskUnauthorized) {
 			return m.cancelUnauthorizedRun(ctx, run)
@@ -1233,7 +1235,24 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		return err
 	}
 	m.stageAttachments(ctx, machine, run, checkout)
-	m.prepareOutbox(ctx, machine, run, checkout)
+	if firstStart {
+		// A notebook file an earlier attempt left never counts for this one.
+		m.clearNotebookLeftovers(ctx, machine, run, runServices, checkout)
+	}
+	if !m.prepareOutbox(ctx, machine, run, checkout) && run.WorktreeReadOnly {
+		// Without its .kuayle directory the read-only mount could not keep
+		// the outbox writable and the container would not start: the step
+		// runs with a writable worktree, and the comparison after it guards.
+		run.WorktreeReadOnly = false
+		log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID}).Warn("the planning step's outbox could not be prepared; its worktree is mounted writable and checked after the run")
+		if store, ok := m.store.(interface {
+			ClearWorktreeReadOnly(context.Context, uuid.UUID) error
+		}); ok {
+			if err := store.ClearWorktreeReadOnly(ctx, run.ID); err != nil {
+				log.WithField("agent_run_id", run.ID).WithError(err).Warn("the writable worktree could not be recorded on the run")
+			}
+		}
+	}
 	service := &domain.DevMachineService{
 		ID: uuid.New(), WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceType: "agent",
 		ServiceKey: "agent-" + run.ID.String(), ContainerName: "kuayle-" + machine.RoutingKey + "-agent-" + run.ID.String(),
@@ -1297,6 +1316,9 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	}
 	worktreeBefore := m.worktreeBefore(ctx, machine, run, runServices, checkout)
 	execution, executionErr := m.runtime.RunAgent(runContext, machine, run, providerRecord, checkout, secrets.Environment, observer)
+	// When the harness exited: what reached its inbox just before that may
+	// not have been read, however long the steps below take.
+	exited := time.Now()
 	stopLive()
 	if used := secrets.Environment[signInSecretNames[run.ProviderID]]; used != "" {
 		returnCtx, cancelReturn := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
@@ -1330,13 +1352,35 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	services, _ := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
 	// Messages the agent left are recorded before the next step can deliver
 	// them, without waiting for the next port scan.
-	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
-	m.collectOutbox(outboxCtx, machine, services)
-	// With the last replies recorded: what the attempt still owes one to.
-	var unanswered []int64
-	if run.Mode != "interactive" {
-		unanswered = m.settleLiveMessages(outboxCtx, run)
+	collectCtx, cancelCollect := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	collectErr := m.collectOutbox(collectCtx, machine, services)
+	cancelCollect()
+	// An update that changed nothing is enough only for an attempt that left
+	// the worktree as it found it (Kuayle's own comparison).
+	unchangedRun := func() bool {
+		runtime, ok := m.runtime.(worktreeRuntime)
+		if !ok || worktreeBefore == "" {
+			return false
+		}
+		after, err := runtime.WorktreeState(ctx, machine, services, checkout)
+		if err != nil {
+			return false
+		}
+		changed, _, _ := worktreeChange(worktreeBefore, after)
+		return !changed
 	}
+	// With the outbox collected, what the attempt still lacks is known: a
+	// reply to a message of the task's owner, a notebook update. It is asked
+	// for all of it once, in its own session, before its inbox and run
+	// directory go (settleClosing).
+	ended := executionErr == nil && !timedOut && execution.ExitCode == 0
+	status := provider.ParseResult(output.ResultText("stdout"), output.ResultText("stderr"), execution.ExitCode).Status
+	limit, _ := runContext.Deadline()
+	closing := m.settleClosing(ctx,
+		closingAttempt{machine: machine, run: run, provider: providerRecord, checkout: checkout, secrets: secrets, deadline: limit},
+		closingState{services: services, collectErr: collectErr, exited: exited, concluded: ended && status != "failed", succeeded: ended && status == "succeeded", unchangedRun: unchangedRun})
+	notebookNotCollected, replies := closing.notebookNotCollected, closing.replies
+	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	m.closeLiveInbox(outboxCtx, machine, run)
 	m.takeValidationFile(outboxCtx, machine, run, services, checkout)
 	if cleaner, ok := m.runtime.(runTmpRuntime); ok && run.Mode != "interactive" {
@@ -1371,13 +1415,18 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	} else if executionErr != nil || execution.ExitCode != 0 || result.Status == "failed" {
 		result.Status = "failed"
 		run.Status = domain.DevMachineAgentRunStatusFailed
-	} else if len(unanswered) > 0 {
-		// A reply is mandatory: an attempt that ends normally with a message
-		// from the task's owner unanswered is not a success.
-		result.Status, result.UnansweredMessages = "failed", unanswered
-		run.Status = domain.DevMachineAgentRunStatusFailed
 	} else {
 		run.Status = domain.DevMachineAgentRunStatusSucceeded
+	}
+	// A missing reply is said, and never changes how the attempt ended.
+	result.UnansweredMessages, result.RepliesUnknown = replies.unanswered, replies.unknown
+	result.RiskNotes = append(result.RiskNotes, replies.notes...)
+	// The work is never lost over a missing notebook update: Kuayle records
+	// the attempt itself and says so on the run.
+	if run.Status == domain.DevMachineAgentRunStatusSucceeded {
+		if note := m.closeNotebook(ctx, run, result.Summary, notebookNotCollected, unchangedRun); note != "" {
+			result.RiskNotes = append(result.RiskNotes, note)
+		}
 	}
 	if gitState, gitErr := m.runtime.GitState(ctx, machine, services, checkout); gitErr == nil {
 		result.Branch = gitState.Branch
@@ -1422,9 +1471,6 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		} else if run.ErrorMessage == nil && result.NoFinalMessage {
 			// The harness exited normally but the agent never concluded.
 			message := domain.NoFinalMessageReason(result.FailureReason)
-			run.ErrorMessage = &message
-		} else if run.ErrorMessage == nil && len(result.UnansweredMessages) > 0 {
-			message := domain.UnansweredMessageReason(result.UnansweredMessages)
 			run.ErrorMessage = &message
 		} else if run.ErrorMessage == nil && result.FailureReason != "" {
 			run.ErrorMessage = &result.FailureReason

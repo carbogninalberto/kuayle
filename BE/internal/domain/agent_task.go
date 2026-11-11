@@ -105,7 +105,7 @@ type AgentTask struct {
 	WorkflowPausedAt     *time.Time `json:"workflow_paused_at,omitempty" db:"workflow_paused_at"`
 	// LiveResumeGeneration is the attempt a person started to deliver a
 	// message (see LiveResumed); one more than the generation while the
-	// attempt they interrupted is still being stopped.
+	// attempt they interrupted is still being stopped (LiveInterrupting).
 	LiveResumeGeneration *int64 `json:"-" db:"live_resume_generation"`
 }
 
@@ -166,7 +166,10 @@ func (t AgentTask) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		plain
 		Preview *AgentTaskPreview `json:"preview"`
-	}{plain(t), t.Preview()})
+		// Interrupting: the agent is being stopped to deliver a message and
+		// continues by itself; the task is not being cancelled.
+		Interrupting bool `json:"interrupting,omitempty"`
+	}{plain(t), t.Preview(), t.LiveInterrupting()})
 }
 
 type AgentTaskRequest struct {
@@ -197,6 +200,10 @@ type AgentTaskRetryRequest struct {
 	RequestID  uuid.UUID `json:"request_id"`
 	Generation int64     `json:"generation"`
 	Prompt     string    `json:"prompt"`
+	// Note is what the retry adds to the task's notebook: the instruction a
+	// person gave with it, or the review or check finding it answers. Only
+	// handlers and services set it; it is never decoded from a request.
+	Note *NotebookNote `json:"-"`
 	// Model, when set, replaces the task's model for the new attempt; Thinking and
 	// ModelServerID then replace its thinking level and model server with it.
 	Model         string     `json:"model,omitempty"`
@@ -273,7 +280,9 @@ func ValidAgentTaskTransition(from, to string) bool {
 	case "blocked", "failed":
 		return to == "queued"
 	case "cancelling":
-		return to == "cancelled" || to == "failed"
+		// To queued: an attempt stopped to deliver a person's message
+		// continues as a new attempt (AgentTask.LiveInterrupting).
+		return to == "cancelled" || to == "failed" || to == "queued"
 	}
 	return false
 }
@@ -426,6 +435,9 @@ type AgentHandoff struct {
 	// NoFinalMessage means the previous attempt's harness exited normally
 	// but the agent never concluded, so there is no summary of its work.
 	NoFinalMessage bool
+	// NotebookProblem is the note that the previous attempt did not update
+	// the task notebook (domain.NotebookNotUpdated); empty when it did.
+	NotebookProblem string
 }
 
 // ValidationArtifact is a file the independent check left in its report

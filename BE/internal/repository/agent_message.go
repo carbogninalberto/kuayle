@@ -54,7 +54,20 @@ func (r *DevMachineRepository) RecordAgentOutbox(ctx context.Context, machineID 
 		if task == nil {
 			continue
 		}
-		count, err := messages.RecordTaskOutbox(ctx, *task, group)
+		// Notebook updates are not messages: they are validated and merged
+		// into the task's notebook.
+		var updates, letters []domain.AgentOutboxFile
+		for _, file := range group {
+			if domain.IsNotebookOutboxFile(file.Name) {
+				updates = append(updates, file)
+			} else {
+				letters = append(letters, file)
+			}
+		}
+		if err = r.recordNotebookUpdates(ctx, *task, updates); err != nil {
+			errs = append(errs, err)
+		}
+		count, err := messages.RecordTaskOutbox(ctx, *task, letters)
 		recorded += count
 		if err != nil {
 			errs = append(errs, err)
@@ -85,7 +98,8 @@ type messageRecipient struct {
 // hourly budget; a file taken twice is recorded once. Recipients must be a
 // related issue (parent, sub-issue, sibling, blocker or blocked issue) of the
 // sender's issue in the same team. Files addressed to the orchestrator go to
-// the task's live channel instead (agent_live_messages).
+// the task's live channel instead (agent_live_messages), and lessons for the
+// workspace memory become proposals (workspace_lessons).
 func (r *AgentMessageRepository) RecordTaskOutbox(ctx context.Context, taskID uuid.UUID, files []domain.AgentOutboxFile) (int, error) {
 	if len(files) == 0 {
 		return 0, nil
@@ -124,12 +138,39 @@ func (r *AgentMessageRepository) RecordTaskOutbox(ctx context.Context, taskID uu
 	ended := !sender.Allowed || sender.State == "completed" || sender.State == "cancelled" || sender.State == "failed"
 	for _, file := range files {
 		digest := sha256.Sum256([]byte(sender.RunID.String() + "\x00" + file.Name + "\x00" + string(file.Data)))
+		// A lesson for the workspace memory becomes a proposal for people to
+		// decide, never a message; only a refusal is recorded here.
+		if !file.Oversize && domain.AgentOutboxIsMemory(file.Data) {
+			if sent >= domain.AgentMessagesPerHour {
+				continue
+			}
+			inserted, err := recordMemoryOutbox(ctx, r.db, tx, sender, hex.EncodeToString(digest[:]), file.Data, ended)
+			if err != nil {
+				return recorded, err
+			}
+			if inserted {
+				recorded++
+				sent++
+			}
+			continue
+		}
 		message, parseErr := domain.ParseAgentOutboxMessage(file.Data)
 		// Messages to the orchestrator belong to the task's live channel, with
 		// their own budget; agents of any task kind may write them.
 		if !file.Oversize && (parseErr == nil && message.To == domain.AgentOutboxOrchestrator || parseErr != nil && domain.AgentMessageRef(file.Data) == "ORCHESTRATOR") {
 			if live >= domain.AgentLiveMessagesPerHour {
-				continue
+				// The budget bounds what an agent says on its own. The first
+				// reply to a message a person sent it is never dropped.
+				owed := false
+				if parseErr == nil && message.ReplyTo != nil && !ended {
+					if err = tx.GetContext(ctx, &owed, `SELECT EXISTS(SELECT 1 FROM agent_live_messages m WHERE m.task_id=$1 AND m.direction='to_agent' AND m.seq=$2 AND m.state='delivered'
+ AND NOT EXISTS (SELECT 1 FROM agent_live_messages a WHERE a.task_id=m.task_id AND a.direction='from_agent' AND a.state='received' AND a.reply_to=m.seq))`, sender.ID, *message.ReplyTo); err != nil {
+						return recorded, err
+					}
+				}
+				if !owed {
+					continue
+				}
 			}
 			var inserted bool
 			switch {

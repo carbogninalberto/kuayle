@@ -367,7 +367,7 @@ func (r *AgentTaskRepository) WorkflowPauses(ctx context.Context, ws, id uuid.UU
 	}
 	if err = tx.SelectContext(ctx, &rows, `SELECT action,actor_id,detail,created_at FROM workflow_audit_events
  WHERE workspace_id=$1 AND entity='task_workflow' AND entity_id=$2 AND action IN ($3,$4,$5,$6,$7) ORDER BY id DESC LIMIT 500`,
-		ws, id, domain.WorkflowPauseActionRequested, domain.WorkflowPauseActionPaused, domain.WorkflowPauseActionResumed, domain.WorkflowPauseActionWithdrawn, domain.WorkflowVersionMovedAction); err != nil {
+		ws, id, domain.WorkflowPauseActionRequested, domain.WorkflowPauseActionPaused, domain.WorkflowPauseActionResumed, domain.WorkflowPauseActionWithdrawn, domain.WorkflowSwitchAction); err != nil {
 		return nil, err
 	}
 	// The newest events, listed oldest first.

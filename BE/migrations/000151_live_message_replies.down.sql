@@ -1,6 +1,7 @@
 -- Replies are kept as plain agent messages; which message each answered and
--- how often a message was delivered are lost. A task interrupted to deliver a
--- message whose agent is still being stopped stays paused and needs a Resume.
+-- how often a message was delivered are lost. A task whose agent is being
+-- stopped to deliver a message at that moment is cancelled by that cleanup
+-- instead of continued: the mark that says "continue" is dropped here.
 ALTER TABLE agent_tasks DROP COLUMN IF EXISTS live_resume_generation;
 DROP INDEX IF EXISTS agent_live_messages_replies;
 ALTER TABLE agent_live_messages DROP CONSTRAINT IF EXISTS agent_live_messages_reply_check,

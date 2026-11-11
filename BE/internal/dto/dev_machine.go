@@ -198,12 +198,19 @@ type CreateAgentRunRequest struct {
 	Session *agent.SessionInput `json:"-"`
 	// ProfileFiles are set only by Kuayle's task runtime: the workflow step's
 	// agent profile instructions and skills. HTTP input cannot carry them.
-	ProfileFiles      []domain.AgentProfileFile `json:"-"`
-	MaxRuntimeSeconds int                       `json:"max_runtime_seconds" validate:"omitempty,min=30,max=86400"`
-	ExtraArgs         []string                  `json:"extra_args"`
-	Config            any                       `json:"config,omitempty"`
-	AllowedSecrets    []string                  `json:"allowed_secrets"`
-	PushBranch        *bool                     `json:"push_branch,omitempty"`
+	ProfileFiles []domain.AgentProfileFile `json:"-"`
+	// PromptSources, NotebookRequired and WorktreeReadOnly are set only by
+	// Kuayle's task runtime: where each part of Prompt came from, whether the
+	// attempt must update the task notebook, and whether its worktree is
+	// mounted read-only (a planning step). HTTP input cannot carry them.
+	PromptSources     []domain.PromptSource `json:"-"`
+	NotebookRequired  bool                  `json:"-"`
+	WorktreeReadOnly  bool                  `json:"-"`
+	MaxRuntimeSeconds int                   `json:"max_runtime_seconds" validate:"omitempty,min=30,max=86400"`
+	ExtraArgs         []string              `json:"extra_args"`
+	Config            any                   `json:"config,omitempty"`
+	AllowedSecrets    []string              `json:"allowed_secrets"`
+	PushBranch        *bool                 `json:"push_branch,omitempty"`
 	// ModelServerID picks a workspace model server; nil uses the default one.
 	ModelServerID *uuid.UUID `json:"model_server_id,omitempty"`
 	Model         string     `json:"model,omitempty" validate:"omitempty,max=128"`

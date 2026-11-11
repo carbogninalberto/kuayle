@@ -226,7 +226,7 @@ async function fixture(page: Page) {
 			if (rest === '/cancel' && route.request().method() === 'POST') {
 				state.cancels++;
 				if (state.cancelRefused)
-					return route.fulfill({ status: 403, json: { error: { code: 'FORBIDDEN', message: 'Only the task creator can stop it' } } });
+					return route.fulfill({ status: 409, json: { error: { code: 'TASK_CONFLICT', message: 'This request conflicts with the current task' } } });
 				state.task = { ...state.task, state: 'cancelling', reason: 'Stopping native execution' };
 				return route.fulfill({ status: 204 });
 			}
@@ -424,6 +424,9 @@ test('a workflow task reads as a timeline: one labelled section per step, the ru
 test('the step the task moves to opens and the one it left closes', async ({ page }) => {
 	const { state, emit } = await fixture(page);
 	workflowFixture(state);
+	// A short window, so the timeline is taller than the view on any machine
+	// and there is something to scroll.
+	await page.setViewportSize({ width: 1280, height: 480 });
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1#step-3');
 	// A link to a step opens that step beside the running one.
 	await expect(stepButton(page, 3)).toHaveAttribute('aria-expanded', 'true');
@@ -490,13 +493,18 @@ test('a running task is stopped from the agent view in two clicks', async ({ pag
 	await expect(thread.getByRole('status').filter({ hasText: 'Cancelling' })).toBeVisible();
 	await expect(thread.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0);
 
+	// A cleanup that did not finish can be asked for again from here.
+	await thread.getByRole('button', { name: 'Retry cancellation' }).click();
+	await expect.poll(() => state.cancels).toBe(2);
+
 	state.task = { ...state.task, state: 'cancelled', reason: 'Runtime cancellation confirmed' };
 	emit('task.state_changed', state.task);
 	await expect(thread.getByRole('status').filter({ hasText: 'Cancelled' })).toBeVisible();
+	await expect(thread.getByRole('button', { name: 'Retry cancellation' })).toHaveCount(0);
 	await expect(thread.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0);
 });
 
-test('a finished task, a review and another person\'s task have no Stop', async ({ page }) => {
+test('a finished task and another person\'s task have no Stop', async ({ page }) => {
 	const { state } = await fixture(page);
 	workflowFixture(state);
 	state.task = { ...state.task, state: 'completed', reason: 'Pull request #1 was merged on GitHub' };
@@ -520,7 +528,7 @@ test('a stop that is refused says so and leaves the task running', async ({ page
 	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
 	await thread.getByRole('button', { name: 'Stop', exact: true }).click();
 	await page.getByRole('alertdialog', { name: 'Stop ENG-1?' }).getByRole('button', { name: 'Stop', exact: true }).click();
-	await expect(thread.getByRole('alert')).toContainText('Only the task creator can stop it');
+	await expect(thread.getByRole('alert')).toContainText('This request conflicts with the current task');
 	await expect(thread.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
 });
 

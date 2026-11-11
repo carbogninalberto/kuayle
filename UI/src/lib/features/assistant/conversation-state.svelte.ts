@@ -49,6 +49,10 @@ export class ConversationState {
 	composerDraft = $state<string | null>(null);
 	// What each task did, shared by the views that show it (see useTaskRun).
 	readonly taskRuns = new Map<string, TaskRun>();
+	// The agent's question the agent view's composer is answering, if any:
+	// the answer is sent with the question quoted, so the agent knows which
+	// one it answers.
+	agentQuestion = $state<{ taskId: string; id: string; body: string } | null>(null);
 	cursor = 0;
 	hasMore = $state(false);
 	loading = $state(true);

@@ -420,6 +420,10 @@ func standardCopy(implementer uuid.UUID) domain.WorkflowGraph {
 		case "review":
 			graph.Nodes[i].MaxVisits = 6
 			graph.Nodes[i].Prompt = "Review the pull request"
+		case "failed":
+			// Publishing can fail here, so the failed ending follows Publish:
+			// one column further right than in the built-in graph.
+			graph.Nodes[i].Position = domain.WorkflowPositionAt(4, 1, true)
 		}
 	}
 	graph.Edges = append(graph.Edges, domain.WorkflowEdge{ID: "e-publish-failed", Source: "publish", Target: "failed", Condition: domain.WorkflowPublishFailed})
@@ -682,6 +686,29 @@ func (s *WorkflowService) Validate(ctx context.Context, ws uuid.UUID, raw json.R
 	return s.graphIssues(ctx, ws, raw)
 }
 
+// Warnings are the problems of a graph that do not stop it from being saved
+// or run (domain.WorkflowWarnings): today, a planning profile on a step
+// whose name or prompt tells it to implement. A graph that cannot be read
+// has none; Validate reports why it cannot.
+func (s *WorkflowService) Warnings(ctx context.Context, ws uuid.UUID, raw json.RawMessage) ([]domain.WorkflowIssue, error) {
+	if _, _, err := s.access(ctx, ws); err != nil {
+		return nil, err
+	}
+	graph, err := domain.ParseWorkflowGraph(raw)
+	if err != nil {
+		var invalid *domain.WorkflowInvalidError
+		if errors.As(err, &invalid) {
+			return []domain.WorkflowIssue{}, nil
+		}
+		return nil, err
+	}
+	profiles, err := s.repo.ActiveProfiles(ctx, ws)
+	if err != nil {
+		return nil, err
+	}
+	return domain.WorkflowWarnings(*graph, profiles), nil
+}
+
 // graphIssues is every problem of a graph: its structure
 // (domain.ValidateWorkflowGraph) and each agent step whose profile cannot
 // start a task, reported on that step with the step and profile named.
@@ -755,9 +782,12 @@ func (s *WorkflowService) Audit(ctx context.Context, ws uuid.UUID, entity string
 // task's Agents panel. A task without a workflow version shows the Standard
 // graph with its state placed on it.
 type TaskWorkflow struct {
-	WorkflowID     string                `json:"workflow_id"`
-	Name           string                `json:"name"`
-	Version        int                   `json:"version"`
+	WorkflowID string `json:"workflow_id"`
+	Name       string `json:"name"`
+	Version    int    `json:"version"`
+	// LatestVersion is the newest version of the task's workflow; above
+	// Version, the task can be moved to it.
+	LatestVersion  int                   `json:"latest_version"`
 	Builtin        bool                  `json:"builtin"`
 	Graph          json.RawMessage       `json:"graph"`
 	Node           string                `json:"node"`
@@ -813,6 +843,12 @@ func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID, su
 	}
 	cursor := task.Cursor()
 	out.WorkflowID, out.Name, out.Version, out.Graph = w.ID.String(), w.Name, version.Version, version.Graph
+	// A newer version the task could be moved to (KUA-130); an archived
+	// workflow offers none.
+	out.LatestVersion = version.Version
+	if w.ArchivedAt == nil && w.LatestVersion > version.Version {
+		out.LatestVersion = w.LatestVersion
+	}
 	if w.BuiltinKey != nil {
 		out.WorkflowID, out.Builtin = domain.StandardWorkflowID, true
 	}

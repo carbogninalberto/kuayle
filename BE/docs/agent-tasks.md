@@ -1304,6 +1304,10 @@ also logs "pull request #N published: <url>" there, as the task's creator,
 whenever an implementing task publishes, in the Standard flow and in
 workflows; a registry that is off or fails never affects the task.
 
+**Lessons.** A file with `"to":"memory"` and a `lesson` proposes a lesson for
+the repository's [workspace memory](#workspace-memory) instead of a message;
+only a refused one is recorded here.
+
 **Reading.** Every non-guest workspace member reads the messages whose sending
 issue they can see; the recipient is named only when they can see it too.
 
@@ -1396,20 +1400,23 @@ its number ("Message 3"), oldest first, at most 10 within the prompt room, and
 marked `delivered_via=prompt` with the attempt's run ID; recreating the
 attempt places the same messages, and messages claimed for an attempt that
 was never created are claimed again. Reviews receive none. A message written
-to the inbox within 20 seconds of the attempt's end may not have been read:
-when the attempt ends it is queued again (`SettleLiveMessages`) instead of
-counting as delivered.
+to the inbox in the 20 seconds before the harness exited may not have been
+read: when the attempt ends it is queued again (`SettleLiveMessages`, measured
+against the harness's exit time, not the time Kuayle gets round to settling)
+instead of counting as delivered.
 
-**A reply is mandatory** (KUA-132, migration `000148_live_message_replies`).
-Every message delivered to an agent, through the inbox or the prompt, must be
-answered. A reply is exactly this: an outbox file addressed to the
-orchestrator whose `reply_to` is the message's sequence number,
+**A reply is mandatory, and the work is never lost over a missing one**
+(KUA-132, migration `000151_live_message_replies`). Every message delivered to
+an agent, through the inbox or the prompt, must be answered. A reply is
+exactly this: an outbox file addressed to the orchestrator whose `reply_to` is
+the message's sequence number,
 `{"to":"orchestrator","reply_to":3,"body":"..."}`, saying what the agent
 understood and what it will do differently. It is recorded as a `from_agent`
 message with `reply_to`; a `reply_to` that names no message the task received
 is refused (`rejected`), `reply_to` on a file for another recipient is
 invalid, and the final message or a file without `reply_to` does not count.
-The harness enforces it, not the prompt:
+The agent's 30-per-hour budget never drops the first reply to a message.
+Kuayle asks for the reply, not only the prompt:
 
 - While the attempt runs, the manager keeps `unanswered.json`
   (`{"unanswered":[3,5]}`) in the inbox: the messages this attempt received
@@ -1424,61 +1431,100 @@ The harness enforces it, not the prompt:
   (`AgentLiveStopReminders`; the count is in the hook's state file) and then
   lets Claude stop. `SubagentStop` and tool calls are never held. A list the
   hook cannot read holds nothing.
-- **Every harness, when the attempt ends.** An attempt that would have
-  succeeded while a message it received has no reply is recorded as `failed`
-  with the error "The agent ended without replying to message 3 from the
-  person who owns the task" (`UnansweredMessageReason`; the result carries
-  `unanswered_messages`). This is the only enforcement for Codex and OpenCode,
-  which have no stop hook, and what happens to Claude Code after its 3
-  reminders. The task takes that reason like a missing final message: the
-  workflow step's "agent failed" transition applies and records it, and
-  outside a workflow the task fails with it. An attempt that failed, timed
-  out or was cancelled keeps its own reason.
-- **The retry is told.** The next attempt on the same workflow step is given
-  the unanswered message again in its prompt, marked "the previous attempt
-  received it and ended without replying; reply first", and owes the reply
-  in turn. A message is given to at most 2 attempts (`AgentLiveReplyAttempts`,
-  counted in `deliveries`); after that Kuayle stops asking and the message
-  stays unanswered, which the agent view flags. It is never carried to another
+- **Asked once more when the attempt has ended.** An attempt that ended well
+  (exit 0, a final message, not cancelled) while a message it received has no
+  reply is asked for the replies in its
+  [closing continuation](#closing-continuation), the one extra turn an
+  attempt gets for whatever is missing (`domain.ReplyClosingAsk`; Claude Code
+  and Codex only, since OpenCode cannot continue a session). The outbox is
+  collected again afterwards. It happens once; there is no loop.
+- **A missing reply never fails the attempt.** If there is still no reply the
+  attempt stays as it ended: the work is checked and published as usual, with
+  or without a workflow. The result carries `unanswered_messages` and a risk
+  note ("The agent did not reply to message 3…"), the agent view shows the
+  message as "No reply" and marks its step, and the message is given once more
+  to the next attempt of the same workflow step, if there is one, marked "the
+  previous attempt received it and ended without replying; reply first".
+- **The bound.** A message is given to at most 2 attempts that ran to an end
+  (`AgentLiveReplyAttempts`, counted in `deliveries`); after that Kuayle stops
+  asking and it stays unanswered. An attempt that was interrupted, paused or
+  cancelled does not count: it was not allowed to finish, and the attempt that
+  continues it takes its messages over. A message is never carried to another
   step: only the attempt right after the one that received it, on the same
   `workflow_node`, gets it.
+- **A reply Kuayle could not collect is not a missing reply.** The attempt's
+  messages are settled only when the outbox was read and recorded. When that
+  failed (the machine's services could not be listed, the developer container
+  is gone, the read or the write failed) and the attempt owed a reply, nothing
+  is concluded, the agent is not asked again, and the result's risk notes say
+  the problem is on Kuayle's side (`agent_live_messages.collect_failed`). The
+  result has `replies_unknown`, the run carries it in the task's timeline, and
+  the agent view shows such a message as delivered, not as "No reply". A
+  message that reached the inbox just before the harness exited is queued
+  again all the same.
 
-Messages delivered before migration 148 have `deliveries = 0` and owe no
+Messages delivered before migration 151 have `deliveries = 0` and owe no
 reply. Every implementing prompt, the Claude hook's text and the
 `kuayle-agents` skill state the reply format.
 
 **Sending now.** `SendLiveMessage(ws, task, body, mode)` queues the creator's
 message as above and, in the same transaction, acts on `mode`:
 
-- `interrupt` ("Interrupt and send") stops the working attempt through the
-  [pause-now](#pause-and-resume) cleanup, with `live_resume_generation` set to
-  the generation the step will resume as. When the cleanup has confirmed the
-  attempt gone (`FinishCancellation`), the pause ends and the step continues
-  by itself as a new attempt on the same step, visit and iteration, with
-  `resume_native_session` (so `claude --resume` or `codex exec resume`
-  continue the session; OpenCode gets the handoff) and the message in its
-  prompt; the handoff says a person interrupted the attempt to say something
-  and that the worktree is unchanged. It is audited as a pause and a resume.
-  The machine, checkout, worktree and session are kept, as for a pause. If the
-  resume cannot happen the task stays paused with the reason "Paused: the
-  agent was stopped to deliver your message but could not be started again…",
-  Resume then continues it, and the message is delivered then. Cancelling
-  meanwhile cancels. Only an attempt that is working can be interrupted
-  (a workflow task in `preparing`, `running` or `waiting_input` whose run has
-  not ended): otherwise 409, and nothing is queued. A second message sent
+- `interrupt` ("Interrupt and send") stops the working attempt and continues
+  it with the message. It works for every implementing task, with or without
+  a workflow (`CanInterruptForLiveMessage`: the task is `preparing`, `running`
+  or `waiting_input`, its run has not ended, and it is not paused or failing).
+  The attempt goes through the usual runtime cleanup (`cancelling`, with
+  `live_resume_generation` naming the attempt it will continue as; the task's
+  JSON then has `"interrupting": true`), which keeps the machine, the
+  checkout, the worktree and the session transcripts. When the cleanup has
+  confirmed the attempt gone (`FinishCancellation`), the task goes straight
+  back to `queued` as a new attempt on the same step, visit and iteration
+  (nothing is counted), with `resume_native_session` (so `claude --resume` or
+  `codex exec resume` continue the session; OpenCode gets the handoff) and the
+  message in its prompt; the handoff says a person interrupted the attempt to
+  say something and that the worktree is unchanged. It is not a pause: a
+  pending "pause after this step" stays as the person asked for it, and the
+  workflow pauses after the continued step. Who interrupted and when is in the
+  task's transitions. A cleanup that fails is started again, as for a pause.
+  If the attempt cannot be continued the task says so: a workflow is paused on
+  its step ("Paused: the agent was stopped to deliver your message but could
+  not be started again…", Resume continues it), any other task is blocked
+  ("…Send and start now, or retry the task, to continue"); the message is
+  delivered then; the interruption is then over (`live_resume_generation` is
+  cleared), so that Resume or Retry is an ordinary one. A person's cancel
+  always wins: it clears the mark whatever the task's state, so the cleanup
+  cancels and never starts the attempt again. When no attempt is working the
+  request is refused with 409 and nothing is queued. A second message sent
   while the attempt is being stopped joins the first.
 - `start` ("Send and start now") starts an attempt when none runs. A task
-  whose agent a pause stopped resumes that step. A `failed`, `blocked` or
-  `awaiting_review` task starts a new iteration on its last agent step as
-  Retry does (a new visit), but keeps its prompt and continues the previous
-  attempt's native session however it ended, when the same profile ran it
-  (`AgentTask.LiveResumed`; another profile's session is never continued).
-  A working task, one in cleanup, or one paused by a usage limit is 409.
+  whose agent a pause stopped resumes that step (nothing is counted). A
+  `failed`, `blocked` or `awaiting_review` task starts a new iteration on its
+  last agent step exactly as Retry does, except that it keeps its prompt and
+  continues the previous attempt's native session however it ended, when the
+  same profile ran it (`AgentTask.LiveResumed`; another profile's session is
+  never continued). In a workflow that is a new visit of that step: it counts
+  one visit and one iteration against the workflow's limits (checked when the
+  workflow next decides), the working-time budget keeps running from where it
+  was, and a step that was waiting (CI, an approval, a merge, a review) is
+  closed as retried, so that wait is abandoned. The agent view therefore asks
+  once before starting a task that is `awaiting_review`. A working task, one
+  in cleanup, or one paused by a usage limit is 409; a completed or cancelled
+  task takes no message at all.
 - without a mode the message waits for the working attempt's inbox or the
   next prompt. A harness Kuayle cannot hand a message to in the middle of a
   turn (`HarnessReadsLiveInbox`: every harness but Claude Code) is interrupted
-  as with `interrupt` whenever its attempt can be; the assistant's approved
-  `message_task` messages follow the same rule.
+  as with `interrupt` whenever its attempt can be, otherwise the message waits
+  for the next attempt; the assistant's approved `message_task` messages
+  follow the same rule.
+
+**Rollout order.** Deploy the backend (with migration 151) before the agent
+images. The new backend works with old images: their hook and skill never
+write `reply_to`, so replies are simply not recognised, the continuation asks
+for them once, and messages show "No reply"; nothing fails. The reverse order
+does not work: an old backend refuses an outbox file with `reply_to` as an
+unknown field, so every reply a new image writes would be recorded as
+rejected.
 
 **Agent to orchestrator.** While an attempt runs the manager also collects the
 machine's outboxes every 5 seconds (and still during the port scan and at the
@@ -1506,9 +1552,10 @@ gets 404; PATs get 403):
 | GET | `/agent-tasks/:taskId/live-messages` | `{messages}`: the newest 100, both directions, oldest first |
 | POST | `/agent-tasks/:taskId/live-messages` | `{body}` and optionally `{"mode":"interrupt"\|"start"}` (unknown fields refused); 201 with the queued message, always sender `user`; 400 invalid text, an unknown mode or a review task, 409 an ended task or a mode the task's state does not allow (nothing is queued), 429 over the hourly budget |
 
-Messages carry `reply_to` and `deliveries`. Only the task's creator sends and
-reads, whatever the mode: an admin, the owner, another member, a guest and a
-creator who lost access to the team are answered 404.
+Messages carry `reply_to` and `deliveries`. Sending and reading are the
+creator's alone, whatever the mode: workspace admins and the owner have no
+access to another person's agent. An admin, the owner, another member, a
+guest and a creator who lost access to the team are answered 404.
 
 **Conversation events.** Queuing, inbox or prompt delivery and recording an
 agent's file each write a `task.live_message` event, with the message and its
@@ -1522,12 +1569,140 @@ volume once unused; the ended agent container keeps it until the run is
 cancelled (`CancelAgent` removes the run's inbox volumes after its containers)
 or the machine is torn down (`Teardown` removes the machine's inbox volumes).
 
-Rolling migration 148 back keeps replies as plain agent messages and forgets
-which message each answered; a task interrupted for a message whose agent is
-still being stopped then stays paused until it is resumed.
+Rolling migration 151 back keeps replies as plain agent messages and forgets
+which message each answered; a task whose agent is being stopped for a
+message at that moment is then cancelled by that cleanup instead of continued.
 Rolling migration 95 back drops the live channel's messages. Rolling migration
 134 back removes `message_task` approvals and the `request_id` column; messages
 already delivered are kept.
+
+## Workspace memory
+
+Migration 149 adds short lessons per repository (KUA-134): how to run the
+checks, conventions, known traps. Agents, reviews and members only
+**propose** lessons; a workspace owner or admin approves, edits or drops each
+proposal, and only approved lessons, as that person left them, are ever
+handed to an agent. Putting them in a task's prompt is one call,
+`service.WorkspaceMemoryService.ApprovedLessons(ctx, task)`, which the prompt
+assembly makes for every attempt that plans or changes code (see
+[Lessons in the prompt](#lessons-in-the-prompt)). The task notebook's
+migration is 150, so that it sorts after this one.
+
+**Storage.** `workspace_lessons` holds one lesson per row: the workspace, the
+repository (`repository_full_name`, matched case-insensitively through
+`repository_key`, the same identity as `dev_machine_checkouts` and
+`repository_merge_methods`), the `state` (`proposed`, `approved`, `retired`,
+`dropped`), `text` (what agents see once approved) and `proposed_text` (what
+was proposed, never changed), the source (`source_event`: `task`, `review` or
+`manual`; `proposer`: `agent`, `external` or `person`; `source_task_id`;
+`proposed_by`), the source task's `team_id`, who decided and when, the prompt
+`position` and a `dedupe_key`. `workspace_lesson_events` records every
+proposal and decision (`proposed`, `added`, `approved`, `edited`, `shared`,
+`retired`, `dropped`, `reordered`) with the actor and a detail.
+
+**Limits** (`domain/workspace_memory.go`). A lesson is one line of at most 400
+characters, without control characters, zero-width characters or
+bidirectional overrides (U+200B–U+200F, U+202A–U+202E, U+2066–U+2069,
+U+FEFF), so an approver sees everything an agent would read. A repository has
+at most 30 approved lessons and 50 waiting proposals; a member has at most 5
+hand proposals waiting on a repository, and a task proposes at most 3 lessons
+per kind of event. A proposal discarded for a limit is logged with the
+repository and the kind of source, never its content. The block placed in a
+prompt is at most 4,000 bytes: lessons are taken whole, in order, until the
+next one does not fit.
+
+**Proposals.** Nothing calls a language model; each source is text that
+already exists, cut to one lesson when longer, for a person to edit:
+
+| Source | Text | `source_event` / `proposer` |
+| --- | --- | --- |
+| An agent, typically when its task ends or after a person corrected it | `{"to":"memory","lesson":"..."}` in its [outbox](#agent-messaging) | `task` / `agent` |
+| A requested agent review that ends with `request_changes` | Its findings | `review` / `agent` |
+| A trusted GitHub change request | Its summary. The author has write access on GitHub, which is not workspace membership, so the text is marked as external | `review` / `external` |
+| A member, by hand | `POST /memory/lessons` | `manual` / `person` |
+
+A person's messages to a task (live messages, issue comments) and CI results
+propose nothing: a message is private to the task's creator and is not a
+lesson, and a failed check's name and summary teach nothing. A correction
+becomes a lesson when the corrected agent proposes it through its outbox
+(the `kuayle-agents` skill asks it to) or when a member writes it by hand.
+
+A task's proposal is recorded in the transaction of the event that caused
+it, inside a savepoint: a proposal that fails is logged and never fails the
+outbox batch, the review or the signal (a failed outbox lesson is recorded as
+a refused message). The repository is the one of the task's checkout; a task
+without a checkout proposes nothing. The same text (without regard to case
+and spacing) is proposed once per repository and kind of event, whatever
+became of the first proposal, so a dropped proposal does not come back. An
+outbox lesson that is malformed, too long, over the task's limit, from a
+review task or from a task that ended is refused and recorded as a refused
+message to `MEMORY` in the [message registry](#agent-messaging), within the
+task's hourly message budget; an accepted lesson is a proposal, never a
+message.
+
+**Redaction.** Text is redacted before it is stored, so `text`,
+`proposed_text`, API responses and audit details never hold a secret the
+redactor knows: the secret values of the source task's machine (the values
+its run output is redacted with) for a task's lesson and for a person's edit
+of it, and well-known credential formats (`sanitize.RedactCredentials`, the
+release scan's rules) always. The API and the machine manager call
+`repository.ConfigureLessonRedaction` at startup; a process that did not, or
+that cannot read the secrets, stores no lesson. Lessons are redacted again
+when they are placed in a prompt.
+
+**Trust.** An agent's lesson and review findings are stored as written by an
+agent, a GitHub reviewer's as external, and reach nobody's prompt as they
+are: approving is a person's act, and what is handed on is the `text` of the
+approved row. A lesson is retired (`approved` → `retired`) or dropped
+(`proposed` → `dropped`) for good; both states are final.
+
+**Who reads what.** Owners and admins read every lesson. Any other non-guest
+member reads the approved lessons, the lessons they wrote by hand, and the
+waiting proposals of tasks they created: a task's proposal carries text from
+that task, which stays with its creator and the people who decide until it is
+approved. `proposed_text`, the text before a person edited it, is returned
+only to owners and admins.
+
+**Teams.** A lesson that came from a task keeps that task's team (`team_id`),
+and the team's privacy is read when the lesson is: while the team is private,
+only people who can see it see the lesson (`kuayle_team_access`) and only its
+tasks receive it; while it is public the lesson reaches every task on the
+repository. A team made private later therefore takes its lessons with it. A
+lesson written by hand belongs to the workspace, and an owner or admin can
+share a team's lesson with the workspace (`workspace_wide`), which is
+audited. Today a workspace with private teams cannot have development
+machines, so such lessons cannot yet arise from tasks; the rule is enforced
+in the queries all the same.
+
+**API** (session only, under `/api/workspaces/:slug`). Non-guest members read
+and propose by hand; only current owners and admins decide, re-checked inside
+each writing transaction.
+
+| Route | Who | Effect |
+| --- | --- | --- |
+| `GET /memory/lessons?repository=&state=` | members | Lessons the caller may read, with `can_manage` and the limits; approved ones in prompt order |
+| `POST /memory/lessons` `{repository, text}` | members | A lesson written by hand for a connected repository: approved at once for an owner or admin, a proposal otherwise |
+| `POST /memory/lessons/:lessonId/approve` `{text?}` | owners, admins | `proposed` → `approved`, optionally with edited text, placed last |
+| `PUT /memory/lessons/:lessonId` `{text?, workspace_wide?}` | owners, admins | Edit a proposed or approved lesson; share a team's lesson |
+| `POST /memory/lessons/:lessonId/retire` | owners, admins | `approved` → `retired` |
+| `POST /memory/lessons/:lessonId/drop` | owners, admins | `proposed` → `dropped` |
+| `PUT /memory/lessons/order` `{repository, ids}` | owners, admins | Prompt order; `ids` names every approved lesson once |
+| `GET /memory/lessons/:lessonId/audit` | owners, admins | The lesson's audit trail, newest first |
+
+Refusals: `403` for guests and non-members (and members on decisions), `404`
+for a lesson of another workspace or of a team the caller cannot see, `400`
+`INVALID_LESSON`, `LESSON_REPOSITORY`, `LESSON_ORDER`, and `409`
+`LESSON_STATE`, `LESSON_LIMIT`, `LESSON_PENDING_LIMIT`, `LESSON_DUPLICATE`.
+
+**In a prompt.** `ApprovedLessons(ctx, task)` resolves the repository of the
+task's checkout and returns a heading and one `- ` line per approved lesson,
+or `""` when there is none or no checkout yet.
+`ApprovedLessonsForRepository(ctx, workspaceID, teamID, repository, machineID)`
+does the same for a known repository. Both redact the machine's secret values
+and well-known credential formats again, and fail rather than return
+unredacted text when the secrets cannot be read.
+
+Rolling migration 149 back drops the lessons and their audit trail.
 
 ## Configurable workflows
 
@@ -1735,6 +1910,39 @@ A step run by another profile than the previous attempt's step starts a fresh
 native session (`AgentHandoff.OtherProfile`): a builder does not continue its
 planner's conversation.
 
+A planning step also **cannot write its worktree**: its agent container
+mounts the task's worktree read-only over the writable workspace volume, and
+the worktree's `.kuayle/` directory (the outbox) writable on top of it
+(`readOnlyWorktreeMounts`, two volume-subpath mounts). The comparison above
+stays as the second guard, because git keeps a worktree's index and refs in
+the repository's common directory, outside that mount, so a commit or a
+staged change is still possible. What stays writable for the harness: its
+session directory (`/workspace/.kuayle/agent-sessions/<task>`), the run
+directory for temporary files and caches (`/workspace/.kuayle/tmp/agent-<run>`),
+the home and `/tmp` tmpfs, and `.kuayle/` in the worktree. Per harness
+(`domain.ReadOnlyWorktreeSupported`):
+
+| Harness | Worktree of a planning step | Why |
+| --- | --- | --- |
+| Claude Code, Codex, OpenCode | read-only | Sessions, caches and temporary files are outside the worktree. Not exercised against the real CLIs in tests; the mount spec and the request are. |
+| Crush | writable, checked after the run | Keeps its state in `.crush/` inside the working directory. |
+| Qwen Code, Kimi, Goose, custom | writable, checked after the run | Not verified to start with a read-only working directory. |
+
+The mount needs Docker API 1.45 (Engine 26); on an older daemon the step runs
+with a writable worktree and a warning is logged. The same happens when the
+worktree's `.kuayle/outbox` could not be prepared (the nested mount would
+keep the container from starting): the run's `worktree_read_only` is cleared
+and the comparison after the run is the guard.
+
+`POST /workflows/validate` also returns `warnings` beside `issues`
+(`domain.WorkflowWarnings`). A warning never refuses a graph. Today there is
+one, `planning_step_implements`: an agent step runs a planning profile while
+its name is that of an implementing role (it contains "implement", "build",
+"coder", "developer" or "engineer") or a sentence or clause of its prompt
+starts with an order to change code (implement, write the code, make the
+changes, fix, commit, push, open a pull request). "Plan how to implement" and
+"do not implement" start with something else and pass.
+
 A profile used as an [agent assignee](#agents-as-issue-assignees) runs the built-in flow
 whatever its behaviour; planning applies to workflow steps.
 
@@ -1809,8 +2017,8 @@ step continues as a new attempt on the same step, visit and iteration, with
 `resume_native_session` set, so a harness that recorded a session continues
 it (`claude --resume`) and any other gets the handoff, both told that a person
 paused the attempt and to continue where it stopped.
-["Interrupt and send"](#live-channel) is this pause followed by its resume, as
-one action. A task paused elsewhere is
+["Interrupt and send"](#live-channel) stops and continues an attempt in the
+same way but is not a pause: it holds nothing and keeps a pending pause. A task paused elsewhere is
 simply picked up again: a waiting step is evaluated at once, a finished step's
 outcome is applied. Resuming a pause that has not taken effect withdraws it.
 The same route still resumes a task paused by a [usage limit](#usage-limits);
@@ -1839,6 +2047,258 @@ and `to_version`), under the same authorization, so the sidebar's path shows a
 move where it happened. The task card shows "Paused" with one Resume button,
 and offers Pause in its menu; `WorkflowPauseControl.svelte` is the same
 control as a standalone component.
+
+### Moving a task to a newer workflow version
+
+A task is pinned to the workflow version it started on; saving the workflow
+only affects later tasks. Its creator can move a running task to the newest
+version (KUA-130). It is never automatic.
+
+- `GET /agent-tasks/:taskId/workflow/switch` says what the move would do and
+  changes nothing: `from_version`, `to_version`, the step the task continues on
+  (`node`, `node_label`), or `refused` with the reason. `POST` on the same path
+  does it, and answers `409 WORKFLOW_SWITCH_REFUSED` with the reason when the
+  task cannot be moved. Both are for the creator, like pause and cancel.
+- The task must be at rest (`domain.WorkflowSwitchBlocked`): paused by a person
+  with the interrupted attempt stopped, or `awaiting_review` and waiting on a
+  step for CI, an approval or a merge. A task whose agent is working is paused
+  first (`not_at_rest`); a task being cancelled is not moved.
+- The task continues on the step it is on, and only if the newest version still
+  has it doing the same kind of work (`domain.MatchWorkflowNode`): the same node
+  ID and type, the same check, and for an agent step the same profile, because
+  the attempt or review the task has there was started with that profile's
+  harness, model and instructions and is continued with them. Label, prompt,
+  limits and the transitions may differ, and so may every other step.
+  Otherwise the move is refused (`step_removed`, `step_changed`) and the task
+  stays on its version: it is never left without a valid step. Choosing another
+  step to continue from is not offered.
+- The step the task is on keeps the prompt it was entered with. The new
+  prompts, profiles, transitions and limits apply from its next step.
+- A person's retry goes back to the latest implementing step the task's current
+  version still has (`retryWorkflow`), and is refused when it has none.
+- Transitions planned on the old version are refused: `WorkflowApply.Version`
+  names the version they were planned on, so an approval or a worker step that
+  raced the move decides again on the new one. A waiting task is looked at
+  again at once, so the new version's timeouts and budget apply immediately.
+- Visit counts are kept for the steps the newest version still has; iterations,
+  budget extensions and the time already spent are kept. So the new limits and
+  the new budget count what the task already did, and a task can be over a
+  lowered limit at once.
+- The worker's lease is dropped, so what it decided on the old version is
+  refused and it decides again on the new one. A paused task stays paused.
+- The move is recorded in `workflow_audit_events` (`task_workflow`,
+  `version_switched`: who, from and to version, the step, the step sequence).
+- `GET /agent-tasks/:taskId/workflow` returns `latest_version` next to
+  `version`. The task card asks for the plan whenever the task changes state
+  and offers "Move to workflow version N" in its menu; the dialog says where
+  the task continues, or why it cannot be moved
+  ([workflow-switch.ts](../../UI/src/lib/features/assistant/workflow-switch.ts)).
+  The move is listed in the workflow view's `pauses`, and the task card's
+  path shows it where it happened ("Moved to workflow version N").
+
+## Task notebook
+
+Each step used to start almost from zero. A task now has one notebook
+(`agent_task_notebooks`, migration 150; `domain.Notebook`), kept by Kuayle
+outside the worktree, with a fixed set of bounded sections:
+
+| Section | Written by | Merge |
+| --- | --- | --- |
+| `instructions` | Kuayle, from people: the task's request, a retry's new instructions, an approved follow-up, a live message | added; the request always stays; 32 KB together |
+| `plan.text` | Kuayle, from a planning step's final message (the same text `{{plan}}` carries) | replaced; dropped when a planning step fails |
+| `plan.steps` (title, files, commands, acceptance, done) | agents | replaced; a plan text from another attempt, or a failed planning step, clears them |
+| `decisions` (decision, why), `done` | agents | added, newest 40 kept |
+| `remaining`, `verify` | agents | replaced (`[]` clears) |
+| `findings` | Kuayle (`review`, `ci`, `check`, `comment`) and agents (`agent`), numbered | added; agents mark them `resolved` |
+| `events` | Kuayle: a usage-limit pause and resume, a pause at a workflow limit, a person's decision | added |
+
+A comment a workspace member posts on the issue while the pull request awaits
+review is a `comment` finding, not an instruction: any member who sees the
+issue can post one, so it is feedback in the notebook exactly as it is fenced
+in the prompt (`followUpPrompt`, `followUpNote`).
+
+`agent_task_notebook_changes` keeps who changed which sections at which step
+and attempt (author `agent`, `kuayle` or `person`, user, run, generation,
+step, and what was cut or ignored), newest 200 per task.
+
+**Receiving it.** Every attempt that is not a review gets the notebook as
+instructions (`Notebook.RenderWith`). People's instructions come first under
+their own heading; every entry is indented so agent text cannot open a
+heading. It does not repeat what the prompt already holds: where `{{plan}}`
+carries the plan, and where the task text is the request, the notebook points
+to them.
+
+- Claude Code, Codex and OpenCode read it whole from their instructions file,
+  after the profile's own text (`domain.ProfileFiles`).
+- The other harnesses get it ahead of the prompt, in its own share of 12000
+  bytes (`notebookPromptBytes`). A larger notebook shrinks to it in a fixed
+  order: events, then findings, then what is done, then decisions, oldest
+  first, and says what it left out. The plan, what remains, how to verify
+  and people's instructions stay.
+
+The project's instructions, and on a harness without an instructions file
+the profile's too, are placed outside the task prompt's own 32000-byte
+budget (`withWholeInstructions`), on every harness: nothing else in the
+prompt makes them give way. They are kept whole up to 32,000 bytes together;
+beyond that their end is cut (`workflowInstructions` already bounds a
+workflow step's project and profile text to that size). A profile read from
+an instructions file has no such limit.
+
+**Updating it.** The agent writes `.kuayle/outbox/notebook.json` (or
+`notebook-<n>.json`) in its worktree; see the `kuayle-notebook` section of the
+`kuayle-agents` skill. Input is read leniently and stored strictly
+(`domain.ParseNotebookUpdate`):
+
+- accepted: any of the agents' sections; an update that only resolves
+  findings or clears a list with `[]`; a bare text where a list is expected.
+  `null` means "not given": it neither clears a section nor counts;
+- cut, keeping the first entries, and noted in the change log: a text over 600
+  bytes, a list over 40 entries (a step's files and commands included);
+- ignored and noted: unknown fields, blank entries, control characters. What
+  was cut or ignored is also said once in the notebook's events ("A notebook
+  update was accepted in part: …"), which the next agent reads, so a typo is
+  not repeated forever;
+- refused whole, with the reason kept on the run (`notebook_problem`): a file
+  over 16 KB, something that is not one JSON object, a section of the wrong
+  shape, an update that says nothing, and any attempt to write a section
+  Kuayle owns (`instructions`, `events`, `plan.text`).
+
+**Collection never loses an update.** The outbox take script reads notebook
+files first, outside the limits of ten files per worktree and fifty per scan,
+and leaves them in place. The manager redacts their strings with the
+machine's credential snapshots, `RecordAgentOutbox` merges them, and only
+then are they removed, by content (`outboxAckScript`), so an update the agent
+rewrote meanwhile stays. A failed read, record or redaction leaves the file
+for the next collection; recording the same update twice changes nothing.
+
+**An update counts for the attempt that wrote it.** When an attempt starts
+for the first time the manager collects the outbox (so a valid file an
+earlier attempt left is still recorded), removes any `notebook*.json`, and
+resets the starting run's count (`clearNotebookLeftovers`): an old file never
+satisfies a new attempt. `notebook_updates` counts only updates that changed
+the notebook. One that changed nothing sets `notebook_unchanged` instead and
+is enough only when the attempt itself left the worktree as it found it
+(Kuayle's own comparison); otherwise it is treated like a missing update,
+and the agent is told that its update changed nothing.
+
+### Closing continuation
+
+An attempt gets at most **one** extra turn before its step closes, in which
+it is asked for whatever is still missing
+(`machine/closing_continuation.go`). When a run ends and its outbox was
+collected, `Manager.settleClosing` lists what is missing, each as a
+`domain.ClosingAsk`:
+
+| Missing | Asked of | Ask |
+| --- | --- | --- |
+| a reply to a delivered message of the task's owner ([live channel](#live-channel)) | an attempt that ended well | `domain.ReplyClosingAsk`: the message numbers and the reply format |
+| a task notebook update that counts ([below](#task-notebook)) | an attempt that concluded | `domain.NotebookClosingAsk`: the validator's message, write the file now |
+
+`Manager.askToClose(ctx, attempt, asks)` then continues the attempt's own
+session once with one short prompt (`domain.ClosingPrompt`) that lists them,
+numbered when there are several, and asks for nothing else. Another reason
+to ask adds a `ClosingAsk` to that list, never a second continuation.
+Afterwards the outbox is collected again and each thing is looked at again;
+what is still missing is noted on the run. The continuation never changes how
+the attempt ended.
+
+- It is a second container of the same run (`…-agent-<run>-closing`) with
+  the command line stored at creation (`closing_continuation`, the same
+  invocation with placeholders for the session and the prompt), under the
+  run's sandbox and mounts but without the live inbox, with the sign-in the
+  attempt may have refreshed.
+- `closing_asked_at` is taken before it starts: one continuation per
+  attempt, also across a manager restart.
+- It has five minutes, and never runs past one minute before the attempt's
+  own time limit: the run is still recorded as running meanwhile, and a run
+  past its limit is killed and marked `timeout`. With less than 30 seconds
+  left for it, it is not started (and the attempt is not marked as asked).
+- Nothing is asked for what Kuayle itself failed to collect: a reply or an
+  update that may exist unseen is not the agent's omission.
+- Its container is removed by its exact name on every path out. A manager
+  that restarts and finds the attempt already asked removes what the crash
+  left and does not run it again. The attempt's own container is never
+  removed from this path.
+- Its output is not the attempt's: summary, logs and token usage stay those
+  of the work. That it ran and for how long is on the run
+  (`closing_asked_at`, `closing_seconds`) and in the machine's events
+  (`agent_run.closing_continuation`).
+
+| Harness | Continuation |
+| --- | --- |
+| Claude Code | `claude --print … --resume <session> -p <prompt>` in the task's session directory |
+| Codex | `codex exec resume … <thread> <prompt>` with the thread ID the run reported |
+| OpenCode, Crush, Qwen Code, Kimi, Goose, custom | none: Kuayle does not continue their sessions, so what is missing is noted at once |
+
+**When an attempt leaves no valid update** (`machine/notebook.go`). The run
+of such an attempt has `notebook_required`. The work is never lost over the
+notebook:
+
+1. *Asked once, in the same session.* When the attempt concluded (it would
+   succeed) without an update that counts, it is asked for one in its
+   [closing continuation](#closing-continuation)
+   (`domain.NotebookClosingAsk`: the validator's message, write
+   `.kuayle/outbox/notebook.json` now), and the outbox is collected again.
+
+2. *Recorded by Kuayle.* If there is still no valid update, the run stays
+   succeeded. Kuayle adds the attempt's final message to `done`, marked
+   "Recorded by Kuayle from the agent's final message; the agent did not
+   update the notebook" (author `kuayle` in the change log), and notes it on
+   the run (`notebook_problem`, `domain.NotebookNotUpdated`). The note is in
+   the run's risk notes, in the task's reason when it moves to validation,
+   in the workflow step's detail, and in the next attempt's handoff.
+
+A collection that failed for a reason of Kuayle's is not the agent's
+omission: the agent is not asked, nothing is recorded in its name, and the
+run's risk notes say that Kuayle could not collect the update
+(`domain.NotebookNotCollected`). A custom, non-LLM harness run as a task
+simply gets step 2.
+
+**API.** `GET /agent-tasks/:taskId/notebook` returns the notebook, its
+revision and its newest 50 changes to the task's creator (session only, the
+task's usual checks). There is no write route: a person adds an instruction
+by messaging the agent, retrying with new instructions or approving a
+follow-up.
+
+### Lessons in the prompt
+
+The approved lessons of the task's repository
+([workspace memory](#workspace-memory)) travel the same way, as the `memory`
+prompt source: `devMachineTaskRuntime.Attempt` asks
+`WorkspaceMemoryService.ApprovedLessons` for the task (wired with
+`AgentTaskService.SetMemory` in `cmd/server/main.go`) and places the block it
+returns, under its own heading "Lessons for this repository (approved by the
+workspace's admins)". The memory service decides what a task may see (only
+approved lessons, a private team's only for that team's tasks) and bounds the
+block to 4000 bytes; without approved lessons there is no block. Lessons that
+cannot be loaded are logged and the attempt runs without them.
+
+- Claude Code, Codex and OpenCode: in the instructions file, after the
+  profile's text and before the notebook.
+- The other harnesses: ahead of the prompt. The notebook and the lessons
+  share what a prompt has left under 96000 bytes (`promptShares`): with room
+  each has its full share (12000 and 4000 bytes); when room is short the
+  notebook's detail gives way first, down to a floor of 2000 bytes, and only
+  then the lessons. The profile's and the project's instructions do not give
+  way to either (they have their own bound of 32,000 bytes, above).
+
+Review tasks are not given the lessons.
+
+### The prompt a step received
+
+Every attempt records what Kuayle assembled for it, split by source
+(`dev_machine_agent_run_prompts`, `domain.PromptSource`): `task`,
+`workflow_step`, `plan`, `follow_up`, `profile`, `contract` (Kuayle's own
+lines), `project` (configured instructions), `notebook`, `handoff`, `issue`,
+`related_work`, `messages`, `attachments`, and `memory` (the workspace's
+approved lessons). Each part
+names its channel: `prompt` (in order, these parts are the prompt exactly as
+sent) or `instructions_file`. Each part is cut at 64 KB and the record at
+512 KB, marked `truncated`. It has its own table, so reading or polling a
+run never carries it. `GET /agent-tasks/:taskId/runs/:runId/prompt` returns
+it to the task's creator with `recorded` (false for older runs) and
+`worktree_read_only`, redacted with the machine's current and retained
+credentials.
 
 ## Remaining workflow work
 

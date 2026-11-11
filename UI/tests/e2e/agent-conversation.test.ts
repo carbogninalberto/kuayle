@@ -164,6 +164,8 @@ async function fixture(page: Page) {
 			])
 		} as Record<string, any[]>,
 		liveMessages: [] as any[],
+		// A task without a workflow lists its attempts.
+		runs: [] as any[],
 		// What the composer posted: the body and how it was sent.
 		sends: [] as { body: string; mode?: string }[],
 		// The next send is refused with this.
@@ -200,6 +202,7 @@ async function fixture(page: Page) {
 		if (match) {
 			const rest = match[1] ?? '';
 			if (rest === '/workflow') return route.fulfill({ json: state.workflow });
+			if (rest === '/runs') return route.fulfill({ json: { runs: state.runs } });
 			if (rest === '/live-messages' && route.request().method() === 'POST') {
 				const input = route.request().postDataJSON();
 				if (state.refuse) {
@@ -384,13 +387,15 @@ test('a message sent from the running step is shown inline with its state, and t
 	await expect(page.locator('#step-3').getByRole('img', { name: 'Replied' })).toBeVisible();
 });
 
-test('a step that ended without a reply is flagged, also when it is closed', async ({ page }) => {
+test('a message the agent never answered is flagged while the work goes on, also on a closed step', async ({ page }) => {
 	const { state } = await fixture(page);
-	state.task = baseTask({ state: 'failed', reason: 'The agent ended without replying to message 1 from the person who owns the task' });
+	// The attempt succeeded and its work was published: a missing reply never fails it.
+	state.task = baseTask({ state: 'awaiting_review', reason: 'Pull request opened; waiting for review', workflow_status: 'waiting' });
 	state.workflow = {
 		...workflow(),
-		status: 'failed',
-		runs: [workflow().runs[0], run('run-impl', 3, 'claude-code', 'failed', { completed_at: at(12) })]
+		status: 'waiting',
+		steps: workflow().steps.map((item: any) => (item.sequence === 3 ? { ...item, outcome: 'agent_finished', finished_at: at(12) } : item)),
+		runs: [workflow().runs[0], run('run-impl', 3, 'claude-code', 'succeeded', { completed_at: at(12) })]
 	};
 	state.liveMessages = [
 		{
@@ -413,13 +418,14 @@ test('a step that ended without a reply is flagged, also when it is closed', asy
 		}
 	];
 	await page.goto(agentUrl);
-	const failed = page.locator('#step-3');
-	const message = failed.getByRole('article', { name: 'Assistant for you' });
+	const step = page.locator('#step-3');
+	const message = step.getByRole('article', { name: 'Assistant for you' });
 	await expect(message).toHaveAttribute('data-state', 'unanswered');
 	await expect(message.getByRole('img', { name: 'No reply' })).toBeVisible();
-	await expect(thread(page).getByText('The agent ended without replying to message 1')).toBeVisible();
+	await expect(step).toHaveAttribute('data-status', 'done');
+	await expect(thread(page).getByRole('status').filter({ hasText: 'Awaiting review' })).toBeVisible();
 	// Closed, the step still says a message went unanswered.
-	const header = failed.getByRole('button').first();
+	const header = step.getByRole('button').first();
 	await header.click();
 	await expect(message).toHaveCount(0);
 	await expect(header.getByRole('img', { name: 'No reply' })).toBeVisible();
@@ -435,14 +441,17 @@ test('interrupt and send stops the turn and the message is taken up in the same 
 	await expect(composerButton(page, 'Send and start now')).toHaveCount(0);
 	await composer(page).fill('Stop: the migration must not drop the column');
 	await expect(interrupt).toBeEnabled();
+	// Its shortcut is shown with its name, and announced.
+	await expect(interrupt).toHaveAttribute('aria-keyshortcuts', 'Control+Enter Meta+Enter');
 	await interrupt.hover();
 	await expect(tooltip(page)).toContainText('Interrupt and send');
+	await expect(tooltip(page).locator('[data-slot="kbd"]')).toHaveText([/^(Ctrl|⌘)$/, '↵']);
 	await page.screenshot({ path: shot(testInfo, '3-interrupt-and-send.png') });
 
 	// One action: the server stops the attempt and resumes its session.
 	state.onSend = (mode) => {
 		if (mode !== 'interrupt') return;
-		state.task = { ...state.task, state: 'cancelling', reason: 'Interrupting: stopping the agent to deliver a message', workflow_paused_at: at(10) };
+		state.task = { ...state.task, state: 'cancelling', reason: 'Interrupting: stopping the agent to deliver a message', interrupting: true };
 	};
 	await interrupt.click();
 	await expect.poll(() => state.sends).toEqual([{ body: 'Stop: the migration must not drop the column', mode: 'interrupt' }]);
@@ -479,6 +488,81 @@ test('interrupt and send stops the turn and the message is taken up in the same 
 	await composer(page).fill('Also keep the index');
 	await composer(page).press('Control+Enter');
 	await expect.poll(() => state.sends.at(-1)).toEqual({ body: 'Also keep the index', mode: 'interrupt' });
+});
+
+test('a task without a workflow is interrupted like any other', async ({ page }) => {
+	const { state } = await fixture(page);
+	state.task = baseTask({ workflow_version_id: null, workflow_node: null, workflow_status: null, run_id: 'run-1', generation: 1 });
+	state.runs = [{ id: 'run-1', provider_id: 'claude-code', model: 'claude-opus-5-5', status: 'running', created_at: at(4), started_at: at(4) }];
+	state.logs['run-1'] = lines('run-1', 5, [text('Starting with the endpoint.')]);
+	await page.goto(agentUrl);
+	await expect(page.locator('#run-run-1').getByText('Starting with the endpoint.')).toBeVisible();
+	const interrupt = composerButton(page, 'Interrupt and send');
+	await composer(page).fill('Stop: wrong branch');
+	await expect(interrupt).toBeEnabled();
+	await interrupt.click();
+	await expect.poll(() => state.sends).toEqual([{ body: 'Stop: wrong branch', mode: 'interrupt' }]);
+	await expect(page.locator('#run-run-1').getByRole('article', { name: 'You' })).toContainText('Stop: wrong branch');
+});
+
+test('starting now on a waiting task asks once, naming what it gives up', async ({ page }) => {
+	const { state } = await fixture(page);
+	state.task = baseTask({ state: 'awaiting_review', reason: 'Workflow · waiting for CI on the pull request', workflow_status: 'waiting' });
+	state.workflow = {
+		...workflow(),
+		status: 'waiting',
+		steps: workflow().steps.map((item: any) => (item.sequence === 3 ? { ...item, outcome: 'agent_finished', finished_at: at(12) } : item)),
+		runs: [workflow().runs[0], run('run-impl', 3, 'claude-code', 'succeeded', { completed_at: at(12) })]
+	};
+	await page.goto(agentUrl);
+	await expect(page.locator('#step-3')).toBeVisible();
+	const start = composerButton(page, 'Send and start now');
+	await composer(page).fill('CI is flaky: rerun with the retry flag');
+	// The shortcut does not act behind the person's back: it asks, as the button does.
+	await composer(page).press('Control+Enter');
+	const dialog = page.getByRole('alertdialog', { name: 'Start a new iteration now?' });
+	await expect(dialog).toContainText('The task is waiting: Workflow · waiting for CI on the pull request.');
+	await expect(dialog).toContainText('Starting now gives that up');
+	await dialog.getByRole('button', { name: 'Cancel' }).click();
+	await expect(dialog).toHaveCount(0);
+	expect(state.sends).toEqual([]);
+	await expect(composer(page)).toHaveValue('CI is flaky: rerun with the retry flag');
+	// Enter alone only queues it; nothing is started.
+	await start.click();
+	await expect(dialog).toBeVisible();
+	await dialog.getByRole('button', { name: 'Send and start now' }).click();
+	await expect.poll(() => state.sends).toEqual([{ body: 'CI is flaky: rerun with the retry flag', mode: 'start' }]);
+	await expect(dialog).toHaveCount(0);
+	await expect(composer(page)).toHaveValue('');
+});
+
+test('an agent question is answered from where it was asked, and the answer names it', async ({ page }) => {
+	const { state, agentSays } = await fixture(page);
+	await page.goto(agentUrl);
+	const running = page.locator('#step-3');
+	await expect(running.getByRole('button', { name: /Ran 2 commands/ })).toBeVisible();
+	agentSays('question-1', 'Keep the v1 route?\nIt is still used by the mobile app.', 8, { kind: 'question' });
+	const question = running.getByRole('article', { name: 'Agent' }).filter({ hasText: 'Keep the v1 route?' });
+	await expect(question.getByRole('img', { name: 'Question' })).toBeVisible();
+	// One obvious way to answer: the button brings the cursor to the composer with the question as its target.
+	await question.getByRole('button', { name: 'Answer the question' }).click();
+	await expect(composer(page)).toBeFocused();
+	const target = page.getByTestId('agent-question');
+	await expect(target).toContainText('Keep the v1 route?');
+	await page.keyboard.type('Yes, keep it.');
+	await page.keyboard.press('Enter');
+	await expect
+		.poll(() => state.sends)
+		.toEqual([{ body: 'In answer to your question "Keep the v1 route? It is still used by the mobile app.":\nYes, keep it.' }]);
+	await expect(target).toHaveCount(0);
+	await expect(running.getByRole('article', { name: 'You' })).toContainText('Yes, keep it.');
+	// The target can be dropped: the next message is then a plain one.
+	await question.getByRole('button', { name: 'Answer the question' }).click();
+	await target.getByRole('button', { name: 'Dismiss' }).click();
+	await expect(target).toHaveCount(0);
+	await composer(page).fill('Unrelated');
+	await composer(page).press('Enter');
+	await expect.poll(() => state.sends.at(-1)).toEqual({ body: 'Unrelated' });
 });
 
 test('a harness without a mid-turn hook has one action: its message interrupts it', async ({ page }) => {

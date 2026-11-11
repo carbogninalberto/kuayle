@@ -785,7 +785,8 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	if err != nil {
 		return nil, err
 	}
-	containerName := "kuayle-" + machine.RoutingKey + "-agent-" + run.ID.String()
+	// A run's closing continuation is a second container of the same run.
+	containerName := "kuayle-" + machine.RoutingKey + "-agent-" + run.ID.String() + run.ContainerSuffix
 	labels := machineLabels(machine)
 	labels["com.kuayle.service"] = "agent"
 	labels["com.kuayle.agent-run-id"] = run.ID.String()
@@ -830,10 +831,22 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	}
 	// Without an inbox the attempt still runs; live messages then wait for
 	// the next attempt's prompt.
-	if err := r.prepareLiveInbox(ctx, machine, run, provider.ImageRef); err != nil {
-		log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID}).WithError(err).Warn("live inbox could not be prepared")
-	} else {
-		hostConfig.Mounts = append(hostConfig.Mounts, liveInboxMount(machine, run))
+	// A planning step's worktree is read-only, with its outbox writable.
+	if mounts := readOnlyWorktreeMounts(*machine.WorkspaceVolumeName, run, checkout); len(mounts) > 0 {
+		if ping, pingErr := r.client.Ping(ctx, client.PingOptions{}); pingErr == nil && apiAtLeast(ping.APIVersion, volumeSubpathAPI) {
+			hostConfig.Mounts = append(hostConfig.Mounts, mounts...)
+		} else {
+			// Older daemons cannot mount a volume's subpath. The step still
+			// runs; the comparison after it is then the only guard.
+			log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID, "docker_api": ping.APIVersion}).Warn("the planning step's worktree could not be mounted read-only; Docker API 1.45 is required")
+		}
+	}
+	if agentHasLiveInbox(run) {
+		if err := r.prepareLiveInbox(ctx, machine, run, provider.ImageRef); err != nil {
+			log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID}).WithError(err).Warn("live inbox could not be prepared")
+		} else {
+			hostConfig.Mounts = append(hostConfig.Mounts, liveInboxMount(machine, run))
+		}
 	}
 	if err := r.scopeMachineResources(ctx, machine, "agent", labels, hostConfig); err != nil {
 		return nil, err
@@ -896,6 +909,45 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	}
 	return r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", nil, observer)
 }
+
+// agentHasLiveInbox reports whether the run's container mounts the live
+// inbox: the attempt itself does; its closing continuation, which is asked
+// for one thing only, does not.
+func agentHasLiveInbox(run *domain.DevMachineAgentRun) bool {
+	return run.ContainerSuffix == ""
+}
+
+// closingContainerName is the name of a run's closing continuation container.
+func closingContainerName(machine *domain.DevMachine, run *domain.DevMachineAgentRun, suffix string) string {
+	return "kuayle-" + machine.RoutingKey + "-agent-" + run.ID.String() + suffix
+}
+
+// RemoveClosingContainer removes the run's closing continuation container,
+// found by its exact name and checked to belong to the run. The attempt's
+// own container has no suffix and is never removed here.
+func (r *DockerRuntime) RemoveClosingContainer(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, suffix string) error {
+	if suffix == "" {
+		return fmt.Errorf("a closing container has a suffix")
+	}
+	inspection, err := r.client.ContainerInspect(ctx, closingContainerName(machine, run, suffix), client.ContainerInspectOptions{})
+	if errdefs.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	labels := inspection.Container.Config.Labels
+	if labels["com.kuayle.agent-run-id"] != run.ID.String() || labels["com.kuayle.machine-id"] != machine.ID.String() || labels["com.kuayle.managed"] != "true" {
+		return fmt.Errorf("closing container ownership does not match the run")
+	}
+	_, err = r.client.ContainerRemove(ctx, inspection.Container.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	if errdefs.IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+var _ closingRuntime = (*DockerRuntime)(nil)
 
 func agentRuntimeEnvironment(overrides map[string]string) ([]string, error) {
 	names := make([]string, 0, len(overrides))

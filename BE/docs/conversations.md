@@ -220,13 +220,23 @@ the agent's own
 ([AgentComposer.svelte](../../UI/src/lib/features/assistant/AgentComposer.svelte)),
 under the timeline: it writes straight to that task's agent through the
 [live channel](agent-tasks.md#live-channel), with no approval, and is shown
-only to the task's creator while the task takes messages. Enter sends. One
-more action, an icon beside Send (also Ctrl/⌘+Enter), does it now:
-"Interrupt and send" while a Claude Code step works (`mode: "interrupt"`),
-"Send and start now" when no agent works and the task is failed, blocked or
-waiting (`mode: "start"`); Codex and OpenCode are interrupted by any message,
-so they have Send alone. The composer has no helper text; a refused send is
-said above it and keeps the text.
+only to the task's creator (nobody else, in any role, writes to another
+person's agent) while the task takes messages. Enter sends. One more action,
+an icon beside Send, does it now; its shortcut, Ctrl/⌘+Enter, is shown in its
+tooltip and announced (`aria-keyshortcuts`). It is "Interrupt and send" while
+a Claude Code agent works, with or without a workflow (`mode: "interrupt"`,
+no confirmation: it is the point), and "Send and start now" when no agent
+works and the task is failed, blocked or waiting (`mode: "start"`). Starting a
+task that is waiting on CI, an approval, a merge or a review abandons that
+wait and counts a visit and an iteration, so the button and the shortcut ask
+once first, naming what the task waits for. Codex and OpenCode are interrupted
+by any message, so they have Send alone. A completed or cancelled task has no
+composer. The composer has no helper text; a refused send is said above it and
+keeps the text. An agent's question has an "Answer the question" button under
+it: it moves the cursor to the composer and shows the question above the text
+as what the message answers (dismissable); the message is then sent as
+`In answer to your question "…":` followed by the answer, so the agent knows
+which question it is, and its own reply names that message's number.
 
 The conversation lives in the timeline
 ([agent-conversation.ts](../../UI/src/lib/features/assistant/agent-conversation.ts),
@@ -239,11 +249,13 @@ replied, or no reply. The agent's reply (the message whose `reply_to` names
 it) is the next item; its other messages and questions are placed by time, as
 escaped plain text. A message that waits is shown where it will be picked up:
 at the end of the running step, or after the last step when none runs. A
-message is "no reply" once the attempt that received it can no longer answer
-(an earlier attempt, or a task that failed or ended); the step's line then
-carries a warning icon, also when closed, and the task's reason says which
-message. There is no separate "Live messages" thread, in this view or on the
-task card in the sidebar.
+message is "no reply" once the attempt that received it ran to its end
+without one (or the task ended); an attempt that was interrupted or paused
+hands it to the one that continues it. A missing reply never fails the
+attempt, so the task goes on; the step's line carries a warning icon, also
+when closed, and the attempt's risk notes say which message. There is no
+separate "Live messages" thread, in this view or on the task card in the
+sidebar.
 The header has "Request review"
 ([AgentReviewRequest.svelte](../../UI/src/lib/features/assistant/AgentReviewRequest.svelte))
 while the task awaits review with its pull request open: a menu of the

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Migration 148: an agent's message may name the message it answers, and a
+// Migration 151: an agent's message may name the message it answers, and a
 // message to the agent counts its deliveries. Messages delivered before it
 // owe no reply.
 func TestLiveMessageRepliesMigration(t *testing.T) {
@@ -46,7 +46,10 @@ func TestLiveMessageRepliesMigration(t *testing.T) {
 	_, err = db.Exec(`INSERT INTO agent_live_messages(workspace_id,task_id,direction,seq,sender,author_id,body,state,delivered_via,run_id,delivered_at) VALUES($1,$2,'to_agent',1,'user',$3,'Before',$4,'inbox',$5,now())`, fixture.workspaceA, task, fixture.userA, "delivered", uuid.New())
 	require.NoError(t, err)
 
-	require.NoError(t, m.Migrate(148))
+	// Migrations 149 and 150 (the notebooks, which own the runs' closing_*
+	// columns) sit between the pause (145) and this one.
+	require.NoError(t, m.Migrate(150))
+	require.NoError(t, m.Migrate(151))
 	var deliveries int
 	require.NoError(t, db.QueryRow(`SELECT deliveries FROM agent_live_messages WHERE task_id=$1 AND seq=1`, task).Scan(&deliveries))
 	require.Zero(t, deliveries, "a message delivered before the rule owes no reply")
@@ -61,6 +64,13 @@ func TestLiveMessageRepliesMigration(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, m.Steps(-1))
+	version, dirty, err := m.Version()
+	require.NoError(t, err)
+	require.False(t, dirty)
+	require.EqualValues(t, 150, version, "one step down undoes this migration only")
+	var closing int
+	require.NoError(t, db.QueryRow(`SELECT count(*) FROM information_schema.columns WHERE table_name='dev_machine_agent_runs' AND column_name LIKE 'closing_%'`).Scan(&closing))
+	require.Positive(t, closing, "the closing continuation's columns are the notebook migration's, untouched here")
 	var columns int
 	require.NoError(t, db.QueryRow(`SELECT count(*) FROM information_schema.columns WHERE (table_name='agent_live_messages' AND column_name IN ('reply_to','deliveries','workflow_node')) OR (table_name='agent_tasks' AND column_name='live_resume_generation')`).Scan(&columns))
 	require.Zero(t, columns)

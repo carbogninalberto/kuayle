@@ -51,6 +51,9 @@ func (r *AgentTaskRepository) PauseForUsageLimit(ctx context.Context, claimed do
 		}
 	}
 	task.UsageLimitMessage = &limit.Message
+	if err = noteNotebook(ctx, tx, task.ID, nil, domain.NotebookNote{Event: "Paused by the provider's usage limit; the attempt did not fail and the worktree is unchanged"}); err != nil {
+		return err
+	}
 	if err = beginAgentTaskFailure(ctx, tx, task, reason); err != nil {
 		return err
 	}
@@ -160,6 +163,13 @@ func (r *AgentTaskRepository) resumeAfterUsageLimit(ctx context.Context, id uuid
 	}
 	// A workflow task continues on its implementing step, as a retry does.
 	if err = retryWorkflow(ctx, tx, task, task.CreatorID); err != nil {
+		return nil, err
+	}
+	resumed := "Resumed after the usage limit reset"
+	if actor != nil {
+		resumed = "Resumed by a person after the usage limit"
+	}
+	if err = noteNotebook(ctx, tx, task.ID, actor, domain.NotebookNote{Event: resumed}); err != nil {
 		return nil, err
 	}
 	if err = transitionAgentTask(ctx, tx, task, "queued", reason, actor); err != nil {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick, untrack } from 'svelte';
+	import { setContext, tick, untrack } from 'svelte';
 	import { RefreshCw } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import * as Breadcrumb from '$lib/components/ui/breadcrumb/index.js';
@@ -19,9 +19,10 @@
 	import AgentReviews from './AgentReviews.svelte';
 	import TaskStopButton from './TaskStopButton.svelte';
 	import { openStep } from './agent-timeline';
-	import { placeConversation } from './agent-conversation';
+	import { answerContext, placeConversation, sendOptions, type AnswerContext } from './agent-conversation';
 	import { reviewSessions } from './agent-review';
 	import { useTaskRun } from './task-run.svelte';
+	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { taskLabel } from './task-labels';
 	import { taskTone, toneBadge } from './task-tone';
 	import { m } from '$lib/features/i18n/messages';
@@ -54,6 +55,12 @@
 	const identifier = $derived(chat.issue?.identifier ?? '');
 	const tone = $derived(taskTone(task.state));
 	let stopError = $state('');
+	// A refused stop is about the state the task was in.
+	$effect(() => {
+		void task.state;
+		stopError = '';
+	});
+
 	let disposed = false;
 	$effect(() => () => {
 		disposed = true;
@@ -82,6 +89,17 @@
 		if (task.kind !== 'review') untrack(() => void loadLive());
 	});
 	const conversation = $derived(placeConversation(live, steps, task));
+	// An agent's question is answered in the composer under the view: it
+	// takes the question as what the next message answers, and the cursor.
+	const writable = $derived(sendOptions(task, authState.user?.id).open);
+	setContext<AnswerContext>(answerContext, () =>
+		writable
+			? (question) => {
+					chat.agentQuestion = { taskId: task.id, id: question.id, body: question.body };
+					chat.composerFocus++;
+				}
+			: undefined
+	);
 	// The running step is open and the finished ones are closed, until the
 	// reader opens or closes one; a link to a step (#step-4) opens it.
 	let chosen = $state<Record<string, boolean>>({});

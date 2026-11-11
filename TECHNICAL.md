@@ -659,13 +659,15 @@ Code receives them after each tool call (and before it stops) through a
 Without a running attempt they go into the next attempt's prompt. During an
 attempt the manager also collects the outbox every 5 seconds, and files
 addressed `{"to":"orchestrator"}` (optionally `"kind":"question"`) are recorded
-in the same channel as untrusted text. A reply is mandatory (KUA-132, migration 148):
+in the same channel as untrusted text. A reply is mandatory (KUA-132, migration 151):
 every delivered message must be answered by an outbox file naming it
 (`"reply_to":<seq>`); Claude Code's `Stop` hook does not let the agent stop
-without it, an attempt of any harness that ends with a message unanswered
-fails with that reason, and the same step's next attempt is given the message
-once more. A person can also interrupt the working agent with a message (its
-session resumes with it) or start an attempt for one, see the
+without it, and an attempt of Claude Code or Codex that ends well with a
+message unanswered is continued once on its session only to reply. A missing
+reply never fails the attempt: the message is shown as unanswered and given
+once more to the same step's next attempt. The task's creator can also
+interrupt the working agent with a message (its session resumes with it; with
+or without a workflow) or start an attempt for one, see the
 [live channel](BE/docs/agent-tasks.md#live-channel). The agent view shows the
 conversation in the task's timeline and has the composer, which reads and
 sends through `GET/POST /agent-tasks/:taskId/live-messages` (the assistant
@@ -679,6 +681,19 @@ untrusted items through `task.live_message` conversation events and history
 Codex and OpenCode are told to poll the inbox by the `kuayle-live-channel`
 section of the `kuayle-agents` skill.
 
+[Workspace memory](BE/docs/agent-tasks.md#workspace-memory) (migration 149,
+`workspace_lessons`) keeps short lessons per repository. Agents propose them
+through the outbox (`{"to":"memory","lesson":"..."}`), reviews that requested
+changes propose their findings, and members write them by hand; a person's
+messages to a task and CI results propose nothing, and nothing calls a model.
+Text is redacted before it is stored. Only a workspace owner or admin
+approves, edits, retires, drops or reorders lessons (`/memory/lessons`,
+session only, audited in `workspace_lesson_events`); until then a task's
+proposal is read only by them and the task's creator. Only approved lessons
+are returned by `WorkspaceMemoryService.ApprovedLessons`, bounded and
+redacted again, for a task's prompt. A private team's lesson stays with that
+team.
+
 [Configurable workflows](BE/docs/agent-tasks.md#configurable-workflows)
 (migration 118) replace the fixed implement → validate → publish → review flow
 with a workspace's own state machines: agent profiles, immutable workflow
@@ -691,6 +706,14 @@ Each profile has a [behaviour](BE/docs/agent-tasks.md#behaviours) (migration
 planning step must leave the worktree unchanged and end with a plan, which is
 stored whole and passed to the following agent steps as trusted instructions
 through `{{plan}}`.
+Every task also has a [notebook](BE/docs/agent-tasks.md#task-notebook)
+(migration 150): one bounded record of the plan, decisions, what is done,
+what remains, how to verify, findings and people's instructions, kept outside
+the worktree. Each agent step receives it as instructions and is asked to
+update it; one that does not is asked once more in its session, then Kuayle
+records its final message itself, and the attempt never fails over it. A
+planning step's worktree is mounted read-only, and the prompt every attempt
+received is recorded by source.
 
 [Automations](BE/docs/agent-tasks.md#automations) (migration 69) delegate matching issues on a label or status trigger, optionally on a UTC schedule. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
 

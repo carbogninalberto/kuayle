@@ -197,6 +197,7 @@ export function useTaskRun(
 			current.state,
 			current.run_id,
 			current.generation,
+			current.workflow_version_id,
 			current.workflow_node,
 			current.workflow_status,
 			current.workflow_paused_at,

@@ -193,6 +193,8 @@ async function fixture(page: Page) {
 		providers: [] as any[],
 		// How many of the next reads of the workflow fail.
 		workflowFails: 0,
+		// What moving the task to the newest version of its workflow would do.
+		workflowSwitch: { from_version: 3, to_version: 3, refused: 'no_newer_version' } as any,
 		publication: { step: null } as any,
 		sessions: [] as any[],
 		// Every agent-task request, as "<method> <task>/<rest>".
@@ -231,6 +233,22 @@ async function fixture(page: Page) {
 			const [, id, rest = ''] = match;
 			if (id !== state.task.id) return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
 			state.requests.push(`${route.request().method()} ${id}${rest}`);
+			if (rest === '/workflow/switch') {
+				if (route.request().method() === 'GET') return route.fulfill({ json: state.workflowSwitch });
+				// The move: the task is on the newest version, and its workflow says so.
+				const moved = state.workflowSwitch;
+				state.task = { ...state.task, workflow_version_id: `version-${moved.to_version}`, updated_at: at(39) };
+				state.workflow = {
+					...state.workflow,
+					version: moved.to_version,
+					pauses: [
+						...state.workflow.pauses,
+						{ action: 'version_switched', sequence: state.workflow.sequence, from_version: moved.from_version, to_version: moved.to_version, actor_id: 'user-1', at: at(39) }
+					]
+				};
+				state.workflowSwitch = { from_version: moved.to_version, to_version: moved.to_version, refused: 'no_newer_version' };
+				return route.fulfill({ json: { switch: moved, task: state.task } });
+			}
 			if (rest === '/workflow') {
 				if (state.workflowFails > 0) {
 					state.workflowFails--;
@@ -831,4 +849,36 @@ test('a chart that does not load leaves a task without a workflow its attempts',
 	await expect(panel.getByRole('alert')).toContainText("Could not load the task's workflow");
 	await expect(panel.getByRole('list', { name: 'Path taken' }).getByRole('link')).toHaveText([/^Claude Code/, /^Codex/]);
 	await expect(panel.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
+});
+
+test('moving the task to a newer workflow version from its card shows in the path', async ({ page }) => {
+	const { state } = await fixture(page);
+	state.workflowSwitch = { from_version: 3, to_version: 4, node: 'ci', node_label: 'CI' };
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto('/test/assistant?conversation=chat-1');
+	await showAgents(page);
+	const tasks = tasksRegion(page);
+	const rows = pathOf(page).getByRole('listitem');
+	await expect(rows).toHaveCount(5);
+	await tasks.getByRole('button', { name: 'Full path' }).click();
+	await expect(rows).toHaveCount(12);
+	await expect(rows.last()).toContainText('Moved to workflow version 3');
+
+	// The card's menu still moves the task, beside its path.
+	await tasks.getByRole('button', { name: 'More actions', exact: true }).click();
+	await page.getByRole('menuitem', { name: /Move to workflow version 4/ }).click();
+	const dialog = page.getByRole('alertdialog');
+	await expect(dialog).toContainText('CI');
+	await dialog.getByRole('button', { name: 'Move', exact: true }).click();
+	await expect(dialog).toBeHidden();
+
+	// The move is in the path where it happened, with its time, and the chart is the new version's.
+	await expect(rows).toHaveCount(13);
+	await expect(rows.last()).toContainText('Moved to workflow version 4');
+	await expect(rows.last()).toContainText('10:39 AM');
+	await expect(rows.nth(10).getByRole('link')).toHaveText(/^CI/);
+	await expect(page.getByTestId('task-workflow')).toContainText('Plan and review · version 4');
+	// Compact, the path is the steps again.
+	await tasks.getByRole('button', { name: 'Full path' }).click();
+	await expect(rows).toHaveCount(5);
 });
