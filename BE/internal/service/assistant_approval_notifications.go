@@ -24,7 +24,8 @@ func (s *AssistantApprovals) SetNotifications(notifications notificationCreator,
 //
 // A notification row needs an issue or a team to be traced to. An approval
 // with neither (an upgrade, a release, a wiki action in a free chat) is only
-// announced live; its title names the action alone.
+// announced live; its title names the action alone. That event is marked
+// live_only so clients do not count an inbox row that does not exist.
 func (s *AssistantApprovals) notifyRequested(ctx context.Context, conversation domain.Conversation, approval *domain.ConversationApproval, identifier string) {
 	if s == nil || s.notifications == nil || s.userEvents == nil || approval == nil {
 		return
@@ -45,6 +46,8 @@ func (s *AssistantApprovals) notifyRequested(ctx context.Context, conversation d
 		err = s.notifications.Create(ctx, approval.ActorID, conversation.WorkspaceID, event.IssueID, event.Type, event.Title)
 	case conversation.TeamID != nil:
 		err = s.notifications.Create(ctx, approval.ActorID, conversation.WorkspaceID, nil, event.Type, event.Title, *conversation.TeamID)
+	default:
+		event.LiveOnly = true
 	}
 	if err != nil {
 		log.WithField("approval_id", approval.ID).WithError(err).Warn("Could not notify about an approval request")

@@ -239,11 +239,12 @@ func (s *CycleService) broadcastAndNotifyTeam(ctx context.Context, cycle *domain
 		return
 	}
 
+	actor := actorFromContext(ctx)
 	for _, m := range members {
 		if err := s.notifSvc.Create(ctx, m.UserID, team.WorkspaceID, nil, "cycle_changed", title, team.ID); err != nil {
 			log.WithError(err).Warn("failed to create cycle notification")
 			continue
 		}
-		publishNotification(s.hub, team.WorkspaceID, m.UserID, notificationEvent{Type: "cycle_changed", Title: title})
+		publishNotification(s.hub, team.WorkspaceID, m.UserID, notificationEvent{Type: "cycle_changed", Title: title, ActorID: actor})
 	}
 }

@@ -42,10 +42,43 @@ type userEvent struct {
 	payload         map[string]string
 }
 
-type userEventsFake struct{ events []userEvent }
+// userEventsFake records published events. Every publication carries its own
+// event_id; it is collected in eventIDs and removed from the recorded payload
+// so tests can compare the rest exactly.
+type userEventsFake struct {
+	events   []userEvent
+	eventIDs []string
+}
 
 func (f *userEventsFake) BroadcastToUser(workspace, user uuid.UUID, event realtime.Event) {
-	f.events = append(f.events, userEvent{workspace, user, event.Type, event.Payload.(map[string]string)})
+	payload := event.Payload.(map[string]string)
+	f.eventIDs = append(f.eventIDs, payload["event_id"])
+	delete(payload, "event_id")
+	f.events = append(f.events, userEvent{workspace, user, event.Type, payload})
+}
+
+// Open tabs of one recipient deduplicate on event_id, so each publication
+// needs its own.
+func TestEachPublishedNotificationHasItsOwnEventID(t *testing.T) {
+	events := &userEventsFake{}
+	event := notificationEvent{Type: "assigned", Title: "You were assigned"}
+	publishNotification(events, uuid.New(), uuid.New(), event)
+	publishNotification(events, uuid.New(), uuid.New(), event)
+
+	require.Len(t, events.eventIDs, 2)
+	for _, id := range events.eventIDs {
+		_, err := uuid.Parse(id)
+		require.NoError(t, err)
+	}
+	require.NotEqual(t, events.eventIDs[0], events.eventIDs[1])
+}
+
+func TestNotificationEventPayloadOptionalFields(t *testing.T) {
+	actor, none := uuid.New(), uuid.Nil
+	require.Equal(t, map[string]string{"type": "assigned"}, notificationEvent{Type: "assigned"}.payload())
+	require.Equal(t, map[string]string{"type": "assigned"}, notificationEvent{Type: "assigned", ActorID: &none}.payload())
+	require.Equal(t, map[string]string{"type": "assigned", "actor_id": actor.String()}, notificationEvent{Type: "assigned", ActorID: &actor}.payload())
+	require.Equal(t, map[string]string{"type": "approval_requested", "live_only": "true"}, notificationEvent{Type: "approval_requested", LiveOnly: true}.payload())
 }
 
 func TestApprovalRequestNotifiesTheActor(t *testing.T) {
@@ -86,7 +119,13 @@ func TestApprovalRequestWithoutIssue(t *testing.T) {
 		approvals.SetNotifications(notifications, events)
 		approvals.notifyRequested(context.Background(), domain.Conversation{WorkspaceID: ws, CreatorID: actor}, approval, "")
 		require.Empty(t, notifications.created)
-		require.Equal(t, []userEvent{{ws, actor, "notification.created", want}}, events.events)
+		// No inbox row exists, so the event says clients must not count one.
+		// No person triggered it either: there is no actor_id.
+		liveOnly := map[string]string{"live_only": "true"}
+		for key, value := range want {
+			liveOnly[key] = value
+		}
+		require.Equal(t, []userEvent{{ws, actor, "notification.created", liveOnly}}, events.events)
 	})
 }
 
@@ -191,20 +230,46 @@ func TestIssueNotificationEventDescribesTheIssue(t *testing.T) {
 	issue := &domain.Issue{ID: uuid.New(), WorkspaceID: ws, TeamID: uuid.New(), Identifier: "ENG-7", Title: "Fix login"}
 	next := workspaceEvents(t, hub, ws, recipient)
 
-	svc.notify(context.Background(), recipient, issue, "assigned", "You were assigned to ENG-7: Fix login")
+	actor := uuid.New()
+	svc.notify(context.Background(), actor, recipient, issue, "assigned", "You were assigned to ENG-7: Fix login")
 
 	eventType, raw, err := next(2 * time.Second)
 	require.NoError(t, err)
 	require.Equal(t, "notification.created", eventType)
 	var payload map[string]string
 	require.NoError(t, json.Unmarshal([]byte(raw), &payload))
-	require.Equal(t, map[string]string{"type": "assigned", "issue_id": issue.ID.String(), "issue_identifier": "ENG-7", "title": "You were assigned to ENG-7: Fix login"}, payload)
+	_, err = uuid.Parse(payload["event_id"])
+	require.NoError(t, err)
+	delete(payload, "event_id")
+	// actor_id lets the actor's own clients stay quiet about their own action.
+	require.Equal(t, map[string]string{"type": "assigned", "issue_id": issue.ID.String(), "issue_identifier": "ENG-7", "title": "You were assigned to ENG-7: Fix login", "actor_id": actor.String()}, payload)
 
 	// A notice that is not linked to an issue names none.
-	svc.notifyIssue(context.Background(), recipient, issue, "issue_deleted", "ENG-7 was deleted", false)
+	svc.notifyIssue(context.Background(), actor, recipient, issue, "issue_deleted", "ENG-7 was deleted", false)
 	_, raw, err = next(2 * time.Second)
 	require.NoError(t, err)
 	payload = nil
 	require.NoError(t, json.Unmarshal([]byte(raw), &payload))
-	require.Equal(t, map[string]string{"type": "issue_deleted", "title": "ENG-7 was deleted"}, payload)
+	delete(payload, "event_id")
+	require.Equal(t, map[string]string{"type": "issue_deleted", "title": "ENG-7 was deleted", "actor_id": actor.String()}, payload)
+
+	// A bulk notice names its actor too.
+	svc.notifyWorkspace(context.Background(), ws, actor, recipient, "issues_deleted", "2 issues deleted", false, issue.TeamID)
+	_, raw, err = next(2 * time.Second)
+	require.NoError(t, err)
+	payload = nil
+	require.NoError(t, json.Unmarshal([]byte(raw), &payload))
+	delete(payload, "event_id")
+	require.Equal(t, map[string]string{"type": "issues_deleted", "title": "2 issues deleted", "actor_id": actor.String()}, payload)
+}
+
+// Services that do not receive the actor read it from the request's access
+// context; a background context has none.
+func TestActorFromContext(t *testing.T) {
+	require.Nil(t, actorFromContext(context.Background()))
+	require.Nil(t, actorFromContext(domain.WithAccess(context.Background(), domain.Access{})))
+	user := uuid.New()
+	actor := actorFromContext(domain.WithAccess(context.Background(), domain.Access{UserID: user}))
+	require.NotNil(t, actor)
+	require.Equal(t, user, *actor)
 }

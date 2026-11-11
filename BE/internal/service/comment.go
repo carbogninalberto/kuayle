@@ -173,7 +173,7 @@ func (s *CommentService) Create(ctx context.Context, issueID, userID uuid.UUID, 
 				log.WithError(err).Warn("failed to create comment notification")
 				continue
 			}
-			publishNotification(s.hub, issue.WorkspaceID, uid, notificationEvent{Type: "commented", Title: title, IssueID: &issue.ID, IssueIdentifier: issue.Identifier, Extra: map[string]string{"comment_id": comment.ID.String()}})
+			publishNotification(s.hub, issue.WorkspaceID, uid, notificationEvent{Type: "commented", Title: title, IssueID: &issue.ID, IssueIdentifier: issue.Identifier, ActorID: &userID, Extra: map[string]string{"comment_id": comment.ID.String()}})
 		}
 
 		// Notify @mentioned users (skip commenter and already-notified recipients)
@@ -195,7 +195,7 @@ func (s *CommentService) Create(ctx context.Context, issueID, userID uuid.UUID, 
 				log.WithError(err).Warn("failed to create mention notification")
 				continue
 			}
-			publishNotification(s.hub, issue.WorkspaceID, uid, notificationEvent{Type: "mentioned", Title: mentionTitle, IssueID: &issue.ID, IssueIdentifier: issue.Identifier, Extra: map[string]string{"comment_id": comment.ID.String()}})
+			publishNotification(s.hub, issue.WorkspaceID, uid, notificationEvent{Type: "mentioned", Title: mentionTitle, IssueID: &issue.ID, IssueIdentifier: issue.Identifier, ActorID: &userID, Extra: map[string]string{"comment_id": comment.ID.String()}})
 		}
 	}
 
