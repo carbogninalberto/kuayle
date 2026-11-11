@@ -3455,7 +3455,7 @@
 	"workflows.editor.tab_outline": "Kerangka",
 	"workflows.editor.tab_settings": "Pengaturan",
 	"workflows.editor.empty_title": "Tidak ada yang dipilih",
-	"workflows.editor.empty_hint": "Klik langkah atau transisi untuk mengeditnya. Klik kanan kanvas, langkah, atau transisi untuk melihat aksi, gunakan + di bawah langkah untuk menambah langkah berikutnya, atau seret dari tepi bawah langkah ke langkah lain untuk menghubungkannya.",
+	"workflows.editor.empty_hint": "Klik langkah atau transisi untuk mengeditnya.",
 	"workflows.editor.saved_state": "Semua perubahan disimpan",
 	"workflows.editor.block_review": "Review otomatis",
 	"workflows.editor.retry": "Coba lagi saat gagal",

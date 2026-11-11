@@ -659,7 +659,7 @@ Code receives them after each tool call (and before it stops) through a
 Without a running attempt they go into the next attempt's prompt. During an
 attempt the manager also collects the outbox every 5 seconds, and files
 addressed `{"to":"orchestrator"}` (optionally `"kind":"question"`) are recorded
-in the same channel as untrusted text. A reply is mandatory (KUA-132, migration 148):
+in the same channel as untrusted text. A reply is mandatory (KUA-132, migration 151):
 every delivered message must be answered by an outbox file naming it
 (`"reply_to":<seq>`); Claude Code's `Stop` hook does not let the agent stop
 without it, and an attempt of Claude Code or Codex that ends well with a
@@ -680,6 +680,19 @@ untrusted items through `task.live_message` conversation events and history
 ([agent messages in chat](BE/docs/conversations.md#agent-messages-in-chat)).
 Codex and OpenCode are told to poll the inbox by the `kuayle-live-channel`
 section of the `kuayle-agents` skill.
+
+[Workspace memory](BE/docs/agent-tasks.md#workspace-memory) (migration 149,
+`workspace_lessons`) keeps short lessons per repository. Agents propose them
+through the outbox (`{"to":"memory","lesson":"..."}`), reviews that requested
+changes propose their findings, and members write them by hand; a person's
+messages to a task and CI results propose nothing, and nothing calls a model.
+Text is redacted before it is stored. Only a workspace owner or admin
+approves, edits, retires, drops or reorders lessons (`/memory/lessons`,
+session only, audited in `workspace_lesson_events`); until then a task's
+proposal is read only by them and the task's creator. Only approved lessons
+are returned by `WorkspaceMemoryService.ApprovedLessons`, bounded and
+redacted again, for a task's prompt. A private team's lesson stays with that
+team.
 
 [Configurable workflows](BE/docs/agent-tasks.md#configurable-workflows)
 (migration 118) replace the fixed implement → validate → publish → review flow

@@ -3455,7 +3455,7 @@
 	"workflows.editor.tab_outline": "Konspekt",
 	"workflows.editor.tab_settings": "Ustawienia",
 	"workflows.editor.empty_title": "Nic nie wybrano",
-	"workflows.editor.empty_hint": "Kliknij krok lub przejście, aby je edytować. Kliknij prawym przyciskiem kanwę, krok lub przejście, aby zobaczyć akcje, użyj + pod krokiem, aby dodać następny, albo przeciągnij z dolnej krawędzi kroku na inny, aby je połączyć.",
+	"workflows.editor.empty_hint": "Kliknij krok lub przejście, aby je edytować.",
 	"workflows.editor.saved_state": "Wszystkie zmiany zapisane",
 	"workflows.editor.block_review": "Automatyczny przegląd",
 	"workflows.editor.retry": "Ponów przy niepowodzeniu",

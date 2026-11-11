@@ -3455,7 +3455,7 @@
 	"workflows.editor.tab_outline": "개요",
 	"workflows.editor.tab_settings": "설정",
 	"workflows.editor.empty_title": "선택된 항목 없음",
-	"workflows.editor.empty_hint": "단계나 전환을 클릭해 편집하세요. 캔버스, 단계 또는 전환을 마우스 오른쪽 버튼으로 클릭하면 작업을 볼 수 있고, 단계 아래의 +로 다음 단계를 추가하거나, 단계의 아래쪽 가장자리에서 다른 단계로 드래그해 연결할 수 있습니다.",
+	"workflows.editor.empty_hint": "단계나 전환을 클릭해 편집하세요.",
 	"workflows.editor.saved_state": "모든 변경 사항이 저장되었습니다",
 	"workflows.editor.block_review": "자동 리뷰",
 	"workflows.editor.retry": "실패 시 재시도",

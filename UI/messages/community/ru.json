@@ -3455,7 +3455,7 @@
 	"workflows.editor.tab_outline": "Структура",
 	"workflows.editor.tab_settings": "Настройки",
 	"workflows.editor.empty_title": "Ничего не выбрано",
-	"workflows.editor.empty_hint": "Нажмите на шаг или переход, чтобы изменить его. Правый клик по холсту, шагу или переходу открывает действия; кнопка + под шагом добавляет следующий, а перетаскивание от нижнего края шага на другой соединяет их.",
+	"workflows.editor.empty_hint": "Нажмите на шаг или переход, чтобы изменить его.",
 	"workflows.editor.saved_state": "Все изменения сохранены",
 	"workflows.editor.block_review": "Автоматическое ревью",
 	"workflows.editor.retry": "Повтор при ошибке",

@@ -3455,7 +3455,7 @@
 	"workflows.editor.tab_outline": "大綱",
 	"workflows.editor.tab_settings": "設定",
 	"workflows.editor.empty_title": "未選取任何內容",
-	"workflows.editor.empty_hint": "點擊步驟或轉換即可編輯。在畫布、步驟或轉換上按右鍵可查看動作，使用步驟下方的 + 新增下一步，或從步驟底部拖曳到另一個步驟以連接。",
+	"workflows.editor.empty_hint": "點擊步驟或轉換即可編輯。",
 	"workflows.editor.saved_state": "所有變更已儲存",
 	"workflows.editor.block_review": "自動審查",
 	"workflows.editor.retry": "失敗時重試",

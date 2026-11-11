@@ -3455,7 +3455,7 @@
 	"workflows.editor.tab_outline": "रूपरेखा",
 	"workflows.editor.tab_settings": "सेटिंग",
 	"workflows.editor.empty_title": "कुछ नहीं चुना गया",
-	"workflows.editor.empty_hint": "संपादित करने के लिए किसी चरण या ट्रांज़िशन पर क्लिक करें। एक्शन के लिए कैनवास, चरण या ट्रांज़िशन पर राइट-क्लिक करें, अगला चरण जोड़ने के लिए चरण के नीचे + उपयोग करें, या जोड़ने के लिए किसी चरण के निचले किनारे से दूसरे पर खींचें।",
+	"workflows.editor.empty_hint": "संपादित करने के लिए किसी चरण या ट्रांज़िशन पर क्लिक करें।",
 	"workflows.editor.saved_state": "सभी बदलाव सहेजे गए",
 	"workflows.editor.block_review": "स्वचालित समीक्षा",
 	"workflows.editor.retry": "विफल होने पर फिर कोशिश करें",

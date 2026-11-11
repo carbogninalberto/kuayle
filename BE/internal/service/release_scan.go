@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	gh "github.com/kuayle/kuayle-backend/pkg/github"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 )
 
 // The release secret scan runs on the server before a release is tagged: on
@@ -31,32 +32,20 @@ type leakRule struct {
 	pattern *regexp.Regexp
 }
 
-var leakRules = []leakRule{
-	{"private key", regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----`)},
-	{"AWS access key ID", regexp.MustCompile(`\b(AKIA|ASIA)[0-9A-Z]{16}\b`)},
-	{"GitHub token", regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{30,}|\bgithub_pat_[A-Za-z0-9_]{30,}`)},
-	{"GitLab token", regexp.MustCompile(`\bglpat-[A-Za-z0-9_-]{20,}`)},
-	{"Slack token", regexp.MustCompile(`\bxox[abprs]-[A-Za-z0-9-]{10,}`)},
-	{"API secret key", regexp.MustCompile(`\bsk-(ant-|proj-)?[A-Za-z0-9_-]{32,}|\b[sr]k_live_[A-Za-z0-9]{20,}`)},
-	{"Google API key", regexp.MustCompile(`\bAIza[0-9A-Za-z_-]{35}`)},
-	{"JWT", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}`)},
-}
+// The rules live in pkg/sanitize, which also redacts them from stored text.
+var leakRules = func() []leakRule {
+	rules := make([]leakRule, 0, len(sanitize.CredentialRules))
+	for _, rule := range sanitize.CredentialRules {
+		rules = append(rules, leakRule{rule.Kind, rule.Pattern})
+	}
+	return rules
+}()
 
 // embeddedLogin finds user:password@ in a URL; placeholderSecret tells a
 // documented placeholder from a value.
-var embeddedLogin = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s:@"'` + "`" + `]+:([^/\s@"'` + "`" + `]+)@`)
+var embeddedLogin = sanitize.EmbeddedLogin
 
-func placeholderSecret(value string) bool {
-	lower := strings.ToLower(value)
-	if strings.ContainsAny(value, "${}<>*%") || strings.Trim(lower, "x.") == "" {
-		return true
-	}
-	switch lower {
-	case "password", "pass", "passwd", "secret", "changeme", "example", "token", "pw", "pwd":
-		return true
-	}
-	return false
-}
+func placeholderSecret(value string) bool { return sanitize.PlaceholderSecret(value) }
 
 // scanLine returns the kinds of secrets on one line of text.
 func scanLine(line string) []string {

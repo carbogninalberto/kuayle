@@ -3455,7 +3455,7 @@
 	"workflows.editor.tab_outline": "Overzicht",
 	"workflows.editor.tab_settings": "Instellingen",
 	"workflows.editor.empty_title": "Niets geselecteerd",
-	"workflows.editor.empty_hint": "Klik op een stap of overgang om hem te bewerken. Klik met de rechtermuisknop op het canvas, een stap of een overgang voor acties, gebruik de + onder een stap om de volgende toe te voegen, of sleep van de onderrand van een stap naar een andere om ze te verbinden.",
+	"workflows.editor.empty_hint": "Klik op een stap of overgang om hem te bewerken.",
 	"workflows.editor.saved_state": "Alle wijzigingen opgeslagen",
 	"workflows.editor.block_review": "Geautomatiseerde review",
 	"workflows.editor.retry": "Opnieuw proberen bij mislukking",

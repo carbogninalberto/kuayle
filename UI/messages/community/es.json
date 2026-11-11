@@ -3455,7 +3455,7 @@
 	"workflows.editor.tab_outline": "Esquema",
 	"workflows.editor.tab_settings": "Ajustes",
 	"workflows.editor.empty_title": "Nada seleccionado",
-	"workflows.editor.empty_hint": "Haz clic en un paso o una transición para editarlo. Haz clic derecho en el lienzo, un paso o una transición para ver las acciones, usa el + bajo un paso para añadir el siguiente, o arrastra desde el borde inferior de un paso hasta otro para conectarlos.",
+	"workflows.editor.empty_hint": "Haz clic en un paso o una transición para editarlo.",
 	"workflows.editor.saved_state": "Todos los cambios guardados",
 	"workflows.editor.block_review": "Revisión automática",
 	"workflows.editor.retry": "Reintentar si falla",

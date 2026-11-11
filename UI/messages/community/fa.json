@@ -3455,7 +3455,7 @@
 	"workflows.editor.tab_outline": "طرح کلی",
 	"workflows.editor.tab_settings": "تنظیمات",
 	"workflows.editor.empty_title": "چیزی انتخاب نشده",
-	"workflows.editor.empty_hint": "برای ویرایش، روی یک گام یا گذار کلیک کنید. برای عملیات روی بوم، یک گام یا یک گذار راست‌کلیک کنید، از + زیر یک گام برای افزودن گام بعدی استفاده کنید، یا از لبه پایین یک گام به گام دیگر بکشید تا متصل شوند.",
+	"workflows.editor.empty_hint": "برای ویرایش، روی یک گام یا گذار کلیک کنید.",
 	"workflows.editor.saved_state": "همه تغییرات ذخیره شد",
 	"workflows.editor.block_review": "بازبینی خودکار",
 	"workflows.editor.retry": "تلاش دوباره در صورت شکست",

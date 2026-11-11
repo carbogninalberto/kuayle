@@ -3455,7 +3455,7 @@
 	"workflows.editor.tab_outline": "Oversikt",
 	"workflows.editor.tab_settings": "Innstillinger",
 	"workflows.editor.empty_title": "Ingenting valgt",
-	"workflows.editor.empty_hint": "Klikk et trinn eller en overgang for å redigere den. Høyreklikk lerretet, et trinn eller en overgang for handlinger, bruk + under et trinn for å legge til det neste, eller dra fra nederkanten av et trinn til et annet for å koble dem.",
+	"workflows.editor.empty_hint": "Klikk et trinn eller en overgang for å redigere den.",
 	"workflows.editor.saved_state": "Alle endringer lagret",
 	"workflows.editor.block_review": "Automatisk vurdering",
 	"workflows.editor.retry": "Prøv på nytt ved feil",

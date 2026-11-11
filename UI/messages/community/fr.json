@@ -3455,7 +3455,7 @@
 	"workflows.editor.tab_outline": "Plan",
 	"workflows.editor.tab_settings": "Paramètres",
 	"workflows.editor.empty_title": "Rien de sélectionné",
-	"workflows.editor.empty_hint": "Cliquez sur une étape ou une transition pour la modifier. Faites un clic droit sur le canevas, une étape ou une transition pour les actions, utilisez le + sous une étape pour ajouter la suivante, ou faites glisser depuis le bord inférieur d'une étape vers une autre pour les relier.",
+	"workflows.editor.empty_hint": "Cliquez sur une étape ou une transition pour la modifier.",
 	"workflows.editor.saved_state": "Toutes les modifications sont enregistrées",
 	"workflows.editor.block_review": "Revue automatisée",
 	"workflows.editor.retry": "Réessayer en cas d'échec",

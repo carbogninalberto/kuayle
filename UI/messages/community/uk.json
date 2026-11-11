@@ -3455,7 +3455,7 @@
 	"workflows.editor.tab_outline": "Структура",
 	"workflows.editor.tab_settings": "Налаштування",
 	"workflows.editor.empty_title": "Нічого не вибрано",
-	"workflows.editor.empty_hint": "Клацніть крок або перехід, щоб відредагувати його. Клацніть правою кнопкою на полотні, кроці чи переході для дій, скористайтеся + під кроком, щоб додати наступний, або перетягніть від нижнього краю кроку на інший, щоб з'єднати їх.",
+	"workflows.editor.empty_hint": "Клацніть крок або перехід, щоб відредагувати його.",
 	"workflows.editor.saved_state": "Усі зміни збережено",
 	"workflows.editor.block_review": "Автоматичне рев'ю",
 	"workflows.editor.retry": "Повторити після помилки",
