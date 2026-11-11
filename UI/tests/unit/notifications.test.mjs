@@ -6,8 +6,11 @@ import {
 	decideNotification,
 	eventKeyForType,
 	normalizeNotificationEvents,
-	normalizeNotificationSound
+	normalizeNotificationSound,
+	notificationSubject
 } from '../../src/lib/features/notifications/notification-policy.ts';
+import { notificationTypeMessageKey } from '../../src/lib/features/notifications/notification-labels.ts';
+import { createOnScreenSubjects } from '../../src/lib/features/notifications/on-screen-subjects.ts';
 import { readPermission, requestPermission } from '../../src/lib/features/notifications/permissions.ts';
 import {
 	buildBrowserNotification,
@@ -118,6 +121,72 @@ test('events the current user triggered do nothing', () => {
 	assert.equal(decide({ payload: { type: 'commented' }, currentUserId: undefined }).showBrowser, true);
 });
 
+test('an approval asked by the conversation on screen is quiet', () => {
+	const payload = { type: 'approval_requested', approval_id: 'a1', conversation_id: 'c1' };
+	const quiet = { showBrowser: false, playSound: false, eventKey: 'approval_requested' };
+	assert.deepEqual(decide({ payload, subjectOnScreen: true, visibility: 'visible' }), quiet);
+	// Whatever the announcing tab's own visibility is: another tab shows the chat.
+	assert.deepEqual(decide({ payload, subjectOnScreen: true }), quiet);
+	// The chat is not on screen: announced as before.
+	assert.deepEqual(decide({ payload, subjectOnScreen: false }), { ...quiet, showBrowser: true, playSound: true });
+	assert.deepEqual(decide({ payload }), { ...quiet, showBrowser: true, playSound: true });
+	// Only an approval is ever quietened this way.
+	assert.equal(decide({ payload: { type: 'assigned', conversation_id: 'c1' }, subjectOnScreen: true }).playSound, true);
+});
+
+test('only an approval asked in a conversation has an on-screen subject', () => {
+	assert.equal(notificationSubject({ type: 'approval_requested', conversation_id: 'c1' }), 'conversation:c1');
+	assert.equal(
+		notificationSubject({ type: 'approval_requested', conversation_id: 'c1', issue_id: 'i1' }),
+		'conversation:c1'
+	);
+	assert.equal(notificationSubject({ type: 'approval_requested', approval_id: 'a1' }), null);
+	assert.equal(notificationSubject({ type: 'approval_requested', conversation_id: '' }), null);
+	assert.equal(notificationSubject({ type: 'agent_task_finished', conversation_id: 'c1' }), null);
+	assert.equal(notificationSubject({ type: 'commented', issue_id: 'i1' }), null);
+});
+
+test('subjects are on screen while something shows them', () => {
+	const subjects = createOnScreenSubjects();
+	assert.equal(subjects.has('conversation:c1'), false);
+	const first = subjects.show('conversation:c1');
+	const second = subjects.show('conversation:c1');
+	assert.equal(subjects.has('conversation:c1'), true);
+	assert.equal(subjects.has('conversation:c2'), false);
+	first();
+	first(); // Releasing twice does not release the other holder.
+	assert.equal(subjects.has('conversation:c1'), true);
+	second();
+	assert.equal(subjects.has('conversation:c1'), false);
+});
+
+// ---- labels ---------------------------------------------------------------
+
+test('every stored notification type has a label, shared by the inbox and the browser notification', () => {
+	assert.equal(notificationTypeMessageKey('approval_requested'), 'notify.title.approval_requested');
+	assert.equal(notificationTypeMessageKey('agent_task_finished'), 'notify.title.agent_task_finished');
+	assert.equal(notificationTypeMessageKey('review_needed'), 'notify.title.review_needed');
+	assert.equal(notificationTypeMessageKey('issues_deleted'), 'notify.title.issues_deleted');
+	for (const type of [
+		'status_changed',
+		'assigned',
+		'commented',
+		'mentioned',
+		'priority_changed',
+		'issue_created',
+		'issue_updated',
+		'due_date_changed',
+		'label_added',
+		'cycle_changed'
+	]) {
+		assert.equal(notificationTypeMessageKey(type), `inbox.type.${type}`);
+	}
+	// Unknown types, and names inherited from Object, have no label.
+	assert.equal(notificationTypeMessageKey('something_new'), null);
+	assert.equal(notificationTypeMessageKey('toString'), null);
+	assert.equal(notificationTypeMessageKey(''), null);
+});
+
 test('preference values from the server are normalised defensively', () => {
 	assert.deepEqual(normalizeNotificationEvents(undefined), allOn);
 	assert.deepEqual(normalizeNotificationEvents({ comment: false, bogus: false, assigned: 'no' }), {
@@ -171,6 +240,28 @@ test('tags dedupe per type and subject', () => {
 	assert.equal(notificationTag({ type: 'approval_requested', approval_id: 'a1', task_id: 't1' }), 'approval_requested:a1');
 	assert.equal(notificationTag({ type: 'agent_task_finished', task_id: 't1' }), 'agent_task_finished:t1');
 	assert.equal(notificationTag({ type: 'issues_deleted' }), 'issues_deleted:workspace');
+});
+
+test('an approval deep links to the conversation where it is decided, then the issue, then the inbox', () => {
+	assert.equal(
+		notificationUrl('acme', {
+			type: 'approval_requested',
+			approval_id: 'a1',
+			issue_id: 'i1',
+			issue_identifier: 'KUA-7',
+			conversation_id: 'c1'
+		}),
+		'/acme/assistant?conversation=c1'
+	);
+	assert.equal(
+		notificationUrl('acme', { type: 'approval_requested', approval_id: 'a1', issue_id: 'i1', issue_identifier: 'KUA-7' }),
+		'/acme/issue/KUA-7'
+	);
+	// Other types with both keep opening the issue.
+	assert.equal(
+		notificationUrl('acme', { type: 'agent_task_finished', issue_identifier: 'KUA-7', conversation_id: 'c1' }),
+		'/acme/issue/KUA-7'
+	);
 });
 
 test('deep links prefer the issue, then the conversation, then the inbox', () => {

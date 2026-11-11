@@ -8,9 +8,11 @@ import (
 )
 
 // ClaimTaskNotices takes up to limit transitions whose creator is still to be
-// notified, oldest first. A transition is claimed once, also with several
-// workers: claiming clears its pending mark, so a notification that then
-// fails is not repeated.
+// notified, oldest first. A pending mark is claimed once, also with several
+// workers: claiming clears it, so a notification that then fails is not
+// repeated. A workflow marks its transition into awaiting_review again for
+// each later step that waits for a person (markWorkflowReviewNotice), and
+// that is claimed as a new notice.
 func (r *AgentTaskRepository) ClaimTaskNotices(ctx context.Context, limit int) ([]domain.AgentTaskNotice, error) {
 	notices := []domain.AgentTaskNotice{}
 	err := r.db.SelectContext(ctx, &notices, `WITH claimed AS (
@@ -26,7 +28,10 @@ func (r *AgentTaskRepository) ClaimTaskNotices(ctx context.Context, limit int) (
 // taskTransitionNotifies reports whether entering the task's state is worth
 // telling its creator: the task finished, failed or waits for review, and the
 // creator did not make the change themselves. recordAgentTaskTransition also
-// skips a workflow's wait for an agent review, which needs nobody.
+// skips a wait for an agent review, which needs nobody. For a workflow task
+// this decides only the finished and failed notices: whether its waits in
+// awaiting_review need a person is the entered step's to say
+// (WorkflowEntry.NeedsPerson, markWorkflowReviewNotice).
 func taskTransitionNotifies(task domain.AgentTask, actor *uuid.UUID) bool {
 	if domain.AgentTaskNotificationType(task.State) == "" || task.CreatorID == uuid.Nil {
 		return false

@@ -6,7 +6,9 @@
 // Protocol, over a BroadcastChannel: a tab that receives an event announces a
 // claim, collects its peers' claims for a short window, then every tab picks
 // the same winner from the same claims. The winner announces that it is done,
-// so a tab whose copy of the event arrives late stays quiet. The election and
+// so a tab whose copy of the event arrives late stays quiet. A claim also says
+// whether the tab shows what the event is about, so the winner knows when the
+// user already looks at it in another tab. The election and
 // the storage helpers are pure; the browser objects are injected.
 
 import type { NotificationEventPayload } from './notification-policy.ts';
@@ -23,6 +25,11 @@ export interface TabClaim {
 	visible: boolean;
 	/** The tab may start audio, i.e. it has had a user gesture. */
 	audible: boolean;
+	/**
+	 * The tab is on screen and shows the event's subject. Absent in claims from
+	 * a tab still running the previous protocol, which counts as false.
+	 */
+	subjectOnScreen?: boolean;
 }
 
 /**
@@ -60,11 +67,18 @@ export function anyTabVisible(claims: readonly TabClaim[]): boolean {
 	return claims.some((claim) => claim.visible);
 }
 
+/** Whether a visible tab that received the event shows what it is about. */
+export function anyTabShowsSubject(claims: readonly TabClaim[]): boolean {
+	return claims.some((claim) => claim.visible && !!claim.subjectOnScreen);
+}
+
 export interface CoordinationResult {
 	/** This tab announces the event; no other tab does. */
 	act: boolean;
 	/** Some tab that received the event is on screen. */
 	visible: boolean;
+	/** Some visible tab that received the event shows its subject. */
+	subjectOnScreen: boolean;
 }
 
 type CoordinationMessage =
@@ -83,6 +97,8 @@ export interface NotificationCoordinatorOptions {
 	channel: CoordinationChannel | null;
 	isVisible: () => boolean;
 	isAudible?: () => boolean;
+	/** Whether this tab shows the subject an event is about. */
+	showsSubject?: (subject: string) => boolean;
 	windowMs?: number;
 	wait?: (ms: number) => Promise<void>;
 	now?: () => number;
@@ -141,36 +157,64 @@ export function createNotificationCoordinator(options: NotificationCoordinatorOp
 			if (!isMessage(message) || message.tabId === tabId) return;
 			const state = stateFor(message.eventId);
 			if (message.kind === 'done') state.done = true;
-			else state.claims.set(message.tabId, { tabId: message.tabId, visible: !!message.visible, audible: !!message.audible });
+			else {
+				state.claims.set(message.tabId, {
+					tabId: message.tabId,
+					visible: !!message.visible,
+					audible: !!message.audible,
+					subjectOnScreen: message.subjectOnScreen === true
+				});
+			}
 		};
 	}
 
-	async function elect(eventId: string, state: EventState): Promise<CoordinationResult> {
-		const own: TabClaim = { tabId, visible: isVisible(), audible: isAudible() };
-		if (!channel) return { act: true, visible: own.visible };
+	/** Only a tab on screen shows anything; a failing check shows nothing. */
+	function showsSubject(subject: string | null | undefined, visible: boolean): boolean {
+		if (!subject || !visible || !options.showsSubject) return false;
+		try {
+			return options.showsSubject(subject) === true;
+		} catch {
+			return false;
+		}
+	}
+
+	async function elect(eventId: string, subject: string | null | undefined, state: EventState): Promise<CoordinationResult> {
+		const visibleNow = isVisible();
+		const own: TabClaim = {
+			tabId,
+			visible: visibleNow,
+			audible: isAudible(),
+			subjectOnScreen: showsSubject(subject, visibleNow)
+		};
+		if (!channel) return { act: true, visible: own.visible, subjectOnScreen: !!own.subjectOnScreen };
 		state.claims.set(tabId, own);
 		post({ kind: 'claim', eventId, ...own });
 		await wait(windowMs);
 		const claims = [...state.claims.values()];
 		const visible = anyTabVisible(claims);
-		if (state.done || electWinner(claims) !== tabId) return { act: false, visible };
+		const subjectOnScreen = anyTabShowsSubject(claims);
+		if (state.done || electWinner(claims) !== tabId) return { act: false, visible, subjectOnScreen };
 		state.done = true;
 		post({ kind: 'done', eventId, tabId });
-		return { act: true, visible };
+		return { act: true, visible, subjectOnScreen };
 	}
 
 	return {
 		/**
 		 * Resolves once the tabs that received the event agreed on who announces
-		 * it. A second call for the same event never acts again.
+		 * it. A second call for the same event never acts again. `subject` is
+		 * what the event is about, when a tab can have that on screen.
 		 */
-		coordinate(eventId: string): Promise<CoordinationResult> {
+		coordinate(eventId: string, subject?: string | null): Promise<CoordinationResult> {
 			const state = stateFor(eventId);
 			if (state.pending) {
-				return state.pending.then((result) => ({ act: false, visible: result.visible }));
+				return state.pending.then((result) => ({ ...result, act: false }));
 			}
-			if (state.done) return Promise.resolve({ act: false, visible: isVisible() });
-			state.pending = elect(eventId, state);
+			if (state.done) {
+				const visible = isVisible();
+				return Promise.resolve({ act: false, visible, subjectOnScreen: showsSubject(subject, visible) });
+			}
+			state.pending = elect(eventId, subject, state);
 			return state.pending;
 		},
 		close() {

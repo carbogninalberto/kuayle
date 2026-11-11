@@ -61,7 +61,8 @@ func (s *AgentTaskService) deliverTaskNotices(ctx context.Context) {
 		}
 		title := taskNoticeTitle(notice)
 		if err := s.notifications.Create(ctx, notice.CreatorID, notice.WorkspaceID, &notice.IssueID, notifType, title); err != nil {
-			log.WithField("task_id", notice.TaskID).WithError(err).Warn("Could not notify about an agent task")
+			// Claiming cleared the pending mark, so nothing delivers it later.
+			log.WithField("task_id", notice.TaskID).WithError(err).Error("Could not store an agent task notification; the notice is lost")
 			continue
 		}
 		publishNotification(s.userEvents, notice.WorkspaceID, notice.CreatorID, notificationEvent{

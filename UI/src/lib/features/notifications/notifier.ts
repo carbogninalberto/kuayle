@@ -15,8 +15,10 @@ import {
 	openCoordinationChannel,
 	type NotificationCoordinator
 } from './notification-coordinator.ts';
-import { decideNotification, type NotificationEventPayload } from './notification-policy.ts';
+import { notificationTypeMessageKey } from './notification-labels.ts';
+import { decideNotification, notificationSubject, type NotificationEventPayload } from './notification-policy.ts';
 import { createNotificationSound } from './notification-sound.ts';
+import { onScreenSubjects } from './on-screen-subjects.ts';
 import { readPermission } from './permissions.ts';
 
 /**
@@ -33,48 +35,24 @@ function tabCoordinator(): NotificationCoordinator {
 		tabId: newTabId(),
 		channel: openCoordinationChannel(),
 		isVisible: () => document.visibilityState === 'visible',
-		isAudible: () => notificationSound.canStart()
+		isAudible: () => notificationSound.canStart(),
+		showsSubject: (subject) => onScreenSubjects.has(subject)
 	});
 	return coordinator;
 }
 
 export function notificationTitle(type: string): string {
-	switch (type) {
-		case 'approval_requested':
-			return m['notify.title.approval_requested']();
-		case 'agent_task_finished':
-			return m['notify.title.agent_task_finished']();
-		case 'review_needed':
-			return m['notify.title.review_needed']();
-		case 'issues_deleted':
-			return m['notify.title.issues_deleted']();
-		case 'status_changed':
-			return m['inbox.type.status_changed']();
-		case 'assigned':
-			return m['inbox.type.assigned']();
-		case 'commented':
-			return m['inbox.type.commented']();
-		case 'mentioned':
-			return m['inbox.type.mentioned']();
-		case 'priority_changed':
-			return m['inbox.type.priority_changed']();
-		case 'issue_created':
-			return m['inbox.type.issue_created']();
-		case 'issue_updated':
-			return m['inbox.type.issue_updated']();
-		case 'due_date_changed':
-			return m['inbox.type.due_date_changed']();
-		case 'label_added':
-			return m['inbox.type.label_added']();
-		case 'cycle_changed':
-			return m['inbox.type.cycle_changed']();
-		default:
-			return m['notify.title.generic']();
-	}
+	const key = notificationTypeMessageKey(type);
+	return key ? m[key]() : m['notify.title.generic']();
 }
 
 /** Shows and/or plays one event in this tab, which the open tabs elected. */
-function announce(event: NotificationEventPayload, slug: string, anyTabVisible: boolean): void {
+function announce(
+	event: NotificationEventPayload,
+	slug: string,
+	anyTabVisible: boolean,
+	subjectOnScreen: boolean
+): void {
 	const decision = decideNotification({
 		payload: event,
 		preferences: {
@@ -86,7 +64,9 @@ function announce(event: NotificationEventPayload, slug: string, anyTabVisible: 
 		// A system notification is noise while any Kuayle tab that received the
 		// event is on screen, not only this one.
 		visibility: anyTabVisible ? 'visible' : 'hidden',
-		currentUserId: authState.user?.id
+		currentUserId: authState.user?.id,
+		// So is anything about a conversation the user is looking at, in any tab.
+		subjectOnScreen
 	});
 	if (decision.playSound) void notificationSound.play(preferencesState.notificationSound, decision.eventKey);
 	if (decision.showBrowser && slug) {
@@ -108,9 +88,9 @@ export function handleNotificationCreated(payload: unknown, slug: string): void 
 		const event = payload as NotificationEventPayload;
 		// Every open tab receives the event; exactly one of them announces it.
 		void tabCoordinator()
-			.coordinate(notificationEventId(event))
+			.coordinate(notificationEventId(event), notificationSubject(event))
 			.then((result) => {
-				if (result.act) announce(event, slug, result.visible);
+				if (result.act) announce(event, slug, result.visible, result.subjectOnScreen);
 			})
 			.catch(() => {
 				// Best effort, as below.

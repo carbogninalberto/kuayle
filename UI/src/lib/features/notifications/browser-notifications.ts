@@ -21,12 +21,19 @@ export function notificationTag(payload: NotificationEventPayload): string {
 	return `${payload.type}:${payload.issue_id ?? payload.approval_id ?? payload.task_id ?? 'workspace'}`;
 }
 
-/** Where a click lands: the issue, else the conversation, else the inbox. */
+/**
+ * Where a click lands: the issue, else the conversation, else the inbox. An
+ * approval is decided in its conversation, so that one comes before the issue.
+ */
 export function notificationUrl(slug: string, payload: NotificationEventPayload): string {
 	const base = `/${encodeURIComponent(slug)}`;
 	const issue = payload.issue_identifier ?? payload.issue_id;
+	const conversation = payload.conversation_id
+		? `${base}/assistant?conversation=${encodeURIComponent(payload.conversation_id)}`
+		: null;
+	if (conversation && payload.type === 'approval_requested') return conversation;
 	if (issue && payload.type !== 'issues_deleted') return `${base}/issue/${encodeURIComponent(issue)}`;
-	if (payload.conversation_id) return `${base}/assistant?conversation=${encodeURIComponent(payload.conversation_id)}`;
+	if (conversation) return conversation;
 	return `${base}/inbox`;
 }
 

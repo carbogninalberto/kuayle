@@ -244,8 +244,9 @@ func fenceAgentTask(ctx context.Context, tx *sqlx.Tx, current, claimed domain.Ag
 	return nil
 }
 func recordAgentTaskTransition(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask, from string, actor *uuid.UUID) error {
-	// The creator is notified once per recorded transition (ClaimTaskNotices).
-	// A task that waits for its own agent review needs nobody yet.
+	// The creator is notified of a transition marked pending (ClaimTaskNotices).
+	// A task that waits for its own agent review needs nobody yet. A workflow
+	// entering awaiting_review overrides the mark: markWorkflowReviewNotice.
 	_, err := tx.ExecContext(ctx, `INSERT INTO agent_task_transitions(task_id,from_state,to_state,actor_id,reason,notification_pending)
  VALUES($1,$2,$3,$4,$5,$6::boolean AND NOT ($7::boolean AND EXISTS(SELECT 1 FROM agent_tasks r WHERE r.review_of_task_id=$1 AND r.state NOT IN ('completed','failed','cancelled'))))`,
 		task.ID, from, task.State, actor, task.Reason, taskTransitionNotifies(task, actor), task.State == "awaiting_review")

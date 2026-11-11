@@ -716,3 +716,49 @@ func TestWorkflowInstructionsKeepProfileTextOnlyForHarnessesWithoutProfileFiles(
 		require.Equal(t, inPrompt, strings.Contains(got, "Write tests."), harness)
 	}
 }
+
+// Only a step that waits for a person asks the creator for a review: the
+// approval and the merge, not the agent review, CI, or a wait a person
+// continued themselves.
+func TestWorkflowRunnerMarksTheWaitsThatNeedAPerson(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{MaxMinutes: 60, OnExhausted: domain.WorkflowOnLimitAsk})
+	// The example workflow with a merge step after the approval.
+	graph, err := domain.ParseWorkflowGraph(h.w.version.Graph)
+	require.NoError(t, err)
+	graph.Nodes = append(graph.Nodes, domain.WorkflowNode{ID: "merge", Type: domain.WorkflowNodeMerge, Label: "Merge"})
+	for i := range graph.Edges {
+		if graph.Edges[i].ID == "ship-approved" {
+			graph.Edges[i].Target = "merge"
+		}
+	}
+	graph.Edges = append(graph.Edges, domain.WorkflowEdge{ID: "merge-done", Source: "merge", Target: "done", Condition: domain.WorkflowMerged})
+	h.w.version.Graph, err = json.Marshal(graph)
+	require.NoError(t, err)
+	h.restart()
+	entered := func(node string) repository.WorkflowEntry {
+		t.Helper()
+		require.Equal(t, node, h.current().NodeID)
+		require.Equal(t, "awaiting_review", h.w.task.State)
+		return h.w.entries[len(h.w.entries)-1]
+	}
+
+	h.agentFinishes("Added a theme toggle")
+	h.published()
+	require.Equal(t, repository.WorkflowEnterReview, entered("review").Kind)
+	require.False(t, entered("review").NeedsPerson, "an agent reviews")
+	h.review("approve", "Looks good")
+	require.False(t, entered("ci").NeedsPerson, "only CI is pending")
+	h.ci("success", "")
+	require.True(t, entered("ship").NeedsPerson, "the approval waits for a person")
+
+	// The time budget pauses the approval; the person continuing it knows.
+	require.True(t, h.tick())
+	h.w.now = h.w.now.Add(time.Hour)
+	require.True(t, h.tick())
+	require.Equal(t, "blocked", h.w.task.State)
+	h.decide(WorkflowDecisionContinue)
+	require.False(t, entered("ship").NeedsPerson, "the creator was told when the approval was entered")
+
+	h.decide(WorkflowDecisionApprove)
+	require.True(t, entered("merge").NeedsPerson, "the merge waits for a person")
+}

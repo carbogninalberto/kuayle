@@ -112,9 +112,9 @@ test('exactly one of several tabs announces an event, and all know a visible tab
 	const results = [a.coordinate('e-1'), b.coordinate('e-1'), c.coordinate('e-1')];
 	windows.closeAll();
 	assert.deepEqual(await Promise.all(results), [
-		{ act: false, visible: true },
-		{ act: true, visible: true },
-		{ act: false, visible: true }
+		{ act: false, visible: true, subjectOnScreen: false },
+		{ act: true, visible: true, subjectOnScreen: false },
+		{ act: false, visible: true, subjectOnScreen: false }
 	]);
 });
 
@@ -128,8 +128,8 @@ test('hidden tabs elect one of them, which reports that no tab is visible', asyn
 	const results = [b.coordinate('e-1'), a.coordinate('e-1')];
 	windows.closeAll();
 	assert.deepEqual(await Promise.all(results), [
-		{ act: false, visible: false },
-		{ act: true, visible: false }
+		{ act: false, visible: false, subjectOnScreen: false },
+		{ act: true, visible: false, subjectOnScreen: false }
 	]);
 });
 
@@ -159,11 +159,11 @@ test('a tab whose copy of the event arrives after another tab announced it stays
 	]);
 	const first = hidden.coordinate('e-1');
 	windows.closeAll();
-	assert.deepEqual(await first, { act: true, visible: false });
+	assert.deepEqual(await first, { act: true, visible: false, subjectOnScreen: false });
 	// The visible tab would have won the election, but the event is done.
 	const late = visible.coordinate('e-1');
 	windows.closeAll();
-	assert.deepEqual(await late, { act: false, visible: true });
+	assert.deepEqual(await late, { act: false, visible: true, subjectOnScreen: false });
 });
 
 test('a duplicate delivery of one event to the same tab is announced once', async () => {
@@ -189,7 +189,115 @@ test('tabs that did not receive the event are not part of its election', async (
 	]);
 	const result = hidden.coordinate('e-1');
 	windows.closeAll();
-	assert.deepEqual(await result, { act: true, visible: false });
+	assert.deepEqual(await result, { act: true, visible: false, subjectOnScreen: false });
+});
+
+test('the announcing tab learns that another visible tab shows the event subject', async () => {
+	const bus = fakeBus();
+	const windows = manualWindows();
+	const asked = [];
+	const make = (tabId, visible, shown) =>
+		createNotificationCoordinator({
+			tabId,
+			channel: bus.open(),
+			isVisible: () => visible,
+			showsSubject: (subject) => {
+				asked.push(`${tabId}:${subject}`);
+				return shown.includes(subject);
+			},
+			wait: windows.wait
+		});
+	// "a" wins the election (lowest id among the visible tabs); "b" shows the chat.
+	const a = make('a', true, []);
+	const b = make('b', true, ['conversation:c1']);
+	let results = [a.coordinate('e-1', 'conversation:c1'), b.coordinate('e-1', 'conversation:c1')];
+	windows.closeAll();
+	assert.deepEqual(await Promise.all(results), [
+		{ act: true, visible: true, subjectOnScreen: true },
+		{ act: false, visible: true, subjectOnScreen: true }
+	]);
+	assert.deepEqual(asked.sort(), ['a:conversation:c1', 'b:conversation:c1']);
+
+	// Another conversation's approval is not on screen anywhere.
+	results = [a.coordinate('e-2', 'conversation:c2'), b.coordinate('e-2', 'conversation:c2')];
+	windows.closeAll();
+	assert.deepEqual(await Promise.all(results), [
+		{ act: true, visible: true, subjectOnScreen: false },
+		{ act: false, visible: true, subjectOnScreen: false }
+	]);
+
+	// An event without a subject never asks the tabs.
+	asked.length = 0;
+	results = [a.coordinate('e-3'), b.coordinate('e-3', null)];
+	windows.closeAll();
+	assert.deepEqual((await Promise.all(results)).map((result) => result.subjectOnScreen), [false, false]);
+	assert.deepEqual(asked, []);
+});
+
+test('a hidden tab showing the subject does not count as on screen', async () => {
+	const bus = fakeBus();
+	const windows = manualWindows();
+	const make = (tabId, visible, shows) =>
+		createNotificationCoordinator({
+			tabId,
+			channel: bus.open(),
+			isVisible: () => visible,
+			showsSubject: () => shows,
+			wait: windows.wait
+		});
+	const [a, b] = [make('a', true, false), make('b', false, true)];
+	const results = [a.coordinate('e-1', 's'), b.coordinate('e-1', 's')];
+	windows.closeAll();
+	assert.deepEqual(await Promise.all(results), [
+		{ act: true, visible: true, subjectOnScreen: false },
+		{ act: false, visible: true, subjectOnScreen: false }
+	]);
+});
+
+test('claims from a tab running the previous protocol show no subject and still elect one tab', async () => {
+	const bus = fakeBus();
+	const windows = manualWindows();
+	const current = createNotificationCoordinator({
+		tabId: 'b',
+		channel: bus.open(),
+		isVisible: () => true,
+		showsSubject: () => false,
+		wait: windows.wait
+	});
+	const old = bus.open();
+	const seen = [];
+	old.onmessage = (event) => seen.push(event.data);
+	const result = current.coordinate('e-1', 'conversation:c1');
+	// The old tab claims without the new field, and wins with the lower id.
+	old.postMessage({ kind: 'claim', eventId: 'e-1', tabId: 'a', visible: true, audible: true });
+	windows.closeAll();
+	assert.deepEqual(await result, { act: false, visible: true, subjectOnScreen: false });
+	// What an old tab reads from a new claim is unchanged.
+	const { kind, eventId, tabId, visible, audible } = seen[0];
+	assert.deepEqual(
+		{ kind, eventId, tabId, visible, audible },
+		{ kind: 'claim', eventId: 'e-1', tabId: 'b', visible: true, audible: true }
+	);
+});
+
+test('a tab alone reports its own subject, and a failing subject check counts as not shown', async () => {
+	const alone = createNotificationCoordinator({
+		tabId: 'a',
+		channel: null,
+		isVisible: () => true,
+		showsSubject: (subject) => subject === 'conversation:c1'
+	});
+	assert.deepEqual(await alone.coordinate('e-1', 'conversation:c1'), { act: true, visible: true, subjectOnScreen: true });
+	assert.deepEqual(await alone.coordinate('e-2', 'conversation:c2'), { act: true, visible: true, subjectOnScreen: false });
+	const throwing = createNotificationCoordinator({
+		tabId: 'a',
+		channel: null,
+		isVisible: () => true,
+		showsSubject: () => {
+			throw new Error('gone');
+		}
+	});
+	assert.deepEqual(await throwing.coordinate('e-1', 's'), { act: true, visible: true, subjectOnScreen: false });
 });
 
 test('without BroadcastChannel a tab acts alone, immediately and without errors', async (t) => {
@@ -200,7 +308,7 @@ test('without BroadcastChannel a tab acts alone, immediately and without errors'
 		isVisible: () => false,
 		wait: () => assert.fail('no election window without a channel')
 	});
-	assert.deepEqual(await alone.coordinate('e-1'), { act: true, visible: false });
+	assert.deepEqual(await alone.coordinate('e-1'), { act: true, visible: false, subjectOnScreen: false });
 
 	// A channel that throws on use degrades the same way.
 	const broken = createNotificationCoordinator({
@@ -214,7 +322,7 @@ test('without BroadcastChannel a tab acts alone, immediately and without errors'
 		isVisible: () => true,
 		wait: async () => {}
 	});
-	assert.deepEqual(await broken.coordinate('e-1'), { act: true, visible: true });
+	assert.deepEqual(await broken.coordinate('e-1'), { act: true, visible: true, subjectOnScreen: false });
 	broken.close();
 
 	const scope = /** @type {any} */ (globalThis);
@@ -243,7 +351,7 @@ test('malformed and foreign channel messages are ignored', async () => {
 	}
 	const result = only.coordinate('e-1');
 	windows.closeAll();
-	assert.deepEqual(await result, { act: true, visible: false });
+	assert.deepEqual(await result, { act: true, visible: false, subjectOnScreen: false });
 });
 
 // --- Cross-tab sound throttle ---------------------------------------------

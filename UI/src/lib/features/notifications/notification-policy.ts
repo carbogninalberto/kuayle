@@ -47,6 +47,16 @@ export function countsAsUnread(payload: unknown): boolean {
 	return liveOnly !== true && liveOnly !== 'true';
 }
 
+/**
+ * What the event is about that a tab can have on screen, as a key shared with
+ * on-screen-subjects.ts: the conversation that asks for an approval. Null for
+ * every event that is announced wherever the user is.
+ */
+export function notificationSubject(payload: NotificationEventPayload): string | null {
+	if (payload.type !== 'approval_requested' || !payload.conversation_id) return null;
+	return `conversation:${payload.conversation_id}`;
+}
+
 export interface NotificationPreferences {
 	browserNotifications: boolean;
 	sound: NotificationSound;
@@ -98,12 +108,16 @@ export function decideNotification(input: {
 	permission: NotificationPermissionState;
 	visibility: string;
 	currentUserId?: string | null;
+	/** A visible tab shows the event's subject (see notificationSubject). */
+	subjectOnScreen?: boolean;
 }): NotificationDecision {
 	const { payload, preferences, permission, visibility, currentUserId } = input;
 	const eventKey = eventKeyForType(payload.type);
 	const muted = preferences.events[eventKey] === false;
 	const own = !!payload.actor_id && payload.actor_id === currentUserId;
-	if (muted || own) return { showBrowser: false, playSound: false, eventKey };
+	// The user is looking at the chat that just asked: the request is in view.
+	const inView = !!input.subjectOnScreen && notificationSubject(payload) !== null;
+	if (muted || own || inView) return { showBrowser: false, playSound: false, eventKey };
 	return {
 		// A visible tab already shows the unread badge and the inbox update.
 		showBrowser: preferences.browserNotifications && permission === 'granted' && visibility !== 'visible',
