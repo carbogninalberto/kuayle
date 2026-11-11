@@ -1,25 +1,26 @@
--- Workspace memory (KUA-134): short lessons per repository. Kuayle and agents
--- propose them; a workspace owner or admin approves, edits, retires or drops
--- each one, and only approved lessons reach an agent's prompt.
+-- Workspace memory (KUA-134): short lessons per repository. Agents, reviews
+-- and members propose them; a workspace owner or admin approves, edits,
+-- retires or drops each one, and only approved lessons reach an agent's
+-- prompt. Text is redacted before it is stored.
 CREATE TABLE workspace_lessons (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     repository_full_name TEXT NOT NULL CHECK (char_length(repository_full_name) BETWEEN 3 AND 512),
     -- Repositories are matched without regard to case, as GitHub does.
     repository_key TEXT NOT NULL CHECK (repository_key = lower(repository_full_name)),
-    -- Set for a lesson that came from a private team's task: only people who
-    -- can see that team see it, and only that team's tasks receive it. NULL is
-    -- visible to every non-guest member and reaches every task on the repository.
+    -- The team of the task the lesson came from. While that team is private,
+    -- only people who can see it see the lesson and only its tasks receive it.
+    -- NULL (written by hand, or shared by an admin) belongs to the workspace.
     team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
     state TEXT NOT NULL DEFAULT 'proposed' CHECK (state IN ('proposed', 'approved', 'retired', 'dropped')),
     -- What agents see once the lesson is approved, as a person left it.
     text TEXT NOT NULL CHECK (char_length(text) BETWEEN 1 AND 400),
     -- What was proposed, kept as written.
     proposed_text TEXT NOT NULL CHECK (char_length(proposed_text) BETWEEN 1 AND 400),
-    source_event TEXT NOT NULL CHECK (source_event IN ('task', 'correction', 'review', 'ci', 'manual')),
-    -- Who wrote the proposed text: an agent, Kuayle (from CI or a GitHub
-    -- review) or a workspace member.
-    proposer TEXT NOT NULL CHECK (proposer IN ('agent', 'kuayle', 'person')),
+    source_event TEXT NOT NULL CHECK (source_event IN ('task', 'review', 'manual')),
+    -- Who wrote the proposed text: an agent, someone outside the workspace (a
+    -- GitHub reviewer) or a workspace member.
+    proposer TEXT NOT NULL CHECK (proposer IN ('agent', 'external', 'person')),
     source_task_id UUID REFERENCES agent_tasks(id) ON DELETE SET NULL,
     proposed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     decided_by UUID REFERENCES users(id) ON DELETE SET NULL,

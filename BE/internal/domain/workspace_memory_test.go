@@ -36,6 +36,22 @@ func TestAgentMemoryLessonsAreStrictAndBounded(t *testing.T) {
 	require.Error(t, err, "invalid UTF-8")
 }
 
+// What an approver reads must be what an agent would read: characters that
+// do not show (zero-width, bidirectional overrides) never enter a lesson.
+func TestLessonsCarryNoInvisibleCharacters(t *testing.T) {
+	hidden := "Run\u200b the\u200f checks\u202e;tnemmoc\u202c \u2066now\u2069\ufeff\u200d."
+	lesson, err := CleanLesson(hidden)
+	require.NoError(t, err)
+	require.Equal(t, "Run the checks;tnemmoc now.", lesson)
+	require.Equal(t, "Run the checks;tnemmoc now.", LessonExcerpt(hidden))
+	lesson, err = ParseAgentMemoryLesson([]byte(`{"to":"memory","lesson":"Use\u202emain\u202c only"}`))
+	require.NoError(t, err)
+	require.Equal(t, "Usemain only", lesson)
+	_, err = CleanLesson("\u200b\u2067\ufeff")
+	require.ErrorIs(t, err, ErrLessonEmpty, "a lesson of invisible characters is empty")
+	require.Equal(t, "", LessonExcerpt("\u200e \u202a"))
+}
+
 func TestLessonExcerptsFitOneLesson(t *testing.T) {
 	require.Equal(t, "", LessonExcerpt(" \n\t "))
 	require.Equal(t, "Tests failed: 3 of 9", LessonExcerpt("Tests failed:\n\n 3 of 9"))
@@ -47,9 +63,9 @@ func TestLessonExcerptsFitOneLesson(t *testing.T) {
 }
 
 func TestLessonDedupeKeysIgnoreCaseAndSpacing(t *testing.T) {
-	require.Equal(t, LessonDedupeKey("ci", "Unit  Tests"), LessonDedupeKey("ci", " unit tests\n"))
-	require.NotEqual(t, LessonDedupeKey("ci", "unit tests"), LessonDedupeKey("review", "unit tests"))
-	require.Len(t, LessonDedupeKey("ci", "x"), 64)
+	require.Equal(t, LessonDedupeKey("task", "Unit  Tests"), LessonDedupeKey("task", " unit tests\n"))
+	require.NotEqual(t, LessonDedupeKey("task", "unit tests"), LessonDedupeKey("review", "unit tests"))
+	require.Len(t, LessonDedupeKey("task", "x"), 64)
 }
 
 func TestFormatLessonsKeepsOrderAndStaysWithinThePromptBudget(t *testing.T) {

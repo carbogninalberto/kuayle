@@ -146,7 +146,7 @@ func TestWorkspaceMemoryRoutesBindDecisionsAndMapRefusals(t *testing.T) {
 		rec = memoryRequest(t, &memoryStoreStub{role: domain.RoleOwner, fail: err}, (*WorkspaceMemoryHandler).Retire, http.MethodPost, "/memory/lessons/"+id+"/retire", "", id)
 		require.Equal(t, status, rec.Code, err)
 	}
-	for _, err := range []error{repository.ErrLessonLimit, repository.ErrLessonPendingLimit, repository.ErrLessonDuplicate} {
+	for _, err := range []error{repository.ErrLessonLimit, repository.ErrLessonPendingLimit, repository.ErrLessonMemberLimit, repository.ErrLessonDuplicate} {
 		rec = memoryRequest(t, &memoryStoreStub{role: domain.RoleOwner, fail: err}, (*WorkspaceMemoryHandler).Add, http.MethodPost, "/memory/lessons", `{"repository":"acme/app","text":"x"}`, "")
 		require.Equal(t, http.StatusConflict, rec.Code, err)
 	}

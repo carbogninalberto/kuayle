@@ -98,11 +98,6 @@ func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.
 	if err = liveMessageEvents(ctx, tx, []domain.AgentLiveMessage{message}); err != nil {
 		return nil, err
 	}
-	// What a person tells a working agent in their own words proposes a
-	// lesson for the repository's memory; the orchestrator's text does not.
-	if sender == domain.AgentLiveSenderUser {
-		suggestLesson(ctx, tx, lessonProposal{TaskID: id, Event: domain.LessonEventCorrection, Proposer: domain.LessonProposerPerson, Author: &actor, Text: body})
-	}
 	return &message, tx.Commit()
 }
 

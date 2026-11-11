@@ -47,6 +47,8 @@ func memoryError(c *echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "LESSON_STATE", "The lesson is not in a state that allows this any more")
 	case errors.Is(err, repository.ErrLessonLimit):
 		return response.Error(c, http.StatusConflict, "LESSON_LIMIT", "This repository has its maximum of approved lessons; retire one first")
+	case errors.Is(err, repository.ErrLessonMemberLimit):
+		return response.Error(c, http.StatusConflict, "LESSON_PENDING_LIMIT", "Too many of your proposals wait on this repository")
 	case errors.Is(err, repository.ErrLessonPendingLimit):
 		return response.Error(c, http.StatusConflict, "LESSON_PENDING_LIMIT", "Too many proposals wait on this repository")
 	case errors.Is(err, repository.ErrLessonDuplicate):

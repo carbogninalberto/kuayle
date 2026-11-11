@@ -116,16 +116,17 @@ shown as refused in Kuayle; nothing else happens.
 
 When you learned something that the next agent working on this repository
 would otherwise have to rediscover (how to run the checks, a convention, a
-trap), propose it with `"to":"memory"` and a `lesson` through the same outbox,
-typically before you finish:
+trap), or when the person who owns your task corrected you about how this
+repository works, propose it with `"to":"memory"` and a `lesson` through the
+same outbox, typically before you finish:
 
 ```json
 {"to":"memory","lesson":"Migration numbers collide with main: renumber yours after merging main."}
 ```
 
 A lesson is one or two plain sentences about the repository, at most 400
-characters, with only those two fields; never put credentials or anything
-about this one task in it. It is a proposal: a workspace admin approves,
+characters, with only those two fields, in your own words; never put
+credentials, anything about this one task or a person's message in it. It is a proposal: a workspace admin approves,
 edits or drops it, and only approved lessons appear in later agents' prompts.
 The same lesson is proposed once, and a task may propose 3; more are refused
 and shown as refused in Kuayle. Review tasks cannot propose lessons.

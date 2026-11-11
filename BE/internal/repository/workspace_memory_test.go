@@ -9,11 +9,23 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
 	"github.com/stretchr/testify/require"
 )
 
+var memoryTestKey = cryptoutil.DeriveKey("workspace-memory-test")
+
+// enableLessons configures lesson redaction for one test, as the API and the
+// machine manager do at startup.
+func enableLessons(t *testing.T) {
+	t.Helper()
+	ConfigureLessonRedaction(memoryTestKey)
+	t.Cleanup(func() { lessonRedaction.configured, lessonRedaction.key = false, nil })
+}
+
 // memoryFixture is a task in review on fixture/repo, owned by the workspace's
-// owner, with an admin, a member, a guest and the owner of another workspace.
+// owner, with an admin, two members, a guest and the owner of another
+// workspace.
 type memoryFixture struct {
 	db                              *sqlx.DB
 	tasks                           *AgentTaskRepository
@@ -21,15 +33,18 @@ type memoryFixture struct {
 	ctx                             context.Context
 	task                            domain.AgentTask
 	ws, owner, admin, member, guest uuid.UUID
+	colleague                       uuid.UUID
 	otherWorkspace, otherOwner      uuid.UUID
 }
 
 func newMemoryFixture(t *testing.T) memoryFixture {
 	t.Helper()
 	db, tasks, ctx, task := reviewableTask(t)
+	enableLessons(t)
 	f := memoryFixture{db: db, tasks: tasks, memory: NewWorkspaceMemoryRepository(db), ctx: ctx, task: task, ws: task.WorkspaceID, owner: task.CreatorID, otherWorkspace: uuid.New()}
 	f.admin = addWorkflowMember(t, db, f.ws, "admin")
 	f.member = addWorkflowMember(t, db, f.ws, "member")
+	f.colleague = addWorkflowMember(t, db, f.ws, "member")
 	f.guest = addWorkflowMember(t, db, f.ws, "guest")
 	f.otherOwner = uuid.New()
 	_, err := db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Other owner','hash')`, f.otherOwner, f.otherOwner.String()+"@test.invalid")
@@ -56,6 +71,18 @@ func (f memoryFixture) lessons(t *testing.T, where string, args ...any) []domain
 	return lessons
 }
 
+// sees lists what an actor reads of the repository, by lesson ID.
+func (f memoryFixture) sees(t *testing.T, actor uuid.UUID) map[uuid.UUID]domain.Lesson {
+	t.Helper()
+	lessons, err := f.memory.List(context.Background(), f.ws, actor, "fixture/repo", "")
+	require.NoError(t, err)
+	seen := map[uuid.UUID]domain.Lesson{}
+	for _, lesson := range lessons {
+		seen[lesson.ID] = lesson
+	}
+	return seen
+}
+
 func TestLessonsReachAgentsOnlyThroughAnAdminsDecision(t *testing.T) {
 	f := newMemoryFixture(t)
 	ctx := context.Background()
@@ -80,7 +107,7 @@ func TestLessonsReachAgentsOnlyThroughAnAdminsDecision(t *testing.T) {
 	require.ErrorIs(t, err, ErrLessonRepository)
 	_, err = f.memory.Add(ctx, f.ws, f.member, "fixture/repo", strings.Repeat("a", domain.LessonMaxRunes+1))
 	require.ErrorIs(t, err, domain.ErrLessonTooLong)
-	_, err = f.memory.Add(ctx, f.ws, f.member, "fixture/repo", " \n ")
+	_, err = f.memory.Add(ctx, f.ws, f.member, "fixture/repo", " \n ​")
 	require.ErrorIs(t, err, domain.ErrLessonEmpty)
 	_, err = f.memory.Add(ctx, f.ws, f.admin, "fixture/repo", "run `make check` before  pushing.")
 	require.ErrorIs(t, err, ErrLessonDuplicate)
@@ -108,9 +135,13 @@ func TestLessonsReachAgentsOnlyThroughAnAdminsDecision(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, others)
 	require.Empty(t, f.prompt(t))
-	seen, err := f.memory.List(ctx, f.ws, f.member, "FIXTURE/repo", domain.LessonProposed)
+
+	// A waiting proposal is read by its author and by those who decide.
+	mine, err := f.memory.List(ctx, f.ws, f.member, "FIXTURE/repo", domain.LessonProposed)
 	require.NoError(t, err)
-	require.Len(t, seen, 1)
+	require.Len(t, mine, 1)
+	require.Empty(t, f.sees(t, f.colleague), "another member does not read someone's proposal")
+	require.Contains(t, f.sees(t, f.admin), proposal.ID)
 
 	// Approving with edited text: agents see what the person left.
 	tooLong := strings.Repeat("b", domain.LessonMaxRunes+1)
@@ -130,6 +161,16 @@ func TestLessonsReachAgentsOnlyThroughAnAdminsDecision(t *testing.T) {
 	require.ErrorIs(t, err, ErrLessonState)
 	_, err = f.memory.Drop(ctx, f.ws, f.admin, proposal.ID)
 	require.ErrorIs(t, err, ErrLessonState, "an approved lesson is retired, not dropped")
+
+	// Every member reads the approved lesson; the original stays with the
+	// owners and admins.
+	for _, reader := range []uuid.UUID{f.member, f.colleague} {
+		lesson, visible := f.sees(t, reader)[proposal.ID]
+		require.True(t, visible)
+		require.Equal(t, edited, lesson.Text)
+		require.Empty(t, lesson.ProposedText, "members never read the text before it was edited")
+	}
+	require.Equal(t, "Run `make check` before pushing.", f.sees(t, f.owner)[proposal.ID].ProposedText)
 
 	// An approved lesson can be edited; an owner's own lesson is approved at once.
 	again := "Run `make check` and `make lint` before every push."
@@ -163,6 +204,7 @@ func TestLessonsReachAgentsOnlyThroughAnAdminsDecision(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, domain.LessonRetired, retired.State)
 	require.Equal(t, []string{second.Text}, f.prompt(t))
+	require.NotContains(t, f.sees(t, f.colleague), proposal.ID, "members read approved lessons only")
 	_, err = f.memory.Retire(ctx, f.ws, f.admin, proposal.ID)
 	require.ErrorIs(t, err, ErrLessonState)
 	_, err = f.memory.Edit(ctx, f.ws, f.admin, proposal.ID, &edited, false)
@@ -202,7 +244,7 @@ func TestLessonsReachAgentsOnlyThroughAnAdminsDecision(t *testing.T) {
 	require.Equal(t, "added", events[len(events)-1].Action)
 }
 
-func TestLessonsAreBoundedPerRepository(t *testing.T) {
+func TestLessonsAreBoundedPerRepositoryAndMember(t *testing.T) {
 	f := newMemoryFixture(t)
 	ctx := context.Background()
 	waiting, err := f.memory.Add(ctx, f.ws, f.member, "fixture/repo", "Waiting for a decision")
@@ -226,53 +268,53 @@ func TestLessonsAreBoundedPerRepository(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, domain.LessonsApprovedPerRepository+1, approved.Position, "a newly approved lesson comes last")
 
+	// One member cannot fill the queue: a few waiting proposals each.
+	for i := range domain.LessonsPendingPerMember {
+		_, err = f.memory.Add(ctx, f.ws, f.member, "fixture/repo", fmt.Sprintf("My proposal %d", i))
+		require.NoError(t, err)
+	}
+	_, err = f.memory.Add(ctx, f.ws, f.member, "fixture/repo", "One proposal too many")
+	require.ErrorIs(t, err, ErrLessonMemberLimit)
+	_, err = f.memory.Add(ctx, f.ws, f.colleague, "fixture/repo", "A colleague still proposes")
+	require.NoError(t, err)
+
 	// Proposals waiting on a repository are bounded too.
 	_, err = f.db.Exec(`INSERT INTO workspace_lessons(workspace_id,repository_full_name,repository_key,text,proposed_text,source_event,proposer,dedupe_key)
- SELECT $1,'fixture/repo','fixture/repo','Pending '||n,'Pending '||n,'ci','kuayle',lpad(n::text,64,'0') FROM generate_series(1,$2::int) n`, f.ws, domain.LessonsPendingPerRepository)
+ SELECT $1,'fixture/repo','fixture/repo','Pending '||n,'Pending '||n,'review','external',lpad(n::text,64,'0') FROM generate_series(1,$2::int) n`, f.ws, domain.LessonsPendingPerRepository)
 	require.NoError(t, err)
-	_, err = f.memory.Add(ctx, f.ws, f.member, "fixture/repo", "Too many are waiting")
+	_, err = f.memory.Add(ctx, f.ws, f.colleague, "fixture/repo", "Too many are waiting")
 	require.ErrorIs(t, err, ErrLessonPendingLimit)
 	recorded, err := NewAgentMessageRepository(f.db).RecordTaskOutbox(ctx, f.task.ID, []domain.AgentOutboxFile{outbox("full.json", `{"to":"memory","lesson":"Too many are waiting"}`)})
 	require.NoError(t, err)
 	require.Equal(t, 1, recorded, "the refusal is recorded")
 	require.Empty(t, f.lessons(t, `source_task_id=$1`, f.task.ID))
+	var reason string
+	require.NoError(t, f.db.Get(&reason, `SELECT reject_reason FROM agent_messages WHERE from_task_id=$1 AND to_ref='MEMORY'`, f.task.ID))
+	require.Equal(t, lessonPendingLimit, reason)
 }
 
-func TestTaskEventsProposeLessonsOnceWithinLimits(t *testing.T) {
+func TestOnlyReviewsThatRequestedChangesProposeFromTaskEvents(t *testing.T) {
 	f := newMemoryFixture(t)
 	background := context.Background()
-	failure := func(id, summary string) {
-		t.Helper()
-		_, err := f.tasks.RecordSignal(background, f.ws, "fixture/repo", 12, domain.AgentTaskSignalInput{Kind: "ci", ExternalID: id, Outcome: "failure", Name: "Tests", Summary: summary, HeadSHA: publishedCommit})
+
+	// CI results propose nothing: a check's name is no lesson.
+	for id, outcome := range map[string]string{"1": "success", "2": "failure", "3": "timed_out"} {
+		_, err := f.tasks.RecordSignal(background, f.ws, "fixture/repo", 12, domain.AgentTaskSignalInput{Kind: "ci", ExternalID: id, Outcome: outcome, Name: "Tests", Summary: "3 of 9 tests failed", HeadSHA: publishedCommit})
 		require.NoError(t, err)
 	}
-	_, err := f.tasks.RecordSignal(background, f.ws, "fixture/repo", 12, ci("1", "success", publishedCommit))
+	// Neither does what a person tells the agent or writes on the issue: their
+	// messages stay between them and their task.
+	_, err := f.tasks.QueueLiveMessage(f.ctx, f.ws, f.task.ID, domain.AgentLiveSenderUser, "Use the v2 route, the client told me in private")
 	require.NoError(t, err)
-	require.Empty(t, f.lessons(t, `workspace_id=$1`, f.ws), "a passing check teaches nothing")
-
-	// A failed check proposes once, however often it fails.
-	failure("2", "3 of 9 tests failed")
-	failure("2", "3 of 9 tests failed")
-	failure("3", "4 of 9 tests failed")
-	fromCI := f.lessons(t, `source_event='ci'`)
-	require.Len(t, fromCI, 1)
-	require.Equal(t, `CI check "Tests" failed: 3 of 9 tests failed`, fromCI[0].Text)
-	require.Equal(t, domain.LessonProposed, fromCI[0].State)
-	require.Equal(t, domain.LessonProposerKuayle, fromCI[0].Proposer)
-	require.Equal(t, f.task.ID, *fromCI[0].SourceTaskID)
-	require.Nil(t, fromCI[0].ProposedBy)
-	require.Nil(t, fromCI[0].TeamID, "a public team's lesson belongs to the workspace")
-	require.Equal(t, "fixture/repo", fromCI[0].Repository)
-	// Dropping it does not bring it back with the next failure.
-	_, err = f.memory.Drop(background, f.ws, f.owner, fromCI[0].ID)
+	_, err = f.tasks.RecordCommentSignal(background, f.ws, f.task.IssueID, uuid.New(), f.owner, "Please rename the flag")
 	require.NoError(t, err)
-	failure("4", "5 of 9 tests failed")
-	require.Len(t, f.lessons(t, `source_event='ci'`), 1)
+	require.Empty(t, f.lessons(t, `workspace_id=$1`, f.ws))
 
-	// A review that requested changes proposes when its author is trusted.
+	// A GitHub change request proposes when its author is trusted, once, and
+	// is marked as text from outside the workspace.
 	review := func(id string, trusted bool) {
 		t.Helper()
-		_, err := f.tasks.RecordSignal(background, f.ws, "fixture/repo", 12, domain.AgentTaskSignalInput{Kind: "review", ExternalID: id, Outcome: "changes_requested", Name: "reviewer", Summary: "Please keep handlers thin", Trusted: trusted})
+		_, err := f.tasks.RecordSignal(background, f.ws, "fixture/repo", 12, domain.AgentTaskSignalInput{Kind: "review", ExternalID: id, Outcome: "changes_requested", Name: "reviewer", Summary: "Please keep handlers‮ thin", Trusted: trusted})
 		require.NoError(t, err)
 	}
 	review("5", false)
@@ -281,37 +323,37 @@ func TestTaskEventsProposeLessonsOnceWithinLimits(t *testing.T) {
 	review("7", true)
 	fromReview := f.lessons(t, `source_event='review'`)
 	require.Len(t, fromReview, 1)
-	require.Equal(t, "Please keep handlers thin", fromReview[0].Text)
-	require.Equal(t, domain.LessonProposerKuayle, fromReview[0].Proposer)
-
-	// A person's own words to the agent propose a correction, a few per task;
-	// what the orchestrator writes for them does not.
-	_, err = f.tasks.RecordCommentSignal(background, f.ws, f.task.IssueID, uuid.New(), f.owner, "Please rename the flag")
-	require.NoError(t, err)
-	for i := range domain.LessonProposalsPerTaskEvent + 2 {
-		_, err = f.tasks.QueueLiveMessage(f.ctx, f.ws, f.task.ID, domain.AgentLiveSenderUser, fmt.Sprintf("Use the v%d route", i))
-		require.NoError(t, err)
-	}
-	_, err = f.tasks.QueueLiveMessage(f.ctx, f.ws, f.task.ID, domain.AgentLiveSenderOrchestrator, "Written by the orchestrator")
-	require.NoError(t, err)
-	corrections := f.lessons(t, `source_event='correction'`)
-	require.Len(t, corrections, domain.LessonProposalsPerTaskEvent)
-	require.Equal(t, "Please rename the flag", corrections[0].Text)
-	for _, correction := range corrections {
-		require.Equal(t, domain.LessonProposerPerson, correction.Proposer)
-		require.Equal(t, f.owner, *correction.ProposedBy)
-		require.Equal(t, domain.LessonProposed, correction.State)
-		require.NotEqual(t, "Written by the orchestrator", correction.Text)
-	}
-
-	// Each proposal is audited, and none of them reached an agent.
+	proposal := fromReview[0]
+	require.Equal(t, "Please keep handlers thin", proposal.Text, "invisible characters are removed")
+	require.Equal(t, domain.LessonProposerExternal, proposal.Proposer)
+	require.Equal(t, domain.LessonProposed, proposal.State)
+	require.Equal(t, f.task.ID, *proposal.SourceTaskID)
+	require.Equal(t, f.task.TeamID, *proposal.TeamID, "a task's lesson keeps the task's team")
+	require.Nil(t, proposal.ProposedBy)
+	require.Equal(t, "fixture/repo", proposal.Repository)
 	var audited int
-	require.NoError(t, f.db.Get(&audited, `SELECT count(*) FROM workspace_lesson_events WHERE workspace_id=$1 AND action='proposed'`, f.ws))
-	require.Equal(t, 2+domain.LessonProposalsPerTaskEvent, audited)
-	require.Empty(t, f.prompt(t), "nothing reaches agents without approval")
-	approved, err := f.memory.Approve(background, f.ws, f.admin, corrections[0].ID, nil)
+	require.NoError(t, f.db.Get(&audited, `SELECT count(*) FROM workspace_lesson_events WHERE lesson_id=$1 AND action='proposed'`, proposal.ID))
+	require.Equal(t, 1, audited)
+
+	// Until it is approved only the task's creator and those who decide read it.
+	require.Contains(t, f.sees(t, f.owner), proposal.ID, "the task's creator, here also the owner")
+	require.Contains(t, f.sees(t, f.admin), proposal.ID)
+	require.Empty(t, f.sees(t, f.member), "other members do not read a task's proposal")
+	_, err = f.db.Exec(`UPDATE agent_tasks SET creator_id=$2 WHERE id=$1`, f.task.ID, f.member)
 	require.NoError(t, err)
-	require.Equal(t, []string{approved.Text}, f.prompt(t))
+	require.Contains(t, f.sees(t, f.member), proposal.ID, "a member reads the proposals of their own task")
+	require.Empty(t, f.sees(t, f.colleague))
+	require.Empty(t, f.prompt(t), "nothing reaches agents without approval")
+
+	// Dropped: it stays hidden from members and is not proposed again.
+	_, err = f.memory.Drop(background, f.ws, f.admin, proposal.ID)
+	require.NoError(t, err)
+	require.Empty(t, f.sees(t, f.member))
+	_, err = f.db.Exec(`UPDATE agent_tasks SET creator_id=$2 WHERE id=$1`, f.task.ID, f.owner)
+	require.NoError(t, err)
+	review("8", true)
+	require.Len(t, f.lessons(t, `source_event='review'`), 1)
+	require.Empty(t, f.prompt(t))
 }
 
 func TestAgentsProposeLessonsThroughTheOutbox(t *testing.T) {
@@ -331,7 +373,7 @@ func TestAgentsProposeLessonsThroughTheOutbox(t *testing.T) {
 		return reasons
 	}
 
-	require.Equal(t, 1, record(f.task.ID, outbox("1.json", `{"to":"memory","lesson":"Renumber migrations\nafter merging main."}`)))
+	require.Equal(t, 1, record(f.task.ID, outbox("1.json", `{"to":"memory","lesson":"Renumber migrations\nafter merging​ main."}`)))
 	proposed := f.lessons(t, `source_task_id=$1`, f.task.ID)
 	require.Len(t, proposed, 1)
 	require.Equal(t, "Renumber migrations after merging main.", proposed[0].Text)
@@ -342,12 +384,14 @@ func TestAgentsProposeLessonsThroughTheOutbox(t *testing.T) {
 	require.Nil(t, proposed[0].DecidedBy)
 	require.Equal(t, "fixture/repo", proposed[0].Repository)
 	require.Empty(t, f.prompt(t), "an agent's lesson reaches no agent until a person approves it")
+	require.Empty(t, f.sees(t, f.member), "nor any member other than the task's creator")
+	require.Contains(t, f.sees(t, f.owner), proposed[0].ID)
 	var messagesRecorded int
 	require.NoError(t, f.db.Get(&messagesRecorded, `SELECT count(*) FROM agent_messages WHERE from_task_id=$1`, f.task.ID))
 	require.Zero(t, messagesRecorded, "a lesson is a proposal, not a message to another agent")
 
 	// The same file, or the same lesson in another file, is proposed once.
-	require.Zero(t, record(f.task.ID, outbox("1.json", `{"to":"memory","lesson":"Renumber migrations\nafter merging main."}`)))
+	require.Zero(t, record(f.task.ID, outbox("1.json", `{"to":"memory","lesson":"Renumber migrations\nafter merging​ main."}`)))
 	require.Zero(t, record(f.task.ID, outbox("2.json", `{"to":"MEMORY","lesson":"renumber migrations after merging  main."}`)))
 	require.Len(t, f.lessons(t, `source_task_id=$1`, f.task.ID), 1)
 
@@ -392,21 +436,109 @@ func TestAgentsProposeLessonsThroughTheOutbox(t *testing.T) {
 	require.Empty(t, f.prompt(t))
 }
 
+// A proposal that cannot be recorded never breaks the outbox it came in.
+func TestAFailingLessonProposalDoesNotLoseTheOutbox(t *testing.T) {
+	f := newMemoryFixture(t)
+	ctx := context.Background()
+	// Nothing configured how to redact lessons, so storing one fails.
+	lessonRedaction.configured = false
+	recorded, err := NewAgentMessageRepository(f.db).RecordTaskOutbox(ctx, f.task.ID, []domain.AgentOutboxFile{
+		outbox("1.json", `{"to":"memory","lesson":"Cannot be stored now"}`),
+		outbox("2.json", `{"to":"REC-9","body":"The rest of the batch"}`),
+		outbox("3.json", `{"to":"orchestrator","body":"Still delivered"}`),
+	})
+	require.NoError(t, err, "the batch is recorded")
+	require.Equal(t, 3, recorded)
+	require.Empty(t, f.lessons(t, `workspace_id=$1`, f.ws), "unredacted text is never stored as a lesson")
+	var reason string
+	require.NoError(t, f.db.Get(&reason, `SELECT reject_reason FROM agent_messages WHERE from_task_id=$1 AND to_ref='MEMORY'`, f.task.ID))
+	require.Equal(t, lessonUnavailable, reason)
+	var others int
+	require.NoError(t, f.db.Get(&others, `SELECT (SELECT count(*) FROM agent_messages WHERE from_task_id=$1 AND to_ref='REC-9')+(SELECT count(*) FROM agent_live_messages WHERE task_id=$1 AND direction='from_agent')`, f.task.ID))
+	require.Equal(t, 2, others, "the other files of the batch are kept")
+	_, err = f.memory.Add(ctx, f.ws, f.owner, "fixture/repo", "By hand")
+	require.ErrorIs(t, err, ErrLessonRedaction)
+
+	// The same holds for a review's change request.
+	_, err = f.tasks.RecordSignal(ctx, f.ws, "fixture/repo", 12, domain.AgentTaskSignalInput{Kind: "review", ExternalID: "1", Outcome: "changes_requested", Name: "reviewer", Summary: "Keep handlers thin", Trusted: true})
+	require.NoError(t, err)
+	signals, err := f.tasks.Signals(f.ctx, f.ws, f.task.ID)
+	require.NoError(t, err)
+	require.Len(t, signals, 1, "the signal is recorded without its lesson")
+	require.Empty(t, f.lessons(t, `workspace_id=$1`, f.ws))
+}
+
+func TestLessonTextIsRedactedBeforeItIsStored(t *testing.T) {
+	f := newMemoryFixture(t)
+	ctx := context.Background()
+	// The task's machine holds a secret; run output is redacted with it.
+	var machine uuid.UUID
+	require.NoError(t, f.db.Get(&machine, `SELECT machine_id FROM agent_tasks WHERE id=$1`, f.task.ID))
+	sealed, err := cryptoutil.Encrypt("hunter2-deploy-token", memoryTestKey)
+	require.NoError(t, err)
+	_, err = f.db.Exec(`INSERT INTO dev_machine_env_vars(machine_id,target_service,name,encrypted_value) VALUES($1,'agent','DEPLOY_TOKEN',$2)`, machine, sealed)
+	require.NoError(t, err)
+	token := "ghp_" + strings.Repeat("a", 36)
+	stored := func() string {
+		t.Helper()
+		var all string
+		require.NoError(t, f.db.Get(&all, `SELECT COALESCE((SELECT string_agg(text||' '||proposed_text,' ') FROM workspace_lessons WHERE workspace_id=$1),'')||' '||COALESCE((SELECT string_agg(detail::text,' ') FROM workspace_lesson_events WHERE workspace_id=$1),'')`, f.ws))
+		return all
+	}
+
+	// An agent's lesson: the machine's secret and a token format are removed
+	// from the lesson, the original and the audit trail.
+	recorded, err := NewAgentMessageRepository(f.db).RecordTaskOutbox(ctx, f.task.ID, []domain.AgentOutboxFile{outbox("1.json", `{"to":"memory","lesson":"Deploy with hunter2-deploy-token and push as `+token+`."}`)})
+	require.NoError(t, err)
+	require.Equal(t, 1, recorded)
+	fromAgent := f.lessons(t, `source_task_id=$1`, f.task.ID)
+	require.Len(t, fromAgent, 1)
+	require.Equal(t, "Deploy with [REDACTED] and push as [REDACTED].", fromAgent[0].Text)
+	require.Equal(t, fromAgent[0].Text, fromAgent[0].ProposedText)
+
+	// A person's edit of that lesson is redacted with the same secrets, and a
+	// lesson written by hand with the credential formats.
+	edit := "Deploy with hunter2-deploy-token, never by hand."
+	approved, err := f.memory.Approve(ctx, f.ws, f.admin, fromAgent[0].ID, &edit)
+	require.NoError(t, err)
+	require.Equal(t, "Deploy with [REDACTED], never by hand.", approved.Text)
+	again := "Deploy with the hunter2-deploy-token only."
+	changed, err := f.memory.Edit(ctx, f.ws, f.admin, fromAgent[0].ID, &again, false)
+	require.NoError(t, err)
+	require.Equal(t, "Deploy with the [REDACTED] only.", changed.Text)
+	byHand, err := f.memory.Add(ctx, f.ws, f.member, "fixture/repo", "Clone from https://bot:s3cr3tpass@github.com/fixture/repo.git with "+token)
+	require.NoError(t, err)
+	require.Equal(t, "Clone from https://bot:[REDACTED]@github.com/fixture/repo.git with [REDACTED]", byHand.Text)
+
+	all := stored()
+	for _, secret := range []string{"hunter2", token, "s3cr3tpass"} {
+		require.NotContains(t, all, secret)
+	}
+	require.Contains(t, all, "[REDACTED]")
+	require.Equal(t, []string{"Deploy with the [REDACTED] only."}, f.prompt(t))
+}
+
 func TestPrivateTeamLessonsStayWithTheTeam(t *testing.T) {
 	f := newMessageFixture(t)
+	enableLessons(t)
 	ctx := context.Background()
 	memory := NewWorkspaceMemoryRepository(f.db)
 	var privateTeam uuid.UUID
 	require.NoError(t, f.db.Get(&privateTeam, `SELECT id FROM teams WHERE workspace_id=$1 AND key='PRV'`, f.workspace))
+	// A team that is public now and becomes private later.
+	later := uuid.New()
+	_, err := f.db.Exec(`INSERT INTO teams(id,workspace_id,name,key) VALUES($1,$2,'Later','LAT')`, later, f.workspace)
+	require.NoError(t, err)
 	insert := func(team *uuid.UUID, state, text string, position int) uuid.UUID {
 		t.Helper()
 		var id uuid.UUID
 		require.NoError(t, f.db.Get(&id, `INSERT INTO workspace_lessons(workspace_id,repository_full_name,repository_key,team_id,state,text,proposed_text,source_event,proposer,decided_at,position,dedupe_key)
- VALUES($1,'acme/app','acme/app',$2,$3,$4,$4,'review','agent',CASE WHEN $3::text<>'proposed' THEN now() END,$5,$6) RETURNING id`, f.workspace, team, state, text, position, domain.LessonDedupeKey("review", text)))
+ VALUES($1,'acme/app','acme/app',$2,$3::text,$4,$4,'review','agent',CASE WHEN $3::text<>'proposed' THEN now() END,$5,$6) RETURNING id`, f.workspace, team, state, text, position, domain.LessonDedupeKey("review", text)))
 		return id
 	}
 	shared := insert(nil, domain.LessonApproved, "Workspace lesson", 1)
 	secret := insert(&privateTeam, domain.LessonApproved, "Private team lesson", 2)
+	public := insert(&later, domain.LessonApproved, "Public team lesson", 3)
 	pending := insert(&privateTeam, domain.LessonProposed, "Private team proposal", 0)
 
 	ids := func(actor uuid.UUID) []uuid.UUID {
@@ -419,27 +551,38 @@ func TestPrivateTeamLessonsStayWithTheTeam(t *testing.T) {
 		}
 		return out
 	}
-	require.Equal(t, []uuid.UUID{shared}, ids(f.member), "a member outside the private team sees only the workspace's lessons")
-	require.ElementsMatch(t, []uuid.UUID{shared, secret, pending}, ids(f.user))
+	texts := func(team uuid.UUID) []string {
+		t.Helper()
+		texts, err := memory.ApprovedTexts(ctx, f.workspace, team, "acme/app")
+		require.NoError(t, err)
+		return texts
+	}
+	require.ElementsMatch(t, []uuid.UUID{shared, public}, ids(f.member), "a member outside the private team does not see its lessons")
+	require.ElementsMatch(t, []uuid.UUID{shared, secret, public, pending}, ids(f.user))
 
-	// Only the private team's tasks receive its lesson.
-	texts, err := memory.ApprovedTexts(ctx, f.workspace, f.team, "acme/app")
+	// Only the private team's tasks receive its lesson; a public team's lesson
+	// reaches every task on the repository.
+	require.Equal(t, []string{"Workspace lesson", "Public team lesson"}, texts(f.team))
+	require.Equal(t, []string{"Workspace lesson", "Private team lesson", "Public team lesson"}, texts(privateTeam))
+	other, err := memory.ApprovedTexts(ctx, uuid.New(), privateTeam, "acme/app")
 	require.NoError(t, err)
-	require.Equal(t, []string{"Workspace lesson"}, texts)
-	texts, err = memory.ApprovedTexts(ctx, f.workspace, privateTeam, "acme/app")
-	require.NoError(t, err)
-	require.Equal(t, []string{"Workspace lesson", "Private team lesson"}, texts)
-	texts, err = memory.ApprovedTexts(ctx, uuid.New(), privateTeam, "acme/app")
-	require.NoError(t, err)
-	require.Empty(t, texts, "another workspace receives nothing")
+	require.Empty(t, other, "another workspace receives nothing")
 
-	// An owner may share it with the whole workspace; that is audited.
+	// A team made private later takes its lessons with it, at once.
+	_, err = f.db.Exec(`UPDATE teams SET is_private=TRUE WHERE id=$1`, later)
+	require.NoError(t, err)
+	require.Equal(t, []uuid.UUID{shared}, ids(f.member))
+	require.Equal(t, []string{"Workspace lesson"}, texts(f.team))
+	require.Equal(t, []string{"Workspace lesson", "Public team lesson"}, texts(later))
+
+	// An owner may share a team's lesson with the whole workspace; that is audited.
 	_, err = memory.Edit(ctx, f.workspace, f.member, secret, nil, true)
 	require.ErrorIs(t, err, ErrLessonDenied)
 	sharedNow, err := memory.Edit(ctx, f.workspace, f.user, secret, nil, true)
 	require.NoError(t, err)
 	require.Nil(t, sharedNow.TeamID)
 	require.ElementsMatch(t, []uuid.UUID{shared, secret}, ids(f.member))
+	require.Equal(t, []string{"Workspace lesson", "Private team lesson"}, texts(f.team))
 	events, err := memory.Events(ctx, f.workspace, f.user, secret)
 	require.NoError(t, err)
 	require.Len(t, events, 1)

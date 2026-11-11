@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -24,32 +26,154 @@ var (
 	ErrLessonLimit = errors.New("too many approved lessons for this repository")
 	// ErrLessonPendingLimit: too many proposals wait on the repository.
 	ErrLessonPendingLimit = errors.New("too many proposals wait on this repository")
-	ErrLessonDuplicate    = errors.New("this lesson already exists for the repository")
+	// ErrLessonMemberLimit: the member has too many proposals of their own
+	// waiting on the repository.
+	ErrLessonMemberLimit = errors.New("too many of your proposals wait on this repository")
+	ErrLessonDuplicate   = errors.New("this lesson already exists for the repository")
 	// ErrLessonRepository: not a repository connected to the workspace.
 	ErrLessonRepository = errors.New("repository is not connected to this workspace")
 	// ErrLessonOrder: a reorder must name every approved lesson of the
 	// repository exactly once.
 	ErrLessonOrder = errors.New("the order does not match the approved lessons")
+	// ErrLessonRedaction: lesson text cannot be stored because the process
+	// never configured how to redact it.
+	ErrLessonRedaction = errors.New("lesson redaction is not configured")
 )
 
 // WorkspaceMemoryRepository stores the lessons of a workspace's repositories
-// (KUA-134). Reads re-check that the actor is a non-guest member and hide the
-// lessons of private teams the actor cannot see; every decision re-checks,
-// inside its transaction, that the actor is a current owner or admin, and
-// records an audit event.
+// (KUA-134). Reads re-check that the actor is a non-guest member, hide the
+// lessons of private teams the actor cannot see, and show a member only
+// approved lessons, their own hand proposals and the proposals of their own
+// tasks. Every decision re-checks, inside its transaction, that the actor is
+// a current owner or admin, and records an audit event. Text is redacted
+// before it is stored.
 type WorkspaceMemoryRepository struct{ db *sqlx.DB }
 
 func NewWorkspaceMemoryRepository(db *sqlx.DB) *WorkspaceMemoryRepository {
 	return &WorkspaceMemoryRepository{db}
 }
 
-// lessonVisible keeps the lessons of private teams from people outside them.
-// $1 is the workspace and $2 the actor.
+// lessonRedaction is how this process redacts lesson text before storing it.
+// Proposals are written deep inside other repositories' transactions (the
+// outbox, a finished review, a GitHub signal), in the API and in the machine
+// manager, so the key is process configuration rather than a field.
+var lessonRedaction struct {
+	configured bool
+	key        []byte
+}
+
+// ConfigureLessonRedaction enables storing lessons in this process. key
+// decrypts the machines' secrets (the development machine encryption key);
+// an empty key means the process has no machine secrets, so only credential
+// formats are redacted. Until it is called no lesson text is stored.
+func ConfigureLessonRedaction(key []byte) {
+	lessonRedaction.configured, lessonRedaction.key = true, append([]byte(nil), key...)
+}
+
+// redactLesson removes from text every secret the redactor knows: the secret
+// values of the task's machine (the values its run output is redacted with),
+// when the lesson came from a task, and well-known credential formats always.
+// The result is again one lesson-sized line.
+func redactLesson(ctx context.Context, db *sqlx.DB, ws uuid.UUID, task *uuid.UUID, text string) (string, error) {
+	if !lessonRedaction.configured {
+		return "", ErrLessonRedaction
+	}
+	if task != nil && len(lessonRedaction.key) > 0 {
+		var machine uuid.UUID
+		err := db.GetContext(ctx, &machine, `SELECT COALESCE(machine_id,reserved_machine_id) FROM agent_tasks WHERE id=$1 AND workspace_id=$2`, *task, ws)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+		if err == nil {
+			secrets, err := lessonMachineSecrets(ctx, db, ws, machine)
+			if err != nil {
+				return "", err
+			}
+			text = sanitize.SecretReplacer(secrets).Replace(text)
+		}
+	}
+	return domain.LessonExcerpt(sanitize.RedactCredentials(text)), nil
+}
+
+// lessonMachineSecrets lists the secret values a machine's runs may hold, as
+// DevMachineService.machineSecretValues does for run output.
+func lessonMachineSecrets(ctx context.Context, db *sqlx.DB, ws, machine uuid.UUID) ([]string, error) {
+	store, key := NewDevMachineRepository(db), lessonRedaction.key
+	var sealed []string
+	envVars, err := store.ListEnvVarsInternal(ctx, machine, nil, "")
+	if err != nil {
+		return nil, err
+	}
+	for _, envVar := range envVars {
+		sealed = append(sealed, envVar.EncryptedValue)
+	}
+	credentials, err := store.ListRuntimeCredentials(ctx, machine)
+	if err != nil {
+		return nil, err
+	}
+	for _, credential := range credentials {
+		sealed = append(sealed, credential.EncryptedValue)
+	}
+	servers, err := store.ListModelServers(ctx, ws)
+	if err != nil {
+		return nil, err
+	}
+	for _, server := range servers {
+		sealed = append(sealed, server.EncryptedAPIKey)
+	}
+	values := []string{}
+	for _, value := range sealed {
+		plain, err := cryptoutil.Decrypt(value, key)
+		if err != nil {
+			return nil, err
+		}
+		if plain != "" {
+			values = append(values, plain)
+		}
+	}
+	snapshots, err := store.ListAgentRunSecretSnapshots(ctx, ws, machine)
+	if err != nil {
+		return nil, err
+	}
+	for _, snapshot := range snapshots {
+		payload, err := cryptoutil.Decrypt(snapshot, key)
+		if err != nil {
+			return nil, err
+		}
+		snapshot, err := domain.DecodeAgentRunSecretSnapshot(payload)
+		if err != nil {
+			return nil, err
+		}
+		for _, value := range snapshot.Redactions {
+			values = append(values, value)
+		}
+	}
+	return values, nil
+}
+
+// lessonVisible keeps the lessons of private teams from people outside them,
+// by the team's privacy now. $1 is the workspace and $2 the actor.
 const lessonVisible = `(l.team_id IS NULL OR kuayle_team_access(l.team_id,$2,$1))`
+
+// lessonReadable is what a member who is not an owner or admin reads: the
+// approved lessons, the lessons they wrote by hand, and the waiting proposals
+// of the tasks they created. A proposal carries text from a task (an agent's
+// lesson, review findings), which only the task's creator and the people who
+// decide may read before it is approved. $2 is the actor.
+const lessonReadable = `(l.state='approved' OR (l.source_event='manual' AND l.proposed_by=$2)
+ OR (l.state='proposed' AND EXISTS(SELECT 1 FROM agent_tasks st WHERE st.id=l.source_task_id AND st.workspace_id=l.workspace_id AND st.creator_id=$2)))`
+
+// lessonReachesTeam is whether a lesson reaches the tasks of team $3: lessons
+// of the workspace, of that team, and of any team that is not private now.
+const lessonReachesTeam = `(l.team_id IS NULL OR l.team_id=$3 OR NOT EXISTS(SELECT 1 FROM teams lt WHERE lt.id=l.team_id AND lt.is_private))`
+
+const lessonColumns = `l.id,l.workspace_id,l.repository_full_name,l.team_id,l.state,l.text,l.proposed_text,l.source_event,l.proposer,l.source_task_id,l.proposed_by,l.decided_by,l.decided_at,l.position,l.created_at,l.updated_at`
 
 func lessonRepositoryKey(repository string) string {
 	return strings.ToLower(strings.TrimSpace(repository))
 }
+
+func lessonManager(role string) bool { return role == domain.RoleOwner || role == domain.RoleAdmin }
 
 // MemberRole returns the actor's current workspace role, or "".
 func (r *WorkspaceMemoryRepository) MemberRole(ctx context.Context, ws, actor uuid.UUID) (string, error) {
@@ -75,7 +199,7 @@ func (r *WorkspaceMemoryRepository) begin(ctx context.Context, ws, actor uuid.UU
 	}
 	var role string
 	err = tx.GetContext(ctx, &role, `SELECT role FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR SHARE`, ws, actor)
-	if err == nil && (role == domain.RoleGuest || manage && role != domain.RoleOwner && role != domain.RoleAdmin) {
+	if err == nil && (role == domain.RoleGuest || manage && !lessonManager(role)) {
 		err = sql.ErrNoRows
 	}
 	if err != nil {
@@ -104,8 +228,9 @@ func lessonAudit(ctx context.Context, tx *sqlx.Tx, ws, lesson uuid.UUID, actor *
 	return err
 }
 
-// List returns the lessons the actor can see, optionally of one repository
-// and in one state: approved lessons in prompt order, the others newest first.
+// List returns the lessons the actor may read, optionally of one repository
+// and in one state: approved lessons in prompt order, the others newest
+// first. What was originally proposed is returned only to owners and admins.
 func (r *WorkspaceMemoryRepository) List(ctx context.Context, ws, actor uuid.UUID, repository, state string) ([]domain.Lesson, error) {
 	role, err := lessonRole(ctx, r.db, ws, actor)
 	if err != nil {
@@ -115,13 +240,22 @@ func (r *WorkspaceMemoryRepository) List(ctx context.Context, ws, actor uuid.UUI
 		return nil, ErrLessonDenied
 	}
 	lessons := []domain.Lesson{}
-	err = r.db.SelectContext(ctx, &lessons, `SELECT l.id,l.workspace_id,l.repository_full_name,l.team_id,l.state,l.text,l.proposed_text,l.source_event,l.proposer,l.source_task_id,l.proposed_by,l.decided_by,l.decided_at,l.position,l.created_at,l.updated_at
- FROM workspace_lessons l WHERE l.workspace_id=$1 AND `+lessonVisible+` AND ($3='' OR l.repository_key=$3) AND ($4='' OR l.state=$4)
- ORDER BY l.repository_key,(l.state='approved') DESC,CASE WHEN l.state='approved' THEN l.position END,l.created_at DESC,l.id LIMIT 500`, ws, actor, lessonRepositoryKey(repository), state)
-	return lessons, err
+	err = r.db.SelectContext(ctx, &lessons, `SELECT `+lessonColumns+` FROM workspace_lessons l
+ WHERE l.workspace_id=$1 AND `+lessonVisible+` AND ($5::boolean OR `+lessonReadable+`) AND ($3::text='' OR l.repository_key=$3::text) AND ($4::text='' OR l.state=$4::text)
+ ORDER BY l.repository_key,(l.state='approved') DESC,CASE WHEN l.state='approved' THEN l.position END,l.created_at DESC,l.id LIMIT 500`, ws, actor, lessonRepositoryKey(repository), state, lessonManager(role))
+	if err != nil {
+		return nil, err
+	}
+	if !lessonManager(role) {
+		for index := range lessons {
+			lessons[index].ProposedText = ""
+		}
+	}
+	return lessons, nil
 }
 
-// lockLesson locks a lesson the actor can see and its repository's counters.
+// lockLesson locks a lesson the deciding actor can see and its repository's
+// counters.
 func lockLesson(ctx context.Context, tx *sqlx.Tx, ws, actor, id uuid.UUID) (*domain.Lesson, error) {
 	var key string
 	err := tx.GetContext(ctx, &key, `SELECT l.repository_key FROM workspace_lessons l WHERE l.id=$3 AND l.workspace_id=$1 AND `+lessonVisible, ws, actor, id)
@@ -135,8 +269,7 @@ func lockLesson(ctx context.Context, tx *sqlx.Tx, ws, actor, id uuid.UUID) (*dom
 		return nil, err
 	}
 	var lesson domain.Lesson
-	err = tx.GetContext(ctx, &lesson, `SELECT l.id,l.workspace_id,l.repository_full_name,l.team_id,l.state,l.text,l.proposed_text,l.source_event,l.proposer,l.source_task_id,l.proposed_by,l.decided_by,l.decided_at,l.position,l.created_at,l.updated_at
- FROM workspace_lessons l WHERE l.id=$3 AND l.workspace_id=$1 AND `+lessonVisible+` FOR UPDATE OF l`, ws, actor, id)
+	err = tx.GetContext(ctx, &lesson, `SELECT `+lessonColumns+` FROM workspace_lessons l WHERE l.id=$3 AND l.workspace_id=$1 AND `+lessonVisible+` FOR UPDATE OF l`, ws, actor, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrLessonNotFound
 	}
@@ -161,11 +294,26 @@ func nextLessonPosition(ctx context.Context, tx *sqlx.Tx, ws uuid.UUID, key stri
 	return current.Last + 1, nil
 }
 
+// cleanLesson validates text a person wrote and redacts it for storing.
+func (r *WorkspaceMemoryRepository) cleanLesson(ctx context.Context, ws uuid.UUID, task *uuid.UUID, text string) (string, error) {
+	text, err := domain.CleanLesson(text)
+	if err != nil {
+		return "", err
+	}
+	if text, err = redactLesson(ctx, r.db, ws, task, text); err != nil {
+		return "", err
+	}
+	if text == "" {
+		return "", domain.ErrLessonEmpty
+	}
+	return text, nil
+}
+
 // Add records a lesson a member wrote by hand for a repository connected to
 // the workspace. An owner's or admin's lesson is approved at once; any other
-// member's waits as a proposal.
+// member's waits as a proposal, a few per member and repository.
 func (r *WorkspaceMemoryRepository) Add(ctx context.Context, ws, actor uuid.UUID, repository, text string) (*domain.Lesson, error) {
-	text, err := domain.CleanLesson(text)
+	text, err := r.cleanLesson(ctx, ws, nil, text)
 	if err != nil {
 		return nil, err
 	}
@@ -187,17 +335,24 @@ func (r *WorkspaceMemoryRepository) Add(ctx context.Context, ws, actor uuid.UUID
 		return nil, err
 	}
 	state, action, position := domain.LessonProposed, "proposed", 0
-	if role == domain.RoleOwner || role == domain.RoleAdmin {
+	if lessonManager(role) {
 		state, action = domain.LessonApproved, "added"
 		if position, err = nextLessonPosition(ctx, tx, ws, key); err != nil {
 			return nil, err
 		}
 	} else {
-		var pending int
-		if err = tx.GetContext(ctx, &pending, `SELECT count(*) FROM workspace_lessons WHERE workspace_id=$1 AND repository_key=$2 AND state='proposed'`, ws, key); err != nil {
+		var waiting struct {
+			All  int `db:"pending"`
+			Mine int `db:"mine"`
+		}
+		if err = tx.GetContext(ctx, &waiting, `SELECT count(*) AS pending,count(*) FILTER (WHERE source_event='manual' AND proposed_by=$3) AS mine
+ FROM workspace_lessons WHERE workspace_id=$1 AND repository_key=$2 AND state='proposed'`, ws, key, actor); err != nil {
 			return nil, err
 		}
-		if pending >= domain.LessonsPendingPerRepository {
+		if waiting.Mine >= domain.LessonsPendingPerMember {
+			return nil, ErrLessonMemberLimit
+		}
+		if waiting.All >= domain.LessonsPendingPerRepository {
 			return nil, ErrLessonPendingLimit
 		}
 	}
@@ -213,6 +368,9 @@ func (r *WorkspaceMemoryRepository) Add(ctx context.Context, ws, actor uuid.UUID
 	}
 	if err = lessonAudit(ctx, tx, ws, lesson.ID, &actor, action, map[string]any{"event": domain.LessonEventManual, "proposer": domain.LessonProposerPerson, "text": text}); err != nil {
 		return nil, err
+	}
+	if !lessonManager(role) {
+		lesson.ProposedText = ""
 	}
 	return &lesson, tx.Commit()
 }
@@ -234,7 +392,7 @@ func (r *WorkspaceMemoryRepository) Approve(ctx context.Context, ws, actor, id u
 	}
 	approved := lesson.Text
 	if text != nil {
-		if approved, err = domain.CleanLesson(*text); err != nil {
+		if approved, err = r.cleanLesson(ctx, ws, lesson.SourceTaskID, *text); err != nil {
 			return nil, err
 		}
 	}
@@ -253,7 +411,7 @@ func (r *WorkspaceMemoryRepository) Approve(ctx context.Context, ws, actor, id u
 }
 
 // Edit changes the text of a proposed or approved lesson, and, with share,
-// makes a private team's lesson a lesson of the whole workspace.
+// makes a team's lesson a lesson of the whole workspace.
 func (r *WorkspaceMemoryRepository) Edit(ctx context.Context, ws, actor, id uuid.UUID, text *string, share bool) (*domain.Lesson, error) {
 	tx, _, err := r.begin(ctx, ws, actor, true)
 	if err != nil {
@@ -269,7 +427,7 @@ func (r *WorkspaceMemoryRepository) Edit(ctx context.Context, ws, actor, id uuid
 	}
 	edited := lesson.Text
 	if text != nil {
-		if edited, err = domain.CleanLesson(*text); err != nil {
+		if edited, err = r.cleanLesson(ctx, ws, lesson.SourceTaskID, *text); err != nil {
 			return nil, err
 		}
 	}
@@ -278,7 +436,7 @@ func (r *WorkspaceMemoryRepository) Edit(ctx context.Context, ws, actor, id uuid
 		return lesson, nil
 	}
 	var updated domain.Lesson
-	err = tx.GetContext(ctx, &updated, `UPDATE workspace_lessons SET text=$2,team_id=CASE WHEN $3 THEN NULL ELSE team_id END,updated_at=now() WHERE id=$1`+lessonReturning, id, edited, share)
+	err = tx.GetContext(ctx, &updated, `UPDATE workspace_lessons SET text=$2,team_id=CASE WHEN $3::boolean THEN NULL ELSE team_id END,updated_at=now() WHERE id=$1`+lessonReturning, id, edited, share)
 	if uniqueViolation(err) {
 		return nil, ErrLessonDuplicate
 	}
@@ -387,7 +545,7 @@ func (r *WorkspaceMemoryRepository) Events(ctx context.Context, ws, actor, id uu
 	if err != nil {
 		return nil, err
 	}
-	if role != domain.RoleOwner && role != domain.RoleAdmin {
+	if !lessonManager(role) {
 		return nil, ErrLessonDenied
 	}
 	var found bool
@@ -403,13 +561,13 @@ func (r *WorkspaceMemoryRepository) Events(ctx context.Context, ws, actor, id uu
 }
 
 // ApprovedTexts returns the approved lessons of a repository that a task of
-// the team may receive, in prompt order: lessons of the whole workspace and
-// those of the task's own (private) team. Nothing that is proposed, retired
-// or dropped is ever returned.
+// the team may receive, in prompt order: lessons of the workspace, of the
+// task's own team, and of teams that are not private now. Nothing that is
+// proposed, retired or dropped is ever returned.
 func (r *WorkspaceMemoryRepository) ApprovedTexts(ctx context.Context, ws, team uuid.UUID, repository string) ([]string, error) {
 	texts := []string{}
 	err := r.db.SelectContext(ctx, &texts, `SELECT l.text FROM workspace_lessons l WHERE l.workspace_id=$1 AND l.repository_key=$2 AND l.state='approved'
- AND (l.team_id IS NULL OR l.team_id=$3) ORDER BY l.position,l.created_at,l.id LIMIT $4`, ws, lessonRepositoryKey(repository), team, domain.LessonsApprovedPerRepository)
+ AND `+lessonReachesTeam+` ORDER BY l.position,l.created_at,l.id LIMIT $4`, ws, lessonRepositoryKey(repository), team, domain.LessonsApprovedPerRepository)
 	return texts, err
 }
 
@@ -424,15 +582,12 @@ func (r *WorkspaceMemoryRepository) TaskRepository(ctx context.Context, task dom
 	return name, err
 }
 
-// lessonProposal is what a task event proposes. Subject identifies it for
-// deduplication (a CI check's name; otherwise the text itself).
+// lessonProposal is what a task event proposes.
 type lessonProposal struct {
 	TaskID   uuid.UUID
 	Event    string
 	Proposer string
-	Author   *uuid.UUID
 	Text     string
-	Subject  string
 }
 
 // Outcomes of a proposal that was not recorded.
@@ -443,25 +598,21 @@ const (
 	lessonNoRepository = "this task has no repository checkout"
 	lessonTaskLimit    = "this task proposed enough lessons of this kind"
 	lessonPendingLimit = "too many proposals already wait on this repository"
+	lessonUnavailable  = "the lesson could not be recorded"
 )
 
 // proposeLesson records a proposal for the repository of the task's checkout
-// inside the caller's transaction, once per subject and within the task's and
-// the repository's limits. It returns why nothing was recorded, if so. A
-// lesson from a private team's task is scoped to that team. The proposal is
-// never shown to an agent: only an owner's or admin's approval does that.
-func proposeLesson(ctx context.Context, tx *sqlx.Tx, in lessonProposal) (string, error) {
-	text := domain.LessonExcerpt(in.Text)
-	if text == "" {
-		return lessonNoText, nil
-	}
+// inside the caller's transaction, redacted, once per text and within the
+// task's and the repository's limits. It returns why nothing was recorded,
+// if so. The lesson keeps the task's team. The proposal is never shown to an
+// agent: only an owner's or admin's approval does that.
+func proposeLesson(ctx context.Context, db *sqlx.DB, tx *sqlx.Tx, in lessonProposal) (string, error) {
 	var source struct {
 		WorkspaceID uuid.UUID `db:"workspace_id"`
 		TeamID      uuid.UUID `db:"team_id"`
-		Private     bool      `db:"is_private"`
 		Repository  string    `db:"repository_full_name"`
 	}
-	err := tx.GetContext(ctx, &source, `SELECT t.workspace_id,tm.id AS team_id,tm.is_private,c.repository_full_name FROM agent_tasks t
+	err := tx.GetContext(ctx, &source, `SELECT t.workspace_id,tm.id AS team_id,c.repository_full_name FROM agent_tasks t
  JOIN issues i ON i.id=t.issue_id AND i.workspace_id=t.workspace_id
  JOIN teams tm ON tm.id=i.team_id AND tm.workspace_id=t.workspace_id
  JOIN dev_machine_checkouts c ON c.id=t.checkout_id AND c.workspace_id=t.workspace_id WHERE t.id=$1`, in.TaskID)
@@ -471,73 +622,88 @@ func proposeLesson(ctx context.Context, tx *sqlx.Tx, in lessonProposal) (string,
 	if err != nil {
 		return "", err
 	}
+	text, err := redactLesson(ctx, db, source.WorkspaceID, &in.TaskID, domain.LessonExcerpt(in.Text))
+	if err != nil {
+		return "", err
+	}
+	if text == "" {
+		return lessonNoText, nil
+	}
 	key := lessonRepositoryKey(source.Repository)
 	if err = lockLessonRepository(ctx, tx, source.WorkspaceID, key); err != nil {
 		return "", err
 	}
-	var team *uuid.UUID
-	if source.Private {
-		team = &source.TeamID
-	}
-	subject := in.Subject
-	if subject == "" {
-		subject = text
-	}
-	dedupe := domain.LessonDedupeKey(in.Event, subject)
+	dedupe := domain.LessonDedupeKey(in.Event, text)
 	var counts struct {
 		Known   bool `db:"known"`
-		Task    int  `db:"task"`
+		Task    int  `db:"proposed_by_task"`
 		Pending int  `db:"pending"`
 	}
+	// A lesson that already reaches this team's tasks is known.
 	if err = tx.GetContext(ctx, &counts, `SELECT
- EXISTS(SELECT 1 FROM workspace_lessons WHERE workspace_id=$1 AND repository_key=$2 AND team_id IS NOT DISTINCT FROM $3 AND dedupe_key=$4) AS known,
- (SELECT count(*) FROM workspace_lessons WHERE source_task_id=$5 AND source_event=$6) AS task,
+ EXISTS(SELECT 1 FROM workspace_lessons l WHERE l.workspace_id=$1 AND l.repository_key=$2 AND l.dedupe_key=$4 AND `+lessonReachesTeam+`) AS known,
+ (SELECT count(*) FROM workspace_lessons WHERE source_task_id=$5 AND source_event=$6) AS proposed_by_task,
  (SELECT count(*) FROM workspace_lessons WHERE workspace_id=$1 AND repository_key=$2 AND state='proposed') AS pending`,
-		source.WorkspaceID, key, team, dedupe, in.TaskID, in.Event); err != nil {
+		source.WorkspaceID, key, source.TeamID, dedupe, in.TaskID, in.Event); err != nil {
 		return "", err
+	}
+	// A discarded proposal is logged by repository and kind, never by content.
+	discarded := func(reason string) (string, error) {
+		log.WithFields(log.Fields{"workspace_id": source.WorkspaceID, "repository": source.Repository, "source_event": in.Event, "proposer": in.Proposer}).Warn("workspace lesson proposal discarded: " + reason)
+		return reason, nil
 	}
 	switch {
 	case counts.Known:
 		return lessonDuplicate, nil
 	case counts.Task >= domain.LessonProposalsPerTaskEvent:
-		return lessonTaskLimit, nil
+		return discarded(lessonTaskLimit)
 	case counts.Pending >= domain.LessonsPendingPerRepository:
-		return lessonPendingLimit, nil
+		return discarded(lessonPendingLimit)
 	}
 	var id uuid.UUID
-	err = tx.GetContext(ctx, &id, `INSERT INTO workspace_lessons(workspace_id,repository_full_name,repository_key,team_id,state,text,proposed_text,source_event,proposer,source_task_id,proposed_by,dedupe_key)
- VALUES($1,$2,$3,$4,'proposed',$5,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING RETURNING id`,
-		source.WorkspaceID, source.Repository, key, team, text, in.Event, in.Proposer, in.TaskID, in.Author, dedupe)
+	err = tx.GetContext(ctx, &id, `INSERT INTO workspace_lessons(workspace_id,repository_full_name,repository_key,team_id,state,text,proposed_text,source_event,proposer,source_task_id,dedupe_key)
+ VALUES($1,$2,$3,$4,'proposed',$5,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING id`,
+		source.WorkspaceID, source.Repository, key, source.TeamID, text, in.Event, in.Proposer, in.TaskID, dedupe)
 	if errors.Is(err, sql.ErrNoRows) {
 		return lessonDuplicate, nil
 	}
 	if err != nil {
 		return "", err
 	}
-	return lessonRecorded, lessonAudit(ctx, tx, source.WorkspaceID, id, in.Author, "proposed", map[string]any{"event": in.Event, "proposer": in.Proposer, "task_id": in.TaskID, "text": text})
+	return lessonRecorded, lessonAudit(ctx, tx, source.WorkspaceID, id, nil, "proposed", map[string]any{"event": in.Event, "proposer": in.Proposer, "task_id": in.TaskID, "text": text})
 }
 
-// suggestLesson proposes a lesson from a task event (a person's message or
-// comment, a review that requested changes, a failed CI check) without ever
-// failing the event: it runs in a savepoint and a failure is only logged.
-func suggestLesson(ctx context.Context, tx *sqlx.Tx, in lessonProposal) {
-	if _, err := tx.ExecContext(ctx, `SAVEPOINT workspace_lesson`); err != nil {
-		return
+// suggestLesson proposes a lesson from a task event (an agent's outbox, a
+// review that requested changes) without ever failing the event: it runs in
+// a savepoint, and a failure is logged and reported as lessonUnavailable. It
+// returns why nothing was recorded, if so.
+func suggestLesson(ctx context.Context, db *sqlx.DB, tx *sqlx.Tx, in lessonProposal) string {
+	failed := func(err error) string {
+		log.WithError(err).WithFields(log.Fields{"task_id": in.TaskID, "source_event": in.Event}).Warn("could not propose a workspace lesson")
+		return lessonUnavailable
 	}
-	if _, err := proposeLesson(ctx, tx, in); err != nil {
-		log.WithError(err).WithField("task_id", in.TaskID).Warn("could not propose a workspace lesson")
-		tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT workspace_lesson`)
+	if _, err := tx.ExecContext(ctx, `SAVEPOINT workspace_lesson`); err != nil {
+		return failed(err)
+	}
+	reason, err := proposeLesson(ctx, db, tx, in)
+	if err != nil {
+		reason = failed(err)
+		if _, err = tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT workspace_lesson`); err != nil {
+			return reason
+		}
 	}
 	tx.ExecContext(ctx, `RELEASE SAVEPOINT workspace_lesson`)
+	return reason
 }
 
 // recordMemoryOutbox handles an outbox file addressed to the workspace memory
 // ({"to":"memory","lesson":"..."}) inside RecordTaskOutbox's transaction. A
 // valid lesson from an implementing task that can still send becomes a
 // proposal marked as written by an agent; the same lesson is proposed once.
-// Anything refused is recorded in the message registry with the reason,
-// within the sender's hourly budget. It reports whether a record was added.
-func recordMemoryOutbox(ctx context.Context, tx *sqlx.Tx, sender messageSender, dedupe string, data []byte, ended bool) (bool, error) {
+// Anything refused, or a proposal that failed, is recorded in the message
+// registry with the reason, within the sender's hourly budget; a failing
+// proposal never fails the outbox. It reports whether a record was added.
+func recordMemoryOutbox(ctx context.Context, db *sqlx.DB, tx *sqlx.Tx, sender messageSender, dedupe string, data []byte, ended bool) (bool, error) {
 	lesson, parseErr := domain.ParseAgentMemoryLesson(data)
 	reason := ""
 	switch {
@@ -546,10 +712,7 @@ func recordMemoryOutbox(ctx context.Context, tx *sqlx.Tx, sender messageSender, 
 	case sender.Kind != domain.AgentTaskKindImplement || ended:
 		reason = "the sending task can no longer send messages"
 	default:
-		var err error
-		if reason, err = proposeLesson(ctx, tx, lessonProposal{TaskID: sender.ID, Event: domain.LessonEventTask, Proposer: domain.LessonProposerAgent, Text: lesson}); err != nil {
-			return false, err
-		}
+		reason = suggestLesson(ctx, db, tx, lessonProposal{TaskID: sender.ID, Event: domain.LessonEventTask, Proposer: domain.LessonProposerAgent, Text: lesson})
 		if reason == lessonRecorded {
 			return true, nil
 		}
@@ -562,5 +725,5 @@ func recordMemoryOutbox(ctx context.Context, tx *sqlx.Tx, sender messageSender, 
 		body = domain.AgentMessagePreview(data)
 	}
 	return insertAgentMessage(ctx, tx, domain.AgentMessage{WorkspaceID: sender.WorkspaceID, FromTaskID: sender.ID, FromIssueID: sender.IssueID, FromRunID: &sender.RunID,
-		ToRef: domain.AgentOutboxMemory, Channel: domain.AgentMessageInternal, Body: body, State: "rejected", RejectReason: &reason, CommentState: "none", DedupeKey: dedupe})
+		ToRef: domain.AgentOutboxMemory, Channel: domain.AgentMessageInternal, Body: sanitize.RedactCredentials(body), State: "rejected", RejectReason: &reason, CommentState: "none", DedupeKey: dedupe})
 }

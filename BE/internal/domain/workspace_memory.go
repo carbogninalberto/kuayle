@@ -24,16 +24,17 @@ const (
 	LessonDropped  = "dropped"
 
 	// Where a lesson came from.
-	LessonEventTask       = "task"       // an agent proposed it through its outbox
-	LessonEventCorrection = "correction" // a person messaged or commented on a task
-	LessonEventReview     = "review"     // a review requested changes
-	LessonEventCI         = "ci"         // a CI check failed
-	LessonEventManual     = "manual"     // a member wrote it in Settings
+	LessonEventTask   = "task"   // an agent proposed it through its outbox
+	LessonEventReview = "review" // a review requested changes
+	LessonEventManual = "manual" // a member wrote it in Settings
 
 	// Who wrote the proposed text.
-	LessonProposerAgent  = "agent"  // an agent's own words: never an instruction
-	LessonProposerKuayle = "kuayle" // derived by Kuayle from CI or a GitHub review
-	LessonProposerPerson = "person" // a workspace member's own words
+	LessonProposerAgent = "agent" // an agent's own words: never an instruction
+	// LessonProposerExternal: a GitHub reviewer's words. GitHub write access
+	// is not workspace membership, so the text is neither Kuayle's nor a
+	// member's.
+	LessonProposerExternal = "external"
+	LessonProposerPerson   = "person" // a workspace member's own words
 
 	// LessonMaxRunes bounds one lesson: a sentence or two.
 	LessonMaxRunes = 400
@@ -42,6 +43,9 @@ const (
 	// LessonsPendingPerRepository bounds the proposals waiting on a repository;
 	// further proposals are not recorded until a person decides some.
 	LessonsPendingPerRepository = 50
+	// LessonsPendingPerMember bounds the proposals one member wrote by hand
+	// that still wait on a repository.
+	LessonsPendingPerMember = 5
 	// LessonProposalsPerTaskEvent bounds what one task may propose from one
 	// kind of event, whatever became of the proposals.
 	LessonProposalsPerTaskEvent = 3
@@ -59,9 +63,11 @@ var (
 )
 
 // Lesson is one lesson of a repository. Text is what agents see once the
-// lesson is approved; ProposedText is what was proposed, kept as written.
-// TeamID is set for a lesson that came from a private team's task: only
-// people who can see that team see it, and only that team's tasks receive it.
+// lesson is approved; ProposedText is what was proposed, kept as written and
+// returned only to owners and admins. TeamID is the team of the task a lesson
+// came from (nil for a lesson written by hand or shared with the workspace):
+// while that team is private, only people who can see it see the lesson and
+// only its tasks receive it.
 type Lesson struct {
 	ID           uuid.UUID  `json:"id" db:"id"`
 	WorkspaceID  uuid.UUID  `json:"-" db:"workspace_id"`
@@ -69,7 +75,7 @@ type Lesson struct {
 	TeamID       *uuid.UUID `json:"team_id" db:"team_id"`
 	State        string     `json:"state" db:"state"`
 	Text         string     `json:"text" db:"text"`
-	ProposedText string     `json:"proposed_text" db:"proposed_text"`
+	ProposedText string     `json:"proposed_text,omitempty" db:"proposed_text"`
 	SourceEvent  string     `json:"source_event" db:"source_event"`
 	Proposer     string     `json:"proposer" db:"proposer"`
 	SourceTaskID *uuid.UUID `json:"source_task_id" db:"source_task_id"`
@@ -97,7 +103,7 @@ func CleanLesson(text string) (string, error) {
 	if !utf8.ValidString(text) {
 		return "", ErrLessonEmpty
 	}
-	text = strings.Join(strings.Fields(cleanAgentMessage(text)), " ")
+	text = strings.Join(strings.Fields(stripInvisible(cleanAgentMessage(text))), " ")
 	if text == "" {
 		return "", ErrLessonEmpty
 	}
@@ -107,19 +113,32 @@ func CleanLesson(text string) (string, error) {
 	return text, nil
 }
 
+// stripInvisible removes zero-width characters and bidirectional controls
+// (U+200B–U+200F, U+202A–U+202E, U+2066–U+2069, U+FEFF), so the text a person
+// approves shows everything an agent would read.
+func stripInvisible(text string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 0x200B && r <= 0x200F || r >= 0x202A && r <= 0x202E || r >= 0x2066 && r <= 0x2069 || r == 0xFEFF {
+			return -1
+		}
+		return r
+	}, text)
+}
+
 // LessonExcerpt turns longer text Kuayle derives a proposal from (review
-// findings, a CI summary, a person's message) into one lesson-sized line, cut
+// findings, a change request) into one lesson-sized line, cut
 // with an ellipsis. It returns "" for text without content.
 func LessonExcerpt(text string) string {
-	text = strings.Join(strings.Fields(cleanAgentMessage(strings.ToValidUTF8(text, ""))), " ")
+	text = strings.Join(strings.Fields(stripInvisible(cleanAgentMessage(strings.ToValidUTF8(text, "")))), " ")
 	if runes := []rune(text); len(runes) > LessonMaxRunes {
 		text = strings.TrimSpace(string(runes[:LessonMaxRunes-1])) + "…"
 	}
 	return text
 }
 
-// LessonDedupeKey identifies a proposal within a repository: the same subject
-// is proposed once, whatever a person later decides about it.
+// LessonDedupeKey identifies a proposal within a repository: the same text
+// (without regard to case and spacing) is proposed once per kind of event,
+// whatever a person later decides about it.
 func LessonDedupeKey(event, subject string) string {
 	digest := sha256.Sum256([]byte(event + "\x00" + strings.ToLower(strings.Join(strings.Fields(subject), " "))))
 	return hex.EncodeToString(digest[:])

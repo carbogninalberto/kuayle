@@ -99,6 +99,7 @@ func reviewRequest(provider string) domain.AgentReviewRequest {
 // harness, runs as a review session and never validates or publishes.
 func TestReviewsAreIdempotentRunWithoutPushAndRecordFindings(t *testing.T) {
 	db, repo, ctx, task := reviewableTask(t)
+	enableLessons(t)
 	ws := task.WorkspaceID
 	review, record, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, reviewRequest("claude-code"))
 	require.NoError(t, err)

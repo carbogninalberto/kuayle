@@ -382,7 +382,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodDelete, "/workflows/:workflowId", h.workflow.Delete)
 	sessionOnly(ws, http.MethodGet, "/workflows/:workflowId/audit", h.workflow.Audit)
 	// Workspace memory (KUA-134): lessons per repository. Non-guest members
-	// read the lessons they can see and propose their own; the repository
+	// read the lessons they may see and propose their own; the repository
 	// lets only current owners and admins approve, edit, retire, drop and
 	// reorder them, and audits every decision. Session only.
 	if h.memory != nil {

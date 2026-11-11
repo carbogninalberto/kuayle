@@ -33,9 +33,10 @@ type workspaceMemoryStore interface {
 type MachineSecrets func(ctx context.Context, workspaceID, machineID uuid.UUID) ([]string, error)
 
 // WorkspaceMemoryService is the workspace memory (KUA-134): short lessons per
-// repository. Non-guest members read the lessons they can see and propose
-// their own; only owners and admins approve, edit, retire, drop and reorder
-// them, and every decision is audited. Agents receive approved lessons only,
+// repository. Non-guest members read approved lessons, their own hand
+// proposals and the proposals of their own tasks, and propose by hand; only
+// owners and admins read everything and approve, edit, retire, drop and
+// reorder, and every decision is audited. Agents receive approved lessons only,
 // through ApprovedLessons.
 type WorkspaceMemoryService struct {
 	store   workspaceMemoryStore
@@ -214,22 +215,7 @@ func (s *WorkspaceMemoryService) ApprovedLessonsForRepository(ctx context.Contex
 	}
 	replacer := sanitize.SecretReplacer(secrets)
 	for index, text := range texts {
-		texts[index] = redactLesson(replacer.Replace(text))
+		texts[index] = sanitize.RedactCredentials(replacer.Replace(text))
 	}
 	return domain.FormatLessons(texts), nil
-}
-
-// redactLesson removes well-known credential formats (the release scan's
-// rules) from a lesson, whoever wrote or approved it.
-func redactLesson(text string) string {
-	for _, rule := range leakRules {
-		text = rule.pattern.ReplaceAllString(text, "[REDACTED]")
-	}
-	return embeddedLogin.ReplaceAllStringFunc(text, func(match string) string {
-		parts := embeddedLogin.FindStringSubmatch(match)
-		if placeholderSecret(parts[1]) {
-			return match
-		}
-		return match[:len(match)-len(parts[1])-1] + "[REDACTED]@"
-	})
 }

@@ -131,7 +131,7 @@ func (r *AgentMessageRepository) RecordTaskOutbox(ctx context.Context, taskID uu
 			if sent >= domain.AgentMessagesPerHour {
 				continue
 			}
-			inserted, err := recordMemoryOutbox(ctx, tx, sender, hex.EncodeToString(digest[:]), file.Data, ended)
+			inserted, err := recordMemoryOutbox(ctx, r.db, tx, sender, hex.EncodeToString(digest[:]), file.Data, ended)
 			if err != nil {
 				return recorded, err
 			}

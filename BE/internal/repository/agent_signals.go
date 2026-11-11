@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -123,10 +122,12 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 	if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.signal_recorded", signal); err != nil {
 		return nil, err
 	}
-	// A failed check or a trusted review that requested changes proposes a
-	// lesson for the repository's memory; people decide what becomes of it.
-	if signalNeedsFollowUp(in) && (in.Kind == "ci" || in.Trusted) {
-		suggestLesson(ctx, tx, signalLesson(task.ID, in))
+	// A trusted GitHub review that requested changes proposes its summary as
+	// a lesson for the repository's memory, marked as external text: its
+	// author has write access on GitHub, which is not workspace membership.
+	// CI failures propose nothing: a check's name and summary are no lesson.
+	if in.Kind == "review" && in.Outcome == "changes_requested" && in.Trusted {
+		suggestLesson(ctx, r.db, tx, lessonProposal{TaskID: task.ID, Event: domain.LessonEventReview, Proposer: domain.LessonProposerExternal, Text: in.Summary})
 	}
 	if err = tx.Commit(); err != nil {
 		return nil, err
@@ -135,24 +136,6 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 		return &domain.AgentTaskFollowUp{Signal: *signal, Task: *task}, nil
 	}
 	return nil, nil
-}
-
-// signalLesson words the lesson a failed CI check or a review that requested
-// changes proposes. A check is proposed once per repository by its name, so
-// the same failure every day stays one proposal.
-func signalLesson(task uuid.UUID, in domain.AgentTaskSignalInput) lessonProposal {
-	if in.Kind == "ci" {
-		name := strings.Join(strings.Fields(in.Name), " ")
-		if name == "" {
-			name = "CI"
-		}
-		text := "CI check \"" + name + "\" failed"
-		if summary := strings.TrimSpace(in.Summary); summary != "" {
-			text += ": " + summary
-		}
-		return lessonProposal{TaskID: task, Event: domain.LessonEventCI, Proposer: domain.LessonProposerKuayle, Text: text, Subject: name}
-	}
-	return lessonProposal{TaskID: task, Event: domain.LessonEventReview, Proposer: domain.LessonProposerKuayle, Text: in.Summary}
 }
 
 // RecordCommentSignal records a Kuayle issue comment as feedback on the
@@ -223,9 +206,6 @@ func (r *AgentTaskRepository) RecordCommentSignal(ctx context.Context, ws, issue
 	if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.signal_recorded", signal); err != nil {
 		return nil, err
 	}
-	// A member's comment on work in review is their own words to the agent:
-	// it proposes a lesson for the repository's memory.
-	suggestLesson(ctx, tx, lessonProposal{TaskID: task.ID, Event: domain.LessonEventCorrection, Proposer: domain.LessonProposerPerson, Author: &author, Text: summary})
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}

@@ -215,6 +215,8 @@ func main() {
 	workflowH := handler.NewWorkflowHandler(service.NewWorkflowService(workflowRepo, devMachineAgentReg, agentTaskSvc))
 	// Workspace memory (KUA-134): approved lessons per repository. Putting
 	// them in a task's prompt is WorkspaceMemoryService.ApprovedLessons.
+	// Lessons are redacted before they are stored, with the machines' secrets.
+	repository.ConfigureLessonRedaction(devMachineEncKey)
 	memoryH := handler.NewWorkspaceMemoryHandler(service.NewWorkspaceMemoryService(repository.NewWorkspaceMemoryRepository(db), devMachineSvc.MachineSecretValues))
 	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))
 	assistantTools.SetRepositories(devMachineRepo)
