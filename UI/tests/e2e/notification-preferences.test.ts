@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 
 const workflowSortOrder = ['backlog', 'unstarted', 'started', 'completed', 'cancelled'];
 const eventKeys = ['approval_requested', 'task_finished', 'review_needed', 'assigned', 'mentioned', 'comment', 'issue_updated'];
@@ -224,3 +224,50 @@ for (const [name, permission, text] of [
 		expect(errors).toEqual([]);
 	});
 }
+
+// Every open tab receives the same realtime event; the tabs agree on one of
+// them to announce it. The settings page has no sidebar, so the unread count
+// is covered by the unit tests instead.
+test('two open tabs announce a realtime notification once', async ({ page, context }) => {
+	const second = await context.newPage();
+	const tabs = [page, second];
+	const sockets: WebSocketRoute[] = [];
+	const errors: string[] = [];
+	for (const tab of tabs) {
+		tab.on('pageerror', (error) => errors.push(error.message));
+		await stubBrowserApis(tab, 'default');
+		await mockApi(tab);
+		await tab.routeWebSocket('**/api/workspaces/test/ws', (ws) => {
+			sockets.push(ws);
+		});
+		await tab.goto('/test/settings/preferences');
+		// Audio needs a user gesture in each tab; the preview is one (two tones).
+		await tab.getByTestId('notification-preferences').getByRole('button', { name: 'Preview sound' }).click();
+		await expect.poll(async () => (await calls(tab)).oscillators).toBe(2);
+	}
+	await expect.poll(() => sockets.length).toBeGreaterThanOrEqual(2);
+	// Tones played for realtime events, per tab (the previews excluded).
+	const played = async () => (await Promise.all(tabs.map((tab) => calls(tab)))).map((call) => call.oscillators - 2);
+	const total = async () => (await played()).reduce((sum, count) => sum + count, 0);
+	const publish = (payload: Record<string, string>) => {
+		for (const socket of sockets) socket.send(JSON.stringify({ type: 'notification.created', payload }));
+	};
+
+	// One event, delivered to both tabs: the chime (two tones) plays in one.
+	publish({ type: 'assigned', event_id: 'event-1', issue_id: 'issue-1', issue_identifier: 'ENG-1', title: 'Assigned', actor_id: 'user-2' });
+	await expect.poll(total).toBe(2);
+	await page.waitForTimeout(700);
+	expect((await played()).sort()).toEqual([0, 2]);
+
+	// Another kind of event is announced once as well.
+	publish({ type: 'approval_requested', event_id: 'event-2', title: 'Approval needed', live_only: 'true' });
+	await expect.poll(total).toBe(4);
+	await page.waitForTimeout(700);
+	expect(await total()).toBe(4);
+
+	// The signed-in user's own action makes no sound in any tab.
+	publish({ type: 'mentioned', event_id: 'event-3', issue_id: 'issue-1', title: 'Mentioned', actor_id: 'user-1' });
+	await page.waitForTimeout(700);
+	expect(await total()).toBe(4);
+	expect(errors).toEqual([]);
+});

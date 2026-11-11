@@ -78,6 +78,15 @@ export interface NotificationSoundOptions {
 	throttleMs?: number;
 	/** Whether audio may start now, i.e. the page has had a user gesture. */
 	canStart?: () => boolean;
+	/**
+	 * Where last-played times are kept. Defaults to this player's memory; a
+	 * store shared between tabs makes the throttle hold across them.
+	 */
+	throttleStore?: {
+		get(key: string): number | undefined;
+		set(key: string, at: number): void;
+		delete(key: string): void;
+	};
 }
 
 function defaultCreateContext(): AudioContextLike | null {
@@ -119,7 +128,7 @@ export function createNotificationSound(options: NotificationSoundOptions = {}) 
 	const now = options.now ?? Date.now;
 	const throttleMs = options.throttleMs ?? SOUND_THROTTLE_MS;
 	const canStart = options.canStart ?? defaultCanStart;
-	const lastPlayed = new Map<string, number>();
+	const lastPlayed = options.throttleStore ?? new Map<string, number>();
 	let context: AudioContextLike | null = null;
 
 	/** Resolves to whether the sound was actually scheduled. */
@@ -157,6 +166,14 @@ export function createNotificationSound(options: NotificationSoundOptions = {}) 
 				else lastPlayed.set(eventKey, previous);
 			}
 			return played;
+		},
+		/** Whether this tab may start audio now. */
+		canStart(): boolean {
+			try {
+				return canStart();
+			} catch {
+				return false;
+			}
 		},
 		/** Play from the settings page: a user gesture, so never throttled. */
 		preview(preset: NotificationSound | string): Promise<boolean> {

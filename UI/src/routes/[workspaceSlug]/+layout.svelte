@@ -33,6 +33,7 @@
 	import { showIssueCreatedToast } from '$lib/features/issues/issue-created-toast';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
 	import { handleNotificationCreated } from '$lib/features/notifications/notifier';
+	import { countsAsUnread } from '$lib/features/notifications/notification-policy';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { createShortcutEngine, type ShortcutDef } from '$lib/utils/keyboard';
@@ -550,7 +551,8 @@
 				break;
 			}
 			case 'notification.created': {
-				unreadCount++;
+				// A live-only event has no inbox row behind it to count.
+				if (countsAsUnread(msg.payload)) unreadCount++;
 				window.dispatchEvent(new CustomEvent('ws:notification', { detail: msg.payload }));
 				// Browser notification and sound, per the user's preferences.
 				handleNotificationCreated(msg.payload, slug);

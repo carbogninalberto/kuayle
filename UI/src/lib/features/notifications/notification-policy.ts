@@ -29,7 +29,22 @@ export interface NotificationEventPayload {
 	conversation_id?: string | null;
 	task_id?: string | null;
 	status?: string | null;
+	/** The user whose action caused the notification, when a person did. */
 	actor_id?: string | null;
+	/** Identifies one published event across the recipient's open tabs. */
+	event_id?: string | null;
+	/** "true" when no inbox row was stored for the event. */
+	live_only?: string | boolean | null;
+}
+
+/**
+ * Whether the event added an unread inbox notification. A live-only event (an
+ * approval that belongs to no issue or team) has no row to count.
+ */
+export function countsAsUnread(payload: unknown): boolean {
+	if (!payload || typeof payload !== 'object') return true;
+	const liveOnly = (payload as { live_only?: unknown }).live_only;
+	return liveOnly !== true && liveOnly !== 'true';
 }
 
 export interface NotificationPreferences {
