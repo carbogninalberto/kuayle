@@ -290,7 +290,11 @@ finished run's container is removed. Runs in a conversation emit
 ## Publication
 
 Task attempts never receive a GitHub credential (`push_branch` is false), so the
-harness cannot push or open pull requests itself. In `publishing`, the worker
+harness cannot push or open pull requests itself, and the attempt's container
+has no git identity. An implementing attempt's prompt says so ("Publishing:
+Kuayle commits and pushes for you…", `publicationLine`): leave the changes
+uncommitted, do not report the missing identity or token as a problem, and end
+with a final message. A planning step and a review do not get the line. In `publishing`, the worker
 queues one `publication` step (sequence 1) and a `publish_agent` operation in the
 fenced task transaction, using the same machine locks as validation. The manager
 re-verifies the same phase authority (task still `publishing`, current run,
@@ -887,9 +891,61 @@ captured output, and never establishes independent test success.
 The manager buffers logical lines, redacts known secrets before persistence,
 including multiline fragments and JSON-escaped forms, and sanitizes invalid UTF-8
 and NUL. Each stream is capped at 4 MiB and 4,096 logical records, plus a limit
-marker. Lines over 16 KiB are suppressed whole rather than exposing a partial
-secret or interpreting an incomplete structured event. Full terminal text stays
-in the paginated native log store.
+marker. A stored line never exceeds 16 KiB. A longer line that is one JSON
+object (a harness event, up to 1 MiB) is redacted whole, its decoded values are
+redacted again, and then every string value over a limit is cut to it (the
+limit starts at 8 KiB and halves until the line fits, so short values such as
+a command stay whole), keeping the start and the end around a
+`[N bytes cut by Kuayle]` note: an
+OpenCode `tool_use`, a Claude Code `tool_result` or a Codex
+`command_execution` with a large output stays a valid event with its tool,
+command and status (KUA-136; OpenCode writes a call's input and output on one
+line). The record is not flagged `truncated`, so it still yields its event.
+Any other line over 16 KiB (not JSON, still too large after cutting, or over
+1 MiB) is suppressed whole and replaced by `[Oversized output line omitted]`
+rather than exposing a partial secret or an incomplete structured event. Full
+terminal text stays in the paginated native log store.
+
+The 16 KiB limit applies to the line without Docker's timestamp.
+
+The run's result is parsed from the redacted lines before they are cut, so a
+final message longer than a stored line is still the summary (cut at the 16 KB
+summary limit and flagged `summary_truncated`). Kuayle's own markers are not
+part of what is parsed, so they are never a summary. After a stream's storage
+cap nothing more is stored, but its lines are still read, redacted and given
+to the result parser (the newest 1 MiB of them), because a harness reports its
+final message last: a long run keeps its closing `result`, `agent_message` or
+`text`. When the parser did not get some line (too long to keep, open when
+storage stopped, or pushed out of that 1 MiB), a run without a visible final
+message keeps its exit status instead of failing, with a risk note.
+
+**Summary and final message.** A run's summary is the agent's final message,
+never its events: with no message, JSON event lines are left out and the
+summary is what else the harness printed (plain output; standard error only
+when it exited nonzero), usually nothing. For Claude Code, Codex and OpenCode,
+whose final-message event Kuayle knows, a run whose output holds events and
+that exits 0 without a final message is recorded as `failed`
+(`result.no_final_message`), with the error "The agent ended without a final
+message, so there is no summary of what it did", followed by the error the
+harness reported last, if any (OpenCode's top-level `error` event, for example
+a provider's 429). Text followed by a tool call or by such an error is not a
+final message; it stays the summary. The task fails with that reason (kept
+through cleanup), or its workflow step leaves on `agent_failed` with the
+reason in its detail and, when the workflow ends there, in the task's reason.
+Only work clears the final flag: a Codex `command_execution`, `file_change`,
+`mcp_tool_call`, `web_search` or `collab_tool_call` item and an OpenCode
+`tool_use`; a `todo_list`, `step_finish` or reasoning after the message does
+not. "command not found" in a shell tool's output is only a guess: it is a
+risk note, and fails the run only when the agent did not conclude (a shell
+exit code 126 or 127 always does); output of other tools is not scanned. The
+next attempt of the task keeps the worktree (attempts share the task's
+checkout) and its handoff says that the previous attempt ended without a final
+message, to check the worktree, finish and end with a summary.
+The agent is not asked again in the same session: OpenCode runs have no
+persisted session to resume, and a workflow that wants a retry already has
+one (an `agent_failed` transition back to the step, bounded by its visit
+limit). Other harnesses (Qwen Code, Kimi, Goose, Crush, custom) keep their
+exit status.
 
 Docker supplies an RFC3339Nano timestamp for each log entry; see the
 [Docker log timestamp contract](https://docs.docker.com/reference/cli/docker/container/logs/#retrieve-logs-with-timestamps--t---timestamps).

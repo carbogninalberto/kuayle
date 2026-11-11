@@ -149,4 +149,12 @@ func TestFailedAgentChosenTestReachesTheNextAttemptsHandoff(t *testing.T) {
 	require.Equal(t, domain.CheckSourceAgent, handoff.ValidationSource)
 	require.Equal(t, []string{"go", "test", "./internal/service/..."}, handoff.FailedCommand)
 	require.Equal(t, 1, *handoff.FailedCommandExitCode)
+	require.False(t, handoff.NoFinalMessage)
+
+	// A run recorded as ended without a final message says so in the handoff.
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET result='{"status":"failed","no_final_message":true}' WHERE id=$1`, task.RunID)
+	require.NoError(t, err)
+	handoff, err = repo.PreviousAttempt(ctx, next)
+	require.NoError(t, err)
+	require.True(t, handoff.NoFinalMessage)
 }

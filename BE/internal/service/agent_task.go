@@ -304,6 +304,14 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 				return s.pauseForUsageLimit(ctx, task, limit)
 			}
 		}
+		// An agent that stopped without concluding says so, in a workflow
+		// (which still decides what follows) and outside one.
+		if run.ErrorMessage != nil && domain.IsNoFinalMessageReason(*run.ErrorMessage) {
+			if task.RunsWorkflow() && s.workflow != nil && task.State == "running" {
+				return s.workflow.AgentFailedBecause(ctx, task, *run.ErrorMessage)
+			}
+			return s.store.Fail(ctx, task, *run.ErrorMessage)
+		}
 		// A workflow decides what an agent's failure leads to; a run that
 		// never started still fails through cleanup.
 		if task.RunsWorkflow() && s.workflow != nil && task.State == "running" {
@@ -715,6 +723,9 @@ func withHandoff(prompt string, previous *domain.AgentHandoff, resumed, continue
 		b.WriteString("- The previous attempt was paused by " + cause + ", not by a failure. Continue exactly where it stopped: the worktree is unchanged; do not start over, reset or discard changes.\n")
 	}
 	fmt.Fprintf(&b, "- Previous native outcome: %s\n", previous.Status)
+	if previous.NoFinalMessage {
+		b.WriteString("- The previous attempt ended without a final message, so nothing says what it did. Its changes are still in this worktree: check the worktree (git status, git diff) before you change anything, finish what is missing, and end with a summary of what was done, by that attempt and by you.\n")
+	}
 	switch {
 	case previous.Validation == "":
 		b.WriteString("- Independent check: not run\n")
@@ -877,6 +888,7 @@ func withContract(prompt string, task domain.AgentTask, related []domain.Related
 	if !planning {
 		prompt = withQA(prompt, task)
 		prompt = withValidationFile(prompt)
+		prompt = withPublication(prompt)
 	}
 	prompt = withOutbox(prompt, related)
 	prompt = withLiveChannel(prompt)
@@ -895,6 +907,20 @@ func withValidationFile(prompt string) string {
 		return prompt
 	}
 	return prompt + "\n\n" + validationFileLine
+}
+
+// publicationLine tells an implementing attempt who commits and pushes. The
+// attempt's container has no git identity and no GitHub credential by design
+// (Kuayle commits as the workspace's configured author and pushes with its
+// own token), and agents that tried reported the refusal as a failure. It
+// also asks for the final message a run must end with.
+const publicationLine = "Publishing: Kuayle commits and pushes for you. When you finish, it commits every change in this worktree as the workspace's configured author, pushes the task branch and opens or updates the pull request. This container has no git identity and no GitHub token on purpose, so do not run git commit, git push or gh, do not configure a git identity, and do not report their absence as a problem: leave your changes uncommitted in the worktree. End with a final message that says what you changed and what you tested; the next step and the reviewer read it, and a run that ends without one fails."
+
+func withPublication(prompt string) string {
+	if strings.Contains(prompt, publicationLine) || len(prompt)+len(publicationLine) > 32000 {
+		return prompt
+	}
+	return prompt + "\n\n" + publicationLine
 }
 
 func previewCommand(task domain.AgentTask) []string {
