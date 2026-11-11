@@ -1,8 +1,9 @@
 // Turns a coding agent's recorded native output (the log chunks of one run)
 // into a readable transcript: the agent's messages, its tool calls paired with
 // their results, thinking markers and a compact session header. It reads
-// Claude Code stream-json and Codex `exec --json` events; anything else is
-// kept as plain text or a generic event so nothing recorded disappears.
+// Claude Code stream-json, Codex `exec --json` and OpenCode `run --format
+// json` events; anything else is kept as plain text or a generic event so
+// nothing recorded disappears.
 //
 // Everything here is untrusted agent output. The parser only extracts
 // strings; the view renders them as escaped text (agent messages go through
@@ -27,7 +28,7 @@ export interface SessionTool {
 	input: string;
 	output?: string;
 	status: ToolStatus;
-	/** A shell command (Claude Bash, Codex command_execution). */
+	/** A shell command (Claude Bash, Codex command_execution, OpenCode bash). */
 	command: boolean;
 	started?: string;
 	ended?: string;
@@ -159,11 +160,15 @@ function parseLine(text: string): Json | undefined {
 
 // Events that carry nothing a reader needs (usage, rate limits, turn markers).
 const quiet = new Set(['rate_limit_event', 'stream_event', 'turn.started', 'turn.completed', 'keep_alive']);
+// OpenCode events read here; each carries its content in `part`.
+const openCodeParts = new Set(['step_start', 'step_finish', 'text', 'reasoning', 'tool_use']);
 
 export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 	const entries: SessionEntry[] = [];
 	const tools = new Map<string, SessionTool>();
 	const push = (entry: SessionEntry) => entries.push(entry);
+	// OpenCode stamps every event; the first one is where its run started.
+	let started: number | undefined;
 	for (const line of lines(chunks)) {
 		if (line.truncated) {
 			push({ kind: 'omitted', key: line.key, reason: /limit/i.test(line.text) ? 'limit' : 'oversized' });
@@ -250,6 +255,25 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 				...(failed && isUsageLimitText(str(event.result)) ? { usageLimit: true } : {})
 			});
 		}
+		// ── OpenCode run --format json
+		else if (openCodeParts.has(type) && isObject(event.part)) {
+			started ??= num(event.timestamp);
+			openCodePart(event.part, type, { key: line.key, at: line.at, ms: elapsedSince(started, event) }, entries, tools);
+		} else if (type === 'error' && isObject(event.error) && (isObject(event.error.data) || str(event.error.name))) {
+			const data = isObject(event.error.data) ? event.error.data : {};
+			const message = str(data.message) || str(event.error.message) || str(event.error.name) || type;
+			// The provider refusing work until a quota resets ends the run as a pause.
+			if (isUsageLimitText(message))
+				push({
+					kind: 'result',
+					key: line.key,
+					failed: true,
+					ms: elapsedSince(started, event),
+					text: message,
+					usageLimit: true
+				});
+			else push({ kind: 'error', key: line.key, message });
+		}
 		// ── Codex exec --json
 		else if (type === 'thread.started') {
 			push({ kind: 'header', key: line.key, session: str(event.thread_id) || undefined });
@@ -276,7 +300,111 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 function handled(type: string, event: Json) {
 	if (type === 'assistant' || type === 'user' || type === 'result' || type === 'thread.started') return true;
 	if (type === 'system' && event.subtype === 'init') return true;
+	if (openCodeParts.has(type) && isObject(event.part)) return true;
 	return type.startsWith('item.') && isObject(event.item);
+}
+
+const elapsedSince = (started: number | undefined, event: Json) => {
+	const now = num(event.timestamp);
+	return started !== undefined && now !== undefined && now >= started ? now - started : undefined;
+};
+// OpenCode's own clock (epoch milliseconds) for a call, when it recorded one.
+const instant = (value: unknown) => {
+	const ms = num(value);
+	// Outside what a date can hold there is no time to show.
+	return ms === undefined || Number.isNaN(new Date(ms).getTime()) ? undefined : new Date(ms).toISOString();
+};
+// A clock value OpenCode recorded that is not a usable time.
+const badInstant = (value: unknown) => value !== undefined && value !== null && instant(value) === undefined;
+// Calls OpenCode reported without an id, matched by what they run instead.
+const anonymousCalls = new WeakSet<SessionTool>();
+
+function openCodePart(
+	part: Json,
+	type: string,
+	line: { key: string; at?: string; ms?: number },
+	entries: SessionEntry[],
+	tools: Map<string, SessionTool>
+) {
+	switch (type) {
+		case 'text': {
+			const text = str(part.text).trim();
+			if (text) entries.push({ kind: 'text', key: line.key, text, at: line.at });
+			return;
+		}
+		case 'reasoning': {
+			const time = isObject(part.time) ? part.time : {};
+			const from = num(time.start);
+			const to = num(time.end);
+			entries.push({
+				kind: 'thinking',
+				key: line.key,
+				ms: from !== undefined && to !== undefined && to >= from ? to - from : undefined,
+				text: str(part.text).trim() || undefined
+			});
+			return;
+		}
+		case 'tool_use': {
+			const state = isObject(part.state) ? part.state : {};
+			const name = str(part.tool) || 'tool';
+			const command = name === 'bash';
+			const input = isObject(state.input) ? state.input : {};
+			const title = str(state.title).trim();
+			const argument = primaryArgument(input);
+			const status = str(state.status);
+			const exit = isObject(state.metadata) ? num(state.metadata.exit) : undefined;
+			const failed = status === 'error' || (exit !== undefined && exit !== 0);
+			const next: ToolStatus = failed ? 'failed' : status === 'completed' ? 'done' : 'running';
+			const clock = isObject(state.time) ? state.time : {};
+			const known = str(part.callID) || str(part.id);
+			const id = known || line.key;
+			const text = inputText(state.input);
+			// Without an id, an update belongs to the latest unfinished call of
+			// the same tool and input (a pending call may not have its input yet).
+			const existing = known
+				? tools.get(known)
+				: entries.findLast(
+						(entry): entry is Extract<SessionEntry, { kind: 'tool' }> =>
+							entry.kind === 'tool' &&
+							anonymousCalls.has(entry.tool) &&
+							entry.tool.status === 'running' &&
+							entry.tool.name === name &&
+							(entry.tool.input === text || !entry.tool.input || entry.tool.input === '{}')
+					)?.tool;
+			// A finished call stays as it ended, whatever arrives after it.
+			if (existing && existing.status !== 'running' && next === 'running') return;
+			const untimed = badInstant(clock.start) || badInstant(clock.end);
+			const fields = {
+				name,
+				// OpenCode titles a call itself: the command's description, the file.
+				title: truncate(command ? title || argument : title || argument ? `${name}: ${title || argument}` : '') || name,
+				input: text,
+				output: resultText(state.output) || resultText(state.error) || existing?.output,
+				status: next,
+				command,
+				started: untimed ? undefined : (instant(clock.start) ?? existing?.started ?? line.at),
+				ended: untimed || next === 'running' ? undefined : (instant(clock.end) ?? line.at)
+			};
+			if (existing) {
+				Object.assign(existing, fields);
+				return;
+			}
+			const created: SessionTool = { id, ...fields };
+			if (known) tools.set(id, created);
+			else anonymousCalls.add(created);
+			entries.push({ kind: 'tool', key: line.key, tool: created });
+			return;
+		}
+		case 'step_finish': {
+			// A step that ends in tool calls continues; the one that stops is the
+			// end of the run, and one cut short (length, content-filter) failed.
+			const reason = str(part.reason);
+			if (reason === 'stop') entries.push({ kind: 'result', key: line.key, failed: false, ms: line.ms });
+			else if (reason === 'length' || reason === 'content-filter' || reason === 'error')
+				entries.push({ kind: 'result', key: line.key, failed: true, ms: line.ms, text: reason });
+			return;
+		}
+	}
 }
 
 function codexItem(
@@ -441,7 +569,7 @@ export function outputPreview(text: string, maxLines = 12, maxChars = 2000) {
 }
 
 // The provider's usage limit (Claude Code's 5-hour or weekly limit, Codex's
-// usage limit): the task pauses and resumes after the reset, so the result is
+// usage limit, an OpenCode provider's quota): the task pauses and resumes after the reset, so the result is
 // shown as a pause rather than as an error. Mirrors BE domain/usage_limit.go.
 const usageLimitText =
 	/you've hit your [\w-]*\s*(?:usage |weekly |session )?limit|usage limit reached|usage_limit_reached|limit will reset at/i;
