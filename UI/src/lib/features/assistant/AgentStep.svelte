@@ -16,6 +16,7 @@
 		UserCheck
 	} from '@lucide/svelte';
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
+	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
 	import type { WorkflowNodeType } from '$lib/api/workflows';
@@ -84,6 +85,11 @@
 		new Date(step.startedAt).toLocaleString(getLocale(), { dateStyle: 'medium', timeStyle: 'short' })
 	);
 	const running = $derived(step.current && step.status === 'running');
+	// The task is still on this step: its newest run may not be recorded yet.
+	const pending = $derived(step.current && (step.status === 'running' || step.status === 'waiting'));
+	// Which harness ran and when it started are not on the line: they are
+	// read out with it, and shown on hover or keyboard focus.
+	const aside = $derived(harness ? `${harness} · ${started}` : started);
 	// What a compact row says when opened: what the runner recorded for it.
 	const note = $derived(step.detail || (step.status === 'done' ? '' : step.reason));
 </script>
@@ -101,9 +107,9 @@
 
 {#snippet tail()}
 	{#if step.visit > 1}<span class="shrink-0 text-xs text-muted-foreground tabular-nums">×{step.visit}</span>{/if}
-	{#if time}<time datetime={step.startedAt} title={started} class="shrink-0 text-xs text-muted-foreground tabular-nums"
-			>{time}</time
+	{#if time}<time datetime={step.startedAt} class="shrink-0 text-xs text-muted-foreground tabular-nums">{time}</time
 		>{/if}
+	<span class="sr-only">{aside}</span>
 {/snippet}
 
 {#snippet chevron()}
@@ -123,12 +129,15 @@
 >
 	{#if step.kind === 'agent'}
 		<Collapsible.Root bind:open>
-			<Collapsible.Trigger
-				class="group flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md py-1.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-			>
-				{#if step.harness}<span title={harness} class="inline-flex shrink-0"
-						><AgentLogo agent={step.harness} size="sm" /></span
-					>{:else}<span class="inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground"
+			<Tooltip.Provider delayDuration={500}>
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<Collapsible.Trigger
+								{...props}
+								class="group flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md py-1.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+							>
+				{#if step.harness}<AgentLogo agent={step.harness} size="sm" />{:else}<span class="inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground"
 						><SearchCheck size={14} aria-hidden="true" /></span
 					>{/if}
 				<span class="min-w-0 flex-1 truncate text-sm">
@@ -140,7 +149,12 @@
 				{@render tail()}
 				{@render status()}
 				{@render chevron()}
-			</Collapsible.Trigger>
+							</Collapsible.Trigger>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content side="top" align="end">{aside}</Tooltip.Content>
+				</Tooltip.Root>
+			</Tooltip.Provider>
 			<Collapsible.Content>
 				{#if open}<div class="ml-2.5 flex min-w-0 flex-col gap-4 border-l py-3 pl-4 sm:pl-5">
 						{#if step.model}<p class="truncate text-xs text-muted-foreground sm:hidden">{step.model}</p>{/if}
@@ -151,7 +165,8 @@
 								{chat}
 								{run}
 								active={running && index === step.runs.length - 1}
-								concluded={!!step.plan}
+								pending={pending && index === step.runs.length - 1}
+								concluded={!!step.plan && index === step.runs.length - 1}
 							/>{/each}
 						{#if step.detail && !step.plan}<p class="text-sm break-words whitespace-pre-wrap text-muted-foreground">
 								{step.detail}

@@ -1666,7 +1666,10 @@ has several. The runs of the review task a reviewer step created
 (`review_task_id`) are listed on that step with the review's `task_id`; a
 review requested outside the workflow is not. `summary` is returned only when
 the harness reported a final message (`result.final_message`), never a run's
-raw output, prompt or secrets. A task without a workflow gets its runs with no
+raw output, prompt or secrets. A finished run's summary never changes, so a
+view that reloads passes `?summaries_since=<RFC 3339 time>`, the newest
+`completed_at` it has, and gets no summary for runs completed at or before it
+(`400` for an unreadable time). A task without a workflow gets its runs with no
 `step`. The read has the task's own authorization (its creator, still a member
 who can see the issue's team); a review task has the same creator, issue and
 conversation as the task it reviews.

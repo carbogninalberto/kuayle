@@ -28,12 +28,20 @@ func TestStepRunsPlaceEachRunOnItsWorkflowStep(t *testing.T) {
 
 	// A Standard task has no steps: its runs are returned without one.
 	standard := insertRun(legacy.ID, "codex", "", "succeeded", "Done", `{"final_message":true}`, "0 seconds")
-	runs, err := repo.StepRuns(ctx, ws, legacy.ID)
+	runs, err := repo.StepRuns(ctx, ws, legacy.ID, nil)
 	require.NoError(t, err)
 	require.Len(t, runs, 1)
 	require.Equal(t, standard, runs[0].ID)
 	require.Nil(t, runs[0].Step)
 	require.Equal(t, "Done", *runs[0].Summary)
+	// Only the newest 200 runs of a task are listed.
+	_, err = db.Exec(`INSERT INTO dev_machine_agent_runs(workspace_id,machine_id,task_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status,created_at)
+ SELECT $1,$2,$3,'codex','autonomous','Old','["agent"]',60,'failed',now()-make_interval(mins=>n) FROM generate_series(1,205) n`, ws, machine, legacy.ID)
+	require.NoError(t, err)
+	runs, err = repo.StepRuns(ctx, ws, legacy.ID, nil)
+	require.NoError(t, err)
+	require.Len(t, runs, 200)
+	require.Equal(t, standard, runs[199].ID, "the newest ones, oldest first")
 	_, err = db.Exec(`UPDATE agent_tasks SET state='completed' WHERE id=$1`, legacy.ID)
 	require.NoError(t, err)
 
@@ -70,7 +78,7 @@ func TestStepRunsPlaceEachRunOnItsWorkflowStep(t *testing.T) {
  VALUES($1,$2,$3,$4,$5,gen_random_uuid(),'Requested review','codex','review',$6,'completed') RETURNING id`, ws, task.ConversationID, task.CreatorID, task.IssueID, task.TeamID, task.ID))
 	insertRun(stray, "codex", "", "succeeded", "Unrelated", "", "13 minutes")
 
-	runs, err = repo.StepRuns(ctx, ws, task.ID)
+	runs, err = repo.StepRuns(ctx, ws, task.ID, nil)
 	require.NoError(t, err)
 	require.Len(t, runs, 4)
 	type placed struct {
@@ -90,6 +98,13 @@ func TestStepRunsPlaceEachRunOnItsWorkflowStep(t *testing.T) {
 	require.Equal(t, "running", runs[3].Status)
 	require.Nil(t, runs[3].CompletedAt)
 	require.Nil(t, runs[3].Summary)
+	// A view that already has the runs asks only for the summaries of runs
+	// finished since: a finished run's summary never changes.
+	since, err := repo.StepRuns(ctx, ws, task.ID, runs[1].CompletedAt)
+	require.NoError(t, err)
+	require.Len(t, since, 4)
+	require.Nil(t, since[1].Summary, "already known to the reader")
+	require.Equal(t, "Two findings", *since[2].Summary, "finished after what the reader has")
 	encoded, err := json.Marshal(runs)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "ciphertext-never-expose")
@@ -98,7 +113,7 @@ func TestStepRunsPlaceEachRunOnItsWorkflowStep(t *testing.T) {
 	// Another member of the workspace, a person of another workspace and the
 	// creator after losing the issue's team cannot read them.
 	member := addWorkflowMember(t, db, ws, "admin")
-	_, err = repo.StepRuns(domain.WithAccess(context.Background(), domain.Access{WorkspaceID: ws, UserID: member}), ws, task.ID)
+	_, err = repo.StepRuns(domain.WithAccess(context.Background(), domain.Access{WorkspaceID: ws, UserID: member}), ws, task.ID, nil)
 	require.ErrorIs(t, err, ErrConversationNotFound)
 	other := uuid.New()
 	_, err = db.Exec(`INSERT INTO workspaces(id,name,slug,owner_id) VALUES($1,'Other',$2,$3)`, other, other.String(), member)
@@ -106,9 +121,9 @@ func TestStepRunsPlaceEachRunOnItsWorkflowStep(t *testing.T) {
 	_, err = db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'owner')`, other, member)
 	require.NoError(t, err)
 	outsider := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: other, UserID: member})
-	_, err = repo.StepRuns(outsider, other, task.ID)
+	_, err = repo.StepRuns(outsider, other, task.ID, nil)
 	require.ErrorIs(t, err, ErrConversationNotFound)
-	_, err = repo.StepRuns(outsider, ws, task.ID)
+	_, err = repo.StepRuns(outsider, ws, task.ID, nil)
 	require.Error(t, err)
 	// The team becomes private and the creator, now an ordinary member, is
 	// not in it (the guard against private teams in a workspace with machines
@@ -119,11 +134,11 @@ func TestStepRunsPlaceEachRunOnItsWorkflowStep(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.Exec(`UPDATE teams SET is_private=true WHERE id=$1`, task.TeamID)
 	require.NoError(t, err)
-	_, err = repo.StepRuns(ctx, ws, task.ID)
+	_, err = repo.StepRuns(ctx, ws, task.ID, nil)
 	require.ErrorIs(t, err, ErrConversationNotFound, "a private team's task is hidden from who is not in the team")
 	_, err = db.Exec(`INSERT INTO team_members(team_id,user_id) VALUES($1,$2)`, task.TeamID, task.CreatorID)
 	require.NoError(t, err)
-	runs, err = repo.StepRuns(ctx, ws, task.ID)
+	runs, err = repo.StepRuns(ctx, ws, task.ID, nil)
 	require.NoError(t, err)
 	require.Len(t, runs, 4, "and readable again by a member of it")
 }

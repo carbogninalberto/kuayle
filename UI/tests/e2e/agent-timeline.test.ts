@@ -137,9 +137,9 @@ const workflow = () => ({
 		step(6, 'implement', 'agent', 18, { generation: 3, visit: 2, reason: 'Changes requested' })
 	],
 	runs: [
-		run('run-plan', 2, 'claude-code', 'claude-opus-5-5', 'succeeded'),
-		run('run-impl-1', 3, 'opencode', 'kimi-k2', 'succeeded'),
-		run('run-review', 5, 'codex', 'gpt-5', 'succeeded', { task_id: 'review-1' }),
+		run('run-plan', 2, 'claude-code', 'claude-opus-5-5', 'succeeded', { completed_at: at(4) }),
+		run('run-impl-1', 3, 'opencode', 'kimi-k2', 'succeeded', { completed_at: at(12) }),
+		run('run-review', 5, 'codex', 'gpt-5', 'succeeded', { task_id: 'review-1', completed_at: at(17) }),
 		run('run-impl-2', 6, 'opencode', 'kimi-k2', 'running')
 	],
 	profiles: [
@@ -171,6 +171,10 @@ async function fixture(page: Page) {
 		tasks: {} as Record<string, any>,
 		workflow: null as any,
 		workflowRequests: 0,
+		// Every agent-task request, as "<task>/<rest>?<query>".
+		requests: [] as string[],
+		// Runs whose records do not exist (yet, or any more).
+		missing: [] as string[],
 		// A task without a workflow lists its attempts.
 		runs: [] as any[],
 		logs: {} as Record<string, any[]>,
@@ -205,13 +209,23 @@ async function fixture(page: Page) {
 			const [, id, rest = ''] = match;
 			const task = id === state.task.id ? state.task : state.tasks[id];
 			if (!task) return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
+			state.requests.push(`${id}${rest}${url.search}`);
 			if (rest === '/workflow') {
 				state.workflowRequests++;
-				return route.fulfill({ json: state.workflow });
+				// Summaries of runs the reader already has are not sent again.
+				const since = url.searchParams.get('summaries_since');
+				const runs = state.workflow.runs.map((item: any) =>
+					since && item.completed_at && Date.parse(item.completed_at) <= Date.parse(since)
+						? { ...item, summary: undefined }
+						: item
+				);
+				return route.fulfill({ json: { ...state.workflow, runs } });
 			}
 			if (rest === '/runs') return route.fulfill({ json: { runs: id === state.task.id ? state.runs : [] } });
 			const logs = rest.match(/^\/runs\/([^/]+)\/logs$/);
 			if (logs) {
+				if (state.missing.includes(logs[1]))
+					return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
 				const all = (state.logs[logs[1]] ?? []).filter((log) => log.id > Number(url.searchParams.get('after') ?? 0));
 				return route.fulfill({ json: { logs: all } });
 			}
@@ -298,19 +312,29 @@ test('a workflow task reads as a timeline: one labelled section per step, the ru
 	await expect(plan).toContainText('claude-opus-5-5');
 	await expect(plan).toContainText('4m 0s');
 	await expect(plan.getByRole('img', { name: 'Done' })).toBeVisible();
-	await expect(plan.locator('[title="Claude Code"]')).toBeVisible();
-	await expect(plan.locator('time')).toHaveAttribute('title', /2026/);
 	await expect(plan).toHaveAttribute('aria-expanded', 'false');
+	// Which harness ran and when it started are not on the line: a screen
+	// reader hears them, and focus or hover shows them.
+	await expect(plan).toHaveAccessibleName(/Claude Code/);
+	await expect(plan).toHaveAccessibleName(/2026/);
+	const tooltip = page.locator('[data-slot="tooltip-content"]').filter({ hasText: 'Claude Code' });
+	await expect(tooltip).toHaveCount(0);
+	await stepButton(page, 3).focus();
+	await page.keyboard.press('Shift+Tab');
+	await expect(plan).toBeFocused();
+	await expect(tooltip).toContainText('2026');
+	await expect(plan).toHaveAttribute('aria-describedby', /.+/);
+	await plan.blur();
 	const review = stepButton(page, 5);
 	await expect(review.getByRole('img', { name: 'Changes requested' })).toBeVisible();
-	await expect(review.locator('[title="Codex"]')).toBeVisible();
+	await expect(review).toHaveAccessibleName(/Codex/);
 
 	// The running step is open, shows its visit and streams.
 	const running = page.locator('#step-6');
 	await expect(stepButton(page, 6)).toHaveAttribute('aria-expanded', 'true');
 	await expect(stepButton(page, 6)).toContainText('×2');
 	await expect(stepButton(page, 6).getByRole('img', { name: 'Running' })).toBeVisible();
-	await expect(stepButton(page, 6).locator('[title="OpenCode"]')).toBeVisible();
+	await expect(stepButton(page, 6)).toHaveAccessibleName(/OpenCode/);
 	await expect(running.getByText('Renaming the parameter.')).toBeVisible();
 	await expect(thread.getByText('Search is added and covered.')).toHaveCount(0);
 	state.logs['run-impl-2'] = [
@@ -396,6 +420,19 @@ test('the step the task moves to opens and the one it left closes', async ({ pag
 	await expect(stepButton(page, 3)).toHaveAttribute('aria-expanded', 'true');
 	await expect(stepButton(page, 6)).toHaveAttribute('aria-expanded', 'true');
 	await expect(page.locator('#step-3').getByText('Search is added and covered.')).toBeVisible();
+	// The reader opens another step and scrolls back up to read it.
+	await stepButton(page, 2).click();
+	await expect(page.locator('#step-2').getByRole('article', { name: 'Plan' })).toBeVisible();
+	const viewport = page.getByLabel('Messages', { exact: true });
+	const scrollTop = () => viewport.evaluate((element) => element.scrollTop);
+	// (A wheel, as a person scrolls: the view follows new output only until then.)
+	await viewport.hover();
+	await expect(async () => {
+		const top = await scrollTop();
+		await page.mouse.wheel(0, -200);
+		expect(await scrollTop()).toBeLessThan(top);
+	}).toPass();
+	const before = await scrollTop();
 
 	// The implementer finishes and the work is published again.
 	const view = workflow();
@@ -409,8 +446,12 @@ test('the step the task moves to opens and the one it left closes', async ({ pag
 	await expect(page.locator('#step-7')).toContainText('Publish');
 	await expect(page.locator('#step-7').getByRole('img', { name: 'Running' })).toBeVisible();
 	await expect(stepButton(page, 6).getByRole('img', { name: 'Done' })).toBeVisible();
-	// With no agent running, the last one that worked stays in view.
+	// With no agent running, the last one that worked stays in view, and what
+	// the reader opened and where they were reading is left alone.
 	await expect(stepButton(page, 6)).toHaveAttribute('aria-expanded', 'true');
+	await expect(stepButton(page, 2)).toHaveAttribute('aria-expanded', 'true');
+	await expect(stepButton(page, 3)).toHaveAttribute('aria-expanded', 'true');
+	expect(Math.abs((await scrollTop()) - before)).toBeLessThanOrEqual(2);
 	await expect(page.locator('#step-6').getByRole('article', { name: 'Agent' })).toContainText('Renaming the parameter.');
 });
 
@@ -474,4 +515,142 @@ test('the timeline fits a phone', async ({ page }, testInfo) => {
 		expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 		await page.screenshot({ path: testInfo.outputPath(`timeline-390-${dark ? 'dark' : 'light'}.png`), fullPage: true });
 	}
+});
+
+const count = (requests: string[], pattern: RegExp) => requests.filter((request) => pattern.test(request)).length;
+
+test('only the running step refetches while the agent streams', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	workflowFixture(state);
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	await stepButton(page, 2).click();
+	await stepButton(page, 3).click();
+	await expect(page.locator('#step-3').getByText('Search is added and covered.')).toBeVisible();
+	await expect(page.locator('#step-2').getByText('Reading the list first.')).toBeVisible();
+	await expect(page.locator('#step-6').getByText('Renaming the parameter.')).toBeVisible();
+	// A finished run was read once: its output, its check and its manual checks.
+	const finished = /^task-1\/runs\/(run-plan|run-impl-1)\//;
+	const running = /^task-1\/runs\/run-impl-2\/logs/;
+	expect(count(state.requests, finished)).toBe(6);
+	const streamed = count(state.requests, running);
+	for (const [id, value] of [
+		[2, 'Still renaming.'],
+		[3, 'Tests pass now.']
+	] as const) {
+		state.logs['run-impl-2'] = [
+			...state.logs['run-impl-2'],
+			{ ...lines('run-impl-2', 20, [text(value)])[0], id, sequence: id }
+		];
+		emit('task.activity', { task_id: 'task-1', run_id: 'run-impl-2', log_id: id, stream: 'stdout', truncated: false, events: [] });
+		await expect(page.locator('#step-6').getByText(value)).toBeVisible();
+	}
+	expect(count(state.requests, running)).toBeGreaterThan(streamed);
+	expect(count(state.requests, finished)).toBe(6);
+});
+
+test('a waiting task is not polled like a running one, and known summaries are not fetched again', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	workflowFixture(state);
+	// The work is published and waits for a person's approval.
+	const view = workflow();
+	view.graph.nodes.push(node('approve', 'approval', 'Approve'));
+	view.steps[5] = { ...view.steps[5], outcome: 'agent_finished', finished_at: at(25) };
+	view.steps.push(step(7, 'approve', 'approval', 25));
+	view.runs = view.runs.map((item, index) => ({
+		...item,
+		status: 'succeeded',
+		completed_at: at(4 + index * 7),
+		...(item.id === 'run-impl-2' ? { summary: 'Renamed, **as asked**.' } : {})
+	}));
+	view.node = 'approve';
+	view.status = 'waiting';
+	state.workflow = view;
+	state.logs['run-impl-2'] = [];
+	state.task = { ...state.task, state: 'awaiting_review', workflow_node: 'approve', workflow_status: 'waiting' };
+	await page.clock.install();
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	// With no output recorded, the run's own summary is what the step shows.
+	const last = page.locator('#step-6');
+	await expect(last.getByRole('article', { name: 'Agent' }).locator('strong')).toHaveText('as asked');
+	await expect(page.locator('#step-7').getByRole('img', { name: 'Waiting' })).toBeVisible();
+	// The timeline's reloads are the requests that say which summaries it has
+	// (the side panel reads the same route for its graph).
+	const reloads = () => count(state.requests, /^task-1\/workflow\?summaries_since=/);
+	// A minute of waiting asks nothing: the task's events say when it moves.
+	await page.clock.fastForward(60_000);
+	expect(reloads()).toBe(0);
+	// The approval arrives as an event; the reload does not ask for the
+	// summaries the view already has, and keeps showing them.
+	state.workflow = {
+		...view,
+		status: 'done',
+		node: 'approve',
+		steps: view.steps.map((item) => (item.sequence === 7 ? { ...item, outcome: 'approval_approved', finished_at: at(40) } : item))
+	};
+	emit('task.workflow_updated', { task_id: 'task-1', sequence: 7, node: 'approve', status: 'done' });
+	await expect(page.locator('#step-7').getByRole('img', { name: 'Waiting' })).toHaveCount(0);
+	expect(reloads()).toBe(1);
+	expect(state.requests).toContain(`task-1/workflow?summaries_since=${encodeURIComponent(at(25))}`);
+	await expect(last.getByRole('article', { name: 'Agent' }).locator('strong')).toHaveText('as asked');
+	// A settled workflow is not polled at all.
+	await page.clock.fastForward(600_000);
+	expect(reloads()).toBe(1);
+});
+
+test('a running workflow is still polled', async ({ page }) => {
+	const { state } = await fixture(page);
+	workflowFixture(state);
+	await page.clock.install();
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	await expect(page.locator('#step-6').getByText('Renaming the parameter.')).toBeVisible();
+	const reloads = () => count(state.requests, /^task-1\/workflow\?summaries_since=/);
+	const loaded = reloads();
+	await page.clock.fastForward(16_000);
+	await expect.poll(reloads).toBeGreaterThan(loaded);
+});
+
+test('a planning step that was resumed keeps what its earlier run said', async ({ page }) => {
+	const { state } = await fixture(page);
+	workflowFixture(state);
+	state.workflow.runs = [
+		run('run-plan-0', 2, 'claude-code', 'claude-opus-5-5', 'failed'),
+		...state.workflow.runs
+	];
+	state.logs['run-plan-0'] = lines('run-plan-0', 0, [
+		bash('q1', 'ls', 'List the files'),
+		result('q1', 'src'),
+		text('The usage limit stopped me **here**.')
+	]);
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	await stepButton(page, 2).click();
+	const planning = page.locator('#step-2');
+	// The plan is shown once, above the runs; only the run that wrote it
+	// leaves its final message out of its trace.
+	await expect(planning.getByRole('article', { name: 'Plan' })).toHaveCount(1);
+	const messages = planning.getByRole('article', { name: 'Agent' });
+	await expect(messages).toHaveCount(2);
+	await expect(messages.first().locator('strong')).toHaveText('here');
+	await expect(messages.last()).toContainText('Reading the list first.');
+});
+
+test('a run that does not exist yet is waited for, not reported as missing', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	// Blocked right after a new attempt was set, before its run was recorded.
+	state.task = baseTask({ state: 'blocked', reason: 'Waiting for a machine', provider: 'codex', model: 'gpt-5', run_id: 'run-9' });
+	state.runs = [
+		{ id: 'run-1', provider_id: 'codex', model: 'gpt-5', status: 'failed', created_at: at(1), started_at: at(2), completed_at: at(5) }
+	];
+	state.missing = ['run-9'];
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+	const steps = thread.getByRole('list', { name: 'Path taken' }).getByRole('listitem');
+	await expect(steps).toHaveCount(2);
+	await expect(steps.nth(1).getByRole('img', { name: 'Waiting' })).toBeVisible();
+	await expect.poll(() => count(state.requests, /^task-1\/runs\/run-9\/logs/)).toBeGreaterThan(0);
+	await expect(steps.nth(1).getByText('The agent has not written anything yet.')).toBeVisible();
+	await expect(thread.getByRole('alert')).toHaveCount(0);
+	// Records that are gone for a task that ended are still said to be gone.
+	state.task = { ...state.task, state: 'failed', reason: 'Execution failed', updated_at: at(30) };
+	emit('task.state_changed', state.task);
+	await expect(thread.getByRole('alert')).toHaveText('This iteration’s records are no longer available.');
 });

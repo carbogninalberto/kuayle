@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -776,13 +777,15 @@ type TaskWorkflow struct {
 	Runs []domain.WorkflowStepRun `json:"runs"`
 }
 
-func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID) (*TaskWorkflow, error) {
+// TaskWorkflow reads a task's workflow view. summariesSince, when set, leaves
+// out the summaries of runs that completed at or before it.
+func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID, summariesSince *time.Time) (*TaskWorkflow, error) {
 	task, err := s.tasks.Repo.Get(ctx, ws, id)
 	if err != nil {
 		return nil, err
 	}
 	out := &TaskWorkflow{TaskState: task.State, TaskReason: task.Reason, TaskGeneration: task.Generation, Steps: []domain.WorkflowStep{}, Profiles: []domain.AgentProfile{}, Visits: map[string]int{}}
-	if out.Runs, err = s.tasks.Repo.StepRuns(ctx, ws, id); err != nil {
+	if out.Runs, err = s.tasks.Repo.StepRuns(ctx, ws, id, summariesSince); err != nil {
 		return nil, err
 	}
 	if !task.RunsWorkflow() {

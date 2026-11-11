@@ -47,6 +47,7 @@
 	let {
 		chunks,
 		active = false,
+		pending = false,
 		lead = false,
 		summary = '',
 		concluded = false
@@ -54,6 +55,8 @@
 		chunks: Pick<DevMachineLogChunk, 'id' | 'stream' | 'content' | 'truncated' | 'created_at'>[];
 		// The run is still going: an unanswered tool call is in progress.
 		active?: boolean;
+		// The run has not started yet; nothing recorded is not the end of it.
+		pending?: boolean;
 		// A finished run reads from its conclusion: its final message first,
 		// the trace that led to it below.
 		lead?: boolean;
@@ -355,7 +358,7 @@
 		>
 	{:else if !blocks.length && !conclusion}
 		<p class="text-xs text-muted-foreground">
-			{active ? m['tasks.transcript_starting']() : m['tasks.no_output']()}
+			{active || pending ? m['tasks.transcript_starting']() : m['tasks.no_output']()}
 		</p>
 	{:else}
 		<div class="flex min-w-0 flex-col gap-3">

@@ -17,12 +17,16 @@
 		chat,
 		run,
 		active = false,
+		pending = false,
 		concluded = false
 	}: {
 		chat: ConversationState;
 		run: WorkflowStepRun;
 		// The step is running and this is the run it is on.
 		active?: boolean;
+		// The task is still on this run: records that are not there yet are
+		// waited for, not reported as gone.
+		pending?: boolean;
 		// The step already shows the run's final message above it (its plan).
 		concluded?: boolean;
 	} = $props();
@@ -72,8 +76,8 @@
 		} catch (e) {
 			if (disposed) return;
 			const status = (e as { status?: number }).status ?? 0;
-			// A run that was only just queued has nothing recorded yet.
-			if (status === 404 && active) return;
+			// A run the task was only just given has nothing recorded yet.
+			if (status === 404 && (active || pending)) return;
 			error = status === 404 ? m['tasks.attempt_missing']() : m['tasks.load_error']();
 		} finally {
 			if (!disposed) {
@@ -85,16 +89,14 @@
 			}
 		}
 	}
-	// Live: new output (task.activity), state changes and check updates
-	// refresh, throttled from the first event so a stream keeps flowing.
+	// A run is read once, and again when it changes (it ends, the task
+	// leaves it). Only the run that is going follows the task's live events
+	// (new output, check updates): they are per task, so a finished run that
+	// listened would refetch on every line another run writes. Throttled
+	// from the first event so a stream keeps flowing.
 	$effect(() => {
-		void [
-			run.id,
-			run.status,
-			active,
-			chat.taskActivity[run.task_id]?.log_id,
-			chat.taskValidationCursor[run.task_id]
-		];
+		void [run.id, run.status, active, pending];
+		if (active) void [chat.taskActivity[run.task_id]?.log_id, chat.taskValidationCursor[run.task_id]];
 		if (timer !== undefined) return;
 		timer = setTimeout(() => {
 			timer = undefined;
@@ -104,7 +106,7 @@
 </script>
 
 <div class="flex min-w-0 flex-col gap-3">
-	<AgentTranscript chunks={session} {active} lead={!more} summary={run.summary ?? ''} {concluded} />
+	<AgentTranscript chunks={session} {active} {pending} lead={!more} summary={run.summary ?? ''} {concluded} />
 	{#if more}<Button variant="ghost" size="sm" class="self-start" disabled={loading} onclick={() => void refresh()}
 			>{m['tasks.more_logs']()}</Button
 		>{/if}

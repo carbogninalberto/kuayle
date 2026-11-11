@@ -672,16 +672,19 @@ func (r *AgentTaskRepository) WorkflowSteps(ctx context.Context, ws, id uuid.UUI
 // stepRunColumns reads a run as the timeline shows it. The summary is only
 // the harness's final message; a run without one keeps its raw output private
 // to the logs.
+// $3 is the completion time up to which the reader already has summaries.
 const stepRunColumns = `r.id,r.task_id,r.provider_id,COALESCE(r.model,'') AS model,r.status::text AS status,r.created_at,r.started_at,r.completed_at,
- CASE WHEN COALESCE(r.result->>'final_message','')='true' THEN r.summary END AS summary,COALESCE(r.result->>'summary_truncated','')='true' AS summary_truncated`
+ CASE WHEN COALESCE(r.result->>'final_message','')='true' AND ($3::timestamptz IS NULL OR r.completed_at IS NULL OR r.completed_at>$3) THEN r.summary END AS summary,COALESCE(r.result->>'summary_truncated','')='true' AS summary_truncated`
 
 // StepRuns lists the task's agent runs for its timeline, oldest first, under
 // the task's authorization: its newest 200 runs, each on the agent step that
 // was the latest one entered when the run was created (a resumed step has
 // several), and the runs of the review tasks its reviewer steps created. A
 // review task has the creator, conversation and issue of the task it reviews,
-// so whoever reads the task reads its reviews.
-func (r *AgentTaskRepository) StepRuns(ctx context.Context, ws, id uuid.UUID) ([]domain.WorkflowStepRun, error) {
+// so whoever reads the task reads its reviews. A finished run's summary never
+// changes: summariesSince leaves out those of runs that completed at or
+// before it, which a view polling the task already holds.
+func (r *AgentTaskRepository) StepRuns(ctx context.Context, ws, id uuid.UUID, summariesSince *time.Time) ([]domain.WorkflowStepRun, error) {
 	if _, err := conversationActor(ctx, ws); err != nil {
 		return nil, err
 	}
@@ -698,7 +701,7 @@ func (r *AgentTaskRepository) StepRuns(ctx context.Context, ws, id uuid.UUID) ([
  (SELECT `+stepRunColumns+`,s.sequence AS step
   FROM agent_task_workflow_steps s JOIN agent_tasks t ON t.id=s.review_task_id AND t.workspace_id=$2 AND t.kind='review' AND t.review_of_task_id=$1
   JOIN dev_machine_agent_runs r ON r.task_id=t.id AND r.workspace_id=$2 WHERE s.task_id=$1 ORDER BY r.created_at DESC,r.id DESC LIMIT 200)
- ) runs ORDER BY created_at,id`, id, ws)
+ ) runs ORDER BY created_at,id`, id, ws, summariesSince)
 	return runs, err
 }
 

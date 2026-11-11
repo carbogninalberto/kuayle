@@ -44,6 +44,10 @@
 		failed = $state(false);
 	let request = 0,
 		disposed = false;
+	// A finished run's summary is final: the view keeps the ones it has and
+	// asks only for those of runs finished since (knownUntil).
+	const summaries = new Map<string, string>();
+	let knownUntil = '';
 	$effect(() => () => {
 		disposed = true;
 	});
@@ -51,9 +55,15 @@
 		const current = ++request;
 		try {
 			if (followsWorkflow) {
-				const loaded = await workflows.task(chat.slug, task.id);
+				const loaded = await workflows.task(chat.slug, task.id, knownUntil || undefined);
 				if (disposed || current !== request) return;
-				view = loaded;
+				const runs = (loaded.runs ?? []).map((run) => {
+					if (run.summary) summaries.set(run.id, run.summary);
+					if (run.completed_at && (!knownUntil || Date.parse(run.completed_at) > Date.parse(knownUntil)))
+						knownUntil = run.completed_at;
+					return run.summary || !summaries.has(run.id) ? run : { ...run, summary: summaries.get(run.id) };
+				});
+				view = { ...loaded, runs };
 			} else {
 				const loaded = await agentTasks.runs(chat.slug, task.id);
 				if (disposed || current !== request) return;
@@ -65,7 +75,8 @@
 		}
 	}
 	// The task moving (state, attempt, workflow step) or one of its reviews
-	// changing reloads the steps; each open step streams its own output.
+	// changing arrives as an event and reloads the steps; each open step
+	// streams its own output.
 	$effect(() => {
 		void [
 			task.id,
@@ -74,22 +85,31 @@
 			task.generation,
 			task.workflow_node,
 			task.workflow_status,
+			task.updated_at,
+			chat.taskWorkflowCursor[task.id],
 			chat.taskReviewCursor[task.id]
 		];
 		untrack(() => void load());
-	});
-	// Waiting steps (CI, a review, a timeout) move without a task event the
-	// view sees, so poll modestly until the workflow settles.
-	const settled = $derived(!view || view.status === 'done' || view.status === 'failed');
-	$effect(() => {
-		if (!followsWorkflow || settled) return;
-		const timer = setInterval(() => void load(), 15000);
-		return () => clearInterval(timer);
 	});
 
 	const steps = $derived(
 		followsWorkflow ? (view ? workflowTimeline(view, task) : []) : attemptTimeline(task, attempts)
 	);
+	// Events can be missed (a dropped connection), so the workflow is also
+	// polled: modestly while a step runs, rarely while it waits (an approval
+	// can take days), never once it has ended.
+	const pace = $derived(
+		!followsWorkflow || !view || view.status === 'done' || view.status === 'failed'
+			? 0
+			: steps.some((step) => step.status === 'running')
+				? 15_000
+				: 120_000
+	);
+	$effect(() => {
+		if (!pace) return;
+		const timer = setInterval(() => void load(), pace);
+		return () => clearInterval(timer);
+	});
 	// The running step is open and the finished ones are closed, until the
 	// reader opens or closes one; a link to a step (#step-4) opens it.
 	const linked = untrack(() => page.url.hash.slice(1));

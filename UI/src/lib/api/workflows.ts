@@ -267,7 +267,14 @@ export const workflows = {
 	/** workflow_id "standard" chooses Standard; null makes a team or project inherit. */
 	setDefault: (slug: string, scope: WorkflowScope, scopeId: string, workflowId: string | null) =>
 		api.put<WorkflowList>(`${base(slug)}/workflow-defaults`, { scope, scope_id: scopeId, workflow_id: workflowId }),
-	task: (slug: string, taskId: string) => api.get<TaskWorkflow>(task(slug, taskId)),
+	/**
+	 * summariesSince is the newest completion time the caller already has:
+	 * summaries of runs finished by then are final and are not sent again.
+	 */
+	task: (slug: string, taskId: string, summariesSince?: string) =>
+		api.get<TaskWorkflow>(
+			`${task(slug, taskId)}${summariesSince ? `?summaries_since=${encodeURIComponent(summariesSince)}` : ''}`
+		),
 	decide: (slug: string, taskId: string, sequence: number, decision: WorkflowDecision) =>
 		api.post<{ task_id: string; state: string; workflow_sequence: number }>(`${task(slug, taskId)}/decision`, {
 			sequence,
