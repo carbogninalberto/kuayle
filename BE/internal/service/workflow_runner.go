@@ -231,7 +231,7 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 	}
 	now := w.now()
 	cursor := task.Cursor()
-	apply := &repository.WorkflowApply{Sequence: task.WorkflowSequence, Outcome: outcome, Detail: detail}
+	apply := &repository.WorkflowApply{Sequence: task.WorkflowSequence, Version: task.WorkflowVersionID, Outcome: outcome, Detail: detail}
 	vars, err := w.variables(ctx, task, *graph, profiles, cursor.Node, outcome, detail)
 	if err != nil {
 		return nil, err
@@ -561,7 +561,7 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 			if waiting != "" {
 				reason += " (" + waiting + ")"
 			}
-			apply := repository.WorkflowApply{Sequence: task.WorkflowSequence, Hold: true, Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: reason}}
+			apply := repository.WorkflowApply{Sequence: task.WorkflowSequence, Version: task.WorkflowVersionID, Hold: true, Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: reason}}
 			if graph.Budget.Policy() == domain.WorkflowOnLimitAsk {
 				apply.Entry = repository.WorkflowEntry{Kind: repository.WorkflowEnterPause, Reason: reason + ". Continue or stop the workflow"}
 			}
@@ -693,7 +693,7 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 				return nil, err
 			}
 		case WorkflowDecisionStop:
-			apply = &repository.WorkflowApply{Sequence: task.WorkflowSequence,
+			apply = &repository.WorkflowApply{Sequence: task.WorkflowSequence, Version: task.WorkflowVersionID,
 				Moves: []repository.WorkflowMove{{Decision: domain.WorkflowDecision{From: node, Reason: "Stopped by a person at the workflow's limit"}, Stop: true}},
 				Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: domain.WorkflowReasonPrefix + "stopped by a person at its limit"}}
 		default:
@@ -714,7 +714,7 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 // are passed along as they would have been.
 func (w *WorkflowRunner) continuePast(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, node domain.WorkflowNode, step domain.WorkflowStep) (*repository.WorkflowApply, error) {
 	if step.FinishedAt == nil {
-		return &repository.WorkflowApply{Sequence: task.WorkflowSequence, Hold: true, ExtendBudget: true,
+		return &repository.WorkflowApply{Sequence: task.WorkflowSequence, Version: task.WorkflowVersionID, Hold: true, ExtendBudget: true,
 			Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: domain.WorkflowReasonPrefix + "continued past the time budget by a person; " + node.Label + " waits again", WakeAt: ptr(w.now())}}, nil
 	}
 	outcome := ""

@@ -76,6 +76,10 @@ type WorkflowApply struct {
 	Iteration bool
 	// Actor is the person whose decision this is; nil for the runner.
 	Actor *uuid.UUID
+	// Version is the workflow version the moves were planned on. A task that
+	// was moved to another version in between refuses them: its sequence did
+	// not change, but its transitions did.
+	Version *uuid.UUID
 	// Hold keeps the task on its current step, unfinished and without moves:
 	// the time budget ran out while it waited (Entry fails or pauses), or a
 	// person continued past that and it waits again (Entry waits).
@@ -351,6 +355,9 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 		return err
 	}
 	if !task.RunsWorkflow() || task.WorkflowSequence != apply.Sequence || (len(apply.Moves) == 0) != apply.Hold || WorkflowEntryState(apply.Entry.Kind) == "" {
+		return ErrAgentTaskConflict
+	}
+	if apply.Version != nil && *apply.Version != *task.WorkflowVersionID {
 		return ErrAgentTaskConflict
 	}
 	// Nothing moves while a person's pause holds the workflow.
@@ -884,10 +891,31 @@ func retryWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, act
 	if !task.RunsWorkflow() {
 		return nil
 	}
-	var step domain.WorkflowStep
-	err := tx.GetContext(ctx, &step, `SELECT * FROM agent_task_workflow_steps WHERE task_id=$1 AND generation IS NOT NULL ORDER BY sequence DESC LIMIT 1`, task.ID)
+	// The step is looked up in the version the task runs now: a task moved to
+	// a newer version goes back to its latest implementing step that version
+	// still has, never to a step that no longer exists.
+	var raw json.RawMessage
+	if err := tx.GetContext(ctx, &raw, `SELECT graph FROM workflow_versions WHERE id=$1 AND workspace_id=$2`, *task.WorkflowVersionID, task.WorkspaceID); err != nil {
+		return err
+	}
+	graph, err := domain.ParseWorkflowGraph(raw)
 	if err != nil {
 		return err
+	}
+	var steps []domain.WorkflowStep
+	if err = tx.SelectContext(ctx, &steps, `SELECT * FROM agent_task_workflow_steps WHERE task_id=$1 AND generation IS NOT NULL ORDER BY sequence DESC`, task.ID); err != nil {
+		return err
+	}
+	var step domain.WorkflowStep
+	found := false
+	for _, candidate := range steps {
+		if node, ok := graph.Node(candidate.NodeID); ok && node.Type == domain.WorkflowNodeAgent {
+			step, found = candidate, true
+			break
+		}
+	}
+	if !found {
+		return ErrAgentTaskConflict
 	}
 	cursor := task.Cursor()
 	if _, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET outcome=COALESCE(outcome,'retried'),finished_at=COALESCE(finished_at,now()) WHERE task_id=$1 AND sequence=$2`, task.ID, task.WorkflowSequence); err != nil {
