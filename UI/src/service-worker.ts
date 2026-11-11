@@ -15,7 +15,7 @@ import {
 	precacheList,
 	requestStrategy
 } from '$lib/features/pwa/service-worker-policy';
-import { chooseWindowClient, notificationTargetUrl } from '$lib/features/pwa/notification-click';
+import { notificationTargetUrl, openNotificationTarget, requestClientNavigation } from '$lib/features/pwa/notification-click';
 
 const worker = self as unknown as ServiceWorkerGlobalScope;
 const CACHE = `${SHELL_CACHE_PREFIX}${version}`;
@@ -41,7 +41,9 @@ worker.addEventListener('message', (event) => {
 	if (event.data?.type === 'SKIP_WAITING') void worker.skipWaiting();
 });
 
-// A clicked notification reuses an open Kuayle window when there is one.
+// A clicked notification reuses an open Kuayle window when there is one. That
+// window routes to the target itself, so it keeps its state; it is reloaded
+// onto the target only when it does not confirm.
 worker.addEventListener('notificationclick', (event) => {
 	event.notification.close();
 	const origin = worker.location.origin;
@@ -49,21 +51,19 @@ worker.addEventListener('notificationclick', (event) => {
 	if (!target) return;
 	event.waitUntil(
 		(async () => {
-			const windows = await worker.clients.matchAll({ type: 'window', includeUncontrolled: true });
-			const choice = chooseWindowClient(windows, target, origin);
-			try {
-				if (choice) {
-					// navigate() rejects for windows this worker does not control.
-					const client = choice.navigate ? await choice.client.navigate(target) : choice.client;
-					if (client) {
-						await client.focus();
-						return;
-					}
-				}
-			} catch {
-				// Fall through to a new window.
-			}
-			await worker.clients.openWindow(target).catch(() => null);
+			const clients = await worker.clients.matchAll({ type: 'window', includeUncontrolled: true });
+			await openNotificationTarget({
+				clients,
+				target,
+				origin,
+				requestNavigation: (client, url) =>
+					requestClientNavigation(client, url, {
+						createChannel: () => new MessageChannel(),
+						setTimeout: (callback, ms) => setTimeout(callback, ms),
+						clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>)
+					}),
+				openWindow: (url) => worker.clients.openWindow(url)
+			});
 		})()
 	);
 });
