@@ -17,8 +17,10 @@ type AgentProfileSkill struct {
 // AgentProfileBundle is what an agent step's profile gives its coding agent
 // besides the prompt: its Markdown instructions and its skills.
 type AgentProfileBundle struct {
-	Name         string
+	Name string
+	// Role is the profile's label; Behaviour is what its step does.
 	Role         string
+	Behaviour    string
 	Instructions string
 	Skills       []AgentProfileSkill
 }
@@ -78,7 +80,11 @@ func ProfileFiles(harness string, bundle AgentProfileBundle) []AgentProfileFile 
 	}
 	var files []AgentProfileFile
 	if instructions := strings.TrimSpace(bundle.Instructions); instructions != "" {
-		header := fmt.Sprintf("# Agent profile: %s (%s)\n\nYou run as this Kuayle agent profile. Follow these instructions for the whole task.\n\n", bundle.Name, strings.ReplaceAll(bundle.Role, "_", " "))
+		title := bundle.Name
+		if bundle.Role != "" && !strings.EqualFold(bundle.Role, bundle.Name) {
+			title += " (" + bundle.Role + ")"
+		}
+		header := fmt.Sprintf("# Agent profile: %s\n\nYou run as this Kuayle agent profile. Follow these instructions for the whole task.\n\n", title)
 		files = append(files, AgentProfileFile{Path: path.Join(agentHome, layout.instructions), Content: header + instructions + "\n"})
 	}
 	used := map[string]bool{}

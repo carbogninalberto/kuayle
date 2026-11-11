@@ -21,8 +21,9 @@ export const PALETTE: WorkflowNodeType[] = ['agent', 'check', 'approval', 'publi
 export type Block = WorkflowNodeType | 'review';
 export const BLOCKS: Block[] = ['agent', 'review', 'check', 'approval', 'publish', 'merge', 'end'];
 
-export function isReviewer(role: string | undefined): boolean {
-	return role === 'reviewer' || role === 'security_reviewer';
+/** Whether a step that runs the profile reviews the published pull request. */
+export function reviews(profile: Pick<AgentProfile, 'behaviour'> | undefined): boolean {
+	return profile?.behaviour === 'reviews';
 }
 
 /** The conditions a transition leaving the node may use, "else" last. */
@@ -35,7 +36,7 @@ export function conditionsFor(node: WorkflowNode, profiles: AgentProfile[]): Wor
 			return [];
 		case 'agent': {
 			const profile = profiles.find((p) => p.id === node.profile_id);
-			outcomes = isReviewer(profile?.role)
+			outcomes = reviews(profile)
 				? ['review_approved', 'review_changes_requested', 'agent_failed']
 				: ['agent_finished', 'agent_failed'];
 			break;
@@ -69,7 +70,7 @@ export function waits(node: WorkflowNode, profiles: AgentProfile[]): boolean {
 		case 'check':
 			return node.check === 'ci';
 		case 'agent':
-			return isReviewer(profiles.find((p) => p.id === node.profile_id)?.role);
+			return reviews(profiles.find((p) => p.id === node.profile_id));
 	}
 	return false;
 }
@@ -406,6 +407,15 @@ export function setRetry(graph: WorkflowGraph, id: string, on: boolean, profiles
 }
 
 /**
+ * The profile a blank workflow's first agent step runs: one that changes
+ * code, the built-in implementer first while it still does.
+ */
+export function starterProfile(profiles: AgentProfile[]): AgentProfile | undefined {
+	const builders = profiles.filter((p) => !p.archived_at && p.behaviour === 'changes_code');
+	return builders.find((p) => p.builtin_key === 'implementer') ?? builders[0];
+}
+
+/**
  * An automated review: an agent step run by the reviewer profile (the
  * built-in one first) that reviews the published pull request and retries if
  * the review agent itself fails. Its verdict transitions are left to connect.
@@ -417,8 +427,8 @@ export function reviewBlock(
 	position?: { x: number; y: number }
 ): { graph: WorkflowGraph; id: string } {
 	const reviewer =
-		profiles.find((p) => !p.archived_at && p.builtin_key === 'reviewer') ??
-		profiles.find((p) => !p.archived_at && isReviewer(p.role));
+		profiles.find((p) => !p.archived_at && p.builtin_key === 'reviewer' && reviews(p)) ??
+		profiles.find((p) => !p.archived_at && reviews(p));
 	const node: WorkflowNode = {
 		...newNode(graph, 'agent', label, position),
 		profile_id: reviewer?.id ?? null,

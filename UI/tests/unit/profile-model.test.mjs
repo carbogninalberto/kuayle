@@ -8,7 +8,8 @@ const list = {
 };
 const draft = (harness, model, effort) => ({
 	name: ' Cheap ',
-	role: 'implementer',
+	role: ' Staff engineer ',
+	behaviour: 'plans',
 	harness,
 	model,
 	effort,
@@ -27,7 +28,8 @@ test('the server decides which coding agents take a model and effort', () => {
 test('a stale model and effort are not submitted for an agent that takes neither', () => {
 	assert.deepEqual(profileSubmission(draft('qwen-code', 'deepseek-v4.1-flash', 'high'), list), {
 		...draft('qwen-code', '', ''),
-		name: 'Cheap'
+		name: 'Cheap',
+		role: 'Staff engineer'
 	});
 });
 
@@ -36,6 +38,8 @@ test('an agent that takes a model keeps it, trimmed', () => {
 	assert.equal(sent.model, 'gpt-5.5');
 	assert.equal(sent.effort, 'high');
 	assert.equal(sent.name, 'Cheap');
+	assert.equal(sent.role, 'Staff engineer', 'the role is a free label, sent trimmed');
+	assert.equal(sent.behaviour, 'plans');
 	assert.deepEqual(sent.skill_ids, ['s1']);
 });
 

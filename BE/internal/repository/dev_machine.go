@@ -1329,12 +1329,22 @@ func (r *DevMachineRepository) CompleteAgentRun(ctx context.Context, run *domain
 	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET status=$1, result=$2, summary=$3,
 		changed_files=$4, commits=$5, branch=$6, pull_request_url=$7, tests_run=$8, test_status=$9,
 		risk_notes=$10, exit_code=$11, error_message=$12, diff=$14, diff_truncated=$15,
-		declared_validation=COALESCE($16, declared_validation), completed_at=NOW()
+		declared_validation=COALESCE($16, declared_validation), worktree_changed=$17,
+		worktree_changed_files=COALESCE($18, '[]'::jsonb), completed_at=NOW()
 		WHERE id=$13 AND (status NOT IN ('succeeded','failed','cancelled','timeout') OR status=$1)`,
 		run.Status, nullJSONPointer(run.Result), run.Summary, run.ChangedFiles, run.Commits, run.Branch,
 		run.PullRequestURL, run.TestsRun, run.TestStatus, run.RiskNotes, run.ExitCode, run.ErrorMessage, run.ID,
-		run.Diff, run.DiffTruncated, nullJSONPointer(run.DeclaredValidation))
+		run.Diff, run.DiffTruncated, nullJSONPointer(run.DeclaredValidation), run.WorktreeChanged, nullJSON(run.WorktreeChangedFiles))
 	return err
+}
+
+// RecordWorktreeBefore keeps the fingerprint of a run's worktree taken
+// before its agent started and returns the one kept: the first, so a run
+// started again after a restart still compares against its real start.
+func (r *DevMachineRepository) RecordWorktreeBefore(ctx context.Context, runID uuid.UUID, state string) (string, error) {
+	var kept sql.NullString
+	err := r.db.GetContext(ctx, &kept, `UPDATE dev_machine_agent_runs SET worktree_before=COALESCE(worktree_before, NULLIF($2,'')) WHERE id=$1 RETURNING worktree_before`, runID, state)
+	return kept.String, err
 }
 
 func (r *DevMachineRepository) CreateEvent(ctx context.Context, event *domain.DevMachineEvent) error {

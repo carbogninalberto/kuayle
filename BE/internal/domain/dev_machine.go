@@ -394,15 +394,22 @@ type DevMachineAgentRun struct {
 	DeclaredValidation *json.RawMessage `json:"-" db:"declared_validation"`
 	Diff               string           `json:"-" db:"diff"`
 	DiffTruncated      bool             `json:"-" db:"diff_truncated"`
-	TestsRun           json.RawMessage  `json:"tests_run" db:"tests_run"`
-	TestStatus         string           `json:"test_status" db:"test_status"`
-	RiskNotes          json.RawMessage  `json:"risk_notes" db:"risk_notes"`
-	ExitCode           *int             `json:"exit_code,omitempty" db:"exit_code"`
-	ErrorMessage       *string          `json:"error_message,omitempty" db:"error_message"`
-	CreatedAt          time.Time        `json:"created_at" db:"created_at"`
-	StartedAt          *time.Time       `json:"started_at,omitempty" db:"started_at"`
-	CompletedAt        *time.Time       `json:"completed_at,omitempty" db:"completed_at"`
-	CancelledAt        *time.Time       `json:"cancelled_at,omitempty" db:"cancelled_at"`
+	// WorktreeBefore fingerprints the worktree before the agent started.
+	// WorktreeChanged is whether the agent changed it (commits included) and
+	// WorktreeChangedFiles which paths; nil when the worktree could not be
+	// compared. A planning step must leave it unchanged.
+	WorktreeBefore       *string         `json:"-" db:"worktree_before"`
+	WorktreeChanged      *bool           `json:"-" db:"worktree_changed"`
+	WorktreeChangedFiles json.RawMessage `json:"-" db:"worktree_changed_files"`
+	TestsRun             json.RawMessage `json:"tests_run" db:"tests_run"`
+	TestStatus           string          `json:"test_status" db:"test_status"`
+	RiskNotes            json.RawMessage `json:"risk_notes" db:"risk_notes"`
+	ExitCode             *int            `json:"exit_code,omitempty" db:"exit_code"`
+	ErrorMessage         *string         `json:"error_message,omitempty" db:"error_message"`
+	CreatedAt            time.Time       `json:"created_at" db:"created_at"`
+	StartedAt            *time.Time      `json:"started_at,omitempty" db:"started_at"`
+	CompletedAt          *time.Time      `json:"completed_at,omitempty" db:"completed_at"`
+	CancelledAt          *time.Time      `json:"cancelled_at,omitempty" db:"cancelled_at"`
 }
 
 type DevMachineAgentRunStep struct {

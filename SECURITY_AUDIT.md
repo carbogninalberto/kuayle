@@ -639,3 +639,26 @@ The root `.gitignore` ignores `.env.*` except `.env.example`.
 - Stop returning stored filters from the public share metadata endpoint (KS-25).
 - Verify npm tarball integrity in the agent CLI installer (KS-36).
 - Tell the task's creator when another member's comment is waiting (KS-27).
+
+## Design notes since this audit
+
+### Workflow plans are agent-written instructions (KUA-124)
+
+A workflow's planning step ends with a plan, and Kuayle passes that plan to
+the agent steps after it as instructions (`{{plan}}`), unfenced, unlike every
+other value one agent hands another (summaries, review comments, check output
+and diffs stay fenced as untrusted data). The plan is still text an agent
+wrote after reading the repository and the issue, so whatever can influence a
+planner (a hostile file, issue text) can reach the next agent with the weight
+of an instruction. This is accepted because the plan grants nothing: the
+workspace policy is checked again for every step, the next agent runs in the
+same sandbox with the same credentials, network rules and repository scope as
+any implementing step, and its work goes through the same check, publication
+and review steps of the workflow. A plan cannot widen permissions, choose a
+harness or model, or skip a step. Only owners and admins place a planning
+step in a workflow. Text that came from the plan is never read as a prompt
+template again, and Kuayle's own section markers inside it are neutralised
+(`TestRenderWorkflowPromptNeverRescansAVariablesText`,
+`TestPlanContainingPromptMarkersReachesTheNextStepWhole`). A planning step
+that failed hands nothing over and can only be retried, approved by a person
+or end the workflow (`TestFailedPlanNeverReachesACodeChangingStep`).

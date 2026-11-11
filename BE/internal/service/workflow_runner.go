@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 )
@@ -20,15 +21,17 @@ import (
 // an event wakes them, and applies people's decisions. Every move is one
 // fenced transaction (repository.ApplyWorkflow), so a restart resumes from
 // the persisted cursor and nothing runs twice. Each node reuses the task's
-// existing machinery: an implementing agent step is an iteration, a reviewer
-// step a review task, a tests check the independent validation, a publish
-// step the publication, and waiting nodes wait in awaiting_review.
+// existing machinery: an agent step that plans or changes code is an
+// iteration, a reviewing step a review task, a tests check the independent
+// validation, a publish step the publication, and waiting nodes wait in
+// awaiting_review. What an agent step is comes from its profile's behaviour.
 
 type workflowTaskStore interface {
 	ApplyWorkflow(context.Context, domain.AgentTask, repository.WorkflowApply) (*domain.AgentTask, error)
 	CurrentWorkflowStep(context.Context, domain.AgentTask) (*domain.WorkflowStep, error)
 	WorkflowReview(context.Context, domain.AgentTask, uuid.UUID) (*repository.WorkflowReview, error)
 	LatestWorkflowReview(context.Context, domain.AgentTask) (string, error)
+	LatestWorkflowPlan(context.Context, domain.AgentTask) (string, error)
 	WorkflowCI(context.Context, domain.AgentTask) (*repository.WorkflowCI, error)
 	HasPublishedWork(context.Context, domain.AgentTask) (bool, error)
 	ValidationOutput(context.Context, domain.AgentTask) (string, error)
@@ -86,6 +89,13 @@ func (w *WorkflowRunner) SetCIChecks(checks workflowCIChecks) { w.checks = check
 // ErrWorkflowDecision is a decision the task's current step does not accept.
 var ErrWorkflowDecision = errors.New("the workflow is not waiting for this decision")
 
+// workflowStepBytes bounds the prompt of an iteration that carries a plan, as
+// the workflow step writes it (the original instructions and the step's
+// section): a whole plan (agent.MaxSummaryBytes) and the step's template fit
+// in it, and it leaves the attempt room for its handoff within the attempt
+// limit, so nothing later has to shorten the plan.
+const workflowStepBytes = 28000
+
 // workflowStepMarker starts the workflow section of an iteration prompt; it
 // shares the follow-up marker so the section replaces the previous one.
 const workflowStepMarker = followUpMarker + "the Kuayle workflow, step "
@@ -125,10 +135,84 @@ func (w *WorkflowRunner) Outcome(ctx context.Context, task domain.AgentTask, out
 	return err
 }
 
+// AgentFinished advances the task after the iteration of its agent step
+// succeeded. A step that changes code is finished. A planning step is
+// finished only when it left the worktree as it found it and its final
+// message is a plan: the plan is then stored whole on the step and given to
+// the agent steps after it. Otherwise the step failed, and says why.
+func (w *WorkflowRunner) AgentFinished(ctx context.Context, task domain.AgentTask) error {
+	graph, profiles, err := w.graph(ctx, task)
+	if err != nil {
+		return err
+	}
+	node, _ := graph.Node(task.Cursor().Node)
+	if node.Type != domain.WorkflowNodeAgent || node.ProfileID == nil || !profiles[*node.ProfileID].Plans() {
+		return w.Outcome(ctx, task, domain.WorkflowAgentFinished, "")
+	}
+	run, err := w.tasks.WorkflowRun(ctx, task)
+	if err != nil {
+		return err
+	}
+	if problem := planProblem(node.Label, *run); problem != "" {
+		apply, err := w.plan(ctx, task, domain.WorkflowAgentFailed, problem, false)
+		if err != nil {
+			return err
+		}
+		// A workflow that ends here says what was wrong with the plan, not
+		// only that the agent failed.
+		if last := len(apply.Moves) - 1; apply.Entry.Kind == repository.WorkflowEnterFail && last >= 0 && !apply.Moves[last].Stop {
+			apply.Entry.Reason += ". " + problem
+		}
+		_, err = w.tasks.ApplyWorkflow(ctx, task, *apply)
+		return err
+	}
+	produced := neutralisePlan(run.Summary)
+	apply, err := w.planWith(ctx, task, domain.WorkflowAgentFinished, "", produced, false)
+	if err != nil {
+		return err
+	}
+	apply.Plan = produced
+	_, err = w.tasks.ApplyWorkflow(ctx, task, *apply)
+	return err
+}
+
+// planProblem says why a planning step's finished iteration is not a plan,
+// from what every harness's run records: the worktree before and after it
+// (compared by Kuayle, not reported by the agent) and its final message.
+func planProblem(step string, run repository.WorkflowRun) string {
+	switch {
+	case run.WorktreeChanged == nil:
+		return step + ": Kuayle could not confirm that the planning step left the worktree unchanged"
+	case *run.WorktreeChanged:
+		what := "a commit"
+		if len(run.WorktreeFiles) > 0 {
+			files := run.WorktreeFiles
+			more := ""
+			if len(files) > 10 {
+				more = fmt.Sprintf(" and %d more", len(files)-10)
+				files = files[:10]
+			}
+			what = oneLine(strings.Join(files, ", "), 600) + more
+		}
+		return step + ": a planning step only writes a plan, but it changed the worktree (" + what + ")"
+	case !run.FinalMessage || strings.TrimSpace(run.Summary) == "":
+		return step + ": the planning step produced no plan; its final message is the plan, and it wrote none"
+	case run.SummaryTruncated:
+		return fmt.Sprintf("%s: the plan is longer than %d KB and would not reach the next agent whole; ask for a shorter plan", step, agent.MaxSummaryBytes>>10)
+	}
+	return ""
+}
+
 // plan computes the moves an outcome causes, entering nodes that finish at
 // once (a reviewer with nothing published, a step the policy refuses) until
 // it reaches a node that runs or waits, an end, or a limit.
 func (w *WorkflowRunner) plan(ctx context.Context, task domain.AgentTask, outcome, detail string, ignoreLimit bool) (*repository.WorkflowApply, error) {
+	return w.planWith(ctx, task, outcome, detail, "", ignoreLimit)
+}
+
+// planWith is plan for a step that just produced a plan, which is not stored
+// yet: the steps entered now get it.
+func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, outcome, detail, produced string, ignoreLimit bool) (*repository.WorkflowApply, error) {
 	graph, profiles, err := w.graph(ctx, task)
 	if err != nil {
 		return nil, err
@@ -140,8 +224,30 @@ func (w *WorkflowRunner) plan(ctx context.Context, task domain.AgentTask, outcom
 	if err != nil {
 		return nil, err
 	}
+	if produced != "" {
+		vars.Plan = produced
+	}
+	// A planning step that failed left no plan (an earlier visit's is stale
+	// now) and maybe a changed worktree.
+	from, _ := graph.Node(cursor.Node)
+	failedPlan := outcome == domain.WorkflowAgentFailed && from.Type == domain.WorkflowNodeAgent && from.ProfileID != nil && profiles[*from.ProfileID].Plans()
+	if failedPlan {
+		apply.PlanFailed, vars.Plan = true, ""
+	}
 	for range len(graph.Nodes)*2 + 2 {
 		decision := graph.Decide(cursor, outcome, now, profiles)
+		// So the workflow may only plan again, ask a person or end; any
+		// other step (also through an "else" transition) fails it instead.
+		if failedPlan && !decision.Stuck && !afterFailedPlan(decision.To, profiles) {
+			decision.Reason = fmt.Sprintf("%s failed, and a failed plan cannot lead to %s", from.Label, decision.To.Label)
+			if detail != "" {
+				decision.Reason += ". " + detail
+			}
+			apply.Moves = append(apply.Moves, repository.WorkflowMove{Decision: decision, Stop: true})
+			apply.Entry = repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: domain.WorkflowReasonPrefix + decision.Reason}
+			return apply, nil
+		}
+		failedPlan = false
 		reason := domain.WorkflowReasonPrefix + decision.Reason
 		if decision.Stuck {
 			apply.Moves = append(apply.Moves, repository.WorkflowMove{Decision: decision, Stop: true})
@@ -179,6 +285,18 @@ func (w *WorkflowRunner) plan(ctx context.Context, task domain.AgentTask, outcom
 	return nil, fmt.Errorf("workflow %s: too many immediate transitions", task.ID)
 }
 
+// afterFailedPlan reports whether a failed planning step may lead to the
+// node: a planning step (itself again, or another), an approval or an end.
+func afterFailedPlan(to domain.WorkflowNode, profiles map[uuid.UUID]domain.AgentProfile) bool {
+	switch to.Type {
+	case domain.WorkflowNodeEnd, domain.WorkflowNodeApproval:
+		return true
+	case domain.WorkflowNodeAgent:
+		return to.ProfileID != nil && profiles[*to.ProfileID].Plans()
+	}
+	return false
+}
+
 // enter returns what entering the decision's target does, or the outcome
 // it finishes with at once and why.
 func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, cursor domain.WorkflowCursor, decision domain.WorkflowDecision, reason string, vars domain.WorkflowVariables, now time.Time) (repository.WorkflowEntry, string, string, error) {
@@ -209,8 +327,7 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 			}
 			return repository.WorkflowEntry{}, domain.WorkflowAgentFailed, fmt.Sprintf("The workspace policy does not allow %s to run %s: %v", profile.Name, harnessName(profile.Harness), err), nil
 		}
-		rendered := domain.RenderWorkflowPrompt(to.Prompt, vars)
-		if domain.ReviewerRole(profile.Role) {
+		if profile.Reviews() {
 			published, err := w.tasks.HasPublishedWork(ctx, task)
 			if err != nil {
 				return repository.WorkflowEntry{}, "", "", err
@@ -218,7 +335,13 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 			if !published {
 				return repository.WorkflowEntry{}, domain.WorkflowAgentFailed, to.Label + ": there is no published pull request to review", nil
 			}
-			focus := strings.TrimSpace(strings.TrimSpace(profile.Instructions) + "\n\n" + rendered)
+			// A review's focus is short, so the plan is not added to it
+			// unless the step's prompt asks for it.
+			reviewVars := vars
+			if !strings.Contains(to.Prompt, "{{plan}}") {
+				reviewVars.Plan = ""
+			}
+			focus := strings.TrimSpace(strings.TrimSpace(profile.Instructions) + "\n\n" + domain.RenderWorkflowPrompt(to.Prompt, reviewVars))
 			return repository.WorkflowEntry{Kind: repository.WorkflowEnterReview, Reason: reason + "; " + profile.Name + " reviews the pull request",
 				Review: &domain.AgentReviewRequest{Provider: profile.Harness, Model: profile.Model, Thinking: profile.Effort, Focus: truncateUTF8Bytes(focus, 4000)}, WakeAt: wake()}, "", "", nil
 		}
@@ -227,11 +350,19 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 			return repository.WorkflowEntry{}, "", "", err
 		}
 		base, _, _ := strings.Cut(task.Prompt, followUpMarker)
+		heading := fmt.Sprintf("%s%s (visit %d):\n", workflowStepMarker, to.Label, cursor.Visits[to.ID]+1)
+		// The plan is passed whole: the untrusted variables and then the
+		// original instructions give way to it.
+		limit := 32000
+		if vars.Plan != "" {
+			limit = workflowStepBytes
+		}
+		rendered := domain.RenderWorkflowPromptWithin(to.Prompt, vars, limit-len(heading))
 		if rendered == "" {
 			rendered = "Continue the task on the existing branch."
 		}
-		section := fmt.Sprintf("%s%s (visit %d):\n%s", workflowStepMarker, to.Label, cursor.Visits[to.ID]+1, rendered)
-		if room := 32000 - len(section); len(base) > room {
+		section := heading + rendered
+		if room := limit - len(section); len(base) > room {
 			base = truncateRunes(base, max(room/4, 0))
 		}
 		return repository.WorkflowEntry{Kind: repository.WorkflowEnterIteration, Reason: reason,
@@ -296,7 +427,7 @@ func workflowInstructions(scope string, profile domain.AgentProfile, node domain
 	// Harnesses that read profile files get the instructions there, whole
 	// and outside the prompt's size limit (domain.ProfileFiles).
 	if !domain.ProfileFilesSupported(profile.Harness) {
-		section(fmt.Sprintf("Agent profile %q (%s)", profile.Name, strings.ReplaceAll(profile.Role, "_", " ")), profile.Instructions)
+		section("Agent profile "+profile.Title(), profile.Instructions)
 	}
 	if node.ID != "" {
 		section("Workflow step "+node.Label, domain.RenderWorkflowPrompt(node.Prompt, domain.WorkflowVariables{}))
@@ -306,7 +437,8 @@ func workflowInstructions(scope string, profile domain.AgentProfile, node domain
 
 // variables collects what the finished node passes to the next agent: the
 // previous agent's summary and changed files, the reviewer's findings and
-// the failing checks' output. All of it is untrusted.
+// the failing checks' output, all untrusted, and the latest plan a planning
+// step of the task stored, which is passed as instructions.
 func (w *WorkflowRunner) variables(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, from, outcome, detail string) (domain.WorkflowVariables, error) {
 	vars := domain.WorkflowVariables{}
 	run, err := w.tasks.WorkflowRun(ctx, task)
@@ -314,6 +446,9 @@ func (w *WorkflowRunner) variables(ctx context.Context, task domain.AgentTask, g
 		return vars, err
 	}
 	vars.PreviousSummary = run.Summary
+	if vars.Plan, err = w.tasks.LatestWorkflowPlan(ctx, task); err != nil {
+		return vars, err
+	}
 	if len(run.ChangedFiles) > 0 {
 		files := run.ChangedFiles
 		if len(files) > 100 {
@@ -323,7 +458,7 @@ func (w *WorkflowRunner) variables(ctx context.Context, task domain.AgentTask, g
 	}
 	node, _ := graph.Node(from)
 	switch {
-	case node.Type == domain.WorkflowNodeAgent && node.ProfileID != nil && domain.ReviewerRole(profiles[*node.ProfileID].Role) && outcome == domain.WorkflowReviewChangesRequested:
+	case node.Type == domain.WorkflowNodeAgent && node.ProfileID != nil && profiles[*node.ProfileID].Reviews() && outcome == domain.WorkflowReviewChangesRequested:
 		if vars.ReviewComments, err = w.tasks.LatestWorkflowReview(ctx, task); err != nil {
 			return vars, err
 		}

@@ -48,7 +48,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
 	import WorkflowCanvas, { type Selection } from './WorkflowCanvas.svelte';
-	import { conditionLabel, issueLabel, nodeTypeLabel, roleLabel } from './labels';
+	import { conditionLabel, issueLabel, nodeTypeLabel, profileTitle } from './labels';
 	import { blockHint, blockIcon, blockLabel, blockTone, nodeIcon, nodeTone } from './node-style';
 	import {
 		BLOCKS,
@@ -95,7 +95,7 @@
 		onsaved?: (saved: WorkflowSummary) => void;
 	} = $props();
 
-	const VARIABLES = ['{{previous_summary}}', '{{review_comments}}', '{{failing_checks}}', '{{diff}}'];
+	const VARIABLES = ['{{plan}}', '{{previous_summary}}', '{{review_comments}}', '{{failing_checks}}', '{{diff}}'];
 	const clone = (graph: WorkflowGraph): WorkflowGraph => JSON.parse(JSON.stringify(graph));
 
 	let graph = $state<WorkflowGraph>(untrack(() => clone(workflow.graph)));
@@ -693,7 +693,7 @@
 											{ value: '', label: m['workflows.editor.node_profile_placeholder']() },
 											...activeProfiles.map((p) => ({
 												value: p.id,
-												label: p.name === roleLabel(p.role) ? p.name : `${p.name} · ${roleLabel(p.role)}`
+												label: profileTitle(p)
 											}))
 										]}
 									/>
