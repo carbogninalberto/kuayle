@@ -1,8 +1,8 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 // The workflow chart runs left to right: in Settings → Workflows (a new
-// workflow from each template, and "Tidy up" for one saved top to bottom) and
-// on a task, where it scrolls sideways on a narrow screen.
+// workflow from each template, one saved top to bottom, and "Tidy up" after
+// moving steps) and on a task, where it scrolls sideways on a narrow screen.
 
 const time = '2026-11-01T00:00:00Z';
 const sizes = [
@@ -24,6 +24,8 @@ const edges = (list: string[][]): Edge[] =>
 	list.map(([source, target, condition]) => ({ id: `${source}-${target}-${condition}`, source, target, condition }));
 
 const templates: Record<string, Graph> = {
+	// "Copy of Standard" (standardCopy in BE/internal/service/workflow.go): the
+	// built-in graph plus Publish → Failed, which moves Failed under the review.
 	standard: {
 		nodes: [
 			{ id: 'start', type: 'start', label: 'Start', position: at(0) },
@@ -32,7 +34,7 @@ const templates: Record<string, Graph> = {
 			{ id: 'publish', type: 'publish', label: 'Publish pull request', position: at(3) },
 			{ id: 'review', type: 'approval', label: 'Human review', prompt: 'Review the pull request', position: at(4) },
 			{ id: 'done', type: 'end', label: 'Done', outcome: 'done', position: at(5) },
-			{ id: 'failed', type: 'end', label: 'Failed', outcome: 'failed', position: at(3, 1, true) }
+			{ id: 'failed', type: 'end', label: 'Failed', outcome: 'failed', position: at(4, 1, true) }
 		],
 		edges: edges([
 			['start', 'implement', 'else'],
@@ -42,6 +44,7 @@ const templates: Record<string, Graph> = {
 			['validate', 'publish', 'else'],
 			['validate', 'failed', 'checks_failed'],
 			['publish', 'review', 'published'],
+			['publish', 'failed', 'publish_failed'],
 			['review', 'done', 'approval_approved'],
 			['review', 'implement', 'approval_denied']
 		]),
@@ -110,14 +113,20 @@ const templates: Record<string, Graph> = {
 	}
 };
 
-// The review loop as workflows were saved before: top to bottom, the failed
-// ending to the right.
-const vertical = (): Graph => ({
-	...templates.review_loop,
-	nodes: templates.review_loop.nodes.map((node, row) => ({
+// A graph as workflows were saved before: top to bottom, the failed ending to
+// the right.
+const vertical = (graph: Graph): Graph => ({
+	...graph,
+	nodes: graph.nodes.map((node, row) => ({
 		...node,
-		position: node.id === 'failed' ? { x: 320, y: 420 } : { x: 0, y: row * 120 }
+		position: node.outcome === 'failed' ? { x: 320, y: 420 } : { x: 0, y: row * 120 }
 	}))
+});
+// The full cycle (its implementer and reviewer retry themselves) with a
+// transition from the tests straight to the go-ahead, past three steps.
+const withSkip = (): Graph => ({
+	...templates.full_cycle,
+	edges: [...templates.full_cycle.edges, ...edges([['tests', 'ship', 'else']])]
 });
 
 const profile = (id: string, name: string, behaviour: string, builtin: string) => ({
@@ -236,6 +245,38 @@ async function expectLeftToRight(scope: Locator, graph: Graph, loops: string[][]
 		const cards = [...at.entries()];
 		for (const [i, [a, boxA]] of cards.entries())
 			for (const [b, boxB] of cards.slice(i + 1)) expect(touching(boxA, boxB), `${a} overlaps ${b}`).toBe(false);
+		// No transition runs through a card other than the two it joins.
+		const drawn = await scope.evaluate((root, list) => {
+			const cards = [...root.querySelectorAll<HTMLElement>('[data-testid^="workflow-node-"]')].map((el) => ({
+				id: el.dataset.testid!.slice('workflow-node-'.length),
+				box: el.getBoundingClientRect()
+			}));
+			const through = new Set<string>();
+			let checked = 0;
+			for (const group of root.querySelectorAll<SVGGElement>('.svelte-flow__edge')) {
+				const edge = list.find((e) => e.id === group.dataset.id);
+				const path = group.querySelector<SVGPathElement>('.svelte-flow__edge-path');
+				const matrix = path?.getScreenCTM();
+				if (!edge || !path || !matrix) continue;
+				checked++;
+				for (let along = 0; along <= path.getTotalLength(); along += 3) {
+					const point = path.getPointAtLength(along).matrixTransform(matrix);
+					for (const card of cards)
+						if (
+							card.id !== edge.source &&
+							card.id !== edge.target &&
+							point.x > card.box.left &&
+							point.x < card.box.right &&
+							point.y > card.box.top &&
+							point.y < card.box.bottom
+						)
+							through.add(`${edge.id} through ${card.id}`);
+				}
+			}
+			return { checked, through: [...through] };
+		}, graph.edges);
+		expect(drawn.checked).toBe(graph.edges.filter((e) => e.source !== e.target).length);
+		expect(drawn.through).toEqual([]);
 		const labels = await scope.locator('.svelte-flow__edge-label').all();
 		expect(labels.length).toBeGreaterThan(0);
 		const labelBoxes: Array<{ text: string; box: Box }> = [];
@@ -307,10 +348,11 @@ for (const size of sizes) {
 									{ id: 'agent-1', type: 'agent', position: at(1) },
 									{ id: 'end-1', type: 'end', position: at(2) }
 								],
-								edges: edges([
-									['start', 'agent-1', 'else'],
-									['agent-1', 'end-1', 'agent_finished']
-								]),
+								// The IDs the page gives a blank workflow's transitions.
+								edges: [
+									{ id: 'start-agent-1', source: 'start', target: 'agent-1', condition: 'else' },
+									{ id: 'agent-1-end-1', source: 'agent-1', target: 'end-1', condition: 'agent_finished' }
+								],
 								budget: {}
 							}
 						: templates[template];
@@ -323,16 +365,57 @@ for (const size of sizes) {
 				expect(start.x + start.width).toBeLessThanOrEqual(canvas.x + canvas.width);
 				expect(start.width).toBeGreaterThanOrEqual(176 * 0.7 - 1);
 				await expect(editor.getByTestId('workflow-save')).toBeDisabled();
+				// It is already arranged: tidying up changes nothing.
+				await editor.getByRole('toolbar').getByRole('button', { name: 'Tidy up', exact: true }).click();
+				await expectLeftToRight(editor, graph, loopsOf[template] ?? []);
+				await expect(editor.getByTestId('workflow-save')).toBeDisabled();
+				await expect(editor.getByText('Unsaved changes')).toHaveCount(0);
 			});
 		}
 
-		test('tidying up arranges a workflow saved top to bottom, and the arrangement is saved', async ({ page }) => {
-			const stored = vertical();
+		test('a workflow saved top to bottom opens arranged, and is saved that way with the next edit', async ({
+			page
+		}) => {
+			const stored = vertical(withSkip());
 			const { saves } = await mockSettings(page, { legacy: stored });
 			await page.goto('/test/settings/workflows/legacy');
 			const editor = page.getByTestId('workflow-editor');
+			await expect(editor).toBeVisible();
+			// Loops go over the top and the skipping transition under the steps it passes.
+			await expectLeftToRight(editor, stored, loopsOf.full_cycle);
+			await expectSideHandles(editor, 'start', 'implement');
+			// Arranging it for display is not a change.
+			await expect(editor.getByTestId('workflow-save')).toBeDisabled();
+			await expect(editor.getByText('Unsaved changes')).toHaveCount(0);
+			expect(saves).toEqual([]);
+
+			await editor.getByLabel('Name').fill('Legacy, renamed');
+			await editor.getByTestId('workflow-save').click();
+			await expect.poll(() => saves.length).toBe(1);
+			const sent = saves[0].graph;
+			expect(sent.edges).toEqual(stored.edges);
+			expect(sent.nodes.map(({ position: _, ...rest }) => rest)).toEqual(
+				stored.nodes.map(({ position: _, ...rest }) => rest)
+			);
+			expect(sent.nodes.map((n) => n.position)).toEqual(templates.full_cycle.nodes.map((n) => n.position));
+		});
+
+		test('tidying up puts moved steps back in line, and the arrangement is saved', async ({ page }) => {
+			const moved: Record<string, { x: number; y: number }> = {
+				publish: { x: 700, y: 260 },
+				ci: { x: 1500, y: -220 }
+			};
+			const stored: Graph = {
+				...templates.review_loop,
+				nodes: templates.review_loop.nodes.map((n) => ({ ...n, position: moved[n.id] ?? n.position }))
+			};
+			const { saves } = await mockSettings(page, { moved: stored });
+			await page.goto('/test/settings/workflows/moved');
+			const editor = page.getByTestId('workflow-editor');
+			// Steps already running left to right stay where the person put them.
 			const before = await boxes(editor, stored);
 			expect(before.get('publish')!.y).toBeGreaterThan(before.get('implement')!.y + before.get('implement')!.height);
+			expect(before.get('ci')!.y).toBeLessThan(before.get('implement')!.y);
 
 			const arrange = editor.getByRole('toolbar').getByRole('button', { name: 'Tidy up', exact: true });
 			await arrange.focus();
@@ -358,12 +441,11 @@ for (const size of sizes) {
 			);
 			expect(sent.nodes.map((n) => n.position)).toEqual(templates.review_loop.nodes.map((n) => n.position));
 
-			// Undo brings the saved arrangement back.
+			// Undo brings the earlier arrangement back.
 			await editor.getByRole('toolbar').getByRole('button', { name: 'Undo', exact: true }).click();
 			await expect(async () => {
 				const undone = await boxes(editor, stored);
-				expect(undone.get('publish')!.y).toBeGreaterThan(undone.get('implement')!.y);
-				expect(Math.abs(undone.get('publish')!.x - undone.get('implement')!.x)).toBeLessThan(2);
+				expect(undone.get('publish')!.y).toBeGreaterThan(undone.get('implement')!.y + undone.get('implement')!.height);
 			}).toPass();
 		});
 
@@ -378,7 +460,7 @@ for (const size of sizes) {
 
 			// The task's version was saved top to bottom; the view arranges it.
 			const chart = view.getByTestId('task-workflow-chart');
-			await expectLeftToRight(chart, vertical(), loopsOf.review_loop);
+			await expectLeftToRight(chart, vertical(templates.review_loop), loopsOf.review_loop);
 			const widths = await chart.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
 			expect(widths.scroll).toBeGreaterThan(widths.client);
 
@@ -392,6 +474,15 @@ for (const size of sizes) {
 			await expect.poll(() => inView('ci')).toBe(true);
 			expect(await inView('start')).toBe(false);
 			expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+			// The scroll area is reached and scrolled with the keyboard.
+			await expect(chart).toHaveRole('group');
+			await expect(chart).toHaveAccessibleName('Workflow');
+			await chart.focus();
+			await expect(chart).toBeFocused();
+			const from = await chart.evaluate((el) => el.scrollLeft);
+			await page.keyboard.press('ArrowRight');
+			await expect.poll(() => chart.evaluate((el) => el.scrollLeft)).toBeGreaterThan(from);
 
 			// Scrolling sideways reaches both ends.
 			await chart.evaluate((el) => el.scrollTo({ left: el.scrollWidth }));
@@ -490,7 +581,7 @@ async function mockTask(page: Page) {
 					name: 'Review loop',
 					version: 1,
 					builtin: false,
-					graph: vertical(),
+					graph: vertical(templates.review_loop),
 					node: 'ci',
 					status: 'waiting',
 					visits: { start: 1, implement: 1, publish: 1, review: 1, ci: 1 },

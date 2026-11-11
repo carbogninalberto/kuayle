@@ -1,3 +1,8 @@
+<script lang="ts" module>
+	/** The space around a chart drawn at a fixed zoom, inside its canvas. */
+	export const CHART_PADDING = 24;
+</script>
+
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import '@xyflow/svelte/dist/style.css';
@@ -16,17 +21,15 @@
 	import { m } from '$lib/features/i18n/messages';
 	import WorkflowNodeCard, { type WorkflowFlowNode } from './WorkflowNodeCard.svelte';
 	import FlowBridge, { type FlowApi } from './FlowBridge.svelte';
-	import LoopEdge from './LoopEdge.svelte';
-	import DropEdge from './DropEdge.svelte';
+	import RouteEdge from './RouteEdge.svelte';
 	import type { WorkflowNodeType } from '$lib/api/workflows';
 	import { conditionLabel, issueLabel, profileTitle } from './labels';
 	import {
-		dropsDown,
 		extent,
-		layering,
-		loopOffsets,
+		nodeWidth,
 		opening,
 		placeIssues,
+		routes,
 		type Block,
 		type FiredTransition
 	} from './workflow-graph';
@@ -89,7 +92,7 @@
 	} = $props();
 
 	const nodeTypes: NodeTypes = { workflow: WorkflowNodeCard };
-	const edgeTypes: EdgeTypes = { loop: LoopEdge, drop: DropEdge };
+	const edgeTypes: EdgeTypes = { route: RouteEdge };
 
 	function subtitle(node: WorkflowGraph['nodes'][number]): string {
 		switch (node.type) {
@@ -140,12 +143,10 @@
 				onaddnext: editable && onaddnext && node.type !== 'end' ? (type: Block) => onaddnext(node.id, type) : undefined
 			}
 		}));
-		// Loops back to an earlier step arc over the top, each at its own height,
-		// and transitions to a lane below (failures) leave downwards, so neither
-		// crosses the main path; transitions between the same two steps share
-		// one label.
-		const { back } = layering(graph);
-		const loopOffset = loopOffsets(graph);
+		// Loops back to an earlier step, transitions to a lane below (failures)
+		// and ones that skip steps run between the cards on a route of their
+		// own; transitions between the same two steps share one label.
+		const routed = routes(graph);
 		const pairs = new Map<string, string[]>();
 		for (const edge of graph.edges) {
 			const key = `${edge.source}>${edge.target}`;
@@ -158,26 +159,24 @@
 		};
 		edges = graph.edges.map((edge) => {
 			const fired = run?.fired.get(edge.id);
-			const loop = back.has(edge.id);
+			const route = routed.get(edge.id);
 			const self = edge.source === edge.target;
 			const source = graph.nodes.find((n) => n.id === edge.source);
 			const target = graph.nodes.find((n) => n.id === edge.target);
-			const down = !loop && !!source && !!target && dropsDown(source, target);
 			const problem = placed.edges.has(edge.id);
 			return {
 				id: edge.id,
 				type: 'smoothstep',
 				source: edge.source,
 				target: edge.target,
-				...(loop
+				...(route && source && target
 					? {
-							type: 'loop',
-							sourceHandle: 'loop-out',
-							targetHandle: 'loop-in',
-							data: { offset: loopOffset.get(edge.id) }
+							type: 'route',
+							sourceHandle: route.exit === 'top' ? 'loop-out' : route.exit === 'bottom' ? 'side-out' : undefined,
+							targetHandle: route.enter === 'top' ? 'loop-in' : undefined,
+							data: { route, sourceWidth: nodeWidth(source.type), targetWidth: nodeWidth(target.type) }
 						}
 					: {}),
-				...(down ? { type: 'drop', sourceHandle: 'side-out' } : {}),
 				label: fired && fired.count > 1 ? `${conditionLabel(edge.condition)} ×${fired.count}` : pairLabel(edge),
 				selected: selection?.kind === 'edge' && selection.id === edge.id,
 				hidden: self,
@@ -198,8 +197,7 @@
 
 	// Where the canvas opens, once its size is known: Svelte Flow reads the
 	// viewport only when it starts.
-	// (TaskWorkflowView scrolls to a step knowing this padding.)
-	const PADDING = 24;
+	const PADDING = CHART_PADDING;
 	const box = $derived(zoom ? extent(graph) : undefined);
 	let width = $state(0),
 		height = $state(0);

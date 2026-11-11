@@ -6,9 +6,9 @@
 	import { workflows, type TaskWorkflow, type WorkflowDecision } from '$lib/api/workflows';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
-	import WorkflowCanvas from './WorkflowCanvas.svelte';
+	import WorkflowCanvas, { CHART_PADDING } from './WorkflowCanvas.svelte';
 	import { conditionLabel, statusLabel } from './labels';
-	import { extent, leftToRight, nodeWidth, pendingDecision, runOverlay } from './workflow-graph';
+	import { leftToRight, pendingDecision, runOverlay, scrollTo } from './workflow-graph';
 
 	// A task's workflow run: the graph with the current step highlighted, the
 	// path taken with visit counts and why each transition fired, and the
@@ -71,14 +71,15 @@
 	const chart = $derived(run ? leftToRight(run.graph) : null);
 	const zoom = $derived(compact ? 0.8 : 1);
 	let scroller = $state<HTMLDivElement>();
+	let width = $state(0);
 	let shownNode = '';
 	$effect(() => {
-		const at = chart?.nodes.find((n) => n.id === run?.node);
-		if (!scroller || !chart || !at || at.id === shownNode) return;
-		shownNode = at.id;
-		// The step's centre in the chart (see the canvas's padding), mid-view.
-		const centre = 24 + (at.position.x - extent(chart).x + nodeWidth(at.type) / 2) * zoom;
-		scroller.scrollLeft = centre - scroller.clientWidth / 2;
+		if (!scroller || !chart || !run || run.node === shownNode) return;
+		// Hidden (no width) there is nothing to centre: wait until it shows.
+		const left = scrollTo(chart, run.node, { width, zoom, padding: CHART_PADDING });
+		if (left === undefined) return;
+		scroller.scrollLeft = left;
+		shownNode = run.node;
 	});
 
 	async function decide(choice: WorkflowDecision) {
@@ -155,9 +156,15 @@
 			</div>
 		{/if}
 
-		{#if overlay && chart}<div
+		{#if overlay && chart}<!-- A scroll area must be reachable from the keyboard to be scrolled with it. -->
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+			<div
 				bind:this={scroller}
-				class="flex overflow-x-auto overscroll-x-contain rounded-lg border bg-muted/20"
+				bind:clientWidth={width}
+				class="flex overflow-x-auto overscroll-x-contain rounded-lg border bg-muted/20 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				role="group"
+				aria-label={m['workflows.task.title']()}
+				tabindex="0"
 				data-testid="task-workflow-chart"
 			>
 				<WorkflowCanvas

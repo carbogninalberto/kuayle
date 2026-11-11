@@ -59,7 +59,8 @@
 </script>
 
 <!-- Transitions run left to right; loops back arc over the top (in on the
-     left, out on the right) and a failure drops to the lane below. -->
+     left, out on the right) and a failure or a skip drops from the bottom.
+     RouteEdge knows these spots. -->
 {#if node.type !== 'start'}<Handle type="target" position={Position.Left} />
 	<Handle
 		id="loop-in"

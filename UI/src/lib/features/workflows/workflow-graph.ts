@@ -299,28 +299,96 @@ export function layering(graph: WorkflowGraph): { rank: Map<string, number>; bac
 	return { rank, back };
 }
 
+// The outcome a workflow hopes for at each step, most hoped-for first: among
+// equally long ways on, the main path follows these.
+const HOPED: WorkflowCondition[] = [
+	'agent_finished',
+	'checks_passed',
+	'review_approved',
+	'approval_approved',
+	'published',
+	'merged',
+	'else'
+];
+const failedEnd = (n: WorkflowNode) => (n.type === 'end' && n.outcome === 'failed' ? 1 : 0);
+const hoped = (condition: WorkflowCondition) => (HOPED.includes(condition) ? HOPED.indexOf(condition) : HOPED.length);
+
 /**
- * Arranges the graph left to right: one column per rank, the main path on the
- * top lane and the other steps of a rank (branches, then failed endings) in
- * lanes below it. Only positions change.
+ * Arranges the graph left to right: one column per rank. The main path (the
+ * longest way from the start, on the hoped-for outcomes) is the top lane; the
+ * other steps of a rank sit in lanes below it, branches before failed endings,
+ * each under the lane it comes from. The result depends on the transitions
+ * only, never on the order the steps are stored in. Only positions change.
  */
 export function tidy(graph: WorkflowGraph): WorkflowGraph {
-	const { rank } = layering(graph);
-	const failed = (n: WorkflowNode) => (n.type === 'end' && n.outcome === 'failed' ? 1 : 0);
+	const { rank, back } = layering(graph);
+	const nodes = new Map(graph.nodes.map((n) => [n.id, n]));
+	const forward = graph.edges.filter(
+		(e) => !back.has(e.id) && e.source !== e.target && nodes.has(e.source) && nodes.has(e.target)
+	);
+	const outgoing = new Map<string, WorkflowEdge[]>();
+	const incoming = new Map<string, WorkflowEdge[]>();
+	for (const edge of forward) {
+		outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge]);
+		incoming.set(edge.target, [...(incoming.get(edge.target) ?? []), edge]);
+	}
+	// How many steps still follow a step, at most.
+	const ahead = new Map<string, number>();
+	const stepsAhead = (id: string): number => {
+		const known = ahead.get(id);
+		if (known !== undefined) return known;
+		ahead.set(id, 0);
+		const most = Math.max(-1, ...(outgoing.get(id) ?? []).map((e) => stepsAhead(e.target))) + 1;
+		ahead.set(id, most);
+		return most;
+	};
+	const main = new Set<string>();
+	let at = graph.nodes.find((n) => n.type === 'start')?.id;
+	while (at && !main.has(at)) {
+		main.add(at);
+		at = [...(outgoing.get(at) ?? [])].sort(
+			(a, b) =>
+				stepsAhead(b.target) - stepsAhead(a.target) ||
+				failedEnd(nodes.get(a.target)!) - failedEnd(nodes.get(b.target)!) ||
+				hoped(a.condition) - hoped(b.condition) ||
+				a.target.localeCompare(b.target)
+		)[0]?.target;
+	}
+
 	const columns = new Map<number, WorkflowNode[]>();
 	for (const node of graph.nodes) {
 		const r = rank.get(node.id) ?? 0;
 		columns.set(r, [...(columns.get(r) ?? []), node]);
 	}
+	const lanes = new Map<string, number>();
+	// The lane a step comes from, and how hoped-for the transition into it is.
+	const origin = (node: WorkflowNode) => {
+		const from = (incoming.get(node.id) ?? []).filter((e) => lanes.has(e.source));
+		return {
+			lane: Math.min(Infinity, ...from.map((e) => lanes.get(e.source) ?? 0)),
+			hoped: Math.min(Infinity, ...from.map((e) => hoped(e.condition)))
+		};
+	};
 	const positions = new Map<string, { x: number; y: number }>();
 	let x = 0;
 	for (const r of [...columns.keys()].sort((a, b) => a - b)) {
-		// A stable sort: failed endings last, the rest in the graph's order.
-		const column = [...(columns.get(r) ?? [])].sort((a, b) => failed(a) - failed(b));
+		const column = [...(columns.get(r) ?? [])].sort((a, b) => {
+			const [from, other] = [origin(a), origin(b)];
+			return (
+				Number(main.has(b.id)) - Number(main.has(a.id)) ||
+				failedEnd(a) - failedEnd(b) ||
+				from.lane - other.lane ||
+				from.hoped - other.hoped ||
+				a.id.localeCompare(b.id)
+			);
+		});
 		const width = Math.max(...column.map((n) => nodeWidth(n.type)));
-		column.forEach((node, lane) =>
-			positions.set(node.id, { x: x + (width - nodeWidth(node.type)) / 2, y: lane * LANE })
-		);
+		// The top lane is the main path's, also where a rank has no step on it.
+		const first = column.some((n) => main.has(n.id)) ? 0 : 1;
+		column.forEach((node, i) => {
+			lanes.set(node.id, first + i);
+			positions.set(node.id, { x: x + (width - nodeWidth(node.type)) / 2, y: (first + i) * LANE });
+		});
 		x += width + GAP;
 	}
 	return { ...graph, nodes: graph.nodes.map((n) => ({ ...n, position: positions.get(n.id) ?? n.position })) };
@@ -332,8 +400,8 @@ const centre = (node: WorkflowNode) => ({
 });
 
 /**
- * The graph as a read-only view draws it: as stored when its steps already
- * run left to right, otherwise arranged (workflows saved top to bottom).
+ * The graph as the chart opens it: as stored when its steps already run left
+ * to right, otherwise arranged (workflows saved top to bottom).
  */
 export function leftToRight(graph: WorkflowGraph): WorkflowGraph {
 	const { back } = layering(graph);
@@ -350,32 +418,228 @@ export function leftToRight(graph: WorkflowGraph): WorkflowGraph {
 	return across > down ? graph : tidy(graph);
 }
 
-/** How far above its steps each loop back to an earlier step runs, the longest outermost. */
-export function loopOffsets(graph: WorkflowGraph): Map<string, number> {
-	const { rank, back } = layering(graph);
-	const span = (e: WorkflowEdge) => (rank.get(e.source) ?? 0) - (rank.get(e.target) ?? 0);
-	const loops = graph.edges.filter((e) => back.has(e.id) && e.source !== e.target).sort((a, b) => span(a) - span(b));
-	return new Map(loops.map((e, i) => [e.id, LOOP_BASE + i * LOOP_STEP]));
+/** Whether both graphs place every step at the same spot. */
+export function samePositions(a: WorkflowGraph, b: WorkflowGraph): boolean {
+	const at = new Map(b.nodes.map((n) => [n.id, n.position]));
+	return (
+		a.nodes.length === b.nodes.length &&
+		a.nodes.every((n) => at.get(n.id)?.x === n.position.x && at.get(n.id)?.y === n.position.y)
+	);
+}
+
+export interface Point {
+	x: number;
+	y: number;
 }
 
 /**
- * Whether a transition leaves its step downwards: its target sits in a lane
- * below and to the right, so the line drops to that lane and never crosses
- * the steps beside the source.
+ * A transition that cannot run straight from its step's right to the next
+ * one's left. It runs in the free space between the cards instead: a loop
+ * back to an earlier step over the top of the chart, a drop under the row of
+ * its step (to a lane below, or past steps it skips).
  */
-export function dropsDown(from: WorkflowNode, to: WorkflowNode): boolean {
-	return to.position.y >= from.position.y + NODE_HEIGHT && to.position.x > centre(from).x + 20;
+export interface Route {
+	kind: 'loop' | 'drop';
+	exit: 'top' | 'right' | 'bottom';
+	enter: 'top' | 'left';
+	/** Where along the card's top or bottom edge it leaves and enters (0 to 1). */
+	from: number;
+	to: number;
+	/** Where it turns, in turn: a y after leaving upwards or downwards, then an x, and so on. */
+	turns: number[];
 }
 
-/** The box around the graph's steps and the loops above them. */
+type Box = { x: number; y: number; width: number; height: number };
+const box = (node: WorkflowNode): Box => ({
+	x: node.position.x,
+	y: node.position.y,
+	width: nodeWidth(node.type),
+	height: NODE_HEIGHT
+});
+const TRACKS = 3;
+
+/** Whether the straight line between two points (level or upright) touches the box. */
+export function crosses(a: Point, b: Point, card: Box, margin = 4): boolean {
+	return (
+		Math.min(a.x, b.x) < card.x + card.width + margin &&
+		Math.max(a.x, b.x) > card.x - margin &&
+		Math.min(a.y, b.y) < card.y + card.height + margin &&
+		Math.max(a.y, b.y) > card.y - margin
+	);
+}
+
+/** The transitions that need a route of their own, by ID; the others run straight to the next step. */
+export function routes(graph: WorkflowGraph): Map<string, Route> {
+	const { rank, back } = layering(graph);
+	const nodes = new Map(graph.nodes.map((n) => [n.id, n]));
+	const found = new Map<string, Route>();
+	const ends = (edge: WorkflowEdge) => ({ from: nodes.get(edge.source), to: nodes.get(edge.target) });
+	// Another card above this one: a line cannot rise from, or come down to, its top.
+	const covered = (node: WorkflowNode) =>
+		graph.nodes.some(
+			(other) =>
+				other.id !== node.id &&
+				other.position.y < node.position.y &&
+				other.position.x < node.position.x + nodeWidth(node.type) &&
+				node.position.x < other.position.x + nodeWidth(other.type)
+		);
+
+	// Loops arc over the whole chart, each at its own height, the longest outermost.
+	const top = Math.min(0, ...graph.nodes.map((n) => n.position.y));
+	const span = (e: WorkflowEdge) => (rank.get(e.source) ?? 0) - (rank.get(e.target) ?? 0);
+	graph.edges
+		.filter((e) => back.has(e.id) && e.source !== e.target && nodes.has(e.source) && nodes.has(e.target))
+		.sort((a, b) => span(a) - span(b) || a.id.localeCompare(b.id))
+		.forEach((edge, i) => {
+			const { from, to } = ends(edge);
+			if (!from || !to) return;
+			const y = top - LOOP_BASE - i * LOOP_STEP;
+			const exit = covered(from) ? 'right' : 'top';
+			const enter = covered(to) ? 'left' : 'top';
+			found.set(edge.id, {
+				kind: 'loop',
+				exit,
+				enter,
+				from: 0.65,
+				to: 0.35,
+				turns: [
+					...(exit === 'right' ? [from.position.x + nodeWidth(from.type) + CLEAR] : []),
+					y,
+					...(enter === 'left' ? [to.position.x - CLEAR] : [])
+				]
+			});
+		});
+
+	// A transition to a lane below, or one whose straight line would run
+	// through a card, drops under its step's row and runs there to the gap
+	// before its target. Transitions to the same target share a track.
+	const drops = graph.edges.filter((edge) => {
+		const { from, to } = ends(edge);
+		if (!from || !to || back.has(edge.id) || edge.source === edge.target) return false;
+		const right = from.position.x + nodeWidth(from.type);
+		if (to.position.y >= from.position.y + NODE_HEIGHT && to.position.x > centre(from).x + 20) return true;
+		if (to.position.x <= right) return false;
+		const [a, b] = [
+			{ x: right, y: centre(from).y },
+			{ x: to.position.x, y: centre(to).y }
+		];
+		const mid = (a.x + b.x) / 2;
+		const line = [a, { x: mid, y: a.y }, { x: mid, y: b.y }, b];
+		return graph.nodes.some(
+			(other) =>
+				other.id !== from.id &&
+				other.id !== to.id &&
+				line.some((point, i) => i > 0 && crosses(line[i - 1], point, box(other)))
+		);
+	});
+	const targets = [...new Set(drops.map((e) => e.target))].sort((a, b) => {
+		const [one, other] = [nodes.get(a)!, nodes.get(b)!];
+		return one.position.x - other.position.x || one.position.y - other.position.y || a.localeCompare(b);
+	});
+	const leaving = new Map<string, WorkflowEdge[]>();
+	for (const edge of drops) leaving.set(edge.source, [...(leaving.get(edge.source) ?? []), edge]);
+	for (const [source, list] of leaving) {
+		const from = nodes.get(source)!;
+		// Transitions to the same target leave together; the others side by side.
+		const exits = [...new Set(list.map((e) => e.target))].sort((a, b) => targets.indexOf(a) - targets.indexOf(b));
+		for (const edge of list) {
+			const to = nodes.get(edge.target)!;
+			const track = targets.indexOf(edge.target) % TRACKS;
+			found.set(edge.id, {
+				kind: 'drop',
+				exit: 'bottom',
+				enter: 'left',
+				from: (exits.indexOf(edge.target) + 1) / (exits.length + 1),
+				to: 0.5,
+				turns: [from.position.y + NODE_HEIGHT + 34 + track * 12, to.position.x - CLEAR - track * 8]
+			});
+		}
+	}
+	return found;
+}
+/** How far from a card a line beside it runs. */
+const CLEAR = 14;
+
+/**
+ * The corners of a routed transition between the points where it leaves and
+ * enters its steps (the canvas takes those from the cards as drawn).
+ */
+export function polyline(start: Point, end: Point, route: Route): Point[] {
+	const points = [start];
+	let upright = route.exit !== 'right';
+	for (const turn of route.turns) {
+		const last = points[points.length - 1];
+		points.push(upright ? { x: last.x, y: turn } : { x: turn, y: last.y });
+		upright = !upright;
+	}
+	const last = points[points.length - 1];
+	points.push(upright ? { x: last.x, y: end.y } : { x: end.x, y: last.y }, end);
+	return points;
+}
+
+/** Where a routed transition leaves and enters its steps, from their stored positions. */
+export function anchors(from: WorkflowNode, to: WorkflowNode, route: Route): { start: Point; end: Point } {
+	const start =
+		route.exit === 'right'
+			? { x: from.position.x + nodeWidth(from.type), y: centre(from).y }
+			: {
+					x: from.position.x + route.from * nodeWidth(from.type),
+					y: from.position.y + (route.exit === 'bottom' ? NODE_HEIGHT : 0)
+				};
+	const end =
+		route.enter === 'left'
+			? { x: to.position.x, y: centre(to).y }
+			: { x: to.position.x + route.to * nodeWidth(to.type), y: to.position.y };
+	return { start, end };
+}
+
+/** An SVG path through the points with rounded corners. */
+export function roundedPath(points: Point[], radius = 8): string {
+	let path = `M ${points[0].x} ${points[0].y}`;
+	for (let i = 1; i < points.length; i++) {
+		const [before, at, after] = [points[i - 1], points[i], points[i + 1]];
+		if (!after) {
+			path += ` L ${at.x} ${at.y}`;
+			break;
+		}
+		const length = (a: Point, b: Point) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+		const r = Math.min(radius, length(before, at) / 2, length(at, after) / 2);
+		const towards = (to: Point) => ({
+			x: at.x + Math.sign(to.x - at.x) * r,
+			y: at.y + Math.sign(to.y - at.y) * r
+		});
+		const [into, out] = [towards(before), towards(after)];
+		path += ` L ${into.x} ${into.y} Q ${at.x} ${at.y} ${out.x} ${out.y}`;
+	}
+	return path;
+}
+
+/** The box around the graph's steps and the transitions routed above and below them. */
 export function extent(graph: WorkflowGraph): { x: number; y: number; width: number; height: number } {
 	if (graph.nodes.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
-	const loops = Math.max(0, ...loopOffsets(graph).values());
+	const routed = [...routes(graph).values()];
+	const tracks = (kind: Route['kind']) =>
+		routed.filter((r) => r.kind === kind).map((r) => r.turns[r.exit === 'right' ? 1 : 0]);
 	const left = Math.min(...graph.nodes.map((n) => n.position.x));
-	const top = Math.min(...graph.nodes.map((n) => n.position.y)) - (loops > 0 ? loops + 12 : 0);
+	const top = Math.min(...graph.nodes.map((n) => n.position.y), ...tracks('loop').map((y) => y - 12));
 	const right = Math.max(...graph.nodes.map((n) => n.position.x + nodeWidth(n.type)));
-	const bottom = Math.max(...graph.nodes.map((n) => n.position.y + NODE_HEIGHT));
+	const bottom = Math.max(...graph.nodes.map((n) => n.position.y + NODE_HEIGHT), ...tracks('drop').map((y) => y + 8));
 	return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/**
+ * Where a sideways-scrolling chart drawn at the zoom (with the padding
+ * around it) scrolls to show the step mid-view; nothing while the view has
+ * no width yet (it is hidden).
+ */
+export function scrollTo(
+	graph: WorkflowGraph,
+	id: string,
+	view: { width: number; zoom: number; padding: number }
+): number | undefined {
+	const node = graph.nodes.find((n) => n.id === id);
+	if (!node || view.width <= 0) return undefined;
+	return Math.max(0, view.padding + (centre(node).x - extent(graph).x) * view.zoom - view.width / 2);
 }
 
 /**

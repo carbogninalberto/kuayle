@@ -63,6 +63,7 @@
 		duplicateNode,
 		graphForSave,
 		leftToRight,
+		samePositions,
 		newNode,
 		removeEdge,
 		removeNode,
@@ -99,7 +100,11 @@
 	const VARIABLES = ['{{plan}}', '{{previous_summary}}', '{{review_comments}}', '{{failing_checks}}', '{{diff}}'];
 	const clone = (graph: WorkflowGraph): WorkflowGraph => JSON.parse(JSON.stringify(graph));
 
-	let graph = $state<WorkflowGraph>(untrack(() => clone(workflow.graph)));
+	// The chart runs left to right, so a workflow saved top to bottom opens
+	// arranged. That alone is not a change: nothing is unsaved and no version
+	// is made until the person edits something, and that save then stores the
+	// arranged positions too.
+	let graph = $state<WorkflowGraph>(untrack(() => leftToRight(clone(workflow.graph))));
 	let name = $state(untrack(() => workflow.name));
 	let description = $state(untrack(() => workflow.description));
 	let version = $state(untrack(() => workflow.latest_version));
@@ -212,8 +217,11 @@
 	// Arranges the steps left to right. Only positions change, so it is saved
 	// and undone like any other edit.
 	async function arrange() {
-		lastChange = 0;
-		change(tidy(graph));
+		const arranged = tidy(graph);
+		if (!samePositions(arranged, graph)) {
+			lastChange = 0;
+			change(arranged);
+		}
 		await tick();
 		flow?.fit();
 	}
@@ -445,7 +453,7 @@
 		<div class="relative min-h-0 bg-muted/30">
 			{#snippet canvas()}
 				<WorkflowCanvas
-					graph={editable ? graph : leftToRight(graph)}
+					{graph}
 					{profiles}
 					{issues}
 					{editable}

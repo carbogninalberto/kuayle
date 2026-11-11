@@ -419,6 +419,10 @@ func standardCopy(implementer uuid.UUID) domain.WorkflowGraph {
 		case "review":
 			graph.Nodes[i].MaxVisits = 6
 			graph.Nodes[i].Prompt = "Review the pull request"
+		case "failed":
+			// Publishing can fail here, so the failed ending follows Publish:
+			// one column further right than in the built-in graph.
+			graph.Nodes[i].Position = domain.WorkflowPositionAt(4, 1, true)
 		}
 	}
 	graph.Edges = append(graph.Edges, domain.WorkflowEdge{ID: "e-publish-failed", Source: "publish", Target: "failed", Condition: domain.WorkflowPublishFailed})
