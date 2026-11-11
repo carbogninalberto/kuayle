@@ -52,6 +52,7 @@ async function fixture(page: Page) {
 		missingRun: false,
 		signIns: [] as any[],
 		resumes: [] as string[],
+		pauses: [] as string[],
 		signInFound: false,
 		tokenSaves: [] as any[],
 		sessions: [] as any[],
@@ -236,6 +237,30 @@ async function fixture(page: Page) {
 				state.signIns.push(req.postDataJSON());
 				if (!state.signInFound) return route.fulfill({ status: 409, json: { error: { code: 'SIGN_IN_NOT_FOUND' } } });
 				state.task = { ...state.task, state: 'queued', generation: 2, run_id: 'run-2', sign_in_required: false };
+				return route.fulfill({ status: 202, json: state.task });
+			}
+			if (path.endsWith('/pause')) {
+				const mode = req.postDataJSON().mode;
+				state.pauses.push(mode);
+				const updated_at = new Date(Date.parse(state.task.updated_at) + 1000).toISOString();
+				// "Pause now" stops the agent; "after this step" only records the request.
+				state.task =
+					mode === 'now'
+						? { ...state.task, state: 'blocked', reason: 'Paused', workflow_paused_at: updated_at, updated_at }
+						: { ...state.task, workflow_pause_request: mode, updated_at };
+				return route.fulfill({ status: 202, json: state.task });
+			}
+			if (path.endsWith('/resume') && (state.task.workflow_paused_at || state.task.workflow_pause_request)) {
+				state.resumes.push('workflow');
+				const updated_at = new Date(Date.parse(state.task.updated_at) + 1000).toISOString();
+				const stopped = !!state.task.workflow_paused_at;
+				state.task = {
+					...state.task,
+					...(stopped ? { state: 'queued', reason: 'Resumed', generation: state.task.generation + 1, run_id: 'run-2' } : {}),
+					workflow_paused_at: null,
+					workflow_pause_request: null,
+					updated_at
+				};
 				return route.fulfill({ status: 202, json: state.task });
 			}
 			if (path.endsWith('/resume')) {
@@ -898,6 +923,96 @@ test('opens the recorded pull request only after publication succeeds', async ({
 	await page.reload();
 	await expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
 	expect(state.creates).toHaveLength(1);
+});
+
+// KUA-129: a running workflow is paused from the task card's menu, where
+// cancel is, now or after the current step. A paused task says "Paused" and
+// has one next step, Resume.
+test('pauses a running workflow from the task menu and resumes it', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	const card = page.getByRole('article', { name: 'Coding task' });
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	// A task on the Standard flow has no workflow to pause.
+	await openTaskMenu(page);
+	await expect(page.getByRole('menuitem', { name: 'Cancel task', exact: true })).toBeVisible();
+	await expect(page.getByRole('menuitem', { name: 'Pause', exact: true })).toHaveCount(0);
+	await page.keyboard.press('Escape');
+
+	state.task = {
+		...state.task,
+		state: 'running',
+		reason: 'Workflow · Start → Implementer',
+		workflow_version_id: 'version-1',
+		workflow_node: 'implement',
+		workflow_status: 'running'
+	};
+	emit('task.state_changed', state.task);
+	await expect(tasks.getByText('Running', { exact: true })).toBeVisible();
+	await expect(card.getByRole('button', { name: 'Resume', exact: true })).toHaveCount(0);
+
+	// After this step: the agent keeps working, and the request can be withdrawn.
+	await openTaskMenu(page);
+	await page.getByRole('menuitem', { name: 'Pause', exact: true }).click();
+	await expect(page.getByRole('menuitem', { name: 'Pause now', exact: true })).toBeVisible();
+	await page.getByRole('menuitem', { name: 'Pause after this step', exact: true }).click();
+	await expect(tasks.getByText('Pausing', { exact: true })).toBeVisible();
+	await openTaskMenu(page);
+	await expect(page.getByRole('menuitem', { name: 'Pause', exact: true })).toHaveCount(0);
+	await page.keyboard.press('Escape');
+	await card.getByRole('button', { name: 'Resume', exact: true }).click();
+	await expect(tasks.getByText('Running', { exact: true })).toBeVisible();
+	await expect(card.getByRole('button', { name: 'Resume', exact: true })).toHaveCount(0);
+
+	// Now: the task is paused, not blocked or failed, and resuming is its one next step.
+	await openTaskMenu(page);
+	await page.getByRole('menuitem', { name: 'Pause', exact: true }).click();
+	await page.getByRole('menuitem', { name: 'Pause now', exact: true }).click();
+	await expect(tasks.getByText('Paused', { exact: true })).toBeVisible();
+	await expect(tasks.getByText('Blocked', { exact: true })).toHaveCount(0);
+	await expect(card.getByRole('button', { name: 'Retry task', exact: true })).toHaveCount(0);
+	await openTaskMenu(page);
+	await expect(page.getByRole('menuitem', { name: 'Retry task', exact: true })).toBeVisible();
+	await expect(page.getByRole('menuitem', { name: 'Cancel task', exact: true })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await card.getByRole('button', { name: 'Resume', exact: true }).click();
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	await expect(card.getByRole('button', { name: 'Resume', exact: true })).toHaveCount(0);
+	expect(state.pauses).toEqual(['after_step', 'now']);
+	expect(state.resumes).toEqual(['workflow', 'workflow']);
+
+	// A pause that took effect elsewhere (another tab, or after the step)
+	// shows on a waiting task too, which keeps its state underneath.
+	state.task = {
+		...state.task,
+		state: 'awaiting_review',
+		reason: 'Workflow · waiting for CI on the pull request',
+		workflow_status: 'waiting',
+		workflow_paused_at: '2026-11-11T10:00:00Z'
+	};
+	emit('task.updated', state.task);
+	await expect(tasks.getByText('Paused', { exact: true })).toBeVisible();
+	await expect(card.getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
+	await expect(card.getByRole('button', { name: 'Accept', exact: true })).toHaveCount(0);
+
+	// The agent hit its usage limit while a pause was requested after the
+	// step: the card has one way to resume, the usage limit's own.
+	state.task = {
+		...state.task,
+		state: 'blocked',
+		reason: 'Paused: Codex usage limit reached.',
+		workflow_status: 'running',
+		workflow_paused_at: null,
+		workflow_pause_request: 'after_step',
+		usage_limit_message: "You've hit your usage limit",
+		usage_limit_resume_at: '2026-11-12T04:12:00Z'
+	};
+	emit('task.updated', state.task);
+	await expect(card.getByTestId('task-usage-limit')).toBeVisible();
+	await expect(card.getByRole('button', { name: /^Resume/ })).toHaveCount(1);
+	await expect(card.getByRole('button', { name: 'Resume now', exact: true })).toBeVisible();
 });
 
 // Tools and secondary actions live in the task card's one "More actions" menu.

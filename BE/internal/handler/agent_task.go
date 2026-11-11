@@ -268,14 +268,35 @@ func (h *AgentTaskHandler) Retry(c *echo.Context) error {
 	return response.Success(c, http.StatusAccepted, result)
 }
 
-// ResumeUsageLimit is "Resume now" on a task paused by its agent's usage
+// Pause pauses the workflow of the creator's task: "now" stops the agent
+// that is working, "after_step" waits for the current step's outcome.
+func (h *AgentTaskHandler) Pause(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	var input struct {
+		Mode string `json:"mode"`
+	}
+	if err = bindTask(c, &input); err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.PauseWorkflow(c.Request().Context(), middleware.GetWorkspace(c).ID, id, input.Mode)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusAccepted, result)
+}
+
+// ResumeUsageLimit is "Resume" on a paused task: a workflow its creator
+// paused, or "Resume now" on a task paused by its agent's usage
 // limit: the next attempt starts at once and continues the same session.
 func (h *AgentTaskHandler) ResumeUsageLimit(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
 	}
-	result, err := h.svc.ResumeUsageLimitNow(c.Request().Context(), middleware.GetWorkspace(c).ID, id)
+	result, err := h.svc.Resume(c.Request().Context(), middleware.GetWorkspace(c).ID, id)
 	if err != nil {
 		return agentTaskError(c, err)
 	}

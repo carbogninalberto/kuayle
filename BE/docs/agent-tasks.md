@@ -1659,6 +1659,70 @@ and shows a task's run in its Agents panel.
 Not implemented: per-profile skills and tool sets, sharing across workspaces,
 parallel branches and workflows for non-coding automations.
 
+### Pause and resume
+
+The creator of a task can pause its running workflow and resume it later from
+the same step (KUA-129, migration `000145_workflow_pause`). It is the creator's
+control, like cancel: nobody else, in any role, pauses or resumes a task.
+
+`POST /agent-tasks/:taskId/pause` takes `{"mode": "now" | "after_step"}` and
+answers 202 with the task. What it does depends on what the task is doing:
+
+| The task is | `now` | `after_step` |
+| --- | --- | --- |
+| waiting (CI, an approval, a merge, a reviewer) or not started yet | pauses at once, where it is | the same |
+| running its agent | stops the agent and pauses | pauses when the step has an outcome |
+| running a check or a publication | pauses when it has a result | the same |
+
+A paused task has `workflow_paused_at`; a pause that has not taken effect yet
+is `workflow_pause_request`. While paused the worker does not claim the task
+and every workflow move is refused, so a waiting step does not advance when CI
+finishes or its review ends, nobody decides an approval, and no step starts.
+A reviewer's own review task keeps running; its verdict is read after the
+resume. A pull request merged on GitHub still completes the task.
+
+"Pause now" on a working agent reuses the usage-limit path: the attempt goes
+through the usual runtime cleanup (`cancelling`), which keeps the machine, the
+checkout, the worktree and the session transcripts, and ends in `blocked` with
+the reason "Paused". The task keeps its machine and checkout; a machine that
+was stopped meanwhile is started again when the task resumes. A cleanup that
+fails for good (the machine manager is down) is started again by the worker
+until it succeeds, and the task then waits paused; cancelling it meanwhile
+cancels it. A paused task does not count as load on its machine, however it
+was paused, so other tasks can share or reuse the machine; only the cleanup
+of a stopped attempt still does.
+
+`POST /agent-tasks/:taskId/resume` resumes (202 with the task). An interrupted
+step continues as a new attempt on the same step, visit and iteration, with
+`resume_native_session` set, so a harness that recorded a session continues
+it (`claude --resume`) and any other gets the handoff, both told that a person
+paused the attempt and to continue where it stopped. A task paused elsewhere is
+simply picked up again: a waiting step is evaluated at once, a finished step's
+outcome is applied. Resuming a pause that has not taken effect withdraws it.
+The same route still resumes a task paused by a [usage limit](#usage-limits);
+if a pause was waiting for the step the limit interrupted, that resume ends
+the request too and the task runs again (an automatic resume keeps it).
+
+"Pause now" followed by a resume starts a fresh attempt without counting a
+visit or an iteration, so repeating it is bounded only by the workflow's
+working-time budget.
+
+The time spent paused is added to the start of the workflow's time budget
+(`workflow_budget_from`) and to the open step's `paused_seconds`, which its
+timeout leaves out. Visit counts and iterations do not change. Cancelling a
+paused task cancels it; retrying it ends the pause and starts a new visit.
+
+Every request, pause, resume and withdrawal is a `workflow_audit_events` row
+(entity `task_workflow`; actions `pause_requested`, `paused`, `resumed`,
+`pause_withdrawn`; the step's `sequence` and the `mode`). The task carries
+`workflow_paused_at` and `workflow_pause_request`, and
+`GET /agent-tasks/:taskId/workflow` returns `paused_at`, `pause_request`, the
+`pauses` list (the newest 500: action, sequence, mode, actor, time, oldest
+first) and each
+step's `paused_seconds`. The task card shows "Paused" with one Resume button,
+and offers Pause in its menu; `WorkflowPauseControl.svelte` is the same
+control as a standalone component.
+
 ## Remaining workflow work
 
 The worker progresses through preparation, native execution (with native
@@ -1694,6 +1758,9 @@ and cancellation remain available to authorized users.
 - `GET /agent-tasks/:taskId` reads the durable task.
 - `POST /agent-tasks/:taskId/cancel` requests cleanup, including an explicit retry
   of exhausted cleanup operations.
+- `POST /agent-tasks/:taskId/pause` and `POST /agent-tasks/:taskId/resume` pause
+  and resume a task's workflow ([Pause and resume](#pause-and-resume)); creator
+  only, session only.
 - `POST /agent-tasks/:taskId/retry` requires request UUID, expected generation and
   new instructions; it preserves the task worktree.
 - `POST /agent-tasks/:taskId/accept` completes a task awaiting review without

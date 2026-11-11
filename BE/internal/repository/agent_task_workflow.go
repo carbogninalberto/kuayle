@@ -353,6 +353,10 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 	if !task.RunsWorkflow() || task.WorkflowSequence != apply.Sequence || (len(apply.Moves) == 0) != apply.Hold || WorkflowEntryState(apply.Entry.Kind) == "" {
 		return ErrAgentTaskConflict
 	}
+	// Nothing moves while a person's pause holds the workflow.
+	if task.WorkflowPausedAt != nil {
+		return ErrAgentTaskConflict
+	}
 	if apply.Hold {
 		// Only an unfinished step is held: a waiting one stops (fails or
 		// pauses), and a paused one waits again. A hold keeps the sequence,
@@ -609,7 +613,7 @@ func closeWorkflowOnFinish(ctx context.Context, tx *sqlx.Tx, task domain.AgentTa
 	if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET outcome=COALESCE(outcome,$2),finished_at=now() WHERE task_id=$1 AND finished_at IS NULL`, task.ID, "task_"+task.State); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_status=$2,workflow_wake_at=NULL WHERE id=$1`, task.ID, status)
+	_, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_status=$2,workflow_wake_at=NULL,workflow_paused_at=NULL,workflow_pause_request=NULL WHERE id=$1`, task.ID, status)
 	return err
 }
 
