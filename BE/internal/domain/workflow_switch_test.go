@@ -23,13 +23,12 @@ func TestMatchWorkflowNodeKeepsOnlyTheSameStep(t *testing.T) {
 		{ID: "ship", Type: WorkflowNodeApproval, Label: "Ready to ship"},
 	}}
 	to := WorkflowGraph{Nodes: []WorkflowNode{
-		{ID: "implement", Type: WorkflowNodeAgent, Label: "Build it", ProfileID: &otherCoder, Prompt: "new prompt", MaxVisits: 9},
+		{ID: "implement", Type: WorkflowNodeAgent, Label: "Build it", ProfileID: &coder, Prompt: "new prompt", MaxVisits: 9},
 		{ID: "ci", Type: WorkflowNodeCheck, Check: WorkflowCheckTests, Label: "Tests"},
 		{ID: "review", Type: WorkflowNodeAgent, Label: "Review", ProfileID: &reviewer},
 	}}
 
-	// Same step with a new label, prompt, limit and another profile that
-	// also changes code: the task continues on it.
+	// Same step with a new label, prompt and limit: the task continues on it.
 	node, refused := MatchWorkflowNode("implement", from, to, profiles)
 	require.Empty(t, refused)
 	require.Equal(t, "Build it", node.Label)
@@ -41,9 +40,13 @@ func TestMatchWorkflowNodeKeepsOnlyTheSameStep(t *testing.T) {
 	// The id is kept but the step now does something else.
 	_, refused = MatchWorkflowNode("ci", from, to, profiles)
 	require.Equal(t, WorkflowSwitchStepChanged, refused)
-	planned := WorkflowGraph{Nodes: []WorkflowNode{{ID: "implement", Type: WorkflowNodeAgent, ProfileID: &planner}}}
-	_, refused = MatchWorkflowNode("implement", from, planned, profiles)
-	require.Equal(t, WorkflowSwitchStepChanged, refused, "a step that planned instead of changing code is another step")
+	// Another profile on the step the task is on would continue an attempt
+	// started with one harness and model under another's instructions.
+	for _, other := range []uuid.UUID{planner, otherCoder} {
+		swapped := WorkflowGraph{Nodes: []WorkflowNode{{ID: "implement", Type: WorkflowNodeAgent, ProfileID: &other}}}
+		_, refused = MatchWorkflowNode("implement", from, swapped, profiles)
+		require.Equal(t, WorkflowSwitchStepChanged, refused)
+	}
 	retyped := WorkflowGraph{Nodes: []WorkflowNode{{ID: "implement", Type: WorkflowNodeApproval}}}
 	_, refused = MatchWorkflowNode("implement", from, retyped, profiles)
 	require.Equal(t, WorkflowSwitchStepChanged, refused)
@@ -73,6 +76,9 @@ func TestWorkflowSwitchNeedsATaskAtRest(t *testing.T) {
 	task := AgentTask{WorkflowVersionID: &version, State: "running", WorkflowStatus: status(WorkflowStatusRunning)}
 	require.Equal(t, WorkflowSwitchNotAtRest, WorkflowSwitchBlocked(task))
 	task.WorkflowStatus = status(WorkflowStatusWaiting)
+	// A task being cancelled still reads "waiting" until its cleanup is done.
+	task.State = "cancelling"
+	require.Equal(t, WorkflowSwitchNotAtRest, WorkflowSwitchBlocked(task))
 	task.State = "awaiting_review"
 	require.Empty(t, WorkflowSwitchBlocked(task))
 	task.WorkflowStatus = status(WorkflowStatusRunning)

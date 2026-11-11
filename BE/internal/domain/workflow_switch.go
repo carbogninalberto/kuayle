@@ -56,7 +56,8 @@ func WorkflowSwitchBlocked(task AgentTask) string {
 		}
 		return ""
 	}
-	if task.WorkflowStatus != nil && *task.WorkflowStatus == WorkflowStatusWaiting {
+	// A task being cancelled still says "waiting" until its cleanup is done.
+	if task.State == "awaiting_review" && task.WorkflowStatus != nil && *task.WorkflowStatus == WorkflowStatusWaiting {
 		return ""
 	}
 	return WorkflowSwitchNotAtRest
@@ -64,9 +65,12 @@ func WorkflowSwitchBlocked(task AgentTask) string {
 
 // MatchWorkflowNode finds the step a task is on in another version of its
 // workflow. It is the same step only when it kept its ID and does the same
-// kind of work: the same node type, the same check, and for an agent step a
-// profile with the same behaviour. Label, prompt, limits, the profile itself
-// and the transitions may all differ: that is what moving is for.
+// kind of work: the same node type, the same check, and for an agent step
+// the same profile. An agent step the task is on has an attempt or a review
+// that was started with that profile's harness, model and instructions, and
+// is continued with them: another profile there would mix the two. Label,
+// prompt, limits and the transitions may all differ, and so may every other
+// step: that is what moving is for.
 func MatchWorkflowNode(id string, from, to WorkflowGraph, profiles map[uuid.UUID]AgentProfile) (WorkflowNode, string) {
 	current, ok := from.Node(id)
 	if !ok {
@@ -83,9 +87,7 @@ func MatchWorkflowNode(id string, from, to WorkflowGraph, profiles map[uuid.UUID
 		if current.ProfileID == nil || next.ProfileID == nil {
 			return WorkflowNode{}, WorkflowSwitchStepChanged
 		}
-		was, known := profiles[*current.ProfileID]
-		now, exists := profiles[*next.ProfileID]
-		if !known || !exists || was.Behaviour != now.Behaviour {
+		if _, exists := profiles[*next.ProfileID]; !exists || *next.ProfileID != *current.ProfileID {
 			return WorkflowNode{}, WorkflowSwitchStepChanged
 		}
 	}

@@ -16,8 +16,10 @@ import (
 //
 // A task is moved only while nothing acts on its workflow (paused, or
 // waiting on a step) and only onto the step it is on, when the newest
-// version still has that step doing the same kind of work. The task then
-// follows the new prompts, profiles, transitions and limits. Visits of steps
+// version still has that step doing the same kind of work, run by the same
+// profile. The step it is on was entered under the old version and keeps
+// the prompt it was given; from its next step the task follows the new
+// prompts, profiles, transitions and limits. Visits of steps
 // that still exist, the iterations used and the time already spent are
 // kept, so the new limits and budget count what the task already did. The
 // worker's lease is dropped: whatever it decided on the old version is
@@ -90,7 +92,10 @@ func (r *AgentTaskRepository) SwitchWorkflow(ctx context.Context, ws, id uuid.UU
 	if err != nil {
 		return nil, nil, err
 	}
+	// A waiting task is looked at again at once (workflow_wake_at), so the
+	// new version's timeouts and budget apply now and not at the old wake-up.
 	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_version_id=$2,workflow_visits=$3,
+ workflow_wake_at=CASE WHEN workflow_paused_at IS NULL THEN now() ELSE workflow_wake_at END,
  lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),updated_at=now() WHERE id=$1 RETURNING *`, id, newest.ID, visits); err != nil {
 		return nil, nil, err
 	}
