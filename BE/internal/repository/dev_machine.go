@@ -1160,7 +1160,7 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 		if err := tx.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE machine_id=$1 AND task_id IS NULL AND status IN ('queued','starting','running','waiting_input'))
 		OR EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE task_id=$2 AND id<>$3 AND status IN ('queued','starting','running','waiting_input'))
 		OR (SELECT count(DISTINCT r.task_id) FROM dev_machine_agent_runs r WHERE r.machine_id=$1 AND r.task_id<>$2
-			AND (r.status IN ('queued','starting','running','waiting_input') OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.run_id=r.id AND t.state IN ('preparing','running','waiting_input','validating','publishing','cancelling'))))
+			AND (r.status IN ('queued','starting','running','waiting_input') OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.run_id=r.id AND t.state IN ('preparing','running','waiting_input','validating','publishing','cancelling') AND `+taskHoldsMachine("t")+`)))
 			>= COALESCE((SELECT task_machine_max_tasks FROM dev_machine_workspace_policies WHERE workspace_id=$4), $5)`,
 			run.MachineID, *run.TaskID, run.ID, run.WorkspaceID, domain.DefaultTaskMachineMaxTasks); err != nil {
 			return err

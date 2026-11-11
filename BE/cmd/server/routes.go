@@ -513,6 +513,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/cancel", h.agentTask.Cancel)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/retry", h.agentTask.Retry)
 	// A task paused by its agent's usage limit: resume now, or don't resume.
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/pause", h.agentTask.Pause)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/resume", h.agentTask.ResumeUsageLimit)
 	sessionOnly(dm, http.MethodDelete, "/agent-tasks/:taskId/resume", h.agentTask.CancelUsageLimitResume)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/accept", h.agentTask.Accept)

@@ -703,7 +703,7 @@ const handoffMarker = "\n\n---\nSuccessor attempt handoff"
 // harness sessions are not restored between attempts, so this successor is
 // explicitly identified and told what already happened on the same worktree.
 // The previous agent's summary is fenced as untrusted text.
-func withHandoff(prompt string, previous *domain.AgentHandoff, resumed, usageLimited bool) string {
+func withHandoff(prompt string, previous *domain.AgentHandoff, resumed, continued bool) string {
 	if previous == nil {
 		return prompt
 	}
@@ -713,8 +713,14 @@ func withHandoff(prompt string, previous *domain.AgentHandoff, resumed, usageLim
 	} else {
 		fmt.Fprintf(&b, "%s (previous attempt %s): this is a new session on the same branch and worktree; the previous session cannot be resumed.\n", handoffMarker, previous.AttemptID)
 	}
-	if usageLimited {
-		b.WriteString("- The previous attempt was paused by the provider's usage limit, not by a failure. Continue exactly where it stopped: the worktree is unchanged; do not start over, reset or discard changes.\n")
+	// continued: the task resumed after a pause (task.ResumeNativeSession). A
+	// person's pause cancels the attempt; a usage limit fails it.
+	if continued {
+		cause := "the provider's usage limit"
+		if previous.Status == string(domain.DevMachineAgentRunStatusCancelled) {
+			cause = "a person"
+		}
+		b.WriteString("- The previous attempt was paused by " + cause + ", not by a failure. Continue exactly where it stopped: the worktree is unchanged; do not start over, reset or discard changes.\n")
 	}
 	fmt.Fprintf(&b, "- Previous native outcome: %s\n", previous.Status)
 	if previous.NoFinalMessage {
@@ -789,8 +795,8 @@ func taskSession(task domain.AgentTask, previous *domain.AgentHandoff) *agent.Se
 	// An attempt paused by a usage limit is resumed too: its session is intact.
 	// A workflow step run by another profile than the previous attempt's
 	// starts fresh: a builder must not inherit its planner's conversation
-	// ("do not edit files"). An attempt paused by a usage limit continues
-	// its own session, whatever ran before its step.
+	// ("do not edit files"). An attempt paused by a usage limit or by a
+	// person continues its own session, whatever ran before its step.
 	if previous != nil && task.MachineID != nil && (!previous.OtherProfile || task.ResumeNativeSession) && (previous.Status == "succeeded" || previous.ContinuedInteractively || task.ResumeNativeSession) && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
 		session.ResumeID = previous.NativeSessionID
 	} else if task.Provider == "claude-code" {
