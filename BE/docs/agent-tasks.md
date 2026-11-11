@@ -1641,6 +1641,36 @@ A step run by another profile than the previous attempt's step starts a fresh
 native session (`AgentHandoff.OtherProfile`): a builder does not continue its
 planner's conversation.
 
+A planning step also **cannot write its worktree**: its agent container
+mounts the task's worktree read-only over the writable workspace volume, and
+the worktree's `.kuayle/` directory (the outbox) writable on top of it
+(`readOnlyWorktreeMounts`, two volume-subpath mounts). The comparison above
+stays as the second guard, because git keeps a worktree's index and refs in
+the repository's common directory, outside that mount, so a commit or a
+staged change is still possible. What stays writable for the harness: its
+session directory (`/workspace/.kuayle/agent-sessions/<task>`), the run
+directory for temporary files and caches (`/workspace/.kuayle/tmp/agent-<run>`),
+the home and `/tmp` tmpfs, and `.kuayle/` in the worktree. Per harness
+(`domain.ReadOnlyWorktreeSupported`):
+
+| Harness | Worktree of a planning step | Why |
+| --- | --- | --- |
+| Claude Code, Codex, OpenCode | read-only | Sessions, caches and temporary files are outside the worktree. Not exercised against the real CLIs in tests; the mount spec and the request are. |
+| Crush | writable, checked after the run | Keeps its state in `.crush/` inside the working directory. |
+| Qwen Code, Kimi, Goose, custom | writable, checked after the run | Not verified to start with a read-only working directory. |
+
+The mount needs Docker API 1.45 (Engine 26); on an older daemon the step runs
+with a writable worktree and a warning is logged.
+
+`POST /workflows/validate` also returns `warnings` beside `issues`
+(`domain.WorkflowWarnings`). A warning never refuses a graph. Today there is
+one, `planning_step_implements`: an agent step runs a planning profile while
+its name is that of an implementing role (it contains "implement", "build",
+"coder", "developer" or "engineer") or a sentence or clause of its prompt
+starts with an order to change code (implement, write the code, make the
+changes, fix, commit, push, open a pull request). "Plan how to implement" and
+"do not implement" start with something else and pass.
+
 A profile used as an [agent assignee](#agents-as-issue-assignees) runs the built-in flow
 whatever its behaviour; planning applies to workflow steps.
 
@@ -1658,6 +1688,72 @@ and shows a task's run in its Agents panel.
 
 Not implemented: per-profile skills and tool sets, sharing across workspaces,
 parallel branches and workflows for non-coding automations.
+
+## Task notebook
+
+Each step used to start almost from zero. A task now has one notebook
+(`agent_task_notebooks`, migration 147; `domain.Notebook`), kept by Kuayle
+outside the worktree, with a fixed set of bounded sections:
+
+| Section | Written by | Merge |
+| --- | --- | --- |
+| `instructions` | Kuayle, from people: the task's request, a retry's new instructions, an approved follow-up, an issue comment, a live message | added; the request always stays; 32 KB together |
+| `plan.text` | Kuayle, from a planning step's final message (the same text `{{plan}}` carries) | replaced; dropped when a planning step fails |
+| `plan.steps` (title, files, commands, acceptance, done) | agents | replaced |
+| `decisions` (decision, why), `done` | agents | added, newest 40 kept |
+| `remaining`, `verify` | agents | replaced |
+| `findings` | Kuayle (`review`, `ci`, `check`) and agents (`agent`), numbered | added; agents mark them `resolved` |
+| `events` | Kuayle: a usage-limit pause and resume, a pause at a workflow limit, a person's decision | added |
+
+`agent_task_notebook_changes` keeps who changed which sections at which step
+and attempt (author `agent`, `kuayle` or `person`, user, run, generation,
+step), newest 200 per task.
+
+**Receiving it.** Every attempt that is not a review gets the notebook whole
+(`Notebook.Render`) as instructions: in the harness's instructions file after
+the profile's own text for Claude Code, Codex and OpenCode
+(`domain.ProfileFiles`), ahead of the prompt for the others. People's
+instructions come first under their own heading; every entry is indented so
+agent text cannot open a heading. `{{plan}}` is unchanged and still places
+the plan in the step's prompt, so a plan currently reaches the next step
+twice.
+
+**Updating it.** The agent writes `.kuayle/outbox/notebook.json` (or
+`notebook-<n>.json`) in its worktree; see the `kuayle-notebook` section of the
+`kuayle-agents` skill. The manager collects it with the outbox (every few
+seconds and when the attempt ends), redacts its strings with the machine's
+credential snapshots, and `RecordAgentOutbox` validates it strictly
+(`domain.ParseNotebookUpdate`: only the agents' sections, bounded texts and
+lists, something in it) and merges it. A refused update changes nothing and
+its reason is kept on the run (`notebook_problem`).
+
+**Enforcement.** The run of such an attempt has `notebook_required`. When it
+ends successfully the manager checks Kuayle's own record: without a valid
+update, or when its last update was refused, the run fails with
+`domain.NotebookUpdateReason` instead of succeeding. The task then fails with
+that reason, or the workflow follows the step's `agent_failed` transition, as
+for a run without a final message, and the next attempt's handoff says why.
+The check is the same for every harness because it never asks the agent.
+
+**API.** `GET /agent-tasks/:taskId/notebook` returns the notebook, its
+revision and its newest 50 changes to the task's creator (session only, the
+task's usual checks). There is no write route: a person adds an instruction
+by messaging the agent, retrying with new instructions or approving a
+follow-up.
+
+### The prompt a step received
+
+Every attempt records what Kuayle assembled for it, split by source
+(`dev_machine_agent_runs.prompt_sources`, `domain.PromptSource`): `task`,
+`workflow_step`, `plan`, `follow_up`, `profile`, `contract` (Kuayle's own
+lines), `project` (configured instructions), `notebook`, `handoff`, `issue`,
+`related_work`, `messages`, `attachments`; `memory` is reserved. Each part
+names its channel: `prompt` (in order, these parts are the prompt exactly as
+sent) or `instructions_file`. Each part is cut at 64 KB and the record at
+512 KB, marked `truncated`. `GET /agent-tasks/:taskId/runs/:runId/prompt`
+returns it to the task's creator with `recorded` (false for older runs) and
+`worktree_read_only`, redacted with the machine's current and retained
+credentials. It is never part of a list of runs.
 
 ## Remaining workflow work
 

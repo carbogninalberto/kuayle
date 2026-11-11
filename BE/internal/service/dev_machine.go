@@ -1594,6 +1594,21 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 		CommandArgv: commandArgv, CommandEnvironment: commandEnvironment, Model: req.Model, Thinking: req.Thinking,
 		MaxRuntimeSeconds: timeout, PushBranch: pushBranch,
 		NativeSessionID: nativeSession, ProfileFiles: profileFiles,
+		NotebookRequired: req.NotebookRequired, WorktreeReadOnly: req.WorktreeReadOnly,
+	}
+	if len(req.PromptSources) > 0 {
+		// What Kuayle adds around the task's prompt is the last part.
+		sources := req.PromptSources
+		if contract, ok := strings.CutPrefix(prompt, req.Prompt); ok && contract != "" {
+			sources = append(append([]domain.PromptSource{}, sources...), domain.PromptSource{})
+			at := len(sources) - 1
+			for at > 0 && sources[at-1].Channel != domain.PromptChannelPrompt {
+				sources[at] = sources[at-1]
+				at--
+			}
+			sources[at] = domain.PromptSource{Source: domain.PromptSourceContract, Channel: domain.PromptChannelPrompt, Text: contract}
+		}
+		run.PromptSources = domain.NullJSON(domain.EncodePromptSources(sources))
 	}
 	if modelServer != nil {
 		run.ModelServerID = &modelServer.ID

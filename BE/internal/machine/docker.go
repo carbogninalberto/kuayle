@@ -830,6 +830,16 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	}
 	// Without an inbox the attempt still runs; live messages then wait for
 	// the next attempt's prompt.
+	// A planning step's worktree is read-only, with its outbox writable.
+	if mounts := readOnlyWorktreeMounts(*machine.WorkspaceVolumeName, run, checkout); len(mounts) > 0 {
+		if ping, pingErr := r.client.Ping(ctx, client.PingOptions{}); pingErr == nil && apiAtLeast(ping.APIVersion, volumeSubpathAPI) {
+			hostConfig.Mounts = append(hostConfig.Mounts, mounts...)
+		} else {
+			// Older daemons cannot mount a volume's subpath. The step still
+			// runs; the comparison after it is then the only guard.
+			log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID, "docker_api": ping.APIVersion}).Warn("the planning step's worktree could not be mounted read-only; Docker API 1.45 is required")
+		}
+	}
 	if err := r.prepareLiveInbox(ctx, machine, run, provider.ImageRef); err != nil {
 		log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID}).WithError(err).Warn("live inbox could not be prepared")
 	} else {

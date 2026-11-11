@@ -43,6 +43,9 @@ type AgentOutboxFile struct {
 	Name     string
 	Data     []byte
 	Oversize bool
+	// Unreadable is why a notebook update could not be checked for secrets
+	// (its Data is then dropped); empty otherwise.
+	Unreadable string
 }
 
 // AgentOutboxMessage is a parsed outbox file. Kind is set only for messages

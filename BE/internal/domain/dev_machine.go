@@ -394,6 +394,19 @@ type DevMachineAgentRun struct {
 	DeclaredValidation *json.RawMessage `json:"-" db:"declared_validation"`
 	Diff               string           `json:"-" db:"diff"`
 	DiffTruncated      bool             `json:"-" db:"diff_truncated"`
+	// NotebookRequired: the attempt must leave a valid update of the task
+	// notebook before it can succeed. NotebookUpdates counts the valid ones
+	// it left, and NotebookProblem is why its last update was refused.
+	NotebookRequired bool    `json:"-" db:"notebook_required"`
+	NotebookUpdates  int     `json:"-" db:"notebook_updates"`
+	NotebookProblem  *string `json:"-" db:"notebook_problem"`
+	// WorktreeReadOnly: the agent container mounts the task's worktree
+	// read-only (a planning step), with only its .kuayle directory writable.
+	WorktreeReadOnly bool `json:"-" db:"worktree_read_only"`
+	// PromptSources is the prompt and instruction files the attempt received,
+	// split by source ([]PromptSource). Debugging data: it is served by its
+	// own route, never in a list of runs.
+	PromptSources NullJSON `json:"-" db:"prompt_sources"`
 	// WorktreeBefore fingerprints the worktree before the agent started.
 	// WorktreeChanged is whether the agent changed it (commits included) and
 	// WorktreeChangedFiles which paths; nil when the worktree could not be

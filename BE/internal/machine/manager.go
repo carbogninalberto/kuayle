@@ -1369,6 +1369,19 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	} else {
 		run.Status = domain.DevMachineAgentRunStatusSucceeded
 	}
+	// A step cannot finish without a valid update of the task notebook:
+	// the harness enforces it here, not the prompt.
+	notebookProblem := ""
+	if run.Status == domain.DevMachineAgentRunStatusSucceeded {
+		var notebookErr error
+		if notebookProblem, notebookErr = m.missingNotebookUpdate(ctx, run); notebookErr != nil {
+			return notebookErr
+		}
+		if notebookProblem != "" {
+			result.Status = "failed"
+			run.Status = domain.DevMachineAgentRunStatusFailed
+		}
+	}
 	if gitState, gitErr := m.runtime.GitState(ctx, machine, services, checkout); gitErr == nil {
 		result.Branch = gitState.Branch
 		result.Commits = gitState.Commits
@@ -1403,7 +1416,10 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		run.ErrorMessage = &message
 	}
 	if run.Status == domain.DevMachineAgentRunStatusFailed {
-		if memoryLimit != "" {
+		if notebookProblem != "" {
+			// The agent concluded, but left no valid notebook update.
+			run.ErrorMessage = &notebookProblem
+		} else if memoryLimit != "" {
 			run.ErrorMessage = &memoryLimit
 		} else if limit, ok := domain.DetectUsageLimit(stdout, stderr, result.Summary, time.Now()); ok {
 			// The provider's usage limit: the task pauses until the reset.

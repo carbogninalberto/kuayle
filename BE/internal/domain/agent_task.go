@@ -185,6 +185,10 @@ type AgentTaskRetryRequest struct {
 	RequestID  uuid.UUID `json:"request_id"`
 	Generation int64     `json:"generation"`
 	Prompt     string    `json:"prompt"`
+	// Note is what the retry adds to the task's notebook: the instruction a
+	// person gave with it, or the review or check finding it answers. Only
+	// handlers and services set it; it is never decoded from a request.
+	Note *NotebookNote `json:"-"`
 	// Model, when set, replaces the task's model for the new attempt; Thinking and
 	// ModelServerID then replace its thinking level and model server with it.
 	Model         string     `json:"model,omitempty"`
@@ -414,6 +418,10 @@ type AgentHandoff struct {
 	// NoFinalMessage means the previous attempt's harness exited normally
 	// but the agent never concluded, so there is no summary of its work.
 	NoFinalMessage bool
+	// NotebookProblem is why the previous attempt failed for want of a valid
+	// update of the task notebook (domain.NotebookUpdateReason); empty
+	// when it did not.
+	NotebookProblem string
 }
 
 // ValidationArtifact is a file the independent check left in its report

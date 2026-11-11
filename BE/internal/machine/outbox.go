@@ -151,6 +151,7 @@ func (m *Manager) collectOutbox(ctx context.Context, machine *domain.DevMachine,
 	}
 	files, err := runtime.TakeOutbox(ctx, services)
 	if err == nil && len(files) > 0 {
+		files = m.redactNotebookFiles(ctx, machine, files)
 		var recorded int
 		if recorded, err = store.RecordAgentOutbox(ctx, machine.ID, files); recorded > 0 {
 			_ = m.createEvent(ctx, machine, nil, "agent", "agent_messages.recorded", map[string]any{"count": recorded})

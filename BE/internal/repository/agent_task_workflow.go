@@ -90,6 +90,10 @@ type WorkflowApply struct {
 	// stores an empty plan, so the plan of an earlier visit is no longer the
 	// task's latest and is not handed to the agents after it.
 	PlanFailed bool
+	// Notes are what the move adds to the task's notebook without the
+	// agent: the review or check findings that send the work back, a pause,
+	// a person's decision.
+	Notes []domain.NotebookNote
 }
 
 func workflowEvent(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) error {
@@ -401,6 +405,16 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 		if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET plan=$3 WHERE task_id=$1 AND sequence=$2`, task.ID, apply.Sequence, apply.Plan); err != nil {
 			return err
 		}
+	}
+	// The notebook records the plan and what Kuayle knows, attributed to
+	// the step being closed and its attempt, before the task moves on.
+	if (apply.Plan != "" || apply.PlanFailed) && !apply.Hold {
+		if err := setNotebookPlan(ctx, tx, task.ID, apply.Plan); err != nil {
+			return err
+		}
+	}
+	if err := noteNotebook(ctx, tx, task.ID, apply.Actor, apply.Notes...); err != nil {
+		return err
 	}
 	result := ComputeWorkflowApply(*task, apply, time.Now())
 	for _, step := range result.Steps {

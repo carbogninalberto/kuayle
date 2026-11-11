@@ -34,6 +34,8 @@ type workflowWorld struct {
 	version  domain.WorkflowVersion
 	profiles map[uuid.UUID]domain.AgentProfile
 	entries  []repository.WorkflowEntry
+	// notes are what applied moves added to the task's notebook.
+	notes []domain.NotebookNote
 }
 
 func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowApply) (*domain.AgentTask, error) {
@@ -45,6 +47,7 @@ func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowAp
 	default:
 		return nil, repository.ErrAgentTaskConflict
 	}
+	w.notes = append(w.notes, apply.Notes...)
 	current := w.steps[apply.Sequence]
 	if apply.Hold {
 		// As applyWorkflowTx: only an unfinished step is held, without moves.

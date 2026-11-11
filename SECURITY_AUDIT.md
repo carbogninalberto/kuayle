@@ -662,3 +662,57 @@ template again, and Kuayle's own section markers inside it are neutralised
 `TestPlanContainingPromptMarkersReachesTheNextStepWhole`). A planning step
 that failed hands nothing over and can only be retried, approved by a person
 or end the workflow (`TestFailedPlanNeverReachesACodeChangingStep`).
+
+### The task notebook is agent-written text given as instructions (KUA-134)
+
+Every agent step that plans or changes code receives the task's notebook
+whole, on the path its harness reads instructions from (the instructions file
+of Claude Code, Codex and OpenCode; ahead of the prompt elsewhere), and must
+leave a valid update before it can finish. Like a plan, most of it is text an
+earlier agent wrote after reading the repository and the issue, so whatever
+can influence one agent can reach the next with the weight of an instruction.
+This is accepted on the same grounds as the plan: the notebook grants
+nothing. The workspace policy is checked again for every step, the next agent
+runs in the same sandbox with the same credentials, network rules and
+repository scope, and its work goes through the workflow's check, publication
+and review steps. A notebook cannot widen permissions, choose a harness or
+model, or skip a step.
+
+What bounds it:
+
+- **People and agents are kept apart.** Instructions a person gave (the
+  task's request, a retry's new instructions, a follow-up, a comment, a live
+  message) are a section agents cannot write: an update that names any field
+  outside the agents' sections is refused whole
+  (`TestNotebookUpdateIsValidatedStrictly`). The rendered notebook puts that
+  section first under its own heading and indents every entry, so agent text
+  cannot open a heading or pass for a person's instruction
+  (`TestNotebookRendersPeopleApartFromAgents`). Text Kuayle's assistant
+  drafted and a person approved is marked as such, never shown as the
+  person's own words. Findings of reviews and checks are recorded by Kuayle
+  with their source and rendered as feedback that cannot change permissions
+  or scope.
+- **No write API.** Agents update the notebook only through their outbox
+  file, validated against a strict schema and merged by Kuayle; the HTTP API
+  only reads it, for the task's creator under the task's own checks
+  (workspace, current role, the issue's team, private teams included).
+- **Secrets are redacted** from an update before it is recorded, with the
+  same credential snapshots run output is redacted with; an update that
+  cannot be checked is not recorded
+  (`TestNotebookUpdatesAreRedactedBeforeTheyAreRecorded`).
+- **Every size is bounded**: the update file (16 KB), each text, each list,
+  the plan, the instructions section and the document (a database check).
+
+A planning step's worktree is now mounted read-only in its agent container
+(Claude Code, Codex, OpenCode), with only `.kuayle/` writable, so the "do not
+implement" rule no longer depends on the prompt. Git's index and refs of a
+worktree live outside that mount, so a commit or a staged change is still
+possible; the comparison of the worktree before and after the run (KUA-124)
+remains and still fails such a step. Harnesses that were not verified to run
+with a read-only worktree, and Docker daemons older than API 1.45, keep only
+that comparison.
+
+The prompt each attempt received is recorded by source for debugging. It is
+bounded, served only to the task's creator by its own route (never in a list
+of runs), and redacted when read with the machine's current and retained
+credentials.

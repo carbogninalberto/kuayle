@@ -112,6 +112,43 @@ Use one short line of plain text (at most 2,000 characters) per notable step,
 not a running commentary. When the registry is off the entry is refused and
 shown as refused in Kuayle; nothing else happens.
 
+## kuayle-notebook: update the task notebook before you finish
+
+Kuayle keeps one notebook per task, outside the worktree, and gives it whole
+to the agent of every step as instructions: what people asked, the plan,
+decisions, what is done, what remains, how to verify, and open findings of
+reviews and checks. Read it first and do not repeat work it records as done.
+
+Before your final message, record your step by writing
+`.kuayle/outbox/notebook.json` in your worktree (write it under a hidden name
+and rename it, as for messages). It is one JSON object with any of these
+fields and no others:
+
+```json
+{
+  "done": ["Added migration 000147 and the repository"],
+  "remaining": ["Wire the API route"],
+  "verify": ["cd BE && go test ./internal/repository -run Notebook"],
+  "decisions": [{"decision": "One JSON document per task", "why": "small and bounded"}],
+  "plan": {"steps": [{"title": "Add the route", "files": ["BE/cmd/server/routes.go"], "commands": ["go test ./..."], "acceptance": "GET returns the notebook", "done": false}]},
+  "findings": [{"text": "The fixture needs a database"}],
+  "resolved": [3]
+}
+```
+
+`done`, `decisions` and `findings` are added to the notebook; `plan.steps`,
+`remaining` and `verify` replace what was there, so send the whole list;
+`resolved` lists the numbers of findings you fixed. Each text is at most 600
+bytes, each list 40 entries and the file 16 KB. You cannot write the people's
+instructions or the findings Kuayle recorded: an update with any other field
+is refused whole.
+
+This is enforced, not advice: an attempt that ends without a valid update
+fails, and the next attempt is told why. A planning step writes one too (its
+worktree is read-only except `.kuayle/`), usually with `plan.steps` and
+`decisions`. Never put credentials in the notebook; Kuayle redacts the ones it
+knows.
+
 ## kuayle-live-channel: read messages while you work
 
 The person who owns your task (directly, or through the Kuayle orchestrator on

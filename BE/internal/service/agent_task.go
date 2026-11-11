@@ -97,6 +97,7 @@ func NewAgentTaskService(repo *repository.AgentTaskRepository, machines *DevMach
 		service.runtime.(*devMachineTaskRuntime).attachments = repo
 		service.runtime.(*devMachineTaskRuntime).messages = repo
 		service.runtime.(*devMachineTaskRuntime).live = repo
+		service.runtime.(*devMachineTaskRuntime).notebooks = repo
 	}
 	if hub != nil {
 		service.events = hub
@@ -306,7 +307,9 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		}
 		// An agent that stopped without concluding says so, in a workflow
 		// (which still decides what follows) and outside one.
-		if run.ErrorMessage != nil && domain.IsNoFinalMessageReason(*run.ErrorMessage) {
+		// So does an agent that concluded without a valid update of the task
+		// notebook: the step cannot finish, and the retry is told why.
+		if run.ErrorMessage != nil && (domain.IsNoFinalMessageReason(*run.ErrorMessage) || domain.IsNotebookUpdateReason(*run.ErrorMessage)) {
 			if task.RunsWorkflow() && s.workflow != nil && task.State == "running" {
 				return s.workflow.AgentFailedBecause(ctx, task, *run.ErrorMessage)
 			}
@@ -430,6 +433,17 @@ type devMachineTaskRuntime struct {
 	messages agentMessageSource
 	// live supplies the owner's live messages queued while no attempt ran.
 	live agentLiveMessageSource
+	// notebooks supplies the task notebook; without it attempts receive
+	// none and need not update one.
+	notebooks taskNotebookSource
+	// profiles supplies the profile of the attempt's step; nil reads it
+	// from tasks.
+	profiles taskProfileSource
+}
+
+// taskProfileSource supplies what an attempt's agent profile gives it.
+type taskProfileSource interface {
+	ProfileBundle(ctx context.Context, task domain.AgentTask) (*domain.AgentProfileBundle, error)
 }
 
 // taskMachineRequest creates the machine of an agent task, named after its
@@ -609,9 +623,24 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		}
 	}
 	session := taskSession(task, previous)
+	// The task's notebook: every step that plans or changes code receives it
+	// whole and must leave a valid update before it can finish.
+	var notebook *domain.Notebook
+	if r.notebooks != nil && !review {
+		if notebook, err = r.notebooks.AttemptNotebook(ctx, task); err != nil {
+			return nil, err
+		}
+	}
+	plan := ""
+	if notebook != nil {
+		plan = notebook.Plan.Text
+	}
+	// Every assembly step is recorded with its source, so the prompt the
+	// attempt received can be read back part by part.
+	assembly := newPromptAssembly(task.Prompt, plan)
 	prompt := task.Prompt
 	if task.Generation > 1 {
-		prompt = withHandoff(prompt, previous, session.ResumeID != "", task.ResumeNativeSession)
+		prompt = assembly.apply(domain.PromptSourceHandoff, withHandoff(prompt, previous, session.ResumeID != "", task.ResumeNativeSession))
 	}
 	// A review's prompt already names the published work it reads.
 	if r.attachments != nil && !review {
@@ -619,7 +648,7 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		if err != nil {
 			return nil, err
 		}
-		prompt = withAttachments(prompt, items)
+		prompt = assembly.apply(domain.PromptSourceAttachments, withAttachments(prompt, items))
 	}
 	var related []domain.RelatedWork
 	if r.related != nil {
@@ -627,12 +656,12 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		if err != nil {
 			return nil, err
 		}
-		prompt = withIssue(prompt, brief)
+		prompt = assembly.apply(domain.PromptSourceIssue, withIssue(prompt, brief))
 		if !review {
 			if related, err = r.related.RelatedWork(ctx, task); err != nil {
 				return nil, err
 			}
-			prompt = withRelatedWork(prompt, related)
+			prompt = assembly.apply(domain.PromptSourceRelated, withRelatedWork(prompt, related))
 		}
 	}
 	if !review && r.messages != nil {
@@ -642,37 +671,101 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		if err != nil {
 			return nil, err
 		}
-		prompt = withMessages(prompt, messages)
+		prompt = assembly.apply(domain.PromptSourceMessages, withMessages(prompt, messages))
 	}
 	if !review && r.live != nil {
 		live, err := r.live.ClaimLiveMessages(ctx, task, messageRoom(prompt))
 		if err != nil {
 			return nil, err
 		}
-		prompt = withLiveMessages(prompt, live)
+		prompt = assembly.apply(domain.PromptSourceMessages, withLiveMessages(prompt, live))
 	}
 	var profileFiles []domain.AgentProfileFile
 	planning := false
 	if !review {
-		bundle, err := r.tasks.ProfileBundle(ctx, task)
+		profiles := taskProfileSource(r.tasks)
+		if r.profiles != nil {
+			profiles = r.profiles
+		}
+		bundle, err := profiles.ProfileBundle(ctx, task)
 		if err != nil {
 			return nil, err
 		}
 		if bundle != nil {
-			profileFiles = domain.ProfileFiles(task.Provider, *bundle)
 			// Only a workflow step plans; an agent identity's own task
 			// follows the built-in flow whatever its profile does.
 			planning = task.RunsWorkflow() && bundle.Behaviour == domain.AgentBehaviourPlans
+		} else {
+			bundle = &domain.AgentProfileBundle{}
 		}
-		prompt = withContract(prompt, task, related, planning)
+		rendered := ""
+		if notebook != nil {
+			rendered = notebook.Render()
+		}
+		// The notebook reaches the agent as instructions: in the harness's
+		// instructions file, after its profile, or ahead of the prompt for a
+		// harness that reads none.
+		if domain.ProfileFilesSupported(task.Provider) {
+			bundle.Notebook = rendered
+			for _, file := range domain.ProfileFiles(task.Provider, domain.AgentProfileBundle{Name: bundle.Name, Role: bundle.Role, Instructions: bundle.Instructions}) {
+				assembly.file(domain.PromptSourceProfile, file.Content)
+			}
+			assembly.file(domain.PromptSourceNotebook, rendered)
+		}
+		profileFiles = domain.ProfileFiles(task.Provider, *bundle)
+		prompt = assembly.apply(domain.PromptSourceContract, withContract(prompt, task, related, planning))
+		if notebook != nil {
+			prompt = assembly.apply(domain.PromptSourceContract, withNotebookUpdate(prompt))
+			if !domain.ProfileFilesSupported(task.Provider) {
+				prompt = assembly.apply(domain.PromptSourceNotebook, withNotebook(prompt, rendered))
+			}
+		}
 	}
-	prompt = withInstructions(prompt, task.AgentInstructions)
+	prompt = assembly.applyInstructions(withInstructions(prompt, task.AgentInstructions))
 	// No attempt pushes: Kuayle publishes implementations itself, and a
 	// review is never published. Without push the manager adds no GitHub token.
 	push := false
 	checkout := task.CheckoutID.String()
-	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: prompt, TestCommand: command, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, ModelServerID: task.ModelServerID, PushBranch: &push, MaxRuntimeSeconds: timeout, Session: session, ProfileFiles: profileFiles}, task.RunID)
+	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: prompt, TestCommand: command, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, ModelServerID: task.ModelServerID, PushBranch: &push, MaxRuntimeSeconds: timeout, Session: session, ProfileFiles: profileFiles,
+		PromptSources: assembly.sources(), NotebookRequired: notebook != nil,
+		// A planning step cannot change code: its worktree is read-only where
+		// the harness can run that way.
+		WorktreeReadOnly: planning && domain.ReadOnlyWorktreeSupported(task.Provider)}, task.RunID)
 }
+
+// taskNotebookSource supplies the notebook an attempt receives.
+type taskNotebookSource interface {
+	AttemptNotebook(ctx context.Context, task domain.AgentTask) (*domain.Notebook, error)
+}
+
+// withNotebookUpdate tells the attempt how to update the task notebook. It
+// is always added: the update is required, whatever else the prompt holds.
+func withNotebookUpdate(prompt string) string {
+	if strings.Contains(prompt, domain.NotebookUpdateHelp) {
+		return prompt
+	}
+	return prompt + "\n\n" + domain.NotebookUpdateHelp
+}
+
+// notebookPromptBytes bounds a prompt that carries the notebook.
+const notebookPromptBytes = 90000
+
+// withNotebook puts the task notebook ahead of the prompt, for a harness
+// that reads no instructions file.
+func withNotebook(prompt, notebook string) string {
+	if strings.TrimSpace(notebook) == "" {
+		return prompt
+	}
+	// A prompt is one argument of the harness's command line, which the
+	// kernel bounds: beyond notebookPromptBytes the notebook's end is cut and
+	// says so. Harnesses with an instructions file always get it whole.
+	notebook = strings.TrimRight(notebook, "\n")
+	if room := notebookPromptBytes - len(prompt); len(notebook) > room {
+		notebook = truncateUTF8Bytes(notebook, max(room, 0)) + "\n[The notebook is cut here to fit this harness's prompt; the task in Kuayle shows it whole.]"
+	}
+	return notebook + "\n\n---\n" + prompt
+}
+
 func (r *devMachineTaskRuntime) Cancel(ctx context.Context, task domain.AgentTask) error {
 	return r.tasks.CancelAttempt(ctx, task)
 }
@@ -717,6 +810,9 @@ func withHandoff(prompt string, previous *domain.AgentHandoff, resumed, usageLim
 		b.WriteString("- The previous attempt was paused by the provider's usage limit, not by a failure. Continue exactly where it stopped: the worktree is unchanged; do not start over, reset or discard changes.\n")
 	}
 	fmt.Fprintf(&b, "- Previous native outcome: %s\n", previous.Status)
+	if previous.NotebookProblem != "" {
+		fmt.Fprintf(&b, "- The previous attempt failed only because it left no valid update of the task notebook: %s. Its work is still in this worktree: check it (git status, git diff), finish what is missing, and this time write a valid `.kuayle/outbox/%s` before your final message.\n", strings.TrimSuffix(oneLine(previous.NotebookProblem, 700), "."), domain.AgentNotebookFile)
+	}
 	if previous.NoFinalMessage {
 		b.WriteString("- The previous attempt ended without a final message, so nothing says what it did. Its changes are still in this worktree: check the worktree (git status, git diff) before you change anything, finish what is missing, and end with a summary of what was done, by that attempt and by you.\n")
 	}
@@ -872,7 +968,7 @@ func withQA(prompt string, task domain.AgentTask) string {
 // implementing attempt gets (manual QA, the tests Kuayle re-runs): a planning
 // step changes nothing, so there is nothing to try or test. The runner fails
 // the step when the worktree changed or the final message is no plan.
-const planningLine = "Planning step: plan this for the next agent; do not implement it. Read whatever you need, but leave this worktree exactly as it is: do not create, edit, move or delete files in it (files git ignores included), do not commit, and do not stage changes (a step that changes the worktree fails). Your final message is the plan and nothing else: Kuayle hands it, whole, to the agent of the next step as its instructions, and that agent has not seen this conversation. Write it for that agent: what to change and where (files, functions), in which order, which tests to add or run, the decisions you made and why, and what to leave alone. Keep it under 12000 characters; a step without a final message, or with a longer one, fails."
+const planningLine = "Planning step: plan this for the next agent; do not implement it. Read whatever you need, but leave this worktree exactly as it is: do not create, edit, move or delete files in it (files git ignores included), do not commit, and do not stage changes (the worktree is mounted read-only where Kuayle can, and a step that changes it fails). The only place you write is Kuayle's own `.kuayle/` directory in it, for messages and your notebook update. Your final message is the plan and nothing else: Kuayle hands it, whole, to the agent of the next step as its instructions, and that agent has not seen this conversation. Write it for that agent: what to change and where (files, functions), in which order, which tests to add or run, the decisions you made and why, and what to leave alone. Keep it under 12000 characters; a step without a final message, or with a longer one, fails."
 
 // withContract adds what Kuayle asks of an attempt that runs in a worktree.
 // An implementing attempt is told how its change is tried and tested; a
@@ -925,12 +1021,18 @@ func previewCommand(task domain.AgentTask) []string {
 	return argv
 }
 
+// What withInstructions puts around the configured instructions.
+const (
+	projectInstructionsHeader    = "Project instructions (configured in Kuayle):\n"
+	projectInstructionsSeparator = "\n\n---\nTask:\n"
+)
+
 func withInstructions(prompt, instructions string) string {
 	instructions = strings.TrimSpace(instructions)
 	if instructions == "" {
 		return prompt
 	}
-	const header, separator = "Project instructions (configured in Kuayle):\n", "\n\n---\nTask:\n"
+	const header, separator = projectInstructionsHeader, projectInstructionsSeparator
 	if room := 32000 - len(prompt) - len(header) - len(separator); len(instructions) > room {
 		if room < 64 {
 			return prompt

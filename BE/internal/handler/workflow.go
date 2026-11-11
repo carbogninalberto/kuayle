@@ -220,7 +220,12 @@ func (h *WorkflowHandler) Validate(c *echo.Context) error {
 	if err != nil {
 		return workflowError(c, err)
 	}
-	return response.Success(c, http.StatusOK, map[string]any{"issues": issues})
+	// Warnings never refuse the graph; the editor shows them beside issues.
+	warnings, err := h.svc.Warnings(c.Request().Context(), workspaceID(c), in.Graph)
+	if err != nil {
+		return workflowError(c, err)
+	}
+	return response.Success(c, http.StatusOK, map[string]any{"issues": issues, "warnings": warnings})
 }
 
 func (h *WorkflowHandler) Audit(c *echo.Context) error {

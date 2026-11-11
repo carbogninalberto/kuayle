@@ -681,6 +681,12 @@ Each profile has a [behaviour](BE/docs/agent-tasks.md#behaviours) (migration
 planning step must leave the worktree unchanged and end with a plan, which is
 stored whole and passed to the following agent steps as trusted instructions
 through `{{plan}}`.
+Every task also has a [notebook](BE/docs/agent-tasks.md#task-notebook)
+(migration 147): one bounded record of the plan, decisions, what is done,
+what remains, how to verify, findings and people's instructions, kept outside
+the worktree. Each agent step receives it whole as instructions and cannot
+finish without a valid update. A planning step's worktree is mounted
+read-only, and the prompt every attempt received is recorded by source.
 
 [Automations](BE/docs/agent-tasks.md#automations) (migration 69) delegate matching issues on a label or status trigger, optionally on a UTC schedule. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
 
