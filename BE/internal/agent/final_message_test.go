@@ -108,3 +108,69 @@ func TestAResultEventOutranksInterimAssistantText(t *testing.T) {
 	require.True(t, result.FinalMessage)
 	require.Equal(t, "Done: column added.", result.Summary)
 }
+
+// Only work clears the final flag. Codex publishes its plan as a todo_list
+// item, also after the closing message; OpenCode ends every step with
+// step_finish; Claude Code's result is the conclusion whatever precedes it.
+func TestBookkeepingEventsAfterTheFinalMessageDoNotUndoIt(t *testing.T) {
+	message := `{"type":"item.completed","item":{"id":"i0","type":"agent_message","text":"Added the column; tests pass."}}`
+	for _, after := range []string{
+		`{"type":"item.completed","item":{"id":"i1","type":"todo_list","items":[{"text":"Add the column","completed":true}]}}`,
+		`{"type":"item.updated","item":{"id":"i1","type":"todo_list","items":[]}}`,
+		`{"type":"item.completed","item":{"id":"i1","type":"error","message":"model rerouted"}}`,
+		`{"type":"item.completed","item":{"id":"i1","type":"some_future_item"}}`,
+	} {
+		result := NewCodexProvider("").ParseResult(message+"\n"+after+"\n"+`{"type":"turn.completed","usage":{"input_tokens":1}}`, "", 0)
+		require.True(t, result.FinalMessage, after)
+		require.Equal(t, "succeeded", result.Status, after)
+		require.Equal(t, "Added the column; tests pass.", result.Summary)
+	}
+	for _, work := range []string{"command_execution", "file_change", "mcp_tool_call", "web_search", "collab_tool_call"} {
+		result := NewCodexProvider("").ParseResult(message+"\n"+`{"type":"item.started","item":{"id":"i1","type":"`+work+`"}}`, "", 0)
+		require.False(t, result.FinalMessage, work)
+		require.Equal(t, "failed", result.Status, work)
+	}
+
+	opencode := strings.Join([]string{openCodeStepStart, openCodeToolUse, openCodeStepFinish, openCodeStepStart, openCodeText("Added the column; tests pass."),
+		`{"type":"reasoning","timestamp":1762855205000,"sessionID":"ses_1","part":{"id":"prt_5","type":"reasoning","text":"done"}}`,
+		`{"type":"patch","timestamp":1762855205000,"sessionID":"ses_1","part":{"id":"prt_6","type":"patch","files":["BE/main.go"]}}`,
+		`{"type":"snapshot","timestamp":1762855205000,"sessionID":"ses_1","part":{"id":"prt_7","type":"snapshot","snapshot":"abc"}}`,
+		strings.Replace(openCodeStepFinish, "tool-calls", "stop", 1)}, "\n")
+	result := NewOpenCodeProvider("").ParseResult(opencode, "", 0)
+	require.True(t, result.FinalMessage)
+	require.Equal(t, "succeeded", result.Status)
+
+	claude := `{"type":"assistant","message":{"content":[{"type":"text","text":"Done."},{"type":"thinking","thinking":"x"}]}}` + "\n" +
+		`{"type":"result","subtype":"success","result":"Added the column; tests pass."}` + "\n" + `{"type":"system","subtype":"session_end"}`
+	result = NewClaudeCodeProvider("").ParseResult(claude, "", 0)
+	require.True(t, result.FinalMessage)
+	require.Equal(t, "succeeded", result.Status)
+}
+
+// "command not found" in a tool's output is a guess. It does not fail a run
+// that concluded and exited 0, and what a read-type tool returned (a file
+// that contains the phrase) is not scanned at all. A shell's exit code 126
+// or 127 is evidence and still fails the run.
+func TestCommandNotFoundTextDoesNotFailARunThatConcluded(t *testing.T) {
+	tool := func(name, output, metadata string) string {
+		return `{"type":"tool_use","part":{"type":"tool","tool":"` + name + `","callID":"c","state":{"status":"completed","title":"` + strings.Repeat("t", 5000) + `","output":"` + output + `","metadata":` + metadata + `}}}`
+	}
+	final := openCodeText("Documented the error message; tests pass.")
+	read := NewOpenCodeProvider("").ParseResult(tool("read", "echo 'bash: go: command not found'", "{}")+"\n"+final, "", 0)
+	require.Equal(t, "succeeded", read.Status)
+	require.Empty(t, read.RiskNotes, "a file's content is not a command's failure")
+
+	shell := NewOpenCodeProvider("").ParseResult(tool("bash", "sh: 1: rg: command not found", `{"exit":1}`)+"\n"+final, "", 0)
+	require.Equal(t, "succeeded", shell.Status, "the agent worked around it and concluded")
+	require.Len(t, shell.RiskNotes, 1)
+	require.LessOrEqual(t, len(shell.RiskNotes[0]), 300, "the tool's title is capped")
+
+	missing := NewOpenCodeProvider("").ParseResult(tool("bash", "sh: 1: go: command not found", `{"exit":127}`)+"\n"+final, "", 0)
+	require.Equal(t, "failed", missing.Status)
+	require.LessOrEqual(t, len(missing.RiskNotes[0]), 300)
+
+	// Without a conclusion the guess still fails the run, as before.
+	guess := NewOpenCodeProvider("").ParseResult(tool("bash", "sh: 1: rg: command not found", `{"exit":1}`), "", 0)
+	require.Equal(t, "failed", guess.Status)
+	require.False(t, guess.NoFinalMessage)
+}

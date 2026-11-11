@@ -253,6 +253,9 @@ func finalMessage(stdout string) string {
 	return text
 }
 
+// codexWorkItems are the Codex item types in which the agent does something.
+var codexWorkItems = map[string]bool{"command_execution": true, "file_change": true, "mcp_tool_call": true, "web_search": true, "collab_tool_call": true}
+
 // finalMessageAfterTools returns the agent's last message and whether it is
 // the run's conclusion: nothing but reasoning came after it. Text followed by
 // a tool call ("Let me look…") is what the agent said on the way, so a run
@@ -281,8 +284,9 @@ func finalMessageAfterTools(stdout string) (string, bool) {
 			last, final = strings.TrimSpace(event.Item.Text), true
 		case event.Type == "result" && strings.TrimSpace(event.Result) != "":
 			last, final = strings.TrimSpace(event.Result), true
-		case (event.Type == "item.completed" || event.Type == "item.started") && event.Item.Type != "" && event.Item.Type != "agent_message" && event.Item.Type != "reasoning":
-			// A command, a file change, a tool or a search: work, not a conclusion.
+		case (event.Type == "item.completed" || event.Type == "item.started") && codexWorkItems[event.Item.Type]:
+			// A command, a file change, a tool or a search: work, not a
+			// conclusion. Bookkeeping items (todo_list, error) are neither.
 			final = false
 		}
 	}

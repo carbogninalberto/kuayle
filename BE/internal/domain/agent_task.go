@@ -411,6 +411,9 @@ type AgentHandoff struct {
 	// a builder): its native session is that agent's conversation, so the
 	// current step does not continue it.
 	OtherProfile bool
+	// NoFinalMessage means the previous attempt's harness exited normally
+	// but the agent never concluded, so there is no summary of its work.
+	NoFinalMessage bool
 }
 
 // ValidationArtifact is a file the independent check left in its report

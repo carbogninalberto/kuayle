@@ -712,6 +712,9 @@ func withHandoff(prompt string, previous *domain.AgentHandoff, resumed, usageLim
 		b.WriteString("- The previous attempt was paused by the provider's usage limit, not by a failure. Continue exactly where it stopped: the worktree is unchanged; do not start over, reset or discard changes.\n")
 	}
 	fmt.Fprintf(&b, "- Previous native outcome: %s\n", previous.Status)
+	if previous.NoFinalMessage {
+		b.WriteString("- The previous attempt ended without a final message, so nothing says what it did. Its changes are still in this worktree: check the worktree (git status, git diff) before you change anything, finish what is missing, and end with a summary of what was done, by that attempt and by you.\n")
+	}
 	switch {
 	case previous.Validation == "":
 		b.WriteString("- Independent check: not run\n")

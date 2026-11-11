@@ -175,7 +175,9 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 	concluded := false
 	// harnessError is the error OpenCode reported after the agent last spoke.
 	harnessError := ""
-	var toolFailures []string
+	// toolFailures fail the run; toolGuesses (a phrase in a tool's output)
+	// fail it only when it did not conclude.
+	var toolFailures, toolGuesses []string
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -239,9 +241,10 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 			lower := strings.ToLower(msgStr)
 			if strings.Contains(lower, "exit code: 127") ||
 				strings.Contains(lower, "exit status 127") ||
-				strings.Contains(lower, "command not found") ||
 				strings.Contains(lower, `"is_error":true`) {
 				toolFailures = append(toolFailures, fmt.Sprintf("tool failure detected: %s", typ))
+			} else if strings.Contains(lower, "command not found") {
+				toolGuesses = append(toolGuesses, fmt.Sprintf("tool failure detected: %s", typ))
 			}
 		}
 
@@ -249,14 +252,22 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 			state, _ := part["state"].(map[string]any)
 			metadata, _ := state["metadata"].(map[string]any)
 			exitCode, hasExitCode := metadata["exit"].(float64)
-			output, _ := state["output"].(string)
-			lower := strings.ToLower(output)
-			if (hasExitCode && (exitCode == 126 || exitCode == 127)) || strings.Contains(lower, "command not found") {
-				title, _ := state["title"].(string)
-				if title == "" {
-					title, _ = part["tool"].(string)
-				}
+			tool, _ := part["tool"].(string)
+			title, _ := state["title"].(string)
+			if title == "" {
+				title = tool
+			}
+			// Titles are the agent's text: one line, bounded.
+			title = strings.Join(strings.Fields(title), " ")
+			if len(title) > 200 {
+				title = strings.ToValidUTF8(title[:200], "")
+			}
+			if hasExitCode && (exitCode == 126 || exitCode == 127) {
 				toolFailures = append(toolFailures, fmt.Sprintf("tool command unavailable: %s", title))
+			} else if output, _ := state["output"].(string); shellTools[tool] && strings.Contains(strings.ToLower(output), "command not found") {
+				// Only a shell's output: a file that a read-type tool
+				// returned may well contain the phrase.
+				toolGuesses = append(toolGuesses, fmt.Sprintf("tool command unavailable: %s", title))
 			}
 		}
 	}
@@ -274,15 +285,20 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 		result.FailureReason = "The harness reported an error: " + harnessError
 	}
 
-	if len(toolFailures) > 0 {
+	// A guess does not fail a run that exited 0 and concluded: the agent saw
+	// the same output and went on. It stays a risk note.
+	if len(toolFailures) > 0 || (len(toolGuesses) > 0 && !result.FinalMessage) {
 		if result.Status == "succeeded" {
 			result.Status = "failed"
 		}
-		result.RiskNotes = append(result.RiskNotes, toolFailures...)
 	}
+	result.RiskNotes = append(append(result.RiskNotes, toolFailures...), toolGuesses...)
 
 	return result
 }
+
+// shellTools are the tools whose output is a command's.
+var shellTools = map[string]bool{"bash": true, "shell": true, "sh": true}
 
 func NewOpenCodeProvider(image string) Provider {
 	if image == "" {

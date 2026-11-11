@@ -120,7 +120,7 @@ func TestOversizedFinalTextIsStillTheRunsFinalMessage(t *testing.T) {
 	require.LessOrEqual(t, len((*records)[1].content), maxAgentOutputLine)
 	require.True(t, json.Valid([]byte((*records)[1].content)))
 
-	result := agent.NewOpenCodeProvider("").ParseResult(output.Text("stdout"), output.Text("stderr"), 0)
+	result := agent.NewOpenCodeProvider("").ParseResult(output.ResultText("stdout"), output.ResultText("stderr"), 0)
 	require.Equal(t, "succeeded", result.Status)
 	require.True(t, result.FinalMessage)
 	require.True(t, result.SummaryTruncated, "a summary over the limit says it was cut")
@@ -146,7 +146,7 @@ func TestCutEventsAreRedactedBeforeTheyAreStored(t *testing.T) {
 	require.False(t, (*records)[0].truncated)
 	require.True(t, json.Valid([]byte(stored)))
 	require.Contains(t, stored, "[REDACTED]")
-	for _, text := range []string{stored, output.Text("stdout")} {
+	for _, text := range []string{stored, output.Text("stdout"), output.ResultText("stdout")} {
 		require.NotContains(t, text, "ghp_supersecrettoken123")
 		require.NotContains(t, text, "key/with/slashes")
 		require.NotContains(t, text, `key\/with\/slashes`)
@@ -214,4 +214,76 @@ func TestOpenCodeRunWithoutAFinalMessageIsRecordedAsFailed(t *testing.T) {
 	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, store.completedRun.Status)
 	require.Equal(t, "Added the column; go test passes.", *store.completedRun.Summary)
 	require.Nil(t, store.completedRun.ErrorMessage)
+}
+
+// Review of KUA-136: storage stops at 4,096 records or 4 MiB, and the closing
+// message of a long run comes after that. The result is still parsed from it.
+func TestFinalMessageAfterTheStorageLimitIsStillParsed(t *testing.T) {
+	closing := `{"type":"result","subtype":"success","result":"Refactored the importer; all tests pass."}` + "\n"
+	for name, lines := range map[string]struct {
+		line  string
+		count int
+	}{
+		"record limit": {`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}` + "\n", 4200},
+		"byte limit":   {`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"` + strings.Repeat("o", 60<<10) + `"}]}}` + "\n", 75},
+	} {
+		t.Run(name, func(t *testing.T) {
+			output, records := collectAgentOutput(map[string]string{"TOKEN": "late-secret-value"})
+			for range lines.count {
+				require.NoError(t, output.Write("stdout", []byte(lines.line)))
+			}
+			stored := len(*records)
+			require.True(t, (*records)[stored-1].truncated)
+			require.Equal(t, "[Output limit reached]\n", (*records)[stored-1].content)
+			// The rest arrives in odd frames; a secret in it is still redacted.
+			rest := `{"type":"assistant","message":{"content":[{"type":"text","text":"token late-secret-value"}]}}` + "\n" + closing
+			for start := 0; start < len(rest); start += 11 {
+				require.NoError(t, output.Write("stdout", []byte(rest[start:min(start+11, len(rest))])))
+			}
+			require.NoError(t, output.Finish())
+			require.Len(t, *records, stored, "nothing is stored after the limit")
+			require.NotContains(t, output.ResultText("stdout"), "late-secret-value")
+			require.NotContains(t, output.ResultText("stdout"), "Output limit reached")
+
+			result := agent.NewClaudeCodeProvider("").ParseResult(output.ResultText("stdout"), output.ResultText("stderr"), 0)
+			require.Equal(t, "succeeded", result.Status)
+			require.True(t, result.FinalMessage)
+			require.Equal(t, "Refactored the importer; all tests pass.", result.Summary)
+		})
+	}
+}
+
+// Kuayle's own markers are never a summary, and a run whose output Kuayle
+// did not see whole is not failed for a final message it may have missed.
+func TestLimitedOutputIsNeitherASummaryNorANoFinalMessageFailure(t *testing.T) {
+	event := `{"type":"step_start","timestamp":1762855200000,"sessionID":"ses_1","part":{"id":"prt_1","type":"step-start"}}` + "\n"
+	// Complete output past the record limit without a conclusion: the rule applies.
+	store := runOutOfMemoryAgent(t, &AgentExecution{ContainerID: "agent", ExitCode: 0, Stdout: strings.Repeat(event, maxAgentOutputRecords+50)}, true)
+	require.Equal(t, domain.DevMachineAgentRunStatusFailed, store.completedRun.Status)
+	require.Equal(t, "", *store.completedRun.Summary)
+
+	// And with one: a success with that summary.
+	text := `{"type":"text","timestamp":1762855204000,"sessionID":"ses_1","part":{"id":"prt_4","type":"text","text":"Added the column; go test passes.","time":{"start":1,"end":2}}}` + "\n"
+	store = runOutOfMemoryAgent(t, &AgentExecution{ContainerID: "agent", ExitCode: 0, Stdout: strings.Repeat(event, maxAgentOutputRecords+50) + text}, true)
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, store.completedRun.Status)
+	require.Equal(t, "Added the column; go test passes.", *store.completedRun.Summary)
+
+	// A line Kuayle could not keep (over 1 MiB) may have been the final
+	// message: the run keeps its exit status, with an empty summary.
+	lost := `{"type":"text","part":{"type":"text","text":"` + strings.Repeat("a", maxAgentOutputEventLine) + `"}}` + "\n"
+	store = runOutOfMemoryAgent(t, &AgentExecution{ContainerID: "agent", ExitCode: 0, Stdout: event + lost + event}, true)
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, store.completedRun.Status)
+	require.Equal(t, "", *store.completedRun.Summary, "a marker is not a summary")
+	require.Nil(t, store.completedRun.ErrorMessage)
+	require.Contains(t, string(store.completedRun.RiskNotes), "did not keep all of the agent's output")
+}
+
+func TestOversizedCheckIgnoresTheDockerTimestamp(t *testing.T) {
+	// 16 KiB exactly once the timestamp is removed: stored as it is.
+	line := `{"type":"text","part":{"text":"` + strings.Repeat("a", maxAgentOutputLine-len(`{"type":"text","part":{"text":""}}`)-1) + `"}}` + "\n"
+	require.Len(t, line, maxAgentOutputLine)
+	output, records := collectAgentOutput(nil)
+	require.NoError(t, output.WriteDocker("stdout", []byte("2026-11-11T10:00:00.000000001Z "+line)))
+	require.NoError(t, output.Finish())
+	require.Equal(t, line, (*records)[0].content)
 }

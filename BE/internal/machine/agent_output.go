@@ -38,7 +38,22 @@ type agentOutputStream struct {
 	sequence  int64
 	limited   bool
 	text      cappedBuffer
+	// result is what the run's result is parsed from: every line whole,
+	// without Kuayle's own markers. After the storage limit nothing more is
+	// stored, but lines keep reaching the parser through tail (the newest
+	// maxAgentResultTail bytes of them), because a harness reports its final
+	// message last. skip drops the rest of the line that was open at the
+	// limit. incomplete records that the parser did not get some line.
+	result     cappedBuffer
+	tail       []string
+	tailBytes  int
+	skip       bool
+	incomplete bool
 }
+
+// maxAgentResultTail bounds the lines kept for the result parser after the
+// storage limit.
+const maxAgentResultTail = 1 << 20
 
 func newAgentOutputBuffer(secrets map[string]string, persist func(string, int64, string, string, bool) error) *agentOutputBuffer {
 	values := make([]string, 0, len(secrets))
@@ -59,7 +74,7 @@ func (o *agentOutputBuffer) write(stream string, data []byte, docker bool) error
 	}
 	state := o.streams[stream]
 	if state == nil {
-		state = &agentOutputStream{text: newCappedBuffer(maxCapturedLogBytes), docker: docker}
+		state = &agentOutputStream{text: newCappedBuffer(maxCapturedLogBytes), result: newCappedBuffer(maxCapturedLogBytes), docker: docker}
 		o.streams[stream] = state
 	}
 	if state.docker != docker {
@@ -81,11 +96,17 @@ func (o *agentOutputBuffer) write(stream string, data []byte, docker bool) error
 			}
 		}
 	}
-	for len(data) > 0 && !state.limited {
+	for len(data) > 0 {
+		if state.limited {
+			o.afterLimit(state, data)
+			return nil
+		}
 		if state.sequence >= maxAgentOutputRecords || state.used >= maxCapturedLogBytes {
-			state.pending = nil
-			state.limited = true
-			return o.emit(stream, state, "[Output limit reached]\n", "[Output limit reached]\n", true)
+			// A line that was open here is lost to storage and to the parser.
+			if err := o.limit(stream, state, len(state.pending) > 0 || state.oversized); err != nil {
+				return err
+			}
+			continue
 		}
 		size := len(data)
 		newline := bytes.IndexByte(data, '\n')
@@ -108,12 +129,90 @@ func (o *agentOutputBuffer) write(stream string, data []byte, docker bool) error
 				return err
 			}
 		} else if state.used == maxCapturedLogBytes {
-			state.pending = nil
-			state.limited = true
-			return o.emit(stream, state, "[Output limit reached]\n", "[Output limit reached]\n", true)
+			if err := o.limit(stream, state, true); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+// limit ends storage for the stream. openLine: a line was being read, so the
+// rest of it is skipped.
+func (o *agentOutputBuffer) limit(stream string, state *agentOutputStream, openLine bool) error {
+	state.pending, state.oversized = nil, false
+	state.limited = true
+	state.skip, state.incomplete = openLine, state.incomplete || openLine
+	return o.emit(stream, state, "[Output limit reached]\n", "", true)
+}
+
+// afterLimit keeps reading lines for the result parser once storage stopped.
+// Nothing is persisted and no error stops the run.
+func (o *agentOutputBuffer) afterLimit(state *agentOutputStream, data []byte) {
+	for len(data) > 0 {
+		size := len(data)
+		newline := bytes.IndexByte(data, '\n')
+		if newline >= 0 {
+			size = newline + 1
+		}
+		if !state.skip && !state.oversized {
+			if len(state.pending)+size > maxAgentOutputEventLine {
+				state.pending, state.oversized = nil, true
+			} else {
+				state.pending = append(state.pending, data[:size]...)
+			}
+		}
+		data = data[size:]
+		if newline >= 0 {
+			o.flushAfterLimit(state)
+		}
+	}
+}
+func (o *agentOutputBuffer) flushAfterLimit(state *agentOutputStream) {
+	content := string(state.pending)
+	lost := state.skip || state.oversized
+	state.pending, state.skip, state.oversized = nil, false, false
+	if !lost && isTokenTelemetry(content) {
+		return
+	}
+	if !lost {
+		_, whole, ok, err := o.line(state, content)
+		if lost = err != nil || !ok; !lost {
+			state.tail = append(state.tail, whole)
+			state.tailBytes += len(whole)
+		}
+	}
+	for state.tailBytes > maxAgentResultTail && len(state.tail) > 1 {
+		state.tailBytes -= len(state.tail[0])
+		state.tail = state.tail[1:]
+		lost = true
+	}
+	state.incomplete = state.incomplete || lost
+}
+
+// line turns a raw logical line into what is stored and what the result is
+// parsed from (the same, unless the stored line had to be cut). ok is false
+// for a line over the limit that cannot be cut.
+func (o *agentOutputBuffer) line(state *agentOutputStream, content string) (stored, whole string, ok bool, err error) {
+	if state.docker {
+		stamp, body, found := strings.Cut(content, " ")
+		if !found || len(stamp) > 48 {
+			return "", "", false, fmt.Errorf("missing native log timestamp")
+		}
+		if _, err := time.Parse(time.RFC3339Nano, stamp); err != nil {
+			return "", "", false, fmt.Errorf("invalid native log timestamp")
+		}
+		content = body
+	}
+	// The limit applies to the line itself, not to Docker's timestamp.
+	long := len(content) > maxAgentOutputLine
+	// Sanitize only after matching raw secret bytes. PostgreSQL text rejects NUL.
+	content = strings.ReplaceAll(strings.ToValidUTF8(o.redact.Replace(content), "\uFFFD"), "\x00", "\uFFFD")
+	if !long {
+		return content, content, true, nil
+	}
+	stored, whole, ok = cutEventLine(content, o.redact)
+	return stored, whole, ok, nil
 }
 func (o *agentOutputBuffer) flush(stream string, state *agentOutputStream) error {
 	content := string(state.pending)
@@ -126,55 +225,68 @@ func (o *agentOutputBuffer) flush(stream string, state *agentOutputStream) error
 		state.used -= len(content)
 		return nil
 	}
-	// text is what the run's result is parsed from: the stored line, or the
-	// whole event when the stored one was cut.
-	text := ""
+	whole := ""
 	if !truncated {
-		long := len(content) > maxAgentOutputLine
-		if state.docker {
-			stamp, body, ok := strings.Cut(content, " ")
-			if !ok || len(stamp) > 48 {
-				return fmt.Errorf("missing native log timestamp")
-			}
-			if _, err := time.Parse(time.RFC3339Nano, stamp); err != nil {
-				return fmt.Errorf("invalid native log timestamp")
-			}
-			content = body
+		var ok bool
+		var err error
+		if content, whole, ok, err = o.line(state, content); err != nil {
+			return err
 		}
-		// Sanitize only after matching raw secret bytes. PostgreSQL text rejects NUL.
-		content = strings.ReplaceAll(strings.ToValidUTF8(o.redact.Replace(content), "�"), "\x00", "�")
-		text = content
-		if long {
-			var ok bool
-			content, text, ok = cutEventLine(content, o.redact)
-			truncated = !ok
-		}
+		truncated = !ok
 	}
 	if truncated {
-		content = "[Oversized output line omitted]\n"
-		text = content
+		// The parser never sees this line; it may have been the final message.
+		content, whole, state.incomplete = "[Oversized output line omitted]\n", "", true
 	}
-	return o.emit(stream, state, content, text, truncated)
+	return o.emit(stream, state, content, whole, truncated)
 }
-func (o *agentOutputBuffer) emit(stream string, state *agentOutputStream, content, text string, truncated bool) error {
+
+// emit stores a record. result is the line as the result parser gets it:
+// empty for Kuayle's own markers, which are not the agent's output.
+func (o *agentOutputBuffer) emit(stream string, state *agentOutputStream, content, result string, truncated bool) error {
 	state.sequence++
 	if err := o.persist(stream, state.sequence, state.source, content, truncated); err != nil {
 		return err
 	}
-	_, _ = state.text.Write([]byte(text))
+	_, _ = state.text.Write([]byte(content))
+	_, _ = state.result.Write([]byte(result))
 	return nil
 }
 func (o *agentOutputBuffer) Finish() error {
 	for _, stream := range []string{"stdout", "stderr"} {
 		state := o.streams[stream]
-		if state != nil && !state.limited && (len(state.pending) > 0 || state.oversized) {
-			if err := o.flush(stream, state); err != nil {
-				return err
-			}
+		if state == nil || (len(state.pending) == 0 && !state.oversized && !state.skip) {
+			continue
+		}
+		if state.limited {
+			o.flushAfterLimit(state)
+		} else if err := o.flush(stream, state); err != nil {
+			return err
 		}
 	}
 	return nil
 }
+
+// ResultText is the stream as the run's result is parsed from it: whole
+// redacted lines, without the markers Kuayle stores in their place, followed
+// by the lines that came after storage stopped.
+func (o *agentOutputBuffer) ResultText(stream string) string {
+	s := o.streams[stream]
+	if s == nil {
+		return ""
+	}
+	return s.result.String() + strings.Join(s.tail, "")
+}
+
+// Incomplete reports that the result parser did not get every line of the
+// stream: one was too long to keep, was open when storage stopped, or was
+// pushed out of the tail kept after it.
+func (o *agentOutputBuffer) Incomplete(stream string) bool {
+	s := o.streams[stream]
+	return s != nil && s.incomplete
+}
+
+// Text is the stream as stored, markers included.
 func (o *agentOutputBuffer) Text(stream string) string {
 	if s := o.streams[stream]; s != nil {
 		return s.text.String()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/require"
@@ -74,4 +75,15 @@ func TestImplementPromptSaysKuayleCommitsAndPushes(t *testing.T) {
 	require.Equal(t, prompt, withPublication(prompt), "added once")
 
 	require.NotContains(t, withContract("Plan dark mode", domain.AgentTask{}, nil, true), publicationLine)
+}
+
+// The retry is not blind: the next attempt of the task is told the previous
+// one stopped without concluding, on the worktree it left.
+func TestHandoffSaysThePreviousAttemptWroteNoFinalMessage(t *testing.T) {
+	previous := &domain.AgentHandoff{AttemptID: uuid.New(), Status: "failed", NoFinalMessage: true, ChangedFiles: []string{"BE/main.go"}}
+	prompt := withHandoff("Fix it", previous, false, false)
+	require.Contains(t, prompt, "The previous attempt ended without a final message")
+	require.Contains(t, prompt, "check the worktree")
+	require.Contains(t, prompt, "end with a summary of what was done")
+	require.NotContains(t, withHandoff("Fix it", &domain.AgentHandoff{AttemptID: uuid.New(), Status: "failed"}, false, false), "without a final message")
 }
