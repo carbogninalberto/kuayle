@@ -61,7 +61,11 @@ func (p *builtinProvider) ParseResult(stdout, stderr string, exitCode int) RunRe
 	if p.parseResult != nil {
 		return p.parseResult(stdout, stderr, exitCode)
 	}
-	return defaultResult(stdout, stderr, exitCode)
+	result := defaultResult(stdout, stderr, exitCode)
+	if p.metadata.ID == "codex" || p.metadata.ID == "claude-code" {
+		return requireFinalMessage(result, stdout)
+	}
+	return result
 }
 
 func NewClaudeCodeProvider(image string) Provider {
@@ -158,7 +162,7 @@ func (p *openCodeProvider) BuildInvocation(input RunInput) (Invocation, error) {
 func (p *openCodeProvider) ParseEvents(raw []byte) []Event { return parseJSONLines(raw) }
 
 func (p *openCodeProvider) ParseResult(stdout, stderr string, exitCode int) RunResult {
-	return parseAssistantJSONResult(stdout, stderr, exitCode)
+	return requireFinalMessage(parseAssistantJSONResult(stdout, stderr, exitCode), stdout)
 }
 
 func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
@@ -169,6 +173,8 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 	// concluded: no tool ran after the last text, so that text is the
 	// agent's final message and not what it said before working on.
 	concluded := false
+	// harnessError is the error OpenCode reported after the agent last spoke.
+	harnessError := ""
 	var toolFailures []string
 
 	for _, line := range lines {
@@ -187,7 +193,19 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 
 		if typ == "text" {
 			if text, ok := part["text"].(string); ok && strings.TrimSpace(text) != "" {
-				lastAssistantText, concluded = text, true
+				lastAssistantText, concluded, harnessError = text, true, ""
+			}
+		}
+		// OpenCode's top-level error ({"type":"error","error":{"name","data":
+		// {"message"}}}) ends the session, also with exit code 0.
+		if failure, ok := evt["error"].(map[string]any); ok && typ == "error" {
+			concluded = false
+			name, _ := failure["name"].(string)
+			data, _ := failure["data"].(map[string]any)
+			message, _ := data["message"].(string)
+			harnessError = strings.TrimSpace(strings.Trim(name+": "+strings.Join(strings.Fields(message), " "), ": "))
+			if harnessError == "" {
+				harnessError = "unknown error"
 			}
 		}
 		if typ == "tool_use" || typ == "tool_result" || typ == "tool" {
@@ -243,9 +261,17 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 		}
 	}
 
-	if lastAssistantText != "" {
+	// A result event (Claude-style streams) is the conclusion; assistant text
+	// replaces it only when nothing but that text ended the run.
+	if lastAssistantText != "" && (concluded || !result.FinalMessage) {
 		final := strings.TrimSpace(lastAssistantText)
 		result.Summary, result.FinalMessage, result.SummaryTruncated = truncateSummary(final), concluded, concluded && len(final) > MaxSummaryBytes
+	}
+	if harnessError != "" && !result.FinalMessage {
+		if len(harnessError) > 500 {
+			harnessError = strings.ToValidUTF8(harnessError[:500], "")
+		}
+		result.FailureReason = "The harness reported an error: " + harnessError
 	}
 
 	if len(toolFailures) > 0 {

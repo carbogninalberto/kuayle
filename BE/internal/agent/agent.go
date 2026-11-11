@@ -86,16 +86,21 @@ type RunResult struct {
 	// reported for the agent, not a fallback to its raw output; a planning
 	// step's plan is that message. SummaryTruncated reports that it was cut
 	// to MaxSummaryBytes.
-	FinalMessage     bool       `json:"final_message"`
-	SummaryTruncated bool       `json:"summary_truncated"`
-	ChangedFiles     []string   `json:"changed_files"`
-	Commits          []string   `json:"commits"`
-	Branch           string     `json:"branch,omitempty"`
-	PullRequestURL   string     `json:"pull_request_url,omitempty"`
-	TestsRun         []string   `json:"tests_run"`
-	TestStatus       string     `json:"test_status"`
-	RiskNotes        []string   `json:"risk_notes"`
-	Artifacts        []Artifact `json:"artifacts"`
+	FinalMessage     bool `json:"final_message"`
+	SummaryTruncated bool `json:"summary_truncated"`
+	// NoFinalMessage reports that the harness exited normally but the agent
+	// never concluded, which is the only reason the run failed.
+	// FailureReason is what the harness itself said went wrong, if anything.
+	NoFinalMessage bool       `json:"no_final_message,omitempty"`
+	FailureReason  string     `json:"failure_reason,omitempty"`
+	ChangedFiles   []string   `json:"changed_files"`
+	Commits        []string   `json:"commits"`
+	Branch         string     `json:"branch,omitempty"`
+	PullRequestURL string     `json:"pull_request_url,omitempty"`
+	TestsRun       []string   `json:"tests_run"`
+	TestStatus     string     `json:"test_status"`
+	RiskNotes      []string   `json:"risk_notes"`
+	Artifacts      []Artifact `json:"artifacts"`
 }
 
 type Provider interface {
@@ -174,9 +179,10 @@ func defaultResult(stdout, stderr string, exitCode int) RunResult {
 	}
 	summary, final := finalMessageAfterTools(stdout)
 	if summary == "" {
-		summary = strings.TrimSpace(stdout)
+		summary = plainOutput(stdout)
 	}
-	if summary == "" {
+	// Standard error explains a failure; on a normal exit it is only noise.
+	if summary == "" && exitCode != 0 {
 		summary = strings.TrimSpace(stderr)
 	}
 	return RunResult{
@@ -191,6 +197,31 @@ func defaultResult(stdout, stderr string, exitCode int) RunResult {
 		RiskNotes:        []string{},
 		Artifacts:        []Artifact{},
 	}
+}
+
+// plainOutput is what a harness printed apart from its JSON events, which are
+// never a summary: a run whose output is only events has none.
+func plainOutput(stdout string) string {
+	var plain []string
+	for _, line := range strings.Split(stdout, "\n") {
+		if text := strings.TrimSpace(line); strings.HasPrefix(text, "{") && json.Valid([]byte(text)) {
+			continue
+		}
+		plain = append(plain, line)
+	}
+	return strings.TrimSpace(strings.Join(plain, "\n"))
+}
+
+// requireFinalMessage fails a run that exited normally without the agent's
+// final message. It applies to the harnesses whose final-message event Kuayle
+// knows (Claude Code, Codex, OpenCode): there, no such event means the agent
+// stopped mid-work, and the next step would get no statement of what it did.
+// Output without a single event is not such a stream and is left alone.
+func requireFinalMessage(result RunResult, stdout string) RunResult {
+	if result.Status == "succeeded" && !result.FinalMessage && plainOutput(stdout) != strings.TrimSpace(stdout) {
+		result.Status, result.NoFinalMessage = "failed", true
+	}
+	return result
 }
 
 func parseJSONLines(raw []byte) []Event {

@@ -11,10 +11,18 @@ import (
 const maxAgentOutputLine = 16 * 1024
 const maxAgentOutputRecords = 4096
 
+// maxAgentOutputEventLine is the longest line Kuayle buffers to cut it as a
+// JSON event (see cutEventLine); a longer one is omitted whole.
+const maxAgentOutputEventLine = 1 << 20
+
 // Bound both bytes and rows. Records follow logical lines, never transport frames,
 // so a manager recovering the same container reproduces identical sequence keys.
-// Oversized lines are suppressed whole: retaining their prefix could leak a
-// credential straddling the limit or fabricate a partial structured event.
+// A stored line never exceeds maxAgentOutputLine. A longer one that is a JSON
+// event is redacted whole and then has its long values cut, so a tool call
+// with a large output stays an event; the result is parsed from the uncut
+// event, so a long final message is not lost. Any other oversized line is
+// suppressed whole: retaining its prefix could leak a credential straddling
+// the limit or fabricate a partial structured event.
 type agentOutputBuffer struct {
 	streams map[string]*agentOutputStream
 	redact  *strings.Replacer
@@ -77,7 +85,7 @@ func (o *agentOutputBuffer) write(stream string, data []byte, docker bool) error
 		if state.sequence >= maxAgentOutputRecords || state.used >= maxCapturedLogBytes {
 			state.pending = nil
 			state.limited = true
-			return o.emit(stream, state, "[Output limit reached]\n", true)
+			return o.emit(stream, state, "[Output limit reached]\n", "[Output limit reached]\n", true)
 		}
 		size := len(data)
 		newline := bytes.IndexByte(data, '\n')
@@ -86,7 +94,7 @@ func (o *agentOutputBuffer) write(stream string, data []byte, docker bool) error
 		}
 		size = min(size, maxCapturedLogBytes-state.used)
 		state.used += size
-		if len(state.pending)+size > maxAgentOutputLine {
+		if len(state.pending)+size > maxAgentOutputEventLine {
 			state.pending = nil
 			state.oversized = true
 		}
@@ -102,7 +110,7 @@ func (o *agentOutputBuffer) write(stream string, data []byte, docker bool) error
 		} else if state.used == maxCapturedLogBytes {
 			state.pending = nil
 			state.limited = true
-			return o.emit(stream, state, "[Output limit reached]\n", true)
+			return o.emit(stream, state, "[Output limit reached]\n", "[Output limit reached]\n", true)
 		}
 	}
 	return nil
@@ -118,9 +126,11 @@ func (o *agentOutputBuffer) flush(stream string, state *agentOutputStream) error
 		state.used -= len(content)
 		return nil
 	}
-	if truncated {
-		content = "[Oversized output line omitted]\n"
-	} else {
+	// text is what the run's result is parsed from: the stored line, or the
+	// whole event when the stored one was cut.
+	text := ""
+	if !truncated {
+		long := len(content) > maxAgentOutputLine
 		if state.docker {
 			stamp, body, ok := strings.Cut(content, " ")
 			if !ok || len(stamp) > 48 {
@@ -133,15 +143,25 @@ func (o *agentOutputBuffer) flush(stream string, state *agentOutputStream) error
 		}
 		// Sanitize only after matching raw secret bytes. PostgreSQL text rejects NUL.
 		content = strings.ReplaceAll(strings.ToValidUTF8(o.redact.Replace(content), "�"), "\x00", "�")
+		text = content
+		if long {
+			var ok bool
+			content, text, ok = cutEventLine(content, o.redact)
+			truncated = !ok
+		}
 	}
-	return o.emit(stream, state, content, truncated)
+	if truncated {
+		content = "[Oversized output line omitted]\n"
+		text = content
+	}
+	return o.emit(stream, state, content, text, truncated)
 }
-func (o *agentOutputBuffer) emit(stream string, state *agentOutputStream, content string, truncated bool) error {
+func (o *agentOutputBuffer) emit(stream string, state *agentOutputStream, content, text string, truncated bool) error {
 	state.sequence++
 	if err := o.persist(stream, state.sequence, state.source, content, truncated); err != nil {
 		return err
 	}
-	_, _ = state.text.Write([]byte(content))
+	_, _ = state.text.Write([]byte(text))
 	return nil
 }
 func (o *agentOutputBuffer) Finish() error {

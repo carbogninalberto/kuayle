@@ -467,8 +467,9 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 		target = "failed"
 		// A resource limit stays the final reason: it tells the user what to
 		// change. So does a workflow's own reason, such as a step's visit
-		// limit, which is why the task stopped.
-		if domain.IsResourceLimitReason(task.Reason) || domain.IsWorkflowReason(task.Reason) {
+		// limit, which is why the task stopped, and an agent that ended
+		// without a final message.
+		if domain.IsResourceLimitReason(task.Reason) || domain.IsWorkflowReason(task.Reason) || domain.IsNoFinalMessageReason(task.Reason) {
 			reason = task.Reason
 		} else {
 			reason = "Execution failed; runtime cleanup confirmed"

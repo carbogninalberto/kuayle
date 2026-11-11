@@ -1404,6 +1404,12 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 			// The provider's usage limit: the task pauses until the reset.
 			message := limit.ErrorMessage()
 			run.ErrorMessage = &message
+		} else if run.ErrorMessage == nil && result.NoFinalMessage {
+			// The harness exited normally but the agent never concluded.
+			message := domain.NoFinalMessageReason(result.FailureReason)
+			run.ErrorMessage = &message
+		} else if run.ErrorMessage == nil && result.FailureReason != "" {
+			run.ErrorMessage = &result.FailureReason
 		} else if run.ErrorMessage == nil && execution.ExitCode == 137 {
 			message := "The agent process was killed (exit code 137) without an out-of-memory event; it may have been stopped by a signal."
 			run.ErrorMessage = &message
