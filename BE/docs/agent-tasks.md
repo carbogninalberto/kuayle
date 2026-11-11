@@ -1814,12 +1814,30 @@ Routes (workspace, session only): `GET/POST /agent-profiles`,
 `POST /workflows/validate`, `GET/PUT /workflows/:workflowId`,
 `POST /workflows/:workflowId/duplicate|archive`, `GET /workflows/:workflowId/audit`,
 `PUT /workflow-defaults`; under dev machines `GET /agent-tasks/:taskId/workflow`
-(graph, path and visit counts) and `POST /agent-tasks/:taskId/workflow/decision`
+(graph, path, visit counts and `runs`) and `POST /agent-tasks/:taskId/workflow/decision`
 (`approve`/`deny` an approval node, `continue`/`stop` at a limit; only the
 task's creator or an owner or admin who can see the issue, for the step
 `sequence` they saw). The UI edits workflows in Settings → Workflows and the
 assistant's Workflow side panel (Svelte Flow), profiles in Settings → Agents,
 and shows a task's run in its Agents panel.
+
+`runs` is what the agent view's timeline is built from: the task's newest 200
+agent runs, oldest first, as `id`, `task_id`, `provider`, `model`, `status`,
+`created_at`, `started_at`, `completed_at` and `step`, the sequence of the
+workflow step that started the run. Steps do not store their run: a run
+belongs to the latest step that started an iteration (`generation` set) and
+was entered before the run was created, so a step resumed after a usage limit
+has several. The runs of the review task a reviewer step created
+(`review_task_id`) are listed on that step with the review's `task_id`; a
+review requested outside the workflow is not. `summary` is returned only when
+the harness reported a final message (`result.final_message`), never a run's
+raw output, prompt or secrets. A finished run's summary never changes, so a
+view that reloads passes `?summaries_since=<RFC 3339 time>`, the newest
+`completed_at` it has, and gets no summary for runs completed at or before it
+(`400` for an unreadable time). A task without a workflow gets its runs with no
+`step`. The read has the task's own authorization (its creator, still a member
+who can see the issue's team); a review task has the same creator, issue and
+conversation as the task it reviews.
 
 Not implemented: per-profile skills and tool sets, sharing across workspaces,
 parallel branches and workflows for non-coding automations.
@@ -1887,6 +1905,53 @@ first) and each
 step's `paused_seconds`. The task card shows "Paused" with one Resume button,
 and offers Pause in its menu; `WorkflowPauseControl.svelte` is the same
 control as a standalone component.
+
+### Moving a task to a newer workflow version
+
+A task is pinned to the workflow version it started on; saving the workflow
+only affects later tasks. Its creator can move a running task to the newest
+version (KUA-130). It is never automatic.
+
+- `GET /agent-tasks/:taskId/workflow/switch` says what the move would do and
+  changes nothing: `from_version`, `to_version`, the step the task continues on
+  (`node`, `node_label`), or `refused` with the reason. `POST` on the same path
+  does it, and answers `409 WORKFLOW_SWITCH_REFUSED` with the reason when the
+  task cannot be moved. Both are for the creator, like pause and cancel.
+- The task must be at rest (`domain.WorkflowSwitchBlocked`): paused by a person
+  with the interrupted attempt stopped, or `awaiting_review` and waiting on a
+  step for CI, an approval or a merge. A task whose agent is working is paused
+  first (`not_at_rest`); a task being cancelled is not moved.
+- The task continues on the step it is on, and only if the newest version still
+  has it doing the same kind of work (`domain.MatchWorkflowNode`): the same node
+  ID and type, the same check, and for an agent step the same profile, because
+  the attempt or review the task has there was started with that profile's
+  harness, model and instructions and is continued with them. Label, prompt,
+  limits and the transitions may differ, and so may every other step.
+  Otherwise the move is refused (`step_removed`, `step_changed`) and the task
+  stays on its version: it is never left without a valid step. Choosing another
+  step to continue from is not offered.
+- The step the task is on keeps the prompt it was entered with. The new
+  prompts, profiles, transitions and limits apply from its next step.
+- A person's retry goes back to the latest implementing step the task's current
+  version still has (`retryWorkflow`), and is refused when it has none.
+- Transitions planned on the old version are refused: `WorkflowApply.Version`
+  names the version they were planned on, so an approval or a worker step that
+  raced the move decides again on the new one. A waiting task is looked at
+  again at once, so the new version's timeouts and budget apply immediately.
+- Visit counts are kept for the steps the newest version still has; iterations,
+  budget extensions and the time already spent are kept. So the new limits and
+  the new budget count what the task already did, and a task can be over a
+  lowered limit at once.
+- The worker's lease is dropped, so what it decided on the old version is
+  refused and it decides again on the new one. A paused task stays paused.
+- The move is recorded in `workflow_audit_events` (`task_workflow`,
+  `version_switched`: who, from and to version, the step, the step sequence).
+- `GET /agent-tasks/:taskId/workflow` returns `latest_version` next to
+  `version`. The task card asks for the plan whenever the task changes state
+  and offers "Move to workflow version N" in its menu; the dialog says where
+  the task continues, or why it cannot be moved
+  ([workflow-switch.ts](../../UI/src/lib/features/assistant/workflow-switch.ts)).
+  The step timeline does not show moves yet.
 
 ## Task notebook
 

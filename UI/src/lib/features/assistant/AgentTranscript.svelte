@@ -23,8 +23,10 @@
 	import type { DevMachineLogChunk } from '$lib/types/dev-machine';
 	import Markdown from './Markdown.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
+	import ClampedText from './ClampedText.svelte';
 	import { markdownToPlainText } from './message-text';
 	import {
+		finalMessage,
 		groupSession,
 		outputPreview,
 		parseAgentSession,
@@ -44,15 +46,35 @@
 	// sanitizer.
 	let {
 		chunks,
-		active = false
+		active = false,
+		pending = false,
+		lead = false,
+		summary = '',
+		concluded = false
 	}: {
 		chunks: Pick<DevMachineLogChunk, 'id' | 'stream' | 'content' | 'truncated' | 'created_at'>[];
 		// The run is still going: an unanswered tool call is in progress.
 		active?: boolean;
+		// The run has not started yet; nothing recorded is not the end of it.
+		pending?: boolean;
+		// A finished run reads from its conclusion: its final message first,
+		// the trace that led to it below.
+		lead?: boolean;
+		// The final message the run recorded, for when its output has none.
+		summary?: string;
+		// The final message is already shown above the session (a planning
+		// step's plan is its final message), so it is not shown again.
+		concluded?: boolean;
 	} = $props();
 	let raw = $state(false);
 	let fullOutput = $state<Record<string, boolean>>({});
 	const blocks = $derived(groupSession(parseAgentSession(chunks)));
+	const final = $derived(lead && !active ? finalMessage(blocks) : undefined);
+	const conclusion = $derived.by(() => {
+		const text = final?.text ?? (active ? '' : summary);
+		return concluded || !text.trim() ? '' : text;
+	});
+	const trace = $derived(final ? blocks.filter((block) => block.key !== final.key) : blocks);
 	const rawText = $derived(
 		chunks.map((line) => `${line.stream === 'stderr' ? '[stderr] ' : ''}${line.content}`).join('')
 	);
@@ -198,12 +220,7 @@
 			{#if block.session}<span class="font-mono" title={block.session}>{block.session.slice(0, 12)}</span>{/if}
 		</p>
 	{:else if block.kind === 'text'}
-		<Message.Root align="start" role="article" aria-label={m['tasks.live_from_agent']()}>
-			<Message.Content class="w-full">
-				<Bubble.Root variant="ghost"><Bubble.Content><Markdown source={block.text} /></Bubble.Content></Bubble.Root>
-				<Message.Footer><CopyMessageButton text={() => markdownToPlainText(block.text)} /></Message.Footer>
-			</Message.Content>
-		</Message.Root>
+		{@render message(block.text)}
 	{:else if block.kind === 'user'}
 		<Message.Root align="end" role="article" aria-label={m['tasks.transcript_from_you']()}>
 			<Message.Content class="items-end">
@@ -214,7 +231,7 @@
 				>
 				<Bubble.Root variant="muted"
 					><Bubble.Content class="rounded-2xl rounded-br-md px-3.5 py-2"
-						><p class="line-clamp-6 break-words whitespace-pre-wrap">{block.text}</p></Bubble.Content
+						><ClampedText text={block.text} lines={6} /></Bubble.Content
 					></Bubble.Root
 				>
 			</Message.Content>
@@ -321,15 +338,16 @@
 	{/if}
 {/snippet}
 
+{#snippet message(text: string)}
+	<Message.Root align="start" role="article" aria-label={m['tasks.live_from_agent']()}>
+		<Message.Content class="w-full">
+			<Bubble.Root variant="ghost"><Bubble.Content><Markdown source={text} /></Bubble.Content></Bubble.Root>
+			<Message.Footer><CopyMessageButton text={() => markdownToPlainText(text)} /></Message.Footer>
+		</Message.Content>
+	</Message.Root>
+{/snippet}
+
 <section aria-label={m['tasks.transcript_title']()} class="min-w-0 space-y-3" data-testid="agent-transcript">
-	<div class="flex min-w-0 items-center justify-between gap-2">
-		<h3 class="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-			{m['tasks.transcript_title']()}
-		</h3>
-		<Toggle size="sm" variant="outline" bind:pressed={raw} title={m['tasks.transcript_raw_help']()}
-			><Terminal />{m['tasks.transcript_raw']()}</Toggle
-		>
-	</div>
 	{#if raw}
 		<CodeBlock.Root
 			><CodeBlock.Header
@@ -338,13 +356,23 @@
 				></CodeBlock.Header
 			><CodeBlock.Content code={rawText || m['tasks.no_output']()} wrap class="max-h-[32rem] text-xs" /></CodeBlock.Root
 		>
-	{:else if !blocks.length}
+	{:else if !blocks.length && !conclusion}
 		<p class="text-xs text-muted-foreground">
-			{active ? m['tasks.transcript_starting']() : m['tasks.no_output']()}
+			{active || pending ? m['tasks.transcript_starting']() : m['tasks.no_output']()}
 		</p>
 	{:else}
 		<div class="flex min-w-0 flex-col gap-3">
-			{#each blocks as block (block.key)}{@render blockView(block)}{/each}
+			{#if conclusion}{@render message(conclusion)}{/if}
+			{#each trace as block (block.key)}{@render blockView(block)}{/each}
 		</div>
 	{/if}
+	{#if chunks.length}<div class="-mt-2 flex justify-end">
+			<Toggle
+				size="sm"
+				bind:pressed={raw}
+				aria-label={m['tasks.transcript_raw']()}
+				title={m['tasks.transcript_raw_help']()}
+				class="text-muted-foreground/70"><Terminal /></Toggle
+			>
+		</div>{/if}
 </section>

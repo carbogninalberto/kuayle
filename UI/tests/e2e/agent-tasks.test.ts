@@ -53,6 +53,9 @@ async function fixture(page: Page) {
 		signIns: [] as any[],
 		resumes: [] as string[],
 		pauses: [] as string[],
+		// The newest version of the task's workflow, and what moving to it would do.
+		workflowSwitch: { from_version: 1, to_version: 1, refused: 'no_newer_version' } as Record<string, unknown>,
+		switches: 0,
 		signInFound: false,
 		tokenSaves: [] as any[],
 		sessions: [] as any[],
@@ -238,6 +241,19 @@ async function fixture(page: Page) {
 				if (!state.signInFound) return route.fulfill({ status: 409, json: { error: { code: 'SIGN_IN_NOT_FOUND' } } });
 				state.task = { ...state.task, state: 'queued', generation: 2, run_id: 'run-2', sign_in_required: false };
 				return route.fulfill({ status: 202, json: state.task });
+			}
+			if (path.endsWith('/workflow/switch')) {
+				if (req.method() === 'GET') return route.fulfill({ json: state.workflowSwitch });
+				if (state.workflowSwitch.refused)
+					return route.fulfill({
+						status: 409,
+						json: { error: { code: 'WORKFLOW_SWITCH_REFUSED', message: String(state.workflowSwitch.refused) } }
+					});
+				state.switches++;
+				state.task = { ...state.task, workflow_version_id: 'version-2', updated_at: new Date().toISOString() };
+				const moved = state.workflowSwitch;
+				state.workflowSwitch = { from_version: 2, to_version: 2, refused: 'no_newer_version' };
+				return route.fulfill({ json: { switch: moved, task: state.task } });
 			}
 			if (path.endsWith('/pause')) {
 				const mode = req.postDataJSON().mode;
@@ -923,6 +939,87 @@ test('opens the recorded pull request only after publication succeeds', async ({
 	await page.reload();
 	await expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
 	expect(state.creates).toHaveLength(1);
+});
+
+// KUA-130: a task stays on the version of its workflow it started on. When
+// there is a newer one, its creator moves the task to it from the task menu:
+// after pausing when the agent is working, and never when the newer version
+// lost the step the task is on.
+test('moves a paused task to the newest version of its workflow', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	const item = () => page.getByRole('menuitem', { name: 'Move to workflow version 2', exact: true });
+	const dialog = page.getByRole('alertdialog', { name: 'Move to version 2 of the workflow?' });
+
+	// Nothing newer: nothing is offered.
+	state.task = {
+		...state.task,
+		state: 'running',
+		reason: 'Workflow · Start → Implementer',
+		workflow_version_id: 'version-1',
+		workflow_node: 'implement',
+		workflow_status: 'running'
+	};
+	emit('task.state_changed', state.task);
+	await expect(tasks.getByText('Running', { exact: true })).toBeVisible();
+	await openTaskMenu(page);
+	await expect(page.getByRole('menuitem', { name: 'Cancel task', exact: true })).toBeVisible();
+	await expect(item()).toHaveCount(0);
+	await page.keyboard.press('Escape');
+
+	// A newer version while the agent works: the task has to be paused first.
+	state.workflowSwitch = { from_version: 1, to_version: 2, refused: 'not_at_rest' };
+	state.task = { ...state.task, updated_at: new Date(Date.parse(state.task.updated_at) + 1000).toISOString(), workflow_status: 'running', reason: 'Workflow · Implementer' };
+	await page.reload();
+	await openTaskMenu(page);
+	await item().click();
+	await expect(dialog).toContainText('Pause the task first');
+	await expect(dialog.getByRole('button', { name: 'Move', exact: true })).toHaveCount(0);
+	await dialog.getByRole('button', { name: 'Close' }).click();
+	expect(state.switches).toBe(0);
+
+	// Paused: it says where the task continues, and moves it.
+	state.workflowSwitch = { from_version: 1, to_version: 2, node: 'implement', node_label: 'Build it' };
+	await openTaskMenu(page);
+	await page.getByRole('menuitem', { name: 'Pause', exact: true }).click();
+	await page.getByRole('menuitem', { name: 'Pause now', exact: true }).click();
+	await expect(tasks.getByText('Paused', { exact: true })).toBeVisible();
+	await openTaskMenu(page);
+	await item().click();
+	await expect(dialog).toContainText('The task continues from “Build it”');
+	await dialog.getByRole('button', { name: 'Move', exact: true }).click();
+	await expect(dialog).toBeHidden();
+	await expect.poll(() => state.switches).toBe(1);
+	// It is on the newest version now, still paused, and nothing more is offered.
+	await expect(tasks.getByText('Paused', { exact: true })).toBeVisible();
+	await openTaskMenu(page);
+	await expect(page.getByRole('menuitem', { name: 'Cancel task', exact: true })).toBeVisible();
+	await expect(page.getByRole('menuitem', { name: /Move to workflow version/ })).toHaveCount(0);
+	await page.keyboard.press('Escape');
+});
+
+test('a task whose step the newest version lost stays on its version and says why', async ({ page }) => {
+	const { state } = await fixture(page);
+	state.workflowSwitch = { from_version: 1, to_version: 3, refused: 'step_removed' };
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	state.task = {
+		...state.task,
+		state: 'awaiting_review',
+		reason: 'Workflow · waiting for approval',
+		workflow_version_id: 'version-1',
+		workflow_node: 'ship',
+		workflow_status: 'waiting'
+	};
+	await page.reload();
+	await openTaskMenu(page);
+	await page.getByRole('menuitem', { name: 'Move to workflow version 3', exact: true }).click();
+	const dialog = page.getByRole('alertdialog', { name: 'Move to version 3 of the workflow?' });
+	await expect(dialog).toContainText('Version 3 no longer has the step this task is on, so it stays on version 1.');
+	await expect(dialog.getByRole('button', { name: 'Move', exact: true })).toHaveCount(0);
+	expect(state.switches).toBe(0);
 });
 
 // KUA-129: a running workflow is paused from the task card's menu, where
@@ -2397,8 +2494,9 @@ test('an OpenCode run reads as a session: Markdown messages and one chip per too
 	const session = page.getByRole('region', { name: 'Agent session' });
 	const messages = session.getByRole('article', { name: 'Agent' });
 	await expect(messages).toHaveCount(2);
-	await expect(messages.first().locator('strong')).toHaveText('search');
-	await expect(messages.last().getByRole('listitem')).toHaveText(['filter added', 'tests pass']);
+	// The run has finished: its final message leads, the rest follows (KUA-126).
+	await expect(messages.first().getByRole('listitem')).toHaveText(['filter added', 'tests pass']);
+	await expect(messages.last().locator('strong')).toHaveText('search');
 	await expect(session.getByText('Finished in 9s')).toBeVisible();
 	// No native JSON in the readable view; what is not understood stays inspectable.
 	await expect(session.getByText('step_finish', { exact: false })).toHaveCount(0);

@@ -30,7 +30,8 @@
 		FlaskConical,
 		ScanSearch,
 		CirclePause,
-		Pause
+		Pause,
+		CircleArrowUp
 	} from '@lucide/svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import TaskActions from './TaskActions.svelte';
@@ -49,6 +50,7 @@
 	import { approvedBy } from './review-approval';
 	import type { TaskAction, TaskMenuEntry } from './task-actions';
 	import { canResume, workflowPause } from './workflow-pause';
+	import { mayHaveWorkflowUpdate, workflowUpdate } from './workflow-switch';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import { agentSessionCommand, resumableStates } from './agent-session';
 	import { taskTone, toneDot, toneText } from './task-tone';
@@ -58,6 +60,7 @@
 	import {
 		agentTasks,
 		type AgentTask,
+		type WorkflowSwitch,
 		type AgentSession,
 		type PublicationView,
 		type TaskSignal,
@@ -143,6 +146,50 @@
 	// Work awaiting review can be accepted in Kuayle without merging.
 	const canAccept = $derived(task.state === 'awaiting_review' && task.kind !== 'review');
 	let acceptOpen = $state(false);
+	// A newer version of the task's workflow, which its creator can move it
+	// to. Asked again whenever the task changes state or version: a task is
+	// moved while it is paused or waiting.
+	let switchPlan = $state<WorkflowSwitch | null>(null),
+		switchOpen = $state(false);
+	const update = $derived(workflowUpdate(switchPlan));
+	$effect(() => {
+		void [task.state, task.workflow_version_id, task.workflow_status, task.workflow_paused_at];
+		if (!mayHaveWorkflowUpdate(task)) {
+			switchPlan = null;
+			return;
+		}
+		let stale = false;
+		agentTasks
+			.workflowSwitch(chat.slug, task.id)
+			.then((plan) => {
+				if (!stale && !disposed) switchPlan = plan;
+			})
+			.catch(() => {
+				// Not being able to ask is not worth an alert: the action is absent.
+				if (!stale && !disposed) switchPlan = null;
+			});
+		return () => {
+			stale = true;
+		};
+	});
+	async function moveToNewestVersion() {
+		if (busy) return;
+		busy = true;
+		error = '';
+		try {
+			const moved = await agentTasks.switchWorkflow(chat.slug, task.id);
+			if (disposed) return;
+			switchPlan = null;
+			chat.acceptTask(moved.task);
+		} catch (e) {
+			failure(e);
+		} finally {
+			if (!disposed) {
+				busy = false;
+				switchOpen = false;
+			}
+		}
+	}
 	// The independent check owns its own runtime service; never attribute its
 	// output to the native harness or the harness output to the check.
 	const checkIds = $derived(new Set([validation?.id, ...manualChecks.map((check) => check.id)].filter(Boolean)));
@@ -842,6 +889,15 @@
 					onclick: () => void pauseAction(() => agentTasks.pause(chat.slug, task.id, mode))
 				}))
 			});
+		if (update.kind !== 'none')
+			list.push({
+				id: 'workflow-update',
+				icon: CircleArrowUp,
+				label: m['tasks.workflow_update']({ version: update.version }),
+				group: 'more',
+				disabled: busy,
+				onclick: () => (switchOpen = true)
+			});
 		if (canCancel)
 			list.push({
 				id: 'cancel',
@@ -1194,6 +1250,33 @@
 			{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>
 				<Button variant="ghost" size="sm" onclick={() => void refresh()}>{m['tasks.refresh']()}</Button>{/if}
 		</div>{/if}
+	<AlertDialog.Root bind:open={switchOpen}>
+		<AlertDialog.Content>
+			<AlertDialog.Header>
+				<AlertDialog.Title
+					>{update.kind === 'none' ? '' : m['tasks.workflow_update_title']({ version: update.version })}</AlertDialog.Title
+				>
+				<AlertDialog.Description>
+					{#if update.kind === 'ready'}{m['tasks.workflow_update_desc']({ step: update.step })}
+					{:else if update.kind === 'pause_first'}{m['tasks.workflow_update_pause_first']()}
+					{:else if update.kind === 'step_removed'}{m['tasks.workflow_update_step_removed']({
+							version: update.version,
+							current: update.current
+						})}
+					{:else if update.kind === 'step_changed'}{m['tasks.workflow_update_step_changed']({
+							version: update.version,
+							current: update.current
+						})}{/if}
+				</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Cancel>{update.kind === 'ready' ? m['common.cancel']() : m['common.close']()}</AlertDialog.Cancel>
+				{#if update.kind === 'ready'}<AlertDialog.Action disabled={busy} onclick={() => void moveToNewestVersion()}
+						>{m['tasks.workflow_update_confirm']()}</AlertDialog.Action
+					>{/if}
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
 	<AlertDialog.Root bind:open={acceptOpen}>
 		<AlertDialog.Content>
 			<AlertDialog.Header>

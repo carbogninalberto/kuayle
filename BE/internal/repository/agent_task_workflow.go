@@ -76,6 +76,10 @@ type WorkflowApply struct {
 	Iteration bool
 	// Actor is the person whose decision this is; nil for the runner.
 	Actor *uuid.UUID
+	// Version is the workflow version the moves were planned on. A task that
+	// was moved to another version in between refuses them: its sequence did
+	// not change, but its transitions did.
+	Version *uuid.UUID
 	// Hold keeps the task on its current step, unfinished and without moves:
 	// the time budget ran out while it waited (Entry fails or pauses), or a
 	// person continued past that and it waits again (Entry waits).
@@ -355,6 +359,9 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 		return err
 	}
 	if !task.RunsWorkflow() || task.WorkflowSequence != apply.Sequence || (len(apply.Moves) == 0) != apply.Hold || WorkflowEntryState(apply.Entry.Kind) == "" {
+		return ErrAgentTaskConflict
+	}
+	if apply.Version != nil && *apply.Version != *task.WorkflowVersionID {
 		return ErrAgentTaskConflict
 	}
 	// Nothing moves while a person's pause holds the workflow.
@@ -687,6 +694,42 @@ func (r *AgentTaskRepository) WorkflowSteps(ctx context.Context, ws, id uuid.UUI
 	return steps, err
 }
 
+// stepRunColumns reads a run as the timeline shows it. The summary is only
+// the harness's final message; a run without one keeps its raw output private
+// to the logs.
+// $3 is the completion time up to which the reader already has summaries.
+const stepRunColumns = `r.id,r.task_id,r.provider_id,COALESCE(r.model,'') AS model,r.status::text AS status,r.created_at,r.started_at,r.completed_at,
+ CASE WHEN COALESCE(r.result->>'final_message','')='true' AND ($3::timestamptz IS NULL OR r.completed_at IS NULL OR r.completed_at>$3) THEN r.summary END AS summary,COALESCE(r.result->>'summary_truncated','')='true' AS summary_truncated`
+
+// StepRuns lists the task's agent runs for its timeline, oldest first, under
+// the task's authorization: its newest 200 runs, each on the agent step that
+// was the latest one entered when the run was created (a resumed step has
+// several), and the runs of the review tasks its reviewer steps created. A
+// review task has the creator, conversation and issue of the task it reviews,
+// so whoever reads the task reads its reviews. A finished run's summary never
+// changes: summariesSince leaves out those of runs that completed at or
+// before it, which a view polling the task already holds.
+func (r *AgentTaskRepository) StepRuns(ctx context.Context, ws, id uuid.UUID, summariesSince *time.Time) ([]domain.WorkflowStepRun, error) {
+	if _, err := conversationActor(ctx, ws); err != nil {
+		return nil, err
+	}
+	tx, _, err := r.transaction(ctx, id, true)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	runs := []domain.WorkflowStepRun{}
+	err = tx.SelectContext(ctx, &runs, `SELECT * FROM (
+ (SELECT `+stepRunColumns+`,(SELECT max(s.sequence) FROM agent_task_workflow_steps s WHERE s.task_id=r.task_id AND s.generation IS NOT NULL AND s.entered_at<=r.created_at)::int AS step
+  FROM dev_machine_agent_runs r WHERE r.task_id=$1 AND r.workspace_id=$2 ORDER BY r.created_at DESC,r.id DESC LIMIT 200)
+ UNION ALL
+ (SELECT `+stepRunColumns+`,s.sequence AS step
+  FROM agent_task_workflow_steps s JOIN agent_tasks t ON t.id=s.review_task_id AND t.workspace_id=$2 AND t.kind='review' AND t.review_of_task_id=$1
+  JOIN dev_machine_agent_runs r ON r.task_id=t.id AND r.workspace_id=$2 WHERE s.task_id=$1 ORDER BY r.created_at DESC,r.id DESC LIMIT 200)
+ ) runs ORDER BY created_at,id`, id, ws, summariesSince)
+	return runs, err
+}
+
 // CurrentWorkflowStep is the step the task is on (runner-internal read).
 func (r *AgentTaskRepository) CurrentWorkflowStep(ctx context.Context, task domain.AgentTask) (*domain.WorkflowStep, error) {
 	step := &domain.WorkflowStep{}
@@ -869,10 +912,31 @@ func retryWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, act
 	if !task.RunsWorkflow() {
 		return nil
 	}
-	var step domain.WorkflowStep
-	err := tx.GetContext(ctx, &step, `SELECT * FROM agent_task_workflow_steps WHERE task_id=$1 AND generation IS NOT NULL ORDER BY sequence DESC LIMIT 1`, task.ID)
+	// The step is looked up in the version the task runs now: a task moved to
+	// a newer version goes back to its latest implementing step that version
+	// still has, never to a step that no longer exists.
+	var raw json.RawMessage
+	if err := tx.GetContext(ctx, &raw, `SELECT graph FROM workflow_versions WHERE id=$1 AND workspace_id=$2`, *task.WorkflowVersionID, task.WorkspaceID); err != nil {
+		return err
+	}
+	graph, err := domain.ParseWorkflowGraph(raw)
 	if err != nil {
 		return err
+	}
+	var steps []domain.WorkflowStep
+	if err = tx.SelectContext(ctx, &steps, `SELECT * FROM agent_task_workflow_steps WHERE task_id=$1 AND generation IS NOT NULL ORDER BY sequence DESC`, task.ID); err != nil {
+		return err
+	}
+	var step domain.WorkflowStep
+	found := false
+	for _, candidate := range steps {
+		if node, ok := graph.Node(candidate.NodeID); ok && node.Type == domain.WorkflowNodeAgent {
+			step, found = candidate, true
+			break
+		}
+	}
+	if !found {
+		return ErrAgentTaskConflict
 	}
 	cursor := task.Cursor()
 	if _, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET outcome=COALESCE(outcome,'retried'),finished_at=COALESCE(finished_at,now()) WHERE task_id=$1 AND sequence=$2`, task.ID, task.WorkflowSequence); err != nil {

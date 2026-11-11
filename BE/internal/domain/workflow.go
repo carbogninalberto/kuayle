@@ -1102,6 +1102,26 @@ type WorkflowPauseEvent struct {
 	At       time.Time  `json:"at"`
 }
 
+// WorkflowStepRun is one agent run of a task as its timeline shows it, placed
+// on the workflow step that started it: an agent step's own runs, or the
+// runs of the review task a reviewer step created (TaskID is then that
+// review task). Step is nil for a task that follows no workflow.
+type WorkflowStepRun struct {
+	ID       uuid.UUID `json:"id" db:"id"`
+	TaskID   uuid.UUID `json:"task_id" db:"task_id"`
+	Step     *int      `json:"step,omitempty" db:"step"`
+	Provider string    `json:"provider" db:"provider_id"`
+	Model    string    `json:"model" db:"model"`
+	Status   string    `json:"status" db:"status"`
+	// Summary is the agent's final message, when the harness reported one;
+	// a run's raw output is never returned here.
+	Summary          *string    `json:"summary,omitempty" db:"summary"`
+	SummaryTruncated bool       `json:"summary_truncated,omitempty" db:"summary_truncated"`
+	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
+	StartedAt        *time.Time `json:"started_at,omitempty" db:"started_at"`
+	CompletedAt      *time.Time `json:"completed_at,omitempty" db:"completed_at"`
+}
+
 // Workflow runner statuses stored on the task.
 const (
 	WorkflowStatusRunning = "running"

@@ -630,6 +630,19 @@ func TestRetryRestartsAFailedWorkflowOnItsImplementingStep(t *testing.T) {
 	bundle, err := repo.ProfileBundle(ctx, *retried)
 	require.NoError(t, err)
 	require.NotNil(t, bundle, "the retried iteration gets the implementer's profile files")
+
+	// The timeline keeps the failed attempt on the step that ran it and puts
+	// the retry's run on the step the retry entered.
+	_, err = db.Exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,task_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status,started_at) VALUES($1,$2,$3,$4,$5,'claude-code','autonomous','Test','["claude"]',60,'running',now())`,
+		retried.RunID, ws, *failed.MachineID, task.ID, task.CreatorID)
+	require.NoError(t, err)
+	runs, err := repo.StepRuns(ctx, ws, task.ID, nil)
+	require.NoError(t, err)
+	require.Len(t, runs, 2)
+	require.Equal(t, task.RunID, runs[0].ID)
+	require.Equal(t, 2, *runs[0].Step)
+	require.Equal(t, retried.RunID, runs[1].ID)
+	require.Equal(t, last.Sequence, *runs[1].Step)
 }
 
 // A build step that follows a planning step is run by another profile: the

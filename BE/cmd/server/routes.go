@@ -536,6 +536,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/accept", h.agentTask.Accept)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/workflow", h.workflow.TaskWorkflow)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/workflow/decision", h.workflow.Decide)
+	// Moving a task to the newest version of its workflow: what it would do, then doing it.
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/workflow/switch", h.agentTask.WorkflowSwitch)
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/workflow/switch", h.agentTask.SwitchWorkflow)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/sign-in", h.agentTask.ContinueAfterSignIn)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/terminal", h.agentTask.OpenInClaudeCode)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/preview", h.agentTask.StartPreview)

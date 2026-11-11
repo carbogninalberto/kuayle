@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -245,7 +246,17 @@ func (h *WorkflowHandler) TaskWorkflow(c *echo.Context) error {
 	if err != nil {
 		return agentTaskError(c, err)
 	}
-	result, err := h.svc.TaskWorkflow(c.Request().Context(), workspaceID(c), id)
+	// A view that polls names the newest completion it has seen, so the
+	// summaries it already holds are not sent again.
+	var since *time.Time
+	if raw := c.QueryParam("summaries_since"); raw != "" {
+		at, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "summaries_since must be an RFC 3339 time")
+		}
+		since = &at
+	}
+	result, err := h.svc.TaskWorkflow(c.Request().Context(), workspaceID(c), id, since)
 	if err != nil {
 		return workflowError(c, err)
 	}
