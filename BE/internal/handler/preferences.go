@@ -74,5 +74,8 @@ func toPreferencesResponse(prefs *domain.UserPreferences) dto.UserPreferencesRes
 		TeamWorkflowSortOverrides: overrides,
 		RecentDueDates:            []string(prefs.RecentDueDates),
 		IssuesGroupBy:             prefs.IssuesGroupBy,
+		BrowserNotifications:      prefs.BrowserNotifications,
+		NotificationSound:         prefs.NotificationSound,
+		NotificationEvents:        map[string]bool(prefs.NotificationEvents.Complete()),
 	}
 }

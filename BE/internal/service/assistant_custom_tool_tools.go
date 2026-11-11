@@ -231,6 +231,7 @@ func (s *ConversationService) runCustomTool(ctx context.Context, a domain.Conver
 			return nil, nil, err
 		}
 		auditApprovalRequested(user, ws, approval, nil)
+		s.approvals.notifyRequested(ctx, a.Conversation, approval, prepared.issue.Identifier)
 		return map[string]any{"approval_id": approval.ID, "status": "pending_user_approval", "identifier": prepared.issue.Identifier, "tool": prepared.tool.Name}, issueID, nil
 	}
 	req := repository.ToolRunRequest{ToolID: prepared.tool.ID, Version: prepared.tool.CurrentVersion, Inputs: prepared.inputs, MachineID: prepared.machine, IssueID: issueID,

@@ -32,6 +32,7 @@
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import { showIssueCreatedToast } from '$lib/features/issues/issue-created-toast';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
+	import { handleNotificationCreated } from '$lib/features/notifications/notifier';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { createShortcutEngine, type ShortcutDef } from '$lib/utils/keyboard';
@@ -551,6 +552,8 @@
 			case 'notification.created': {
 				unreadCount++;
 				window.dispatchEvent(new CustomEvent('ws:notification', { detail: msg.payload }));
+				// Browser notification and sound, per the user's preferences.
+				handleNotificationCreated(msg.payload, slug);
 				break;
 			}
 			case 'presence.join':

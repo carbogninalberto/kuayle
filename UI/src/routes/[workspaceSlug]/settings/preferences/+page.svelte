@@ -4,7 +4,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { flip } from 'svelte/animate';
-	import { Monitor, Sun, Moon, ArrowUp, ArrowDown, GripVertical } from '@lucide/svelte';
+	import { Monitor, Sun, Moon, ArrowUp, ArrowDown, GripVertical, Volume2 } from '@lucide/svelte';
 	import * as Select from '$lib/components/ui/select';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Checkbox } from '$lib/components/ui/checkbox';
@@ -26,6 +26,15 @@
 	import type { IssuePriority } from '$lib/types/issue';
 	import { getPriorityLabel } from '$lib/types/issue';
 	import { getCategoryLabel, type StatusCategory } from '$lib/types/team-status';
+	import {
+		NOTIFICATION_EVENT_KEYS,
+		NOTIFICATION_SOUNDS,
+		type NotificationEventKey,
+		type NotificationPermissionState,
+		type NotificationSound
+	} from '$lib/features/notifications/notification-policy';
+	import { readPermission, requestPermission } from '$lib/features/notifications/permissions';
+	import { notificationSound } from '$lib/features/notifications/notifier';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
@@ -57,6 +66,50 @@
 		custom: m['prefs.custom'](),
 	});
 
+	const notificationSoundLabels = $derived<Record<NotificationSound, string>>({
+		off: m['notify.sound.off'](),
+		chime: m['notify.sound.chime'](),
+		bell: m['notify.sound.bell'](),
+		pop: m['notify.sound.pop'](),
+		drop: m['notify.sound.drop'](),
+		pulse: m['notify.sound.pulse']()
+	});
+
+	const notificationEventLabels = $derived<Record<NotificationEventKey, string>>({
+		approval_requested: m['notify.events.approval_requested'](),
+		task_finished: m['notify.events.task_finished'](),
+		review_needed: m['notify.events.review_needed'](),
+		assigned: m['notify.events.assigned'](),
+		mentioned: m['notify.events.mentioned'](),
+		comment: m['notify.events.comment'](),
+		issue_updated: m['notify.events.issue_updated']()
+	});
+
+	const notificationPermissionLabels = $derived<Record<NotificationPermissionState, string>>({
+		default: m['notify.permission.default'](),
+		granted: m['notify.permission.granted'](),
+		denied: m['notify.permission.denied'](),
+		unsupported: m['notify.permission.unsupported']()
+	});
+
+	let notificationPermission = $state<NotificationPermissionState>('default');
+	let requestingPermission = $state(false);
+
+	// Only ever called from the button below: browsers require a user gesture.
+	async function enableBrowserNotifications() {
+		requestingPermission = true;
+		try {
+			notificationPermission = await requestPermission();
+		} finally {
+			requestingPermission = false;
+		}
+	}
+
+	function chooseNotificationSound(sound: NotificationSound) {
+		preferencesState.setNotificationSound(sound);
+		void notificationSound.preview(sound);
+	}
+
 	let dragCategory = $state<StatusCategory | null>(null);
 	let dragOverCategory = $state<StatusCategory | null>(null);
 	let dropIndicator = $state<'above' | 'below'>('below');
@@ -71,6 +124,7 @@
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
 
 	onMount(async () => {
+		notificationPermission = readPermission();
 		issueDefaults = getIssueCreateDefaults(slug);
 		try {
 			const [t, p, l, m] = await Promise.all([
@@ -351,6 +405,101 @@
 					<Select.Item value="pipboy">{m['prefs.theme.pipboy']()}</Select.Item>
 				</Select.Content>
 			</Select.Root>
+		</div>
+	</div>
+
+	<!-- Notifications -->
+	<h2 class="mt-8 text-sm font-medium text-[var(--color-text-secondary)]">{m['notify.settings.title']()}</h2>
+
+	<div class="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]" data-testid="notification-preferences">
+		<!-- Browser permission -->
+		<div class="flex items-center justify-between gap-4 px-5 py-4">
+			<div>
+				<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['notify.permission.title']()}</p>
+				<p class="text-xs text-[var(--color-text-tertiary)]" role="status" data-testid="notification-permission" data-permission={notificationPermission}>
+					{notificationPermissionLabels[notificationPermission]}
+				</p>
+			</div>
+			{#if notificationPermission === 'default'}
+				<Button variant="outline" size="sm" class="shrink-0" disabled={requestingPermission} onclick={enableBrowserNotifications}>
+					{m['notify.permission.enable']()}
+				</Button>
+			{/if}
+		</div>
+
+		<div class="border-t border-[var(--app-border)]"></div>
+
+		<!-- Browser notifications -->
+		<div class="flex items-center justify-between gap-4 px-5 py-4">
+			<div>
+				<p id="notify-browser-label" class="text-sm font-medium text-[var(--color-text-primary)]">{m['notify.browser.title']()}</p>
+				<p class="text-xs text-[var(--color-text-tertiary)]">{m['notify.browser.desc']()}</p>
+			</div>
+			<Switch
+				size="sm"
+				aria-labelledby="notify-browser-label"
+				checked={preferencesState.browserNotifications}
+				onCheckedChange={(v) => preferencesState.setBrowserNotifications(v)}
+			/>
+		</div>
+
+		<div class="border-t border-[var(--app-border)]"></div>
+
+		<!-- Sound -->
+		<div class="flex items-center justify-between gap-4 px-5 py-4">
+			<div>
+				<p id="notify-sound-label" class="text-sm font-medium text-[var(--color-text-primary)]">{m['notify.sound.title']()}</p>
+				<p class="text-xs text-[var(--color-text-tertiary)]">{m['notify.sound.desc']()}</p>
+			</div>
+			<div class="flex shrink-0 items-center gap-2">
+				<Button
+					variant="outline"
+					size="icon-sm"
+					aria-label={m['notify.sound.preview']()}
+					title={m['notify.sound.preview']()}
+					disabled={preferencesState.notificationSound === 'off'}
+					onclick={() => void notificationSound.preview(preferencesState.notificationSound)}
+				>
+					<Volume2 size={14} />
+				</Button>
+				<Select.Root
+					type="single"
+					value={preferencesState.notificationSound}
+					onValueChange={(v) => {
+						if (v) chooseNotificationSound(v as NotificationSound);
+					}}
+				>
+					<Select.Trigger size="sm" class="w-[130px]" aria-labelledby="notify-sound-label">
+						{notificationSoundLabels[preferencesState.notificationSound]}
+					</Select.Trigger>
+					<Select.Content>
+						{#each NOTIFICATION_SOUNDS as sound (sound)}
+							<Select.Item value={sound}>{notificationSoundLabels[sound]}</Select.Item>
+						{/each}
+					</Select.Content>
+				</Select.Root>
+			</div>
+		</div>
+
+		<div class="border-t border-[var(--app-border)]"></div>
+
+		<!-- Events -->
+		<div class="px-5 py-4">
+			<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['notify.events.title']()}</p>
+			<p class="text-xs text-[var(--color-text-tertiary)]">{m['notify.events.desc']()}</p>
+			<ul class="mt-3 space-y-2.5">
+				{#each NOTIFICATION_EVENT_KEYS as key (key)}
+					<li class="flex items-center justify-between gap-4">
+						<span id="notify-event-{key}" class="text-sm text-[var(--color-text-primary)]">{notificationEventLabels[key]}</span>
+						<Switch
+							size="sm"
+							aria-labelledby="notify-event-{key}"
+							checked={preferencesState.notificationEvents[key] !== false}
+							onCheckedChange={(v) => preferencesState.setNotificationEvent(key, v)}
+						/>
+					</li>
+				{/each}
+			</ul>
 		</div>
 	</div>
 

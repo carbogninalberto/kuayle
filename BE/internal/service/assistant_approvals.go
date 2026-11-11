@@ -66,6 +66,9 @@ type AssistantApprovals struct {
 	live approvalLiveTasks
 	// machineAccess is the public demo rule; nil restricts nothing.
 	machineAccess *MachineAccess
+	// Approval requests notify nobody until SetNotifications wires these.
+	notifications notificationCreator
+	userEvents    userEventPublisher
 }
 
 // SetMachineAccess applies the public demo rule to approved actions that

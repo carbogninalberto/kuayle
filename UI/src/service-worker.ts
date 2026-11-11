@@ -15,6 +15,7 @@ import {
 	precacheList,
 	requestStrategy
 } from '$lib/features/pwa/service-worker-policy';
+import { chooseWindowClient, notificationTargetUrl } from '$lib/features/pwa/notification-click';
 
 const worker = self as unknown as ServiceWorkerGlobalScope;
 const CACHE = `${SHELL_CACHE_PREFIX}${version}`;
@@ -38,6 +39,33 @@ worker.addEventListener('activate', (event) => {
 
 worker.addEventListener('message', (event) => {
 	if (event.data?.type === 'SKIP_WAITING') void worker.skipWaiting();
+});
+
+// A clicked notification reuses an open Kuayle window when there is one.
+worker.addEventListener('notificationclick', (event) => {
+	event.notification.close();
+	const origin = worker.location.origin;
+	const target = notificationTargetUrl(event.notification.data?.url, origin);
+	if (!target) return;
+	event.waitUntil(
+		(async () => {
+			const windows = await worker.clients.matchAll({ type: 'window', includeUncontrolled: true });
+			const choice = chooseWindowClient(windows, target, origin);
+			try {
+				if (choice) {
+					// navigate() rejects for windows this worker does not control.
+					const client = choice.navigate ? await choice.client.navigate(target) : choice.client;
+					if (client) {
+						await client.focus();
+						return;
+					}
+				}
+			} catch {
+				// Fall through to a new window.
+			}
+			await worker.clients.openWindow(target).catch(() => null);
+		})()
+	);
 });
 
 worker.addEventListener('fetch', (event) => {

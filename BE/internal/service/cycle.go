@@ -244,9 +244,6 @@ func (s *CycleService) broadcastAndNotifyTeam(ctx context.Context, cycle *domain
 			log.WithError(err).Warn("failed to create cycle notification")
 			continue
 		}
-		s.hub.BroadcastToUser(team.WorkspaceID, m.UserID, realtime.Event{
-			Type:    "notification.created",
-			Payload: map[string]string{"type": "cycle_changed"},
-		})
+		publishNotification(s.hub, team.WorkspaceID, m.UserID, notificationEvent{Type: "cycle_changed", Title: title})
 	}
 }

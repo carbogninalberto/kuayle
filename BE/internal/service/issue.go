@@ -1392,10 +1392,8 @@ func (s *IssueService) notifyIssue(ctx context.Context, userID uuid.UUID, issue 
 		log.WithError(err).Warn("failed to create notification")
 		return
 	}
-	s.hub.BroadcastToUser(issue.WorkspaceID, userID, realtime.Event{
-		Type:    "notification.created",
-		Payload: map[string]string{"type": notifType},
-	})
+	// An unlinked notice (a deleted issue) carries no issue to open.
+	publishNotification(s.hub, issue.WorkspaceID, userID, notificationEvent{Type: notifType, Title: title, IssueID: issueID, IssueIdentifier: issue.Identifier})
 }
 
 func (s *IssueService) notifyWorkspace(ctx context.Context, workspaceID, userID uuid.UUID, notifType, title string, dedupe bool, sourceTeams ...uuid.UUID) {
@@ -1409,10 +1407,7 @@ func (s *IssueService) notifyWorkspace(ctx context.Context, workspaceID, userID 
 		log.WithError(err).Warn("failed to create notification")
 		return
 	}
-	s.hub.BroadcastToUser(workspaceID, userID, realtime.Event{
-		Type:    "notification.created",
-		Payload: map[string]string{"type": notifType},
-	})
+	publishNotification(s.hub, workspaceID, userID, notificationEvent{Type: notifType, Title: title})
 }
 
 func (s *IssueService) notifyAssignees(ctx context.Context, issue *domain.Issue, actorID, workspaceID uuid.UUID) {
