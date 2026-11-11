@@ -395,18 +395,22 @@ type DevMachineAgentRun struct {
 	Diff               string           `json:"-" db:"diff"`
 	DiffTruncated      bool             `json:"-" db:"diff_truncated"`
 	// NotebookRequired: the attempt should leave a valid update of the task
-	// notebook. NotebookUpdates counts the valid ones it left. NotebookProblem
-	// is why its last update was refused while it runs and, once it ended
-	// without a valid one, the note that Kuayle recorded its final message
-	// instead (domain.NotebookNotUpdated). NotebookAskedAt is when Kuayle
-	// asked it once more in the same session, and NotebookContinuation the
-	// command line that continues that session (with placeholders), when
-	// its harness can.
-	NotebookRequired     bool       `json:"-" db:"notebook_required"`
-	NotebookUpdates      int        `json:"-" db:"notebook_updates"`
-	NotebookProblem      *string    `json:"-" db:"notebook_problem"`
-	NotebookAskedAt      *time.Time `json:"-" db:"notebook_asked_at"`
-	NotebookContinuation NullJSON   `json:"-" db:"notebook_continuation"`
+	// notebook. NotebookUpdates counts its updates that changed the notebook;
+	// NotebookUnchanged says it left a valid update that changed nothing.
+	// NotebookProblem is why its last update was refused while it runs and,
+	// once it ended without a valid one, the note that Kuayle recorded its
+	// final message instead (domain.NotebookNotUpdated).
+	NotebookRequired  bool    `json:"-" db:"notebook_required"`
+	NotebookUpdates   int     `json:"-" db:"notebook_updates"`
+	NotebookUnchanged bool    `json:"-" db:"notebook_unchanged"`
+	NotebookProblem   *string `json:"-" db:"notebook_problem"`
+	// The closing continuation: ClosingContinuation is the command line that
+	// continues the attempt's session to ask for what is missing (with
+	// placeholders), when its harness can; ClosingAskedAt is when Kuayle
+	// asked, once per attempt; ClosingSeconds how long that ran.
+	ClosingAskedAt      *time.Time `json:"-" db:"closing_asked_at"`
+	ClosingSeconds      *int       `json:"-" db:"closing_seconds"`
+	ClosingContinuation NullJSON   `json:"-" db:"closing_continuation"`
 	// WorktreeReadOnly: the agent container mounts the task's worktree
 	// read-only (a planning step), with only its .kuayle directory writable.
 	WorktreeReadOnly bool `json:"-" db:"worktree_read_only"`
@@ -414,8 +418,8 @@ type DevMachineAgentRun struct {
 	// split by source ([]PromptSource). It is stored in its own table when
 	// the run is created and never read with the run.
 	PromptSources NullJSON `json:"-" db:"-"`
-	// ContainerSuffix names a second container of the same run (the
-	// notebook continuation); only the manager sets it.
+	// ContainerSuffix names a second container of the same run (the closing
+	// continuation); only the manager sets it.
 	ContainerSuffix string `json:"-" db:"-"`
 	// WorktreeBefore fingerprints the worktree before the agent started.
 	// WorktreeChanged is whether the agent changed it (commits included) and

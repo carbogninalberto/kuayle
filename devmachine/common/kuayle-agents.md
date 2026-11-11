@@ -157,12 +157,17 @@ fields and no others:
 
 `done`, `decisions` and `findings` are added to the notebook; `plan.steps`,
 `remaining` and `verify` replace what was there, so send the whole list (`[]`
-clears it); `resolved` lists the numbers of findings you fixed. An update may
-do only that, for example `{"resolved":[3]}`.
+clears it; `null` or leaving the field out keeps it); `resolved` lists the
+numbers of findings you fixed. An update may do only that, for example
+`{"resolved":[3]}`. Write the update in the attempt it belongs to: a file left
+from an earlier attempt does not count, and an update that changes nothing
+counts only when you changed nothing in the worktree either.
 
 Limits: each text at most 600 bytes, each list at most 40 entries (a step's
 `files` and `commands` included), the file at most 16 KB. Longer texts and
-lists are cut, keeping the first entries, and unknown fields are ignored. You
+lists are cut, keeping the first entries, and unknown fields are ignored;
+the notebook's events then say what was cut or ignored, so check the field
+names if you see such a line. You
 cannot write what people asked (`instructions`), Kuayle's `events` or the
 plan's text (`plan.text`): an update that names one of them is refused whole.
 

@@ -320,7 +320,12 @@ func ParseNotebookUpdate(data []byte, oversize bool) (NotebookUpdate, []string, 
 	}
 	said := false
 	var err error
+	null := func(raw json.RawMessage) bool { return string(bytes.TrimSpace(raw)) == "null" }
 	for name, raw := range fields {
+		// null means "not given": it neither clears nor counts.
+		if _, known := notebookOwnedFields[name]; null(raw) && !known {
+			continue
+		}
 		switch name {
 		case "plan":
 			var plan map[string]json.RawMessage
@@ -331,7 +336,7 @@ func ParseNotebookUpdate(data []byte, oversize bool) (NotebookUpdate, []string, 
 				return NotebookUpdate{}, nil, errors.New("plan.text is the planning step's final message, which Kuayle records; an update writes plan.steps")
 			}
 			rawSteps, ok := plan["steps"]
-			if !ok {
+			if !ok || null(rawSteps) {
 				continue
 			}
 			var entries []map[string]json.RawMessage
@@ -618,6 +623,11 @@ func (n *Notebook) AddEvent(text string, at time.Time) bool {
 	if text == "" {
 		return false
 	}
+	for _, existing := range n.Events {
+		if existing.Text == text {
+			return false
+		}
+	}
 	n.Events = newest(append(n.Events, NotebookEvent{Text: text, At: at.UTC()}), NotebookListItems)
 	return true
 }
@@ -836,24 +846,41 @@ func indented(value string) string {
 // limits ParseNotebookUpdate applies.
 var NotebookUpdateHelp = fmt.Sprintf("Task notebook: your instructions include the task's notebook (what people asked, the plan, decisions, what is done, what remains, how to verify, findings). Before your final message, record your step in it by writing `.kuayle/outbox/%s` in this worktree as one JSON object with any of: {\"done\":[\"what you finished\"],\"remaining\":[\"what is left\"],\"verify\":[\"how to check it\"],\"decisions\":[{\"decision\":\"...\",\"why\":\"...\"}],\"plan\":{\"steps\":[{\"title\":\"...\",\"files\":[\"...\"],\"commands\":[\"...\"],\"acceptance\":\"...\",\"done\":false}]},\"findings\":[{\"text\":\"...\"}],\"resolved\":[1]}. done, decisions and findings are added; plan.steps, remaining and verify replace what was there (send the whole list; [] clears it); resolved lists the numbers of findings you fixed. Each text is at most %d bytes and each list, a step's files and commands included, %d entries: longer ones are cut. The file is at most %d KB. You cannot write the people's instructions. If you leave no valid update Kuayle asks you once more, then records your final message itself and marks the step as not having updated the notebook. See the kuayle-agents skill.", AgentNotebookFile, NotebookItemBytes, NotebookUpdateItems, AgentOutboxFileMaxBytes>>10)
 
-// NotebookReminder is the one continuation Kuayle sends, in the same
-// session, to an attempt that concluded without a valid notebook update.
-// problem is the validator's message, or empty when it wrote none.
-func NotebookReminder(problem string) string {
+// NotebookClosingAsk is what the closing continuation asks of an attempt
+// that concluded without a valid notebook update. problem is the validator's
+// message, or empty when it wrote none.
+func NotebookClosingAsk(problem string) ClosingAsk {
 	missing := "you did not write `.kuayle/outbox/" + AgentNotebookFile + "`"
 	if problem = strings.TrimSpace(problem); problem != "" {
 		missing = "your `.kuayle/outbox/" + AgentNotebookFile + "` was not accepted: " + truncateUTF8(inline(problem), 600)
 	}
-	return "One thing is missing before this step can close: " + missing + ". Write that file now, in this worktree, as one JSON object such as {\"done\":[\"what you finished\"],\"remaining\":[\"what is left\"],\"verify\":[\"how to check it\"],\"decisions\":[{\"decision\":\"...\",\"why\":\"...\"}]} (see the kuayle-agents skill). Do nothing else: do not change any other file, do not run tests and do not repeat your summary. Reply with one line when it is written."
+	return ClosingAsk{Missing: missing, Do: "Write that file now, in this worktree, as one JSON object such as {\"done\":[\"what you finished\"],\"remaining\":[\"what is left\"],\"verify\":[\"how to check it\"],\"decisions\":[{\"decision\":\"...\",\"why\":\"...\"}]} (see the kuayle-agents skill)."}
 }
 
-// Placeholders in the command line that continues an attempt's session to
-// ask for its notebook update. The manager replaces them with the session
-// the attempt ran in and with NotebookReminder's text.
-const (
-	NotebookSessionPlaceholder = "kuayle-notebook-session"
-	NotebookPromptPlaceholder  = "KUAYLE_NOTEBOOK_REMINDER"
-)
+// NotebookUnchangedProblem is why an update that changed nothing does not
+// count for an attempt that changed the worktree.
+const NotebookUnchangedProblem = "your update changed nothing in the notebook, but this attempt changed the worktree: record what you did"
+
+// NotebookUpdateNote is the one line the notebook keeps about an accepted
+// update Kuayle had to cut or partly ignore, so the next agent that reads
+// the notebook does not repeat the slip. notes are ParseNotebookUpdate's.
+func NotebookUpdateNote(notes []string) string {
+	if len(notes) == 0 {
+		return ""
+	}
+	return truncateUTF8("A notebook update was accepted in part: "+strings.Join(notes, "; "), notebookEventBytes)
+}
+
+// NotebookRunState is what an attempt left in the notebook so far.
+type NotebookRunState struct {
+	// Updates counts its updates that changed the notebook.
+	Updates int
+	// Unchanged: it left a valid update that changed nothing. That is
+	// enough only for an attempt that itself changed nothing.
+	Unchanged bool
+	// Problem is why its last update was refused, or empty.
+	Problem string
+}
 
 const notebookNotUpdatedPrefix = "The agent did not update the task notebook"
 

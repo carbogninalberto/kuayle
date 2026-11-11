@@ -1211,6 +1211,8 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		}
 		return err
 	}
+	// Only the first start of an attempt clears what earlier attempts left.
+	firstStart := run.Status == domain.DevMachineAgentRunStatusQueued
 	if err := m.store.MarkAgentRunStarting(ctx, run.ID); err != nil {
 		if errors.Is(err, repository.ErrAgentTaskUnauthorized) {
 			return m.cancelUnauthorizedRun(ctx, run)
@@ -1233,6 +1235,10 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		return err
 	}
 	m.stageAttachments(ctx, machine, run, checkout)
+	if firstStart {
+		// A notebook file an earlier attempt left never counts for this one.
+		m.clearNotebookLeftovers(ctx, machine, run, runServices, checkout)
+	}
 	if !m.prepareOutbox(ctx, machine, run, checkout) && run.WorktreeReadOnly {
 		// Without its .kuayle directory the read-only mount could not keep
 		// the outbox writable and the container would not start: the step
@@ -1348,10 +1354,25 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	// An attempt that concluded without a valid notebook update is asked
 	// once more in its own session, before its inbox and run directory go.
 	notebookNotCollected := false
+	// An update that changed nothing is enough only for an attempt that left
+	// the worktree as it found it (Kuayle's own comparison).
+	unchangedRun := func() bool {
+		runtime, ok := m.runtime.(worktreeRuntime)
+		if !ok || worktreeBefore == "" {
+			return false
+		}
+		after, err := runtime.WorktreeState(ctx, machine, services, checkout)
+		if err != nil {
+			return false
+		}
+		changed, _, _ := worktreeChange(worktreeBefore, after)
+		return !changed
+	}
 	if run.NotebookRequired {
 		concluded := executionErr == nil && !timedOut && execution.ExitCode == 0 &&
 			provider.ParseResult(output.ResultText("stdout"), output.ResultText("stderr"), execution.ExitCode).Status != "failed"
-		notebookNotCollected = m.settleNotebook(ctx, machine, run, providerRecord, checkout, secrets, services, collectErr, concluded)
+		attempt := closingAttempt{machine: machine, run: run, provider: providerRecord, checkout: checkout, secrets: secrets}
+		notebookNotCollected = m.settleNotebook(ctx, attempt, services, collectErr, concluded, unchangedRun)
 	}
 	m.closeLiveInbox(outboxCtx, machine, run)
 	m.takeValidationFile(outboxCtx, machine, run, services, checkout)
@@ -1393,7 +1414,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	// The work is never lost over a missing notebook update: Kuayle records
 	// the attempt itself and says so on the run.
 	if run.Status == domain.DevMachineAgentRunStatusSucceeded {
-		if note := m.closeNotebook(ctx, run, result.Summary, notebookNotCollected); note != "" {
+		if note := m.closeNotebook(ctx, run, result.Summary, notebookNotCollected, unchangedRun); note != "" {
 			result.RiskNotes = append(result.RiskNotes, note)
 		}
 	}

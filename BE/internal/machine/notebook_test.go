@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -34,13 +35,27 @@ type notebookStoreFake struct {
 	fallbacks       []string
 	notCollected    int
 	clearedReadOnly int
+	fallbackProblem string
+	unchanged       bool
+	resets          int
+	closingSeconds  *int
 }
 
-func (f *notebookStoreFake) NotebookUpdateState(context.Context, uuid.UUID) (int, string, error) {
-	return f.updates, f.problem, f.stateErr
+func (f *notebookStoreFake) NotebookUpdateState(context.Context, uuid.UUID) (domain.NotebookRunState, error) {
+	return domain.NotebookRunState{Updates: f.updates, Unchanged: f.unchanged, Problem: f.problem}, f.stateErr
 }
 
-func (f *notebookStoreFake) MarkNotebookAsked(context.Context, uuid.UUID) (bool, error) {
+func (f *notebookStoreFake) ResetNotebookState(context.Context, uuid.UUID) error {
+	f.resets++
+	return nil
+}
+
+func (f *notebookStoreFake) RecordClosingSeconds(_ context.Context, _ uuid.UUID, seconds int) error {
+	f.closingSeconds = &seconds
+	return nil
+}
+
+func (f *notebookStoreFake) MarkClosingAsked(context.Context, uuid.UUID) (bool, error) {
 	if f.alreadyAsked {
 		return false, nil
 	}
@@ -49,9 +64,10 @@ func (f *notebookStoreFake) MarkNotebookAsked(context.Context, uuid.UUID) (bool,
 	return true, nil
 }
 
-func (f *notebookStoreFake) RecordNotebookFallback(_ context.Context, _ uuid.UUID, summary string) (string, error) {
+func (f *notebookStoreFake) RecordNotebookFallback(_ context.Context, _ uuid.UUID, summary, problem string) (string, error) {
 	f.fallbacks = append(f.fallbacks, summary)
-	return domain.NotebookNotUpdated(f.problem), nil
+	f.fallbackProblem = problem
+	return domain.NotebookNotUpdated(problem), nil
 }
 
 func (f *notebookStoreFake) NoteNotebookNotCollected(context.Context, uuid.UUID) error {
@@ -86,6 +102,38 @@ type notebookRuntimeFake struct {
 	takeErr    error
 	prepareErr error
 	acked      []domain.AgentOutboxFile
+	// failCall makes that RunAgent call fail (2: the closing continuation).
+	failCall int
+	// removed are the suffixes of the containers removed by name; steps is
+	// the order of what happened to the outbox.
+	removed []string
+	steps   []string
+	// worktreeChanged is what Kuayle's comparison of the worktree finds.
+	worktreeChanged bool
+	states          int
+}
+
+func (f *notebookRuntimeFake) RemoveClosingContainer(_ context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, suffix string) error {
+	f.removed = append(f.removed, suffix)
+	return nil
+}
+
+func (f *notebookRuntimeFake) ClearNotebookOutbox(context.Context, []domain.DevMachineService, *domain.DevMachineCheckout) error {
+	f.steps = append(f.steps, "clear")
+	return nil
+}
+
+func (f *notebookRuntimeFake) WorktreeState(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout) (string, error) {
+	f.states++
+	tree := strings.Repeat("b", 40)
+	if f.states > 1 && f.worktreeChanged {
+		tree = strings.Repeat("d", 40)
+	}
+	return strings.Repeat("a", 40) + " " + tree + " " + strings.Repeat("c", 40), nil
+}
+
+func (f *notebookRuntimeFake) WorktreeChangedFiles(context.Context, []domain.DevMachineService, *domain.DevMachineCheckout, string, string) ([]string, error) {
+	return []string{"ui/theme.ts"}, nil
 }
 
 func (f *notebookRuntimeFake) RunAgent(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, provider *domain.DevMachineAgentProvider, checkout *domain.DevMachineCheckout, secrets map[string]string, observer *AgentObserver) (*AgentExecution, error) {
@@ -93,10 +141,14 @@ func (f *notebookRuntimeFake) RunAgent(ctx context.Context, machine *domain.DevM
 	if f.onRun != nil {
 		f.onRun(len(f.runs))
 	}
+	if f.failCall == len(f.runs) {
+		return nil, errors.New("container exited while starting")
+	}
 	return f.runtimeFake.RunAgent(ctx, machine, run, provider, checkout, secrets, observer)
 }
 
 func (f *notebookRuntimeFake) TakeOutbox(context.Context, []domain.DevMachineService) ([]domain.AgentOutboxFile, error) {
+	f.steps = append(f.steps, "take")
 	return f.outbox, f.takeErr
 }
 
@@ -124,6 +176,12 @@ type notebookScenario struct {
 	takeErr    error
 	readOnly   bool
 	prepareErr error
+	// unchanged: the attempt left a valid update that changed nothing;
+	// worktreeChanged: it changed the worktree; checkout: it has one.
+	unchanged       bool
+	worktreeChanged bool
+	failCall        int
+	checkout        bool
 }
 
 const openCodeConclusion = `{"type":"text","part":{"type":"text","text":"Implemented the toggle and ran the tests."}}`
@@ -148,14 +206,14 @@ func notebookRun(t *testing.T, scenario notebookScenario) (*domain.DevMachineAge
 		run.NativeSessionID = &scenario.session
 	}
 	if scenario.continuation != nil {
-		run.NotebookContinuation, _ = json.Marshal(scenario.continuation)
+		run.ClosingContinuation, _ = json.Marshal(scenario.continuation)
 	}
 	// The harnesses run with an API key, so no sign-in is involved.
 	run.AllowedSecrets = json.RawMessage(`["OPENAI_API_KEY","ANTHROPIC_API_KEY"]`)
 	sealed, err := cryptoutil.Encrypt("fixture-api-key", make([]byte, 32))
 	require.NoError(t, err)
 	container := "developer"
-	store := &notebookStoreFake{updates: scenario.updates, problem: scenario.problem, alreadyAsked: scenario.alreadyAsked, managerStoreFake: &managerStoreFake{
+	store := &notebookStoreFake{updates: scenario.updates, problem: scenario.problem, unchanged: scenario.unchanged, alreadyAsked: scenario.alreadyAsked, managerStoreFake: &managerStoreFake{
 		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
 			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1},
 		agentRun: run,
@@ -163,7 +221,7 @@ func notebookRun(t *testing.T, scenario notebookScenario) (*domain.DevMachineAge
 		services: []domain.DevMachineService{{ServiceType: "ide", Status: "running", ContainerID: &container}},
 		envVars:  []domain.DevMachineEnvVar{{Name: "OPENAI_API_KEY", EncryptedValue: sealed}, {Name: "ANTHROPIC_API_KEY", EncryptedValue: sealed}},
 	}}
-	runtime := &notebookRuntimeFake{takeErr: scenario.takeErr, prepareErr: scenario.prepareErr, runtimeFake: &runtimeFake{agentExecution: &AgentExecution{ContainerID: "agent-container", ExitCode: scenario.exit, Stdout: scenario.stdout}}}
+	runtime := &notebookRuntimeFake{takeErr: scenario.takeErr, prepareErr: scenario.prepareErr, failCall: scenario.failCall, worktreeChanged: scenario.worktreeChanged, runtimeFake: &runtimeFake{agentExecution: &AgentExecution{ContainerID: "agent-container", ExitCode: scenario.exit, Stdout: scenario.stdout}}}
 	runtime.onRun = func(call int) {
 		if call == 2 && scenario.afterAsk != nil {
 			scenario.afterAsk(store)
@@ -172,7 +230,7 @@ func notebookRun(t *testing.T, scenario notebookScenario) (*domain.DevMachineAge
 	registry := agent.NewRegistry(agent.NewOpenCodeProvider("kuayle/agent:test"), agent.NewClaudeCodeProvider("kuayle/agent:test"), agent.NewCodexProvider("kuayle/agent:test"), agent.NewCustomCLIProvider("kuayle/agent:test"))
 	manager := NewManager(store, runtime, registry, nil, make([]byte, 32), make([]byte, 32), "test")
 	var checkout *domain.DevMachineCheckout
-	if scenario.readOnly {
+	if scenario.readOnly || scenario.checkout {
 		checkoutID := uuid.New()
 		run.CheckoutID = &checkoutID
 		checkout = &domain.DevMachineCheckout{ID: checkoutID, MachineID: machineID, WorkspaceID: workspaceID, Status: "ready", WorkspacePath: "/workspace/tasks/eng-9"}
@@ -184,7 +242,7 @@ func notebookRun(t *testing.T, scenario notebookScenario) (*domain.DevMachineAge
 	return store.completedRun, store, runtime
 }
 
-var resumeCommand = []string{"harness", "resume", domain.NotebookSessionPlaceholder, "-p", domain.NotebookPromptPlaceholder}
+var resumeCommand = []string{"harness", "resume", domain.ClosingSessionPlaceholder, "-p", domain.ClosingPromptPlaceholder}
 
 // An attempt that concluded without a valid notebook update is asked once
 // more in its own session; the continuation says exactly what is missing and
@@ -198,7 +256,7 @@ func TestAttemptWithoutANotebookUpdateIsAskedOnceInTheSameSession(t *testing.T) 
 	require.Len(t, runtime.runs, 2, "the attempt and one continuation")
 	require.Equal(t, 1, store.asked)
 	continuation := runtime.runs[1]
-	require.Equal(t, "-notebook", continuation.ContainerSuffix, "a second container of the same run")
+	require.Equal(t, closingSuffix, continuation.ContainerSuffix, "a second container of the same run")
 	require.Equal(t, completed.ID, continuation.ID)
 	var argv []string
 	require.NoError(t, json.Unmarshal(continuation.CommandArgv, &argv))
@@ -207,6 +265,19 @@ func TestAttemptWithoutANotebookUpdateIsAskedOnceInTheSameSession(t *testing.T) 
 	require.Contains(t, argv[4], ".kuayle/outbox/notebook.json")
 	require.Contains(t, argv[4], "Do nothing else")
 	require.Empty(t, store.fallbacks, "the agent wrote it when asked")
+	// The continuation gets no live inbox, its container is removed by name
+	// and the attempt's own container is left alone; that it ran, and for
+	// how long, stays on the run.
+	require.False(t, agentHasLiveInbox(&continuation))
+	require.True(t, agentHasLiveInbox(&runtime.runs[0]))
+	require.Equal(t, []string{closingSuffix}, runtime.removed)
+	require.Zero(t, runtime.agentCancellations)
+	require.NotNil(t, store.closingSeconds)
+	asked := false
+	for _, event := range store.events {
+		asked = asked || event.EventType == "agent_run.closing_continuation"
+	}
+	require.True(t, asked)
 	require.NotContains(t, string(completed.RiskNotes), "notebook")
 	require.Equal(t, "Implemented the toggle and ran the tests.", *completed.Summary, "the continuation's reply is not the attempt's summary")
 }
@@ -237,6 +308,85 @@ func TestKuayleRecordsTheAttemptItselfAndNeverFailsIt(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The closing continuation's container never outlives it: it is removed by
+// its exact name when the continuation fails, and when a restarted manager
+// finds the attempt already asked (a crash left it running) it is removed
+// and not run again. The attempt's own container is never removed here.
+func TestClosingContainerIsAlwaysRemovedAndNeverTheAttemptsOwn(t *testing.T) {
+	claude := `{"type":"result","subtype":"success","is_error":false,"result":"Implemented the toggle and ran the tests."}`
+	_, _, runtime := notebookRun(t, notebookScenario{provider: "claude-code", required: true, session: "0c9a6c1e-session", continuation: resumeCommand, stdout: claude, failCall: 2})
+	require.Len(t, runtime.runs, 2)
+	require.Equal(t, []string{closingSuffix}, runtime.removed, "removed although it failed")
+	require.Zero(t, runtime.agentCancellations, "the attempt's own container is not cancelled")
+
+	completed, store, runtime := notebookRun(t, notebookScenario{provider: "claude-code", required: true, session: "0c9a6c1e-session", continuation: resumeCommand, stdout: claude, alreadyAsked: true})
+	require.Len(t, runtime.runs, 1, "not run again after a restart")
+	require.Equal(t, []string{closingSuffix}, runtime.removed, "what the crash left is removed")
+	require.Zero(t, runtime.agentCancellations)
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, completed.Status)
+	require.Len(t, store.fallbacks, 1)
+
+	// Nothing to ask: nothing to remove.
+	_, _, runtime = notebookRun(t, notebookScenario{required: true, updates: 1})
+	require.Empty(t, runtime.removed)
+}
+
+// An update that changes nothing in the notebook is enough only for an
+// attempt that changed nothing itself. One that changed the worktree is
+// asked like an attempt with no update, and told why.
+func TestAnUpdateThatChangesNothingCountsOnlyForAnAttemptThatChangedNothing(t *testing.T) {
+	claude := `{"type":"result","subtype":"success","is_error":false,"result":"Implemented the toggle and ran the tests."}`
+	idle, store, runtime := notebookRun(t, notebookScenario{provider: "claude-code", required: true, unchanged: true, checkout: true, session: "0c9a6c1e-session", continuation: resumeCommand, stdout: claude})
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, idle.Status)
+	require.Len(t, runtime.runs, 1, "nothing changed, nothing to record")
+	require.Empty(t, store.fallbacks)
+	require.NotContains(t, string(idle.RiskNotes), "notebook")
+
+	worked, store, runtime := notebookRun(t, notebookScenario{provider: "claude-code", required: true, unchanged: true, checkout: true, worktreeChanged: true, session: "0c9a6c1e-session", continuation: resumeCommand, stdout: claude})
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, worked.Status)
+	require.Len(t, runtime.runs, 2, "asked like a missing update")
+	var argv []string
+	require.NoError(t, json.Unmarshal(runtime.runs[1].CommandArgv, &argv))
+	require.Contains(t, argv[4], "changed nothing in the notebook")
+	require.Len(t, store.fallbacks, 1)
+	require.Equal(t, domain.NotebookUnchangedProblem, store.fallbackProblem)
+	require.Contains(t, string(worked.RiskNotes), "did not update the task notebook")
+
+	// An update that did change the notebook counts whatever else happened.
+	_, store, runtime = notebookRun(t, notebookScenario{required: true, updates: 1, unchanged: true, checkout: true, worktreeChanged: true})
+	require.Len(t, runtime.runs, 1)
+	require.Empty(t, store.fallbacks)
+}
+
+// A notebook file an earlier attempt left in the outbox never counts for the
+// attempt that starts: it is collected (and so recorded if valid), removed,
+// and the starting attempt's count is reset, before its agent runs.
+func TestLeftoverNotebookFilesAreNotCreditedToTheNextAttempt(t *testing.T) {
+	_, store, runtime := notebookRun(t, notebookScenario{required: true, updates: 1, checkout: true})
+	require.Equal(t, 1, store.resets)
+	require.Equal(t, []string{"take", "clear"}, runtime.steps[:2], "recorded first, then removed")
+	// A run that needs no notebook leaves the outbox alone.
+	_, store, runtime = notebookRun(t, notebookScenario{checkout: true})
+	require.Zero(t, store.resets)
+	require.NotContains(t, runtime.steps, "clear")
+
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no POSIX shell")
+	}
+	worktree := filepath.Join(t.TempDir(), "eng-9")
+	outbox := filepath.Join(worktree, ".kuayle", "outbox")
+	require.NoError(t, os.MkdirAll(outbox, 0o755))
+	for _, name := range []string{"notebook.json", "notebook-2.json", "1.json"} {
+		require.NoError(t, os.WriteFile(filepath.Join(outbox, name), []byte(`{"done":["x"]}`), 0o600))
+	}
+	output, err := exec.Command(shell, "-c", clearNotebookOutboxScript, "kuayle-outbox", worktree).CombinedOutput()
+	require.NoError(t, err, string(output))
+	require.NoFileExists(t, filepath.Join(outbox, "notebook.json"))
+	require.NoFileExists(t, filepath.Join(outbox, "notebook-2.json"))
+	require.FileExists(t, filepath.Join(outbox, "1.json"), "messages are not touched")
 }
 
 // A custom, non-LLM harness run as a task cannot write a notebook. It is

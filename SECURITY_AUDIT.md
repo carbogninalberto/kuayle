@@ -719,10 +719,14 @@ remains and still fails such a step. Harnesses that were not verified to run
 with a read-only worktree, and Docker daemons older than API 1.45, keep only
 that comparison.
 
-The continuation that asks for a missing update runs as a second container
-of the same run, under the same sandbox, mounts and authorization check, with
-the run's own credentials (a sign-in is read again first, so a rotated token
-is never presented). It happens at most once per attempt.
+The closing continuation that asks for a missing update runs as a second
+container of the same run, under the same sandbox, mounts and authorization
+check but without the live inbox, with the run's own credentials (a sign-in
+is read again first, so a rotated token is never presented). It happens at
+most once per attempt and has five minutes. Its container is removed by its
+exact name on every path out, and a manager that restarts after a crash
+removes the one it finds instead of running it again, so no container with
+credentials outlives the attempt.
 
 The prompt each attempt received is recorded by source for debugging. It is
 bounded, kept in its own table, served only to the task's creator by its own

@@ -263,3 +263,56 @@ func TestNotebookOutboxFileNames(t *testing.T) {
 	require.False(t, IsNotebookOutboxFile("message.json"))
 	require.False(t, IsNotebookOutboxFile("notebook.txt"))
 }
+
+// null means "not given": it neither clears a section nor counts as an
+// update. Clearing takes an explicit empty list.
+func TestNullInAnUpdateIsNotGiven(t *testing.T) {
+	for _, raw := range []string{`{"remaining":null}`, `{"verify":null}`, `{"plan":{"steps":null}}`, `{"plan":null}`, `{"done":null,"decisions":null,"findings":null,"resolved":null}`} {
+		_, _, err := ParseNotebookUpdate([]byte(raw), false)
+		require.ErrorContains(t, err, "says nothing", raw)
+	}
+	update, _, err := ParseNotebookUpdate([]byte(`{"remaining":null,"verify":null,"plan":{"steps":null},"done":["x"]}`), false)
+	require.NoError(t, err)
+	require.Nil(t, update.Remaining)
+	require.Nil(t, update.Verify)
+	require.Nil(t, update.Plan)
+	notebook := NewNotebook()
+	notebook.Remaining, notebook.Verify = []string{"Wire the API"}, []string{"go test ./..."}
+	notebook.Plan.Steps = []NotebookPlanStep{{Title: "Add the table"}}
+	notebook.ApplyUpdate(update, time.Now())
+	require.Equal(t, []string{"Wire the API"}, notebook.Remaining)
+	require.Equal(t, []string{"go test ./..."}, notebook.Verify)
+	require.Len(t, notebook.Plan.Steps, 1)
+	cleared, _, err := ParseNotebookUpdate([]byte(`{"remaining":[]}`), false)
+	require.NoError(t, err)
+	notebook.ApplyUpdate(cleared, time.Now())
+	require.Empty(t, notebook.Remaining)
+}
+
+// The closing continuation asks for a list of missing things in one prompt
+// and for nothing else; the notebook is one such thing.
+func TestClosingPromptAsksOnlyForWhatIsMissing(t *testing.T) {
+	require.Empty(t, ClosingPrompt(nil))
+	one := ClosingPrompt([]ClosingAsk{NotebookClosingAsk(`unknown section "x"`)})
+	require.Contains(t, one, "One thing is missing")
+	require.Contains(t, one, `unknown section "x"`)
+	require.Contains(t, one, ".kuayle/outbox/notebook.json")
+	require.Contains(t, one, "Do nothing else")
+	two := ClosingPrompt([]ClosingAsk{NotebookClosingAsk(""), {Missing: "you did not answer the owner's message", Do: "Answer it through the outbox."}})
+	require.Contains(t, two, "2 things are missing")
+	require.Contains(t, two, "1. you did not write")
+	require.Contains(t, two, "2. you did not answer the owner's message")
+	require.Equal(t, 1, strings.Count(two, "Do nothing else"))
+}
+
+// What Kuayle cut or ignored in an update is said in the notebook, once, so
+// the agent that reads it next does not repeat a typo.
+func TestIgnoredFieldsAreSaidInTheNotebookOnce(t *testing.T) {
+	notebook := NewNotebook()
+	note := NotebookUpdateNote([]string{`unknown field "stauts" ignored`, "done[0] cut to 600 bytes"})
+	require.Contains(t, note, `"stauts"`)
+	require.True(t, notebook.AddEvent(note, time.Now()))
+	require.False(t, notebook.AddEvent(note, time.Now()), "the same note is not repeated")
+	require.Contains(t, notebook.Render(), `"stauts"`)
+	require.Empty(t, NotebookUpdateNote(nil))
+}

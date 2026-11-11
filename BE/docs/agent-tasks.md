@@ -1928,9 +1928,13 @@ to them.
   first, and says what it left out. The plan, what remains, how to verify
   and people's instructions stay.
 
-The project's and the profile's instructions are placed whole
-(`withWholeInstructions`, up to 32000 bytes) outside the task prompt's own
-32000-byte budget, on every harness: they are never the part that gives way.
+The project's instructions, and on a harness without an instructions file
+the profile's too, are placed outside the task prompt's own 32000-byte
+budget (`withWholeInstructions`), on every harness: nothing else in the
+prompt makes them give way. They are kept whole up to 32,000 bytes together;
+beyond that their end is cut (`workflowInstructions` already bounds a
+workflow step's project and profile text to that size). A profile read from
+an instructions file has no such limit.
 
 **Updating it.** The agent writes `.kuayle/outbox/notebook.json` (or
 `notebook-<n>.json`) in its worktree; see the `kuayle-notebook` section of the
@@ -1938,10 +1942,14 @@ The project's and the profile's instructions are placed whole
 (`domain.ParseNotebookUpdate`):
 
 - accepted: any of the agents' sections; an update that only resolves
-  findings or clears a list; a bare text where a list is expected;
+  findings or clears a list with `[]`; a bare text where a list is expected.
+  `null` means "not given": it neither clears a section nor counts;
 - cut, keeping the first entries, and noted in the change log: a text over 600
   bytes, a list over 40 entries (a step's files and commands included);
-- ignored and noted: unknown fields, blank entries, control characters;
+- ignored and noted: unknown fields, blank entries, control characters. What
+  was cut or ignored is also said once in the notebook's events ("A notebook
+  update was accepted in part: …"), which the next agent reads, so a typo is
+  not repeated forever;
 - refused whole, with the reason kept on the run (`notebook_problem`): a file
   over 16 KB, something that is not one JSON object, a section of the wrong
   shape, an update that says nothing, and any attempt to write a section
@@ -1955,25 +1963,48 @@ then are they removed, by content (`outboxAckScript`), so an update the agent
 rewrote meanwhile stays. A failed read, record or redaction leaves the file
 for the next collection; recording the same update twice changes nothing.
 
+**An update counts for the attempt that wrote it.** When an attempt starts
+for the first time the manager collects the outbox (so a valid file an
+earlier attempt left is still recorded), removes any `notebook*.json`, and
+resets the starting run's count (`clearNotebookLeftovers`): an old file never
+satisfies a new attempt. `notebook_updates` counts only updates that changed
+the notebook. One that changed nothing sets `notebook_unchanged` instead and
+is enough only when the attempt itself left the worktree as it found it
+(Kuayle's own comparison); otherwise it is treated like a missing update,
+and the agent is told that its update changed nothing.
+
 **When an attempt leaves no valid update** (`machine/notebook.go`). The run
 of such an attempt has `notebook_required`. The work is never lost over the
 notebook:
 
 1. *Asked once, in the same session.* When the attempt concluded (it would
-   succeed) without a valid update, the manager continues its own session
-   once with a short prompt (`domain.NotebookReminder`): what is missing or
-   the validator's message, write `.kuayle/outbox/notebook.json` now, do
-   nothing else. It is a second container of the same run
-   (`…-agent-<run>-notebook`) with the command line stored at creation
-   (`notebook_continuation`, the same invocation with placeholders for the
-   session and the prompt). `notebook_asked_at` makes it one continuation per
-   attempt, also across a manager restart; it has five minutes. Its output is
-   not the attempt's: summary and logs stay those of the work.
+   succeed) without an update that counts, the manager runs the **closing
+   continuation** (`machine/closing_continuation.go`,
+   `Manager.askToClose(ctx, attempt, []domain.ClosingAsk)`): one short prompt
+   (`domain.ClosingPrompt`) that lists what is missing (here
+   `domain.NotebookClosingAsk`: the validator's message, write
+   `.kuayle/outbox/notebook.json` now) and asks for nothing else. It is the
+   one place an attempt is continued before its step closes: another reason
+   to ask adds a `ClosingAsk` to the list, never a second continuation.
+   - It is a second container of the same run (`…-agent-<run>-closing`) with
+     the command line stored at creation (`closing_continuation`, the same
+     invocation with placeholders for the session and the prompt), under the
+     run's sandbox and mounts but without the live inbox.
+   - `closing_asked_at` is taken before it starts: one continuation per
+     attempt, also across a manager restart. It has five minutes.
+   - Its container is removed by its exact name on every path out. A manager
+     that restarts and finds the attempt already asked removes what the
+     crash left and does not run it again. The attempt's own container is
+     never removed from this path.
+   - Its output is not the attempt's: summary, logs and token usage stay
+     those of the work. That it ran and for how long is on the run
+     (`closing_asked_at`, `closing_seconds`) and in the machine's events
+     (`agent_run.closing_continuation`).
 
    | Harness | Continuation |
    | --- | --- |
-   | Claude Code | `claude --print … --resume <session> -p <reminder>` in the task's session directory |
-   | Codex | `codex exec resume … <thread> <reminder>` with the thread ID the run reported |
+   | Claude Code | `claude --print … --resume <session> -p <prompt>` in the task's session directory |
+   | Codex | `codex exec resume … <thread> <prompt>` with the thread ID the run reported |
    | OpenCode, Crush, Qwen Code, Kimi, Goose, custom | none: Kuayle does not continue their sessions, so step 2 applies at once |
 
 2. *Recorded by Kuayle.* If there is still no valid update, the run stays
@@ -2015,7 +2046,8 @@ cannot be loaded are logged and the attempt runs without them.
   share what a prompt has left under 96000 bytes (`promptShares`): with room
   each has its full share (12000 and 4000 bytes); when room is short the
   notebook's detail gives way first, down to a floor of 2000 bytes, and only
-  then the lessons. The profile's and the project's instructions never do.
+  then the lessons. The profile's and the project's instructions do not give
+  way to either (they have their own bound of 32,000 bytes, above).
 
 Review tasks are not given the lessons.
 

@@ -126,31 +126,33 @@ func TestAttemptReceivesTheWholeNotebookOnEachHarnessInstructionPath(t *testing.
 	})
 }
 
-// The command that continues an attempt's session to ask for its notebook
-// update exists only where the harness can continue a session: Claude Code
-// (--resume) and Codex (exec resume). The others are never asked.
+// The command of the closing continuation, which continues an attempt's
+// session to ask for what is missing, exists only where the harness can
+// continue a session: Claude Code (--resume) and Codex (exec resume). The
+// others are never asked.
 func TestOnlyHarnessesThatResumeASessionGetAContinuationCommand(t *testing.T) {
 	notebook := recordedNotebook()
 	argv := func(provider string) []string {
 		run := notebookAttempt(t, provider, &notebook, nil, nil)
 		var command []string
-		if len(run.NotebookContinuation) > 0 {
-			require.NoError(t, json.Unmarshal(run.NotebookContinuation, &command))
+		if len(run.ClosingContinuation) > 0 {
+			require.NoError(t, json.Unmarshal(run.ClosingContinuation, &command))
 		}
 		return command
 	}
 	claude := strings.Join(argv("claude-code"), " ")
-	require.Contains(t, claude, "--resume "+domain.NotebookSessionPlaceholder)
-	require.Contains(t, claude, "-p "+domain.NotebookPromptPlaceholder)
+	require.Contains(t, claude, "--resume "+domain.ClosingSessionPlaceholder)
+	require.Contains(t, claude, "-p "+domain.ClosingPromptPlaceholder)
 	require.NotContains(t, claude, "--session-id")
 	codex := strings.Join(argv("codex"), " ")
 	require.Contains(t, codex, "codex exec resume")
-	require.True(t, strings.HasSuffix(codex, domain.NotebookSessionPlaceholder+" "+domain.NotebookPromptPlaceholder))
+	require.True(t, strings.HasSuffix(codex, domain.ClosingSessionPlaceholder+" "+domain.ClosingPromptPlaceholder))
 	require.Empty(t, argv("opencode"))
 	require.Empty(t, argv("qwen-code"))
-	// A run that needs no notebook update has no continuation either.
+	// The command belongs to the attempt, whatever may be asked of it.
 	review := notebookAttempt(t, "codex", &notebook, nil, func(task *domain.AgentTask) { task.Kind = domain.AgentTaskKindReview })
-	require.Empty(t, review.NotebookContinuation)
+	require.NotEmpty(t, review.ClosingContinuation)
+	require.False(t, review.NotebookRequired)
 }
 
 // A planning step's worktree is mounted read-only on the harnesses that run

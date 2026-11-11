@@ -1596,19 +1596,20 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 		NativeSessionID: nativeSession, ProfileFiles: profileFiles,
 		NotebookRequired: req.NotebookRequired, WorktreeReadOnly: req.WorktreeReadOnly,
 	}
-	if req.NotebookRequired && req.Session != nil && req.Mode == "autonomous" {
-		// The command that continues this attempt's session once, to ask for
-		// a missing notebook update: the same invocation with placeholders
-		// for the session and the prompt. A harness that ignores the session
-		// (it cannot continue one) gets none and is never asked.
+	if req.Session != nil && req.Mode == "autonomous" {
+		// The command of the closing continuation, which continues this
+		// attempt's session once to ask for what is missing when it
+		// concludes: the same invocation with placeholders for the session
+		// and the prompt. A harness that ignores the session (it cannot
+		// continue one) gets none and is never asked.
 		continued, buildErr := provider.BuildInvocation(agent.RunInput{
-			Mode: agent.ModeAutonomous, Prompt: domain.NotebookPromptPlaceholder, WorkspacePath: workspacePath, Config: config,
+			Mode: agent.ModeAutonomous, Prompt: domain.ClosingPromptPlaceholder, WorkspacePath: workspacePath, Config: config,
 			Model: req.Model, Thinking: req.Thinking, OpenAIBaseURL: openAIBaseURL,
-			Session: &agent.SessionInput{Dir: req.Session.Dir, ResumeID: domain.NotebookSessionPlaceholder},
+			Session: &agent.SessionInput{Dir: req.Session.Dir, ResumeID: domain.ClosingSessionPlaceholder},
 		})
-		if buildErr == nil && containsString(continued.Argv, domain.NotebookSessionPlaceholder) && containsString(continued.Argv, domain.NotebookPromptPlaceholder) {
+		if buildErr == nil && containsString(continued.Argv, domain.ClosingSessionPlaceholder) && containsString(continued.Argv, domain.ClosingPromptPlaceholder) {
 			if encoded, encodeErr := json.Marshal(continued.Argv); encodeErr == nil {
-				run.NotebookContinuation = encoded
+				run.ClosingContinuation = encoded
 			}
 		}
 	}

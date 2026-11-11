@@ -42,7 +42,7 @@ func TestAgentTaskNotebooksMigration(t *testing.T) {
 	columns := func() int {
 		var count int
 		require.NoError(t, db.QueryRow(`SELECT count(*) FROM information_schema.columns WHERE table_name='dev_machine_agent_runs'
- AND column_name IN ('notebook_required','notebook_updates','notebook_problem','notebook_asked_at','notebook_continuation','worktree_read_only')`).Scan(&count))
+ AND column_name IN ('notebook_required','notebook_updates','notebook_unchanged','notebook_problem','closing_asked_at','closing_seconds','closing_continuation','worktree_read_only')`).Scan(&count))
 		return count
 	}
 	tables := func() int {
@@ -54,12 +54,12 @@ func TestAgentTaskNotebooksMigration(t *testing.T) {
 	require.Zero(t, tables())
 
 	require.NoError(t, m.Migrate(150))
-	require.Equal(t, 6, columns())
+	require.Equal(t, 8, columns())
 	require.Equal(t, 3, tables())
 	var required, readOnly, nullable string
 	require.NoError(t, db.QueryRow(`SELECT column_default FROM information_schema.columns WHERE table_name='dev_machine_agent_runs' AND column_name='notebook_required'`).Scan(&required))
 	require.NoError(t, db.QueryRow(`SELECT column_default FROM information_schema.columns WHERE table_name='dev_machine_agent_runs' AND column_name='worktree_read_only'`).Scan(&readOnly))
-	require.NoError(t, db.QueryRow(`SELECT is_nullable FROM information_schema.columns WHERE table_name='dev_machine_agent_runs' AND column_name='notebook_continuation'`).Scan(&nullable))
+	require.NoError(t, db.QueryRow(`SELECT is_nullable FROM information_schema.columns WHERE table_name='dev_machine_agent_runs' AND column_name='closing_continuation'`).Scan(&nullable))
 	require.Equal(t, "false", required, "attempts from before the notebook need no update")
 	require.Equal(t, "false", readOnly)
 	require.Equal(t, "YES", nullable)

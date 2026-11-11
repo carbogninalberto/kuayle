@@ -762,9 +762,10 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		if notebook != nil {
 			prompt = assembly.apply(domain.PromptSourceContract, withNotebookUpdate(prompt))
 		}
-		// The project's and the profile's instructions are never the part
-		// that gives way: they are placed whole, outside the 32000-byte
-		// budget of the task's own prompt.
+		// The project's and the profile's instructions do not give way to
+		// anything else in the prompt: they are placed outside the
+		// 32000-byte budget of the task's own prompt, whole up to
+		// instructionsBytes (their end is cut beyond that).
 		prompt = assembly.applyInstructions(withWholeInstructions(prompt, task.AgentInstructions))
 		if !inFile {
 			// In a prompt the notebook and the lessons each have a bounded
@@ -864,7 +865,8 @@ const instructionsBytes = 32000
 // withWholeInstructions puts the configured instructions (the project's and,
 // for a workflow step on a harness without an instructions file, its
 // profile's) ahead of the task without shortening them to make room for the
-// prompt: an attempt always receives them whole, up to instructionsBytes.
+// prompt: an attempt receives them whole up to instructionsBytes, and cut
+// at their end beyond that.
 func withWholeInstructions(prompt, instructions string) string {
 	instructions = truncateUTF8Bytes(strings.TrimSpace(instructions), instructionsBytes)
 	if instructions == "" {

@@ -276,13 +276,20 @@ func (r *DevMachineRepository) recordNotebookUpdates(ctx context.Context, taskID
 			}
 			continue
 		}
-		// The attempt has a valid update, whether or not it changed anything.
-		// One that changes nothing (the same file collected again after its
-		// removal failed, or an update that only confirms) is not counted
-		// again: the count is of updates that reached the notebook.
+		// Only an update that changed the notebook is counted. One that
+		// changes nothing (the same file collected again after its removal
+		// failed, or an update that only confirms what is there) is marked
+		// instead: it is enough only for an attempt that itself changed
+		// nothing, which the manager decides when the attempt ends.
 		changed := string(document) != string(copied)
-		if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_updates=CASE WHEN $3 THEN notebook_updates+1 ELSE GREATEST(notebook_updates,1) END,notebook_problem=NULL WHERE id=$1 AND task_id=$2`, task.RunID, task.ID, changed); err != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_updates=notebook_updates+CASE WHEN $3 THEN 1 ELSE 0 END,notebook_unchanged=notebook_unchanged OR NOT $3,notebook_problem=NULL WHERE id=$1 AND task_id=$2`, task.RunID, task.ID, changed); err != nil {
 			return err
+		}
+		// What was cut or ignored is said in the notebook, once, so the next
+		// agent that reads it does not repeat the slip.
+		if merged.AddEvent(domain.NotebookUpdateNote(notes), time.Now()) {
+			sections = append(sections, "events")
+			changed = true
 		}
 		if !changed {
 			continue
@@ -302,10 +309,12 @@ func (r *DevMachineRepository) recordNotebookUpdates(ctx context.Context, taskID
 // RecordNotebookFallback is what Kuayle does for an attempt that succeeded
 // without a valid notebook update: it records the attempt's final message as
 // what was done, marked as written by Kuayle, and notes on the run that the
-// agent did not update the notebook. The attempt does not fail over it. It
-// returns that note, or "" when the attempt has a valid update after all or
-// belongs to no task. Calling it again records nothing twice.
-func (r *DevMachineRepository) RecordNotebookFallback(ctx context.Context, runID uuid.UUID, summary string) (string, error) {
+// agent did not update the notebook. problem is why its update did not count
+// (empty: the run's own record says). The attempt does not fail over it. It
+// returns that note, or "" when the attempt has an update that changed the
+// notebook after all or belongs to no task. Calling it again records nothing
+// twice.
+func (r *DevMachineRepository) RecordNotebookFallback(ctx context.Context, runID uuid.UUID, summary, problem string) (string, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return "", err
@@ -333,8 +342,7 @@ func (r *DevMachineRepository) RecordNotebookFallback(ctx context.Context, runID
 	if err != nil {
 		return "", err
 	}
-	problem := ""
-	if run.Problem != nil && *run.Problem != domain.NotebookNotCollected {
+	if problem == "" && run.Problem != nil && *run.Problem != domain.NotebookNotCollected {
 		problem = *run.Problem
 	}
 	note := domain.NotebookNotUpdated(problem)
@@ -358,11 +366,12 @@ func (r *DevMachineRepository) NoteNotebookNotCollected(ctx context.Context, run
 	return err
 }
 
-// MarkNotebookAsked records that Kuayle asked the attempt once more for its
-// notebook update and reports whether this call was the first: an attempt is
-// asked once, also across a manager restart.
-func (r *DevMachineRepository) MarkNotebookAsked(ctx context.Context, runID uuid.UUID) (bool, error) {
-	result, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_asked_at=now() WHERE id=$1 AND notebook_asked_at IS NULL`, runID)
+// MarkClosingAsked records that Kuayle asks the attempt once more, in its
+// own session, for what is missing (the closing continuation) and reports
+// whether this call was the first: an attempt is asked once, also across a
+// manager restart.
+func (r *DevMachineRepository) MarkClosingAsked(ctx context.Context, runID uuid.UUID) (bool, error) {
+	result, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET closing_asked_at=now() WHERE id=$1 AND closing_asked_at IS NULL`, runID)
 	if err != nil {
 		return false, err
 	}
@@ -378,20 +387,36 @@ func (r *DevMachineRepository) ClearWorktreeReadOnly(ctx context.Context, runID 
 	return err
 }
 
-// NotebookUpdateState reports how many valid notebook updates the attempt
-// left and why its last one was refused ("" when it was not).
-func (r *DevMachineRepository) NotebookUpdateState(ctx context.Context, runID uuid.UUID) (int, string, error) {
+// NotebookUpdateState reports what the attempt left in the notebook so far.
+func (r *DevMachineRepository) NotebookUpdateState(ctx context.Context, runID uuid.UUID) (domain.NotebookRunState, error) {
 	var row struct {
-		Updates int     `db:"notebook_updates"`
-		Problem *string `db:"notebook_problem"`
+		Updates   int     `db:"notebook_updates"`
+		Unchanged bool    `db:"notebook_unchanged"`
+		Problem   *string `db:"notebook_problem"`
 	}
-	if err := r.db.GetContext(ctx, &row, `SELECT notebook_updates,notebook_problem FROM dev_machine_agent_runs WHERE id=$1`, runID); err != nil {
-		return 0, "", err
+	if err := r.db.GetContext(ctx, &row, `SELECT notebook_updates,notebook_unchanged,notebook_problem FROM dev_machine_agent_runs WHERE id=$1`, runID); err != nil {
+		return domain.NotebookRunState{}, err
 	}
+	state := domain.NotebookRunState{Updates: row.Updates, Unchanged: row.Unchanged}
 	if row.Problem != nil {
-		return row.Updates, *row.Problem, nil
+		state.Problem = *row.Problem
 	}
-	return row.Updates, "", nil
+	return state, nil
+}
+
+// ResetNotebookState forgets what was credited to an attempt that is only
+// starting: updates recorded so far came from files an earlier attempt left
+// in the outbox, and never satisfy this one.
+func (r *DevMachineRepository) ResetNotebookState(ctx context.Context, runID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_updates=0,notebook_unchanged=false,notebook_problem=NULL WHERE id=$1`, runID)
+	return err
+}
+
+// RecordClosingSeconds records how long an attempt's closing continuation
+// ran. That it ran is closing_asked_at.
+func (r *DevMachineRepository) RecordClosingSeconds(ctx context.Context, runID uuid.UUID, seconds int) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET closing_seconds=$2 WHERE id=$1`, runID, seconds)
+	return err
 }
 
 // AttemptNotebook returns the notebook the task's next attempt receives,

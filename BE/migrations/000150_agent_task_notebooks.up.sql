@@ -31,17 +31,25 @@ CREATE TABLE agent_task_notebook_changes (
     PRIMARY KEY (task_id, revision)
 );
 
--- Per attempt: whether it should leave a valid notebook update, how many it
--- left, why its last one was refused or (once it ended) that Kuayle recorded
--- its final message instead, when Kuayle asked it once more in the same
--- session and the command line that continues that session, and whether its
--- worktree was mounted read-only (a planning step).
+-- Per attempt: whether it should leave a valid notebook update, how many
+-- updates of its own changed the notebook, whether it left a valid update
+-- that changed nothing, why its last one was refused or (once it ended) that
+-- Kuayle recorded its final message instead, and whether its worktree was
+-- mounted read-only (a planning step).
+--
+-- The closing continuation: an attempt that concluded with something missing
+-- is asked for it once more in its own session. closing_continuation is the
+-- command line that continues that session (with placeholders), when the
+-- harness can; closing_asked_at is when Kuayle asked, which makes it once
+-- per attempt; closing_seconds is how long the continuation ran.
 ALTER TABLE dev_machine_agent_runs
     ADD COLUMN notebook_required BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN notebook_updates INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN notebook_unchanged BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN notebook_problem TEXT,
-    ADD COLUMN notebook_asked_at TIMESTAMPTZ,
-    ADD COLUMN notebook_continuation JSONB,
+    ADD COLUMN closing_asked_at TIMESTAMPTZ,
+    ADD COLUMN closing_seconds INTEGER,
+    ADD COLUMN closing_continuation JSONB,
     ADD COLUMN worktree_read_only BOOLEAN NOT NULL DEFAULT false;
 
 -- The prompt an attempt received, split by source ([]domain.PromptSource).
