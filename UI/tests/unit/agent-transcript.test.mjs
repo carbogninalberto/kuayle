@@ -557,15 +557,12 @@ test('an OpenCode call reported while running is one chip, completed in place', 
 });
 
 test('an OpenCode error event shows the provider message', () => {
-	const entries = parseAgentSession([
-		ocStep(0),
-		ocError('The inference service is overloaded. Please try again later.')
-	]);
+	const entries = parseAgentSession([ocStep(0), ocError('The model is busy right now.')]);
 	assert.deepEqual(
 		entries.map((entry) => entry.kind),
 		['error']
 	);
-	assert.equal(entries[0].message, 'The inference service is overloaded. Please try again later.');
+	assert.equal(entries[0].message, 'The model is busy right now.');
 	// Without a message the error's name is what was recorded.
 	const [named] = parseAgentSession([
 		chunk({ type: 'error', timestamp: ocStart, sessionID: ocIds.sessionID, error: { name: 'UnknownError', data: {} } })
@@ -605,4 +602,119 @@ test('an OpenCode step cut short ends the run as failed; unknown OpenCode events
 	assert.match(entries[0].raw, /"auto":true/);
 	// A known type without the part it should carry is not guessed at.
 	assert.equal(entries[1].type, 'tool_use');
+});
+
+test('OpenCode fields of the wrong shape never break the transcript', () => {
+	// A clock outside what a date can hold: the call is shown without a time.
+	const [untimed] = parseAgentSession([
+		ocTool(100, 'bash', 'call_1', {
+			status: 'completed',
+			input: { command: 'ls' },
+			output: 'a.txt',
+			time: { start: 9e15, end: 1e300 }
+		})
+	]);
+	assert.equal(untimed.tool.status, 'done');
+	assert.equal(untimed.tool.output, 'a.txt');
+	assert.equal(untimed.tool.started, undefined);
+	assert.equal(untimed.tool.ended, undefined);
+	const odd = [
+		{ type: 'tool_use', timestamp: 'soon', part: { type: 'tool', tool: 7, callID: {}, state: 'done' } },
+		{ type: 'tool_use', part: { state: { status: 3, input: [1], output: 5, title: {}, time: 'now', metadata: [] } } },
+		{ type: 'tool_use', part: { state: { input: 'text', time: { start: 'a', end: null } } } },
+		{ type: 'text', timestamp: -1e300, part: { text: { nested: true }, time: 4 } },
+		{ type: 'reasoning', part: { text: 9, time: { start: 1e300, end: -1e300 } } },
+		{ type: 'step_finish', timestamp: 1e300, part: { reason: ['stop'] } },
+		{ type: 'step_start', part: [] },
+		{ type: 'error', timestamp: {}, error: { name: 5, data: 'gone' } },
+		{ type: 'error', error: { data: { message: { text: 'x' } } } }
+	];
+	assert.doesNotThrow(() => groupSession(parseAgentSession(odd.map((event) => chunk(event)))));
+});
+
+test('an OpenCode result that is not plain text is still shown', () => {
+	const [listed, refused] = parseAgentSession([
+		ocTool(100, 'glob', 'call_1', {
+			status: 'completed',
+			input: { pattern: '*.ts' },
+			output: [
+				{ type: 'text', text: 'a.ts' },
+				{ type: 'text', text: 'b.ts' }
+			],
+			time: { start: ocStart, end: ocStart + 100 }
+		}),
+		ocTool(200, 'bash', 'call_2', {
+			status: 'error',
+			input: { command: 'make' },
+			error: { name: 'ToolError', message: 'make is not installed' },
+			time: { start: ocStart + 150, end: ocStart + 200 }
+		})
+	]).map((entry) => entry.tool);
+	assert.equal(listed.output, 'a.ts\nb.ts');
+	assert.equal(refused.status, 'failed');
+	assert.match(refused.output, /"message": "make is not installed"/);
+});
+
+test('an OpenCode error without a name or message is still an error line', () => {
+	const entries = parseAgentSession([
+		chunk({ type: 'error', timestamp: ocStart, sessionID: ocIds.sessionID, error: { data: {} } })
+	]);
+	assert.deepEqual(
+		entries.map((entry) => ({ kind: entry.kind, message: entry.message })),
+		[{ kind: 'error', message: 'error' }]
+	);
+});
+
+test('an OpenCode call is one chip without an id, and a finished chip is never reopened', () => {
+	const anonymous = (offset, state) =>
+		chunk({
+			type: 'tool_use',
+			timestamp: ocStart + offset,
+			sessionID: ocIds.sessionID,
+			part: { type: 'tool', tool: 'bash', ...ocIds, state }
+		});
+	const input = { command: 'npm test' };
+	const entries = parseAgentSession([
+		anonymous(0, { status: 'pending', input }),
+		anonymous(100, { status: 'running', input, time: { start: ocStart + 100 } }),
+		anonymous(900, { status: 'completed', input, output: 'ok', time: { start: ocStart + 100, end: ocStart + 900 } }),
+		// A second, separate call of the same command after the first finished.
+		anonymous(1000, { status: 'running', input, time: { start: ocStart + 1000 } })
+	]);
+	assert.deepEqual(
+		entries.map((entry) => [entry.tool.status, entry.tool.output]),
+		[
+			['done', 'ok'],
+			['running', undefined]
+		]
+	);
+	// An update that arrives late leaves the finished call as it ended.
+	const [late] = parseAgentSession([
+		ocTool(900, 'bash', 'call_1', {
+			status: 'error',
+			input,
+			error: 'exit 1',
+			time: { start: ocStart + 100, end: ocStart + 900 }
+		}),
+		ocTool(950, 'bash', 'call_1', { status: 'running', input, time: { start: ocStart + 100 } })
+	]);
+	assert.equal(late.tool.status, 'failed');
+	assert.equal(late.tool.output, 'exit 1');
+	assert.equal(Date.parse(late.tool.ended) - Date.parse(late.tool.started), 800);
+});
+
+// Storage replaces any native line over 16 KB (usually a tool call with a
+// large result) with a marker; the run around it reads as before.
+test('an oversized line between OpenCode events is marked and the rest still parses', () => {
+	const run = openCodeRun();
+	const marker = chunk('[Oversized output line omitted]', undefined, { truncated: true });
+	const entries = parseAgentSession([...run.slice(0, 4), marker, ...run.slice(5)]);
+	assert.deepEqual(
+		entries.map((entry) => entry.kind),
+		['thinking', 'text', 'tool', 'omitted', 'tool', 'tool', 'text', 'result']
+	);
+	assert.equal(entries[3].reason, 'oversized');
+	assert.equal(entries[2].tool.title, 'Run the unit tests');
+	assert.equal(entries[4].tool.title, 'git push');
+	assert.equal(entries[7].ms, 9000);
 });

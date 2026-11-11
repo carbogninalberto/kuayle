@@ -261,7 +261,7 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 			openCodePart(event.part, type, { key: line.key, at: line.at, ms: elapsedSince(started, event) }, entries, tools);
 		} else if (type === 'error' && isObject(event.error) && (isObject(event.error.data) || str(event.error.name))) {
 			const data = isObject(event.error.data) ? event.error.data : {};
-			const message = str(data.message) || str(event.error.message) || str(event.error.name);
+			const message = str(data.message) || str(event.error.message) || str(event.error.name) || type;
 			// The provider refusing work until a quota resets ends the run as a pause.
 			if (isUsageLimitText(message))
 				push({
@@ -311,8 +311,13 @@ const elapsedSince = (started: number | undefined, event: Json) => {
 // OpenCode's own clock (epoch milliseconds) for a call, when it recorded one.
 const instant = (value: unknown) => {
 	const ms = num(value);
-	return ms === undefined ? undefined : new Date(ms).toISOString();
+	// Outside what a date can hold there is no time to show.
+	return ms === undefined || Number.isNaN(new Date(ms).getTime()) ? undefined : new Date(ms).toISOString();
 };
+// A clock value OpenCode recorded that is not a usable time.
+const badInstant = (value: unknown) => value !== undefined && value !== null && instant(value) === undefined;
+// Calls OpenCode reported without an id, matched by what they run instead.
+const anonymousCalls = new WeakSet<SessionTool>();
 
 function openCodePart(
 	part: Json,
@@ -351,25 +356,42 @@ function openCodePart(
 			const failed = status === 'error' || (exit !== undefined && exit !== 0);
 			const next: ToolStatus = failed ? 'failed' : status === 'completed' ? 'done' : 'running';
 			const clock = isObject(state.time) ? state.time : {};
-			const id = str(part.callID) || str(part.id) || line.key;
-			const existing = tools.get(id);
+			const known = str(part.callID) || str(part.id);
+			const id = known || line.key;
+			const text = inputText(state.input);
+			// Without an id, an update belongs to the latest unfinished call of
+			// the same tool and input (a pending call may not have its input yet).
+			const existing = known
+				? tools.get(known)
+				: entries.findLast(
+						(entry): entry is Extract<SessionEntry, { kind: 'tool' }> =>
+							entry.kind === 'tool' &&
+							anonymousCalls.has(entry.tool) &&
+							entry.tool.status === 'running' &&
+							entry.tool.name === name &&
+							(entry.tool.input === text || !entry.tool.input || entry.tool.input === '{}')
+					)?.tool;
+			// A finished call stays as it ended, whatever arrives after it.
+			if (existing && existing.status !== 'running' && next === 'running') return;
+			const untimed = badInstant(clock.start) || badInstant(clock.end);
 			const fields = {
 				name,
 				// OpenCode titles a call itself: the command's description, the file.
 				title: truncate(command ? title || argument : title || argument ? `${name}: ${title || argument}` : '') || name,
-				input: inputText(state.input),
-				output: str(state.output) || str(state.error) || existing?.output,
+				input: text,
+				output: resultText(state.output) || resultText(state.error) || existing?.output,
 				status: next,
 				command,
-				started: instant(clock.start) ?? existing?.started ?? line.at,
-				ended: next === 'running' ? undefined : (instant(clock.end) ?? line.at)
+				started: untimed ? undefined : (instant(clock.start) ?? existing?.started ?? line.at),
+				ended: untimed || next === 'running' ? undefined : (instant(clock.end) ?? line.at)
 			};
 			if (existing) {
 				Object.assign(existing, fields);
 				return;
 			}
 			const created: SessionTool = { id, ...fields };
-			tools.set(id, created);
+			if (known) tools.set(id, created);
+			else anonymousCalls.add(created);
 			entries.push({ kind: 'tool', key: line.key, tool: created });
 			return;
 		}
