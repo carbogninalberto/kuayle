@@ -207,7 +207,7 @@ func (r *AgentTaskRepository) Transitions(ctx context.Context, ws, id uuid.UUID)
 	}
 	defer tx.Rollback()
 	entries := []domain.AgentTaskTransition{}
-	err = tx.SelectContext(ctx, &entries, `SELECT * FROM agent_task_transitions WHERE task_id=$1 ORDER BY sequence`, id)
+	err = tx.SelectContext(ctx, &entries, `SELECT sequence,task_id,from_state,to_state,actor_id,reason,created_at FROM agent_task_transitions WHERE task_id=$1 ORDER BY sequence`, id)
 	return entries, err
 }
 func (r *AgentTaskRepository) Claim(ctx context.Context) (*domain.AgentTask, error) {

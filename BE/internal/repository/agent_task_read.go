@@ -59,7 +59,7 @@ func (r *AgentTaskRepository) History(ctx context.Context, ws, id uuid.UUID, aft
 	}
 	defer tx.Rollback()
 	result := &domain.AgentTaskHistory{Transitions: []domain.AgentTaskTransition{}}
-	err = tx.SelectContext(ctx, &result.Transitions, `SELECT * FROM agent_task_transitions WHERE task_id=$1 AND sequence>$2 ORDER BY sequence LIMIT 101`, id, after)
+	err = tx.SelectContext(ctx, &result.Transitions, `SELECT sequence,task_id,from_state,to_state,actor_id,reason,created_at FROM agent_task_transitions WHERE task_id=$1 AND sequence>$2 ORDER BY sequence LIMIT 101`, id, after)
 	if err != nil {
 		return nil, err
 	}
