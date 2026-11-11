@@ -106,6 +106,9 @@ func main() {
 			log.WithError(err).Fatal("initialize GitHub App client")
 		}
 	}
+	// The manager records agents' outbox files, lessons for the workspace
+	// memory among them; those are redacted with the machines' secrets.
+	repository.ConfigureLessonRedaction(cryptoutil.DeriveKey(configValue.DevMachine.EncryptionKey))
 	manager := machine.NewManager(repository.NewDevMachineRepository(database), runtime, registry, gitHubClient,
 		cryptoutil.DeriveKey(configValue.DevMachine.EncryptionKey), cryptoutil.DeriveKey(configValue.JWTSecret+":github"),
 		hostname+":"+fmt.Sprint(os.Getpid()), machine.DiskQuotaConfig{

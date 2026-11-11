@@ -85,7 +85,8 @@ type messageRecipient struct {
 // hourly budget; a file taken twice is recorded once. Recipients must be a
 // related issue (parent, sub-issue, sibling, blocker or blocked issue) of the
 // sender's issue in the same team. Files addressed to the orchestrator go to
-// the task's live channel instead (agent_live_messages).
+// the task's live channel instead (agent_live_messages), and lessons for the
+// workspace memory become proposals (workspace_lessons).
 func (r *AgentMessageRepository) RecordTaskOutbox(ctx context.Context, taskID uuid.UUID, files []domain.AgentOutboxFile) (int, error) {
 	if len(files) == 0 {
 		return 0, nil
@@ -124,6 +125,22 @@ func (r *AgentMessageRepository) RecordTaskOutbox(ctx context.Context, taskID uu
 	ended := !sender.Allowed || sender.State == "completed" || sender.State == "cancelled" || sender.State == "failed"
 	for _, file := range files {
 		digest := sha256.Sum256([]byte(sender.RunID.String() + "\x00" + file.Name + "\x00" + string(file.Data)))
+		// A lesson for the workspace memory becomes a proposal for people to
+		// decide, never a message; only a refusal is recorded here.
+		if !file.Oversize && domain.AgentOutboxIsMemory(file.Data) {
+			if sent >= domain.AgentMessagesPerHour {
+				continue
+			}
+			inserted, err := recordMemoryOutbox(ctx, r.db, tx, sender, hex.EncodeToString(digest[:]), file.Data, ended)
+			if err != nil {
+				return recorded, err
+			}
+			if inserted {
+				recorded++
+				sent++
+			}
+			continue
+		}
 		message, parseErr := domain.ParseAgentOutboxMessage(file.Data)
 		// Messages to the orchestrator belong to the task's live channel, with
 		// their own budget; agents of any task kind may write them.
