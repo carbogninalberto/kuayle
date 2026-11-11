@@ -31,28 +31,31 @@ export interface Conversation {
 }
 
 type Task = Pick<AgentTask, 'state' | 'run_id'>;
-type Step = { current: boolean; status: string; runs: { id: string; status?: string }[] };
+type Run = { id: string; status?: string; replies_unknown?: boolean };
+type Step = { current: boolean; status: string; runs: Run[] };
 
 const ended = ['completed', 'cancelled', 'failed'];
 // A run that ran to its end. A cancelled one was interrupted or paused: the
 // attempt that continues it takes its messages over.
 const finished = ['succeeded', 'failed', 'timeout'];
 
-function stateOf(message: AgentLiveMessage, replied: boolean, task: Task, run: string | undefined): MessageState {
+function stateOf(message: AgentLiveMessage, replied: boolean, task: Task, run: Run | undefined): MessageState {
 	if (message.direction === 'from_agent') return message.state === 'rejected' ? 'rejected' : 'received';
 	if (message.state === 'queued') return 'queued';
 	if (replied) return 'replied';
-	// Delivered before replies were required: nothing was owed.
-	if (!message.deliveries) return 'delivered';
+	// Delivered before replies were required: nothing was owed. And when the
+	// agent's last messages could not be collected a reply may exist unseen:
+	// it is not called missing.
+	if (!message.deliveries || run?.replies_unknown) return 'delivered';
 	// The attempt that received it can still answer while it has not run to
 	// its end; a missing reply never fails it, so its end is what counts.
 	const current = message.run_id === task.run_id && !ended.includes(task.state);
-	return current && !finished.includes(run ?? '') ? 'delivered' : 'unanswered';
+	return current && !finished.includes(run?.status ?? '') ? 'delivered' : 'unanswered';
 }
 
 /** Places a task's live messages in the runs of its timeline. */
 export function placeConversation(messages: AgentLiveMessage[], steps: Step[], task: Task): Conversation {
-	const listed = new Map(steps.flatMap((step) => step.runs.map((run) => [run.id, run.status] as const)));
+	const listed = new Map(steps.flatMap((step) => step.runs.map((run) => [run.id, run] as const)));
 	// The run that is going takes what still waits.
 	const going = steps.find((step) => step.current && step.status === 'running')?.runs.at(-1)?.id;
 	const sent = new Map<number, AgentLiveMessage>();

@@ -137,6 +137,24 @@ test('a message without a reply is flagged once its attempt can no longer answer
 	}
 });
 
+test('a reply that may exist unseen is not called missing', () => {
+	// Kuayle could not collect the agent's last messages when the attempt
+	// ended: the message stays "delivered" until more is known.
+	const messages = [delivered(3, 'Use the shared client', 'run-2', 8)];
+	const unknown = [
+		{ current: true, status: 'running', runs: [{ id: 'run-2', status: 'succeeded', replies_unknown: true }] }
+	];
+	for (const task of [
+		{ state: 'validating', run_id: 'run-2' },
+		{ state: 'failed', run_id: 'run-2' },
+		{ state: 'running', run_id: 'run-3' }
+	]) {
+		const conversation = placeConversation(messages, unknown, task);
+		assert.deepEqual(states(conversation.byRun.get('run-2')), [['to-3', 'delivered']], task.state);
+		assert.equal(conversation.unanswered.size, 0, task.state);
+	}
+});
+
 test('messages of a run the timeline does not list, refusals and stray replies are kept', () => {
 	const conversation = placeConversation(
 		[

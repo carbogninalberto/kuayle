@@ -136,6 +136,8 @@ interface AgentArtifact {
 
 interface AgentRunResult {
 	status: 'succeeded' | 'failed' | 'cancelled' | 'timeout';
+	/** The agent's last messages could not be collected: whether it replied is not known. */
+	replies_unknown?: boolean;
 	summary: string;
 	changed_files: string[];
 	commits: string[];

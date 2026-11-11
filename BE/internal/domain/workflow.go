@@ -1115,11 +1115,14 @@ type WorkflowStepRun struct {
 	Status   string    `json:"status" db:"status"`
 	// Summary is the agent's final message, when the harness reported one;
 	// a run's raw output is never returned here.
-	Summary          *string    `json:"summary,omitempty" db:"summary"`
-	SummaryTruncated bool       `json:"summary_truncated,omitempty" db:"summary_truncated"`
-	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
-	StartedAt        *time.Time `json:"started_at,omitempty" db:"started_at"`
-	CompletedAt      *time.Time `json:"completed_at,omitempty" db:"completed_at"`
+	Summary          *string `json:"summary,omitempty" db:"summary"`
+	SummaryTruncated bool    `json:"summary_truncated,omitempty" db:"summary_truncated"`
+	// RepliesUnknown: the agent's last messages could not be collected when
+	// the run ended, so whether it replied to its owner is not known.
+	RepliesUnknown bool       `json:"replies_unknown,omitempty" db:"replies_unknown"`
+	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
+	StartedAt      *time.Time `json:"started_at,omitempty" db:"started_at"`
+	CompletedAt    *time.Time `json:"completed_at,omitempty" db:"completed_at"`
 }
 
 // Workflow runner statuses stored on the task.

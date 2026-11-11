@@ -223,6 +223,11 @@ func continueInterruptedForLiveMessage(ctx context.Context, tx *sqlx.Tx, task *d
 		return err
 	}
 	*task = stopped
+	// The interruption is over: whatever starts the task again later (a
+	// resume, a retry) is that, and a cancellation cancels.
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET live_resume_generation=NULL WHERE id=$1 RETURNING *`, task.ID); err != nil {
+		return err
+	}
 	reason := liveRestartFailedReason
 	if task.RunsWorkflow() {
 		reason = liveResumeFailedReason

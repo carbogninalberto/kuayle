@@ -1436,7 +1436,10 @@ Kuayle asks for the reply, not only the prompt:
   replies and forbids anything else (`AgentLiveReplyPrompt`). It runs in a
   second container of the run (`…-agent-<run>-reply`: the same image, limits,
   worktree and secrets, with the sign-in the attempt may have refreshed, no
-  inbox), for at most 3 minutes, and its output is discarded: the attempt's
+  inbox), for at most 3 minutes and never past one minute before the
+  attempt's own time limit (the run is still recorded as running, and a run
+  past its limit is killed and marked `timeout`; with less than 30 seconds
+  left for it, it is skipped), and its output is discarded: the attempt's
   result, summary and logs are those of its work. The outbox is collected
   again afterwards. It happens once; there is no loop.
 - **A missing reply never fails the attempt.** If there is still no reply the
@@ -1458,7 +1461,11 @@ Kuayle asks for the reply, not only the prompt:
   failed (the machine's services could not be listed, the developer container
   is gone, the read or the write failed) and the attempt owed a reply, nothing
   is concluded, the agent is not asked again, and the result's risk notes say
-  the problem is on Kuayle's side (`agent_live_messages.collect_failed`).
+  the problem is on Kuayle's side (`agent_live_messages.collect_failed`). The
+  result has `replies_unknown`, the run carries it in the task's timeline, and
+  the agent view shows such a message as delivered, not as "No reply". A
+  message that reached the inbox just before the harness exited is queued
+  again all the same.
 
 Messages delivered before migration 151 have `deliveries = 0` and owe no
 reply. Every implementing prompt, the Claude hook's text and the
@@ -1488,7 +1495,10 @@ message as above and, in the same transaction, acts on `mode`:
   its step ("Paused: the agent was stopped to deliver your message but could
   not be started again…", Resume continues it), any other task is blocked
   ("…Send and start now, or retry the task, to continue"); the message is
-  delivered then. Cancelling meanwhile cancels. When no attempt is working the
+  delivered then; the interruption is then over (`live_resume_generation` is
+  cleared), so that Resume or Retry is an ordinary one. A person's cancel
+  always wins: it clears the mark whatever the task's state, so the cleanup
+  cancels and never starts the attempt again. When no attempt is working the
   request is refused with 409 and nothing is queued. A second message sent
   while the attempt is being stopped joins the first.
 - `start` ("Send and start now") starts an attempt when none runs. A task

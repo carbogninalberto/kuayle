@@ -1337,16 +1337,16 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	// them, without waiting for the next port scan; with the last replies
 	// recorded, what the attempt still owes one to is known. An attempt that
 	// ended well owing a reply is asked for it once more.
-	var unanswered []int64
-	var replyNotes []string
-	if _, replies := m.store.(liveReplyStore); replies && run.Mode != "interactive" {
+	var replies liveReplySettlement
+	if _, settles := m.store.(liveReplyStore); settles && run.Mode != "interactive" {
 		finished := executionErr == nil && !timedOut && execution.ExitCode == 0 &&
 			provider.ParseResult(output.ResultText("stdout"), output.ResultText("stderr"), execution.ExitCode).Status == "succeeded"
-		unanswered, replyNotes = m.settleReplies(ctx, machine, run, liveReplyRequest{provider: providerRecord, checkout: checkout, secrets: secrets, signIn: signIn, exited: exited, finished: finished})
+		limit, _ := runContext.Deadline()
+		replies = m.settleReplies(ctx, machine, run, liveReplyRequest{provider: providerRecord, checkout: checkout, secrets: secrets, signIn: signIn, exited: exited, finished: finished, deadline: limit})
 	}
 	services, _ := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
 	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
-	if _, replies := m.store.(liveReplyStore); !replies || run.Mode == "interactive" {
+	if _, settles := m.store.(liveReplyStore); !settles || run.Mode == "interactive" {
 		m.collectOutbox(outboxCtx, machine, services)
 	}
 	m.closeLiveInbox(outboxCtx, machine, run)
@@ -1387,8 +1387,8 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		run.Status = domain.DevMachineAgentRunStatusSucceeded
 	}
 	// A missing reply is said, and never changes how the attempt ended.
-	result.UnansweredMessages = unanswered
-	result.RiskNotes = append(result.RiskNotes, replyNotes...)
+	result.UnansweredMessages, result.RepliesUnknown = replies.unanswered, replies.unknown
+	result.RiskNotes = append(result.RiskNotes, replies.notes...)
 	if gitState, gitErr := m.runtime.GitState(ctx, machine, services, checkout); gitErr == nil {
 		result.Branch = gitState.Branch
 		result.Commits = gitState.Commits

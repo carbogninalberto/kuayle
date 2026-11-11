@@ -95,16 +95,19 @@ type RunResult struct {
 	// UnansweredMessages are the sequence numbers of the owner's messages the
 	// run received and never replied to. It is a note: the status is the
 	// work's own.
-	UnansweredMessages []int64    `json:"unanswered_messages,omitempty"`
-	FailureReason      string     `json:"failure_reason,omitempty"`
-	ChangedFiles       []string   `json:"changed_files"`
-	Commits            []string   `json:"commits"`
-	Branch             string     `json:"branch,omitempty"`
-	PullRequestURL     string     `json:"pull_request_url,omitempty"`
-	TestsRun           []string   `json:"tests_run"`
-	TestStatus         string     `json:"test_status"`
-	RiskNotes          []string   `json:"risk_notes"`
-	Artifacts          []Artifact `json:"artifacts"`
+	UnansweredMessages []int64 `json:"unanswered_messages,omitempty"`
+	// RepliesUnknown reports that the agent's last messages could not be
+	// collected when the run ended: whether it replied is not known.
+	RepliesUnknown bool       `json:"replies_unknown,omitempty"`
+	FailureReason  string     `json:"failure_reason,omitempty"`
+	ChangedFiles   []string   `json:"changed_files"`
+	Commits        []string   `json:"commits"`
+	Branch         string     `json:"branch,omitempty"`
+	PullRequestURL string     `json:"pull_request_url,omitempty"`
+	TestsRun       []string   `json:"tests_run"`
+	TestStatus     string     `json:"test_status"`
+	RiskNotes      []string   `json:"risk_notes"`
+	Artifacts      []Artifact `json:"artifacts"`
 }
 
 type Provider interface {

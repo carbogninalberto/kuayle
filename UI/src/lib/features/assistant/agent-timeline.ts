@@ -137,6 +137,7 @@ export function workflowTimeline(view: View, task: Task): TimelineStep[] {
 
 type Attempt = Pick<AgentRun, 'id' | 'provider_id' | 'status' | 'created_at' | 'started_at' | 'completed_at'> & {
 	model?: string;
+	result?: { replies_unknown?: boolean } | null;
 };
 
 /** A task without a workflow: one step per attempt, oldest first. */
@@ -148,6 +149,7 @@ export function attemptTimeline(task: Task, attempts: Attempt[]): TimelineStep[]
 			provider: run.provider_id,
 			model: run.model ?? '',
 			status: run.status,
+			replies_unknown: run.result?.replies_unknown || undefined,
 			created_at: run.created_at,
 			started_at: run.started_at,
 			completed_at: run.completed_at

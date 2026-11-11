@@ -399,13 +399,107 @@ func TestAnInterruptionThatCannotResumeSaysSo(t *testing.T) {
 	require.Equal(t, domain.AgentLiveQueued, f.liveMessages()[0].State)
 
 	f.exec(`UPDATE dev_machine_agent_runs SET status='cancelled',completed_at=now() WHERE id=$1`, stray)
+	require.Nil(t, paused.LiveResumeGeneration, "the interruption is over")
 	resumed, err := f.repo.ResumeWorkflow(f.ctx, f.ws, f.task.ID)
 	require.NoError(t, err)
 	require.Equal(t, "queued", resumed.State)
-	require.True(t, resumed.LiveResumed(), "the resumed attempt is still the one the message was sent for")
+	require.False(t, resumed.LiveResumed(), "it is an ordinary resume of a pause")
+	require.True(t, resumed.ResumeNativeSession)
 	claimed, err := f.repo.ClaimLiveMessages(f.ctx, *resumed, 10000)
 	require.NoError(t, err)
-	require.Len(t, claimed, 1)
+	require.Len(t, claimed, 1, "the message is delivered then")
+}
+
+// strayRun records another attempt of the task as still going, which keeps
+// an interrupted attempt from being continued.
+func (f *pauseFixture) strayRun() uuid.UUID {
+	f.t.Helper()
+	task, stray := f.current(), uuid.New()
+	f.exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,task_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status)
+ VALUES($1,$2,$3,$4,$5,'codex','autonomous','Test','["codex"]',60,'queued')`, stray, task.WorkspaceID, task.MachineID, task.ID, task.CreatorID)
+	return stray
+}
+
+// A person's cancel always wins. A task whose interruption could not be
+// continued is cancelled when they cancel it: the cleanup does not read the
+// old interruption and start the attempt again, with or without a workflow,
+// and however often the cause persists.
+func TestCancellingAfterAFailedContinuationCancels(t *testing.T) {
+	for name, fixture := range map[string]func(*testing.T) *pauseFixture{"a workflow": newPauseFixture, "no workflow": newPlainTaskFixture} {
+		f := fixture(t)
+		before := f.current()
+		_, err := f.send("Use the shared client", domain.AgentLiveSendInterrupt)
+		require.NoError(t, err, name)
+		f.strayRun()
+		f.cleanup()
+		stuck := f.current()
+		require.Equal(t, "blocked", stuck.State, name)
+		require.Nil(t, stuck.LiveResumeGeneration, name)
+		require.False(t, stuck.LiveInterrupting(), name)
+
+		// The cause is still there when they cancel.
+		require.NoError(t, f.repo.RequestCancel(f.ctx, f.ws, f.task.ID), name)
+		require.Equal(t, "cancelling", f.current().State, name)
+		require.False(t, f.current().LiveInterrupting(), name)
+		f.cleanup()
+		cancelled := f.current()
+		require.Equal(t, "cancelled", cancelled.State, "%s: not queued again, not blocked again", name)
+		require.Equal(t, before.Generation, cancelled.Generation, name)
+		require.Nil(t, f.claim(), name)
+	}
+}
+
+// Even a mark left behind (a row written before the mark was cleared on
+// failure) does not survive a cancel.
+func TestCancellingClearsAnyInterruptionMark(t *testing.T) {
+	f := newPlainTaskFixture(t)
+	f.exec(`UPDATE agent_tasks SET state='blocked',reason='Stopped',live_resume_generation=generation+1,lease_token=NULL,lease_expires_at=NULL WHERE id=$1`, f.task.ID)
+	f.exec(`UPDATE dev_machine_agent_runs SET status='cancelled',cancelled_at=now(),completed_at=now() WHERE id=$1`, f.current().RunID)
+	require.NoError(t, f.repo.RequestCancel(f.ctx, f.ws, f.task.ID))
+	cancelling := f.current()
+	require.Equal(t, "cancelling", cancelling.State)
+	require.Nil(t, cancelling.LiveResumeGeneration)
+	f.cleanup()
+	require.Equal(t, "cancelled", f.current().State)
+}
+
+// A retry after a continuation that failed is a retry: a new prompt, a new
+// session, not the attempt the message was sent for.
+func TestRetryingAfterAFailedContinuationIsAnOrdinaryRetry(t *testing.T) {
+	for name, fixture := range map[string]func(*testing.T) *pauseFixture{"a workflow": newPauseFixture, "no workflow": newPlainTaskFixture} {
+		f := fixture(t)
+		_, err := f.send("Use the shared client", domain.AgentLiveSendInterrupt)
+		require.NoError(t, err, name)
+		stray := f.strayRun()
+		f.cleanup()
+		stuck := f.current()
+		require.Equal(t, "blocked", stuck.State, name)
+		f.exec(`UPDATE dev_machine_agent_runs SET status='cancelled',cancelled_at=now(),completed_at=now() WHERE id=$1`, stray)
+		retried, err := f.repo.Retry(f.ctx, f.ws, f.task.ID, domain.AgentTaskRetryRequest{RequestID: uuid.New(), Generation: stuck.Generation, Prompt: "Start over on the endpoint"})
+		require.NoError(t, err, name)
+		require.Equal(t, "queued", retried.State, name)
+		require.Equal(t, stuck.Generation+1, retried.Generation, name)
+		require.False(t, retried.LiveResumed(), "%s: the retry is not read as the interrupted attempt continuing", name)
+		require.False(t, retried.ResumeNativeSession, name)
+		require.Nil(t, retried.WorkflowPausedAt, name)
+		require.Equal(t, "Start over on the endpoint", retried.Prompt, name)
+	}
+}
+
+// An attempt that fails while it is being stopped for a message is not
+// continued, and the retry that follows is not its continuation either.
+func TestAnInterruptionThatEndsInAFailureIsOver(t *testing.T) {
+	f := newPlainTaskFixture(t)
+	_, err := f.send("Use the shared client", domain.AgentLiveSendInterrupt)
+	require.NoError(t, err)
+	f.exec(`UPDATE agent_tasks SET failure_pending=true WHERE id=$1`, f.task.ID)
+	f.cleanup()
+	failed := f.current()
+	require.Equal(t, "failed", failed.State)
+	require.Nil(t, failed.LiveResumeGeneration)
+	retried, err := f.repo.Retry(f.ctx, f.ws, f.task.ID, domain.AgentTaskRetryRequest{RequestID: uuid.New(), Generation: failed.Generation, Prompt: "Try again"})
+	require.NoError(t, err)
+	require.False(t, retried.LiveResumed())
 }
 
 // Cancelling while the interrupted attempt is being stopped cancels the
