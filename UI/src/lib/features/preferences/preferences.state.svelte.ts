@@ -1,5 +1,14 @@
 import { getPreferences, updatePreferences, type IssuesGroupByPreference } from '$lib/api/preferences';
 import { CATEGORY_ORDER, type StatusCategory } from '$lib/types/team-status';
+import {
+	DEFAULT_NOTIFICATION_SOUND,
+	defaultNotificationEvents,
+	normalizeNotificationEvents,
+	normalizeNotificationSound,
+	type NotificationEventKey,
+	type NotificationEvents,
+	type NotificationSound
+} from '$lib/features/notifications/notification-policy';
 
 type FontSize = 'small' | 'default' | 'large';
 type ThemeMode = 'system' | 'light' | 'dark';
@@ -25,6 +34,9 @@ interface PreferencesData {
 	teamWorkflowSortOverrides: Record<string, TeamWorkflowSortOverride>;
 	recentDueDates: string[];
 	issuesGroupBy: GroupByField;
+	browserNotifications: boolean;
+	notificationSound: NotificationSound;
+	notificationEvents: NotificationEvents;
 	localDirty?: boolean;
 }
 
@@ -52,6 +64,9 @@ class PreferencesState {
 	teamWorkflowSortOverrides = $state<Record<string, TeamWorkflowSortOverride>>({});
 	recentDueDates = $state<string[]>([]);
 	issuesGroupBy = $state<GroupByField>('status');
+	browserNotifications = $state(true);
+	notificationSound = $state<NotificationSound>(DEFAULT_NOTIFICATION_SOUND);
+	notificationEvents = $state<NotificationEvents>(defaultNotificationEvents());
 
 	private systemPrefersDark = $state(true);
 	private initialized = false;
@@ -120,6 +135,9 @@ class PreferencesState {
 			if (data.teamWorkflowSortOverrides) this.teamWorkflowSortOverrides = normalizeTeamOverrides(data.teamWorkflowSortOverrides);
 			if (data.recentDueDates) this.recentDueDates = normalizeRecentDueDates(data.recentDueDates);
 			if (data.issuesGroupBy !== undefined) this.issuesGroupBy = normalizeIssuesGroupBy(data.issuesGroupBy);
+			if (data.browserNotifications !== undefined) this.browserNotifications = data.browserNotifications !== false;
+			if (data.notificationSound !== undefined) this.notificationSound = normalizeNotificationSound(data.notificationSound);
+			if (data.notificationEvents !== undefined) this.notificationEvents = normalizeNotificationEvents(data.notificationEvents);
 			if (data.localDirty !== undefined) this.localDirty = data.localDirty;
 		} catch {
 			// ignore corrupt data
@@ -157,6 +175,10 @@ class PreferencesState {
 			);
 			this.recentDueDates = normalizeRecentDueDates(data.recent_due_dates ?? []);
 			this.issuesGroupBy = normalizeIssuesGroupBy(data.issues_group_by);
+			// Absent on a server that predates these fields: keep the defaults.
+			this.browserNotifications = data.browser_notifications !== false;
+			this.notificationSound = normalizeNotificationSound(data.notification_sound);
+			this.notificationEvents = normalizeNotificationEvents(data.notification_events);
 			this.localDirty = false;
 			this.persistLocal();
 		} catch {
@@ -176,6 +198,9 @@ class PreferencesState {
 			teamWorkflowSortOverrides: this.teamWorkflowSortOverrides,
 			recentDueDates: this.recentDueDates,
 			issuesGroupBy: this.issuesGroupBy,
+			browserNotifications: this.browserNotifications,
+			notificationSound: this.notificationSound,
+			notificationEvents: this.notificationEvents,
 			localDirty: this.localDirty
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -232,7 +257,10 @@ class PreferencesState {
 				])
 			),
 			recent_due_dates: this.recentDueDates,
-			issues_group_by: toIssuesGroupByPreference(this.issuesGroupBy)
+			issues_group_by: toIssuesGroupByPreference(this.issuesGroupBy),
+			browser_notifications: this.browserNotifications,
+			notification_sound: this.notificationSound,
+			notification_events: { ...this.notificationEvents }
 		};
 	}
 
@@ -316,6 +344,21 @@ class PreferencesState {
 
 	setIssuesGroupBy(groupBy: GroupByField) {
 		this.issuesGroupBy = groupBy;
+		this.persist();
+	}
+
+	setBrowserNotifications(enabled: boolean) {
+		this.browserNotifications = enabled;
+		this.persist();
+	}
+
+	setNotificationSound(sound: NotificationSound) {
+		this.notificationSound = sound;
+		this.persist();
+	}
+
+	setNotificationEvent(key: NotificationEventKey, enabled: boolean) {
+		this.notificationEvents = { ...this.notificationEvents, [key]: enabled };
 		this.persist();
 	}
 }

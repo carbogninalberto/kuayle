@@ -36,8 +36,9 @@
 	import { m } from '$lib/features/i18n/messages';
 
 	// A coding agent's run as a readable session: its messages, one chip per
-	// tool call (expandable to the command and its recorded result), thinking
-	// markers and the session header, parsed from the run's recorded native
+	// tool call (expandable to the command and its recorded result), one row
+	// per subagent (expandable to what it did), thinking markers and the
+	// session header, parsed from the run's recorded native
 	// output. "Raw" shows that output unchanged, for debugging. All of it is
 	// the agent's untrusted output: escaped text, Markdown only through the
 	// sanitizer.
@@ -152,6 +153,38 @@
 		>{/if}
 {/snippet}
 
+{#snippet subagentView(block: Extract<SessionBlock, { kind: 'subagent' }>)}
+	{@const busy = block.status === 'running' && active}
+	{@const failed = block.status === 'failed'}
+	{@const time = busy ? '' : duration(block.tool.started, block.tool.ended)}
+	<Trace.Collapsible>
+		<Trace.CollapsibleTrigger>
+			<Trace.Line status={failed ? 'error' : busy ? 'running' : undefined}>
+				<Trace.Icon
+					>{#if failed}<CircleAlert />{:else if busy}<LoaderCircle class="animate-spin" />{:else}<Bot
+						/>{/if}</Trace.Icon
+				>
+				<Trace.Title class="break-words whitespace-normal"
+					>{#if failed}<span class="sr-only">{m['tasks.transcript_step_failed']({ title: '' })}</span
+						>{:else if busy}<span class="sr-only">{m['tasks.state.running']()}: </span>{/if}{block.tool
+						.title}</Trace.Title
+				>{#if time}<Trace.Description class="shrink-0 tabular-nums">{time}</Trace.Description>{/if}
+			</Trace.Line>
+		</Trace.CollapsibleTrigger>
+		<Trace.CollapsibleContent class="flex flex-col gap-3">
+			{#each block.blocks as inner (inner.key)}{@render blockView(inner)}{/each}
+			{#if block.tool.output}{@render output(
+					block.tool.id,
+					block.tool.output,
+					m['assistant.tool_output'](),
+					failed ? 'destructive' : 'default'
+				)}{:else if !block.blocks.length && block.tool.input}<CodeBlock.Root size="sm"
+					><CodeBlock.Content code={block.tool.input} wrap class="max-h-48 text-xs" /></CodeBlock.Root
+				>{/if}
+		</Trace.CollapsibleContent>
+	</Trace.Collapsible>
+{/snippet}
+
 {#snippet blockView(block: SessionBlock)}
 	{#if block.kind === 'header'}
 		<p
@@ -190,6 +223,8 @@
 		<Trace.Root class="min-w-0">{@render thinkingView(block)}</Trace.Root>
 	{:else if block.kind === 'tool'}
 		<Trace.Root class="min-w-0">{@render toolView(block.tool)}</Trace.Root>
+	{:else if block.kind === 'subagent'}
+		<Trace.Root class="min-w-0">{@render subagentView(block)}</Trace.Root>
 	{:else if block.kind === 'steps'}
 		{@const busy = active && block.tools.some((tool) => tool.status === 'running')}
 		{@const time = groupTime(block.tools)}
@@ -257,7 +292,8 @@
 		<Trace.Root class="min-w-0">
 			<Trace.Line status={block.usageLimit ? 'warning' : block.failed ? 'error' : 'success'}
 				><Trace.Icon
-					>{#if block.usageLimit}<CirclePause />{:else if block.failed}<CircleAlert />{:else}<CircleCheck />{/if}</Trace.Icon
+					>{#if block.usageLimit}<CirclePause />{:else if block.failed}<CircleAlert />{:else}<CircleCheck
+						/>{/if}</Trace.Icon
 				><Trace.Title class="break-words whitespace-normal"
 					>{block.usageLimit
 						? m['tasks.transcript_finished_limited']({ time: time || '—' })

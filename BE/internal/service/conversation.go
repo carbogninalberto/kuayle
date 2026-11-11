@@ -525,6 +525,7 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 		return nil, nil, err
 	}
 	auditApprovalRequested(actor, ws, approval, gap)
+	s.approvals.notifyRequested(ctx, a.Conversation, approval, identifier)
 	result := map[string]any{"approval_id": approval.ID, "status": "pending_user_approval"}
 	if gap != nil {
 		result["github_access"] = gap
