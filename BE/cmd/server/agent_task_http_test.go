@@ -157,7 +157,18 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 		// Administrators accept another member's task through the assistant's
 		// approval, which never returns the private task.
 		request("POST", taskPath+"/accept", `{"generation":1}`, auth, 404, nil)
+		// Pausing and resuming are the creator's, like cancelling.
+		request("POST", taskPath+"/pause", `{"mode":"now"}`, auth, 404, nil)
+		request("POST", taskPath+"/resume", "", auth, 404, nil)
 	}
+	// The creator's request is validated, and only a running workflow pauses.
+	for _, invalid := range []string{`{}`, `{"mode":"later"}`, `{"mode":"now","force":true}`, `not json`} {
+		request("POST", taskPath+"/pause", invalid, token, 400, nil)
+	}
+	request("POST", taskPath+"/pause", `{"mode":"now"}`, token, 409, nil)
+	request("POST", taskPath+"/pause", `{"mode":"after_step"}`, token, 409, nil)
+	request("POST", taskPath+"/resume", "", token, 409, nil)
+	request("POST", "/agent-tasks/"+uuid.NewString()+"/pause", `{"mode":"now"}`, token, 404, nil)
 	for _, caller := range []struct {
 		auth  string
 		guest bool
@@ -185,7 +196,7 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	raw, hash, prefix, err := domain.GenerateToken()
 	require.NoError(t, err)
 	require.NoError(t, tokens.Create(context.Background(), &domain.PersonalAccessToken{ID: uuid.New(), UserID: user, Name: "Task routes denied", Scopes: []string{"dev_machine:read", "dev_machine:create", "dev_machine:manage", "issues:read"}, TokenHash: hash, TokenPrefix: prefix}))
-	guarded := []struct{ method, path, body string }{{"POST", path, body}, {"GET", path, ""}, {"GET", optionsPath, ""}, {"GET", taskPath, ""}, {"GET", taskPath + "/history", ""}, {"GET", taskPath + "/sessions", ""}, {"GET", taskPath + "/runs", ""}, {"GET", taskPath + "/runs/" + task.RunID.String() + "/logs", ""}, {"POST", taskPath + "/cancel", ""}, {"POST", taskPath + "/retry", `{}`}, {"POST", taskPath + "/accept", `{"generation":1}`}, {"GET", taskPath + "/live-messages", ""}, {"POST", taskPath + "/live-messages", `{"body":"x"}`}}
+	guarded := []struct{ method, path, body string }{{"POST", path, body}, {"GET", path, ""}, {"GET", optionsPath, ""}, {"GET", taskPath, ""}, {"GET", taskPath + "/history", ""}, {"GET", taskPath + "/sessions", ""}, {"GET", taskPath + "/runs", ""}, {"GET", taskPath + "/runs/" + task.RunID.String() + "/logs", ""}, {"POST", taskPath + "/cancel", ""}, {"POST", taskPath + "/pause", `{"mode":"now"}`}, {"POST", taskPath + "/resume", ""}, {"POST", taskPath + "/retry", `{}`}, {"POST", taskPath + "/accept", `{"generation":1}`}, {"GET", taskPath + "/live-messages", ""}, {"POST", taskPath + "/live-messages", `{"body":"x"}`}}
 	for _, route := range guarded {
 		request(route.method, route.path, route.body, raw, 403, nil)
 	}
