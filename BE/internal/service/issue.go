@@ -382,7 +382,7 @@ func (s *IssueService) ConvertToProject(ctx context.Context, workspaceID, userID
 		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: item})
 	}
 	for _, uid := range s.issueNotificationRecipients(ctx, issue, userID, true) {
-		s.notify(ctx, uid, issue, "issue_converted_to_project", fmt.Sprintf("%s was converted to a project", issue.Identifier))
+		s.notify(ctx, userID, uid, issue, "issue_converted_to_project", fmt.Sprintf("%s was converted to a project", issue.Identifier))
 	}
 
 	return project, nil
@@ -787,7 +787,7 @@ func (s *IssueService) Delete(ctx context.Context, workspaceID, actorID uuid.UUI
 		Payload: map[string]string{"identifier": identifier},
 	})
 	for _, uid := range recipients {
-		s.notifyIssue(ctx, uid, issue, "issue_deleted", fmt.Sprintf("%s was deleted: %s", issue.Identifier, issue.Title), false)
+		s.notifyIssue(ctx, actorID, uid, issue, "issue_deleted", fmt.Sprintf("%s was deleted: %s", issue.Identifier, issue.Title), false)
 	}
 
 	return nil
@@ -831,7 +831,7 @@ func (s *IssueService) Triage(ctx context.Context, workspaceID, userID uuid.UUID
 		result = "declined"
 	}
 	for _, uid := range s.issueNotificationRecipients(ctx, issue, userID, true) {
-		s.notify(ctx, uid, issue, "issue_triaged", fmt.Sprintf("%s was triaged: %s", issue.Identifier, result))
+		s.notify(ctx, userID, uid, issue, "issue_triaged", fmt.Sprintf("%s was triaged: %s", issue.Identifier, result))
 	}
 
 	return issue, nil
@@ -995,7 +995,7 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 	if n > 0 && len(fields) > 0 {
 		for uid, count := range recipientCounts {
 			title := fmt.Sprintf("%d issues updated: %s", count, strings.Join(fields, ", "))
-			s.notifyWorkspace(ctx, workspaceID, uid, "issues_updated", title, true, recipientTeams[uid]...)
+			s.notifyWorkspace(ctx, workspaceID, userID, uid, "issues_updated", title, true, recipientTeams[uid]...)
 		}
 	}
 
@@ -1204,7 +1204,7 @@ func (s *IssueService) bulkUpdateProject(ctx context.Context, workspaceID, userI
 	}
 	for uid, count := range recipientCounts {
 		title := fmt.Sprintf("%d issues updated: project", count)
-		s.notifyWorkspace(ctx, workspaceID, uid, "issues_updated", title, true, recipientTeams[uid]...)
+		s.notifyWorkspace(ctx, workspaceID, userID, uid, "issues_updated", title, true, recipientTeams[uid]...)
 	}
 	return len(moved), nil
 }
@@ -1360,7 +1360,7 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID, userID uuid.
 	})
 	if n > 0 {
 		for uid, count := range recipientCounts {
-			s.notifyWorkspace(ctx, workspaceID, uid, "issues_deleted", fmt.Sprintf("%d issues deleted", count), false, recipientTeams[uid]...)
+			s.notifyWorkspace(ctx, workspaceID, userID, uid, "issues_deleted", fmt.Sprintf("%d issues deleted", count), false, recipientTeams[uid]...)
 		}
 	}
 
@@ -1373,11 +1373,13 @@ func (s *IssueService) recordHistory(ctx context.Context, issueID, userID uuid.U
 	}
 }
 
-func (s *IssueService) notify(ctx context.Context, userID uuid.UUID, issue *domain.Issue, notifType, title string) {
-	s.notifyIssue(ctx, userID, issue, notifType, title, true)
+// notify stores and announces an issue notification for userID. actorID is
+// the user whose action caused it.
+func (s *IssueService) notify(ctx context.Context, actorID, userID uuid.UUID, issue *domain.Issue, notifType, title string) {
+	s.notifyIssue(ctx, actorID, userID, issue, notifType, title, true)
 }
 
-func (s *IssueService) notifyIssue(ctx context.Context, userID uuid.UUID, issue *domain.Issue, notifType, title string, linkIssue bool) {
+func (s *IssueService) notifyIssue(ctx context.Context, actorID, userID uuid.UUID, issue *domain.Issue, notifType, title string, linkIssue bool) {
 	var issueID *uuid.UUID
 	if linkIssue {
 		issueID = &issue.ID
@@ -1392,13 +1394,11 @@ func (s *IssueService) notifyIssue(ctx context.Context, userID uuid.UUID, issue 
 		log.WithError(err).Warn("failed to create notification")
 		return
 	}
-	s.hub.BroadcastToUser(issue.WorkspaceID, userID, realtime.Event{
-		Type:    "notification.created",
-		Payload: map[string]string{"type": notifType},
-	})
+	// An unlinked notice (a deleted issue) carries no issue to open.
+	publishNotification(s.hub, issue.WorkspaceID, userID, notificationEvent{Type: notifType, Title: title, IssueID: issueID, IssueIdentifier: issue.Identifier, ActorID: &actorID})
 }
 
-func (s *IssueService) notifyWorkspace(ctx context.Context, workspaceID, userID uuid.UUID, notifType, title string, dedupe bool, sourceTeams ...uuid.UUID) {
+func (s *IssueService) notifyWorkspace(ctx context.Context, workspaceID, actorID, userID uuid.UUID, notifType, title string, dedupe bool, sourceTeams ...uuid.UUID) {
 	var err error
 	if dedupe {
 		err = s.notifSvc.CreateOrRefresh(ctx, userID, workspaceID, nil, notifType, title, issueUpdateNotificationWindow, sourceTeams...)
@@ -1409,10 +1409,7 @@ func (s *IssueService) notifyWorkspace(ctx context.Context, workspaceID, userID 
 		log.WithError(err).Warn("failed to create notification")
 		return
 	}
-	s.hub.BroadcastToUser(workspaceID, userID, realtime.Event{
-		Type:    "notification.created",
-		Payload: map[string]string{"type": notifType},
-	})
+	publishNotification(s.hub, workspaceID, userID, notificationEvent{Type: notifType, Title: title, ActorID: &actorID})
 }
 
 func (s *IssueService) notifyAssignees(ctx context.Context, issue *domain.Issue, actorID, workspaceID uuid.UUID) {
@@ -1420,7 +1417,7 @@ func (s *IssueService) notifyAssignees(ctx context.Context, issue *domain.Issue,
 
 	// Single assignee
 	if issue.AssigneeID != nil && *issue.AssigneeID != actorID {
-		s.notify(ctx, *issue.AssigneeID, issue, "assigned",
+		s.notify(ctx, actorID, *issue.AssigneeID, issue, "assigned",
 			fmt.Sprintf("You were assigned to %s: %s", issue.Identifier, issue.Title))
 		notified[*issue.AssigneeID] = true
 	}
@@ -1429,7 +1426,7 @@ func (s *IssueService) notifyAssignees(ctx context.Context, issue *domain.Issue,
 	assignees, _ := s.issueRepo.GetAssignees(ctx, issue.ID)
 	for _, uid := range assignees {
 		if uid != actorID && !notified[uid] {
-			s.notify(ctx, uid, issue, "assigned",
+			s.notify(ctx, actorID, uid, issue, "assigned",
 				fmt.Sprintf("You were assigned to %s: %s", issue.Identifier, issue.Title))
 		}
 	}
@@ -1513,7 +1510,7 @@ func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domai
 		recipients := s.issueNotificationRecipients(ctx, issue, actorID, true)
 		title := fmt.Sprintf("%s updated: %s", issue.Identifier, strings.Join(changes.fields, ", "))
 		for _, uid := range recipients {
-			s.notify(ctx, uid, issue, "issue_updated", title)
+			s.notify(ctx, actorID, uid, issue, "issue_updated", title)
 		}
 	}
 
@@ -1523,7 +1520,7 @@ func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domai
 			continue
 		}
 		notifiedAssignees[uid] = true
-		s.notify(ctx, uid, issue, "assigned", fmt.Sprintf("You were assigned to %s: %s", issue.Identifier, issue.Title))
+		s.notify(ctx, actorID, uid, issue, "assigned", fmt.Sprintf("You were assigned to %s: %s", issue.Identifier, issue.Title))
 	}
 
 	notifiedMentions := make(map[uuid.UUID]bool)
@@ -1532,7 +1529,7 @@ func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domai
 			continue
 		}
 		notifiedMentions[uid] = true
-		s.notify(ctx, uid, issue, "mentioned", fmt.Sprintf("You were mentioned in %s: %s", issue.Identifier, issue.Title))
+		s.notify(ctx, actorID, uid, issue, "mentioned", fmt.Sprintf("You were mentioned in %s: %s", issue.Identifier, issue.Title))
 	}
 }
 

@@ -1340,8 +1340,13 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		}
 	}
 	cancelOutbox()
-	stdout, stderr := output.Text("stdout"), output.Text("stderr")
+	stdout, stderr := output.ResultText("stdout"), output.ResultText("stderr")
 	result := provider.ParseResult(stdout, stderr, execution.ExitCode)
+	// A final message Kuayle may not have seen is not a missing one.
+	if result.NoFinalMessage && output.Incomplete("stdout") {
+		result.Status, result.NoFinalMessage = "succeeded", false
+		result.RiskNotes = append(result.RiskNotes, "Kuayle did not keep all of the agent's output, so its final message may be missing from the summary.")
+	}
 	repositoryFullName := checkoutRepositoryFullName(machine, checkout)
 	if result.PullRequestURL != "" {
 		if safeURL, ok := safeGitHubPullRequestURL(result.PullRequestURL, repositoryFullName); ok {
@@ -1404,6 +1409,12 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 			// The provider's usage limit: the task pauses until the reset.
 			message := limit.ErrorMessage()
 			run.ErrorMessage = &message
+		} else if run.ErrorMessage == nil && result.NoFinalMessage {
+			// The harness exited normally but the agent never concluded.
+			message := domain.NoFinalMessageReason(result.FailureReason)
+			run.ErrorMessage = &message
+		} else if run.ErrorMessage == nil && result.FailureReason != "" {
+			run.ErrorMessage = &result.FailureReason
 		} else if run.ErrorMessage == nil && execution.ExitCode == 137 {
 			message := "The agent process was killed (exit code 137) without an out-of-memory event; it may have been stopped by a signal."
 			run.ErrorMessage = &message

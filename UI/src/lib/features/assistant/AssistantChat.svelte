@@ -35,6 +35,7 @@
 	import { conversations, type Conversation, type AssistantStatus, type MessageStatus } from '$lib/api/conversations';
 	import { agentTasks, type AgentQueueItem } from '$lib/api/agent-tasks';
 	import { ConversationState } from './conversation-state.svelte';
+	import { conversationSubject, onScreenSubjects } from '$lib/features/notifications/on-screen-subjects';
 	import { TaskBoard } from './task-board.svelte';
 	import { ComposerAttachments } from './composer-attachments.svelte';
 	import ComposerAttachmentList from './ComposerAttachments.svelte';
@@ -104,6 +105,9 @@
 	let { slug, conversationId }: { slug: string; conversationId: string | null } = $props();
 	// This component is keyed by workspace, conversation and authenticated user.
 	const chat = untrack(() => new ConversationState(slug, conversationId ?? ''));
+	// While this conversation is displayed, its own approval requests are in
+	// view: the notifier stays quiet for them (see on-screen-subjects.ts).
+	$effect(() => (conversationId ? onScreenSubjects.show(conversationSubject(conversationId)) : undefined));
 	const userKey = untrack(() => `${authState.user?.id}:${slug}`);
 	const draftKey = untrack(() => assistantDraftKey(authState.user?.id, slug, conversationId));
 	let history = $state<Conversation[]>([]);

@@ -36,6 +36,19 @@ mv "$dir/.validation.json" "$dir/validation.json"
 - A file that breaks these rules is ignored as a whole, and the change opens as
   a draft marked not validated. Nothing under `.kuayle/` is committed.
 
+# Finishing: Kuayle commits and pushes
+
+When an implementation attempt ends, Kuayle commits every change in your
+worktree as the workspace's configured author, pushes the task branch and
+opens or updates the pull request. Your container has no git identity and no
+GitHub token on purpose. Do not run `git commit`, `git push` or `gh`, do not
+configure an identity, and do not report their absence as a problem: leave
+your changes uncommitted.
+
+End with a final message that says what you changed and what you tested. The
+next step and the reviewer read it; a run that ends on a tool call, without
+that message, fails.
+
 # Messaging other agents in Kuayle
 
 Other agents may work on the related issues named at the top of your task

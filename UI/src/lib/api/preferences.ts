@@ -1,4 +1,5 @@
 import { api } from './client';
+import type { NotificationEvents, NotificationSound } from '$lib/features/notifications/notification-policy';
 
 export type IssuesGroupByPreference = 'status' | 'priority' | 'assignee' | 'project' | 'none';
 
@@ -13,6 +14,10 @@ export interface PreferencesData {
 	team_workflow_sort_overrides: Record<string, WorkflowSortOverride>;
 	recent_due_dates: string[];
 	issues_group_by: IssuesGroupByPreference;
+	browser_notifications: boolean;
+	notification_sound: NotificationSound;
+	/** Responses carry every event key; a PATCH may send a partial map, which the server merges. */
+	notification_events: Partial<NotificationEvents>;
 }
 
 export interface WorkflowSortOverride {

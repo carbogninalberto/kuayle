@@ -58,6 +58,10 @@ type WorkflowEntry struct {
 	Review *domain.AgentReviewRequest
 	// Wait: when to evaluate the node again without an event (its timeout).
 	WakeAt *time.Time
+	// Wait: the node waits for a person (an approval, the merge), so the
+	// task's creator is told that a review is needed. Not for a wait nobody
+	// has to act on: CI, an agent review, a wait a person just continued.
+	NeedsPerson bool
 }
 
 // WorkflowApply closes the task's current step with Outcome and applies the
@@ -442,7 +446,27 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 	if err != nil {
 		return err
 	}
+	if WorkflowEntryState(apply.Entry.Kind) == "awaiting_review" {
+		if err = markWorkflowReviewNotice(ctx, tx, *task, apply.Entry.NeedsPerson, apply.Actor); err != nil {
+			return err
+		}
+	}
 	return workflowEvent(ctx, tx, *task)
+}
+
+// markWorkflowReviewNotice decides whether the creator of a workflow task
+// that now waits in awaiting_review is told that a review is needed: only
+// when the step waits for a person, and not for the creator's own decision.
+// A workflow passes through several waits in that state (an agent review, CI,
+// an approval, the merge) and records a transition only for the first, so the
+// mark is set on the transition that entered the state rather than taken
+// from recordAgentTaskTransition. That row may have been claimed before: a
+// later step waiting for a person is announced again.
+func markWorkflowReviewNotice(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask, needsPerson bool, actor *uuid.UUID) error {
+	pending := needsPerson && task.CreatorID != uuid.Nil && (actor == nil || *actor != task.CreatorID)
+	_, err := tx.ExecContext(ctx, `UPDATE agent_task_transitions SET notification_pending=$2
+ WHERE sequence=(SELECT max(sequence) FROM agent_task_transitions WHERE task_id=$1 AND to_state='awaiting_review')`, task.ID, pending)
+	return err
 }
 
 func nullTime(at time.Time) *time.Time {
