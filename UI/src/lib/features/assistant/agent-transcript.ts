@@ -5,6 +5,14 @@
 // json` events; anything else is kept as plain text or a generic event so
 // nothing recorded disappears.
 //
+// Claude Code marks what a subagent does with `parent_tool_use_id`, the id of
+// the Task/Agent call that started it; those entries are kept under that call
+// (`children`), at any depth. The line with that call is often too large to
+// be recorded, so the group is also made from Claude Code's `task_started`
+// event for the call, or from the first event naming it. Its `task_*` events
+// are not listed: they say how a subagent or a background command ended.
+// Codex and OpenCode output names no parent, so their runs stay flat.
+//
 // Everything here is untrusted agent output. The parser only extracts
 // strings; the view renders them as escaped text (agent messages go through
 // the sanitizing Markdown component). Nothing is invented: a tool without a
@@ -32,6 +40,8 @@ export interface SessionTool {
 	command: boolean;
 	started?: string;
 	ended?: string;
+	/** What the subagent this call started did, in order. Only on such calls. */
+	children?: SessionEntry[];
 }
 
 export type SessionEntry =
@@ -51,6 +61,7 @@ type EventEntry = Extract<SessionEntry, { kind: 'event' }>;
 export type SessionBlock =
 	| Exclude<SessionEntry, EventEntry>
 	| { kind: 'steps'; key: string; entries: StepEntry[]; tools: SessionTool[]; commands: boolean; failed: number }
+	| { kind: 'subagent'; key: string; tool: SessionTool; status: ToolStatus; blocks: SessionBlock[] }
 	| { kind: 'events'; key: string; events: EventEntry[] };
 
 const maxLineLength = 1024 * 1024;
@@ -162,14 +173,81 @@ function parseLine(text: string): Json | undefined {
 const quiet = new Set(['rate_limit_event', 'stream_event', 'turn.started', 'turn.completed', 'keep_alive']);
 // OpenCode events read here; each carries its content in `part`.
 const openCodeParts = new Set(['step_start', 'step_finish', 'text', 'reasoning', 'tool_use']);
+// Claude Code tools that start a subagent.
+const subagentTools = new Set(['Task', 'Agent']);
 
 export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
-	const entries: SessionEntry[] = [];
+	const root: SessionEntry[] = [];
+	// Where the current line's entries go: the transcript, or a subagent's call.
+	let entries = root;
 	const tools = new Map<string, SessionTool>();
 	const push = (entry: SessionEntry) => entries.push(entry);
+	// Claude Code tasks (subagents, background commands) by task id.
+	const tasks = new Map<string, SessionTool>();
+	// Subagents that keep working after their call returned, until they end.
+	const background = new Set<SessionTool>();
+	// Groups made without their call: named when Claude Code says what was asked.
+	const unnamed = new Set<SessionTool>();
+	const subagent = (id: string, line: { key: string; at?: string }, list: SessionEntry[]) => {
+		const tool: SessionTool = {
+			id,
+			name: 'Agent',
+			title: 'Agent',
+			input: '',
+			status: 'running',
+			command: false,
+			started: line.at,
+			children: []
+		};
+		tools.set(id, tool);
+		unnamed.add(tool);
+		list.push({ kind: 'tool', key: `${line.key}:agent`, tool });
+		return tool;
+	};
+	// Reads a `task_*` event into the call it is about; false when there is none.
+	const taskEvent = (event: Json, line: { key: string; at?: string }) => {
+		const id = str(event.tool_use_id);
+		const isAgent = event.task_type === 'local_agent' || !!str(event.subagent_type);
+		let tool = tools.get(id) ?? tasks.get(str(event.task_id));
+		if (!tool && isAgent && id)
+			tool = subagent(
+				id,
+				line,
+				(tools.get(str(event.parent_tool_use_id)) ?? tasks.get(str(event.parent_task_id)))?.children ?? root
+			);
+		if (!tool) return false;
+		if (str(event.task_id)) tasks.set(str(event.task_id), tool);
+		if (isAgent) {
+			tool.children ??= [];
+			// Only the start says what was asked; progress describes the moment.
+			if (unnamed.has(tool) && event.subtype === 'task_started') {
+				const description = truncate(str(event.description));
+				if (description) {
+					tool.title = description;
+					unnamed.delete(tool);
+				}
+				tool.input ||= str(event.prompt);
+			}
+		}
+		if (event.subtype === 'task_started' && isAgent && event.is_backgrounded === true && tool.status !== 'failed') {
+			background.add(tool);
+			tool.status = 'running';
+			tool.ended = undefined;
+		} else if (event.subtype === 'task_notification') {
+			// The call's own result decides when there is one; a subagent stopped
+			// with the run is not a failure.
+			if (tool.status === 'running') {
+				tool.status = event.status === 'failed' ? 'failed' : 'done';
+				tool.ended = line.at;
+			}
+			background.delete(tool);
+		}
+		return true;
+	};
 	// OpenCode stamps every event; the first one is where its run started.
 	let started: number | undefined;
 	for (const line of lines(chunks)) {
+		entries = root;
 		if (line.truncated) {
 			push({ kind: 'omitted', key: line.key, reason: /limit/i.test(line.text) ? 'limit' : 'oversized' });
 			continue;
@@ -187,6 +265,16 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 		}
 		const type = event.type;
 		if (quiet.has(type)) continue;
+		if (type === 'system' && str(event.subtype).startsWith('task_') && taskEvent(event, line)) continue;
+		// A subagent's event goes under the call that started it; when that call
+		// was never recorded, its group starts here.
+		const parentId = str(event.parent_tool_use_id);
+		const parent = parentId ? (tools.get(parentId) ?? subagent(parentId, line, root)) : undefined;
+		if (parent) {
+			entries = parent.children ??= [];
+			// A subagent left running after its call returned is still at work.
+			if (parent.status !== 'running' && line.at) parent.ended = line.at;
+		}
 		const before = entries.length;
 		// ── Claude Code stream-json
 		if (type === 'system' && event.subtype === 'init') {
@@ -232,7 +320,8 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 						input: inputText(part.input),
 						status: 'running',
 						command: name === 'Bash',
-						started: line.at
+						started: line.at,
+						...(subagentTools.has(name) ? { children: [] } : {})
 					};
 					tools.set(tool.id, tool);
 					push({ kind: 'tool', key, tool });
@@ -240,12 +329,22 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 					const tool = tools.get(str(part.tool_use_id));
 					if (!tool) return;
 					tool.output = resultText(part.content);
+					// A background subagent's call returns at once; it ends later.
+					if (background.has(tool) && part.is_error !== true) return;
 					tool.status = part.is_error === true ? 'failed' : 'done';
 					tool.ended = line.at;
 				}
 			});
 		} else if (type === 'result') {
 			const failed = event.is_error === true || (typeof event.subtype === 'string' && event.subtype !== 'success');
+			// The run is over: a call whose result was never recorded is finished
+			// too, without one. A subagent's time ends with the run.
+			for (const tool of tools.values()) {
+				if (tool.status !== 'running') continue;
+				tool.status = 'done';
+				if (tool.children) tool.ended = line.at;
+			}
+			background.clear();
 			push({
 				kind: 'result',
 				key: line.key,
@@ -292,7 +391,7 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 				raw: line.text.trim()
 			});
 	}
-	return entries;
+	return root;
 }
 
 // Recognized events that legitimately add nothing (a result paired to an
@@ -521,7 +620,21 @@ function codexItem(
 	}
 }
 
-/** Folds consecutive tool calls (and the thinking between them) into one group. */
+// A subagent failed when its call did; it is running while its call or
+// anything under it still is (a background one outlives its call).
+function subagentStatus(tool: SessionTool): ToolStatus {
+	if (tool.status === 'failed') return 'failed';
+	const busy = (entries: SessionEntry[]): boolean =>
+		entries.some(
+			(entry) => entry.kind === 'tool' && (entry.tool.status === 'running' || busy(entry.tool.children ?? []))
+		);
+	return tool.status === 'running' || busy(tool.children ?? []) ? 'running' : 'done';
+}
+
+/**
+ * Folds consecutive tool calls (and the thinking between them) into one group;
+ * a call that started a subagent is its own group holding what the subagent did.
+ */
 export function groupSession(entries: SessionEntry[]): SessionBlock[] {
 	const blocks: SessionBlock[] = [];
 	let run: StepEntry[] = [];
@@ -542,6 +655,17 @@ export function groupSession(entries: SessionEntry[]): SessionBlock[] {
 		run = [];
 	};
 	for (const entry of entries) {
+		if (entry.kind === 'tool' && entry.tool.children) {
+			if (run.length) flush();
+			blocks.push({
+				kind: 'subagent',
+				key: entry.key,
+				tool: entry.tool,
+				status: subagentStatus(entry.tool),
+				blocks: groupSession(entry.tool.children)
+			});
+			continue;
+		}
 		if (entry.kind === 'tool' || entry.kind === 'thinking') {
 			run.push(entry);
 			continue;
