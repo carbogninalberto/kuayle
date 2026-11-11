@@ -5,20 +5,24 @@ import (
 	"strings"
 )
 
-// A reply is mandatory. Every message a person sends to a task's agent (or
-// the orchestrator sends for them) must be answered by the agent: an outbox
-// file addressed to the orchestrator whose "reply_to" names the message's
-// sequence number. Kuayle enforces it, not the prompt: Claude Code is not
-// allowed to stop while a delivered message has no reply (its Stop hook reads
-// AgentLiveUnansweredFile), and for every harness an attempt that ends
-// normally with such a message is not a success. The message is then given
-// once more, to the same step's next attempt.
+// A reply is mandatory, and the work is never lost over a missing one. Every
+// message a person sends to a task's agent (or the orchestrator sends for
+// them) must be answered by the agent: an outbox file addressed to the
+// orchestrator whose "reply_to" names the message's sequence number. Kuayle
+// asks for it, not only the prompt: Claude Code is not allowed to stop while
+// a delivered message has no reply (its Stop hook reads
+// AgentLiveUnansweredFile), and an attempt of a harness that can continue a
+// session (HarnessContinuesSession) which ends well with such a message is
+// continued once, in the same session, only to reply. An attempt never fails
+// for a missing reply: the message is flagged as unanswered and given once
+// more to the same step's next attempt, if there is one.
 const (
 	// AgentLiveUnansweredFile is the inbox file listing the sequence numbers
 	// the running attempt still owes a reply to: {"unanswered":[3,5]}.
 	AgentLiveUnansweredFile = "unanswered.json"
-	// AgentLiveReplyAttempts is how many attempts are given a message before
-	// Kuayle stops asking; it then stays flagged as unanswered.
+	// AgentLiveReplyAttempts is how many attempts that ran to an end are
+	// given a message before Kuayle stops asking; it then stays flagged as
+	// unanswered. An attempt that was interrupted or paused does not count.
 	AgentLiveReplyAttempts = 2
 	// AgentLiveStopReminders is how often Claude Code's Stop hook refuses to
 	// stop for the same unanswered message within one attempt.
@@ -33,12 +37,10 @@ const (
 	AgentLiveSendStart     = "start"
 )
 
-const unansweredMessageReasonPrefix = "The agent ended without replying to "
-
-// UnansweredMessageReason is the error of a run that ended normally although
-// the agent never replied to the messages with these sequence numbers. The
-// text is kept verbatim as the task's reason.
-func UnansweredMessageReason(seqs []int64) string {
+// UnansweredMessageNote is what an attempt's result says when it ended
+// although the agent never replied to the messages with these sequence
+// numbers. It is a note, never the reason an attempt fails.
+func UnansweredMessageNote(seqs []int64) string {
 	names := make([]string, 0, len(seqs))
 	for _, seq := range seqs {
 		names = append(names, strconv.FormatInt(seq, 10))
@@ -47,13 +49,27 @@ func UnansweredMessageReason(seqs []int64) string {
 	if len(names) != 1 {
 		noun = "messages "
 	}
-	return unansweredMessageReasonPrefix + noun + strings.Join(names, ", ") + " from the person who owns the task"
+	return "The agent did not reply to " + noun + strings.Join(names, ", ") + " from the person who owns the task. Kuayle asked again; the work is kept and the message is shown as unanswered."
 }
 
-// IsUnansweredMessageReason reports whether a run error or task reason is the
-// explanation above.
-func IsUnansweredMessageReason(reason string) bool {
-	return strings.HasPrefix(reason, unansweredMessageReasonPrefix)
+// AgentLiveReplyPrompt is the whole prompt of the one continuation an
+// attempt gets when it ended owing replies: it asks for the replies only.
+func AgentLiveReplyPrompt(seqs []int64) string {
+	names := make([]string, 0, len(seqs))
+	for _, seq := range seqs {
+		names = append(names, strconv.FormatInt(seq, 10))
+	}
+	return "Kuayle: your work on this step is finished and kept. One thing is missing: you did not reply to message(s) " + strings.Join(names, ", ") +
+		" from the person who owns this task (you received them during this session). Do nothing else now: do not change, create or delete files in the repository, and do not run builds or tests. " +
+		"For each of those messages write one file `.kuayle/outbox/<name>.json` at this worktree's root containing {\"to\":\"orchestrator\",\"reply_to\":<message number>,\"body\":\"...\"}, " +
+		"saying what you understood and what you did about it, then stop."
+}
+
+// HarnessContinuesSession reports whether Kuayle can continue a finished
+// attempt's native session with one more prompt (Claude Code --resume, Codex
+// exec resume).
+func HarnessContinuesSession(provider string) bool {
+	return provider == "claude-code" || provider == "codex"
 }
 
 // HarnessReadsLiveInbox reports whether Kuayle can hand the harness a message
@@ -61,6 +77,12 @@ func IsUnansweredMessageReason(reason string) bool {
 // harness receives a person's message by being interrupted and resumed.
 func HarnessReadsLiveInbox(provider string) bool {
 	return provider == "claude-code"
+}
+
+// LiveInterrupting reports whether the task's working attempt is being
+// stopped to deliver a message, after which it continues by itself.
+func (t AgentTask) LiveInterrupting() bool {
+	return t.State == "cancelling" && t.LiveResumeGeneration != nil && *t.LiveResumeGeneration == t.Generation+1
 }
 
 // LiveResumed reports whether the task's current attempt was started by a

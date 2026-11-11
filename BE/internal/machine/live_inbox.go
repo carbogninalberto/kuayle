@@ -12,6 +12,7 @@ import (
 
 	"github.com/containerd/errdefs"
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/moby/moby/api/types/container"
@@ -45,14 +46,24 @@ type liveInboxRuntime interface {
 	CloseLiveInbox(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun) error
 }
 
-// liveReplyGrace is how close to an attempt's end an inbox message may have
-// been written and still not been read: it is queued again instead.
+// liveReplyGrace is how long before the harness exited an inbox message may
+// have been written and still not been read: it is queued again instead.
 const liveReplyGrace = 20 * time.Second
+
+// liveReplyTimeout bounds the one continuation that asks a finished attempt
+// for the replies it owes.
+const liveReplyTimeout = 3 * time.Minute
 
 // liveReplyStore knows which of an attempt's messages still owe a reply.
 type liveReplyStore interface {
 	UnansweredLiveMessages(ctx context.Context, run uuid.UUID) ([]int64, error)
-	SettleLiveMessages(ctx context.Context, run uuid.UUID, grace time.Duration) ([]int64, error)
+	SettleLiveMessages(ctx context.Context, run uuid.UUID, unread time.Time) ([]int64, error)
+}
+
+// agentContinuationRuntime is implemented by runtimes that can run a
+// finished attempt's harness once more on its session.
+type agentContinuationRuntime interface {
+	ContinueAgent(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, provider *domain.DevMachineAgentProvider, checkout *domain.DevMachineCheckout, secrets map[string]string, continuation []string, observer *AgentObserver) (*AgentExecution, error)
 }
 
 type liveInboxStore interface {
@@ -168,19 +179,134 @@ func (m *Manager) writeUnanswered(ctx context.Context, machine *domain.DevMachin
 	return string(data), nil
 }
 
-// settleLiveMessages closes the ended attempt's side of the live channel and
-// returns the messages it received and never replied to.
-func (m *Manager) settleLiveMessages(ctx context.Context, run *domain.DevMachineAgentRun) []int64 {
+// liveCollectFailedNote is what an attempt's result says when Kuayle could
+// not read the agent's last messages: a reply may exist that nobody saw.
+const liveCollectFailedNote = "Kuayle could not collect the agent's messages when the attempt ended, so a reply the agent wrote may be missing. This is a problem on Kuayle's side, not the agent's."
+
+// liveReplyRequest is what settleReplies needs to ask a finished attempt for
+// its replies.
+type liveReplyRequest struct {
+	provider *domain.DevMachineAgentProvider
+	checkout *domain.DevMachineCheckout
+	secrets  *domain.AgentRunSecretSnapshot
+	// signIn is the agent's own sign-in now in force, if it uses one.
+	signIn string
+	// exited is when the harness exited; finished whether it ended well, so
+	// that only a missing reply stands between the attempt and its success.
+	exited   time.Time
+	finished bool
+}
+
+// settleReplies closes the ended attempt's side of the live channel. It
+// collects the agent's last messages and, only when that worked, decides
+// which messages the attempt received and never replied to: a failed
+// collection means a reply may exist unseen, so nothing is concluded and the
+// result says so. An attempt that ended well still owing a reply is
+// continued once, on the same session, to write it (requestReply); whatever
+// is unanswered after that is reported as a note. A missing reply never
+// changes how the attempt ended.
+func (m *Manager) settleReplies(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, request liveReplyRequest) (unanswered []int64, notes []string) {
 	store, ok := m.store.(liveReplyStore)
 	if !ok {
-		return nil
+		return nil, nil
 	}
-	seqs, err := store.SettleLiveMessages(ctx, run.ID, liveReplyGrace)
+	collect := func() error {
+		collectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		services, err := m.store.ListServices(collectCtx, machine.WorkspaceID, machine.ID)
+		if err == nil {
+			err = m.collectOutboxChecked(collectCtx, machine, services)
+		}
+		if err != nil {
+			log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID, "event_type": "agent_live_messages.collect"}).WithError(err).Warn("the agent's last messages could not be collected")
+			_ = m.createEvent(collectCtx, machine, &run.ID, "agent", "agent_live_messages.collect_failed", map[string]any{"error": safeError(err)})
+		}
+		return err
+	}
+	if collect() != nil {
+		// Only an attempt that owes a reply has one that could be missing.
+		owedCtx, cancelOwed := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancelOwed()
+		if owed, err := store.UnansweredLiveMessages(owedCtx, run.ID); err == nil && len(owed) == 0 {
+			return nil, nil
+		}
+		return nil, []string{liveCollectFailedNote}
+	}
+	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	unanswered, err := store.SettleLiveMessages(settleCtx, run.ID, request.exited.Add(-liveReplyGrace))
 	if err != nil {
 		log.WithFields(log.Fields{"agent_run_id": run.ID, "event_type": "agent_live_messages.settle"}).WithError(err).Warn("live messages could not be settled")
-		return nil
+		return nil, nil
 	}
-	return seqs
+	if len(unanswered) == 0 || !request.finished {
+		return unanswered, nil
+	}
+	if m.requestReply(ctx, machine, run, request, unanswered) {
+		if collect() != nil {
+			return nil, []string{liveCollectFailedNote}
+		}
+		againCtx, cancelAgain := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancelAgain()
+		if unanswered, err = store.UnansweredLiveMessages(againCtx, run.ID); err != nil {
+			log.WithFields(log.Fields{"agent_run_id": run.ID, "event_type": "agent_live_messages.settle"}).WithError(err).Warn("live messages could not be settled")
+			return nil, nil
+		}
+	}
+	if len(unanswered) > 0 {
+		notes = append(notes, domain.UnansweredMessageNote(unanswered))
+	}
+	return unanswered, notes
+}
+
+// requestReply continues a finished attempt once, on its own native session,
+// with a prompt that asks only for the replies it owes, and reports whether
+// it did. It is bounded by liveReplyTimeout and its output is discarded: the
+// attempt's result, summary and logs are those of its work. Only a harness
+// that can continue a session gets it (domain.HarnessContinuesSession), and
+// only an attempt nobody cancelled.
+func (m *Manager) requestReply(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, request liveReplyRequest, unanswered []int64) bool {
+	runtime, ok := m.runtime.(agentContinuationRuntime)
+	if !ok || run.TaskID == nil || !domain.HarnessContinuesSession(run.ProviderID) || request.secrets == nil {
+		return false
+	}
+	current, err := m.store.GetAgentRunInternal(ctx, run.ID)
+	if err != nil || current == nil || terminalAgentStatus(current.Status) || current.NativeSessionID == nil {
+		return false
+	}
+	var argv []string
+	if json.Unmarshal(run.CommandArgv, &argv) != nil {
+		return false
+	}
+	continuation, ok := agent.ReplyContinuation(run.ProviderID, argv, *current.NativeSessionID, domain.AgentLiveReplyPrompt(unanswered))
+	if !ok {
+		return false
+	}
+	environment := make(map[string]string, len(request.secrets.Environment))
+	for name, value := range request.secrets.Environment {
+		environment[name] = value
+	}
+	name := signInSecretNames[run.ProviderID]
+	if request.signIn != "" && name != "" {
+		// The sign-in the attempt may have refreshed, not the one it started with.
+		environment[name] = request.signIn
+	}
+	replyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), liveReplyTimeout)
+	defer cancel()
+	discarded := newAgentOutputBuffer(request.secrets.Redactions, func(string, int64, string, string, bool) error { return nil })
+	observer := &AgentObserver{Authorize: func() error { return m.store.AuthorizeAgentRun(replyCtx, run.ID) }, Output: discarded.WriteDocker}
+	_ = m.createEvent(replyCtx, machine, &run.ID, "agent", "agent_live_messages.reply_requested", map[string]any{"messages": unanswered})
+	if _, err = runtime.ContinueAgent(replyCtx, machine, run, request.provider, request.checkout, environment, continuation, observer); err != nil {
+		log.WithFields(log.Fields{"agent_run_id": run.ID, "event_type": "agent_live_messages.reply_request"}).WithError(err).Warn("the agent could not be asked again for its reply")
+	}
+	if environment[name] != "" {
+		returnCtx, cancelReturn := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		if err = m.returnSignIn(returnCtx, machine, run, environment[name]); err != nil {
+			log.WithField("agent_run_id", run.ID).WithError(err).Warn("refreshed agent sign-in could not be kept")
+		}
+		cancelReturn()
+	}
+	return true
 }
 
 // closeLiveInbox removes the run's inbox writer once the attempt ended.

@@ -3856,5 +3856,7 @@
 	"tasks.live_state_replied": "已回覆",
 	"tasks.live_state_unanswered": "未回覆",
 	"tasks.live_interrupt_send": "中斷並傳送",
-	"tasks.live_start_send": "傳送並立即開始"
+	"tasks.live_start_send": "傳送並立即開始",
+	"tasks.live_start_confirm_title": "現在開始新的迭代？",
+	"tasks.live_start_confirm_body": "任務正在等待：{reason}。現在開始將放棄這次等待，並讓代理帶著你的訊息重新執行。"
 }

@@ -3856,5 +3856,7 @@
 	"tasks.live_state_replied": "Dibalas",
 	"tasks.live_state_unanswered": "Tidak ada balasan",
 	"tasks.live_interrupt_send": "Sela dan kirim",
-	"tasks.live_start_send": "Kirim dan mulai sekarang"
+	"tasks.live_start_send": "Kirim dan mulai sekarang",
+	"tasks.live_start_confirm_title": "Mulai iterasi baru sekarang?",
+	"tasks.live_start_confirm_body": "Tugas sedang menunggu: {reason}. Memulai sekarang membatalkan penantian itu dan menjalankan agen lagi dengan pesan Anda."
 }

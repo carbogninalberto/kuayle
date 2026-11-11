@@ -662,10 +662,12 @@ addressed `{"to":"orchestrator"}` (optionally `"kind":"question"`) are recorded
 in the same channel as untrusted text. A reply is mandatory (KUA-132, migration 148):
 every delivered message must be answered by an outbox file naming it
 (`"reply_to":<seq>`); Claude Code's `Stop` hook does not let the agent stop
-without it, an attempt of any harness that ends with a message unanswered
-fails with that reason, and the same step's next attempt is given the message
-once more. A person can also interrupt the working agent with a message (its
-session resumes with it) or start an attempt for one, see the
+without it, and an attempt of Claude Code or Codex that ends well with a
+message unanswered is continued once on its session only to reply. A missing
+reply never fails the attempt: the message is shown as unanswered and given
+once more to the same step's next attempt. The task's creator can also
+interrupt the working agent with a message (its session resumes with it; with
+or without a workflow) or start an attempt for one, see the
 [live channel](BE/docs/agent-tasks.md#live-channel). The agent view shows the
 conversation in the task's timeline and has the composer; the task card's
 **Live messages** thread reads and sends through the same

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { interleave, placeConversation, sendOptions } from '../../src/lib/features/assistant/agent-conversation.ts';
+import { answerTo, interleave, placeConversation, sendOptions } from '../../src/lib/features/assistant/agent-conversation.ts';
 
 const at = (minute, second = 0) =>
 	`2026-11-11T10:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}Z`;
@@ -48,9 +48,16 @@ const fromAgent = (id, body, run, minute, extra = {}) => ({
 	delivered_at: null,
 	...extra
 });
-const steps = (current = 'running') => [
-	{ current: false, status: 'done', runs: [{ id: 'run-plan' }] },
-	{ current: true, status: current, runs: [{ id: 'run-1' }, { id: 'run-2' }] }
+const steps = (current = 'running', last = 'running', first = 'failed') => [
+	{ current: false, status: 'done', runs: [{ id: 'run-plan', status: 'succeeded' }] },
+	{
+		current: true,
+		status: current,
+		runs: [
+			{ id: 'run-1', status: first },
+			{ id: 'run-2', status: last }
+		]
+	}
 ];
 const running = { state: 'running', run_id: 'run-2' };
 const states = (list) => list.map((placed) => [placed.message.id, placed.state]);
@@ -117,9 +124,17 @@ test('a message without a reply is flagged once its attempt can no longer answer
 	assert.deepEqual(states(failed.byRun.get('run-2')), [['to-3', 'unanswered']]);
 	assert.deepEqual([...failed.unanswered].sort(), ['run-1', 'run-2']);
 
-	// A paused attempt continues: its message is not flagged.
-	const paused = placeConversation(messages, steps('waiting'), { state: 'blocked', run_id: 'run-2' });
+	// A paused or interrupted attempt continues: its message is not flagged.
+	const paused = placeConversation(messages, steps('waiting', 'cancelled'), { state: 'blocked', run_id: 'run-2' });
 	assert.deepEqual(states(paused.byRun.get('run-2')), [['to-3', 'delivered']]);
+
+	// A missing reply never fails the attempt: it succeeds, the task goes on
+	// to its check on the same run, and the message is flagged all the same.
+	for (const state of ['validating', 'publishing', 'awaiting_review']) {
+		const succeeded = placeConversation(messages, steps('running', 'succeeded'), { state, run_id: 'run-2' });
+		assert.deepEqual(states(succeeded.byRun.get('run-2')), [['to-3', 'unanswered']], state);
+		assert.ok(succeeded.unanswered.has('run-2'), state);
+	}
 });
 
 test('messages of a run the timeline does not list, refusals and stray replies are kept', () => {
@@ -176,33 +191,51 @@ test('the composer offers what the task can take', () => {
 		workflow_version_id: 'wf-1',
 		...extra
 	});
-	assert.deepEqual(sendOptions(task(), 'user-1'), { open: true, now: 'interrupt' });
-	assert.deepEqual(sendOptions(task({ state: 'waiting_input' }), 'user-1'), { open: true, now: 'interrupt' });
-	// Codex and OpenCode are interrupted by any message: one action is enough.
-	for (const provider of ['codex', 'opencode'])
-		assert.deepEqual(sendOptions(task({ provider }), 'user-1'), { open: true, now: null }, provider);
+	const options = (now, confirm = false) => ({ open: true, now, confirm });
+	const closed = { open: false, now: null, confirm: false };
+	assert.deepEqual(sendOptions(task(), 'user-1'), options('interrupt'));
+	assert.deepEqual(sendOptions(task({ state: 'waiting_input' }), 'user-1'), options('interrupt'));
 	assert.deepEqual(
 		sendOptions(task({ workflow_version_id: null }), 'user-1'),
-		{ open: true, now: null },
-		'only a workflow step can be interrupted'
+		options('interrupt'),
+		'a task without a workflow is interrupted like any other'
 	);
-	for (const state of ['failed', 'blocked', 'awaiting_review'])
-		assert.deepEqual(sendOptions(task({ state }), 'user-1'), { open: true, now: 'start' }, state);
+	// Codex and OpenCode are interrupted by any message: one action is enough.
+	for (const provider of ['codex', 'opencode'])
+		assert.deepEqual(sendOptions(task({ provider }), 'user-1'), options(null), provider);
+	for (const state of ['failed', 'blocked'])
+		assert.deepEqual(sendOptions(task({ state }), 'user-1'), options('start'), state);
+	assert.deepEqual(
+		sendOptions(task({ state: 'awaiting_review' }), 'user-1'),
+		options('start', true),
+		'starting now abandons what the task waits for: the person is asked'
+	);
 	assert.deepEqual(
 		sendOptions(task({ state: 'blocked', usage_limit_message: 'Limit reached' }), 'user-1'),
-		{ open: true, now: null },
+		options(null),
 		'a usage limit is not lifted by a message'
 	);
 	for (const state of ['queued', 'preparing', 'validating', 'publishing'])
-		assert.deepEqual(sendOptions(task({ state }), 'user-1'), { open: true, now: null }, state);
-	assert.deepEqual(
-		sendOptions(task({ state: 'cancelling', workflow_paused_at: at(3) }), 'user-1'),
-		{ open: true, now: null },
-		'an agent being interrupted still takes what is said meanwhile'
-	);
+		assert.deepEqual(sendOptions(task({ state }), 'user-1'), options(null), state);
+	for (const extra of [{ workflow_paused_at: at(3) }, { interrupting: true }])
+		assert.deepEqual(
+			sendOptions(task({ state: 'cancelling', ...extra }), 'user-1'),
+			options(null),
+			'an agent being interrupted or paused still takes what is said meanwhile'
+		);
 	for (const state of ['completed', 'cancelled', 'cancelling'])
-		assert.deepEqual(sendOptions(task({ state }), 'user-1'), { open: false, now: null }, state);
-	assert.deepEqual(sendOptions(task(), 'user-2'), { open: false, now: null }, 'only the creator writes to the agent');
-	assert.deepEqual(sendOptions(task(), undefined), { open: false, now: null });
-	assert.deepEqual(sendOptions(task({ kind: 'review' }), 'user-1'), { open: false, now: null });
+		assert.deepEqual(sendOptions(task({ state }), 'user-1'), closed, state);
+	assert.deepEqual(sendOptions(task(), 'user-2'), closed, 'only the creator writes to the agent');
+	assert.deepEqual(sendOptions(task(), undefined), closed);
+	assert.deepEqual(sendOptions(task({ kind: 'review' }), 'user-1'), closed);
+});
+
+test('an answer names the question it answers', () => {
+	assert.equal(
+		answerTo('Keep the v1 route?\n  It is still used.', 'Yes, keep it.'),
+		'In answer to your question "Keep the v1 route? It is still used.":\nYes, keep it.'
+	);
+	const long = answerTo('x'.repeat(400), 'No.');
+	assert.ok(long.includes('x'.repeat(279) + '…"'));
+	assert.ok(!long.includes('x'.repeat(280)));
 });

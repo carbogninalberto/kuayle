@@ -612,6 +612,48 @@ func sessionWrapper(dir string, argv []string) ([]string, error) {
 	return append([]string{"/bin/sh", "-c", sessionScript, "kuayle-session", dir}, argv...), nil
 }
 
+// ReplyContinuation rewrites the argv of a finished unattended task attempt
+// (as BuildInvocation made it: the session wrapper, the harness, its prompt
+// last, no extra arguments) into one that continues the native session
+// sessionID with prompt alone: the same harness, model and limits, nothing
+// else. It reports false for a harness that cannot continue a session, or an
+// argv it does not recognise.
+func ReplyContinuation(provider string, argv []string, sessionID, prompt string) ([]string, bool) {
+	const wrapper = 5 // /bin/sh -c <script> kuayle-session <dir>
+	if !ValidSessionID(sessionID) || len(argv) < wrapper+3 || argv[0] != "/bin/sh" || argv[3] != "kuayle-session" {
+		return nil, false
+	}
+	inner := argv[wrapper : len(argv)-1]
+	continued := append([]string(nil), argv[:wrapper]...)
+	switch provider {
+	case "claude-code":
+		if inner[0] != "claude" || inner[len(inner)-1] != "-p" {
+			return nil, false
+		}
+		for i := 0; i < len(inner)-1; i++ {
+			if inner[i] == "--resume" || inner[i] == "--session-id" {
+				i++
+				continue
+			}
+			continued = append(continued, inner[i])
+		}
+		return append(continued, "--resume", sessionID, "-p", prompt), true
+	case "codex":
+		if len(inner) < 3 || inner[0] != "codex" || inner[1] != "exec" {
+			return nil, false
+		}
+		options := inner[2:]
+		if options[0] == "resume" {
+			// codex exec resume <options> <session>
+			options = options[1 : len(options)-1]
+		}
+		continued = append(continued, "codex", "exec", "resume")
+		continued = append(continued, options...)
+		return append(continued, sessionID, prompt), true
+	}
+	return nil, false
+}
+
 // ValidSessionID reports whether a native session ID is safe to pass to a CLI.
 func ValidSessionID(id string) bool {
 	return sessionIDPattern.MatchString(id)

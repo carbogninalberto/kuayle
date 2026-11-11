@@ -105,7 +105,7 @@ type AgentTask struct {
 	WorkflowPausedAt     *time.Time `json:"workflow_paused_at,omitempty" db:"workflow_paused_at"`
 	// LiveResumeGeneration is the attempt a person started to deliver a
 	// message (see LiveResumed); one more than the generation while the
-	// attempt they interrupted is still being stopped.
+	// attempt they interrupted is still being stopped (LiveInterrupting).
 	LiveResumeGeneration *int64 `json:"-" db:"live_resume_generation"`
 }
 
@@ -166,7 +166,10 @@ func (t AgentTask) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		plain
 		Preview *AgentTaskPreview `json:"preview"`
-	}{plain(t), t.Preview()})
+		// Interrupting: the agent is being stopped to deliver a message and
+		// continues by itself; the task is not being cancelled.
+		Interrupting bool `json:"interrupting,omitempty"`
+	}{plain(t), t.Preview(), t.LiveInterrupting()})
 }
 
 type AgentTaskRequest struct {
@@ -273,7 +276,9 @@ func ValidAgentTaskTransition(from, to string) bool {
 	case "blocked", "failed":
 		return to == "queued"
 	case "cancelling":
-		return to == "cancelled" || to == "failed"
+		// To queued: an attempt stopped to deliver a person's message
+		// continues as a new attempt (AgentTask.LiveInterrupting).
+		return to == "cancelled" || to == "failed" || to == "queued"
 	}
 	return false
 }

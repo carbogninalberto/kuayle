@@ -3856,5 +3856,7 @@
 	"tasks.live_state_replied": "נענה",
 	"tasks.live_state_unanswered": "אין תשובה",
 	"tasks.live_interrupt_send": "הפסק ושלח",
-	"tasks.live_start_send": "שלח והתחל עכשיו"
+	"tasks.live_start_send": "שלח והתחל עכשיו",
+	"tasks.live_start_confirm_title": "להתחיל איטרציה חדשה עכשיו?",
+	"tasks.live_start_confirm_body": "המשימה ממתינה: {reason}. התחלה עכשיו מוותרת על ההמתנה ומריצה את הסוכן שוב עם ההודעה שלך."
 }

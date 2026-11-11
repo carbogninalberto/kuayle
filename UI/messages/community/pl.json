@@ -3856,5 +3856,7 @@
 	"tasks.live_state_replied": "Odpowiedziano",
 	"tasks.live_state_unanswered": "Brak odpowiedzi",
 	"tasks.live_interrupt_send": "Przerwij i wyślij",
-	"tasks.live_start_send": "Wyślij i uruchom teraz"
+	"tasks.live_start_send": "Wyślij i uruchom teraz",
+	"tasks.live_start_confirm_title": "Rozpocząć teraz nową iterację?",
+	"tasks.live_start_confirm_body": "Zadanie czeka: {reason}. Rozpoczęcie teraz przerywa to oczekiwanie i ponownie uruchamia agenta z Twoją wiadomością."
 }

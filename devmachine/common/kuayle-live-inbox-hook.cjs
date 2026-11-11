@@ -15,8 +15,10 @@
 // a reply is an outbox file {"to":"orchestrator","reply_to":3,"body":"..."},
 // which the manager collects every few seconds. Before Claude stops, the hook
 // gives a reply just written time to be collected, and otherwise asks Claude
-// to reply instead of stopping, at most a few times per message. Kuayle then
-// fails the attempt for that reason; the hook never decides that.
+// to reply instead of stopping, at most a few times per message. After that
+// Claude may stop: the work is never lost over a missing reply. Kuayle asks
+// once more when the attempt has ended and shows the person what stayed
+// unanswered.
 
 const fs = require('fs');
 const path = require('path');

@@ -304,10 +304,9 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 				return s.pauseForUsageLimit(ctx, task, limit)
 			}
 		}
-		// An agent that stopped without concluding, or without replying to
-		// its owner's message, says so, in a workflow (which still decides
-		// what follows) and outside one.
-		if run.ErrorMessage != nil && (domain.IsNoFinalMessageReason(*run.ErrorMessage) || domain.IsUnansweredMessageReason(*run.ErrorMessage)) {
+		// An agent that stopped without concluding says so, in a workflow
+		// (which still decides what follows) and outside one.
+		if run.ErrorMessage != nil && domain.IsNoFinalMessageReason(*run.ErrorMessage) {
 			if task.RunsWorkflow() && s.workflow != nil && task.State == "running" {
 				return s.workflow.AgentFailedBecause(ctx, task, *run.ErrorMessage)
 			}

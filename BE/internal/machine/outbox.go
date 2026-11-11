@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"strings"
 
 	"github.com/google/uuid"
@@ -144,10 +145,25 @@ const taskWorktreeRoot = "/workspace/tasks"
 // collectOutbox takes the machine's outbox files and records them. Failures
 // are logged; agent messages never block execution.
 func (m *Manager) collectOutbox(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) {
+	if err := m.collectOutboxChecked(ctx, machine, services); err != nil && ctx.Err() == nil {
+		log.WithFields(log.Fields{"machine_id": machine.ID, "event_type": "agent_messages.collect"}).WithError(err).Warn("agent messages could not be collected")
+	}
+}
+
+// errOutboxUnreachable reports a machine whose outboxes cannot be read now.
+var errOutboxUnreachable = errors.New("the machine's developer container is not running")
+
+// collectOutboxChecked is collectOutbox for a caller that must know whether
+// every file the agents left was taken and recorded: it reports what kept
+// that from happening. A runtime without outboxes has nothing to collect.
+func (m *Manager) collectOutboxChecked(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) error {
 	runtime, ok := m.runtime.(outboxRuntime)
 	store, recording := m.store.(outboxStore)
-	if !ok || !recording || !developerRunning(services) {
-		return
+	if !ok || !recording {
+		return nil
+	}
+	if !developerRunning(services) {
+		return errOutboxUnreachable
 	}
 	files, err := runtime.TakeOutbox(ctx, services)
 	if err == nil && len(files) > 0 {
@@ -156,9 +172,7 @@ func (m *Manager) collectOutbox(ctx context.Context, machine *domain.DevMachine,
 			_ = m.createEvent(ctx, machine, nil, "agent", "agent_messages.recorded", map[string]any{"count": recorded})
 		}
 	}
-	if err != nil && ctx.Err() == nil {
-		log.WithFields(log.Fields{"machine_id": machine.ID, "event_type": "agent_messages.collect"}).WithError(err).Warn("agent messages could not be collected")
-	}
+	return err
 }
 
 // prepareOutbox readies a run's worktree for messages before the agent starts.

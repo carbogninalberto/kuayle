@@ -97,7 +97,7 @@ func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.
 	// A task that is being cancelled takes no message; one whose agent is
 	// only being stopped by a pause or an interruption does, for when it
 	// continues.
-	stopping := task.State == "cancelling" && task.WorkflowPausedAt != nil
+	stopping := task.State == "cancelling" && (task.WorkflowPausedAt != nil || task.LiveInterrupting())
 	if task.State == "completed" || task.State == "cancelled" || (task.State == "cancelling" && !stopping) {
 		return nil, ErrAgentLiveMessageClosed
 	}
@@ -120,7 +120,7 @@ func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.
 	case domain.AgentLiveSendInterrupt:
 		// An agent that is already being stopped for a message is not
 		// interrupted twice: this message joins the one it resumes with.
-		if interrupting := stopping && task.LiveResumeGeneration != nil && *task.LiveResumeGeneration == task.Generation+1; !interrupting {
+		if !task.LiveInterrupting() {
 			if err = interruptForLiveMessage(ctx, tx, task, actor); err != nil {
 				return nil, err
 			}
@@ -146,31 +146,56 @@ const (
 	liveInterruptingReason = "Interrupting: stopping the agent to deliver a message"
 	liveInterruptedReason  = "Continuing with a message from the task's owner"
 	liveStartedReason      = "Started to deliver a message from the task's owner"
-	// liveResumeFailedReason is what a task says when its agent was stopped
-	// for a message and could not be started again: it is paused, and says so.
-	liveResumeFailedReason = "Paused: the agent was stopped to deliver your message but could not be started again. Resume the task to continue; the message is delivered then."
+	// What a task says when its agent was stopped for a message and could not
+	// be started again. A workflow is then paused and resumes from its step;
+	// any other task is blocked and continues with a retry.
+	liveResumeFailedReason  = "Paused: the agent was stopped to deliver your message but could not be started again. Resume the task to continue; the message is delivered then."
+	liveRestartFailedReason = "The agent was stopped to deliver your message but could not be started again. Send and start now, or retry the task, to continue; the message is delivered then."
 )
 
+// CanInterruptForLiveMessage reports whether the task has a working attempt
+// that can be stopped and continued for a message: an implementing task,
+// with or without a workflow, whose agent is preparing, running or waiting
+// for input and whose run (its status is run) has not ended. A task that is
+// paused, failing or being cancelled cannot. It is computed without I/O.
+func CanInterruptForLiveMessage(task domain.AgentTask, run string) bool {
+	if task.Kind != domain.AgentTaskKindImplement || task.WorkflowPausedAt != nil || task.FailurePending {
+		return false
+	}
+	if task.RunsWorkflow() && (task.WorkflowStatus == nil || *task.WorkflowStatus != domain.WorkflowStatusRunning) {
+		return false
+	}
+	switch task.State {
+	case "preparing", "running", "waiting_input":
+	default:
+		return false
+	}
+	switch run {
+	case "queued", "starting", "running", "waiting_input":
+		return true
+	}
+	return false
+}
+
 // interruptForLiveMessage stops the task's working attempt so that its
-// session continues with the queued message: the pause-now path, marked so
-// that the cleanup resumes the step by itself (FinishCancellation). Nothing
-// changes, and it reports ErrAgentTaskConflict, when no attempt is working or
-// the task cannot be paused (it follows no workflow).
+// session continues with the queued message: the attempt goes through the
+// usual runtime cleanup (cancelling), which keeps the machine, the checkout,
+// the worktree and the session, marked (live_resume_generation) so that the
+// cleanup continues the attempt by itself instead of cancelling the task
+// (FinishCancellation). It is not a pause: a workflow's pending "pause after
+// this step" stays as the person asked for it. Nothing changes, and it
+// reports ErrAgentTaskConflict, when no attempt is working.
 func interruptForLiveMessage(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, actor uuid.UUID) error {
 	var run string
 	err := tx.GetContext(ctx, &run, `SELECT status::text FROM dev_machine_agent_runs WHERE id=$1 AND task_id=$2`, task.RunID, task.ID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	effect, err := ComputeWorkflowPause(*task, domain.WorkflowPauseNow, run)
-	if err != nil || effect != WorkflowPauseInterrupts {
+	if !CanInterruptForLiveMessage(*task, run) {
 		return ErrAgentTaskConflict
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_pause_request=NULL,workflow_paused_at=now(),live_resume_generation=generation+1,
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET live_resume_generation=generation+1,
  lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),updated_at=now() WHERE id=$1 RETURNING *`, task.ID); err != nil {
-		return err
-	}
-	if err = workflowPauseAudit(ctx, tx, *task, &actor, domain.WorkflowPauseActionPaused, domain.WorkflowPauseNow); err != nil {
 		return err
 	}
 	if err = transitionAgentTask(ctx, tx, task, "cancelling", liveInterruptingReason, &actor); err != nil {
@@ -179,22 +204,36 @@ func interruptForLiveMessage(ctx context.Context, tx *sqlx.Tx, task *domain.Agen
 	return workflowEvent(ctx, tx, *task)
 }
 
-// resumeInterruptedForLiveMessage continues the step whose attempt was
-// stopped to deliver a message, once that attempt is gone: the pause ends and
-// a new attempt resumes the session. The caller holds the task, blocked by
-// its pause.
-func resumeInterruptedForLiveMessage(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask) error {
-	resume, err := ComputeWorkflowResume(*task, time.Now())
-	if err != nil {
+// continueInterruptedForLiveMessage continues the attempt that was stopped
+// to deliver a message, once it is gone: a new attempt on the same step,
+// visit and iteration resumes its session. The caller holds the task, still
+// cancelling. When that cannot happen the task is left saying so: a workflow
+// paused on its step (Resume continues it), any other task blocked (a retry
+// or "send and start now" continues it).
+func continueInterruptedForLiveMessage(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask) error {
+	if _, err := tx.ExecContext(ctx, `SAVEPOINT live_resume`); err != nil {
 		return err
 	}
-	if !resume.Restart {
-		return ErrAgentTaskConflict
-	}
-	if err = endWorkflowPause(ctx, tx, task, resume, &task.CreatorID); err != nil {
+	stopped := *task
+	err := restartInterruptedStep(ctx, tx, task, &task.CreatorID, liveInterruptedReason)
+	if err == nil || ctx.Err() != nil {
 		return err
 	}
-	return restartInterruptedStep(ctx, tx, task, &task.CreatorID, liveInterruptedReason)
+	if _, err = tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT live_resume`); err != nil {
+		return err
+	}
+	*task = stopped
+	reason := liveRestartFailedReason
+	if task.RunsWorkflow() {
+		reason = liveResumeFailedReason
+		if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_pause_request=NULL,workflow_paused_at=now() WHERE id=$1 RETURNING *`, task.ID); err != nil {
+			return err
+		}
+		if err = workflowPauseAudit(ctx, tx, *task, nil, domain.WorkflowPauseActionPaused, domain.WorkflowPauseNow); err != nil {
+			return err
+		}
+	}
+	return transitionAgentTask(ctx, tx, task, "blocked", reason, nil)
 }
 
 // startForLiveMessage starts an attempt for the queued message when none is
@@ -275,8 +314,9 @@ func (r *AgentTaskRepository) LiveMessages(ctx context.Context, ws, id uuid.UUID
 // places the same messages; messages claimed for an attempt that was never
 // created are claimed again. A message the task's previous attempt received
 // on the same workflow step and never replied to is placed once more, until
-// domain.AgentLiveReplyAttempts attempts received it; it is never carried to
-// another step.
+// domain.AgentLiveReplyAttempts attempts that ran to an end were given it
+// (an attempt that was interrupted, paused or cancelled does not count: it
+// was not allowed to finish); it is never carried to another step.
 func (r *AgentTaskRepository) ClaimLiveMessages(ctx context.Context, task domain.AgentTask, room int) ([]domain.AgentLiveMessage, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -289,15 +329,19 @@ func (r *AgentTaskRepository) ClaimLiveMessages(ctx context.Context, task domain
 	}
 	var candidates []struct {
 		domain.AgentLiveMessage
-		// Orphan: claimed for an attempt that was never created, so this
-		// claim is still the same delivery.
+		// Orphan: the attempt that held the message never ran to an end (it
+		// was never created, or it was interrupted, paused or cancelled), so
+		// this claim does not count as one more attempt that was given it.
 		Orphan bool `db:"orphan"`
 	}
-	if err = tx.SelectContext(ctx, &candidates, `SELECT m.*,(m.state='delivered' AND m.delivered_via='prompt' AND NOT EXISTS (SELECT 1 FROM dev_machine_agent_runs rn WHERE rn.id=m.run_id)) AS orphan
+	// The task's previous attempt, whose unanswered messages this one takes.
+	const previous = `(SELECT rn.id FROM dev_machine_agent_runs rn WHERE rn.task_id=m.task_id AND rn.id<>$4 ORDER BY rn.created_at DESC,rn.id LIMIT 1)`
+	const unfinished = `(NOT EXISTS (SELECT 1 FROM dev_machine_agent_runs rn WHERE rn.id=m.run_id) OR EXISTS (SELECT 1 FROM dev_machine_agent_runs rn WHERE rn.id=m.run_id AND rn.status='cancelled'))`
+	if err = tx.SelectContext(ctx, &candidates, `SELECT m.*,(m.state='delivered' AND `+unfinished+`) AS orphan
  FROM agent_live_messages m WHERE m.task_id=$1 AND m.workspace_id=$2 AND m.direction='to_agent' AND (m.state='queued'
   OR (m.state='delivered' AND m.delivered_via='prompt' AND NOT EXISTS (SELECT 1 FROM dev_machine_agent_runs rn WHERE rn.id=m.run_id) AND NOT EXISTS (SELECT 1 FROM agent_tasks tk WHERE tk.run_id=m.run_id))
-  OR (m.state='delivered' AND m.deliveries BETWEEN 1 AND $5::int AND m.workflow_node IS NOT DISTINCT FROM $6::text
-   AND m.run_id=(SELECT rn.id FROM dev_machine_agent_runs rn WHERE rn.task_id=m.task_id AND rn.id<>$4 ORDER BY rn.created_at DESC,rn.id LIMIT 1)
+  OR (m.state='delivered' AND m.deliveries>=1 AND m.workflow_node IS NOT DISTINCT FROM $6::text AND m.run_id=`+previous+`
+   AND (m.deliveries<=$5::int OR `+unfinished+`)
    AND NOT EXISTS (SELECT 1 FROM agent_live_messages a WHERE a.task_id=m.task_id AND a.direction='from_agent' AND a.state='received' AND a.reply_to=m.seq)))
  ORDER BY m.seq LIMIT $3 FOR UPDATE OF m SKIP LOCKED`, task.ID, task.WorkspaceID, liveMessagesPerDelivery, task.RunID, domain.AgentLiveReplyAttempts-1, task.WorkflowNode); err != nil {
 		return nil, err
@@ -374,11 +418,11 @@ func (r *DevMachineRepository) UnansweredLiveMessages(ctx context.Context, run u
 }
 
 // SettleLiveMessages closes run's side of the live channel when it ends. A
-// message written to its inbox within grace of the end may never have been
-// read, so it is queued again for the next attempt's prompt instead of
-// counting as delivered. It returns the sequence numbers of the messages the
-// run did receive and never replied to.
-func (r *DevMachineRepository) SettleLiveMessages(ctx context.Context, run uuid.UUID, grace time.Duration) ([]int64, error) {
+// message written to its inbox after unread (shortly before the harness
+// exited) may never have been read, so it is queued again for the next
+// attempt's prompt instead of counting as delivered. It returns the sequence
+// numbers of the messages the run did receive and never replied to.
+func (r *DevMachineRepository) SettleLiveMessages(ctx context.Context, run uuid.UUID, unread time.Time) ([]int64, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -386,7 +430,7 @@ func (r *DevMachineRepository) SettleLiveMessages(ctx context.Context, run uuid.
 	defer tx.Rollback()
 	requeued := []domain.AgentLiveMessage{}
 	if err = tx.SelectContext(ctx, &requeued, `UPDATE agent_live_messages m SET state='queued',delivered_via=NULL,run_id=NULL,delivered_at=NULL,workflow_node=NULL,deliveries=m.deliveries-1
- WHERE `+unansweredLiveMessages+` AND m.delivered_via='inbox' AND m.delivered_at>now()-make_interval(secs=>$2) RETURNING m.*`, run, grace.Seconds()); err != nil {
+ WHERE `+unansweredLiveMessages+` AND m.delivered_via='inbox' AND m.delivered_at>$2 RETURNING m.*`, run, unread.UTC()); err != nil {
 		return nil, err
 	}
 	if err = liveMessageEvents(ctx, tx, requeued); err != nil {

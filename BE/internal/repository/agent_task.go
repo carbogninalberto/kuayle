@@ -389,6 +389,18 @@ func (r *AgentTaskRepository) RequestCancel(ctx context.Context, ws, id uuid.UUI
 	if task.State == "cancelled" {
 		return nil
 	}
+	// Cancelling while the agent is being stopped to deliver a message
+	// cancels: the attempt is not continued behind the person's back.
+	if task.LiveInterrupting() {
+		if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET live_resume_generation=NULL,reason='Cancellation requested',next_poll_at=now(),updated_at=now() WHERE id=$1 RETURNING *`, id); err != nil {
+			return err
+		}
+		if task.ConversationID != nil {
+			if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.updated", task); err != nil {
+				return err
+			}
+		}
+	}
 	// Cancelling a paused workflow ends the pause: the task is cancelled, not
 	// left blocked by the cleanup of the attempt the pause stopped.
 	if paused := task.WorkflowPausedAt != nil; paused || task.WorkflowPauseRequest != nil {
@@ -487,14 +499,18 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 		return err
 	}
 	target := "cancelled"
-	interrupted := false
 	if task.WorkflowPausedAt != nil {
 		// A person paused the workflow while its agent worked: the attempt is
 		// stopped, and the task waits to be resumed.
 		target, reason = "blocked", workflowPausedReason
-		// Unless they interrupted it to deliver a message: the step then
-		// continues by itself, on the same session.
-		interrupted = task.LiveResumeGeneration != nil && *task.LiveResumeGeneration == task.Generation+1
+	} else if task.LiveInterrupting() && !task.FailurePending {
+		// A person interrupted the agent to deliver a message: one action,
+		// stopped and continued on the same session. A continuation that
+		// cannot happen leaves the task saying so, never silently stopped.
+		if err = continueInterruptedForLiveMessage(ctx, tx, task); err != nil {
+			return err
+		}
+		return tx.Commit()
 	} else if task.FailurePending && task.UsageLimitMessage != nil {
 		// A usage limit pauses the task; the reason says until when.
 		target, reason = "blocked", task.Reason
@@ -504,32 +520,11 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 		// change. So does a workflow's own reason, such as a step's visit
 		// limit, which is why the task stopped, and an agent that ended
 		// without a final message.
-		if domain.IsResourceLimitReason(task.Reason) || domain.IsWorkflowReason(task.Reason) || domain.IsNoFinalMessageReason(task.Reason) || domain.IsUnansweredMessageReason(task.Reason) {
+		if domain.IsResourceLimitReason(task.Reason) || domain.IsWorkflowReason(task.Reason) || domain.IsNoFinalMessageReason(task.Reason) {
 			reason = task.Reason
 		} else {
 			reason = "Execution failed; runtime cleanup confirmed"
 		}
-	}
-	if interrupted {
-		// One action for the person: stopped, then resumed. A resume that
-		// cannot happen leaves the task paused and saying why, never silently.
-		if _, err = tx.ExecContext(ctx, `SAVEPOINT live_resume`); err != nil {
-			return err
-		}
-		paused := *task
-		if err = transitionAgentTask(ctx, tx, task, target, reason, nil); err == nil {
-			err = resumeInterruptedForLiveMessage(ctx, tx, task)
-		}
-		if err == nil {
-			return tx.Commit()
-		}
-		if ctx.Err() != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT live_resume`); err != nil {
-			return err
-		}
-		*task, reason = paused, liveResumeFailedReason
 	}
 	if err = transitionAgentTask(ctx, tx, task, target, reason, nil); err != nil {
 		return err
@@ -726,9 +721,10 @@ func (r *AgentTaskRepository) CancelAttempt(ctx context.Context, claimed domain.
 	}
 	if operation.Status == domain.DevMachineOpStatusFailed {
 		// Nobody asked to give this task up: the cleanup of an attempt a pause
-		// stopped is started again until it succeeds, and the task then waits
-		// paused. Any other cleanup waits for its creator's explicit retry.
-		if task.WorkflowPausedAt == nil {
+		// stopped, or a message interrupted, is started again until it
+		// succeeds; the task then waits paused, or continues with the
+		// message. Any other cleanup waits for its creator's explicit retry.
+		if task.WorkflowPausedAt == nil && !task.LiveInterrupting() {
 			return ErrAgentTaskCleanupFailed
 		}
 		if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='pending',attempts=0,available_at=now(),error_code=NULL,error_message=NULL WHERE workspace_id=$1 AND agent_run_id=$2 AND idempotency_key=$3 AND status='failed'`,

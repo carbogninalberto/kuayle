@@ -3856,5 +3856,7 @@
 	"tasks.live_state_replied": "Răspuns primit",
 	"tasks.live_state_unanswered": "Fără răspuns",
 	"tasks.live_interrupt_send": "Întrerupe și trimite",
-	"tasks.live_start_send": "Trimite și pornește acum"
+	"tasks.live_start_send": "Trimite și pornește acum",
+	"tasks.live_start_confirm_title": "Pornești acum o nouă iterație?",
+	"tasks.live_start_confirm_body": "Sarcina așteaptă: {reason}. Pornirea acum renunță la această așteptare și rulează din nou agentul cu mesajul tău."
 }

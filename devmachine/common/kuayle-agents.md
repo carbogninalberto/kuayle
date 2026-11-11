@@ -1,6 +1,6 @@
 ---
 name: kuayle-agents
-description: Use when you need to declare the tests Kuayle re-runs for your change (.kuayle/validation.json), to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, to log what you did in the project's or team's wiki registry, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox) Every such message needs a reply that names it ("reply_to"), or your step cannot finish.
+description: Use when you need to declare the tests Kuayle re-runs for your change (.kuayle/validation.json), to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, to log what you did in the project's or team's wiki registry, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox). Every such message needs a reply that names it ("reply_to").
 ---
 
 # Declare the tests Kuayle re-runs
@@ -161,15 +161,16 @@ mv "$dir/.reply-3.json" "$dir/reply-3.json"
 
 Only that counts as a reply: text in your final message, a file without
 `reply_to`, or a `reply_to` that names no message you received does not.
-Kuayle enforces it, whatever agent you are:
+Kuayle asks for it, whatever agent you are:
 
 - `/run/kuayle/inbox/unanswered.json` (`{"unanswered":[3]}`) lists the
   messages you still owe a reply to; it empties a few seconds after Kuayle
   takes your reply. Check it before you finish.
 - Claude Code is not allowed to stop while it names a message.
-- An attempt that ends with a message unanswered **fails**, even when the work
-  is done, and the next attempt is given the message again.
-
+- When you finish with a message unanswered, Kuayle continues your session
+  once more only to get the reply (Claude Code, Codex). Your work is kept
+  either way, but a message you never answered is shown to the person as
+  unanswered and given again to the next attempt.
 
 ## Delivery
 

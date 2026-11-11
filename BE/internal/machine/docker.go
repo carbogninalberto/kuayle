@@ -761,6 +761,24 @@ func (r *DockerRuntime) removeManagedVolume(ctx context.Context, volumeName stri
 }
 
 func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, provider *domain.DevMachineAgentProvider, checkout *domain.DevMachineCheckout, secrets map[string]string, observer *AgentObserver) (*AgentExecution, error) {
+	return r.runAgentContainer(ctx, machine, run, provider, checkout, secrets, observer, nil)
+}
+
+// ContinueAgent runs the harness of a finished attempt once more with
+// continuation as its command (the same session, one more prompt), in a
+// container of its own beside the attempt's: the same image, limits, working
+// directory, profile files and secrets, named and labelled for the run so it
+// is removed with it. It has no live inbox: nothing is delivered to it.
+func (r *DockerRuntime) ContinueAgent(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, provider *domain.DevMachineAgentProvider, checkout *domain.DevMachineCheckout, secrets map[string]string, continuation []string, observer *AgentObserver) (*AgentExecution, error) {
+	if len(continuation) == 0 || run.Mode == "interactive" {
+		return nil, fmt.Errorf("invalid agent continuation")
+	}
+	return r.runAgentContainer(ctx, machine, run, provider, checkout, secrets, observer, continuation)
+}
+
+// runAgentContainer runs an attempt's harness, or with continuation its one
+// continuation (ContinueAgent).
+func (r *DockerRuntime) runAgentContainer(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, provider *domain.DevMachineAgentProvider, checkout *domain.DevMachineCheckout, secrets map[string]string, observer *AgentObserver, continuation []string) (*AgentExecution, error) {
 	if machine.DockerNetworkName == nil || machine.WorkspaceVolumeName == nil {
 		return nil, fmt.Errorf("machine runtime resources are unavailable")
 	}
@@ -785,7 +803,10 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	if err != nil {
 		return nil, err
 	}
-	containerName := "kuayle-" + machine.RoutingKey + "-agent-" + run.ID.String()
+	containerName, alias := "kuayle-"+machine.RoutingKey+"-agent-"+run.ID.String(), "agent-"+run.ID.String()
+	if continuation != nil {
+		argv, containerName, alias = continuation, containerName+"-reply", alias+"-reply"
+	}
 	labels := machineLabels(machine)
 	labels["com.kuayle.service"] = "agent"
 	labels["com.kuayle.agent-run-id"] = run.ID.String()
@@ -830,7 +851,9 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	}
 	// Without an inbox the attempt still runs; live messages then wait for
 	// the next attempt's prompt.
-	if err := r.prepareLiveInbox(ctx, machine, run, provider.ImageRef); err != nil {
+	if continuation != nil {
+		// Nothing is delivered to a continuation.
+	} else if err := r.prepareLiveInbox(ctx, machine, run, provider.ImageRef); err != nil {
 		log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID}).WithError(err).Warn("live inbox could not be prepared")
 	} else {
 		hostConfig.Mounts = append(hostConfig.Mounts, liveInboxMount(machine, run))
@@ -852,7 +875,7 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		},
 		HostConfig: hostConfig,
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
-			*machine.DockerNetworkName: {Aliases: []string{"agent-" + run.ID.String()}},
+			*machine.DockerNetworkName: {Aliases: []string{alias}},
 		}},
 		Name: containerName,
 	})

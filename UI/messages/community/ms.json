@@ -3856,5 +3856,7 @@
 	"tasks.live_state_replied": "Dibalas",
 	"tasks.live_state_unanswered": "Tiada balasan",
 	"tasks.live_interrupt_send": "Ganggu dan hantar",
-	"tasks.live_start_send": "Hantar dan mula sekarang"
+	"tasks.live_start_send": "Hantar dan mula sekarang",
+	"tasks.live_start_confirm_title": "Mulakan lelaran baharu sekarang?",
+	"tasks.live_start_confirm_body": "Tugas sedang menunggu: {reason}. Memulakan sekarang membatalkan penantian itu dan menjalankan ejen semula dengan mesej anda."
 }

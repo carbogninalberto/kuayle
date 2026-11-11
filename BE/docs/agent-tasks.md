@@ -1393,20 +1393,23 @@ its number ("Message 3"), oldest first, at most 10 within the prompt room, and
 marked `delivered_via=prompt` with the attempt's run ID; recreating the
 attempt places the same messages, and messages claimed for an attempt that
 was never created are claimed again. Reviews receive none. A message written
-to the inbox within 20 seconds of the attempt's end may not have been read:
-when the attempt ends it is queued again (`SettleLiveMessages`) instead of
-counting as delivered.
+to the inbox in the 20 seconds before the harness exited may not have been
+read: when the attempt ends it is queued again (`SettleLiveMessages`, measured
+against the harness's exit time, not the time Kuayle gets round to settling)
+instead of counting as delivered.
 
-**A reply is mandatory** (KUA-132, migration `000148_live_message_replies`).
-Every message delivered to an agent, through the inbox or the prompt, must be
-answered. A reply is exactly this: an outbox file addressed to the
-orchestrator whose `reply_to` is the message's sequence number,
+**A reply is mandatory, and the work is never lost over a missing one**
+(KUA-132, migration `000148_live_message_replies`). Every message delivered to
+an agent, through the inbox or the prompt, must be answered. A reply is
+exactly this: an outbox file addressed to the orchestrator whose `reply_to` is
+the message's sequence number,
 `{"to":"orchestrator","reply_to":3,"body":"..."}`, saying what the agent
 understood and what it will do differently. It is recorded as a `from_agent`
 message with `reply_to`; a `reply_to` that names no message the task received
 is refused (`rejected`), `reply_to` on a file for another recipient is
 invalid, and the final message or a file without `reply_to` does not count.
-The harness enforces it, not the prompt:
+The agent's 30-per-hour budget never drops the first reply to a message.
+Kuayle asks for the reply, not only the prompt:
 
 - While the attempt runs, the manager keeps `unanswered.json`
   (`{"unanswered":[3,5]}`) in the inbox: the messages this attempt received
@@ -1421,24 +1424,37 @@ The harness enforces it, not the prompt:
   (`AgentLiveStopReminders`; the count is in the hook's state file) and then
   lets Claude stop. `SubagentStop` and tool calls are never held. A list the
   hook cannot read holds nothing.
-- **Every harness, when the attempt ends.** An attempt that would have
-  succeeded while a message it received has no reply is recorded as `failed`
-  with the error "The agent ended without replying to message 3 from the
-  person who owns the task" (`UnansweredMessageReason`; the result carries
-  `unanswered_messages`). This is the only enforcement for Codex and OpenCode,
-  which have no stop hook, and what happens to Claude Code after its 3
-  reminders. The task takes that reason like a missing final message: the
-  workflow step's "agent failed" transition applies and records it, and
-  outside a workflow the task fails with it. An attempt that failed, timed
-  out or was cancelled keeps its own reason.
-- **The retry is told.** The next attempt on the same workflow step is given
-  the unanswered message again in its prompt, marked "the previous attempt
-  received it and ended without replying; reply first", and owes the reply
-  in turn. A message is given to at most 2 attempts (`AgentLiveReplyAttempts`,
-  counted in `deliveries`); after that Kuayle stops asking and the message
-  stays unanswered, which the agent view flags. It is never carried to another
+- **One continuation when the attempt has ended.** An attempt that ended well
+  (exit 0, a final message, not cancelled) while a message it received has no
+  reply is continued once on its own native session, where the harness can do
+  that (`HarnessContinuesSession`: Claude Code `--resume`, Codex
+  `exec resume`; OpenCode cannot), with a prompt that asks only for the
+  replies and forbids anything else (`AgentLiveReplyPrompt`). It runs in a
+  second container of the run (`…-agent-<run>-reply`: the same image, limits,
+  worktree and secrets, with the sign-in the attempt may have refreshed, no
+  inbox), for at most 3 minutes, and its output is discarded: the attempt's
+  result, summary and logs are those of its work. The outbox is collected
+  again afterwards. It happens once; there is no loop.
+- **A missing reply never fails the attempt.** If there is still no reply the
+  attempt stays as it ended: the work is checked and published as usual, with
+  or without a workflow. The result carries `unanswered_messages` and a risk
+  note ("The agent did not reply to message 3…"), the agent view shows the
+  message as "No reply" and marks its step, and the message is given once more
+  to the next attempt of the same workflow step, if there is one, marked "the
+  previous attempt received it and ended without replying; reply first".
+- **The bound.** A message is given to at most 2 attempts that ran to an end
+  (`AgentLiveReplyAttempts`, counted in `deliveries`); after that Kuayle stops
+  asking and it stays unanswered. An attempt that was interrupted, paused or
+  cancelled does not count: it was not allowed to finish, and the attempt that
+  continues it takes its messages over. A message is never carried to another
   step: only the attempt right after the one that received it, on the same
   `workflow_node`, gets it.
+- **A reply Kuayle could not collect is not a missing reply.** The attempt's
+  messages are settled only when the outbox was read and recorded. When that
+  failed (the machine's services could not be listed, the developer container
+  is gone, the read or the write failed) and the attempt owed a reply, nothing
+  is concluded, the agent is not asked again, and the result's risk notes say
+  the problem is on Kuayle's side (`agent_live_messages.collect_failed`).
 
 Messages delivered before migration 148 have `deliveries = 0` and owe no
 reply. Every implementing prompt, the Claude hook's text and the
@@ -1447,35 +1463,58 @@ reply. Every implementing prompt, the Claude hook's text and the
 **Sending now.** `SendLiveMessage(ws, task, body, mode)` queues the creator's
 message as above and, in the same transaction, acts on `mode`:
 
-- `interrupt` ("Interrupt and send") stops the working attempt through the
-  [pause-now](#pause-and-resume) cleanup, with `live_resume_generation` set to
-  the generation the step will resume as. When the cleanup has confirmed the
-  attempt gone (`FinishCancellation`), the pause ends and the step continues
-  by itself as a new attempt on the same step, visit and iteration, with
-  `resume_native_session` (so `claude --resume` or `codex exec resume`
-  continue the session; OpenCode gets the handoff) and the message in its
-  prompt; the handoff says a person interrupted the attempt to say something
-  and that the worktree is unchanged. It is audited as a pause and a resume.
-  The machine, checkout, worktree and session are kept, as for a pause. If the
-  resume cannot happen the task stays paused with the reason "Paused: the
-  agent was stopped to deliver your message but could not be started again…",
-  Resume then continues it, and the message is delivered then. Cancelling
-  meanwhile cancels. Only an attempt that is working can be interrupted
-  (a workflow task in `preparing`, `running` or `waiting_input` whose run has
-  not ended): otherwise 409, and nothing is queued. A second message sent
+- `interrupt` ("Interrupt and send") stops the working attempt and continues
+  it with the message. It works for every implementing task, with or without
+  a workflow (`CanInterruptForLiveMessage`: the task is `preparing`, `running`
+  or `waiting_input`, its run has not ended, and it is not paused or failing).
+  The attempt goes through the usual runtime cleanup (`cancelling`, with
+  `live_resume_generation` naming the attempt it will continue as; the task's
+  JSON then has `"interrupting": true`), which keeps the machine, the
+  checkout, the worktree and the session transcripts. When the cleanup has
+  confirmed the attempt gone (`FinishCancellation`), the task goes straight
+  back to `queued` as a new attempt on the same step, visit and iteration
+  (nothing is counted), with `resume_native_session` (so `claude --resume` or
+  `codex exec resume` continue the session; OpenCode gets the handoff) and the
+  message in its prompt; the handoff says a person interrupted the attempt to
+  say something and that the worktree is unchanged. It is not a pause: a
+  pending "pause after this step" stays as the person asked for it, and the
+  workflow pauses after the continued step. Who interrupted and when is in the
+  task's transitions. A cleanup that fails is started again, as for a pause.
+  If the attempt cannot be continued the task says so: a workflow is paused on
+  its step ("Paused: the agent was stopped to deliver your message but could
+  not be started again…", Resume continues it), any other task is blocked
+  ("…Send and start now, or retry the task, to continue"); the message is
+  delivered then. Cancelling meanwhile cancels. When no attempt is working the
+  request is refused with 409 and nothing is queued. A second message sent
   while the attempt is being stopped joins the first.
 - `start` ("Send and start now") starts an attempt when none runs. A task
-  whose agent a pause stopped resumes that step. A `failed`, `blocked` or
-  `awaiting_review` task starts a new iteration on its last agent step as
-  Retry does (a new visit), but keeps its prompt and continues the previous
-  attempt's native session however it ended, when the same profile ran it
-  (`AgentTask.LiveResumed`; another profile's session is never continued).
-  A working task, one in cleanup, or one paused by a usage limit is 409.
+  whose agent a pause stopped resumes that step (nothing is counted). A
+  `failed`, `blocked` or `awaiting_review` task starts a new iteration on its
+  last agent step exactly as Retry does, except that it keeps its prompt and
+  continues the previous attempt's native session however it ended, when the
+  same profile ran it (`AgentTask.LiveResumed`; another profile's session is
+  never continued). In a workflow that is a new visit of that step: it counts
+  one visit and one iteration against the workflow's limits (checked when the
+  workflow next decides), the working-time budget keeps running from where it
+  was, and a step that was waiting (CI, an approval, a merge, a review) is
+  closed as retried, so that wait is abandoned. The agent view therefore asks
+  once before starting a task that is `awaiting_review`. A working task, one
+  in cleanup, or one paused by a usage limit is 409; a completed or cancelled
+  task takes no message at all.
 - without a mode the message waits for the working attempt's inbox or the
   next prompt. A harness Kuayle cannot hand a message to in the middle of a
   turn (`HarnessReadsLiveInbox`: every harness but Claude Code) is interrupted
-  as with `interrupt` whenever its attempt can be; the assistant's approved
-  `message_task` messages follow the same rule.
+  as with `interrupt` whenever its attempt can be, otherwise the message waits
+  for the next attempt; the assistant's approved `message_task` messages
+  follow the same rule.
+
+**Rollout order.** Deploy the backend (with migration 148) before the agent
+images. The new backend works with old images: their hook and skill never
+write `reply_to`, so replies are simply not recognised, the continuation asks
+for them once, and messages show "No reply"; nothing fails. The reverse order
+does not work: an old backend refuses an outbox file with `reply_to` as an
+unknown field, so every reply a new image writes would be recorded as
+rejected.
 
 **Agent to orchestrator.** While an attempt runs the manager also collects the
 machine's outboxes every 5 seconds (and still during the port scan and at the
@@ -1503,9 +1542,10 @@ gets 404; PATs get 403):
 | GET | `/agent-tasks/:taskId/live-messages` | `{messages}`: the newest 100, both directions, oldest first |
 | POST | `/agent-tasks/:taskId/live-messages` | `{body}` and optionally `{"mode":"interrupt"\|"start"}` (unknown fields refused); 201 with the queued message, always sender `user`; 400 invalid text, an unknown mode or a review task, 409 an ended task or a mode the task's state does not allow (nothing is queued), 429 over the hourly budget |
 
-Messages carry `reply_to` and `deliveries`. Only the task's creator sends and
-reads, whatever the mode: an admin, the owner, another member, a guest and a
-creator who lost access to the team are answered 404.
+Messages carry `reply_to` and `deliveries`. Sending and reading are the
+creator's alone, whatever the mode: workspace admins and the owner have no
+access to another person's agent. An admin, the owner, another member, a
+guest and a creator who lost access to the team are answered 404.
 
 **Conversation events.** Queuing, inbox or prompt delivery and recording an
 agent's file each write a `task.live_message` event, with the message and its
@@ -1520,8 +1560,8 @@ cancelled (`CancelAgent` removes the run's inbox volumes after its containers)
 or the machine is torn down (`Teardown` removes the machine's inbox volumes).
 
 Rolling migration 148 back keeps replies as plain agent messages and forgets
-which message each answered; a task interrupted for a message whose agent is
-still being stopped then stays paused until it is resumed.
+which message each answered; a task whose agent is being stopped for a
+message at that moment is then cancelled by that cleanup instead of continued.
 Rolling migration 95 back drops the live channel's messages. Rolling migration
 134 back removes `message_task` approvals and the `request_id` column; messages
 already delivered are kept.
@@ -1806,8 +1846,8 @@ step continues as a new attempt on the same step, visit and iteration, with
 `resume_native_session` set, so a harness that recorded a session continues
 it (`claude --resume`) and any other gets the handoff, both told that a person
 paused the attempt and to continue where it stopped.
-["Interrupt and send"](#live-channel) is this pause followed by its resume, as
-one action. A task paused elsewhere is
+["Interrupt and send"](#live-channel) stops and continues an attempt in the
+same way but is not a pause: it holds nothing and keeps a pending pause. A task paused elsewhere is
 simply picked up again: a waiting step is evaluated at once, a finished step's
 outcome is applied. Resuming a pause that has not taken effect withdraws it.
 The same route still resumes a task paused by a [usage limit](#usage-limits);

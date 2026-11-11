@@ -46,6 +46,10 @@ export class ConversationState {
 	onAgentQuestion: ((message: AgentLiveChatMessage) => void) | null = null;
 	// Text a task card asks the chat composer to show, e.g. a review request.
 	composerDraft = $state<string | null>(null);
+	// The agent's question the agent view's composer is answering, if any:
+	// the answer is sent with the question quoted, so the agent knows which
+	// one it answers.
+	agentQuestion = $state<{ taskId: string; id: string; body: string } | null>(null);
 	cursor = 0;
 	hasMore = $state(false);
 	loading = $state(true);

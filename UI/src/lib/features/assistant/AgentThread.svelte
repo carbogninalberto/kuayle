@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick, untrack } from 'svelte';
+	import { setContext, tick, untrack } from 'svelte';
 	import { RefreshCw } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import * as Breadcrumb from '$lib/components/ui/breadcrumb/index.js';
@@ -14,7 +14,8 @@
 	import AgentLiveMessage from './AgentLiveMessage.svelte';
 	import TaskStopButton from './TaskStopButton.svelte';
 	import { attemptTimeline, openStep, workflowTimeline } from './agent-timeline';
-	import { placeConversation } from './agent-conversation';
+	import { answerContext, placeConversation, sendOptions, type AnswerContext } from './agent-conversation';
+	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { taskLabel } from './task-labels';
 	import { taskTone, toneBadge } from './task-tone';
 	import { m } from '$lib/features/i18n/messages';
@@ -118,6 +119,17 @@
 		if (task.kind !== 'review') untrack(() => void loadLive());
 	});
 	const conversation = $derived(placeConversation(live, steps, task));
+	// An agent's question is answered in the composer under the view: it
+	// takes the question as what the next message answers, and the cursor.
+	const writable = $derived(sendOptions(task, authState.user?.id).open);
+	setContext<AnswerContext>(answerContext, () =>
+		writable
+			? (question) => {
+					chat.agentQuestion = { taskId: task.id, id: question.id, body: question.body };
+					chat.composerFocus++;
+				}
+			: undefined
+	);
 	// Events can be missed (a dropped connection), so the workflow is also
 	// polled: modestly while a step runs, rarely while it waits (an approval
 	// can take days), never once it has ended.

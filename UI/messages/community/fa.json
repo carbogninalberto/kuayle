@@ -3856,5 +3856,7 @@
 	"tasks.live_state_replied": "پاسخ داده شد",
 	"tasks.live_state_unanswered": "بدون پاسخ",
 	"tasks.live_interrupt_send": "قطع و ارسال",
-	"tasks.live_start_send": "ارسال و شروع اکنون"
+	"tasks.live_start_send": "ارسال و شروع اکنون",
+	"tasks.live_start_confirm_title": "اکنون تکرار جدیدی شروع شود؟",
+	"tasks.live_start_confirm_body": "این کار در انتظار است: {reason}. شروع اکنون این انتظار را رها می‌کند و عامل را دوباره با پیام شما اجرا می‌کند."
 }

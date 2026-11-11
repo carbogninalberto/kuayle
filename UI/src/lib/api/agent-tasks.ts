@@ -56,6 +56,9 @@ export interface AgentTask {
 	// Set while its creator's pause holds the workflow; a request is a pause
 	// that takes effect when the current step has an outcome.
 	workflow_paused_at?: string | null;
+	// The agent is being stopped to deliver a message and continues by
+	// itself: the task reads "cancelling" but is not being cancelled.
+	interrupting?: boolean;
 	workflow_pause_request?: WorkflowPauseMode | null;
 	// The task's own app process (its preview command), when one was started.
 	preview?: TaskPreview | null;

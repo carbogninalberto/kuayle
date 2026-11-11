@@ -1,11 +1,23 @@
 <script lang="ts">
-	import { Bot, Check, CheckCheck, CircleHelp, CircleSlash, Clock, CornerDownRight, TriangleAlert } from '@lucide/svelte';
+	import { getContext } from 'svelte';
+	import {
+		Bot,
+		Check,
+		CheckCheck,
+		CircleHelp,
+		CircleSlash,
+		Clock,
+		CornerDownRight,
+		Reply,
+		TriangleAlert
+	} from '@lucide/svelte';
+	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Bubble from '$lib/components/ui/bubble/index.js';
 	import * as Message from '$lib/components/ui/message/index.js';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import type { AgentLiveMessage } from '$lib/api/agent-tasks';
 	import CopyMessageButton from './CopyMessageButton.svelte';
-	import type { MessageState, PlacedMessage } from './agent-conversation';
+	import { answerContext, type AnswerContext, type MessageState, type PlacedMessage } from './agent-conversation';
 	import { getLocale, m } from '$lib/features/i18n/messages';
 
 	// One message of the conversation with a task's agent, in the timeline:
@@ -16,6 +28,9 @@
 	// shown as plain text only.
 	let { placed }: { placed: PlacedMessage } = $props();
 	const message = $derived(placed.message);
+	// A question is answered from where it was asked: the view's composer
+	// takes it as what the next message answers.
+	const answer = getContext<AnswerContext | undefined>(answerContext);
 
 	const stateIcon: Record<MessageState, typeof Check> = {
 		queued: Clock,
@@ -89,6 +104,12 @@
 				{@render when(item.created_at)}
 				<CopyMessageButton text={item.body} />
 			</Message.Footer>
+			{#if item.kind === 'question' && state === 'received' && answer?.()}<Button
+					variant="outline"
+					size="sm"
+					class="h-7 self-start text-xs"
+					onclick={() => answer?.()?.(item)}><Reply />{m['tasks.live_answer']()}</Button
+				>{/if}
 		</Message.Content>
 	</Message.Root>
 {/snippet}

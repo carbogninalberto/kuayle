@@ -3856,5 +3856,7 @@
 	"tasks.live_state_replied": "Απαντήθηκε",
 	"tasks.live_state_unanswered": "Χωρίς απάντηση",
 	"tasks.live_interrupt_send": "Διακοπή και αποστολή",
-	"tasks.live_start_send": "Αποστολή και έναρξη τώρα"
+	"tasks.live_start_send": "Αποστολή και έναρξη τώρα",
+	"tasks.live_start_confirm_title": "Έναρξη νέας επανάληψης τώρα;",
+	"tasks.live_start_confirm_body": "Η εργασία περιμένει: {reason}. Η έναρξη τώρα εγκαταλείπει την αναμονή και εκτελεί ξανά τον πράκτορα με το μήνυμά σας."
 }

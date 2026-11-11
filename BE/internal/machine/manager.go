@@ -1297,12 +1297,18 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	}
 	worktreeBefore := m.worktreeBefore(ctx, machine, run, runServices, checkout)
 	execution, executionErr := m.runtime.RunAgent(runContext, machine, run, providerRecord, checkout, secrets.Environment, observer)
+	// When the harness exited: what reached its inbox just before that may
+	// not have been read, however long the steps below take.
+	exited := time.Now()
 	stopLive()
-	if used := secrets.Environment[signInSecretNames[run.ProviderID]]; used != "" {
+	signIn := secrets.Environment[signInSecretNames[run.ProviderID]]
+	if signIn != "" {
 		returnCtx, cancelReturn := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-		if err := m.returnSignIn(returnCtx, machine, run, used); err != nil {
+		kept, err := m.keepSignIn(returnCtx, machine, run, signIn)
+		if err != nil {
 			log.WithField("agent_run_id", run.ID).WithError(err).Warn("refreshed agent sign-in could not be kept")
 		}
+		signIn = kept
 		cancelReturn()
 	}
 	memoryLimit := m.recordRunMemoryLimit(ctx, machine, run, "agent", execution)
@@ -1327,15 +1333,21 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if execution == nil {
 		execution = &AgentExecution{ExitCode: -1}
 	}
-	services, _ := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
 	// Messages the agent left are recorded before the next step can deliver
-	// them, without waiting for the next port scan.
-	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
-	m.collectOutbox(outboxCtx, machine, services)
-	// With the last replies recorded: what the attempt still owes one to.
+	// them, without waiting for the next port scan; with the last replies
+	// recorded, what the attempt still owes one to is known. An attempt that
+	// ended well owing a reply is asked for it once more.
 	var unanswered []int64
-	if run.Mode != "interactive" {
-		unanswered = m.settleLiveMessages(outboxCtx, run)
+	var replyNotes []string
+	if _, replies := m.store.(liveReplyStore); replies && run.Mode != "interactive" {
+		finished := executionErr == nil && !timedOut && execution.ExitCode == 0 &&
+			provider.ParseResult(output.ResultText("stdout"), output.ResultText("stderr"), execution.ExitCode).Status == "succeeded"
+		unanswered, replyNotes = m.settleReplies(ctx, machine, run, liveReplyRequest{provider: providerRecord, checkout: checkout, secrets: secrets, signIn: signIn, exited: exited, finished: finished})
+	}
+	services, _ := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
+	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	if _, replies := m.store.(liveReplyStore); !replies || run.Mode == "interactive" {
+		m.collectOutbox(outboxCtx, machine, services)
 	}
 	m.closeLiveInbox(outboxCtx, machine, run)
 	m.takeValidationFile(outboxCtx, machine, run, services, checkout)
@@ -1371,14 +1383,12 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	} else if executionErr != nil || execution.ExitCode != 0 || result.Status == "failed" {
 		result.Status = "failed"
 		run.Status = domain.DevMachineAgentRunStatusFailed
-	} else if len(unanswered) > 0 {
-		// A reply is mandatory: an attempt that ends normally with a message
-		// from the task's owner unanswered is not a success.
-		result.Status, result.UnansweredMessages = "failed", unanswered
-		run.Status = domain.DevMachineAgentRunStatusFailed
 	} else {
 		run.Status = domain.DevMachineAgentRunStatusSucceeded
 	}
+	// A missing reply is said, and never changes how the attempt ended.
+	result.UnansweredMessages = unanswered
+	result.RiskNotes = append(result.RiskNotes, replyNotes...)
 	if gitState, gitErr := m.runtime.GitState(ctx, machine, services, checkout); gitErr == nil {
 		result.Branch = gitState.Branch
 		result.Commits = gitState.Commits
@@ -1422,9 +1432,6 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		} else if run.ErrorMessage == nil && result.NoFinalMessage {
 			// The harness exited normally but the agent never concluded.
 			message := domain.NoFinalMessageReason(result.FailureReason)
-			run.ErrorMessage = &message
-		} else if run.ErrorMessage == nil && len(result.UnansweredMessages) > 0 {
-			message := domain.UnansweredMessageReason(result.UnansweredMessages)
 			run.ErrorMessage = &message
 		} else if run.ErrorMessage == nil && result.FailureReason != "" {
 			run.ErrorMessage = &result.FailureReason
