@@ -1376,6 +1376,8 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	ended := executionErr == nil && !timedOut && execution.ExitCode == 0
 	status := provider.ParseResult(output.ResultText("stdout"), output.ResultText("stderr"), execution.ExitCode).Status
 	limit, _ := runContext.Deadline()
+	// After a restart the context's limit starts over; the attempt's does not.
+	limit = closingDeadline(run, limit)
 	closing := m.settleClosing(ctx,
 		closingAttempt{machine: machine, run: run, provider: providerRecord, checkout: checkout, secrets: secrets, deadline: limit},
 		closingState{services: services, collectErr: collectErr, exited: exited, concluded: ended && status != "failed", succeeded: ended && status == "succeeded", unchangedRun: unchangedRun})
