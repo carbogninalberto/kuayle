@@ -396,6 +396,8 @@ func (r *AgentTaskRepository) RequestCancel(ctx context.Context, ws, id uuid.UUI
 			return err
 		}
 		if paused && task.State == "cancelling" {
+			// The cleanup the pause started goes on, now as a cancellation; a
+			// cleanup that failed is started again below.
 			if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET reason='Cancellation requested',next_poll_at=now(),updated_at=now() WHERE id=$1 RETURNING *`, id); err != nil {
 				return err
 			}
@@ -404,7 +406,6 @@ func (r *AgentTaskRepository) RequestCancel(ctx context.Context, ws, id uuid.UUI
 					return err
 				}
 			}
-			return tx.Commit()
 		}
 	}
 	if task.State == "cancelling" {
@@ -620,7 +621,7 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
 	err = tx.GetContext(ctx, &machineID, `SELECT m.id FROM dev_machines m
  JOIN dev_machine_workspace_policies policy ON policy.workspace_id=m.workspace_id AND policy.enabled
  CROSS JOIN LATERAL (SELECT count(*) AS tasks FROM agent_tasks t WHERE t.machine_id=m.id AND t.id<>$6
-  AND t.state NOT IN ('completed','cancelled','failed','blocked','awaiting_review')) load
+  AND t.state NOT IN ('completed','cancelled','failed','blocked','awaiting_review') AND `+taskHoldsMachine("t")+`) load
  CROSS JOIN LATERAL (SELECT load.tasks=0
   AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.status IN ('queued','starting','running','waiting_input'))
   AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased') AND o.action IN ('validate_agent','publish_agent')) AS idle) state
@@ -698,7 +699,16 @@ func (r *AgentTaskRepository) CancelAttempt(ctx context.Context, claimed domain.
 		return err
 	}
 	if operation.Status == domain.DevMachineOpStatusFailed {
-		return ErrAgentTaskCleanupFailed
+		// Nobody asked to give this task up: the cleanup of an attempt a pause
+		// stopped is started again until it succeeds, and the task then waits
+		// paused. Any other cleanup waits for its creator's explicit retry.
+		if task.WorkflowPausedAt == nil {
+			return ErrAgentTaskCleanupFailed
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='pending',attempts=0,available_at=now(),error_code=NULL,error_message=NULL WHERE workspace_id=$1 AND agent_run_id=$2 AND idempotency_key=$3 AND status='failed'`,
+			task.WorkspaceID, run.ID, operation.IdempotencyKey); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

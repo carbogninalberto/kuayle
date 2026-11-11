@@ -7,7 +7,13 @@ export type WorkflowPause = 'none' | 'pausable' | 'pausing' | 'paused';
 
 type PauseFields = Pick<
 	AgentTask,
-	'state' | 'kind' | 'workflow_version_id' | 'workflow_status' | 'workflow_paused_at' | 'workflow_pause_request'
+	| 'state'
+	| 'kind'
+	| 'workflow_version_id'
+	| 'workflow_status'
+	| 'workflow_paused_at'
+	| 'workflow_pause_request'
+	| 'usage_limit_message'
 >;
 
 const running = ['queued', 'preparing', 'running', 'waiting_input', 'validating', 'publishing', 'awaiting_review'];
@@ -16,6 +22,9 @@ export function workflowPause(task: PauseFields): WorkflowPause {
 	if (!task.workflow_version_id || task.kind === 'review') return 'none';
 	if (['completed', 'failed', 'cancelled'].includes(task.state)) return 'none';
 	if (task.workflow_paused_at) return task.state === 'cancelling' ? 'pausing' : 'paused';
+	// Paused by the agent's usage limit: its own notice resumes it, also when
+	// a pause had been asked for after the step.
+	if (task.state === 'blocked' && task.usage_limit_message) return 'none';
 	if (task.workflow_pause_request) return 'pausing';
 	const status = task.workflow_status;
 	return running.includes(task.state) && (status === 'running' || status === 'waiting') ? 'pausable' : 'none';

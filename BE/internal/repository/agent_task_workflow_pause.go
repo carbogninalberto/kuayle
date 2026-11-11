@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -333,8 +334,8 @@ func forgetWorkflowPause(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTas
 	return endWorkflowPause(ctx, tx, task, resume, actor)
 }
 
-// WorkflowPauses lists the pauses and resumes of the task's workflow, oldest
-// first, under the task's authorization.
+// WorkflowPauses lists the newest 500 pauses and resumes of the task's
+// workflow, oldest first, under the task's authorization.
 func (r *AgentTaskRepository) WorkflowPauses(ctx context.Context, ws, id uuid.UUID) ([]domain.WorkflowPauseEvent, error) {
 	if _, err := conversationActor(ctx, ws); err != nil {
 		return nil, err
@@ -351,10 +352,12 @@ func (r *AgentTaskRepository) WorkflowPauses(ctx context.Context, ws, id uuid.UU
 		At      time.Time       `db:"created_at"`
 	}
 	if err = tx.SelectContext(ctx, &rows, `SELECT action,actor_id,detail,created_at FROM workflow_audit_events
- WHERE workspace_id=$1 AND entity='task_workflow' AND entity_id=$2 AND action IN ($3,$4,$5,$6) ORDER BY id LIMIT 500`,
+ WHERE workspace_id=$1 AND entity='task_workflow' AND entity_id=$2 AND action IN ($3,$4,$5,$6) ORDER BY id DESC LIMIT 500`,
 		ws, id, domain.WorkflowPauseActionRequested, domain.WorkflowPauseActionPaused, domain.WorkflowPauseActionResumed, domain.WorkflowPauseActionWithdrawn); err != nil {
 		return nil, err
 	}
+	// The newest events, listed oldest first.
+	slices.Reverse(rows)
 	events := make([]domain.WorkflowPauseEvent, 0, len(rows))
 	for _, row := range rows {
 		var detail struct {
@@ -365,4 +368,27 @@ func (r *AgentTaskRepository) WorkflowPauses(ctx context.Context, ws, id uuid.UU
 		events = append(events, domain.WorkflowPauseEvent{Action: row.Action, Sequence: detail.Sequence, Mode: detail.Mode, ActorID: row.ActorID, At: row.At})
 	}
 	return events, nil
+}
+
+// ResumePaused resumes the creator's paused task: a workflow they paused (or
+// asked to pause), otherwise a task paused by its agent's usage limit.
+// A pause request that was still pending when the usage limit stopped the
+// attempt ends with that resume: one resume always sets the task going.
+func (r *AgentTaskRepository) ResumePaused(ctx context.Context, ws, id uuid.UUID, usageLimitReason string) (*domain.AgentTask, error) {
+	task, err := r.Get(ctx, ws, id)
+	if err != nil {
+		return nil, err
+	}
+	limited := task.State == "blocked" && task.UsageLimitMessage != nil
+	if task.WorkflowPausedAt != nil || (task.WorkflowPauseRequest != nil && !limited) {
+		return r.ResumeWorkflow(ctx, ws, id)
+	}
+	return r.ResumeUsageLimitNow(ctx, ws, id, usageLimitReason)
+}
+
+// taskHoldsMachine is the condition under which a task in a working state
+// counts as load on its machine: a paused workflow does not, except while
+// the attempt its pause stopped is still being cleaned up.
+func taskHoldsMachine(alias string) string {
+	return "(" + alias + ".workflow_paused_at IS NULL OR " + alias + ".state='cancelling')"
 }

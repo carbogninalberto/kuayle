@@ -479,3 +479,138 @@ func TestWorkflowPauseKeepsPrivateTeamsPrivate(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, resumed.WorkflowPauseRequest)
 }
+
+// "After this step" was requested and then the agent hit its usage limit:
+// the task is paused by the limit with the request still pending. One resume
+// by its creator starts it again; it does not merely withdraw the request.
+func TestResumeAfterAUsageLimitWithAPauseRequested(t *testing.T) {
+	f := newPauseFixture(t)
+	_, err := f.repo.PauseWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowPauseAfterStep)
+	require.NoError(t, err)
+	claimed := f.claim()
+	require.NotNil(t, claimed)
+	limit := domain.UsageLimit{Message: "You've hit your usage limit. Try again in 1 hour."}
+	require.NoError(t, f.repo.PauseForUsageLimit(f.ctx, *claimed, limit, "Paused: usage limit reached.", "Waiting for the usage limit to reset"))
+	f.cleanup()
+	limited := f.current()
+	require.Equal(t, "blocked", limited.State)
+	require.NotNil(t, limited.UsageLimitMessage)
+	require.NotNil(t, limited.WorkflowPauseRequest)
+
+	resumed, err := f.repo.ResumePaused(f.ctx, f.ws, f.task.ID, "Resumed by request after the usage limit")
+	require.NoError(t, err)
+	require.Equal(t, "queued", resumed.State, "the task runs again")
+	require.Nil(t, resumed.UsageLimitMessage)
+	require.Nil(t, resumed.WorkflowPauseRequest, "resuming is the creator's decision to go on")
+	require.True(t, resumed.ResumeNativeSession)
+	require.NotNil(t, f.claim())
+
+	// A workflow its creator paused resumes through the same call.
+	f.exec(`UPDATE agent_tasks SET state='awaiting_review',workflow_status='waiting',workflow_paused_at=now() WHERE id=$1`, f.task.ID)
+	resumed, err = f.repo.ResumePaused(f.ctx, f.ws, f.task.ID, "unused")
+	require.NoError(t, err)
+	require.Nil(t, resumed.WorkflowPausedAt)
+	_, err = f.repo.ResumePaused(f.ctx, f.ws, f.task.ID, "unused")
+	require.ErrorIs(t, err, ErrAgentTaskConflict, "nothing is paused")
+}
+
+// The cleanup of the attempt "pause now" stopped can fail for good (the
+// machine manager is down). The worker starts it again, and the task ends
+// paused and resumable when it succeeds; its creator can still cancel it.
+func TestFailedPauseCleanupIsRetriedAndEndsPaused(t *testing.T) {
+	for _, cancel := range []bool{false, true} {
+		f := newPauseFixture(t)
+		_, err := f.repo.PauseWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowPauseNow)
+		require.NoError(t, err)
+		claimed := f.claim()
+		require.NoError(t, f.repo.CancelAttempt(f.ctx, *claimed))
+		operation := func() (status string, attempts int) {
+			require.NoError(t, f.db.QueryRow(`SELECT status::text,attempts FROM dev_machine_operations WHERE agent_run_id=$1 AND action='cancel_agent'`, claimed.RunID).Scan(&status, &attempts))
+			return status, attempts
+		}
+		f.exec(`UPDATE dev_machine_operations SET status='failed',attempts=5,error_code='manager_down' WHERE agent_run_id=$1 AND action='cancel_agent'`, claimed.RunID)
+		_, err = f.repo.ResumeWorkflow(f.ctx, f.ws, f.task.ID)
+		require.ErrorIs(t, err, ErrAgentTaskConflict)
+
+		if cancel {
+			require.NoError(t, f.repo.RequestCancel(f.ctx, f.ws, f.task.ID))
+			status, attempts := operation()
+			require.Equal(t, "pending", status, "cancelling retries the cleanup as it always does")
+			require.Zero(t, attempts)
+			f.cleanup()
+			require.Equal(t, "cancelled", f.current().State)
+			continue
+		}
+		claimed = f.claim()
+		require.NotNil(t, claimed)
+		require.NoError(t, f.repo.CancelAttempt(f.ctx, *claimed), "the worker starts the failed cleanup again")
+		status, attempts := operation()
+		require.Equal(t, "pending", status)
+		require.Zero(t, attempts)
+		require.ErrorIs(t, f.repo.FinishCancellation(f.ctx, *claimed, "Runtime cancellation confirmed"), ErrAgentTaskConflict, "not before the cleanup is done")
+		f.cleanup()
+		paused := f.current()
+		require.Equal(t, "blocked", paused.State)
+		require.Equal(t, "Paused", paused.Reason)
+		require.NotNil(t, paused.WorkflowPausedAt)
+		resumed, err := f.repo.ResumeWorkflow(f.ctx, f.ws, f.task.ID)
+		require.NoError(t, err)
+		require.Equal(t, "queued", resumed.State)
+
+		// A cleanup that is not a pause's still waits for an explicit retry.
+		require.NoError(t, f.repo.RequestCancel(f.ctx, f.ws, f.task.ID))
+		claimed = f.claim()
+		f.exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,task_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status,started_at) VALUES($1,$2,$3,$4,$5,'codex','autonomous','Test','["codex"]',60,'running',now())`, claimed.RunID, claimed.WorkspaceID, *claimed.MachineID, claimed.ID, claimed.CreatorID)
+		require.NoError(t, f.repo.CancelAttempt(f.ctx, *claimed))
+		f.exec(`UPDATE dev_machine_operations SET status='failed',attempts=5 WHERE agent_run_id=$1 AND action='cancel_agent'`, claimed.RunID)
+		require.ErrorIs(t, f.repo.CancelAttempt(f.ctx, *claimed), ErrAgentTaskCleanupFailed)
+	}
+}
+
+// A paused task holds no place on its machine, however it was paused: other
+// tasks reserve the machine and start their attempts there. The cleanup of
+// an attempt a pause stopped is still work.
+func TestAPausedTaskIsNotMachineLoad(t *testing.T) {
+	f := newMachineShareFixture(t)
+	f.taskLimit(t, 1)
+	machine := f.runningMachine(t, "1 minute")
+	parked := f.workingTask(t, machine)
+	f.exec(t, `UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now() WHERE task_id=$1`, parked)
+	claimed := f.preparingTask(t)
+	reserve := func() uuid.UUID {
+		t.Helper()
+		f.exec(t, `UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, claimed.ID)
+		claimed.MachineID = nil
+		id, _, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+		require.NoError(t, err)
+		return id
+	}
+	start := func() error {
+		f.exec(t, `UPDATE agent_tasks SET machine_id=$2 WHERE id=$1`, claimed.ID, machine)
+		at := claimed
+		at.MachineID = &machine
+		run, op := taskRun(at, machine)
+		return f.repository.CreateAgentRun(domain.WithTaskExecution(f.ctx, at), run, op)
+	}
+	require.Equal(t, claimed.ReservedMachineID, reserve(), "a task between two steps holds its place")
+	require.ErrorIs(t, start(), ErrMachineBusy)
+	f.exec(t, `UPDATE agent_tasks SET state='cancelling',workflow_paused_at=now() WHERE id=$1`, parked)
+	require.Equal(t, claimed.ReservedMachineID, reserve(), "stopping the attempt is still work")
+	for _, state := range []string{"validating", "publishing", "running"} {
+		f.exec(t, `UPDATE agent_tasks SET state=$2 WHERE id=$1`, parked, state)
+		require.Equal(t, machine, reserve(), state)
+	}
+	require.NoError(t, start(), "the paused task's place is free")
+}
+
+// The workflow API lists the newest pauses and resumes, oldest first.
+func TestWorkflowPausesAreTheNewest(t *testing.T) {
+	f := newPauseFixture(t)
+	f.exec(`INSERT INTO workflow_audit_events(workspace_id,actor_id,entity,entity_id,action,detail)
+ SELECT $1,$2,'task_workflow',$3,CASE WHEN n%2=1 THEN 'paused' ELSE 'resumed' END,jsonb_build_object('sequence',n) FROM generate_series(1,620) n`, f.ws, f.task.CreatorID, f.task.ID)
+	events, err := f.repo.WorkflowPauses(f.ctx, f.ws, f.task.ID)
+	require.NoError(t, err)
+	require.Len(t, events, 500)
+	require.Equal(t, 121, events[0].Sequence)
+	require.Equal(t, 620, events[len(events)-1].Sequence)
+}

@@ -996,6 +996,23 @@ test('pauses a running workflow from the task menu and resumes it', async ({ pag
 	await expect(tasks.getByText('Paused', { exact: true })).toBeVisible();
 	await expect(card.getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
 	await expect(card.getByRole('button', { name: 'Accept', exact: true })).toHaveCount(0);
+
+	// The agent hit its usage limit while a pause was requested after the
+	// step: the card has one way to resume, the usage limit's own.
+	state.task = {
+		...state.task,
+		state: 'blocked',
+		reason: 'Paused: Codex usage limit reached.',
+		workflow_status: 'running',
+		workflow_paused_at: null,
+		workflow_pause_request: 'after_step',
+		usage_limit_message: "You've hit your usage limit",
+		usage_limit_resume_at: '2026-11-12T04:12:00Z'
+	};
+	emit('task.updated', state.task);
+	await expect(card.getByTestId('task-usage-limit')).toBeVisible();
+	await expect(card.getByRole('button', { name: /^Resume/ })).toHaveCount(1);
+	await expect(card.getByRole('button', { name: 'Resume now', exact: true })).toBeVisible();
 });
 
 // Tools and secondary actions live in the task card's one "More actions" menu.

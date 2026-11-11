@@ -1606,7 +1606,7 @@ parallel branches and workflows for non-coding automations.
 ### Pause and resume
 
 The creator of a task can pause its running workflow and resume it later from
-the same step (KUA-129, migration `000144_workflow_pause`). It is the creator's
+the same step (KUA-129, migration `000145_workflow_pause`). It is the creator's
 control, like cancel: nobody else, in any role, pauses or resumes a task.
 
 `POST /agent-tasks/:taskId/pause` takes `{"mode": "now" | "after_step"}` and
@@ -1629,7 +1629,12 @@ resume. A pull request merged on GitHub still completes the task.
 through the usual runtime cleanup (`cancelling`), which keeps the machine, the
 checkout, the worktree and the session transcripts, and ends in `blocked` with
 the reason "Paused". The task keeps its machine and checkout; a machine that
-was stopped meanwhile is started again when the task resumes.
+was stopped meanwhile is started again when the task resumes. A cleanup that
+fails for good (the machine manager is down) is started again by the worker
+until it succeeds, and the task then waits paused; cancelling it meanwhile
+cancels it. A paused task does not count as load on its machine, however it
+was paused, so other tasks can share or reuse the machine; only the cleanup
+of a stopped attempt still does.
 
 `POST /agent-tasks/:taskId/resume` resumes (202 with the task). An interrupted
 step continues as a new attempt on the same step, visit and iteration, with
@@ -1638,7 +1643,13 @@ it (`claude --resume`) and any other gets the handoff, both told that a person
 paused the attempt and to continue where it stopped. A task paused elsewhere is
 simply picked up again: a waiting step is evaluated at once, a finished step's
 outcome is applied. Resuming a pause that has not taken effect withdraws it.
-The same route still resumes a task paused by a [usage limit](#usage-limits).
+The same route still resumes a task paused by a [usage limit](#usage-limits);
+if a pause was waiting for the step the limit interrupted, that resume ends
+the request too and the task runs again (an automatic resume keeps it).
+
+"Pause now" followed by a resume starts a fresh attempt without counting a
+visit or an iteration, so repeating it is bounded only by the workflow's
+working-time budget.
 
 The time spent paused is added to the start of the workflow's time budget
 (`workflow_budget_from`) and to the open step's `paused_seconds`, which its
@@ -1650,7 +1661,8 @@ Every request, pause, resume and withdrawal is a `workflow_audit_events` row
 `pause_withdrawn`; the step's `sequence` and the `mode`). The task carries
 `workflow_paused_at` and `workflow_pause_request`, and
 `GET /agent-tasks/:taskId/workflow` returns `paused_at`, `pause_request`, the
-`pauses` list (action, sequence, mode, actor, time, oldest first) and each
+`pauses` list (the newest 500: action, sequence, mode, actor, time, oldest
+first) and each
 step's `paused_seconds`. The task card shows "Paused" with one Resume button,
 and offers Pause in its menu; `WorkflowPauseControl.svelte` is the same
 control as a standalone component.

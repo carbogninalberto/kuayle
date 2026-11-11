@@ -919,10 +919,10 @@ The task card shows the provider's message, the reset time and the two controls;
 
 ### Workflow pause and resume
 
-A task's creator can pause its running workflow and resume it from the same step (migration `000144_workflow_pause`, KUA-129): `POST /agent-tasks/:taskId/pause` with `{"mode": "now" | "after_step"}` and `POST /agent-tasks/:taskId/resume`, session-only and limited to the creator like cancel.
+A task's creator can pause its running workflow and resume it from the same step (migration `000145_workflow_pause`, KUA-129): `POST /agent-tasks/:taskId/pause` with `{"mode": "now" | "after_step"}` and `POST /agent-tasks/:taskId/resume`, session-only and limited to the creator like cancel.
 
 - **State:** `agent_tasks.workflow_paused_at` marks a paused workflow and `workflow_pause_request` a pause that waits for the current step. `Claim` skips paused tasks and `applyWorkflowTx` refuses every move, so waiting steps do not advance and no step starts.
-- **Pause now on a working agent:** the attempt is stopped through the same cleanup a usage limit uses and the task ends in `blocked` ("Paused") with its machine, checkout, worktree and session kept. Resuming starts a new attempt of the same step with `resume_native_session=true`; visits and iterations are unchanged.
+- **Pause now on a working agent:** the attempt is stopped through the same cleanup a usage limit uses and the task ends in `blocked` ("Paused") with its machine, checkout, worktree and session kept. Resuming starts a new attempt of the same step with `resume_native_session=true`; visits and iterations are unchanged. A failed cleanup is retried by the worker until the task is paused. A paused task is not machine load.
 - **Otherwise:** a waiting or not yet started task pauses in place; a check, a publication or "after this step" pauses when the worker has the step's outcome (`ParkWorkflow`), before acting on it.
 - **Time:** the paused time is added to `workflow_budget_from` and to the step's `paused_seconds`, so neither the time budget nor the step's timeout counts it.
 - **Audit:** `workflow_audit_events` records `pause_requested`, `paused`, `resumed` and `pause_withdrawn`; `GET /agent-tasks/:taskId/workflow` returns them as `pauses`.

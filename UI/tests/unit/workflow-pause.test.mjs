@@ -39,3 +39,13 @@ test('a paused workflow resumes; a pause taking effect can be withdrawn', () => 
 	assert.ok(!canResume(task({})));
 	assert.equal(workflowPause(task({ state: 'cancelled', workflow_paused_at: '2026-11-11T10:00:00Z' })), 'none');
 });
+
+test('a task paused by a usage limit is resumed from its own notice, once', () => {
+	const limited = task({
+		state: 'blocked',
+		usage_limit_message: "You've hit your usage limit",
+		workflow_pause_request: 'after_step'
+	});
+	assert.equal(workflowPause(limited), 'none');
+	assert.ok(!canResume(limited));
+});
