@@ -3151,7 +3151,6 @@
 	"assistant.agent_view_label": "Fil d'agent de {identifier}",
 	"assistant.agent_view_breadcrumb": "Ubicació",
 	"assistant.agent_view_missing": "Aquesta tasca d'agent no forma part d'aquesta conversa.",
-	"assistant.agent_view_finished": "Aquest agent ha acabat; els missatges nous van a l'assistent.",
 	"machines.size": "Mida",
 	"machines.created": "Creada",
 	"machines.last_activity": "Última activitat",
@@ -3853,5 +3852,9 @@
 	"notify.title.agent_task_finished": "Tasca de l’agent acabada",
 	"notify.title.review_needed": "Cal una revisió",
 	"notify.title.issues_deleted": "Incidències suprimides",
-	"notify.title.generic": "Notificació nova"
+	"notify.title.generic": "Notificació nova",
+	"tasks.live_state_replied": "Respost",
+	"tasks.live_state_unanswered": "Sense resposta",
+	"tasks.live_interrupt_send": "Interromp i envia",
+	"tasks.live_start_send": "Envia i comença ara"
 }

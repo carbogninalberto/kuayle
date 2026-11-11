@@ -214,9 +214,36 @@ derived from its recorded transitions and follow-up signals.
 the centre column to that task's agent thread, named in the URL
 (`?conversation=…&agent=<task id or issue identifier>`, an identifier picks the
 newest task), with a breadcrumb back to the assistant; the task's step in the
-transcript and its Background tasks row open the same view. While it is open
-the one composer is aimed at that agent (live if running, otherwise read at
-its next iteration) and a question's answer button sits under the question.
+transcript and its Background tasks row open the same view. It is a
+transcript and a composer. While it is open the page's composer gives way to
+the agent's own
+([AgentComposer.svelte](../../UI/src/lib/features/assistant/AgentComposer.svelte)),
+under the timeline: it writes straight to that task's agent through the
+[live channel](agent-tasks.md#live-channel), with no approval, and is shown
+only to the task's creator while the task takes messages. Enter sends. One
+more action, an icon beside Send (also Ctrl/⌘+Enter), does it now:
+"Interrupt and send" while a Claude Code step works (`mode: "interrupt"`),
+"Send and start now" when no agent works and the task is failed, blocked or
+waiting (`mode: "start"`); Codex and OpenCode are interrupted by any message,
+so they have Send alone. The composer has no helper text; a refused send is
+said above it and keeps the text.
+
+The conversation lives in the timeline
+([agent-conversation.ts](../../UI/src/lib/features/assistant/agent-conversation.ts),
+from `GET /agent-tasks/:taskId/live-messages`, reloaded on each
+`task.live_message`): a message to the agent sits in the run that received
+it, in the session at the moment it was delivered (before the first thing the
+agent did afterwards), right-aligned, with its time and one quiet icon for its
+state, named on hover and for assistive technology: waiting, delivered,
+replied, or no reply. The agent's reply (the message whose `reply_to` names
+it) is the next item; its other messages and questions are placed by time, as
+escaped plain text. A message that waits is shown where it will be picked up:
+at the end of the running step, or after the last step when none runs. A
+message is "no reply" once the attempt that received it can no longer answer
+(an earlier attempt, or a task that failed or ended); the step's line then
+carries a warning icon, also when closed, and the task's reason says which
+message. There is no separate "Live messages" thread in this view; the task
+card in the sidebar keeps its own.
 The header has a Stop button
 ([TaskStopButton.svelte](../../UI/src/lib/features/assistant/TaskStopButton.svelte))
 while the task can still be stopped, shown to the person who started it: one

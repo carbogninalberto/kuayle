@@ -1332,6 +1332,11 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	// them, without waiting for the next port scan.
 	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	m.collectOutbox(outboxCtx, machine, services)
+	// With the last replies recorded: what the attempt still owes one to.
+	var unanswered []int64
+	if run.Mode != "interactive" {
+		unanswered = m.settleLiveMessages(outboxCtx, run)
+	}
 	m.closeLiveInbox(outboxCtx, machine, run)
 	m.takeValidationFile(outboxCtx, machine, run, services, checkout)
 	if cleaner, ok := m.runtime.(runTmpRuntime); ok && run.Mode != "interactive" {
@@ -1365,6 +1370,11 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		run.Status = domain.DevMachineAgentRunStatusTimeout
 	} else if executionErr != nil || execution.ExitCode != 0 || result.Status == "failed" {
 		result.Status = "failed"
+		run.Status = domain.DevMachineAgentRunStatusFailed
+	} else if len(unanswered) > 0 {
+		// A reply is mandatory: an attempt that ends normally with a message
+		// from the task's owner unanswered is not a success.
+		result.Status, result.UnansweredMessages = "failed", unanswered
 		run.Status = domain.DevMachineAgentRunStatusFailed
 	} else {
 		run.Status = domain.DevMachineAgentRunStatusSucceeded
@@ -1412,6 +1422,9 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		} else if run.ErrorMessage == nil && result.NoFinalMessage {
 			// The harness exited normally but the agent never concluded.
 			message := domain.NoFinalMessageReason(result.FailureReason)
+			run.ErrorMessage = &message
+		} else if run.ErrorMessage == nil && len(result.UnansweredMessages) > 0 {
+			message := domain.UnansweredMessageReason(result.UnansweredMessages)
 			run.ErrorMessage = &message
 		} else if run.ErrorMessage == nil && result.FailureReason != "" {
 			run.ErrorMessage = &result.FailureReason

@@ -227,7 +227,15 @@ export interface AgentLiveMessage {
 	reject_reason: string | null;
 	created_at: string;
 	delivered_at: string | null;
+	/** An agent's message: the sequence number of the message it answers. */
+	reply_to?: number | null;
+	/** How many attempts received a message to the agent; 0 owes no reply. */
+	deliveries?: number;
 }
+// How a message is sent: queued for the working agent (or the next
+// iteration), by interrupting the working agent so it reads it now, or by
+// starting an iteration for it when none runs.
+export type LiveSendMode = 'interrupt' | 'start';
 // A live message as the conversation that owns the task shows it.
 export interface AgentLiveChatMessage extends AgentLiveMessage {
 	identifier: string;
@@ -258,8 +266,8 @@ export const agentTasks = {
 	// creator's message for the running agent or the next attempt.
 	liveMessages: (slug: string, id: string) =>
 		api.get<{ messages: AgentLiveMessage[] }>(`${task(slug, id)}/live-messages`),
-	sendLiveMessage: (slug: string, id: string, body: string) =>
-		api.post<AgentLiveMessage>(`${task(slug, id)}/live-messages`, { body }),
+	sendLiveMessage: (slug: string, id: string, body: string, mode?: LiveSendMode) =>
+		api.post<AgentLiveMessage>(`${task(slug, id)}/live-messages`, mode ? { body, mode } : { body }),
 	// Opens a terminal on the task's machine running Claude Code on the task's
 	// own session, in its worktree; only for its creator, while it is stopped.
 	openInClaudeCode: (slug: string, id: string) =>

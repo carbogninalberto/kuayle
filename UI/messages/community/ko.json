@@ -3151,7 +3151,6 @@
 	"assistant.agent_view_label": "{identifier}의 에이전트 스레드",
 	"assistant.agent_view_breadcrumb": "위치",
 	"assistant.agent_view_missing": "이 에이전트 작업은 이 대화에 속하지 않습니다.",
-	"assistant.agent_view_finished": "이 에이전트는 작업을 마쳤습니다. 새 메시지는 어시스턴트에게 전달됩니다.",
 	"machines.size": "크기",
 	"machines.created": "생성일",
 	"machines.last_activity": "마지막 활동",
@@ -3853,5 +3852,9 @@
 	"notify.title.agent_task_finished": "에이전트 작업 종료",
 	"notify.title.review_needed": "검토 필요",
 	"notify.title.issues_deleted": "이슈 삭제됨",
-	"notify.title.generic": "새 알림"
+	"notify.title.generic": "새 알림",
+	"tasks.live_state_replied": "답장함",
+	"tasks.live_state_unanswered": "답장 없음",
+	"tasks.live_interrupt_send": "중단하고 보내기",
+	"tasks.live_start_send": "보내고 지금 시작"
 }

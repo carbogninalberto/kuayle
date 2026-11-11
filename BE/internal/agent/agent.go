@@ -91,16 +91,19 @@ type RunResult struct {
 	// NoFinalMessage reports that the harness exited normally but the agent
 	// never concluded, which is the only reason the run failed.
 	// FailureReason is what the harness itself said went wrong, if anything.
-	NoFinalMessage bool       `json:"no_final_message,omitempty"`
-	FailureReason  string     `json:"failure_reason,omitempty"`
-	ChangedFiles   []string   `json:"changed_files"`
-	Commits        []string   `json:"commits"`
-	Branch         string     `json:"branch,omitempty"`
-	PullRequestURL string     `json:"pull_request_url,omitempty"`
-	TestsRun       []string   `json:"tests_run"`
-	TestStatus     string     `json:"test_status"`
-	RiskNotes      []string   `json:"risk_notes"`
-	Artifacts      []Artifact `json:"artifacts"`
+	NoFinalMessage bool `json:"no_final_message,omitempty"`
+	// UnansweredMessages are the sequence numbers of the owner's messages the
+	// run received and never replied to, the only reason it failed.
+	UnansweredMessages []int64    `json:"unanswered_messages,omitempty"`
+	FailureReason      string     `json:"failure_reason,omitempty"`
+	ChangedFiles       []string   `json:"changed_files"`
+	Commits            []string   `json:"commits"`
+	Branch             string     `json:"branch,omitempty"`
+	PullRequestURL     string     `json:"pull_request_url,omitempty"`
+	TestsRun           []string   `json:"tests_run"`
+	TestStatus         string     `json:"test_status"`
+	RiskNotes          []string   `json:"risk_notes"`
+	Artifacts          []Artifact `json:"artifacts"`
 }
 
 type Provider interface {

@@ -3151,7 +3151,6 @@
 	"assistant.agent_view_label": "เธรดของ Agent ของ {identifier}",
 	"assistant.agent_view_breadcrumb": "ตำแหน่ง",
 	"assistant.agent_view_missing": "งานของ Agent นี้ไม่ได้เป็นส่วนหนึ่งของการสนทนานี้",
-	"assistant.agent_view_finished": "Agent นี้ทำงานเสร็จแล้ว ข้อความใหม่จะส่งถึงผู้ช่วย",
 	"machines.size": "ขนาด",
 	"machines.created": "สร้างเมื่อ",
 	"machines.last_activity": "กิจกรรมล่าสุด",
@@ -3853,5 +3852,9 @@
 	"notify.title.agent_task_finished": "งานของ Agent สิ้นสุดแล้ว",
 	"notify.title.review_needed": "ต้องตรวจสอบ",
 	"notify.title.issues_deleted": "ลบ Issue แล้ว",
-	"notify.title.generic": "การแจ้งเตือนใหม่"
+	"notify.title.generic": "การแจ้งเตือนใหม่",
+	"tasks.live_state_replied": "ตอบแล้ว",
+	"tasks.live_state_unanswered": "ไม่มีคำตอบ",
+	"tasks.live_interrupt_send": "ขัดจังหวะแล้วส่ง",
+	"tasks.live_start_send": "ส่งแล้วเริ่มทันที"
 }

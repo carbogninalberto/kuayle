@@ -3151,7 +3151,6 @@
 	"assistant.agent_view_label": "{identifier} का एजेंट थ्रेड",
 	"assistant.agent_view_breadcrumb": "स्थान",
 	"assistant.agent_view_missing": "यह एजेंट टास्क इस बातचीत का हिस्सा नहीं है।",
-	"assistant.agent_view_finished": "यह एजेंट पूरा कर चुका है; नए संदेश असिस्टेंट को जाते हैं।",
 	"machines.size": "आकार",
 	"machines.created": "बनाई गई",
 	"machines.last_activity": "आखिरी गतिविधि",
@@ -3853,5 +3852,9 @@
 	"notify.title.agent_task_finished": "एजेंट का कार्य पूरा हुआ",
 	"notify.title.review_needed": "समीक्षा आवश्यक",
 	"notify.title.issues_deleted": "इश्यू हटाए गए",
-	"notify.title.generic": "नई सूचना"
+	"notify.title.generic": "नई सूचना",
+	"tasks.live_state_replied": "उत्तर दिया गया",
+	"tasks.live_state_unanswered": "कोई उत्तर नहीं",
+	"tasks.live_interrupt_send": "रोकें और भेजें",
+	"tasks.live_start_send": "भेजें और अभी शुरू करें"
 }

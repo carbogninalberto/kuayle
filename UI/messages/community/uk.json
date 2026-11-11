@@ -3151,7 +3151,6 @@
 	"assistant.agent_view_label": "Гілка обговорення агента для {identifier}",
 	"assistant.agent_view_breadcrumb": "Розташування",
 	"assistant.agent_view_missing": "Ця задача агента не є частиною цієї розмови.",
-	"assistant.agent_view_finished": "Цей агент завершив роботу; нові повідомлення надходять асистенту.",
 	"machines.size": "Розмір",
 	"machines.created": "Створено",
 	"machines.last_activity": "Остання активність",
@@ -3853,5 +3852,9 @@
 	"notify.title.agent_task_finished": "Завдання агента завершено",
 	"notify.title.review_needed": "Потрібна перевірка",
 	"notify.title.issues_deleted": "Завдання видалено",
-	"notify.title.generic": "Нове сповіщення"
+	"notify.title.generic": "Нове сповіщення",
+	"tasks.live_state_replied": "Відповіли",
+	"tasks.live_state_unanswered": "Немає відповіді",
+	"tasks.live_interrupt_send": "Перервати й надіслати",
+	"tasks.live_start_send": "Надіслати й запустити зараз"
 }

@@ -3151,7 +3151,6 @@
 	"assistant.agent_view_label": "Agenttråd for {identifier}",
 	"assistant.agent_view_breadcrumb": "Placering",
 	"assistant.agent_view_missing": "Denne agent-opgave er ikke en del af denne samtale.",
-	"assistant.agent_view_finished": "Denne agent er færdig; nye beskeder går til assistenten.",
 	"machines.size": "Størrelse",
 	"machines.created": "Oprettet",
 	"machines.last_activity": "Seneste aktivitet",
@@ -3853,5 +3852,9 @@
 	"notify.title.agent_task_finished": "Agentopgave afsluttet",
 	"notify.title.review_needed": "Gennemgang påkrævet",
 	"notify.title.issues_deleted": "Issues slettet",
-	"notify.title.generic": "Ny notifikation"
+	"notify.title.generic": "Ny notifikation",
+	"tasks.live_state_replied": "Besvaret",
+	"tasks.live_state_unanswered": "Intet svar",
+	"tasks.live_interrupt_send": "Afbryd og send",
+	"tasks.live_start_send": "Send og start nu"
 }

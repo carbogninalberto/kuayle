@@ -3151,7 +3151,6 @@
 	"assistant.agent_view_label": "{identifier} ajan konuşması",
 	"assistant.agent_view_breadcrumb": "Konum",
 	"assistant.agent_view_missing": "Bu ajan görevi bu sohbetin parçası değil.",
-	"assistant.agent_view_finished": "Bu ajan bitti; yeni mesajlar asistana gider.",
 	"machines.size": "Boyut",
 	"machines.created": "Oluşturulma",
 	"machines.last_activity": "Son etkinlik",
@@ -3853,5 +3852,9 @@
 	"notify.title.agent_task_finished": "Ajan görevi sona erdi",
 	"notify.title.review_needed": "İnceleme gerekiyor",
 	"notify.title.issues_deleted": "Issue’lar silindi",
-	"notify.title.generic": "Yeni bildirim"
+	"notify.title.generic": "Yeni bildirim",
+	"tasks.live_state_replied": "Yanıtlandı",
+	"tasks.live_state_unanswered": "Yanıt yok",
+	"tasks.live_interrupt_send": "Kes ve gönder",
+	"tasks.live_start_send": "Gönder ve şimdi başlat"
 }

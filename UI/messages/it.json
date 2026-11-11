@@ -3151,7 +3151,6 @@
 	"assistant.agent_view_label": "Thread dell’agente di {identifier}",
 	"assistant.agent_view_breadcrumb": "Posizione",
 	"assistant.agent_view_missing": "Questa attività dell’agente non fa parte di questa conversazione.",
-	"assistant.agent_view_finished": "Questo agente ha terminato; i nuovi messaggi vanno all’assistente.",
 	"machines.size": "Dimensione",
 	"machines.created": "Creata",
 	"machines.last_activity": "Ultima attività",
@@ -3853,5 +3852,9 @@
 	"notify.title.agent_task_finished": "Attività dell’agente terminata",
 	"notify.title.review_needed": "Revisione necessaria",
 	"notify.title.issues_deleted": "Attività eliminate",
-	"notify.title.generic": "Nuova notifica"
+	"notify.title.generic": "Nuova notifica",
+	"tasks.live_state_replied": "Risposto",
+	"tasks.live_state_unanswered": "Nessuna risposta",
+	"tasks.live_interrupt_send": "Interrompi e invia",
+	"tasks.live_start_send": "Invia e avvia ora"
 }

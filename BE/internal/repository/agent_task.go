@@ -487,10 +487,14 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 		return err
 	}
 	target := "cancelled"
+	interrupted := false
 	if task.WorkflowPausedAt != nil {
 		// A person paused the workflow while its agent worked: the attempt is
 		// stopped, and the task waits to be resumed.
 		target, reason = "blocked", workflowPausedReason
+		// Unless they interrupted it to deliver a message: the step then
+		// continues by itself, on the same session.
+		interrupted = task.LiveResumeGeneration != nil && *task.LiveResumeGeneration == task.Generation+1
 	} else if task.FailurePending && task.UsageLimitMessage != nil {
 		// A usage limit pauses the task; the reason says until when.
 		target, reason = "blocked", task.Reason
@@ -500,11 +504,32 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 		// change. So does a workflow's own reason, such as a step's visit
 		// limit, which is why the task stopped, and an agent that ended
 		// without a final message.
-		if domain.IsResourceLimitReason(task.Reason) || domain.IsWorkflowReason(task.Reason) || domain.IsNoFinalMessageReason(task.Reason) {
+		if domain.IsResourceLimitReason(task.Reason) || domain.IsWorkflowReason(task.Reason) || domain.IsNoFinalMessageReason(task.Reason) || domain.IsUnansweredMessageReason(task.Reason) {
 			reason = task.Reason
 		} else {
 			reason = "Execution failed; runtime cleanup confirmed"
 		}
+	}
+	if interrupted {
+		// One action for the person: stopped, then resumed. A resume that
+		// cannot happen leaves the task paused and saying why, never silently.
+		if _, err = tx.ExecContext(ctx, `SAVEPOINT live_resume`); err != nil {
+			return err
+		}
+		paused := *task
+		if err = transitionAgentTask(ctx, tx, task, target, reason, nil); err == nil {
+			err = resumeInterruptedForLiveMessage(ctx, tx, task)
+		}
+		if err == nil {
+			return tx.Commit()
+		}
+		if ctx.Err() != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT live_resume`); err != nil {
+			return err
+		}
+		*task, reason = paused, liveResumeFailedReason
 	}
 	if err = transitionAgentTask(ctx, tx, task, target, reason, nil); err != nil {
 		return err

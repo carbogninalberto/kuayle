@@ -65,6 +65,14 @@ type AgentLiveMessage struct {
 	DeliveredAt  *time.Time `json:"delivered_at" db:"delivered_at"`
 	// RequestID is the approval request that sent an assistant's message.
 	RequestID *uuid.UUID `json:"-" db:"request_id"`
+	// ReplyTo is the sequence number of the message an agent's message
+	// answers.
+	ReplyTo *int64 `json:"reply_to" db:"reply_to"`
+	// Deliveries counts the attempts that received a message to the agent;
+	// one that was delivered (at least 1) owes a reply.
+	Deliveries int `json:"deliveries" db:"deliveries"`
+	// WorkflowNode is the workflow step a message was delivered to.
+	WorkflowNode *string `json:"-" db:"workflow_node"`
 }
 
 // AgentLiveInboxFile is one file of an attempt's inbox.

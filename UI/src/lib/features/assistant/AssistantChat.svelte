@@ -68,6 +68,7 @@
 	} from '$lib/features/wiki/wiki-references';
 	import TaskStep from './TaskStep.svelte';
 	import AgentThread from './AgentThread.svelte';
+	import AgentComposer from './AgentComposer.svelte';
 	import { indicatorDot } from './task-tone';
 	import { taskLabel } from './task-labels';
 	import AssistantSidebar from './AssistantSidebar.svelte';
@@ -263,20 +264,8 @@
 	function closeAgent() {
 		void goto(assistantHref, { keepFocus: true, noScroll: true });
 	}
-	// While an agent's view is open the composer writes to that agent; the
-	// person can still switch it back with the "Send to" chip.
-	const agentViewTarget = $derived(
-		agentTask && agentTask.kind !== 'review' && isMessageableTask(agentTask.state) ? agentTask.id : null
-	);
-	let viewTarget: string | null = null;
-	$effect(() => {
-		const id = agentViewTarget;
-		untrack(() => {
-			if (id) chat.composerTarget = id;
-			else if (viewTarget && chat.composerTarget === viewTarget) chat.composerTarget = null;
-			viewTarget = id;
-		});
-	});
+	// An agent's view has its own composer, which writes to that agent
+	// (AgentComposer); the page's composer belongs to the assistant's chat.
 	const requestedTask = untrack(() => page.url.searchParams.get('task'));
 	$effect(() => {
 		const wanted = page.url.searchParams.get('task') ?? requestedTask;
@@ -1039,9 +1028,6 @@
 					{m['assistant.configure']()} <a class="underline" href="/{slug}/settings/ai">{m['assistant.settings']()}</a>
 				</p>{/if}
 			{#if attachments.notice}<p role="alert" class="mb-2 text-sm text-destructive">{attachments.notice}</p>{/if}
-			{#if agentView && agentTask && !agentViewTarget}<p class="mb-1.5 text-xs text-muted-foreground" role="status">
-					{m['assistant.agent_view_finished']()}
-				</p>{/if}
 			{#if toAgent && targetTask}
 				<div
 					class="mb-1.5 flex min-w-0 items-center gap-2 rounded-lg border border-[var(--status-running)]/40 bg-[var(--status-running)]/5 px-3 py-1.5 text-xs"
@@ -1375,7 +1361,10 @@
 				</MessageScroller.Root>
 			</MessageScroller.Provider>
 		</div>
-		{@render composer()}
+		{#if !agentView}{@render composer()}{:else if agentTask}{#key agentTask.id}<AgentComposer
+					{chat}
+					task={agentTask}
+				/>{/key}{/if}
 	</section>
 {/snippet}
 

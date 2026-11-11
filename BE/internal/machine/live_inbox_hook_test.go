@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -42,10 +43,26 @@ func (h liveHook) write(seq int64, sender, kind, body string) {
 	require.NoError(h.t, os.WriteFile(filepath.Join(h.inbox, file.Name), file.Data, 0o644))
 }
 
+// owes writes the manager's list of messages still owed a reply.
+func (h liveHook) owes(seqs ...int64) {
+	h.t.Helper()
+	if seqs == nil {
+		seqs = []int64{}
+	}
+	data, err := json.Marshal(map[string][]int64{"unanswered": seqs})
+	require.NoError(h.t, err)
+	require.NoError(h.t, os.WriteFile(filepath.Join(h.inbox, domain.AgentLiveUnansweredFile), data, 0o644))
+}
+
 func (h liveHook) run(input string) map[string]any {
+	return h.runWaiting(input, 0)
+}
+
+// runWaiting runs the hook giving a reply wait to be acknowledged.
+func (h liveHook) runWaiting(input string, wait time.Duration) map[string]any {
 	h.t.Helper()
 	cmd := exec.Command("node", h.script)
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Dir(filepath.Dir(h.state)), "KUAYLE_LIVE_INBOX=" + h.inbox}
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Dir(filepath.Dir(h.state)), "KUAYLE_LIVE_INBOX=" + h.inbox, "KUAYLE_LIVE_REPLY_WAIT_MS=" + strconv.FormatInt(wait.Milliseconds(), 10)}
 	cmd.Stdin = strings.NewReader(input)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -106,6 +123,77 @@ func TestLiveInboxHookDeliversEachMessageOnce(t *testing.T) {
 	require.Nil(t, hook.run(`{"hook_event_name":"Stop","stop_hook_active":true}`), "Claude may stop once nothing is new")
 }
 
+const stopHook = `{"hook_event_name":"Stop","stop_hook_active":false}`
+
+// A reply is mandatory and the hook enforces it for Claude Code: it may not
+// stop while a message it received has no reply. It is asked again, a
+// bounded number of times per message; after that it may stop, and Kuayle
+// fails the attempt for the unanswered message.
+func TestLiveInboxHookDoesNotLetClaudeStopWithAnUnansweredMessage(t *testing.T) {
+	hook := newLiveHook(t)
+	hook.write(3, domain.AgentLiveSenderUser, domain.AgentLiveKindMessage, "Keep the v1 route")
+	delivered := hook.run(postToolUse)["hookSpecificOutput"].(map[string]any)["additionalContext"].(string)
+	require.Contains(t, delivered, `"reply_to":<message number>`, "the message says how it is answered")
+	require.Contains(t, delivered, "what you understood and what you will do differently")
+	hook.owes(3)
+	require.Nil(t, hook.run(postToolUse), "a tool call is never held up for a reply")
+
+	for ask := 1; ask <= domain.AgentLiveStopReminders; ask++ {
+		stop := hook.run(stopHook)
+		require.Equal(t, "block", stop["decision"], "ask %d", ask)
+		reason := stop["reason"].(string)
+		require.Contains(t, reason, "message 3 from the person who owns this task has no reply yet")
+		require.Contains(t, reason, `{"to":"orchestrator","reply_to":<message number>,"body":"..."}`)
+		require.Contains(t, reason, "Message 3:\n~~~text\nKeep the v1 route\n~~~", "the message is shown again")
+	}
+	require.Nil(t, hook.run(stopHook), "the reminders are bounded; Kuayle then fails the attempt")
+	require.Equal(t, 3, hook.delivered(), "asking again does not lose the delivery record")
+
+	// Another unanswered message is asked for in its own right, with the old one.
+	hook.owes(3, 4)
+	again := hook.run(stopHook)
+	require.Equal(t, "block", again["decision"])
+	require.Contains(t, again["reason"], "messages 3, 4 from the person who owns this task have no reply yet")
+
+	// A reply the manager recorded lets Claude stop.
+	hook.owes()
+	require.Nil(t, hook.run(stopHook))
+}
+
+// A message delivered through the prompt has no inbox file; it is owed a
+// reply all the same, because the manager lists it.
+func TestLiveInboxHookAsksForRepliesToPromptMessages(t *testing.T) {
+	hook := newLiveHook(t)
+	hook.owes(7)
+	stop := hook.run(stopHook)
+	require.Equal(t, "block", stop["decision"])
+	require.Contains(t, stop["reason"], "message 7 from the person who owns this task has no reply yet")
+	require.NotContains(t, stop["reason"], "Message 7:")
+	// Subagents finishing are not the agent finishing.
+	require.Nil(t, hook.run(`{"hook_event_name":"SubagentStop"}`))
+}
+
+// Claude writes its reply and stops at once: the manager needs a few seconds
+// to collect it, so the hook waits for the list to empty before asking.
+func TestLiveInboxHookWaitsForAReplyToBeCollected(t *testing.T) {
+	hook := newLiveHook(t)
+	hook.owes(3)
+	go func() {
+		time.Sleep(400 * time.Millisecond)
+		hook.owes()
+	}()
+	started := time.Now()
+	require.Nil(t, hook.runWaiting(stopHook, 10*time.Second), "the reply arrived while the hook waited")
+	require.Less(t, time.Since(started), 8*time.Second, "it stops waiting as soon as the reply is recorded")
+
+	// A list that cannot be read is not a reason to hold Claude: Kuayle
+	// checks again when the attempt ends.
+	require.NoError(t, os.WriteFile(filepath.Join(hook.inbox, domain.AgentLiveUnansweredFile), []byte(`{"unanswered":[3`), 0o644))
+	require.Nil(t, hook.run(stopHook))
+	require.NoError(t, os.WriteFile(filepath.Join(hook.inbox, domain.AgentLiveUnansweredFile), []byte(`{"unanswered":["3",-1,0,2.5]}`), 0o644))
+	require.Nil(t, hook.run(stopHook), "only sequence numbers count")
+}
+
 // A file the manager is still writing waits for the next call, and later
 // messages wait behind it; one that stays unreadable is skipped. Other
 // entries are ignored.
@@ -163,6 +251,7 @@ func TestClaudeAgentImageInstallsTheLiveInboxHook(t *testing.T) {
 		require.Equal(t, "node /usr/local/lib/kuayle/kuayle-live-inbox-hook.cjs", hook.Command)
 		require.Positive(t, hook.Timeout)
 	}
+	require.GreaterOrEqual(t, settings.Hooks["Stop"][0].Hooks[0].Timeout, 25, "the Stop hook waits for a reply to be collected")
 	require.Equal(t, "*", settings.Hooks["PostToolUse"][0].Matcher, "every tool call can deliver")
 
 	dockerfile, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "agent", "Dockerfile"))

@@ -7,6 +7,7 @@
 	import type { DevMachineLogChunk } from '$lib/types/dev-machine';
 	import type { ConversationState } from './conversation-state.svelte';
 	import AgentTranscript from './AgentTranscript.svelte';
+	import type { PlacedMessage } from './agent-conversation';
 	import { m } from '$lib/features/i18n/messages';
 
 	// One agent run inside its step: the run's recorded output as a readable
@@ -18,7 +19,8 @@
 		run,
 		active = false,
 		pending = false,
-		concluded = false
+		concluded = false,
+		messages = []
 	}: {
 		chat: ConversationState;
 		run: WorkflowStepRun;
@@ -29,6 +31,8 @@
 		pending?: boolean;
 		// The step already shows the run's final message above it (its plan).
 		concluded?: boolean;
+		// The conversation with the agent during this run.
+		messages?: PlacedMessage[];
 	} = $props();
 
 	let logs = $state<DevMachineLogChunk[]>([]),
@@ -106,7 +110,7 @@
 </script>
 
 <div class="flex min-w-0 flex-col gap-3">
-	<AgentTranscript chunks={session} {active} {pending} lead={!more} summary={run.summary ?? ''} {concluded} />
+	<AgentTranscript chunks={session} {active} {pending} lead={!more} summary={run.summary ?? ''} {concluded} {messages} />
 	{#if more}<Button variant="ghost" size="sm" class="self-start" disabled={loading} onclick={() => void refresh()}
 			>{m['tasks.more_logs']()}</Button
 		>{/if}

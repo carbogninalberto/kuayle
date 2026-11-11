@@ -52,14 +52,18 @@ type AgentOutboxMessage struct {
 	Channel string
 	Kind    string
 	Body    string
+	// ReplyTo is the sequence number of the owner's message this answers
+	// (messages to the orchestrator only).
+	ReplyTo *int64
 }
 
-// ParseAgentOutboxMessage reads {"to","channel","kind","body"} strictly: one
+// ParseAgentOutboxMessage reads {"to","channel","kind","reply_to","body"} strictly: one
 // JSON object, no other fields, a team-style identifier or "orchestrator", a
 // known channel and a bounded body without control characters other than
 // tabs and newlines. Messages to the orchestrator use the live channel
-// ("internal" is accepted as the default) and may be a "question"; kind is
-// refused for issue recipients.
+// ("internal" is accepted as the default), may be a "question" and may name
+// the owner's message they answer ("reply_to", its sequence number); kind and
+// reply_to are refused for other recipients.
 func ParseAgentOutboxMessage(data []byte) (AgentOutboxMessage, error) {
 	if len(data) > AgentOutboxFileMaxBytes {
 		return AgentOutboxMessage{}, errors.New("message file is too large")
@@ -71,6 +75,7 @@ func ParseAgentOutboxMessage(data []byte) (AgentOutboxMessage, error) {
 		To      *string `json:"to"`
 		Channel *string `json:"channel"`
 		Kind    *string `json:"kind"`
+		ReplyTo *int64  `json:"reply_to"`
 		Body    *string `json:"body"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -97,6 +102,14 @@ func ParseAgentOutboxMessage(data []byte) (AgentOutboxMessage, error) {
 		if message.Kind != AgentLiveKindMessage && message.Kind != AgentLiveKindQuestion {
 			return AgentOutboxMessage{}, errors.New("unknown kind")
 		}
+		if raw.ReplyTo != nil {
+			if *raw.ReplyTo <= 0 {
+				return AgentOutboxMessage{}, errors.New("reply_to is not a message number")
+			}
+			message.ReplyTo = raw.ReplyTo
+		}
+	} else if raw.ReplyTo != nil {
+		return AgentOutboxMessage{}, errors.New("reply_to is only for messages to the orchestrator")
 	} else if message.To == AgentOutboxRegistry {
 		// A line for the wiki registry of the task's project or team.
 		if message.Channel != AgentMessageInternal || raw.Kind != nil {

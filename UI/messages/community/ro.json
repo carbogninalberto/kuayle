@@ -3151,7 +3151,6 @@
 	"assistant.agent_view_label": "Discuția agentului pentru {identifier}",
 	"assistant.agent_view_breadcrumb": "Locație",
 	"assistant.agent_view_missing": "Această sarcină de agent nu face parte din această conversație.",
-	"assistant.agent_view_finished": "Acest agent a terminat; mesajele noi merg la asistent.",
 	"machines.size": "Dimensiune",
 	"machines.created": "Creată",
 	"machines.last_activity": "Ultima activitate",
@@ -3853,5 +3852,9 @@
 	"notify.title.agent_task_finished": "Sarcina agentului s-a încheiat",
 	"notify.title.review_needed": "Revizuire necesară",
 	"notify.title.issues_deleted": "Probleme șterse",
-	"notify.title.generic": "Notificare nouă"
+	"notify.title.generic": "Notificare nouă",
+	"tasks.live_state_replied": "Răspuns primit",
+	"tasks.live_state_unanswered": "Fără răspuns",
+	"tasks.live_interrupt_send": "Întrerupe și trimite",
+	"tasks.live_start_send": "Trimite și pornește acum"
 }

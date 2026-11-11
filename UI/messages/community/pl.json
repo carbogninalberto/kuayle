@@ -3151,7 +3151,6 @@
 	"assistant.agent_view_label": "Wątek agenta {identifier}",
 	"assistant.agent_view_breadcrumb": "Lokalizacja",
 	"assistant.agent_view_missing": "To zadanie agenta nie należy do tej rozmowy.",
-	"assistant.agent_view_finished": "Ten agent zakończył pracę; nowe wiadomości trafiają do asystenta.",
 	"machines.size": "Rozmiar",
 	"machines.created": "Utworzono",
 	"machines.last_activity": "Ostatnia aktywność",
@@ -3853,5 +3852,9 @@
 	"notify.title.agent_task_finished": "Zadanie agenta zakończone",
 	"notify.title.review_needed": "Wymagany przegląd",
 	"notify.title.issues_deleted": "Zgłoszenia usunięte",
-	"notify.title.generic": "Nowe powiadomienie"
+	"notify.title.generic": "Nowe powiadomienie",
+	"tasks.live_state_replied": "Odpowiedziano",
+	"tasks.live_state_unanswered": "Brak odpowiedzi",
+	"tasks.live_interrupt_send": "Przerwij i wyślij",
+	"tasks.live_start_send": "Wyślij i uruchom teraz"
 }

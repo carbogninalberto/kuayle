@@ -3151,7 +3151,6 @@
 	"assistant.agent_view_label": "Agentthread van {identifier}",
 	"assistant.agent_view_breadcrumb": "Locatie",
 	"assistant.agent_view_missing": "Deze agenttaak maakt geen deel uit van dit gesprek.",
-	"assistant.agent_view_finished": "Deze agent is klaar; nieuwe berichten gaan naar de assistent.",
 	"machines.size": "Grootte",
 	"machines.created": "Gemaakt",
 	"machines.last_activity": "Laatste activiteit",
@@ -3853,5 +3852,9 @@
 	"notify.title.agent_task_finished": "Agenttaak beëindigd",
 	"notify.title.review_needed": "Review nodig",
 	"notify.title.issues_deleted": "Issues verwijderd",
-	"notify.title.generic": "Nieuwe melding"
+	"notify.title.generic": "Nieuwe melding",
+	"tasks.live_state_replied": "Beantwoord",
+	"tasks.live_state_unanswered": "Geen antwoord",
+	"tasks.live_interrupt_send": "Onderbreken en verzenden",
+	"tasks.live_start_send": "Verzenden en nu starten"
 }

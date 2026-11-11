@@ -3151,7 +3151,6 @@
 	"assistant.agent_view_label": "Chuỗi agent của {identifier}",
 	"assistant.agent_view_breadcrumb": "Vị trí",
 	"assistant.agent_view_missing": "Tác vụ agent này không thuộc cuộc trò chuyện này.",
-	"assistant.agent_view_finished": "Agent này đã hoàn tất; tin nhắn mới sẽ được gửi cho trợ lý.",
 	"machines.size": "Kích thước",
 	"machines.created": "Đã tạo",
 	"machines.last_activity": "Hoạt động gần nhất",
@@ -3853,5 +3852,9 @@
 	"notify.title.agent_task_finished": "Tác vụ của agent đã kết thúc",
 	"notify.title.review_needed": "Cần xem xét",
 	"notify.title.issues_deleted": "Đã xóa issue",
-	"notify.title.generic": "Thông báo mới"
+	"notify.title.generic": "Thông báo mới",
+	"tasks.live_state_replied": "Đã trả lời",
+	"tasks.live_state_unanswered": "Chưa trả lời",
+	"tasks.live_interrupt_send": "Ngắt và gửi",
+	"tasks.live_start_send": "Gửi và bắt đầu ngay"
 }

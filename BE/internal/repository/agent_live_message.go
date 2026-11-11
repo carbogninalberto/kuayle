@@ -29,9 +29,23 @@ const liveMessagesPerDelivery = 10
 // orchestrator acting for them, for the task's agent: the running attempt
 // receives it through its inbox, otherwise the next attempt's prompt does.
 // Only the creator may message the agent, within the hourly budget, until the
-// task is completed or cancelled. The task row lock orders sequence numbers.
+// task is completed or cancelled (or being cancelled). The task row lock
+// orders sequence numbers.
 func (r *AgentTaskRepository) QueueLiveMessage(ctx context.Context, ws, id uuid.UUID, sender, body string) (*domain.AgentLiveMessage, error) {
-	return r.queueLiveMessage(ctx, ws, id, sender, body, nil)
+	return r.queueLiveMessage(ctx, ws, id, sender, body, nil, "")
+}
+
+// SendLiveMessage queues the creator's message like QueueLiveMessage and, in
+// the same transaction, acts on mode: domain.AgentLiveSendInterrupt stops the
+// working attempt, which is then resumed on the same session with the
+// message; domain.AgentLiveSendStart starts an attempt for it when none runs.
+// A mode the task's state does not allow is ErrAgentTaskConflict and queues
+// nothing.
+func (r *AgentTaskRepository) SendLiveMessage(ctx context.Context, ws, id uuid.UUID, body, mode string) (*domain.AgentLiveMessage, error) {
+	if mode != "" && mode != domain.AgentLiveSendInterrupt && mode != domain.AgentLiveSendStart {
+		return nil, ErrAgentLiveMessageInvalid
+	}
+	return r.queueLiveMessage(ctx, ws, id, domain.AgentLiveSenderUser, body, nil, mode)
 }
 
 // QueueApprovedLiveMessage queues the message of an approved message_task
@@ -43,10 +57,10 @@ func (r *AgentTaskRepository) QueueApprovedLiveMessage(ctx context.Context, ws, 
 	if request == uuid.Nil {
 		return nil, ErrAgentLiveMessageInvalid
 	}
-	return r.queueLiveMessage(ctx, ws, id, domain.AgentLiveSenderOrchestrator, body, &request)
+	return r.queueLiveMessage(ctx, ws, id, domain.AgentLiveSenderOrchestrator, body, &request, "")
 }
 
-func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.UUID, sender, body string, request *uuid.UUID) (*domain.AgentLiveMessage, error) {
+func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.UUID, sender, body string, request *uuid.UUID, mode string) (*domain.AgentLiveMessage, error) {
 	actor, err := conversationActor(ctx, ws)
 	if err != nil {
 		return nil, err
@@ -80,7 +94,11 @@ func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.
 			return nil, err
 		}
 	}
-	if task.State == "completed" || task.State == "cancelled" || task.State == "cancelling" {
+	// A task that is being cancelled takes no message; one whose agent is
+	// only being stopped by a pause or an interruption does, for when it
+	// continues.
+	stopping := task.State == "cancelling" && task.WorkflowPausedAt != nil
+	if task.State == "completed" || task.State == "cancelled" || (task.State == "cancelling" && !stopping) {
 		return nil, ErrAgentLiveMessageClosed
 	}
 	var sent int
@@ -98,7 +116,136 @@ func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.
 	if err = liveMessageEvents(ctx, tx, []domain.AgentLiveMessage{message}); err != nil {
 		return nil, err
 	}
+	switch mode {
+	case domain.AgentLiveSendInterrupt:
+		// An agent that is already being stopped for a message is not
+		// interrupted twice: this message joins the one it resumes with.
+		if interrupting := stopping && task.LiveResumeGeneration != nil && *task.LiveResumeGeneration == task.Generation+1; !interrupting {
+			if err = interruptForLiveMessage(ctx, tx, task, actor); err != nil {
+				return nil, err
+			}
+		}
+	case domain.AgentLiveSendStart:
+		if err = startForLiveMessage(ctx, tx, task, actor); err != nil {
+			return nil, err
+		}
+	default:
+		// A harness Kuayle cannot hand a message to in the middle of a turn
+		// receives it by being interrupted and resumed, when its attempt can
+		// be interrupted; otherwise the message waits for the next attempt.
+		if !domain.HarnessReadsLiveInbox(task.Provider) {
+			if err = interruptForLiveMessage(ctx, tx, task, actor); err != nil && !errors.Is(err, ErrAgentTaskConflict) {
+				return nil, err
+			}
+		}
+	}
 	return &message, tx.Commit()
+}
+
+const (
+	liveInterruptingReason = "Interrupting: stopping the agent to deliver a message"
+	liveInterruptedReason  = "Continuing with a message from the task's owner"
+	liveStartedReason      = "Started to deliver a message from the task's owner"
+	// liveResumeFailedReason is what a task says when its agent was stopped
+	// for a message and could not be started again: it is paused, and says so.
+	liveResumeFailedReason = "Paused: the agent was stopped to deliver your message but could not be started again. Resume the task to continue; the message is delivered then."
+)
+
+// interruptForLiveMessage stops the task's working attempt so that its
+// session continues with the queued message: the pause-now path, marked so
+// that the cleanup resumes the step by itself (FinishCancellation). Nothing
+// changes, and it reports ErrAgentTaskConflict, when no attempt is working or
+// the task cannot be paused (it follows no workflow).
+func interruptForLiveMessage(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, actor uuid.UUID) error {
+	var run string
+	err := tx.GetContext(ctx, &run, `SELECT status::text FROM dev_machine_agent_runs WHERE id=$1 AND task_id=$2`, task.RunID, task.ID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	effect, err := ComputeWorkflowPause(*task, domain.WorkflowPauseNow, run)
+	if err != nil || effect != WorkflowPauseInterrupts {
+		return ErrAgentTaskConflict
+	}
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_pause_request=NULL,workflow_paused_at=now(),live_resume_generation=generation+1,
+ lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),updated_at=now() WHERE id=$1 RETURNING *`, task.ID); err != nil {
+		return err
+	}
+	if err = workflowPauseAudit(ctx, tx, *task, &actor, domain.WorkflowPauseActionPaused, domain.WorkflowPauseNow); err != nil {
+		return err
+	}
+	if err = transitionAgentTask(ctx, tx, task, "cancelling", liveInterruptingReason, &actor); err != nil {
+		return err
+	}
+	return workflowEvent(ctx, tx, *task)
+}
+
+// resumeInterruptedForLiveMessage continues the step whose attempt was
+// stopped to deliver a message, once that attempt is gone: the pause ends and
+// a new attempt resumes the session. The caller holds the task, blocked by
+// its pause.
+func resumeInterruptedForLiveMessage(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask) error {
+	resume, err := ComputeWorkflowResume(*task, time.Now())
+	if err != nil {
+		return err
+	}
+	if !resume.Restart {
+		return ErrAgentTaskConflict
+	}
+	if err = endWorkflowPause(ctx, tx, task, resume, &task.CreatorID); err != nil {
+		return err
+	}
+	return restartInterruptedStep(ctx, tx, task, &task.CreatorID, liveInterruptedReason)
+}
+
+// startForLiveMessage starts an attempt for the queued message when none is
+// running. A task whose agent a pause stopped resumes that step; a failed,
+// blocked or waiting task starts a new iteration on its last agent step, as a
+// retry does, but keeps its prompt and continues the previous session (when
+// the same profile ran it). A task that is working, or paused by a usage
+// limit, is ErrAgentTaskConflict.
+func startForLiveMessage(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, actor uuid.UUID) error {
+	if task.WorkflowPausedAt != nil && task.State == "blocked" {
+		resume, err := ComputeWorkflowResume(*task, time.Now())
+		if err != nil {
+			return err
+		}
+		if err = endWorkflowPause(ctx, tx, task, resume, &actor); err != nil {
+			return err
+		}
+		if err = restartInterruptedStep(ctx, tx, task, &actor, liveStartedReason); err != nil {
+			return err
+		}
+		return tx.GetContext(ctx, task, `UPDATE agent_tasks SET live_resume_generation=generation WHERE id=$1 RETURNING *`, task.ID)
+	}
+	if (task.State != "failed" && task.State != "blocked" && task.State != "awaiting_review") || (task.State == "blocked" && task.UsageLimitMessage != nil) {
+		return ErrAgentTaskConflict
+	}
+	var pending bool
+	err := tx.GetContext(ctx, &pending, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE task_id=$1 AND status IN ('queued','starting','running','waiting_input'))
+ OR EXISTS(SELECT 1 FROM dev_machine_operations o WHERE (o.checkout_id=$2 OR o.agent_run_id IN (SELECT id FROM dev_machine_agent_runs WHERE task_id=$1)) AND o.status IN ('pending','leased') AND o.action NOT IN ('start_preview','stop_preview'))
+ OR EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.id=$3 AND r.status<>'succeeded' AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.agent_run_id=r.id AND o.idempotency_key=$4 AND o.status='completed'))`, task.ID, task.CheckoutID, task.RunID, "task-cancel:"+task.ID.String()+":"+task.RunID.String())
+	if err != nil {
+		return err
+	}
+	if pending {
+		return ErrAgentTaskConflict
+	}
+	err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET generation=generation+1,run_id=gen_random_uuid(),live_resume_generation=generation+1,failure_count=0,failure_pending=false,sign_in_required=false,
+ usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,usage_limit_resumes=0,resume_native_session=false,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),
+ issue_status_id=i.status_id,issue_updated_at=i.updated_at FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, task.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrAgentTaskConflict
+	}
+	if err != nil {
+		return err
+	}
+	if err = forgetWorkflowPause(ctx, tx, task, &actor); err != nil {
+		return err
+	}
+	if err = retryWorkflow(ctx, tx, task, actor); err != nil {
+		return err
+	}
+	return transitionAgentTask(ctx, tx, task, "queued", liveStartedReason, &actor)
 }
 
 // LiveMessages lists the newest messages of a task's live channel, both
@@ -126,7 +273,10 @@ func (r *AgentTaskRepository) LiveMessages(ctx context.Context, ws, id uuid.UUID
 // ClaimLiveMessages places the task's queued messages, oldest first, in its
 // current attempt's prompt within room bytes. Recreating the same attempt
 // places the same messages; messages claimed for an attempt that was never
-// created are claimed again.
+// created are claimed again. A message the task's previous attempt received
+// on the same workflow step and never replied to is placed once more, until
+// domain.AgentLiveReplyAttempts attempts received it; it is never carried to
+// another step.
 func (r *AgentTaskRepository) ClaimLiveMessages(ctx context.Context, task domain.AgentTask, room int) ([]domain.AgentLiveMessage, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -137,25 +287,39 @@ func (r *AgentTaskRepository) ClaimLiveMessages(ctx context.Context, task domain
 	if err = tx.SelectContext(ctx, &messages, `SELECT * FROM agent_live_messages WHERE task_id=$1 AND workspace_id=$2 AND state='delivered' AND delivered_via='prompt' AND run_id=$3 ORDER BY seq`, task.ID, task.WorkspaceID, task.RunID); err != nil || len(messages) > 0 {
 		return messages, err
 	}
-	candidates := []domain.AgentLiveMessage{}
-	if err = tx.SelectContext(ctx, &candidates, `SELECT * FROM agent_live_messages m WHERE m.task_id=$1 AND m.workspace_id=$2 AND (m.state='queued'
-  OR (m.state='delivered' AND m.delivered_via='prompt' AND NOT EXISTS (SELECT 1 FROM dev_machine_agent_runs rn WHERE rn.id=m.run_id) AND NOT EXISTS (SELECT 1 FROM agent_tasks tk WHERE tk.run_id=m.run_id)))
- ORDER BY m.seq LIMIT $3 FOR UPDATE OF m SKIP LOCKED`, task.ID, task.WorkspaceID, liveMessagesPerDelivery); err != nil {
+	var candidates []struct {
+		domain.AgentLiveMessage
+		// Orphan: claimed for an attempt that was never created, so this
+		// claim is still the same delivery.
+		Orphan bool `db:"orphan"`
+	}
+	if err = tx.SelectContext(ctx, &candidates, `SELECT m.*,(m.state='delivered' AND m.delivered_via='prompt' AND NOT EXISTS (SELECT 1 FROM dev_machine_agent_runs rn WHERE rn.id=m.run_id)) AS orphan
+ FROM agent_live_messages m WHERE m.task_id=$1 AND m.workspace_id=$2 AND m.direction='to_agent' AND (m.state='queued'
+  OR (m.state='delivered' AND m.delivered_via='prompt' AND NOT EXISTS (SELECT 1 FROM dev_machine_agent_runs rn WHERE rn.id=m.run_id) AND NOT EXISTS (SELECT 1 FROM agent_tasks tk WHERE tk.run_id=m.run_id))
+  OR (m.state='delivered' AND m.deliveries BETWEEN 1 AND $5::int AND m.workflow_node IS NOT DISTINCT FROM $6::text
+   AND m.run_id=(SELECT rn.id FROM dev_machine_agent_runs rn WHERE rn.task_id=m.task_id AND rn.id<>$4 ORDER BY rn.created_at DESC,rn.id LIMIT 1)
+   AND NOT EXISTS (SELECT 1 FROM agent_live_messages a WHERE a.task_id=m.task_id AND a.direction='from_agent' AND a.state='received' AND a.reply_to=m.seq)))
+ ORDER BY m.seq LIMIT $3 FOR UPDATE OF m SKIP LOCKED`, task.ID, task.WorkspaceID, liveMessagesPerDelivery, task.RunID, domain.AgentLiveReplyAttempts-1, task.WorkflowNode); err != nil {
 		return nil, err
 	}
-	ids := []uuid.UUID{}
+	fresh, orphans := []uuid.UUID{}, []uuid.UUID{}
 	for _, candidate := range candidates {
-		cost := len(candidate.Body) + 120
+		cost := len(candidate.Body) + 240
 		if cost > room {
 			break
 		}
 		room -= cost
-		ids = append(ids, candidate.ID)
+		if candidate.Orphan {
+			orphans = append(orphans, candidate.ID)
+		} else {
+			fresh = append(fresh, candidate.ID)
+		}
 	}
-	if len(ids) == 0 {
+	if len(fresh)+len(orphans) == 0 {
 		return messages, nil
 	}
-	if err = tx.SelectContext(ctx, &messages, `UPDATE agent_live_messages SET state='delivered',delivered_via='prompt',run_id=$2,delivered_at=now() WHERE id=ANY($1) RETURNING *`, pq.Array(ids), task.RunID); err != nil {
+	if err = tx.SelectContext(ctx, &messages, `UPDATE agent_live_messages SET state='delivered',delivered_via='prompt',run_id=$3,delivered_at=now(),workflow_node=$4,
+ deliveries=CASE WHEN id=ANY($2) THEN GREATEST(deliveries,1) ELSE deliveries+1 END WHERE id=ANY($1) OR id=ANY($2) RETURNING *`, pq.Array(fresh), pq.Array(orphans), task.RunID, task.WorkflowNode); err != nil {
 		return nil, err
 	}
 	if err = liveMessageEvents(ctx, tx, messages); err != nil {
@@ -186,7 +350,7 @@ func (r *DevMachineRepository) MarkLiveMessagesDelivered(ctx context.Context, ru
 	}
 	defer tx.Rollback()
 	messages := []domain.AgentLiveMessage{}
-	err = tx.SelectContext(ctx, &messages, `UPDATE agent_live_messages m SET state='delivered',delivered_via='inbox',run_id=$2,delivered_at=now()
+	err = tx.SelectContext(ctx, &messages, `UPDATE agent_live_messages m SET state='delivered',delivered_via='inbox',run_id=$2,delivered_at=now(),deliveries=m.deliveries+1,workflow_node=t.workflow_node
  FROM agent_tasks t WHERE t.id=m.task_id AND t.run_id=$2 AND m.id=ANY($1) AND m.state='queued' RETURNING m.*`, pq.Array(ids), run)
 	if err != nil {
 		return 0, err
@@ -197,6 +361,44 @@ func (r *DevMachineRepository) MarkLiveMessagesDelivered(ctx context.Context, ru
 	return len(messages), tx.Commit()
 }
 
+const unansweredLiveMessages = `m.run_id=$1 AND m.direction='to_agent' AND m.state='delivered' AND m.deliveries>0
+ AND NOT EXISTS (SELECT 1 FROM agent_live_messages a WHERE a.task_id=m.task_id AND a.direction='from_agent' AND a.state='received' AND a.reply_to=m.seq)`
+
+// UnansweredLiveMessages returns, in order, the sequence numbers of the
+// messages run received (through its inbox or its prompt) that its agent has
+// not replied to.
+func (r *DevMachineRepository) UnansweredLiveMessages(ctx context.Context, run uuid.UUID) ([]int64, error) {
+	seqs := []int64{}
+	err := r.db.SelectContext(ctx, &seqs, `SELECT m.seq FROM agent_live_messages m WHERE `+unansweredLiveMessages+` ORDER BY m.seq`, run)
+	return seqs, err
+}
+
+// SettleLiveMessages closes run's side of the live channel when it ends. A
+// message written to its inbox within grace of the end may never have been
+// read, so it is queued again for the next attempt's prompt instead of
+// counting as delivered. It returns the sequence numbers of the messages the
+// run did receive and never replied to.
+func (r *DevMachineRepository) SettleLiveMessages(ctx context.Context, run uuid.UUID, grace time.Duration) ([]int64, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	requeued := []domain.AgentLiveMessage{}
+	if err = tx.SelectContext(ctx, &requeued, `UPDATE agent_live_messages m SET state='queued',delivered_via=NULL,run_id=NULL,delivered_at=NULL,workflow_node=NULL,deliveries=m.deliveries-1
+ WHERE `+unansweredLiveMessages+` AND m.delivered_via='inbox' AND m.delivered_at>now()-make_interval(secs=>$2) RETURNING m.*`, run, grace.Seconds()); err != nil {
+		return nil, err
+	}
+	if err = liveMessageEvents(ctx, tx, requeued); err != nil {
+		return nil, err
+	}
+	seqs := []int64{}
+	if err = tx.SelectContext(ctx, &seqs, `SELECT m.seq FROM agent_live_messages m WHERE `+unansweredLiveMessages+` ORDER BY m.seq`, run); err != nil {
+		return nil, err
+	}
+	return seqs, tx.Commit()
+}
+
 // recordLiveOutbox records one outbox file addressed to the orchestrator in
 // the task's live channel, within its hourly budget, inside RecordTaskOutbox's
 // transaction, and tells the task's conversation; an accepted question also
@@ -205,16 +407,27 @@ func (r *DevMachineRepository) MarkLiveMessagesDelivered(ctx context.Context, ru
 func recordLiveOutbox(ctx context.Context, tx *sqlx.Tx, sender messageSender, dedupe string, message *domain.AgentOutboxMessage, body, reason string) (bool, error) {
 	kind, state := domain.AgentLiveKindMessage, domain.AgentLiveReceived
 	var rejected *string
+	var replyTo *int64
 	if message != nil {
-		kind, body = message.Kind, message.Body
+		kind, body, replyTo = message.Kind, message.Body, message.ReplyTo
+	}
+	if replyTo != nil && reason == "" {
+		// A reply names a message this task's agent was given.
+		var known bool
+		if err := tx.GetContext(ctx, &known, `SELECT EXISTS(SELECT 1 FROM agent_live_messages WHERE task_id=$1 AND direction='to_agent' AND seq=$2 AND state='delivered')`, sender.ID, *replyTo); err != nil {
+			return false, err
+		}
+		if !known {
+			reason = "reply_to does not name a message this task received"
+		}
 	}
 	if reason != "" {
 		state, rejected = domain.AgentLiveRejected, &reason
 	}
 	var recorded domain.AgentLiveMessage
-	err := tx.GetContext(ctx, &recorded, `INSERT INTO agent_live_messages(workspace_id,task_id,direction,sender,kind,body,state,run_id,reject_reason,dedupe_key,created_at)
- VALUES($1,$2,'from_agent','agent',$3,$4,$5,$6,$7,$8,clock_timestamp())
- ON CONFLICT (task_id,dedupe_key) DO NOTHING RETURNING *`, sender.WorkspaceID, sender.ID, kind, body, state, sender.RunID, rejected, dedupe)
+	err := tx.GetContext(ctx, &recorded, `INSERT INTO agent_live_messages(workspace_id,task_id,direction,sender,kind,body,state,run_id,reject_reason,dedupe_key,reply_to,created_at)
+ VALUES($1,$2,'from_agent','agent',$3,$4,$5,$6,$7,$8,$9,clock_timestamp())
+ ON CONFLICT (task_id,dedupe_key) DO NOTHING RETURNING *`, sender.WorkspaceID, sender.ID, kind, body, state, sender.RunID, rejected, dedupe, replyTo)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

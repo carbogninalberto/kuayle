@@ -3151,7 +3151,6 @@
 	"assistant.agent_view_label": "Fil d'agent de {identifier}",
 	"assistant.agent_view_breadcrumb": "Emplacement",
 	"assistant.agent_view_missing": "Cette tâche d'agent ne fait pas partie de cette conversation.",
-	"assistant.agent_view_finished": "Cet agent a terminé ; les nouveaux messages vont à l'assistant.",
 	"machines.size": "Taille",
 	"machines.created": "Créée",
 	"machines.last_activity": "Dernière activité",
@@ -3853,5 +3852,9 @@
 	"notify.title.agent_task_finished": "Tâche de l’agent terminée",
 	"notify.title.review_needed": "Relecture requise",
 	"notify.title.issues_deleted": "Tickets supprimés",
-	"notify.title.generic": "Nouvelle notification"
+	"notify.title.generic": "Nouvelle notification",
+	"tasks.live_state_replied": "Répondu",
+	"tasks.live_state_unanswered": "Sans réponse",
+	"tasks.live_interrupt_send": "Interrompre et envoyer",
+	"tasks.live_start_send": "Envoyer et démarrer maintenant"
 }

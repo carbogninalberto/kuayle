@@ -304,9 +304,10 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 				return s.pauseForUsageLimit(ctx, task, limit)
 			}
 		}
-		// An agent that stopped without concluding says so, in a workflow
-		// (which still decides what follows) and outside one.
-		if run.ErrorMessage != nil && domain.IsNoFinalMessageReason(*run.ErrorMessage) {
+		// An agent that stopped without concluding, or without replying to
+		// its owner's message, says so, in a workflow (which still decides
+		// what follows) and outside one.
+		if run.ErrorMessage != nil && (domain.IsNoFinalMessageReason(*run.ErrorMessage) || domain.IsUnansweredMessageReason(*run.ErrorMessage)) {
 			if task.RunsWorkflow() && s.workflow != nil && task.State == "running" {
 				return s.workflow.AgentFailedBecause(ctx, task, *run.ErrorMessage)
 			}
@@ -611,7 +612,7 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	session := taskSession(task, previous)
 	prompt := task.Prompt
 	if task.Generation > 1 {
-		prompt = withHandoff(prompt, previous, session.ResumeID != "", task.ResumeNativeSession)
+		prompt = withLiveHandoff(prompt, previous, session.ResumeID != "", task.ResumeNativeSession, task.LiveResumed())
 	}
 	// A review's prompt already names the published work it reads.
 	if r.attachments != nil && !review {
@@ -704,6 +705,13 @@ const handoffMarker = "\n\n---\nSuccessor attempt handoff"
 // explicitly identified and told what already happened on the same worktree.
 // The previous agent's summary is fenced as untrusted text.
 func withHandoff(prompt string, previous *domain.AgentHandoff, resumed, continued bool) string {
+	return withLiveHandoff(prompt, previous, resumed, continued, false)
+}
+
+// withLiveHandoff is withHandoff for an attempt a person started to deliver
+// a message (forMessage): by interrupting the previous attempt, or by
+// starting one when none ran. The message itself follows in the prompt.
+func withLiveHandoff(prompt string, previous *domain.AgentHandoff, resumed, continued, forMessage bool) string {
 	if previous == nil {
 		return prompt
 	}
@@ -715,7 +723,11 @@ func withHandoff(prompt string, previous *domain.AgentHandoff, resumed, continue
 	}
 	// continued: the task resumed after a pause (task.ResumeNativeSession). A
 	// person's pause cancels the attempt; a usage limit fails it.
-	if continued {
+	if forMessage && previous.Status == string(domain.DevMachineAgentRunStatusCancelled) {
+		b.WriteString("- The person who owns this task interrupted the previous attempt to tell you something; their message is below. Nothing failed and the worktree is unchanged: read the message, reply to it as described there, then continue from where you stopped with it in mind. Do not start over, reset or discard changes.\n")
+	} else if forMessage {
+		b.WriteString("- The person who owns this task started this attempt to tell you something; their message is below. Reply to it as described there and do what it asks, building on the work already in this worktree.\n")
+	} else if continued {
 		cause := "the provider's usage limit"
 		if previous.Status == string(domain.DevMachineAgentRunStatusCancelled) {
 			cause = "a person"
@@ -797,7 +809,10 @@ func taskSession(task domain.AgentTask, previous *domain.AgentHandoff) *agent.Se
 	// starts fresh: a builder must not inherit its planner's conversation
 	// ("do not edit files"). An attempt paused by a usage limit or by a
 	// person continues its own session, whatever ran before its step.
-	if previous != nil && task.MachineID != nil && (!previous.OtherProfile || task.ResumeNativeSession) && (previous.Status == "succeeded" || previous.ContinuedInteractively || task.ResumeNativeSession) && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
+	// An attempt a person started to deliver a message continues the
+	// previous session however that attempt ended, under the same rule: only
+	// when the same profile ran it.
+	if previous != nil && task.MachineID != nil && (!previous.OtherProfile || task.ResumeNativeSession) && (previous.Status == "succeeded" || previous.ContinuedInteractively || task.ResumeNativeSession || task.LiveResumed()) && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
 		session.ResumeID = previous.NativeSessionID
 	} else if task.Provider == "claude-code" {
 		session.NewID = uuid.NewString()

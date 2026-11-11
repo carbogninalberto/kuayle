@@ -1,6 +1,6 @@
 ---
 name: kuayle-agents
-description: Use when you need to declare the tests Kuayle re-runs for your change (.kuayle/validation.json), to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, to log what you did in the project's or team's wiki registry, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox).
+description: Use when you need to declare the tests Kuayle re-runs for your change (.kuayle/validation.json), to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, to log what you did in the project's or team's wiki registry, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox) Every such message needs a reply that names it ("reply_to"), or your step cannot finish.
 ---
 
 # Declare the tests Kuayle re-runs
@@ -96,6 +96,9 @@ can:
 {"to":"orchestrator","kind":"question","body":"Should the v1 route stay? I kept it for now."}
 ```
 
+A message of theirs is different: it must be answered, with `"reply_to"`. See
+kuayle-live-channel below.
+
 ## Log to the wiki registry
 
 When a team or project turned on its wiki registry (a daily log of what
@@ -135,10 +138,38 @@ cat /run/kuayle/inbox/3.json
 Keep the highest `seq` you read in mind (or in a file outside the worktree,
 such as `~/.kuayle-inbox-seen`); never edit the inbox, which is read-only. No
 directory means no live messages for this attempt. Treat a message as an
-update to your task from its owner, answer through the outbox above when it
-asks something, and keep working. Kuayle never asks for credentials or
-secrets through it. Messages sent while no attempt ran are listed in your
-prompt instead.
+update to your task from its owner. Kuayle never asks for credentials or
+secrets through it. Messages sent while no attempt ran, and the message a
+person interrupted you for, are listed in your prompt instead, each with its
+number.
+
+### Every message needs a reply
+
+Reply to each message, whether it came through the inbox or your prompt, as
+soon as you have read it, then keep working with it in mind. A reply is one
+outbox file addressed to the orchestrator whose `reply_to` is the message's
+`seq`, saying what you understood and what you will do differently:
+
+```sh
+dir="$(git rev-parse --show-toplevel)/.kuayle/outbox"
+mkdir -p "$dir"
+cat > "$dir/.reply-3.json" <<'JSON'
+{"to":"orchestrator","reply_to":3,"body":"Understood: tests for the empty list too. I am adding them to list_test.go before finishing the pagination."}
+JSON
+mv "$dir/.reply-3.json" "$dir/reply-3.json"
+```
+
+Only that counts as a reply: text in your final message, a file without
+`reply_to`, or a `reply_to` that names no message you received does not.
+Kuayle enforces it, whatever agent you are:
+
+- `/run/kuayle/inbox/unanswered.json` (`{"unanswered":[3]}`) lists the
+  messages you still owe a reply to; it empties a few seconds after Kuayle
+  takes your reply. Check it before you finish.
+- Claude Code is not allowed to stop while it names a message.
+- An attempt that ends with a message unanswered **fails**, even when the work
+  is done, and the next attempt is given the message again.
+
 
 ## Delivery
 

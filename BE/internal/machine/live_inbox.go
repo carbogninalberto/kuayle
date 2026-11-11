@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -44,6 +45,16 @@ type liveInboxRuntime interface {
 	CloseLiveInbox(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun) error
 }
 
+// liveReplyGrace is how close to an attempt's end an inbox message may have
+// been written and still not been read: it is queued again instead.
+const liveReplyGrace = 20 * time.Second
+
+// liveReplyStore knows which of an attempt's messages still owe a reply.
+type liveReplyStore interface {
+	UnansweredLiveMessages(ctx context.Context, run uuid.UUID) ([]int64, error)
+	SettleLiveMessages(ctx context.Context, run uuid.UUID, grace time.Duration) ([]int64, error)
+}
+
 type liveInboxStore interface {
 	PendingLiveMessages(ctx context.Context, run uuid.UUID) ([]domain.AgentLiveMessage, error)
 	MarkLiveMessagesDelivered(ctx context.Context, run uuid.UUID, ids []uuid.UUID) (int, error)
@@ -63,6 +74,8 @@ func (m *Manager) startLiveChannel(ctx context.Context, machine *domain.DevMachi
 		defer done.Done()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
+		// What the inbox last said the attempt still owes a reply to.
+		owed := ""
 		for {
 			select {
 			case <-loopCtx.Done():
@@ -75,6 +88,11 @@ func (m *Manager) startLiveChannel(ctx context.Context, machine *domain.DevMachi
 			}
 			if err := m.deliverLiveInbox(tickCtx, machine, run); err != nil && !errors.Is(err, errLiveInboxUnavailable) && tickCtx.Err() == nil {
 				log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID, "event_type": "agent_live_messages.deliver"}).WithError(err).Warn("live messages could not be delivered")
+			}
+			if written, err := m.writeUnanswered(tickCtx, machine, run, owed); err == nil {
+				owed = written
+			} else if !errors.Is(err, errLiveInboxUnavailable) && tickCtx.Err() == nil {
+				log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID, "event_type": "agent_live_messages.unanswered"}).WithError(err).Warn("unanswered live messages could not be listed")
 			}
 			cancelTick()
 		}
@@ -116,6 +134,53 @@ func (m *Manager) deliverLiveInbox(ctx context.Context, machine *domain.DevMachi
 		_ = m.createEvent(ctx, machine, &run.ID, "agent", "agent_live_messages.delivered", map[string]any{"count": delivered})
 	}
 	return err
+}
+
+// writeUnanswered keeps the inbox's list of the messages the attempt still
+// owes a reply to (domain.AgentLiveUnansweredFile) current: Claude Code's
+// Stop hook reads it and does not let the agent stop while it names one. The
+// outbox was collected just before, so a reply written meanwhile counts. It
+// returns what the file now says; last is what it said before.
+func (m *Manager) writeUnanswered(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, last string) (string, error) {
+	runtime, ok := m.runtime.(liveInboxRuntime)
+	store, recording := m.store.(liveReplyStore)
+	if !ok || !recording {
+		return last, nil
+	}
+	seqs, err := store.UnansweredLiveMessages(ctx, run.ID)
+	if err != nil {
+		return last, err
+	}
+	if seqs == nil {
+		seqs = []int64{}
+	}
+	data, err := json.Marshal(map[string][]int64{"unanswered": seqs})
+	if err != nil {
+		return last, err
+	}
+	// An attempt that never owed a reply gets no file.
+	if string(data) == last || (last == "" && len(seqs) == 0) {
+		return last, nil
+	}
+	if err = runtime.WriteLiveInbox(ctx, machine, run, []domain.AgentLiveInboxFile{{Name: domain.AgentLiveUnansweredFile, Data: data}}); err != nil {
+		return last, err
+	}
+	return string(data), nil
+}
+
+// settleLiveMessages closes the ended attempt's side of the live channel and
+// returns the messages it received and never replied to.
+func (m *Manager) settleLiveMessages(ctx context.Context, run *domain.DevMachineAgentRun) []int64 {
+	store, ok := m.store.(liveReplyStore)
+	if !ok {
+		return nil
+	}
+	seqs, err := store.SettleLiveMessages(ctx, run.ID, liveReplyGrace)
+	if err != nil {
+		log.WithFields(log.Fields{"agent_run_id": run.ID, "event_type": "agent_live_messages.settle"}).WithError(err).Warn("live messages could not be settled")
+		return nil
+	}
+	return seqs
 }
 
 // closeLiveInbox removes the run's inbox writer once the attempt ended.
@@ -275,4 +340,5 @@ func (r *DockerRuntime) removeLiveInboxVolumes(ctx context.Context, filter strin
 var (
 	_ liveInboxRuntime = (*DockerRuntime)(nil)
 	_ liveInboxStore   = (*repository.DevMachineRepository)(nil)
+	_ liveReplyStore   = (*repository.DevMachineRepository)(nil)
 )

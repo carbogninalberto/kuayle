@@ -3151,7 +3151,6 @@
 	"assistant.agent_view_label": "Agenttråd för {identifier}",
 	"assistant.agent_view_breadcrumb": "Plats",
 	"assistant.agent_view_missing": "Den här agentuppgiften ingår inte i konversationen.",
-	"assistant.agent_view_finished": "Agenten är klar; nya meddelanden går till assistenten.",
 	"machines.size": "Storlek",
 	"machines.created": "Skapad",
 	"machines.last_activity": "Senaste aktivitet",
@@ -3853,5 +3852,9 @@
 	"notify.title.agent_task_finished": "Agentuppgift avslutad",
 	"notify.title.review_needed": "Granskning krävs",
 	"notify.title.issues_deleted": "Ärenden borttagna",
-	"notify.title.generic": "Ny avisering"
+	"notify.title.generic": "Ny avisering",
+	"tasks.live_state_replied": "Besvarat",
+	"tasks.live_state_unanswered": "Inget svar",
+	"tasks.live_interrupt_send": "Avbryt och skicka",
+	"tasks.live_start_send": "Skicka och starta nu"
 }
