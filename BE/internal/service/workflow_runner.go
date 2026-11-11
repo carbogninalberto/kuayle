@@ -401,9 +401,9 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 		if question == "" {
 			question = to.Label
 		}
-		return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: reason + "; waiting for approval: " + oneLine(question, 300), WakeAt: wake()}, "", "", nil
+		return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: reason + "; waiting for approval: " + oneLine(question, 300), WakeAt: wake(), NeedsPerson: true}, "", "", nil
 	case domain.WorkflowNodeMerge:
-		return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: reason + "; waiting for the pull request to be merged (ship it from chat or merge it on GitHub)", WakeAt: wake()}, "", "", nil
+		return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: reason + "; waiting for the pull request to be merged (ship it from chat or merge it on GitHub)", WakeAt: wake(), NeedsPerson: true}, "", "", nil
 	}
 	return repository.WorkflowEntry{}, "", "", ErrInvalidOperation
 }

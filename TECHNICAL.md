@@ -537,7 +537,7 @@ OpenCode brings its own providers, so it never runs on a model server: a `model_
 }
 ```
 
-Completed autonomous provider stdout/stderr is collected and redacted before persistence. JSON-line provider events are normalized into `dev_machine_events`.
+Completed autonomous provider stdout/stderr is collected and redacted before persistence. JSON-line provider events are normalized into `dev_machine_events`. A JSON event line over 16 KiB is stored with its long values cut instead of being dropped, the summary is the agent's final message and never its events, and a Claude Code, Codex or OpenCode run that exits 0 without a final message is recorded as failed; see [agent output](BE/docs/agent-tasks.md) ("Summary and final message").
 
 ## Execution Modes
 

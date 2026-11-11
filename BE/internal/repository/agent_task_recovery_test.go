@@ -235,6 +235,10 @@ func TestWorkflowFailureKeepsItsReason(t *testing.T) {
 			"Workflow · Automated review reached its limit of 3 visits after pull request published",
 		},
 		"native failure": {"Native coding iteration failed; stopping execution before retry", "Execution failed; runtime cleanup confirmed"},
+		"no final message": {
+			domain.NoFinalMessageReason("The harness reported an error: APIError: 429 overloaded"),
+			"The agent ended without a final message, so there is no summary of what it did. The harness reported an error: APIError: 429 overloaded",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, repo, ctx, task, _ := taskRecoveryFixture(t)

@@ -2067,6 +2067,143 @@ test('the top bar opens the agent thread as a readable session, linked by the UR
 	await expect(target).toHaveAccessibleName('Send to: Assistant');
 });
 
+// A Claude Code run that starts two subagents in parallel: their events name
+// the call that started them and arrive interleaved.
+function subagentRun() {
+	const at = (second: number) => `2026-10-26T10:01:${String(second).padStart(2, '0')}Z`;
+	const event = (type: string, parent: string | null, content: any[]) => ({
+		type,
+		message: { role: type, content },
+		parent_tool_use_id: parent,
+		session_id: 's-sub'
+	});
+	const call = (id: string, name: string, input: any) => [{ type: 'tool_use', id, name, input }];
+	const answer = (id: string, content: string, failed = false) => [
+		{ tool_use_id: id, type: 'tool_result', content, is_error: failed }
+	];
+	const lines: [any, number][] = [
+		[{ type: 'system', subtype: 'init', cwd: '/workspace/repo', model: 'claude-opus-5-5', session_id: 's-sub' }, 0],
+		[
+			event(
+				'assistant',
+				null,
+				call('toolu_be', 'Task', { description: 'Add the search endpoint', prompt: 'Add GET /search to the API.' })
+			),
+			1
+		],
+		[
+			event(
+				'assistant',
+				null,
+				call('toolu_fe', 'Task', { description: 'Add the search box', prompt: 'Add a search box to the list.' })
+			),
+			1
+		],
+		[event('assistant', 'toolu_be', call('toolu_be_1', 'Bash', { command: 'go test ./...' })), 2],
+		[event('assistant', 'toolu_fe', call('toolu_fe_1', 'Read', { file_path: 'src/List.svelte' })), 2],
+		[event('user', 'toolu_fe', answer('toolu_fe_1', 'File does not exist.', true)), 3],
+		[event('user', 'toolu_be', answer('toolu_be_1', 'ok')), 4],
+		[event('assistant', 'toolu_fe', [{ type: 'text', text: 'There is no list to add it to.' }]), 5],
+		[event('assistant', 'toolu_be', [{ type: 'text', text: 'Endpoint added.' }]), 6],
+		[event('user', null, answer('toolu_fe', 'The list component is missing.', true)), 7]
+	];
+	return lines.map(([value, second], i) => ({
+		id: i + 1,
+		agent_run_id: 'run-1',
+		stream: 'stdout',
+		sequence: i + 1,
+		content: JSON.stringify(value) + '\n',
+		truncated: false,
+		created_at: at(second)
+	}));
+}
+
+test('subagents are collapsed rows that open with the keyboard to what each one did', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	state.task = runningTask();
+	state.logs = subagentRun();
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const session = page.getByRole('region', { name: 'Agent session' });
+	const backend = session.getByRole('button', { name: /Add the search endpoint/ });
+	const frontend = session.getByRole('button', { name: /Add the search box/ });
+	// Two rows, closed: nothing a subagent did is in the way.
+	await expect(backend).toHaveAttribute('aria-expanded', 'false');
+	await expect(frontend).toHaveAttribute('aria-expanded', 'false');
+	await expect(session.getByText('Endpoint added.')).toBeHidden();
+	await expect(session.getByText('There is no list to add it to.')).toBeHidden();
+	await expect(session.getByRole('button', { name: /Used \d+ tools/ })).toHaveCount(0);
+	// One is still working, the other failed after 6 seconds.
+	await expect(backend).toHaveAccessibleName(/^Running: /);
+	await expect(frontend).toHaveAccessibleName(/^Failed: /);
+	await expect(frontend).toContainText('6s');
+
+	// Each opens from the keyboard to its own entries.
+	await frontend.focus();
+	await page.keyboard.press('Enter');
+	await expect(frontend).toHaveAttribute('aria-expanded', 'true');
+	await expect(session.getByText('There is no list to add it to.')).toBeVisible();
+	await expect(session.getByRole('button', { name: /Read: src\/List\.svelte/ })).toHaveAccessibleName(/^Failed: /);
+	await expect(session.getByText('The list component is missing.')).toBeVisible();
+	await expect(session.getByText('Endpoint added.')).toBeHidden();
+	await page.keyboard.press('Tab');
+	await page.keyboard.press('Shift+Tab');
+	await expect(frontend).toBeFocused();
+	await backend.focus();
+	await page.keyboard.press('Space');
+	await expect(backend).toHaveAttribute('aria-expanded', 'true');
+	await expect(session.getByText('Endpoint added.')).toBeVisible();
+	await expect(session.getByRole('button', { name: /Bash: go test/ })).toBeVisible();
+
+	// What arrives later lands in its group, which stays open and finishes.
+	const late = (id: number, value: any, second: number) => ({
+		id,
+		agent_run_id: 'run-1',
+		stream: 'stdout',
+		sequence: id,
+		content: JSON.stringify(value) + '\n',
+		truncated: false,
+		created_at: `2026-10-26T10:01:${second}Z`
+	});
+	state.logs = [
+		...state.logs,
+		late(
+			11,
+			{
+				type: 'assistant',
+				message: { content: [{ type: 'text', text: 'Tests cover the endpoint.' }] },
+				parent_tool_use_id: 'toolu_be'
+			},
+			10
+		),
+		late(
+			12,
+			{
+				type: 'user',
+				message: {
+					content: [{ tool_use_id: 'toolu_be', type: 'tool_result', content: 'Endpoint added, tests pass.' }]
+				},
+				parent_tool_use_id: null
+			},
+			13
+		)
+	];
+	emit('task.activity', {
+		task_id: 'task-1',
+		run_id: 'run-1',
+		log_id: 12,
+		stream: 'stdout',
+		truncated: false,
+		events: []
+	});
+	await expect(session.getByText('Tests cover the endpoint.')).toBeVisible();
+	await expect(backend).toHaveAttribute('aria-expanded', 'true');
+	await expect(backend).toHaveAccessibleName(/^Add the search endpoint/);
+	await expect(backend).toContainText('12s');
+	await backend.press('Enter');
+	await expect(backend).toHaveAttribute('aria-expanded', 'false');
+	await expect(session.getByText('Tests cover the endpoint.')).toBeHidden();
+});
+
 // An OpenCode run (`opencode run --format json`) as the manager stores it.
 function openCodeRun() {
 	const start = Date.parse('2026-10-26T10:01:00Z');
@@ -2268,10 +2405,7 @@ test('an unknown agent in the link says so and leads back to the assistant', asy
 	await expect(page).not.toHaveURL(/agent=/);
 });
 
-test('coding agent messages copy in full from the chat, the live thread and the session', async ({
-	page,
-	context
-}) => {
+test('coding agent messages copy in full from the chat, the live thread and the session', async ({ page, context }) => {
 	await context.grantPermissions(['clipboard-read', 'clipboard-write']);
 	const { state } = await fixture(page);
 	// Agent text is plain text: it is copied exactly as written, markup and all.
@@ -2294,7 +2428,11 @@ test('coding agent messages copy in full from the chat, the live thread and the 
 	await page.getByRole('button', { name: /^Agent · ENG-1/ }).click();
 	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
 	// The session's message is copied as it reads, without its Markdown markers.
-	await thread.getByRole('region', { name: 'Agent session' }).getByRole('article', { name: 'Agent' }).getByRole('button', copy).click();
+	await thread
+		.getByRole('region', { name: 'Agent session' })
+		.getByRole('article', { name: 'Agent' })
+		.getByRole('button', copy)
+		.click();
 	await expect.poll(clipboard).toBe('Up to date with main; next migration is 000116.');
 	const live = thread.getByRole('region', { name: 'Live messages' }).getByRole('listitem', { name: 'Agent' });
 	await live.getByRole('button', copy).click();

@@ -19,6 +19,7 @@
 	import type { Issue } from '$lib/types/issue';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
+	import { notificationTypeMessageKey } from '$lib/features/notifications/notification-labels';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import FullPageIssueView from '$lib/features/issues/FullPageIssueView.svelte';
 	import DueDatePickerPanel from '$lib/components/shared/DueDatePickerPanel.svelte';
@@ -41,7 +42,11 @@
 		CalendarDays,
 		Eye,
 		Tag,
-		RefreshCw
+		RefreshCw,
+		ShieldQuestion,
+		Bot,
+		GitPullRequest,
+		Trash2
 	} from '@lucide/svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
@@ -56,30 +61,8 @@
 
 	function getNotificationTypeLabel(type: string): string {
 		const normalizedType = normalizeNotificationType(type);
-		switch (normalizedType) {
-			case 'status_changed':
-				return m['inbox.type.status_changed']();
-			case 'assigned':
-				return m['inbox.type.assigned']();
-			case 'commented':
-				return m['inbox.type.commented']();
-			case 'mentioned':
-				return m['inbox.type.mentioned']();
-			case 'priority_changed':
-				return m['inbox.type.priority_changed']();
-			case 'issue_created':
-				return m['inbox.type.issue_created']();
-			case 'issue_updated':
-				return m['inbox.type.issue_updated']();
-			case 'due_date_changed':
-				return m['inbox.type.due_date_changed']();
-			case 'label_added':
-				return m['inbox.type.label_added']();
-			case 'cycle_changed':
-				return m['inbox.type.cycle_changed']();
-			default:
-				return normalizedType.replace(/_/g, ' ');
-		}
+		const key = notificationTypeMessageKey(normalizedType);
+		return key ? m[key]() : normalizedType.replace(/_/g, ' ');
 	}
 
 	const NOTIFICATION_TYPE_STYLE: Record<string, { icon: any; color: string; bg: string }> = {
@@ -92,7 +75,11 @@
 		issue_updated: { icon: Pencil, color: '#60a5fa', bg: 'rgba(59,130,246,0.18)' },
 		due_date_changed: { icon: CalendarDays, color: '#fbbf24', bg: 'rgba(245,158,11,0.18)' },
 		label_added: { icon: Tag, color: '#f472b6', bg: 'rgba(236,72,153,0.18)' },
-		cycle_changed: { icon: RefreshCw, color: '#2dd4bf', bg: 'rgba(20,184,166,0.18)' }
+		cycle_changed: { icon: RefreshCw, color: '#2dd4bf', bg: 'rgba(20,184,166,0.18)' },
+		approval_requested: { icon: ShieldQuestion, color: '#fbbf24', bg: 'rgba(245,158,11,0.18)' },
+		agent_task_finished: { icon: Bot, color: '#4ade80', bg: 'rgba(34,197,94,0.18)' },
+		review_needed: { icon: GitPullRequest, color: '#c084fc', bg: 'rgba(168,85,247,0.18)' },
+		issues_deleted: { icon: Trash2, color: '#f87171', bg: 'rgba(239,68,68,0.18)' }
 	};
 
 	function getTypeStyle(type: string) {
