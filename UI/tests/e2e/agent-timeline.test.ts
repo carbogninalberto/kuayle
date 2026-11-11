@@ -425,7 +425,9 @@ test('the step the task moves to opens and the one it left closes', async ({ pag
 	await expect(page.locator('#step-2').getByRole('article', { name: 'Plan' })).toBeVisible();
 	const viewport = page.getByLabel('Messages', { exact: true });
 	const scrollTop = () => viewport.evaluate((element) => element.scrollTop);
-	// (A wheel, as a person scrolls: the view follows new output only until then.)
+	// (A wheel, as a person scrolls: the view follows new output only until then.
+	// The view first has to have followed down, or there is nothing to scroll up.)
+	await expect.poll(scrollTop).toBeGreaterThan(0);
 	await viewport.hover();
 	await expect(async () => {
 		const top = await scrollTop();
