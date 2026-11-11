@@ -224,7 +224,19 @@ Claude Code stream-json, Codex `exec --json` and OpenCode `run --format json`
 become agent messages (sanitized Markdown), one-line tool chips paired with
 their results by id (expandable, long results behind "show more", failures
 marked), "Thought for Ns" markers without signatures and a compact session
-header; consecutive calls fold into "Ran N commands". OpenCode events carry
+header; consecutive calls fold into "Ran N commands". A Claude Code call that
+starts a subagent (`Task`/`Agent`) is one collapsed row with what it was asked,
+its status and duration: events carrying its id in `parent_tool_use_id` are
+kept under it in order, at any depth, and its `tool_result` is the subagent's
+answer (`is_error` marks the row failed). The line with that call is often too
+large to be recorded, so the row is also made from the `system` `task_started`
+event of a `local_agent` task (`tool_use_id`, `description`, `prompt`), or as a
+last resort from the first event naming the call. `task_*` events are not
+listed: a `task_notification` (`completed`, `stopped` or `failed`) ends a
+background subagent (`is_backgrounded`) or a call whose result was not
+recorded, and a `local_bash` task stays an ordinary chip. Once the run's
+`result` arrives, a call still without a result shows as finished without
+one. Codex and OpenCode output names no parent call, so their runs stay flat. OpenCode events carry
 their content in `part`: `text` and `reasoning` parts, `tool_use` parts keyed
 by `callID` (input, output or error, and the call's own `state.time` for its
 duration; `status: "error"` or a non-zero `metadata.exit` is a failure), a

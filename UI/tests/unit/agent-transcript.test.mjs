@@ -718,3 +718,463 @@ test('an oversized line between OpenCode events is marked and the rest still par
 	assert.equal(entries[4].tool.title, 'git push');
 	assert.equal(entries[7].ms, 9000);
 });
+
+// A Claude Code run whose orchestrator starts two subagents in parallel, in
+// the shape Claude Code stream-json has: every event names its session, and a
+// subagent's events carry the id of the call that started it.
+const subSecond = (second) => `2026-11-01T11:00:${String(second).padStart(2, '0')}Z`;
+const subEvent = (type, second, parent, content, extra = {}) =>
+	chunk(
+		{
+			type,
+			message: { role: type, content },
+			parent_tool_use_id: parent,
+			session_id: 's-sub',
+			uuid: `uuid-${second}-${parent ?? 'main'}`,
+			...extra
+		},
+		subSecond(second)
+	);
+const subCall = (id, name, input) => [{ type: 'tool_use', id, name, input }];
+const subAnswer = (id, content, failed = false) => [
+	{ tool_use_id: id, type: 'tool_result', content, is_error: failed }
+];
+// Claude Code's own account of a task (a subagent or a background command).
+const subTask = (subtype, second, fields) =>
+	chunk({ type: 'system', subtype, run_id: 'run-sub', session_id: 's-sub', ...fields }, subSecond(second));
+const subProgress = (second, task, call, description) =>
+	subTask('task_progress', second, {
+		task_id: task,
+		tool_use_id: call,
+		description,
+		last_tool_name: 'Bash',
+		subagent_type: 'general-purpose',
+		usage: { total_tokens: 1200, tool_uses: 1, duration_ms: 1000 }
+	});
+const subNotice = (second, task, call, status) =>
+	subTask('task_notification', second, {
+		task_id: task,
+		tool_use_id: call,
+		status,
+		summary: 'Summary of the task.',
+		output_file: '/tmp/tasks/out.txt'
+	});
+const subagentRun = () => [
+	chunk(
+		{
+			type: 'system',
+			subtype: 'init',
+			cwd: '/workspace/repo',
+			session_id: 's-sub',
+			model: 'claude-opus-5-5',
+			claude_code_version: '2.3.1',
+			tools: ['Task', 'Bash', 'Read']
+		},
+		subSecond(0)
+	),
+	subEvent('assistant', 1, null, [{ type: 'text', text: 'I will split this in two.' }]),
+	subEvent(
+		'assistant',
+		2,
+		null,
+		subCall('toolu_be', 'Task', {
+			description: 'Add the search endpoint',
+			prompt: 'Add GET /search to the API.',
+			subagent_type: 'general-purpose'
+		})
+	),
+	subEvent(
+		'assistant',
+		2,
+		null,
+		subCall('toolu_fe', 'Task', {
+			description: 'Add the search box',
+			prompt: 'Add a search box to the list.',
+			subagent_type: 'general-purpose'
+		})
+	),
+	subTask('task_started', 2, {
+		task_id: 'task-be',
+		tool_use_id: 'toolu_be',
+		task_type: 'local_agent',
+		subagent_type: 'general-purpose',
+		description: 'Add the search endpoint',
+		prompt: 'Add GET /search to the API.',
+		is_backgrounded: false,
+		spawn_depth: 1
+	}),
+	chunk({ type: 'system', subtype: 'background_tasks_changed', session_id: 's-sub' }, subSecond(2)),
+	subEvent('user', 3, 'toolu_be', [{ type: 'text', text: 'Add GET /search to the API.' }]),
+	subEvent('user', 3, 'toolu_fe', [{ type: 'text', text: 'Add a search box to the list.' }]),
+	subEvent('assistant', 4, 'toolu_be', subCall('toolu_be_1', 'Bash', { command: 'go test ./...' })),
+	subEvent('assistant', 4, 'toolu_fe', subCall('toolu_fe_1', 'Read', { file_path: 'src/List.svelte' })),
+	subEvent('user', 5, 'toolu_fe', subAnswer('toolu_fe_1', 'File does not exist.', true)),
+	subEvent('user', 6, 'toolu_be', subAnswer('toolu_be_1', 'ok')),
+	subEvent('assistant', 7, 'toolu_fe', [{ type: 'text', text: 'There is no list to add it to.' }]),
+	subEvent('assistant', 8, 'toolu_be', [{ type: 'text', text: 'Endpoint added.' }]),
+	chunk({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' }, session_id: 's-sub' }, subSecond(8)),
+	subEvent('user', 9, null, subAnswer('toolu_fe', 'The list component is missing.', true)),
+	subEvent('user', 12, null, subAnswer('toolu_be', 'Endpoint added, tests pass.')),
+	subEvent('assistant', 13, null, [{ type: 'text', text: 'The API is done; the search box is not.' }]),
+	chunk({ type: 'result', subtype: 'success', is_error: false, duration_ms: 13000, session_id: 's-sub' }, subSecond(13))
+];
+// What a reader sees of a list of blocks, without keys.
+const outline = (blocks) =>
+	blocks.map((block) => {
+		if (block.kind === 'subagent')
+			return { subagent: block.tool.title, status: block.status, inside: outline(block.blocks) };
+		if (block.kind === 'tool') return `${block.tool.title} (${block.tool.status})`;
+		if (block.kind === 'text' || block.kind === 'user') return `${block.kind}: ${block.text}`;
+		if (block.kind === 'events') return block.events.map((event) => event.type);
+		return block.kind;
+	});
+
+test('two parallel subagents are two groups, each with its own entries in order', () => {
+	const blocks = groupSession(parseAgentSession(subagentRun()));
+	assert.deepEqual(outline(blocks), [
+		'header',
+		'text: I will split this in two.',
+		{
+			subagent: 'Add the search endpoint',
+			status: 'done',
+			inside: ['user: Add GET /search to the API.', 'Bash: go test ./... (done)', 'text: Endpoint added.']
+		},
+		{
+			subagent: 'Add the search box',
+			status: 'failed',
+			inside: [
+				'user: Add a search box to the list.',
+				'Read: src/List.svelte (failed)',
+				'text: There is no list to add it to.'
+			]
+		},
+		['system.background_tasks_changed'],
+		'text: The API is done; the search box is not.',
+		'result'
+	]);
+	const [backend, frontend] = blocks.filter((block) => block.kind === 'subagent');
+	// Each group has its call's result and its own time.
+	assert.equal(backend.tool.output, 'Endpoint added, tests pass.');
+	assert.equal(backend.tool.started, subSecond(2));
+	assert.equal(backend.tool.ended, subSecond(12));
+	assert.equal(frontend.tool.output, 'The list component is missing.');
+	assert.equal(frontend.tool.ended, subSecond(9));
+});
+
+test('a subagent group fills as its events arrive and is running until its call returns', () => {
+	const all = subagentRun();
+	const groups = (count) =>
+		groupSession(parseAgentSession(all.slice(0, count))).filter((block) => block.kind === 'subagent');
+	// Started, nothing done yet: already a group.
+	assert.deepEqual(
+		groups(4).map((group) => [group.status, group.blocks.length]),
+		[
+			['running', 0],
+			['running', 0]
+		]
+	);
+	// One has failed, the other is still working.
+	assert.deepEqual(
+		groups(16).map((group) => group.status),
+		['running', 'failed']
+	);
+	assert.equal(groups(16)[0].blocks.length, 3);
+	// The same output cut at other places reads the same.
+	const text = all.map((line) => line.content).join('');
+	const pieces = [];
+	for (let i = 0; i < text.length; i += 97)
+		pieces.push({ stream: 'stdout', content: text.slice(i, i + 97), truncated: false });
+	const whole = [{ stream: 'stdout', content: text, truncated: false }];
+	assert.deepEqual(outline(groupSession(parseAgentSession(pieces))), outline(groupSession(parseAgentSession(whole))));
+	assert.deepEqual(outline(groupSession(parseAgentSession(pieces))), outline(groupSession(parseAgentSession(all))));
+});
+
+test('a subagent whose starting line was too large to record still gets its group', () => {
+	const run = [
+		subEvent('assistant', 1, null, [{ type: 'text', text: 'Starting the review.' }]),
+		// The call itself: stored as a marker because its prompt was long.
+		chunk('[Oversized output line omitted]', subSecond(2), { truncated: true }),
+		subTask('task_started', 2, {
+			task_id: 'task-rv',
+			tool_use_id: 'toolu_rv',
+			task_type: 'local_agent',
+			subagent_type: 'general-purpose',
+			description: 'Review the routes',
+			prompt: 'Review every route.',
+			is_backgrounded: true,
+			spawn_depth: 1
+		}),
+		subEvent('user', 3, null, subAnswer('toolu_rv', 'Started in the background.')),
+		subEvent('assistant', 4, null, [{ type: 'text', text: 'Meanwhile, the docs.' }]),
+		subEvent('assistant', 5, 'toolu_rv', subCall('toolu_rv_1', 'Bash', { command: 'ls routes' })),
+		subProgress(5, 'task-rv', 'toolu_rv', 'Listing the routes'),
+		subEvent('user', 6, 'toolu_rv', subAnswer('toolu_rv_1', 'routes.go')),
+		subEvent('assistant', 7, 'toolu_rv', [{ type: 'text', text: 'The routes are fine.' }])
+	];
+	const view = (events) => outline(groupSession(parseAgentSession(events)));
+	const group = {
+		subagent: 'Review the routes',
+		status: 'running',
+		inside: ['Bash: ls routes (done)', 'text: The routes are fine.']
+	};
+	// Between its calls a background subagent is still at work.
+	assert.deepEqual(view(run), ['text: Starting the review.', 'omitted', group, 'text: Meanwhile, the docs.']);
+	// Claude Code says how it ended; nothing of that is listed.
+	for (const [status, shown] of [
+		['completed', 'done'],
+		['stopped', 'done'],
+		['failed', 'failed']
+	]) {
+		const blocks = groupSession(parseAgentSession([...run, subNotice(20, 'task-rv', 'toolu_rv', status)]));
+		assert.deepEqual(outline(blocks)[2], { ...group, status: shown });
+		assert.equal(blocks[2].tool.started, subSecond(2));
+		assert.equal(blocks[2].tool.ended, subSecond(20));
+		assert.equal(blocks[2].tool.input, 'Review every route.');
+	}
+});
+
+test('events naming a call that was never recorded are grouped where the first one appears', () => {
+	const run = [
+		subEvent('assistant', 1, null, [{ type: 'text', text: 'Starting.' }]),
+		subEvent('assistant', 2, 'toolu_gone', [{ type: 'text', text: 'Looking at the routes.' }]),
+		subEvent('assistant', 3, null, [{ type: 'text', text: 'Meanwhile.' }]),
+		subEvent('assistant', 4, 'toolu_gone', subCall('toolu_x', 'Bash', { command: 'ls' })),
+		subEvent('user', 5, 'toolu_gone', subAnswer('toolu_x', 'routes.go'))
+	];
+	const view = (events) => outline(groupSession(parseAgentSession(events)));
+	const inside = ['text: Looking at the routes.', 'Bash: ls (done)'];
+	assert.deepEqual(view(run), [
+		'text: Starting.',
+		{ subagent: 'Agent', status: 'running', inside },
+		'text: Meanwhile.'
+	]);
+	// Progress is not listed and is not what was asked; the run ending ends it.
+	const finished = [
+		...run,
+		subProgress(6, 'task-gone', 'toolu_gone', 'Running ls'),
+		chunk({ type: 'result', subtype: 'success', is_error: false, duration_ms: 9000 }, subSecond(9))
+	];
+	assert.deepEqual(view(finished), [
+		'text: Starting.',
+		{ subagent: 'Agent', status: 'done', inside },
+		'text: Meanwhile.',
+		'result'
+	]);
+	assert.equal(groupSession(parseAgentSession(finished))[1].tool.ended, subSecond(9));
+});
+
+test('a background command stays a chip: its task events never make it a group', () => {
+	const shell = (task, call, parentTask) => ({
+		task_id: task,
+		tool_use_id: call,
+		task_type: 'local_bash',
+		description: 'npm run dev',
+		is_backgrounded: false,
+		...(parentTask ? { owned_by_subagent: true, parent_task_id: parentTask } : {})
+	});
+	const blocks = groupSession(
+		parseAgentSession([
+			subEvent('assistant', 1, null, subCall('toolu_a', 'Agent', { description: 'Start the app', prompt: 'Start.' })),
+			subTask('task_started', 1, {
+				task_id: 'task-a',
+				tool_use_id: 'toolu_a',
+				task_type: 'local_agent',
+				subagent_type: 'general-purpose',
+				description: 'Start the app',
+				prompt: 'Start.',
+				is_backgrounded: false,
+				spawn_depth: 1
+			}),
+			subEvent('assistant', 2, 'toolu_a', subCall('toolu_sh', 'Bash', { command: 'npm run dev' })),
+			subTask('task_started', 2, shell('task-sh', 'toolu_sh', 'task-a')),
+			subEvent('user', 3, 'toolu_a', subAnswer('toolu_sh', 'Running in the background.')),
+			subNotice(4, 'task-sh', 'toolu_sh', 'completed'),
+			subEvent('user', 5, null, subAnswer('toolu_a', 'The app is up.')),
+			subEvent('assistant', 6, null, subCall('toolu_top', 'Bash', { command: 'npm run build' })),
+			subTask('task_started', 6, shell('task-top', 'toolu_top')),
+			// Its result line was never recorded; Claude Code still says it failed.
+			subNotice(8, 'task-top', 'toolu_top', 'failed'),
+			subTask('task_updated', 8, { task_id: 'task-top', patch: { status: 'failed', end_time: 1794300008000 } }),
+			subTask('task_updated', 9, { task_id: 'task-unknown', patch: { status: 'killed', end_time: 1794300009000 } })
+		])
+	);
+	assert.deepEqual(outline(blocks), [
+		{ subagent: 'Start the app', status: 'done', inside: ['Bash: npm run dev (done)'] },
+		'Bash: npm run build (failed)',
+		['system.task_updated']
+	]);
+	assert.equal(blocks[1].tool.children, undefined);
+	assert.equal(blocks[1].tool.ended, subSecond(8));
+});
+
+test('once the run has finished nothing in it is still running', () => {
+	const run = [
+		subEvent('assistant', 1, null, subCall('toolu_1', 'Bash', { command: 'make' })),
+		subEvent('assistant', 2, null, [{ type: 'text', text: 'Built.' }]),
+		subEvent('assistant', 3, null, subCall('toolu_a', 'Agent', { description: 'Check the build', prompt: 'Check.' })),
+		subEvent('assistant', 4, 'toolu_a', subCall('toolu_a_1', 'Bash', { command: 'ls dist' }))
+	];
+	const live = groupSession(parseAgentSession(run));
+	assert.deepEqual(outline(live), [
+		'Bash: make (running)',
+		'text: Built.',
+		{ subagent: 'Check the build', status: 'running', inside: ['Bash: ls dist (running)'] }
+	]);
+	const done = groupSession(
+		parseAgentSession([
+			...run,
+			chunk({ type: 'result', subtype: 'success', is_error: false, duration_ms: 9000 }, subSecond(9))
+		])
+	);
+	assert.deepEqual(outline(done), [
+		'Bash: make (done)',
+		'text: Built.',
+		{ subagent: 'Check the build', status: 'done', inside: ['Bash: ls dist (done)'] },
+		'result'
+	]);
+	// Finished without a result: no output is invented, and no time for the chip.
+	assert.equal(done[0].tool.output, undefined);
+	assert.equal(done[0].tool.ended, undefined);
+	assert.equal(done[2].tool.ended, subSecond(9));
+});
+
+test('a subagent started by a subagent nests under it', () => {
+	const blocks = groupSession(
+		parseAgentSession([
+			subEvent(
+				'assistant',
+				1,
+				null,
+				subCall('toolu_a', 'Agent', { description: 'Review the change', prompt: 'Review.' })
+			),
+			subEvent(
+				'assistant',
+				2,
+				'toolu_a',
+				subCall('toolu_b', 'Agent', { description: 'Check the migration', prompt: 'Check.' })
+			),
+			subEvent('assistant', 3, 'toolu_b', subCall('toolu_c', 'Bash', { command: 'ls migrations' })),
+			subEvent('user', 4, 'toolu_b', subAnswer('toolu_c', '000116.sql')),
+			subEvent('user', 5, 'toolu_a', subAnswer('toolu_b', 'The migration is fine.')),
+			subEvent('assistant', 6, 'toolu_a', [{ type: 'text', text: 'Nothing to change.' }])
+		])
+	);
+	assert.deepEqual(outline(blocks), [
+		{
+			subagent: 'Review the change',
+			status: 'running',
+			inside: [
+				{ subagent: 'Check the migration', status: 'done', inside: ['Bash: ls migrations (done)'] },
+				'text: Nothing to change.'
+			]
+		}
+	]);
+});
+
+test('a subagent left running after its call returned keeps its group running', () => {
+	const events = [
+		subEvent('assistant', 1, null, subCall('toolu_bg', 'Agent', { description: 'Watch the build', prompt: 'Watch.' })),
+		subEvent('user', 2, null, subAnswer('toolu_bg', 'Started in the background.')),
+		subEvent('assistant', 3, 'toolu_bg', subCall('toolu_bg_1', 'Bash', { command: 'make build' })),
+		subEvent('user', 9, 'toolu_bg', subAnswer('toolu_bg_1', 'built'))
+	];
+	const group = (count) => groupSession(parseAgentSession(events.slice(0, count)))[0];
+	assert.equal(group(3).status, 'running');
+	assert.equal(group(4).status, 'done');
+	// Its time runs to the last thing it did, not to the call's early return.
+	assert.equal(group(4).tool.ended, subSecond(9));
+});
+
+test('a run without subagents has no groups and no nesting', () => {
+	const entries = parseAgentSession(claudeStream());
+	assert.ok(entries.every((entry) => entry.kind !== 'tool' || entry.tool.children === undefined));
+	assert.ok(groupSession(entries).every((block) => block.kind !== 'subagent'));
+});
+
+test('a subagent that has answered is finished, whatever its calls say', () => {
+	const started = (backgrounded) =>
+		subTask('task_started', 1, {
+			task_id: 'task-a',
+			tool_use_id: 'toolu_a',
+			task_type: 'local_agent',
+			subagent_type: 'general-purpose',
+			description: 'Check the build',
+			prompt: 'Check.',
+			is_backgrounded: backgrounded,
+			spawn_depth: 1
+		});
+	const spawn = subEvent(
+		'assistant',
+		1,
+		null,
+		subCall('toolu_a', 'Agent', { description: 'Check the build', prompt: 'Check.' })
+	);
+	// The result of this call was too large to be recorded.
+	const work = [
+		subEvent('assistant', 2, 'toolu_a', subCall('toolu_a_1', 'Bash', { command: 'cat dist/app.js' })),
+		chunk('[Oversized output line omitted]', subSecond(3), { truncated: true }),
+		subEvent('assistant', 4, 'toolu_a', subCall('toolu_a_2', 'Bash', { command: 'ls dist' })),
+		subEvent('user', 5, 'toolu_a', subAnswer('toolu_a_2', 'app.js'))
+	];
+	const group = (events) => groupSession(parseAgentSession(events)).find((block) => block.kind === 'subagent');
+	const calls = (block) => block.tool.children.map((entry) => `${entry.tool.title} (${entry.tool.status})`);
+	const finished = ['Bash: cat dist/app.js (done)', 'Bash: ls dist (done)'];
+
+	// In the foreground: its result ends it, in a run that is still going.
+	const answered = group([
+		spawn,
+		started(false),
+		...work,
+		subEvent('user', 6, null, subAnswer('toolu_a', 'The build is fine.'))
+	]);
+	assert.equal(answered.status, 'done');
+	assert.deepEqual(calls(answered), finished);
+	assert.equal(answered.tool.children[0].tool.output, undefined);
+
+	// In the background: running with its calls until Claude Code says it ended.
+	const early = subEvent('user', 1, null, subAnswer('toolu_a', 'Started in the background.'));
+	const working = group([spawn, started(true), early, ...work]);
+	assert.equal(working.status, 'running');
+	assert.deepEqual(calls(working), ['Bash: cat dist/app.js (running)', 'Bash: ls dist (done)']);
+	const notified = group([spawn, started(true), early, ...work, subNotice(7, 'task-a', 'toolu_a', 'completed')]);
+	assert.equal(notified.status, 'done');
+	assert.deepEqual(calls(notified), finished);
+});
+
+test('a starting line that arrives after its group was made fills that group', () => {
+	const spawn = subEvent(
+		'assistant',
+		6,
+		null,
+		subCall('toolu_late', 'Agent', { description: 'Review the routes', prompt: 'Review every route.' })
+	);
+	const work = [
+		subEvent('assistant', 3, 'toolu_late', subCall('toolu_late_1', 'Bash', { command: 'ls routes' })),
+		subEvent('user', 4, 'toolu_late', subAnswer('toolu_late_1', 'routes.go')),
+		subEvent('assistant', 5, null, [{ type: 'text', text: 'Meanwhile, the docs.' }])
+	];
+	const answer = subEvent('user', 8, null, subAnswer('toolu_late', 'The routes are fine.'));
+	const fromTask = subTask('task_started', 2, {
+		task_id: 'task-late',
+		tool_use_id: 'toolu_late',
+		task_type: 'local_agent',
+		subagent_type: 'general-purpose',
+		description: 'Routes',
+		prompt: 'Review.',
+		is_backgrounded: false,
+		spawn_depth: 1
+	});
+	for (const before of [[fromTask], []]) {
+		const first = groupSession(parseAgentSession([...before, ...work]));
+		const blocks = groupSession(parseAgentSession([...before, ...work, spawn, answer]));
+		assert.deepEqual(outline(blocks), [
+			{ subagent: 'Review the routes', status: 'done', inside: ['Bash: ls routes (done)'] },
+			'text: Meanwhile, the docs.'
+		]);
+		// The same row as before the line arrived: an open one stays open.
+		assert.equal(blocks[0].key, first[0].key);
+		assert.equal(blocks[0].tool.started, first[0].tool.started);
+		assert.match(blocks[0].tool.input, /Review every route\./);
+		assert.equal(blocks[0].tool.output, 'The routes are fine.');
+	}
+});
