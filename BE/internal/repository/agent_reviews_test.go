@@ -201,6 +201,11 @@ func TestReviewsAreIdempotentRunWithoutPushAndRecordFindings(t *testing.T) {
 	require.NotNil(t, found.Review)
 	require.Equal(t, "request_changes", *found.Review.Verdict)
 	require.Equal(t, "- `app.go:12` major: handle the error", *found.Review.Findings)
+	// The findings are proposed as a lesson of the reviewed task's repository,
+	// marked as an agent's text, and wait for a person.
+	var lesson domain.Lesson
+	require.NoError(t, db.Get(&lesson, `SELECT state,text,proposer,source_event,repository_full_name FROM workspace_lessons WHERE source_task_id=$1`, task.ID))
+	require.Equal(t, domain.Lesson{State: domain.LessonProposed, Text: "- `app.go:12` major: handle the error", Proposer: domain.LessonProposerAgent, SourceEvent: domain.LessonEventReview, Repository: "fixture/repo"}, lesson)
 	var events int
 	require.NoError(t, db.Get(&events, `SELECT count(*) FROM conversation_events WHERE conversation_id=$1 AND type='task.review_updated'`, *task.ConversationID))
 	require.Positive(t, events)

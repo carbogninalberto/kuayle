@@ -669,6 +669,17 @@ untrusted items through `task.live_message` conversation events and history
 Codex and OpenCode are told to poll the inbox by the `kuayle-live-channel`
 section of the `kuayle-agents` skill.
 
+[Workspace memory](BE/docs/agent-tasks.md#workspace-memory) (migration 149,
+`workspace_lessons`) keeps short lessons per repository. Agents propose them
+through the outbox (`{"to":"memory","lesson":"..."}`), and Kuayle proposes
+them from a person's live messages and review comments, reviews that
+requested changes and failed CI checks; nothing calls a model. Only a
+workspace owner or admin approves, edits, retires, drops or reorders them
+(`/memory/lessons`, session only, audited in `workspace_lesson_events`), and
+only approved lessons are returned by
+`WorkspaceMemoryService.ApprovedLessons`, bounded and with secrets redacted,
+for a task's prompt. A private team's lesson stays with that team.
+
 [Configurable workflows](BE/docs/agent-tasks.md#configurable-workflows)
 (migration 118) replace the fixed implement → validate → publish → review flow
 with a workspace's own state machines: agent profiles, immutable workflow

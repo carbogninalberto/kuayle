@@ -1301,6 +1301,10 @@ also logs "pull request #N published: <url>" there, as the task's creator,
 whenever an implementing task publishes, in the Standard flow and in
 workflows; a registry that is off or fails never affects the task.
 
+**Lessons.** A file with `"to":"memory"` and a `lesson` proposes a lesson for
+the repository's [workspace memory](#workspace-memory) instead of a message;
+only a refused one is recorded here.
+
 **Reading.** Every non-guest workspace member reads the messages whose sending
 issue they can see; the recipient is named only when they can see it too.
 
@@ -1434,6 +1438,103 @@ or the machine is torn down (`Teardown` removes the machine's inbox volumes).
 Rolling migration 95 back drops the live channel's messages. Rolling migration
 134 back removes `message_task` approvals and the `request_id` column; messages
 already delivered are kept.
+
+## Workspace memory
+
+Migration 149 adds short lessons per repository (KUA-134): how to run the
+checks, conventions, known traps. Kuayle and agents only **propose** lessons;
+a workspace owner or admin approves, edits or drops each proposal, and only
+approved lessons, as that person left them, are ever handed to an agent.
+Putting them in a task's prompt is one call,
+`service.WorkspaceMemoryService.ApprovedLessons(ctx, task)`; the prompt
+assembly calls it when the notebook and memory parts of KUA-134 are joined.
+
+**Storage.** `workspace_lessons` holds one lesson per row: the workspace, the
+repository (`repository_full_name`, matched case-insensitively through
+`repository_key`, the same identity as `dev_machine_checkouts` and
+`repository_merge_methods`), the `state` (`proposed`, `approved`, `retired`,
+`dropped`), `text` (what agents see once approved) and `proposed_text` (what
+was proposed, never changed), the source (`source_event`: `task`,
+`correction`, `review`, `ci` or `manual`; `proposer`: `agent`, `kuayle` or
+`person`; `source_task_id`; `proposed_by`), who decided and when, the prompt
+`position` and a `dedupe_key`. `workspace_lesson_events` records every
+proposal and decision (`proposed`, `added`, `approved`, `edited`, `shared`,
+`retired`, `dropped`, `reordered`) with the actor and a detail.
+
+**Limits** (`domain/workspace_memory.go`). A lesson is one line of at most 400
+characters. A repository has at most 30 approved lessons and 50 waiting
+proposals; a task proposes at most 3 lessons per kind of event. The block
+placed in a prompt is at most 4,000 bytes: lessons are taken whole, in
+order, until the next one does not fit.
+
+**Proposals.** Nothing calls a language model; each trigger uses text that
+already exists, cut to one lesson when longer, for a person to edit:
+
+| Trigger | Source | `source_event` / `proposer` |
+| --- | --- | --- |
+| A task ends | The agent writes `{"to":"memory","lesson":"..."}` to its [outbox](#agent-messaging) | `task` / `agent` |
+| A person corrects an agent | Their own [live message](#live-channel) to the task (not the orchestrator's) or their [issue comment](#kuayle-issue-comments) on work in review | `correction` / `person` |
+| A review fails | A requested agent review that ends with `request_changes` (its findings), or a trusted GitHub change request (its summary) | `review` / `agent` or `kuayle` |
+| CI fails | A failed or timed-out check on the published commit: `CI check "<name>" failed: <summary>` | `ci` / `kuayle` |
+
+Each proposal is recorded in the transaction of the event that caused it,
+inside a savepoint, so a failure to propose never fails the event. The
+repository is the one of the task's checkout; a task without a checkout
+proposes nothing. The same subject is proposed once per repository, whatever
+became of the first proposal (a CI check by its name, anything else by its
+text without regard to case and spacing), so a check that fails every day is
+one row and a dropped proposal does not come back. An outbox lesson that is
+malformed, too long, over the task's limit, from a review task or from a task
+that ended is refused and recorded as a refused message to `MEMORY` in the
+[message registry](#agent-messaging), within the task's hourly message budget;
+an accepted lesson is a proposal, never a message.
+
+**Trust.** An agent's lesson and review findings are stored as written by an
+agent and reach nobody's prompt as they are: approving is a person's act, and
+what is handed on is the `text` of the approved row. A lesson is retired
+(`approved` → `retired`) or dropped (`proposed` → `dropped`) for good; both
+states are final.
+
+**Scope and private teams.** A lesson that came from a private team's task
+keeps that team (`team_id`): only people who can see the team see it
+(`kuayle_team_access`), and only that team's tasks receive it. Any other
+lesson belongs to the workspace: every non-guest member sees it and every
+task on the repository receives it. An owner or admin can share a private
+team's lesson with the workspace (`workspace_wide`), which is audited. Today
+a workspace with private teams cannot have development machines, so such
+lessons cannot yet arise from tasks; the rule is enforced in the queries all
+the same.
+
+**API** (session only, under `/api/workspaces/:slug`). Non-guest members read
+and propose by hand; only current owners and admins decide, re-checked inside
+each writing transaction.
+
+| Route | Who | Effect |
+| --- | --- | --- |
+| `GET /memory/lessons?repository=&state=` | members | Lessons the caller can see, with `can_manage` and the limits; approved ones in prompt order |
+| `POST /memory/lessons` `{repository, text}` | members | A lesson written by hand for a connected repository: approved at once for an owner or admin, a proposal otherwise |
+| `POST /memory/lessons/:lessonId/approve` `{text?}` | owners, admins | `proposed` → `approved`, optionally with edited text, placed last |
+| `PUT /memory/lessons/:lessonId` `{text?, workspace_wide?}` | owners, admins | Edit a proposed or approved lesson; share a private team's lesson |
+| `POST /memory/lessons/:lessonId/retire` | owners, admins | `approved` → `retired` |
+| `POST /memory/lessons/:lessonId/drop` | owners, admins | `proposed` → `dropped` |
+| `PUT /memory/lessons/order` `{repository, ids}` | owners, admins | Prompt order; `ids` names every approved lesson once |
+| `GET /memory/lessons/:lessonId/audit` | owners, admins | The lesson's audit trail, newest first |
+
+Refusals: `403` for guests and non-members (and members on decisions), `404`
+for a lesson of another workspace or of a team the caller cannot see, `400`
+`INVALID_LESSON`, `LESSON_REPOSITORY`, `LESSON_ORDER`, and `409`
+`LESSON_STATE`, `LESSON_LIMIT`, `LESSON_PENDING_LIMIT`, `LESSON_DUPLICATE`.
+
+**In a prompt.** `ApprovedLessons(ctx, task)` resolves the repository of the
+task's checkout and returns a heading and one `- ` line per approved lesson,
+or `""` when there is none or no checkout yet.
+`ApprovedLessonsForRepository(ctx, workspaceID, teamID, repository, machineID)`
+does the same for a known repository. Both redact the machine's secret values
+(the values run output is redacted with) and well-known credential formats
+(the release scan's rules), and fail rather than return unredacted text when
+the secrets cannot be read.
+
+Rolling migration 149 back drops the lessons and their audit trail.
 
 ## Configurable workflows
 
