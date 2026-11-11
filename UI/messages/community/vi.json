@@ -3447,7 +3447,7 @@
 	"workflows.editor.tab_outline": "Đại cương",
 	"workflows.editor.tab_settings": "Cài đặt",
 	"workflows.editor.empty_title": "Chưa chọn gì",
-	"workflows.editor.empty_hint": "Nhấp vào một bước hoặc một chuyển tiếp để sửa. Nhấp chuột phải vào canvas, một bước hoặc một chuyển tiếp để xem các thao tác, dùng dấu + dưới một bước để thêm bước kế tiếp, hoặc kéo từ cạnh dưới của một bước sang bước khác để nối chúng.",
+	"workflows.editor.empty_hint": "Nhấp vào một bước hoặc một chuyển tiếp để sửa.",
 	"workflows.editor.saved_state": "Đã lưu mọi thay đổi",
 	"workflows.editor.block_review": "Đánh giá tự động",
 	"workflows.editor.retry": "Thử lại khi thất bại",

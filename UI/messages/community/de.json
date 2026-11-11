@@ -3447,7 +3447,7 @@
 	"workflows.editor.tab_outline": "Gliederung",
 	"workflows.editor.tab_settings": "Einstellungen",
 	"workflows.editor.empty_title": "Nichts ausgewählt",
-	"workflows.editor.empty_hint": "Klicke auf einen Schritt oder Übergang, um ihn zu bearbeiten. Rechtsklick auf Canvas, Schritt oder Übergang zeigt Aktionen, mit dem + unter einem Schritt fügst du den nächsten hinzu, oder ziehe von der Unterkante eines Schritts auf einen anderen, um sie zu verbinden.",
+	"workflows.editor.empty_hint": "Klicke auf einen Schritt oder Übergang, um ihn zu bearbeiten.",
 	"workflows.editor.saved_state": "Alle Änderungen gespeichert",
 	"workflows.editor.block_review": "Automatisiertes Review",
 	"workflows.editor.retry": "Bei Fehler wiederholen",

@@ -3447,7 +3447,7 @@
 	"workflows.editor.tab_outline": "Estrutura",
 	"workflows.editor.tab_settings": "Configurações",
 	"workflows.editor.empty_title": "Nada selecionado",
-	"workflows.editor.empty_hint": "Clique em uma etapa ou transição para editá-la. Clique com o botão direito no canvas, em uma etapa ou em uma transição para ver as ações, use o + sob uma etapa para adicionar a próxima, ou arraste da borda inferior de uma etapa até outra para conectá-las.",
+	"workflows.editor.empty_hint": "Clique em uma etapa ou transição para editá-la.",
 	"workflows.editor.saved_state": "Todas as alterações salvas",
 	"workflows.editor.block_review": "Revisão automatizada",
 	"workflows.editor.retry": "Tentar novamente em caso de falha",

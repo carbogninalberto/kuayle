@@ -3447,7 +3447,7 @@
 	"workflows.editor.tab_outline": "アウトライン",
 	"workflows.editor.tab_settings": "設定",
 	"workflows.editor.empty_title": "何も選択されていません",
-	"workflows.editor.empty_hint": "ステップまたは遷移をクリックして編集します。キャンバス、ステップ、遷移を右クリックすると操作が表示されます。ステップの下の + で次のステップを追加でき、ステップの下端から別のステップにドラッグすると接続できます。",
+	"workflows.editor.empty_hint": "ステップまたは遷移をクリックして編集します。",
 	"workflows.editor.saved_state": "すべての変更を保存しました",
 	"workflows.editor.block_review": "自動レビュー",
 	"workflows.editor.retry": "失敗時に再試行",
