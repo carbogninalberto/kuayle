@@ -3460,7 +3460,7 @@
 	"workflows.editor.tab_outline": "Rangka",
 	"workflows.editor.tab_settings": "Tetapan",
 	"workflows.editor.empty_title": "Tiada yang dipilih",
-	"workflows.editor.empty_hint": "Klik langkah atau peralihan untuk menyuntingnya. Klik kanan kanvas, langkah atau peralihan untuk tindakan, gunakan + di bawah langkah untuk menambah yang seterusnya, atau seret dari tepi bawah langkah ke langkah lain untuk menyambungkannya.",
+	"workflows.editor.empty_hint": "Klik langkah atau peralihan untuk menyuntingnya.",
 	"workflows.editor.saved_state": "Semua perubahan disimpan",
 	"workflows.editor.block_review": "Semakan automatik",
 	"workflows.editor.retry": "Cuba semula apabila gagal",

@@ -3460,7 +3460,7 @@
 	"workflows.editor.tab_outline": "大纲",
 	"workflows.editor.tab_settings": "设置",
 	"workflows.editor.empty_title": "未选择任何内容",
-	"workflows.editor.empty_hint": "点击步骤或转换进行编辑。右键点击画布、步骤或转换可查看操作，使用步骤下方的 + 添加下一步，或从步骤底部拖到另一个步骤以连接。",
+	"workflows.editor.empty_hint": "点击步骤或转换进行编辑。",
 	"workflows.editor.saved_state": "所有更改已保存",
 	"workflows.editor.block_review": "自动审查",
 	"workflows.editor.retry": "失败时重试",

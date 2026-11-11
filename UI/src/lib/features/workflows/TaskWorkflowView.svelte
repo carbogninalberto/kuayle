@@ -6,9 +6,9 @@
 	import { workflows, type TaskWorkflow, type WorkflowDecision } from '$lib/api/workflows';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
-	import WorkflowCanvas from './WorkflowCanvas.svelte';
+	import WorkflowCanvas, { CHART_PADDING } from './WorkflowCanvas.svelte';
 	import { conditionLabel, statusLabel } from './labels';
-	import { pendingDecision, runOverlay } from './workflow-graph';
+	import { leftToRight, pendingDecision, runOverlay, scrollTo } from './workflow-graph';
 
 	// A task's workflow run: the graph with the current step highlighted, the
 	// path taken with visit counts and why each transition fired, and the
@@ -65,6 +65,22 @@
 	const nodeLabel = (id: string | null | undefined) =>
 		(id && run?.graph.nodes.find((n) => n.id === id)?.label) || id || '';
 	const steps = $derived(run ? [...run.steps].sort((a, b) => a.sequence - b.sequence) : []);
+
+	// The chart runs left to right at a readable size and scrolls sideways when
+	// the panel is narrower; it opens on the step the task is at.
+	const chart = $derived(run ? leftToRight(run.graph) : null);
+	const zoom = $derived(compact ? 0.8 : 1);
+	let scroller = $state<HTMLDivElement>();
+	let width = $state(0);
+	let shownNode = '';
+	$effect(() => {
+		if (!scroller || !chart || !run || run.node === shownNode) return;
+		// Hidden (no width) there is nothing to centre: wait until it shows.
+		const left = scrollTo(chart, run.node, { width, zoom, padding: CHART_PADDING });
+		if (left === undefined) return;
+		scroller.scrollLeft = left;
+		shownNode = run.node;
+	});
 
 	async function decide(choice: WorkflowDecision) {
 		if (!decision || deciding) return;
@@ -140,13 +156,26 @@
 			</div>
 		{/if}
 
-		{#if overlay}<WorkflowCanvas
-				graph={run.graph}
-				profiles={run.profiles}
-				run={overlay}
-				label={m['workflows.task.title']()}
-				class={compact ? 'h-72' : 'h-[420px]'}
-			/>{/if}
+		{#if overlay && chart}<!-- A scroll area must be reachable from the keyboard to be scrolled with it. -->
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+			<div
+				bind:this={scroller}
+				bind:clientWidth={width}
+				class="flex overflow-x-auto overscroll-x-contain rounded-lg border bg-muted/20 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				role="group"
+				aria-label={m['workflows.task.title']()}
+				tabindex="0"
+				data-testid="task-workflow-chart"
+			>
+				<WorkflowCanvas
+					graph={chart}
+					profiles={run.profiles}
+					run={overlay}
+					label={m['workflows.task.title']()}
+					class="mx-auto"
+					{zoom}
+				/>
+			</div>{/if}
 
 		{#if steps.length > 0}
 			<section aria-labelledby="task-workflow-path-{taskId}" class="space-y-1">

@@ -3460,7 +3460,7 @@
 	"workflows.editor.tab_outline": "Struttura",
 	"workflows.editor.tab_settings": "Impostazioni",
 	"workflows.editor.empty_title": "Nessuna selezione",
-	"workflows.editor.empty_hint": "Fai clic su un passaggio o una transizione per modificarlo. Fai clic destro sul canvas, su un passaggio o su una transizione per le azioni, usa il + sotto un passaggio per aggiungere il successivo, oppure trascina dal bordo inferiore di un passaggio su un altro per collegarli.",
+	"workflows.editor.empty_hint": "Fai clic su un passaggio o una transizione per modificarlo.",
 	"workflows.editor.saved_state": "Tutte le modifiche salvate",
 	"workflows.editor.block_review": "Revisione automatica",
 	"workflows.editor.retry": "Riprova se fallisce",

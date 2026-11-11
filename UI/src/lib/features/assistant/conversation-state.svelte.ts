@@ -35,6 +35,8 @@ export class ConversationState {
 	taskSignalCursor = $state<Record<string, number>>({});
 	// Bumped when a review of the task changes; the task card reloads its sessions.
 	taskReviewCursor = $state<Record<string, number>>({});
+	// Bumped when a task's workflow moves (a step entered, a wait that ended).
+	taskWorkflowCursor = $state<Record<string, number>>({});
 	// What the conversation's coding agents sent it, oldest first. Agent text
 	// is untrusted: it is only ever shown as plain text.
 	agentMessages = $state<AgentLiveChatMessage[]>([]);
@@ -145,6 +147,9 @@ export class ConversationState {
 				this.acceptAgentMessages([message]);
 				if (!known && message.kind === 'question') this.onAgentQuestion?.(message);
 			}
+		} else if (event.type === 'task.workflow_updated') {
+			const data = event.payload as { task_id: string };
+			this.taskWorkflowCursor = { ...this.taskWorkflowCursor, [data.task_id]: event.cursor };
 		} else if (event.type === 'task.review_updated') {
 			this.reviewChanged((event.payload as { task_id: string }).task_id);
 		} else if (event.type === 'task.publication_updated') {

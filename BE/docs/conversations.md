@@ -217,6 +217,39 @@ newest task), with a breadcrumb back to the assistant; the task's step in the
 transcript and its Background tasks row open the same view. While it is open
 the one composer is aimed at that agent (live if running, otherwise read at
 its next iteration) and a question's answer button sits under the question.
+
+The thread is a timeline of the task's workflow steps, oldest first
+([agent-timeline.ts](../../UI/src/lib/features/assistant/agent-timeline.ts),
+from `GET /agent-tasks/:taskId/workflow`): one line per step with its name,
+the profile and harness that ran it, the model, the visit when it is not the
+first, how long it took (the start time on hover) and a status icon. An agent
+step opens to its work; a step that is not an agent's (start, publish, check,
+approval, merge, end) is a compact row that opens only when the runner
+recorded a detail for it. The step an agent is running is open and streams;
+with none running the last agent step is open; the others are closed until
+the reader opens them. A finished run shows its final message first, as
+Markdown, and the trace that led to it below; a planning step shows its plan
+instead. A reviewer step shows its review task's run and links to that task's
+own agent view (`?agent=<review task id>`, read by id because the conversation
+does not list reviews). A task without a workflow is one step per attempt,
+from `/runs`. Each section's element id is stable (`step-<sequence>`, or
+`run-<run id>` without a workflow), and a link with that fragment opens the
+step. The request and a prompt in the session are clamped with "Expand" in
+place; the original output is behind the terminal toggle under each run. The
+harness name and the start time are read out with the line and shown in a
+tooltip on hover or keyboard focus.
+
+The steps reload on the task's events (`task.state_changed`, `task.updated`,
+`task.workflow_updated`, `task.review_updated`). As a fallback for missed
+events the workflow is polled every 15 s while a step runs and every 2 min
+while it waits (approval, CI, a paused or blocked task), and not at all once
+it is done or failed; reloads send `summaries_since`. A run's output is read
+once when its step is opened; only the run that is going follows
+`task.activity`, so finished runs left open do not refetch while another
+streams. A run the task was just given and that is not recorded yet (`404`)
+is waited for; "records no longer available" is only said for a task that
+ended.
+
 The readable session is parsed in the browser from the run's recorded log
 chunks (the same `/runs/:runId/logs` pages the task card reads, refreshed on
 `task.activity`) by [agent-transcript.ts](../../UI/src/lib/features/assistant/agent-transcript.ts):

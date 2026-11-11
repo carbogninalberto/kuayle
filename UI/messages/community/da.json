@@ -3460,7 +3460,7 @@
 	"workflows.editor.tab_outline": "Disposition",
 	"workflows.editor.tab_settings": "Indstillinger",
 	"workflows.editor.empty_title": "Intet valgt",
-	"workflows.editor.empty_hint": "Klik på et trin eller en overgang for at redigere det. Højreklik på lærredet, et trin eller en overgang for handlinger, brug + under et trin for at tilføje det næste, eller træk fra et trins nederste kant til et andet for at forbinde dem.",
+	"workflows.editor.empty_hint": "Klik på et trin eller en overgang for at redigere det.",
 	"workflows.editor.saved_state": "Alle ændringer gemt",
 	"workflows.editor.block_review": "Automatiseret review",
 	"workflows.editor.retry": "Prøv igen ved fejl",

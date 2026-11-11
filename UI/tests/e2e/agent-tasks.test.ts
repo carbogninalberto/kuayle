@@ -2494,8 +2494,9 @@ test('an OpenCode run reads as a session: Markdown messages and one chip per too
 	const session = page.getByRole('region', { name: 'Agent session' });
 	const messages = session.getByRole('article', { name: 'Agent' });
 	await expect(messages).toHaveCount(2);
-	await expect(messages.first().locator('strong')).toHaveText('search');
-	await expect(messages.last().getByRole('listitem')).toHaveText(['filter added', 'tests pass']);
+	// The run has finished: its final message leads, the rest follows (KUA-126).
+	await expect(messages.first().getByRole('listitem')).toHaveText(['filter added', 'tests pass']);
+	await expect(messages.last().locator('strong')).toHaveText('search');
 	await expect(session.getByText('Finished in 9s')).toBeVisible();
 	// No native JSON in the readable view; what is not understood stays inspectable.
 	await expect(session.getByText('step_finish', { exact: false })).toHaveCount(0);

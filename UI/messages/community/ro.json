@@ -3460,7 +3460,7 @@
 	"workflows.editor.tab_outline": "Structură",
 	"workflows.editor.tab_settings": "Setări",
 	"workflows.editor.empty_title": "Nimic selectat",
-	"workflows.editor.empty_hint": "Fă clic pe un pas sau pe o tranziție pentru a-l edita. Clic dreapta pe canvas, pe un pas sau pe o tranziție pentru acțiuni, folosește + de sub un pas pentru a adăuga următorul sau trage din marginea de jos a unui pas peste altul pentru a le conecta.",
+	"workflows.editor.empty_hint": "Fă clic pe un pas sau pe o tranziție pentru a-l edita.",
 	"workflows.editor.saved_state": "Toate modificările sunt salvate",
 	"workflows.editor.block_review": "Revizuire automată",
 	"workflows.editor.retry": "Reîncearcă la eșec",

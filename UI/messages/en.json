@@ -3460,7 +3460,7 @@
 	"workflows.editor.tab_outline": "Outline",
 	"workflows.editor.tab_settings": "Settings",
 	"workflows.editor.empty_title": "Nothing selected",
-	"workflows.editor.empty_hint": "Click a step or a transition to edit it. Right-click the canvas, a step or a transition for actions, use the + under a step to add the next one, or drag from a step's bottom edge onto another to connect them.",
+	"workflows.editor.empty_hint": "Click a step or a transition to edit it.",
 	"workflows.editor.saved_state": "All changes saved",
 	"workflows.editor.block_review": "Automated review",
 	"workflows.editor.retry": "Retry on failure",

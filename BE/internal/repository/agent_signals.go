@@ -122,6 +122,13 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 	if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.signal_recorded", signal); err != nil {
 		return nil, err
 	}
+	// A trusted GitHub review that requested changes proposes its summary as
+	// a lesson for the repository's memory, marked as external text: its
+	// author has write access on GitHub, which is not workspace membership.
+	// CI failures propose nothing: a check's name and summary are no lesson.
+	if in.Kind == "review" && in.Outcome == "changes_requested" && in.Trusted {
+		suggestLesson(ctx, r.db, tx, lessonProposal{TaskID: task.ID, Event: domain.LessonEventReview, Proposer: domain.LessonProposerExternal, Text: in.Summary})
+	}
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}

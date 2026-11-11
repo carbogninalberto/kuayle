@@ -176,6 +176,8 @@ export interface WorkflowStep {
 	review_task_id?: string | null;
 	outcome?: string | null;
 	detail: string;
+	/** The plan a planning step produced, whole. */
+	plan?: string | null;
 	decided_by?: string | null;
 	entered_at: string;
 	finished_at?: string | null;
@@ -191,6 +193,27 @@ export interface WorkflowPauseEvent {
 	/** Absent when a requested pause took effect by itself. */
 	actor_id?: string | null;
 	at: string;
+}
+
+/**
+ * One agent run of a task, on the workflow step that started it: an agent
+ * step's own runs, or the runs of the review task a reviewer step created
+ * (task_id is then that review task).
+ */
+export interface WorkflowStepRun {
+	id: string;
+	task_id: string;
+	/** The step's sequence; absent for a task that follows no workflow. */
+	step?: number | null;
+	provider: string;
+	model: string;
+	status: string;
+	/** The agent's final message, when its harness reported one. */
+	summary?: string | null;
+	summary_truncated?: boolean;
+	created_at: string;
+	started_at?: string | null;
+	completed_at?: string | null;
 }
 
 export type WorkflowStatus = 'running' | 'waiting' | 'paused' | 'done' | 'failed';
@@ -209,6 +232,8 @@ export interface TaskWorkflow {
 	iterations: number;
 	sequence: number;
 	steps: WorkflowStep[];
+	/** Every run on its step, oldest first; absent on older servers. */
+	runs?: WorkflowStepRun[];
 	profiles: AgentProfile[];
 	can_decide: boolean;
 	task_state: string;
@@ -259,7 +284,14 @@ export const workflows = {
 	/** workflow_id "standard" chooses Standard; null makes a team or project inherit. */
 	setDefault: (slug: string, scope: WorkflowScope, scopeId: string, workflowId: string | null) =>
 		api.put<WorkflowList>(`${base(slug)}/workflow-defaults`, { scope, scope_id: scopeId, workflow_id: workflowId }),
-	task: (slug: string, taskId: string) => api.get<TaskWorkflow>(task(slug, taskId)),
+	/**
+	 * summariesSince is the newest completion time the caller already has:
+	 * summaries of runs finished by then are final and are not sent again.
+	 */
+	task: (slug: string, taskId: string, summariesSince?: string) =>
+		api.get<TaskWorkflow>(
+			`${task(slug, taskId)}${summariesSince ? `?summaries_since=${encodeURIComponent(summariesSince)}` : ''}`
+		),
 	decide: (slug: string, taskId: string, sequence: number, decision: WorkflowDecision) =>
 		api.post<{ task_id: string; state: string; workflow_sequence: number }>(`${task(slug, taskId)}/decision`, {
 			sequence,

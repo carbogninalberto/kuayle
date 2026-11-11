@@ -3460,7 +3460,7 @@
 	"workflows.editor.tab_outline": "מבנה",
 	"workflows.editor.tab_settings": "הגדרות",
 	"workflows.editor.empty_title": "לא נבחר דבר",
-	"workflows.editor.empty_hint": "לחצו על שלב או מעבר כדי לערוך אותו. לחצו קליק ימני על הקנבס, על שלב או על מעבר לפעולות, השתמשו ב-+ מתחת לשלב כדי להוסיף את הבא, או גררו מהקצה התחתון של שלב אל אחר כדי לחבר ביניהם.",
+	"workflows.editor.empty_hint": "לחצו על שלב או מעבר כדי לערוך אותו.",
 	"workflows.editor.saved_state": "כל השינויים נשמרו",
 	"workflows.editor.block_review": "סקירה אוטומטית",
 	"workflows.editor.retry": "ניסיון חוזר בכשל",

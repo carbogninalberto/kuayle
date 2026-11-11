@@ -19,7 +19,7 @@
 	const flow = useSvelteFlow();
 	api = {
 		toFlow: (client) => flow.screenToFlowPosition(client),
-		fit: () => void flow.fitView({ padding: 0.25, maxZoom: 1, duration: 200 }),
+		fit: () => void flow.fitView({ padding: 0.1, maxZoom: 1, duration: 200 }),
 		zoomIn: () => void flow.zoomIn({ duration: 150 }),
 		zoomOut: () => void flow.zoomOut({ duration: 150 })
 	};

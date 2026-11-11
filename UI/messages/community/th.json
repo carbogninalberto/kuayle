@@ -3460,7 +3460,7 @@
 	"workflows.editor.tab_outline": "โครงร่าง",
 	"workflows.editor.tab_settings": "การตั้งค่า",
 	"workflows.editor.empty_title": "ไม่ได้เลือกอะไร",
-	"workflows.editor.empty_hint": "คลิกขั้นตอนหรือการเปลี่ยนสถานะเพื่อแก้ไข คลิกขวาที่แคนวาส ขั้นตอน หรือการเปลี่ยนสถานะเพื่อดูการดำเนินการ ใช้ + ใต้ขั้นตอนเพื่อเพิ่มขั้นตอนถัดไป หรือลากจากขอบล่างของขั้นตอนไปยังอีกขั้นตอนเพื่อเชื่อมต่อ",
+	"workflows.editor.empty_hint": "คลิกขั้นตอนหรือการเปลี่ยนสถานะเพื่อแก้ไข",
 	"workflows.editor.saved_state": "บันทึกการเปลี่ยนแปลงทั้งหมดแล้ว",
 	"workflows.editor.block_review": "รีวิวอัตโนมัติ",
 	"workflows.editor.retry": "ลองใหม่เมื่อล้มเหลว",
