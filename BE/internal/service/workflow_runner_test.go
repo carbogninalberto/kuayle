@@ -68,6 +68,10 @@ func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowAp
 		if current.FinishedAt == nil {
 			current.FinishedAt = &w.now
 		}
+		if apply.Plan != "" || apply.PlanFailed {
+			plan := apply.Plan
+			current.Plan = &plan
+		}
 	}
 	result := repository.ComputeWorkflowApply(w.task, apply, w.now)
 	for i := range result.Steps {
@@ -127,6 +131,14 @@ func (s worldStore) LatestWorkflowReview(_ context.Context, _ domain.AgentTask) 
 			if review := s.w.reviews[*step.ReviewTaskID]; review.Findings != nil {
 				return *review.Findings, nil
 			}
+		}
+	}
+	return "", nil
+}
+func (s worldStore) LatestWorkflowPlan(_ context.Context, _ domain.AgentTask) (string, error) {
+	for seq := s.w.task.WorkflowSequence; seq > 0; seq-- {
+		if step := s.w.steps[seq]; step != nil && step.Plan != nil {
+			return *step.Plan, nil
 		}
 	}
 	return "", nil
@@ -221,8 +233,8 @@ func newWorkflowHarness(t *testing.T, budget domain.WorkflowBudget) *workflowHar
 		checks:  map[uuid.UUID][]PullRequestCheck{},
 		version: domain.WorkflowVersion{ID: versionID, Graph: raw},
 		profiles: map[uuid.UUID]domain.AgentProfile{
-			implementer: {ID: implementer, Name: "Implementer", Role: domain.AgentRoleImplementer, Harness: "claude-code", Instructions: "Write tests."},
-			reviewer:    {ID: reviewer, Name: "Reviewer", Role: domain.AgentRoleReviewer, Harness: "codex", Model: "gpt-5.5", Instructions: "Be strict."},
+			implementer: {ID: implementer, Name: "Implementer", Role: "Implementer", Behaviour: domain.AgentBehaviourChangesCode, Harness: "claude-code", Instructions: "Write tests."},
+			reviewer:    {ID: reviewer, Name: "Reviewer", Role: "Reviewer", Behaviour: domain.AgentBehaviourReviews, Harness: "codex", Model: "gpt-5.5", Instructions: "Be strict."},
 		},
 	}
 	h := &workflowHarness{t: t, w: world, reviewer: reviewer}
@@ -288,8 +300,9 @@ func (h *workflowHarness) agentFinishes(summary string) {
 	if h.w.task.State == "queued" {
 		h.w.task.State = "running" // preparation and native start
 	}
-	h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{Status: "succeeded", Summary: summary, ChangedFiles: []string{"ui/theme.ts"}}
-	require.NoError(h.t, h.runner.Outcome(context.Background(), h.w.task, domain.WorkflowAgentFinished, ""))
+	changed := true
+	h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{Status: "succeeded", Summary: summary, FinalMessage: true, ChangedFiles: []string{"ui/theme.ts"}, WorktreeChanged: &changed, WorktreeFiles: []string{"ui/theme.ts"}}
+	require.NoError(h.t, h.runner.AgentFinished(context.Background(), h.w.task))
 }
 
 func (h *workflowHarness) published() {
@@ -711,9 +724,10 @@ func TestWorkflowRunnerNeverPassesCIWithoutGitHub(t *testing.T) {
 func TestWorkflowInstructionsKeepProfileTextOnlyForHarnessesWithoutProfileFiles(t *testing.T) {
 	node := domain.WorkflowNode{ID: "implement", Label: "Implement"}
 	for harness, inPrompt := range map[string]bool{"claude-code": false, "codex": false, "opencode": false, "goose": true} {
-		got := workflowInstructions("Project rules", domain.AgentProfile{Name: "Implementer", Role: domain.AgentRoleImplementer, Harness: harness, Instructions: "Write tests."}, node)
+		got := workflowInstructions("Project rules", domain.AgentProfile{Name: "Implementer", Role: "Senior engineer", Behaviour: domain.AgentBehaviourChangesCode, Harness: harness, Instructions: "Write tests."}, node)
 		require.Contains(t, got, "Project rules", harness)
 		require.Equal(t, inPrompt, strings.Contains(got, "Write tests."), harness)
+		require.Equal(t, inPrompt, strings.Contains(got, `Agent profile "Implementer" (Senior engineer):`), harness)
 	}
 }
 

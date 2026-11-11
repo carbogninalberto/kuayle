@@ -83,6 +83,13 @@ type WorkflowApply struct {
 	// ExtendBudget grants another iteration and time budget of the same size
 	// (a person continued past a budget limit).
 	ExtendBudget bool
+	// Plan is the plan the step being closed produced (a planning step that
+	// finished), stored whole on it.
+	Plan string
+	// PlanFailed: the step being closed is a planning step that failed. It
+	// stores an empty plan, so the plan of an earlier visit is no longer the
+	// task's latest and is not handed to the agents after it.
+	PlanFailed bool
 }
 
 func workflowEvent(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) error {
@@ -390,6 +397,11 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 		task.ID, apply.Sequence, apply.Outcome, truncateBytes(apply.Detail, 16000), apply.Actor); err != nil {
 		return err
 	}
+	if (apply.Plan != "" || apply.PlanFailed) && !apply.Hold {
+		if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET plan=$3 WHERE task_id=$1 AND sequence=$2`, task.ID, apply.Sequence, apply.Plan); err != nil {
+			return err
+		}
+	}
 	result := ComputeWorkflowApply(*task, apply, time.Now())
 	for _, step := range result.Steps {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_task_workflow_steps(task_id,sequence,node_id,node_type,visit,from_node,edge_id,condition,reason,outcome,detail,finished_at)
@@ -693,6 +705,18 @@ func (r *AgentTaskRepository) LatestWorkflowReview(ctx context.Context, task dom
 	return findings.String, err
 }
 
+// LatestWorkflowPlan returns the plan of the newest planning step that
+// finished, whole, for the next agents' {{plan}}: empty when that step
+// failed, whatever an earlier visit produced.
+func (r *AgentTaskRepository) LatestWorkflowPlan(ctx context.Context, task domain.AgentTask) (string, error) {
+	var plan string
+	err := r.db.GetContext(ctx, &plan, `SELECT plan FROM agent_task_workflow_steps WHERE task_id=$1 AND plan IS NOT NULL ORDER BY sequence DESC LIMIT 1`, task.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return plan, err
+}
+
 // WorkflowCI is the CI the current attempt's published commit reported
 // through webhooks. GitHub only sends completed check suites, so Passed never
 // proves that nothing is still running: the runner reads the commit's full
@@ -760,23 +784,40 @@ type WorkflowRun struct {
 	Status       string
 	Summary      string
 	ChangedFiles []string
+	// FinalMessage: Summary is the final message the harness reported, not
+	// its raw output; SummaryTruncated: that message was cut to fit.
+	FinalMessage     bool
+	SummaryTruncated bool
+	// WorktreeChanged is whether the run changed the task's worktree
+	// (uncommitted changes and commits alike), from Kuayle's own comparison
+	// before and after it; nil when it could not be made. WorktreeFiles
+	// lists what changed.
+	WorktreeChanged *bool
+	WorktreeFiles   []string
 }
 
 func (r *AgentTaskRepository) WorkflowRun(ctx context.Context, task domain.AgentTask) (*WorkflowRun, error) {
 	var row struct {
-		Status  string          `db:"status"`
-		Summary *string         `db:"summary"`
-		Files   json.RawMessage `db:"changed_files"`
+		Status    string          `db:"status"`
+		Summary   *string         `db:"summary"`
+		Files     json.RawMessage `db:"changed_files"`
+		Final     bool            `db:"final_message"`
+		Truncated bool            `db:"summary_truncated"`
+		Changed   *bool           `db:"worktree_changed"`
+		Worktree  json.RawMessage `db:"worktree_changed_files"`
 	}
-	err := r.db.GetContext(ctx, &row, `SELECT status::text AS status,summary,changed_files FROM dev_machine_agent_runs WHERE id=$1 AND task_id=$2`, task.RunID, task.ID)
+	err := r.db.GetContext(ctx, &row, `SELECT status::text AS status,summary,changed_files,worktree_changed,worktree_changed_files,
+ COALESCE(result->>'final_message','')='true' AS final_message,COALESCE(result->>'summary_truncated','')='true' AS summary_truncated
+ FROM dev_machine_agent_runs WHERE id=$1 AND task_id=$2`, task.RunID, task.ID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return &WorkflowRun{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	run := &WorkflowRun{Status: row.Status}
+	run := &WorkflowRun{Status: row.Status, FinalMessage: row.Final, SummaryTruncated: row.Truncated, WorktreeChanged: row.Changed}
 	_ = json.Unmarshal(row.Files, &run.ChangedFiles)
+	_ = json.Unmarshal(row.Worktree, &run.WorktreeFiles)
 	if row.Summary != nil {
 		run.Summary = *row.Summary
 	}
@@ -891,7 +932,7 @@ func (r *AgentTaskRepository) ProfileBundle(ctx context.Context, task domain.Age
 	if err != nil {
 		return nil, err
 	}
-	bundle := &domain.AgentProfileBundle{Name: profile.Name, Role: profile.Role, Instructions: profile.Instructions, Skills: []domain.AgentProfileSkill{}}
+	bundle := &domain.AgentProfileBundle{Name: profile.Name, Role: profile.Role, Behaviour: profile.Behaviour, Instructions: profile.Instructions, Skills: []domain.AgentProfileSkill{}}
 	err = r.db.SelectContext(ctx, &bundle.Skills, `SELECT s.name AS name,s.description AS description,s.body AS body FROM agent_profile_skills ps
  JOIN assistant_skills s ON s.id=ps.skill_id AND s.workspace_id=ps.workspace_id
  WHERE ps.profile_id=$1 AND ps.workspace_id=$2 AND s.team_id IS NULL AND s.status='active' AND s.enabled ORDER BY ps.position`, profile.ID, task.WorkspaceID)

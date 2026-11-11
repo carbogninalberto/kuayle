@@ -7,7 +7,7 @@
 # release commits the official image ships, with golang.org/x/net raised to a
 # version without the HIGH advisories the upstream binaries still carry (same
 # approach as the Caddy builds). Build flags follow the upstream release builds.
-FROM golang:1.26.10-alpine AS runtime-builder
+FROM golang:1.26.11-alpine AS runtime-builder
 RUN apk add --no-cache git gcc musl-dev libseccomp-dev libseccomp-static linux-headers pkgconf
 ARG RUNC_VERSION=1.5.2
 ARG RUNC_COMMIT=29dd3dc2b13b4123162e5fe132504bb4b15569f1

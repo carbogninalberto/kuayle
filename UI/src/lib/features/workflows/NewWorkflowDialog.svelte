@@ -9,7 +9,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
 	import { nodeTypeLabel } from './labels';
-	import { starterGraph } from './workflow-graph';
+	import { starterGraph, starterProfile } from './workflow-graph';
 
 	// Creates a workflow from a template. Blank starts with one agent step run
 	// by the built-in Implementer; the other templates are built by the server.
@@ -40,10 +40,9 @@
 			const input: WorkflowSaveInput = { name: name.trim(), description: description.trim() };
 			if (template === 'blank') {
 				const { profiles } = await agentProfiles.list(slug);
-				const implementer = profiles.find((p) => p.builtin_key === 'implementer' && !p.archived_at);
 				input.graph = starterGraph(
 					{ start: nodeTypeLabel('start'), agent: nodeTypeLabel('agent'), end: nodeTypeLabel('end') },
-					implementer?.id
+					starterProfile(profiles)?.id
 				);
 			} else input.template = template;
 			const created = await workflows.create(slug, input);

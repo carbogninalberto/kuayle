@@ -16,13 +16,24 @@ import {
 	runOverlay,
 	placeIssues,
 	removeNode,
-	starterGraph
+	starterGraph,
+	starterProfile
 } from '../../src/lib/features/workflows/workflow-graph.ts';
 
 const profiles = [
-	{ id: 'impl', role: 'implementer' },
-	{ id: 'rev', role: 'reviewer' }
+	{ id: 'impl', role: 'Implementer', behaviour: 'changes_code' },
+	{ id: 'rev', role: 'Reviewer', behaviour: 'reviews' },
+	// The role is only a label: this one plans, whatever it is called.
+	{ id: 'plan', role: 'reviewer', behaviour: 'plans' }
 ];
+
+test('a planning step runs like an iteration: finished or failed, never a verdict or a timeout', () => {
+	assert.deepEqual(conditionsFor({ id: 'p', type: 'agent', profile_id: 'plan', timeout_minutes: 5 }, profiles), [
+		'agent_finished',
+		'agent_failed',
+		'else'
+	]);
+});
 
 test('a reviewer step offers verdicts, an implementer step finished/failed', () => {
 	assert.deepEqual(conditionsFor({ id: 'r', type: 'agent', profile_id: 'rev' }, profiles), [
@@ -260,6 +271,16 @@ test('retry on failure loops the failure back to the step and back to Failed whe
 	assert.equal(setRetry(graph, 'start', true, profiles), graph, 'only agent and publish steps retry');
 });
 
+test('a blank workflow starts with a profile that changes code', () => {
+	const builtin = { id: 'b', behaviour: 'changes_code', builtin_key: 'implementer' };
+	const other = { id: 'o', behaviour: 'changes_code' };
+	assert.equal(starterProfile([other, builtin])?.id, 'b', 'the built-in implementer first');
+	// A built-in implementer that was turned into a planner or a reviewer is not one.
+	assert.equal(starterProfile([{ ...builtin, behaviour: 'reviews' }, other])?.id, 'o');
+	assert.equal(starterProfile([{ ...builtin, behaviour: 'plans' }, { ...other, archived_at: '2026-01-01' }]), undefined);
+	assert.equal(starterProfile([{ ...builtin, archived_at: '2026-01-01' }, other])?.id, 'o');
+});
+
 test('an automated review block runs the reviewer and retries if it fails', () => {
 	const graph = {
 		nodes: [{ id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } }],
@@ -268,7 +289,7 @@ test('an automated review block runs the reviewer and retries if it fails', () =
 	};
 	const { graph: next, id } = reviewBlock(graph, 'Automated review', [
 		...profiles,
-		{ id: 'rev2', role: 'reviewer', builtin_key: 'reviewer' }
+		{ id: 'rev2', role: 'Reviewer', behaviour: 'reviews', builtin_key: 'reviewer' }
 	]);
 	const node = next.nodes.find((n) => n.id === id);
 	assert.equal(node.profile_id, 'rev2', 'the built-in reviewer first');

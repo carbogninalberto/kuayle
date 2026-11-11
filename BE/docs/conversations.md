@@ -220,11 +220,17 @@ its next iteration) and a question's answer button sits under the question.
 The readable session is parsed in the browser from the run's recorded log
 chunks (the same `/runs/:runId/logs` pages the task card reads, refreshed on
 `task.activity`) by [agent-transcript.ts](../../UI/src/lib/features/assistant/agent-transcript.ts):
-Claude Code stream-json and Codex `exec --json` become agent messages
-(sanitized Markdown), one-line tool chips paired with their results by id
-(expandable, long results behind "show more", failures marked), "Thought for
-Ns" markers without signatures and a compact session header; consecutive
-calls fold into "Ran N commands". Oversized or limit-truncated lines say so,
+Claude Code stream-json, Codex `exec --json` and OpenCode `run --format json`
+become agent messages (sanitized Markdown), one-line tool chips paired with
+their results by id (expandable, long results behind "show more", failures
+marked), "Thought for Ns" markers without signatures and a compact session
+header; consecutive calls fold into "Ran N commands". OpenCode events carry
+their content in `part`: `text` and `reasoning` parts, `tool_use` parts keyed
+by `callID` (input, output or error, and the call's own `state.time` for its
+duration; `status: "error"` or a non-zero `metadata.exit` is a failure), a
+`step_finish` with `reason: "stop"` as the end of the run, and a top-level
+`error` whose `error.data.message` is shown, or a pause when it is the
+provider's usage limit. Oversized or limit-truncated lines say so,
 unknown events and plain output stay visible as escaped text, and "Raw" shows
 the original output. The task card's Execution output uses the same view.
 

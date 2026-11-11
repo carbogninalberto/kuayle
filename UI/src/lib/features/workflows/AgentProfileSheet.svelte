@@ -9,10 +9,12 @@
 	import {
 		agentProfiles,
 		type AgentProfile,
+		AGENT_BEHAVIOURS,
+		type AgentBehaviour,
 		type AgentProfileInput,
-		type AgentProfileList,
-		type AgentRole
+		type AgentProfileList
 	} from '$lib/api/workflows';
+	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
 	import { agentModelCatalog } from '$lib/api/dev-machines';
 	import type { AgentModelCatalog, ThinkingLevel } from '$lib/types/dev-machine';
 	import { appToast } from '$lib/features/toast/toast';
@@ -22,14 +24,14 @@
 	import { AGENT_EFFORT, effortChoice } from '$lib/features/agents/model-choice';
 	import { allowedEfforts, catalogStatus, effortAfterModelChange } from '$lib/features/agents/model-catalog';
 	import ModelCombobox from '$lib/features/agents/ModelCombobox.svelte';
-	import { roleLabel } from './labels';
+	import { behaviourLabel } from './labels';
 	import { modelFormat, profileSubmission, takesModel } from './profile-model';
 	import ProfileSkills from './ProfileSkills.svelte';
 	import AiMarkdownEditor from './AiMarkdownEditor.svelte';
 	import InfoHint from '$lib/components/shared/InfoHint.svelte';
 
-	// One agent profile in a side panel: who the agent is (role, coding agent,
-	// model, effort) and its Markdown instructions, written with a preview.
+	// One agent profile in a side panel: who the agent is (its name and role,
+	// what it does, coding agent, model, effort) and its Markdown instructions, written with a preview.
 	// Members see it read-only; the server enforces who may save.
 	let {
 		slug,
@@ -54,7 +56,8 @@
 			profile === 'new'
 				? {
 						name: '',
-						role: 'implementer',
+						role: '',
+						behaviour: 'changes_code',
 						harness: list.harnesses[0] ?? '',
 						model: '',
 						effort: '',
@@ -63,7 +66,8 @@
 					}
 				: {
 						name: profile.name,
-						role: profile.role,
+						role: profile.role ?? '',
+						behaviour: profile.behaviour,
 						harness: profile.harness,
 						model: profile.model,
 						effort: profile.effort,
@@ -75,6 +79,7 @@
 	let saving = $state(false);
 
 	const editable = $derived(list.can_manage);
+	const behaviourOptions = $derived(list.behaviours?.length ? list.behaviours : AGENT_BEHAVIOURS);
 	const bytes = $derived(new TextEncoder().encode(draft.instructions).length);
 	const tooLong = $derived(bytes > MAX_INSTRUCTIONS);
 	const harnessOptions = $derived.by(() => {
@@ -146,7 +151,7 @@
 	// Refusals the server explains with a code get a translated message.
 	function profileError(error: unknown) {
 		const code = (error as { error?: { code?: string } }).error?.code;
-		if (code === 'PROFILE_ROLE_IN_USE') appToast.error(m['profiles.role_in_use']());
+		if (code === 'PROFILE_BEHAVIOUR_IN_USE') appToast.error(m['profiles.behaviour_in_use']());
 		else if (code === 'PROFILE_IN_USE') appToast.error(m['profiles.in_use']());
 		else appToast.apiError(error, m['profiles.failed_save']());
 	}
@@ -186,7 +191,7 @@
 								>{/if}
 						</Sheet.Title>
 						<Sheet.Description class="text-xs"
-							>{roleLabel(draft.role)} · {agentInfo(draft.harness).name}</Sheet.Description
+							>{draft.role.trim() || behaviourLabel(draft.behaviour)} · {agentInfo(draft.harness).name}</Sheet.Description
 						>
 					</div>
 				</div>
@@ -194,30 +199,46 @@
 
 			<div class="min-h-0 flex-1 space-y-8 overflow-y-auto px-6 py-5">
 				<section class="space-y-4" aria-labelledby="profile-agent">
-					<div class="flex items-center gap-1">
-						<h3 id="profile-agent" class="text-sm font-medium">{m['profiles.section_agent']()}</h3>
-						<InfoHint text={m['profiles.dialog_desc']()} />
-					</div>
-					<div class="space-y-1.5">
-						<Label for="profile-name">{m['profiles.name']()}</Label>
-						<Input
-							id="profile-name"
-							bind:value={draft.name}
-							maxlength={80}
-							required
-							autocomplete="off"
-							disabled={!editable}
-						/>
-					</div>
+					<h3 id="profile-agent" class="text-sm font-medium">{m['profiles.section_agent']()}</h3>
 					<div class="grid gap-3 sm:grid-cols-2">
 						<div class="space-y-1.5">
-							<Label for="profile-role">{m['profiles.role']()}</Label>
-							<SelectField
-								id="profile-role"
+							<Label for="profile-name">{m['profiles.name']()}</Label>
+							<Input
+								id="profile-name"
+								bind:value={draft.name}
+								maxlength={80}
+								required
+								autocomplete="off"
 								disabled={!editable}
-								bind:value={() => draft.role, (value: string) => (draft.role = value as AgentRole)}
-								options={list.roles.map((role) => ({ value: role, label: roleLabel(role) }))}
 							/>
+						</div>
+						<div class="space-y-1.5">
+							<Label for="profile-role">{m['profiles.role']()}</Label>
+							<Input id="profile-role" bind:value={draft.role} maxlength={40} autocomplete="off" disabled={!editable} />
+						</div>
+						<div class="space-y-1.5 sm:col-span-2">
+							<Label id="profile-behaviour-label">{m['profiles.behaviour']()}</Label>
+							<ToggleGroup.Root
+								type="single"
+								variant="outline"
+								class="w-full"
+								aria-labelledby="profile-behaviour-label"
+								data-testid="profile-behaviour"
+								disabled={!editable}
+								bind:value={
+									() => draft.behaviour,
+									(value: string) => {
+										// One is always chosen: clicking the chosen one keeps it.
+										if (value) draft.behaviour = value as AgentBehaviour;
+									}
+								}
+							>
+								{#each behaviourOptions as behaviour (behaviour)}
+									<ToggleGroup.Item value={behaviour} class="flex-1" data-testid="profile-behaviour-{behaviour}"
+										>{behaviourLabel(behaviour)}</ToggleGroup.Item
+									>
+								{/each}
+							</ToggleGroup.Root>
 						</div>
 						<div class="space-y-1.5">
 							<Label for="profile-harness">{m['profiles.harness']()}</Label>

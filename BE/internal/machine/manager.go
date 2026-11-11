@@ -1295,6 +1295,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if run.Mode != "interactive" {
 		stopLive = m.startLiveChannel(runContext, machine, run)
 	}
+	worktreeBefore := m.worktreeBefore(ctx, machine, run, runServices, checkout)
 	execution, executionErr := m.runtime.RunAgent(runContext, machine, run, providerRecord, checkout, secrets.Environment, observer)
 	stopLive()
 	if used := secrets.Environment[signInSecretNames[run.ProviderID]]; used != "" {
@@ -1369,6 +1370,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		result.ChangedFiles = gitState.ChangedFiles
 		run.Diff, run.DiffTruncated = gitState.Diff, gitState.DiffTruncated
 	}
+	m.recordWorktreeChange(ctx, machine, run, services, checkout, worktreeBefore)
 	resultJSON, _ := json.Marshal(result)
 	resultRaw := json.RawMessage(resultJSON)
 	changedFiles, _ := json.Marshal(result.ChangedFiles)

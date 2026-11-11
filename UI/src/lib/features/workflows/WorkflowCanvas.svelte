@@ -17,7 +17,7 @@
 	import FlowBridge, { type FlowApi } from './FlowBridge.svelte';
 	import LoopEdge from './LoopEdge.svelte';
 	import type { WorkflowNodeType } from '$lib/api/workflows';
-	import { conditionLabel, issueLabel, roleLabel } from './labels';
+	import { conditionLabel, issueLabel, profileTitle } from './labels';
 	import { layering, placeIssues, type Block, type FiredTransition } from './workflow-graph';
 
 	// The workflow graph on a Svelte Flow canvas, editable or read-only. The
@@ -78,9 +78,7 @@
 		switch (node.type) {
 			case 'agent': {
 				const profile = profiles.find((p) => p.id === node.profile_id);
-				if (!profile) return '';
-				const role = roleLabel(profile.role);
-				return profile.name === role ? profile.name : `${profile.name} · ${role}`;
+				return profile ? profileTitle(profile) : '';
 			}
 			case 'check':
 				return node.check === 'ci' ? m['workflows.editor.check_ci']() : m['workflows.editor.check_tests']();

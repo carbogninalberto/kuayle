@@ -26,11 +26,12 @@ var (
 	// ErrAgentProfileSkill: a skill to attach is not an active, workspace-wide
 	// skill of the workspace.
 	ErrAgentProfileSkill = errors.New("skill cannot be attached to an agent profile")
-	// ErrAgentProfileRoleInUse: a saved workflow version uses the profile, and
-	// its role decides how that version runs (reviewer or implementing step,
-	// which transitions leave it), so the role cannot change.
-	ErrAgentProfileRoleInUse = errors.New("agent profile role is fixed by the workflows that use it")
-	ErrWorkflowScopeNotFound = errors.New("workflow default scope not found")
+	// ErrAgentProfileBehaviourInUse: a saved workflow version uses the
+	// profile, and its behaviour decides how that version runs (a plan, an
+	// iteration or a review, and which transitions leave the step), so the
+	// behaviour cannot change. Its role is only a label and always can.
+	ErrAgentProfileBehaviourInUse = errors.New("agent profile behaviour is fixed by the workflows that use it")
+	ErrWorkflowScopeNotFound      = errors.New("workflow default scope not found")
 	// ErrWorkflowInUse: a task that can still move runs a version of the
 	// workflow, so it cannot be deleted yet.
 	ErrWorkflowInUse = errors.New("workflow is used by an active task")
@@ -86,18 +87,18 @@ func uniqueViolation(err error) bool {
 }
 
 // Built-in profiles every workspace starts with.
-var builtinProfiles = []struct{ key, name, role, instructions string }{
-	{domain.AgentRoleImplementer, "Implementer", domain.AgentRoleImplementer, "Implement the issue completely, with tests for changed behaviour. Keep changes focused."},
-	{domain.AgentRoleReviewer, "Reviewer", domain.AgentRoleReviewer, "Review the change for correctness, security, tests and clarity. Request changes only for problems that matter."},
+var builtinProfiles = []struct{ key, name, behaviour, instructions string }{
+	{domain.AgentBuiltinImplementer, "Implementer", domain.AgentBehaviourChangesCode, "Implement the issue completely, with tests for changed behaviour. Keep changes focused."},
+	{domain.AgentBuiltinReviewer, "Reviewer", domain.AgentBehaviourReviews, "Review the change for correctness, security, tests and clarity. Request changes only for problems that matter."},
 }
 
 // EnsureBuiltinProfiles creates the workspace's built-in profiles once. They
 // use Claude Code; owners and admins can change their harness and model.
 func (r *WorkflowRepository) EnsureBuiltinProfiles(ctx context.Context, ws uuid.UUID) error {
 	for _, p := range builtinProfiles {
-		if _, err := r.db.ExecContext(ctx, `INSERT INTO agent_profiles(workspace_id,name,role,harness,instructions,builtin_key)
- SELECT $1,$2,$3,'claude-code',$4,$5 WHERE NOT EXISTS (SELECT 1 FROM agent_profiles WHERE workspace_id=$1 AND (builtin_key=$5 OR (lower(name)=lower($2) AND archived_at IS NULL)))
- ON CONFLICT DO NOTHING`, ws, p.name, p.role, p.instructions, p.key); err != nil {
+		if _, err := r.db.ExecContext(ctx, `INSERT INTO agent_profiles(workspace_id,name,role,behaviour,harness,instructions,builtin_key)
+ SELECT $1,$2,$2,$3,'claude-code',$4,$5 WHERE NOT EXISTS (SELECT 1 FROM agent_profiles WHERE workspace_id=$1 AND (builtin_key=$5 OR (lower(name)=lower($2) AND archived_at IS NULL)))
+ ON CONFLICT DO NOTHING`, ws, p.name, p.behaviour, p.instructions, p.key); err != nil {
 			return err
 		}
 	}
@@ -200,8 +201,8 @@ func (r *WorkflowRepository) CreateProfile(ctx context.Context, ws, actor uuid.U
 	}
 	defer tx.Rollback()
 	profile := &domain.AgentProfile{}
-	err = tx.GetContext(ctx, profile, `INSERT INTO agent_profiles(workspace_id,name,role,harness,model,effort,instructions,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-		ws, in.Name, in.Role, in.Harness, in.Model, in.Effort, in.Instructions, actor)
+	err = tx.GetContext(ctx, profile, `INSERT INTO agent_profiles(workspace_id,name,role,behaviour,harness,model,effort,instructions,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+		ws, in.Name, in.Role, in.Behaviour, in.Harness, in.Model, in.Effort, in.Instructions, actor)
 	if uniqueViolation(err) {
 		return nil, ErrAgentProfileNameTaken
 	}
@@ -224,29 +225,29 @@ func (r *WorkflowRepository) UpdateProfile(ctx context.Context, ws, id, actor uu
 	}
 	defer tx.Rollback()
 	// The row lock serializes with saves, which validate graphs against the
-	// profiles' roles under FOR SHARE: a version saved first is seen below,
-	// and a save after this commit validates against the new role.
-	var role string
-	err = tx.GetContext(ctx, &role, `SELECT role FROM agent_profiles WHERE id=$1 AND workspace_id=$2 AND archived_at IS NULL FOR UPDATE`, id, ws)
+	// profiles' behaviours under FOR SHARE: a version saved first is seen
+	// below, and a save after this commit validates against the new one.
+	var behaviour string
+	err = tx.GetContext(ctx, &behaviour, `SELECT behaviour FROM agent_profiles WHERE id=$1 AND workspace_id=$2 AND archived_at IS NULL FOR UPDATE`, id, ws)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrAgentProfileNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	if role != in.Role {
+	if behaviour != in.Behaviour {
 		// Any version counts, archived workflows' included: tasks pin versions.
 		var used bool
 		if err = tx.GetContext(ctx, &used, `SELECT EXISTS(SELECT 1 FROM workflow_versions WHERE workspace_id=$1 AND graph->'nodes' @> jsonb_build_array(jsonb_build_object('profile_id',$2::text)))`, ws, id); err != nil {
 			return nil, err
 		}
 		if used {
-			return nil, ErrAgentProfileRoleInUse
+			return nil, ErrAgentProfileBehaviourInUse
 		}
 	}
 	profile := &domain.AgentProfile{}
-	err = tx.GetContext(ctx, profile, `UPDATE agent_profiles SET name=$3,role=$4,harness=$5,model=$6,effort=$7,instructions=$8,updated_at=now() WHERE id=$1 AND workspace_id=$2 AND archived_at IS NULL RETURNING *`,
-		id, ws, in.Name, in.Role, in.Harness, in.Model, in.Effort, in.Instructions)
+	err = tx.GetContext(ctx, profile, `UPDATE agent_profiles SET name=$3,role=$4,behaviour=$5,harness=$6,model=$7,effort=$8,instructions=$9,updated_at=now() WHERE id=$1 AND workspace_id=$2 AND archived_at IS NULL RETURNING *`,
+		id, ws, in.Name, in.Role, in.Behaviour, in.Harness, in.Model, in.Effort, in.Instructions)
 	if uniqueViolation(err) {
 		return nil, ErrAgentProfileNameTaken
 	}
