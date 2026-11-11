@@ -12,6 +12,7 @@
 	import AgentStep from './AgentStep.svelte';
 	import ClampedText from './ClampedText.svelte';
 	import TaskLiveThread from './TaskLiveThread.svelte';
+	import TaskStopButton from './TaskStopButton.svelte';
 	import { attemptTimeline, openStep, workflowTimeline } from './agent-timeline';
 	import { taskLabel } from './task-labels';
 	import { taskTone, toneBadge } from './task-tone';
@@ -38,6 +39,7 @@
 	const identifier = $derived(chat.issue?.identifier ?? '');
 	const tone = $derived(taskTone(task.state));
 	const followsWorkflow = $derived(!!task.workflow_version_id);
+	let stopError = $state('');
 
 	let view = $state<TaskWorkflow | null>(null),
 		attempts = $state<AgentRun[]>([]),
@@ -163,9 +165,13 @@
 	<div class="min-w-0 space-y-1">
 		<div class="flex min-w-0 items-start justify-between gap-3">
 			<ClampedText text={task.prompt} class="text-sm font-medium" />
-			<Badge variant="outline" class="shrink-0 {toneBadge[tone]}" role="status">{taskLabel(task.state)}</Badge>
+			<div class="flex shrink-0 items-center gap-2">
+				<TaskStopButton {chat} {task} {identifier} onerror={(message) => (stopError = message)} />
+				<Badge variant="outline" class={toneBadge[tone]} role="status">{taskLabel(task.state)}</Badge>
+			</div>
 		</div>
 		{#if task.reason}<p class="text-xs break-words text-muted-foreground">{task.reason}</p>{/if}
+		{#if stopError}<p role="alert" class="text-sm break-words text-destructive">{stopError}</p>{/if}
 	</div>
 
 	<ol aria-label={m['workflows.task.path']()} class="flex min-w-0 flex-col gap-1">

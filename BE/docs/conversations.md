@@ -217,6 +217,11 @@ newest task), with a breadcrumb back to the assistant; the task's step in the
 transcript and its Background tasks row open the same view. While it is open
 the one composer is aimed at that agent (live if running, otherwise read at
 its next iteration) and a question's answer button sits under the question.
+The header has a Stop button
+([TaskStopButton.svelte](../../UI/src/lib/features/assistant/TaskStopButton.svelte))
+while the task can still be stopped, shown to the person who started it: one
+confirmation, then the existing cancel endpoint, and the task reads as
+cancelling until it reports cancelled.
 
 The thread is a timeline of the task's workflow steps, oldest first
 ([agent-timeline.ts](../../UI/src/lib/features/assistant/agent-timeline.ts),
