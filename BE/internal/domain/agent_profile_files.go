@@ -27,6 +27,10 @@ type AgentProfileBundle struct {
 	// part of the profile: it travels in the same instructions file, after
 	// the profile's instructions, so every harness reads it as instructions.
 	Notebook string
+	// Memory is the workspace's approved lessons for the task's repository
+	// (domain.FormatLessons). Like the notebook it is not part of the
+	// profile and travels in the same instructions file, between the two.
+	Memory string
 }
 
 // AgentProfileFile is one file Kuayle writes into the agent's home before the
@@ -91,6 +95,12 @@ func ProfileFiles(harness string, bundle AgentProfileBundle) []AgentProfileFile 
 		}
 		header := fmt.Sprintf("# Agent profile: %s\n\nYou run as this Kuayle agent profile. Follow these instructions for the whole task.\n\n", title)
 		content = header + instructions + "\n"
+	}
+	if memory := strings.TrimSpace(bundle.Memory); memory != "" {
+		if content != "" {
+			content += "\n---\n\n"
+		}
+		content += memory + "\n"
 	}
 	if notebook := strings.TrimSpace(bundle.Notebook); notebook != "" {
 		if content != "" {

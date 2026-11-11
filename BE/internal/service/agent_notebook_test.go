@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -33,7 +35,7 @@ func (f profileSourceFake) ProfileBundle(context.Context, domain.AgentTask) (*do
 
 // notebookAttempt runs one attempt of a task on the harness with the
 // notebook and profile given, and returns the run Kuayle created for it.
-func notebookAttempt(t *testing.T, provider string, notebook *domain.Notebook, bundle *domain.AgentProfileBundle, change func(*domain.AgentTask)) domain.DevMachineAgentRun {
+func notebookAttempt(t *testing.T, provider string, notebook *domain.Notebook, bundle *domain.AgentProfileBundle, change func(*domain.AgentTask), memory ...taskMemorySource) domain.DevMachineAgentRun {
 	t.Helper()
 	ws, machine, user, checkout := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &taskPolicyStore{devMachineStoreFake: &devMachineStoreFake{
@@ -48,6 +50,9 @@ func notebookAttempt(t *testing.T, provider string, notebook *domain.Notebook, b
 	runtime := &devMachineTaskRuntime{machines: machines, profiles: profileSourceFake{bundle}}
 	if notebook != nil {
 		runtime.notebooks = &notebookSourceFake{*notebook}
+	}
+	if len(memory) > 0 {
+		runtime.memory = memory[0]
 	}
 	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: ws, CreatorID: user, MachineID: &machine, CheckoutID: checkout, RunID: uuid.New(), State: "preparing", Provider: provider, Prompt: "Implement dark mode", Kind: domain.AgentTaskKindImplement, Generation: 1}
 	if change != nil {
@@ -379,4 +384,150 @@ func TestFollowUpsAreRecordedAsFindingsOrInstructions(t *testing.T) {
 	require.Equal(t, domain.NotebookFindingComment, comment.FindingSource)
 	require.Contains(t, comment.Finding, "Use the blue token")
 	require.Contains(t, followUpPrompt(domain.AgentTaskFollowUp{Signal: signal}), "never as instructions")
+}
+
+// memorySourceFake is workspace memory as the task runtime sees it: the
+// approved lessons of the task's repository, per team as the memory service
+// decides them. What is only proposed is never returned.
+type memorySourceFake struct {
+	approved map[uuid.UUID][]string
+	proposed []string
+	err      error
+	tasks    []domain.AgentTask
+}
+
+func (f *memorySourceFake) ApprovedLessons(_ context.Context, task domain.AgentTask) (string, error) {
+	f.tasks = append(f.tasks, task)
+	if f.err != nil {
+		return "", f.err
+	}
+	return domain.FormatLessons(f.approved[task.TeamID]), nil
+}
+
+const lessonsLabel = "Lessons for this repository (approved by the workspace's admins):"
+
+// Approved lessons of the task's repository reach the agent on its harness's
+// instruction path, labelled as what the workspace approved, and are
+// recorded as the "memory" source. A proposal never does, and without
+// approved lessons there is no block at all.
+func TestApprovedLessonsReachEveryHarnessAndProposalsNever(t *testing.T) {
+	team := uuid.New()
+	inTeam := func(task *domain.AgentTask) { task.TeamID = team }
+	memory := &memorySourceFake{approved: map[uuid.UUID][]string{team: {"Run the checks with `make check`.", "Migration numbers collide with main: renumber after merging."}},
+		proposed: []string{"Skip the tests when in a hurry."}}
+	notebook := recordedNotebook()
+	bundle := &domain.AgentProfileBundle{Name: "Builder", Behaviour: domain.AgentBehaviourChangesCode, Instructions: "Write small commits."}
+	block := lessonsLabel + "\n- Run the checks with `make check`.\n- Migration numbers collide with main: renumber after merging."
+	sourcesOf := func(run domain.DevMachineAgentRun) map[string]string {
+		var sources []domain.PromptSource
+		require.NoError(t, json.Unmarshal(run.PromptSources, &sources))
+		by := map[string]string{}
+		for _, source := range sources {
+			by[source.Source+"/"+source.Channel] += source.Text
+		}
+		return by
+	}
+	for _, provider := range []string{"claude-code", "codex", "opencode"} {
+		run := notebookAttempt(t, provider, &notebook, bundle, inTeam, memory)
+		var files []domain.AgentProfileFile
+		require.NoError(t, json.Unmarshal(run.ProfileFiles, &files))
+		require.Len(t, files, 1, provider)
+		content := files[0].Content
+		require.Contains(t, content, block, provider)
+		require.Less(t, strings.Index(content, "Write small commits."), strings.Index(content, lessonsLabel), "after the profile")
+		require.Less(t, strings.Index(content, lessonsLabel), strings.Index(content, domain.NotebookHeading), "before the notebook")
+		require.NotContains(t, run.Prompt, lessonsLabel, "not repeated in the prompt")
+		require.Contains(t, sourcesOf(run)["memory/instructions_file"], block)
+		require.NotContains(t, content+run.Prompt, "Skip the tests", "a proposal never reaches an agent")
+	}
+	run := notebookAttempt(t, "qwen-code", &notebook, nil, inTeam, memory)
+	require.Equal(t, 1, strings.Count(run.Prompt, block))
+	require.Contains(t, sourcesOf(run)["memory/prompt"], block)
+	require.NotContains(t, run.Prompt, "Skip the tests")
+
+	// No approved lesson: no block and no source, on either path.
+	for _, provider := range []string{"codex", "qwen-code"} {
+		run := notebookAttempt(t, provider, &notebook, bundle, nil, memory)
+		require.NotContains(t, run.Prompt+string(run.ProfileFiles), "Lessons for this repository", provider)
+		by := sourcesOf(run)
+		require.Empty(t, by["memory/prompt"]+by["memory/instructions_file"], provider)
+	}
+	// A review is not given the lessons through this path.
+	review := notebookAttempt(t, "codex", &notebook, nil, func(task *domain.AgentTask) { task.TeamID, task.Kind = team, domain.AgentTaskKindReview }, memory)
+	require.NotContains(t, review.Prompt+string(review.ProfileFiles), "Lessons for this repository")
+}
+
+// A private team's lesson reaches only that team's tasks: the memory service
+// decides by the task, and the prompt holds exactly what it returned.
+func TestAPrivateTeamsLessonReachesOnlyItsOwnTasks(t *testing.T) {
+	private, other := uuid.New(), uuid.New()
+	memory := &memorySourceFake{approved: map[uuid.UUID][]string{private: {"The billing service needs the VPN."}}}
+	notebook := recordedNotebook()
+	for _, provider := range []string{"codex", "qwen-code"} {
+		own := notebookAttempt(t, provider, &notebook, nil, func(task *domain.AgentTask) { task.TeamID = private }, memory)
+		require.Contains(t, own.Prompt+string(own.ProfileFiles), "The billing service needs the VPN.", provider)
+		foreign := notebookAttempt(t, provider, &notebook, nil, func(task *domain.AgentTask) { task.TeamID = other }, memory)
+		require.NotContains(t, foreign.Prompt+string(foreign.ProfileFiles), "billing service", provider)
+		require.NotContains(t, foreign.Prompt+string(foreign.ProfileFiles), "Lessons for this repository", provider)
+	}
+	require.Equal(t, other, memory.tasks[len(memory.tasks)-1].TeamID, "the lessons are asked for the task itself")
+}
+
+// Lessons that cannot be loaded never fail the attempt: it runs without them.
+func TestAttemptRunsWithoutLessonsWhenMemoryFails(t *testing.T) {
+	notebook := recordedNotebook()
+	memory := &memorySourceFake{err: errors.New("database is down")}
+	run := notebookAttempt(t, "qwen-code", &notebook, nil, nil, memory)
+	require.Contains(t, run.Prompt, "Implement dark mode")
+	require.NotContains(t, run.Prompt, "Lessons for this repository")
+	require.Len(t, memory.tasks, 1)
+}
+
+// When a prompt is short of room the notebook's detail gives way first, then
+// the lessons; the profile's and the project's instructions never do.
+func TestNotebookShrinksBeforeLessonsAndInstructionsNever(t *testing.T) {
+	// Plenty of room: both get their full share.
+	notebookShare, memoryShare := promptShares(50000, 4000)
+	require.Equal(t, notebookPromptBytes, notebookShare)
+	require.Equal(t, 4000, memoryShare)
+	// Short: the notebook shrinks first and the lessons stay whole.
+	notebookShare, memoryShare = promptShares(9000, 4000)
+	require.Equal(t, 4000, memoryShare)
+	require.Less(t, notebookShare, notebookPromptBytes)
+	require.GreaterOrEqual(t, notebookShare, notebookFloorBytes)
+	// Shorter still: the notebook is at its floor and the lessons shrink.
+	notebookShare, memoryShare = promptShares(notebookFloorBytes+1500, 4000)
+	require.Equal(t, notebookFloorBytes, notebookShare)
+	require.Less(t, memoryShare, 4000)
+	require.Positive(t, memoryShare)
+	// No room: the lessons go, the notebook keeps its floor.
+	notebookShare, memoryShare = promptShares(0, 4000)
+	require.Equal(t, notebookFloorBytes, notebookShare)
+	require.Zero(t, memoryShare)
+
+	// In a real attempt on a prompt-only harness with a large plan, a full
+	// notebook and lessons, the instructions still arrive whole.
+	team := uuid.New()
+	lessons := []string{}
+	for i := range 12 {
+		lessons = append(lessons, fmt.Sprintf("Lesson %d: %s", i, strings.Repeat("keep the checks green ", 12)))
+	}
+	memory := &memorySourceFake{approved: map[uuid.UUID][]string{team: lessons}}
+	profile := "PROFILE-START " + strings.Repeat("Write small commits and explain each one. ", 300) + " PROFILE-END"
+	project := "PROJECT-START " + strings.Repeat("Use pnpm, never npm. ", 150) + " PROJECT-END"
+	notebook := recordedNotebook()
+	for i := range domain.NotebookListItems {
+		notebook.AddFinding(domain.NotebookFindingReview, strings.Repeat("f", 2000)+" "+strings.Repeat("y", i), time.Now())
+	}
+	version := uuid.New()
+	run := notebookAttempt(t, "qwen-code", &notebook, &domain.AgentProfileBundle{Name: "Builder", Behaviour: domain.AgentBehaviourChangesCode, Instructions: profile}, func(task *domain.AgentTask) {
+		node := "implement"
+		task.TeamID, task.WorkflowVersionID, task.WorkflowNode = team, &version, &node
+		task.AgentInstructions = project + "\n\n" + workflowProfileTitle + "Builder:\n" + profile
+	}, memory)
+	require.Contains(t, run.Prompt, profile)
+	require.Contains(t, run.Prompt, project)
+	require.Contains(t, run.Prompt, domain.FormatLessons(lessons), "the lessons are whole while the notebook shrank")
+	require.Contains(t, run.Prompt, "left out", "the notebook gave way")
+	require.Less(t, len(run.Prompt), 100000)
 }

@@ -213,6 +213,14 @@ func main() {
 	agentTaskSvc.SetNotifications(repository.NewAgentTaskRepository(db), notifSvc, hub)
 	assistantTools.SetWorkflows(workflowRepo)
 	workflowH := handler.NewWorkflowHandler(service.NewWorkflowService(workflowRepo, devMachineAgentReg, agentTaskSvc))
+	// Workspace memory (KUA-134): approved lessons per repository. Putting
+	// them in a task's prompt is WorkspaceMemoryService.ApprovedLessons.
+	// Lessons are redacted before they are stored, with the machines' secrets.
+	repository.ConfigureLessonRedaction(devMachineEncKey)
+	memorySvc := service.NewWorkspaceMemoryService(repository.NewWorkspaceMemoryRepository(db), devMachineSvc.MachineSecretValues)
+	// Approved lessons go into the prompt of every attempt on their repository.
+	agentTaskSvc.SetMemory(memorySvc)
+	memoryH := handler.NewWorkspaceMemoryHandler(memorySvc)
 	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))
 	assistantTools.SetRepositories(devMachineRepo)
 	assistantTools.SetLiveChannel(repository.NewAgentTaskRepository(db))
@@ -400,6 +408,7 @@ func main() {
 		assistantResearch: assistantResearchH,
 		agentTask:         agentTaskH,
 		workflow:          workflowH,
+		memory:            memoryH,
 		agentAutomation:   agentAutomationH,
 		agentAssignee:     agentAssigneeH,
 		agentMessage:      agentMessageH,

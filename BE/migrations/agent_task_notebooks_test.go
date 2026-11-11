@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Migration 147 adds the task notebook, its history and the per-attempt
+// Migration 150 adds the task notebook, its history and the per-attempt
 // notebook and read-only worktree columns, and the table of recorded prompts. Existing attempts
 // need no notebook update and have no recorded prompt. Rolling back drops
 // the notebooks.
@@ -34,7 +34,7 @@ func TestAgentTaskNotebooksMigration(t *testing.T) {
 	m, err := migrate.New("file://.", target)
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
-	require.NoError(t, m.Migrate(144))
+	require.NoError(t, m.Migrate(149))
 	db, err := sql.Open("pgx", target)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
@@ -53,7 +53,7 @@ func TestAgentTaskNotebooksMigration(t *testing.T) {
 	require.Zero(t, columns())
 	require.Zero(t, tables())
 
-	require.NoError(t, m.Migrate(147))
+	require.NoError(t, m.Migrate(150))
 	require.Equal(t, 6, columns())
 	require.Equal(t, 3, tables())
 	var required, readOnly, nullable string
@@ -64,8 +64,8 @@ func TestAgentTaskNotebooksMigration(t *testing.T) {
 	require.Equal(t, "false", readOnly)
 	require.Equal(t, "YES", nullable)
 
-	require.NoError(t, m.Migrate(144))
+	require.NoError(t, m.Migrate(149))
 	require.Zero(t, columns())
 	require.Zero(t, tables())
-	require.NoError(t, m.Migrate(147), "the migration applies again after a rollback")
+	require.NoError(t, m.Migrate(150), "the migration applies again after a rollback")
 }

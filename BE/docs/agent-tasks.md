@@ -1301,6 +1301,10 @@ also logs "pull request #N published: <url>" there, as the task's creator,
 whenever an implementing task publishes, in the Standard flow and in
 workflows; a registry that is off or fails never affects the task.
 
+**Lessons.** A file with `"to":"memory"` and a `lesson` proposes a lesson for
+the repository's [workspace memory](#workspace-memory) instead of a message;
+only a refused one is recorded here.
+
 **Reading.** Every non-guest workspace member reads the messages whose sending
 issue they can see; the recipient is named only when they can see it too.
 
@@ -1434,6 +1438,134 @@ or the machine is torn down (`Teardown` removes the machine's inbox volumes).
 Rolling migration 95 back drops the live channel's messages. Rolling migration
 134 back removes `message_task` approvals and the `request_id` column; messages
 already delivered are kept.
+
+## Workspace memory
+
+Migration 149 adds short lessons per repository (KUA-134): how to run the
+checks, conventions, known traps. Agents, reviews and members only
+**propose** lessons; a workspace owner or admin approves, edits or drops each
+proposal, and only approved lessons, as that person left them, are ever
+handed to an agent. Putting them in a task's prompt is one call,
+`service.WorkspaceMemoryService.ApprovedLessons(ctx, task)`, which the prompt
+assembly makes for every attempt that plans or changes code (see
+[Lessons in the prompt](#lessons-in-the-prompt)). The task notebook's
+migration is 150, so that it sorts after this one.
+
+**Storage.** `workspace_lessons` holds one lesson per row: the workspace, the
+repository (`repository_full_name`, matched case-insensitively through
+`repository_key`, the same identity as `dev_machine_checkouts` and
+`repository_merge_methods`), the `state` (`proposed`, `approved`, `retired`,
+`dropped`), `text` (what agents see once approved) and `proposed_text` (what
+was proposed, never changed), the source (`source_event`: `task`, `review` or
+`manual`; `proposer`: `agent`, `external` or `person`; `source_task_id`;
+`proposed_by`), the source task's `team_id`, who decided and when, the prompt
+`position` and a `dedupe_key`. `workspace_lesson_events` records every
+proposal and decision (`proposed`, `added`, `approved`, `edited`, `shared`,
+`retired`, `dropped`, `reordered`) with the actor and a detail.
+
+**Limits** (`domain/workspace_memory.go`). A lesson is one line of at most 400
+characters, without control characters, zero-width characters or
+bidirectional overrides (U+200B–U+200F, U+202A–U+202E, U+2066–U+2069,
+U+FEFF), so an approver sees everything an agent would read. A repository has
+at most 30 approved lessons and 50 waiting proposals; a member has at most 5
+hand proposals waiting on a repository, and a task proposes at most 3 lessons
+per kind of event. A proposal discarded for a limit is logged with the
+repository and the kind of source, never its content. The block placed in a
+prompt is at most 4,000 bytes: lessons are taken whole, in order, until the
+next one does not fit.
+
+**Proposals.** Nothing calls a language model; each source is text that
+already exists, cut to one lesson when longer, for a person to edit:
+
+| Source | Text | `source_event` / `proposer` |
+| --- | --- | --- |
+| An agent, typically when its task ends or after a person corrected it | `{"to":"memory","lesson":"..."}` in its [outbox](#agent-messaging) | `task` / `agent` |
+| A requested agent review that ends with `request_changes` | Its findings | `review` / `agent` |
+| A trusted GitHub change request | Its summary. The author has write access on GitHub, which is not workspace membership, so the text is marked as external | `review` / `external` |
+| A member, by hand | `POST /memory/lessons` | `manual` / `person` |
+
+A person's messages to a task (live messages, issue comments) and CI results
+propose nothing: a message is private to the task's creator and is not a
+lesson, and a failed check's name and summary teach nothing. A correction
+becomes a lesson when the corrected agent proposes it through its outbox
+(the `kuayle-agents` skill asks it to) or when a member writes it by hand.
+
+A task's proposal is recorded in the transaction of the event that caused
+it, inside a savepoint: a proposal that fails is logged and never fails the
+outbox batch, the review or the signal (a failed outbox lesson is recorded as
+a refused message). The repository is the one of the task's checkout; a task
+without a checkout proposes nothing. The same text (without regard to case
+and spacing) is proposed once per repository and kind of event, whatever
+became of the first proposal, so a dropped proposal does not come back. An
+outbox lesson that is malformed, too long, over the task's limit, from a
+review task or from a task that ended is refused and recorded as a refused
+message to `MEMORY` in the [message registry](#agent-messaging), within the
+task's hourly message budget; an accepted lesson is a proposal, never a
+message.
+
+**Redaction.** Text is redacted before it is stored, so `text`,
+`proposed_text`, API responses and audit details never hold a secret the
+redactor knows: the secret values of the source task's machine (the values
+its run output is redacted with) for a task's lesson and for a person's edit
+of it, and well-known credential formats (`sanitize.RedactCredentials`, the
+release scan's rules) always. The API and the machine manager call
+`repository.ConfigureLessonRedaction` at startup; a process that did not, or
+that cannot read the secrets, stores no lesson. Lessons are redacted again
+when they are placed in a prompt.
+
+**Trust.** An agent's lesson and review findings are stored as written by an
+agent, a GitHub reviewer's as external, and reach nobody's prompt as they
+are: approving is a person's act, and what is handed on is the `text` of the
+approved row. A lesson is retired (`approved` → `retired`) or dropped
+(`proposed` → `dropped`) for good; both states are final.
+
+**Who reads what.** Owners and admins read every lesson. Any other non-guest
+member reads the approved lessons, the lessons they wrote by hand, and the
+waiting proposals of tasks they created: a task's proposal carries text from
+that task, which stays with its creator and the people who decide until it is
+approved. `proposed_text`, the text before a person edited it, is returned
+only to owners and admins.
+
+**Teams.** A lesson that came from a task keeps that task's team (`team_id`),
+and the team's privacy is read when the lesson is: while the team is private,
+only people who can see it see the lesson (`kuayle_team_access`) and only its
+tasks receive it; while it is public the lesson reaches every task on the
+repository. A team made private later therefore takes its lessons with it. A
+lesson written by hand belongs to the workspace, and an owner or admin can
+share a team's lesson with the workspace (`workspace_wide`), which is
+audited. Today a workspace with private teams cannot have development
+machines, so such lessons cannot yet arise from tasks; the rule is enforced
+in the queries all the same.
+
+**API** (session only, under `/api/workspaces/:slug`). Non-guest members read
+and propose by hand; only current owners and admins decide, re-checked inside
+each writing transaction.
+
+| Route | Who | Effect |
+| --- | --- | --- |
+| `GET /memory/lessons?repository=&state=` | members | Lessons the caller may read, with `can_manage` and the limits; approved ones in prompt order |
+| `POST /memory/lessons` `{repository, text}` | members | A lesson written by hand for a connected repository: approved at once for an owner or admin, a proposal otherwise |
+| `POST /memory/lessons/:lessonId/approve` `{text?}` | owners, admins | `proposed` → `approved`, optionally with edited text, placed last |
+| `PUT /memory/lessons/:lessonId` `{text?, workspace_wide?}` | owners, admins | Edit a proposed or approved lesson; share a team's lesson |
+| `POST /memory/lessons/:lessonId/retire` | owners, admins | `approved` → `retired` |
+| `POST /memory/lessons/:lessonId/drop` | owners, admins | `proposed` → `dropped` |
+| `PUT /memory/lessons/order` `{repository, ids}` | owners, admins | Prompt order; `ids` names every approved lesson once |
+| `GET /memory/lessons/:lessonId/audit` | owners, admins | The lesson's audit trail, newest first |
+
+Refusals: `403` for guests and non-members (and members on decisions), `404`
+for a lesson of another workspace or of a team the caller cannot see, `400`
+`INVALID_LESSON`, `LESSON_REPOSITORY`, `LESSON_ORDER`, and `409`
+`LESSON_STATE`, `LESSON_LIMIT`, `LESSON_PENDING_LIMIT`, `LESSON_DUPLICATE`.
+
+**In a prompt.** `ApprovedLessons(ctx, task)` resolves the repository of the
+task's checkout and returns a heading and one `- ` line per approved lesson,
+or `""` when there is none or no checkout yet.
+`ApprovedLessonsForRepository(ctx, workspaceID, teamID, repository, machineID)`
+does the same for a known repository. Both redact the machine's secret values
+and well-known credential formats again, and fail rather than return
+unredacted text when the secrets cannot be read.
+
+Rolling migration 149 back drops the lessons and their audit trail.
 
 ## Configurable workflows
 
@@ -1692,10 +1824,74 @@ and shows a task's run in its Agents panel.
 Not implemented: per-profile skills and tool sets, sharing across workspaces,
 parallel branches and workflows for non-coding automations.
 
+### Pause and resume
+
+The creator of a task can pause its running workflow and resume it later from
+the same step (KUA-129, migration `000145_workflow_pause`). It is the creator's
+control, like cancel: nobody else, in any role, pauses or resumes a task.
+
+`POST /agent-tasks/:taskId/pause` takes `{"mode": "now" | "after_step"}` and
+answers 202 with the task. What it does depends on what the task is doing:
+
+| The task is | `now` | `after_step` |
+| --- | --- | --- |
+| waiting (CI, an approval, a merge, a reviewer) or not started yet | pauses at once, where it is | the same |
+| running its agent | stops the agent and pauses | pauses when the step has an outcome |
+| running a check or a publication | pauses when it has a result | the same |
+
+A paused task has `workflow_paused_at`; a pause that has not taken effect yet
+is `workflow_pause_request`. While paused the worker does not claim the task
+and every workflow move is refused, so a waiting step does not advance when CI
+finishes or its review ends, nobody decides an approval, and no step starts.
+A reviewer's own review task keeps running; its verdict is read after the
+resume. A pull request merged on GitHub still completes the task.
+
+"Pause now" on a working agent reuses the usage-limit path: the attempt goes
+through the usual runtime cleanup (`cancelling`), which keeps the machine, the
+checkout, the worktree and the session transcripts, and ends in `blocked` with
+the reason "Paused". The task keeps its machine and checkout; a machine that
+was stopped meanwhile is started again when the task resumes. A cleanup that
+fails for good (the machine manager is down) is started again by the worker
+until it succeeds, and the task then waits paused; cancelling it meanwhile
+cancels it. A paused task does not count as load on its machine, however it
+was paused, so other tasks can share or reuse the machine; only the cleanup
+of a stopped attempt still does.
+
+`POST /agent-tasks/:taskId/resume` resumes (202 with the task). An interrupted
+step continues as a new attempt on the same step, visit and iteration, with
+`resume_native_session` set, so a harness that recorded a session continues
+it (`claude --resume`) and any other gets the handoff, both told that a person
+paused the attempt and to continue where it stopped. A task paused elsewhere is
+simply picked up again: a waiting step is evaluated at once, a finished step's
+outcome is applied. Resuming a pause that has not taken effect withdraws it.
+The same route still resumes a task paused by a [usage limit](#usage-limits);
+if a pause was waiting for the step the limit interrupted, that resume ends
+the request too and the task runs again (an automatic resume keeps it).
+
+"Pause now" followed by a resume starts a fresh attempt without counting a
+visit or an iteration, so repeating it is bounded only by the workflow's
+working-time budget.
+
+The time spent paused is added to the start of the workflow's time budget
+(`workflow_budget_from`) and to the open step's `paused_seconds`, which its
+timeout leaves out. Visit counts and iterations do not change. Cancelling a
+paused task cancels it; retrying it ends the pause and starts a new visit.
+
+Every request, pause, resume and withdrawal is a `workflow_audit_events` row
+(entity `task_workflow`; actions `pause_requested`, `paused`, `resumed`,
+`pause_withdrawn`; the step's `sequence` and the `mode`). The task carries
+`workflow_paused_at` and `workflow_pause_request`, and
+`GET /agent-tasks/:taskId/workflow` returns `paused_at`, `pause_request`, the
+`pauses` list (the newest 500: action, sequence, mode, actor, time, oldest
+first) and each
+step's `paused_seconds`. The task card shows "Paused" with one Resume button,
+and offers Pause in its menu; `WorkflowPauseControl.svelte` is the same
+control as a standalone component.
+
 ## Task notebook
 
 Each step used to start almost from zero. A task now has one notebook
-(`agent_task_notebooks`, migration 147; `domain.Notebook`), kept by Kuayle
+(`agent_task_notebooks`, migration 150; `domain.Notebook`), kept by Kuayle
 outside the worktree, with a fixed set of bounded sections:
 
 | Section | Written by | Merge |
@@ -1800,13 +1996,37 @@ task's usual checks). There is no write route: a person adds an instruction
 by messaging the agent, retrying with new instructions or approving a
 follow-up.
 
+### Lessons in the prompt
+
+The approved lessons of the task's repository
+([workspace memory](#workspace-memory)) travel the same way, as the `memory`
+prompt source: `devMachineTaskRuntime.Attempt` asks
+`WorkspaceMemoryService.ApprovedLessons` for the task (wired with
+`AgentTaskService.SetMemory` in `cmd/server/main.go`) and places the block it
+returns, under its own heading "Lessons for this repository (approved by the
+workspace's admins)". The memory service decides what a task may see (only
+approved lessons, a private team's only for that team's tasks) and bounds the
+block to 4000 bytes; without approved lessons there is no block. Lessons that
+cannot be loaded are logged and the attempt runs without them.
+
+- Claude Code, Codex and OpenCode: in the instructions file, after the
+  profile's text and before the notebook.
+- The other harnesses: ahead of the prompt. The notebook and the lessons
+  share what a prompt has left under 96000 bytes (`promptShares`): with room
+  each has its full share (12000 and 4000 bytes); when room is short the
+  notebook's detail gives way first, down to a floor of 2000 bytes, and only
+  then the lessons. The profile's and the project's instructions never do.
+
+Review tasks are not given the lessons.
+
 ### The prompt a step received
 
 Every attempt records what Kuayle assembled for it, split by source
 (`dev_machine_agent_run_prompts`, `domain.PromptSource`): `task`,
 `workflow_step`, `plan`, `follow_up`, `profile`, `contract` (Kuayle's own
 lines), `project` (configured instructions), `notebook`, `handoff`, `issue`,
-`related_work`, `messages`, `attachments`; `memory` is reserved. Each part
+`related_work`, `messages`, `attachments`, and `memory` (the workspace's
+approved lessons). Each part
 names its channel: `prompt` (in order, these parts are the prompt exactly as
 sent) or `instructions_file`. Each part is cut at 64 KB and the record at
 512 KB, marked `truncated`. It has its own table, so reading or polling a
@@ -1850,6 +2070,9 @@ and cancellation remain available to authorized users.
 - `GET /agent-tasks/:taskId` reads the durable task.
 - `POST /agent-tasks/:taskId/cancel` requests cleanup, including an explicit retry
   of exhausted cleanup operations.
+- `POST /agent-tasks/:taskId/pause` and `POST /agent-tasks/:taskId/resume` pause
+  and resume a task's workflow ([Pause and resume](#pause-and-resume)); creator
+  only, session only.
 - `POST /agent-tasks/:taskId/retry` requires request UUID, expected generation and
   new instructions; it preserves the task worktree.
 - `POST /agent-tasks/:taskId/accept` completes a task awaiting review without

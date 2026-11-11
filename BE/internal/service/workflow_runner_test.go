@@ -42,6 +42,10 @@ func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowAp
 	if !w.task.RunsWorkflow() || w.task.WorkflowSequence != apply.Sequence || task.Generation != w.task.Generation {
 		return nil, repository.ErrAgentTaskConflict
 	}
+	// As applyWorkflowTx: nothing moves while the workflow is paused.
+	if w.task.WorkflowPausedAt != nil {
+		return nil, repository.ErrAgentTaskConflict
+	}
 	switch w.task.State {
 	case "running", "validating", "publishing", "awaiting_review", "blocked":
 	default:
@@ -262,7 +266,7 @@ func (h *workflowHarness) restart() {
 func (h *workflowHarness) tick() bool {
 	h.t.Helper()
 	task := h.w.task
-	if task.State != "awaiting_review" || task.WorkflowWakeAt == nil || h.w.now.Before(*task.WorkflowWakeAt) {
+	if task.State != "awaiting_review" || task.WorkflowWakeAt == nil || h.w.now.Before(*task.WorkflowWakeAt) || task.WorkflowPausedAt != nil {
 		return false
 	}
 	require.NoError(h.t, h.runner.Evaluate(context.Background(), task))

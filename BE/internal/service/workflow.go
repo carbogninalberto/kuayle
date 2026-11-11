@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -419,6 +420,10 @@ func standardCopy(implementer uuid.UUID) domain.WorkflowGraph {
 		case "review":
 			graph.Nodes[i].MaxVisits = 6
 			graph.Nodes[i].Prompt = "Review the pull request"
+		case "failed":
+			// Publishing can fail here, so the failed ending follows Publish:
+			// one column further right than in the built-in graph.
+			graph.Nodes[i].Position = domain.WorkflowPositionAt(4, 1, true)
 		}
 	}
 	graph.Edges = append(graph.Edges, domain.WorkflowEdge{ID: "e-publish-failed", Source: "publish", Target: "failed", Condition: domain.WorkflowPublishFailed})
@@ -793,6 +798,12 @@ type TaskWorkflow struct {
 	TaskState      string                `json:"task_state"`
 	TaskReason     string                `json:"task_reason"`
 	TaskGeneration int64                 `json:"task_generation"`
+	// PausedAt is set while a person's pause holds the workflow, and
+	// PauseRequest while one waits for the current step. Pauses are its
+	// pauses and resumes so far, oldest first, each naming its step.
+	PausedAt     *time.Time                  `json:"paused_at,omitempty"`
+	PauseRequest *string                     `json:"pause_request,omitempty"`
+	Pauses       []domain.WorkflowPauseEvent `json:"pauses"`
 }
 
 func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID) (*TaskWorkflow, error) {
@@ -800,7 +811,8 @@ func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID) (*
 	if err != nil {
 		return nil, err
 	}
-	out := &TaskWorkflow{TaskState: task.State, TaskReason: task.Reason, TaskGeneration: task.Generation, Steps: []domain.WorkflowStep{}, Profiles: []domain.AgentProfile{}, Visits: map[string]int{}}
+	out := &TaskWorkflow{TaskState: task.State, TaskReason: task.Reason, TaskGeneration: task.Generation, Steps: []domain.WorkflowStep{}, Profiles: []domain.AgentProfile{}, Visits: map[string]int{},
+		PausedAt: task.WorkflowPausedAt, PauseRequest: task.WorkflowPauseRequest, Pauses: []domain.WorkflowPauseEvent{}}
 	if !task.RunsWorkflow() {
 		standard := standardSummary()
 		out.WorkflowID, out.Name, out.Version, out.Builtin, out.Graph = standard.ID, standard.Name, 1, true, standard.Graph
@@ -828,6 +840,9 @@ func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID) (*
 	if out.Steps, err = s.tasks.Repo.WorkflowSteps(ctx, ws, id); err != nil {
 		return nil, err
 	}
+	if out.Pauses, err = s.tasks.Repo.WorkflowPauses(ctx, ws, id); err != nil {
+		return nil, err
+	}
 	profiles, err := s.repo.Profiles(ctx, ws)
 	if err != nil {
 		return nil, err
@@ -838,7 +853,7 @@ func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID) (*
 		if err != nil {
 			return nil, err
 		}
-		out.CanDecide = workflowDecider(out.Status, access.UserID, task.CreatorID, role)
+		out.CanDecide = task.WorkflowPausedAt == nil && workflowDecider(out.Status, access.UserID, task.CreatorID, role)
 	}
 	return out, nil
 }

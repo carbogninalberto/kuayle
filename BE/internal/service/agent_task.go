@@ -442,6 +442,22 @@ type devMachineTaskRuntime struct {
 	// profiles supplies the profile of the attempt's step; nil reads it
 	// from tasks.
 	profiles taskProfileSource
+	// memory supplies the approved lessons of the task's repository;
+	// without it attempts receive none.
+	memory taskMemorySource
+}
+
+// taskMemorySource supplies workspace memory for an attempt's prompt:
+// the approved lessons of the task's repository, "" when there are none.
+type taskMemorySource interface {
+	ApprovedLessons(ctx context.Context, task domain.AgentTask) (string, error)
+}
+
+// SetMemory gives attempts the workspace's approved lessons.
+func (s *AgentTaskService) SetMemory(memory taskMemorySource) {
+	if runtime, ok := s.runtime.(*devMachineTaskRuntime); ok {
+		runtime.memory = memory
+	}
 }
 
 // taskProfileSource supplies what an attempt's agent profile gives it.
@@ -701,29 +717,45 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		} else {
 			bundle = &domain.AgentProfileBundle{}
 		}
-		// The notebook reaches the agent as instructions: in the harness's
-		// instructions file, after its profile, or ahead of the prompt for a
-		// harness that reads none. It does not repeat what the prompt already
-		// holds: the plan a {{plan}} step carries, and the task's request.
-		rendered, inFile := "", domain.ProfileFilesSupported(task.Provider)
+		// Workspace memory: the lessons the workspace's admins approved for
+		// the task's repository. They are the workspace's own configuration,
+		// already bounded and redacted by the memory service. Lessons that
+		// cannot be loaded never fail the attempt: it runs without them.
+		lessons := ""
+		if r.memory != nil {
+			if lessons, err = r.memory.ApprovedLessons(ctx, task); err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return nil, err
+				}
+				log.WithField("task_id", task.ID).WithError(err).Warn("Approved lessons could not be loaded; the attempt runs without them")
+				lessons = ""
+			}
+			lessons = truncateUTF8Bytes(strings.TrimSpace(lessons), memoryPromptBytes)
+		}
+		// The notebook and the lessons reach the agent as instructions: in
+		// the harness's instructions file, after its profile, or ahead of the
+		// prompt for a harness that reads none. The notebook does not repeat
+		// what the prompt already holds: the plan a {{plan}} step carries,
+		// and the task's request.
+		inFile := domain.ProfileFilesSupported(task.Provider)
+		options := domain.NotebookRender{}
 		if notebook != nil {
-			options := domain.NotebookRender{PlanInPrompt: plan != "" && carriesPlan(task.Prompt, plan)}
+			options.PlanInPrompt = plan != "" && carriesPlan(task.Prompt, plan)
 			if request, _, _ := strings.Cut(task.Prompt, followUpMarker); len(notebook.Instructions) > 0 && notebook.Instructions[0].Source == domain.NotebookInstructionRequest {
 				options.RequestInPrompt = strings.Contains(request, notebook.Instructions[0].Text)
 			}
-			if !inFile {
-				// In a prompt the notebook has its own bounded share and
-				// shrinks first, so it never crowds out the instructions.
-				options.Limit = notebookPromptBytes
-			}
-			rendered = notebook.RenderWith(options)
 		}
 		if inFile {
-			bundle.Notebook = rendered
+			// The file is outside the prompt: both are given whole.
 			for _, file := range domain.ProfileFiles(task.Provider, domain.AgentProfileBundle{Name: bundle.Name, Role: bundle.Role, Instructions: bundle.Instructions}) {
 				assembly.file(domain.PromptSourceProfile, file.Content)
 			}
-			assembly.file(domain.PromptSourceNotebook, rendered)
+			bundle.Memory = lessons
+			assembly.file(domain.PromptSourceMemory, lessons)
+			if notebook != nil {
+				bundle.Notebook = notebook.RenderWith(options)
+				assembly.file(domain.PromptSourceNotebook, bundle.Notebook)
+			}
 		}
 		profileFiles = domain.ProfileFiles(task.Provider, *bundle)
 		prompt = assembly.apply(domain.PromptSourceContract, withContract(prompt, task, related, planning))
@@ -734,8 +766,16 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		// that gives way: they are placed whole, outside the 32000-byte
 		// budget of the task's own prompt.
 		prompt = assembly.applyInstructions(withWholeInstructions(prompt, task.AgentInstructions))
-		if notebook != nil && !inFile {
-			prompt = assembly.apply(domain.PromptSourceNotebook, withNotebook(prompt, rendered))
+		if !inFile {
+			// In a prompt the notebook and the lessons each have a bounded
+			// share of what is left. When that is short the notebook's detail
+			// gives way first, then the lessons; never the instructions.
+			notebookShare, memoryShare := promptShares(attemptPromptBytes-len(prompt), len(lessons))
+			prompt = assembly.apply(domain.PromptSourceMemory, withLessons(prompt, truncateUTF8Bytes(lessons, memoryShare)))
+			if notebook != nil {
+				options.Limit = notebookShare
+				prompt = assembly.apply(domain.PromptSourceNotebook, withNotebook(prompt, notebook.RenderWith(options)))
+			}
 		}
 	} else {
 		prompt = assembly.applyInstructions(withInstructions(prompt, task.AgentInstructions))
@@ -778,6 +818,44 @@ func withNotebook(prompt, notebook string) string {
 		return prompt
 	}
 	return strings.TrimRight(notebook, "\n") + "\n\n---\n" + prompt
+}
+
+// attemptPromptBytes is what a whole prompt may come to on a harness that
+// reads no instructions file: under the size of one command-line argument
+// and the run's own limit. The task's prompt and the instructions come to
+// less; the notebook and the lessons share what is left.
+const attemptPromptBytes = 96000
+
+// memoryPromptBytes is the lessons' share of a prompt (the memory service
+// already bounds them to it); notebookFloorBytes is what the notebook keeps
+// when room is short: people's instructions, what remains, how to verify.
+const (
+	memoryPromptBytes  = domain.LessonsPromptMaxBytes
+	notebookFloorBytes = 2000
+)
+
+// promptShares divides room bytes of a prompt between the notebook and the
+// lessons (lessons bytes long). With room for both, each has its full share.
+// When room is short the notebook shrinks first, down to its floor; only
+// then do the lessons shrink, and they go before the notebook's floor does.
+func promptShares(room, lessons int) (notebook, memory int) {
+	memory = min(lessons, memoryPromptBytes)
+	notebook = min(notebookPromptBytes, room-memory)
+	if notebook < notebookFloorBytes {
+		notebook = notebookFloorBytes
+		memory = max(min(memory, room-notebookFloorBytes), 0)
+	}
+	return notebook, memory
+}
+
+// withLessons puts the workspace's approved lessons ahead of the prompt, for
+// a harness that reads no instructions file. The block carries its own
+// heading (domain.FormatLessons); without lessons there is no block.
+func withLessons(prompt, lessons string) string {
+	if strings.TrimSpace(lessons) == "" {
+		return prompt
+	}
+	return strings.TrimRight(lessons, "\n") + "\n\n---\n" + prompt
 }
 
 // instructionsBytes bounds the configured instructions of an attempt.
@@ -825,7 +903,7 @@ const handoffMarker = "\n\n---\nSuccessor attempt handoff"
 // harness sessions are not restored between attempts, so this successor is
 // explicitly identified and told what already happened on the same worktree.
 // The previous agent's summary is fenced as untrusted text.
-func withHandoff(prompt string, previous *domain.AgentHandoff, resumed, usageLimited bool) string {
+func withHandoff(prompt string, previous *domain.AgentHandoff, resumed, continued bool) string {
 	if previous == nil {
 		return prompt
 	}
@@ -835,8 +913,14 @@ func withHandoff(prompt string, previous *domain.AgentHandoff, resumed, usageLim
 	} else {
 		fmt.Fprintf(&b, "%s (previous attempt %s): this is a new session on the same branch and worktree; the previous session cannot be resumed.\n", handoffMarker, previous.AttemptID)
 	}
-	if usageLimited {
-		b.WriteString("- The previous attempt was paused by the provider's usage limit, not by a failure. Continue exactly where it stopped: the worktree is unchanged; do not start over, reset or discard changes.\n")
+	// continued: the task resumed after a pause (task.ResumeNativeSession). A
+	// person's pause cancels the attempt; a usage limit fails it.
+	if continued {
+		cause := "the provider's usage limit"
+		if previous.Status == string(domain.DevMachineAgentRunStatusCancelled) {
+			cause = "a person"
+		}
+		b.WriteString("- The previous attempt was paused by " + cause + ", not by a failure. Continue exactly where it stopped: the worktree is unchanged; do not start over, reset or discard changes.\n")
 	}
 	fmt.Fprintf(&b, "- Previous native outcome: %s\n", previous.Status)
 	if previous.NotebookProblem != "" {
@@ -914,8 +998,8 @@ func taskSession(task domain.AgentTask, previous *domain.AgentHandoff) *agent.Se
 	// An attempt paused by a usage limit is resumed too: its session is intact.
 	// A workflow step run by another profile than the previous attempt's
 	// starts fresh: a builder must not inherit its planner's conversation
-	// ("do not edit files"). An attempt paused by a usage limit continues
-	// its own session, whatever ran before its step.
+	// ("do not edit files"). An attempt paused by a usage limit or by a
+	// person continues its own session, whatever ran before its step.
 	if previous != nil && task.MachineID != nil && (!previous.OtherProfile || task.ResumeNativeSession) && (previous.Status == "succeeded" || previous.ContinuedInteractively || task.ResumeNativeSession) && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
 		session.ResumeID = previous.NativeSessionID
 	} else if task.Provider == "claude-code" {

@@ -669,6 +669,19 @@ untrusted items through `task.live_message` conversation events and history
 Codex and OpenCode are told to poll the inbox by the `kuayle-live-channel`
 section of the `kuayle-agents` skill.
 
+[Workspace memory](BE/docs/agent-tasks.md#workspace-memory) (migration 149,
+`workspace_lessons`) keeps short lessons per repository. Agents propose them
+through the outbox (`{"to":"memory","lesson":"..."}`), reviews that requested
+changes propose their findings, and members write them by hand; a person's
+messages to a task and CI results propose nothing, and nothing calls a model.
+Text is redacted before it is stored. Only a workspace owner or admin
+approves, edits, retires, drops or reorders lessons (`/memory/lessons`,
+session only, audited in `workspace_lesson_events`); until then a task's
+proposal is read only by them and the task's creator. Only approved lessons
+are returned by `WorkspaceMemoryService.ApprovedLessons`, bounded and
+redacted again, for a task's prompt. A private team's lesson stays with that
+team.
+
 [Configurable workflows](BE/docs/agent-tasks.md#configurable-workflows)
 (migration 118) replace the fixed implement → validate → publish → review flow
 with a workspace's own state machines: agent profiles, immutable workflow
@@ -682,7 +695,7 @@ planning step must leave the worktree unchanged and end with a plan, which is
 stored whole and passed to the following agent steps as trusted instructions
 through `{{plan}}`.
 Every task also has a [notebook](BE/docs/agent-tasks.md#task-notebook)
-(migration 147): one bounded record of the plan, decisions, what is done,
+(migration 150): one bounded record of the plan, decisions, what is done,
 what remains, how to verify, findings and people's instructions, kept outside
 the worktree. Each agent step receives it as instructions and is asked to
 update it; one that does not is asked once more in its session, then Kuayle
@@ -924,6 +937,18 @@ An agent whose provider refuses work until a quota resets (Claude Code's 5-hour 
 - **Controls:** `POST /agent-tasks/:taskId/resume` is "Resume now" (it also lifts the creator's hold) and `DELETE /agent-tasks/:taskId/resume` is "Don't resume". Both are session-only and limited to the task's creator; cancel and retry work as for any blocked task, and a manual retry forgets the pause.
 
 The task card shows the provider's message, the reset time and the two controls; the transcript shows "Paused at the usage limit" instead of "Stopped with an error".
+
+### Workflow pause and resume
+
+A task's creator can pause its running workflow and resume it from the same step (migration `000145_workflow_pause`, KUA-129): `POST /agent-tasks/:taskId/pause` with `{"mode": "now" | "after_step"}` and `POST /agent-tasks/:taskId/resume`, session-only and limited to the creator like cancel.
+
+- **State:** `agent_tasks.workflow_paused_at` marks a paused workflow and `workflow_pause_request` a pause that waits for the current step. `Claim` skips paused tasks and `applyWorkflowTx` refuses every move, so waiting steps do not advance and no step starts.
+- **Pause now on a working agent:** the attempt is stopped through the same cleanup a usage limit uses and the task ends in `blocked` ("Paused") with its machine, checkout, worktree and session kept. Resuming starts a new attempt of the same step with `resume_native_session=true`; visits and iterations are unchanged. A failed cleanup is retried by the worker until the task is paused. A paused task is not machine load.
+- **Otherwise:** a waiting or not yet started task pauses in place; a check, a publication or "after this step" pauses when the worker has the step's outcome (`ParkWorkflow`), before acting on it.
+- **Time:** the paused time is added to `workflow_budget_from` and to the step's `paused_seconds`, so neither the time budget nor the step's timeout counts it.
+- **Audit:** `workflow_audit_events` records `pause_requested`, `paused`, `resumed` and `pause_withdrawn`; `GET /agent-tasks/:taskId/workflow` returns them as `pauses`.
+
+Details are in [BE/docs/agent-tasks.md](BE/docs/agent-tasks.md#pause-and-resume).
 
 Later runs of that user receive the sign-in as the scoped secret `KUAYLE_CLAUDE_CREDENTIALS` or `KUAYLE_CODEX_AUTH`; its token strings are added as further secrets so output redaction covers them. The runner writes the file into the run's in-memory home (mode 0600) and unsets the variable. Because agents may rotate refresh tokens, the runner then runs the harness as a child (forwarding stop signals and keeping its exit status) and afterwards copies the possibly refreshed file to `/workspace/.kuayle/sign-in-return/<run-id>.json` (mode 0600); the manager reads and deletes it right after the run and stores it when it changed. The sign-in is therefore briefly on the user's own machine volume at the end of each such run. Sign-ins are never returned by the API.
 

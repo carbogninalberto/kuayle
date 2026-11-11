@@ -16,7 +16,7 @@ import (
 // so), unknown fields are ignored, and only what is not an update at all, or
 // what reaches for a section Kuayle owns, is refused.
 func TestNotebookUpdateIsReadLenientlyAndStoredStrictly(t *testing.T) {
-	valid := `{"plan":{"steps":[{"title":"Add the column","files":["BE/migrations/000147.up.sql"],"commands":["go test ./..."],"acceptance":"migrate up passes"}]},
+	valid := `{"plan":{"steps":[{"title":"Add the column","files":["BE/migrations/000150.up.sql"],"commands":["go test ./..."],"acceptance":"migrate up passes"}]},
  "decisions":[{"decision":"Keep one row per task","why":"history lives in its own table"}],
  "done":["Added the migration"],"remaining":["Wire the API"],"verify":["cd BE && go test ./internal/domain"],
  "findings":[{"text":"The fixture needs a database"}]}`

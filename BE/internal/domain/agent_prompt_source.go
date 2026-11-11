@@ -22,7 +22,8 @@ const (
 	PromptSourceRelated      = "related_work"
 	PromptSourceMessages     = "messages"
 	PromptSourceAttachments  = "attachments"
-	// PromptSourceMemory is reserved for workspace memory.
+	// PromptSourceMemory is the workspace's approved lessons for the task's
+	// repository.
 	PromptSourceMemory = "memory"
 )
 

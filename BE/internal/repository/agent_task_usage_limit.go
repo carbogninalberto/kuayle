@@ -133,6 +133,7 @@ func (r *AgentTaskRepository) resumeAfterUsageLimit(ctx context.Context, id uuid
 	if automatic && (task.UsageLimitResumeAt == nil || task.UsageLimitResumeAt.After(time.Now())) {
 		return nil, ErrAgentTaskConflict
 	}
+	withdrawn := task.WorkflowPauseRequest != nil
 	var pending bool
 	if err = tx.GetContext(ctx, &pending, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE task_id=$1 AND status IN ('queued','starting','running','waiting_input'))
  OR EXISTS(SELECT 1 FROM dev_machine_operations o WHERE (o.checkout_id=$2 OR o.agent_run_id IN (SELECT id FROM dev_machine_agent_runs WHERE task_id=$1)) AND o.status IN ('pending','leased'))`, task.ID, task.CheckoutID); err != nil {
@@ -144,9 +145,16 @@ func (r *AgentTaskRepository) resumeAfterUsageLimit(ctx context.Context, id uuid
 	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,sign_in_required=false,
  lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at,
  usage_limit_resumes=CASE WHEN $2 THEN t.usage_limit_resumes+1 ELSE 0 END,
- usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,resume_native_session=true
+ usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,resume_native_session=true,
+ -- "Resume now" also ends a pause the creator had asked for after this step.
+ workflow_pause_request=CASE WHEN $2 THEN t.workflow_pause_request END
  FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, automatic); err != nil {
 		return nil, err
+	}
+	if !automatic && withdrawn {
+		if err = workflowPauseAudit(ctx, tx, *task, actor, domain.WorkflowPauseActionWithdrawn, ""); err != nil {
+			return nil, err
+		}
 	}
 	if !automatic {
 		if _, err = tx.ExecContext(ctx, `DELETE FROM agent_usage_limit_holds WHERE user_id=$1 AND provider=$2`, task.CreatorID, task.Provider); err != nil {

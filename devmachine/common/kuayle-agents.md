@@ -1,6 +1,6 @@
 ---
 name: kuayle-agents
-description: Use when you need to declare the tests Kuayle re-runs for your change (.kuayle/validation.json), to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, to log what you did in the project's or team's wiki registry, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox).
+description: Use when you need to declare the tests Kuayle re-runs for your change (.kuayle/validation.json), to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, to log what you did in the project's or team's wiki registry, to propose a lesson about the repository for later agents, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox).
 ---
 
 # Declare the tests Kuayle re-runs
@@ -112,6 +112,25 @@ Use one short line of plain text (at most 2,000 characters) per notable step,
 not a running commentary. When the registry is off the entry is refused and
 shown as refused in Kuayle; nothing else happens.
 
+## Propose a lesson for the repository
+
+When you learned something that the next agent working on this repository
+would otherwise have to rediscover (how to run the checks, a convention, a
+trap), or when the person who owns your task corrected you about how this
+repository works, propose it with `"to":"memory"` and a `lesson` through the
+same outbox, typically before you finish:
+
+```json
+{"to":"memory","lesson":"Migration numbers collide with main: renumber yours after merging main."}
+```
+
+A lesson is one or two plain sentences about the repository, at most 400
+characters, with only those two fields, in your own words; never put
+credentials, anything about this one task or a person's message in it. It is a proposal: a workspace admin approves,
+edits or drops it, and only approved lessons appear in later agents' prompts.
+The same lesson is proposed once, and a task may propose 3; more are refused
+and shown as refused in Kuayle. Review tasks cannot propose lessons.
+
 ## kuayle-notebook: update the task notebook before you finish
 
 Kuayle keeps one notebook per task, outside the worktree, and gives it whole
@@ -126,7 +145,7 @@ fields and no others:
 
 ```json
 {
-  "done": ["Added migration 000147 and the repository"],
+  "done": ["Added migration 000150 and the repository"],
   "remaining": ["Wire the API route"],
   "verify": ["cd BE && go test ./internal/repository -run Notebook"],
   "decisions": [{"decision": "One JSON document per task", "why": "small and bounded"}],

@@ -277,10 +277,14 @@ func (r *DevMachineRepository) recordNotebookUpdates(ctx context.Context, taskID
 			continue
 		}
 		// The attempt has a valid update, whether or not it changed anything.
-		if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_updates=notebook_updates+1,notebook_problem=NULL WHERE id=$1 AND task_id=$2`, task.RunID, task.ID); err != nil {
+		// One that changes nothing (the same file collected again after its
+		// removal failed, or an update that only confirms) is not counted
+		// again: the count is of updates that reached the notebook.
+		changed := string(document) != string(copied)
+		if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_updates=CASE WHEN $3 THEN notebook_updates+1 ELSE GREATEST(notebook_updates,1) END,notebook_problem=NULL WHERE id=$1 AND task_id=$2`, task.RunID, task.ID, changed); err != nil {
 			return err
 		}
-		if string(document) == string(copied) {
+		if !changed {
 			continue
 		}
 		notebook = merged
