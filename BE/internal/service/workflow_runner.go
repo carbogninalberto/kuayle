@@ -40,6 +40,7 @@ type workflowTaskStore interface {
 	ScopeInstructions(context.Context, domain.AgentTask) (string, error)
 	WorkflowDecisionTask(context.Context, uuid.UUID, uuid.UUID) (*domain.AgentTask, error)
 	DecideWorkflow(context.Context, uuid.UUID, uuid.UUID, repository.WorkflowApply) (*domain.AgentTask, error)
+	ParkWorkflow(context.Context, domain.AgentTask) error
 }
 
 type workflowDefinitionStore interface {
@@ -125,8 +126,13 @@ func (w *WorkflowRunner) graph(ctx context.Context, task domain.AgentTask) (*dom
 	return graph, profiles, err
 }
 
-// Outcome advances the task after its current node produced outcome.
+// Outcome advances the task after its current node produced outcome, unless
+// a person asked to pause: the pause then takes effect instead (see
+// AgentFinished).
 func (w *WorkflowRunner) Outcome(ctx context.Context, task domain.AgentTask, outcome, detail string) error {
+	if task.WorkflowPauseRequest != nil {
+		return w.tasks.ParkWorkflow(ctx, task)
+	}
 	apply, err := w.plan(ctx, task, outcome, detail, false)
 	if err != nil {
 		return err
@@ -141,6 +147,12 @@ func (w *WorkflowRunner) Outcome(ctx context.Context, task domain.AgentTask, out
 // message is a plan: the plan is then stored whole on the step and given to
 // the agent steps after it. Otherwise the step failed, and says why.
 func (w *WorkflowRunner) AgentFinished(ctx context.Context, task domain.AgentTask) error {
+	// A pause a person asked for takes effect now that the step has an
+	// outcome: the step stays open, and the worker reports the same finished
+	// run again once the workflow is resumed.
+	if task.WorkflowPauseRequest != nil {
+		return w.tasks.ParkWorkflow(ctx, task)
+	}
 	graph, profiles, err := w.graph(ctx, task)
 	if err != nil {
 		return err
@@ -496,7 +508,8 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 	now := w.now()
 	var deadline *time.Time
 	if node.TimeoutMinutes > 0 {
-		at := step.EnteredAt.Add(time.Duration(node.TimeoutMinutes) * time.Minute)
+		// Time a person kept the step paused is not part of its timeout.
+		at := step.EnteredAt.Add(time.Duration(node.TimeoutMinutes)*time.Minute + time.Duration(step.PausedSeconds)*time.Second)
 		deadline = &at
 	}
 	outcome, detail, waiting := "", "", ""
@@ -643,7 +656,8 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 	if err != nil {
 		return nil, err
 	}
-	if !task.RunsWorkflow() || task.WorkflowSequence != sequence || task.WorkflowStatus == nil {
+	// Nobody decides a step while the workflow is paused.
+	if !task.RunsWorkflow() || task.WorkflowSequence != sequence || task.WorkflowStatus == nil || task.WorkflowPausedAt != nil {
 		return nil, ErrWorkflowDecision
 	}
 	graph, profiles, err := w.graph(ctx, *task)

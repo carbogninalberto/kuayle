@@ -29,7 +29,8 @@
 		BadgeCheck,
 		FlaskConical,
 		ScanSearch,
-		CirclePause
+		CirclePause,
+		Pause
 	} from '@lucide/svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import TaskActions from './TaskActions.svelte';
@@ -47,6 +48,7 @@
 	const agentLabel = (provider: string) => agentInfo(provider).name;
 	import { approvedBy } from './review-approval';
 	import type { TaskAction, TaskMenuEntry } from './task-actions';
+	import { canResume, workflowPause } from './workflow-pause';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import { agentSessionCommand, resumableStates } from './agent-session';
 	import { taskTone, toneDot, toneText } from './task-tone';
@@ -129,8 +131,13 @@
 		dirty = false,
 		initialRunsLoaded = false;
 	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-	const active = $derived(['preparing', 'running', 'validating', 'publishing', 'cancelling'].includes(task.state));
-	const failed = $derived(['failed', 'blocked'].includes(task.state));
+	// A workflow its creator paused is neither working nor failed, whatever
+	// state the pause found the task in.
+	const pause = $derived(workflowPause(task));
+	const active = $derived(
+		pause !== 'paused' && ['preparing', 'running', 'validating', 'publishing', 'cancelling'].includes(task.state)
+	);
+	const failed = $derived(pause !== 'paused' && ['failed', 'blocked'].includes(task.state));
 	const canCancel = $derived(!['completed', 'cancelled'].includes(task.state));
 	const canRetry = $derived(['failed', 'blocked', 'awaiting_review'].includes(task.state));
 	// Work awaiting review can be accepted in Kuayle without merging.
@@ -527,6 +534,20 @@
 			if (!disposed) busy = false;
 		}
 	}
+	// Pausing holds the task's workflow where it is; resuming continues it.
+	async function pauseAction(request: () => Promise<AgentTask>) {
+		if (busy) return;
+		busy = true;
+		error = '';
+		try {
+			const next = await request();
+			if (!disposed) chat.acceptTask(next);
+		} catch (e) {
+			failure(e);
+		} finally {
+			if (!disposed) busy = false;
+		}
+	}
 	// Accepting completes the attempt the user reviewed; the pull request stays
 	// open and unmerged. A newer attempt or a merge in between refuses it.
 	async function accept() {
@@ -557,14 +578,25 @@
 	const dock = useTerminalDock();
 	// A recorded approval shows the task is ready to merge; merging completes it.
 	const approver = $derived(task.state === 'awaiting_review' ? approvedBy(signals, task.run_id) : undefined);
-	const tone = $derived(approver ? 'success' : taskTone(task.state));
+	const tone = $derived(approver ? 'success' : pause === 'paused' ? 'warning' : taskTone(task.state));
 	// Paused by the agent's usage limit: the alert below explains it.
 	const usageLimited = $derived(task.state === 'blocked' && !!task.usage_limit_message);
 	const stateLabel = $derived(
-		approver ? m['tasks.approved']() : usageLimited ? m['tasks.state.paused']() : taskLabel(task.state)
+		approver
+			? m['tasks.approved']()
+			: usageLimited || pause === 'paused'
+				? m['tasks.state.paused']()
+				: pause === 'pausing'
+					? m['tasks.pausing']()
+					: taskLabel(task.state)
 	);
+	// A paused task says so in its state; what it was doing stays as the reason.
 	const reason = $derived(
-		approver ? m['tasks.approved_reason']({ name: approver }) : usageLimited ? '' : task.reason
+		approver
+			? m['tasks.approved_reason']({ name: approver })
+			: usageLimited || (pause === 'paused' && task.state === 'blocked')
+				? ''
+				: task.reason
 	);
 	$effect(() => {
 		const observed = [task.state, chat.taskSignalCursor[task.id]];
@@ -664,7 +696,19 @@
 	const actions = $derived.by(() => {
 		const list: TaskAction[] = [];
 		// Retrying is the next step once a task stopped; otherwise it is secondary.
-		const stopped = canRetry && task.state !== 'awaiting_review';
+		// A paused workflow has one next step: resuming it.
+		const resumable = pause === 'paused' || pause === 'pausing';
+		const stopped = canRetry && task.state !== 'awaiting_review' && !resumable;
+		if (resumable)
+			list.push({
+				id: 'resume',
+				icon: Play,
+				label: m['tasks.resume'](),
+				disabled: busy || !canResume(task),
+				onclick: () => void pauseAction(() => agentTasks.resume(chat.slug, task.id)),
+				group: 'main',
+				variant: 'primary'
+			});
 		if (canRetry)
 			list.push({
 				id: 'retry',
@@ -683,8 +727,8 @@
 				title: m['tasks.accept_help'](),
 				disabled: busy,
 				onclick: () => (acceptOpen = true),
-				group: 'main',
-				variant: 'primary'
+				group: resumable ? 'more' : 'main',
+				variant: resumable ? undefined : 'primary'
 			});
 		if (pullRequest)
 			list.push({
@@ -694,7 +738,7 @@
 				href: pullRequest,
 				external: true,
 				group: 'main',
-				variant: stopped || canAccept ? undefined : 'primary'
+				variant: stopped || canAccept || resumable ? undefined : 'primary'
 			});
 		if (diffReady)
 			list.push({
@@ -702,7 +746,7 @@
 				icon: FileDiff,
 				label: m['tasks.view_diff'](),
 				group: 'main',
-				variant: pullRequest || stopped || canAccept ? undefined : 'primary',
+				variant: pullRequest || stopped || canAccept || resumable ? undefined : 'primary',
 				onclick: () =>
 					(chat.diffView = {
 						taskId: task.id,
@@ -783,6 +827,20 @@
 				label: m['tasks.environment'](),
 				href: `/${chat.slug}/machines/${task.machine_id}`,
 				group: 'tools'
+			});
+		if (pause === 'pausable')
+			list.push({
+				id: 'pause',
+				icon: Pause,
+				label: m['tasks.pause'](),
+				group: 'more',
+				disabled: busy,
+				menu: (['now', 'after_step'] as const).map((mode) => ({
+					kind: 'item' as const,
+					id: mode,
+					label: mode === 'now' ? m['tasks.pause_now']() : m['tasks.pause_after_step'](),
+					onclick: () => void pauseAction(() => agentTasks.pause(chat.slug, task.id, mode))
+				}))
 			});
 		if (canCancel)
 			list.push({

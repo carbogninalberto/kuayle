@@ -179,6 +179,18 @@ export interface WorkflowStep {
 	decided_by?: string | null;
 	entered_at: string;
 	finished_at?: string | null;
+	/** Seconds the step spent paused by a person. */
+	paused_seconds?: number;
+}
+
+/** One pause or resume of a task's workflow, on the step it happened at. */
+export interface WorkflowPauseEvent {
+	action: 'pause_requested' | 'paused' | 'resumed' | 'pause_withdrawn';
+	sequence: number;
+	mode?: 'now' | 'after_step';
+	/** Absent when a requested pause took effect by itself. */
+	actor_id?: string | null;
+	at: string;
 }
 
 export type WorkflowStatus = 'running' | 'waiting' | 'paused' | 'done' | 'failed';
@@ -202,6 +214,11 @@ export interface TaskWorkflow {
 	task_state: string;
 	task_reason: string;
 	task_generation: number;
+	/** Set while a person's pause holds the workflow. */
+	paused_at?: string | null;
+	pause_request?: 'now' | 'after_step' | null;
+	/** The workflow's pauses and resumes, oldest first. */
+	pauses?: WorkflowPauseEvent[];
 }
 
 export type WorkflowDecision = 'approve' | 'deny' | 'continue' | 'stop';

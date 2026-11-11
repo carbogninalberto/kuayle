@@ -219,6 +219,9 @@ func (r *AgentTaskRepository) Claim(ctx context.Context) (*domain.AgentTask, err
   -- evaluated when an event or its timeout wakes it.
   OR (state='awaiting_review' AND workflow_wake_at<=now() AND next_poll_at<=now()))
  AND (lease_expires_at IS NULL OR lease_expires_at<=now())
+ -- A workflow a person paused is left alone until it is resumed; only the
+ -- cleanup of an attempt the pause stopped (or a cancellation) goes on.
+ AND (workflow_paused_at IS NULL OR state='cancelling')
  AND NOT (state='queued' AND kind='implement' AND `+openBlockersExist("agent_tasks.issue_id")+`)
  -- The creator's agent subscription is at its usage limit until a reset.
  AND NOT `+usageLimitHeld+`
@@ -381,6 +384,24 @@ func (r *AgentTaskRepository) RequestCancel(ctx context.Context, ws, id uuid.UUI
 	if task.State == "cancelled" {
 		return nil
 	}
+	// Cancelling a paused workflow ends the pause: the task is cancelled, not
+	// left blocked by the cleanup of the attempt the pause stopped.
+	if paused := task.WorkflowPausedAt != nil; paused || task.WorkflowPauseRequest != nil {
+		if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_paused_at=NULL,workflow_pause_request=NULL WHERE id=$1 RETURNING *`, id); err != nil {
+			return err
+		}
+		if paused && task.State == "cancelling" {
+			if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET reason='Cancellation requested',next_poll_at=now(),updated_at=now() WHERE id=$1 RETURNING *`, id); err != nil {
+				return err
+			}
+			if task.ConversationID != nil {
+				if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.updated", task); err != nil {
+					return err
+				}
+			}
+			return tx.Commit()
+		}
+	}
 	if task.State == "cancelling" {
 		result, err := tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='pending',attempts=0,available_at=now(),error_code=NULL,error_message=NULL WHERE workspace_id=$1 AND status='failed' AND ((agent_run_id=$2 AND idempotency_key=$3) OR (machine_id=$4 AND idempotency_key=$5))`, task.WorkspaceID, task.RunID, "task-cancel:"+task.ID.String()+":"+task.RunID.String(), task.ReservedMachineID, fmt.Sprintf("task-idle:%s:%d", task.ID, task.Generation))
 		if err != nil {
@@ -460,7 +481,11 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 		return err
 	}
 	target := "cancelled"
-	if task.FailurePending && task.UsageLimitMessage != nil {
+	if task.WorkflowPausedAt != nil {
+		// A person paused the workflow while its agent worked: the attempt is
+		// stopped, and the task waits to be resumed.
+		target, reason = "blocked", workflowPausedReason
+	} else if task.FailurePending && task.UsageLimitMessage != nil {
 		// A usage limit pauses the task; the reason says until when.
 		target, reason = "blocked", task.Reason
 	} else if task.FailurePending {
@@ -864,6 +889,9 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 	// A workflow task continues on its implementing agent step, keeping that
 	// step's instructions (project defaults joined with its profile's and the
 	// step's own, set when the step was entered).
+	if err = forgetWorkflowPause(ctx, tx, task, &task.CreatorID); err != nil {
+		return nil, err
+	}
 	if err = retryWorkflow(ctx, tx, task, task.CreatorID); err != nil {
 		return nil, err
 	}

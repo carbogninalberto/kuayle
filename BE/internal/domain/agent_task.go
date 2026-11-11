@@ -71,7 +71,8 @@ type AgentTask struct {
 	// UsageLimitResumes counts automatic resumes in a row (MaxUsageLimitAutoResumes).
 	UsageLimitResumes int `json:"usage_limit_resumes" db:"usage_limit_resumes"`
 	// ResumeNativeSession makes the next attempt continue the previous
-	// attempt's native session: set when a usage-limited task resumes.
+	// attempt's native session: set when a usage-limited task resumes, or a
+	// workflow a person paused while its agent was working.
 	ResumeNativeSession bool `json:"-" db:"resume_native_session"`
 	// Kind is "implement" or "review". A review task reviews the published
 	// pull request of ReviewOfTaskID and never validates or publishes.
@@ -95,6 +96,13 @@ type AgentTask struct {
 	// WorkflowExtensions counts the budgets people granted by continuing.
 	WorkflowExtensions int        `json:"workflow_budget_extensions,omitempty" db:"workflow_budget_extensions"`
 	WorkflowBudgetFrom *time.Time `json:"workflow_budget_from,omitempty" db:"workflow_budget_from"`
+	// WorkflowPausedAt is set while a person's pause holds the workflow: the
+	// worker leaves the task alone until it is resumed. WorkflowPauseRequest
+	// is a pause that has not taken effect yet (WorkflowPauseNow while Kuayle
+	// finishes a check or a publication, WorkflowPauseAfterStep until the
+	// current step has an outcome).
+	WorkflowPauseRequest *string    `json:"workflow_pause_request,omitempty" db:"workflow_pause_request"`
+	WorkflowPausedAt     *time.Time `json:"workflow_paused_at,omitempty" db:"workflow_paused_at"`
 }
 
 // RunsWorkflow reports whether the task follows a configurable workflow

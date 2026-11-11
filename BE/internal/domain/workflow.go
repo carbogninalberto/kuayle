@@ -1046,6 +1046,35 @@ type WorkflowStep struct {
 	DecidedBy  *uuid.UUID `json:"decided_by,omitempty" db:"decided_by"`
 	EnteredAt  time.Time  `json:"entered_at" db:"entered_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty" db:"finished_at"`
+	// PausedSeconds is how long the step was paused by a person; its timeout
+	// does not count that time.
+	PausedSeconds int `json:"paused_seconds" db:"paused_seconds"`
+}
+
+// How a person pauses a running workflow: at once, which stops the agent
+// that is working, or once the current step has an outcome.
+const (
+	WorkflowPauseNow       = "now"
+	WorkflowPauseAfterStep = "after_step"
+)
+
+// Workflow pause audit actions (workflow_audit_events, entity task_workflow).
+const (
+	WorkflowPauseActionRequested = "pause_requested"
+	WorkflowPauseActionPaused    = "paused"
+	WorkflowPauseActionResumed   = "resumed"
+	WorkflowPauseActionWithdrawn = "pause_withdrawn"
+)
+
+// WorkflowPauseEvent is one pause or resume of a task's workflow, from its
+// audit events: what happened, on which step, and who asked (nil when a
+// requested pause took effect).
+type WorkflowPauseEvent struct {
+	Action   string     `json:"action"`
+	Sequence int        `json:"sequence"`
+	Mode     string     `json:"mode,omitempty"`
+	ActorID  *uuid.UUID `json:"actor_id,omitempty"`
+	At       time.Time  `json:"at"`
 }
 
 // Workflow runner statuses stored on the task.
