@@ -459,13 +459,23 @@ func TestWorkflowPauseKeepsPrivateTeamsPrivate(t *testing.T) {
 	require.NoError(t, err)
 	// A pause is pending, so a caller who got through would change the task.
 	exec(`UPDATE agent_tasks SET state='running',workflow_pause_request='after_step' WHERE id=$1`, task.ID)
+	// Its path has a move to a newer version, which nobody else reads either.
+	exec(`INSERT INTO workflow_audit_events(workspace_id,actor_id,entity,entity_id,action,detail) VALUES($1,$2,'task_workflow',$3,$4,'{"from_version":1,"to_version":2,"sequence":1}')`, ws, creator, task.ID, domain.WorkflowVersionMovedAction)
 	for _, other := range []uuid.UUID{member, admin, owner} {
 		_, err = repo.PauseWorkflow(as(other), ws, task.ID, domain.WorkflowPauseNow)
 		require.ErrorIs(t, err, ErrConversationNotFound)
 		_, err = repo.ResumeWorkflow(as(other), ws, task.ID)
 		require.ErrorIs(t, err, ErrConversationNotFound)
+		_, err = repo.WorkflowPauses(as(other), ws, task.ID)
+		require.ErrorIs(t, err, ErrConversationNotFound)
 	}
+	moves, err := repo.WorkflowPauses(as(creator), ws, task.ID)
+	require.NoError(t, err)
+	require.Len(t, moves, 1)
+	require.Equal(t, 2, moves[0].ToVersion)
 	exec(`DELETE FROM team_members WHERE team_id=$1 AND user_id=$2`, team, creator)
+	_, err = repo.WorkflowPauses(as(creator), ws, task.ID)
+	require.ErrorIs(t, err, ErrConversationNotFound)
 	_, err = repo.ResumeWorkflow(as(creator), ws, task.ID)
 	require.ErrorIs(t, err, ErrConversationNotFound)
 	_, err = repo.PauseWorkflow(as(creator), ws, task.ID, domain.WorkflowPauseNow)
@@ -613,4 +623,47 @@ func TestWorkflowPausesAreTheNewest(t *testing.T) {
 	require.Len(t, events, 500)
 	require.Equal(t, 121, events[0].Sequence)
 	require.Equal(t, 620, events[len(events)-1].Sequence)
+}
+
+// A move to a newer version of the workflow is listed with the pauses, where
+// it happened, with the versions it went from and to; only the task's
+// creator reads it.
+func TestWorkflowPausesListAMoveToANewerVersion(t *testing.T) {
+	f := newPauseFixture(t)
+	_, err := f.repo.PauseWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowPauseAfterStep)
+	require.NoError(t, err)
+	f.exec(`INSERT INTO workflow_audit_events(workspace_id,actor_id,entity,entity_id,action,detail) VALUES($1,$2,'task_workflow',$3,$4,$5)`,
+		f.ws, f.task.CreatorID, f.task.ID, domain.WorkflowVersionMovedAction, `{"from_version":1,"to_version":3,"node":"implement","sequence":2}`)
+	// Another task's move, and another kind of event, are not this task's path.
+	f.exec(`INSERT INTO workflow_audit_events(workspace_id,actor_id,entity,entity_id,action,detail) VALUES($1,$2,'task_workflow',$3,$4,'{"from_version":1,"to_version":2,"sequence":1}')`,
+		f.ws, f.task.CreatorID, uuid.New(), domain.WorkflowVersionMovedAction)
+	f.exec(`INSERT INTO workflow_audit_events(workspace_id,actor_id,entity,entity_id,action,detail) VALUES($1,$2,'workflow',$3,'updated','{}')`, f.ws, f.task.CreatorID, f.task.ID)
+	events, err := f.repo.WorkflowPauses(f.ctx, f.ws, f.task.ID)
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+	require.Equal(t, domain.WorkflowPauseActionRequested, events[0].Action)
+	require.Zero(t, events[0].ToVersion)
+	move := events[1]
+	require.Equal(t, domain.WorkflowVersionMovedAction, move.Action)
+	require.Equal(t, []int{1, 3, 2}, []int{move.FromVersion, move.ToVersion, move.Sequence})
+	require.Equal(t, f.task.CreatorID, *move.ActorID)
+	require.False(t, move.At.Before(events[0].At))
+	raw, err := json.Marshal(move)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"from_version":1,"to_version":3`)
+	pause, err := json.Marshal(events[0])
+	require.NoError(t, err)
+	require.NotContains(t, string(pause), "to_version")
+
+	// Not a workspace admin, not another member, not another workspace.
+	for _, other := range []uuid.UUID{addWorkflowMember(t, f.db, f.ws, domain.RoleAdmin), addWorkflowMember(t, f.db, f.ws, domain.RoleMember), uuid.New()} {
+		_, err = f.repo.WorkflowPauses(domain.WithAccess(context.Background(), domain.Access{WorkspaceID: f.ws, UserID: other}), f.ws, f.task.ID)
+		require.ErrorIs(t, err, ErrConversationNotFound)
+	}
+	elsewhere := uuid.New()
+	foreign := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: elsewhere, UserID: f.task.CreatorID})
+	_, err = f.repo.WorkflowPauses(foreign, elsewhere, f.task.ID)
+	require.ErrorIs(t, err, ErrConversationNotFound)
+	_, err = f.repo.WorkflowPauses(foreign, f.ws, f.task.ID)
+	require.ErrorIs(t, err, ErrConversationNotFound)
 }

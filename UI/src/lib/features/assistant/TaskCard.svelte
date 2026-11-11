@@ -28,19 +28,16 @@
 		ChevronDown,
 		BadgeCheck,
 		FlaskConical,
-		ScanSearch,
 		CirclePause,
 		Pause
 	} from '@lucide/svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import TaskActions from './TaskActions.svelte';
-	import AgentReviews from './AgentReviews.svelte';
 	import TaskMessages from '$lib/features/agent-messages/TaskMessages.svelte';
-	import TaskLiveThread from './TaskLiveThread.svelte';
+	import TaskPath from './TaskPath.svelte';
 	import AgentTranscript from './AgentTranscript.svelte';
 	import TaskMenu from './TaskMenu.svelte';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
-	import { reviewHarnesses, reviewSessions } from './agent-review';
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import { signInCommand } from './agent-session';
 	import ClaudeTokenForm from '$lib/features/agents/ClaudeTokenForm.svelte';
@@ -78,15 +75,12 @@
 		chat,
 		onretry,
 		ondenied,
-		pinned = false,
-		allowedAgents = []
+		pinned = false
 	}: {
 		task: AgentTask;
 		chat: ConversationState;
 		onretry: (task: AgentTask) => void;
 		ondenied: (error: unknown) => void;
-		// Coding agents the workspace allows, offered for a requested review.
-		allowedAgents?: string[];
 		// The newest task starts expanded; earlier ones are one-line rows.
 		pinned?: boolean;
 	} = $props();
@@ -317,10 +311,11 @@
 			failure(e);
 		}
 	}
-	// Sessions (the task's own and its requested reviews) are read-only; review
-	// changes arrive as task.review_updated events on this conversation.
+	// Sessions (the task's own and its requested reviews) are read-only and
+	// listed in the details; review changes arrive as task.review_updated
+	// events on this conversation.
 	$effect(() => {
-		const observed = [expanded, task.state, task.run_id, chat.taskReviewCursor[task.id]];
+		const observed = [open, task.state, task.run_id, chat.taskReviewCursor[task.id]];
 		if (!observed[0]) return;
 		untrack(() => void loadSessions());
 	});
@@ -332,8 +327,6 @@
 			failure(e);
 		}
 	}
-	const reviews = $derived(reviewSessions(sessions));
-	const harnesses = $derived(reviewHarnesses(allowedAgents, task.provider));
 	const sessionStates: Record<AgentSession['state'], () => string> = {
 		created: m['tasks.session_created'],
 		starting: m['tasks.session_starting'],
@@ -344,14 +337,6 @@
 		failed: m['tasks.session_failed'],
 		cancelled: m['tasks.session_cancelled']
 	};
-	// Reviews are requested from the chat only: the menu writes the request
-	// into the composer, and the assistant asks for approval.
-	function requestReview(harness: string) {
-		chat.composerDraft = m['tasks.review_request_prompt']({
-			identifier: chat.issue?.identifier ?? '',
-			agent: agentLabel(harness)
-		});
-	}
 	// The task's app: its preview command, started only on its creator's request,
 	// plus the ports its agent exposed. They are the reviewer's QA entrypoints.
 	const appTaskStates = ['awaiting_review', 'blocked', 'failed'];
@@ -590,11 +575,13 @@
 					? m['tasks.pausing']()
 					: taskLabel(task.state)
 	);
+	// The path says why a task waits or stopped, on the step it happened at.
+	let pathSaysReason = $state(false);
 	// A paused task says so in its state; what it was doing stays as the reason.
 	const reason = $derived(
 		approver
 			? m['tasks.approved_reason']({ name: approver })
-			: usageLimited || (pause === 'paused' && task.state === 'blocked')
+			: usageLimited || pathSaysReason || (pause === 'paused' && task.state === 'blocked')
 				? ''
 				: task.reason
 	);
@@ -754,7 +741,7 @@
 						title: `${chat.issue?.identifier ?? ''} · ${m['tasks.attempt']({ number: task.generation })}`
 					})
 			});
-		// Tools, in the menu: the agent's own session first, then review and QA.
+		// Tools, in the menu: the agent's own session first, then QA.
 		if (task.machine_id && dock) {
 			if (claudeCode)
 				list.push({
@@ -779,27 +766,6 @@
 				});
 			}
 		}
-		// Reviews are requested from the chat: the pick writes the request into
-		// the composer, and the assistant asks for approval.
-		if (task.state === 'awaiting_review' && pullRequest && harnesses.length && chat.issue)
-			list.push({
-				id: 'review',
-				icon: ScanSearch,
-				label: m['tasks.request_review'](),
-				group: 'tools',
-				menu: [
-					{ kind: 'note', id: 'heading', text: m['tasks.review_with']() },
-					...harnesses.map((id) => ({
-						kind: 'item' as const,
-						id,
-						logo: id,
-						label: agentLabel(id),
-						hint: id === task.provider ? m['tasks.review_same_agent']() : undefined,
-						movesFocus: true,
-						onclick: () => requestReview(id)
-					}))
-				]
-			});
 		if (canRunCheck)
 			list.push({
 				id: 'check',
@@ -1064,8 +1030,7 @@
 				</Alert.Root>
 			{/if}
 			<TaskActions {actions} />
-			{#if task.kind !== 'review'}<TaskLiveThread {chat} {task} inline />{/if}
-			<AgentReviews {reviews} />
+			<TaskPath {chat} {task} bind:saysReason={pathSaysReason} />
 			<TaskMessages slug={chat.slug} {task} />
 			<Trace.Root class="border-t pt-1.5">
 				<Trace.Collapsible bind:open>

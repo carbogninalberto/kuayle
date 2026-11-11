@@ -3,68 +3,44 @@
 	import { ExternalLink, RefreshCw } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { workflows, type TaskWorkflow, type WorkflowDecision } from '$lib/api/workflows';
+	import type { AgentTask } from '$lib/api/agent-tasks';
+	import { workflows, type WorkflowDecision } from '$lib/api/workflows';
+	import type { ConversationState } from '$lib/features/assistant/conversation-state.svelte';
+	import { useTaskRun } from '$lib/features/assistant/task-run.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
 	import WorkflowCanvas from './WorkflowCanvas.svelte';
-	import { conditionLabel, statusLabel } from './labels';
+	import { statusLabel } from './labels';
 	import { pendingDecision, runOverlay } from './workflow-graph';
 
-	// A task's workflow run: the graph with the current step highlighted, the
-	// path taken with visit counts and why each transition fired, and the
-	// decisions a person can make (an approval, or a reached limit). The
-	// server decides who may decide; the view only offers what it allows.
+	// A task's workflow run: the graph with the current step highlighted and
+	// the decisions a person can make (an approval, or a reached limit). The
+	// server decides who may decide; the view only offers what it allows. The
+	// path the task took is the task's own (TaskPath). The run is the task's
+	// shared one (useTaskRun): it follows the task's events and is polled
+	// once for every view that shows it. Mounted per task.
 	let {
-		slug,
-		taskId,
-		refreshKey = '',
+		chat,
+		task,
 		compact = false
 	}: {
-		slug: string;
-		taskId: string;
-		/** Changes when the task moves (state, iteration, workflow step) so the run reloads. */
-		refreshKey?: string;
+		chat: ConversationState;
+		task: AgentTask;
 		compact?: boolean;
 	} = $props();
+	const slug = $derived(chat.slug);
+	const taskId = $derived(task.id);
 
-	// Statuses after which the run no longer changes by itself.
-	const SETTLED = new Set(['done', 'failed', 'cancelled', 'accepted', 'merged', 'completed']);
-
-	let run = $state<TaskWorkflow | null>(null);
-	let failed = $state(false);
+	const shared = useTaskRun(untrack(() => chat), () => task, { chart: true });
+	const run = $derived(shared.view);
+	const failed = $derived(shared.failed);
+	const load = () => shared.load();
 	let deciding = $state(false);
-	let request = 0;
-
-	async function load() {
-		const current = ++request;
-		try {
-			const loaded = await workflows.task(slug, taskId);
-			if (current !== request) return;
-			run = loaded;
-			failed = false;
-		} catch {
-			if (current === request) failed = true;
-		}
-	}
-
-	$effect(() => {
-		void [slug, taskId, refreshKey];
-		untrack(() => void load());
-	});
-
-	// Waiting steps (CI, a review, a timeout) move without a task event the
-	// view sees, so poll modestly until the run settles.
-	$effect(() => {
-		if (!run || SETTLED.has(run.status)) return;
-		const timer = setInterval(() => void load(), 15000);
-		return () => clearInterval(timer);
-	});
 
 	const overlay = $derived(run ? runOverlay(run) : null);
 	const decision = $derived(run ? pendingDecision(run) : null);
 	const nodeLabel = (id: string | null | undefined) =>
 		(id && run?.graph.nodes.find((n) => n.id === id)?.label) || id || '';
-	const steps = $derived(run ? [...run.steps].sort((a, b) => a.sequence - b.sequence) : []);
 
 	async function decide(choice: WorkflowDecision) {
 		if (!decision || deciding) return;
@@ -147,48 +123,6 @@
 				label={m['workflows.task.title']()}
 				class={compact ? 'h-72' : 'h-[420px]'}
 			/>{/if}
-
-		{#if steps.length > 0}
-			<section aria-labelledby="task-workflow-path-{taskId}" class="space-y-1">
-				<h4 id="task-workflow-path-{taskId}" class="text-xs font-medium text-muted-foreground uppercase">
-					{m['workflows.task.path']()}
-				</h4>
-				<ol class="max-h-80 space-y-1.5 overflow-y-auto pr-1" data-testid="task-workflow-path">
-					{#each steps as step (step.sequence)}
-						<li
-							class="rounded-md border px-2.5 py-1.5 text-xs {step.sequence === run.sequence &&
-							step.node_id === run.node
-								? 'border-primary/60 bg-primary/5'
-								: ''}"
-							aria-current={step.sequence === run.sequence && step.node_id === run.node ? 'step' : undefined}
-						>
-							<div class="flex flex-wrap items-center gap-1.5">
-								<span class="font-medium"
-									>{m['workflows.task.step_title']({ sequence: step.sequence, node: nodeLabel(step.node_id) })}</span
-								>
-								{#if step.generation}<Badge variant="secondary" class="h-4 px-1.5 text-[10px] font-normal"
-										>{m['tasks.attempt']({ number: step.generation })} · {m['workflows.task.iteration_reason']({
-											node: nodeLabel(step.node_id),
-											reason: step.condition ? conditionLabel(step.condition) : nodeLabel(step.from_node)
-										})}</Badge
-									>{/if}
-								{#if (run.visits[step.node_id] ?? 0) > 1}<span class="text-muted-foreground"
-										>{m['workflows.task.visits']({ count: step.visit })}</span
-									>{/if}
-							</div>
-							{#if step.from_node && step.condition}<p class="text-muted-foreground">
-									{nodeLabel(step.from_node)} → {nodeLabel(step.node_id)} · {conditionLabel(step.condition)}
-								</p>{/if}
-							{#if step.reason}<p class="break-words whitespace-pre-wrap">{step.reason}</p>{/if}
-							{#if step.outcome}<p class="text-muted-foreground">
-									{m['workflows.task.outcome']({ outcome: conditionLabel(step.outcome) })}
-								</p>{/if}
-							{#if step.decided_by}<p class="text-muted-foreground">{m['workflows.task.decided_by']()}</p>{/if}
-						</li>
-					{/each}
-				</ol>
-			</section>
-		{/if}
 	{:else}
 		<p class="text-xs text-muted-foreground">{m['assistant.loading']()}</p>
 	{/if}

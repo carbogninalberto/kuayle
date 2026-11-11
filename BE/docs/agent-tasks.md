@@ -717,10 +717,13 @@ uses the existing retry path with the original instructions plus a
 (`agent_review`: state, harness, verdict, commit, the start of the findings
 and the comment state).
 
-The task card's "Request review" menu (allowed harnesses, implementer first)
-only writes "Review ENG-12 with Codex" into the chat composer; chat remains the
-only way to request one. A review requested by another member appears on the
-creator's task card; its full logs belong to the requester's review task.
+The agent view's "Request review" menu (allowed harnesses, implementer first;
+shown while the task awaits review with its pull request open) only writes
+"Review ENG-12 with Codex" into the assistant's composer and returns to the
+chat; chat remains the only way to request one. The requested reviews are
+listed under the agent view's timeline. A review requested by another member
+appears there for the task's creator; its full logs belong to the requester's
+review task. The task card in the sidebar neither requests nor lists reviews.
 
 Limitations: reviewer output parsing and the detached checkout were exercised
 with fakes and fixtures, not against a real machine and harness. The review
@@ -1329,12 +1332,12 @@ the agent marker of posted comments (the comments stay as their authors').
 
 Migration 95 adds `agent_live_messages`: one task's two-way channel between
 its creator (or the orchestrator acting for them) and its agent, while the
-agent works. The task card, the chat and the assistant use it as described in
+agent works. The agent view, the chat and the assistant use it as described in
 [agent messages in chat](conversations.md#agent-messages-in-chat).
 
 **Sending to the agent.** `AgentTaskService.QueueLiveMessage(ws, task, sender,
 body)` (repository `QueueLiveMessage`) records a message from `user` or
-`orchestrator`. The task card's composer sends as `user` directly. The
+`orchestrator`. The agent view's composer sends as `user` directly. The
 assistant never calls it: its `message_task` tool only requests an approval,
 and the approved text is queued by `QueueApprovedLiveMessage(ws, task,
 request, body)` as `orchestrator`, under the same rules, with the approval's
@@ -1830,7 +1833,10 @@ Every request, pause, resume and withdrawal is a `workflow_audit_events` row
 `GET /agent-tasks/:taskId/workflow` returns `paused_at`, `pause_request`, the
 `pauses` list (the newest 500: action, sequence, mode, actor, time, oldest
 first) and each
-step's `paused_seconds`. The task card shows "Paused" with one Resume button,
+step's `paused_seconds`. The same list carries a task's moves to another
+version of its workflow (audit action `version_switched`, with `from_version`
+and `to_version`), under the same authorization, so the sidebar's path shows a
+move where it happened. The task card shows "Paused" with one Resume button,
 and offers Pause in its menu; `WorkflowPauseControl.svelte` is the same
 control as a standalone component.
 

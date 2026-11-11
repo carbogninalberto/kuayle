@@ -5,16 +5,23 @@
 	import * as Breadcrumb from '$lib/components/ui/breadcrumb/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { agentTasks, type AgentLiveMessage as LiveMessage, type AgentTask } from '$lib/api/agent-tasks';
-	import { workflows, type TaskWorkflow } from '$lib/api/workflows';
-	import type { AgentRun } from '$lib/types/dev-machine';
+	import {
+		agentTasks,
+		type AgentLiveMessage as LiveMessage,
+		type AgentSession,
+		type AgentTask
+	} from '$lib/api/agent-tasks';
 	import type { ConversationState } from './conversation-state.svelte';
 	import AgentStep from './AgentStep.svelte';
 	import ClampedText from './ClampedText.svelte';
 	import AgentLiveMessage from './AgentLiveMessage.svelte';
+	import AgentReviewRequest from './AgentReviewRequest.svelte';
+	import AgentReviews from './AgentReviews.svelte';
 	import TaskStopButton from './TaskStopButton.svelte';
-	import { attemptTimeline, openStep, workflowTimeline } from './agent-timeline';
+	import { openStep } from './agent-timeline';
 	import { placeConversation } from './agent-conversation';
+	import { reviewSessions } from './agent-review';
+	import { useTaskRun } from './task-run.svelte';
 	import { taskLabel } from './task-labels';
 	import { taskTone, toneBadge } from './task-tone';
 	import { m } from '$lib/features/i18n/messages';
@@ -27,79 +34,36 @@
 	// that received it, at the moment it was delivered, with the agent's
 	// reply as the next item; one that waits while no step runs follows the
 	// last step, where the next iteration picks it up. It is written in the
-	// composer under the view (AgentComposer).
+	// composer under the view (AgentComposer). A review of the task's pull
+	// request is asked for from its header, and the requested reviews are
+	// read under the timeline.
 	let {
 		chat,
 		task,
 		backHref,
-		onback
+		onback,
+		allowedAgents = []
 	}: {
 		chat: ConversationState;
 		task: AgentTask;
 		backHref: string;
 		onback: () => void;
+		// Coding agents the workspace allows, offered for a requested review.
+		allowedAgents?: string[];
 	} = $props();
 	const identifier = $derived(chat.issue?.identifier ?? '');
 	const tone = $derived(taskTone(task.state));
-	const followsWorkflow = $derived(!!task.workflow_version_id);
 	let stopError = $state('');
-
-	let view = $state<TaskWorkflow | null>(null),
-		attempts = $state<AgentRun[]>([]),
-		failed = $state(false);
-	let request = 0,
-		disposed = false;
-	// A finished run's summary is final: the view keeps the ones it has and
-	// asks only for those of runs finished since (knownUntil).
-	const summaries = new Map<string, string>();
-	let knownUntil = '';
+	let disposed = false;
 	$effect(() => () => {
 		disposed = true;
 	});
-	async function load() {
-		const current = ++request;
-		try {
-			if (followsWorkflow) {
-				const loaded = await workflows.task(chat.slug, task.id, knownUntil || undefined);
-				if (disposed || current !== request) return;
-				const runs = (loaded.runs ?? []).map((run) => {
-					if (run.summary) summaries.set(run.id, run.summary);
-					if (run.completed_at && (!knownUntil || Date.parse(run.completed_at) > Date.parse(knownUntil)))
-						knownUntil = run.completed_at;
-					return run.summary || !summaries.has(run.id) ? run : { ...run, summary: summaries.get(run.id) };
-				});
-				view = { ...loaded, runs };
-			} else {
-				const loaded = await agentTasks.runs(chat.slug, task.id);
-				if (disposed || current !== request) return;
-				attempts = loaded.runs;
-			}
-			failed = false;
-		} catch {
-			if (!disposed && current === request) failed = true;
-		}
-	}
-	// The task moving (state, attempt, workflow step) or one of its reviews
-	// changing arrives as an event and reloads the steps; each open step
-	// streams its own output.
-	$effect(() => {
-		void [
-			task.id,
-			task.state,
-			task.run_id,
-			task.generation,
-			task.workflow_node,
-			task.workflow_status,
-			task.updated_at,
-			chat.taskWorkflowCursor[task.id],
-			chat.taskReviewCursor[task.id]
-		];
-		untrack(() => void load());
-	});
 
-	const steps = $derived(
-		followsWorkflow ? (view ? workflowTimeline(view, task) : []) : attemptTimeline(task, attempts)
-	);
+	// What the task did is loaded once for this view, the sidebar's path and
+	// the workflow chart; it reloads on the task's events and is polled as a
+	// fallback (see TaskRun).
+	const run = useTaskRun(untrack(() => chat), () => task);
+	const steps = $derived(run.steps);
 	// The task's live channel, reloaded on each of its events. A review has
 	// none; another member's task answers "not found" and shows nothing.
 	let live = $state<LiveMessage[]>([]);
@@ -118,32 +82,42 @@
 		if (task.kind !== 'review') untrack(() => void loadLive());
 	});
 	const conversation = $derived(placeConversation(live, steps, task));
-	// Events can be missed (a dropped connection), so the workflow is also
-	// polled: modestly while a step runs, rarely while it waits (an approval
-	// can take days), never once it has ended.
-	const pace = $derived(
-		!followsWorkflow || !view || view.status === 'done' || view.status === 'failed'
-			? 0
-			: steps.some((step) => step.status === 'running')
-				? 15_000
-				: 120_000
-	);
-	$effect(() => {
-		if (!pace) return;
-		const timer = setInterval(() => void load(), pace);
-		return () => clearInterval(timer);
-	});
 	// The running step is open and the finished ones are closed, until the
 	// reader opens or closes one; a link to a step (#step-4) opens it.
-	const linked = untrack(() => page.url.hash.slice(1));
-	let chosen = $state<Record<string, boolean>>(linked ? { [linked]: true } : {});
+	let chosen = $state<Record<string, boolean>>({});
 	const current = $derived(openStep(steps));
-	let scrolled = false;
+	let followed = '';
 	$effect(() => {
-		if (scrolled || !linked || !steps.some((step) => step.anchor === linked)) return;
-		scrolled = true;
+		const linked = page.url.hash.slice(1);
+		if (!linked || linked === followed || !steps.some((step) => step.anchor === linked)) return;
+		followed = linked;
+		untrack(() => (chosen[linked] = true));
 		void tick().then(() => document.getElementById(linked)?.scrollIntoView({ block: 'start' }));
 	});
+
+	// The reviews asked of the task's pull request; their changes arrive as
+	// task.review_updated events.
+	let sessions = $state<AgentSession[]>([]);
+	$effect(() => {
+		void [task.id, task.state, chat.taskReviewCursor[task.id]];
+		if (task.kind === 'review') return;
+		untrack(() => {
+			agentTasks
+				.sessions(chat.slug, task.id)
+				.then((view) => {
+					if (!disposed) sessions = view.sessions ?? [];
+				})
+				.catch(() => {
+					/* The timeline still shows the task's own work. */
+				});
+		});
+	});
+	const reviews = $derived(reviewSessions(sessions));
+	// The request is written for the assistant, which asks for approval.
+	function requestReview(text: string) {
+		chat.composerDraft = text;
+		onback();
+	}
 
 	// Durations of running steps tick.
 	let now = $state(Date.now());
@@ -187,6 +161,7 @@
 		<div class="flex min-w-0 items-start justify-between gap-3">
 			<ClampedText text={task.prompt} class="text-sm font-medium" />
 			<div class="flex shrink-0 items-center gap-2">
+				<AgentReviewRequest {chat} {task} {allowedAgents} onrequest={requestReview} />
 				<TaskStopButton {chat} {task} {identifier} onerror={(message) => (stopError = message)} />
 				<Badge variant="outline" class={toneBadge[tone]} role="status">{taskLabel(task.state)}</Badge>
 			</div>
@@ -213,10 +188,11 @@
 				{#each conversation.pending as placed (placed.message.id)}<AgentLiveMessage {placed} />{/each}
 			</li>{/if}
 	</ol>
-	{#if failed}<div class="flex flex-wrap items-center gap-2">
+	{#if run.failed}<div class="flex flex-wrap items-center gap-2">
 			<p role="alert" class="text-sm text-destructive">
-				{followsWorkflow ? m['workflows.task.load_failed']() : m['tasks.load_error']()}
+				{run.followsWorkflow ? m['workflows.task.load_failed']() : m['tasks.load_error']()}
 			</p>
-			<Button variant="ghost" size="sm" onclick={() => void load()}><RefreshCw />{m['tasks.refresh']()}</Button>
+			<Button variant="ghost" size="sm" onclick={() => void run.load()}><RefreshCw />{m['tasks.refresh']()}</Button>
 		</div>{/if}
+	<AgentReviews {reviews} />
 </div>

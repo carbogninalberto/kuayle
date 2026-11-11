@@ -1066,15 +1066,22 @@ const (
 	WorkflowPauseActionWithdrawn = "pause_withdrawn"
 )
 
-// WorkflowPauseEvent is one pause or resume of a task's workflow, from its
-// audit events: what happened, on which step, and who asked (nil when a
-// requested pause took effect).
+// WorkflowVersionMovedAction is the audit action of a task moved to another
+// version of its workflow; its detail names the versions and the step.
+const WorkflowVersionMovedAction = "version_switched"
+
+// WorkflowPauseEvent is one pause or resume of a task's workflow, or its move
+// to another version of the workflow, from its audit events: what happened,
+// on which step, and who asked (nil when a requested pause took effect).
+// FromVersion and ToVersion are set for a move.
 type WorkflowPauseEvent struct {
-	Action   string     `json:"action"`
-	Sequence int        `json:"sequence"`
-	Mode     string     `json:"mode,omitempty"`
-	ActorID  *uuid.UUID `json:"actor_id,omitempty"`
-	At       time.Time  `json:"at"`
+	Action      string     `json:"action"`
+	Sequence    int        `json:"sequence"`
+	Mode        string     `json:"mode,omitempty"`
+	FromVersion int        `json:"from_version,omitempty"`
+	ToVersion   int        `json:"to_version,omitempty"`
+	ActorID     *uuid.UUID `json:"actor_id,omitempty"`
+	At          time.Time  `json:"at"`
 }
 
 // WorkflowStepRun is one agent run of a task as its timeline shows it, placed

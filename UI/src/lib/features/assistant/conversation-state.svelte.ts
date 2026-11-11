@@ -9,6 +9,7 @@ import {
 	type ApprovalEdit,
 	type ConversationApproval
 } from '$lib/api/conversations';
+import type { TaskRun } from './task-run.svelte';
 
 export class ConversationState {
 	conversation = $state<Conversation | null>(null);
@@ -44,8 +45,10 @@ export class ConversationState {
 	taskLiveCursor = $state<Record<string, number>>({});
 	// Told about an agent question that arrives live, to notify the reader.
 	onAgentQuestion: ((message: AgentLiveChatMessage) => void) | null = null;
-	// Text a task card asks the chat composer to show, e.g. a review request.
+	// Text a view asks the chat composer to show, e.g. a review request.
 	composerDraft = $state<string | null>(null);
+	// What each task did, shared by the views that show it (see useTaskRun).
+	readonly taskRuns = new Map<string, TaskRun>();
 	cursor = 0;
 	hasMore = $state(false);
 	loading = $state(true);

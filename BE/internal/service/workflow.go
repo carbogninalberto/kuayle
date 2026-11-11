@@ -777,7 +777,8 @@ type TaskWorkflow struct {
 	Runs []domain.WorkflowStepRun `json:"runs"`
 	// PausedAt is set while a person's pause holds the workflow, and
 	// PauseRequest while one waits for the current step. Pauses are its
-	// pauses and resumes so far, oldest first, each naming its step.
+	// pauses, resumes and moves to another version of the workflow so far,
+	// oldest first, each naming its step.
 	PausedAt     *time.Time                  `json:"paused_at,omitempty"`
 	PauseRequest *string                     `json:"pause_request,omitempty"`
 	Pauses       []domain.WorkflowPauseEvent `json:"pauses"`

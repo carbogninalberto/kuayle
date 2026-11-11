@@ -348,7 +348,8 @@ func forgetWorkflowPause(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTas
 }
 
 // WorkflowPauses lists the newest 500 pauses and resumes of the task's
-// workflow, oldest first, under the task's authorization.
+// workflow and its moves to another version of the workflow, oldest first,
+// under the task's authorization.
 func (r *AgentTaskRepository) WorkflowPauses(ctx context.Context, ws, id uuid.UUID) ([]domain.WorkflowPauseEvent, error) {
 	if _, err := conversationActor(ctx, ws); err != nil {
 		return nil, err
@@ -365,8 +366,8 @@ func (r *AgentTaskRepository) WorkflowPauses(ctx context.Context, ws, id uuid.UU
 		At      time.Time       `db:"created_at"`
 	}
 	if err = tx.SelectContext(ctx, &rows, `SELECT action,actor_id,detail,created_at FROM workflow_audit_events
- WHERE workspace_id=$1 AND entity='task_workflow' AND entity_id=$2 AND action IN ($3,$4,$5,$6) ORDER BY id DESC LIMIT 500`,
-		ws, id, domain.WorkflowPauseActionRequested, domain.WorkflowPauseActionPaused, domain.WorkflowPauseActionResumed, domain.WorkflowPauseActionWithdrawn); err != nil {
+ WHERE workspace_id=$1 AND entity='task_workflow' AND entity_id=$2 AND action IN ($3,$4,$5,$6,$7) ORDER BY id DESC LIMIT 500`,
+		ws, id, domain.WorkflowPauseActionRequested, domain.WorkflowPauseActionPaused, domain.WorkflowPauseActionResumed, domain.WorkflowPauseActionWithdrawn, domain.WorkflowVersionMovedAction); err != nil {
 		return nil, err
 	}
 	// The newest events, listed oldest first.
@@ -374,11 +375,13 @@ func (r *AgentTaskRepository) WorkflowPauses(ctx context.Context, ws, id uuid.UU
 	events := make([]domain.WorkflowPauseEvent, 0, len(rows))
 	for _, row := range rows {
 		var detail struct {
-			Sequence int    `json:"sequence"`
-			Mode     string `json:"mode"`
+			Sequence    int    `json:"sequence"`
+			Mode        string `json:"mode"`
+			FromVersion int    `json:"from_version"`
+			ToVersion   int    `json:"to_version"`
 		}
 		_ = json.Unmarshal(row.Detail, &detail)
-		events = append(events, domain.WorkflowPauseEvent{Action: row.Action, Sequence: detail.Sequence, Mode: detail.Mode, ActorID: row.ActorID, At: row.At})
+		events = append(events, domain.WorkflowPauseEvent{Action: row.Action, Sequence: detail.Sequence, Mode: detail.Mode, FromVersion: detail.FromVersion, ToVersion: detail.ToVersion, ActorID: row.ActorID, At: row.At})
 	}
 	return events, nil
 }

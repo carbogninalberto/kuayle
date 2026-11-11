@@ -1589,7 +1589,7 @@ test('a Claude Code task stopped for sign-in continues with a pasted token', asy
 	expect(state.signIns).toHaveLength(1);
 });
 
-test('requests an agent review through the chat and shows its findings on the task', async ({ page }, testInfo) => {
+test('requests an agent review from the agent view, through the chat, and shows its findings there', async ({ page }, testInfo) => {
 	const { state, emit } = await fixture(page);
 	state.providers = [
 		{ id: 'codex', display_name: 'Codex', supported_modes: ['autonomous'], custom: false },
@@ -1620,17 +1620,25 @@ test('requests an agent review through the chat and shows its findings on the ta
 	emit('task.state_changed', state.task);
 	await expect(tasks.getByText('Awaiting review', { exact: true })).toBeVisible();
 
-	// The action only writes the request into the composer; the assistant asks
-	// for approval, so nothing is started from the card.
+	// The card no longer asks for reviews (KUA-133); the agent view does. The
+	// action only writes the request into the assistant's composer; the
+	// assistant asks for approval, so nothing is started from the view.
+	const menu = await openTaskMenu(page);
+	await expect(menu.getByRole('menuitem').first()).toBeVisible();
+	await expect(page.getByRole('menuitem', { name: 'Request review', exact: true })).toHaveCount(0);
+	await page.keyboard.press('Escape');
 	const requests: string[] = [];
 	page.on('request', (request) => {
 		if (request.method() !== 'GET') requests.push(request.url());
 	});
-	await openTaskMenu(page);
-	await page.getByRole('menuitem', { name: 'Request review', exact: true }).click();
+	const toggle = page.getByRole('button', { name: /^Agent · ENG-1/ });
+	await toggle.click();
+	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+	await thread.getByRole('button', { name: 'Request review', exact: true }).click();
 	const items = page.getByRole('menu').last().getByRole('menuitem');
 	await expect(items).toHaveText([/Codex\s*Same agent$/, /Claude Code$/]);
 	await page.getByRole('menuitem', { name: 'Claude Code' }).click();
+	await expect(page).not.toHaveURL(/agent=/);
 	await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('Review ENG-1 with Claude Code');
 	await expect(page.getByRole('textbox', { name: 'Message' })).toBeFocused();
 	expect(requests).toEqual([]);
@@ -1679,7 +1687,10 @@ test('requests an agent review through the chat and shows its findings on the ta
 		implement
 	];
 	emit('task.review_updated', { task_id: 'task-1', review_task_id: 'review-1', state: 'completed' });
-	const reviews = tasks.getByRole('region', { name: 'Agent reviews' });
+	// The findings are read in the agent view, not on the card.
+	await toggle.click();
+	const reviews = thread.getByRole('region', { name: 'Agent reviews' });
+	await expect(tasks.getByRole('region', { name: 'Agent reviews' })).toHaveCount(0);
 	await expect(reviews.getByText('Review by Claude Code', { exact: true })).toBeVisible();
 	await expect(reviews.getByText('Changes requested', { exact: true })).toBeVisible();
 	await expect(reviews.getByText('handle the empty query', { exact: false })).toBeVisible();
@@ -1697,7 +1708,7 @@ test('requests an agent review through the chat and shows its findings on the ta
 			document.documentElement.classList.toggle('dark', d);
 			document.documentElement.setAttribute('data-theme', d ? 'dark' : 'light');
 		}, dark);
-		await tasks.screenshot({ path: testInfo.outputPath(`agent-review-${dark ? 'dark' : 'light'}.png`) });
+		await reviews.screenshot({ path: testInfo.outputPath(`agent-review-${dark ? 'dark' : 'light'}.png`) });
 	}
 });
 
@@ -1781,7 +1792,7 @@ const agentQuestion = {
 	identifier: 'ENG-1'
 };
 
-test('the task card thread messages the running agent and shows its answers live', async ({ page }) => {
+test('the chat composer messages the running agent and its answers show live; the card has no thread', async ({ page }) => {
 	const { state, emit } = await fixture(page);
 	state.task = {
 		id: 'task-1',
@@ -1805,17 +1816,12 @@ test('the task card thread messages the running agent and shows its answers live
 		updated_at: '2026-10-26T10:00:00Z'
 	};
 	await page.goto('/test/assistant?conversation=chat-1');
-	const thread = page.getByRole('region', { name: 'Live messages' });
-	// The card's own one-line composer writes to the agent; its hint says when it reads it.
-	const reply = thread.getByRole('textbox', { name: 'Reply to the agent' });
-	await expect(reply).toHaveAccessibleDescription('The running agent reads it after its current step.');
-	const send = thread.getByRole('button', { name: 'Send', exact: true });
-	await expect(send).toBeDisabled();
-	await reply.fill('Also add tests for the empty list');
-	await reply.press('Enter');
-	await expect.poll(() => state.liveSends).toEqual(['Also add tests for the empty list']);
-	await expect(reply).toHaveValue('');
-	await expect(thread.getByRole('listitem', { name: 'You' })).toContainText('Waiting for the agent');
+	// The card has no thread and no composer of its own (KUA-133): messages
+	// are written in the agent view, or in the chat composer aimed at the agent.
+	const card = page.getByRole('article', { name: 'Coding task', exact: true });
+	await expect(card.getByText('Native coding harness started')).toBeVisible();
+	await expect(page.getByRole('region', { name: 'Live messages' })).toHaveCount(0);
+	await expect(card.getByRole('textbox')).toHaveCount(0);
 	// The chat composer says plainly whether it writes to the assistant or to the agent.
 	const target = page.getByRole('button', { name: /^Send to: / });
 	await expect(target).toHaveAccessibleName('Send to: Assistant');
@@ -1827,19 +1833,16 @@ test('the task card thread messages the running agent and shows its answers live
 	const composer = page.getByRole('textbox', { name: 'Write to the agent' });
 	await composer.fill('Keep the old route');
 	await composer.press('Enter');
-	await expect.poll(() => state.liveSends).toEqual(['Also add tests for the empty list', 'Keep the old route']);
+	await expect.poll(() => state.liveSends).toEqual(['Keep the old route']);
 	await expect(composer).toHaveValue('');
 	// Nothing was sent to the assistant; switching back aims the composer at it again.
 	await page.getByRole('button', { name: 'Back to assistant' }).click();
 	await expect(target).toHaveAccessibleName('Send to: Assistant');
 	await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
 
-	// The manager records the agent's question: the card and the chat update live.
+	// The manager records the agent's question: the chat updates live.
 	state.liveMessages = [...state.liveMessages, agentQuestion];
 	emit('task.live_message', agentQuestion);
-	const answer = thread.getByRole('listitem', { name: 'Agent' });
-	await expect(answer).toContainText('Keep the v1 route?');
-	await expect(answer.getByText('Question', { exact: true })).toBeVisible();
 	const item = page.getByRole('article', { name: 'Question from the coding agent of ENG-1' });
 	await expect(item).toBeVisible();
 	await expect(item.getByText('See [the plan](https://evil.example/steal)', { exact: false })).toBeVisible();

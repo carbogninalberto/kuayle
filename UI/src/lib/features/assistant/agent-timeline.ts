@@ -33,6 +33,13 @@ export interface TimelineStep {
 	plan?: string;
 	detail: string;
 	reason: string;
+	/** The step's node in its workflow; absent for a task without one. */
+	nodeId?: string;
+	/** The transition the task took to get here. */
+	condition?: string;
+	/** What a check step checks, and what an approval step asks. */
+	check?: 'tests' | 'ci';
+	question?: string;
 }
 
 type Task = Pick<AgentTask, 'id' | 'state' | 'run_id' | 'provider' | 'model' | 'updated_at'>;
@@ -130,7 +137,11 @@ export function workflowTimeline(view: View, task: Task): TimelineStep[] {
 			reviewTaskId: step.review_task_id ?? undefined,
 			plan: step.plan || undefined,
 			detail: step.detail,
-			reason: step.reason
+			reason: step.reason,
+			nodeId: step.node_id,
+			condition: step.condition ?? undefined,
+			check: node?.check,
+			question: step.node_type === 'approval' ? node?.prompt || undefined : undefined
 		};
 	});
 }
