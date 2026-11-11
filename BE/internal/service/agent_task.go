@@ -58,6 +58,11 @@ type AgentTaskService struct {
 	// registry logs published pull requests in the wiki registry of the
 	// issue's project or team when that registry is on; nil until SetRegistry.
 	registry taskRegistry
+	// Creators are not notified about finished tasks until SetNotifications
+	// wires these.
+	notices       taskNoticeStore
+	notifications notificationCreator
+	userEvents    userEventPublisher
 }
 
 type taskRegistry interface {

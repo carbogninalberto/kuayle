@@ -15,6 +15,7 @@ import {
 	precacheList,
 	requestStrategy
 } from '$lib/features/pwa/service-worker-policy';
+import { notificationTargetUrl, openNotificationTarget, requestClientNavigation } from '$lib/features/pwa/notification-click';
 
 const worker = self as unknown as ServiceWorkerGlobalScope;
 const CACHE = `${SHELL_CACHE_PREFIX}${version}`;
@@ -38,6 +39,33 @@ worker.addEventListener('activate', (event) => {
 
 worker.addEventListener('message', (event) => {
 	if (event.data?.type === 'SKIP_WAITING') void worker.skipWaiting();
+});
+
+// A clicked notification reuses an open Kuayle window when there is one. That
+// window routes to the target itself, so it keeps its state; it is reloaded
+// onto the target only when it does not confirm.
+worker.addEventListener('notificationclick', (event) => {
+	event.notification.close();
+	const origin = worker.location.origin;
+	const target = notificationTargetUrl(event.notification.data?.url, origin);
+	if (!target) return;
+	event.waitUntil(
+		(async () => {
+			const clients = await worker.clients.matchAll({ type: 'window', includeUncontrolled: true });
+			await openNotificationTarget({
+				clients,
+				target,
+				origin,
+				requestNavigation: (client, url) =>
+					requestClientNavigation(client, url, {
+						createChannel: () => new MessageChannel(),
+						setTimeout: (callback, ms) => setTimeout(callback, ms),
+						clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>)
+					}),
+				openWindow: (url) => worker.clients.openWindow(url)
+			});
+		})()
+	);
 });
 
 worker.addEventListener('fetch', (event) => {

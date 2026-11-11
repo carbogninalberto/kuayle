@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,6 +43,9 @@ func (s *PreferencesService) Get(ctx context.Context, userID uuid.UUID) (*domain
 			TeamWorkflowSortOverrides: domain.TeamWorkflowSortOverrides{},
 			RecentDueDates:            domain.RecentDueDates{},
 			IssuesGroupBy:             "status",
+			BrowserNotifications:      true,
+			NotificationSound:         domain.DefaultNotificationSound,
+			NotificationEvents:        domain.NotificationEvents{}.Complete(),
 		}, nil
 	}
 	if prefs.WorkflowSortMode == "" {
@@ -57,6 +61,10 @@ func (s *PreferencesService) Get(ctx context.Context, userID uuid.UUID) (*domain
 	if prefs.IssuesGroupBy == "" {
 		prefs.IssuesGroupBy = "status"
 	}
+	if prefs.NotificationSound == "" {
+		prefs.NotificationSound = domain.DefaultNotificationSound
+	}
+	prefs.NotificationEvents = prefs.NotificationEvents.Complete()
 	return prefs, nil
 }
 
@@ -106,6 +114,24 @@ func (s *PreferencesService) Update(ctx context.Context, userID uuid.UUID, req d
 			return nil, fmt.Errorf("%w: invalid issues_group_by %q", ErrInvalidPreferences, *req.IssuesGroupBy)
 		}
 		prefs.IssuesGroupBy = *req.IssuesGroupBy
+	}
+	if req.BrowserNotifications != nil {
+		prefs.BrowserNotifications = *req.BrowserNotifications
+	}
+	if req.NotificationSound != nil {
+		if !slices.Contains(domain.NotificationSounds, *req.NotificationSound) {
+			return nil, fmt.Errorf("%w: invalid notification_sound %q", ErrInvalidPreferences, *req.NotificationSound)
+		}
+		prefs.NotificationSound = *req.NotificationSound
+	}
+	if req.NotificationEvents != nil {
+		// A partial map changes only the events it names.
+		for key, enabled := range *req.NotificationEvents {
+			if !slices.Contains(domain.NotificationEventKeys, key) {
+				return nil, fmt.Errorf("%w: unknown notification event %q", ErrInvalidPreferences, key)
+			}
+			prefs.NotificationEvents[key] = enabled
+		}
 	}
 
 	if err := s.prefsRepo.Upsert(ctx, prefs); err != nil {
