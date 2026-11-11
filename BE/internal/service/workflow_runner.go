@@ -166,7 +166,7 @@ func (w *WorkflowRunner) AgentFinished(ctx context.Context, task domain.AgentTas
 		_, err = w.tasks.ApplyWorkflow(ctx, task, *apply)
 		return err
 	}
-	produced := strings.TrimSpace(run.Summary)
+	produced := neutralisePlan(run.Summary)
 	apply, err := w.planWith(ctx, task, domain.WorkflowAgentFinished, "", produced, false)
 	if err != nil {
 		return err
@@ -184,7 +184,7 @@ func planProblem(step string, run repository.WorkflowRun) string {
 	case run.WorktreeChanged == nil:
 		return step + ": Kuayle could not confirm that the planning step left the worktree unchanged"
 	case *run.WorktreeChanged:
-		what := "it committed"
+		what := "a commit"
 		if len(run.WorktreeFiles) > 0 {
 			files := run.WorktreeFiles
 			more := ""
@@ -227,8 +227,27 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 	if produced != "" {
 		vars.Plan = produced
 	}
+	// A planning step that failed left no plan (an earlier visit's is stale
+	// now) and maybe a changed worktree.
+	from, _ := graph.Node(cursor.Node)
+	failedPlan := outcome == domain.WorkflowAgentFailed && from.Type == domain.WorkflowNodeAgent && from.ProfileID != nil && profiles[*from.ProfileID].Plans()
+	if failedPlan {
+		apply.PlanFailed, vars.Plan = true, ""
+	}
 	for range len(graph.Nodes)*2 + 2 {
 		decision := graph.Decide(cursor, outcome, now, profiles)
+		// So the workflow may only plan again, ask a person or end; any
+		// other step (also through an "else" transition) fails it instead.
+		if failedPlan && !decision.Stuck && !afterFailedPlan(decision.To, profiles) {
+			decision.Reason = fmt.Sprintf("%s failed, and a failed plan cannot lead to %s", from.Label, decision.To.Label)
+			if detail != "" {
+				decision.Reason += ". " + detail
+			}
+			apply.Moves = append(apply.Moves, repository.WorkflowMove{Decision: decision, Stop: true})
+			apply.Entry = repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: domain.WorkflowReasonPrefix + decision.Reason}
+			return apply, nil
+		}
+		failedPlan = false
 		reason := domain.WorkflowReasonPrefix + decision.Reason
 		if decision.Stuck {
 			apply.Moves = append(apply.Moves, repository.WorkflowMove{Decision: decision, Stop: true})
@@ -264,6 +283,18 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 		outcome = immediate
 	}
 	return nil, fmt.Errorf("workflow %s: too many immediate transitions", task.ID)
+}
+
+// afterFailedPlan reports whether a failed planning step may lead to the
+// node: a planning step (itself again, or another), an approval or an end.
+func afterFailedPlan(to domain.WorkflowNode, profiles map[uuid.UUID]domain.AgentProfile) bool {
+	switch to.Type {
+	case domain.WorkflowNodeEnd, domain.WorkflowNodeApproval:
+		return true
+	case domain.WorkflowNodeAgent:
+		return to.ProfileID != nil && profiles[*to.ProfileID].Plans()
+	}
+	return false
 }
 
 // enter returns what entering the decision's target does, or the outcome

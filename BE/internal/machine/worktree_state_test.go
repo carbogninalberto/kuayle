@@ -58,12 +58,13 @@ func TestWorktreeStateSeesEveryChangeAnAgentCanMake(t *testing.T) {
 	require.NoError(t, err, string(out))
 	// The worktree already holds uncommitted work of an earlier step.
 	write("pending.go", "package a // wip\n")
+	write("node_modules/x/index.js", "x")
 
 	before := state()
 	require.Equal(t, before, state(), "reading the state changes nothing")
 	write(".kuayle/outbox/m.json", "{}")
-	write("node_modules/x/index.js", "x")
-	require.Equal(t, before, state(), "Kuayle's files and ignored files are not the agent's changes")
+	write("node_modules/x/more.js", "x")
+	require.Equal(t, before, state(), "Kuayle's files and work inside an ignored directory are not the agent's changes")
 	changed, _, _ := worktreeChange(before, state())
 	require.False(t, changed)
 	require.Empty(t, strings.TrimSpace(git("diff", "--cached", "--name-only")), "the checkout's index is untouched")
@@ -91,6 +92,42 @@ func TestWorktreeStateSeesEveryChangeAnAgentCanMake(t *testing.T) {
 	require.True(t, changed)
 	require.Equal(t, from, to, "same files, new commit")
 
+	// Hiding a new file from git does not hide it from Kuayle: neither a
+	// pattern the agent adds to the repository's exclude file, nor a
+	// directory that ignores itself.
+	hidden := state()
+	exclude := filepath.Join(root, ".git", "info", "exclude")
+	old, err := os.ReadFile(exclude)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(exclude, append(old, []byte("\nsecret.go\n")...), 0o644))
+	write("secret.go", "package a // hidden\n")
+	changed, _, _ = worktreeChange(hidden, state())
+	require.True(t, changed, "a file excluded during the run is still a change")
+	require.NoError(t, os.Remove(filepath.Join(root, "secret.go")))
+	require.Equal(t, hidden, state(), "the pattern alone changes nothing that could be published")
+	write("stash/.gitignore", "*\n")
+	write("stash/impl.go", "package stash\n")
+	changed, _, _ = worktreeChange(hidden, state())
+	require.True(t, changed, "a directory that ignores itself is still a change")
+	require.NoError(t, os.RemoveAll(filepath.Join(root, "stash")))
+	write("node_modules/x/other.js", "y")
+	require.Equal(t, hidden, state(), "work inside a directory that was ignored before is not")
+
+	// Kuayle's own files never count, also when the repository does not
+	// exclude .kuayle/ (its outbox preparation failed).
+	bare := t.TempDir()
+	root = bare
+	git("init", "-q")
+	write("a.go", "package a\n")
+	git("add", "-A")
+	git("commit", "-q", "-m", "base")
+	clean := state()
+	write(".kuayle/outbox/m.json", "{}")
+	write(".kuayle/validation.json", "{}")
+	require.Equal(t, clean, state())
+	write("b.go", "package a\n")
+	require.Equal(t, []string{"b.go"}, files(clean, state()))
+
 	require.Empty(t, parseWorktreeState("fatal: not a git repository\n"))
 	require.Empty(t, parseWorktreeState(""))
 }
@@ -117,7 +154,7 @@ func (f *worktreeRuntimeFake) WorktreeChangedFiles(context.Context, []domain.Dev
 // The run records whether its agent changed the worktree, which files, or
 // that it could not tell; an interactive run is never compared.
 func TestRunRecordsWhetherTheAgentChangedTheWorktree(t *testing.T) {
-	const clean, edited, committed = "aaaa 1111", "aaaa 2222", "bbbb 1111"
+	const clean, edited, committed, hid = "aaaa 1111 eeee", "aaaa 2222 eeee", "bbbb 1111 eeee", "aaaa 1111 ffff"
 	record := func(mode string, files []string, states ...string) *domain.DevMachineAgentRun {
 		runtime := &worktreeRuntimeFake{runtimeFake: &runtimeFake{}, states: states, files: files}
 		m := &Manager{runtime: runtime}
@@ -138,6 +175,10 @@ func TestRunRecordsWhetherTheAgentChangedTheWorktree(t *testing.T) {
 	run = record("autonomous", []string{"never listed"}, clean, committed)
 	require.True(t, *run.WorktreeChanged, "a commit with the same files is a change")
 	require.JSONEq(t, `[]`, string(run.WorktreeChangedFiles))
+
+	run = record("autonomous", []string{"never listed"}, clean, hid)
+	require.True(t, *run.WorktreeChanged, "new files that git ignores are a change")
+	require.JSONEq(t, `["files that git ignores"]`, string(run.WorktreeChangedFiles))
 
 	require.Nil(t, record("autonomous", nil, clean).WorktreeChanged, "unknown when the worktree cannot be read afterwards")
 	require.Nil(t, record("autonomous", nil).WorktreeChanged, "or before")

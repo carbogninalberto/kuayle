@@ -68,7 +68,7 @@ func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowAp
 		if current.FinishedAt == nil {
 			current.FinishedAt = &w.now
 		}
-		if apply.Plan != "" {
+		if apply.Plan != "" || apply.PlanFailed {
 			plan := apply.Plan
 			current.Plan = &plan
 		}

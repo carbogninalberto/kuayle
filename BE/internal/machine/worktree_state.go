@@ -15,22 +15,30 @@ import (
 // itself, the same way for every harness: it fingerprints the worktree before
 // the agent starts and after it ends, and never asks the agent.
 
-// worktreeStateScript prints "<HEAD commit> <tree>" for the worktree $1. The
-// tree is written from a throwaway index holding HEAD plus everything in the
-// worktree that git does not ignore, so uncommitted and untracked changes
-// count and the checkout's real index is untouched. Kuayle's own files under
-// .kuayle/ are excluded from the repository (excludeKuayleScript).
+// worktreeStateScript prints "<HEAD commit> <tree> <ignored>" for the
+// worktree $1. The tree is written from a throwaway index holding HEAD plus
+// everything in the worktree that git does not ignore, so uncommitted and
+// untracked changes count and the checkout's real index is untouched.
+// <ignored> hashes the list of paths git ignores (a directory ignored as a
+// whole is one entry), so a file the agent hides during the run, with a
+// pattern in the repository's exclude file or a directory that ignores
+// itself, still shows as a new entry; work inside a directory that was
+// already ignored (node_modules) does not. Kuayle's own .kuayle/ directory
+// is skipped by path, whether or not the repository excludes it.
 const worktreeStateScript = `set -eu
+cd "$1"
 index=$(mktemp)
 trap 'rm -f "$index"' EXIT
 export GIT_INDEX_FILE="$index"
-head=$(git -C "$1" rev-parse --verify HEAD)
-git -C "$1" read-tree HEAD
-git -C "$1" add -A
-tree=$(git -C "$1" write-tree)
-printf '%s %s\n' "$head" "$tree"`
+head=$(git rev-parse --verify HEAD)
+git read-tree HEAD
+git add -A
+git rm -r -q --cached --ignore-unmatch -- .kuayle
+tree=$(git write-tree)
+ignored=$(git ls-files --others --ignored --exclude-standard --directory | grep -v '^\.kuayle/' | git hash-object --stdin)
+printf '%s %s %s\n' "$head" "$tree" "$ignored"`
 
-var worktreeStatePattern = regexp.MustCompile(`^[0-9a-f]{40,64} [0-9a-f]{40,64}$`)
+var worktreeStatePattern = regexp.MustCompile(`^[0-9a-f]{40,64} [0-9a-f]{40,64} [0-9a-f]{40,64}$`)
 
 // maxWorktreeChangedFiles bounds the changed paths kept on a run.
 const maxWorktreeChangedFiles = 100
@@ -49,12 +57,21 @@ func parseWorktreeState(output string) string {
 }
 
 // worktreeChange compares two fingerprints: whether anything changed (a new
-// commit counts even when the files are the same) and the trees to diff.
+// commit or newly ignored files count even when the tree is the same) and
+// the trees to diff.
 func worktreeChange(before, after string) (changed bool, fromTree, toTree string) {
-	_, fromTree, _ = strings.Cut(before, " ")
-	_, toTree, _ = strings.Cut(after, " ")
-	return before != after, fromTree, toTree
+	tree := func(state string) string {
+		if fields := strings.Fields(state); len(fields) > 1 {
+			return fields[1]
+		}
+		return ""
+	}
+	return before != after, tree(before), tree(after)
 }
+
+// ignoredFilesChanged is listed in place of file names when the only change
+// is in what git ignores, which has no tree to diff.
+const ignoredFilesChanged = "files that git ignores"
 
 // worktreeRuntime is implemented by runtimes that can fingerprint a worktree.
 type worktreeRuntime interface {
@@ -144,7 +161,14 @@ func (m *Manager) recordWorktreeChange(ctx context.Context, machine *domain.DevM
 	}
 	changed, fromTree, toTree := worktreeChange(before, after)
 	run.WorktreeChanged = &changed
-	if !changed || fromTree == toTree {
+	if !changed {
+		return
+	}
+	if fromTree == toTree {
+		// Same files: a commit, or only what git ignores changed.
+		if was, is := strings.Fields(before), strings.Fields(after); len(was) == 3 && len(is) == 3 && was[0] == is[0] {
+			run.WorktreeChangedFiles, _ = json.Marshal([]string{ignoredFilesChanged})
+		}
 		return
 	}
 	files, err := runtime.WorktreeChangedFiles(ctx, services, checkout, fromTree, toTree)

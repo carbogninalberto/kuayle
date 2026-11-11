@@ -65,7 +65,43 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 		handoff.PullRequestURL = *row.PullRequest
 	}
 	_ = json.Unmarshal(row.ChangedFiles, &handoff.ChangedFiles)
+	if handoff.OtherProfile, err = r.previousStepProfileDiffers(ctx, task); err != nil {
+		return nil, err
+	}
 	return handoff, nil
+}
+
+// previousStepProfileDiffers reports whether the workflow step that ran the
+// task's previous iteration used another agent profile than the step the
+// task is on. A retry or a recreated attempt stays on its step, so it does
+// not differ; a task without a workflow never does.
+func (r *AgentTaskRepository) previousStepProfileDiffers(ctx context.Context, task domain.AgentTask) (bool, error) {
+	if !task.RunsWorkflow() || task.WorkflowNode == nil {
+		return false, nil
+	}
+	var previous string
+	err := r.db.GetContext(ctx, &previous, `SELECT node_id FROM agent_task_workflow_steps WHERE task_id=$1 AND generation IS NOT NULL AND sequence<$2 ORDER BY sequence DESC LIMIT 1`, task.ID, task.WorkflowSequence)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && previous == *task.WorkflowNode) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var raw json.RawMessage
+	err = r.db.GetContext(ctx, &raw, `SELECT graph FROM workflow_versions WHERE id=$1 AND workspace_id=$2`, task.WorkflowVersionID, task.WorkspaceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var graph domain.WorkflowGraph
+	if err = json.Unmarshal(raw, &graph); err != nil {
+		return false, err
+	}
+	was, _ := graph.Node(previous)
+	is, _ := graph.Node(*task.WorkflowNode)
+	return was.ProfileID != nil && is.ProfileID != nil && *was.ProfileID != *is.ProfileID, nil
 }
 
 // MarkSessionContinued records that the user opened the task's native

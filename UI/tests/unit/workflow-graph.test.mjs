@@ -16,7 +16,8 @@ import {
 	runOverlay,
 	placeIssues,
 	removeNode,
-	starterGraph
+	starterGraph,
+	starterProfile
 } from '../../src/lib/features/workflows/workflow-graph.ts';
 
 const profiles = [
@@ -268,6 +269,16 @@ test('retry on failure loops the failure back to the step and back to Failed whe
 		[['failed', 'agent_failed']]
 	);
 	assert.equal(setRetry(graph, 'start', true, profiles), graph, 'only agent and publish steps retry');
+});
+
+test('a blank workflow starts with a profile that changes code', () => {
+	const builtin = { id: 'b', behaviour: 'changes_code', builtin_key: 'implementer' };
+	const other = { id: 'o', behaviour: 'changes_code' };
+	assert.equal(starterProfile([other, builtin])?.id, 'b', 'the built-in implementer first');
+	// A built-in implementer that was turned into a planner or a reviewer is not one.
+	assert.equal(starterProfile([{ ...builtin, behaviour: 'reviews' }, other])?.id, 'o');
+	assert.equal(starterProfile([{ ...builtin, behaviour: 'plans' }, { ...other, archived_at: '2026-01-01' }]), undefined);
+	assert.equal(starterProfile([{ ...builtin, archived_at: '2026-01-01' }, other])?.id, 'o');
 });
 
 test('an automated review block runs the reviewer and retries if it fails', () => {

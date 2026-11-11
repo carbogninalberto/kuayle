@@ -851,28 +851,41 @@ func renderWorkflowPrompt(template string, vars WorkflowVariables, fenceBytes in
 		{"{{failing_checks}}", fence("Failing check output", vars.FailingChecks), true},
 		{"{{diff}}", fence("Changes so far", vars.Diff), false},
 	}
-	out := strings.TrimSpace(template)
-	var extra []string
-	for _, section := range sections {
-		if strings.Contains(out, section.key) {
-			// The plan is written once, however often the template names it.
-			if section.key == "{{plan}}" {
-				out = strings.Replace(out, section.key, section.block, 1)
-				out = strings.ReplaceAll(out, section.key, "")
-				continue
+	// One pass over the template: each variable it names is replaced where
+	// it stands, and what a variable contributes is never scanned again, so
+	// a plan or a review that mentions "{{diff}}" keeps those words.
+	template = strings.TrimSpace(template)
+	named := map[string]bool{}
+	var out strings.Builder
+	for template != "" {
+		at, found := len(template), -1
+		for i, section := range sections {
+			if j := strings.Index(template, section.key); j >= 0 && j < at {
+				at, found = j, i
 			}
-			out = strings.ReplaceAll(out, section.key, section.block)
-		} else if section.block != "" && section.append {
-			extra = append(extra, section.block)
+		}
+		out.WriteString(template[:at])
+		if found < 0 {
+			break
+		}
+		section := sections[found]
+		// The plan is written once, however often the template names it.
+		if !named[section.key] || section.key != "{{plan}}" {
+			out.WriteString(section.block)
+		}
+		named[section.key] = true
+		template = template[at+len(section.key):]
+	}
+	rendered := out.String()
+	for _, section := range sections {
+		if !named[section.key] && section.block != "" && section.append {
+			if strings.TrimSpace(rendered) != "" {
+				rendered = strings.TrimSpace(rendered) + "\n\n"
+			}
+			rendered += section.block
 		}
 	}
-	if len(extra) > 0 {
-		if out != "" {
-			out += "\n\n"
-		}
-		out += strings.Join(extra, "\n\n")
-	}
-	return strings.TrimSpace(out)
+	return strings.TrimSpace(rendered)
 }
 
 func truncateUTF8(value string, limit int) string {

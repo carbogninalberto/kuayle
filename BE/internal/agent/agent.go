@@ -172,8 +172,7 @@ func defaultResult(stdout, stderr string, exitCode int) RunResult {
 	if exitCode != 0 {
 		status = "failed"
 	}
-	summary := finalMessage(stdout)
-	final := summary != ""
+	summary, final := finalMessageAfterTools(stdout)
 	if summary == "" {
 		summary = strings.TrimSpace(stdout)
 	}
@@ -219,7 +218,17 @@ func parseJSONLines(raw []byte) []Event {
 // last Codex agent_message or Claude Code's final result. It returns "" for
 // output that is not such a stream, so callers fall back to the raw text.
 func finalMessage(stdout string) string {
-	last := ""
+	text, _ := finalMessageAfterTools(stdout)
+	return text
+}
+
+// finalMessageAfterTools returns the agent's last message and whether it is
+// the run's conclusion: nothing but reasoning came after it. Text followed by
+// a tool call ("Let me look…") is what the agent said on the way, so a run
+// that ends on a tool call has no final message. Claude Code's result event
+// is its conclusion by definition.
+func finalMessageAfterTools(stdout string) (string, bool) {
+	last, final := "", false
 	for _, line := range strings.Split(stdout, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "{") {
@@ -238,10 +247,13 @@ func finalMessage(stdout string) string {
 		}
 		switch {
 		case event.Type == "item.completed" && event.Item.Type == "agent_message" && strings.TrimSpace(event.Item.Text) != "":
-			last = strings.TrimSpace(event.Item.Text)
+			last, final = strings.TrimSpace(event.Item.Text), true
 		case event.Type == "result" && strings.TrimSpace(event.Result) != "":
-			last = strings.TrimSpace(event.Result)
+			last, final = strings.TrimSpace(event.Result), true
+		case (event.Type == "item.completed" || event.Type == "item.started") && event.Item.Type != "" && event.Item.Type != "agent_message" && event.Item.Type != "reasoning":
+			// A command, a file change, a tool or a search: work, not a conclusion.
+			final = false
 		}
 	}
-	return last
+	return last, final
 }

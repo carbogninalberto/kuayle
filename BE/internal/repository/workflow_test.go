@@ -631,3 +631,81 @@ func TestRetryRestartsAFailedWorkflowOnItsImplementingStep(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, bundle, "the retried iteration gets the implementer's profile files")
 }
+
+// A build step that follows a planning step is run by another profile: the
+// handoff says so, so the builder starts its own native session. A failed
+// re-plan stores an empty plan, which hides the earlier visit's.
+func TestHandoffKnowsWhenAnotherProfileRanThePreviousStep(t *testing.T) {
+	db, repo, ctx, legacy, fixture := taskRecoveryFixture(t)
+	_, err := db.Exec(`UPDATE agent_tasks SET state='completed' WHERE id=$1`, legacy.ID)
+	require.NoError(t, err)
+	ws := legacy.WorkspaceID
+	workflows := NewWorkflowRepository(db)
+	implementer, _ := builtinIDs(t, workflows, ws)
+	planner, err := workflows.CreateProfile(ctx, ws, fixture.userID, domain.AgentProfileInput{Name: "Architect", Behaviour: domain.AgentBehaviourPlans, Harness: "claude-code"})
+	require.NoError(t, err)
+	graph := domain.WorkflowGraph{
+		Nodes: []domain.WorkflowNode{
+			{ID: "start", Type: domain.WorkflowNodeStart, Label: "Start"},
+			{ID: "plan", Type: domain.WorkflowNodeAgent, Label: "Plan", ProfileID: &planner.ID, MaxVisits: 3},
+			{ID: "build", Type: domain.WorkflowNodeAgent, Label: "Build", ProfileID: &implementer, MaxVisits: 3},
+			{ID: "done", Type: domain.WorkflowNodeEnd, Label: "Done", Outcome: domain.WorkflowEndDone},
+		},
+		Edges: []domain.WorkflowEdge{
+			{ID: "start-plan", Source: "start", Target: "plan", Condition: domain.WorkflowElse},
+			{ID: "plan-build", Source: "plan", Target: "build", Condition: domain.WorkflowAgentFinished},
+			{ID: "plan-again", Source: "plan", Target: "plan", Condition: domain.WorkflowAgentFailed},
+			{ID: "build-done", Source: "build", Target: "done", Condition: domain.WorkflowAgentFinished},
+			{ID: "build-again", Source: "build", Target: "build", Condition: domain.WorkflowAgentFailed},
+		},
+	}
+	raw, err := json.Marshal(graph)
+	require.NoError(t, err)
+	created, err := workflows.CreateWorkflow(ctx, ws, fixture.userID, "Plan then build", "", raw, "created")
+	require.NoError(t, err)
+	chosen := created.ID.String()
+	version, err := workflows.ResolveWorkflow(ctx, ws, legacy.IssueID, &chosen)
+	require.NoError(t, err)
+	task, err := repo.Create(ctx, ws, *legacy.ConversationID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Add dark mode", Provider: "claude-code", Workflow: version})
+	require.NoError(t, err)
+	require.Equal(t, "plan", *task.WorkflowNode)
+
+	claimed := prepareTaskStart(t, db, repo, ctx, *task, fixture)
+	_, err = repo.Start(ctx, *claimed)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now(),exit_code=0,summary='Do A.',native_session_id='0199a213-81c0-7800-8aa1-bbab2a035a53' WHERE id=$1`, task.RunID)
+	require.NoError(t, err)
+	iteration := func(to domain.WorkflowDecision) WorkflowEntry {
+		return WorkflowEntry{Kind: WorkflowEnterIteration, Reason: "Workflow · " + to.Reason, Prompt: "Add dark mode", Provider: "claude-code"}
+	}
+
+	// The plan fails once and is planned again: same profile, same session.
+	again := graph.Decide(claimed.Cursor(), domain.WorkflowAgentFailed, time.Now(), nil)
+	replan, err := repo.ApplyWorkflow(ctx, *claimed, WorkflowApply{Sequence: 2, Outcome: domain.WorkflowAgentFailed, Moves: []WorkflowMove{{Decision: again}}, Entry: iteration(again), Iteration: true, Plan: "EARLIER PLAN"})
+	require.NoError(t, err)
+	require.Equal(t, "plan", *replan.WorkflowNode)
+	handoff, err := repo.PreviousAttempt(ctx, *replan)
+	require.NoError(t, err)
+	require.NotNil(t, handoff)
+	require.False(t, handoff.OtherProfile, "a step visited again continues its own session")
+	stored, err := repo.LatestWorkflowPlan(ctx, *replan)
+	require.NoError(t, err)
+	require.Equal(t, "EARLIER PLAN", stored)
+
+	// The second plan fails too: its empty plan replaces the earlier one.
+	// (The worker claims and starts the second planning attempt.)
+	require.NoError(t, db.Get(replan, `UPDATE agent_tasks SET state='running',lease_token=gen_random_uuid(),lease_expires_at=now()+interval '5 minutes' WHERE id=$1 RETURNING *`, task.ID))
+	toBuild := graph.Decide(replan.Cursor(), domain.WorkflowAgentFinished, time.Now(), nil)
+	building, err := repo.ApplyWorkflow(ctx, *replan, WorkflowApply{Sequence: replan.WorkflowSequence, Outcome: domain.WorkflowAgentFailed, Moves: []WorkflowMove{{Decision: toBuild}}, Entry: iteration(toBuild), Iteration: true, PlanFailed: true})
+	require.NoError(t, err)
+	require.Equal(t, "build", *building.WorkflowNode)
+	stored, err = repo.LatestWorkflowPlan(ctx, *building)
+	require.NoError(t, err)
+	require.Empty(t, stored, "the earlier plan is no longer the task's plan")
+
+	// The build step is run by the implementer, not the planner.
+	handoff, err = repo.PreviousAttempt(ctx, *building)
+	require.NoError(t, err)
+	require.NotNil(t, handoff)
+	require.True(t, handoff.OtherProfile)
+}

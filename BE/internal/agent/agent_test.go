@@ -519,3 +519,42 @@ func TestResultSaysWhetherTheHarnessReportedAFinalMessage(t *testing.T) {
 		})
 	}
 }
+
+// A run that ends on a tool call has no final message: the text before the
+// call ("Let me look…") is not what the agent concluded. The summary keeps
+// showing it; only the final-message flag changes.
+func TestTextBeforeTheLastToolCallIsNotAFinalMessage(t *testing.T) {
+	codex := strings.Join([]string{
+		`{"type":"item.completed","item":{"id":"i0","type":"agent_message","text":"Let me look at the repository."}}`,
+		`{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":"ls"}}`,
+	}, "\n")
+	result := NewCodexProvider("").ParseResult(codex, "", 0)
+	require.False(t, result.FinalMessage)
+	require.Equal(t, "Let me look at the repository.", result.Summary)
+	// Reasoning after the message is not a tool call.
+	thought := codex[:strings.Index(codex, "\n")] + "\n" + `{"type":"item.completed","item":{"id":"i1","type":"reasoning","text":"done"}}`
+	require.True(t, NewCodexProvider("").ParseResult(thought, "", 0).FinalMessage)
+	for _, tool := range []string{"file_change", "mcp_tool_call", "web_search"} {
+		ended := codex[:strings.Index(codex, "\n")] + "\n" + `{"type":"item.completed","item":{"id":"i1","type":"` + tool + `"}}`
+		require.False(t, NewCodexProvider("").ParseResult(ended, "", 0).FinalMessage, tool)
+	}
+	answered := codex + "\n" + `{"type":"item.completed","item":{"id":"i2","type":"agent_message","text":"1. Add the column"}}`
+	result = NewCodexProvider("").ParseResult(answered, "", 0)
+	require.True(t, result.FinalMessage)
+	require.Equal(t, "1. Add the column", result.Summary)
+
+	opencode := strings.Join([]string{
+		`{"type":"text","part":{"type":"text","text":"Let me look at the repository."}}`,
+		`{"type":"tool_use","part":{"type":"tool","tool":"bash","state":{"status":"completed","output":"ok","metadata":{"exit":0}}}}`,
+	}, "\n")
+	result = NewOpenCodeProvider("").ParseResult(opencode, "", 0)
+	require.False(t, result.FinalMessage)
+	require.Equal(t, "Let me look at the repository.", result.Summary)
+	result = NewOpenCodeProvider("").ParseResult(opencode+"\n"+`{"type":"text","part":{"type":"text","text":"1. Add the column"}}`, "", 0)
+	require.True(t, result.FinalMessage)
+	require.Equal(t, "1. Add the column", result.Summary)
+
+	// Claude Code's result event is its conclusion, whatever came before.
+	claude := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash"}]}}` + "\n" + `{"type":"result","subtype":"success","result":"1. Add the column"}`
+	require.True(t, NewClaudeCodeProvider("").ParseResult(claude, "", 0).FinalMessage)
+}

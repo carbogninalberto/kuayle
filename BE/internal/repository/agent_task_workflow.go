@@ -82,6 +82,10 @@ type WorkflowApply struct {
 	// Plan is the plan the step being closed produced (a planning step that
 	// finished), stored whole on it.
 	Plan string
+	// PlanFailed: the step being closed is a planning step that failed. It
+	// stores an empty plan, so the plan of an earlier visit is no longer the
+	// task's latest and is not handed to the agents after it.
+	PlanFailed bool
 }
 
 func workflowEvent(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) error {
@@ -389,7 +393,7 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 		task.ID, apply.Sequence, apply.Outcome, truncateBytes(apply.Detail, 16000), apply.Actor); err != nil {
 		return err
 	}
-	if apply.Plan != "" && !apply.Hold {
+	if (apply.Plan != "" || apply.PlanFailed) && !apply.Hold {
 		if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET plan=$3 WHERE task_id=$1 AND sequence=$2`, task.ID, apply.Sequence, apply.Plan); err != nil {
 			return err
 		}
@@ -678,7 +682,8 @@ func (r *AgentTaskRepository) LatestWorkflowReview(ctx context.Context, task dom
 }
 
 // LatestWorkflowPlan returns the plan of the newest planning step that
-// finished with one, whole, for the next agents' {{plan}}.
+// finished, whole, for the next agents' {{plan}}: empty when that step
+// failed, whatever an earlier visit produced.
 func (r *AgentTaskRepository) LatestWorkflowPlan(ctx context.Context, task domain.AgentTask) (string, error) {
 	var plan string
 	err := r.db.GetContext(ctx, &plan, `SELECT plan FROM agent_task_workflow_steps WHERE task_id=$1 AND plan IS NOT NULL ORDER BY sequence DESC LIMIT 1`, task.ID)

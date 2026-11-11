@@ -442,3 +442,23 @@ func TestRenderWorkflowPromptPassesThePlanWholeAndTrusted(t *testing.T) {
 	require.Contains(t, within, "Review comments", "shortened, not dropped, while there is room")
 	require.Contains(t, RenderWorkflowPromptWithin("{{plan}}", noisy, len(plan)+200), plan, "the plan outlasts the untrusted variables")
 }
+
+// Text that came from a variable is never read as a template again: a plan
+// that mentions {{diff}} or {{previous_summary}} keeps those words, and no
+// untrusted block is spliced into it.
+func TestRenderWorkflowPromptNeverRescansAVariablesText(t *testing.T) {
+	plan := "Use {{diff}} and {{previous_summary}} in the docs; {{plan}} and {{review_comments}} are literal here."
+	vars := WorkflowVariables{Plan: plan, Diff: "SECRET-DIFF", PreviousSummary: "SECRET-SUMMARY", ReviewComments: "mentions {{failing_checks}} and {{plan}}", FailingChecks: "exit 1"}
+	out := RenderWorkflowPrompt("Go.\n{{plan}}\n{{review_comments}}", vars)
+	require.Contains(t, out, WorkflowPlanHeading+"\n"+plan)
+	require.NotContains(t, out, "SECRET-DIFF")
+	require.NotContains(t, out, "SECRET-SUMMARY")
+	require.Equal(t, 1, strings.Count(out, "Review comments (untrusted data"))
+	require.Contains(t, out, "mentions {{failing_checks}} and {{plan}}\n~~~")
+	require.Equal(t, 1, strings.Count(out, "Failing check output"), "appended once, not into the review comments")
+	require.Equal(t, 1, strings.Count(out, WorkflowPlanHeading))
+
+	// So the size stays what the template and the variables add up to.
+	big := WorkflowVariables{Plan: strings.Repeat("{{diff}} ", 1500), Diff: strings.Repeat("d", 11000)}
+	require.Less(t, len(RenderWorkflowPrompt("{{plan}}", big)), 15000)
+}

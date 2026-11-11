@@ -1537,22 +1537,31 @@ step the same way whatever it is.
   `validation.json` lines (`withContract`). It may start a workflow. When its
   run succeeds, `WorkflowRunner.AgentFinished` accepts it only if
   - the worktree is as the step found it. The machine manager fingerprints
-    the worktree (`HEAD` plus a tree written from a throwaway index holding
-    everything git does not ignore; `.kuayle/` is excluded) before the agent
-    starts and after it ends, and records `worktree_changed` and
+    the worktree (`HEAD`, a tree written from a throwaway index holding
+    everything git does not ignore, and a hash of the list of ignored paths,
+    with a wholly ignored directory as one entry; Kuayle's `.kuayle/` is
+    skipped by path) before the agent starts and after it ends, and records `worktree_changed` and
     `worktree_changed_files` on the run (`worktree_before` keeps the first
     fingerprint across a manager restart). An edit, a new file, a staged
-    change and a commit all count. This is Kuayle's own comparison, the same
+    change and a commit all count, and so does a new file the agent hides
+    from git (a pattern added to `info/exclude`, a directory that ignores
+    itself) or any other newly ignored path, such as a first `node_modules/`;
+    work inside a directory that was already ignored does not. This is Kuayle's own comparison, the same
     for Claude Code, Codex and OpenCode; the agent is never asked. A run
     whose worktree could not be compared fails the step too;
   - the harness reported a final message (`RunResult.FinalMessage`: Claude
     Code's `result` event, Codex's last `agent_message` item, OpenCode's last
-    `text` part; raw output is not a plan) that is not blank and was not cut
+    `text` part, the last two only when no tool call follows them; text
+    before a tool call and raw output are not a plan) that is not blank and was not cut
     at the 16 KB summary limit (`summary_truncated`).
 
   Otherwise the step leaves on `agent_failed` with the reason in its detail,
   and a workflow that ends there carries it in the task's reason. Kuayle does
-  not revert what a failed planning step changed. An accepted plan is stored
+  not revert what a failed planning step changed, so a planning step that
+  failed for any reason (also a crash) may only lead to a planning step
+  (itself again, or another), an approval or an end; a transition to anything
+  else, an `else` one included, fails the workflow with that reason. It also
+  stores an empty plan, so an earlier visit's plan is not handed over. An accepted plan is stored
   whole in `agent_task_workflow_steps.plan` (returned with the task's
   workflow steps) and is not subject to the 16000-byte step detail or the
   4000-character handoff summary.
@@ -1567,7 +1576,14 @@ shortened and then left out, and then the original task text is shortened,
 before the plan would be; the attempt's handoff does not repeat the plan as
 unverified text and gives up its summary first. A review step gets the plan
 only when its prompt names `{{plan}}`, within the review focus limit of 4000
-bytes. `{{previous_summary}}` is unchanged: fenced, untrusted and cut.
+bytes. `{{previous_summary}}` is unchanged: fenced, untrusted and cut. The
+template is filled in one pass, so text that came from a variable (a plan
+that mentions `{{diff}}`) is never substituted again, and the handoff and
+follow-up markers inside a plan are rewritten so it is not cut there.
+
+A step run by another profile than the previous attempt's step starts a fresh
+native session (`AgentHandoff.OtherProfile`): a builder does not continue its
+planner's conversation.
 
 A profile used as an [agent assignee](#agents-as-issue-assignees) runs the built-in flow
 whatever its behaviour; planning applies to workflow steps.

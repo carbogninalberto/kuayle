@@ -166,6 +166,9 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
 	var lastAssistantText string
+	// concluded: no tool ran after the last text, so that text is the
+	// agent's final message and not what it said before working on.
+	concluded := false
 	var toolFailures []string
 
 	for _, line := range lines {
@@ -184,8 +187,11 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 
 		if typ == "text" {
 			if text, ok := part["text"].(string); ok && strings.TrimSpace(text) != "" {
-				lastAssistantText = text
+				lastAssistantText, concluded = text, true
 			}
+		}
+		if typ == "tool_use" || typ == "tool_result" || typ == "tool" {
+			concluded = false
 		}
 
 		// Retain compatibility with older OpenCode JSON output.
@@ -195,14 +201,17 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 					for _, block := range content {
 						if blockMap, ok := block.(map[string]any); ok {
 							if text, ok := blockMap["text"].(string); ok && strings.TrimSpace(text) != "" {
-								lastAssistantText = text
+								lastAssistantText, concluded = text, true
+							}
+							if kind, _ := blockMap["type"].(string); kind == "tool_use" {
+								concluded = false
 							}
 						}
 					}
 				}
 			}
 			if msgStr, ok := evt["message"].(string); ok && strings.TrimSpace(msgStr) != "" {
-				lastAssistantText = msgStr
+				lastAssistantText, concluded = msgStr, true
 			}
 		}
 
@@ -236,7 +245,7 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 
 	if lastAssistantText != "" {
 		final := strings.TrimSpace(lastAssistantText)
-		result.Summary, result.FinalMessage, result.SummaryTruncated = truncateSummary(final), true, len(final) > MaxSummaryBytes
+		result.Summary, result.FinalMessage, result.SummaryTruncated = truncateSummary(final), concluded, concluded && len(final) > MaxSummaryBytes
 	}
 
 	if len(toolFailures) > 0 {

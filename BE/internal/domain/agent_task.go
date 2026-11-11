@@ -406,6 +406,11 @@ type AgentHandoff struct {
 	// ContinuedInteractively means the user opened this attempt's native
 	// session in Claude Code through the task terminal.
 	ContinuedInteractively bool
+	// OtherProfile means the previous attempt belonged to a workflow step
+	// run by another agent profile than the current step's (a planner before
+	// a builder): its native session is that agent's conversation, so the
+	// current step does not continue it.
+	OtherProfile bool
 }
 
 // ValidationArtifact is a file the independent check left in its report

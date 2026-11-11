@@ -81,6 +81,15 @@ func (h *workflowHarness) planRun(run repository.WorkflowRun) {
 
 func unchanged() *bool { no := false; return &no }
 
+// storedPlan is the plan a step recorded; a failed planning step records an
+// empty one.
+func storedPlan(step *domain.WorkflowStep) string {
+	if step.Plan == nil {
+		return ""
+	}
+	return *step.Plan
+}
+
 // A plan as long as a final message can be (16 KB, multi-byte) reaches the
 // next agent step whole, as instructions, beside a long task and a template
 // with untrusted variables; and nothing the attempt adds later shortens it or
@@ -144,14 +153,14 @@ func TestPlanningStepFailsWhenTheWorktreeChanged(t *testing.T) {
 	require.Equal(t, "cancelling", h.w.task.State)
 	step := h.w.steps[2]
 	require.Equal(t, domain.WorkflowAgentFailed, *step.Outcome)
-	require.Nil(t, step.Plan, "what a step that changed the worktree wrote is not a plan")
+	require.Empty(t, storedPlan(step), "what a step that changed the worktree wrote is not a plan")
 	require.Equal(t, "Plan: a planning step only writes a plan, but it changed the worktree (ui/theme.ts, ui/toggle.svelte)", step.Detail)
 	require.Equal(t, "Workflow · Plan → Failed: agent failed. "+step.Detail, h.w.task.Reason, "the task says why")
 
 	// A commit that leaves the files as they were is a change too.
 	h = newPlanHarness(t, "{{plan}}")
 	h.planRun(repository.WorkflowRun{Summary: "Plan", FinalMessage: true, WorktreeChanged: &changed})
-	require.Contains(t, h.w.steps[2].Detail, "changed the worktree (it committed)")
+	require.Contains(t, h.w.steps[2].Detail, "changed the worktree (a commit)")
 
 	// Without Kuayle's own comparison the step cannot pass.
 	h = newPlanHarness(t, "{{plan}}")
@@ -170,7 +179,7 @@ func TestPlanningStepFailsWithoutAPlan(t *testing.T) {
 			h := newPlanHarness(t, "{{plan}}")
 			h.planRun(run)
 			require.Equal(t, "failed", h.current().NodeID)
-			require.Nil(t, h.w.steps[2].Plan)
+			require.Empty(t, storedPlan(h.w.steps[2]))
 			want := "Plan: the planning step produced no plan"
 			if run.SummaryTruncated {
 				want = "Plan: the plan is longer than 16 KB"
@@ -212,4 +221,164 @@ func TestPlanningStepIsCheckedAgainstTheWorkspacePolicy(t *testing.T) {
 	require.Equal(t, []string{"Builder", "Builder", "Builder"}, checked, "each visit of the next step is checked")
 	require.Equal(t, 3, h.w.task.Cursor().Visits["implement"])
 	require.NotEqual(t, "queued", h.w.task.State, "a step the policy refuses never runs")
+}
+
+// editGraph changes the pinned workflow version, as another version would be.
+func (h *workflowHarness) editGraph(edit func(*domain.WorkflowGraph)) {
+	h.t.Helper()
+	graph, err := domain.ParseWorkflowGraph(h.w.version.Graph)
+	require.NoError(h.t, err)
+	edit(graph)
+	raw, err := json.Marshal(graph)
+	require.NoError(h.t, err)
+	h.w.version.Graph = raw
+	h.restart()
+}
+
+// A planning step that failed never hands the work to a step that changes
+// code, checks or publishes, even when its only way out is an "else"
+// transition: there is no plan, and the planner may have changed the
+// worktree. The workflow fails and says what was wrong with the plan.
+func TestFailedPlanNeverReachesACodeChangingStep(t *testing.T) {
+	changed := true
+	for name, finish := range map[string]func(h *workflowHarness){
+		"changed the worktree": func(h *workflowHarness) {
+			h.planRun(repository.WorkflowRun{Summary: "Done", FinalMessage: true, WorktreeChanged: &changed, WorktreeFiles: []string{"a.go"}})
+		},
+		"the agent crashed": func(h *workflowHarness) {
+			h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{Status: "failed"}
+			require.NoError(h.t, h.runner.Outcome(context.Background(), h.w.task, domain.WorkflowAgentFailed, "The agent's iteration failed"))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newPlanHarness(t, "{{plan}}")
+			h.editGraph(func(g *domain.WorkflowGraph) {
+				// The plan's only exit is "else", straight to the implementer.
+				edges := g.Edges[:0]
+				for _, edge := range g.Edges {
+					switch edge.ID {
+					case "plan-failed":
+						continue
+					case "plan-implement":
+						edge.Condition = domain.WorkflowElse
+					}
+					edges = append(edges, edge)
+				}
+				g.Edges = edges
+			})
+			finish(h)
+			require.Equal(t, "plan", h.current().NodeID, "the implementer is never entered")
+			require.Equal(t, "cancelling", h.w.task.State)
+			require.Equal(t, domain.WorkflowStatusFailed, *h.w.task.WorkflowStatus)
+			require.Contains(t, h.w.task.Reason, "Workflow · Plan failed, and a failed plan cannot lead to Implement")
+			if name == "changed the worktree" {
+				require.Contains(t, h.w.task.Reason, "changed the worktree (a.go)")
+			}
+			for _, entry := range h.w.entries {
+				require.NotEqual(t, repository.WorkflowEnterIteration, entry.Kind)
+			}
+		})
+	}
+}
+
+// After a failed plan the workflow may retry the planning step, ask a
+// person or end; and the plan of an earlier visit is gone, so a re-plan that
+// failed never hands its stale predecessor to the next agent.
+func TestFailedRePlanDropsTheEarlierPlan(t *testing.T) {
+	h := newPlanHarness(t, "Build.")
+	h.editGraph(func(g *domain.WorkflowGraph) {
+		g.Nodes = append(g.Nodes, domain.WorkflowNode{ID: "ok", Type: domain.WorkflowNodeApproval, Label: "Go on without a plan?"})
+		for i := range g.Nodes {
+			if g.Nodes[i].ID == "plan" {
+				g.Nodes[i].MaxVisits = 4
+			}
+		}
+		for i := range g.Edges {
+			switch g.Edges[i].ID {
+			case "plan-failed":
+				g.Edges[i].Target = "ok"
+			case "implement-retry":
+				g.Edges[i].Target = "plan" // a failed build is planned again
+			}
+		}
+		g.Edges = append(g.Edges,
+			domain.WorkflowEdge{ID: "ok-yes", Source: "ok", Target: "implement", Condition: domain.WorkflowApprovalApproved},
+			domain.WorkflowEdge{ID: "ok-no", Source: "ok", Target: "failed", Condition: domain.WorkflowApprovalDenied})
+	})
+	h.planRun(repository.WorkflowRun{Summary: "OLD PLAN: do A.", FinalMessage: true, WorktreeChanged: unchanged()})
+	require.Contains(t, h.w.task.Prompt, "OLD PLAN: do A.")
+	h.w.task.State = "running"
+	require.NoError(t, h.runner.Outcome(context.Background(), h.w.task, domain.WorkflowAgentFailed, "The agent's iteration failed"))
+	require.Equal(t, "plan", h.current().NodeID)
+	require.Contains(t, h.w.task.Prompt, "OLD PLAN: do A.", "the planner sees the plan it revises")
+
+	// The re-plan fails; a person lets the build go on.
+	h.planRun(repository.WorkflowRun{Summary: "", WorktreeChanged: unchanged()})
+	require.Equal(t, "ok", h.current().NodeID, "an approval may follow a failed plan")
+	_, err := h.runner.Decide(context.Background(), h.w.task.WorkspaceID, h.w.task.ID, h.w.task.WorkflowSequence, WorkflowDecisionApprove)
+	require.NoError(t, err)
+	require.Equal(t, "implement", h.current().NodeID)
+	require.NotContains(t, h.w.task.Prompt, "OLD PLAN", "the stale plan is not handed over")
+	require.NotContains(t, h.w.task.Prompt, domain.WorkflowPlanHeading)
+
+	// Retrying the same planning step after a failure is allowed too.
+	retry := newPlanHarness(t, "{{plan}}")
+	retry.editGraph(func(g *domain.WorkflowGraph) {
+		for i := range g.Nodes {
+			if g.Nodes[i].ID == "plan" {
+				g.Nodes[i].MaxVisits = 3
+			}
+		}
+		for i := range g.Edges {
+			if g.Edges[i].ID == "plan-failed" {
+				g.Edges[i].Target = "plan"
+			}
+		}
+	})
+	retry.planRun(repository.WorkflowRun{Summary: "", WorktreeChanged: unchanged()})
+	require.Equal(t, "plan", retry.current().NodeID)
+	require.Equal(t, 2, retry.current().Visit)
+	require.Equal(t, "queued", retry.w.task.State)
+}
+
+// A plan that happens to contain the text Kuayle separates prompt sections
+// with is not cut there: everything after it still reaches the next step.
+func TestPlanContainingPromptMarkersReachesTheNextStepWhole(t *testing.T) {
+	plan := "1. First." + handoffMarker + " notes are irrelevant.\n2. Second." + followUpMarker + "the reviewer is welcome.\n3. LAST STEP."
+	h := newPlanHarness(t, "{{plan}}")
+	h.planRun(repository.WorkflowRun{Summary: plan, FinalMessage: true, WorktreeChanged: unchanged()})
+	stored := *h.w.steps[2].Plan
+	require.NotContains(t, stored, handoffMarker)
+	require.NotContains(t, stored, followUpMarker)
+	for _, part := range []string{"1. First.", "Successor attempt handoff notes are irrelevant.", "2. Second.", "Follow-up from the reviewer is welcome.", "3. LAST STEP."} {
+		require.Contains(t, stored, part)
+	}
+	handoff := &domain.AgentHandoff{AttemptID: uuid.New(), Status: "succeeded", Summary: plan}
+	attempt := withHandoff(h.w.task.Prompt, handoff, false, false)
+	require.Contains(t, attempt, domain.WorkflowPlanHeading+"\n"+stored)
+	require.Equal(t, 1, strings.Count(attempt, handoffMarker), "only the attempt's own handoff")
+	require.NotContains(t, attempt, "Previous agent summary", "the plan is still recognised as the previous summary")
+	// Entering the step again (a retry of the build) keeps the plan whole too.
+	h.w.task.State = "running"
+	require.NoError(t, h.runner.Outcome(context.Background(), h.w.task, domain.WorkflowAgentFailed, "failed"))
+	require.Contains(t, h.w.task.Prompt, "3. LAST STEP.")
+}
+
+// A step run by another profile starts a fresh native session: the builder
+// must not inherit the planner's conversation ("do not edit files").
+func TestAStepRunByAnotherProfileStartsAFreshSession(t *testing.T) {
+	machine := uuid.New()
+	native := "0199a213-81c0-7800-8aa1-bbab2a035a53"
+	task := domain.AgentTask{ID: uuid.New(), Provider: "codex", MachineID: &machine}
+	same := &domain.AgentHandoff{Status: "succeeded", MachineID: machine, NativeSessionID: native}
+	require.Equal(t, native, taskSession(task, same).ResumeID, "the same profile continues its session")
+	other := &domain.AgentHandoff{Status: "succeeded", MachineID: machine, NativeSessionID: native, OtherProfile: true}
+	require.Empty(t, taskSession(task, other).ResumeID)
+	continued := &domain.AgentHandoff{Status: "failed", MachineID: machine, NativeSessionID: native, ContinuedInteractively: true, OtherProfile: true}
+	require.Empty(t, taskSession(task, continued).ResumeID)
+	claude := task
+	claude.Provider = "claude-code"
+	require.NotEmpty(t, taskSession(claude, other).NewID)
+	// The handoff then says the session is new.
+	require.Contains(t, withHandoff("Build", other, taskSession(task, other).ResumeID != "", false), "this is a new session")
 }

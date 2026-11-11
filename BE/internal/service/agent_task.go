@@ -748,7 +748,18 @@ func withHandoff(prompt string, previous *domain.AgentHandoff, resumed, usageLim
 // carriesPlan reports whether the prompt already holds the summary as the
 // plan a workflow's planning step passed on.
 func carriesPlan(prompt, summary string) bool {
-	return strings.Contains(prompt, domain.WorkflowPlanHeading+"\n"+summary)
+	return strings.Contains(prompt, domain.WorkflowPlanHeading+"\n"+neutralisePlan(summary))
+}
+
+// neutralisePlan keeps a plan from being cut where it happens to contain
+// the text Kuayle separates prompt sections with (the handoff and follow-up
+// markers): their rule line is rewritten, and every word of the plan stays.
+func neutralisePlan(plan string) string {
+	plan = strings.TrimSpace(plan)
+	for _, marker := range []string{handoffMarker, followUpMarker} {
+		plan = strings.ReplaceAll(plan, marker, strings.Replace(marker, "---", "- - -", 1))
+	}
+	return plan
 }
 
 // taskSession places a task's harness transcripts in its own directory and
@@ -760,7 +771,11 @@ func taskSession(task domain.AgentTask, previous *domain.AgentHandoff) *agent.Se
 	// A failed attempt is resumed only when the user continued its session
 	// interactively, so the next attempt keeps the user's turns.
 	// An attempt paused by a usage limit is resumed too: its session is intact.
-	if previous != nil && task.MachineID != nil && (previous.Status == "succeeded" || previous.ContinuedInteractively || task.ResumeNativeSession) && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
+	// A workflow step run by another profile than the previous attempt's
+	// starts fresh: a builder must not inherit its planner's conversation
+	// ("do not edit files"). An attempt paused by a usage limit continues
+	// its own session, whatever ran before its step.
+	if previous != nil && task.MachineID != nil && (!previous.OtherProfile || task.ResumeNativeSession) && (previous.Status == "succeeded" || previous.ContinuedInteractively || task.ResumeNativeSession) && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
 		session.ResumeID = previous.NativeSessionID
 	} else if task.Provider == "claude-code" {
 		session.NewID = uuid.NewString()
@@ -841,7 +856,7 @@ func withQA(prompt string, task domain.AgentTask) string {
 // implementing attempt gets (manual QA, the tests Kuayle re-runs): a planning
 // step changes nothing, so there is nothing to try or test. The runner fails
 // the step when the worktree changed or the final message is no plan.
-const planningLine = "Planning step: plan this for the next agent; do not implement it. Read whatever you need, but leave this worktree exactly as it is: do not create, edit, move or delete files in it, do not commit, and do not stage changes (a step that changes the worktree fails). Your final message is the plan and nothing else: Kuayle hands it, whole, to the agent of the next step as its instructions, and that agent has not seen this conversation. Write it for that agent: what to change and where (files, functions), in which order, which tests to add or run, the decisions you made and why, and what to leave alone. Keep it under 12000 characters; a step without a final message, or with a longer one, fails."
+const planningLine = "Planning step: plan this for the next agent; do not implement it. Read whatever you need, but leave this worktree exactly as it is: do not create, edit, move or delete files in it (files git ignores included), do not commit, and do not stage changes (a step that changes the worktree fails). Your final message is the plan and nothing else: Kuayle hands it, whole, to the agent of the next step as its instructions, and that agent has not seen this conversation. Write it for that agent: what to change and where (files, functions), in which order, which tests to add or run, the decisions you made and why, and what to leave alone. Keep it under 12000 characters; a step without a final message, or with a longer one, fails."
 
 // withContract adds what Kuayle asks of an attempt that runs in a worktree.
 // An implementing attempt is told how its change is tried and tested; a

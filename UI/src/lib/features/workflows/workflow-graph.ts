@@ -407,6 +407,15 @@ export function setRetry(graph: WorkflowGraph, id: string, on: boolean, profiles
 }
 
 /**
+ * The profile a blank workflow's first agent step runs: one that changes
+ * code, the built-in implementer first while it still does.
+ */
+export function starterProfile(profiles: AgentProfile[]): AgentProfile | undefined {
+	const builders = profiles.filter((p) => !p.archived_at && p.behaviour === 'changes_code');
+	return builders.find((p) => p.builtin_key === 'implementer') ?? builders[0];
+}
+
+/**
  * An automated review: an agent step run by the reviewer profile (the
  * built-in one first) that reviews the published pull request and retries if
  * the review agent itself fails. Its verdict transitions are left to connect.
