@@ -474,7 +474,7 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 		// change. So does a workflow's own reason, such as a step's visit
 		// limit, which is why the task stopped, and an agent that ended
 		// without a final message.
-		if domain.IsResourceLimitReason(task.Reason) || domain.IsWorkflowReason(task.Reason) || domain.IsNoFinalMessageReason(task.Reason) || domain.IsNotebookUpdateReason(task.Reason) {
+		if domain.IsResourceLimitReason(task.Reason) || domain.IsWorkflowReason(task.Reason) || domain.IsNoFinalMessageReason(task.Reason) {
 			reason = task.Reason
 		} else {
 			reason = "Execution failed; runtime cleanup confirmed"
@@ -874,9 +874,8 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 		return nil, err
 	}
 	if req.Note != nil {
-		// A retry's own instructions are the creator's (only they may retry);
-		// a comment or a review keeps the author its note names, if any.
-		if note := req.Note.Instruction; note != nil && note.AuthorID == nil && note.Source != domain.NotebookInstructionComment {
+		// A retry's own instructions are the creator's: only they may retry.
+		if note := req.Note.Instruction; note != nil && note.AuthorID == nil {
 			author := task.CreatorID
 			note.AuthorID = &author
 		}

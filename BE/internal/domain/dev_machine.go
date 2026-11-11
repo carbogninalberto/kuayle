@@ -394,19 +394,29 @@ type DevMachineAgentRun struct {
 	DeclaredValidation *json.RawMessage `json:"-" db:"declared_validation"`
 	Diff               string           `json:"-" db:"diff"`
 	DiffTruncated      bool             `json:"-" db:"diff_truncated"`
-	// NotebookRequired: the attempt must leave a valid update of the task
-	// notebook before it can succeed. NotebookUpdates counts the valid ones
-	// it left, and NotebookProblem is why its last update was refused.
-	NotebookRequired bool    `json:"-" db:"notebook_required"`
-	NotebookUpdates  int     `json:"-" db:"notebook_updates"`
-	NotebookProblem  *string `json:"-" db:"notebook_problem"`
+	// NotebookRequired: the attempt should leave a valid update of the task
+	// notebook. NotebookUpdates counts the valid ones it left. NotebookProblem
+	// is why its last update was refused while it runs and, once it ended
+	// without a valid one, the note that Kuayle recorded its final message
+	// instead (domain.NotebookNotUpdated). NotebookAskedAt is when Kuayle
+	// asked it once more in the same session, and NotebookContinuation the
+	// command line that continues that session (with placeholders), when
+	// its harness can.
+	NotebookRequired     bool       `json:"-" db:"notebook_required"`
+	NotebookUpdates      int        `json:"-" db:"notebook_updates"`
+	NotebookProblem      *string    `json:"-" db:"notebook_problem"`
+	NotebookAskedAt      *time.Time `json:"-" db:"notebook_asked_at"`
+	NotebookContinuation NullJSON   `json:"-" db:"notebook_continuation"`
 	// WorktreeReadOnly: the agent container mounts the task's worktree
 	// read-only (a planning step), with only its .kuayle directory writable.
 	WorktreeReadOnly bool `json:"-" db:"worktree_read_only"`
 	// PromptSources is the prompt and instruction files the attempt received,
-	// split by source ([]PromptSource). Debugging data: it is served by its
-	// own route, never in a list of runs.
-	PromptSources NullJSON `json:"-" db:"prompt_sources"`
+	// split by source ([]PromptSource). It is stored in its own table when
+	// the run is created and never read with the run.
+	PromptSources NullJSON `json:"-" db:"-"`
+	// ContainerSuffix names a second container of the same run (the
+	// notebook continuation); only the manager sets it.
+	ContainerSuffix string `json:"-" db:"-"`
 	// WorktreeBefore fingerprints the worktree before the agent started.
 	// WorktreeChanged is whether the agent changed it (commits included) and
 	// WorktreeChangedFiles which paths; nil when the worktree could not be

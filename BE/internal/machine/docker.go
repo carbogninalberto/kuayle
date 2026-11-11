@@ -785,7 +785,8 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	if err != nil {
 		return nil, err
 	}
-	containerName := "kuayle-" + machine.RoutingKey + "-agent-" + run.ID.String()
+	// A run's notebook continuation is a second container of the same run.
+	containerName := "kuayle-" + machine.RoutingKey + "-agent-" + run.ID.String() + run.ContainerSuffix
 	labels := machineLabels(machine)
 	labels["com.kuayle.service"] = "agent"
 	labels["com.kuayle.agent-run-id"] = run.ID.String()

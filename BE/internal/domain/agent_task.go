@@ -418,9 +418,8 @@ type AgentHandoff struct {
 	// NoFinalMessage means the previous attempt's harness exited normally
 	// but the agent never concluded, so there is no summary of its work.
 	NoFinalMessage bool
-	// NotebookProblem is why the previous attempt failed for want of a valid
-	// update of the task notebook (domain.NotebookUpdateReason); empty
-	// when it did not.
+	// NotebookProblem is the note that the previous attempt did not update
+	// the task notebook (domain.NotebookNotUpdated); empty when it did.
 	NotebookProblem string
 }
 

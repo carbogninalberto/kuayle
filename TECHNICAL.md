@@ -684,9 +684,11 @@ through `{{plan}}`.
 Every task also has a [notebook](BE/docs/agent-tasks.md#task-notebook)
 (migration 147): one bounded record of the plan, decisions, what is done,
 what remains, how to verify, findings and people's instructions, kept outside
-the worktree. Each agent step receives it whole as instructions and cannot
-finish without a valid update. A planning step's worktree is mounted
-read-only, and the prompt every attempt received is recorded by source.
+the worktree. Each agent step receives it as instructions and is asked to
+update it; one that does not is asked once more in its session, then Kuayle
+records its final message itself, and the attempt never fails over it. A
+planning step's worktree is mounted read-only, and the prompt every attempt
+received is recorded by source.
 
 [Automations](BE/docs/agent-tasks.md#automations) (migration 69) delegate matching issues on a label or status trigger, optionally on a UTC schedule. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
 

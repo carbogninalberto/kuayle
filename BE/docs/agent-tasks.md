@@ -1660,7 +1660,10 @@ the home and `/tmp` tmpfs, and `.kuayle/` in the worktree. Per harness
 | Qwen Code, Kimi, Goose, custom | writable, checked after the run | Not verified to start with a read-only working directory. |
 
 The mount needs Docker API 1.45 (Engine 26); on an older daemon the step runs
-with a writable worktree and a warning is logged.
+with a writable worktree and a warning is logged. The same happens when the
+worktree's `.kuayle/outbox` could not be prepared (the nested mount would
+keep the container from starting): the run's `worktree_read_only` is cleared
+and the comparison after the run is the guard.
 
 `POST /workflows/validate` also returns `warnings` beside `issues`
 (`domain.WorkflowWarnings`). A warning never refuses a graph. Today there is
@@ -1697,43 +1700,99 @@ outside the worktree, with a fixed set of bounded sections:
 
 | Section | Written by | Merge |
 | --- | --- | --- |
-| `instructions` | Kuayle, from people: the task's request, a retry's new instructions, an approved follow-up, an issue comment, a live message | added; the request always stays; 32 KB together |
+| `instructions` | Kuayle, from people: the task's request, a retry's new instructions, an approved follow-up, a live message | added; the request always stays; 32 KB together |
 | `plan.text` | Kuayle, from a planning step's final message (the same text `{{plan}}` carries) | replaced; dropped when a planning step fails |
-| `plan.steps` (title, files, commands, acceptance, done) | agents | replaced |
+| `plan.steps` (title, files, commands, acceptance, done) | agents | replaced; a plan text from another attempt, or a failed planning step, clears them |
 | `decisions` (decision, why), `done` | agents | added, newest 40 kept |
-| `remaining`, `verify` | agents | replaced |
-| `findings` | Kuayle (`review`, `ci`, `check`) and agents (`agent`), numbered | added; agents mark them `resolved` |
+| `remaining`, `verify` | agents | replaced (`[]` clears) |
+| `findings` | Kuayle (`review`, `ci`, `check`, `comment`) and agents (`agent`), numbered | added; agents mark them `resolved` |
 | `events` | Kuayle: a usage-limit pause and resume, a pause at a workflow limit, a person's decision | added |
+
+A comment a workspace member posts on the issue while the pull request awaits
+review is a `comment` finding, not an instruction: any member who sees the
+issue can post one, so it is feedback in the notebook exactly as it is fenced
+in the prompt (`followUpPrompt`, `followUpNote`).
 
 `agent_task_notebook_changes` keeps who changed which sections at which step
 and attempt (author `agent`, `kuayle` or `person`, user, run, generation,
-step), newest 200 per task.
+step, and what was cut or ignored), newest 200 per task.
 
-**Receiving it.** Every attempt that is not a review gets the notebook whole
-(`Notebook.Render`) as instructions: in the harness's instructions file after
-the profile's own text for Claude Code, Codex and OpenCode
-(`domain.ProfileFiles`), ahead of the prompt for the others. People's
-instructions come first under their own heading; every entry is indented so
-agent text cannot open a heading. `{{plan}}` is unchanged and still places
-the plan in the step's prompt, so a plan currently reaches the next step
-twice.
+**Receiving it.** Every attempt that is not a review gets the notebook as
+instructions (`Notebook.RenderWith`). People's instructions come first under
+their own heading; every entry is indented so agent text cannot open a
+heading. It does not repeat what the prompt already holds: where `{{plan}}`
+carries the plan, and where the task text is the request, the notebook points
+to them.
+
+- Claude Code, Codex and OpenCode read it whole from their instructions file,
+  after the profile's own text (`domain.ProfileFiles`).
+- The other harnesses get it ahead of the prompt, in its own share of 12000
+  bytes (`notebookPromptBytes`). A larger notebook shrinks to it in a fixed
+  order: events, then findings, then what is done, then decisions, oldest
+  first, and says what it left out. The plan, what remains, how to verify
+  and people's instructions stay.
+
+The project's and the profile's instructions are placed whole
+(`withWholeInstructions`, up to 32000 bytes) outside the task prompt's own
+32000-byte budget, on every harness: they are never the part that gives way.
 
 **Updating it.** The agent writes `.kuayle/outbox/notebook.json` (or
 `notebook-<n>.json`) in its worktree; see the `kuayle-notebook` section of the
-`kuayle-agents` skill. The manager collects it with the outbox (every few
-seconds and when the attempt ends), redacts its strings with the machine's
-credential snapshots, and `RecordAgentOutbox` validates it strictly
-(`domain.ParseNotebookUpdate`: only the agents' sections, bounded texts and
-lists, something in it) and merges it. A refused update changes nothing and
-its reason is kept on the run (`notebook_problem`).
+`kuayle-agents` skill. Input is read leniently and stored strictly
+(`domain.ParseNotebookUpdate`):
 
-**Enforcement.** The run of such an attempt has `notebook_required`. When it
-ends successfully the manager checks Kuayle's own record: without a valid
-update, or when its last update was refused, the run fails with
-`domain.NotebookUpdateReason` instead of succeeding. The task then fails with
-that reason, or the workflow follows the step's `agent_failed` transition, as
-for a run without a final message, and the next attempt's handoff says why.
-The check is the same for every harness because it never asks the agent.
+- accepted: any of the agents' sections; an update that only resolves
+  findings or clears a list; a bare text where a list is expected;
+- cut, keeping the first entries, and noted in the change log: a text over 600
+  bytes, a list over 40 entries (a step's files and commands included);
+- ignored and noted: unknown fields, blank entries, control characters;
+- refused whole, with the reason kept on the run (`notebook_problem`): a file
+  over 16 KB, something that is not one JSON object, a section of the wrong
+  shape, an update that says nothing, and any attempt to write a section
+  Kuayle owns (`instructions`, `events`, `plan.text`).
+
+**Collection never loses an update.** The outbox take script reads notebook
+files first, outside the limits of ten files per worktree and fifty per scan,
+and leaves them in place. The manager redacts their strings with the
+machine's credential snapshots, `RecordAgentOutbox` merges them, and only
+then are they removed, by content (`outboxAckScript`), so an update the agent
+rewrote meanwhile stays. A failed read, record or redaction leaves the file
+for the next collection; recording the same update twice changes nothing.
+
+**When an attempt leaves no valid update** (`machine/notebook.go`). The run
+of such an attempt has `notebook_required`. The work is never lost over the
+notebook:
+
+1. *Asked once, in the same session.* When the attempt concluded (it would
+   succeed) without a valid update, the manager continues its own session
+   once with a short prompt (`domain.NotebookReminder`): what is missing or
+   the validator's message, write `.kuayle/outbox/notebook.json` now, do
+   nothing else. It is a second container of the same run
+   (`…-agent-<run>-notebook`) with the command line stored at creation
+   (`notebook_continuation`, the same invocation with placeholders for the
+   session and the prompt). `notebook_asked_at` makes it one continuation per
+   attempt, also across a manager restart; it has five minutes. Its output is
+   not the attempt's: summary and logs stay those of the work.
+
+   | Harness | Continuation |
+   | --- | --- |
+   | Claude Code | `claude --print … --resume <session> -p <reminder>` in the task's session directory |
+   | Codex | `codex exec resume … <thread> <reminder>` with the thread ID the run reported |
+   | OpenCode, Crush, Qwen Code, Kimi, Goose, custom | none: Kuayle does not continue their sessions, so step 2 applies at once |
+
+2. *Recorded by Kuayle.* If there is still no valid update, the run stays
+   succeeded. Kuayle adds the attempt's final message to `done`, marked
+   "Recorded by Kuayle from the agent's final message; the agent did not
+   update the notebook" (author `kuayle` in the change log), and notes it on
+   the run (`notebook_problem`, `domain.NotebookNotUpdated`). The note is in
+   the run's risk notes, in the task's reason when it moves to validation,
+   in the workflow step's detail, and in the next attempt's handoff.
+
+A collection that failed for a reason of Kuayle's is not the agent's
+omission: the agent is not asked, nothing is recorded in its name, and the
+run's risk notes say that Kuayle could not collect the update
+(`domain.NotebookNotCollected`). A custom, non-LLM harness run as a task
+simply gets step 2.
 
 **API.** `GET /agent-tasks/:taskId/notebook` returns the notebook, its
 revision and its newest 50 changes to the task's creator (session only, the
@@ -1744,16 +1803,17 @@ follow-up.
 ### The prompt a step received
 
 Every attempt records what Kuayle assembled for it, split by source
-(`dev_machine_agent_runs.prompt_sources`, `domain.PromptSource`): `task`,
+(`dev_machine_agent_run_prompts`, `domain.PromptSource`): `task`,
 `workflow_step`, `plan`, `follow_up`, `profile`, `contract` (Kuayle's own
 lines), `project` (configured instructions), `notebook`, `handoff`, `issue`,
 `related_work`, `messages`, `attachments`; `memory` is reserved. Each part
 names its channel: `prompt` (in order, these parts are the prompt exactly as
 sent) or `instructions_file`. Each part is cut at 64 KB and the record at
-512 KB, marked `truncated`. `GET /agent-tasks/:taskId/runs/:runId/prompt`
-returns it to the task's creator with `recorded` (false for older runs) and
+512 KB, marked `truncated`. It has its own table, so reading or polling a
+run never carries it. `GET /agent-tasks/:taskId/runs/:runId/prompt` returns
+it to the task's creator with `recorded` (false for older runs) and
 `worktree_read_only`, redacted with the machine's current and retained
-credentials. It is never part of a list of runs.
+credentials.
 
 ## Remaining workflow work
 

@@ -13,7 +13,7 @@ import (
 )
 
 // Migration 147 adds the task notebook, its history and the per-attempt
-// notebook, read-only worktree and prompt-source columns. Existing attempts
+// notebook and read-only worktree columns, and the table of recorded prompts. Existing attempts
 // need no notebook update and have no recorded prompt. Rolling back drops
 // the notebooks.
 func TestAgentTaskNotebooksMigration(t *testing.T) {
@@ -42,24 +42,24 @@ func TestAgentTaskNotebooksMigration(t *testing.T) {
 	columns := func() int {
 		var count int
 		require.NoError(t, db.QueryRow(`SELECT count(*) FROM information_schema.columns WHERE table_name='dev_machine_agent_runs'
- AND column_name IN ('notebook_required','notebook_updates','notebook_problem','worktree_read_only','prompt_sources')`).Scan(&count))
+ AND column_name IN ('notebook_required','notebook_updates','notebook_problem','notebook_asked_at','notebook_continuation','worktree_read_only')`).Scan(&count))
 		return count
 	}
 	tables := func() int {
 		var count int
-		require.NoError(t, db.QueryRow(`SELECT count(*) FROM information_schema.tables WHERE table_name IN ('agent_task_notebooks','agent_task_notebook_changes')`).Scan(&count))
+		require.NoError(t, db.QueryRow(`SELECT count(*) FROM information_schema.tables WHERE table_name IN ('agent_task_notebooks','agent_task_notebook_changes','dev_machine_agent_run_prompts')`).Scan(&count))
 		return count
 	}
 	require.Zero(t, columns())
 	require.Zero(t, tables())
 
 	require.NoError(t, m.Migrate(147))
-	require.Equal(t, 5, columns())
-	require.Equal(t, 2, tables())
+	require.Equal(t, 6, columns())
+	require.Equal(t, 3, tables())
 	var required, readOnly, nullable string
 	require.NoError(t, db.QueryRow(`SELECT column_default FROM information_schema.columns WHERE table_name='dev_machine_agent_runs' AND column_name='notebook_required'`).Scan(&required))
 	require.NoError(t, db.QueryRow(`SELECT column_default FROM information_schema.columns WHERE table_name='dev_machine_agent_runs' AND column_name='worktree_read_only'`).Scan(&readOnly))
-	require.NoError(t, db.QueryRow(`SELECT is_nullable FROM information_schema.columns WHERE table_name='dev_machine_agent_runs' AND column_name='prompt_sources'`).Scan(&nullable))
+	require.NoError(t, db.QueryRow(`SELECT is_nullable FROM information_schema.columns WHERE table_name='dev_machine_agent_runs' AND column_name='notebook_continuation'`).Scan(&nullable))
 	require.Equal(t, "false", required, "attempts from before the notebook need no update")
 	require.Equal(t, "false", readOnly)
 	require.Equal(t, "YES", nullable)

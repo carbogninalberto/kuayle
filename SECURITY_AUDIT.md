@@ -666,9 +666,11 @@ or end the workflow (`TestFailedPlanNeverReachesACodeChangingStep`).
 ### The task notebook is agent-written text given as instructions (KUA-134)
 
 Every agent step that plans or changes code receives the task's notebook
-whole, on the path its harness reads instructions from (the instructions file
-of Claude Code, Codex and OpenCode; ahead of the prompt elsewhere), and must
-leave a valid update before it can finish. Like a plan, most of it is text an
+on the path its harness reads instructions from (whole in the instructions
+file of Claude Code, Codex and OpenCode; ahead of the prompt, in a bounded
+share, elsewhere), and is asked to leave an update. An attempt that leaves
+none is asked once more in its own session and then recorded by Kuayle from
+its final message, marked as Kuayle's; it never fails over the notebook. Like a plan, most of it is text an
 earlier agent wrote after reading the repository and the issue, so whatever
 can influence one agent can reach the next with the weight of an instruction.
 This is accepted on the same grounds as the plan: the notebook grants
@@ -681,10 +683,15 @@ model, or skip a step.
 What bounds it:
 
 - **People and agents are kept apart.** Instructions a person gave (the
-  task's request, a retry's new instructions, a follow-up, a comment, a live
-  message) are a section agents cannot write: an update that names any field
-  outside the agents' sections is refused whole
-  (`TestNotebookUpdateIsValidatedStrictly`). The rendered notebook puts that
+  task's request, a retry's new instructions, an approved follow-up, a live
+  message) are a section agents cannot write. Input is otherwise read
+  leniently (unknown fields ignored, long texts and lists cut), but an update
+  that names a section Kuayle owns (`instructions`, `events`, `plan.text`) is
+  refused whole, and the author an agent claims for a finding is ignored
+  (`TestNotebookUpdateIsReadLenientlyAndStoredStrictly`). A comment on the
+  issue can come from any member who sees it, so it is recorded as feedback
+  (a `comment` finding), as it is fenced in the prompt, never as an
+  instruction. The rendered notebook puts that
   section first under its own heading and indents every entry, so agent text
   cannot open a heading or pass for a person's instruction
   (`TestNotebookRendersPeopleApartFromAgents`). Text Kuayle's assistant
@@ -698,7 +705,7 @@ What bounds it:
   (workspace, current role, the issue's team, private teams included).
 - **Secrets are redacted** from an update before it is recorded, with the
   same credential snapshots run output is redacted with; an update that
-  cannot be checked is not recorded
+  cannot be checked is held back in the outbox, neither recorded nor lost
   (`TestNotebookUpdatesAreRedactedBeforeTheyAreRecorded`).
 - **Every size is bounded**: the update file (16 KB), each text, each list,
   the plan, the instructions section and the document (a database check).
@@ -712,7 +719,12 @@ remains and still fails such a step. Harnesses that were not verified to run
 with a read-only worktree, and Docker daemons older than API 1.45, keep only
 that comparison.
 
+The continuation that asks for a missing update runs as a second container
+of the same run, under the same sandbox, mounts and authorization check, with
+the run's own credentials (a sign-in is read again first, so a rotated token
+is never presented). It happens at most once per attempt.
+
 The prompt each attempt received is recorded by source for debugging. It is
-bounded, served only to the task's creator by its own route (never in a list
-of runs), and redacted when read with the machine's current and retained
-credentials.
+bounded, kept in its own table, served only to the task's creator by its own
+route (never with a run), and redacted when read with the machine's current
+and retained credentials.

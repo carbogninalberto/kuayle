@@ -31,14 +31,26 @@ CREATE TABLE agent_task_notebook_changes (
     PRIMARY KEY (task_id, revision)
 );
 
--- Per attempt: whether it must leave a valid notebook update, how many it
--- left, why its last one was refused, whether its worktree was mounted
--- read-only (a planning step), and the prompt it received split by source.
+-- Per attempt: whether it should leave a valid notebook update, how many it
+-- left, why its last one was refused or (once it ended) that Kuayle recorded
+-- its final message instead, when Kuayle asked it once more in the same
+-- session and the command line that continues that session, and whether its
+-- worktree was mounted read-only (a planning step).
 ALTER TABLE dev_machine_agent_runs
     ADD COLUMN notebook_required BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN notebook_updates INTEGER NOT NULL DEFAULT 0,
     ADD COLUMN notebook_problem TEXT,
-    ADD COLUMN worktree_read_only BOOLEAN NOT NULL DEFAULT false,
-    ADD COLUMN prompt_sources JSONB,
-    ADD CONSTRAINT dev_machine_agent_runs_prompt_sources_size
-        CHECK (prompt_sources IS NULL OR octet_length(prompt_sources::text) <= 1048576);
+    ADD COLUMN notebook_asked_at TIMESTAMPTZ,
+    ADD COLUMN notebook_continuation JSONB,
+    ADD COLUMN worktree_read_only BOOLEAN NOT NULL DEFAULT false;
+
+-- The prompt an attempt received, split by source ([]domain.PromptSource).
+-- Debugging data read on demand: it has its own table so that reading or
+-- polling a run never carries it.
+CREATE TABLE dev_machine_agent_run_prompts (
+    run_id       UUID PRIMARY KEY REFERENCES dev_machine_agent_runs(id) ON DELETE CASCADE,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    sources      JSONB NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT dev_machine_agent_run_prompts_size CHECK (octet_length(sources::text) <= 1048576)
+);

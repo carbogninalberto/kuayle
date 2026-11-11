@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -52,14 +53,19 @@ func TestTaskNotebookMergesAgentUpdatesAndKeepsHistory(t *testing.T) {
 	require.Empty(t, refused.Done)
 	require.Len(t, refused.Instructions, 1)
 
-	// A valid update is merged and clears the problem; an oversize file is
-	// refused without touching what was merged.
-	require.NoError(t, machines.recordNotebookUpdates(ctx, task.ID, []domain.AgentOutboxFile{
-		notebookFile("notebook.json", `{"done":["Added the migration"],"remaining":["Wire the API"],"decisions":[{"decision":"One row per task","why":"small"}]}`)}))
+	// A valid update is merged and clears the problem; what was ignored is
+	// in the change log. The same file collected again changes nothing.
+	valid := notebookFile("notebook.json", `{"done":["Added the migration"],"remaining":["Wire the API"],"decisions":[{"decision":"One row per task","why":"small"}],"status":"ok"}`)
+	require.NoError(t, machines.recordNotebookUpdates(ctx, task.ID, []domain.AgentOutboxFile{valid}))
 	updates, problem, err = machines.NotebookUpdateState(ctx, task.RunID)
 	require.NoError(t, err)
 	require.Equal(t, 1, updates)
 	require.Empty(t, problem)
+	require.NoError(t, machines.recordNotebookUpdates(ctx, task.ID, []domain.AgentOutboxFile{valid}))
+	var revision int
+	require.NoError(t, db.Get(&revision, `SELECT revision FROM agent_task_notebooks WHERE task_id=$1`, task.ID))
+	require.Equal(t, 1, revision, "recording the same update twice is one change")
+	// An oversize file is refused without touching what was merged.
 	require.NoError(t, machines.recordNotebookUpdates(ctx, task.ID, []domain.AgentOutboxFile{{Name: "notebook-2.json", Data: []byte(`{`), Oversize: true}}))
 	updates, problem, err = machines.NotebookUpdateState(ctx, task.RunID)
 	require.NoError(t, err)
@@ -93,6 +99,7 @@ func TestTaskNotebookMergesAgentUpdatesAndKeepsHistory(t *testing.T) {
 	plan, kuayle, agent := shown.History[0], shown.History[1], shown.History[2]
 	require.Equal(t, domain.NotebookAuthorAgent, agent.Author)
 	require.ElementsMatch(t, []string{"decisions", "done", "remaining"}, agent.Sections)
+	require.Contains(t, agent.Summary, `unknown field "status" ignored`)
 	require.Equal(t, task.RunID, *agent.RunID)
 	require.EqualValues(t, claimed.Generation, *agent.Generation)
 	require.Nil(t, agent.UserID)
@@ -100,16 +107,105 @@ func TestTaskNotebookMergesAgentUpdatesAndKeepsHistory(t *testing.T) {
 	require.ElementsMatch(t, []string{"events", "findings"}, kuayle.Sections)
 	require.Equal(t, []string{"plan"}, plan.Sections)
 
-	// The next attempt's handoff says why the previous one failed.
-	reason := domain.NotebookUpdateReason(problem)
-	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='failed',error_message=$2,completed_at=now() WHERE id=$1`, task.RunID, reason)
+	// The attempt ended with a refused update last: Kuayle records its final
+	// message itself, marked as its own, and the run carries the note. The
+	// next attempt's handoff says so. Doing it again records nothing twice.
+	note, err := machines.RecordNotebookFallback(ctx, task.RunID, "Wired the API and ran the tests.")
+	require.NoError(t, err)
+	require.True(t, domain.IsNotebookNotUpdated(note))
+	require.Contains(t, note, "larger than")
+	again, err := machines.RecordNotebookFallback(ctx, task.RunID, "Wired the API and ran the tests.")
+	require.NoError(t, err)
+	require.Equal(t, note, again)
+	closed, err := repo.AttemptNotebook(ctx, *claimed)
+	require.NoError(t, err)
+	require.Len(t, closed.Done, 2)
+	require.True(t, strings.HasPrefix(closed.Done[1], domain.NotebookKuayleDonePrefix))
+	require.Contains(t, closed.Done[1], "Wired the API and ran the tests.")
+	shown, err = repo.Notebook(ctx, task.WorkspaceID, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, 4, shown.Revision)
+	require.Equal(t, domain.NotebookAuthorKuayle, shown.History[0].Author, "written by Kuayle, not by the agent")
+	require.Equal(t, []string{"done"}, shown.History[0].Sections)
+
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now() WHERE id=$1`, task.RunID)
 	require.NoError(t, err)
 	next := *claimed
 	next.RunID, next.Generation = uuid.New(), claimed.Generation+1
 	handoff, err := repo.PreviousAttempt(ctx, next)
 	require.NoError(t, err)
-	require.Equal(t, reason, handoff.NotebookProblem)
+	require.Equal(t, note, handoff.NotebookProblem)
 	require.False(t, handoff.NoFinalMessage)
+	run, err := repo.WorkflowRun(ctx, *claimed)
+	require.NoError(t, err)
+	require.Equal(t, note, run.NotebookNote)
+
+	// An attempt is asked once, also across a manager restart.
+	first2, err := machines.MarkNotebookAsked(ctx, task.RunID)
+	require.NoError(t, err)
+	require.True(t, first2)
+	second2, err := machines.MarkNotebookAsked(ctx, task.RunID)
+	require.NoError(t, err)
+	require.False(t, second2)
+}
+
+// A collection Kuayle failed is noted as Kuayle's, and the update recorded
+// later clears the note; an attempt with a valid update is never flagged.
+func TestUncollectedNotebookUpdateIsNotTheAgentsOmission(t *testing.T) {
+	db, repo, ctx, task, fixture := taskRecoveryFixture(t)
+	prepareTaskStart(t, db, repo, ctx, task, fixture)
+	machines := fixture.repository
+	require.NoError(t, machines.NoteNotebookNotCollected(ctx, task.RunID))
+	_, problem, err := machines.NotebookUpdateState(ctx, task.RunID)
+	require.NoError(t, err)
+	require.Equal(t, domain.NotebookNotCollected, problem)
+	require.NoError(t, machines.recordNotebookUpdates(ctx, task.ID, []domain.AgentOutboxFile{notebookFile("notebook.json", `{"resolved":[1],"remaining":[]}`)}))
+	updates, problem, err := machines.NotebookUpdateState(ctx, task.RunID)
+	require.NoError(t, err)
+	require.Equal(t, 1, updates, "an update that only resolves or clears counts")
+	require.Empty(t, problem)
+	note, err := machines.RecordNotebookFallback(ctx, task.RunID, "Done.")
+	require.NoError(t, err)
+	require.Empty(t, note, "an attempt with a valid update is not flagged")
+	require.NoError(t, machines.ClearWorktreeReadOnly(ctx, task.RunID))
+}
+
+// A re-plan or a failed planning step does not keep the old plan's steps;
+// the steps the planning attempt itself wrote stay with its plan.
+func TestNotebookPlanStepsFollowThePlan(t *testing.T) {
+	db, repo, ctx, task, fixture := taskRecoveryFixture(t)
+	claimed := prepareTaskStart(t, db, repo, ctx, task, fixture)
+	machines := fixture.repository
+	plan := func(text string) {
+		t.Helper()
+		tx, err := db.Beginx()
+		require.NoError(t, err)
+		require.NoError(t, setNotebookPlan(ctx, tx, task.ID, text))
+		require.NoError(t, tx.Commit())
+	}
+	steps := notebookFile("notebook.json", `{"plan":{"steps":[{"title":"Add the table","files":["a.sql"]}]}}`)
+	require.NoError(t, machines.recordNotebookUpdates(ctx, task.ID, []domain.AgentOutboxFile{steps}))
+	plan("1. Add the table")
+	notebook, err := repo.AttemptNotebook(ctx, *claimed)
+	require.NoError(t, err)
+	require.Len(t, notebook.Plan.Steps, 1, "the planner's own steps stay")
+
+	// Another attempt plans again without writing steps.
+	_, err = db.Exec(`UPDATE agent_tasks SET run_id=gen_random_uuid(),generation=generation+1 WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	plan("1. Do it differently")
+	notebook, err = repo.AttemptNotebook(ctx, *claimed)
+	require.NoError(t, err)
+	require.Equal(t, "1. Do it differently", notebook.Plan.Text)
+	require.Empty(t, notebook.Plan.Steps)
+
+	// A failed planning step leaves neither text nor steps.
+	require.NoError(t, machines.recordNotebookUpdates(ctx, task.ID, []domain.AgentOutboxFile{steps}))
+	plan("")
+	notebook, err = repo.AttemptNotebook(ctx, *claimed)
+	require.NoError(t, err)
+	require.Empty(t, notebook.Plan.Text)
+	require.Empty(t, notebook.Plan.Steps)
 }
 
 // What a person tells the task is kept apart from what agents wrote, with
@@ -151,7 +247,9 @@ func TestNotebookAndPromptSourcesFollowTheTasksAccessRules(t *testing.T) {
 	prepareTaskStart(t, db, repo, ctx, task, fixture)
 	sources, err := json.Marshal([]domain.PromptSource{{Source: domain.PromptSourceTask, Channel: domain.PromptChannelPrompt, Text: "Implement and test: never-in-a-list"}})
 	require.NoError(t, err)
-	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET prompt_sources=$2,worktree_read_only=true WHERE id=$1`, task.RunID, sources)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET worktree_read_only=true WHERE id=$1`, task.RunID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO dev_machine_agent_run_prompts(run_id,workspace_id,sources) VALUES($1,$2,$3)`, task.RunID, task.WorkspaceID, sources)
 	require.NoError(t, err)
 
 	prompt, err := repo.RunPrompt(ctx, task.WorkspaceID, task.ID, task.RunID)
@@ -160,14 +258,20 @@ func TestNotebookAndPromptSourcesFollowTheTasksAccessRules(t *testing.T) {
 	require.True(t, prompt.WorktreeReadOnly)
 	require.Len(t, prompt.Sources, 1)
 	require.Equal(t, domain.PromptSourceTask, prompt.Sources[0].Source)
-	// It is not part of a list of runs.
+	// It is not part of a run, however the run is read: it has its own table.
 	runs, err := repo.Runs(ctx, task.WorkspaceID, task.ID, nil)
 	require.NoError(t, err)
 	encoded, err := json.Marshal(runs)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "never-in-a-list")
+	polled, err := fixture.repository.GetAgentRunInternal(ctx, task.RunID)
+	require.NoError(t, err)
+	require.Empty(t, polled.PromptSources, "polling a run never carries its prompt")
+	var column int
+	require.NoError(t, db.Get(&column, `SELECT count(*) FROM information_schema.columns WHERE table_name='dev_machine_agent_runs' AND column_name='prompt_sources'`))
+	require.Zero(t, column)
 	// A run from before prompts were recorded says so.
-	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET prompt_sources=NULL WHERE id=$1`, task.RunID)
+	_, err = db.Exec(`DELETE FROM dev_machine_agent_run_prompts WHERE run_id=$1`, task.RunID)
 	require.NoError(t, err)
 	prompt, err = repo.RunPrompt(ctx, task.WorkspaceID, task.ID, task.RunID)
 	require.NoError(t, err)

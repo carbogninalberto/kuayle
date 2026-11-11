@@ -808,6 +808,9 @@ type WorkflowRun struct {
 	// lists what changed.
 	WorktreeChanged *bool
 	WorktreeFiles   []string
+	// NotebookNote says that the run did not update the task notebook and
+	// Kuayle recorded its final message instead; empty when it did.
+	NotebookNote string
 }
 
 func (r *AgentTaskRepository) WorkflowRun(ctx context.Context, task domain.AgentTask) (*WorkflowRun, error) {
@@ -819,8 +822,9 @@ func (r *AgentTaskRepository) WorkflowRun(ctx context.Context, task domain.Agent
 		Truncated bool            `db:"summary_truncated"`
 		Changed   *bool           `db:"worktree_changed"`
 		Worktree  json.RawMessage `db:"worktree_changed_files"`
+		Notebook  *string         `db:"notebook_problem"`
 	}
-	err := r.db.GetContext(ctx, &row, `SELECT status::text AS status,summary,changed_files,worktree_changed,worktree_changed_files,
+	err := r.db.GetContext(ctx, &row, `SELECT status::text AS status,summary,changed_files,worktree_changed,worktree_changed_files,notebook_problem,
  COALESCE(result->>'final_message','')='true' AS final_message,COALESCE(result->>'summary_truncated','')='true' AS summary_truncated
  FROM dev_machine_agent_runs WHERE id=$1 AND task_id=$2`, task.RunID, task.ID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -834,6 +838,9 @@ func (r *AgentTaskRepository) WorkflowRun(ctx context.Context, task domain.Agent
 	_ = json.Unmarshal(row.Worktree, &run.WorktreeFiles)
 	if row.Summary != nil {
 		run.Summary = *row.Summary
+	}
+	if row.Notebook != nil && domain.IsNotebookNotUpdated(*row.Notebook) {
+		run.NotebookNote = *row.Notebook
 	}
 	return run, nil
 }

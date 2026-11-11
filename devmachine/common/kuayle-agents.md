@@ -137,17 +137,23 @@ fields and no others:
 ```
 
 `done`, `decisions` and `findings` are added to the notebook; `plan.steps`,
-`remaining` and `verify` replace what was there, so send the whole list;
-`resolved` lists the numbers of findings you fixed. Each text is at most 600
-bytes, each list 40 entries and the file 16 KB. You cannot write the people's
-instructions or the findings Kuayle recorded: an update with any other field
-is refused whole.
+`remaining` and `verify` replace what was there, so send the whole list (`[]`
+clears it); `resolved` lists the numbers of findings you fixed. An update may
+do only that, for example `{"resolved":[3]}`.
 
-This is enforced, not advice: an attempt that ends without a valid update
-fails, and the next attempt is told why. A planning step writes one too (its
-worktree is read-only except `.kuayle/`), usually with `plan.steps` and
-`decisions`. Never put credentials in the notebook; Kuayle redacts the ones it
-knows.
+Limits: each text at most 600 bytes, each list at most 40 entries (a step's
+`files` and `commands` included), the file at most 16 KB. Longer texts and
+lists are cut, keeping the first entries, and unknown fields are ignored. You
+cannot write what people asked (`instructions`), Kuayle's `events` or the
+plan's text (`plan.text`): an update that names one of them is refused whole.
+
+If you finish without a valid update, Kuayle asks you once more in the same
+session (Claude Code and Codex): write the file then and nothing else.
+Otherwise, or if it is still missing, Kuayle records your final message in
+the notebook itself and marks your step as not having updated it; your work
+is kept either way. A planning step writes an update too (its worktree is
+read-only except `.kuayle/`), usually with `plan.steps` and `decisions`.
+Never put credentials in the notebook; Kuayle redacts the ones it knows.
 
 ## kuayle-live-channel: read messages while you work
 

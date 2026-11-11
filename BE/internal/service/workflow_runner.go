@@ -146,12 +146,14 @@ func (w *WorkflowRunner) AgentFinished(ctx context.Context, task domain.AgentTas
 		return err
 	}
 	node, _ := graph.Node(task.Cursor().Node)
-	if node.Type != domain.WorkflowNodeAgent || node.ProfileID == nil || !profiles[*node.ProfileID].Plans() {
-		return w.Outcome(ctx, task, domain.WorkflowAgentFinished, "")
-	}
 	run, err := w.tasks.WorkflowRun(ctx, task)
 	if err != nil {
 		return err
+	}
+	// A step whose agent did not update the notebook still finished; the
+	// step's detail says so.
+	if node.Type != domain.WorkflowNodeAgent || node.ProfileID == nil || !profiles[*node.ProfileID].Plans() {
+		return w.Outcome(ctx, task, domain.WorkflowAgentFinished, run.NotebookNote)
 	}
 	if problem := planProblem(node.Label, *run); problem != "" {
 		apply, err := w.plan(ctx, task, domain.WorkflowAgentFailed, problem, false)
@@ -167,7 +169,7 @@ func (w *WorkflowRunner) AgentFinished(ctx context.Context, task domain.AgentTas
 		return err
 	}
 	produced := neutralisePlan(run.Summary)
-	apply, err := w.planWith(ctx, task, domain.WorkflowAgentFinished, "", produced, false)
+	apply, err := w.planWith(ctx, task, domain.WorkflowAgentFinished, run.NotebookNote, produced, false)
 	if err != nil {
 		return err
 	}

@@ -141,14 +141,16 @@ func followUpPrompt(f domain.AgentTaskFollowUp) string {
 }
 
 // followUpNote is what a follow-up adds to the task's notebook: a failing CI
-// suite and a GitHub review are findings; a workspace member's comment on
-// the issue is an instruction from a person.
+// suite, a GitHub review and a comment on the issue are findings. The
+// comment is feedback in the notebook exactly as it is in the prompt
+// (followUpPrompt fences it): any workspace member who sees the issue can
+// post one, so it never becomes an instruction of the task's owner.
 func followUpNote(f domain.AgentTaskFollowUp) *domain.NotebookNote {
 	switch f.Signal.Kind {
 	case "ci":
 		return &domain.NotebookNote{FindingSource: domain.NotebookFindingCI, Finding: fmt.Sprintf("CI check suite %q concluded %q for the published commit (%s)", f.Signal.Name, f.Signal.Outcome, f.Signal.URL)}
 	case "comment":
-		return &domain.NotebookNote{Instruction: &domain.NotebookInstruction{Source: domain.NotebookInstructionComment, Text: "Comment by " + oneLine(f.Signal.Name, feedbackNameRunes) + ":\n" + f.Signal.Summary}}
+		return &domain.NotebookNote{FindingSource: domain.NotebookFindingComment, Finding: "Comment on the issue by " + oneLine(f.Signal.Name, feedbackNameRunes) + ":\n" + f.Signal.Summary}
 	}
 	return &domain.NotebookNote{FindingSource: domain.NotebookFindingReview, Finding: "Review on GitHub by " + oneLine(f.Signal.Name, feedbackNameRunes) + " (" + f.Signal.URL + "):\n" + f.Signal.Summary}
 }

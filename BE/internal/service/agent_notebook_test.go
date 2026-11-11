@@ -63,8 +63,8 @@ func recordedNotebook() domain.Notebook {
 	notebook := domain.NewNotebook()
 	author := uuid.New()
 	notebook.AddInstruction(domain.NotebookInstruction{Source: domain.NotebookInstructionRequest, AuthorID: &author, Text: "Implement dark mode", At: time.Now()})
-	notebook.SetPlan("1. Add the theme tokens\n2. Switch the toggle")
-	update, _ := domain.ParseNotebookUpdate([]byte(`{"done":["Theme tokens added in UI/src/app.css"],"remaining":["Switch the toggle"]}`), false)
+	notebook.SetPlan("1. Add the theme tokens\n2. Switch the toggle", "run-1")
+	update, _, _ := domain.ParseNotebookUpdate([]byte(`{"done":["Theme tokens added in UI/src/app.css"],"remaining":["Switch the toggle"]}`), false)
 	notebook.ApplyUpdate(update, time.Now())
 	return notebook
 }
@@ -75,7 +75,10 @@ func recordedNotebook() domain.Notebook {
 // for a harness that reads no such file. Every such attempt must update it.
 func TestAttemptReceivesTheWholeNotebookOnEachHarnessInstructionPath(t *testing.T) {
 	notebook := recordedNotebook()
-	rendered := notebook.Render()
+	// The task text of the prompt is the request, so the notebook points to
+	// it instead of repeating it; everything else is there.
+	rendered := notebook.RenderWith(domain.NotebookRender{RequestInPrompt: true})
+	require.Contains(t, rendered, "1. Add the theme tokens")
 	bundle := &domain.AgentProfileBundle{Name: "Builder", Behaviour: domain.AgentBehaviourChangesCode, Instructions: "Write small commits."}
 	for provider, file := range map[string]string{
 		"claude-code": "/home/kuayle/.claude/CLAUDE.md",
@@ -116,6 +119,33 @@ func TestAttemptReceivesTheWholeNotebookOnEachHarnessInstructionPath(t *testing.
 		require.NotContains(t, run.Prompt, domain.NotebookUpdateHelp)
 		require.NotContains(t, string(run.ProfileFiles), domain.NotebookHeading)
 	})
+}
+
+// The command that continues an attempt's session to ask for its notebook
+// update exists only where the harness can continue a session: Claude Code
+// (--resume) and Codex (exec resume). The others are never asked.
+func TestOnlyHarnessesThatResumeASessionGetAContinuationCommand(t *testing.T) {
+	notebook := recordedNotebook()
+	argv := func(provider string) []string {
+		run := notebookAttempt(t, provider, &notebook, nil, nil)
+		var command []string
+		if len(run.NotebookContinuation) > 0 {
+			require.NoError(t, json.Unmarshal(run.NotebookContinuation, &command))
+		}
+		return command
+	}
+	claude := strings.Join(argv("claude-code"), " ")
+	require.Contains(t, claude, "--resume "+domain.NotebookSessionPlaceholder)
+	require.Contains(t, claude, "-p "+domain.NotebookPromptPlaceholder)
+	require.NotContains(t, claude, "--session-id")
+	codex := strings.Join(argv("codex"), " ")
+	require.Contains(t, codex, "codex exec resume")
+	require.True(t, strings.HasSuffix(codex, domain.NotebookSessionPlaceholder+" "+domain.NotebookPromptPlaceholder))
+	require.Empty(t, argv("opencode"))
+	require.Empty(t, argv("qwen-code"))
+	// A run that needs no notebook update has no continuation either.
+	review := notebookAttempt(t, "codex", &notebook, nil, func(task *domain.AgentTask) { task.Kind = domain.AgentTaskKindReview })
+	require.Empty(t, review.NotebookContinuation)
 }
 
 // A planning step's worktree is mounted read-only on the harnesses that run
@@ -182,7 +212,8 @@ func TestAttemptRecordsItsPromptBySource(t *testing.T) {
 	require.Contains(t, by["contract/prompt"], domain.NotebookUpdateHelp)
 	require.Contains(t, by["contract/prompt"], "Kuayle execution contract")
 	require.Contains(t, by["profile/instructions_file"], "Write small commits.")
-	require.Equal(t, notebook.Render(), by["notebook/instructions_file"])
+	require.Equal(t, notebook.RenderWith(domain.NotebookRender{PlanInPrompt: true, RequestInPrompt: true}), by["notebook/instructions_file"])
+	require.Equal(t, 1, strings.Count(run.Prompt+by["notebook/instructions_file"], plan), "the plan is given once")
 	// The run's public JSON (a list of runs) never carries it.
 	encoded, err := json.Marshal(run)
 	require.NoError(t, err)
@@ -244,33 +275,94 @@ func TestRecordedPromptIsBoundedAndRedacted(t *testing.T) {
 	require.Contains(t, redacted.Sources[0].Text, "Deploy with token")
 }
 
-// A run that ended without a valid notebook update fails with that reason,
-// like a run without a final message, in a workflow and outside one, and the
-// next attempt is told why.
-func TestStepWithoutAValidNotebookUpdateFailsAndTheRetryIsToldWhy(t *testing.T) {
-	message := domain.NotebookUpdateReason(`the update is not a JSON object with the notebook's fields: unknown field "status"`)
+// A missing notebook update never fails the work: the run stays succeeded,
+// the task goes on to validation and says that the agent did not update its
+// notebook, a workflow step finishes with that note, and the next attempt's
+// handoff says it too.
+func TestAMissingNotebookUpdateNeverFailsTheWork(t *testing.T) {
+	note := domain.NotebookNotUpdated(`"instructions" is the people's instructions, which an agent cannot write`)
 	store := &taskStoreFake{task: domain.AgentTask{State: "running", Provider: "opencode"}}
-	runtime := &taskRuntimeFake{run: &domain.DevMachineAgentRun{Status: domain.DevMachineAgentRunStatusFailed, ErrorMessage: &message}}
+	runtime := &taskRuntimeFake{run: &domain.DevMachineAgentRun{Status: domain.DevMachineAgentRunStatusSucceeded, NotebookProblem: &note}}
 	svc := &AgentTaskService{store: store, runtime: runtime}
 	require.NoError(t, svc.step(context.Background(), store.task))
-	require.Equal(t, message, store.failReason)
+	require.Empty(t, store.failReason)
+	require.Equal(t, "validating", store.transitions[len(store.transitions)-1])
+	require.Contains(t, store.reasons[len(store.reasons)-1], "did not update the task notebook")
 
-	h := newPlanHarness(t, "{{plan}}")
-	h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{Status: "failed"}
-	require.NoError(t, h.runner.AgentFailedBecause(context.Background(), h.w.task, message))
-	require.Contains(t, h.w.task.Reason, "without a valid update of the task notebook")
+	// A refused update that the agent then fixed leaves no note.
+	transient := "done is not a list of texts"
+	store = &taskStoreFake{task: domain.AgentTask{State: "running", Provider: "opencode"}}
+	svc = &AgentTaskService{store: store, runtime: &taskRuntimeFake{run: &domain.DevMachineAgentRun{Status: domain.DevMachineAgentRunStatusSucceeded, NotebookProblem: &transient}}}
+	require.NoError(t, svc.step(context.Background(), store.task))
+	require.Equal(t, "validating", store.transitions[len(store.transitions)-1])
+	require.NotContains(t, store.reasons[len(store.reasons)-1], "notebook")
 
-	previous := &domain.AgentHandoff{AttemptID: uuid.New(), Status: "failed", NotebookProblem: message}
+	// In a workflow the step finishes and moves on; its detail carries the note.
+	h := newWorkflowHarness(t, domain.WorkflowBudget{})
+	changed := true
+	h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{Status: "succeeded", Summary: "Added a theme toggle", FinalMessage: true, WorktreeChanged: &changed, NotebookNote: note}
+	sequence := h.w.task.WorkflowSequence
+	require.NoError(t, h.runner.AgentFinished(context.Background(), h.w.task))
+	require.Equal(t, "publishing", h.w.task.State, "the implementer's work is published all the same")
+	require.Equal(t, note, h.w.steps[sequence].Detail)
+
+	previous := &domain.AgentHandoff{AttemptID: uuid.New(), Status: "succeeded", NotebookProblem: note}
 	prompt := withHandoff("Fix it", previous, false, false)
-	require.Contains(t, prompt, "failed only because it left no valid update of the task notebook")
-	require.Contains(t, prompt, `unknown field "status"`)
+	require.Contains(t, prompt, "The previous attempt did not update the task notebook")
+	require.Contains(t, prompt, "cannot write")
 	require.Contains(t, prompt, ".kuayle/outbox/notebook.json")
 	require.NotContains(t, withHandoff("Fix it", &domain.AgentHandoff{AttemptID: uuid.New(), Status: "failed"}, false, false), "task notebook")
 }
 
-// What a follow-up adds to the notebook: CI and a GitHub review are
-// findings, never a person's instruction; a member's comment is one, without
-// an author Kuayle cannot name.
+// Harnesses that read no instructions file get everything in the prompt.
+// The notebook has its own bounded share there and shrinks first, the plan
+// and the request are not repeated, and the profile's and the project's
+// instructions always arrive whole (plan-then-implement, KUA-134 review).
+func TestPromptOnlyHarnessKeepsProfileAndProjectInstructionsWhole(t *testing.T) {
+	plan := "1. Add the theme tokens\n" + strings.Repeat("- change one more file of the plan\n", 420) + "2. Switch the toggle"
+	require.Greater(t, len(plan), 14000)
+	profile := "PROFILE-START " + strings.Repeat("Write small commits and explain each one. ", 300) + " PROFILE-END"
+	project := "PROJECT-START " + strings.Repeat("Use pnpm, never npm. ", 150) + " PROJECT-END"
+	notebook := domain.NewNotebook()
+	author := uuid.New()
+	notebook.AddInstruction(domain.NotebookInstruction{Source: domain.NotebookInstructionRequest, AuthorID: &author, Text: "Implement dark mode", At: time.Now()})
+	notebook.AddInstruction(domain.NotebookInstruction{Source: domain.NotebookInstructionLive, AuthorID: &author, Text: "Keep the old theme as the default", At: time.Now()})
+	notebook.SetPlan(plan, "run-1")
+	notebook.Remaining = []string{"Switch the toggle"}
+	notebook.Verify = []string{"npm run check"}
+	for i := range domain.NotebookListItems {
+		notebook.Done = append(notebook.Done, strings.Repeat("d", 500)+" "+strings.Repeat("x", i))
+		notebook.AddFinding(domain.NotebookFindingReview, strings.Repeat("f", 2000)+" "+strings.Repeat("y", i), time.Now())
+	}
+	version := uuid.New()
+	run := notebookAttempt(t, "qwen-code", &notebook, &domain.AgentProfileBundle{Name: "Builder", Behaviour: domain.AgentBehaviourChangesCode, Instructions: profile}, func(task *domain.AgentTask) {
+		node := "implement"
+		task.WorkflowVersionID, task.WorkflowNode = &version, &node
+		task.Prompt = "Implement dark mode" + workflowStepMarker + "Implement (visit 1):\nBuild it.\n\n" + domain.WorkflowPlanHeading + "\n" + plan
+		task.AgentInstructions = project + "\n\n" + workflowProfileTitle + "Builder:\n" + profile
+	})
+	require.Contains(t, run.Prompt, profile, "the profile's instructions arrive whole")
+	require.Contains(t, run.Prompt, project, "the project's instructions arrive whole")
+	require.Equal(t, 1, strings.Count(run.Prompt, plan), "the plan is in the prompt once")
+	require.Equal(t, 1, strings.Count(run.Prompt, "Implement dark mode"), "the request is in the prompt once")
+	for _, kept := range []string{"Keep the old theme as the default", "Switch the toggle", "npm run check", domain.NotebookUpdateHelp} {
+		require.Contains(t, run.Prompt, kept)
+	}
+	require.Less(t, len(run.Prompt), 100000, "within what a harness's command line takes")
+	var sources []domain.PromptSource
+	require.NoError(t, json.Unmarshal(run.PromptSources, &sources))
+	share := 0
+	for _, source := range sources {
+		if source.Source == domain.PromptSourceNotebook {
+			share += len(source.Text)
+		}
+	}
+	require.Positive(t, share)
+	require.LessOrEqual(t, share, notebookPromptBytes+16, "the notebook keeps to its own share")
+}
+
+// What a follow-up adds to the notebook: CI, a GitHub review and a member's
+// comment on the issue are findings, never a person's instruction.
 func TestFollowUpsAreRecordedAsFindingsOrInstructions(t *testing.T) {
 	ci := followUpNote(domain.AgentTaskFollowUp{Signal: domain.AgentTaskSignal{Kind: "ci", Name: "tests", Outcome: "failure", URL: "https://github.com/a/b/pull/1"}})
 	require.Nil(t, ci.Instruction)
@@ -279,8 +371,12 @@ func TestFollowUpsAreRecordedAsFindingsOrInstructions(t *testing.T) {
 	require.Nil(t, review.Instruction)
 	require.Equal(t, domain.NotebookFindingReview, review.FindingSource)
 	require.Contains(t, review.Finding, "Rename the flag")
-	comment := followUpNote(domain.AgentTaskFollowUp{Signal: domain.AgentTaskSignal{Kind: "comment", Name: "Ada", Summary: "Use the blue token"}})
-	require.Equal(t, domain.NotebookInstructionComment, comment.Instruction.Source)
-	require.Nil(t, comment.Instruction.AuthorID)
-	require.False(t, comment.Instruction.Assistant)
+	// A comment is fenced as feedback in the prompt and is feedback in the
+	// notebook too: any member who sees the issue may have written it.
+	signal := domain.AgentTaskSignal{Kind: "comment", Name: "Ada", Summary: "Use the blue token"}
+	comment := followUpNote(domain.AgentTaskFollowUp{Signal: signal})
+	require.Nil(t, comment.Instruction)
+	require.Equal(t, domain.NotebookFindingComment, comment.FindingSource)
+	require.Contains(t, comment.Finding, "Use the blue token")
+	require.Contains(t, followUpPrompt(domain.AgentTaskFollowUp{Signal: signal}), "never as instructions")
 }

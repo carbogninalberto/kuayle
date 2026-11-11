@@ -207,7 +207,8 @@ func sortedKeys(set map[string]bool) []string {
 }
 
 // setNotebookPlan stores the plan a planning step produced (written by its
-// agent) or forgets the plan of a planning step that failed.
+// agent) or forgets the plan of a planning step that failed. Either way the
+// steps of an earlier plan go: only steps the same attempt wrote stay.
 func setNotebookPlan(ctx context.Context, tx *sqlx.Tx, taskID uuid.UUID, plan string) error {
 	task, err := notebookTaskOf(ctx, tx, taskID)
 	if err != nil || task == nil {
@@ -217,25 +218,25 @@ func setNotebookPlan(ctx context.Context, tx *sqlx.Tx, taskID uuid.UUID, plan st
 	if err != nil {
 		return err
 	}
-	if notebook.Plan.Text == strings.TrimSpace(plan) {
-		return nil
-	}
-	notebook.SetPlan(plan)
-	if !notebookFits(notebook) {
+	before, _ := json.Marshal(notebook.Plan)
+	notebook.SetPlan(plan, task.RunID.String())
+	after, _ := json.Marshal(notebook.Plan)
+	if string(before) == string(after) || !notebookFits(notebook) {
 		return nil
 	}
 	change := domain.NotebookChange{Author: domain.NotebookAuthorAgent, Sections: []string{"plan"}, Summary: "the planning step's plan"}
 	if plan == "" {
-		change.Author, change.Summary = domain.NotebookAuthorKuayle, "the planning step failed; its plan was dropped"
+		change.Author, change.Summary = domain.NotebookAuthorKuayle, "the planning step failed; its plan and steps were dropped"
 	}
 	return saveNotebook(ctx, tx, *task, row, notebook, change)
 }
 
 // recordNotebookUpdates validates and merges the notebook updates an agent
 // left in its task's outbox. A valid update is merged and counted on the
-// task's current attempt; an invalid one leaves the notebook as it is and
-// records why on that attempt, which then cannot succeed (the manager checks
-// when the attempt ends). The files' strings were redacted by the manager.
+// task's current attempt, with what was cut or ignored in the change log; a
+// refused one leaves the notebook as it is and records why on that attempt.
+// Recording the same update twice (a file collected again) changes nothing.
+// The files' strings were redacted by the manager.
 func (r *DevMachineRepository) recordNotebookUpdates(ctx context.Context, taskID uuid.UUID, files []domain.AgentOutboxFile) error {
 	if len(files) == 0 {
 		return nil
@@ -256,16 +257,14 @@ func (r *DevMachineRepository) recordNotebookUpdates(ctx context.Context, taskID
 	files = append([]domain.AgentOutboxFile(nil), files...)
 	sort.SliceStable(files, func(i, j int) bool { return files[i].Name < files[j].Name })
 	for _, file := range files {
-		update, parseErr := domain.ParseNotebookUpdate(file.Data, file.Oversize)
-		if parseErr == nil && file.Unreadable != "" {
-			parseErr = errors.New(file.Unreadable)
-		}
+		update, notes, parseErr := domain.ParseNotebookUpdate(file.Data, file.Oversize)
 		if parseErr != nil {
 			if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_problem=$2 WHERE id=$1 AND task_id=$3`, task.RunID, truncateBytes(parseErr.Error(), 1000), task.ID); err != nil {
 				return err
 			}
 			continue
 		}
+		update.Run = task.RunID.String()
 		// Merge into a copy, so a refused merge leaves the notebook untouched.
 		copied, _ := json.Marshal(notebook)
 		merged, _ := domain.DecodeNotebook(copied)
@@ -277,15 +276,102 @@ func (r *DevMachineRepository) recordNotebookUpdates(ctx context.Context, taskID
 			}
 			continue
 		}
-		notebook = merged
-		if err = saveNotebook(ctx, tx, *task, row, notebook, domain.NotebookChange{Author: domain.NotebookAuthorAgent, Sections: sections, Summary: "update from " + file.Name}); err != nil {
+		// The attempt has a valid update, whether or not it changed anything.
+		if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_updates=notebook_updates+1,notebook_problem=NULL WHERE id=$1 AND task_id=$2`, task.RunID, task.ID); err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_updates=notebook_updates+1,notebook_problem=NULL WHERE id=$1 AND task_id=$2`, task.RunID, task.ID); err != nil {
+		if string(document) == string(copied) {
+			continue
+		}
+		notebook = merged
+		summary := "update from " + file.Name
+		if len(notes) > 0 {
+			summary += ": " + strings.Join(notes, "; ")
+		}
+		if err = saveNotebook(ctx, tx, *task, row, notebook, domain.NotebookChange{Author: domain.NotebookAuthorAgent, Sections: sections, Summary: summary}); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
+}
+
+// RecordNotebookFallback is what Kuayle does for an attempt that succeeded
+// without a valid notebook update: it records the attempt's final message as
+// what was done, marked as written by Kuayle, and notes on the run that the
+// agent did not update the notebook. The attempt does not fail over it. It
+// returns that note, or "" when the attempt has a valid update after all or
+// belongs to no task. Calling it again records nothing twice.
+func (r *DevMachineRepository) RecordNotebookFallback(ctx context.Context, runID uuid.UUID, summary string) (string, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	var run struct {
+		TaskID  *uuid.UUID `db:"task_id"`
+		Updates int        `db:"notebook_updates"`
+		Problem *string    `db:"notebook_problem"`
+	}
+	if err = tx.GetContext(ctx, &run, `SELECT task_id,notebook_updates,notebook_problem FROM dev_machine_agent_runs WHERE id=$1`, runID); err != nil {
+		return "", err
+	}
+	if run.TaskID == nil || run.Updates > 0 && run.Problem == nil {
+		return "", nil
+	}
+	if run.Problem != nil && domain.IsNotebookNotUpdated(*run.Problem) {
+		return *run.Problem, nil
+	}
+	task, err := notebookTaskOf(ctx, tx, *run.TaskID)
+	if err != nil || task == nil || task.Kind != domain.AgentTaskKindImplement {
+		return "", err
+	}
+	row, notebook, err := lockNotebook(ctx, tx, *task)
+	if err != nil {
+		return "", err
+	}
+	problem := ""
+	if run.Problem != nil && *run.Problem != domain.NotebookNotCollected {
+		problem = *run.Problem
+	}
+	note := domain.NotebookNotUpdated(problem)
+	if notebook.AddKuayleDone(summary, notebookStepLabel(ctx, tx, *task)) && notebookFits(notebook) {
+		change := domain.NotebookChange{Author: domain.NotebookAuthorKuayle, RunID: &runID, Sections: []string{"done"}, Summary: note}
+		if err = saveNotebook(ctx, tx, *task, row, notebook, change); err != nil {
+			return "", err
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_problem=$2 WHERE id=$1`, runID, note); err != nil {
+		return "", err
+	}
+	return note, tx.Commit()
+}
+
+// NoteNotebookNotCollected records on the attempt that Kuayle could not
+// collect its notebook update. A later collection that records a valid
+// update clears the note.
+func (r *DevMachineRepository) NoteNotebookNotCollected(ctx context.Context, runID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_problem=$2 WHERE id=$1 AND notebook_updates=0`, runID, domain.NotebookNotCollected)
+	return err
+}
+
+// MarkNotebookAsked records that Kuayle asked the attempt once more for its
+// notebook update and reports whether this call was the first: an attempt is
+// asked once, also across a manager restart.
+func (r *DevMachineRepository) MarkNotebookAsked(ctx context.Context, runID uuid.UUID) (bool, error) {
+	result, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_asked_at=now() WHERE id=$1 AND notebook_asked_at IS NULL`, runID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
+}
+
+// ClearWorktreeReadOnly records that an attempt that asked for a read-only
+// worktree runs with a writable one after all (its outbox could not be
+// prepared), so what the task shows is what happened.
+func (r *DevMachineRepository) ClearWorktreeReadOnly(ctx context.Context, runID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET worktree_read_only=false WHERE id=$1`, runID)
+	return err
 }
 
 // NotebookUpdateState reports how many valid notebook updates the attempt
@@ -397,9 +483,10 @@ func (r *AgentTaskRepository) RunPrompt(ctx context.Context, ws, id, run uuid.UU
 	var row struct {
 		MachineID uuid.UUID       `db:"machine_id"`
 		ReadOnly  bool            `db:"worktree_read_only"`
-		Sources   domain.NullJSON `db:"prompt_sources"`
+		Sources   domain.NullJSON `db:"sources"`
 	}
-	err = tx.GetContext(ctx, &row, `SELECT machine_id,worktree_read_only,prompt_sources FROM dev_machine_agent_runs WHERE id=$1 AND task_id=$2 AND workspace_id=$3`, run, id, ws)
+	err = tx.GetContext(ctx, &row, `SELECT r.machine_id,r.worktree_read_only,p.sources FROM dev_machine_agent_runs r
+ LEFT JOIN dev_machine_agent_run_prompts p ON p.run_id=r.id WHERE r.id=$1 AND r.task_id=$2 AND r.workspace_id=$3`, run, id, ws)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrConversationNotFound
 	}
