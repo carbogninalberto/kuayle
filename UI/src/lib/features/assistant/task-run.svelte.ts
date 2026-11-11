@@ -5,6 +5,9 @@ import type { AgentRun } from '$lib/types/dev-machine';
 import type { ConversationState } from './conversation-state.svelte';
 import { attemptTimeline, workflowTimeline, type TimelineStep } from './agent-timeline';
 
+// How long after a failed read it is tried once more.
+const RETRY_AFTER = 2000;
+
 // What a task did, loaded once for every view that shows it: the agent view's
 // timeline, the sidebar's path and the workflow chart read the same TaskRun,
 // so the workflow is fetched and polled once however many of them are open.
@@ -15,7 +18,10 @@ export class TaskRun {
 	view = $state.raw<TaskWorkflow | null>(null);
 	attempts = $state.raw<AgentRun[]>([]);
 	transitions = $state.raw<TaskTransition[]>([]);
+	/** What the task did could not be read, also when tried again. */
 	failed = $state(false);
+	/** A task without a workflow: the Standard chart could not be read. */
+	chartFailed = $state(false);
 	task = $state.raw<AgentTask>(undefined as unknown as AgentTask);
 	/** Fixed for a task: it pins its workflow version when it is created. */
 	readonly followsWorkflow: boolean = $derived(!!this.task.workflow_version_id);
@@ -34,6 +40,8 @@ export class TaskRun {
 	private chart = false;
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private pace = 0;
+	private failures = 0;
+	private again: ReturnType<typeof setTimeout> | undefined;
 	// A finished run's summary is final: the ones read are kept, and only
 	// those of runs finished since (knownUntil) are asked for.
 	private summaries = new Map<string, string>();
@@ -63,8 +71,15 @@ export class TaskRun {
 		this.schedule();
 	}
 
+	/**
+	 * Reads what the task did. A read that fails is tried once more after a
+	 * moment, by itself; only then does the run say it failed, and a view
+	 * offers to read again.
+	 */
 	async load() {
 		const current = ++this.request;
+		clearTimeout(this.again);
+		this.again = undefined;
 		try {
 			if (this.followsWorkflow) {
 				const loaded = await workflows.task(this.slug, this.task.id, this.knownUntil || undefined);
@@ -79,20 +94,35 @@ export class TaskRun {
 				});
 				this.view = { ...loaded, runs };
 			} else {
-				const [loaded, chart] = await Promise.all([
-					agentTasks.runs(this.slug, this.task.id),
-					this.chart ? workflows.task(this.slug, this.task.id) : undefined,
-					this.history ? this.loadHistory() : undefined
-				]);
+				// The attempts, the Standard chart and the state changes are
+				// read side by side: one that fails takes none of the others.
+				if (this.chart) void this.loadChart(current);
+				if (this.history) void this.loadHistory();
+				const loaded = await agentTasks.runs(this.slug, this.task.id);
 				if (current !== this.request) return;
 				this.attempts = loaded.runs;
-				if (chart?.graph) this.view = chart;
 			}
 			this.failed = false;
+			this.failures = 0;
 		} catch {
-			if (current === this.request) this.failed = true;
+			if (current !== this.request) return;
+			if (++this.failures === 1 && this.users)
+				this.again = setTimeout(() => void this.load(), RETRY_AFTER);
+			else this.failed = true;
 		}
 		this.schedule();
+	}
+
+	private async loadChart(current: number) {
+		try {
+			const chart = await workflows.task(this.slug, this.task.id);
+			if (current !== this.request) return;
+			if (!chart?.graph) throw new Error('not a workflow view');
+			this.view = chart;
+			this.chartFailed = false;
+		} catch {
+			if (current === this.request) this.chartFailed = true;
+		}
 	}
 
 	// State changes are paged and only ever added to: each load reads on from
@@ -137,6 +167,7 @@ export class TaskRun {
 	release() {
 		if (--this.users > 0) return false;
 		this.request++;
+		clearTimeout(this.again);
 		this.schedule();
 		return true;
 	}

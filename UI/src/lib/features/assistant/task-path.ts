@@ -58,15 +58,32 @@ function waitsFor(step: TimelineStep, task: Task, status: string | undefined): P
 	return { kind: 'other', text: task.reason };
 }
 
-// Each attempt starts with the task being queued; the newest group belongs
-// to the newest attempt, so attempts that are not loaded cost nothing.
-function attemptChanges(transitions: TaskTransition[], attempts: number): PathStep['changes'][] {
-	const groups: PathStep['changes'][] = [];
+type Changes = PathStep['changes'];
+
+// Each attempt starts with the task being queued, so the nth "queued" opens
+// the task's nth attempt (its generation). An attempt is paired with its
+// changes by that number, never by position: one that failed before a run
+// was recorded for it (no machine) has changes and no step.
+function attemptChanges(transitions: TaskTransition[]): { from: number; changes: Changes }[] {
+	const groups: { from: number; changes: Changes }[] = [];
 	for (const change of [...transitions].sort((a, b) => a.sequence - b.sequence)) {
-		if (change.to_state === 'queued' || !groups.length) groups.push([]);
-		groups.at(-1)!.push({ state: change.to_state, reason: change.reason, at: change.created_at });
+		if (change.to_state === 'queued' || !groups.length) groups.push({ from: Date.parse(change.created_at), changes: [] });
+		groups.at(-1)!.changes.push({ state: change.to_state, reason: change.reason, at: change.created_at });
 	}
-	return Array.from({ length: attempts }, (_, index) => groups[groups.length - attempts + index] ?? []);
+	return groups;
+}
+
+// The generation of each attempt, oldest first. The one the task is on is
+// the task's own; an earlier one is the attempt that was queued last before
+// its run was recorded. Without the state changes they are counted back
+// from the task's.
+function attemptGenerations(steps: TimelineStep[], generation: number, groups: { from: number }[]): number[] {
+	return steps.map((step, index) => {
+		if (index === steps.length - 1) return Math.max(1, generation);
+		const recorded = Date.parse(step.runs[0]?.created_at ?? step.startedAt);
+		const queued = groups.findLastIndex((group) => group.from <= recorded);
+		return queued >= 0 ? queued + 1 : Math.max(1, generation - (steps.length - 1 - index));
+	});
 }
 
 const eventAction: Partial<Record<WorkflowPauseEvent['action'], PathEvent['action']>> = {
@@ -89,7 +106,8 @@ export function taskPath(
 ): PathEntry[] {
 	const { task } = context;
 	const workflow = steps.some((step) => step.nodeId);
-	const changes = workflow ? [] : attemptChanges(context.transitions ?? [], steps.length);
+	const groups = workflow ? [] : attemptChanges(context.transitions ?? []);
+	const generations = workflow ? [] : attemptGenerations(steps, task.generation, groups);
 	const events = (context.pauses ?? [])
 		.flatMap((event, index): PathEvent[] => {
 			const action = eventAction[event.action];
@@ -109,11 +127,11 @@ export function taskPath(
 			kind: 'step',
 			key: step.anchor,
 			// An attempt is numbered like a visit: the task's own is the newest.
-			step: workflow ? step : { ...step, visit: Math.max(1, task.generation - (steps.length - 1 - index)) },
+			step: workflow ? step : { ...step, visit: generations[index] },
 			next: steps[index + 1]?.nodeId ? steps[index + 1] : undefined,
 			wait: waitsFor(step, task, context.status),
 			stopped: last && task.state === 'failed' ? task.reason || step.detail || step.reason || undefined : undefined,
-			changes: changes[index] ?? []
+			changes: groups[generations[index] - 1]?.changes ?? []
 		});
 	});
 	entries.push(...events.slice(placed));

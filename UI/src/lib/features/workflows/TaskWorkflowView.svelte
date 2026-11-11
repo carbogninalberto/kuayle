@@ -33,7 +33,7 @@
 
 	const shared = useTaskRun(untrack(() => chat), () => task, { chart: true });
 	const run = $derived(shared.view);
-	const failed = $derived(shared.failed);
+	const failed = $derived(shared.followsWorkflow ? shared.failed : shared.chartFailed);
 	const load = () => shared.load();
 	let deciding = $state(false);
 

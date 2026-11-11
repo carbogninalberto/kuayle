@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { ArrowRight, ChevronRight, CircleArrowUp, Pause, Play } from '@lucide/svelte';
+	import { ArrowRight, ChevronRight, CircleArrowUp, Pause, Play, RotateCw } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
@@ -94,6 +94,11 @@
 
 	// Durations of running steps tick.
 	let now = $state(Date.now());
+	// What counts as today is asked again whenever the path changes.
+	$effect(() => {
+		void entries;
+		now = Date.now();
+	});
 	const ticking = $derived(run.steps.some((step) => step.status === 'running'));
 	$effect(() => {
 		if (!ticking) return;
@@ -172,7 +177,11 @@
 											</a>
 										{/snippet}
 									</Tooltip.Trigger>
-									<Tooltip.Content side="top" align="start">{absolute(step.startedAt)}</Tooltip.Content>
+									<!-- The whole name too: the row may have had to cut it. -->
+									<Tooltip.Content side="top" align="start" class="max-w-64"
+										><span class="block font-medium">{stepTitle(step)}{agent ? ` · ${agent}` : ''}</span
+										>{absolute(step.startedAt)}</Tooltip.Content
+									>
 								</Tooltip.Root>
 								{#if opens(entry)}<Button
 										variant="plain"
@@ -203,9 +212,14 @@
 												><span class="text-foreground">{taskLabel(change.state as AgentTask['state'])}</span
 												>{#if change.reason}{` · ${change.reason}`}{/if}</span
 											>
-											<time class="ml-auto shrink-0 tabular-nums" datetime={change.at} title={absolute(change.at)}
-												>{short(change.at)}</time
-											>
+											<Tooltip.Root>
+												<Tooltip.Trigger class="ml-auto shrink-0 cursor-default rounded-sm tabular-nums {focus}"
+													><time datetime={change.at}>{short(change.at)}</time><span class="sr-only"
+														>{absolute(change.at)}</span
+													></Tooltip.Trigger
+												>
+												<Tooltip.Content side="top" align="end">{absolute(change.at)}</Tooltip.Content>
+											</Tooltip.Root>
 										</p>
 									{/each}
 									{#if entry.next}<p class="flex min-w-0 items-center gap-1">
@@ -254,7 +268,13 @@
 				/>{m['tasks.path.full']()}</Button
 			>{/if}
 	</div>
-{:else if run.failed && !run.followsWorkflow}
-	<!-- A workflow that did not load says so beside its chart. -->
-	<p role="alert" class="text-xs text-destructive">{m['tasks.load_error']()}</p>
 {/if}
+<!-- What the task did could not be read, also when tried again: one quiet control reads it again. -->
+{#if run.failed}<Button
+		variant="ghost"
+		size="icon-xs"
+		class="text-muted-foreground hover:text-foreground"
+		aria-label={m['assistant.retry']()}
+		title={m['assistant.retry']()}
+		onclick={() => void run.load()}><RotateCw /></Button
+	>{/if}

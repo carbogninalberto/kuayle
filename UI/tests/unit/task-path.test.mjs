@@ -272,3 +272,52 @@ test('durations and times are short enough to scan', () => {
 	assert.match(before, /30 Oct/);
 	assert.match(before, /09:05/);
 });
+
+test('an attempt that never got a run leaves the others their own changes and numbers', () => {
+	const change = (sequence, from_state, to_state, minute, reason = '') => ({
+		sequence,
+		task_id: 'task-1',
+		from_state,
+		to_state,
+		reason,
+		created_at: at(minute)
+	});
+	// The second attempt failed before a machine ran it: it has no run row.
+	const transitions = [
+		change(1, '', 'queued', 1, 'Created'),
+		change(2, 'queued', 'running', 2),
+		change(3, 'running', 'failed', 5, 'The build is broken'),
+		change(4, 'failed', 'queued', 6, 'Retried'),
+		change(5, 'queued', 'failed', 8, 'No machine'),
+		change(6, 'failed', 'queued', 9, 'Retried'),
+		change(7, 'queued', 'running', 10),
+		change(8, 'running', 'awaiting_review', 13, 'Ready for review')
+	];
+	const runs = [
+		{ id: 'run-1', provider_id: 'claude-code', status: 'failed', created_at: at(1), started_at: at(2), completed_at: at(5) },
+		{ id: 'run-3', provider_id: 'codex', status: 'succeeded', created_at: at(9), started_at: at(10), completed_at: at(13) }
+	];
+	const t = task({ run_id: 'run-3', provider: 'codex', reason: 'Ready for review' });
+	const entries = taskPath(attemptTimeline(t, runs), { task: t, transitions });
+	assert.deepEqual(
+		entries.map((entry) => [entry.key, entry.step.visit, entry.changes.map((c) => c.state)]),
+		[
+			['run-run-1', 1, ['queued', 'running', 'failed']],
+			['run-run-3', 3, ['queued', 'running', 'awaiting_review']]
+		]
+	);
+	// The run the task is on may not be recorded yet: it is the task's attempt.
+	const queued = task({ state: 'queued', run_id: 'run-4', generation: 4, updated_at: at(20) });
+	const next = taskPath(attemptTimeline(queued, runs), {
+		task: queued,
+		transitions: [...transitions, change(9, 'awaiting_review', 'queued', 20, 'Follow-up')]
+	});
+	assert.deepEqual(
+		next.map((entry) => [entry.step.visit, entry.changes.length]),
+		[
+			[1, 3],
+			[3, 3],
+			[4, 1]
+		]
+	);
+});

@@ -129,7 +129,9 @@ const workflow = () => ({
 			generation: 3,
 			visit: 2,
 			outcome: 'agent_finished',
-			finished_at: at(24)
+			finished_at: at(24),
+			// Two of its six minutes it was paused.
+			paused_seconds: 120
 		}),
 		step(7, 'publish', 'publish', 24, {
 			from_node: 'implement',
@@ -189,6 +191,8 @@ async function fixture(page: Page) {
 		runs: [] as any[],
 		transitions: [] as any[],
 		providers: [] as any[],
+		// How many of the next reads of the workflow fail.
+		workflowFails: 0,
 		publication: { step: null } as any,
 		sessions: [] as any[],
 		// Every agent-task request, as "<method> <task>/<rest>".
@@ -227,7 +231,13 @@ async function fixture(page: Page) {
 			const [, id, rest = ''] = match;
 			if (id !== state.task.id) return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
 			state.requests.push(`${route.request().method()} ${id}${rest}`);
-			if (rest === '/workflow') return route.fulfill({ json: state.workflow });
+			if (rest === '/workflow') {
+				if (state.workflowFails > 0) {
+					state.workflowFails--;
+					return route.fulfill({ status: 500, json: { error: { code: 'INTERNAL' } } });
+				}
+				return route.fulfill({ json: state.workflow });
+			}
 			if (rest === '/runs') return route.fulfill({ json: { runs: state.runs } });
 			if (rest === '/history') {
 				const after = Number(url.searchParams.get('after') ?? 0);
@@ -302,7 +312,8 @@ test('the sidebar shows the path a workflow task took, compact, and opens to its
 	// it took; how it went is an icon.
 	const implement = rows.nth(1);
 	await expect(implement.getByRole('link')).toContainText('×2');
-	await expect(implement.getByRole('link')).toContainText('10:18 AM · 6m');
+	// How long it worked: the two minutes it was paused are left out.
+	await expect(implement.getByRole('link')).toContainText('10:18 AM · 4m');
 	await expect(implement.getByRole('img', { name: 'Done' })).toBeVisible();
 	await expect(rows.nth(0).getByRole('link')).toContainText('10:00 AM · 4m');
 	await expect(rows.nth(3).getByRole('img', { name: 'Done' })).toBeVisible();
@@ -333,6 +344,9 @@ test('the sidebar shows the path a workflow task took, compact, and opens to its
 	await page.keyboard.press('Shift+Tab');
 	await expect(link).toBeFocused();
 	await expect(tooltip).toContainText('Oct 26, 2026, 10:18 AM');
+	// A name the row had to cut is whole there, and for a screen reader.
+	await expect(tooltip).toContainText('Implement · Cheap Implementer');
+	await expect(link).toHaveAccessibleName(/Implement · Cheap Implementer/);
 	await link.blur();
 	await expect(tooltip).toHaveCount(0);
 	await expect(async () => {
@@ -421,6 +435,9 @@ test('a step links to its section in the agent view, and both read one load of t
 	const opened = (sequence: number) => page.locator(`#step-${sequence}`).getByRole('button').first();
 	await expect(opened(6)).toHaveAttribute('aria-expanded', 'true');
 	await expect(opened(3)).toHaveAttribute('aria-expanded', 'false');
+	// The agent view counts the step's time as the path does: without its pause.
+	await expect(opened(6)).toContainText('4m 0s');
+	await expect(rows.nth(1).getByRole('link')).toContainText('10:18 AM · 4m');
 	// The agent view opened on the load the sidebar already had.
 	expect(count(state.requests, 'GET task-1/workflow')).toBe(1);
 
@@ -453,7 +470,9 @@ test('the path follows the task as it advances', async ({ page }) => {
 	const { state, emit } = await fixture(page);
 	// The second implementation is under way.
 	const view = workflow();
-	view.steps = view.steps.slice(0, 6).map((item) => (item.sequence === 6 ? { ...item, outcome: undefined, finished_at: undefined } : item));
+	view.steps = view.steps
+		.slice(0, 6)
+		.map((item) => (item.sequence === 6 ? { ...item, outcome: undefined, finished_at: undefined, paused_seconds: 0 } : item));
 	view.pauses = [];
 	view.runs = [...view.runs.slice(0, 2), run('run-impl-2', 6, 'opencode', 'kimi-k2', 'running')];
 	Object.assign(view, { node: 'implement', status: 'running', sequence: 6, task_state: 'running' });
@@ -615,8 +634,17 @@ test('a task without a workflow shows its attempts and state changes the same wa
 	// An attempt opens to its state changes, each with its time.
 	await rows.nth(0).getByRole('button', { name: 'Details of Claude Code' }).click();
 	const changes = rows.nth(0).getByTestId('task-path-detail').locator('p');
-	await expect(changes).toHaveText([/^Queued · Created\s*10:01 AM$/, /^Running\s*10:02 AM$/, /^Failed · The build is broken\s*10:05 AM$/]);
-	await expect(changes.nth(2).locator('time')).toHaveAttribute('title', /Oct 26, 2026, 10:05 AM/);
+	await expect(changes).toHaveText([/^Queued · Created\s*10:01 AM/, /^Running\s*10:02 AM/, /^Failed · The build is broken\s*10:05 AM/]);
+	// Its time is absolute for a screen reader, and on keyboard focus.
+	const when = changes.nth(2).getByRole('button');
+	await expect(when).toHaveAccessibleName(/Oct 26, 2026, 10:05 AM/);
+	await rows.nth(1).getByRole('link').focus();
+	await page.keyboard.press('Shift+Tab');
+	await expect(when).toBeFocused();
+	await expect(
+		page.locator('[data-slot="tooltip-content"]:not([data-state="closed"])').filter({ hasText: 'Oct 26, 2026, 10:05 AM' })
+	).toBeVisible();
+	await when.blur();
 
 	// The workflow panel draws the Standard flow and shows the same path under it.
 	await page.getByRole('button', { name: 'Workflow', exact: true }).first().click();
@@ -750,4 +778,57 @@ test('the sidebar has no composer and no review action; both are in the agent vi
 	await expect(composer).toHaveValue('Review ENG-1 with Claude Code');
 	await expect(composer).toBeFocused();
 	expect(sent).toEqual([]);
+});
+
+test('a first load that fails is tried again, then leaves one quiet retry on the card', async ({ page }) => {
+	const { state } = await fixture(page);
+	// One blip: the path arrives by itself, with no event and no click.
+	state.workflowFails = 1;
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto('/test/assistant?conversation=chat-1');
+	await showAgents(page);
+	const rows = pathOf(page).getByRole('listitem');
+	const retry = tasksRegion(page).getByRole('button', { name: 'Retry', exact: true });
+	await expect(rows).toHaveCount(5, { timeout: 10_000 });
+	await expect(retry).toHaveCount(0);
+	expect(count(state.requests, 'GET task-1/workflow')).toBe(2);
+
+	// It keeps failing: the card says so with one control, not a sentence.
+	state.workflowFails = 2;
+	await page.reload();
+	await showAgents(page);
+	await expect(retry).toBeVisible({ timeout: 10_000 });
+	await expect(rows).toHaveCount(0);
+	await expect(tasksRegion(page).getByRole('alert')).toHaveCount(0);
+	await expect.poll(() => state.workflowFails).toBe(0);
+	await retry.focus();
+	await page.keyboard.press('Enter');
+	await expect(rows).toHaveCount(5);
+	await expect(retry).toHaveCount(0);
+});
+
+test('a chart that does not load leaves a task without a workflow its attempts', async ({ page }) => {
+	const { state } = await fixture(page);
+	state.task = baseTask({ state: 'awaiting_review', reason: 'Ready for review', provider: 'codex', model: 'gpt-5', run_id: 'run-2', generation: 2 });
+	state.runs = [
+		{ id: 'run-2', provider_id: 'codex', status: 'succeeded', created_at: at(9), started_at: at(10), completed_at: at(13), changed_files: [] },
+		{ id: 'run-1', provider_id: 'claude-code', status: 'failed', created_at: at(1), started_at: at(2), completed_at: at(5), changed_files: [] }
+	];
+	state.workflowFails = 100;
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto('/test/assistant?conversation=chat-1');
+	await showAgents(page);
+	await expect(pathOf(page).getByRole('link')).toHaveText([/^Claude Code/, /^Codex/]);
+	await page.getByRole('button', { name: 'Workflow', exact: true }).first().click();
+	const panel = page.getByTestId('workflow-panel');
+	await expect(panel.getByRole('alert')).toContainText("Could not load the task's workflow");
+	// The attempts are their own load: they stay, with no retry of their own.
+	await expect(panel.getByRole('list', { name: 'Path taken' }).getByRole('link')).toHaveText([/^Claude Code/, /^Codex/]);
+	await expect(panel.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
+	// Also when the chart is asked for with them, on the first load: the
+	// panel the person left open comes back with the page.
+	await page.reload();
+	await expect(panel.getByRole('alert')).toContainText("Could not load the task's workflow");
+	await expect(panel.getByRole('list', { name: 'Path taken' }).getByRole('link')).toHaveText([/^Claude Code/, /^Codex/]);
+	await expect(panel.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
 });

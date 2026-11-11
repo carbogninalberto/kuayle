@@ -261,7 +261,8 @@ The thread is a timeline of the task's workflow steps, oldest first
 ([agent-timeline.ts](../../UI/src/lib/features/assistant/agent-timeline.ts),
 from `GET /agent-tasks/:taskId/workflow`): one line per step with its name,
 the profile and harness that ran it, the model, the visit when it is not the
-first, how long it took (the start time on hover) and a status icon. An agent
+first, how long it worked (the time a person's pause held it,
+`paused_seconds`, is left out; the start time on hover) and a status icon. An agent
 step opens to its work; a step that is not an agent's (start, publish, check,
 approval, merge, end) is a compact row that opens only when the runner
 recorded a detail for it. The step an agent is running is open and streams;
@@ -282,7 +283,11 @@ What a task did is loaded once per task and shared
 ([task-run.svelte.ts](../../UI/src/lib/features/assistant/task-run.svelte.ts),
 `useTaskRun`): the agent view's timeline, the task card's path and the
 workflow chart read the same run, so the workflow is fetched and polled once
-however many of them are open.
+however many of them are open. A read that fails is tried once more after two
+seconds; if that fails too the card shows one retry button (the chart says so
+in words). For a task without a workflow the attempts, the Standard chart and
+the state changes are read independently, so one failing takes none of the
+others.
 The steps reload on the task's events (`task.state_changed`, `task.updated`,
 `task.workflow_updated`, `task.review_updated`). As a fallback for missed
 events the workflow is polled every 15 s while a step runs and every 2 min
@@ -330,7 +335,8 @@ and no review action: those are in the agent view. The path
 [task-path.ts](../../UI/src/lib/features/assistant/task-path.ts), built on the
 timeline's steps) is one short vertical line: a step's name, its agent
 (profile), how it went as an icon in its colour, the visit when above one,
-when it started and how long it took. Compact, the default, is each step
+when it started and how long it worked (as in the agent view, without the
+time it was paused). Compact, the default, is each step
 once, as it last went, in the order the task last passed them, without the
 start; "Full path" opens every step with its loops, and the pauses, resumes
 and moves to a newer workflow version where they happened. Only the step the
@@ -340,10 +346,14 @@ failed task, why it stopped there; the card then does not repeat the task's
 reason. A step opens to what the runner recorded for it and to where the task
 went next and on which transition. Each step links to its section in the
 agent view; on narrow screens following it closes the panel's sheet. The time
-on every entry is absolute for assistive technology and in a tooltip on hover
-or keyboard focus. A task without a workflow shows its attempts the same way
-(the last outcome and the current attempt when compact), each opening to its
-state changes from `/history`. The Workflow panel shows the same path under
+on every entry, a state change's included, is absolute for assistive
+technology and in a tooltip on hover or keyboard focus; a step's tooltip also
+has its whole name, which a narrow row may cut. A task without a workflow
+shows its attempts the same way (the last outcome and the current attempt
+when compact), each opening to its state changes from `/history`. An attempt
+is numbered by its generation and paired with the changes of that generation
+(the nth "queued" opens the nth attempt), so one that failed before a run was
+recorded shifts nothing. The Workflow panel shows the same path under
 the chart.
 
 Focused checks, in addition to the repository testing skill's area checks:
