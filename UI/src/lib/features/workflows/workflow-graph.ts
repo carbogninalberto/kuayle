@@ -82,19 +82,19 @@ function uniqueId(prefix: string, taken: Set<string>): string {
 	}
 }
 
-/** A new node of the type, placed below the lowest node unless a position is given. */
+/** A new node of the type, placed right of the last step unless a position is given. */
 export function newNode(
 	graph: WorkflowGraph,
 	type: WorkflowNodeType,
 	label: string,
 	position?: { x: number; y: number }
 ): WorkflowNode {
-	const lowest = graph.nodes.reduce((y, node) => Math.max(y, node.position.y), -ROW);
+	const right = graph.nodes.reduce((x, node) => Math.max(x, node.position.x + nodeWidth(node.type) + GAP), 0);
 	const node: WorkflowNode = {
 		id: uniqueId(type, new Set(graph.nodes.map((n) => n.id))),
 		type,
 		label,
-		position: position ?? { x: -nodeWidth(type) / 2, y: lowest + ROW }
+		position: position ?? { x: right, y: 0 }
 	};
 	if (type === 'check') node.check = 'tests';
 	if (type === 'end') node.outcome = 'done';
@@ -148,20 +148,20 @@ export function updateEdge(graph: WorkflowGraph, id: string, patch: Partial<Work
 	return { ...graph, edges: graph.edges.map((e) => (e.id === id ? { ...e, ...patch } : e)) };
 }
 
-/** A minimal starting graph: start, one agent step and an end. */
+/** A minimal starting graph, left to right: start, one agent step and an end. */
 export function starterGraph(labels: { start: string; agent: string; end: string }, profileId?: string): WorkflowGraph {
-	return {
+	return tidy({
 		nodes: [
 			{ id: 'start', type: 'start', label: labels.start, position: { x: 0, y: 0 } },
-			{ id: 'agent-1', type: 'agent', label: labels.agent, profile_id: profileId ?? null, position: { x: 0, y: 120 } },
-			{ id: 'end-1', type: 'end', label: labels.end, outcome: 'done', position: { x: 0, y: 240 } }
+			{ id: 'agent-1', type: 'agent', label: labels.agent, profile_id: profileId ?? null, position: { x: 0, y: 0 } },
+			{ id: 'end-1', type: 'end', label: labels.end, outcome: 'done', position: { x: 0, y: 0 } }
 		],
 		edges: [
 			{ id: 'start-agent-1', source: 'start', target: 'agent-1', condition: 'else' },
 			{ id: 'agent-1-end-1', source: 'agent-1', target: 'end-1', condition: 'agent_finished' }
 		],
 		budget: {}
-	};
+	});
 }
 
 /** The graph as the server expects it: no empty optional fields. */
@@ -256,9 +256,16 @@ export function pendingDecision(
 }
 
 // Canvas geometry, matching WorkflowNodeCard: start and end cards are
-// narrower than the steps between them.
-const ROW = 130;
-const COLUMN = 300;
+// narrower than the steps between them. Steps run left to right, GAP apart
+// (room for a transition's label); branches sit in lanes below the main path
+// and loops arc above it.
+const GAP = 140;
+const LANE = 120;
+const NODE_HEIGHT = 50;
+const LOOP_BASE = 28;
+const LOOP_STEP = 20;
+/** The smallest zoom at which a step's name still reads. */
+const READABLE = 0.7;
 export const nodeWidth = (type: WorkflowNodeType) => (type === 'start' || type === 'end' ? 176 : 240);
 
 /**
@@ -293,40 +300,110 @@ export function layering(graph: WorkflowGraph): { rank: Map<string, number>; bac
 }
 
 /**
- * Lays the graph out top to bottom by rank, each row centred. Failed endings
- * sit in a column to the right, level with the earliest step that leads to
- * them, so the main path stays straight.
+ * Arranges the graph left to right: one column per rank, the main path on the
+ * top lane and the other steps of a rank (branches, then failed endings) in
+ * lanes below it. Only positions change.
  */
 export function tidy(graph: WorkflowGraph): WorkflowGraph {
-	const { rank, back } = layering(graph);
-	const failed = (n: WorkflowNode) => n.type === 'end' && n.outcome === 'failed';
-	const rows = new Map<number, WorkflowNode[]>();
+	const { rank } = layering(graph);
+	const failed = (n: WorkflowNode) => (n.type === 'end' && n.outcome === 'failed' ? 1 : 0);
+	const columns = new Map<number, WorkflowNode[]>();
 	for (const node of graph.nodes) {
-		if (failed(node)) continue;
 		const r = rank.get(node.id) ?? 0;
-		rows.set(r, [...(rows.get(r) ?? []), node]);
+		columns.set(r, [...(columns.get(r) ?? []), node]);
 	}
 	const positions = new Map<string, { x: number; y: number }>();
-	let widest = 0;
-	for (const [r, row] of rows) {
-		row.forEach((node, i) => {
-			const centre = (i - (row.length - 1) / 2) * COLUMN;
-			widest = Math.max(widest, Math.abs(centre) + nodeWidth(node.type) / 2);
-			positions.set(node.id, { x: centre - nodeWidth(node.type) / 2, y: r * ROW });
-		});
-	}
-	let side = 0;
-	for (const node of graph.nodes.filter(failed)) {
-		const from = graph.edges.filter((e) => e.target === node.id && !back.has(e.id)).map((e) => rank.get(e.source) ?? 0);
-		const r = from.length > 0 ? Math.min(...from) + 1 : (rank.get(node.id) ?? 0);
-		positions.set(node.id, { x: widest + 80 + side * (nodeWidth('end') + 40), y: r * ROW });
-		side++;
+	let x = 0;
+	for (const r of [...columns.keys()].sort((a, b) => a - b)) {
+		// A stable sort: failed endings last, the rest in the graph's order.
+		const column = [...(columns.get(r) ?? [])].sort((a, b) => failed(a) - failed(b));
+		const width = Math.max(...column.map((n) => nodeWidth(n.type)));
+		column.forEach((node, lane) =>
+			positions.set(node.id, { x: x + (width - nodeWidth(node.type)) / 2, y: lane * LANE })
+		);
+		x += width + GAP;
 	}
 	return { ...graph, nodes: graph.nodes.map((n) => ({ ...n, position: positions.get(n.id) ?? n.position })) };
 }
 
+const centre = (node: WorkflowNode) => ({
+	x: node.position.x + nodeWidth(node.type) / 2,
+	y: node.position.y + NODE_HEIGHT / 2
+});
+
 /**
- * Adds a step of the given type below the source and connects them on the
+ * The graph as a read-only view draws it: as stored when its steps already
+ * run left to right, otherwise arranged (workflows saved top to bottom).
+ */
+export function leftToRight(graph: WorkflowGraph): WorkflowGraph {
+	const { back } = layering(graph);
+	const nodes = new Map(graph.nodes.map((n) => [n.id, n]));
+	let across = 0,
+		down = 0;
+	for (const edge of graph.edges) {
+		const from = nodes.get(edge.source),
+			to = nodes.get(edge.target);
+		if (!from || !to || back.has(edge.id)) continue;
+		across += centre(to).x - centre(from).x;
+		down += Math.abs(centre(to).y - centre(from).y);
+	}
+	return across > down ? graph : tidy(graph);
+}
+
+/** How far above its steps each loop back to an earlier step runs, the longest outermost. */
+export function loopOffsets(graph: WorkflowGraph): Map<string, number> {
+	const { rank, back } = layering(graph);
+	const span = (e: WorkflowEdge) => (rank.get(e.source) ?? 0) - (rank.get(e.target) ?? 0);
+	const loops = graph.edges.filter((e) => back.has(e.id) && e.source !== e.target).sort((a, b) => span(a) - span(b));
+	return new Map(loops.map((e, i) => [e.id, LOOP_BASE + i * LOOP_STEP]));
+}
+
+/**
+ * Whether a transition leaves its step downwards: its target sits in a lane
+ * below and to the right, so the line drops to that lane and never crosses
+ * the steps beside the source.
+ */
+export function dropsDown(from: WorkflowNode, to: WorkflowNode): boolean {
+	return to.position.y >= from.position.y + NODE_HEIGHT && to.position.x > centre(from).x + 20;
+}
+
+/** The box around the graph's steps and the loops above them. */
+export function extent(graph: WorkflowGraph): { x: number; y: number; width: number; height: number } {
+	if (graph.nodes.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
+	const loops = Math.max(0, ...loopOffsets(graph).values());
+	const left = Math.min(...graph.nodes.map((n) => n.position.x));
+	const top = Math.min(...graph.nodes.map((n) => n.position.y)) - (loops > 0 ? loops + 12 : 0);
+	const right = Math.max(...graph.nodes.map((n) => n.position.x + nodeWidth(n.type)));
+	const bottom = Math.max(...graph.nodes.map((n) => n.position.y + NODE_HEIGHT));
+	return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/**
+ * Where the canvas opens: the whole graph when it stays readable at that
+ * size, otherwise zoomed to a readable size on its first steps.
+ */
+export function opening(
+	graph: WorkflowGraph,
+	size: { width: number; height: number },
+	padding = 32
+): { x: number; y: number; zoom: number } {
+	const box = extent(graph);
+	const fit = Math.min(
+		1,
+		(size.width - 2 * padding) / Math.max(box.width, 1),
+		(size.height - 2 * padding) / Math.max(box.height, 1)
+	);
+	const zoom = Math.max(fit, READABLE);
+	const wide = box.width * zoom > size.width - 2 * padding;
+	return {
+		x: wide ? padding - box.x * zoom : (size.width - box.width * zoom) / 2 - box.x * zoom,
+		y: (size.height - box.height * zoom) / 2 - box.y * zoom,
+		zoom
+	};
+}
+
+/**
+ * Adds a step of the given type right of the source and connects them on the
  * source's first free condition. Returns the new graph and the step's ID; the
  * step stays unconnected when the source has no free condition (or is an end).
  */
@@ -339,12 +416,14 @@ export function addNext(
 ): { graph: WorkflowGraph; id: string } {
 	const from = graph.nodes.find((n) => n.id === source);
 	if (!from) return { graph, id: '' };
-	const centre = from.position.x + nodeWidth(from.type) / 2;
-	// Below the source, beside any step already there.
-	let x = centre - nodeWidth(type) / 2;
-	const y = from.position.y + ROW;
-	while (graph.nodes.some((n) => Math.abs(n.position.y - y) < ROW / 2 && Math.abs(n.position.x - x) < COLUMN - 40))
-		x += COLUMN;
+	// Right of the source, in the first lane that is free there.
+	const x = from.position.x + nodeWidth(from.type) + GAP;
+	let y = from.position.y;
+	const taken = (n: WorkflowNode) =>
+		Math.abs(n.position.y - y) < LANE / 2 &&
+		n.position.x < x + nodeWidth(type) + GAP / 2 &&
+		n.position.x + nodeWidth(n.type) > x - GAP / 2;
+	while (graph.nodes.some(taken)) y += LANE;
 	const node = newNode(graph, type, label, { x, y });
 	const added = { ...graph, nodes: [...graph.nodes, node] };
 	return { graph: connect(added, source, node.id, profiles), id: node.id };

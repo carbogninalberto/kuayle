@@ -3447,7 +3447,7 @@
 	"workflows.editor.tab_outline": "Vázlat",
 	"workflows.editor.tab_settings": "Beállítások",
 	"workflows.editor.empty_title": "Nincs kijelölve semmi",
-	"workflows.editor.empty_hint": "Kattints egy lépésre vagy átmenetre a szerkesztéséhez. Jobb kattintással a vásznon, egy lépésen vagy átmeneten műveleteket kapsz, a lépés alatti + gombbal hozzáadod a következőt, vagy egy lépés alsó széléről egy másikra húzva összekapcsolod őket.",
+	"workflows.editor.empty_hint": "Kattints egy lépésre vagy átmenetre a szerkesztéséhez.",
 	"workflows.editor.saved_state": "Minden módosítás elmentve",
 	"workflows.editor.block_review": "Automatikus átnézés",
 	"workflows.editor.retry": "Újrapróbálás hibánál",

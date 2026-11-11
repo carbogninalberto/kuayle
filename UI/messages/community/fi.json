@@ -3447,7 +3447,7 @@
 	"workflows.editor.tab_outline": "Rakenne",
 	"workflows.editor.tab_settings": "Asetukset",
 	"workflows.editor.empty_title": "Ei valintaa",
-	"workflows.editor.empty_hint": "Napsauta vaihetta tai siirtymää muokataksesi sitä. Napsauta kanvasta, vaihetta tai siirtymää hiiren oikealla painikkeella toimintoja varten, käytä vaiheen alla olevaa + lisätäksesi seuraavan tai vedä vaiheen alareunasta toiseen yhdistääksesi ne.",
+	"workflows.editor.empty_hint": "Napsauta vaihetta tai siirtymää muokataksesi sitä.",
 	"workflows.editor.saved_state": "Kaikki muutokset tallennettu",
 	"workflows.editor.block_review": "Automaattinen katselmointi",
 	"workflows.editor.retry": "Yritä uudelleen epäonnistuessa",

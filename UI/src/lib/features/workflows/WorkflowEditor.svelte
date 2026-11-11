@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import { Switch } from '$lib/components/ui/switch/index.js';
@@ -9,7 +9,7 @@
 		Check,
 		CircleAlert,
 		Copy,
-		LayoutGrid,
+		StretchHorizontal,
 		Link2,
 		Maximize,
 		MousePointerClick,
@@ -62,6 +62,7 @@
 		connect,
 		duplicateNode,
 		graphForSave,
+		leftToRight,
 		newNode,
 		removeEdge,
 		removeNode,
@@ -73,8 +74,8 @@
 
 	// Svelte Flow editor for one workflow, filling the page: a top bar with the
 	// name, status and save; the canvas, edited directly (right-click menus, a
-	// "+" under each step, drag to connect) with a floating toolbar (add, undo,
-	// redo, tidy, zoom); and a side panel
+	// "+" beside each step, drag to connect) with a floating toolbar (add, undo,
+	// redo, arrange left to right, zoom); and a side panel
 	// with the selection (Inspect), every step and transition as keyboard-
 	// reachable lists (Outline), and the description and budget (Settings).
 	// The server validates as you edit and on save; each save is a new
@@ -206,6 +207,15 @@
 		lastChange = 0;
 		dirty = true;
 		selection = null;
+	}
+
+	// Arranges the steps left to right. Only positions change, so it is saved
+	// and undone like any other edit.
+	async function arrange() {
+		lastChange = 0;
+		change(tidy(graph));
+		await tick();
+		flow?.fit();
 	}
 
 	function addAt(type: Block, at?: { x: number; y: number }) {
@@ -435,7 +445,7 @@
 		<div class="relative min-h-0 bg-muted/30">
 			{#snippet canvas()}
 				<WorkflowCanvas
-					{graph}
+					graph={editable ? graph : leftToRight(graph)}
 					{profiles}
 					{issues}
 					{editable}
@@ -562,8 +572,8 @@
 									{/each}
 								</ContextMenu.SubContent>
 							</ContextMenu.Sub>
-							<ContextMenu.Item onclick={() => act(() => change(tidy(graph)))}
-								><LayoutGrid />{m['workflows.editor.tidy']()}</ContextMenu.Item
+							<ContextMenu.Item onclick={() => act(() => void arrange())}
+								><StretchHorizontal />{m['workflows.editor.tidy']()}</ContextMenu.Item
 							>
 							<ContextMenu.Item onclick={() => act(() => flow?.fit())}
 								><Maximize />{m['workflows.editor.fit_view']()}</ContextMenu.Item
@@ -611,7 +621,7 @@
 							</DropdownMenu.Content>
 						</DropdownMenu.Root>
 						<span class="mx-1 h-5 w-px bg-border"></span>
-						{#snippet tool(label: string, Icon: typeof Plus, action: () => void, disabled = false, shortcut = '')}
+						{#snippet tool(label: string, Icon: typeof Plus, action: () => void, disabled = false, shortcut = '', testid = '')}
 							<Tooltip.Root>
 								<Tooltip.Trigger>
 									{#snippet child({ props })}<Button
@@ -620,6 +630,7 @@
 											variant="ghost"
 											aria-label={label}
 											{disabled}
+											data-testid={testid || undefined}
 											onclick={action}><Icon /></Button
 										>{/snippet}
 								</Tooltip.Trigger>
@@ -631,7 +642,7 @@
 						{@render tool(m['workflows.editor.undo'](), Undo2, undo, past.length === 0, '⌘Z')}
 						{@render tool(m['workflows.editor.redo'](), Redo2, redo, future.length === 0, '⇧⌘Z')}
 						<span class="mx-1 h-5 w-px bg-border"></span>
-						{@render tool(m['workflows.editor.tidy'](), LayoutGrid, () => change(tidy(graph)))}
+						{@render tool(m['workflows.editor.tidy'](), StretchHorizontal, () => void arrange(), false, '', 'workflow-arrange')}
 						{@render tool(m['workflows.editor.zoom_out'](), ZoomOut, () => flow?.zoomOut())}
 						{@render tool(m['workflows.editor.zoom_in'](), ZoomIn, () => flow?.zoomIn())}
 						{@render tool(m['workflows.editor.fit_view'](), Maximize, () => flow?.fit())}

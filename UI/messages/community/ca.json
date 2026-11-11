@@ -3447,7 +3447,7 @@
 	"workflows.editor.tab_outline": "Esquema",
 	"workflows.editor.tab_settings": "Configuració",
 	"workflows.editor.empty_title": "Res seleccionat",
-	"workflows.editor.empty_hint": "Fes clic en un pas o una transició per editar-lo. Fes clic dret al llenç, a un pas o a una transició per veure les accions, utilitza el + sota un pas per afegir-ne el següent, o arrossega des de la vora inferior d'un pas a un altre per connectar-los.",
+	"workflows.editor.empty_hint": "Fes clic en un pas o una transició per editar-lo.",
 	"workflows.editor.saved_state": "Tots els canvis desats",
 	"workflows.editor.block_review": "Revisió automatitzada",
 	"workflows.editor.retry": "Reintenta si falla",

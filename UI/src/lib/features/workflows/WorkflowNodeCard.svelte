@@ -58,8 +58,17 @@
 	);
 </script>
 
-{#if node.type !== 'start'}<Handle type="target" position={Position.Top} />
-	<Handle id="loop-in" type="target" position={Position.Left} class="workflow-loop-handle" isConnectable={false} />{/if}
+<!-- Transitions run left to right; loops back arc over the top (in on the
+     left, out on the right) and a failure drops to the lane below. -->
+{#if node.type !== 'start'}<Handle type="target" position={Position.Left} />
+	<Handle
+		id="loop-in"
+		type="target"
+		position={Position.Top}
+		style="left: 35%"
+		class="workflow-loop-handle"
+		isConnectable={false}
+	/>{/if}
 <div
 	class={cn(
 		'relative flex items-center gap-2.5 rounded-xl border bg-card p-2 pr-3 text-card-foreground shadow-sm transition-shadow',
@@ -99,7 +108,7 @@
 	<!-- Adds the next step, connected; shown on hover and when selected. -->
 	<div
 		class={cn(
-			'workflow-add-next nodrag nopan absolute -bottom-9 left-1/2 z-10 -translate-x-1/2 opacity-0 transition-opacity focus-within:opacity-100',
+			'workflow-add-next nodrag nopan absolute -right-7 -bottom-7 z-10 opacity-0 transition-opacity focus-within:opacity-100',
 			selected && 'opacity-100'
 		)}
 	>
@@ -128,12 +137,19 @@
 		</DropdownMenu.Root>
 	</div>
 {/if}
-{#if node.type !== 'end'}<Handle type="source" position={Position.Bottom} />
-	<Handle id="loop-out" type="source" position={Position.Left} class="workflow-loop-handle" isConnectable={false} />
+{#if node.type !== 'end'}<Handle type="source" position={Position.Right} />
+	<Handle
+		id="loop-out"
+		type="source"
+		position={Position.Top}
+		style="left: 65%"
+		class="workflow-loop-handle"
+		isConnectable={false}
+	/>
 	<Handle
 		id="side-out"
 		type="source"
-		position={Position.Right}
+		position={Position.Bottom}
 		class="workflow-loop-handle"
 		isConnectable={false}
 	/>{/if}

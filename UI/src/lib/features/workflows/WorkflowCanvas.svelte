@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import '@xyflow/svelte/dist/style.css';
 	import {
 		SvelteFlow,
@@ -16,9 +17,19 @@
 	import WorkflowNodeCard, { type WorkflowFlowNode } from './WorkflowNodeCard.svelte';
 	import FlowBridge, { type FlowApi } from './FlowBridge.svelte';
 	import LoopEdge from './LoopEdge.svelte';
+	import DropEdge from './DropEdge.svelte';
 	import type { WorkflowNodeType } from '$lib/api/workflows';
 	import { conditionLabel, issueLabel, profileTitle } from './labels';
-	import { layering, placeIssues, type Block, type FiredTransition } from './workflow-graph';
+	import {
+		dropsDown,
+		extent,
+		layering,
+		loopOffsets,
+		opening,
+		placeIssues,
+		type Block,
+		type FiredTransition
+	} from './workflow-graph';
 
 	// The workflow graph on a Svelte Flow canvas, editable or read-only. The
 	// graph prop stays the source of truth: the canvas reports moves,
@@ -35,6 +46,7 @@
 		label,
 		class: className = 'h-[520px]',
 		controls = true,
+		zoom,
 		api = $bindable(),
 		onselect,
 		onaddnext,
@@ -59,6 +71,11 @@
 		class?: string;
 		/** Svelte Flow's own zoom controls; the editor has its own toolbar. */
 		controls?: boolean;
+		/**
+		 * Draws the whole graph at this zoom in a canvas of exactly its size, with
+		 * no panning or zooming of its own: the page around it scrolls instead.
+		 */
+		zoom?: number;
 		/** Svelte Flow's API, for the editor's menus and toolbar. */
 		api?: FlowApi;
 		onselect?: (selection: Selection) => void;
@@ -72,7 +89,7 @@
 	} = $props();
 
 	const nodeTypes: NodeTypes = { workflow: WorkflowNodeCard };
-	const edgeTypes: EdgeTypes = { loop: LoopEdge };
+	const edgeTypes: EdgeTypes = { loop: LoopEdge, drop: DropEdge };
 
 	function subtitle(node: WorkflowGraph['nodes'][number]): string {
 		switch (node.type) {
@@ -123,14 +140,12 @@
 				onaddnext: editable && onaddnext && node.type !== 'end' ? (type: Block) => onaddnext(node.id, type) : undefined
 			}
 		}));
-		// Loops back to an earlier step leave and enter on the left and failures
-		// leave on the right, so neither crosses the main path; transitions
-		// between the same two steps share one label.
-		const { back, rank } = layering(graph);
-		// Loops get their own distance from the main path, the longest outermost.
-		const span = (e: WorkflowGraph['edges'][number]) => (rank.get(e.source) ?? 0) - (rank.get(e.target) ?? 0);
-		const loops = graph.edges.filter((e) => back.has(e.id)).sort((a, b) => span(a) - span(b));
-		const loopOffset = new Map(loops.map((e, i) => [e.id, 24 + i * 16]));
+		// Loops back to an earlier step arc over the top, each at its own height,
+		// and transitions to a lane below (failures) leave downwards, so neither
+		// crosses the main path; transitions between the same two steps share
+		// one label.
+		const { back } = layering(graph);
+		const loopOffset = loopOffsets(graph);
 		const pairs = new Map<string, string[]>();
 		for (const edge of graph.edges) {
 			const key = `${edge.source}>${edge.target}`;
@@ -145,8 +160,9 @@
 			const fired = run?.fired.get(edge.id);
 			const loop = back.has(edge.id);
 			const self = edge.source === edge.target;
+			const source = graph.nodes.find((n) => n.id === edge.source);
 			const target = graph.nodes.find((n) => n.id === edge.target);
-			const toFailure = !loop && target?.type === 'end' && target.outcome === 'failed';
+			const down = !loop && !!source && !!target && dropsDown(source, target);
 			const problem = placed.edges.has(edge.id);
 			return {
 				id: edge.id,
@@ -161,7 +177,7 @@
 							data: { offset: loopOffset.get(edge.id) }
 						}
 					: {}),
-				...(toFailure ? { sourceHandle: 'side-out', targetHandle: 'loop-in' } : {}),
+				...(down ? { type: 'drop', sourceHandle: 'side-out' } : {}),
 				label: fired && fired.count > 1 ? `${conditionLabel(edge.condition)} ×${fired.count}` : pairLabel(edge),
 				selected: selection?.kind === 'edge' && selection.id === edge.id,
 				hidden: self,
@@ -180,6 +196,21 @@
 		});
 	});
 
+	// Where the canvas opens, once its size is known: Svelte Flow reads the
+	// viewport only when it starts.
+	// (TaskWorkflowView scrolls to a step knowing this padding.)
+	const PADDING = 24;
+	const box = $derived(zoom ? extent(graph) : undefined);
+	let width = $state(0),
+		height = $state(0);
+	const viewport = $derived(
+		zoom && box
+			? { x: PADDING - box.x * zoom, y: PADDING - box.y * zoom, zoom }
+			: width > 0 && height > 0
+				? opening(graph, { width, height })
+				: undefined
+	);
+
 	function connected(connection: Connection) {
 		onconnect?.(connection.source, connection.target);
 		redraw++;
@@ -187,18 +218,26 @@
 </script>
 
 <div
-	class="workflow-canvas min-h-0 w-full overflow-hidden rounded-lg border bg-muted/20 {className}"
+	class="workflow-canvas min-h-0 overflow-hidden {zoom ? 'shrink-0' : 'w-full rounded-lg border bg-muted/20'} {className}"
+	style:width={zoom && box ? `${Math.ceil(box.width * zoom) + 2 * PADDING}px` : undefined}
+	style:height={zoom && box ? `${Math.ceil(box.height * zoom) + 2 * PADDING}px` : undefined}
 	role="region"
 	aria-label={label}
+	bind:clientWidth={width}
+	bind:clientHeight={height}
 >
-	<SvelteFlow
+	{#if viewport}<SvelteFlow
 		bind:nodes
 		bind:edges
 		{nodeTypes}
 		{edgeTypes}
-		fitView
-		fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
-		minZoom={0.2}
+		initialViewport={untrack(() => viewport)}
+		panOnDrag={!zoom}
+		zoomOnScroll={!zoom}
+		zoomOnPinch={!zoom}
+		zoomOnDoubleClick={!zoom}
+		preventScrolling={!zoom}
+		minZoom={0.1}
 		maxZoom={1.5}
 		nodesDraggable={editable}
 		nodesConnectable={editable}
@@ -219,10 +258,10 @@
 				removedEdges.map((e) => e.id)
 			)}
 	>
-		<Background variant={BackgroundVariant.Dots} gap={18} size={1.2} />
-		{#if controls}<Controls showLock={false} />{/if}
+		{#if !zoom}<Background variant={BackgroundVariant.Dots} gap={18} size={1.2} />{/if}
+		{#if controls && !zoom}<Controls showLock={false} />{/if}
 		<FlowBridge bind:api />
-	</SvelteFlow>
+	</SvelteFlow>{/if}
 </div>
 
 <style>

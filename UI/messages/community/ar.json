@@ -3447,7 +3447,7 @@
 	"workflows.editor.tab_outline": "المخطط",
 	"workflows.editor.tab_settings": "الإعدادات",
 	"workflows.editor.empty_title": "لا شيء محدد",
-	"workflows.editor.empty_hint": "انقر على خطوة أو انتقال لتعديله. انقر بزر الفأرة الأيمن على اللوحة أو خطوة أو انتقال للإجراءات، واستخدم + أسفل الخطوة لإضافة التالية، أو اسحب من الحافة السفلية لخطوة إلى أخرى لربطهما.",
+	"workflows.editor.empty_hint": "انقر على خطوة أو انتقال لتعديله.",
 	"workflows.editor.saved_state": "تم حفظ كل التغييرات",
 	"workflows.editor.block_review": "مراجعة آلية",
 	"workflows.editor.retry": "إعادة المحاولة عند الفشل",

@@ -462,3 +462,51 @@ func TestRenderWorkflowPromptNeverRescansAVariablesText(t *testing.T) {
 	big := WorkflowVariables{Plan: strings.Repeat("{{diff}} ", 1500), Diff: strings.Repeat("d", 11000)}
 	require.Less(t, len(RenderWorkflowPrompt("{{plan}}", big)), 15000)
 }
+
+// The built-in graphs open left to right: every transition runs to the right
+// with room for its label, only loops (back to the implementer, or a retry of
+// the step itself) return, and no two cards touch.
+func TestBuiltinWorkflowGraphsRunLeftToRight(t *testing.T) {
+	implementer, reviewer, _ := exampleProfiles()
+	width := func(n WorkflowNode) float64 {
+		if n.Type == WorkflowNodeStart || n.Type == WorkflowNodeEnd {
+			return workflowEndWidth
+		}
+		return workflowStepWidth
+	}
+	for name, g := range map[string]WorkflowGraph{
+		"standard":    StandardWorkflowGraph(),
+		"review loop": ReviewLoopWorkflowGraph(implementer, reviewer),
+		"full cycle":  FullCycleWorkflowGraph(implementer, reviewer),
+	} {
+		t.Run(name, func(t *testing.T) {
+			nodes := map[string]WorkflowNode{}
+			for _, n := range g.Nodes {
+				nodes[n.ID] = n
+			}
+			for _, e := range g.Edges {
+				from, to := nodes[e.Source], nodes[e.Target]
+				switch {
+				case e.Source == e.Target:
+				case e.Target == "implement" && e.Source != "start":
+					require.Less(t, to.Position.X, from.Position.X, "%s loops back to the left", e.ID)
+					require.Equal(t, from.Position.Y, to.Position.Y, "%s stays on the main path", e.ID)
+				default:
+					require.GreaterOrEqual(t, to.Position.X, from.Position.X+width(from)+100, "%s runs to the right", e.ID)
+				}
+			}
+			for i, a := range g.Nodes {
+				if a.Outcome == WorkflowEndFailed {
+					require.Greater(t, a.Position.Y, 0.0, "the failed ending sits below the main path")
+				} else {
+					require.Zero(t, a.Position.Y, "%s is on the main path", a.ID)
+				}
+				for _, b := range g.Nodes[i+1:] {
+					apart := a.Position.X+width(a)+40 <= b.Position.X || b.Position.X+width(b)+40 <= a.Position.X ||
+						a.Position.Y+70 <= b.Position.Y || b.Position.Y+70 <= a.Position.Y
+					require.True(t, apart, "%s and %s overlap", a.ID, b.ID)
+				}
+			}
+		})
+	}
+}

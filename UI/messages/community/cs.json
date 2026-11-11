@@ -3447,7 +3447,7 @@
 	"workflows.editor.tab_outline": "Osnova",
 	"workflows.editor.tab_settings": "Nastavení",
 	"workflows.editor.empty_title": "Nic není vybráno",
-	"workflows.editor.empty_hint": "Kliknutím na krok nebo přechod jej upravíte. Pravým tlačítkem na plátno, krok nebo přechod zobrazíte akce, pomocí + pod krokem přidáte další, nebo přetažením ze spodní hrany kroku na jiný je propojíte.",
+	"workflows.editor.empty_hint": "Kliknutím na krok nebo přechod jej upravíte.",
 	"workflows.editor.saved_state": "Všechny změny uloženy",
 	"workflows.editor.block_review": "Automatická kontrola",
 	"workflows.editor.retry": "Opakovat při selhání",

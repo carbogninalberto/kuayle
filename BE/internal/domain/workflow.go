@@ -898,19 +898,42 @@ func truncateUTF8(value string, limit int) string {
 	return value[:limit]
 }
 
+// Canvas geometry of the built-in graphs, matching the editor's "arrange"
+// (UI/src/lib/features/workflows/workflow-graph.ts): steps run left to right,
+// one column each, and a failed ending sits in the lane below the main path.
+const (
+	workflowStepWidth = 240
+	workflowEndWidth  = 176 // start and end cards are narrower
+	workflowColumnGap = 140
+	workflowLane      = 120
+)
+
+// workflowAt places a node in a column (0 is the start's) and a lane (0 is
+// the main path). inset centres an end card under a step in the same column.
+func workflowAt(column, lane int, inset bool) WorkflowPosition {
+	x := 0
+	if column > 0 {
+		x = workflowEndWidth + workflowColumnGap + (column-1)*(workflowStepWidth+workflowColumnGap)
+	}
+	if inset {
+		x += (workflowStepWidth - workflowEndWidth) / 2
+	}
+	return WorkflowPosition{X: float64(x), Y: float64(lane * workflowLane)}
+}
+
 // StandardWorkflowGraph describes today's fixed flow. It is shown read-only
 // in the editor and drives the task graph view of tasks without a workflow
 // version; their execution stays the fixed flow in code.
 func StandardWorkflowGraph() WorkflowGraph {
 	return WorkflowGraph{
 		Nodes: []WorkflowNode{
-			{ID: "start", Type: WorkflowNodeStart, Label: "Start", Position: WorkflowPosition{X: -88, Y: 0}},
-			{ID: "implement", Type: WorkflowNodeAgent, Label: "Implement", Prompt: "The task's instructions", MaxVisits: 0, Position: WorkflowPosition{X: -120, Y: 130}},
-			{ID: "validate", Type: WorkflowNodeCheck, Label: "Validate", Check: WorkflowCheckTests, Position: WorkflowPosition{X: -120, Y: 260}},
-			{ID: "publish", Type: WorkflowNodePublish, Label: "Publish pull request", Position: WorkflowPosition{X: -120, Y: 390}},
-			{ID: "review", Type: WorkflowNodeApproval, Label: "Human review", Prompt: "Review the pull request; CI failures, change requests and comments queue follow-up iterations", MaxVisits: 0, Position: WorkflowPosition{X: -120, Y: 520}},
-			{ID: "done", Type: WorkflowNodeEnd, Label: "Done", Outcome: WorkflowEndDone, Position: WorkflowPosition{X: -88, Y: 650}},
-			{ID: "failed", Type: WorkflowNodeEnd, Label: "Failed", Outcome: WorkflowEndFailed, Position: WorkflowPosition{X: 200, Y: 260}},
+			{ID: "start", Type: WorkflowNodeStart, Label: "Start", Position: workflowAt(0, 0, false)},
+			{ID: "implement", Type: WorkflowNodeAgent, Label: "Implement", Prompt: "The task's instructions", MaxVisits: 0, Position: workflowAt(1, 0, false)},
+			{ID: "validate", Type: WorkflowNodeCheck, Label: "Validate", Check: WorkflowCheckTests, Position: workflowAt(2, 0, false)},
+			{ID: "publish", Type: WorkflowNodePublish, Label: "Publish pull request", Position: workflowAt(3, 0, false)},
+			{ID: "review", Type: WorkflowNodeApproval, Label: "Human review", Prompt: "Review the pull request; CI failures, change requests and comments queue follow-up iterations", MaxVisits: 0, Position: workflowAt(4, 0, false)},
+			{ID: "done", Type: WorkflowNodeEnd, Label: "Done", Outcome: WorkflowEndDone, Position: workflowAt(5, 0, false)},
+			{ID: "failed", Type: WorkflowNodeEnd, Label: "Failed", Outcome: WorkflowEndFailed, Position: workflowAt(3, 1, true)},
 		},
 		Edges: []WorkflowEdge{
 			{ID: "e-start", Source: "start", Target: "implement", Condition: WorkflowElse},
@@ -953,14 +976,14 @@ func StandardWorkflowNode(state string) string {
 func ReviewLoopWorkflowGraph(implementer, reviewer uuid.UUID) WorkflowGraph {
 	return WorkflowGraph{
 		Nodes: []WorkflowNode{
-			{ID: "start", Type: WorkflowNodeStart, Label: "Start", Position: WorkflowPosition{X: 0, Y: 0}},
-			{ID: "implement", Type: WorkflowNodeAgent, Label: "Implementer", ProfileID: &implementer, Prompt: "Address the feedback below, then make sure the change is complete.\n\n{{review_comments}}\n\n{{failing_checks}}", Position: WorkflowPosition{X: 0, Y: 120}},
-			{ID: "publish", Type: WorkflowNodePublish, Label: "Open pull request", Position: WorkflowPosition{X: 0, Y: 240}},
-			{ID: "review", Type: WorkflowNodeAgent, Label: "Reviewer", ProfileID: &reviewer, MaxVisits: 3, Prompt: "Review the pull request against the issue.\n\n{{previous_summary}}", Position: WorkflowPosition{X: 0, Y: 360}},
-			{ID: "ci", Type: WorkflowNodeCheck, Label: "CI", Check: WorkflowCheckCI, TimeoutMinutes: 120, Position: WorkflowPosition{X: 0, Y: 480}},
-			{ID: "ship", Type: WorkflowNodeApproval, Label: "Ready to ship", Prompt: "Ready to ship", Position: WorkflowPosition{X: 0, Y: 600}},
-			{ID: "done", Type: WorkflowNodeEnd, Label: "Done", Outcome: WorkflowEndDone, Position: WorkflowPosition{X: 0, Y: 720}},
-			{ID: "failed", Type: WorkflowNodeEnd, Label: "Failed", Outcome: WorkflowEndFailed, Position: WorkflowPosition{X: 320, Y: 420}},
+			{ID: "start", Type: WorkflowNodeStart, Label: "Start", Position: workflowAt(0, 0, false)},
+			{ID: "implement", Type: WorkflowNodeAgent, Label: "Implementer", ProfileID: &implementer, Prompt: "Address the feedback below, then make sure the change is complete.\n\n{{review_comments}}\n\n{{failing_checks}}", Position: workflowAt(1, 0, false)},
+			{ID: "publish", Type: WorkflowNodePublish, Label: "Open pull request", Position: workflowAt(2, 0, false)},
+			{ID: "review", Type: WorkflowNodeAgent, Label: "Reviewer", ProfileID: &reviewer, MaxVisits: 3, Prompt: "Review the pull request against the issue.\n\n{{previous_summary}}", Position: workflowAt(3, 0, false)},
+			{ID: "ci", Type: WorkflowNodeCheck, Label: "CI", Check: WorkflowCheckCI, TimeoutMinutes: 120, Position: workflowAt(4, 0, false)},
+			{ID: "ship", Type: WorkflowNodeApproval, Label: "Ready to ship", Prompt: "Ready to ship", Position: workflowAt(5, 0, false)},
+			{ID: "done", Type: WorkflowNodeEnd, Label: "Done", Outcome: WorkflowEndDone, Position: workflowAt(6, 0, false)},
+			{ID: "failed", Type: WorkflowNodeEnd, Label: "Failed", Outcome: WorkflowEndFailed, Position: workflowAt(6, 1, false)},
 		},
 		Edges: []WorkflowEdge{
 			{ID: "start-implement", Source: "start", Target: "implement", Condition: WorkflowElse},
@@ -988,20 +1011,19 @@ func ReviewLoopWorkflowGraph(implementer, reviewer uuid.UUID) WorkflowGraph {
 // fails reviews again; past those limits the workflow asks a person instead of
 // failing on its own.
 func FullCycleWorkflowGraph(implementer, reviewer uuid.UUID) WorkflowGraph {
-	row := func(r int) float64 { return float64(r * 130) }
 	return WorkflowGraph{
 		Nodes: []WorkflowNode{
-			{ID: "start", Type: WorkflowNodeStart, Label: "Start", Position: WorkflowPosition{X: -88, Y: row(0)}},
+			{ID: "start", Type: WorkflowNodeStart, Label: "Start", Position: workflowAt(0, 0, false)},
 			{ID: "implement", Type: WorkflowNodeAgent, Label: "Implement", ProfileID: &implementer, MaxVisits: 5,
-				Prompt: "Address what sent the work back, then make sure the change is complete.\n\n{{review_comments}}\n\n{{failing_checks}}", Position: WorkflowPosition{X: -120, Y: row(1)}},
-			{ID: "tests", Type: WorkflowNodeCheck, Label: "Tests", Check: WorkflowCheckTests, Position: WorkflowPosition{X: -120, Y: row(2)}},
-			{ID: "publish", Type: WorkflowNodePublish, Label: "Open pull request", Position: WorkflowPosition{X: -120, Y: row(3)}},
-			{ID: "review", Type: WorkflowNodeAgent, Label: "Review", ProfileID: &reviewer, MaxVisits: 6, Prompt: "Review the pull request against the issue.\n\n{{previous_summary}}", Position: WorkflowPosition{X: -120, Y: row(4)}},
-			{ID: "ci", Type: WorkflowNodeCheck, Label: "CI", Check: WorkflowCheckCI, TimeoutMinutes: 120, Position: WorkflowPosition{X: -120, Y: row(5)}},
-			{ID: "ship", Type: WorkflowNodeApproval, Label: "Ready to ship", Prompt: "Ready to merge?", Position: WorkflowPosition{X: -120, Y: row(6)}},
-			{ID: "merge", Type: WorkflowNodeMerge, Label: "Merge", Position: WorkflowPosition{X: -120, Y: row(7)}},
-			{ID: "done", Type: WorkflowNodeEnd, Label: "Done", Outcome: WorkflowEndDone, Position: WorkflowPosition{X: -88, Y: row(8)}},
-			{ID: "failed", Type: WorkflowNodeEnd, Label: "Failed", Outcome: WorkflowEndFailed, Position: WorkflowPosition{X: 200, Y: row(5)}},
+				Prompt: "Address what sent the work back, then make sure the change is complete.\n\n{{review_comments}}\n\n{{failing_checks}}", Position: workflowAt(1, 0, false)},
+			{ID: "tests", Type: WorkflowNodeCheck, Label: "Tests", Check: WorkflowCheckTests, Position: workflowAt(2, 0, false)},
+			{ID: "publish", Type: WorkflowNodePublish, Label: "Open pull request", Position: workflowAt(3, 0, false)},
+			{ID: "review", Type: WorkflowNodeAgent, Label: "Review", ProfileID: &reviewer, MaxVisits: 6, Prompt: "Review the pull request against the issue.\n\n{{previous_summary}}", Position: workflowAt(4, 0, false)},
+			{ID: "ci", Type: WorkflowNodeCheck, Label: "CI", Check: WorkflowCheckCI, TimeoutMinutes: 120, Position: workflowAt(5, 0, false)},
+			{ID: "ship", Type: WorkflowNodeApproval, Label: "Ready to ship", Prompt: "Ready to merge?", Position: workflowAt(6, 0, false)},
+			{ID: "merge", Type: WorkflowNodeMerge, Label: "Merge", Position: workflowAt(7, 0, false)},
+			{ID: "done", Type: WorkflowNodeEnd, Label: "Done", Outcome: WorkflowEndDone, Position: workflowAt(8, 0, false)},
+			{ID: "failed", Type: WorkflowNodeEnd, Label: "Failed", Outcome: WorkflowEndFailed, Position: workflowAt(6, 1, true)},
 		},
 		Edges: []WorkflowEdge{
 			{ID: "start-implement", Source: "start", Target: "implement", Condition: WorkflowElse},

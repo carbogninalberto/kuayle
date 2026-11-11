@@ -3447,7 +3447,7 @@
 	"workflows.editor.tab_outline": "Ana hat",
 	"workflows.editor.tab_settings": "Ayarlar",
 	"workflows.editor.empty_title": "Hiçbir şey seçilmedi",
-	"workflows.editor.empty_hint": "Düzenlemek için bir adıma veya geçişe tıklayın. İşlemler için tuvale, bir adıma veya geçişe sağ tıklayın; sonraki adımı eklemek için bir adımın altındaki + işaretini kullanın ya da bağlamak için bir adımın alt kenarından başka bir adıma sürükleyin.",
+	"workflows.editor.empty_hint": "Düzenlemek için bir adıma veya geçişe tıklayın.",
 	"workflows.editor.saved_state": "Tüm değişiklikler kaydedildi",
 	"workflows.editor.block_review": "Otomatik inceleme",
 	"workflows.editor.retry": "Başarısızlıkta tekrar dene",
