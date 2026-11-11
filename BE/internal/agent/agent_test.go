@@ -480,3 +480,42 @@ func TestResultSummaryIsTheAgentsFinalMessageNotRawEvents(t *testing.T) {
 	require.Equal(t, "Done: truncate added.", NewClaudeCodeProvider("").ParseResult(claude, "", 0).Summary)
 	require.Equal(t, "plain output", NewCodexProvider("").ParseResult("plain output\n", "", 0).Summary, "non-JSON output is kept")
 }
+
+// A planning step's plan is the agent's final message. Each harness reports
+// one in its own event, and a run without one (only tool calls, or plain
+// output) is told apart from a run that ended with a message.
+func TestResultSaysWhetherTheHarnessReportedAFinalMessage(t *testing.T) {
+	long := strings.Repeat("p", MaxSummaryBytes+1)
+	final := map[string]struct {
+		provider Provider
+		with     func(text string) string
+		without  string
+	}{
+		"claude-code": {NewClaudeCodeProvider(""), func(text string) string {
+			return `{"type":"assistant","message":{"content":[{"type":"text","text":"Working"}]}}` + "\n" + `{"type":"result","subtype":"success","result":"` + text + `"}`
+		}, `{"type":"result","subtype":"success","result":""}`},
+		"codex": {NewCodexProvider(""), func(text string) string {
+			return `{"type":"thread.started","thread_id":"t1"}` + "\n" + `{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"` + text + `"}}`
+		}, `{"type":"item.completed","item":{"id":"i","type":"command_execution","command":"ls"}}`},
+		"opencode": {NewOpenCodeProvider(""), func(text string) string {
+			return `{"type":"text","part":{"type":"text","text":"` + text + `"}}`
+		}, `{"type":"tool_use","part":{"type":"tool","tool":"bash","state":{"status":"completed","output":"ok","metadata":{"exit":0}}}}`},
+	}
+	for name, harness := range final {
+		t.Run(name, func(t *testing.T) {
+			result := harness.provider.ParseResult(harness.with("1. Add the column"), "", 0)
+			require.Equal(t, "1. Add the column", result.Summary)
+			require.True(t, result.FinalMessage)
+			require.False(t, result.SummaryTruncated)
+
+			result = harness.provider.ParseResult(harness.with(long), "", 0)
+			require.True(t, result.FinalMessage)
+			require.True(t, result.SummaryTruncated, "a message cut to the limit says so")
+			require.Len(t, result.Summary, MaxSummaryBytes)
+
+			result = harness.provider.ParseResult(harness.without, "", 0)
+			require.False(t, result.FinalMessage, "raw output is not a final message")
+			require.False(t, result.SummaryTruncated)
+		})
+	}
+}

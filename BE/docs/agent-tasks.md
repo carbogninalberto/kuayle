@@ -1386,20 +1386,27 @@ state machines (KUA-95). Nothing changes until someone picks one: a task with
 no pinned version runs the built-in **Standard** workflow, which is the fixed
 flow in code, and `StandardWorkflowGraph` only draws it.
 
-- **Agent profiles** (`agent_profiles`): name, role (`implementer`, `reviewer`,
-  `tester`, `docs_writer`, `security_reviewer`), harness, model, effort and
-  instructions. Each workspace gets built-in Implementer and Reviewer
-  profiles. Profiles carry no permissions: when a task is created, and again
+- **Agent profiles** (`agent_profiles`): name, role, behaviour, harness, model,
+  effort and instructions. The **behaviour** is what the engine acts on:
+  `plans`, `changes_code` or `reviews` (see [Behaviours](#behaviours)). The
+  **role** is a label the workspace chooses and no rule reads: optional, at
+  most 40 printable characters on one line, stored trimmed. Migration 143
+  replaced the fixed role list: `reviewer` and `security_reviewer` profiles
+  became `reviews`, the others `changes_code`, each keeping its old role as
+  the label (`Docs writer`), so existing workflows run as before; rolling
+  back restores the five roles (a planning profile becomes an implementer and
+  other labels are lost). Each workspace gets built-in Implementer and
+  Reviewer profiles. Profiles carry no permissions: when a task is created, and again
   each time an agent step starts, its harness and model go through the same
   workspace policy check as a delegated task (allowed providers, model
   servers), and every iteration runs on the task's own machine under the
   workspace's repository, sudo and Docker policy. A step without its own
   model server uses the workspace's default one when it speaks the harness's
-  protocol, as the composer and requested reviews do. The role decides how a
-  version runs (a reviewer step reviews and leaves on its verdict; other roles
+  protocol, as the composer and requested reviews do. The behaviour decides how a
+  version runs (a reviewing step reviews and leaves on its verdict; the others
   start iterations), so it cannot change while any saved version (archived
-  workflows' included) uses the profile (`409 PROFILE_ROLE_IN_USE`); the
-  profile's row lock serializes this with saves. Saving a profile applies the
+  workflows' included) uses the profile (`409 PROFILE_BEHAVIOUR_IN_USE`); the
+  profile's row lock serializes this with saves. The role can always change. Saving a profile applies the
   model, effort and model server rules of a task start (not the allowed
   providers, which can change later) and answers `400` with the reason, for
   example a harness that takes no model or effort; `GET /agent-profiles`
@@ -1439,10 +1446,13 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   Edges carry a condition the source node can produce (`agent_finished`,
   `agent_failed`, `checks_passed`, `checks_failed`, `review_approved`,
   `review_changes_requested`, `approval_approved`, `approval_denied`,
-  `published`, `publish_failed`, `merged`, `timeout`, `else`); a reviewer-role
-  agent step reviews the published pull request as a [review task](#requested-agent-reviews)
-  and leaves on its verdict. `ValidateWorkflowGraph` requires exactly one
-  start leading to an implementing agent step, at least one end, every node
+  `published`, `publish_failed`, `merged`, `timeout`, `else`); an agent step
+  whose profile reviews runs on the published pull request as a
+  [review task](#requested-agent-reviews) and leaves on its verdict.
+  `ValidateWorkflowGraph` requires exactly one start leading to an agent step
+  that plans or changes code, a finished planning step leading to an agent
+  step that plans or changes code or to an approval (`plan_target`), at least
+  one end, every node
   reachable and able to leave, every cycle containing a node with
   `max_visits`, and every agent step naming an active profile in the
   workspace. The repository validates again inside the save transaction, so
@@ -1504,8 +1514,63 @@ at that moment is skipped (to keep the review-then-parent lock order) and its
 result is ignored. Everything is in
 the database, so a restarted API resumes where the task was. Prompt variables
 (`{{previous_summary}}`, `{{review_comments}}`, `{{failing_checks}}`,
-`{{diff}}`) are passed as fenced, untrusted text. CI results and comments on a
-workflow task are recorded but never queue Standard follow-ups.
+`{{diff}}`) are passed as fenced, untrusted text, each cut at 12000 bytes;
+`{{plan}}` is the exception described under [Behaviours](#behaviours). CI
+results and comments on a workflow task are recorded but never queue Standard
+follow-ups.
+
+### Behaviours
+
+What an agent step does comes from its profile's behaviour
+(`AgentProfile.Plans`, `Reviews`); the workspace policy is checked for every
+step the same way whatever it is.
+
+- **`changes_code`**: an iteration in the task's worktree with the
+  implementer's contract in its prompt (manual QA, the tests Kuayle re-runs
+  from `.kuayle/validation.json`). It leaves on `agent_finished` or
+  `agent_failed`.
+- **`reviews`**: a review task on the published pull request; without one the
+  step fails at once. It leaves on `review_approved`,
+  `review_changes_requested` or `agent_failed`, and can time out.
+- **`plans`**: an iteration in the same worktree, framed as "plan this for the
+  next agent" (`planningLine` ahead of the task) and without the QA and
+  `validation.json` lines (`withContract`). It may start a workflow. When its
+  run succeeds, `WorkflowRunner.AgentFinished` accepts it only if
+  - the worktree is as the step found it. The machine manager fingerprints
+    the worktree (`HEAD` plus a tree written from a throwaway index holding
+    everything git does not ignore; `.kuayle/` is excluded) before the agent
+    starts and after it ends, and records `worktree_changed` and
+    `worktree_changed_files` on the run (`worktree_before` keeps the first
+    fingerprint across a manager restart). An edit, a new file, a staged
+    change and a commit all count. This is Kuayle's own comparison, the same
+    for Claude Code, Codex and OpenCode; the agent is never asked. A run
+    whose worktree could not be compared fails the step too;
+  - the harness reported a final message (`RunResult.FinalMessage`: Claude
+    Code's `result` event, Codex's last `agent_message` item, OpenCode's last
+    `text` part; raw output is not a plan) that is not blank and was not cut
+    at the 16 KB summary limit (`summary_truncated`).
+
+  Otherwise the step leaves on `agent_failed` with the reason in its detail,
+  and a workflow that ends there carries it in the task's reason. Kuayle does
+  not revert what a failed planning step changed. An accepted plan is stored
+  whole in `agent_task_workflow_steps.plan` (returned with the task's
+  workflow steps) and is not subject to the 16000-byte step detail or the
+  4000-character handoff summary.
+
+**`{{plan}}`** is the newest stored plan of the task. Unlike the other
+variables it is trusted: the workflow's owners placed the planning step to
+instruct the agents after it, so it is written into the next iterations'
+prompts unfenced and whole, under "Plan to follow", where the step's template
+names it, or appended when it does not, on every later visit too (also after
+an approval between the plan and the build). The untrusted variables are
+shortened and then left out, and then the original task text is shortened,
+before the plan would be; the attempt's handoff does not repeat the plan as
+unverified text and gives up its summary first. A review step gets the plan
+only when its prompt names `{{plan}}`, within the review focus limit of 4000
+bytes. `{{previous_summary}}` is unchanged: fenced, untrusted and cut.
+
+A profile used as an [agent assignee](#agents-as-issue-assignees) runs the built-in flow
+whatever its behaviour; planning applies to workflow steps.
 
 Routes (workspace, session only): `GET/POST /agent-profiles`,
 `PUT/DELETE /agent-profiles/:profileId`, `GET/POST /workflows`,

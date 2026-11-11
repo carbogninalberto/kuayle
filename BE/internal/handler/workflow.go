@@ -48,8 +48,8 @@ func workflowError(c *echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "WORKFLOW_NAME_TAKEN", "A workflow with this name already exists")
 	case errors.Is(err, repository.ErrAgentProfileNameTaken):
 		return response.Error(c, http.StatusConflict, "PROFILE_NAME_TAKEN", "An agent profile with this name already exists")
-	case errors.Is(err, repository.ErrAgentProfileRoleInUse):
-		return response.Error(c, http.StatusConflict, "PROFILE_ROLE_IN_USE", "Workflows use this profile, so its role cannot change; create a new profile for the other role")
+	case errors.Is(err, repository.ErrAgentProfileBehaviourInUse):
+		return response.Error(c, http.StatusConflict, "PROFILE_BEHAVIOUR_IN_USE", "Workflows use this profile, so what it does cannot change; create a new profile for the other behaviour")
 	case errors.Is(err, repository.ErrAgentProfileSkill):
 		return response.Error(c, http.StatusBadRequest, "PROFILE_SKILL_INVALID", "Only active skills shared with the whole workspace can be added to an agent profile")
 	case errors.Is(err, repository.ErrAgentProfileInUse):

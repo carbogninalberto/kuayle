@@ -149,7 +149,7 @@ assistant that can hand issues to coding agents running on your own machines.
 
 - A visual editor to design the steps a coding task follows: implement, test, open a pull request, agent review, CI, your go-ahead and merge. Start from templates (Standard, Review loop, Full cycle) or a blank workflow.
 - Defaults per workspace, team or project; the most specific one wins.
-- Agent profiles: a role, coding agent, model and instructions, plus skills from the workspace library delivered as <code>SKILL.md</code> files. Profiles never grant permissions; every step runs under the workspace policy.
+- Agent profiles: a role you name, what the agent does (plans, changes code or reviews), coding agent, model and instructions, plus skills from the workspace library delivered as <code>SKILL.md</code> files. Profiles never grant permissions; every step runs under the workspace policy.
 
 </details>
 

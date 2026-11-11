@@ -89,7 +89,7 @@ async function mockProfiles(
 					harnesses: ['opencode', 'codex'],
 					model_harnesses: ['opencode', 'codex'],
 					model_formats: { opencode: { format: 'provider/model', example: 'opencode-go/deepseek-v4.1-flash' } },
-					roles: ['implementer', 'reviewer']
+					behaviours: ['plans', 'changes_code', 'reviews']
 				}
 			});
 		if (path === '/api/workspaces/test/agent-profiles' && request.method() === 'POST') {

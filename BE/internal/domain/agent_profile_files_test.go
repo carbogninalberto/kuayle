@@ -8,7 +8,7 @@ import (
 )
 
 func TestProfileFilesLayOutInstructionsAndSkillsPerHarness(t *testing.T) {
-	bundle := AgentProfileBundle{Name: "Security reviewer", Role: AgentRoleSecurityReviewer, Instructions: "  Check auth.  ",
+	bundle := AgentProfileBundle{Name: "Auth checker", Role: "Security reviewer", Instructions: "  Check auth.  ",
 		Skills: []AgentProfileSkill{
 			{Name: "Review SQL", Description: "Scope: every query\nby workspace", Body: "# SQL\n"},
 			{Name: "review-sql", Description: "Second one", Body: "Other"},
@@ -16,7 +16,9 @@ func TestProfileFilesLayOutInstructionsAndSkillsPerHarness(t *testing.T) {
 	files := ProfileFiles("claude-code", bundle)
 	require.Len(t, files, 3)
 	require.Equal(t, "/home/kuayle/.claude/CLAUDE.md", files[0].Path)
-	require.Contains(t, files[0].Content, "# Agent profile: Security reviewer (security reviewer)")
+	require.Contains(t, files[0].Content, "# Agent profile: Auth checker (Security reviewer)\n")
+	unlabelled := ProfileFiles("claude-code", AgentProfileBundle{Name: "Reviewer", Role: "reviewer", Instructions: "x"})
+	require.Contains(t, unlabelled[0].Content, "# Agent profile: Reviewer\n", "a role that repeats the name, or none, adds nothing")
 	require.Contains(t, files[0].Content, "Check auth.\n")
 	require.Equal(t, "/home/kuayle/.claude/skills/review-sql/SKILL.md", files[1].Path)
 	require.Equal(t, "---\nname: review-sql\ndescription: \"Scope: every query by workspace\"\n---\n\n# SQL\n", files[1].Content)

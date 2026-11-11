@@ -80,16 +80,22 @@ type Artifact struct {
 }
 
 type RunResult struct {
-	Status         string     `json:"status"`
-	Summary        string     `json:"summary"`
-	ChangedFiles   []string   `json:"changed_files"`
-	Commits        []string   `json:"commits"`
-	Branch         string     `json:"branch,omitempty"`
-	PullRequestURL string     `json:"pull_request_url,omitempty"`
-	TestsRun       []string   `json:"tests_run"`
-	TestStatus     string     `json:"test_status"`
-	RiskNotes      []string   `json:"risk_notes"`
-	Artifacts      []Artifact `json:"artifacts"`
+	Status  string `json:"status"`
+	Summary string `json:"summary"`
+	// FinalMessage reports that Summary is the final message the harness
+	// reported for the agent, not a fallback to its raw output; a planning
+	// step's plan is that message. SummaryTruncated reports that it was cut
+	// to MaxSummaryBytes.
+	FinalMessage     bool       `json:"final_message"`
+	SummaryTruncated bool       `json:"summary_truncated"`
+	ChangedFiles     []string   `json:"changed_files"`
+	Commits          []string   `json:"commits"`
+	Branch           string     `json:"branch,omitempty"`
+	PullRequestURL   string     `json:"pull_request_url,omitempty"`
+	TestsRun         []string   `json:"tests_run"`
+	TestStatus       string     `json:"test_status"`
+	RiskNotes        []string   `json:"risk_notes"`
+	Artifacts        []Artifact `json:"artifacts"`
 }
 
 type Provider interface {
@@ -167,6 +173,7 @@ func defaultResult(stdout, stderr string, exitCode int) RunResult {
 		status = "failed"
 	}
 	summary := finalMessage(stdout)
+	final := summary != ""
 	if summary == "" {
 		summary = strings.TrimSpace(stdout)
 	}
@@ -174,14 +181,16 @@ func defaultResult(stdout, stderr string, exitCode int) RunResult {
 		summary = strings.TrimSpace(stderr)
 	}
 	return RunResult{
-		Status:       status,
-		Summary:      truncateSummary(summary),
-		ChangedFiles: []string{},
-		Commits:      []string{},
-		TestsRun:     []string{},
-		TestStatus:   "not_run",
-		RiskNotes:    []string{},
-		Artifacts:    []Artifact{},
+		Status:           status,
+		Summary:          truncateSummary(summary),
+		FinalMessage:     final,
+		SummaryTruncated: final && len(summary) > MaxSummaryBytes,
+		ChangedFiles:     []string{},
+		Commits:          []string{},
+		TestsRun:         []string{},
+		TestStatus:       "not_run",
+		RiskNotes:        []string{},
+		Artifacts:        []Artifact{},
 	}
 }
 

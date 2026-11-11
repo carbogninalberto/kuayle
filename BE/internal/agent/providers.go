@@ -235,7 +235,8 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 	}
 
 	if lastAssistantText != "" {
-		result.Summary = truncateSummary(strings.TrimSpace(lastAssistantText))
+		final := strings.TrimSpace(lastAssistantText)
+		result.Summary, result.FinalMessage, result.SummaryTruncated = truncateSummary(final), true, len(final) > MaxSummaryBytes
 	}
 
 	if len(toolFailures) > 0 {

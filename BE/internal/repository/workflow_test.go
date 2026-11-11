@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,10 +44,10 @@ func builtinIDs(t *testing.T, repo *WorkflowRepository, ws uuid.UUID) (uuid.UUID
 	require.NoError(t, err)
 	var implementer, reviewer uuid.UUID
 	for _, p := range profiles {
-		if p.BuiltinKey != nil && *p.BuiltinKey == domain.AgentRoleImplementer {
+		if p.BuiltinKey != nil && *p.BuiltinKey == domain.AgentBuiltinImplementer {
 			implementer = p.ID
 		}
-		if p.BuiltinKey != nil && *p.BuiltinKey == domain.AgentRoleReviewer {
+		if p.BuiltinKey != nil && *p.BuiltinKey == domain.AgentBuiltinReviewer {
 			reviewer = p.ID
 		}
 	}
@@ -93,7 +94,7 @@ func TestWorkflowSettingsPermissionsValidationAndDefaults(t *testing.T) {
 	require.Len(t, profiles, 2, "built-in profiles are created once")
 
 	// Owners and admins edit; members and guests cannot.
-	input := domain.AgentProfileInput{Name: "Docs writer", Role: domain.AgentRoleDocsWriter, Harness: "codex"}
+	input := domain.AgentProfileInput{Name: "Docs writer", Role: "Technical writer", Behaviour: domain.AgentBehaviourChangesCode, Harness: "codex"}
 	for _, denied := range []uuid.UUID{member, guest, uuid.New()} {
 		_, err = repo.CreateProfile(ctx, ws, denied, input)
 		require.ErrorIs(t, err, ErrWorkflowDenied)
@@ -158,28 +159,41 @@ func TestWorkflowSettingsPermissionsValidationAndDefaults(t *testing.T) {
 	// A profile the workflow uses cannot be archived; an unused one can.
 	require.ErrorIs(t, repo.ArchiveProfile(ctx, ws, reviewer, owner), ErrAgentProfileInUse)
 
-	// A saved version's semantics never change under it: the role of a
-	// profile any version uses is fixed (a reviewer turned implementer would
-	// edit code, and running tasks would find no transition). Other fields
-	// and unused profiles stay editable.
-	toImplementer := domain.AgentProfileInput{Name: "Reviewer", Role: domain.AgentRoleImplementer, Harness: "codex"}
+	// A saved version's semantics never change under it: the behaviour of a
+	// profile any version uses is fixed (a reviewer that changed code would
+	// edit the worktree, and running tasks would find no transition). Its
+	// role is only a label, so it and every other field stay editable, as
+	// do unused profiles.
+	toImplementer := domain.AgentProfileInput{Name: "Reviewer", Role: "Reviewer", Behaviour: domain.AgentBehaviourChangesCode, Harness: "codex"}
 	_, err = repo.UpdateProfile(ctx, ws, reviewer, owner, toImplementer)
-	require.ErrorIs(t, err, ErrAgentProfileRoleInUse)
-	var role string
-	require.NoError(t, db.Get(&role, `SELECT role FROM agent_profiles WHERE id=$1`, reviewer))
-	require.Equal(t, domain.AgentRoleReviewer, role)
-	renamed, err := repo.UpdateProfile(ctx, ws, reviewer, owner, domain.AgentProfileInput{Name: "Strict reviewer", Role: domain.AgentRoleReviewer, Harness: "codex", Model: "gpt-5.5"})
-	require.NoError(t, err, "the same role with another model is fine")
+	require.ErrorIs(t, err, ErrAgentProfileBehaviourInUse)
+	toPlanner := toImplementer
+	toPlanner.Behaviour = domain.AgentBehaviourPlans
+	_, err = repo.UpdateProfile(ctx, ws, reviewer, owner, toPlanner)
+	require.ErrorIs(t, err, ErrAgentProfileBehaviourInUse)
+	var behaviour, role string
+	require.NoError(t, db.QueryRow(`SELECT behaviour,role FROM agent_profiles WHERE id=$1`, reviewer).Scan(&behaviour, &role))
+	require.Equal(t, domain.AgentBehaviourReviews, behaviour)
+	require.Equal(t, "Reviewer", role, "the built-in profiles are labelled with their name")
+	renamed, err := repo.UpdateProfile(ctx, ws, reviewer, owner, domain.AgentProfileInput{Name: "Strict reviewer", Role: "Implementer of last resort", Behaviour: domain.AgentBehaviourReviews, Harness: "codex", Model: "gpt-5.5"})
+	require.NoError(t, err, "the label and the model change freely while the behaviour stays")
 	require.Equal(t, "gpt-5.5", renamed.Model)
-	docsAsTester := input
-	docsAsTester.Role = domain.AgentRoleTester
-	_, err = repo.UpdateProfile(ctx, ws, docs.ID, owner, docsAsTester)
-	require.NoError(t, err, "an unused profile may change role")
+	require.Equal(t, "Implementer of last resort", renamed.Role)
+	require.Equal(t, domain.AgentBehaviourReviews, renamed.Behaviour)
+	docsAsPlanner := input
+	docsAsPlanner.Behaviour, docsAsPlanner.Role = domain.AgentBehaviourPlans, ""
+	planner, err := repo.UpdateProfile(ctx, ws, docs.ID, owner, docsAsPlanner)
+	require.NoError(t, err, "an unused profile may change behaviour, and a role is optional")
+	require.Equal(t, domain.AgentBehaviourPlans, planner.Behaviour)
+	_, err = db.Exec(`UPDATE agent_profiles SET behaviour='manages' WHERE id=$1`, docs.ID)
+	require.Error(t, err, "the database knows the three behaviours only")
+	_, err = db.Exec(`UPDATE agent_profiles SET role=$2 WHERE id=$1`, docs.ID, "  padded ")
+	require.Error(t, err, "a stored role is trimmed")
 	// An archived workflow keeps its versions, which running tasks may pin.
 	_, err = db.Exec(`UPDATE workflows SET archived_at=now() WHERE id=$1`, created.ID)
 	require.NoError(t, err)
 	_, err = repo.UpdateProfile(ctx, ws, reviewer, owner, toImplementer)
-	require.ErrorIs(t, err, ErrAgentProfileRoleInUse)
+	require.ErrorIs(t, err, ErrAgentProfileBehaviourInUse)
 	_, err = db.Exec(`UPDATE workflows SET archived_at=NULL WHERE id=$1`, created.ID)
 	require.NoError(t, err)
 	require.NoError(t, repo.ArchiveProfile(ctx, ws, docs.ID, owner))
@@ -272,6 +286,7 @@ func TestWorkflowTaskMovesThroughTheRepository(t *testing.T) {
 	bundle, err := repo.ProfileBundle(ctx, *task)
 	require.NoError(t, err)
 	require.Equal(t, "Write tests.", bundle.Instructions)
+	require.Equal(t, domain.AgentBehaviourChangesCode, bundle.Behaviour, "the attempt learns what its step does from the profile")
 	require.Equal(t, []domain.AgentProfileSkill{{Name: "Review SQL", Description: "Scope queries", Body: "# SQL"}}, bundle.Skills)
 	none, err := repo.ProfileBundle(ctx, legacy)
 	require.NoError(t, err)
@@ -291,13 +306,50 @@ func TestWorkflowTaskMovesThroughTheRepository(t *testing.T) {
 	run, err := repo.WorkflowRun(ctx, *task)
 	require.NoError(t, err)
 	require.Equal(t, "succeeded", run.Status)
+	require.False(t, run.FinalMessage, "a run recorded before the harness reported a final message has none")
+	require.Nil(t, run.WorktreeChanged, "and its worktree was never compared")
+
+	// What the machine records for a run: the worktree's fingerprint before
+	// the agent starts (the first one is kept), whether it changed, and
+	// whether the summary is the harness's final message.
+	machines := NewDevMachineRepository(db)
+	before, err := machines.RecordWorktreeBefore(ctx, task.RunID, "aaa bbb")
+	require.NoError(t, err)
+	require.Equal(t, "aaa bbb", before)
+	before, err = machines.RecordWorktreeBefore(ctx, task.RunID, "ccc ddd")
+	require.NoError(t, err)
+	require.Equal(t, "aaa bbb", before, "a restarted manager compares against the run's real start")
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET result='{"final_message":true,"summary_truncated":false}',worktree_changed=true,worktree_changed_files='["ui/theme.ts"]' WHERE id=$1`, task.RunID)
+	require.NoError(t, err)
+	run, err = repo.WorkflowRun(ctx, *task)
+	require.NoError(t, err)
+	require.True(t, run.FinalMessage)
+	require.False(t, run.SummaryTruncated)
+	require.NotNil(t, run.WorktreeChanged)
+	require.True(t, *run.WorktreeChanged)
+	require.Equal(t, []string{"ui/theme.ts"}, run.WorktreeFiles)
+	none2, err := repo.LatestWorkflowPlan(ctx, *task)
+	require.NoError(t, err)
+	require.Empty(t, none2)
 
 	cursor := task.Cursor()
 	now := time.Now()
 	toPublish := graph.Decide(cursor, domain.WorkflowAgentFinished, now, nil)
-	apply := WorkflowApply{Sequence: 2, Outcome: domain.WorkflowAgentFinished, Moves: []WorkflowMove{{Decision: toPublish}}, Entry: WorkflowEntry{Kind: WorkflowEnterPublish, Reason: "Workflow · " + toPublish.Reason}}
+	// A plan a finished step produced is stored whole on that step, well
+	// past the 16000 bytes a step's detail keeps.
+	plan := strings.Repeat("Étape. ", 2300)
+	require.Greater(t, len(plan), 16000)
+	apply := WorkflowApply{Sequence: 2, Outcome: domain.WorkflowAgentFinished, Moves: []WorkflowMove{{Decision: toPublish}}, Entry: WorkflowEntry{Kind: WorkflowEnterPublish, Reason: "Workflow · " + toPublish.Reason}, Plan: plan}
 	moved, err := repo.ApplyWorkflow(ctx, *claimed, apply)
 	require.NoError(t, err)
+	stored, err := repo.LatestWorkflowPlan(ctx, *moved)
+	require.NoError(t, err)
+	require.Equal(t, plan, stored)
+	steps, err = repo.WorkflowSteps(ctx, ws, task.ID)
+	require.NoError(t, err)
+	require.NotNil(t, steps[1].Plan)
+	require.Equal(t, plan, *steps[1].Plan, "the task's path shows the plan on its step")
+	require.Nil(t, steps[2].Plan)
 	require.Equal(t, "publishing", moved.State, "a workflow may publish without the Standard check")
 	_, err = repo.ApplyWorkflow(ctx, *claimed, apply)
 	require.ErrorIs(t, err, ErrAgentTaskConflict, "the same move cannot apply twice")
