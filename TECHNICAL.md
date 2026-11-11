@@ -676,6 +676,11 @@ versions validated on save, defaults per workspace, team and project, and a
 runner that drives each task's pinned version node by node under the worker's
 lease. Tasks without a pinned version run the built-in Standard workflow,
 which is the existing fixed flow.
+Each profile has a [behaviour](BE/docs/agent-tasks.md#behaviours) (migration
+143): it plans, changes code or reviews, and its role is a free-text label. A
+planning step must leave the worktree unchanged and end with a plan, which is
+stored whole and passed to the following agent steps as trusted instructions
+through `{{plan}}`.
 
 [Automations](BE/docs/agent-tasks.md#automations) (migration 69) delegate matching issues on a label or status trigger, optionally on a UTC schedule. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
 

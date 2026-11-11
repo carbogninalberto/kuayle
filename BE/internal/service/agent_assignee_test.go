@@ -118,7 +118,7 @@ func newAssigneeFakes() (*AgentAssigneeService, *assigneeStoreFake, *assigneeRun
 }
 
 func assigneeProfile(store *assigneeStoreFake, ws uuid.UUID) domain.AgentProfile {
-	profile := domain.AgentProfile{ID: uuid.New(), WorkspaceID: ws, Name: "Fixer", Role: domain.AgentRoleImplementer, Harness: "goose", Model: "m1", Effort: "high", Instructions: "Always add tests."}
+	profile := domain.AgentProfile{ID: uuid.New(), WorkspaceID: ws, Name: "Fixer", Role: "Implementer", Behaviour: domain.AgentBehaviourChangesCode, Harness: "goose", Model: "m1", Effort: "high", Instructions: "Always add tests."}
 	store.assignable[profile.ID] = profile
 	return profile
 }
@@ -336,7 +336,7 @@ func TestAgentIdentityInputIsValidatedBeforeAnyWrite(t *testing.T) {
 func TestATaskRunAsAnAgentTakesItsHarnessModelAndInstructionsFromTheProfile(t *testing.T) {
 	workflow := "some-workflow"
 	server := uuid.New()
-	profile := domain.AgentProfile{ID: uuid.New(), Name: "Fixer", Role: domain.AgentRoleImplementer, Harness: "goose", Model: "m1", Effort: "high", Instructions: "Always add tests."}
+	profile := domain.AgentProfile{ID: uuid.New(), Name: "Fixer", Role: "Implementer", Behaviour: domain.AgentBehaviourChangesCode, Harness: "goose", Model: "m1", Effort: "high", Instructions: "Always add tests."}
 	input := domain.AgentTaskRequest{Prompt: "p", Provider: "codex", Model: "other", ModelServerID: &server, WorkflowID: &workflow, AgentProfile: &profile}
 	applyAgentProfile(&input)
 	require.Equal(t, "goose", input.Provider)

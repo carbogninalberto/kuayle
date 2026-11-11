@@ -75,7 +75,7 @@ func newProfileFixture(t *testing.T) profileFixture {
 // the save-time checks.
 func (f profileFixture) storedProfile(t *testing.T, name, harness, model, effort string) *domain.AgentProfile {
 	t.Helper()
-	profile, err := f.repo.CreateProfile(f.ctx, f.ws, f.user, domain.AgentProfileInput{Name: name, Role: domain.AgentRoleImplementer, Harness: harness, Model: model, Effort: effort})
+	profile, err := f.repo.CreateProfile(f.ctx, f.ws, f.user, domain.AgentProfileInput{Name: name, Role: "Implementer", Behaviour: domain.AgentBehaviourChangesCode, Harness: harness, Model: model, Effort: effort})
 	require.NoError(t, err)
 	return profile
 }
@@ -121,7 +121,7 @@ func requireUnusableStep(t *testing.T, issues []domain.WorkflowIssue) {
 func TestProfileSaveRefusesSettingsItsCodingAgentCannotRun(t *testing.T) {
 	f := newProfileFixture(t)
 	request := func(name, harness, model, effort string) AgentProfileRequest {
-		return AgentProfileRequest{Name: name, Role: domain.AgentRoleImplementer, Harness: harness, Model: model, Effort: effort}
+		return AgentProfileRequest{Name: name, Role: "Implementer", Behaviour: domain.AgentBehaviourChangesCode, Harness: harness, Model: model, Effort: effort}
 	}
 
 	_, err := f.workflows.CreateProfile(f.ctx, f.ws, request("Cheap", "qwen-code", "deepseek-v4.1-flash", "high"))
@@ -175,7 +175,7 @@ func TestStoredProfileThatCannotRunStaysEditable(t *testing.T) {
 	require.ElementsMatch(t, []string{"codex", "claude-code", "opencode", "qwen-code"}, body.Harnesses)
 	require.ElementsMatch(t, []string{"codex", "claude-code", "opencode"}, body.ModelHarnesses)
 
-	update := AgentProfileRequest{Name: "Cheap", Role: stored.Role, Harness: "qwen-code", Model: stored.Model, Effort: stored.Effort}
+	update := AgentProfileRequest{Name: "Cheap", Role: stored.Role, Behaviour: stored.Behaviour, Harness: "qwen-code", Model: stored.Model, Effort: stored.Effort}
 	_, err = f.workflows.UpdateProfile(f.ctx, f.ws, stored.ID, update)
 	requireProfileRefusal(t, err, noModelForQwen)
 	update.Model, update.Effort = "", ""
@@ -263,7 +263,7 @@ func TestTaskStartNamesTheWorkflowStepThatCannotRun(t *testing.T) {
 	require.Equal(t, unusable, *failed.Error)
 
 	// An agent the workspace stopped allowing is named the same way.
-	_, err = f.workflows.UpdateProfile(f.ctx, f.ws, cheap.ID, AgentProfileRequest{Name: "Cheap", Role: cheap.Role, Harness: "qwen-code"})
+	_, err = f.workflows.UpdateProfile(f.ctx, f.ws, cheap.ID, AgentProfileRequest{Name: "Cheap", Role: cheap.Role, Behaviour: cheap.Behaviour, Harness: "qwen-code"})
 	require.NoError(t, err)
 	f.machines.policy.AllowedProviders = json.RawMessage(`["codex"]`)
 	err = start()
@@ -297,7 +297,7 @@ func TestOpenCodeProfileStartsATaskWithItsModelAndEffort(t *testing.T) {
 	f := newProfileFixture(t)
 	const model = "opencode-go/deepseek-v4.1-flash"
 	request := func(name, model, effort string) AgentProfileRequest {
-		return AgentProfileRequest{Name: name, Role: domain.AgentRoleImplementer, Harness: "opencode", Model: model, Effort: effort}
+		return AgentProfileRequest{Name: name, Role: "Implementer", Behaviour: domain.AgentBehaviourChangesCode, Harness: "opencode", Model: model, Effort: effort}
 	}
 	// The workspace's default model server serves Codex and Claude Code.
 	server := deepSeekModelServer(f.ws)
@@ -355,7 +355,7 @@ func TestOpenCodeProfileStartsATaskWithItsModelAndEffort(t *testing.T) {
 func TestOpenCodeProfileSaveChecksTheGoPlanCatalog(t *testing.T) {
 	f := newProfileFixture(t)
 	request := func(name, model, effort string) AgentProfileRequest {
-		return AgentProfileRequest{Name: name, Role: domain.AgentRoleImplementer, Harness: "opencode", Model: model, Effort: effort}
+		return AgentProfileRequest{Name: name, Role: "Implementer", Behaviour: domain.AgentBehaviourChangesCode, Harness: "opencode", Model: model, Effort: effort}
 	}
 
 	_, err := f.workflows.CreateProfile(f.ctx, f.ws, request("Typo", "opencode-go/deepseek-v4.1-flahs", ""))

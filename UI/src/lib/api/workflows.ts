@@ -4,13 +4,21 @@ import { api } from './client';
 // versions of a state machine graph), defaults and a task's workflow run.
 // The server validates every graph and enforces who may edit.
 
-export type AgentRole = 'implementer' | 'reviewer' | 'tester' | 'docs_writer' | 'security_reviewer';
+/**
+ * What a workflow does with a step that runs the profile: write a plan for
+ * the next agent, change code in the task's branch, or review the published
+ * pull request and end with a verdict.
+ */
+export type AgentBehaviour = 'plans' | 'changes_code' | 'reviews';
+export const AGENT_BEHAVIOURS: AgentBehaviour[] = ['plans', 'changes_code', 'reviews'];
 
 export interface AgentProfile {
 	id: string;
 	workspace_id: string;
 	name: string;
-	role: AgentRole;
+	/** A free-text label the workspace chooses; may be empty. */
+	role: string;
+	behaviour: AgentBehaviour;
 	harness: string;
 	model: string;
 	effort: string;
@@ -25,7 +33,8 @@ export interface AgentProfile {
 
 export interface AgentProfileInput {
 	name: string;
-	role: AgentRole;
+	role: string;
+	behaviour: AgentBehaviour;
 	harness: string;
 	model: string;
 	effort: string;
@@ -49,7 +58,8 @@ export interface AgentProfileList {
 	model_harnesses?: string[];
 	/** How a harness writes its model names when not a bare name; absent on older servers. */
 	model_formats?: Record<string, ModelFormat>;
-	roles: AgentRole[];
+	/** The behaviours a profile can have, in the order they are offered. */
+	behaviours?: AgentBehaviour[];
 }
 
 export type WorkflowNodeType = 'start' | 'agent' | 'check' | 'approval' | 'publish' | 'merge' | 'end';

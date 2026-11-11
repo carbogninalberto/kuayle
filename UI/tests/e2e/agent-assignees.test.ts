@@ -25,8 +25,8 @@ async function mockWorkspace(page: Page, options: { role?: string; assigned?: As
 		unhandled: [] as string[]
 	};
 	const agents = [
-		{ id: fixerId, name: 'Fixer', role: 'implementer', harness: 'codex', model: 'gpt-5', effort: '', avatar_color: '#3366ff', team_ids: [teamId], available: true },
-		{ id: writerId, name: 'Docs writer', role: 'docs_writer', harness: 'goose', model: '', effort: '', avatar_color: '', team_ids: [otherTeamId], available: false, unavailable_reason: 'No allowed coding agent is available' }
+		{ id: fixerId, name: 'Fixer', role: 'Implementer', harness: 'codex', model: 'gpt-5', effort: '', avatar_color: '#3366ff', team_ids: [teamId], available: true },
+		{ id: writerId, name: 'Docs writer', role: 'Technical writer', harness: 'goose', model: '', effort: '', avatar_color: '', team_ids: [otherTeamId], available: false, unavailable_reason: 'No allowed coding agent is available' }
 	];
 	const user = { id: userId, email: 'test@example.com', name: 'Test User', display_name: 'Test User', avatar_url: null };
 	const assignees = () =>
@@ -248,7 +248,7 @@ test('administrators choose the teams where an agent can be assigned', async ({ 
 	for (const part of ['agent-model-servers', 'agent-model-defaults', 'agent-sign-ins', 'assistant-skills'])
 		await page.route(`**/api/workspaces/test/${part}`, (route) => route.fulfill({ json: [] }));
 	await page.route('**/api/workspaces/test/agent-profiles', (route) =>
-		route.fulfill({ json: { profiles: [], can_manage: true, harnesses: ['codex'], roles: ['implementer'] } })
+		route.fulfill({ json: { profiles: [], can_manage: true, harnesses: ['codex'], behaviours: ['plans', 'changes_code', 'reviews'] } })
 	);
 	await page.goto('/test/settings/agents');
 	const card = page.getByTestId('agent-identities');

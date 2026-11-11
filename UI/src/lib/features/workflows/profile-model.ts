@@ -15,7 +15,7 @@ export function takesModel(list: Pick<AgentProfileList, 'model_harnesses'>, harn
 }
 
 /**
- * The profile as it is saved: trimmed, and without a model or effort left
+ * The profile as it is saved: its name and role trimmed, and without a model or effort left
  * over from a coding agent that took them.
  */
 export function profileSubmission(
@@ -26,6 +26,7 @@ export function profileSubmission(
 	return {
 		...draft,
 		name: draft.name.trim(),
+		role: draft.role.trim(),
 		model: keep ? draft.model.trim() : '',
 		effort: keep ? draft.effort : ''
 	};

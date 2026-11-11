@@ -1,7 +1,7 @@
 import { m } from '$lib/features/i18n/messages';
-import type { AgentRole, WorkflowCondition, WorkflowNodeType } from '$lib/api/workflows';
+import type { AgentBehaviour, AgentProfile, WorkflowCondition, WorkflowNodeType } from '$lib/api/workflows';
 
-// Translated names of node types, transition conditions, roles, validation
+// Translated names of node types, transition conditions, behaviours, validation
 // issues and run statuses. Unknown values fall back to the server's text.
 
 const types: Record<WorkflowNodeType, () => string> = {
@@ -30,12 +30,10 @@ const conditions: Record<WorkflowCondition, () => string> = {
 	else: m['workflows.condition.else']
 };
 
-const roles: Record<AgentRole, () => string> = {
-	implementer: m['profiles.role_implementer'],
-	reviewer: m['profiles.role_reviewer'],
-	tester: m['profiles.role_tester'],
-	docs_writer: m['profiles.role_docs_writer'],
-	security_reviewer: m['profiles.role_security_reviewer']
+const behaviours: Record<AgentBehaviour, () => string> = {
+	plans: m['profiles.behaviour_plans'],
+	changes_code: m['profiles.behaviour_changes_code'],
+	reviews: m['profiles.behaviour_reviews']
 };
 
 const issues: Record<string, () => string> = {
@@ -65,7 +63,8 @@ const issues: Record<string, () => string> = {
 	dead_end: m['workflows.issue.dead_end'],
 	unreachable: m['workflows.issue.unreachable'],
 	unguarded_loop: m['workflows.issue.unguarded_loop'],
-	merge_target: m['workflows.issue.merge_target']
+	merge_target: m['workflows.issue.merge_target'],
+	plan_target: m['workflows.issue.plan_target']
 };
 
 const statuses: Record<string, () => string> = {
@@ -78,6 +77,11 @@ const statuses: Record<string, () => string> = {
 
 export const nodeTypeLabel = (type: WorkflowNodeType) => types[type]?.() ?? type;
 export const conditionLabel = (condition: string) => conditions[condition as WorkflowCondition]?.() ?? condition;
-export const roleLabel = (role: string) => roles[role as AgentRole]?.() ?? role;
+export const behaviourLabel = (behaviour: string) => behaviours[behaviour as AgentBehaviour]?.() ?? behaviour;
+/** A profile's name with its role, when it has one that adds to the name. */
+export function profileTitle(profile: Pick<AgentProfile, 'name' | 'role'>): string {
+	const role = (profile.role ?? '').trim();
+	return !role || role.toLowerCase() === profile.name.trim().toLowerCase() ? profile.name : `${profile.name} · ${role}`;
+}
 export const issueLabel = (code: string, fallback: string) => issues[code]?.() ?? fallback;
 export const statusLabel = (status: string) => statuses[status]?.();

@@ -63,7 +63,8 @@ type AgentProfileList struct {
 	// ModelFormats says how a harness writes its model names when it is not
 	// a bare name (OpenCode: provider/model), with an example for the form.
 	ModelFormats map[string]HarnessModelFormat `json:"model_formats"`
-	Roles        []string                      `json:"roles"`
+	// Behaviours are what a profile can do, in the order they are offered.
+	Behaviours []string `json:"behaviours"`
 }
 
 func (s *WorkflowService) harnesses() []string {
@@ -118,15 +119,17 @@ func (s *WorkflowService) Profiles(ctx context.Context, ws uuid.UUID) (*AgentPro
 		return nil, err
 	}
 	return &AgentProfileList{Profiles: profiles, CanManage: canManage, Harnesses: s.harnesses(), ModelHarnesses: s.modelHarnesses(), ModelFormats: s.modelFormats(),
-		Roles: []string{domain.AgentRoleImplementer, domain.AgentRoleReviewer, domain.AgentRoleTester, domain.AgentRoleDocsWriter, domain.AgentRoleSecurityReviewer}}, nil
+		Behaviours: domain.AgentBehaviours()}, nil
 }
 
 // AgentProfileRequest is a profile as the API receives it. Unknown fields
 // (for example repository, sudo or Docker settings) are refused: a profile
 // can never carry permissions.
 type AgentProfileRequest struct {
-	Name         string `json:"name"`
+	Name string `json:"name"`
+	// Role is a free-text label; Behaviour is plans, changes_code or reviews.
 	Role         string `json:"role"`
+	Behaviour    string `json:"behaviour"`
 	Harness      string `json:"harness"`
 	Model        string `json:"model"`
 	Effort       string `json:"effort"`
@@ -145,7 +148,8 @@ func singleLine(value string) bool { return !strings.ContainsFunc(value, unicode
 // offers, with an effort that model allows, when that list is known; that
 // check is made on a save only, never when a task or workflow step starts.
 func (s *WorkflowService) validateProfile(ctx context.Context, ws uuid.UUID, in AgentProfileRequest) (domain.AgentProfileInput, error) {
-	out := domain.AgentProfileInput{Name: strings.TrimSpace(in.Name), Role: in.Role, Harness: in.Harness, Model: strings.TrimSpace(in.Model), Effort: strings.TrimSpace(in.Effort), Instructions: strings.TrimSpace(in.Instructions), SkillIDs: in.SkillIDs}
+	role, validRole := domain.NormalizeAgentRole(in.Role)
+	out := domain.AgentProfileInput{Name: strings.TrimSpace(in.Name), Role: role, Behaviour: in.Behaviour, Harness: in.Harness, Model: strings.TrimSpace(in.Model), Effort: strings.TrimSpace(in.Effort), Instructions: strings.TrimSpace(in.Instructions), SkillIDs: in.SkillIDs}
 	seen := map[uuid.UUID]bool{}
 	for _, id := range in.SkillIDs {
 		if seen[id] {
@@ -160,8 +164,10 @@ func (s *WorkflowService) validateProfile(ctx context.Context, ws uuid.UUID, in 
 	switch {
 	case out.Name == "" || utf8.RuneCountInString(out.Name) > 80 || !singleLine(out.Name):
 		return out, &ErrInvalidWorkflowInput{"the name is 1 to 80 characters on one line"}
-	case !domain.ValidAgentRole(out.Role):
-		return out, &ErrInvalidWorkflowInput{"choose a role"}
+	case !validRole:
+		return out, &ErrInvalidWorkflowInput{"the role is at most 40 characters on one line"}
+	case !domain.ValidAgentBehaviour(out.Behaviour):
+		return out, &ErrInvalidWorkflowInput{"choose what the agent does: plans, changes code or reviews"}
 	case !known:
 		return out, &ErrInvalidWorkflowInput{"choose a coding agent that runs on its own"}
 	case utf8.RuneCountInString(out.Model) > 128 || !singleLine(out.Model):
@@ -368,8 +374,9 @@ func validateWorkflowMeta(name, description string) (string, string, error) {
 	return name, description, nil
 }
 
-// builtinProfileIDs returns the workspace's built-in implementer and
-// reviewer profiles, creating them if needed.
+// builtinProfileIDs returns the profiles the templates use: one that changes
+// code and one that reviews, the workspace's built-in ones (created if
+// needed) when they still do that.
 func (s *WorkflowService) builtinProfileIDs(ctx context.Context, ws uuid.UUID) (uuid.UUID, uuid.UUID, error) {
 	if err := s.repo.EnsureBuiltinProfiles(ctx, ws); err != nil {
 		return uuid.Nil, uuid.Nil, err
@@ -383,15 +390,18 @@ func (s *WorkflowService) builtinProfileIDs(ctx context.Context, ws uuid.UUID) (
 		if p.ArchivedAt != nil {
 			continue
 		}
-		if p.BuiltinKey != nil && *p.BuiltinKey == domain.AgentRoleImplementer || implementer == uuid.Nil && p.Role == domain.AgentRoleImplementer {
+		// The built-in profile when it still has that behaviour, else the
+		// first profile that has it.
+		builtin := func(key string) bool { return p.BuiltinKey != nil && *p.BuiltinKey == key }
+		if p.Behaviour == domain.AgentBehaviourChangesCode && (implementer == uuid.Nil || builtin(domain.AgentBuiltinImplementer)) {
 			implementer = p.ID
 		}
-		if p.BuiltinKey != nil && *p.BuiltinKey == domain.AgentRoleReviewer || reviewer == uuid.Nil && p.Role == domain.AgentRoleReviewer {
+		if p.Reviews() && (reviewer == uuid.Nil || builtin(domain.AgentBuiltinReviewer)) {
 			reviewer = p.ID
 		}
 	}
 	if implementer == uuid.Nil || reviewer == uuid.Nil {
-		return uuid.Nil, uuid.Nil, &ErrInvalidWorkflowInput{"create an implementer and a reviewer profile first"}
+		return uuid.Nil, uuid.Nil, &ErrInvalidWorkflowInput{"create a profile that changes code and one that reviews first"}
 	}
 	return implementer, reviewer, nil
 }

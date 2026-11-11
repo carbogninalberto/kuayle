@@ -12,7 +12,7 @@
 	import { m } from '$lib/features/i18n/messages';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
-	import { roleLabel } from './labels';
+	import { behaviourLabel } from './labels';
 	import AgentProfileSheet from './AgentProfileSheet.svelte';
 
 	// Agent profiles (KUA-95): reusable agents that workflow steps run. Members
@@ -61,7 +61,7 @@
 	// Refusals the server explains with a code get a translated message.
 	function profileError(error: unknown) {
 		const code = (error as { error?: { code?: string } }).error?.code;
-		if (code === 'PROFILE_ROLE_IN_USE') appToast.error(m['profiles.role_in_use']());
+		if (code === 'PROFILE_BEHAVIOUR_IN_USE') appToast.error(m['profiles.behaviour_in_use']());
 		else if (code === 'PROFILE_IN_USE') appToast.error(m['profiles.in_use']());
 		else appToast.apiError(error, m['profiles.failed_save']());
 	}
@@ -115,7 +115,11 @@
 					<div class="min-w-0 flex-1">
 						<div class="flex flex-wrap items-center gap-2 text-sm font-medium">
 							<span class="truncate">{profile.name}</span>
-							<Badge variant="outline">{roleLabel(profile.role)}</Badge>
+							{#if profile.role && profile.role.toLowerCase() !== profile.name.toLowerCase()}<span
+									class="truncate font-normal text-muted-foreground"
+									data-testid="agent-profile-role">{profile.role}</span
+								>{/if}
+							<Badge variant="outline" data-testid="agent-profile-behaviour">{behaviourLabel(profile.behaviour)}</Badge>
 							{#if profile.builtin_key}<Badge variant="secondary">{m['profiles.builtin']()}</Badge>{/if}
 						</div>
 						<p class="truncate text-xs text-muted-foreground">

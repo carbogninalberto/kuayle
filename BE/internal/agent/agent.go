@@ -80,16 +80,22 @@ type Artifact struct {
 }
 
 type RunResult struct {
-	Status         string     `json:"status"`
-	Summary        string     `json:"summary"`
-	ChangedFiles   []string   `json:"changed_files"`
-	Commits        []string   `json:"commits"`
-	Branch         string     `json:"branch,omitempty"`
-	PullRequestURL string     `json:"pull_request_url,omitempty"`
-	TestsRun       []string   `json:"tests_run"`
-	TestStatus     string     `json:"test_status"`
-	RiskNotes      []string   `json:"risk_notes"`
-	Artifacts      []Artifact `json:"artifacts"`
+	Status  string `json:"status"`
+	Summary string `json:"summary"`
+	// FinalMessage reports that Summary is the final message the harness
+	// reported for the agent, not a fallback to its raw output; a planning
+	// step's plan is that message. SummaryTruncated reports that it was cut
+	// to MaxSummaryBytes.
+	FinalMessage     bool       `json:"final_message"`
+	SummaryTruncated bool       `json:"summary_truncated"`
+	ChangedFiles     []string   `json:"changed_files"`
+	Commits          []string   `json:"commits"`
+	Branch           string     `json:"branch,omitempty"`
+	PullRequestURL   string     `json:"pull_request_url,omitempty"`
+	TestsRun         []string   `json:"tests_run"`
+	TestStatus       string     `json:"test_status"`
+	RiskNotes        []string   `json:"risk_notes"`
+	Artifacts        []Artifact `json:"artifacts"`
 }
 
 type Provider interface {
@@ -166,7 +172,7 @@ func defaultResult(stdout, stderr string, exitCode int) RunResult {
 	if exitCode != 0 {
 		status = "failed"
 	}
-	summary := finalMessage(stdout)
+	summary, final := finalMessageAfterTools(stdout)
 	if summary == "" {
 		summary = strings.TrimSpace(stdout)
 	}
@@ -174,14 +180,16 @@ func defaultResult(stdout, stderr string, exitCode int) RunResult {
 		summary = strings.TrimSpace(stderr)
 	}
 	return RunResult{
-		Status:       status,
-		Summary:      truncateSummary(summary),
-		ChangedFiles: []string{},
-		Commits:      []string{},
-		TestsRun:     []string{},
-		TestStatus:   "not_run",
-		RiskNotes:    []string{},
-		Artifacts:    []Artifact{},
+		Status:           status,
+		Summary:          truncateSummary(summary),
+		FinalMessage:     final,
+		SummaryTruncated: final && len(summary) > MaxSummaryBytes,
+		ChangedFiles:     []string{},
+		Commits:          []string{},
+		TestsRun:         []string{},
+		TestStatus:       "not_run",
+		RiskNotes:        []string{},
+		Artifacts:        []Artifact{},
 	}
 }
 
@@ -210,7 +218,17 @@ func parseJSONLines(raw []byte) []Event {
 // last Codex agent_message or Claude Code's final result. It returns "" for
 // output that is not such a stream, so callers fall back to the raw text.
 func finalMessage(stdout string) string {
-	last := ""
+	text, _ := finalMessageAfterTools(stdout)
+	return text
+}
+
+// finalMessageAfterTools returns the agent's last message and whether it is
+// the run's conclusion: nothing but reasoning came after it. Text followed by
+// a tool call ("Let me look…") is what the agent said on the way, so a run
+// that ends on a tool call has no final message. Claude Code's result event
+// is its conclusion by definition.
+func finalMessageAfterTools(stdout string) (string, bool) {
+	last, final := "", false
 	for _, line := range strings.Split(stdout, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "{") {
@@ -229,10 +247,13 @@ func finalMessage(stdout string) string {
 		}
 		switch {
 		case event.Type == "item.completed" && event.Item.Type == "agent_message" && strings.TrimSpace(event.Item.Text) != "":
-			last = strings.TrimSpace(event.Item.Text)
+			last, final = strings.TrimSpace(event.Item.Text), true
 		case event.Type == "result" && strings.TrimSpace(event.Result) != "":
-			last = strings.TrimSpace(event.Result)
+			last, final = strings.TrimSpace(event.Result), true
+		case (event.Type == "item.completed" || event.Type == "item.started") && event.Item.Type != "" && event.Item.Type != "agent_message" && event.Item.Type != "reasoning":
+			// A command, a file change, a tool or a search: work, not a conclusion.
+			final = false
 		}
 	}
-	return last
+	return last, final
 }
