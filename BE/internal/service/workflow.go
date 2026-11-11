@@ -770,6 +770,10 @@ type TaskWorkflow struct {
 	TaskState      string                `json:"task_state"`
 	TaskReason     string                `json:"task_reason"`
 	TaskGeneration int64                 `json:"task_generation"`
+
+	// Runs are the task's agent runs, each on the step that started it, with
+	// the runs of the review tasks its steps created.
+	Runs []domain.WorkflowStepRun `json:"runs"`
 }
 
 func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID) (*TaskWorkflow, error) {
@@ -778,6 +782,9 @@ func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID) (*
 		return nil, err
 	}
 	out := &TaskWorkflow{TaskState: task.State, TaskReason: task.Reason, TaskGeneration: task.Generation, Steps: []domain.WorkflowStep{}, Profiles: []domain.AgentProfile{}, Visits: map[string]int{}}
+	if out.Runs, err = s.tasks.Repo.StepRuns(ctx, ws, id); err != nil {
+		return nil, err
+	}
 	if !task.RunsWorkflow() {
 		standard := standardSummary()
 		out.WorkflowID, out.Name, out.Version, out.Builtin, out.Graph = standard.ID, standard.Name, 1, true, standard.Graph

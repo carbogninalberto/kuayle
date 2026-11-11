@@ -1,0 +1,193 @@
+<script lang="ts">
+	import {
+		ChevronRight,
+		CircleAlert,
+		CircleCheck,
+		CircleDot,
+		CirclePause,
+		CircleSlash,
+		Flag,
+		GitMerge,
+		GitPullRequestArrow,
+		ListChecks,
+		LoaderCircle,
+		Play,
+		SearchCheck,
+		UserCheck
+	} from '@lucide/svelte';
+	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
+	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
+	import { agentInfo } from '$lib/features/agents/agents';
+	import type { WorkflowNodeType } from '$lib/api/workflows';
+	import type { ConversationState } from './conversation-state.svelte';
+	import AgentStepRun from './AgentStepRun.svelte';
+	import Markdown from './Markdown.svelte';
+	import { stepDuration, type StepStatus, type TimelineStep } from './agent-timeline';
+	import { formatDuration } from './shell-rules';
+	import { getLocale, m } from '$lib/features/i18n/messages';
+
+	// One step of a task's timeline. An agent's step is a single quiet line
+	// (what, who, how long, how it went) that opens to its work: the result
+	// first, the trace below. Every other step is a compact row. The section
+	// id is the step's anchor, so other views can link to it.
+	let {
+		chat,
+		step,
+		open = $bindable(false),
+		now,
+		reviewHref
+	}: {
+		chat: ConversationState;
+		step: TimelineStep;
+		open?: boolean;
+		// The current time, ticking while a step runs.
+		now: number;
+		// Where the step's review task opens as an agent view of its own.
+		reviewHref?: string;
+	} = $props();
+
+	const rowIcon: Record<WorkflowNodeType, typeof Play> = {
+		start: Play,
+		agent: Play,
+		check: ListChecks,
+		approval: UserCheck,
+		publish: GitPullRequestArrow,
+		merge: GitMerge,
+		end: Flag
+	};
+	const statusLabel: Record<StepStatus, () => string> = {
+		running: m['workflows.task.status_running'],
+		waiting: m['workflows.task.status_waiting'],
+		done: m['workflows.task.status_done'],
+		changes: m['tasks.review_verdict_request_changes'],
+		failed: m['workflows.task.status_failed'],
+		stopped: m['assistant.cancelled']
+	};
+	const statusTone: Record<StepStatus, string> = {
+		running: 'text-[var(--status-running)]',
+		waiting: 'text-[var(--status-warning)]',
+		done: 'text-[var(--status-success)]',
+		changes: 'text-[var(--status-warning)]',
+		failed: 'text-[var(--status-error)]',
+		stopped: 'text-muted-foreground'
+	};
+	const harness = $derived(step.harness ? agentInfo(step.harness).name : '');
+	const title = $derived(
+		step.label || (step.kind === 'agent' && harness ? harness : m[`workflows.type.${step.nodeType}`]())
+	);
+	// Who ran it: the profile, or the harness when the step is not named after it.
+	const who = $derived(step.profile ?? (step.label ? harness : ''));
+	const ms = $derived(stepDuration(step, now));
+	// A step passed through at once (start, end) has no time worth showing.
+	const time = $derived(ms === undefined || ms < 1000 ? '' : formatDuration(ms));
+	const started = $derived(
+		new Date(step.startedAt).toLocaleString(getLocale(), { dateStyle: 'medium', timeStyle: 'short' })
+	);
+	const running = $derived(step.current && step.status === 'running');
+	// What a compact row says when opened: what the runner recorded for it.
+	const note = $derived(step.detail || (step.status === 'done' ? '' : step.reason));
+</script>
+
+{#snippet status()}
+	<span role="img" aria-label={statusLabel[step.status]()} class="inline-flex shrink-0 {statusTone[step.status]}">
+		{#if step.status === 'running'}<LoaderCircle size={15} class="animate-spin motion-reduce:animate-none" />
+		{:else if step.status === 'waiting'}<CirclePause size={15} />
+		{:else if step.status === 'done'}<CircleCheck size={15} />
+		{:else if step.status === 'changes'}<CircleDot size={15} />
+		{:else if step.status === 'failed'}<CircleAlert size={15} />
+		{:else}<CircleSlash size={15} />{/if}
+	</span>
+{/snippet}
+
+{#snippet tail()}
+	{#if step.visit > 1}<span class="shrink-0 text-xs text-muted-foreground tabular-nums">×{step.visit}</span>{/if}
+	{#if time}<time datetime={step.startedAt} title={started} class="shrink-0 text-xs text-muted-foreground tabular-nums"
+			>{time}</time
+		>{/if}
+{/snippet}
+
+{#snippet chevron()}
+	<ChevronRight
+		size={14}
+		aria-hidden="true"
+		class="shrink-0 text-muted-foreground/60 transition-transform group-aria-expanded:rotate-90 motion-reduce:transition-none"
+	/>
+{/snippet}
+
+<section
+	id={step.anchor}
+	aria-label={step.kind !== 'agent' ? undefined : who ? `${title} · ${who}` : title}
+	class="min-w-0 scroll-mt-4"
+	data-step={step.kind}
+	data-status={step.status}
+>
+	{#if step.kind === 'agent'}
+		<Collapsible.Root bind:open>
+			<Collapsible.Trigger
+				class="group flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md py-1.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+			>
+				{#if step.harness}<span title={harness} class="inline-flex shrink-0"
+						><AgentLogo agent={step.harness} size="sm" /></span
+					>{:else}<span class="inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground"
+						><SearchCheck size={14} aria-hidden="true" /></span
+					>{/if}
+				<span class="min-w-0 flex-1 truncate text-sm">
+					<span class="font-medium">{title}</span>{#if who}<span class="text-muted-foreground">{` · ${who}`}</span>{/if}
+				</span>
+				{#if step.model}<span class="hidden max-w-40 shrink truncate text-xs text-muted-foreground sm:inline"
+						>{step.model}</span
+					>{/if}
+				{@render tail()}
+				{@render status()}
+				{@render chevron()}
+			</Collapsible.Trigger>
+			<Collapsible.Content>
+				{#if open}<div class="ml-2.5 flex min-w-0 flex-col gap-4 border-l py-3 pl-4 sm:pl-5">
+						{#if step.model}<p class="truncate text-xs text-muted-foreground sm:hidden">{step.model}</p>{/if}
+						{#if step.plan}<article aria-label={m['tasks.plan']()} class="min-w-0 text-sm">
+								<Markdown source={step.plan} />
+							</article>{/if}
+						{#each step.runs as run, index (run.id)}<AgentStepRun
+								{chat}
+								{run}
+								active={running && index === step.runs.length - 1}
+								concluded={!!step.plan}
+							/>{/each}
+						{#if step.detail && !step.plan}<p class="text-sm break-words whitespace-pre-wrap text-muted-foreground">
+								{step.detail}
+							</p>{/if}
+						{#if reviewHref}<a
+								href={reviewHref}
+								class="inline-flex w-fit items-center gap-1.5 rounded-sm text-sm text-muted-foreground underline-offset-4 outline-none hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+								><SearchCheck size={14} aria-hidden="true" />{m['tasks.review_by']({
+									agent: who || harness
+								})}</a
+							>{/if}
+					</div>{/if}
+			</Collapsible.Content>
+		</Collapsible.Root>
+	{:else}
+		{@const Icon = rowIcon[step.nodeType]}
+		{#snippet row()}
+			<span class="inline-flex size-5 shrink-0 items-center justify-center"><Icon size={14} aria-hidden="true" /></span>
+			<span class="min-w-0 flex-1 truncate">{title}</span>
+			{@render tail()}
+			{#if step.status !== 'done'}{@render status()}{/if}
+		{/snippet}
+		{#if note}
+			<Collapsible.Root bind:open>
+				<Collapsible.Trigger
+					class="group flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md py-1 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+					>{@render row()}{@render chevron()}</Collapsible.Trigger
+				>
+				<Collapsible.Content>
+					<p class="ml-2.5 border-l py-2 pl-4 text-xs break-words whitespace-pre-wrap text-muted-foreground sm:pl-5">
+						{note}
+					</p>
+				</Collapsible.Content>
+			</Collapsible.Root>
+		{:else}
+			<div class="flex min-w-0 items-center gap-2.5 py-1 text-xs text-muted-foreground">{@render row()}</div>
+		{/if}
+	{/if}
+</section>

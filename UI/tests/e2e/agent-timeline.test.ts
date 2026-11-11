@@ -1,0 +1,477 @@
+import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
+
+// The agent view as a timeline of workflow steps (KUA-126): the conversation
+// with the coding agents of one task, served from mocked API routes.
+const time = '2026-10-26T10:00:00Z';
+const at = (minute: number, second = 0) =>
+	`2026-10-26T10:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}Z`;
+
+const text = (value: string) => ({ type: 'assistant', message: { content: [{ type: 'text', text: value }] } });
+const bash = (id: string, command: string, description: string) => ({
+	type: 'assistant',
+	message: { content: [{ type: 'tool_use', id, name: 'Bash', input: { command, description } }] }
+});
+const result = (id: string, content: string) => ({
+	type: 'user',
+	message: { content: [{ tool_use_id: id, type: 'tool_result', content, is_error: false }] }
+});
+const lines = (run: string, minute: number, values: any[]) =>
+	values.map((value, i) => ({
+		id: i + 1,
+		agent_run_id: run,
+		stream: 'stdout',
+		sequence: i + 1,
+		content: JSON.stringify(value) + '\n',
+		truncated: false,
+		created_at: at(minute, i)
+	}));
+
+const prompt = ['Add search to the issue list.', 'Keep the old route working.', 'Cover it with tests.', 'Write the docs.', 'LAST-LINE-OF-THE-REQUEST'].join(
+	'\n'
+);
+const baseTask = (over: any = {}) => ({
+	id: 'task-1',
+	workspace_id: 'workspace-1',
+	conversation_id: 'chat-1',
+	creator_id: 'user-1',
+	issue_id: 'issue-1',
+	team_id: 'team-1',
+	prompt,
+	provider: 'opencode',
+	model: 'kimi-k2',
+	thinking: '',
+	state: 'running',
+	reason: 'Native coding harness started',
+	generation: 3,
+	failure_count: 0,
+	machine_id: 'machine-1',
+	checkout_id: 'checkout-1',
+	run_id: 'run-impl-2',
+	created_at: time,
+	updated_at: at(18),
+	...over
+});
+
+const profile = (id: string, name: string, harness: string, model: string, behaviour: string) => ({
+	id,
+	workspace_id: 'workspace-1',
+	name,
+	role: '',
+	behaviour,
+	harness,
+	model,
+	effort: '',
+	instructions: '',
+	skill_ids: [],
+	created_at: time,
+	updated_at: time
+});
+const node = (id: string, type: string, label: string, profile_id?: string) => ({
+	id,
+	type,
+	label,
+	profile_id,
+	position: { x: 0, y: 0 }
+});
+const step = (sequence: number, node_id: string, node_type: string, entered: number, over: any = {}) => ({
+	task_id: 'task-1',
+	sequence,
+	node_id,
+	node_type,
+	visit: 1,
+	reason: '',
+	detail: '',
+	entered_at: at(entered),
+	...over
+});
+const run = (id: string, sequence: number, provider: string, model: string, status: string, over: any = {}) => ({
+	id,
+	task_id: 'task-1',
+	step: sequence,
+	provider,
+	model,
+	status,
+	created_at: at(0),
+	...over
+});
+
+// The path of a task like KUA-122: an orchestrator plans, a cheap implementer
+// codes, the work is published and reviewed, and the implementer is on its
+// second visit.
+const workflow = () => ({
+	workflow_id: 'workflow-1',
+	name: 'Plan and review',
+	version: 2,
+	builtin: false,
+	graph: {
+		nodes: [
+			node('start', 'start', 'Start'),
+			node('plan', 'agent', 'Plan', 'p-orch'),
+			node('implement', 'agent', 'Implement', 'p-impl'),
+			node('publish', 'publish', 'Publish'),
+			node('review', 'agent', 'Review', 'p-rev')
+		],
+		edges: [],
+		budget: {}
+	},
+	node: 'implement',
+	status: 'running',
+	visits: { start: 1, plan: 1, implement: 2, publish: 1, review: 1 },
+	iterations: 3,
+	sequence: 6,
+	steps: [
+		step(1, 'start', 'start', 0, { outcome: 'else', finished_at: at(0) }),
+		step(2, 'plan', 'agent', 0, {
+			generation: 1,
+			outcome: 'agent_finished',
+			finished_at: at(4),
+			plan: 'Add a **search** box, then:\n\n1. the endpoint\n2. the tests'
+		}),
+		step(3, 'implement', 'agent', 4, { generation: 2, outcome: 'agent_finished', finished_at: at(12, 30) }),
+		step(4, 'publish', 'publish', 12, { outcome: 'published', finished_at: at(13) }),
+		step(5, 'review', 'agent', 13, {
+			review_task_id: 'review-1',
+			outcome: 'review_changes_requested',
+			finished_at: at(18)
+		}),
+		step(6, 'implement', 'agent', 18, { generation: 3, visit: 2, reason: 'Changes requested' })
+	],
+	runs: [
+		run('run-plan', 2, 'claude-code', 'claude-opus-5-5', 'succeeded'),
+		run('run-impl-1', 3, 'opencode', 'kimi-k2', 'succeeded'),
+		run('run-review', 5, 'codex', 'gpt-5', 'succeeded', { task_id: 'review-1' }),
+		run('run-impl-2', 6, 'opencode', 'kimi-k2', 'running')
+	],
+	profiles: [
+		profile('p-orch', 'Orchestrator', 'claude-code', 'claude-opus-5-5', 'plans'),
+		profile('p-impl', 'Cheap Implementer', 'opencode', 'kimi-k2', 'changes_code'),
+		profile('p-rev', 'Reviewer', 'codex', 'gpt-5', 'reviews')
+	],
+	can_decide: false,
+	task_state: 'running',
+	task_reason: '',
+	task_generation: 3
+});
+
+async function fixture(page: Page) {
+	const conversation = {
+		id: 'chat-1',
+		workspace_id: 'workspace-1',
+		creator_id: 'user-1',
+		issue_id: 'issue-1',
+		team_id: 'team-1',
+		title: 'Implement search',
+		created_at: time,
+		updated_at: time
+	};
+	const issue = { id: 'issue-1', identifier: 'ENG-1', title: 'Implement search', status: 'todo', description: '' };
+	const state = {
+		task: baseTask() as any,
+		// Tasks the conversation does not list but serves by id (a step's review).
+		tasks: {} as Record<string, any>,
+		workflow: null as any,
+		workflowRequests: 0,
+		// A task without a workflow lists its attempts.
+		runs: [] as any[],
+		logs: {} as Record<string, any[]>,
+		sockets: [] as WebSocketRoute[],
+		events: [] as any[]
+	};
+	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
+	await page.routeWebSocket('**/conversations/chat-1/stream*', (socket) => state.sockets.push(socket));
+	await page.route('https://raw.githubusercontent.com/**', (route) => route.fulfill({ json: [] }));
+	await page.route('**/api/**', async (route) => {
+		const url = new URL(route.request().url()),
+			path = url.pathname;
+		const workspace = { id: 'workspace-1', slug: 'test', name: 'Test Workspace', current_user_role: 'owner' };
+		if (path === '/api/auth/me')
+			return route.fulfill({ json: { id: 'user-1', name: 'Owner', email: 'owner@example.test' } });
+		if (path === '/api/workspaces') return route.fulfill({ json: [workspace] });
+		if (path === '/api/workspaces/test') return route.fulfill({ json: workspace });
+		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
+		if (path.endsWith('/assistant/status'))
+			return route.fulfill({ json: { configured: true, model: 'assistant-model' } });
+		if (path.endsWith('/conversations')) return route.fulfill({ json: [conversation] });
+		if (path.endsWith('/task-options')) return route.fulfill({ json: { providers: [], model_servers: [] } });
+		if (path.endsWith('/tasks')) return route.fulfill({ json: { tasks: [state.task] } });
+		if (path.endsWith('/events'))
+			return route.fulfill({ json: state.events.filter((e) => e.cursor > Number(url.searchParams.get('after') ?? 0)) });
+		if (path.endsWith('/conversations/chat-1'))
+			return route.fulfill({
+				json: { conversation, issue, messages: [], agent_messages: [], cursor: 0, has_more: false }
+			});
+		const match = path.match(/\/agent-tasks\/([^/]+)(\/.*)?$/);
+		if (match) {
+			const [, id, rest = ''] = match;
+			const task = id === state.task.id ? state.task : state.tasks[id];
+			if (!task) return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
+			if (rest === '/workflow') {
+				state.workflowRequests++;
+				return route.fulfill({ json: state.workflow });
+			}
+			if (rest === '/runs') return route.fulfill({ json: { runs: id === state.task.id ? state.runs : [] } });
+			const logs = rest.match(/^\/runs\/([^/]+)\/logs$/);
+			if (logs) {
+				const all = (state.logs[logs[1]] ?? []).filter((log) => log.id > Number(url.searchParams.get('after') ?? 0));
+				return route.fulfill({ json: { logs: all } });
+			}
+			if (rest.endsWith('/validation')) return route.fulfill({ json: null });
+			if (rest.endsWith('/checks')) return route.fulfill({ json: [] });
+			if (rest === '/live-messages') return route.fulfill({ json: { messages: [] } });
+			if (rest === '/history') return route.fulfill({ json: { transitions: [] } });
+			if (rest === '/sessions') return route.fulfill({ json: { sessions: [] } });
+			if (rest === '/publication') return route.fulfill({ json: { step: null } });
+			if (rest === '/signals') return route.fulfill({ json: [] });
+			return route.fulfill({ json: task });
+		}
+		return route.fulfill({ json: [] });
+	});
+	const emit = (type: string, payload: any) => {
+		const event = {
+			id: crypto.randomUUID(),
+			conversation_id: 'chat-1',
+			cursor: state.events.length + 1,
+			type,
+			payload
+		};
+		state.events.push(event);
+		state.sockets.at(-1)!.send(JSON.stringify(event));
+	};
+	return { state, emit };
+}
+
+function workflowFixture(state: Awaited<ReturnType<typeof fixture>>['state']) {
+	state.task = baseTask({ workflow_version_id: 'version-1', workflow_node: 'implement', workflow_status: 'running' });
+	state.workflow = workflow();
+	state.tasks['review-1'] = baseTask({
+		id: 'review-1',
+		kind: 'review',
+		review_of_task_id: 'task-1',
+		provider: 'codex',
+		model: 'gpt-5',
+		prompt: 'Review the pull request',
+		state: 'completed',
+		reason: 'Review finished',
+		generation: 1,
+		run_id: 'run-review'
+	});
+	state.logs = {
+		'run-plan': lines('run-plan', 1, [
+			text('Reading the list first.'),
+			bash('p1', 'rg -n list src', 'Find the list'),
+			result('p1', 'src/List.svelte'),
+			text('Add a **search** box, then:\n\n1. the endpoint\n2. the tests')
+		]),
+		'run-impl-1': lines('run-impl-1', 5, [
+			text('Starting with the endpoint.'),
+			bash('i1', 'npm test', 'Run the unit tests'),
+			result('i1', '12 passing'),
+			text('Search is **added** and covered.')
+		]),
+		'run-review': lines('run-review', 14, [text('Please rename `q` to `query`.')]),
+		'run-impl-2': lines('run-impl-2', 19, [text('Renaming the parameter.')])
+	};
+}
+
+const stepButton = (page: Page, sequence: number) => page.locator(`#step-${sequence}`).getByRole('button').first();
+
+test('a workflow task reads as a timeline: one labelled section per step, the running one open', async ({
+	page
+}, testInfo) => {
+	const { state, emit } = await fixture(page);
+	workflowFixture(state);
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+	const timeline = thread.getByRole('list', { name: 'Path taken' });
+	await expect(timeline.getByRole('listitem')).toHaveCount(6);
+	// No dropdown of runs: each agent is a section of its own, named by its
+	// step and the profile that ran it.
+	await expect(thread.getByRole('combobox')).toHaveCount(0);
+	await expect(thread.getByRole('region', { name: 'Plan · Orchestrator' })).toHaveCount(1);
+	await expect(thread.getByRole('region', { name: 'Implement · Cheap Implementer' })).toHaveCount(2);
+	await expect(thread.getByRole('region', { name: 'Review · Reviewer' })).toHaveCount(1);
+
+	// A step is one line: what, who, model, how long and how it went.
+	const plan = stepButton(page, 2);
+	await expect(plan).toContainText('Plan · Orchestrator');
+	await expect(plan).toContainText('claude-opus-5-5');
+	await expect(plan).toContainText('4m 0s');
+	await expect(plan.getByRole('img', { name: 'Done' })).toBeVisible();
+	await expect(plan.locator('[title="Claude Code"]')).toBeVisible();
+	await expect(plan.locator('time')).toHaveAttribute('title', /2026/);
+	await expect(plan).toHaveAttribute('aria-expanded', 'false');
+	const review = stepButton(page, 5);
+	await expect(review.getByRole('img', { name: 'Changes requested' })).toBeVisible();
+	await expect(review.locator('[title="Codex"]')).toBeVisible();
+
+	// The running step is open, shows its visit and streams.
+	const running = page.locator('#step-6');
+	await expect(stepButton(page, 6)).toHaveAttribute('aria-expanded', 'true');
+	await expect(stepButton(page, 6)).toContainText('×2');
+	await expect(stepButton(page, 6).getByRole('img', { name: 'Running' })).toBeVisible();
+	await expect(stepButton(page, 6).locator('[title="OpenCode"]')).toBeVisible();
+	await expect(running.getByText('Renaming the parameter.')).toBeVisible();
+	await expect(thread.getByText('Search is added and covered.')).toHaveCount(0);
+	state.logs['run-impl-2'] = [
+		...state.logs['run-impl-2'],
+		...lines('run-impl-2', 20, [text('placeholder'), text('Tests pass now.')]).slice(1)
+	];
+	emit('task.activity', {
+		task_id: 'task-1',
+		run_id: 'run-impl-2',
+		log_id: 2,
+		stream: 'stdout',
+		truncated: false,
+		events: []
+	});
+	await expect(running.getByText('Tests pass now.')).toBeVisible();
+
+	// A step that is not an agent's is a compact row with nothing to open.
+	const publish = page.locator('#step-4');
+	await expect(publish).toHaveAttribute('data-step', 'row');
+	await expect(publish).toContainText('Publish');
+	await expect(publish.getByRole('button')).toHaveCount(0);
+	const [rowHeight, stepHeight] = await Promise.all([
+		publish.evaluate((element) => element.getBoundingClientRect().height),
+		page.locator('#step-3').evaluate((element) => element.getBoundingClientRect().height)
+	]);
+	expect(rowHeight).toBeLessThan(stepHeight);
+
+	// A finished step opens with the keyboard: its result first, as Markdown,
+	// the trace that led to it below.
+	const implement = stepButton(page, 3);
+	await implement.focus();
+	await page.keyboard.press('Enter');
+	await expect(implement).toHaveAttribute('aria-expanded', 'true');
+	const first = page.locator('#step-3');
+	const messages = first.getByRole('article', { name: 'Agent' });
+	await expect(messages).toHaveCount(2);
+	await expect(messages.first().locator('strong')).toHaveText('added');
+	await expect(messages.last()).toContainText('Starting with the endpoint.');
+	const chip = first.getByRole('button', { name: /Run the unit tests/ });
+	await chip.click();
+	await expect(first.getByText('12 passing')).toBeVisible();
+	// It closes again; the running step stayed open.
+	await implement.focus();
+	await page.keyboard.press('Space');
+	await expect(implement).toHaveAttribute('aria-expanded', 'false');
+	await expect(stepButton(page, 6)).toHaveAttribute('aria-expanded', 'true');
+
+	// A planning step shows its plan, once.
+	await plan.click();
+	const planned = page.locator('#step-2').getByRole('article', { name: 'Plan' });
+	await expect(planned.locator('strong')).toHaveText('search');
+	await expect(planned.getByRole('listitem')).toHaveText(['the endpoint', 'the tests']);
+	await expect(page.locator('#step-2').getByRole('article', { name: 'Agent' })).toHaveCount(1);
+	await expect(page.locator('#step-2').getByRole('button', { name: /Find the list/ })).toBeVisible();
+
+	// The whole request is one click away.
+	const request = thread.getByText('LAST-LINE-OF-THE-REQUEST');
+	const cut = () => request.evaluate((element) => element.scrollHeight > element.clientHeight + 1);
+	expect(await cut()).toBe(true);
+	const expand = thread.getByRole('button', { name: 'Expand' });
+	await expect(expand).toHaveAttribute('aria-expanded', 'false');
+	await expand.click();
+	await expect(thread.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
+	expect(await cut()).toBe(false);
+	await page.screenshot({ path: testInfo.outputPath('timeline-desktop.png'), fullPage: true });
+
+	// The review a step started is read in the step and opens from it.
+	await review.click();
+	await expect(page.locator('#step-5').getByText('Please rename')).toBeVisible();
+	const link = page.locator('#step-5').getByRole('link', { name: 'Review by Reviewer' });
+	await expect(link).toHaveAttribute('href', /agent=review-1/);
+	await link.click();
+	await expect(page).toHaveURL(/agent=review-1/);
+	await expect(thread.getByText('Review the pull request')).toBeVisible();
+	await expect(thread.getByRole('region', { name: 'Codex' }).getByText('Please rename')).toBeVisible();
+});
+
+test('the step the task moves to opens and the one it left closes', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	workflowFixture(state);
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1#step-3');
+	// A link to a step opens that step beside the running one.
+	await expect(stepButton(page, 3)).toHaveAttribute('aria-expanded', 'true');
+	await expect(stepButton(page, 6)).toHaveAttribute('aria-expanded', 'true');
+	await expect(page.locator('#step-3').getByText('Search is added and covered.')).toBeVisible();
+
+	// The implementer finishes and the work is published again.
+	const view = workflow();
+	view.steps[5] = { ...view.steps[5], outcome: 'agent_finished', finished_at: at(25) };
+	view.steps.push(step(7, 'publish', 'publish', 25));
+	view.runs[3] = { ...view.runs[3], status: 'succeeded' };
+	view.node = 'publish';
+	state.workflow = view;
+	state.task = { ...state.task, state: 'publishing', workflow_node: 'publish', updated_at: at(25) };
+	emit('task.state_changed', state.task);
+	await expect(page.locator('#step-7')).toContainText('Publish');
+	await expect(page.locator('#step-7').getByRole('img', { name: 'Running' })).toBeVisible();
+	await expect(stepButton(page, 6).getByRole('img', { name: 'Done' })).toBeVisible();
+	// With no agent running, the last one that worked stays in view.
+	await expect(stepButton(page, 6)).toHaveAttribute('aria-expanded', 'true');
+	await expect(page.locator('#step-6').getByRole('article', { name: 'Agent' })).toContainText('Renaming the parameter.');
+});
+
+test('a task without a workflow is one step per attempt', async ({ page }) => {
+	const { state } = await fixture(page);
+	state.task = baseTask({ state: 'awaiting_review', reason: 'Ready for review', provider: 'codex', model: 'gpt-5', run_id: 'run-2', generation: 2 });
+	state.runs = [
+		{ id: 'run-2', provider_id: 'codex', model: 'gpt-5', status: 'succeeded', created_at: at(9), started_at: at(10), completed_at: at(13) },
+		{ id: 'run-1', provider_id: 'claude-code', model: '', status: 'failed', created_at: at(1), started_at: at(2), completed_at: at(5) }
+	];
+	state.logs = {
+		'run-1': lines('run-1', 2, [text('The build is broken.')]),
+		'run-2': lines('run-2', 10, [bash('c1', 'npm test', 'Run the unit tests'), result('c1', 'ok'), text('Fixed the **build**.')])
+	};
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+	await expect(page.getByRole('navigation', { name: 'Location' })).toContainText('ENG-1 · Iteration 2');
+	const steps = thread.getByRole('list', { name: 'Path taken' }).getByRole('listitem');
+	await expect(steps).toHaveCount(2);
+	expect(state.workflowRequests).toBe(0);
+	// Oldest first, named by the harness that ran; the last one is open.
+	const [older, latest] = [steps.nth(0), steps.nth(1)];
+	await expect(older.getByRole('region', { name: 'Claude Code' })).toBeVisible();
+	await expect(older.getByRole('button').first()).toHaveAttribute('aria-expanded', 'false');
+	await expect(older.getByRole('img', { name: 'Failed' })).toBeVisible();
+	await expect(older.getByRole('button').first()).toContainText('3m 0s');
+	await expect(latest.getByRole('region', { name: 'Codex' })).toBeVisible();
+	await expect(latest.getByRole('button').first()).toHaveAttribute('aria-expanded', 'true');
+	await expect(latest.getByRole('button').first()).toContainText('gpt-5');
+	await expect(latest.getByRole('article', { name: 'Agent' }).locator('strong')).toHaveText('build');
+	await expect(thread.getByText('The build is broken.')).toHaveCount(0);
+	await older.getByRole('button').first().click();
+	await expect(older.getByText('The build is broken.')).toBeVisible();
+});
+
+test('the timeline fits a phone', async ({ page }, testInfo) => {
+	const { state } = await fixture(page);
+	workflowFixture(state);
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+	await expect(thread.getByRole('list', { name: 'Path taken' }).getByRole('listitem')).toHaveCount(6);
+	await expect(page.locator('#step-6').getByText('Renaming the parameter.')).toBeVisible();
+	// The model leaves the line and shows inside the open step instead.
+	await expect(stepButton(page, 6).getByText('kimi-k2')).toBeHidden();
+	await expect(page.locator('#step-6').getByText('kimi-k2').last()).toBeVisible();
+	await stepButton(page, 3).click();
+	await expect(page.locator('#step-3').getByRole('article', { name: 'Agent' }).first()).toContainText('Search is added');
+	for (const sequence of [2, 3, 5, 6]) {
+		const box = await stepButton(page, sequence).boundingBox();
+		expect(box!.x).toBeGreaterThanOrEqual(0);
+		expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+		// The name stays readable beside the status and the time.
+		await expect(stepButton(page, sequence).locator('.font-medium')).toBeVisible();
+	}
+	for (const dark of [false, true]) {
+		await page.evaluate((d) => {
+			document.documentElement.classList.toggle('dark', d);
+			document.documentElement.setAttribute('data-theme', d ? 'dark' : 'light');
+		}, dark);
+		expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+		await page.screenshot({ path: testInfo.outputPath(`timeline-390-${dark ? 'dark' : 'light'}.png`), fullPage: true });
+	}
+});

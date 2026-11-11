@@ -217,9 +217,30 @@
 			)
 	);
 	const agentParam = $derived(page.url.searchParams.get('agent'));
+	// A review a workflow step started is a task of its own that the
+	// conversation does not list: its step links to it, so it is read by id
+	// (the server decides who may) and again whenever a review changes.
+	let reviewTask = $state<AgentTask | undefined>();
+	$effect(() => {
+		const id = agentParam;
+		void chat.taskReviewCursor;
+		if (!id || !conversationId || chat.loading || chat.liveTasks[id] || id.toLowerCase() === chat.issue?.identifier.toLowerCase()) {
+			untrack(() => (reviewTask = undefined));
+			return;
+		}
+		let stale = false;
+		agentTasks
+			.get(slug, id)
+			.then((task) => {
+				if (!stale && task.id === id && task.kind === 'review' && task.conversation_id === conversationId)
+					reviewTask = task;
+			})
+			.catch(() => {});
+		return () => (stale = true);
+	});
 	const agentTask = $derived.by(() => {
 		if (!agentParam) return undefined;
-		const byId = chat.liveTasks[agentParam];
+		const byId = chat.liveTasks[agentParam] ?? (reviewTask?.id === agentParam ? reviewTask : undefined);
 		if (byId) return byId;
 		return chat.issue && agentParam.toLowerCase() === chat.issue.identifier.toLowerCase()
 			? agentTasksList[0]

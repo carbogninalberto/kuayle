@@ -176,9 +176,32 @@ export interface WorkflowStep {
 	review_task_id?: string | null;
 	outcome?: string | null;
 	detail: string;
+	/** The plan a planning step produced, whole. */
+	plan?: string | null;
 	decided_by?: string | null;
 	entered_at: string;
 	finished_at?: string | null;
+}
+
+/**
+ * One agent run of a task, on the workflow step that started it: an agent
+ * step's own runs, or the runs of the review task a reviewer step created
+ * (task_id is then that review task).
+ */
+export interface WorkflowStepRun {
+	id: string;
+	task_id: string;
+	/** The step's sequence; absent for a task that follows no workflow. */
+	step?: number | null;
+	provider: string;
+	model: string;
+	status: string;
+	/** The agent's final message, when its harness reported one. */
+	summary?: string | null;
+	summary_truncated?: boolean;
+	created_at: string;
+	started_at?: string | null;
+	completed_at?: string | null;
 }
 
 export type WorkflowStatus = 'running' | 'waiting' | 'paused' | 'done' | 'failed';
@@ -197,6 +220,8 @@ export interface TaskWorkflow {
 	iterations: number;
 	sequence: number;
 	steps: WorkflowStep[];
+	/** Every run on its step, oldest first; absent on older servers. */
+	runs?: WorkflowStepRun[];
 	profiles: AgentProfile[];
 	can_decide: boolean;
 	task_state: string;

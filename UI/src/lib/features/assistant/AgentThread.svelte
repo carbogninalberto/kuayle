@@ -1,26 +1,29 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { RefreshCw } from '@lucide/svelte';
+	import { page } from '$app/state';
 	import * as Breadcrumb from '$lib/components/ui/breadcrumb/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import SelectField from '$lib/components/shared/SelectField.svelte';
-	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
-	import { agentInfo } from '$lib/features/agents/agents';
-	import { agentTasks, type AgentTask, type ValidationStep } from '$lib/api/agent-tasks';
-	import type { AgentRun, DevMachineLogChunk } from '$lib/types/dev-machine';
+	import { agentTasks, type AgentTask } from '$lib/api/agent-tasks';
+	import { workflows, type TaskWorkflow } from '$lib/api/workflows';
+	import type { AgentRun } from '$lib/types/dev-machine';
 	import type { ConversationState } from './conversation-state.svelte';
-	import AgentTranscript from './AgentTranscript.svelte';
+	import AgentStep from './AgentStep.svelte';
+	import ClampedText from './ClampedText.svelte';
 	import TaskLiveThread from './TaskLiveThread.svelte';
+	import { attemptTimeline, openStep, workflowTimeline } from './agent-timeline';
 	import { taskLabel } from './task-labels';
 	import { taskTone, toneBadge } from './task-tone';
 	import { m } from '$lib/features/i18n/messages';
 
-	// One coding task's agent as the centre conversation: where it is (a
-	// breadcrumb back to the assistant), the readable session of its current
-	// iteration, streaming as output arrives, and the live thread with the
-	// agent (its questions, your replies). Replies are written in the page's
-	// one composer, which aims at this agent while this view is open.
+	// One coding task as the centre conversation: where it is (a breadcrumb
+	// back to the assistant), what was asked, and its timeline: one section
+	// per workflow step, in the order the task took them, the running one
+	// open and streaming. A task without a workflow is one step per attempt.
+	// Below it, the live thread with the agent (its questions, your replies);
+	// replies are written in the page's one composer, which aims at this
+	// agent while this view is open.
 	let {
 		chat,
 		task,
@@ -33,108 +36,88 @@
 		onback: () => void;
 	} = $props();
 	const identifier = $derived(chat.issue?.identifier ?? '');
-	const agent = $derived(agentInfo(task.provider).name);
-	const active = $derived(
-		['queued', 'preparing', 'running', 'validating', 'publishing', 'cancelling'].includes(task.state)
-	);
 	const tone = $derived(taskTone(task.state));
+	const followsWorkflow = $derived(!!task.workflow_version_id);
 
-	let runs = $state<AgentRun[]>([]),
-		logs = $state<DevMachineLogChunk[]>([]),
-		checks = $state<string[]>([]),
-		loading = $state(false),
-		more = $state(false),
-		error = $state('');
-	let selectedRun = $state(untrack(() => task.run_id));
-	let seenRun = untrack(() => task.run_id),
-		dirty = false,
-		disposed = false,
-		timer: ReturnType<typeof setTimeout> | undefined;
+	let view = $state<TaskWorkflow | null>(null),
+		attempts = $state<AgentRun[]>([]),
+		failed = $state(false);
+	let request = 0,
+		disposed = false;
 	$effect(() => () => {
 		disposed = true;
-		clearTimeout(timer);
 	});
-	// A new iteration replaces the view's run; an earlier one stays selectable.
-	$effect(() => {
-		if (task.run_id === seenRun) return;
-		seenRun = task.run_id;
-		untrack(() => (selectedRun = task.run_id));
-	});
-	$effect(() => {
-		void selectedRun;
-		untrack(() => {
-			logs = [];
-			checks = [];
-			more = false;
-		});
-	});
-	// The independent and manual checks write to the same run; they are not
-	// the agent's session.
-	const session = $derived(logs.filter((line) => !line.service_id || !checks.includes(line.service_id)));
-	// Runs carry no iteration number: an earlier one is named by its start.
-	const runLabel = (run: AgentRun) =>
-		run.id === task.run_id
-			? m['tasks.attempt']({ number: task.generation })
-			: `${agentInfo(run.provider_id).name} · ${new Date(run.created_at).toLocaleString()}`;
-	const iterationLabel = $derived.by(() => {
-		const run = runs.find((item) => item.id === selectedRun);
-		return run ? runLabel(run) : m['tasks.attempt']({ number: task.generation });
-	});
-
-	// Pages through the run's output from the last chunk seen; a page limit
-	// keeps a huge run from blocking the view, "load more" continues.
-	async function refresh() {
-		if (loading) {
-			dirty = true;
-			return;
-		}
-		const run = selectedRun;
-		if (!run) return;
-		loading = true;
-		error = '';
+	async function load() {
+		const current = ++request;
 		try {
-			const [attempts, validation, manual] = await Promise.all([
-				agentTasks.runs(chat.slug, task.id),
-				agentTasks.validation(chat.slug, task.id, run).catch(() => null as ValidationStep | null),
-				agentTasks.manualChecks(chat.slug, task.id, run).catch(() => [] as ValidationStep[])
-			]);
-			if (disposed || selectedRun !== run) return;
-			runs = attempts.runs;
-			checks = [validation?.id, ...(Array.isArray(manual) ? manual : []).map((step) => step.id)].filter(
-				(id): id is string => !!id
-			);
-			for (let page = 0; page < 20; page++) {
-				const result = await agentTasks.logs(chat.slug, task.id, run, logs.at(-1)?.id ?? 0);
-				if (disposed || selectedRun !== run) return;
-				const known = new Set(logs.map((line) => line.id));
-				logs = [...logs, ...result.logs.filter((line) => !known.has(line.id))];
-				more = !!result.next_after;
-				if (!result.next_after) break;
+			if (followsWorkflow) {
+				const loaded = await workflows.task(chat.slug, task.id);
+				if (disposed || current !== request) return;
+				view = loaded;
+			} else {
+				const loaded = await agentTasks.runs(chat.slug, task.id);
+				if (disposed || current !== request) return;
+				attempts = loaded.runs;
 			}
-		} catch (e) {
-			if (disposed) return;
-			const status = (e as { status?: number }).status ?? 0;
-			error = status === 404 ? m['tasks.attempt_missing']() : m['tasks.load_error']();
-		} finally {
-			if (!disposed) {
-				loading = false;
-				if (dirty) {
-					dirty = false;
-					void refresh();
-				}
-			}
+			failed = false;
+		} catch {
+			if (!disposed && current === request) failed = true;
 		}
 	}
-	// Live: new output (task.activity), state changes and check updates
-	// refresh, throttled from the first event so a stream keeps flowing.
+	// The task moving (state, attempt, workflow step) or one of its reviews
+	// changing reloads the steps; each open step streams its own output.
 	$effect(() => {
-		void [task.id, task.state, selectedRun, chat.taskActivity[task.id]?.log_id, chat.taskValidationCursor[task.id]];
-		if (timer !== undefined) return;
-		timer = setTimeout(() => {
-			timer = undefined;
-			void refresh();
-		}, 150);
+		void [
+			task.id,
+			task.state,
+			task.run_id,
+			task.generation,
+			task.workflow_node,
+			task.workflow_status,
+			chat.taskReviewCursor[task.id]
+		];
+		untrack(() => void load());
 	});
+	// Waiting steps (CI, a review, a timeout) move without a task event the
+	// view sees, so poll modestly until the workflow settles.
+	const settled = $derived(!view || view.status === 'done' || view.status === 'failed');
+	$effect(() => {
+		if (!followsWorkflow || settled) return;
+		const timer = setInterval(() => void load(), 15000);
+		return () => clearInterval(timer);
+	});
+
+	const steps = $derived(
+		followsWorkflow ? (view ? workflowTimeline(view, task) : []) : attemptTimeline(task, attempts)
+	);
+	// The running step is open and the finished ones are closed, until the
+	// reader opens or closes one; a link to a step (#step-4) opens it.
+	const linked = untrack(() => page.url.hash.slice(1));
+	let chosen = $state<Record<string, boolean>>(linked ? { [linked]: true } : {});
+	const current = $derived(openStep(steps));
+	let scrolled = false;
+	$effect(() => {
+		if (scrolled || !linked || !steps.some((step) => step.anchor === linked)) return;
+		scrolled = true;
+		void tick().then(() => document.getElementById(linked)?.scrollIntoView({ block: 'start' }));
+	});
+
+	// Durations of running steps tick.
+	let now = $state(Date.now());
+	const ticking = $derived(steps.some((step) => step.status === 'running'));
+	$effect(() => {
+		if (!ticking) return;
+		now = Date.now();
+		const timer = setInterval(() => (now = Date.now()), 1000);
+		return () => clearInterval(timer);
+	});
+
+	const reviewHref = (id: string) => {
+		const url = new URL(page.url);
+		url.searchParams.set('agent', id);
+		url.hash = '';
+		return `${url.pathname}${url.search}`;
+	};
 </script>
 
 <div class="flex min-w-0 flex-col gap-5" data-testid="agent-thread">
@@ -152,37 +135,37 @@
 			</Breadcrumb.Item>
 			<Breadcrumb.Separator />
 			<Breadcrumb.Item>
-				<Breadcrumb.Page>{identifier} · {iterationLabel}</Breadcrumb.Page>
+				<Breadcrumb.Page>{identifier} · {m['tasks.attempt']({ number: task.generation })}</Breadcrumb.Page>
 			</Breadcrumb.Item>
 		</Breadcrumb.List>
 	</Breadcrumb.Root>
 
-	<div class="flex min-w-0 items-start gap-2.5">
-		<AgentLogo agent={task.provider} size="sm" class="mt-0.5 shrink-0" />
-		<div class="min-w-0 flex-1 space-y-0.5">
-			<div class="flex min-w-0 items-start justify-between gap-3">
-				<p class="min-w-0 text-sm font-medium break-words whitespace-pre-wrap line-clamp-3">{task.prompt}</p>
-				<Badge variant="outline" class="shrink-0 {toneBadge[tone]}" role="status">{taskLabel(task.state)}</Badge>
-			</div>
-			<p class="text-xs break-words text-muted-foreground">
-				{agent}{task.model ? ` · ${task.model}` : ''} · {task.reason}
-			</p>
+	<div class="min-w-0 space-y-1">
+		<div class="flex min-w-0 items-start justify-between gap-3">
+			<ClampedText text={task.prompt} class="text-sm font-medium" />
+			<Badge variant="outline" class="shrink-0 {toneBadge[tone]}" role="status">{taskLabel(task.state)}</Badge>
 		</div>
+		{#if task.reason}<p class="text-xs break-words text-muted-foreground">{task.reason}</p>{/if}
 	</div>
 
-	{#if runs.length > 1}<SelectField
-			bind:value={selectedRun}
-			aria-label={m['tasks.execution_attempt']()}
-			options={runs.map((run) => ({ value: run.id, label: runLabel(run) }))}
-		/>{/if}
-
-	<AgentTranscript chunks={session} active={active && selectedRun === task.run_id} />
-	{#if more}<Button variant="ghost" size="sm" class="self-start" disabled={loading} onclick={() => void refresh()}
-			>{m['tasks.more_logs']()}</Button
-		>{/if}
-	{#if error}<div class="flex flex-wrap items-center gap-2">
-			<p role="alert" class="text-sm text-destructive">{error}</p>
-			<Button variant="ghost" size="sm" onclick={() => void refresh()}><RefreshCw />{m['tasks.refresh']()}</Button>
+	<ol aria-label={m['workflows.task.path']()} class="flex min-w-0 flex-col gap-1">
+		{#each steps as step (step.anchor)}
+			<li class="min-w-0">
+				<AgentStep
+					{chat}
+					{step}
+					{now}
+					reviewHref={step.reviewTaskId ? reviewHref(step.reviewTaskId) : undefined}
+					bind:open={() => chosen[step.anchor] ?? step.anchor === current, (open) => (chosen[step.anchor] = open)}
+				/>
+			</li>
+		{/each}
+	</ol>
+	{#if failed}<div class="flex flex-wrap items-center gap-2">
+			<p role="alert" class="text-sm text-destructive">
+				{followsWorkflow ? m['workflows.task.load_failed']() : m['tasks.load_error']()}
+			</p>
+			<Button variant="ghost" size="sm" onclick={() => void load()}><RefreshCw />{m['tasks.refresh']()}</Button>
 		</div>{/if}
 
 	{#if task.kind !== 'review'}<TaskLiveThread {chat} {task} />{/if}
