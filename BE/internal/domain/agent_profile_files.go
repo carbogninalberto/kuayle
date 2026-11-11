@@ -23,6 +23,14 @@ type AgentProfileBundle struct {
 	Behaviour    string
 	Instructions string
 	Skills       []AgentProfileSkill
+	// Notebook is the task's notebook, rendered (Notebook.Render). It is not
+	// part of the profile: it travels in the same instructions file, after
+	// the profile's instructions, so every harness reads it as instructions.
+	Notebook string
+	// Memory is the workspace's approved lessons for the task's repository
+	// (domain.FormatLessons). Like the notebook it is not part of the
+	// profile and travels in the same instructions file, between the two.
+	Memory string
 }
 
 // AgentProfileFile is one file Kuayle writes into the agent's home before the
@@ -79,13 +87,29 @@ func ProfileFiles(harness string, bundle AgentProfileBundle) []AgentProfileFile 
 		return nil
 	}
 	var files []AgentProfileFile
+	content := ""
 	if instructions := strings.TrimSpace(bundle.Instructions); instructions != "" {
 		title := bundle.Name
 		if bundle.Role != "" && !strings.EqualFold(bundle.Role, bundle.Name) {
 			title += " (" + bundle.Role + ")"
 		}
 		header := fmt.Sprintf("# Agent profile: %s\n\nYou run as this Kuayle agent profile. Follow these instructions for the whole task.\n\n", title)
-		files = append(files, AgentProfileFile{Path: path.Join(agentHome, layout.instructions), Content: header + instructions + "\n"})
+		content = header + instructions + "\n"
+	}
+	if memory := strings.TrimSpace(bundle.Memory); memory != "" {
+		if content != "" {
+			content += "\n---\n\n"
+		}
+		content += memory + "\n"
+	}
+	if notebook := strings.TrimSpace(bundle.Notebook); notebook != "" {
+		if content != "" {
+			content += "\n---\n\n"
+		}
+		content += notebook + "\n"
+	}
+	if content != "" {
+		files = append(files, AgentProfileFile{Path: path.Join(agentHome, layout.instructions), Content: content})
 	}
 	used := map[string]bool{}
 	for _, skill := range bundle.Skills {
@@ -118,4 +142,16 @@ func ValidProfileFilePath(p string) bool {
 		}
 	}
 	return false
+}
+
+// ReadOnlyWorktreeSupported reports whether the harness runs with its task
+// worktree mounted read-only, as a planning step's is. Claude Code, Codex
+// and OpenCode keep their sessions, caches and temporary files outside the
+// worktree (the session directory, the home tmpfs and the run directory on
+// the workspace volume). Crush keeps its state in .crush/ inside the working
+// directory and cannot start without writing there; the other harnesses were
+// not checked. For those the worktree stays writable and only the
+// comparison after the run guards a planning step.
+func ReadOnlyWorktreeSupported(harness string) bool {
+	return harness == "claude-code" || harness == "codex" || harness == "opencode"
 }

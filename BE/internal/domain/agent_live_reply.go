@@ -11,9 +11,9 @@ import (
 // orchestrator whose "reply_to" names the message's sequence number. Kuayle
 // asks for it, not only the prompt: Claude Code is not allowed to stop while
 // a delivered message has no reply (its Stop hook reads
-// AgentLiveUnansweredFile), and an attempt of a harness that can continue a
-// session (HarnessContinuesSession) which ends well with such a message is
-// continued once, in the same session, only to reply. An attempt never fails
+// AgentLiveUnansweredFile), and an attempt that ends well with such a message
+// is asked for the reply in its closing continuation (ReplyClosingAsk), the
+// one extra turn an attempt gets for whatever is missing. An attempt never fails
 // for a missing reply: the message is flagged as unanswered and given once
 // more to the same step's next attempt, if there is one.
 const (
@@ -52,24 +52,21 @@ func UnansweredMessageNote(seqs []int64) string {
 	return "The agent did not reply to " + noun + strings.Join(names, ", ") + " from the person who owns the task. Kuayle asked again; the work is kept and the message is shown as unanswered."
 }
 
-// AgentLiveReplyPrompt is the whole prompt of the one continuation an
-// attempt gets when it ended owing replies: it asks for the replies only.
-func AgentLiveReplyPrompt(seqs []int64) string {
+// ReplyClosingAsk is what the closing continuation asks of an attempt that
+// ended well without replying to the messages with these sequence numbers.
+func ReplyClosingAsk(seqs []int64) ClosingAsk {
 	names := make([]string, 0, len(seqs))
 	for _, seq := range seqs {
 		names = append(names, strconv.FormatInt(seq, 10))
 	}
-	return "Kuayle: your work on this step is finished and kept. One thing is missing: you did not reply to message(s) " + strings.Join(names, ", ") +
-		" from the person who owns this task (you received them during this session). Do nothing else now: do not change, create or delete files in the repository, and do not run builds or tests. " +
-		"For each of those messages write one file `.kuayle/outbox/<name>.json` at this worktree's root containing {\"to\":\"orchestrator\",\"reply_to\":<message number>,\"body\":\"...\"}, " +
-		"saying what you understood and what you did about it, then stop."
-}
-
-// HarnessContinuesSession reports whether Kuayle can continue a finished
-// attempt's native session with one more prompt (Claude Code --resume, Codex
-// exec resume).
-func HarnessContinuesSession(provider string) bool {
-	return provider == "claude-code" || provider == "codex"
+	noun := "message "
+	if len(names) != 1 {
+		noun = "messages "
+	}
+	return ClosingAsk{
+		Missing: "you did not reply to " + noun + strings.Join(names, ", ") + " from the person who owns this task (you received them during this session)",
+		Do:      "For each of them write one file `.kuayle/outbox/<name>.json` at this worktree's root containing {\"to\":\"orchestrator\",\"reply_to\":<message number>,\"body\":\"...\"}, saying what you understood and what you did about it.",
+	}
 }
 
 // HarnessReadsLiveInbox reports whether Kuayle can hand the harness a message

@@ -942,6 +942,16 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 	if err = retryWorkflow(ctx, tx, task, task.CreatorID); err != nil {
 		return nil, err
 	}
+	if req.Note != nil {
+		// A retry's own instructions are the creator's: only they may retry.
+		if note := req.Note.Instruction; note != nil && note.AuthorID == nil {
+			author := task.CreatorID
+			note.AuthorID = &author
+		}
+		if err = noteNotebook(ctx, tx, task.ID, &task.CreatorID, *req.Note); err != nil {
+			return nil, err
+		}
+	}
 	if err = transitionAgentTask(ctx, tx, task, "queued", "New execution iteration requested", &task.CreatorID); err != nil {
 		return nil, err
 	}

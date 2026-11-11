@@ -45,19 +45,26 @@ func TestAMissingReplyIsANoteNotAFailure(t *testing.T) {
 	require.False(t, IsResourceLimitReason(note))
 	require.False(t, IsWorkflowReason(note))
 
-	prompt := AgentLiveReplyPrompt([]int64{3, 5})
-	require.Contains(t, prompt, "message(s) 3, 5")
-	require.Contains(t, prompt, `{"to":"orchestrator","reply_to":<message number>,"body":"..."}`)
-	require.Contains(t, prompt, "Do nothing else now")
-	require.Contains(t, prompt, "do not change, create or delete files")
+	ask := ReplyClosingAsk([]int64{3, 5})
+	require.Contains(t, ask.Missing, "you did not reply to messages 3, 5")
+	require.Contains(t, ask.Do, `{"to":"orchestrator","reply_to":<message number>,"body":"..."}`)
+	require.Contains(t, ReplyClosingAsk([]int64{3}).Missing, "message 3 ")
 }
 
-// Claude Code and Codex can continue a finished session with one more
-// prompt; OpenCode cannot.
-func TestWhichHarnessesContinueASession(t *testing.T) {
-	require.True(t, HarnessContinuesSession("claude-code"))
-	require.True(t, HarnessContinuesSession("codex"))
-	require.False(t, HarnessContinuesSession("opencode"))
+// One closing continuation asks for everything that is missing: a reply and
+// a notebook update are two numbered items of the same prompt.
+func TestOneClosingPromptAsksForTheReplyAndTheNotebook(t *testing.T) {
+	reply, notebook := ReplyClosingAsk([]int64{3}), NotebookClosingAsk("")
+	both := ClosingPrompt([]ClosingAsk{reply, notebook})
+	require.Contains(t, both, "2 things are missing before this step can close:")
+	require.Contains(t, both, "1. "+reply.Missing)
+	require.Contains(t, both, "2. "+notebook.Missing)
+	require.Contains(t, both, "reply_to")
+	only := ClosingPrompt([]ClosingAsk{reply})
+	require.Contains(t, only, "One thing is missing before this step can close: you did not reply to message 3")
+	require.NotContains(t, only, AgentNotebookFile)
+	require.Contains(t, only, "Do nothing else")
+	require.Empty(t, ClosingPrompt(nil))
 }
 
 // An attempt stopped to deliver a message is requeued, not cancelled; the

@@ -245,6 +245,23 @@ export interface AgentLiveChatMessage extends AgentLiveMessage {
 }
 // Pausing a workflow: at once, which stops the agent that is working, or
 // once the current step has finished.
+// Moving a task to the newest version of its workflow: where it continues,
+// or why it cannot be moved.
+export type WorkflowSwitchRefusal =
+	| 'no_workflow'
+	| 'no_newer_version'
+	| 'finished'
+	| 'not_at_rest'
+	| 'step_removed'
+	| 'step_changed';
+export interface WorkflowSwitch {
+	from_version: number;
+	to_version: number;
+	node?: string;
+	node_label?: string;
+	refused?: WorkflowSwitchRefusal;
+}
+
 export type WorkflowPauseMode = 'now' | 'after_step';
 const base = (slug: string) => `/api/workspaces/${encodeURIComponent(slug)}`;
 const task = (slug: string, id: string) => `${base(slug)}/agent-tasks/${encodeURIComponent(id)}`;
@@ -283,6 +300,12 @@ export const agentTasks = {
 	pause: (slug: string, id: string, mode: WorkflowPauseMode) =>
 		api.post<AgentTask>(`${task(slug, id)}/pause`, { mode }),
 	resume: (slug: string, id: string) => api.post<AgentTask>(`${task(slug, id)}/resume`, {}),
+	// What moving the task to the newest version of its workflow would do
+	// (nothing changes), and the move itself. Creator only; a task that
+	// cannot be moved answers 409 with the reason.
+	workflowSwitch: (slug: string, id: string) => api.get<WorkflowSwitch>(`${task(slug, id)}/workflow/switch`),
+	switchWorkflow: (slug: string, id: string) =>
+		api.post<{ switch: WorkflowSwitch; task: AgentTask }>(`${task(slug, id)}/workflow/switch`, {}),
 	resumeUsageLimit: (slug: string, id: string) => api.post<AgentTask>(`${task(slug, id)}/resume`, {}),
 	cancelUsageLimitResume: (slug: string, id: string) => api.delete<AgentTask>(`${task(slug, id)}/resume`),
 	retry: (

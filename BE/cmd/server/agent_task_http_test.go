@@ -167,6 +167,9 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 		// Pausing and resuming are the creator's, like cancelling.
 		request("POST", taskPath+"/pause", `{"mode":"now"}`, auth, 404, nil)
 		request("POST", taskPath+"/resume", "", auth, 404, nil)
+		// So is moving it to a newer version of its workflow, and asking about it.
+		request("GET", taskPath+"/workflow/switch", "", auth, 404, nil)
+		request("POST", taskPath+"/workflow/switch", "", auth, 404, nil)
 	}
 	// The creator's request is validated, and only a running workflow pauses.
 	for _, invalid := range []string{`{}`, `{"mode":"later"}`, `{"mode":"now","force":true}`, `not json`} {
@@ -176,6 +179,15 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	request("POST", taskPath+"/pause", `{"mode":"after_step"}`, token, 409, nil)
 	request("POST", taskPath+"/resume", "", token, 409, nil)
 	request("POST", "/agent-tasks/"+uuid.NewString()+"/pause", `{"mode":"now"}`, token, 404, nil)
+	// A task without a workflow has no version to move to: asking says so,
+	// and moving is refused.
+	var plan struct {
+		Refused string `json:"refused"`
+	}
+	request("GET", taskPath+"/workflow/switch", "", token, 200, &plan)
+	require.Equal(t, domain.WorkflowSwitchNoWorkflow, plan.Refused)
+	request("POST", taskPath+"/workflow/switch", "", token, 409, nil)
+	request("GET", "/agent-tasks/"+uuid.NewString()+"/workflow/switch", "", token, 404, nil)
 	for _, caller := range []struct {
 		auth  string
 		guest bool

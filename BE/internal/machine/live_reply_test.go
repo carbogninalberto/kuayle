@@ -47,36 +47,9 @@ func (f *replyStoreFake) SettleLiveMessages(_ context.Context, _ uuid.UUID, unre
 	return f.settled, nil
 }
 
-// replyRuntimeFake can continue a finished attempt, and can fail to read the
-// outbox.
+// replyRuntimeFake is the live runtime fake under the name the fixture uses.
 type replyRuntimeFake struct {
 	*liveRuntimeFake
-	continuations [][]string
-	deadlines     []time.Time
-	secrets       []map[string]string
-	onContinue    func(observer *AgentObserver)
-	continueErr   error
-	takeErr       error
-	takes         int
-}
-
-func (f *replyRuntimeFake) TakeOutbox(ctx context.Context, services []domain.DevMachineService) ([]domain.AgentOutboxFile, error) {
-	f.takes++
-	if f.takeErr != nil {
-		return nil, f.takeErr
-	}
-	return f.liveRuntimeFake.TakeOutbox(ctx, services)
-}
-
-func (f *replyRuntimeFake) ContinueAgent(ctx context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, _ *domain.DevMachineAgentProvider, _ *domain.DevMachineCheckout, secrets map[string]string, continuation []string, observer *AgentObserver) (*AgentExecution, error) {
-	f.continuations = append(f.continuations, continuation)
-	deadline, _ := ctx.Deadline()
-	f.deadlines = append(f.deadlines, deadline)
-	f.secrets = append(f.secrets, secrets)
-	if f.onContinue != nil {
-		f.onContinue(observer)
-	}
-	return &AgentExecution{ContainerID: "reply", ExitCode: 0}, f.continueErr
 }
 
 func replyFixture(provider string) (*replyStoreFake, *replyRuntimeFake, *Manager) {
@@ -105,31 +78,12 @@ func (f *replyStoreFake) runAgent(t *testing.T, manager *Manager) {
 	}))
 }
 
-const replySession = "0199a213-81c0-7800-8aa1-bbab2a035a53"
-
-// taskAttempt makes the fixture's run a task attempt of harness that is
-// still recorded as running, with a native session and the argv Kuayle
-// built for it.
-func (f *replyStoreFake) taskAttempt(t *testing.T, harness agent.Provider) liveReplyRequest {
-	t.Helper()
-	task := uuid.New()
-	session := replySession
-	invocation, err := harness.BuildInvocation(agent.RunInput{Mode: agent.ModeAutonomous, Prompt: "Implement dark mode", Model: "model-x", WorkspacePath: "/workspace/tasks/eng-1",
-		Session: &agent.SessionInput{Dir: "/workspace/.kuayle/agent-sessions/" + task.String()}})
-	require.NoError(t, err)
-	argv, err := json.Marshal(invocation.Argv)
-	require.NoError(t, err)
-	f.agentRun.TaskID, f.agentRun.NativeSessionID, f.agentRun.CommandArgv = &task, &session, argv
-	f.agentRun.Prompt, f.agentRun.Status = "Implement dark mode", domain.DevMachineAgentRunStatusRunning
-	return liveReplyRequest{provider: f.provider, secrets: &domain.AgentRunSecretSnapshot{Environment: map[string]string{"OTHER": "value"}}, exited: time.Now(), finished: true, deadline: time.Now().Add(time.Hour)}
-}
-
 // A missing reply never costs the work. An attempt that ends well owing a
 // reply stays a success: the result notes which message went unanswered.
 // OpenCode cannot continue a session, so it is not asked again here.
 func TestAnAttemptThatOwesAReplyIsStillASuccess(t *testing.T) {
 	store, runtime, manager := replyFixture("opencode")
-	store.settled = []int64{3, 5}
+	store.settled, store.owed = []int64{3, 5}, [][]int64{{3, 5}}
 	started := time.Now()
 	store.runAgent(t, manager)
 	require.NotNil(t, store.completedRun)
@@ -140,7 +94,7 @@ func TestAnAttemptThatOwesAReplyIsStillASuccess(t *testing.T) {
 	require.Equal(t, "succeeded", result.Status)
 	require.Equal(t, []int64{3, 5}, result.UnansweredMessages)
 	require.Contains(t, result.RiskNotes, domain.UnansweredMessageNote([]int64{3, 5}))
-	require.Empty(t, runtime.continuations, "OpenCode has no session to continue")
+	require.Equal(t, 1, runtime.agentRuns, "OpenCode has no session to continue: it is not asked again")
 	// What may be unread is measured from when the harness exited, not from
 	// when Kuayle got round to settling.
 	require.False(t, store.unread.Before(started.Add(-liveReplyGrace)))
@@ -168,159 +122,167 @@ func TestAFailedAttemptKeepsItsOwnReason(t *testing.T) {
 	require.NoError(t, json.Unmarshal(*store.completedRun.Result, &result))
 	require.Equal(t, []int64{3}, result.UnansweredMessages)
 	require.Empty(t, result.RiskNotes)
-	require.Empty(t, runtime.continuations)
+	require.Equal(t, 1, runtime.agentRuns)
 }
 
-// Claude Code and Codex can continue a session: an attempt that ended well
-// owing a reply is continued once, on that session, with a prompt that asks
-// only for the reply. Its output is discarded, and the reply it writes is
-// collected.
-func TestAFinishedAttemptIsAskedOnceForTheReplyItOwes(t *testing.T) {
-	for name, harness := range map[string]agent.Provider{"claude-code": agent.NewClaudeCodeProvider(""), "codex": agent.NewCodexProvider("")} {
-		t.Run(name, func(t *testing.T) {
-			store, runtime, manager := replyFixture(name)
-			request := store.taskAttempt(t, harness)
-			store.settled = []int64{3}
-			// The continuation writes the reply: afterwards nothing is owed.
-			store.owed = [][]int64{{}}
-			runtime.onContinue = func(observer *AgentObserver) {
-				require.NoError(t, observer.Authorize())
-				require.NoError(t, observer.Output("stdout", []byte(time.Now().UTC().Format(time.RFC3339Nano)+" REPLY-ONLY-OUTPUT\n")))
-				runtime.outboxes = [][]domain.AgentOutboxFile{{{Worktree: "/workspace/tasks/eng-1", Name: "reply.json", Data: []byte(`{"to":"orchestrator","reply_to":3,"body":"Understood."}`)}}}
-			}
-			settled := manager.settleReplies(context.Background(), store.machine, store.agentRun, request)
-			unanswered, notes := settled.unanswered, settled.notes
-			require.Empty(t, unanswered)
-			require.Empty(t, notes)
-			require.Len(t, runtime.continuations, 1)
-			argv := runtime.continuations[0]
-			require.Equal(t, domain.AgentLiveReplyPrompt([]int64{3}), argv[len(argv)-1], "only the reply is asked for")
-			require.Contains(t, argv, replySession, "on the attempt's own session")
-			require.NotContains(t, argv, "Implement dark mode")
-			require.Equal(t, map[string]string{"OTHER": "value"}, runtime.secrets[0])
-			require.Empty(t, store.outputChunks, "its output is not the attempt's")
-			require.Len(t, store.recorded, 1, "the reply it wrote is collected")
-			require.Equal(t, 2, runtime.takes)
-			types := []string{}
-			for _, event := range store.events {
-				types = append(types, event.EventType)
-			}
-			require.Contains(t, types, "agent_live_messages.reply_requested")
+const claudeConclusion = `{"type":"result","subtype":"success","is_error":false,"result":"Implemented the toggle and ran the tests."}`
 
-			// Still no reply: it is not asked a second time. The message is
-			// noted as unanswered and the attempt stays as it ended.
-			store, runtime, manager = replyFixture(name)
-			request = store.taskAttempt(t, harness)
-			store.settled, store.owed = []int64{3, 4}, [][]int64{{3}}
-			settled = manager.settleReplies(context.Background(), store.machine, store.agentRun, request)
-			unanswered, notes = settled.unanswered, settled.notes
-			require.Equal(t, []int64{3}, unanswered)
-			require.Equal(t, []string{domain.UnansweredMessageNote([]int64{3})}, notes)
-			require.Len(t, runtime.continuations, 1, "one continuation, never a loop")
+// closingPrompt is the prompt of the attempt's closing continuation.
+func closingPrompt(t *testing.T, runtime *notebookRuntimeFake) string {
+	t.Helper()
+	require.Len(t, runtime.runs, 2, "the attempt and one continuation")
+	require.Equal(t, closingSuffix, runtime.runs[1].ContainerSuffix)
+	var argv []string
+	require.NoError(t, json.Unmarshal(runtime.runs[1].CommandArgv, &argv))
+	require.Equal(t, []string{"harness", "resume", "0c9a6c1e-session", "-p"}, argv[:4], "it continues the attempt's own session")
+	return argv[4]
+}
 
-			// A continuation that cannot run changes nothing either.
-			store, runtime, manager = replyFixture(name)
-			request = store.taskAttempt(t, harness)
-			store.settled, store.owed = []int64{3}, [][]int64{{3}}
-			runtime.continueErr = errors.New("docker is unavailable")
-			settled = manager.settleReplies(context.Background(), store.machine, store.agentRun, request)
-			unanswered, notes = settled.unanswered, settled.notes
-			require.Equal(t, []int64{3}, unanswered)
-			require.Len(t, notes, 1)
-		})
+func runResult(t *testing.T, run *domain.DevMachineAgentRun) agent.RunResult {
+	t.Helper()
+	var result agent.RunResult
+	require.NoError(t, json.Unmarshal(*run.Result, &result))
+	return result
+}
+
+// An attempt gets one extra turn, whatever is missing. One that ended well
+// without replying to a message and without a notebook update is asked for
+// both in the same closing continuation: one container, one prompt, one mark.
+func TestOneClosingContinuationAsksForTheReplyAndTheNotebook(t *testing.T) {
+	completed, store, runtime := notebookRun(t, notebookScenario{provider: "claude-code", required: true, session: "0c9a6c1e-session", continuation: resumeCommand,
+		stdout: claudeConclusion, unanswered: []int64{3},
+		afterAsk: func(store *notebookStoreFake) { store.updates, store.unanswered = 1, nil }})
+	prompt := closingPrompt(t, runtime)
+	require.Contains(t, prompt, "2 things are missing before this step can close:")
+	require.Contains(t, prompt, "1. you did not reply to message 3 from the person who owns this task")
+	require.Contains(t, prompt, `{"to":"orchestrator","reply_to":<message number>,"body":"..."}`)
+	require.Contains(t, prompt, "2. you did not write `.kuayle/outbox/notebook.json`")
+	require.Contains(t, prompt, "Do nothing else")
+	require.Equal(t, 1, store.asked, "one mark for both")
+	require.Equal(t, []string{closingSuffix}, runtime.removed)
+	require.False(t, agentHasLiveInbox(&runtime.runs[1]), "nothing is delivered to the continuation")
+	// The outbox is collected after it, and both are then settled.
+	require.Equal(t, []string{"take", "take"}, runtime.steps)
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, completed.Status)
+	result := runResult(t, completed)
+	require.Empty(t, result.UnansweredMessages)
+	require.Empty(t, result.RiskNotes)
+	require.Empty(t, store.fallbacks)
+	require.Equal(t, "Implemented the toggle and ran the tests.", *completed.Summary, "the continuation's reply is not the attempt's summary")
+
+	// The agent does only one of the two: the other is noted, and the
+	// attempt is not asked again.
+	completed, store, runtime = notebookRun(t, notebookScenario{provider: "claude-code", required: true, session: "0c9a6c1e-session", continuation: resumeCommand,
+		stdout: claudeConclusion, unanswered: []int64{3, 4},
+		afterAsk: func(store *notebookStoreFake) { store.updates, store.unanswered = 1, []int64{4} }})
+	require.Len(t, runtime.runs, 2, "never a second continuation")
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, completed.Status)
+	result = runResult(t, completed)
+	require.Equal(t, []int64{4}, result.UnansweredMessages)
+	require.Equal(t, []string{domain.UnansweredMessageNote([]int64{4})}, result.RiskNotes)
+	require.Empty(t, store.fallbacks, "the notebook was written")
+}
+
+// Only a reply is missing: the continuation asks for that alone, with or
+// without a notebook to keep.
+func TestTheClosingContinuationAsksForAMissingReplyAlone(t *testing.T) {
+	for name, required := range map[string]bool{"no notebook": false, "a notebook that was updated": true} {
+		completed, store, runtime := notebookRun(t, notebookScenario{provider: "codex", required: required, updates: 1, session: "0c9a6c1e-session", continuation: resumeCommand,
+			stdout:     `{"type":"item.completed","item":{"type":"agent_message","text":"Implemented the toggle and ran the tests."}}`,
+			unanswered: []int64{3}, afterAsk: func(store *notebookStoreFake) { store.unanswered = nil }})
+		prompt := closingPrompt(t, runtime)
+		require.Contains(t, prompt, "One thing is missing before this step can close: you did not reply to message 3", name)
+		require.NotContains(t, prompt, "notebook.json", name)
+		require.Equal(t, 1, store.asked, name)
+		require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, completed.Status, name)
+		result := runResult(t, completed)
+		require.Empty(t, result.UnansweredMessages, name)
+		require.Empty(t, result.RiskNotes, name)
 	}
 }
 
-// The continuation is only for an attempt that ended well and that nobody
-// cancelled, with a session to continue; and it uses the sign-in the attempt
-// may have refreshed, not the one it started with.
-func TestOnlyAFinishedAttemptWithASessionIsAskedAgain(t *testing.T) {
-	claude := agent.NewClaudeCodeProvider("")
-	for name, change := range map[string]func(*replyStoreFake, *liveReplyRequest){
-		"an attempt that did not end well": func(_ *replyStoreFake, request *liveReplyRequest) { request.finished = false },
-		"a cancelled attempt": func(store *replyStoreFake, _ *liveReplyRequest) {
-			store.agentRun.Status = domain.DevMachineAgentRunStatusCancelled
-		},
-		"an attempt without a session": func(store *replyStoreFake, _ *liveReplyRequest) { store.agentRun.NativeSessionID = nil },
-		"a run that is not a task's":   func(store *replyStoreFake, _ *liveReplyRequest) { store.agentRun.TaskID = nil },
-		"an argv Kuayle did not build": func(store *replyStoreFake, _ *liveReplyRequest) {
-			store.agentRun.CommandArgv = json.RawMessage(`["claude","-p","x"]`)
-		},
+// Only the notebook is missing: nothing is said about replies. And with
+// nothing missing there is no continuation at all.
+func TestTheClosingContinuationAsksOnlyForWhatIsMissing(t *testing.T) {
+	_, store, runtime := notebookRun(t, notebookScenario{provider: "claude-code", required: true, session: "0c9a6c1e-session", continuation: resumeCommand,
+		stdout: claudeConclusion, afterAsk: func(store *notebookStoreFake) { store.updates = 1 }})
+	prompt := closingPrompt(t, runtime)
+	require.Contains(t, prompt, "One thing is missing before this step can close: you did not write `.kuayle/outbox/notebook.json`")
+	require.NotContains(t, prompt, "reply_to")
+	require.Equal(t, 1, store.asked)
+
+	completed, store, runtime := notebookRun(t, notebookScenario{provider: "claude-code", required: true, updates: 1, session: "0c9a6c1e-session", continuation: resumeCommand, stdout: claudeConclusion})
+	require.Len(t, runtime.runs, 1)
+	require.Zero(t, store.asked)
+	require.Empty(t, runtime.removed)
+	require.Empty(t, runResult(t, completed).RiskNotes)
+}
+
+// A missing reply never changes how the attempt ended. Asked and still
+// unanswered, without a session to continue, or already asked once: the
+// attempt stays a success and the result notes the message.
+func TestAMissingReplyNeverChangesTheOutcome(t *testing.T) {
+	for name, scenario := range map[string]notebookScenario{
+		"still unanswered after being asked": {provider: "claude-code", session: "0c9a6c1e-session", continuation: resumeCommand, stdout: claudeConclusion},
+		"a harness without a session":        {provider: "opencode"},
+		"an attempt already asked":           {provider: "claude-code", session: "0c9a6c1e-session", continuation: resumeCommand, stdout: claudeConclusion, alreadyAsked: true},
+		"a continuation that cannot start":   {provider: "claude-code", session: "0c9a6c1e-session", continuation: resumeCommand, stdout: claudeConclusion, failCall: 2},
 	} {
-		store, runtime, manager := replyFixture("claude-code")
-		request := store.taskAttempt(t, claude)
-		store.settled, store.owed = []int64{3}, [][]int64{{3}}
-		change(store, &request)
-		unanswered := manager.settleReplies(context.Background(), store.machine, store.agentRun, request).unanswered
-		require.Equal(t, []int64{3}, unanswered, name)
-		require.Empty(t, runtime.continuations, name)
+		scenario.unanswered = []int64{3}
+		completed, _, runtime := notebookRun(t, scenario)
+		require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, completed.Status, name)
+		require.Nil(t, completed.ErrorMessage, name)
+		result := runResult(t, completed)
+		require.Equal(t, []int64{3}, result.UnansweredMessages, name)
+		require.Equal(t, []string{domain.UnansweredMessageNote([]int64{3})}, result.RiskNotes, name)
+		require.LessOrEqual(t, len(runtime.runs), 2, name)
 	}
-
-	store, runtime, manager := replyFixture("claude-code")
-	request := store.taskAttempt(t, claude)
-	name := signInSecretNames["claude-code"]
-	require.NotEmpty(t, name)
-	request.secrets.Environment[name], request.signIn = "sign-in-at-start", "sign-in-refreshed"
-	store.settled, store.owed = []int64{3}, [][]int64{{}}
-	manager.settleReplies(context.Background(), store.machine, store.agentRun, request)
-	require.Len(t, runtime.secrets, 1)
-	require.Equal(t, "sign-in-refreshed", runtime.secrets[0][name])
-	require.Equal(t, "sign-in-at-start", request.secrets.Environment[name], "the attempt's own secrets are left alone")
+	// An attempt that did not end well is not asked: its own reason stands.
+	completed, store, runtime := notebookRun(t, notebookScenario{provider: "claude-code", session: "0c9a6c1e-session", continuation: resumeCommand, stdout: claudeConclusion, exit: 2, unanswered: []int64{3}})
+	require.Equal(t, domain.DevMachineAgentRunStatusFailed, completed.Status)
+	require.Len(t, runtime.runs, 1)
+	require.Zero(t, store.asked)
+	require.Empty(t, runResult(t, completed).RiskNotes)
 }
 
 // A reply Kuayle could not collect is not a missing reply: when the outbox
 // cannot be read nothing is concluded about the attempt's messages, the
-// agent is not asked again, and the result says the problem is Kuayle's.
+// agent is not asked, and the result says the problem is Kuayle's. A message
+// that reached the inbox just before the harness exited is queued again all
+// the same.
 func TestAReplyThatCouldNotBeCollectedIsNotAMissingReply(t *testing.T) {
-	store, runtime, manager := replyFixture("claude-code")
-	request := store.taskAttempt(t, agent.NewClaudeCodeProvider(""))
-	store.settled, store.owed = []int64{3}, [][]int64{{3}}
-	runtime.takeErr = errors.New("exec failed")
-	settled := manager.settleReplies(context.Background(), store.machine, store.agentRun, request)
-			unanswered, notes := settled.unanswered, settled.notes
-	require.Empty(t, unanswered, "nothing is said to be unanswered")
-	require.True(t, settled.unknown, "whether the agent replied is not known")
-	require.Equal(t, []string{liveCollectFailedNote}, notes)
+	started := time.Now()
+	completed, store, runtime := notebookRun(t, notebookScenario{provider: "claude-code", session: "0c9a6c1e-session", continuation: resumeCommand, stdout: claudeConclusion,
+		unanswered: []int64{3}, takeErr: errors.New("exec failed")})
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, completed.Status)
+	result := runResult(t, completed)
+	require.Empty(t, result.UnansweredMessages, "nothing is said to be unanswered")
+	require.True(t, result.RepliesUnknown)
+	require.Equal(t, []string{liveCollectFailedNote}, result.RiskNotes)
 	require.Contains(t, liveCollectFailedNote, "Kuayle's side")
-	// A message that reached the inbox just before the harness exited is
-	// still queued again: that does not depend on the outbox.
-	require.Equal(t, 1, store.settles)
-	require.False(t, store.unread.IsZero())
-	require.Empty(t, runtime.continuations)
-	types := []string{}
-	for _, event := range store.events {
-		types = append(types, event.EventType)
-	}
-	require.Contains(t, types, "agent_live_messages.collect_failed")
-
-	// The developer container being gone is the same.
-	store, _, manager = replyFixture("claude-code")
-	request = store.taskAttempt(t, agent.NewClaudeCodeProvider(""))
-	store.settled, store.owed = []int64{3}, [][]int64{{3}}
-	store.services = nil
-	settled = manager.settleReplies(context.Background(), store.machine, store.agentRun, request)
-			unanswered, notes = settled.unanswered, settled.notes
-	require.Empty(t, unanswered)
-	require.Equal(t, []string{liveCollectFailedNote}, notes)
+	require.Len(t, runtime.runs, 1, "the agent is not asked for what Kuayle failed to read")
+	require.Zero(t, store.asked)
+	require.Equal(t, 1, store.settles, "late inbox messages are still queued again")
+	// What may be unread is measured from when the harness exited.
+	require.False(t, store.unread.Before(started.Add(-liveReplyGrace)))
+	require.False(t, store.unread.After(time.Now().Add(-liveReplyGrace)))
 
 	// An attempt that owed no reply has none that could be missing.
-	store, runtime, manager = replyFixture("claude-code")
-	request = store.taskAttempt(t, agent.NewClaudeCodeProvider(""))
-	runtime.takeErr = errors.New("exec failed")
-	settled = manager.settleReplies(context.Background(), store.machine, store.agentRun, request)
-			unanswered, notes = settled.unanswered, settled.notes
-	require.Empty(t, unanswered)
-	require.Empty(t, notes)
+	completed, _, _ = notebookRun(t, notebookScenario{provider: "claude-code", session: "0c9a6c1e-session", continuation: resumeCommand, stdout: claudeConclusion, takeErr: errors.New("exec failed")})
+	result = runResult(t, completed)
+	require.False(t, result.RepliesUnknown)
+	require.Empty(t, result.RiskNotes)
 
 	// The collection after the continuation failing is said too.
-	store, runtime, manager = replyFixture("claude-code")
-	request = store.taskAttempt(t, agent.NewClaudeCodeProvider(""))
-	store.settled, store.owed = []int64{3}, [][]int64{{3}}
-	runtime.onContinue = func(*AgentObserver) { runtime.takeErr = errors.New("exec failed") }
-	settled = manager.settleReplies(context.Background(), store.machine, store.agentRun, request)
-			unanswered, notes = settled.unanswered, settled.notes
-	require.Empty(t, unanswered)
-	require.Equal(t, []string{liveCollectFailedNote}, notes)
+	var asked *notebookRuntimeFake
+	scenario := notebookScenario{provider: "claude-code", session: "0c9a6c1e-session", continuation: resumeCommand, stdout: claudeConclusion, unanswered: []int64{3}}
+	scenario.afterAsk = func(*notebookStoreFake) { asked.takeErr = errors.New("exec failed") }
+	completed, _, asked = notebookRunWith(t, scenario, func(runtime *notebookRuntimeFake) { asked = runtime })
+	require.Len(t, asked.runs, 2)
+	result = runResult(t, completed)
+	require.True(t, result.RepliesUnknown)
+	require.Empty(t, result.UnansweredMessages)
+	require.Equal(t, []string{liveCollectFailedNote}, result.RiskNotes)
 }
 
 // While the attempt runs its inbox says which messages still owe a reply
@@ -359,40 +321,37 @@ func TestTheInboxListsTheMessagesStillOwedAReply(t *testing.T) {
 	require.Empty(t, lists())
 }
 
-// The run is still recorded as running while it is asked for a reply, and a
-// run past its time limit is killed and marked as timed out. So the
-// continuation never runs past the attempt's own limit, and is skipped when
-// too little of it is left: it must not change how the attempt ended.
-func TestTheReplyContinuationStaysWithinTheAttemptsTimeLimit(t *testing.T) {
-	claude := agent.NewClaudeCodeProvider("")
-	store, runtime, manager := replyFixture("claude-code")
-	request := store.taskAttempt(t, claude)
-	store.settled, store.owed = []int64{3}, [][]int64{{}}
-	request.deadline = time.Now().Add(2 * time.Minute)
-	manager.settleReplies(context.Background(), store.machine, store.agentRun, request)
-	require.Len(t, runtime.deadlines, 1)
-	require.False(t, runtime.deadlines[0].After(request.deadline.Add(-liveReplyMargin)), "it ends before the attempt's limit, with room to record the result")
-	require.True(t, runtime.deadlines[0].After(time.Now()))
-
-	// With plenty of time left it gets its own bound.
-	store, runtime, manager = replyFixture("claude-code")
-	request = store.taskAttempt(t, claude)
-	store.settled, store.owed = []int64{3}, [][]int64{{}}
-	manager.settleReplies(context.Background(), store.machine, store.agentRun, request)
-	require.WithinDuration(t, time.Now().Add(liveReplyTimeout), runtime.deadlines[0], 5*time.Second)
-
+// The run is still recorded as running during its closing continuation, and
+// a run past its time limit is killed and marked as timed out. So the
+// continuation, whatever it asks for, never runs past the attempt's own
+// limit, and is skipped (without using up the attempt's one ask) when too
+// little is left: it must not change how the attempt ended.
+func TestTheClosingContinuationStaysWithinTheAttemptsTimeLimit(t *testing.T) {
+	limit := time.Now().Add(2 * time.Minute)
+	end, enough := closingEnd(limit)
+	require.True(t, enough)
+	require.False(t, end.After(limit.Add(-closingMargin)), "it ends before the attempt's limit, with room to record the result")
+	end, enough = closingEnd(time.Now().Add(time.Hour))
+	require.True(t, enough)
+	require.WithinDuration(t, time.Now().Add(closingTimeout), end, 5*time.Second, "with plenty of time left it has its own bound")
 	for name, deadline := range map[string]time.Time{
-		"almost at the limit": time.Now().Add(liveReplyMargin + liveReplyMinimum - time.Second),
+		"almost at the limit": time.Now().Add(closingMargin + closingMinimum - time.Second),
 		"past the limit":      time.Now().Add(-time.Second),
 		"an unknown limit":    {},
 	} {
-		store, runtime, manager = replyFixture("claude-code")
-		request = store.taskAttempt(t, claude)
-		store.settled, store.owed = []int64{3}, [][]int64{{3}}
-		request.deadline = deadline
-		settled := manager.settleReplies(context.Background(), store.machine, store.agentRun, request)
-		require.Empty(t, runtime.continuations, name)
-		require.Equal(t, []int64{3}, settled.unanswered, name)
-		require.Equal(t, []string{domain.UnansweredMessageNote([]int64{3})}, settled.notes, name)
+		_, enough = closingEnd(deadline)
+		require.False(t, enough, name)
 	}
+
+	// An attempt that finished close to its limit is not asked, for a reply
+	// or for the notebook: it stays a success, and Kuayle notes both.
+	completed, store, runtime := notebookRun(t, notebookScenario{provider: "claude-code", required: true, session: "0c9a6c1e-session", continuation: resumeCommand,
+		stdout: claudeConclusion, unanswered: []int64{3}, maxRuntime: 60})
+	require.Len(t, runtime.runs, 1)
+	require.Zero(t, store.asked, "its one ask is not used up either")
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, completed.Status)
+	result := runResult(t, completed)
+	require.Equal(t, []int64{3}, result.UnansweredMessages)
+	require.Contains(t, result.RiskNotes, domain.UnansweredMessageNote([]int64{3}))
+	require.Len(t, store.fallbacks, 1, "Kuayle records the attempt in the notebook itself")
 }

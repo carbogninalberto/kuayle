@@ -575,7 +575,9 @@ func (s *AssistantApprovals) followUp(ctx context.Context, ws, conversation uuid
 	}
 	if err == nil {
 		model, server := followUpModel(choice, payload)
-		task, err = s.reviews.Retry(ctx, ws, payload.TaskID, domain.AgentTaskRetryRequest{RequestID: approval.RequestID, Generation: payload.Generation, Prompt: chatFollowUpPrompt(task.Prompt, payload.Instructions, review), Model: model, RequestedModelServerID: server})
+		task, err = s.reviews.Retry(ctx, ws, payload.TaskID, domain.AgentTaskRetryRequest{RequestID: approval.RequestID, Generation: payload.Generation, Prompt: chatFollowUpPrompt(task.Prompt, payload.Instructions, review), Model: model, RequestedModelServerID: server,
+			// The person approved these instructions; the assistant drafted them.
+			Note: &domain.NotebookNote{Instruction: &domain.NotebookInstruction{Source: domain.NotebookInstructionFollowUp, Assistant: true, Text: payload.Instructions}}})
 	}
 	if err != nil {
 		if errors.Is(err, repository.ErrConversationNotFound) || errors.Is(err, repository.ErrAgentTaskUnauthorized) {
