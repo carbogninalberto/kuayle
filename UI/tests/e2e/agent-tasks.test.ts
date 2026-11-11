@@ -2067,6 +2067,115 @@ test('the top bar opens the agent thread as a readable session, linked by the UR
 	await expect(target).toHaveAccessibleName('Send to: Assistant');
 });
 
+// An OpenCode run (`opencode run --format json`) as the manager stores it.
+function openCodeRun() {
+	const start = Date.parse('2026-10-26T10:01:00Z');
+	const ids = { sessionID: 'ses_example0001', messageID: 'msg_example0001' };
+	const event = (type: string, offset: number, part?: any) => ({
+		type,
+		timestamp: start + offset,
+		sessionID: ids.sessionID,
+		...(part ? { part: { id: `prt_${offset}`, ...ids, ...part } } : {})
+	});
+	const tool = (offset: number, name: string, callID: string, state: any) =>
+		event('tool_use', offset, { type: 'tool', tool: name, callID, state });
+	const stepEnd = (offset: number, reason: string) =>
+		event('step_finish', offset, {
+			reason,
+			type: 'step-finish',
+			tokens: { total: 1200, input: 1000, output: 150, reasoning: 50, cache: { write: 0, read: 800 } },
+			cost: 0.0012
+		});
+	const lines = [
+		event('step_start', 0, { type: 'step-start' }),
+		event('text', 1000, {
+			type: 'text',
+			text: 'I will add the **search** filter.',
+			time: { start, end: start + 1000 }
+		}),
+		tool(5000, 'bash', 'call_1', {
+			status: 'completed',
+			input: { command: 'npm test', description: 'Run the unit tests' },
+			output: '12 passing\n<img src=x onerror="window.pwned=1">',
+			metadata: { exit: 0, truncated: false },
+			title: 'Run the unit tests',
+			time: { start: start + 2000, end: start + 5000 }
+		}),
+		tool(5200, 'edit', 'call_2', {
+			status: 'completed',
+			input: { filePath: '/workspace/repo/src/search.ts', oldString: 'a', newString: 'b' },
+			output: 'Edit applied successfully.',
+			metadata: { diff: '-a\n+b\n', truncated: false },
+			title: 'src/search.ts',
+			time: { start: start + 5100, end: start + 5200 }
+		}),
+		tool(5300, 'bash', 'call_3', {
+			status: 'error',
+			input: { command: 'git push' },
+			error: 'The user rejected permission to use this specific tool call.',
+			time: { start: start + 5250, end: start + 5300 }
+		}),
+		stepEnd(5400, 'tool-calls'),
+		event('session_compacted', 5450, { type: 'compaction', auto: true }),
+		event('step_start', 5500, { type: 'step-start' }),
+		event('text', 8000, {
+			type: 'text',
+			text: 'Search is in place.\n\n- filter added\n- tests pass',
+			time: { start: start + 7000, end: start + 8000 }
+		}),
+		stepEnd(9000, 'stop')
+	];
+	return lines.map((value, i) => ({
+		id: i + 1,
+		agent_run_id: 'run-1',
+		stream: 'stdout',
+		sequence: i + 1,
+		content: JSON.stringify(value) + '\n',
+		truncated: false,
+		// Recorded in one batch: durations come from OpenCode's own clock.
+		created_at: '2026-10-26T10:01:09Z'
+	}));
+}
+
+test('an OpenCode run reads as a session: Markdown messages and one chip per tool call', async ({ page }) => {
+	const { state } = await fixture(page);
+	state.task = runningTask({ provider: 'opencode', model: 'opencode-go/example-model', state: 'awaiting_review' });
+	state.logs = openCodeRun();
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const session = page.getByRole('region', { name: 'Agent session' });
+	const messages = session.getByRole('article', { name: 'Agent' });
+	await expect(messages).toHaveCount(2);
+	await expect(messages.first().locator('strong')).toHaveText('search');
+	await expect(messages.last().getByRole('listitem')).toHaveText(['filter added', 'tests pass']);
+	await expect(session.getByText('Finished in 9s')).toBeVisible();
+	// No native JSON in the readable view; what is not understood stays inspectable.
+	await expect(session.getByText('step_finish', { exact: false })).toHaveCount(0);
+	await session.getByRole('button', { name: '1 other events' }).click();
+	await expect(session.getByText('session_compacted', { exact: true })).toBeVisible();
+
+	// The calls fold into one row; each chip opens to its input and result.
+	const group = session.getByRole('button', { name: /Used 3 tools/ });
+	await expect(group).toContainText('1 failed');
+	await group.click();
+	const chip = session.getByRole('button', { name: /Run the unit tests/ });
+	await expect(chip).toContainText('3s');
+	await chip.click();
+	await expect(session.getByText('npm test', { exact: true })).toBeVisible();
+	await expect(session.getByText('12 passing', { exact: false })).toBeVisible();
+	await expect(session.locator('img')).toHaveCount(0);
+	expect(await page.evaluate(() => (window as any).pwned)).toBeUndefined();
+	await expect(session.getByRole('button', { name: /edit: src\/search\.ts/ })).toBeVisible();
+	const failed = session.getByRole('button', { name: /git push/ });
+	await expect(failed).toHaveAccessibleName(/^Failed: /);
+	await failed.click();
+	await expect(session.getByText('The user rejected permission to use this specific tool call.')).toBeVisible();
+
+	const raw = session.getByRole('button', { name: 'Raw', exact: true });
+	await raw.click();
+	await expect(session.getByText('"type":"step_finish"', { exact: false })).toBeVisible();
+	await expect(session.getByText('"type":"session_compacted"', { exact: false })).toBeVisible();
+});
+
 test('a question from the agent is answered right under it in the agent view', async ({ page }, testInfo) => {
 	const { state } = await fixture(page);
 	state.task = runningTask({ provider: 'codex', model: 'deepseek-flash' });
