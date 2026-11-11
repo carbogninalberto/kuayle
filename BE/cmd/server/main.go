@@ -217,7 +217,10 @@ func main() {
 	// them in a task's prompt is WorkspaceMemoryService.ApprovedLessons.
 	// Lessons are redacted before they are stored, with the machines' secrets.
 	repository.ConfigureLessonRedaction(devMachineEncKey)
-	memoryH := handler.NewWorkspaceMemoryHandler(service.NewWorkspaceMemoryService(repository.NewWorkspaceMemoryRepository(db), devMachineSvc.MachineSecretValues))
+	memorySvc := service.NewWorkspaceMemoryService(repository.NewWorkspaceMemoryRepository(db), devMachineSvc.MachineSecretValues)
+	// Approved lessons go into the prompt of every attempt on their repository.
+	agentTaskSvc.SetMemory(memorySvc)
+	memoryH := handler.NewWorkspaceMemoryHandler(memorySvc)
 	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))
 	assistantTools.SetRepositories(devMachineRepo)
 	assistantTools.SetLiveChannel(repository.NewAgentTaskRepository(db))

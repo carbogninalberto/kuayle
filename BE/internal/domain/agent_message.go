@@ -43,6 +43,10 @@ type AgentOutboxFile struct {
 	Name     string
 	Data     []byte
 	Oversize bool
+	// Ack is set on a file that is still in the outbox (a notebook update,
+	// which is removed only once it is recorded): the token that removes
+	// exactly this content.
+	Ack string
 }
 
 // AgentOutboxMessage is a parsed outbox file. Kind is set only for messages

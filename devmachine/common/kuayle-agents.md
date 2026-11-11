@@ -131,6 +131,54 @@ edits or drops it, and only approved lessons appear in later agents' prompts.
 The same lesson is proposed once, and a task may propose 3; more are refused
 and shown as refused in Kuayle. Review tasks cannot propose lessons.
 
+## kuayle-notebook: update the task notebook before you finish
+
+Kuayle keeps one notebook per task, outside the worktree, and gives it whole
+to the agent of every step as instructions: what people asked, the plan,
+decisions, what is done, what remains, how to verify, and open findings of
+reviews and checks. Read it first and do not repeat work it records as done.
+
+Before your final message, record your step by writing
+`.kuayle/outbox/notebook.json` in your worktree (write it under a hidden name
+and rename it, as for messages). It is one JSON object with any of these
+fields and no others:
+
+```json
+{
+  "done": ["Added migration 000150 and the repository"],
+  "remaining": ["Wire the API route"],
+  "verify": ["cd BE && go test ./internal/repository -run Notebook"],
+  "decisions": [{"decision": "One JSON document per task", "why": "small and bounded"}],
+  "plan": {"steps": [{"title": "Add the route", "files": ["BE/cmd/server/routes.go"], "commands": ["go test ./..."], "acceptance": "GET returns the notebook", "done": false}]},
+  "findings": [{"text": "The fixture needs a database"}],
+  "resolved": [3]
+}
+```
+
+`done`, `decisions` and `findings` are added to the notebook; `plan.steps`,
+`remaining` and `verify` replace what was there, so send the whole list (`[]`
+clears it; `null` or leaving the field out keeps it); `resolved` lists the
+numbers of findings you fixed. An update may do only that, for example
+`{"resolved":[3]}`. Write the update in the attempt it belongs to: a file left
+from an earlier attempt does not count, and an update that changes nothing
+counts only when you changed nothing in the worktree either.
+
+Limits: each text at most 600 bytes, each list at most 40 entries (a step's
+`files` and `commands` included), the file at most 16 KB. Longer texts and
+lists are cut, keeping the first entries, and unknown fields are ignored;
+the notebook's events then say what was cut or ignored, so check the field
+names if you see such a line. You
+cannot write what people asked (`instructions`), Kuayle's `events` or the
+plan's text (`plan.text`): an update that names one of them is refused whole.
+
+If you finish without a valid update, Kuayle asks you once more in the same
+session (Claude Code and Codex): write the file then and nothing else.
+Otherwise, or if it is still missing, Kuayle records your final message in
+the notebook itself and marks your step as not having updated it; your work
+is kept either way. A planning step writes an update too (its worktree is
+read-only except `.kuayle/`), usually with `plan.steps` and `decisions`.
+Never put credentials in the notebook; Kuayle redacts the ones it knows.
+
 ## kuayle-live-channel: read messages while you work
 
 The person who owns your task (directly, or through the Kuayle orchestrator on

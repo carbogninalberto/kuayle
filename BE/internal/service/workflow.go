@@ -686,6 +686,29 @@ func (s *WorkflowService) Validate(ctx context.Context, ws uuid.UUID, raw json.R
 	return s.graphIssues(ctx, ws, raw)
 }
 
+// Warnings are the problems of a graph that do not stop it from being saved
+// or run (domain.WorkflowWarnings): today, a planning profile on a step
+// whose name or prompt tells it to implement. A graph that cannot be read
+// has none; Validate reports why it cannot.
+func (s *WorkflowService) Warnings(ctx context.Context, ws uuid.UUID, raw json.RawMessage) ([]domain.WorkflowIssue, error) {
+	if _, _, err := s.access(ctx, ws); err != nil {
+		return nil, err
+	}
+	graph, err := domain.ParseWorkflowGraph(raw)
+	if err != nil {
+		var invalid *domain.WorkflowInvalidError
+		if errors.As(err, &invalid) {
+			return []domain.WorkflowIssue{}, nil
+		}
+		return nil, err
+	}
+	profiles, err := s.repo.ActiveProfiles(ctx, ws)
+	if err != nil {
+		return nil, err
+	}
+	return domain.WorkflowWarnings(*graph, profiles), nil
+}
+
 // graphIssues is every problem of a graph: its structure
 // (domain.ValidateWorkflowGraph) and each agent step whose profile cannot
 // start a task, reported on that step with the step and profile named.

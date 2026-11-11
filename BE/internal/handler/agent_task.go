@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -261,6 +262,10 @@ func (h *AgentTaskHandler) Retry(c *echo.Context) error {
 	if err = bindTask(c, &input); err != nil {
 		return agentTaskError(c, err)
 	}
+	// A person retried with these instructions: when they differ from what
+	// the task's notebook already holds, they are recorded in it.
+	request, _, _ := strings.Cut(input.Prompt, domain.TaskFollowUpMarker)
+	input.Note = &domain.NotebookNote{Instruction: &domain.NotebookInstruction{Source: domain.NotebookInstructionRetry, Text: request}}
 	result, err := h.svc.Retry(c.Request().Context(), middleware.GetWorkspace(c).ID, id, input)
 	if err != nil {
 		return agentTaskError(c, err)
@@ -415,6 +420,40 @@ func (h *AgentTaskHandler) Logs(c *echo.Context) error {
 	if err != nil {
 		return agentTaskError(c, err)
 	}
+	return response.Success(c, http.StatusOK, result)
+}
+
+// Notebook returns the task's notebook and its newest changes to the task's
+// creator. There is no write route: agents update it through their outbox,
+// and people add instructions through the task's message routes.
+func (h *AgentTaskHandler) Notebook(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.Notebook(c.Request().Context(), middleware.GetWorkspace(c).ID, id)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	c.Response().Header().Set("Cache-Control", "private, no-store")
+	return response.Success(c, http.StatusOK, result)
+}
+
+// Prompt returns the prompt an attempt received, split by source.
+func (h *AgentTaskHandler) Prompt(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	run, err := taskID(c, "runId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.RunPrompt(c.Request().Context(), middleware.GetWorkspace(c).ID, id, run)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	c.Response().Header().Set("Cache-Control", "private, no-store")
 	return response.Success(c, http.StatusOK, result)
 }
 

@@ -54,7 +54,20 @@ func (r *DevMachineRepository) RecordAgentOutbox(ctx context.Context, machineID 
 		if task == nil {
 			continue
 		}
-		count, err := messages.RecordTaskOutbox(ctx, *task, group)
+		// Notebook updates are not messages: they are validated and merged
+		// into the task's notebook.
+		var updates, letters []domain.AgentOutboxFile
+		for _, file := range group {
+			if domain.IsNotebookOutboxFile(file.Name) {
+				updates = append(updates, file)
+			} else {
+				letters = append(letters, file)
+			}
+		}
+		if err = r.recordNotebookUpdates(ctx, *task, updates); err != nil {
+			errs = append(errs, err)
+		}
+		count, err := messages.RecordTaskOutbox(ctx, *task, letters)
 		recorded += count
 		if err != nil {
 			errs = append(errs, err)

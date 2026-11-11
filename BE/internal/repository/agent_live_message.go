@@ -95,6 +95,12 @@ func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.
 	if err != nil {
 		return nil, err
 	}
+	// What a person tells the agent is part of the task's notebook. A message
+	// the assistant drafted and the person approved is marked as such.
+	if err = noteNotebook(ctx, tx, id, &actor, domain.NotebookNote{Instruction: &domain.NotebookInstruction{
+		Source: domain.NotebookInstructionLive, AuthorID: &actor, Assistant: sender == domain.AgentLiveSenderOrchestrator, Text: message.Body, At: message.CreatedAt}}); err != nil {
+		return nil, err
+	}
 	if err = liveMessageEvents(ctx, tx, []domain.AgentLiveMessage{message}); err != nil {
 		return nil, err
 	}
