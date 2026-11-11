@@ -415,6 +415,9 @@ test('a workflow task reads as a timeline: one labelled section per step, the ru
 test('the step the task moves to opens and the one it left closes', async ({ page }) => {
 	const { state, emit } = await fixture(page);
 	workflowFixture(state);
+	// A short window, so the timeline is taller than the view on any machine
+	// and there is something to scroll.
+	await page.setViewportSize({ width: 1280, height: 480 });
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1#step-3');
 	// A link to a step opens that step beside the running one.
 	await expect(stepButton(page, 3)).toHaveAttribute('aria-expanded', 'true');
