@@ -288,6 +288,38 @@ func (h *AgentTaskHandler) Pause(c *echo.Context) error {
 	return response.Success(c, http.StatusAccepted, result)
 }
 
+// WorkflowSwitch says what moving the creator's task to the newest version
+// of its workflow would do: where it continues, or why it cannot be moved.
+// It changes nothing.
+func (h *AgentTaskHandler) WorkflowSwitch(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	plan, _, err := h.svc.SwitchWorkflow(c.Request().Context(), middleware.GetWorkspace(c).ID, id, false)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, plan)
+}
+
+// SwitchWorkflow moves the creator's task to the newest version of its
+// workflow. A task that cannot be moved is a conflict that names the reason.
+func (h *AgentTaskHandler) SwitchWorkflow(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	plan, task, err := h.svc.SwitchWorkflow(c.Request().Context(), middleware.GetWorkspace(c).ID, id, true)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	if task == nil {
+		return response.Error(c, http.StatusConflict, "WORKFLOW_SWITCH_REFUSED", plan.Refused)
+	}
+	return response.Success(c, http.StatusOK, map[string]any{"switch": plan, "task": task})
+}
+
 // ResumeUsageLimit is "Resume" on a paused task: a workflow its creator
 // paused, or "Resume now" on a task paused by its agent's usage
 // limit: the next attempt starts at once and continues the same session.

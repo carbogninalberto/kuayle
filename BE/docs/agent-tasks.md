@@ -1723,6 +1723,42 @@ step's `paused_seconds`. The task card shows "Paused" with one Resume button,
 and offers Pause in its menu; `WorkflowPauseControl.svelte` is the same
 control as a standalone component.
 
+### Moving a task to a newer workflow version
+
+A task is pinned to the workflow version it started on; saving the workflow
+only affects later tasks. Its creator can move a running task to the newest
+version (KUA-130). It is never automatic.
+
+- `GET /agent-tasks/:taskId/workflow/switch` says what the move would do and
+  changes nothing: `from_version`, `to_version`, the step the task continues on
+  (`node`, `node_label`), or `refused` with the reason. `POST` on the same path
+  does it, and answers `409 WORKFLOW_SWITCH_REFUSED` with the reason when the
+  task cannot be moved. Both are for the creator, like pause and cancel.
+- The task must be at rest (`domain.WorkflowSwitchBlocked`): paused by a person
+  with the interrupted attempt stopped, or waiting on a step for CI, an approval
+  or a merge. A task whose agent is working is paused first (`not_at_rest`).
+- The task continues on the step it is on, and only if the newest version still
+  has it doing the same kind of work (`domain.MatchWorkflowNode`): the same node
+  ID and type, the same check, and for an agent step a profile with the same
+  behaviour. Label, prompt, limits, the profile and the transitions may differ.
+  Otherwise the move is refused (`step_removed`, `step_changed`) and the task
+  stays on its version: it is never left without a valid step. Choosing another
+  step to continue from is not offered.
+- Visit counts are kept for the steps the newest version still has; iterations,
+  budget extensions and the time already spent are kept. So the new limits and
+  the new budget count what the task already did, and a task can be over a
+  lowered limit at once.
+- The worker's lease is dropped, so what it decided on the old version is
+  refused and it decides again on the new one. A paused task stays paused.
+- The move is recorded in `workflow_audit_events` (`task_workflow`,
+  `version_switched`: who, from and to version, the step, the step sequence).
+- `GET /agent-tasks/:taskId/workflow` returns `latest_version` next to
+  `version`. The task card asks for the plan whenever the task changes state
+  and offers "Move to workflow version N" in its menu; the dialog says where
+  the task continues, or why it cannot be moved
+  ([workflow-switch.ts](../../UI/src/lib/features/assistant/workflow-switch.ts)).
+  The step timeline does not show moves yet.
+
 ## Remaining workflow work
 
 The worker progresses through preparation, native execution (with native

@@ -755,9 +755,12 @@ func (s *WorkflowService) Audit(ctx context.Context, ws uuid.UUID, entity string
 // task's Agents panel. A task without a workflow version shows the Standard
 // graph with its state placed on it.
 type TaskWorkflow struct {
-	WorkflowID     string                `json:"workflow_id"`
-	Name           string                `json:"name"`
-	Version        int                   `json:"version"`
+	WorkflowID string `json:"workflow_id"`
+	Name       string `json:"name"`
+	Version    int    `json:"version"`
+	// LatestVersion is the newest version of the task's workflow; above
+	// Version, the task can be moved to it.
+	LatestVersion  int                   `json:"latest_version"`
 	Builtin        bool                  `json:"builtin"`
 	Graph          json.RawMessage       `json:"graph"`
 	Node           string                `json:"node"`
@@ -803,6 +806,12 @@ func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID) (*
 	}
 	cursor := task.Cursor()
 	out.WorkflowID, out.Name, out.Version, out.Graph = w.ID.String(), w.Name, version.Version, version.Graph
+	// A newer version the task could be moved to (KUA-130); an archived
+	// workflow offers none.
+	out.LatestVersion = version.Version
+	if w.ArchivedAt == nil && w.LatestVersion > version.Version {
+		out.LatestVersion = w.LatestVersion
+	}
 	if w.BuiltinKey != nil {
 		out.WorkflowID, out.Builtin = domain.StandardWorkflowID, true
 	}
