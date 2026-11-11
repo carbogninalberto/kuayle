@@ -188,6 +188,18 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 	const background = new Set<SessionTool>();
 	// Groups made without their call: named when Claude Code says what was asked.
 	const unnamed = new Set<SessionTool>();
+	// Those groups, until the line with their call arrives after all.
+	const callless = new Set<SessionTool>();
+	// A finished subagent has nothing still running in it: a call left without
+	// a result (its line was too large to record) is finished without one.
+	const settle = (tool: SessionTool) => {
+		for (const entry of tool.children ?? []) {
+			if (entry.kind !== 'tool') continue;
+			if (entry.tool.status === 'running') entry.tool.status = 'done';
+			background.delete(entry.tool);
+			settle(entry.tool);
+		}
+	};
 	const subagent = (id: string, line: { key: string; at?: string }, list: SessionEntry[]) => {
 		const tool: SessionTool = {
 			id,
@@ -201,6 +213,7 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 		};
 		tools.set(id, tool);
 		unnamed.add(tool);
+		callless.add(tool);
 		list.push({ kind: 'tool', key: `${line.key}:agent`, tool });
 		return tool;
 	};
@@ -241,6 +254,7 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 				tool.ended = line.at;
 			}
 			background.delete(tool);
+			settle(tool);
 		}
 		return true;
 	};
@@ -313,6 +327,16 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 					const input = isObject(part.input) ? part.input : {};
 					const description = str(input.description).trim();
 					const argument = primaryArgument(input);
+					// The group was made before this line arrived: it stays where it
+					// is, with what it holds, and takes what the call says.
+					const made = tools.get(str(part.id));
+					if (made && callless.delete(made)) {
+						unnamed.delete(made);
+						made.name = name;
+						made.title = truncate(description || (argument ? `${name}: ${argument}` : name));
+						made.input = inputText(part.input);
+						return;
+					}
 					const tool: SessionTool = {
 						id: str(part.id) || key,
 						name,
@@ -333,6 +357,7 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 					if (background.has(tool) && part.is_error !== true) return;
 					tool.status = part.is_error === true ? 'failed' : 'done';
 					tool.ended = line.at;
+					settle(tool);
 				}
 			});
 		} else if (type === 'result') {
@@ -620,8 +645,9 @@ function codexItem(
 	}
 }
 
-// A subagent failed when its call did; it is running while its call or
-// anything under it still is (a background one outlives its call).
+// A subagent failed when its call did. Once it has answered or ended, the
+// calls it had are settled, so it is running only while its call is, or
+// while it makes new calls after returning (one left in the background).
 function subagentStatus(tool: SessionTool): ToolStatus {
 	if (tool.status === 'failed') return 'failed';
 	const busy = (entries: SessionEntry[]): boolean =>

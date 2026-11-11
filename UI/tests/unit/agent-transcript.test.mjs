@@ -1090,3 +1090,91 @@ test('a run without subagents has no groups and no nesting', () => {
 	assert.ok(entries.every((entry) => entry.kind !== 'tool' || entry.tool.children === undefined));
 	assert.ok(groupSession(entries).every((block) => block.kind !== 'subagent'));
 });
+
+test('a subagent that has answered is finished, whatever its calls say', () => {
+	const started = (backgrounded) =>
+		subTask('task_started', 1, {
+			task_id: 'task-a',
+			tool_use_id: 'toolu_a',
+			task_type: 'local_agent',
+			subagent_type: 'general-purpose',
+			description: 'Check the build',
+			prompt: 'Check.',
+			is_backgrounded: backgrounded,
+			spawn_depth: 1
+		});
+	const spawn = subEvent(
+		'assistant',
+		1,
+		null,
+		subCall('toolu_a', 'Agent', { description: 'Check the build', prompt: 'Check.' })
+	);
+	// The result of this call was too large to be recorded.
+	const work = [
+		subEvent('assistant', 2, 'toolu_a', subCall('toolu_a_1', 'Bash', { command: 'cat dist/app.js' })),
+		chunk('[Oversized output line omitted]', subSecond(3), { truncated: true }),
+		subEvent('assistant', 4, 'toolu_a', subCall('toolu_a_2', 'Bash', { command: 'ls dist' })),
+		subEvent('user', 5, 'toolu_a', subAnswer('toolu_a_2', 'app.js'))
+	];
+	const group = (events) => groupSession(parseAgentSession(events)).find((block) => block.kind === 'subagent');
+	const calls = (block) => block.tool.children.map((entry) => `${entry.tool.title} (${entry.tool.status})`);
+	const finished = ['Bash: cat dist/app.js (done)', 'Bash: ls dist (done)'];
+
+	// In the foreground: its result ends it, in a run that is still going.
+	const answered = group([
+		spawn,
+		started(false),
+		...work,
+		subEvent('user', 6, null, subAnswer('toolu_a', 'The build is fine.'))
+	]);
+	assert.equal(answered.status, 'done');
+	assert.deepEqual(calls(answered), finished);
+	assert.equal(answered.tool.children[0].tool.output, undefined);
+
+	// In the background: running with its calls until Claude Code says it ended.
+	const early = subEvent('user', 1, null, subAnswer('toolu_a', 'Started in the background.'));
+	const working = group([spawn, started(true), early, ...work]);
+	assert.equal(working.status, 'running');
+	assert.deepEqual(calls(working), ['Bash: cat dist/app.js (running)', 'Bash: ls dist (done)']);
+	const notified = group([spawn, started(true), early, ...work, subNotice(7, 'task-a', 'toolu_a', 'completed')]);
+	assert.equal(notified.status, 'done');
+	assert.deepEqual(calls(notified), finished);
+});
+
+test('a starting line that arrives after its group was made fills that group', () => {
+	const spawn = subEvent(
+		'assistant',
+		6,
+		null,
+		subCall('toolu_late', 'Agent', { description: 'Review the routes', prompt: 'Review every route.' })
+	);
+	const work = [
+		subEvent('assistant', 3, 'toolu_late', subCall('toolu_late_1', 'Bash', { command: 'ls routes' })),
+		subEvent('user', 4, 'toolu_late', subAnswer('toolu_late_1', 'routes.go')),
+		subEvent('assistant', 5, null, [{ type: 'text', text: 'Meanwhile, the docs.' }])
+	];
+	const answer = subEvent('user', 8, null, subAnswer('toolu_late', 'The routes are fine.'));
+	const fromTask = subTask('task_started', 2, {
+		task_id: 'task-late',
+		tool_use_id: 'toolu_late',
+		task_type: 'local_agent',
+		subagent_type: 'general-purpose',
+		description: 'Routes',
+		prompt: 'Review.',
+		is_backgrounded: false,
+		spawn_depth: 1
+	});
+	for (const before of [[fromTask], []]) {
+		const first = groupSession(parseAgentSession([...before, ...work]));
+		const blocks = groupSession(parseAgentSession([...before, ...work, spawn, answer]));
+		assert.deepEqual(outline(blocks), [
+			{ subagent: 'Review the routes', status: 'done', inside: ['Bash: ls routes (done)'] },
+			'text: Meanwhile, the docs.'
+		]);
+		// The same row as before the line arrived: an open one stays open.
+		assert.equal(blocks[0].key, first[0].key);
+		assert.equal(blocks[0].tool.started, first[0].tool.started);
+		assert.match(blocks[0].tool.input, /Review every route\./);
+		assert.equal(blocks[0].tool.output, 'The routes are fine.');
+	}
+});
