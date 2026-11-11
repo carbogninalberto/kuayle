@@ -238,6 +238,11 @@ func (r *AgentTaskRepository) CompleteReview(ctx context.Context, claimed domain
 	if err = transitionAgentTask(ctx, tx, task, "completed", "Review finished: "+verdict, nil); err != nil {
 		return err
 	}
+	// A review that requested changes proposes its findings, marked as
+	// written by an agent, as a lesson for the reviewed task's repository.
+	if verdict == "request_changes" && task.ReviewOfTaskID != nil {
+		suggestLesson(ctx, r.db, tx, lessonProposal{TaskID: *task.ReviewOfTaskID, Event: domain.LessonEventReview, Proposer: domain.LessonProposerAgent, Text: findings})
+	}
 	return tx.Commit()
 }
 

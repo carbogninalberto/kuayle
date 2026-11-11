@@ -40,7 +40,7 @@ func withdrawTaskMachineStart(ctx context.Context, tx *sqlx.Tx, task domain.Agen
 		return err
 	}
 	var shared bool
-	if err = tx.GetContext(ctx, &shared, `SELECT EXISTS(SELECT 1 FROM agent_tasks WHERE machine_id=$1 AND id<>$2 AND state NOT IN ('completed','cancelled','failed','blocked','awaiting_review'))
+	if err = tx.GetContext(ctx, &shared, `SELECT EXISTS(SELECT 1 FROM agent_tasks t WHERE t.machine_id=$1 AND t.id<>$2 AND t.state NOT IN ('completed','cancelled','failed','blocked','awaiting_review') AND `+taskHoldsMachine("t")+`)
  OR EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE machine_id=$1 AND status IN ('queued','starting','running','waiting_input'))`, machine.ID, task.ID); err != nil {
 		return err
 	}

@@ -420,6 +420,10 @@ func standardCopy(implementer uuid.UUID) domain.WorkflowGraph {
 		case "review":
 			graph.Nodes[i].MaxVisits = 6
 			graph.Nodes[i].Prompt = "Review the pull request"
+		case "failed":
+			// Publishing can fail here, so the failed ending follows Publish:
+			// one column further right than in the built-in graph.
+			graph.Nodes[i].Position = domain.WorkflowPositionAt(4, 1, true)
 		}
 	}
 	graph.Edges = append(graph.Edges, domain.WorkflowEdge{ID: "e-publish-failed", Source: "publish", Target: "failed", Condition: domain.WorkflowPublishFailed})
@@ -775,6 +779,12 @@ type TaskWorkflow struct {
 	// Runs are the task's agent runs, each on the step that started it, with
 	// the runs of the review tasks its steps created.
 	Runs []domain.WorkflowStepRun `json:"runs"`
+	// PausedAt is set while a person's pause holds the workflow, and
+	// PauseRequest while one waits for the current step. Pauses are its
+	// pauses and resumes so far, oldest first, each naming its step.
+	PausedAt     *time.Time                  `json:"paused_at,omitempty"`
+	PauseRequest *string                     `json:"pause_request,omitempty"`
+	Pauses       []domain.WorkflowPauseEvent `json:"pauses"`
 }
 
 // TaskWorkflow reads a task's workflow view. summariesSince, when set, leaves
@@ -784,7 +794,8 @@ func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID, su
 	if err != nil {
 		return nil, err
 	}
-	out := &TaskWorkflow{TaskState: task.State, TaskReason: task.Reason, TaskGeneration: task.Generation, Steps: []domain.WorkflowStep{}, Profiles: []domain.AgentProfile{}, Visits: map[string]int{}}
+	out := &TaskWorkflow{TaskState: task.State, TaskReason: task.Reason, TaskGeneration: task.Generation, Steps: []domain.WorkflowStep{}, Profiles: []domain.AgentProfile{}, Visits: map[string]int{},
+		PausedAt: task.WorkflowPausedAt, PauseRequest: task.WorkflowPauseRequest, Pauses: []domain.WorkflowPauseEvent{}}
 	if out.Runs, err = s.tasks.Repo.StepRuns(ctx, ws, id, summariesSince); err != nil {
 		return nil, err
 	}
@@ -815,6 +826,9 @@ func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID, su
 	if out.Steps, err = s.tasks.Repo.WorkflowSteps(ctx, ws, id); err != nil {
 		return nil, err
 	}
+	if out.Pauses, err = s.tasks.Repo.WorkflowPauses(ctx, ws, id); err != nil {
+		return nil, err
+	}
 	profiles, err := s.repo.Profiles(ctx, ws)
 	if err != nil {
 		return nil, err
@@ -825,7 +839,7 @@ func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID, su
 		if err != nil {
 			return nil, err
 		}
-		out.CanDecide = workflowDecider(out.Status, access.UserID, task.CreatorID, role)
+		out.CanDecide = task.WorkflowPausedAt == nil && workflowDecider(out.Status, access.UserID, task.CreatorID, role)
 	}
 	return out, nil
 }

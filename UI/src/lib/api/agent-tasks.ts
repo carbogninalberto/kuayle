@@ -53,6 +53,10 @@ export interface AgentTask {
 	workflow_node?: string | null;
 	workflow_status?: string | null;
 	workflow_iterations?: number;
+	// Set while its creator's pause holds the workflow; a request is a pause
+	// that takes effect when the current step has an outcome.
+	workflow_paused_at?: string | null;
+	workflow_pause_request?: WorkflowPauseMode | null;
 	// The task's own app process (its preview command), when one was started.
 	preview?: TaskPreview | null;
 	created_at: string;
@@ -228,6 +232,9 @@ export interface AgentLiveMessage {
 export interface AgentLiveChatMessage extends AgentLiveMessage {
 	identifier: string;
 }
+// Pausing a workflow: at once, which stops the agent that is working, or
+// once the current step has finished.
+export type WorkflowPauseMode = 'now' | 'after_step';
 const base = (slug: string) => `/api/workspaces/${encodeURIComponent(slug)}`;
 const task = (slug: string, id: string) => `${base(slug)}/agent-tasks/${encodeURIComponent(id)}`;
 const chat = (slug: string, id: string) => `${base(slug)}/conversations/${encodeURIComponent(id)}`;
@@ -260,6 +267,11 @@ export const agentTasks = {
 	// Keeps the sign-in finished in the machine's terminal and starts a new attempt.
 	continueAfterSignIn: (slug: string, id: string, requestId: string) =>
 		api.post<AgentTask>(`${task(slug, id)}/sign-in`, { request_id: requestId }),
+	// Pauses the task's workflow; resume continues it from the same step (or
+	// withdraws a pause that has not taken effect yet). Creator only.
+	pause: (slug: string, id: string, mode: WorkflowPauseMode) =>
+		api.post<AgentTask>(`${task(slug, id)}/pause`, { mode }),
+	resume: (slug: string, id: string) => api.post<AgentTask>(`${task(slug, id)}/resume`, {}),
 	resumeUsageLimit: (slug: string, id: string) => api.post<AgentTask>(`${task(slug, id)}/resume`, {}),
 	cancelUsageLimitResume: (slug: string, id: string) => api.delete<AgentTask>(`${task(slug, id)}/resume`),
 	retry: (

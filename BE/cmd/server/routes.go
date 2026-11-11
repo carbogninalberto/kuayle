@@ -77,6 +77,7 @@ type appHandlers struct {
 	aiSettings        *handler.AISettingsHandler
 	agentTask         *handler.AgentTaskHandler
 	workflow          *handler.WorkflowHandler
+	memory            *handler.WorkspaceMemoryHandler
 	agentAutomation   *handler.AgentAutomationHandler
 	agentAssignee     *handler.AgentAssigneeHandler
 	agentMessage      *handler.AgentMessageHandler
@@ -380,6 +381,20 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodPost, "/workflows/:workflowId/archive", h.workflow.Archive)
 	sessionOnly(ws, http.MethodDelete, "/workflows/:workflowId", h.workflow.Delete)
 	sessionOnly(ws, http.MethodGet, "/workflows/:workflowId/audit", h.workflow.Audit)
+	// Workspace memory (KUA-134): lessons per repository. Non-guest members
+	// read the lessons they may see and propose their own; the repository
+	// lets only current owners and admins approve, edit, retire, drop and
+	// reorder them, and audits every decision. Session only.
+	if h.memory != nil {
+		sessionOnly(ws, http.MethodGet, "/memory/lessons", h.memory.List)
+		sessionOnly(ws, http.MethodPost, "/memory/lessons", h.memory.Add)
+		sessionOnly(ws, http.MethodPut, "/memory/lessons/order", h.memory.Reorder)
+		sessionOnly(ws, http.MethodPut, "/memory/lessons/:lessonId", h.memory.Edit)
+		sessionOnly(ws, http.MethodPost, "/memory/lessons/:lessonId/approve", h.memory.Approve)
+		sessionOnly(ws, http.MethodPost, "/memory/lessons/:lessonId/retire", h.memory.Retire)
+		sessionOnly(ws, http.MethodPost, "/memory/lessons/:lessonId/drop", h.memory.Drop)
+		sessionOnly(ws, http.MethodGet, "/memory/lessons/:lessonId/audit", h.memory.Audit)
+	}
 	// Members read the skills they can see; the repository lets only current
 	// owners and admins write them.
 	sessionOnly(ws, http.MethodGet, "/assistant-skills", h.assistantSkill.List)
@@ -513,6 +528,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/cancel", h.agentTask.Cancel)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/retry", h.agentTask.Retry)
 	// A task paused by its agent's usage limit: resume now, or don't resume.
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/pause", h.agentTask.Pause)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/resume", h.agentTask.ResumeUsageLimit)
 	sessionOnly(dm, http.MethodDelete, "/agent-tasks/:taskId/resume", h.agentTask.CancelUsageLimitResume)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/accept", h.agentTask.Accept)
