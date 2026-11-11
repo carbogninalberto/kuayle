@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "Hilo del agente de {identifier}",
 	"assistant.agent_view_breadcrumb": "Ubicación",
 	"assistant.agent_view_missing": "Esta tarea de agente no forma parte de esta conversación.",
-	"assistant.agent_view_finished": "Este agente ha terminado; los mensajes nuevos van al asistente.",
 	"machines.size": "Tamaño",
 	"machines.created": "Creada",
 	"machines.last_activity": "Última actividad",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "Tarea del agente terminada",
 	"notify.title.review_needed": "Revisión necesaria",
 	"notify.title.issues_deleted": "Incidencias eliminadas",
-	"notify.title.generic": "Nueva notificación"
+	"notify.title.generic": "Nueva notificación",
+	"tasks.live_state_replied": "Respondido",
+	"tasks.live_state_unanswered": "Sin respuesta",
+	"tasks.live_interrupt_send": "Interrumpir y enviar",
+	"tasks.live_start_send": "Enviar e iniciar ahora",
+	"tasks.live_start_confirm_title": "¿Iniciar una nueva iteración ahora?",
+	"tasks.live_start_confirm_body": "La tarea está esperando: {reason}. Si la inicias ahora, se abandona esa espera y el agente se ejecuta de nuevo con tu mensaje."
 }

@@ -2224,16 +2224,16 @@ test('the top bar opens the agent thread as a readable session, linked by the UR
 	await expect(session.getByText('1 failing')).toBeVisible();
 	await page.screenshot({ path: testInfo.outputPath('agent-view-desktop.png'), fullPage: true });
 
-	// The composer writes to this agent while its thread is open.
-	await expect(target).toHaveAccessibleName('Send to: ENG-1 · Claude Code agent');
-	await expect(page.getByText('Messages go to the Claude Code agent of ENG-1, not to the assistant.')).toBeVisible();
+	// The agent's view has its own composer, which writes to this agent; the
+	// message is shown in the session, waiting (KUA-132: no separate thread).
+	await expect(target).toHaveCount(0);
 	const composer = page.getByRole('textbox', { name: 'Write to the agent' });
 	await composer.fill('Keep the old route');
 	await composer.press('Enter');
 	await expect.poll(() => state.liveSends).toEqual(['Keep the old route']);
-	await expect(
-		thread.getByRole('region', { name: 'Live messages' }).getByRole('listitem', { name: 'You' })
-	).toContainText('Waiting for the agent');
+	await expect(thread.getByRole('region', { name: 'Live messages' })).toHaveCount(0);
+	const sent = thread.getByRole('article', { name: 'You' }).filter({ hasText: 'Keep the old route' });
+	await expect(sent.getByRole('img', { name: 'Waiting for the agent' })).toBeVisible();
 
 	// New output streams in.
 	state.logs = [
@@ -2526,7 +2526,7 @@ test('an OpenCode run reads as a session: Markdown messages and one chip per too
 	await expect(session.getByText('"type":"session_compacted"', { exact: false })).toBeVisible();
 });
 
-test('a question from the agent is answered right under it in the agent view', async ({ page }, testInfo) => {
+test('a question from the agent reads in the session and is answered in the composer under it', async ({ page }, testInfo) => {
 	const { state } = await fixture(page);
 	state.task = runningTask({ provider: 'codex', model: 'deepseek-flash' });
 	state.liveMessages = [agentQuestion];
@@ -2563,15 +2563,14 @@ test('a question from the agent is answered right under it in the agent view', a
 	await page.goto('/test/assistant?conversation=chat-1&agent=ENG-1');
 	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
 	await expect(thread.getByRole('button', { name: /rg -n search/ })).toBeVisible();
-	await expect(thread.getByRole('article', { name: 'Agent' })).toContainText('Found the router.');
-	const question = thread.getByRole('region', { name: 'Live messages' }).getByRole('listitem', { name: 'Agent' });
-	await expect(question).toContainText('Keep the v1 route?');
-	// Pointed elsewhere first, the answer button aims the composer back at the agent.
-	await page.getByRole('button', { name: 'Back to assistant' }).click();
-	await expect(page.getByRole('button', { name: /^Send to: / })).toHaveAccessibleName('Send to: Assistant');
-	await question.getByRole('button', { name: 'Answer the question' }).click();
-	await expect(page.getByRole('button', { name: /^Send to: / })).toHaveAccessibleName('Send to: ENG-1 · Codex agent');
-	await expect(page.getByRole('textbox', { name: 'Write to the agent' })).toBeFocused();
+	await expect(thread.getByRole('article', { name: 'Agent' }).filter({ hasText: 'Found the router.' })).toBeVisible();
+	// The agent's question reads in the session, marked as one; it is answered
+	// in the composer under it (KUA-132: no separate thread or answer button).
+	const question = thread.getByRole('article', { name: 'Agent' }).filter({ hasText: 'Keep the v1 route?' });
+	await expect(question.getByRole('img', { name: 'Question' })).toBeVisible();
+	await expect(thread.getByRole('region', { name: 'Live messages' })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: /^Send to: / })).toHaveCount(0);
+	await expect(page.getByRole('textbox', { name: 'Write to the agent' })).toBeVisible();
 	for (const dark of [false, true]) {
 		await page.evaluate((d) => {
 			document.documentElement.classList.toggle('dark', d);
@@ -2618,7 +2617,7 @@ test('an unknown agent in the link says so and leads back to the assistant', asy
 	await expect(page).not.toHaveURL(/agent=/);
 });
 
-test('coding agent messages copy in full from the chat, the live thread and the session', async ({ page, context }) => {
+test('coding agent messages copy in full from the chat, the conversation in the agent view and the session', async ({ page, context }) => {
 	await context.grantPermissions(['clipboard-read', 'clipboard-write']);
 	const { state } = await fixture(page);
 	// Agent text is plain text: it is copied exactly as written, markup and all.
@@ -2644,10 +2643,11 @@ test('coding agent messages copy in full from the chat, the live thread and the 
 	await thread
 		.getByRole('region', { name: 'Agent session' })
 		.getByRole('article', { name: 'Agent' })
+		.filter({ hasText: '000116' })
 		.getByRole('button', copy)
 		.click();
 	await expect.poll(clipboard).toBe('Up to date with main; next migration is 000116.');
-	const live = thread.getByRole('region', { name: 'Live messages' }).getByRole('listitem', { name: 'Agent' });
+	const live = thread.getByRole('article', { name: 'Agent' }).filter({ hasText: 'Tests added.' });
 	await live.getByRole('button', copy).click();
 	await expect.poll(clipboard).toBe(body);
 });

@@ -159,7 +159,18 @@ func (r *AgentMessageRepository) RecordTaskOutbox(ctx context.Context, taskID uu
 		// their own budget; agents of any task kind may write them.
 		if !file.Oversize && (parseErr == nil && message.To == domain.AgentOutboxOrchestrator || parseErr != nil && domain.AgentMessageRef(file.Data) == "ORCHESTRATOR") {
 			if live >= domain.AgentLiveMessagesPerHour {
-				continue
+				// The budget bounds what an agent says on its own. The first
+				// reply to a message a person sent it is never dropped.
+				owed := false
+				if parseErr == nil && message.ReplyTo != nil && !ended {
+					if err = tx.GetContext(ctx, &owed, `SELECT EXISTS(SELECT 1 FROM agent_live_messages m WHERE m.task_id=$1 AND m.direction='to_agent' AND m.seq=$2 AND m.state='delivered'
+ AND NOT EXISTS (SELECT 1 FROM agent_live_messages a WHERE a.task_id=m.task_id AND a.direction='from_agent' AND a.state='received' AND a.reply_to=m.seq))`, sender.ID, *message.ReplyTo); err != nil {
+						return recorded, err
+					}
+				}
+				if !owed {
+					continue
+				}
 			}
 			var inserted bool
 			switch {

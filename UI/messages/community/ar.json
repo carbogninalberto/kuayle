@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "محادثة الوكيل لـ {identifier}",
 	"assistant.agent_view_breadcrumb": "الموقع",
 	"assistant.agent_view_missing": "مهمة الوكيل هذه ليست جزءاً من هذه المحادثة.",
-	"assistant.agent_view_finished": "انتهى هذا الوكيل؛ تذهب الرسائل الجديدة إلى المساعد.",
 	"machines.size": "الحجم",
 	"machines.created": "تاريخ الإنشاء",
 	"machines.last_activity": "آخر نشاط",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "انتهت مهمة الوكيل",
 	"notify.title.review_needed": "مطلوب مراجعة",
 	"notify.title.issues_deleted": "تم حذف مشكلات",
-	"notify.title.generic": "إشعار جديد"
+	"notify.title.generic": "إشعار جديد",
+	"tasks.live_state_replied": "تم الرد",
+	"tasks.live_state_unanswered": "لا يوجد رد",
+	"tasks.live_interrupt_send": "قاطع وأرسل",
+	"tasks.live_start_send": "أرسل وابدأ الآن",
+	"tasks.live_start_confirm_title": "بدء تكرار جديد الآن؟",
+	"tasks.live_start_confirm_body": "المهمة في انتظار: {reason}. البدء الآن يتخلى عن هذا الانتظار ويشغّل الوكيل مجددًا مع رسالتك."
 }

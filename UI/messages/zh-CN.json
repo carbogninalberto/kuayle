@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "{identifier} 的代理线程",
 	"assistant.agent_view_breadcrumb": "位置",
 	"assistant.agent_view_missing": "此代理任务不属于该对话。",
-	"assistant.agent_view_finished": "该代理已结束；新消息将发送给助手。",
 	"machines.size": "规格",
 	"machines.created": "创建时间",
 	"machines.last_activity": "最近活动",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "智能体任务已完成",
 	"notify.title.review_needed": "需要审查",
 	"notify.title.issues_deleted": "议题已删除",
-	"notify.title.generic": "新通知"
+	"notify.title.generic": "新通知",
+	"tasks.live_state_replied": "已回复",
+	"tasks.live_state_unanswered": "未回复",
+	"tasks.live_interrupt_send": "中断并发送",
+	"tasks.live_start_send": "发送并立即开始",
+	"tasks.live_start_confirm_title": "现在开始新的迭代？",
+	"tasks.live_start_confirm_body": "任务正在等待：{reason}。现在开始将放弃这次等待，并让代理带着你的消息重新运行。"
 }

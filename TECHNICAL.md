@@ -659,8 +659,20 @@ Code receives them after each tool call (and before it stops) through a
 Without a running attempt they go into the next attempt's prompt. During an
 attempt the manager also collects the outbox every 5 seconds, and files
 addressed `{"to":"orchestrator"}` (optionally `"kind":"question"`) are recorded
-in the same channel as untrusted text. The task card's **Live messages** thread reads (and the
-assistant composer, aimed at the task's agent, sends) through `GET/POST /agent-tasks/:taskId/live-messages`; the assistant has
+in the same channel as untrusted text. A reply is mandatory (KUA-132, migration 151):
+every delivered message must be answered by an outbox file naming it
+(`"reply_to":<seq>`); Claude Code's `Stop` hook does not let the agent stop
+without it, and an attempt of Claude Code or Codex that ends well with a
+message unanswered is continued once on its session only to reply. A missing
+reply never fails the attempt: the message is shown as unanswered and given
+once more to the same step's next attempt. The task's creator can also
+interrupt the working agent with a message (its session resumes with it; with
+or without a workflow) or start an attempt for one, see the
+[live channel](BE/docs/agent-tasks.md#live-channel). The agent view shows the
+conversation in the task's timeline and has the composer; the task card's
+**Live messages** thread reads and sends through the same
+`GET/POST /agent-tasks/:taskId/live-messages` (and the assistant composer,
+aimed at a task's agent from the chat, sends through it); the assistant has
 `message_task` (the task's creator approves the exact text on a card before
 anything is sent) and the read-only `get_task_messages`; agent messages appear in the owning chat as escaped,
 untrusted items through `task.live_message` conversation events and history

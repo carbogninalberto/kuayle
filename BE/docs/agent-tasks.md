@@ -1345,8 +1345,9 @@ request, body)` as `orchestrator`, under the same rules, with the approval's
 request ID stored in `request_id` (migration 134, unique per task) so one
 approval delivers one message. Only the task's creator may send, under the same conversation
 and team checks as the other task actions (another member gets not found);
-only implementing tasks that are not completed, cancelled or cancelling take
-messages; the body is cleaned like an outbox body (at most 4,000 characters);
+only implementing tasks that are not completed, cancelled or being cancelled
+take messages (a task whose agent is only being stopped by a pause or an
+interruption still does); the body is cleaned like an outbox body (at most 4,000 characters);
 at most 30 messages per task per hour (otherwise
 `ErrAgentLiveMessageRateLimited`; an ended task gives `ErrAgentLiveMessageClosed`). Under the task row lock each message gets
 the task's next sequence number and state `queued`. It only delivers text.
@@ -1363,7 +1364,8 @@ while the attempt runs, the manager writes the queued messages of the task
 whose current run it is (at most 10 per pass, oldest first) as root-owned
 `<seq>.json` files (mode 0644) holding only
 `{"seq","from":"user"|"orchestrator","kind","body","sent_at"}`, then marks them
-`delivered` with `delivered_via=inbox` and the run ID. A failed mark rewrites
+`delivered` with `delivered_via=inbox`, the run ID, the workflow step
+(`workflow_node`) and one more `deliveries`. A failed mark rewrites
 the same files next time; readers track sequence numbers. Inbox files never
 contain credentials, task or user identifiers. If the inbox cannot be
 prepared the attempt still runs and messages wait for the next attempt.
@@ -1390,19 +1392,143 @@ implementing prompt has one line about the inbox, answering and that skill.
 
 **Next attempt.** Messages still queued when an attempt is created (none ran,
 or they arrived after the last pass) are placed in its prompt after other
-agents' messages, as "Messages from the person who owns this task", oldest
-first, at most 10 within the prompt room, and marked `delivered_via=prompt`
-with the attempt's run ID; recreating the attempt places the same messages,
-and messages claimed for an attempt that was never created are claimed again.
-Reviews receive none. A message written to the inbox in an attempt's last
-seconds, after Claude's final tool call and stop check, counts as delivered
-without being read.
+agents' messages, as "Messages from the person who owns this task", each with
+its number ("Message 3"), oldest first, at most 10 within the prompt room, and
+marked `delivered_via=prompt` with the attempt's run ID; recreating the
+attempt places the same messages, and messages claimed for an attempt that
+was never created are claimed again. Reviews receive none. A message written
+to the inbox in the 20 seconds before the harness exited may not have been
+read: when the attempt ends it is queued again (`SettleLiveMessages`, measured
+against the harness's exit time, not the time Kuayle gets round to settling)
+instead of counting as delivered.
+
+**A reply is mandatory, and the work is never lost over a missing one**
+(KUA-132, migration `000151_live_message_replies`). Every message delivered to
+an agent, through the inbox or the prompt, must be answered. A reply is
+exactly this: an outbox file addressed to the orchestrator whose `reply_to` is
+the message's sequence number,
+`{"to":"orchestrator","reply_to":3,"body":"..."}`, saying what the agent
+understood and what it will do differently. It is recorded as a `from_agent`
+message with `reply_to`; a `reply_to` that names no message the task received
+is refused (`rejected`), `reply_to` on a file for another recipient is
+invalid, and the final message or a file without `reply_to` does not count.
+The agent's 30-per-hour budget never drops the first reply to a message.
+Kuayle asks for the reply, not only the prompt:
+
+- While the attempt runs, the manager keeps `unanswered.json`
+  (`{"unanswered":[3,5]}`) in the inbox: the messages this attempt received
+  and has not replied to (`UnansweredLiveMessages`), rewritten whenever that
+  changes, after the outbox was collected. An attempt that never owed a reply
+  has no such file.
+- **Claude Code** cannot stop while that list names a message. The `Stop`
+  hook first waits up to 12 seconds for the list to empty (a reply written
+  just before stopping is collected within a few seconds), then answers
+  `{"decision":"block"}` with the message numbers, the reply format and the
+  message text. It asks at most 3 times per message in one attempt
+  (`AgentLiveStopReminders`; the count is in the hook's state file) and then
+  lets Claude stop. `SubagentStop` and tool calls are never held. A list the
+  hook cannot read holds nothing.
+- **Asked once more when the attempt has ended.** An attempt that ended well
+  (exit 0, a final message, not cancelled) while a message it received has no
+  reply is asked for the replies in its
+  [closing continuation](#closing-continuation), the one extra turn an
+  attempt gets for whatever is missing (`domain.ReplyClosingAsk`; Claude Code
+  and Codex only, since OpenCode cannot continue a session). The outbox is
+  collected again afterwards. It happens once; there is no loop.
+- **A missing reply never fails the attempt.** If there is still no reply the
+  attempt stays as it ended: the work is checked and published as usual, with
+  or without a workflow. The result carries `unanswered_messages` and a risk
+  note ("The agent did not reply to message 3…"), the agent view shows the
+  message as "No reply" and marks its step, and the message is given once more
+  to the next attempt of the same workflow step, if there is one, marked "the
+  previous attempt received it and ended without replying; reply first".
+- **The bound.** A message is given to at most 2 attempts that ran to an end
+  (`AgentLiveReplyAttempts`, counted in `deliveries`); after that Kuayle stops
+  asking and it stays unanswered. An attempt that was interrupted, paused or
+  cancelled does not count: it was not allowed to finish, and the attempt that
+  continues it takes its messages over. A message is never carried to another
+  step: only the attempt right after the one that received it, on the same
+  `workflow_node`, gets it.
+- **A reply Kuayle could not collect is not a missing reply.** The attempt's
+  messages are settled only when the outbox was read and recorded. When that
+  failed (the machine's services could not be listed, the developer container
+  is gone, the read or the write failed) and the attempt owed a reply, nothing
+  is concluded, the agent is not asked again, and the result's risk notes say
+  the problem is on Kuayle's side (`agent_live_messages.collect_failed`). The
+  result has `replies_unknown`, the run carries it in the task's timeline, and
+  the agent view shows such a message as delivered, not as "No reply". A
+  message that reached the inbox just before the harness exited is queued
+  again all the same.
+
+Messages delivered before migration 151 have `deliveries = 0` and owe no
+reply. Every implementing prompt, the Claude hook's text and the
+`kuayle-agents` skill state the reply format.
+
+**Sending now.** `SendLiveMessage(ws, task, body, mode)` queues the creator's
+message as above and, in the same transaction, acts on `mode`:
+
+- `interrupt` ("Interrupt and send") stops the working attempt and continues
+  it with the message. It works for every implementing task, with or without
+  a workflow (`CanInterruptForLiveMessage`: the task is `preparing`, `running`
+  or `waiting_input`, its run has not ended, and it is not paused or failing).
+  The attempt goes through the usual runtime cleanup (`cancelling`, with
+  `live_resume_generation` naming the attempt it will continue as; the task's
+  JSON then has `"interrupting": true`), which keeps the machine, the
+  checkout, the worktree and the session transcripts. When the cleanup has
+  confirmed the attempt gone (`FinishCancellation`), the task goes straight
+  back to `queued` as a new attempt on the same step, visit and iteration
+  (nothing is counted), with `resume_native_session` (so `claude --resume` or
+  `codex exec resume` continue the session; OpenCode gets the handoff) and the
+  message in its prompt; the handoff says a person interrupted the attempt to
+  say something and that the worktree is unchanged. It is not a pause: a
+  pending "pause after this step" stays as the person asked for it, and the
+  workflow pauses after the continued step. Who interrupted and when is in the
+  task's transitions. A cleanup that fails is started again, as for a pause.
+  If the attempt cannot be continued the task says so: a workflow is paused on
+  its step ("Paused: the agent was stopped to deliver your message but could
+  not be started again…", Resume continues it), any other task is blocked
+  ("…Send and start now, or retry the task, to continue"); the message is
+  delivered then; the interruption is then over (`live_resume_generation` is
+  cleared), so that Resume or Retry is an ordinary one. A person's cancel
+  always wins: it clears the mark whatever the task's state, so the cleanup
+  cancels and never starts the attempt again. When no attempt is working the
+  request is refused with 409 and nothing is queued. A second message sent
+  while the attempt is being stopped joins the first.
+- `start` ("Send and start now") starts an attempt when none runs. A task
+  whose agent a pause stopped resumes that step (nothing is counted). A
+  `failed`, `blocked` or `awaiting_review` task starts a new iteration on its
+  last agent step exactly as Retry does, except that it keeps its prompt and
+  continues the previous attempt's native session however it ended, when the
+  same profile ran it (`AgentTask.LiveResumed`; another profile's session is
+  never continued). In a workflow that is a new visit of that step: it counts
+  one visit and one iteration against the workflow's limits (checked when the
+  workflow next decides), the working-time budget keeps running from where it
+  was, and a step that was waiting (CI, an approval, a merge, a review) is
+  closed as retried, so that wait is abandoned. The agent view therefore asks
+  once before starting a task that is `awaiting_review`. A working task, one
+  in cleanup, or one paused by a usage limit is 409; a completed or cancelled
+  task takes no message at all.
+- without a mode the message waits for the working attempt's inbox or the
+  next prompt. A harness Kuayle cannot hand a message to in the middle of a
+  turn (`HarnessReadsLiveInbox`: every harness but Claude Code) is interrupted
+  as with `interrupt` whenever its attempt can be, otherwise the message waits
+  for the next attempt; the assistant's approved `message_task` messages
+  follow the same rule.
+
+**Rollout order.** Deploy the backend (with migration 151) before the agent
+images. The new backend works with old images: their hook and skill never
+write `reply_to`, so replies are simply not recognised, the continuation asks
+for them once, and messages show "No reply"; nothing fails. The reverse order
+does not work: an old backend refuses an outbox file with `reply_to` as an
+unknown field, so every reply a new image writes would be recorded as
+rejected.
 
 **Agent to orchestrator.** While an attempt runs the manager also collects the
 machine's outboxes every 5 seconds (and still during the port scan and at the
 end of the attempt). An outbox file `{"to":"orchestrator","body":"..."}` may
-add `"kind":"question"` (default `message`) and `"channel":"internal"` or
-`"live"`; `kind` is refused for issue recipients. Such files are recorded in
+add `"kind":"question"` (default `message`), `"channel":"internal"` or
+`"live"`, and `"reply_to"` (the sequence number of the message it answers);
+`kind` and `reply_to` are refused for issue recipients. Such files are recorded in
 `agent_live_messages` as `from_agent`, sender `agent`, state `received` with
 the sending run ID, or `rejected` with a reason and bounded preview (invalid
 files, or a task that ended or whose creator lost access); any task kind may
@@ -1421,7 +1547,12 @@ gets 404; PATs get 403):
 | Method | Workspace-relative path | Purpose |
 | --- | --- | --- |
 | GET | `/agent-tasks/:taskId/live-messages` | `{messages}`: the newest 100, both directions, oldest first |
-| POST | `/agent-tasks/:taskId/live-messages` | `{body}` only (unknown fields refused); 201 with the queued message, always sender `user`; 400 invalid text or a review task, 409 an ended task, 429 over the hourly budget |
+| POST | `/agent-tasks/:taskId/live-messages` | `{body}` and optionally `{"mode":"interrupt"\|"start"}` (unknown fields refused); 201 with the queued message, always sender `user`; 400 invalid text, an unknown mode or a review task, 409 an ended task or a mode the task's state does not allow (nothing is queued), 429 over the hourly budget |
+
+Messages carry `reply_to` and `deliveries`. Sending and reading are the
+creator's alone, whatever the mode: workspace admins and the owner have no
+access to another person's agent. An admin, the owner, another member, a
+guest and a creator who lost access to the team are answered 404.
 
 **Conversation events.** Queuing, inbox or prompt delivery and recording an
 agent's file each write a `task.live_message` event, with the message and its
@@ -1435,6 +1566,9 @@ volume once unused; the ended agent container keeps it until the run is
 cancelled (`CancelAgent` removes the run's inbox volumes after its containers)
 or the machine is torn down (`Teardown` removes the machine's inbox volumes).
 
+Rolling migration 151 back keeps replies as plain agent messages and forgets
+which message each answered; a task whose agent is being stopped for a
+message at that moment is then cancelled by that cleanup instead of continued.
 Rolling migration 95 back drops the live channel's messages. Rolling migration
 134 back removes `message_task` approvals and the `request_id` column; messages
 already delivered are kept.
@@ -1879,7 +2013,9 @@ of a stopped attempt still does.
 step continues as a new attempt on the same step, visit and iteration, with
 `resume_native_session` set, so a harness that recorded a session continues
 it (`claude --resume`) and any other gets the handoff, both told that a person
-paused the attempt and to continue where it stopped. A task paused elsewhere is
+paused the attempt and to continue where it stopped.
+["Interrupt and send"](#live-channel) stops and continues an attempt in the
+same way but is not a pause: it holds nothing and keeps a pending pause. A task paused elsewhere is
 simply picked up again: a waiting step is evaluated at once, a finished step's
 outcome is applied. Resuming a pause that has not taken effect withdraws it.
 The same route still resumes a task paused by a [usage limit](#usage-limits);
@@ -2038,39 +2174,69 @@ is enough only when the attempt itself left the worktree as it found it
 (Kuayle's own comparison); otherwise it is treated like a missing update,
 and the agent is told that its update changed nothing.
 
+### Closing continuation
+
+An attempt gets at most **one** extra turn before its step closes, in which
+it is asked for whatever is still missing
+(`machine/closing_continuation.go`). When a run ends and its outbox was
+collected, `Manager.settleClosing` lists what is missing, each as a
+`domain.ClosingAsk`:
+
+| Missing | Asked of | Ask |
+| --- | --- | --- |
+| a reply to a delivered message of the task's owner ([live channel](#live-channel)) | an attempt that ended well | `domain.ReplyClosingAsk`: the message numbers and the reply format |
+| a task notebook update that counts ([below](#task-notebook)) | an attempt that concluded | `domain.NotebookClosingAsk`: the validator's message, write the file now |
+
+`Manager.askToClose(ctx, attempt, asks)` then continues the attempt's own
+session once with one short prompt (`domain.ClosingPrompt`) that lists them,
+numbered when there are several, and asks for nothing else. Another reason
+to ask adds a `ClosingAsk` to that list, never a second continuation.
+Afterwards the outbox is collected again and each thing is looked at again;
+what is still missing is noted on the run. The continuation never changes how
+the attempt ended.
+
+- It is a second container of the same run (`…-agent-<run>-closing`) with
+  the command line stored at creation (`closing_continuation`, the same
+  invocation with placeholders for the session and the prompt), under the
+  run's sandbox and mounts but without the live inbox, with the sign-in the
+  attempt may have refreshed.
+- `closing_asked_at` is taken before it starts: one continuation per
+  attempt, also across a manager restart.
+- It has five minutes, and never runs past one minute before the attempt's
+  own time limit: the run is still recorded as running meanwhile, and a run
+  past its limit is killed and marked `timeout`. The limit is counted from
+  when the attempt started, also after a manager restart. With less than 30
+  seconds left for it, it is not started (and the attempt is not marked as
+  asked).
+- Nothing is asked for what Kuayle itself failed to collect: a reply or an
+  update that may exist unseen is not the agent's omission. Without the
+  developer container the outbox is not read at all, so replies stay unknown,
+  also after a continuation that ran for something else.
+- Its container is removed by its exact name on every path out. A manager
+  that restarts and finds the attempt already asked removes what the crash
+  left and does not run it again, also when too little time is left or
+  nothing is missing any more. The attempt's own container is never
+  removed from this path.
+- Its output is not the attempt's: summary, logs and token usage stay those
+  of the work. That it ran and for how long is on the run
+  (`closing_asked_at`, `closing_seconds`) and in the machine's events
+  (`agent_run.closing_continuation`).
+
+| Harness | Continuation |
+| --- | --- |
+| Claude Code | `claude --print … --resume <session> -p <prompt>` in the task's session directory |
+| Codex | `codex exec resume … <thread> <prompt>` with the thread ID the run reported |
+| OpenCode, Crush, Qwen Code, Kimi, Goose, custom | none: Kuayle does not continue their sessions, so what is missing is noted at once |
+
 **When an attempt leaves no valid update** (`machine/notebook.go`). The run
 of such an attempt has `notebook_required`. The work is never lost over the
 notebook:
 
 1. *Asked once, in the same session.* When the attempt concluded (it would
-   succeed) without an update that counts, the manager runs the **closing
-   continuation** (`machine/closing_continuation.go`,
-   `Manager.askToClose(ctx, attempt, []domain.ClosingAsk)`): one short prompt
-   (`domain.ClosingPrompt`) that lists what is missing (here
-   `domain.NotebookClosingAsk`: the validator's message, write
-   `.kuayle/outbox/notebook.json` now) and asks for nothing else. It is the
-   one place an attempt is continued before its step closes: another reason
-   to ask adds a `ClosingAsk` to the list, never a second continuation.
-   - It is a second container of the same run (`…-agent-<run>-closing`) with
-     the command line stored at creation (`closing_continuation`, the same
-     invocation with placeholders for the session and the prompt), under the
-     run's sandbox and mounts but without the live inbox.
-   - `closing_asked_at` is taken before it starts: one continuation per
-     attempt, also across a manager restart. It has five minutes.
-   - Its container is removed by its exact name on every path out. A manager
-     that restarts and finds the attempt already asked removes what the
-     crash left and does not run it again. The attempt's own container is
-     never removed from this path.
-   - Its output is not the attempt's: summary, logs and token usage stay
-     those of the work. That it ran and for how long is on the run
-     (`closing_asked_at`, `closing_seconds`) and in the machine's events
-     (`agent_run.closing_continuation`).
-
-   | Harness | Continuation |
-   | --- | --- |
-   | Claude Code | `claude --print … --resume <session> -p <prompt>` in the task's session directory |
-   | Codex | `codex exec resume … <thread> <prompt>` with the thread ID the run reported |
-   | OpenCode, Crush, Qwen Code, Kimi, Goose, custom | none: Kuayle does not continue their sessions, so step 2 applies at once |
+   succeed) without an update that counts, it is asked for one in its
+   [closing continuation](#closing-continuation)
+   (`domain.NotebookClosingAsk`: the validator's message, write
+   `.kuayle/outbox/notebook.json` now), and the outbox is collected again.
 
 2. *Recorded by Kuayle.* If there is still no valid update, the run stays
    succeeded. Kuayle adds the attempt's final message to `done`, marked

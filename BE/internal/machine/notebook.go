@@ -7,7 +7,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -156,30 +155,28 @@ func (m *Manager) notebookMissing(ctx context.Context, run *domain.DevMachineAge
 	return true, "", nil
 }
 
-// settleNotebook runs after the outbox of a finished attempt was collected
-// (collectErr is that collection's error). When the attempt concluded but
-// left no update that counts, it is asked for one in the closing
-// continuation and the outbox is collected again. It reports whether Kuayle
-// failed to collect, in which case the missing update is not the agent's.
-func (m *Manager) settleNotebook(ctx context.Context, attempt closingAttempt, services []domain.DevMachineService, collectErr error, concluded bool, unchangedRun func() bool) bool {
-	run := attempt.run
+// notebookAsk runs after the outbox of a finished attempt was collected
+// (collectErr is that collection's error). It returns what the closing
+// continuation should ask for when the attempt concluded but left no update
+// that counts, and reports whether Kuayle failed to collect, in which case
+// the missing update is not the agent's and nothing is asked.
+func (m *Manager) notebookAsk(ctx context.Context, run *domain.DevMachineAgentRun, collectErr error, concluded bool, unchangedRun func() bool) (ask *domain.ClosingAsk, notCollected bool) {
 	if _, ok := m.store.(notebookStore); !ok || !run.NotebookRequired {
-		return false
+		return nil, false
 	}
 	if collectErr != nil {
-		return true
+		return nil, true
 	}
 	missing, problem, err := m.notebookMissing(ctx, run, unchangedRun)
 	if err != nil {
 		log.WithField("agent_run_id", run.ID).WithError(err).Warn("the attempt's notebook updates could not be read")
-		return true
+		return nil, true
 	}
-	if !missing || !concluded || !m.askToClose(ctx, attempt, []domain.ClosingAsk{domain.NotebookClosingAsk(problem)}) {
-		return false
+	if !missing || !concluded {
+		return nil, false
 	}
-	collectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
-	defer cancel()
-	return m.collectOutbox(collectCtx, attempt.machine, services) != nil
+	asked := domain.NotebookClosingAsk(problem)
+	return &asked, false
 }
 
 // closeNotebook settles the notebook of an attempt that succeeded. With an

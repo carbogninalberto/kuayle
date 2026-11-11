@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "Agentin keskustelu: {identifier}",
 	"assistant.agent_view_breadcrumb": "Sijainti",
 	"assistant.agent_view_missing": "Tämä agenttitehtävä ei kuulu tähän keskusteluun.",
-	"assistant.agent_view_finished": "Tämä agentti on valmis; uudet viestit menevät avustajalle.",
 	"machines.size": "Koko",
 	"machines.created": "Luotu",
 	"machines.last_activity": "Viimeisin toiminta",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "Agentin tehtävä päättyi",
 	"notify.title.review_needed": "Tarkistus tarvitaan",
 	"notify.title.issues_deleted": "Issuet poistettu",
-	"notify.title.generic": "Uusi ilmoitus"
+	"notify.title.generic": "Uusi ilmoitus",
+	"tasks.live_state_replied": "Vastattu",
+	"tasks.live_state_unanswered": "Ei vastausta",
+	"tasks.live_interrupt_send": "Keskeytä ja lähetä",
+	"tasks.live_start_send": "Lähetä ja aloita nyt",
+	"tasks.live_start_confirm_title": "Aloitetaanko uusi iteraatio nyt?",
+	"tasks.live_start_confirm_body": "Tehtävä odottaa: {reason}. Aloittaminen nyt keskeyttää odotuksen ja ajaa agentin uudelleen viestisi kanssa."
 }

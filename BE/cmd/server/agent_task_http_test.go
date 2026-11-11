@@ -136,6 +136,13 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	request("GET", taskPath+"/live-messages", "", token, 200, &thread)
 	require.Len(t, thread.Messages, 1)
 	require.Equal(t, live.ID, thread.Messages[0].ID)
+	// "Interrupt and send" needs a working agent and "send and start now" a
+	// task without one: otherwise they conflict and queue nothing.
+	request("POST", taskPath+"/live-messages", `{"body":"Change course","mode":"interrupt"}`, token, 409, nil)
+	request("POST", taskPath+"/live-messages", `{"body":"Change course","mode":"start"}`, token, 409, nil)
+	request("POST", taskPath+"/live-messages", `{"body":"Change course","mode":"later"}`, token, 400, nil)
+	request("GET", taskPath+"/live-messages", "", token, 200, &thread)
+	require.Len(t, thread.Messages, 1)
 	for _, invalid := range []string{`{"body":""}`, `{"body":"x","sender":"orchestrator"}`, `{"body":"` + strings.Repeat("x", 4001) + `"}`, `not json`} {
 		request("POST", taskPath+"/live-messages", invalid, token, 400, nil)
 	}

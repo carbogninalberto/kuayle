@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "Agentszál: {identifier}",
 	"assistant.agent_view_breadcrumb": "Hely",
 	"assistant.agent_view_missing": "Ez az agent taszk nem része ennek a beszélgetésnek.",
-	"assistant.agent_view_finished": "Ez az agent végzett; az új üzenetek az asszisztenshez mennek.",
 	"machines.size": "Méret",
 	"machines.created": "Létrehozva",
 	"machines.last_activity": "Utolsó tevékenység",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "Az agent feladata véget ért",
 	"notify.title.review_needed": "Ellenőrzés szükséges",
 	"notify.title.issues_deleted": "Feladatok törölve",
-	"notify.title.generic": "Új értesítés"
+	"notify.title.generic": "Új értesítés",
+	"tasks.live_state_replied": "Megválaszolva",
+	"tasks.live_state_unanswered": "Nincs válasz",
+	"tasks.live_interrupt_send": "Megszakítás és küldés",
+	"tasks.live_start_send": "Küldés és indítás most",
+	"tasks.live_start_confirm_title": "Indítasz most új iterációt?",
+	"tasks.live_start_confirm_body": "A feladat várakozik: {reason}. Ha most indítod, a várakozás megszakad, és az ügynök újra fut az üzeneteddel."
 }

@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "Utas ejen {identifier}",
 	"assistant.agent_view_breadcrumb": "Lokasi",
 	"assistant.agent_view_missing": "Tugas ejen ini bukan sebahagian daripada perbualan ini.",
-	"assistant.agent_view_finished": "Ejen ini telah selesai; mesej baharu dihantar kepada pembantu.",
 	"machines.size": "Saiz",
 	"machines.created": "Dicipta",
 	"machines.last_activity": "Aktiviti terakhir",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "Tugas ejen selesai",
 	"notify.title.review_needed": "Semakan diperlukan",
 	"notify.title.issues_deleted": "Isu dipadam",
-	"notify.title.generic": "Pemberitahuan baharu"
+	"notify.title.generic": "Pemberitahuan baharu",
+	"tasks.live_state_replied": "Dibalas",
+	"tasks.live_state_unanswered": "Tiada balasan",
+	"tasks.live_interrupt_send": "Ganggu dan hantar",
+	"tasks.live_start_send": "Hantar dan mula sekarang",
+	"tasks.live_start_confirm_title": "Mulakan lelaran baharu sekarang?",
+	"tasks.live_start_confirm_body": "Tugas sedang menunggu: {reason}. Memulakan sekarang membatalkan penantian itu dan menjalankan ejen semula dengan mesej anda."
 }

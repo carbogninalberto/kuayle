@@ -11,6 +11,7 @@
 		GitPullRequestArrow,
 		ListChecks,
 		LoaderCircle,
+		MessageCircleWarning,
 		Play,
 		SearchCheck,
 		UserCheck
@@ -24,6 +25,7 @@
 	import AgentStepRun from './AgentStepRun.svelte';
 	import Markdown from './Markdown.svelte';
 	import { stepDuration, type StepStatus, type TimelineStep } from './agent-timeline';
+	import type { Conversation } from './agent-conversation';
 	import { formatDuration } from './shell-rules';
 	import { getLocale, m } from '$lib/features/i18n/messages';
 
@@ -36,7 +38,8 @@
 		step,
 		open = $bindable(false),
 		now,
-		reviewHref
+		reviewHref,
+		conversation
 	}: {
 		chat: ConversationState;
 		step: TimelineStep;
@@ -45,6 +48,8 @@
 		now: number;
 		// Where the step's review task opens as an agent view of its own.
 		reviewHref?: string;
+		// What was said to the agent and what it answered, by run.
+		conversation?: Conversation;
 	} = $props();
 
 	const rowIcon: Record<WorkflowNodeType, typeof Play> = {
@@ -90,6 +95,8 @@
 	// Which harness ran and when it started are not on the line: they are
 	// read out with it, and shown on hover or keyboard focus.
 	const aside = $derived(harness ? `${harness} · ${started}` : started);
+	// A run of this step ended without replying to a message.
+	const unanswered = $derived(step.runs.some((run) => conversation?.unanswered.has(run.id)));
 	// What a compact row says when opened: what the runner recorded for it.
 	const note = $derived(step.detail || (step.status === 'done' ? '' : step.reason));
 </script>
@@ -146,6 +153,12 @@
 				{#if step.model}<span class="hidden max-w-40 shrink truncate text-xs text-muted-foreground sm:inline"
 						>{step.model}</span
 					>{/if}
+				{#if unanswered}<span
+						role="img"
+						aria-label={m['tasks.live_state_unanswered']()}
+						title={m['tasks.live_state_unanswered']()}
+						class="inline-flex shrink-0 text-[var(--status-warning)]"><MessageCircleWarning size={14} /></span
+					>{/if}
 				{@render tail()}
 				{@render status()}
 				{@render chevron()}
@@ -167,6 +180,7 @@
 								active={running && index === step.runs.length - 1}
 								pending={pending && index === step.runs.length - 1}
 								concluded={!!step.plan && index === step.runs.length - 1}
+								messages={conversation?.byRun.get(run.id)}
 							/>{/each}
 						{#if step.detail && !step.plan}<p class="text-sm break-words whitespace-pre-wrap text-muted-foreground">
 								{step.detail}

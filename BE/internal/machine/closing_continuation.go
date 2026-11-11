@@ -18,11 +18,12 @@ import (
 //	asked := m.askToClose(ctx, attempt, []domain.ClosingAsk{...})
 //
 // It is one place on purpose: every reason to ask an agent for something
-// before its step closes (today a notebook update) adds a domain.ClosingAsk
-// to the list instead of a continuation of its own, so an attempt is
-// continued at most once whatever is missing. The caller decides what is
-// missing before the call, and looks again after it; the continuation never
-// decides the attempt's outcome.
+// before its step closes (a notebook update, a reply to a message from the
+// task's owner) adds a domain.ClosingAsk to the list instead of a
+// continuation of its own, so an attempt is continued at most once whatever
+// is missing. settleClosing builds that list when a run ends: it decides
+// what is missing before the call, and looks again after it; the
+// continuation never decides the attempt's outcome.
 //
 // What it guarantees:
 //   - same session: the attempt's own harness session is continued (Claude
@@ -30,7 +31,11 @@ import (
 //     stored when the run was created. A harness without one is not asked;
 //   - once: closing_asked_at is taken before the container starts, so a
 //     manager that restarts does not ask again;
-//   - bounded: closingTimeout, and one short prompt (domain.ClosingPrompt);
+//   - bounded: closingTimeout, never past closingMargin before the
+//     attempt's own time limit (the run is still recorded as running, and a
+//     run past its limit is killed and marked as timed out), skipped when
+//     less than closingMinimum would be left; one short prompt
+//     (domain.ClosingPrompt);
 //   - contained: it is a second container of the same run, named
 //     "...-agent-<run>-closing", under the run's sandbox, mounts and
 //     authorization, without the live inbox. Its output is not the
@@ -39,8 +44,16 @@ import (
 //     path out, and one found left over by a crash is removed, not re-run.
 //     The attempt's own container is never touched from here.
 
-// closingTimeout bounds the closing continuation.
-const closingTimeout = 5 * time.Minute
+// closingTimeout bounds the closing continuation. It also ends
+// closingMargin before the attempt's own time limit, which leaves room to
+// collect the outbox and record the result, and it is not started with less
+// than closingMinimum left: it must never turn an attempt that ended well
+// into one that timed out.
+const (
+	closingTimeout = 5 * time.Minute
+	closingMargin  = time.Minute
+	closingMinimum = 30 * time.Second
+)
 
 // closingSuffix names the continuation's container after the run's own.
 const closingSuffix = "-closing"
@@ -52,6 +65,118 @@ type closingAttempt struct {
 	provider *domain.DevMachineAgentProvider
 	checkout *domain.DevMachineCheckout
 	secrets  *domain.AgentRunSecretSnapshot
+	// deadline is the attempt's own time limit; without one nothing is asked.
+	deadline time.Time
+}
+
+// closingEnd is when a continuation started now must end, and whether there
+// is enough time left to start one.
+func closingEnd(deadline time.Time) (time.Time, bool) {
+	end := deadline.Add(-closingMargin)
+	if latest := time.Now().Add(closingTimeout); latest.Before(end) {
+		end = latest
+	}
+	return end, !deadline.IsZero() && time.Until(end) >= closingMinimum
+}
+
+// closingDeadline is the attempt's time limit for its closing continuation:
+// the earlier of the limit the manager is running it under (limit) and the
+// one counted from when the attempt started, which is what the timeout sweep
+// uses. They differ after a manager restart, when limit starts over.
+func closingDeadline(run *domain.DevMachineAgentRun, limit time.Time) time.Time {
+	if run.StartedAt == nil || run.MaxRuntimeSeconds <= 0 {
+		return limit
+	}
+	recorded := run.StartedAt.Add(time.Duration(run.MaxRuntimeSeconds) * time.Second)
+	if limit.IsZero() || recorded.Before(limit) {
+		return recorded
+	}
+	return limit
+}
+
+// removeClosingContainer removes the continuation's container of the run by
+// its exact name, never the attempt's own.
+func (m *Manager) removeClosingContainer(ctx context.Context, attempt closingAttempt) {
+	runtime, ok := m.runtime.(closingRuntime)
+	if !ok {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	if err := runtime.RemoveClosingContainer(cleanupCtx, attempt.machine, attempt.run, closingSuffix); err != nil {
+		log.WithFields(log.Fields{"machine_id": attempt.machine.ID, "agent_run_id": attempt.run.ID}).WithError(err).Warn("the closing continuation's container could not be removed")
+	}
+}
+
+// closingState is what the end of a run knows when it settles what is
+// missing: the machine's services and how collecting the outbox went, when
+// the harness exited, how the attempt ended (concluded: it did not fail;
+// succeeded: it ended well), and whether it left the worktree unchanged.
+type closingState struct {
+	services     []domain.DevMachineService
+	collectErr   error
+	exited       time.Time
+	concluded    bool
+	succeeded    bool
+	unchangedRun func() bool
+}
+
+// closingSettlement is what was still missing when the attempt closed.
+type closingSettlement struct {
+	replies              liveReplySettlement
+	notebookNotCollected bool
+}
+
+// settleClosing is the one place that decides what an ended attempt is
+// asked for. After the outbox was collected it lists what is missing (a
+// reply to each delivered message of the task's owner, for an attempt that
+// ended well; a notebook update, for one that concluded), asks for all of it
+// in one closing continuation, collects the outbox again and looks again.
+// Nothing is asked for what Kuayle itself failed to collect, and the
+// attempt's outcome is never changed here: what is still missing is
+// reported, for notes on the run.
+func (m *Manager) settleClosing(ctx context.Context, attempt closingAttempt, state closingState) closingSettlement {
+	run := attempt.run
+	// Replies are judged only on an outbox that was really read.
+	collected := state.collectErr == nil && developerRunning(state.services)
+	settled := closingSettlement{replies: m.settleReplies(ctx, run, state.exited, collected)}
+	var asks []domain.ClosingAsk
+	replyAsked := state.succeeded && len(settled.replies.unanswered) > 0
+	if replyAsked {
+		asks = append(asks, domain.ReplyClosingAsk(settled.replies.unanswered))
+	}
+	notebook, notCollected := m.notebookAsk(ctx, run, state.collectErr, state.concluded, state.unchangedRun)
+	settled.notebookNotCollected = notCollected
+	if notebook != nil {
+		asks = append(asks, *notebook)
+	}
+	if len(asks) == 0 && run.ClosingAskedAt != nil {
+		// Asked before a crash, and by now nothing is missing: what the
+		// crash left is removed here, since nothing will be asked.
+		m.removeClosingContainer(ctx, attempt)
+	}
+	if len(asks) > 0 && m.askToClose(ctx, attempt, asks) {
+		collectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		err := m.collectOutbox(collectCtx, attempt.machine, state.services)
+		cancel()
+		if notebook != nil {
+			settled.notebookNotCollected = err != nil
+		}
+		// Replies are judged only on an outbox that was really read: without
+		// the developer container the collection reads nothing and reports
+		// no error.
+		if read := err == nil && developerRunning(state.services); read || !settled.replies.unknown {
+			settled.replies = m.repliesAfterClosing(ctx, run, read)
+		}
+	}
+	switch {
+	case settled.replies.unknown:
+		settled.replies.notes = []string{liveCollectFailedNote}
+		_ = m.createEvent(ctx, attempt.machine, &run.ID, "agent", "agent_live_messages.collect_failed", map[string]any{})
+	case state.succeeded && len(settled.replies.unanswered) > 0:
+		settled.replies.notes = []string{domain.UnansweredMessageNote(settled.replies.unanswered)}
+	}
+	return settled
 }
 
 // closingStore keeps the continuation to once per attempt and records it.
@@ -111,16 +236,19 @@ func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks [
 		used = environment[signInSecretNames[run.ProviderID]]
 	}
 	// Whatever happens next, no continuation container outlives this call.
-	remove := func() {
-		runtime, ok := m.runtime.(closingRuntime)
-		if !ok {
-			return
-		}
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-		defer cancel()
-		if err := runtime.RemoveClosingContainer(cleanupCtx, attempt.machine, run, closingSuffix); err != nil {
-			log.WithFields(log.Fields{"machine_id": attempt.machine.ID, "agent_run_id": run.ID}).WithError(err).Warn("the closing continuation's container could not be removed")
-		}
+	remove := func() { m.removeClosingContainer(ctx, attempt) }
+	// An attempt already asked (a continuation ran, or was running when the
+	// manager stopped) is not asked again, whatever time is left: what it
+	// left is removed.
+	if run.ClosingAskedAt != nil || current.ClosingAskedAt != nil {
+		remove()
+		return false
+	}
+	// Never past the attempt's own time limit, and not at all with too
+	// little of it left: decided before the attempt is marked as asked.
+	end, enough := closingEnd(attempt.deadline)
+	if !enough {
+		return false
 	}
 	// Once per attempt: the mark is taken before the container starts. A
 	// mark already taken means a continuation ran, or was running when the
@@ -132,7 +260,7 @@ func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks [
 	defer remove()
 	continuation := *run
 	continuation.CommandArgv, continuation.ContainerSuffix = command, closingSuffix
-	askCtx, cancel := context.WithTimeout(ctx, closingTimeout)
+	askCtx, cancel := context.WithDeadline(ctx, end)
 	observer := &AgentObserver{
 		Authorize: func() error { return m.store.AuthorizeAgentRun(askCtx, run.ID) },
 		Output:    func(string, []byte) error { return nil },

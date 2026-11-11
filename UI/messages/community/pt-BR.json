@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "Conversa do agente de {identifier}",
 	"assistant.agent_view_breadcrumb": "Localização",
 	"assistant.agent_view_missing": "Esta tarefa de agente não faz parte desta conversa.",
-	"assistant.agent_view_finished": "Este agente terminou; as novas mensagens vão para o assistente.",
 	"machines.size": "Tamanho",
 	"machines.created": "Criada",
 	"machines.last_activity": "Última atividade",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "Tarefa do agente encerrada",
 	"notify.title.review_needed": "Revisão necessária",
 	"notify.title.issues_deleted": "Tarefas excluídas",
-	"notify.title.generic": "Nova notificação"
+	"notify.title.generic": "Nova notificação",
+	"tasks.live_state_replied": "Respondido",
+	"tasks.live_state_unanswered": "Sem resposta",
+	"tasks.live_interrupt_send": "Interromper e enviar",
+	"tasks.live_start_send": "Enviar e iniciar agora",
+	"tasks.live_start_confirm_title": "Iniciar uma nova iteração agora?",
+	"tasks.live_start_confirm_body": "A tarefa está aguardando: {reason}. Iniciar agora abandona essa espera e executa o agente novamente com sua mensagem."
 }

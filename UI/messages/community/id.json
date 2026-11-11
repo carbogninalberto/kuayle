@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "Utas agen {identifier}",
 	"assistant.agent_view_breadcrumb": "Lokasi",
 	"assistant.agent_view_missing": "Tugas agen ini bukan bagian dari percakapan ini.",
-	"assistant.agent_view_finished": "Agen ini telah selesai; pesan baru dikirim ke asisten.",
 	"machines.size": "Ukuran",
 	"machines.created": "Dibuat",
 	"machines.last_activity": "Aktivitas terakhir",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "Tugas agen selesai",
 	"notify.title.review_needed": "Perlu ditinjau",
 	"notify.title.issues_deleted": "Issue dihapus",
-	"notify.title.generic": "Notifikasi baru"
+	"notify.title.generic": "Notifikasi baru",
+	"tasks.live_state_replied": "Dibalas",
+	"tasks.live_state_unanswered": "Tidak ada balasan",
+	"tasks.live_interrupt_send": "Sela dan kirim",
+	"tasks.live_start_send": "Kirim dan mulai sekarang",
+	"tasks.live_start_confirm_title": "Mulai iterasi baru sekarang?",
+	"tasks.live_start_confirm_body": "Tugas sedang menunggu: {reason}. Memulai sekarang membatalkan penantian itu dan menjalankan agen lagi dengan pesan Anda."
 }

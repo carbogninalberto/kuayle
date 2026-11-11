@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "Νήμα πράκτορα του {identifier}",
 	"assistant.agent_view_breadcrumb": "Τοποθεσία",
 	"assistant.agent_view_missing": "Αυτή η εργασία πράκτορα δεν ανήκει σε αυτή τη συνομιλία.",
-	"assistant.agent_view_finished": "Αυτός ο πράκτορας ολοκλήρωσε· τα νέα μηνύματα πηγαίνουν στον βοηθό.",
 	"machines.size": "Μέγεθος",
 	"machines.created": "Δημιουργήθηκε",
 	"machines.last_activity": "Τελευταία δραστηριότητα",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "Η εργασία του πράκτορα ολοκληρώθηκε",
 	"notify.title.review_needed": "Απαιτείται έλεγχος",
 	"notify.title.issues_deleted": "Διαγράφηκαν ζητήματα",
-	"notify.title.generic": "Νέα ειδοποίηση"
+	"notify.title.generic": "Νέα ειδοποίηση",
+	"tasks.live_state_replied": "Απαντήθηκε",
+	"tasks.live_state_unanswered": "Χωρίς απάντηση",
+	"tasks.live_interrupt_send": "Διακοπή και αποστολή",
+	"tasks.live_start_send": "Αποστολή και έναρξη τώρα",
+	"tasks.live_start_confirm_title": "Έναρξη νέας επανάληψης τώρα;",
+	"tasks.live_start_confirm_body": "Η εργασία περιμένει: {reason}. Η έναρξη τώρα εγκαταλείπει την αναμονή και εκτελεί ξανά τον πράκτορα με το μήνυμά σας."
 }

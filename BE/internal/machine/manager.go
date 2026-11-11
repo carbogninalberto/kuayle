@@ -1316,6 +1316,9 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	}
 	worktreeBefore := m.worktreeBefore(ctx, machine, run, runServices, checkout)
 	execution, executionErr := m.runtime.RunAgent(runContext, machine, run, providerRecord, checkout, secrets.Environment, observer)
+	// When the harness exited: what reached its inbox just before that may
+	// not have been read, however long the steps below take.
+	exited := time.Now()
 	stopLive()
 	if used := secrets.Environment[signInSecretNames[run.ProviderID]]; used != "" {
 		returnCtx, cancelReturn := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
@@ -1349,11 +1352,9 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	services, _ := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
 	// Messages the agent left are recorded before the next step can deliver
 	// them, without waiting for the next port scan.
-	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
-	collectErr := m.collectOutbox(outboxCtx, machine, services)
-	// An attempt that concluded without a valid notebook update is asked
-	// once more in its own session, before its inbox and run directory go.
-	notebookNotCollected := false
+	collectCtx, cancelCollect := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	collectErr := m.collectOutbox(collectCtx, machine, services)
+	cancelCollect()
 	// An update that changed nothing is enough only for an attempt that left
 	// the worktree as it found it (Kuayle's own comparison).
 	unchangedRun := func() bool {
@@ -1368,12 +1369,20 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		changed, _, _ := worktreeChange(worktreeBefore, after)
 		return !changed
 	}
-	if run.NotebookRequired {
-		concluded := executionErr == nil && !timedOut && execution.ExitCode == 0 &&
-			provider.ParseResult(output.ResultText("stdout"), output.ResultText("stderr"), execution.ExitCode).Status != "failed"
-		attempt := closingAttempt{machine: machine, run: run, provider: providerRecord, checkout: checkout, secrets: secrets}
-		notebookNotCollected = m.settleNotebook(ctx, attempt, services, collectErr, concluded, unchangedRun)
-	}
+	// With the outbox collected, what the attempt still lacks is known: a
+	// reply to a message of the task's owner, a notebook update. It is asked
+	// for all of it once, in its own session, before its inbox and run
+	// directory go (settleClosing).
+	ended := executionErr == nil && !timedOut && execution.ExitCode == 0
+	status := provider.ParseResult(output.ResultText("stdout"), output.ResultText("stderr"), execution.ExitCode).Status
+	limit, _ := runContext.Deadline()
+	// After a restart the context's limit starts over; the attempt's does not.
+	limit = closingDeadline(run, limit)
+	closing := m.settleClosing(ctx,
+		closingAttempt{machine: machine, run: run, provider: providerRecord, checkout: checkout, secrets: secrets, deadline: limit},
+		closingState{services: services, collectErr: collectErr, exited: exited, concluded: ended && status != "failed", succeeded: ended && status == "succeeded", unchangedRun: unchangedRun})
+	notebookNotCollected, replies := closing.notebookNotCollected, closing.replies
+	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	m.closeLiveInbox(outboxCtx, machine, run)
 	m.takeValidationFile(outboxCtx, machine, run, services, checkout)
 	if cleaner, ok := m.runtime.(runTmpRuntime); ok && run.Mode != "interactive" {
@@ -1411,6 +1420,9 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	} else {
 		run.Status = domain.DevMachineAgentRunStatusSucceeded
 	}
+	// A missing reply is said, and never changes how the attempt ended.
+	result.UnansweredMessages, result.RepliesUnknown = replies.unanswered, replies.unknown
+	result.RiskNotes = append(result.RiskNotes, replies.notes...)
 	// The work is never lost over a missing notebook update: Kuayle records
 	// the attempt itself and says so on the run.
 	if run.Status == domain.DevMachineAgentRunStatusSucceeded {

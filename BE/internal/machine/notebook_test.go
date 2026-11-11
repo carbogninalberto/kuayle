@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/agent"
@@ -39,6 +40,21 @@ type notebookStoreFake struct {
 	unchanged       bool
 	resets          int
 	closingSeconds  *int
+	// unanswered are the messages of the task's owner the attempt has not
+	// replied to; settles and unread record how they were settled.
+	unanswered []int64
+	settles    int
+	unread     time.Time
+}
+
+func (f *notebookStoreFake) UnansweredLiveMessages(context.Context, uuid.UUID) ([]int64, error) {
+	return f.unanswered, nil
+}
+
+func (f *notebookStoreFake) SettleLiveMessages(_ context.Context, _ uuid.UUID, unread time.Time) ([]int64, error) {
+	f.settles++
+	f.unread = unread
+	return f.unanswered, nil
 }
 
 func (f *notebookStoreFake) NotebookUpdateState(context.Context, uuid.UUID) (domain.NotebookRunState, error) {
@@ -182,6 +198,14 @@ type notebookScenario struct {
 	worktreeChanged bool
 	failCall        int
 	checkout        bool
+	// unanswered: messages the attempt received and did not reply to;
+	// maxRuntime: its time limit in seconds (an hour when zero).
+	unanswered []int64
+	maxRuntime int
+	// startedAgo: the attempt was started that long ago, before a manager
+	// restart; noDeveloper: the machine's developer container is not running.
+	startedAgo  time.Duration
+	noDeveloper bool
 }
 
 const openCodeConclusion = `{"type":"text","part":{"type":"text","text":"Implemented the toggle and ran the tests."}}`
@@ -190,6 +214,13 @@ const openCodeConclusion = `{"type":"text","part":{"type":"text","text":"Impleme
 // it, with the store and the runtime it used.
 func notebookRun(t *testing.T, scenario notebookScenario) (*domain.DevMachineAgentRun, *notebookStoreFake, *notebookRuntimeFake) {
 	t.Helper()
+	return notebookRunWith(t, scenario, nil)
+}
+
+// notebookRunWith is notebookRun for a test that needs the runtime while
+// the attempt runs: prepared is given it before the attempt starts.
+func notebookRunWith(t *testing.T, scenario notebookScenario, prepared func(*notebookRuntimeFake)) (*domain.DevMachineAgentRun, *notebookStoreFake, *notebookRuntimeFake) {
+	t.Helper()
 	machineID, workspaceID, runID, taskID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	if scenario.provider == "" {
 		scenario.provider = "opencode"
@@ -197,13 +228,25 @@ func notebookRun(t *testing.T, scenario notebookScenario) (*domain.DevMachineAge
 	if scenario.stdout == "" {
 		scenario.stdout = openCodeConclusion
 	}
+	// The closing continuation needs room before the attempt's time limit.
+	if scenario.maxRuntime == 0 {
+		scenario.maxRuntime = 3600
+	}
 	run := &domain.DevMachineAgentRun{
 		ID: runID, MachineID: machineID, WorkspaceID: workspaceID, TaskID: &taskID, ProviderID: scenario.provider, Mode: "autonomous",
-		Status: domain.DevMachineAgentRunStatusQueued, MaxRuntimeSeconds: 30, NotebookRequired: scenario.required, WorktreeReadOnly: scenario.readOnly,
+		Status: domain.DevMachineAgentRunStatusQueued, MaxRuntimeSeconds: scenario.maxRuntime, NotebookRequired: scenario.required, WorktreeReadOnly: scenario.readOnly,
 		CommandArgv: json.RawMessage(`["harness","the original prompt"]`),
 	}
 	if scenario.session != "" {
 		run.NativeSessionID = &scenario.session
+	}
+	if scenario.startedAgo > 0 {
+		started := time.Now().Add(-scenario.startedAgo)
+		run.StartedAt = &started
+	}
+	if scenario.alreadyAsked {
+		asked := time.Now().Add(-time.Minute)
+		run.ClosingAskedAt = &asked
 	}
 	if scenario.continuation != nil {
 		run.ClosingContinuation, _ = json.Marshal(scenario.continuation)
@@ -213,7 +256,7 @@ func notebookRun(t *testing.T, scenario notebookScenario) (*domain.DevMachineAge
 	sealed, err := cryptoutil.Encrypt("fixture-api-key", make([]byte, 32))
 	require.NoError(t, err)
 	container := "developer"
-	store := &notebookStoreFake{updates: scenario.updates, problem: scenario.problem, unchanged: scenario.unchanged, alreadyAsked: scenario.alreadyAsked, managerStoreFake: &managerStoreFake{
+	store := &notebookStoreFake{unanswered: scenario.unanswered, updates: scenario.updates, problem: scenario.problem, unchanged: scenario.unchanged, alreadyAsked: scenario.alreadyAsked, managerStoreFake: &managerStoreFake{
 		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
 			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1},
 		agentRun: run,
@@ -221,7 +264,13 @@ func notebookRun(t *testing.T, scenario notebookScenario) (*domain.DevMachineAge
 		services: []domain.DevMachineService{{ServiceType: "ide", Status: "running", ContainerID: &container}},
 		envVars:  []domain.DevMachineEnvVar{{Name: "OPENAI_API_KEY", EncryptedValue: sealed}, {Name: "ANTHROPIC_API_KEY", EncryptedValue: sealed}},
 	}}
+	if scenario.noDeveloper {
+		store.services = nil
+	}
 	runtime := &notebookRuntimeFake{takeErr: scenario.takeErr, prepareErr: scenario.prepareErr, failCall: scenario.failCall, worktreeChanged: scenario.worktreeChanged, runtimeFake: &runtimeFake{agentExecution: &AgentExecution{ContainerID: "agent-container", ExitCode: scenario.exit, Stdout: scenario.stdout}}}
+	if prepared != nil {
+		prepared(runtime)
+	}
 	runtime.onRun = func(call int) {
 		if call == 2 && scenario.afterAsk != nil {
 			scenario.afterAsk(store)

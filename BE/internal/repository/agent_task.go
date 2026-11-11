@@ -389,6 +389,21 @@ func (r *AgentTaskRepository) RequestCancel(ctx context.Context, ws, id uuid.UUI
 	if task.State == "cancelled" {
 		return nil
 	}
+	// A person's cancel always wins: an attempt being stopped to deliver a
+	// message is not continued behind their back, and nothing that happened
+	// to an earlier interruption makes the cleanup start the task again.
+	if task.LiveResumeGeneration != nil {
+		interrupting := task.LiveInterrupting()
+		if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET live_resume_generation=NULL,
+ reason=CASE WHEN $2 THEN 'Cancellation requested' ELSE reason END,next_poll_at=CASE WHEN $2 THEN now() ELSE next_poll_at END,updated_at=now() WHERE id=$1 RETURNING *`, id, interrupting); err != nil {
+			return err
+		}
+		if interrupting && task.ConversationID != nil {
+			if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.updated", task); err != nil {
+				return err
+			}
+		}
+	}
 	// Cancelling a paused workflow ends the pause: the task is cancelled, not
 	// left blocked by the cleanup of the attempt the pause stopped.
 	if paused := task.WorkflowPausedAt != nil; paused || task.WorkflowPauseRequest != nil {
@@ -491,6 +506,14 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 		// A person paused the workflow while its agent worked: the attempt is
 		// stopped, and the task waits to be resumed.
 		target, reason = "blocked", workflowPausedReason
+	} else if task.LiveInterrupting() && !task.FailurePending {
+		// A person interrupted the agent to deliver a message: one action,
+		// stopped and continued on the same session. A continuation that
+		// cannot happen leaves the task saying so, never silently stopped.
+		if err = continueInterruptedForLiveMessage(ctx, tx, task); err != nil {
+			return err
+		}
+		return tx.Commit()
 	} else if task.FailurePending && task.UsageLimitMessage != nil {
 		// A usage limit pauses the task; the reason says until when.
 		target, reason = "blocked", task.Reason
@@ -504,6 +527,13 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 			reason = task.Reason
 		} else {
 			reason = "Execution failed; runtime cleanup confirmed"
+		}
+	}
+	// An interruption that ends any other way (the attempt failed while it
+	// was being stopped) is over: a later retry is not its continuation.
+	if task.LiveResumeGeneration != nil && *task.LiveResumeGeneration > task.Generation {
+		if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET live_resume_generation=NULL WHERE id=$1 RETURNING *`, task.ID); err != nil {
+			return err
 		}
 	}
 	if err = transitionAgentTask(ctx, tx, task, target, reason, nil); err != nil {
@@ -701,9 +731,10 @@ func (r *AgentTaskRepository) CancelAttempt(ctx context.Context, claimed domain.
 	}
 	if operation.Status == domain.DevMachineOpStatusFailed {
 		// Nobody asked to give this task up: the cleanup of an attempt a pause
-		// stopped is started again until it succeeds, and the task then waits
-		// paused. Any other cleanup waits for its creator's explicit retry.
-		if task.WorkflowPausedAt == nil {
+		// stopped, or a message interrupted, is started again until it
+		// succeeds; the task then waits paused, or continues with the
+		// message. Any other cleanup waits for its creator's explicit retry.
+		if task.WorkflowPausedAt == nil && !task.LiveInterrupting() {
 			return ErrAgentTaskCleanupFailed
 		}
 		if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='pending',attempts=0,available_at=now(),error_code=NULL,error_message=NULL WHERE workspace_id=$1 AND agent_run_id=$2 AND idempotency_key=$3 AND status='failed'`,
@@ -899,7 +930,7 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 	if err != nil {
 		return nil, err
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET model=COALESCE(NULLIF($9::text,''),t.model),thinking=CASE WHEN $9::text<>'' THEN $10::text ELSE t.thinking END,model_server_id=CASE WHEN $9::text<>'' THEN $11::uuid ELSE t.model_server_id END,prompt=$2,test_command=$3,validation_command=$4,agent_instructions=CASE WHEN t.workflow_version_id IS NOT NULL AND t.kind<>'review' THEN t.agent_instructions ELSE $5 END,compose_file=$6,preview_command=$7,preview_port=$8,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,sign_in_required=false,usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,usage_limit_resumes=0,resume_native_session=false,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, req.Prompt, requested, command, instructions, compose, preview, previewPort, req.Model, req.Thinking, req.ModelServerID); err != nil {
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET model=COALESCE(NULLIF($9::text,''),t.model),thinking=CASE WHEN $9::text<>'' THEN $10::text ELSE t.thinking END,model_server_id=CASE WHEN $9::text<>'' THEN $11::uuid ELSE t.model_server_id END,prompt=$2,test_command=$3,validation_command=$4,agent_instructions=CASE WHEN t.workflow_version_id IS NOT NULL AND t.kind<>'review' THEN t.agent_instructions ELSE $5 END,compose_file=$6,preview_command=$7,preview_port=$8,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,sign_in_required=false,usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,usage_limit_resumes=0,resume_native_session=false,live_resume_generation=NULL,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, req.Prompt, requested, command, instructions, compose, preview, previewPort, req.Model, req.Thinking, req.ModelServerID); err != nil {
 		return nil, err
 	}
 	// A workflow task continues on its implementing agent step, keeping that

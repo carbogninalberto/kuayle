@@ -1,19 +1,21 @@
 <script lang="ts">
-	import { tick, untrack } from 'svelte';
+	import { setContext, tick, untrack } from 'svelte';
 	import { RefreshCw } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import * as Breadcrumb from '$lib/components/ui/breadcrumb/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { agentTasks, type AgentTask } from '$lib/api/agent-tasks';
+	import { agentTasks, type AgentLiveMessage as LiveMessage, type AgentTask } from '$lib/api/agent-tasks';
 	import { workflows, type TaskWorkflow } from '$lib/api/workflows';
 	import type { AgentRun } from '$lib/types/dev-machine';
 	import type { ConversationState } from './conversation-state.svelte';
 	import AgentStep from './AgentStep.svelte';
 	import ClampedText from './ClampedText.svelte';
-	import TaskLiveThread from './TaskLiveThread.svelte';
+	import AgentLiveMessage from './AgentLiveMessage.svelte';
 	import TaskStopButton from './TaskStopButton.svelte';
 	import { attemptTimeline, openStep, workflowTimeline } from './agent-timeline';
+	import { answerContext, placeConversation, sendOptions, type AnswerContext } from './agent-conversation';
+	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { taskLabel } from './task-labels';
 	import { taskTone, toneBadge } from './task-tone';
 	import { m } from '$lib/features/i18n/messages';
@@ -22,9 +24,11 @@
 	// back to the assistant), what was asked, and its timeline: one section
 	// per workflow step, in the order the task took them, the running one
 	// open and streaming. A task without a workflow is one step per attempt.
-	// Below it, the live thread with the agent (its questions, your replies);
-	// replies are written in the page's one composer, which aims at this
-	// agent while this view is open.
+	// The conversation with the agent lives in it: a message sits in the run
+	// that received it, at the moment it was delivered, with the agent's
+	// reply as the next item; one that waits while no step runs follows the
+	// last step, where the next iteration picks it up. It is written in the
+	// composer under the view (AgentComposer).
 	let {
 		chat,
 		task,
@@ -101,6 +105,35 @@
 
 	const steps = $derived(
 		followsWorkflow ? (view ? workflowTimeline(view, task) : []) : attemptTimeline(task, attempts)
+	);
+	// The task's live channel, reloaded on each of its events. A review has
+	// none; another member's task answers "not found" and shows nothing.
+	let live = $state<LiveMessage[]>([]);
+	let liveRequest = 0;
+	async function loadLive() {
+		const current = ++liveRequest;
+		try {
+			const result = await agentTasks.liveMessages(chat.slug, task.id);
+			if (!disposed && current === liveRequest) live = result.messages ?? [];
+		} catch {
+			/* The timeline still shows the agent's work. */
+		}
+	}
+	$effect(() => {
+		void [task.id, chat.taskLiveCursor[task.id]];
+		if (task.kind !== 'review') untrack(() => void loadLive());
+	});
+	const conversation = $derived(placeConversation(live, steps, task));
+	// An agent's question is answered in the composer under the view: it
+	// takes the question as what the next message answers, and the cursor.
+	const writable = $derived(sendOptions(task, authState.user?.id).open);
+	setContext<AnswerContext>(answerContext, () =>
+		writable
+			? (question) => {
+					chat.agentQuestion = { taskId: task.id, id: question.id, body: question.body };
+					chat.composerFocus++;
+				}
+			: undefined
 	);
 	// Events can be missed (a dropped connection), so the workflow is also
 	// polled: modestly while a step runs, rarely while it waits (an approval
@@ -187,10 +220,15 @@
 					{step}
 					{now}
 					reviewHref={step.reviewTaskId ? reviewHref(step.reviewTaskId) : undefined}
+					{conversation}
 					bind:open={() => chosen[step.anchor] ?? step.anchor === current, (open) => (chosen[step.anchor] = open)}
 				/>
 			</li>
 		{/each}
+		<!-- Waiting with no step running: the next iteration picks these up here. -->
+		{#if conversation.pending.length && steps.length}<li class="flex min-w-0 flex-col gap-3 py-2" data-step="pending">
+				{#each conversation.pending as placed (placed.message.id)}<AgentLiveMessage {placed} />{/each}
+			</li>{/if}
 	</ol>
 	{#if failed}<div class="flex flex-wrap items-center gap-2">
 			<p role="alert" class="text-sm text-destructive">
@@ -198,6 +236,4 @@
 			</p>
 			<Button variant="ghost" size="sm" onclick={() => void load()}><RefreshCw />{m['tasks.refresh']()}</Button>
 		</div>{/if}
-
-	{#if task.kind !== 'review'}<TaskLiveThread {chat} {task} />{/if}
 </div>

@@ -91,7 +91,14 @@ type RunResult struct {
 	// NoFinalMessage reports that the harness exited normally but the agent
 	// never concluded, which is the only reason the run failed.
 	// FailureReason is what the harness itself said went wrong, if anything.
-	NoFinalMessage bool       `json:"no_final_message,omitempty"`
+	NoFinalMessage bool `json:"no_final_message,omitempty"`
+	// UnansweredMessages are the sequence numbers of the owner's messages the
+	// run received and never replied to. It is a note: the status is the
+	// work's own.
+	UnansweredMessages []int64 `json:"unanswered_messages,omitempty"`
+	// RepliesUnknown reports that the agent's last messages could not be
+	// collected when the run ended: whether it replied is not known.
+	RepliesUnknown bool       `json:"replies_unknown,omitempty"`
 	FailureReason  string     `json:"failure_reason,omitempty"`
 	ChangedFiles   []string   `json:"changed_files"`
 	Commits        []string   `json:"commits"`

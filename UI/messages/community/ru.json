@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "Обсуждение агента {identifier}",
 	"assistant.agent_view_breadcrumb": "Местоположение",
 	"assistant.agent_view_missing": "Эта задача агента не входит в этот диалог.",
-	"assistant.agent_view_finished": "Этот агент завершил работу; новые сообщения уходят ассистенту.",
 	"machines.size": "Размер",
 	"machines.created": "Создана",
 	"machines.last_activity": "Последняя активность",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "Задание агента завершено",
 	"notify.title.review_needed": "Требуется проверка",
 	"notify.title.issues_deleted": "Задачи удалены",
-	"notify.title.generic": "Новое уведомление"
+	"notify.title.generic": "Новое уведомление",
+	"tasks.live_state_replied": "Отвечено",
+	"tasks.live_state_unanswered": "Нет ответа",
+	"tasks.live_interrupt_send": "Прервать и отправить",
+	"tasks.live_start_send": "Отправить и запустить сейчас",
+	"tasks.live_start_confirm_title": "Начать новую итерацию сейчас?",
+	"tasks.live_start_confirm_body": "Задача ожидает: {reason}. Запуск сейчас отменит это ожидание и снова запустит агента с вашим сообщением."
 }

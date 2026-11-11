@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "رشته عامل {identifier}",
 	"assistant.agent_view_breadcrumb": "مکان",
 	"assistant.agent_view_missing": "این وظیفه عامل بخشی از این گفتگو نیست.",
-	"assistant.agent_view_finished": "این عامل کارش را تمام کرده؛ پیام‌های جدید به دستیار می‌روند.",
 	"machines.size": "اندازه",
 	"machines.created": "ایجاد",
 	"machines.last_activity": "آخرین فعالیت",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "وظیفهٔ عامل پایان یافت",
 	"notify.title.review_needed": "نیاز به بازبینی",
 	"notify.title.issues_deleted": "مسئله‌ها حذف شدند",
-	"notify.title.generic": "اعلان جدید"
+	"notify.title.generic": "اعلان جدید",
+	"tasks.live_state_replied": "پاسخ داده شد",
+	"tasks.live_state_unanswered": "بدون پاسخ",
+	"tasks.live_interrupt_send": "قطع و ارسال",
+	"tasks.live_start_send": "ارسال و شروع اکنون",
+	"tasks.live_start_confirm_title": "اکنون تکرار جدیدی شروع شود؟",
+	"tasks.live_start_confirm_body": "این کار در انتظار است: {reason}. شروع اکنون این انتظار را رها می‌کند و عامل را دوباره با پیام شما اجرا می‌کند."
 }

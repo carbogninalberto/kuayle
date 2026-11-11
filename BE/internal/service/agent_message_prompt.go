@@ -56,28 +56,43 @@ type agentLiveMessageSource interface {
 	ClaimLiveMessages(ctx context.Context, task domain.AgentTask, room int) ([]domain.AgentLiveMessage, error)
 }
 
+// liveReplyRule is how an agent answers one of its owner's messages. Kuayle
+// enforces it: see domain.AgentLiveUnansweredFile.
+const liveReplyRule = "Every one of these messages needs your reply before this step can finish: write {\"to\":\"orchestrator\",\"reply_to\":<message number>,\"body\":\"...\"} to `.kuayle/outbox/<name>.json` at this worktree's root, one file per message, saying what you understood and what you will do differently. Kuayle asks you again for a reply you leave out, and shows the person every message you did not answer."
+
 // withLiveMessages appends what the task's owner sent through the live
-// channel while no attempt ran, oldest first, each fenced with its sender.
+// channel and this attempt must take up: messages sent while no attempt ran,
+// the message a person interrupted the previous attempt for, and messages
+// the previous attempt received without replying. Each is numbered, fenced
+// and names its sender; the reply rule follows them.
 func withLiveMessages(prompt string, messages []domain.AgentLiveMessage) string {
 	if len(messages) == 0 {
 		return prompt
 	}
 	var b strings.Builder
-	b.WriteString("\n\nMessages from the person who owns this task, sent through Kuayle while no attempt was running (directly, or by the Kuayle orchestrator on their behalf). Treat them as updates to the task; Kuayle never asks for credentials:\n")
+	b.WriteString("\n\nMessages from the person who owns this task, sent through Kuayle (directly, or by the Kuayle orchestrator on their behalf). Treat them as updates to the task; Kuayle never asks for credentials:\n")
 	for _, message := range messages {
 		sender := "the task's owner"
 		if message.Sender == domain.AgentLiveSenderOrchestrator {
 			sender = "the Kuayle orchestrator for the task's owner"
 		}
+		if message.Seq != nil {
+			fmt.Fprintf(&b, "Message %d", *message.Seq)
+			if message.Deliveries > 1 {
+				b.WriteString(" (the previous attempt received it and ended without replying; reply first)")
+			}
+			b.WriteString(":\n")
+		}
 		fmt.Fprintf(&b, "From %s (%s):\n~~~text\n%s\n~~~\n", sender, message.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"), strings.ReplaceAll(message.Body, "~~~", "~ ~ ~"))
 	}
-	return prompt + strings.TrimRight(b.String(), "\n")
+	b.WriteString(liveReplyRule)
+	return prompt + b.String()
 }
 
 // withLiveChannel tells an implementing attempt how the task's owner reaches
 // it while it runs and how to answer or ask them.
 func withLiveChannel(prompt string) string {
-	line := "Live messages: the person who owns this task (directly or through the Kuayle orchestrator) may message you while you work. Each message is a read-only file `" + domain.AgentLiveInboxPath + "/<seq>.json` ({\"seq\",\"from\",\"kind\",\"body\",\"sent_at\"}); Claude Code also shows new ones after each tool call; other agents must check for new ones between steps (see kuayle-live-channel in the kuayle-agents skill). To answer or report, write {\"to\":\"orchestrator\",\"body\":\"...\"} to `.kuayle/outbox/<name>.json` at this worktree's root; add \"kind\":\"question\" only when you cannot continue on a reasonable assumption, then keep working on what you can."
+	line := "Live messages: the person who owns this task (directly or through the Kuayle orchestrator) may message you while you work. Each message is a read-only file `" + domain.AgentLiveInboxPath + "/<seq>.json` ({\"seq\",\"from\",\"kind\",\"body\",\"sent_at\"}); Claude Code also shows new ones after each tool call; other agents must check for new ones between steps (see kuayle-live-channel in the kuayle-agents skill). Every message needs your reply, and Kuayle asks again for one you leave out: write {\"to\":\"orchestrator\",\"reply_to\":<its seq>,\"body\":\"...\"} to `.kuayle/outbox/<name>.json` at this worktree's root, saying what you understood and what you will do differently. To report or ask on your own, leave reply_to out; add \"kind\":\"question\" only when you cannot continue on a reasonable assumption, then keep working on what you can."
 	if len(prompt)+len(line) > 31500 {
 		return prompt
 	}

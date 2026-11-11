@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "Agent thread of {identifier}",
 	"assistant.agent_view_breadcrumb": "Location",
 	"assistant.agent_view_missing": "This agent task is not part of this conversation.",
-	"assistant.agent_view_finished": "This agent has finished; new messages go to the assistant.",
 	"machines.size": "Size",
 	"machines.created": "Created",
 	"machines.last_activity": "Last activity",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "Agent task finished",
 	"notify.title.review_needed": "Review needed",
 	"notify.title.issues_deleted": "Issues deleted",
-	"notify.title.generic": "New notification"
+	"notify.title.generic": "New notification",
+	"tasks.live_state_replied": "Replied",
+	"tasks.live_state_unanswered": "No reply",
+	"tasks.live_interrupt_send": "Interrupt and send",
+	"tasks.live_start_send": "Send and start now",
+	"tasks.live_start_confirm_title": "Start a new iteration now?",
+	"tasks.live_start_confirm_body": "The task is waiting: {reason}. Starting now gives that up and runs the agent again with your message."
 }

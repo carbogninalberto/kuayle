@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "Agent-Thread von {identifier}",
 	"assistant.agent_view_breadcrumb": "Ort",
 	"assistant.agent_view_missing": "Diese Agent-Aufgabe gehört nicht zu dieser Unterhaltung.",
-	"assistant.agent_view_finished": "Dieser Agent ist fertig; neue Nachrichten gehen an den Assistenten.",
 	"machines.size": "Größe",
 	"machines.created": "Erstellt",
 	"machines.last_activity": "Letzte Aktivität",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "Agentenaufgabe beendet",
 	"notify.title.review_needed": "Prüfung erforderlich",
 	"notify.title.issues_deleted": "Issues gelöscht",
-	"notify.title.generic": "Neue Benachrichtigung"
+	"notify.title.generic": "Neue Benachrichtigung",
+	"tasks.live_state_replied": "Beantwortet",
+	"tasks.live_state_unanswered": "Keine Antwort",
+	"tasks.live_interrupt_send": "Unterbrechen und senden",
+	"tasks.live_start_send": "Senden und jetzt starten",
+	"tasks.live_start_confirm_title": "Jetzt eine neue Iteration starten?",
+	"tasks.live_start_confirm_body": "Die Aufgabe wartet: {reason}. Ein Start jetzt gibt das Warten auf und lässt den Agent mit deiner Nachricht erneut laufen."
 }

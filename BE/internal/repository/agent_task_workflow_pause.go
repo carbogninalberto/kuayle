@@ -270,38 +270,51 @@ func (r *AgentTaskRepository) ResumeWorkflow(ctx context.Context, ws, id uuid.UU
 		}
 		return task, tx.Commit()
 	}
-	// The interrupted attempt must be gone before its successor starts.
-	var pending bool
-	if err = tx.GetContext(ctx, &pending, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE task_id=$1 AND status IN ('queued','starting','running','waiting_input'))
- OR EXISTS(SELECT 1 FROM dev_machine_operations o WHERE (o.checkout_id=$2 OR o.agent_run_id IN (SELECT id FROM dev_machine_agent_runs WHERE task_id=$1)) AND o.status IN ('pending','leased') AND o.action NOT IN ('start_preview','stop_preview'))`, task.ID, task.CheckoutID); err != nil {
+	if err = restartInterruptedStep(ctx, tx, task, &actor, workflowResumedReason); err != nil {
 		return nil, err
 	}
+	return task, tx.Commit()
+}
+
+// restartInterruptedStep continues the step whose attempt a pause stopped, as
+// a new attempt on the same step, visit and iteration, in the caller's
+// transaction; the pause itself has ended (endWorkflowPause). The interrupted
+// attempt must be gone: otherwise it is ErrAgentTaskConflict.
+func restartInterruptedStep(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, actor *uuid.UUID, reason string) error {
+	// The interrupted attempt must be gone before its successor starts.
+	var pending bool
+	err := tx.GetContext(ctx, &pending, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE task_id=$1 AND status IN ('queued','starting','running','waiting_input'))
+ OR EXISTS(SELECT 1 FROM dev_machine_operations o WHERE (o.checkout_id=$2 OR o.agent_run_id IN (SELECT id FROM dev_machine_agent_runs WHERE task_id=$1)) AND o.status IN ('pending','leased') AND o.action NOT IN ('start_preview','stop_preview'))`, task.ID, task.CheckoutID)
+	if err != nil {
+		return err
+	}
 	if pending {
-		return nil, ErrAgentTaskConflict
+		return ErrAgentTaskConflict
 	}
 	// Only an attempt that started has a session to continue; one stopped
 	// before that starts the step's session.
 	var started bool
 	err = tx.GetContext(ctx, &started, `SELECT started_at IS NOT NULL FROM dev_machine_agent_runs WHERE id=$1 AND task_id=$2`, task.RunID, task.ID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
+		return err
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,sign_in_required=false,
+	err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,sign_in_required=false,
  lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at,resume_native_session=$2
- FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, started); err != nil {
-		return nil, err
+ FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, task.ID, started)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrAgentTaskConflict
+	}
+	if err != nil {
+		return err
 	}
 	// The same step, visit and iteration: only its attempt is new.
 	if _, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET generation=$3 WHERE task_id=$1 AND sequence=$2`, task.ID, task.WorkflowSequence, task.Generation); err != nil {
-		return nil, err
+		return err
 	}
-	if err = transitionAgentTask(ctx, tx, task, "queued", workflowResumedReason, &actor); err != nil {
-		return nil, err
+	if err = transitionAgentTask(ctx, tx, task, "queued", reason, actor); err != nil {
+		return err
 	}
-	if err = workflowEvent(ctx, tx, *task); err != nil {
-		return nil, err
-	}
-	return task, tx.Commit()
+	return workflowEvent(ctx, tx, *task)
 }
 
 // endWorkflowPause ends the task's pause in the caller's transaction: the

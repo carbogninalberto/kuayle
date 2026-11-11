@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "{identifier} のエージェントスレッド",
 	"assistant.agent_view_breadcrumb": "場所",
 	"assistant.agent_view_missing": "このエージェントタスクは、この会話に含まれていません。",
-	"assistant.agent_view_finished": "このエージェントは終了しました。新しいメッセージはアシスタントに送られます。",
 	"machines.size": "サイズ",
 	"machines.created": "作成日",
 	"machines.last_activity": "最終アクティビティ",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "エージェントのタスクが終了",
 	"notify.title.review_needed": "レビューが必要",
 	"notify.title.issues_deleted": "イシューが削除されました",
-	"notify.title.generic": "新しい通知"
+	"notify.title.generic": "新しい通知",
+	"tasks.live_state_replied": "返信済み",
+	"tasks.live_state_unanswered": "返信なし",
+	"tasks.live_interrupt_send": "中断して送信",
+	"tasks.live_start_send": "送信して今すぐ開始",
+	"tasks.live_start_confirm_title": "今すぐ新しいイテレーションを開始しますか？",
+	"tasks.live_start_confirm_body": "タスクは待機中です: {reason}。今開始するとこの待機を取りやめ、あなたのメッセージでエージェントを再実行します。"
 }

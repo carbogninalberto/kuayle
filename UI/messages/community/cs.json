@@ -3159,7 +3159,6 @@
 	"assistant.agent_view_label": "Vlákno agenta úkolu {identifier}",
 	"assistant.agent_view_breadcrumb": "Umístění",
 	"assistant.agent_view_missing": "Tato úloha agenta není součástí této konverzace.",
-	"assistant.agent_view_finished": "Tento agent skončil; nové zprávy jdou asistentovi.",
 	"machines.size": "Velikost",
 	"machines.created": "Vytvořeno",
 	"machines.last_activity": "Poslední aktivita",
@@ -3861,5 +3860,11 @@
 	"notify.title.agent_task_finished": "Úloha agenta dokončena",
 	"notify.title.review_needed": "Je potřeba kontrola",
 	"notify.title.issues_deleted": "Úkoly smazány",
-	"notify.title.generic": "Nové oznámení"
+	"notify.title.generic": "Nové oznámení",
+	"tasks.live_state_replied": "Odpovězeno",
+	"tasks.live_state_unanswered": "Bez odpovědi",
+	"tasks.live_interrupt_send": "Přerušit a odeslat",
+	"tasks.live_start_send": "Odeslat a spustit hned",
+	"tasks.live_start_confirm_title": "Spustit nyní novou iteraci?",
+	"tasks.live_start_confirm_body": "Úloha čeká: {reason}. Spuštěním se toto čekání ukončí a agent poběží znovu s vaší zprávou."
 }

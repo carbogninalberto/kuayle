@@ -34,6 +34,8 @@
 		type SessionEntry,
 		type SessionTool
 	} from './agent-transcript';
+	import AgentLiveMessage from './AgentLiveMessage.svelte';
+	import { interleave, type PlacedMessage } from './agent-conversation';
 	import { elapsed, formatDuration } from './shell-rules';
 	import { m } from '$lib/features/i18n/messages';
 
@@ -50,7 +52,8 @@
 		pending = false,
 		lead = false,
 		summary = '',
-		concluded = false
+		concluded = false,
+		messages = []
 	}: {
 		chunks: Pick<DevMachineLogChunk, 'id' | 'stream' | 'content' | 'truncated' | 'created_at'>[];
 		// The run is still going: an unanswered tool call is in progress.
@@ -65,6 +68,9 @@
 		// The final message is already shown above the session (a planning
 		// step's plan is its final message), so it is not shown again.
 		concluded?: boolean;
+		// What the task's creator told the agent during this run and what the
+		// agent answered, placed in the session by time.
+		messages?: PlacedMessage[];
 	} = $props();
 	let raw = $state(false);
 	let fullOutput = $state<Record<string, boolean>>({});
@@ -75,6 +81,7 @@
 		return concluded || !text.trim() ? '' : text;
 	});
 	const trace = $derived(final ? blocks.filter((block) => block.key !== final.key) : blocks);
+	const items = $derived(interleave(trace, messages));
 	const rawText = $derived(
 		chunks.map((line) => `${line.stream === 'stderr' ? '[stderr] ' : ''}${line.content}`).join('')
 	);
@@ -356,15 +363,18 @@
 				></CodeBlock.Header
 			><CodeBlock.Content code={rawText || m['tasks.no_output']()} wrap class="max-h-[32rem] text-xs" /></CodeBlock.Root
 		>
-	{:else if !blocks.length && !conclusion}
-		<p class="text-xs text-muted-foreground">
-			{active || pending ? m['tasks.transcript_starting']() : m['tasks.no_output']()}
-		</p>
 	{:else}
-		<div class="flex min-w-0 flex-col gap-3">
-			{#if conclusion}{@render message(conclusion)}{/if}
-			{#each trace as block (block.key)}{@render blockView(block)}{/each}
-		</div>
+		{#if !blocks.length && !conclusion}<p class="text-xs text-muted-foreground">
+				{active || pending ? m['tasks.transcript_starting']() : m['tasks.no_output']()}
+			</p>{/if}
+		{#if items.length || conclusion}<div class="flex min-w-0 flex-col gap-3">
+				{#if conclusion}{@render message(conclusion)}{/if}
+				{#each items as item (item.key)}
+					{#if item.kind === 'message'}<AgentLiveMessage placed={item.placed} />{:else}{@render blockView(
+							item.block
+						)}{/if}
+				{/each}
+			</div>{/if}
 	{/if}
 	{#if chunks.length}<div class="-mt-2 flex justify-end">
 			<Toggle
