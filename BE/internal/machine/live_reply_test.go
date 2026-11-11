@@ -355,3 +355,86 @@ func TestTheClosingContinuationStaysWithinTheAttemptsTimeLimit(t *testing.T) {
 	require.Contains(t, result.RiskNotes, domain.UnansweredMessageNote([]int64{3}))
 	require.Len(t, store.fallbacks, 1, "Kuayle records the attempt in the notebook itself")
 }
+
+// The agent writes the reply when asked, but not the notebook: the reply is
+// settled, and Kuayle records the attempt in the notebook itself.
+func TestTheReplyIsWrittenWhenAskedButNotTheNotebook(t *testing.T) {
+	completed, store, runtime := notebookRun(t, notebookScenario{provider: "claude-code", required: true, session: "0c9a6c1e-session", continuation: resumeCommand,
+		stdout: claudeConclusion, unanswered: []int64{3},
+		afterAsk: func(store *notebookStoreFake) { store.unanswered = nil }})
+	require.Contains(t, closingPrompt(t, runtime), "2 things are missing")
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, completed.Status)
+	result := runResult(t, completed)
+	require.Empty(t, result.UnansweredMessages)
+	require.False(t, result.RepliesUnknown)
+	require.Len(t, store.fallbacks, 1, "Kuayle records the attempt in the notebook itself")
+	require.Len(t, result.RiskNotes, 1, "only the notebook is noted")
+	require.NotContains(t, result.RiskNotes[0], "did not reply")
+}
+
+// Without the developer container the outbox is never read, whatever the
+// collection reports. Replies stay unknown, also after a continuation that
+// was run for the notebook: an outbox nobody read is not a missing reply.
+func TestRepliesStayUnknownWhenTheOutboxWasNeverRead(t *testing.T) {
+	completed, _, runtime := notebookRun(t, notebookScenario{provider: "claude-code", required: true, session: "0c9a6c1e-session", continuation: resumeCommand,
+		stdout: claudeConclusion, unanswered: []int64{3}, noDeveloper: true})
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, completed.Status)
+	if len(runtime.runs) == 2 {
+		require.NotContains(t, closingPrompt(t, runtime), "reply_to", "the reply is not asked for")
+	}
+	result := runResult(t, completed)
+	require.True(t, result.RepliesUnknown)
+	require.Empty(t, result.UnansweredMessages, "nothing is said to be unanswered")
+	require.Contains(t, result.RiskNotes, liveCollectFailedNote)
+	for _, note := range result.RiskNotes {
+		require.NotContains(t, note, "did not reply")
+	}
+}
+
+// After a manager restart the attempt's limit is still counted from when it
+// started, as the timeout sweep counts it, not from the restart.
+func TestTheClosingContinuationCountsTheLimitFromTheAttemptsStart(t *testing.T) {
+	started := time.Now().Add(-57 * time.Minute)
+	restarted := time.Now().Add(20 * time.Minute)
+	limit := closingDeadline(&domain.DevMachineAgentRun{StartedAt: &started, MaxRuntimeSeconds: 3600}, restarted)
+	require.WithinDuration(t, started.Add(time.Hour), limit, time.Second, "three minutes are left, not twenty")
+	require.Equal(t, restarted, closingDeadline(&domain.DevMachineAgentRun{MaxRuntimeSeconds: 3600}, restarted), "an attempt that just started has the context's limit")
+	early := time.Now().Add(time.Minute)
+	require.Equal(t, early, closingDeadline(&domain.DevMachineAgentRun{StartedAt: &started, MaxRuntimeSeconds: 3600}, early), "the earlier limit wins")
+
+	// A 1 h attempt whose manager restarted and which ends well at 0:59:20
+	// owing a reply is not continued: the sweep would record it as timed out.
+	completed, store, runtime := notebookRun(t, notebookScenario{provider: "claude-code", session: "0c9a6c1e-session", continuation: resumeCommand,
+		stdout: claudeConclusion, unanswered: []int64{3}, startedAgo: 59*time.Minute + 20*time.Second})
+	require.Len(t, runtime.runs, 1)
+	require.Zero(t, store.asked)
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, completed.Status)
+	require.Equal(t, []int64{3}, runResult(t, completed).UnansweredMessages)
+
+	// With time left it is asked, restart or not.
+	_, store, runtime = notebookRun(t, notebookScenario{provider: "claude-code", session: "0c9a6c1e-session", continuation: resumeCommand,
+		stdout: claudeConclusion, unanswered: []int64{3}, startedAgo: 40 * time.Minute})
+	require.Len(t, runtime.runs, 2)
+	require.Equal(t, 1, store.asked)
+}
+
+// A continuation container left by a crash is removed whatever happens
+// next: when the attempt was already asked, when too little time is left to
+// ask, and when nothing is left to ask for.
+func TestALeftoverClosingContainerIsAlwaysRemoved(t *testing.T) {
+	for name, scenario := range map[string]notebookScenario{
+		"nothing left to ask for":    {required: true, updates: 1},
+		"too little time left":       {required: true, unanswered: []int64{3}, maxRuntime: 60},
+		"already asked, still owing": {required: true, unanswered: []int64{3}},
+	} {
+		scenario.provider, scenario.session, scenario.continuation, scenario.stdout, scenario.alreadyAsked = "claude-code", "0c9a6c1e-session", resumeCommand, claudeConclusion, true
+		completed, _, runtime := notebookRun(t, scenario)
+		require.Len(t, runtime.runs, 1, "%s: it is not run again", name)
+		require.Equal(t, []string{closingSuffix}, runtime.removed, name)
+		require.Zero(t, runtime.agentCancellations, "%s: the attempt's own container is left alone", name)
+		require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, completed.Status, name)
+	}
+	// An attempt that was never asked has nothing to remove.
+	_, _, runtime := notebookRun(t, notebookScenario{provider: "claude-code", required: true, updates: 1, session: "0c9a6c1e-session", continuation: resumeCommand, stdout: claudeConclusion})
+	require.Empty(t, runtime.removed)
+}

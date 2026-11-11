@@ -2204,13 +2204,18 @@ the attempt ended.
   attempt, also across a manager restart.
 - It has five minutes, and never runs past one minute before the attempt's
   own time limit: the run is still recorded as running meanwhile, and a run
-  past its limit is killed and marked `timeout`. With less than 30 seconds
-  left for it, it is not started (and the attempt is not marked as asked).
+  past its limit is killed and marked `timeout`. The limit is counted from
+  when the attempt started, also after a manager restart. With less than 30
+  seconds left for it, it is not started (and the attempt is not marked as
+  asked).
 - Nothing is asked for what Kuayle itself failed to collect: a reply or an
-  update that may exist unseen is not the agent's omission.
+  update that may exist unseen is not the agent's omission. Without the
+  developer container the outbox is not read at all, so replies stay unknown,
+  also after a continuation that ran for something else.
 - Its container is removed by its exact name on every path out. A manager
   that restarts and finds the attempt already asked removes what the crash
-  left and does not run it again. The attempt's own container is never
+  left and does not run it again, also when too little time is left or
+  nothing is missing any more. The attempt's own container is never
   removed from this path.
 - Its output is not the attempt's: summary, logs and token usage stay those
   of the work. That it ran and for how long is on the run
