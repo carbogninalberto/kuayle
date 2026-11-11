@@ -11,7 +11,7 @@ RUN mkdir /src-crush && cd /src-crush && go mod init kuayle.local/crush-build \
     && CGO_ENABLED=0 GOBIN=/out go install -trimpath -ldflags="-s -w" github.com/charmbracelet/crush
 
 # Compose and Buildx, built from pinned release commits (see the script).
-FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine AS docker-plugins
+FROM --platform=$BUILDPLATFORM golang:1.26.11-alpine AS docker-plugins
 ARG TARGETARCH
 RUN apk add --no-cache git
 COPY common/build-docker-plugins.sh /usr/local/bin/build-docker-plugins.sh
