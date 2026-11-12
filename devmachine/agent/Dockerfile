@@ -22,7 +22,7 @@ COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-secu
 
 ARG SECURITY_REFRESH=initial
 RUN apk upgrade --no-cache \
-    && apk add --no-cache bash ca-certificates curl git make openssh-client \
+    && apk add --no-cache bash ca-certificates curl git make openssh-client ripgrep \
     && sh /usr/local/lib/kuayle/install-docker-cli.sh "$TARGETARCH" \
     && npm install -g "npm@${NPM_VERSION}" \
     && case "$PROVIDER" in \
