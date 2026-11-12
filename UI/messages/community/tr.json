@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Bu ders kullanımdan kaldırılsın mı?",
 	"lessons.failed": "Dersler güncellenemedi",
 	"lessons.failed_load": "Dersler yüklenemedi",
-	"workflows.issue.planning_step_implements": "Bu profil yalnızca planlar, ancak adım uygulamasını söylüyor"
+	"workflows.issue.planning_step_implements": "Bu profil yalnızca planlar, ancak adım uygulamasını söylüyor",
+	"notebook.done": "Tamamlandı",
+	"lessons.error_state": "Bu ders zaten karara bağlandı",
+	"lessons.error_limit": "Bu depo onaylanmış dersler için maksimuma ulaştı; önce birini emekliye ayırın",
+	"lessons.error_pending": "Bu depoda çok fazla öneri bekliyor",
+	"lessons.error_duplicate": "Bu ders bu depo için zaten mevcut",
+	"lessons.error_invalid": "Bir ders en fazla {max} karakterlik tek bir satırdır",
+	"lessons.error_repository": "Bu depo çalışma alanına bağlı değil"
 }

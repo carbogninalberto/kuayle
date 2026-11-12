@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Ritirare questa lezione?",
 	"lessons.failed": "Impossibile aggiornare le lezioni",
 	"lessons.failed_load": "Impossibile caricare le lezioni",
-	"workflows.issue.planning_step_implements": "Questo profilo pianifica soltanto, ma il passo gli chiede di implementare"
+	"workflows.issue.planning_step_implements": "Questo profilo pianifica soltanto, ma il passo gli chiede di implementare",
+	"notebook.done": "Fatto",
+	"lessons.error_state": "Questa lezione è già stata decisa",
+	"lessons.error_limit": "Questo repository ha già il massimo di lezioni approvate; ritirane una prima",
+	"lessons.error_pending": "Troppe proposte in attesa su questo repository",
+	"lessons.error_duplicate": "Questa lezione esiste già per questo repository",
+	"lessons.error_invalid": "Una lezione è una riga di al massimo {max} caratteri",
+	"lessons.error_repository": "Questo repository non è collegato allo spazio di lavoro"
 }

@@ -49,3 +49,27 @@ export function lessonOrigin(lesson: Pick<Lesson, 'proposer'>): 'agent' | 'githu
 export function wasEdited(lesson: Pick<Lesson, 'text' | 'proposed_text'>): boolean {
 	return !!lesson.proposed_text && lesson.proposed_text !== lesson.text;
 }
+
+export type LessonRefusalKind = 'state' | 'limit' | 'pending' | 'duplicate' | 'invalid' | 'repository' | 'other';
+
+const refusals: Record<string, LessonRefusalKind> = {
+	LESSON_STATE: 'state',
+	LESSON_LIMIT: 'limit',
+	LESSON_PENDING_LIMIT: 'pending',
+	LESSON_DUPLICATE: 'duplicate',
+	INVALID_LESSON: 'invalid',
+	LESSON_REPOSITORY: 'repository'
+};
+
+/**
+ * Why the server refused, by its code (its message is English), and whether
+ * the refusal means the list on screen is out of date: a conflict, a lesson
+ * that is gone, or an order that no longer names every lesson.
+ */
+export function lessonRefusal(error: unknown): { kind: LessonRefusalKind; stale: boolean } {
+	const body = error as { status?: number; error?: { code?: string } } | null;
+	const status = body?.status ?? 0,
+		code = body?.error?.code ?? '';
+	const kind = status === 404 ? 'state' : (refusals[code] ?? 'other');
+	return { kind, stale: status === 404 || status === 409 || code === 'LESSON_ORDER' };
+}

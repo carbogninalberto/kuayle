@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Retragi această lecție?",
 	"lessons.failed": "Nu s-au putut actualiza lecțiile",
 	"lessons.failed_load": "Nu s-au putut încărca lecțiile",
-	"workflows.issue.planning_step_implements": "Acest profil doar planifică, dar pasul îi cere să implementeze"
+	"workflows.issue.planning_step_implements": "Acest profil doar planifică, dar pasul îi cere să implementeze",
+	"notebook.done": "Efectuat",
+	"lessons.error_state": "Această lecție a fost deja decisă",
+	"lessons.error_limit": "Acest repository a atins maximul de lecții aprobate; retrage una mai întâi",
+	"lessons.error_pending": "Prea multe propuneri așteaptă în acest repository",
+	"lessons.error_duplicate": "Această lecție există deja pentru acest repository",
+	"lessons.error_invalid": "O lecție este o singură linie de cel mult {max} caractere",
+	"lessons.error_repository": "Acest repository nu este conectat la spațiul de lucru"
 }

@@ -64,3 +64,19 @@ test('an edited lesson is one whose proposed text differs from what agents read'
 	assert.equal(wasEdited(lesson('2', 'r', 'approved', { text: 'Same', proposed_text: 'Same' })), false);
 	assert.equal(wasEdited(lesson('3', 'r', 'approved')), false);
 });
+
+import { lessonRefusal } from '../../src/lib/features/memory/lessons.ts';
+
+test('a refusal is named by its code, and says whether the list on screen is out of date', () => {
+	const refusal = (status, code) => lessonRefusal({ status, error: { code, message: 'English from the server' } });
+	assert.deepEqual(refusal(409, 'LESSON_STATE'), { kind: 'state', stale: true });
+	assert.deepEqual(refusal(404, 'NOT_FOUND'), { kind: 'state', stale: true });
+	assert.deepEqual(refusal(409, 'LESSON_LIMIT'), { kind: 'limit', stale: true });
+	assert.deepEqual(refusal(409, 'LESSON_PENDING_LIMIT'), { kind: 'pending', stale: true });
+	assert.deepEqual(refusal(409, 'LESSON_DUPLICATE'), { kind: 'duplicate', stale: true });
+	assert.deepEqual(refusal(400, 'INVALID_LESSON'), { kind: 'invalid', stale: false });
+	assert.deepEqual(refusal(400, 'LESSON_REPOSITORY'), { kind: 'repository', stale: false });
+	assert.deepEqual(refusal(400, 'LESSON_ORDER'), { kind: 'other', stale: true });
+	assert.deepEqual(refusal(500, 'INTERNAL_ERROR'), { kind: 'other', stale: false });
+	assert.deepEqual(lessonRefusal(new Error('offline')), { kind: 'other', stale: false });
+});

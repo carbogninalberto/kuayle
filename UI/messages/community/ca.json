@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Voleu retirar aquesta lliçó?",
 	"lessons.failed": "No s'han pogut actualitzar les lliçons",
 	"lessons.failed_load": "No s'han pogut carregar les lliçons",
-	"workflows.issue.planning_step_implements": "Aquest perfil només planifica, però el pas li diu que implementi"
+	"workflows.issue.planning_step_implements": "Aquest perfil només planifica, però el pas li diu que implementi",
+	"notebook.done": "Fet",
+	"lessons.error_state": "Aquesta lliçó ja s'ha decidit",
+	"lessons.error_limit": "Aquest repositori té el màxim de lliçons aprovades; primer cal retirar-ne una",
+	"lessons.error_pending": "Hi ha massa propostes pendents en aquest repositori",
+	"lessons.error_duplicate": "Aquesta lliçó ja existeix en aquest repositori",
+	"lessons.error_invalid": "Una lliçó és una línia de com a màxim {max} caràcters",
+	"lessons.error_repository": "Aquest repositori no està connectat a l'espai de treball"
 }

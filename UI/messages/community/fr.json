@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Retirer cette leçon ?",
 	"lessons.failed": "Impossible de mettre à jour les leçons",
 	"lessons.failed_load": "Impossible de charger les leçons",
-	"workflows.issue.planning_step_implements": "Ce profil ne fait que planifier, mais l'étape lui demande d'implémenter"
+	"workflows.issue.planning_step_implements": "Ce profil ne fait que planifier, mais l'étape lui demande d'implémenter",
+	"notebook.done": "Travail effectué",
+	"lessons.error_state": "Cette leçon a déjà été décidée",
+	"lessons.error_limit": "Ce dépôt a atteint le maximum de leçons approuvées ; retirez-en une d'abord",
+	"lessons.error_pending": "Trop de propositions sont en attente sur ce dépôt",
+	"lessons.error_duplicate": "Cette leçon existe déjà pour ce dépôt",
+	"lessons.error_invalid": "Une leçon tient sur une ligne de {max} caractères maximum",
+	"lessons.error_repository": "Ce dépôt n'est pas connecté à l'espace de travail"
 }

@@ -2,7 +2,7 @@
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { ArrowDown, ArrowUp, Archive, Check, Ellipsis, Pencil, Plus, X } from '@lucide/svelte';
+	import { ArrowDown, ArrowUp, Archive, Check, Ellipsis, Lock, Pencil, Plus, X } from '@lucide/svelte';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import * as Popover from '$lib/components/ui/popover/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -13,9 +13,17 @@
 	import { agentTasks } from '$lib/api/agent-tasks';
 	import { getGitHubStatus } from '$lib/api/github';
 	import { listMembers } from '$lib/api/members';
+	import { listTeams } from '$lib/api/teams';
 	import { memory, type Lesson, type LessonList } from '$lib/api/memory';
 	import LessonDialog from '$lib/features/memory/LessonDialog.svelte';
-	import { lessonBoard, lessonOrigin, movedLesson, wasEdited } from '$lib/features/memory/lessons';
+	import {
+		lessonBoard,
+		lessonOrigin,
+		lessonRefusal,
+		movedLesson,
+		wasEdited,
+		type LessonRefusalKind
+	} from '$lib/features/memory/lessons';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
 
@@ -33,8 +41,12 @@
 		names = $state<Record<string, string>>({}),
 		// Where a proposal's task opens, for the tasks the reader can open.
 		taskLinks = $state<Record<string, string>>({}),
+		// The private teams the reader can see: their lessons stay with them.
+		privateTeams = $state<Set<string>>(new Set()),
 		loading = $state(true),
 		failed = $state(false),
+		// Guests cannot read lessons: there is nothing to try again.
+		denied = $state(false),
 		busy = $state(false);
 	let editing = $state<Lesson | 'new' | null>(null),
 		confirming = $state<Lesson | null>(null);
@@ -48,8 +60,9 @@
 			canManage = approved.can_manage;
 			limits = approved.limits;
 			void linkTasks();
-		} catch {
-			failed = true;
+		} catch (error) {
+			if ((error as { status?: number }).status === 403) denied = true;
+			else failed = true;
 		} finally {
 			loading = false;
 		}
@@ -74,6 +87,9 @@
 		getGitHubStatus(slug)
 			.then((status) => (connected = (status.repos ?? []).map((repo) => repo.full_name)))
 			.catch(() => {});
+		listTeams(slug)
+			.then((teams) => (privateTeams = new Set(teams.filter((team) => team.is_private).map((team) => team.id))))
+			.catch(() => {});
 		listMembers(slug)
 			.then((members) => (names = Object.fromEntries(members.map((member) => [member.user_id, member.name]))))
 			.catch(() => {});
@@ -88,11 +104,34 @@
 			confirming = null;
 			await load();
 		} catch (error) {
-			appToast.apiError(error, m['lessons.failed']());
+			const refusal = lessonRefusal(error);
+			appToast.error(refused[refusal.kind]());
+			// Someone else decided first, or a limit was reached meanwhile: what
+			// is on screen is out of date. The list is read again, and a dialog
+			// about a lesson that is no longer what it was is closed; one whose
+			// lesson still stands keeps what was typed.
+			if (refusal.stale) {
+				const open = editing !== 'new' ? (editing ?? confirming) : null;
+				await load();
+				const now = open && lessons.find((lesson) => lesson.id === open.id);
+				if (open && (!now || now.state !== open.state || refusal.kind === 'state')) editing = null;
+				confirming = null;
+			}
 		} finally {
 			busy = false;
 		}
 	}
+	const isPrivate = (lesson: Lesson) => !!lesson.team_id && privateTeams.has(lesson.team_id);
+	// The server's own message is English: its code picks the words.
+	const refused: Record<LessonRefusalKind, () => string> = {
+		state: m['lessons.error_state'],
+		limit: m['lessons.error_limit'],
+		pending: m['lessons.error_pending'],
+		duplicate: m['lessons.error_duplicate'],
+		invalid: () => m['lessons.error_invalid']({ max: limits?.lesson_characters ?? 400 }),
+		repository: m['lessons.error_repository'],
+		other: m['lessons.failed']
+	};
 	function submit(text: string, repository: string) {
 		const lesson = editing;
 		if (lesson === 'new') return act(() => memory.add(slug, repository, text));
@@ -113,7 +152,18 @@
 	};
 </script>
 
+{#snippet teamMark()}
+	<span
+		role="img"
+		aria-label={m['privacy.private']()}
+		title={m['privacy.private']()}
+		class="mt-1 inline-flex shrink-0 text-muted-foreground"
+		data-testid="lesson-private"><Lock size={12} /></span
+	>
+{/snippet}
+
 {#if loading}<LoadingState />
+{:else if denied}<p class="p-6 text-sm text-[var(--color-text-secondary)]">{m['privacy.unavailable']()}</p>
 {:else if failed}<ErrorState message={m['lessons.failed_load']()} onretry={load} />
 {:else}
 	<div class="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
@@ -135,9 +185,13 @@
 						{@const link = lesson.source_task_id ? taskLinks[lesson.source_task_id] : ''}
 						<li class="flex min-w-0 items-start gap-2 px-3 py-2.5 sm:gap-3">
 							<div class="min-w-0 flex-1">
-								<p class="text-sm break-words">{lesson.text}</p>
+								<p class="flex items-start gap-1.5 text-sm">
+									<span class="min-w-0 break-words">{lesson.text}</span>{#if isPrivate(lesson)}{@render teamMark()}{/if}
+								</p>
 								<p class="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-									<span class="font-mono break-all">{lesson.repository}</span><span aria-hidden="true">·</span>
+									<span class="font-mono break-all">{lesson.repository}</span><span
+										aria-hidden="true">·</span
+									>
 									{#if link}<a href={link} class="rounded-sm underline underline-offset-4 outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
 											>{origin(lesson)}</a
 										>{:else}<span>{origin(lesson)}</span>{/if}
@@ -193,6 +247,7 @@
 								>{index + 1}</span
 							>
 							<p class="min-w-0 flex-1 text-sm break-words">{lesson.text}</p>
+							{#if isPrivate(lesson)}{@render teamMark()}{/if}
 							{#if canManage}<DropdownMenu.Root>
 									<DropdownMenu.Trigger>
 										{#snippet child({ props })}<Button

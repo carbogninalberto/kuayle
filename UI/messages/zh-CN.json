@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "停用此经验？",
 	"lessons.failed": "无法更新经验",
 	"lessons.failed_load": "无法加载经验",
-	"workflows.issue.planning_step_implements": "此配置仅负责规划，但该步骤要求它实施"
+	"workflows.issue.planning_step_implements": "此配置仅负责规划，但该步骤要求它实施",
+	"notebook.done": "已完成",
+	"lessons.error_state": "该经验已有决定",
+	"lessons.error_limit": "该仓库的已批准经验已达上限；请先停用一条",
+	"lessons.error_pending": "该仓库等待审批的提议过多",
+	"lessons.error_duplicate": "该仓库已存在此经验",
+	"lessons.error_invalid": "经验只能是一行，最多 {max} 个字符",
+	"lessons.error_repository": "该仓库未连接到工作区"
 }

@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Dra tillbaka den här lärdomen?",
 	"lessons.failed": "Det gick inte att uppdatera lärdomarna",
 	"lessons.failed_load": "Det gick inte att läsa in lärdomarna",
-	"workflows.issue.planning_step_implements": "Den här profilen planerar bara, men steget säger åt den att implementera"
+	"workflows.issue.planning_step_implements": "Den här profilen planerar bara, men steget säger åt den att implementera",
+	"notebook.done": "Utfört",
+	"lessons.error_state": "Den här lektionen är redan avgjord",
+	"lessons.error_limit": "Det här repot har nått maxgränsen för godkända lektioner; pensionera en först",
+	"lessons.error_pending": "För många förslag väntar på det här repot",
+	"lessons.error_duplicate": "Den här lektionen finns redan för det här repot",
+	"lessons.error_invalid": "En lektion är en rad med högst {max} tecken",
+	"lessons.error_repository": "Det här repot är inte anslutet till arbetsytan"
 }

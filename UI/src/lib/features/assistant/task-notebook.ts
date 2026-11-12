@@ -10,8 +10,28 @@ import type {
 // The plan comes first, as a checklist; what people asked stays apart from
 // what agents wrote; who changed what, and what Kuayle noted, is one history.
 
-/** How Kuayle marks a "done" entry it wrote from an agent's final message. */
-const RECORDED = /^\[Recorded by Kuayle[^\]]*\]\s*/;
+/**
+ * How Kuayle marks a "done" entry it wrote from an agent's final message
+ * (domain.NotebookKuayleDonePrefix). An agent can write the same words, so
+ * the mark alone proves nothing: see recordedByKuayle.
+ */
+const RECORDED = "[Recorded by Kuayle from the agent's final message; the agent did not update the notebook]";
+/** The history the server returns is its newest changes, at most this many. */
+const HISTORY_KEPT = 50;
+
+/**
+ * Which "done" entries Kuayle wrote. Only Kuayle's own change of that
+ * section says it wrote one, and each such change wrote exactly one entry:
+ * as many marked entries as there are such changes are its own, the newest
+ * first. A history that reached its limit no longer says how many there
+ * were, and the mark stands.
+ */
+function recordedByKuayle(done: string[], history: NotebookChange[]): Set<number> {
+	const marked = done.map((text, index) => (text.startsWith(RECORDED) ? index : -1)).filter((index) => index >= 0);
+	if (history.length >= HISTORY_KEPT) return new Set(marked);
+	const written = history.filter((change) => change.author === 'kuayle' && change.sections?.includes('done')).length;
+	return new Set(written ? marked.slice(-written) : []);
+}
 
 export type NotebookHistoryEntry =
 	| {
@@ -40,8 +60,12 @@ export interface NotebookDocument {
 	decisions: { decision: string; why?: string }[];
 	/** Open findings first. */
 	findings: NotebookFinding[];
-	/** What people asked, oldest first, without the request shown above it. */
-	people: NotebookInstruction[];
+	/**
+	 * What people asked, oldest first, without the request shown above it.
+	 * assistant: the assistant wrote it and the person approved it; it is not
+	 * the person's own words.
+	 */
+	people: (NotebookInstruction & { assistant: boolean })[];
 	/** Changes and events, newest first. */
 	history: NotebookHistoryEntry[];
 }
@@ -51,14 +75,15 @@ const same = (a: string, b: string) => a.replace(/\s+/g, ' ').trim() === b.repla
 export function notebookDocument(view: TaskNotebook | null | undefined, request: string): NotebookDocument {
 	const notebook = view?.notebook;
 	const steps = notebook?.plan?.steps ?? [];
-	const done = (notebook?.done ?? []).map((text) => ({
-		text: text.replace(RECORDED, ''),
-		recorded: RECORDED.test(text)
-	}));
-	const findings = notebook?.findings ?? [];
-	const people = (notebook?.instructions ?? []).filter(
-		(instruction) => !(instruction.source === 'request' && same(instruction.text, request))
+	const entries = notebook?.done ?? [];
+	const recorded = recordedByKuayle(entries, view?.history ?? []);
+	const done = entries.map((text, index) =>
+		recorded.has(index) ? { text: text.slice(RECORDED.length).trimStart(), recorded: true } : { text, recorded: false }
 	);
+	const findings = notebook?.findings ?? [];
+	const people = (notebook?.instructions ?? [])
+		.filter((instruction) => !(instruction.source === 'request' && same(instruction.text, request)))
+		.map((instruction) => ({ ...instruction, assistant: !!instruction.assistant }));
 	const history: NotebookHistoryEntry[] = [
 		...(view?.history ?? []).map(
 			(change): NotebookHistoryEntry => ({

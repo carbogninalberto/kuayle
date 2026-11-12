@@ -1719,8 +1719,15 @@ reaches an agent before approval. "Add lesson" writes one by hand for a
 connected repository: a lesson at once for an owner or admin, a proposal for
 any other member, who otherwise sees the approved lessons and their own
 proposals with no actions. Retired and dropped lessons are not listed. A
-refusal (a limit, a duplicate) is shown as the server said it and keeps the
-dialog's text. Browser coverage: `UI/tests/e2e/lessons.test.ts` as an admin
+lesson of a private team the reader can see carries a lock icon named
+"Private". A refusal is said in the reader's language, chosen by the
+server's code (`lessonRefusal`), with a generic line for anything else. A
+`409`, a `404` or `LESSON_ORDER` means the page is out of date: the list is
+read again, a confirmation is closed, and the dialog is closed when its
+lesson is gone or was decided meanwhile; a refusal that leaves the lesson as
+it was (a limit, a duplicate) keeps the dialog and its text. Guests are not
+offered the page in the settings menu, and its address answers with the
+"unavailable or no access" line and nothing to retry. Browser coverage: `UI/tests/e2e/lessons.test.ts` as an admin
 and as a member, at desktop and phone widths.
 
 Rolling migration 149 back drops the lessons and their audit trail.

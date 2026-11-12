@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Retire this lesson?",
 	"lessons.failed": "Could not update the lessons",
 	"lessons.failed_load": "Could not load the lessons",
-	"workflows.issue.planning_step_implements": "This profile only plans, but the step tells it to implement"
+	"workflows.issue.planning_step_implements": "This profile only plans, but the step tells it to implement",
+	"notebook.done": "Done",
+	"lessons.error_state": "This lesson was already decided",
+	"lessons.error_limit": "This repository has its maximum of approved lessons; retire one first",
+	"lessons.error_pending": "Too many proposals are waiting on this repository",
+	"lessons.error_duplicate": "This lesson already exists for this repository",
+	"lessons.error_invalid": "A lesson is one line of at most {max} characters",
+	"lessons.error_repository": "This repository is not connected to the workspace"
 }

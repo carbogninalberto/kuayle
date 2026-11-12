@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { cubicOut } from 'svelte/easing';
@@ -53,6 +54,9 @@
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const currentPath = $derived(page.url.pathname);
 	const canUseDevMachines = $derived(!demoMode || authState.user?.is_sysadmin === true);
+	// Guests cannot read the workspace's lessons; the server refuses them.
+	const currentWorkspace = getCurrentWorkspace();
+	const isGuest = $derived(currentWorkspace.membership?.workspace.current_user_role === 'guest');
 
 	let teams = $state<Team[]>([]);
 	let expandedTeams = $state<Set<string>>(new Set());
@@ -116,7 +120,9 @@
 							{ label: m['settings.nav.dev_machines'](), href: `/${slug}/settings/dev-machines`, icon: SlidersHorizontal },
 							{ label: m['settings.nav.agents'](), href: `/${slug}/settings/agents`, icon: Bot },
 							{ label: m['settings.nav.workflows'](), href: `/${slug}/settings/workflows`, icon: Workflow },
-							{ label: m['lessons.title'](), href: `/${slug}/settings/lessons`, icon: Lightbulb },
+							...(isGuest
+								? []
+								: [{ label: m['lessons.title'](), href: `/${slug}/settings/lessons`, icon: Lightbulb }]),
 							{ label: m['agent_messages.nav'](), href: `/${slug}/settings/agent-messages`, icon: MessagesSquare }
 						]
 					: [])

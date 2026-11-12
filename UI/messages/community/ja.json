@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "この学びを廃止しますか？",
 	"lessons.failed": "学びを更新できませんでした",
 	"lessons.failed_load": "学びを読み込めませんでした",
-	"workflows.issue.planning_step_implements": "このプロファイルは計画のみですが、ステップは実装を指示しています"
+	"workflows.issue.planning_step_implements": "このプロファイルは計画のみですが、ステップは実装を指示しています",
+	"notebook.done": "完了",
+	"lessons.error_state": "このレッスンはすでに決定済みです",
+	"lessons.error_limit": "このリポジトリは承認済みレッスンの上限に達しているため、先に1つを廃止してください",
+	"lessons.error_pending": "このリポジトリには保留中の提案が多すぎます",
+	"lessons.error_duplicate": "このレッスンはこのリポジトリにすでに存在します",
+	"lessons.error_invalid": "レッスンは{max}文字以内の1行で入力してください",
+	"lessons.error_repository": "このリポジトリはワークスペースに接続されていません"
 }

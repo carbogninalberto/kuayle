@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Ngừng áp dụng bài học này?",
 	"lessons.failed": "Không thể cập nhật bài học",
 	"lessons.failed_load": "Không thể tải bài học",
-	"workflows.issue.planning_step_implements": "Hồ sơ này chỉ lập kế hoạch, nhưng bước này yêu cầu triển khai"
+	"workflows.issue.planning_step_implements": "Hồ sơ này chỉ lập kế hoạch, nhưng bước này yêu cầu triển khai",
+	"notebook.done": "Đã xong",
+	"lessons.error_state": "Bài học này đã được quyết định",
+	"lessons.error_limit": "Kho lưu trữ này đã đạt số bài học được duyệt tối đa; hãy ngừng sử dụng một bài trước",
+	"lessons.error_pending": "Quá nhiều đề xuất đang chờ trên kho lưu trữ này",
+	"lessons.error_duplicate": "Bài học này đã tồn tại cho kho lưu trữ này",
+	"lessons.error_invalid": "Một bài học là một dòng tối đa {max} ký tự",
+	"lessons.error_repository": "Kho lưu trữ này chưa được kết nối với không gian làm việc"
 }

@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Vyřadit toto poučení?",
 	"lessons.failed": "Poučení se nepodařilo aktualizovat",
 	"lessons.failed_load": "Poučení se nepodařilo načíst",
-	"workflows.issue.planning_step_implements": "Tento profil pouze plánuje, ale krok mu ukládá implementovat"
+	"workflows.issue.planning_step_implements": "Tento profil pouze plánuje, ale krok mu ukládá implementovat",
+	"notebook.done": "Hotovo",
+	"lessons.error_state": "O této lekci už bylo rozhodnuto",
+	"lessons.error_limit": "Tento repozitář má maximální počet schválených lekcí; nejprve jednu vyřaďte",
+	"lessons.error_pending": "Na tomto repozitáři čeká příliš mnoho návrhů",
+	"lessons.error_duplicate": "Tato lekce už pro tento repozitář existuje",
+	"lessons.error_invalid": "Lekce je jeden řádek o nejvýše {max} znacích",
+	"lessons.error_repository": "Tento repozitář není připojen k pracovnímu prostoru"
 }

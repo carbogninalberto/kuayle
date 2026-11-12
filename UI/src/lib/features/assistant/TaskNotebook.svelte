@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ChevronRight, Circle, CircleCheck, NotebookText } from '@lucide/svelte';
+	import { BotMessageSquare, ChevronRight, Circle, CircleCheck, NotebookText } from '@lucide/svelte';
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import type { NotebookFinding, TaskNotebook } from '$lib/api/agent-tasks';
@@ -66,7 +66,7 @@
 	const sections: Record<string, () => string> = {
 		plan: m['tasks.plan'],
 		decisions: m['notebook.decisions'],
-		done: m['workflows.task.status_done'],
+		done: m['notebook.done'],
 		remaining: m['notebook.remaining'],
 		verify: m['notebook.verify'],
 		findings: m['notebook.findings'],
@@ -154,7 +154,7 @@
 						</section>{/if}
 
 					{#if doc.done.length}<section aria-labelledby="notebook-done" class="min-w-0">
-							<h3 id="notebook-done" class={heading}>{m['workflows.task.status_done']()}</h3>
+							<h3 id="notebook-done" class={heading}>{m['notebook.done']()}</h3>
 							<ul class="mt-2 flex min-w-0 flex-col gap-1.5">
 								{#each doc.done as entry, index (index)}<li class="flex min-w-0 items-start gap-2">
 										{@render mark(true)}
@@ -221,12 +221,22 @@
 						>
 							<h3 id="notebook-people" class={heading}>{m['notebook.people']()}</h3>
 							<ul class="mt-2 flex min-w-0 flex-col gap-2.5">
-								{#each doc.people as entry, index (index)}<li class="min-w-0">
+								{#each doc.people as entry, index (index)}
+									<!-- What the assistant wrote and the person approved is not
+									     the person's own words: it is signed by the assistant. -->
+									<li
+										class="min-w-0 {entry.assistant ? 'border-l-2 border-dashed pl-3 text-muted-foreground' : ''}"
+										data-author={entry.assistant ? 'assistant' : 'person'}
+									>
 										<ClampedText text={entry.text} />
-										<p class="mt-0.5 text-xs text-muted-foreground">
-											{[name(entry.author_id), when(entry.at)].filter(Boolean).join(' · ')}
+										<p class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+											{#if entry.assistant}<BotMessageSquare size={12} aria-hidden="true" class="shrink-0" />{/if}
+											{[entry.assistant ? m['assistant.title']() : name(entry.author_id), when(entry.at)]
+												.filter(Boolean)
+												.join(' · ')}
 										</p>
-									</li>{/each}
+									</li>
+								{/each}
 							</ul>
 						</section>{/if}
 

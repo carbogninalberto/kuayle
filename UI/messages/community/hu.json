@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Kivezeti ezt a tanulságot?",
 	"lessons.failed": "Nem sikerült frissíteni a tanulságokat",
 	"lessons.failed_load": "Nem sikerült betölteni a tanulságokat",
-	"workflows.issue.planning_step_implements": "Ez a profil csak tervez, de a lépés arra utasítja, hogy valósítsa meg"
+	"workflows.issue.planning_step_implements": "Ez a profil csak tervez, de a lépés arra utasítja, hogy valósítsa meg",
+	"notebook.done": "Kész",
+	"lessons.error_state": "Ez a tanulság már eldőlt",
+	"lessons.error_limit": "Ez a tároló elérte a jóváhagyott tanulságok maximumát; előbb vonj vissza egyet",
+	"lessons.error_pending": "Túl sok javaslat vár ebben a tárolóban",
+	"lessons.error_duplicate": "Ez a tanulság már létezik ehhez a tárolóhoz",
+	"lessons.error_invalid": "Egy tanulság legfeljebb {max} karakterből álló egyetlen sor",
+	"lessons.error_repository": "Ez a tároló nincs csatlakoztatva a munkaterülethez"
 }

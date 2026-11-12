@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Pensiunkan pelajaran ini?",
 	"lessons.failed": "Tidak dapat memperbarui pelajaran",
 	"lessons.failed_load": "Tidak dapat memuat pelajaran",
-	"workflows.issue.planning_step_implements": "Profil ini hanya merencanakan, tetapi langkah memerintahkannya untuk mengimplementasikan"
+	"workflows.issue.planning_step_implements": "Profil ini hanya merencanakan, tetapi langkah memerintahkannya untuk mengimplementasikan",
+	"notebook.done": "Selesai",
+	"lessons.error_state": "Pelajaran ini sudah diputuskan",
+	"lessons.error_limit": "Repositori ini mencapai batas maksimum pelajaran yang disetujui; pensiunkan satu terlebih dahulu",
+	"lessons.error_pending": "Terlalu banyak proposal yang menunggu di repositori ini",
+	"lessons.error_duplicate": "Pelajaran ini sudah ada untuk repositori ini",
+	"lessons.error_invalid": "Pelajaran adalah satu baris maksimal {max} karakter",
+	"lessons.error_repository": "Repositori ini tidak terhubung ke ruang kerja"
 }

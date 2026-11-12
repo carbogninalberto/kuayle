@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "להוציא את הלקח הזה משימוש?",
 	"lessons.failed": "לא ניתן היה לעדכן את הלקחים",
 	"lessons.failed_load": "לא ניתן היה לטעון את הלקחים",
-	"workflows.issue.planning_step_implements": "הפרופיל הזה רק מתכנן, אבל השלב אומר לו ליישם"
+	"workflows.issue.planning_step_implements": "הפרופיל הזה רק מתכנן, אבל השלב אומר לו ליישם",
+	"notebook.done": "בוצע",
+	"lessons.error_state": "לקח זה כבר הוכרע",
+	"lessons.error_limit": "במאגר זה הגעתם למספר המרבי של לקחים מאושרים; יש להסיר אחד תחילה",
+	"lessons.error_pending": "יותר מדי הצעות ממתינות במאגר זה",
+	"lessons.error_duplicate": "לקח זה כבר קיים עבור מאגר זה",
+	"lessons.error_invalid": "לקח הוא שורה אחת של עד {max} תווים",
+	"lessons.error_repository": "מאגר זה אינו מחובר לסביבת העבודה"
 }

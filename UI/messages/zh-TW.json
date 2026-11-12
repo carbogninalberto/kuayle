@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "停用此經驗？",
 	"lessons.failed": "無法更新經驗",
 	"lessons.failed_load": "無法載入經驗",
-	"workflows.issue.planning_step_implements": "此設定檔僅負責規劃，但該步驟要求它實作"
+	"workflows.issue.planning_step_implements": "此設定檔僅負責規劃，但該步驟要求它實作",
+	"notebook.done": "已完成",
+	"lessons.error_state": "此經驗已有決定",
+	"lessons.error_limit": "此儲存庫的已核准經驗已達上限；請先停用一則",
+	"lessons.error_pending": "此儲存庫有過多待審核的提案",
+	"lessons.error_duplicate": "此儲存庫已存在此經驗",
+	"lessons.error_invalid": "經驗只能是一行，最多 {max} 個字元",
+	"lessons.error_repository": "此儲存庫未連結至工作區"
 }

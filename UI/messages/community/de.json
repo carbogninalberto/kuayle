@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Diese Lektion außer Kraft setzen?",
 	"lessons.failed": "Lektionen konnten nicht aktualisiert werden",
 	"lessons.failed_load": "Lektionen konnten nicht geladen werden",
-	"workflows.issue.planning_step_implements": "Dieses Profil plant nur, aber der Schritt verlangt, dass es implementiert"
+	"workflows.issue.planning_step_implements": "Dieses Profil plant nur, aber der Schritt verlangt, dass es implementiert",
+	"notebook.done": "Erledigt",
+	"lessons.error_state": "Diese Lektion wurde bereits entschieden",
+	"lessons.error_limit": "Dieses Repository hat das Maximum an genehmigten Lektionen erreicht; zuerst eine zurückziehen",
+	"lessons.error_pending": "Auf diesem Repository warten zu viele Vorschläge",
+	"lessons.error_duplicate": "Diese Lektion existiert bereits für dieses Repository",
+	"lessons.error_invalid": "Eine Lektion ist eine Zeile mit höchstens {max} Zeichen",
+	"lessons.error_repository": "Dieses Repository ist nicht mit dem Workspace verbunden"
 }

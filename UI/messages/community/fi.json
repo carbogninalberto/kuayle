@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Poistetaanko tämä opetus käytöstä?",
 	"lessons.failed": "Opetuksia ei voitu päivittää",
 	"lessons.failed_load": "Opetuksia ei voitu ladata",
-	"workflows.issue.planning_step_implements": "Tämä profiili vain suunnittelee, mutta vaihe käskee sitä toteuttamaan"
+	"workflows.issue.planning_step_implements": "Tämä profiili vain suunnittelee, mutta vaihe käskee sitä toteuttamaan",
+	"notebook.done": "Valmis",
+	"lessons.error_state": "Tämä opetus on jo päätetty",
+	"lessons.error_limit": "Tässä repositoriossa on enimmäismäärä hyväksyttyjä opetuksia; poista ensin yksi käytöstä",
+	"lessons.error_pending": "Tässä repositoriossa odottaa liian monta ehdotusta",
+	"lessons.error_duplicate": "Tämä opetus on jo olemassa tässä repositoriossa",
+	"lessons.error_invalid": "Opetus on yksi rivi, enintään {max} merkkiä",
+	"lessons.error_repository": "Tämä repositorio ei ole yhteydessä työtilaan"
 }

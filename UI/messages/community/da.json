@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Udfas denne erfaring?",
 	"lessons.failed": "Kunne ikke opdatere erfaringerne",
 	"lessons.failed_load": "Kunne ikke indlæse erfaringerne",
-	"workflows.issue.planning_step_implements": "Denne profil planlægger kun, men trinnet siger, at den skal implementere"
+	"workflows.issue.planning_step_implements": "Denne profil planlægger kun, men trinnet siger, at den skal implementere",
+	"notebook.done": "Udført",
+	"lessons.error_state": "Denne lektion er allerede afgjort",
+	"lessons.error_limit": "Dette repository har nået maksimum for godkendte lektioner; fjern en først",
+	"lessons.error_pending": "Der venter for mange forslag på dette repository",
+	"lessons.error_duplicate": "Denne lektion findes allerede for dette repository",
+	"lessons.error_invalid": "En lektion er én linje med højst {max} tegn",
+	"lessons.error_repository": "Dette repository er ikke forbundet med workspacet"
 }

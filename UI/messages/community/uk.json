@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Відкликати цей урок?",
 	"lessons.failed": "Не вдалося оновити уроки",
 	"lessons.failed_load": "Не вдалося завантажити уроки",
-	"workflows.issue.planning_step_implements": "Цей профіль лише планує, але крок вимагає реалізації"
+	"workflows.issue.planning_step_implements": "Цей профіль лише планує, але крок вимагає реалізації",
+	"notebook.done": "Виконано",
+	"lessons.error_state": "Цей урок уже вирішено",
+	"lessons.error_limit": "У цьому репозиторії досягнуто максимуму схвалених уроків; спершу виведіть один із використання",
+	"lessons.error_pending": "Забагато пропозицій очікують у цьому репозиторії",
+	"lessons.error_duplicate": "Цей урок уже існує для цього репозиторію",
+	"lessons.error_invalid": "Урок — це один рядок завдовжки не більше {max} символів",
+	"lessons.error_repository": "Цей репозиторій не підключено до робочого простору"
 }

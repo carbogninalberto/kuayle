@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "هل تريد إيقاف هذا الدرس؟",
 	"lessons.failed": "تعذّر تحديث الدروس",
 	"lessons.failed_load": "تعذّر تحميل الدروس",
-	"workflows.issue.planning_step_implements": "هذا الملف يخطّط فقط، لكن الخطوة تطلب منه التنفيذ"
+	"workflows.issue.planning_step_implements": "هذا الملف يخطّط فقط، لكن الخطوة تطلب منه التنفيذ",
+	"notebook.done": "منجز",
+	"lessons.error_state": "سبق البت في هذا الدرس",
+	"lessons.error_limit": "بلغ هذا المستودع الحد الأقصى للدروس المعتمدة؛ أوقف درسًا واحدًا أولًا",
+	"lessons.error_pending": "هناك مقترحات كثيرة جدًا بانتظار الموافقة في هذا المستودع",
+	"lessons.error_duplicate": "هذا الدرس موجود بالفعل لهذا المستودع",
+	"lessons.error_invalid": "الدرس سطر واحد بحد أقصى {max} حرفًا",
+	"lessons.error_repository": "هذا المستودع غير متصل بمساحة العمل"
 }

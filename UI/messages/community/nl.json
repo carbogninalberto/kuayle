@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Deze les intrekken?",
 	"lessons.failed": "Kon de lessen niet bijwerken",
 	"lessons.failed_load": "Kon de lessen niet laden",
-	"workflows.issue.planning_step_implements": "Dit profiel plant alleen, maar de stap zegt dat het moet implementeren"
+	"workflows.issue.planning_step_implements": "Dit profiel plant alleen, maar de stap zegt dat het moet implementeren",
+	"notebook.done": "Gedaan",
+	"lessons.error_state": "Deze les is al beslist",
+	"lessons.error_limit": "Deze repository heeft het maximum aan goedgekeurde lessen bereikt; trek er eerst één in",
+	"lessons.error_pending": "Er wachten te veel voorstellen op deze repository",
+	"lessons.error_duplicate": "Deze les bestaat al voor deze repository",
+	"lessons.error_invalid": "Een les is één regel van maximaal {max} tekens",
+	"lessons.error_repository": "Deze repository is niet verbonden met de werkruimte"
 }

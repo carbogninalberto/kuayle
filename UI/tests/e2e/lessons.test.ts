@@ -36,9 +36,15 @@ const seed = (): Lesson[] => [
 	lesson('r1', 'acme/api', 'retired', 'An old lesson', { position: 9 })
 ];
 
-async function fixture(page: Page, role: 'owner' | 'member') {
+async function fixture(page: Page, role: 'owner' | 'member' | 'guest') {
 	const me = role === 'owner' ? 'user-1' : 'user-2';
-	const state = { lessons: seed(), calls: [] as string[], refuse: '' };
+	const state = {
+		lessons: seed(),
+		calls: [] as string[],
+		// How the next writes are refused; the message is the server's English.
+		refuse: null as { status: number; code: string } | null,
+		reads: 0
+	};
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
 	await page.route('https://raw.githubusercontent.com/**', (route) => route.fulfill({ json: [] }));
 	await page.route('**/api/**', async (route) => {
@@ -74,8 +80,19 @@ async function fixture(page: Page, role: 'owner' | 'member') {
 		if (path.startsWith('/api/workspaces/test/agent-tasks/'))
 			return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
 
+		if (path === '/api/workspaces/test/teams')
+			return route.fulfill({
+				json: [
+					{ id: 'team-open', name: 'Open', key: 'OPN', is_private: false },
+					{ id: 'team-secret', name: 'Secret', key: 'SEC', is_private: true }
+				]
+			});
 		const base = '/api/workspaces/test/memory/lessons';
 		if (!path.startsWith(base)) return route.fulfill({ json: [] });
+		if (role === 'guest') {
+			state.reads++;
+			return route.fulfill({ status: 403, json: { error: { code: 'FORBIDDEN', message: 'Forbidden' } } });
+		}
 		const manage = role === 'owner';
 		// Members read approved lessons and their own proposals, without the
 		// text before an edit.
@@ -101,7 +118,10 @@ async function fixture(page: Page, role: 'owner' | 'member') {
 		const body = method === 'GET' ? {} : (request.postDataJSON() ?? {});
 		state.calls.push(`${method} ${path.slice(base.length) || '/'} ${JSON.stringify(body)}`);
 		if (state.refuse)
-			return route.fulfill({ status: 409, json: { error: { code: 'LESSON_LIMIT', message: state.refuse } } });
+			return route.fulfill({
+				status: state.refuse.status,
+				json: { error: { code: state.refuse.code, message: 'SERVER WORDS IN ENGLISH' } }
+			});
 		if (path === base && method === 'POST') {
 			const created = lesson(`n${state.lessons.length}`, body.repository, manage ? 'approved' : 'proposed', body.text, {
 				source_event: 'manual',
@@ -253,13 +273,72 @@ for (const size of sizes) {
 			await expect(rows).toHaveCount(1);
 
 			// A refusal is said and keeps what was typed.
-			state.refuse = 'This repository has its maximum of approved lessons; retire one first';
+			state.refuse = { status: 409, code: 'LESSON_LIMIT' };
 			await page.getByRole('button', { name: 'Add lesson' }).click();
 			await add.getByRole('textbox', { name: 'Lesson' }).fill('One too many');
 			await add.getByRole('button', { name: 'Add' }).click();
 			await expect(page.getByText('This repository has its maximum of approved lessons')).toBeVisible();
+			await expect(page.getByText('SERVER WORDS IN ENGLISH')).toHaveCount(0);
 			await expect(add.getByRole('textbox', { name: 'Lesson' })).toHaveValue('One too many');
 			expect(await fits(page)).toBe(true);
+		});
+
+		test('a proposal someone else decided first leaves the page, with its dialog', async ({ page }) => {
+			const state = await fixture(page, 'owner');
+			await page.goto('/test/settings/lessons');
+			const rows = page.getByRole('region', { name: 'Proposals' }).getByRole('listitem');
+			await expect(rows).toHaveCount(4);
+			await rows.filter({ hasText: 'run the linter' }).getByRole('button', { name: 'Edit' }).click();
+			const dialog = page.getByRole('dialog', { name: 'Approve' });
+			await dialog.getByRole('textbox', { name: 'Lesson' }).fill('Run the linter first');
+			// Another admin drops it meanwhile.
+			state.lessons.find((item) => item.id === 'p1')!.state = 'dropped';
+			state.refuse = { status: 409, code: 'LESSON_STATE' };
+			await dialog.getByRole('button', { name: 'Approve' }).click();
+			// Said in the reader's language, not the server's.
+			await expect(page.getByText('This lesson was already decided')).toBeVisible();
+			await expect(page.getByText('SERVER WORDS IN ENGLISH')).toHaveCount(0);
+			await expect(dialog).toHaveCount(0);
+			await expect(rows).toHaveCount(3);
+			await expect(page.getByText('run the linter')).toHaveCount(0);
+
+			// The same for a decision without a dialog: a lesson that is gone.
+			state.lessons.find((item) => item.id === 'p3')!.state = 'approved';
+			state.refuse = { status: 404, code: 'NOT_FOUND' };
+			await rows.filter({ hasText: 'Ask before adding' }).getByRole('button', { name: 'Drop' }).click();
+			await page.getByRole('alertdialog').getByRole('button', { name: 'Drop' }).click();
+			await expect(page.getByRole('alertdialog')).toHaveCount(0);
+			await expect(rows).toHaveCount(2);
+			await expect(page.getByRole('region', { name: 'acme/api' })).toContainText('Ask before adding a dependency');
+		});
+
+		test("a private team's lesson is marked, quietly", async ({ page }) => {
+			const state = await fixture(page, 'owner');
+			state.lessons.find((item) => item.id === 'a2')!.team_id = 'team-secret';
+			state.lessons.find((item) => item.id === 'a3')!.team_id = 'team-open';
+			state.lessons.find((item) => item.id === 'p1')!.team_id = 'team-secret';
+			await page.goto('/test/settings/lessons');
+			await expect(page.getByRole('img', { name: 'Private' })).toHaveCount(2);
+			const api = page.getByRole('region', { name: 'acme/api' }).getByRole('listitem');
+			await expect(api.filter({ hasText: 'Migration numbers' }).getByRole('img', { name: 'Private' })).toBeVisible();
+			await expect(api.filter({ hasText: 'Never edit generated' }).getByRole('img')).toHaveCount(0);
+			await expect(
+				page.getByRole('region', { name: 'Proposals' }).getByRole('listitem').filter({ hasText: 'run the linter' }).getByRole('img', { name: 'Private' })
+			).toBeVisible();
+			expect(await fits(page)).toBe(true);
+		});
+
+		test('a guest is not offered lessons, and the address says there is no access', async ({ page }) => {
+			const state = await fixture(page, 'guest');
+			await page.goto('/test/settings/profile');
+			if (size.name === 'phone') await page.getByRole('button', { name: /menu/i }).first().click();
+			await expect(page.getByRole('link', { name: 'Agents workflows' })).toBeVisible();
+			await expect(page.getByRole('link', { name: 'Lessons' })).toHaveCount(0);
+			await page.goto('/test/settings/lessons');
+			await expect(page.getByText('This resource is unavailable or you no longer have access.')).toBeVisible();
+			await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+			await expect(page.getByRole('heading', { name: 'Lessons' })).toHaveCount(0);
+			expect(state.reads).toBeLessThanOrEqual(2);
 		});
 
 		test('a member reads approved lessons and their own proposal, and can only propose', async ({ page }) => {

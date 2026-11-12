@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "این درس کنار گذاشته شود؟",
 	"lessons.failed": "به‌روزرسانی درس‌ها ممکن نشد",
 	"lessons.failed_load": "بارگذاری درس‌ها ممکن نشد",
-	"workflows.issue.planning_step_implements": "این پروفایل فقط برنامه‌ریزی می‌کند، اما مرحله به آن می‌گوید پیاده‌سازی کند"
+	"workflows.issue.planning_step_implements": "این پروفایل فقط برنامه‌ریزی می‌کند، اما مرحله به آن می‌گوید پیاده‌سازی کند",
+	"notebook.done": "انجام‌شده",
+	"lessons.error_state": "این درس قبلاً تصمیم‌گیری شده است",
+	"lessons.error_limit": "این مخزن به حداکثر درس‌های تأییدشده رسیده است؛ ابتدا یکی را کنار بگذارید",
+	"lessons.error_pending": "پیشنهادهای زیادی در انتظار این مخزن هستند",
+	"lessons.error_duplicate": "این درس از قبل برای این مخزن وجود دارد",
+	"lessons.error_invalid": "هر درس یک خط با حداکثر {max} نویسه است",
+	"lessons.error_repository": "این مخزن به فضای کاری متصل نیست"
 }

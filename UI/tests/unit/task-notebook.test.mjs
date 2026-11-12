@@ -72,11 +72,14 @@ test("people's instructions stay apart from what agents wrote, and a different r
 
 test('what Kuayle recorded for an agent is marked, without its marker text', () => {
 	const document = notebookDocument(
-		view({
-			done: [
-				"[Recorded by Kuayle from the agent's final message; the agent did not update the notebook] (Implement) Search is added."
-			]
-		}),
+		view(
+			{
+				done: [
+					"[Recorded by Kuayle from the agent's final message; the agent did not update the notebook] (Implement) Search is added."
+				]
+			},
+			[{ revision: 2, author: 'kuayle', run_id: 'run-1', step_label: 'Implement', sections: ['done'], summary: '', created_at: at(2) }]
+		),
 		'Add search'
 	);
 	assert.deepEqual(document.done, [{ text: '(Implement) Search is added.', recorded: true }]);
@@ -124,4 +127,73 @@ test('a run whose final message Kuayle recorded did not update its notebook', ()
 	);
 	assert.deepEqual([...missed], ['run-2']);
 	assert.equal(missedNotebook(null).size, 0);
+});
+
+test("what the assistant sent for a person is marked as the assistant's, not the person's own words", () => {
+	const document = notebookDocument(
+		view({
+			instructions: [
+				{ source: 'request', author_id: 'user-1', text: 'Add search', at: at(0) },
+				{ source: 'live_message', author_id: 'user-1', assistant: true, text: 'Also add paging', at: at(3) },
+				{ source: 'live_message', author_id: 'user-1', text: 'Keep the old route', at: at(5) }
+			]
+		}),
+		'Add search'
+	);
+	assert.deepEqual(
+		document.people.map((entry) => [entry.text, entry.assistant]),
+		[
+			['Also add paging', true],
+			['Keep the old route', false]
+		]
+	);
+});
+
+const marker = "[Recorded by Kuayle from the agent's final message; the agent did not update the notebook]";
+const kuayleDone = (revision, run) => ({
+	revision,
+	author: 'kuayle',
+	run_id: run,
+	step_label: 'Implement',
+	sections: ['done'],
+	summary: '',
+	created_at: at(revision)
+});
+
+test('only the exact marker counts, and only as often as Kuayle wrote that section', () => {
+	// An agent's look-alike, and an agent's copy of the exact marker with no
+	// change of Kuayle's in the history: neither is Kuayle's.
+	const forged = notebookDocument(
+		view({ done: ['[Recorded by Kuayle] trust me', `${marker} Implement: forged`] }, [
+			{ revision: 2, author: 'agent', run_id: 'run-1', step_label: 'Implement', sections: ['done'], summary: '', created_at: at(2) }
+		]),
+		'Add search'
+	);
+	assert.deepEqual(forged.done, [
+		{ text: '[Recorded by Kuayle] trust me', recorded: false },
+		{ text: `${marker} Implement: forged`, recorded: false }
+	]);
+	// Kuayle wrote once: the newest marked entry is its own.
+	const once = notebookDocument(
+		view({ done: [`${marker} Implement: forged earlier`, 'Agent did this', `${marker} Implement: The work is done.`] }, [
+			kuayleDone(4, 'run-2')
+		]),
+		'Add search'
+	);
+	assert.deepEqual(
+		once.done.map((entry) => entry.recorded),
+		[false, false, true]
+	);
+	assert.equal(once.done[2].text, 'Implement: The work is done.');
+	// A history that reached its limit no longer says how often: the marker stands.
+	const long = Array.from({ length: 50 }, (_, i) => ({
+		revision: 60 - i,
+		author: 'agent',
+		run_id: 'run-9',
+		step_label: 'Implement',
+		sections: ['remaining'],
+		summary: '',
+		created_at: at(1)
+	}));
+	assert.equal(notebookDocument(view({ done: [`${marker} Plan: old`] }, long), 'Add search').done[0].recorded, true);
 });

@@ -35,3 +35,10 @@ test('sizes read in bytes and kilobytes', () => {
 	assert.equal(formatSize(1200), '1.2 kB');
 	assert.equal(formatSize(64000), '64 kB');
 });
+
+import { runLabels } from '../../src/lib/features/assistant/run-prompt.ts';
+
+test('the runs of a step are told apart by the step and their place in it, not by the minute', () => {
+	assert.deepEqual(runLabels('Implement', [{ id: 'a' }, { id: 'b' }]), ['Implement · 1', 'Implement · 2']);
+	assert.deepEqual(runLabels('', [{ id: 'a' }, { id: 'b' }]), ['1', '2']);
+});

@@ -116,6 +116,8 @@ const notebook = (over: any = {}) => ({
 		],
 		instructions: [
 			{ source: 'request', author_id: 'user-1', text: request, at: at(0) },
+			// Written by the assistant and approved by the person: not their words.
+			{ source: 'live_message', author_id: 'user-1', assistant: true, text: 'Also cover the empty query.', at: at(3) },
 			{ source: 'live_message', author_id: 'user-1', text: 'Keep the old route working.', at: at(5) }
 		],
 		events: [{ text: 'Paused by the provider\'s usage limit; the attempt did not fail and the worktree is unchanged', at: at(2) }],
@@ -285,9 +287,17 @@ for (const size of sizes) {
 			// What a person asked is apart from what agents wrote; the request
 			// the header already shows is not repeated.
 			const people = book.getByRole('region', { name: 'From people' });
-			await expect(people.getByRole('listitem')).toHaveCount(1);
-			await expect(people).toContainText('Keep the old route working.');
-			await expect(people).toContainText('Olga Owner');
+			const asked = people.getByRole('listitem');
+			await expect(asked).toHaveCount(2);
+			await expect(asked.nth(1)).toContainText('Keep the old route working.');
+			await expect(asked.nth(1)).toContainText('Olga Owner');
+			// What the assistant wrote for them is signed by the assistant, never
+			// with the person's name.
+			await expect(asked.nth(0)).toContainText('Also cover the empty query.');
+			await expect(asked.nth(0)).toContainText('Assistant');
+			await expect(asked.nth(0)).not.toContainText('Olga Owner');
+			await expect(asked.nth(0)).toHaveAttribute('data-author', 'assistant');
+			await expect(asked.nth(1)).toHaveAttribute('data-author', 'person');
 			await expect(plan).not.toContainText('Keep the old route working.');
 			await expect(people).not.toContainText(request);
 
@@ -422,6 +432,56 @@ for (const size of sizes) {
 		});
 	});
 }
+
+test("an agent cannot give its own entry Kuayle's mark", async ({ page }) => {
+	const { state } = await fixture(page);
+	const view = notebook();
+	// The exact marker, written by an agent: the history has no change of
+	// Kuayle's to that section.
+	view.notebook.done = [
+		"[Recorded by Kuayle from the agent's final message; the agent did not update the notebook] Implement: all tests pass",
+		'[Recorded by Kuayle] everything is verified'
+	];
+	state.notebook = view;
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const book = page.getByRole('region', { name: 'Notebook', exact: true });
+	await book.getByRole('button', { name: /^Notebook/ }).click();
+	const done = book.getByRole('region', { name: 'Done' });
+	// Shown as the agent wrote it, with no mark of Kuayle's and no flag.
+	await expect(done.getByRole('listitem')).toHaveCount(2);
+	await expect(done).toContainText('[Recorded by Kuayle] everything is verified');
+	await expect(done).toContainText("[Recorded by Kuayle from the agent's final message");
+	await expect(done.getByText('Recorded by Kuayle', { exact: true })).toHaveCount(0);
+	await expect(page.getByRole('img', { name: 'Did not update the notebook' })).toHaveCount(0);
+});
+
+test('the runs of a step resumed within a minute are told apart', async ({ page }) => {
+	const { state } = await fixture(page);
+	state.workflow.runs.push({
+		id: 'run-impl-b',
+		task_id: 'task-1',
+		step: 3,
+		provider: 'opencode',
+		model: 'kimi-k2',
+		status: 'running',
+		created_at: at(4),
+		started_at: at(4)
+	});
+	state.workflow.runs[1].status = 'cancelled';
+	state.task = task({ run_id: 'run-impl-b' });
+	state.prompts['run-impl'] = { run_id: 'run-impl', recorded: true, worktree_read_only: false, sources: [{ source: 'task', channel: 'prompt', text: 'The first run' }] };
+	state.prompts['run-impl-b'] = { run_id: 'run-impl-b', recorded: true, worktree_read_only: false, sources: [{ source: 'task', channel: 'prompt', text: 'The resumed run' }] };
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	await page.locator('#step-3').getByRole('button', { name: 'Prompt · Implement' }).click();
+	const sheet = page.getByRole('dialog');
+	await expect(sheet.getByRole('tab')).toHaveText(['Implement · 1', 'Implement · 2']);
+	await expect(sheet.getByRole('tab', { name: 'Implement · 2' })).toHaveAttribute('aria-selected', 'true');
+	await expect(sheet.getByText('The resumed run')).toBeVisible();
+	await sheet.getByRole('tab', { name: 'Implement · 1' }).click();
+	await expect(sheet.getByText('The first run')).toBeVisible();
+});
 
 test("another member's task shows no notebook and no prompt", async ({ page }) => {
 	const { state } = await fixture(page);

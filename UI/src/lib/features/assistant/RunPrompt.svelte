@@ -8,7 +8,7 @@
 	import type { WorkflowStepRun } from '$lib/api/workflows';
 	import { agentInfo } from '$lib/features/agents/agents';
 	import ClampedText from './ClampedText.svelte';
-	import { formatSize, promptSections } from './run-prompt';
+	import { formatSize, promptSections, runLabels } from './run-prompt';
 	import { getLocale, m } from '$lib/features/i18n/messages';
 
 	// The prompt a step's agent received, opened from the step's line: one
@@ -73,8 +73,11 @@
 		attachments: m['prompt.source_attachments'],
 		memory: m['lessons.title']
 	};
+	// A step resumed within a minute has runs that start at the same time:
+	// they are named by the step and their place in it, the time on hover.
+	const labels = $derived(runLabels(title, runs));
 	const started = (item: WorkflowStepRun) =>
-		new Date(item.started_at ?? item.created_at).toLocaleTimeString(getLocale(), { timeStyle: 'short' });
+		new Date(item.started_at ?? item.created_at).toLocaleString(getLocale(), { dateStyle: 'medium', timeStyle: 'short' });
 </script>
 
 <Sheet.Root open onOpenChange={(open) => !open && onclose()}>
@@ -89,7 +92,9 @@
 			</Sheet.Description>
 			{#if runs.length > 1}<Tabs.Root value={run?.id ?? ''} onValueChange={(value) => (chosen = value)} class="pt-1">
 					<Tabs.List>
-						{#each runs as item (item.id)}<Tabs.Trigger value={item.id}>{started(item)}</Tabs.Trigger>{/each}
+						{#each runs as item, index (item.id)}<Tabs.Trigger value={item.id} title={started(item)}
+								>{labels[index]}</Tabs.Trigger
+							>{/each}
 					</Tabs.List>
 				</Tabs.Root>{/if}
 		</Sheet.Header>

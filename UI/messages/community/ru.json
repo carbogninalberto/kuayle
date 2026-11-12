@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Отозвать этот урок?",
 	"lessons.failed": "Не удалось обновить уроки",
 	"lessons.failed_load": "Не удалось загрузить уроки",
-	"workflows.issue.planning_step_implements": "Этот профиль только планирует, но шаг требует реализации"
+	"workflows.issue.planning_step_implements": "Этот профиль только планирует, но шаг требует реализации",
+	"notebook.done": "Готово",
+	"lessons.error_state": "Этот урок уже рассмотрен",
+	"lessons.error_limit": "В этом репозитории достигнут лимит одобренных уроков; сначала отзовите один",
+	"lessons.error_pending": "Слишком много предложений ожидают рассмотрения в этом репозитории",
+	"lessons.error_duplicate": "Этот урок уже существует для этого репозитория",
+	"lessons.error_invalid": "Урок — это одна строка длиной не более {max} символов",
+	"lessons.error_repository": "Этот репозиторий не подключён к рабочей области"
 }

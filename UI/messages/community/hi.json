@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "यह सीख उपयोग से हटाएँ?",
 	"lessons.failed": "सीख अपडेट नहीं हो सकीं",
 	"lessons.failed_load": "सीख लोड नहीं हो सकीं",
-	"workflows.issue.planning_step_implements": "यह प्रोफ़ाइल केवल योजना बनाती है, पर चरण उसे लागू करने को कहता है"
+	"workflows.issue.planning_step_implements": "यह प्रोफ़ाइल केवल योजना बनाती है, पर चरण उसे लागू करने को कहता है",
+	"notebook.done": "पूर्ण",
+	"lessons.error_state": "यह सीख पहले ही तय हो चुकी है",
+	"lessons.error_limit": "इस रिपॉज़िटरी की स्वीकृत सीखें अधिकतम सीमा पर हैं; पहले एक को हटाएँ",
+	"lessons.error_pending": "इस रिपॉज़िटरी पर बहुत सारे प्रस्ताव प्रतीक्षा में हैं",
+	"lessons.error_duplicate": "यह सीख इस रिपॉज़िटरी के लिए पहले से मौजूद है",
+	"lessons.error_invalid": "एक सीख अधिकतम {max} अक्षरों की एक पंक्ति है",
+	"lessons.error_repository": "यह रिपॉज़िटरी वर्कस्पेस से जुड़ी नहीं है"
 }

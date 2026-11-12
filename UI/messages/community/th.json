@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "เลิกใช้บทเรียนนี้หรือไม่",
 	"lessons.failed": "ไม่สามารถอัปเดตบทเรียนได้",
 	"lessons.failed_load": "ไม่สามารถโหลดบทเรียนได้",
-	"workflows.issue.planning_step_implements": "โปรไฟล์นี้วางแผนเท่านั้น แต่ขั้นตอนสั่งให้ลงมือทำ"
+	"workflows.issue.planning_step_implements": "โปรไฟล์นี้วางแผนเท่านั้น แต่ขั้นตอนสั่งให้ลงมือทำ",
+	"notebook.done": "เสร็จสิ้น",
+	"lessons.error_state": "บทเรียนนี้ได้รับการตัดสินแล้ว",
+	"lessons.error_limit": "ที่เก็บนี้มีบทเรียนที่อนุมัติแล้วถึงขีดจำกัดแล้ว กรุณาเลิกใช้หนึ่งรายการก่อน",
+	"lessons.error_pending": "มีข้อเสนอรออยู่ที่ที่เก็บนี้มากเกินไป",
+	"lessons.error_duplicate": "บทเรียนนี้มีอยู่แล้วสำหรับที่เก็บนี้",
+	"lessons.error_invalid": "บทเรียนคือหนึ่งบรรทัดที่มีความยาวไม่เกิน {max} ตัวอักษร",
+	"lessons.error_repository": "ที่เก็บนี้ไม่ได้เชื่อมต่อกับพื้นที่ทำงาน"
 }

@@ -300,10 +300,15 @@ the transcript stays the view; it opens in place to a short working document
 the plan as a checklist that shows what is done (a step opens to its
 acceptance check, commands and files; a plan without steps shows its text),
 then what is done (an entry Kuayle recorded from an agent's final message
-says so), what remains, how to verify, decisions and findings (open ones
+says so: only an entry with the exact `NotebookKuayleDonePrefix`, and only as
+many of them, newest first, as the history has changes of that section by
+Kuayle, so an agent writing the marker itself earns nothing; a history at its
+limit of 50 lets the marker stand), what remains, how to verify, decisions and findings (open ones
 first, each with its source). What people asked is a block of its own,
 "From people", apart from what agents wrote, without the request the header
-already shows. Who changed which sections at which step, and what Kuayle
+already shows; an entry the assistant wrote and the person approved
+(`assistant`) is signed "Assistant", never with the person's name, and set
+apart by a dashed rule. Who changed which sections at which step, and what Kuayle
 noted (pauses, updates accepted in part), is "History" at the end, closed
 until asked for. The view has no labels beyond the section names and nothing
 to fill in: there is no write route. It is read with the task's shared load
@@ -326,8 +331,9 @@ parts that went to the instructions file or were cut when recorded, and
 "Read-only worktree" for a planning step. Sections are open, show their first
 six lines, expand in place and can be closed, so two sources that contradict
 each other (a step that says "implement", a profile that says "do not") are
-on screen together. A step resumed in several runs offers each by its start
-time, newest first; a run from before prompts were recorded says so.
+on screen together. A step resumed in several runs offers each as a tab
+named by the step and its place in it ("Implement · 2", the start time on
+hover), the newest chosen; a run from before prompts were recorded says so.
 
 A run that ended without updating the notebook is flagged on its step's
 line, also when closed, with a quiet icon named "Did not update the

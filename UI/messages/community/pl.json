@@ -3906,5 +3906,12 @@
 	"lessons.retire_confirm": "Wycofać ten wniosek?",
 	"lessons.failed": "Nie udało się zaktualizować wniosków",
 	"lessons.failed_load": "Nie udało się wczytać wniosków",
-	"workflows.issue.planning_step_implements": "Ten profil tylko planuje, ale krok każe mu wdrażać"
+	"workflows.issue.planning_step_implements": "Ten profil tylko planuje, ale krok każe mu wdrażać",
+	"notebook.done": "Wykonano",
+	"lessons.error_state": "Ta lekcja została już rozstrzygnięta",
+	"lessons.error_limit": "To repozytorium osiągnęło limit zatwierdzonych lekcji; najpierw wycofaj jedną",
+	"lessons.error_pending": "Zbyt wiele propozycji oczekuje na to repozytorium",
+	"lessons.error_duplicate": "Ta lekcja już istnieje dla tego repozytorium",
+	"lessons.error_invalid": "Lekcja to jedna linia o maksymalnie {max} znakach",
+	"lessons.error_repository": "To repozytorium nie jest połączone z przestrzenią roboczą"
 }

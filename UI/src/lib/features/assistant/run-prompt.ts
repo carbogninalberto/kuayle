@@ -33,3 +33,8 @@ export function formatSize(bytes: number): string {
 	const kilobytes = bytes / 1000;
 	return `${kilobytes < 10 ? Math.round(kilobytes * 10) / 10 : Math.round(kilobytes)} kB`;
 }
+
+/** A step's runs, told apart by the step and their place in it: "Implement · 2". */
+export function runLabels(step: string, runs: { id: string }[]): string[] {
+	return runs.map((_, index) => [step, String(index + 1)].filter(Boolean).join(' · '));
+}
