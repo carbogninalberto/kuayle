@@ -62,6 +62,7 @@ type TaskTraceTask struct {
 	ID            uuid.UUID  `json:"id"`
 	Identifier    string     `json:"identifier"`
 	Title         string     `json:"title"`
+	Prompt        string     `json:"prompt"`
 	State         string     `json:"state"`
 	Reason        string     `json:"reason"`
 	FailureClass  *string    `json:"failure_class,omitempty"`

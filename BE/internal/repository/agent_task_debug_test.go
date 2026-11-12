@@ -57,7 +57,9 @@ func TestDebugTraceReadsEverySourceAndFollowsTaskAccess(t *testing.T) {
 }
 
 // The repository returns one row more than the limit, which is how the
-// service knows there were more rows without reading them.
+// service knows there were more rows without reading them. The extra row is
+// the one just older than the kept rows, and the rows stay oldest first so
+// the service can drop the extra row without reordering.
 func TestDebugTraceRowLimitsReturnOneMoreThanKept(t *testing.T) {
 	db, repo, ctx, task, _ := taskRecoveryFixture(t)
 	_, err := db.Exec(`INSERT INTO agent_task_transitions(task_id,from_state,to_state,reason) VALUES($1,'queued','preparing','One'),($1,'preparing','running','Two'),($1,'running','validating','Three')`, task.ID)
@@ -65,6 +67,33 @@ func TestDebugTraceRowLimitsReturnOneMoreThanKept(t *testing.T) {
 	rows, err := repo.DebugTrace(ctx, task.WorkspaceID, task.ID, TraceLimits{Rows: 1, Transitions: 1})
 	require.NoError(t, err)
 	require.Len(t, rows.Transitions, 2, "one kept row plus the row that proves more exist")
+	require.Equal(t, "Two", rows.Transitions[0].Reason, "the rows are oldest first")
+	require.Equal(t, "Three", rows.Transitions[1].Reason, "the newest row comes last")
+	require.NotEqual(t, "One", rows.Transitions[0].Reason, "the row older than the kept rows is the extra one")
+}
+
+// Asking for a review task's trace returns the trace of the task it reviewed,
+// under that task's access rules: the review task has no access rules of its
+// own, and its runs and reviews already appear in the reviewed task's trace.
+func TestDebugTraceOfAReviewTaskResolvesToTheReviewedTask(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	review, _, err := repo.CreateReview(ctx, task.WorkspaceID, *task.ConversationID, task.ID, reviewRequest("claude-code"))
+	require.NoError(t, err)
+	require.Equal(t, domain.AgentTaskKindReview, review.Kind)
+
+	rows, err := repo.DebugTrace(ctx, task.WorkspaceID, review.ID, TraceLimits{Rows: 100, Transitions: 100})
+	require.NoError(t, err)
+	require.Equal(t, task.ID, rows.Task.ID, "the reviewed task's trace")
+	require.Equal(t, domain.AgentTaskKindImplement, rows.Task.Kind)
+
+	member := workspaceUser(t, db, task.WorkspaceID, "Mona Member", "member")
+	_, err = repo.DebugTrace(member, task.WorkspaceID, review.ID, TraceLimits{Rows: 100, Transitions: 100})
+	require.ErrorIs(t, err, ErrConversationNotFound, "an ordinary member is not the creator")
+
+	elsewhere := uuid.New()
+	foreign := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: elsewhere, UserID: task.CreatorID})
+	_, err = repo.DebugTrace(foreign, elsewhere, review.ID, TraceLimits{Rows: 100, Transitions: 100})
+	require.ErrorIs(t, err, ErrConversationNotFound, "a review task is never read through another workspace")
 }
 
 // A private team's task follows the same access rules as a workflow decision:

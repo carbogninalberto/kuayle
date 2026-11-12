@@ -47,13 +47,8 @@ func (s *AgentTaskService) DebugTrace(ctx context.Context, ws, id uuid.UUID) (*d
 	}
 	secrets := []string{}
 	if s.machines != nil {
-		seen := map[uuid.UUID]bool{}
-		for _, run := range rows.Runs {
-			if seen[run.MachineID] {
-				continue
-			}
-			seen[run.MachineID] = true
-			values, err := s.machines.machineSecretValues(ctx, ws, run.MachineID)
+		for _, machine := range traceMachineIDs(rows) {
+			values, err := s.machines.machineSecretValues(ctx, ws, machine)
 			if err != nil {
 				return nil, err
 			}
@@ -61,6 +56,28 @@ func (s *AgentTaskService) DebugTrace(ctx context.Context, ws, id uuid.UUID) (*d
 		}
 	}
 	return buildTaskTrace(rows, secrets, limits), nil
+}
+
+// traceMachineIDs lists the distinct machines the trace mentions: the ones
+// its attempts ran on and the ones its operations targeted, which can differ
+// when an operation failed before any attempt started.
+func traceMachineIDs(rows *repository.TaskTraceRows) []uuid.UUID {
+	ids := []uuid.UUID{}
+	seen := map[uuid.UUID]bool{}
+	add := func(id uuid.UUID) {
+		if id == uuid.Nil || seen[id] {
+			return
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	for _, run := range rows.Runs {
+		add(run.MachineID)
+	}
+	for _, operation := range rows.Operations {
+		add(operation.MachineID)
+	}
+	return ids
 }
 
 // buildTaskTrace assembles the document from raw rows. It has no I/O, so the
@@ -286,7 +303,7 @@ func buildTaskTrace(raw *repository.TaskTraceRows, secrets []string, limits trac
 			Data: map[string]any{"revision": raw.NotebookRevision, "notebook": traceJSONValue(*raw.Notebook)}})
 	}
 
-	task := domain.TaskTraceTask{ID: raw.Task.ID, Identifier: raw.Identifier, Title: raw.Title, State: raw.Task.State, Reason: raw.Task.Reason,
+	task := domain.TaskTraceTask{ID: raw.Task.ID, Identifier: raw.Identifier, Title: raw.Title, Prompt: raw.Task.Prompt, State: raw.Task.State, Reason: raw.Task.Reason,
 		FailureClass: raw.Task.FailureClass, Kind: raw.Task.Kind, Provider: raw.Task.Provider, Model: raw.Task.Model, Generation: raw.Task.Generation,
 		IssueID: raw.Task.IssueID, TeamID: raw.Task.TeamID, CreatorID: raw.Task.CreatorID, Conversation: raw.Task.ConversationID,
 		WorkflowID: raw.Task.WorkflowVersionID, WorkflowNode: raw.Task.WorkflowNode, WorkflowState: raw.Task.WorkflowStatus,
@@ -299,6 +316,7 @@ func buildTaskTrace(raw *repository.TaskTraceRows, secrets []string, limits trac
 	}
 	trace := &domain.TaskTrace{Format: domain.TaskTraceFormat, GeneratedAt: time.Now().UTC(), Task: task, Limits: traceLimitMap(limits), Entries: entries, Cuts: cuts, Redacted: true}
 	trace.Task.Title = traceRedact(trace.Task.Title, secrets)
+	trace.Task.Prompt = traceRedact(trace.Task.Prompt, secrets)
 	trace.Task.Reason = traceRedact(trace.Task.Reason, secrets)
 	if trace.Task.FailureClass != nil {
 		class := traceRedact(*trace.Task.FailureClass, secrets)
@@ -320,6 +338,7 @@ func buildTaskTrace(raw *repository.TaskTraceRows, secrets []string, limits trac
 	}
 	trimTraceEntries(trace.Entries, limits.TextBytes, &cuts)
 	trace.Task.Title = trimTraceText(trace.Task.Title, limits.TextBytes, "task", "title", &cuts)
+	trace.Task.Prompt = trimTraceText(trace.Task.Prompt, limits.TextBytes, "task", "prompt", &cuts)
 	trace.Task.Reason = trimTraceText(trace.Task.Reason, limits.TextBytes, "task", "reason", &cuts)
 	if trace.Task.FailureClass != nil {
 		class := trimTraceText(*trace.Task.FailureClass, limits.TextBytes, "task", "failure_class", &cuts)
@@ -409,8 +428,8 @@ func trimTraceRows[T any](rows []T, limit int, kind string, cuts *[]domain.Trace
 	if limit <= 0 || len(rows) <= limit {
 		return rows
 	}
-	*cuts = append(*cuts, domain.TraceCut{Kind: kind, What: "more_rows", Kept: limit, Total: len(rows)})
-	return rows[:limit]
+	*cuts = append(*cuts, domain.TraceCut{Kind: kind, What: "oldest_rows", Kept: limit, Total: len(rows)})
+	return rows[len(rows)-limit:]
 }
 
 func redactTraceValue(value any, secrets []string) any {
@@ -504,7 +523,9 @@ func trimTraceValue(value any, limit int, kind, path string, cuts *[]domain.Trac
 
 // fitTraceDocument keeps the marshalled document under its byte budget: it
 // drops the largest prompt-source texts first, then the oldest entries, and
-// records every drop in cuts.
+// records every drop in cuts. Dropping a text is estimated from its encoded
+// length, so a document with many texts costs one serialisation per batch of
+// drops instead of one per text.
 func fitTraceDocument(trace *domain.TaskTrace, limit int) {
 	if limit <= 0 {
 		return
@@ -514,18 +535,37 @@ func fitTraceDocument(trace *domain.TaskTrace, limit int) {
 		return
 	}
 	for len(encoded) > limit {
-		entry, sourceIndex := largestPromptText(trace.Entries)
-		if entry < 0 {
-			break
+		size := len(encoded)
+		dropped := false
+		for size > limit {
+			entry, sourceIndex := largestPromptText(trace.Entries)
+			if entry < 0 {
+				break
+			}
+			sources := trace.Entries[entry].Data.(map[string]any)["sources"].([]any)
+			source := sources[sourceIndex].(map[string]any)
+			text, _ := source["text"].(string)
+			encodedText, err := json.Marshal(text)
+			if err != nil {
+				return
+			}
+			source["text"] = ""
+			source["truncated"] = true
+			cut := domain.TraceCut{Kind: "prompt", What: "source_text", Kept: 0, Total: len(text), Bytes: int64(len(text))}
+			trace.Cuts = append(trace.Cuts, cut)
+			encodedCut, err := json.Marshal(cut)
+			if err != nil {
+				return
+			}
+			size -= len(encodedText) - 2
+			size += len(encodedCut) + 1
+			dropped = true
 		}
-		sources := trace.Entries[entry].Data.(map[string]any)["sources"].([]any)
-		source := sources[sourceIndex].(map[string]any)
-		text, _ := source["text"].(string)
-		source["text"] = ""
-		source["truncated"] = true
-		trace.Cuts = append(trace.Cuts, domain.TraceCut{Kind: "prompt", What: "source_text", Kept: 0, Total: len(text), Bytes: int64(len(text))})
 		if encoded, err = json.Marshal(trace); err != nil {
 			return
+		}
+		if !dropped {
+			break
 		}
 	}
 	for len(encoded) > limit && len(trace.Entries) > 0 {

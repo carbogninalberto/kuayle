@@ -2399,9 +2399,15 @@ attachment, `kuayle-trace-<identifier>.json`, with `Cache-Control: private,
 no-store`. The body is the document itself, not the usual response envelope,
 so the file can be handed to an LLM or attached to an issue unchanged.
 
+Asking for a review task's trace returns the trace of the task it reviewed,
+under that task's access rules: the reviewed task's trace already contains its
+review tasks' attempts and reviews, and the filename uses the reviewed task's
+identifier. A review task with no recorded reviewed task is answered with 404.
+
 The document (`format: "kuayle.task-trace/v1"`) has a `task` header (state,
-reason, failure class, workflow version and node, creator and timestamps), the
-configured `limits`, `entries`, and `cuts`. Every entry has a start, an end
+reason, failure class, original `prompt` redacted and bounded, workflow version
+and node, creator and timestamps), the configured `limits`, `entries`, and
+`cuts`. Every entry has a start, an end
 (null while it is still open), an outcome and a reason, and carries its kind,
 a stable ID and `run_id` when it belongs to an attempt. Entries come from:
 
@@ -2423,13 +2429,14 @@ a stable ID and `run_id` when it belongs to an attempt. Entries come from:
 | `notebook_change`, `notebook` | each notebook revision's author and sections, and the current document |
 
 Free text is redacted twice: first with the current and retained credential
-values of every machine an attempt ran on, then with the well-known credential
-formats (private keys, cloud keys, GitHub/GitLab/Slack tokens, API keys, JWTs
-and passwords embedded in URLs). The document is bounded in three ways:
+values of every machine an attempt ran on or a machine operation targeted,
+then with the well-known credential formats (private keys, cloud keys,
+GitHub/GitLab/Slack tokens, API keys, JWTs and passwords embedded in URLs).
+The document is bounded in three ways:
 
 - Each text field is cut at 64 KB with `…[truncated]`.
-- Each source query keeps at most 500 rows (2000 transitions); one extra row
-  proves that more exist.
+- Each source query keeps its newest 500 rows (2000 transitions), oldest
+  first; older rows are cut and listed as `oldest_rows`.
 - The whole document is kept under 4 MiB: the largest prompt-source texts are
   dropped first, then the oldest entries.
 
