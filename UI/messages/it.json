@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Crea un progetto per organizzare le tue attività",
 	"projects.no_team_projects": "Nessun progetto per questo team",
 	"projects.no_team_projects_desc": "Crea un progetto per organizzare le attività di questo team",
+	"projects.picker.teams": "Team",
+	"projects.picker.workspace": "Area di lavoro",
 	"projects.progress": "{completed} attività su {total} completate",
 	"projects.set_start": "Imposta inizio",
 	"projects.set_target": "Imposta obiettivo",

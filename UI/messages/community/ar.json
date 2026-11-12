@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "أنشئ مشروعاً لتنظيم مشكلاتك",
 	"projects.no_team_projects": "لا توجد مشاريع لهذا الفريق",
 	"projects.no_team_projects_desc": "أنشئ مشروعاً لتنظيم مشكلات هذا الفريق",
+	"projects.picker.teams": "الفرق",
+	"projects.picker.workspace": "مساحة العمل",
 	"projects.progress": "تم إنجاز {completed} من {total} مشكلة",
 	"projects.set_start": "تعيين البداية",
 	"projects.set_target": "تعيين الهدف",

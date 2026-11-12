@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Luo projekti järjestääksesi issuesi",
 	"projects.no_team_projects": "Tällä tiimillä ei ole projekteja",
 	"projects.no_team_projects_desc": "Luo projekti järjestääksesi tämän tiimin issuet",
+	"projects.picker.teams": "Tiimit",
+	"projects.picker.workspace": "Työtila",
 	"projects.progress": "Valmiina {completed} / {total} issuesta",
 	"projects.set_start": "Aseta alku",
 	"projects.set_target": "Aseta tavoite",

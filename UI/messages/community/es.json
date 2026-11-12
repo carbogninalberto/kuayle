@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Crea un proyecto para organizar tus incidencias",
 	"projects.no_team_projects": "No hay proyectos para este equipo",
 	"projects.no_team_projects_desc": "Crea un proyecto para organizar las incidencias de este equipo",
+	"projects.picker.teams": "Equipos",
+	"projects.picker.workspace": "Espacio de trabajo",
 	"projects.progress": "{completed} de {total} incidencias hechas",
 	"projects.set_start": "Establecer inicio",
 	"projects.set_target": "Establecer objetivo",

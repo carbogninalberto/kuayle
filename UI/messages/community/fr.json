@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Créez un projet pour organiser vos tickets",
 	"projects.no_team_projects": "Aucun projet pour cette équipe",
 	"projects.no_team_projects_desc": "Créez un projet pour organiser les tickets de cette équipe",
+	"projects.picker.teams": "Équipes",
+	"projects.picker.workspace": "Espace de travail",
 	"projects.progress": "{completed} ticket(s) terminé(s) sur {total}",
 	"projects.set_start": "Définir le début",
 	"projects.set_target": "Définir l'objectif",

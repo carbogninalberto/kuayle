@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Opret et projekt for at organisere dine issues",
 	"projects.no_team_projects": "Ingen projekter for dette team",
 	"projects.no_team_projects_desc": "Opret et projekt for at organisere dette teams issues",
+	"projects.picker.teams": "Teams",
+	"projects.picker.workspace": "Arbejdsområde",
 	"projects.progress": "{completed} af {total} issues færdige",
 	"projects.set_start": "Angiv start",
 	"projects.set_target": "Angiv mål",

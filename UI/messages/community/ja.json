@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "プロジェクトを作成してイシューを整理しましょう",
 	"projects.no_team_projects": "このチームのプロジェクトはありません",
 	"projects.no_team_projects_desc": "プロジェクトを作成してこのチームのイシューを整理しましょう",
+	"projects.picker.teams": "チーム",
+	"projects.picker.workspace": "ワークスペース",
 	"projects.progress": "{total} 件中 {completed} 件のイシューが完了",
 	"projects.set_start": "開始日を設定",
 	"projects.set_target": "目標日を設定",

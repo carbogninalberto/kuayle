@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Crie um projeto para organizar suas tarefas",
 	"projects.no_team_projects": "Nenhum projeto para esta equipe",
 	"projects.no_team_projects_desc": "Crie um projeto para organizar as tarefas desta equipe",
+	"projects.picker.teams": "Equipes",
+	"projects.picker.workspace": "Espaço de trabalho",
 	"projects.progress": "{completed} de {total} tarefas concluídas",
 	"projects.set_start": "Definir início",
 	"projects.set_target": "Definir meta",

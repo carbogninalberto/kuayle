@@ -594,6 +594,7 @@
 			<ProjectSelector
 				bind:open={projectOpen}
 				projects={availableProjects}
+				ownTeamId={teamId}
 				value={projectId}
 				onchange={(id) => {
 					projectId = id;

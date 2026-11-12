@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Hozz létre egy projektet a feladataid rendszerezéséhez",
 	"projects.no_team_projects": "Ennek a csapatnak nincs projektje",
 	"projects.no_team_projects_desc": "Hozz létre egy projektet a csapat feladatainak rendszerezéséhez",
+	"projects.picker.teams": "Csapatok",
+	"projects.picker.workspace": "Munkaterület",
 	"projects.progress": "{completed} / {total} feladat kész",
 	"projects.set_start": "Kezdés beállítása",
 	"projects.set_target": "Cél beállítása",

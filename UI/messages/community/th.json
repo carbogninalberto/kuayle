@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "สร้างโปรเจกต์เพื่อจัดระเบียบ Issue ของคุณ",
 	"projects.no_team_projects": "ไม่มีโปรเจกต์สำหรับทีมนี้",
 	"projects.no_team_projects_desc": "สร้างโปรเจกต์เพื่อจัดระเบียบ Issue ของทีมนี้",
+	"projects.picker.teams": "ทีม",
+	"projects.picker.workspace": "เวิร์กสเปซ",
 	"projects.progress": "เสร็จแล้ว {completed} จาก {total} Issue",
 	"projects.set_start": "ตั้งวันเริ่ม",
 	"projects.set_target": "ตั้งเป้าหมาย",

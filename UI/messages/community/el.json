@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Δημιουργήστε ένα έργο για να οργανώσετε τα ζητήματά σας",
 	"projects.no_team_projects": "Δεν υπάρχουν έργα για αυτή την ομάδα",
 	"projects.no_team_projects_desc": "Δημιουργήστε ένα έργο για να οργανώσετε τα ζητήματα αυτής της ομάδας",
+	"projects.picker.teams": "Ομάδες",
+	"projects.picker.workspace": "Χώρος εργασίας",
 	"projects.progress": "Ολοκληρώθηκαν {completed} από {total} ζητήματα",
 	"projects.set_start": "Ορισμός έναρξης",
 	"projects.set_target": "Ορισμός στόχου",

@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "프로젝트를 만들어 이슈를 정리하세요",
 	"projects.no_team_projects": "이 팀의 프로젝트가 없습니다",
 	"projects.no_team_projects_desc": "프로젝트를 만들어 이 팀의 이슈를 정리하세요",
+	"projects.picker.teams": "팀",
+	"projects.picker.workspace": "워크스페이스",
 	"projects.progress": "이슈 {total}개 중 {completed}개 완료",
 	"projects.set_start": "시작일 설정",
 	"projects.set_target": "목표일 설정",

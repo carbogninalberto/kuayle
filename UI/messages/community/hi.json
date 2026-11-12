@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "अपने इश्यू व्यवस्थित करने के लिए प्रोजेक्ट बनाएँ",
 	"projects.no_team_projects": "इस टीम का कोई प्रोजेक्ट नहीं",
 	"projects.no_team_projects_desc": "इस टीम के इश्यू व्यवस्थित करने के लिए प्रोजेक्ट बनाएँ",
+	"projects.picker.teams": "टीमें",
+	"projects.picker.workspace": "कार्यस्थान",
 	"projects.progress": "{total} में से {completed} इश्यू पूर्ण",
 	"projects.set_start": "आरंभ सेट करें",
 	"projects.set_target": "लक्ष्य सेट करें",

@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "创建一个项目来组织您的议题",
 	"projects.no_team_projects": "此团队暂无项目",
 	"projects.no_team_projects_desc": "创建一个项目来组织此团队的议题",
+	"projects.picker.teams": "团队",
+	"projects.picker.workspace": "工作区",
 	"projects.progress": "已完成 {completed} / 共 {total} 个议题",
 	"projects.set_start": "设置开始日期",
 	"projects.set_target": "设置目标日期",

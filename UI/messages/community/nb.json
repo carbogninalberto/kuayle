@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Opprett et prosjekt for å organisere sakene dine",
 	"projects.no_team_projects": "Ingen prosjekter for dette teamet",
 	"projects.no_team_projects_desc": "Opprett et prosjekt for å organisere teamets saker",
+	"projects.picker.teams": "Team",
+	"projects.picker.workspace": "Arbeidsområde",
 	"projects.progress": "{completed} av {total} saker ferdig",
 	"projects.set_start": "Angi start",
 	"projects.set_target": "Angi mål",

@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Skapa ett projekt för att organisera dina ärenden",
 	"projects.no_team_projects": "Inga projekt för det här teamet",
 	"projects.no_team_projects_desc": "Skapa ett projekt för att organisera teamets ärenden",
+	"projects.picker.teams": "Team",
+	"projects.picker.workspace": "Arbetsyta",
 	"projects.progress": "{completed} av {total} ärenden klara",
 	"projects.set_start": "Ange start",
 	"projects.set_target": "Ange mål",

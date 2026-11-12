@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Buat proyek untuk mengatur issue Anda",
 	"projects.no_team_projects": "Tidak ada proyek untuk tim ini",
 	"projects.no_team_projects_desc": "Buat proyek untuk mengatur issue tim ini",
+	"projects.picker.teams": "Tim",
+	"projects.picker.workspace": "Ruang kerja",
 	"projects.progress": "{completed} dari {total} issue selesai",
 	"projects.set_start": "Tetapkan mulai",
 	"projects.set_target": "Tetapkan target",

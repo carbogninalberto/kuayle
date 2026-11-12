@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Создайте проект, чтобы упорядочить задачи",
 	"projects.no_team_projects": "У этой команды нет проектов",
 	"projects.no_team_projects_desc": "Создайте проект, чтобы упорядочить задачи этой команды",
+	"projects.picker.teams": "Команды",
+	"projects.picker.workspace": "Рабочее пространство",
 	"projects.progress": "Выполнено задач: {completed} из {total}",
 	"projects.set_start": "Указать начало",
 	"projects.set_target": "Указать цель",
