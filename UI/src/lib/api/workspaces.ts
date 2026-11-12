@@ -1,5 +1,6 @@
 import { api } from './client';
 import { emitAppRefresh } from './refresh';
+import { uploadWithProgress } from './upload';
 import type { Workspace } from '$lib/types/workspace';
 
 export function listWorkspaces(): Promise<Workspace[]> {
@@ -23,6 +24,20 @@ export async function updateWorkspace(
 	}
 ): Promise<Workspace> {
 	const workspace = await api.patch<Workspace>(`/api/workspaces/${slug}`, data);
+	emitAppRefresh(['workspace'], slug);
+	return workspace;
+}
+
+export async function uploadWorkspaceLogo(
+	slug: string,
+	file: File,
+	onProgress?: (fraction: number) => void
+): Promise<Workspace> {
+	const workspace = await uploadWithProgress<Workspace>(
+		`/api/workspaces/${slug}/logo`,
+		file,
+		onProgress
+	);
 	emitAppRefresh(['workspace'], slug);
 	return workspace;
 }

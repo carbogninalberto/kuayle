@@ -69,6 +69,7 @@ type WorkspaceMemberResponse struct {
 	UserID    string    `json:"user_id"`
 	Email     string    `json:"email"`
 	Name      string    `json:"name"`
+	AvatarURL *string   `json:"avatar_url"`
 	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
 }

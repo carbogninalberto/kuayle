@@ -3,6 +3,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount, onDestroy } from 'svelte';
 	import type { MentionItem } from './mention.extension';
+	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import { FileText } from '@lucide/svelte';
@@ -85,9 +86,12 @@
 				class={`mention-item ${idx === selectedIndex ? "selected" : ""}`}
 				onpointerdown={(e) => { e.preventDefault(); onselect(item); }}
 			>
-				<div class="mention-avatar">
-					{(item.kind === 'user' ? item.name || item.email : '').charAt(0).toUpperCase()}
-				</div>
+				<Avatar
+					name={item.kind === 'user' ? item.name || item.email : ''}
+					avatarUrl={item.kind === 'user' ? item.avatar_url : null}
+					size="xs"
+					class="mention-avatar"
+				/>
 				<div class="mention-info">
 					<span class="mention-name">{item.kind === 'user' ? (item.name || item.email) : ''}</span>
 					{#if item.kind === 'user' && item.name}

@@ -6,6 +6,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
+	import WorkspaceLogo from '$lib/components/shared/WorkspaceLogo.svelte';
 	import { Plus, ChevronsUpDown, Check, Loader2 } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import { appToast } from '$lib/features/toast/toast';
@@ -80,11 +81,12 @@
 	<Popover.Trigger class="min-w-0 w-full">
 		{#snippet child({ props })}
 			<Button {...props} variant="plain" class="flex w-full min-w-0 items-center gap-2 rounded-md px-1 py-0.5 hover:bg-[var(--color-bg-hover)]">
-				<div
-					class="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[var(--app-accent)] text-xs font-bold text-[var(--app-accent-foreground)]"
-				>
-					{currentWorkspace.name.charAt(0).toUpperCase()}
-				</div>
+				<WorkspaceLogo
+					name={currentWorkspace.name}
+					logoUrl={currentWorkspace.logo_url}
+					size="sm"
+					class="size-6 text-xs"
+				/>
 				<span class="flex-1 truncate text-left text-sm font-medium text-[var(--color-text-primary)]">
 					{currentWorkspace.name}
 				</span>
@@ -100,11 +102,7 @@
 			<Button variant="plain" onclick={() => switchWorkspace(ws)}
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 			>
-				<div
-					class="flex h-5 w-5 items-center justify-center rounded bg-[var(--app-accent)] text-[9px] font-bold text-[var(--app-accent-foreground)]"
-				>
-					{ws.name.charAt(0).toUpperCase()}
-				</div>
+				<WorkspaceLogo name={ws.name} logoUrl={ws.logo_url} size="sm" />
 				<span class="flex-1 truncate text-left">{ws.name}</span>
 				{#if ws.slug === slug}
 					<Check size={14} class="text-[var(--app-accent)]" />

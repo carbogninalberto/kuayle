@@ -1,5 +1,6 @@
 <script lang="ts">
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
+	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount } from 'svelte';
@@ -200,11 +201,7 @@
 						class="flex items-center justify-between px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}"
 					>
 						<div class="flex items-center gap-3">
-							<div
-								class="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-medium text-[var(--app-accent-foreground)]"
-							>
-								{(member.name || member.email).charAt(0).toUpperCase()}
-							</div>
+							<Avatar name={member.name || member.email} avatarUrl={member.avatar_url} size="md" />
 							<div>
 								<p class="text-sm font-medium text-[var(--color-text-primary)]">
 									{member.name || m['settings.members.unnamed']()}

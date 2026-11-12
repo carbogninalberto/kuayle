@@ -63,6 +63,7 @@
 	import HistoryAssignees from './HistoryAssignees.svelte';
 	import { agentsApi, type IssueAgentAssignee } from '$lib/api/agents';
 	import AgentAvatar from '$lib/features/agents/AgentAvatar.svelte';
+	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import AgentAssigneeItems from '$lib/features/agents/AgentAssigneeItems.svelte';
 	import { agentIdentities } from '$lib/features/agents/agent-identities.state.svelte';
 	import { agentIsLive } from '$lib/features/agents/agent-assignees';
@@ -423,6 +424,10 @@
 	function openAddRelation(type: RelationType = 'related') {
 		relationType = type;
 		relationDialogOpen = true;
+	}
+
+	function historyMember(entry: IssueHistory): WorkspaceMember | undefined {
+		return entry.user_id ? members.find((member) => member.user_id === entry.user_id) : undefined;
 	}
 
 	function formatHistoryValue(field: string, value: string | null, displayValue?: string | null): string {
@@ -918,13 +923,13 @@
 			{#if presenceState.activeViewers.length > 0}
 				<div class="ml-1 flex items-center -space-x-1.5 border-l border-[var(--app-border)] pl-2">
 					{#each presenceState.activeViewers.slice(0, 5) as viewer (viewer.user_id)}
-						<div
-							class="relative flex h-6 w-6 items-center justify-center rounded-full border-2 border-[var(--color-bg)] text-[8px] font-medium text-white"
-							style="background-color: {viewer.color};"
+						<Avatar
+							name={viewer.name}
+							avatarUrl={viewer.avatar_url}
+							size="sm"
 							title="{viewer.name} is viewing"
-						>
-							{viewer.name.charAt(0).toUpperCase()}
-						</div>
+							class="border-2 border-[var(--color-bg)]"
+						/>
 					{/each}
 					{#if presenceState.activeViewers.length > 5}
 						<div class="flex h-6 w-6 items-center justify-center rounded-full border-2 border-[var(--color-bg)] bg-[var(--color-bg-tertiary)] text-[9px] text-[var(--color-text-tertiary)]">
@@ -1130,10 +1135,20 @@
 									{@const textFields = [...new Set(items.filter(c => c.field === 'title' || c.field === 'description').map(c => c.field))]}
 									{@const valueItems = items.filter((c, i, arr) => c.field !== 'title' && c.field !== 'description' && arr.findIndex(x => x.field === c.field) === i)}
 									{@const actor = historyActor(items.find((c) => c.agent_name) ?? items.find((c) => c.agent) ?? {}, members)}
+									{@const actorMember = historyMember(items[0])}
 									<div class="relative flex items-center gap-3 pb-2.5">
 										<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center ring-2 ring-[var(--color-bg)] rounded-full bg-[var(--color-bg)] {iconColor}">
 											<IconComponent size={12} />
 										</div>
+										{#if actorMember}
+											<Avatar
+												name={actorMember.name || actorMember.email}
+												avatarUrl={actorMember.avatar_url}
+												size="xs"
+												title={actorMember.name || actorMember.email}
+												class="shrink-0"
+											/>
+										{/if}
 										<div class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] min-w-0 overflow-hidden">
 											{#if textFields.length > 0}
 												<span>{m['issue.updated']()} <strong class="text-[var(--color-text-secondary)]">{textFields.map(f => historyFieldLabel(f)).join(', ')}</strong></span>
@@ -1188,9 +1203,12 @@
 							<!-- Comment header + body -->
 							<div class="group/comment p-4">
 								<div class="flex items-center gap-2">
-									<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-[var(--app-accent-foreground)]">
-										{(comment.user?.name ?? 'U').charAt(0).toUpperCase()}
-									</div>
+									<Avatar
+										name={comment.user?.name ?? 'U'}
+										avatarUrl={comment.user?.avatar_url}
+										size="sm"
+										class="shrink-0"
+									/>
 									<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{comment.user?.name ?? 'User'}</span>
 									{#if comment.agent_task_id}<Badge variant="outline" class="h-5 gap-1 px-1.5 text-[10px]"><Bot size={10} aria-hidden="true" />{m['agent_messages.agent_comment']()}</Badge>{/if}
 									<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(comment.created_at, getLocale())}</span>
@@ -1228,9 +1246,12 @@
 								{#each comment.replies as reply (reply.id)}
 									<div class="group/reply border-t border-[var(--app-border)] px-4 py-3 pl-4">
 										<div class="flex items-center gap-2">
-											<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-[var(--app-accent-foreground)]">
-												{(reply.user?.name ?? 'U').charAt(0).toUpperCase()}
-											</div>
+											<Avatar
+												name={reply.user?.name ?? 'U'}
+												avatarUrl={reply.user?.avatar_url}
+												size="sm"
+												class="shrink-0"
+											/>
 											<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{reply.user?.name ?? 'User'}</span>
 											<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(reply.created_at, getLocale())}</span>
 										</div>
@@ -1244,9 +1265,12 @@
 							<!-- Reply input (hidden when resolved) -->
 							{#if !comment.resolved_at}
 								<div class="border-t border-[var(--app-border)] px-4 py-3 flex items-start gap-3">
-									<div class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-[var(--app-accent-foreground)]">
-										{(authState.user?.name ?? 'U').charAt(0).toUpperCase()}
-									</div>
+									<Avatar
+										name={authState.user?.name ?? 'U'}
+										avatarUrl={authState.user?.avatar_url}
+										size="sm"
+										class="mt-0.5 shrink-0"
+									/>
 									<div class="min-w-0 flex-1 flex items-end gap-1.5">
 										<div class="min-w-0 flex-1 my-auto">
 											{#key replyVersions[comment.id] ?? 0}
@@ -1412,9 +1436,7 @@
 											{#if issue.assignees && issue.assignees.length > 0}
 												{#each issue.assignees as a}
 													<span class="flex items-center gap-1.5 rounded-full bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
-														<div class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-[var(--app-accent-foreground)]">
-															{(a.name ?? 'U').charAt(0).toUpperCase()}
-														</div>
+														<Avatar name={a.name} avatarUrl={a.avatar_url} size="xs" class="shrink-0" />
 														{a.name}
 													</span>
 												{/each}
@@ -1423,9 +1445,7 @@
 												</span>
 											{:else if issue.assignee}
 												<span class="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
-													<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-[var(--app-accent-foreground)]">
-														{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
-													</div>
+													<Avatar name={issue.assignee.name} avatarUrl={issue.assignee.avatar_url} size="xs" class="shrink-0" />
 													{issue.assignee.name}
 												</span>
 											{:else}

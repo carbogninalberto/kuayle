@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/google/uuid"
@@ -13,6 +15,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/audit"
 	"github.com/kuayle/kuayle-backend/pkg/storage"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -21,6 +24,7 @@ var (
 	ErrNotWorkspaceOwner                  = errors.New("only the workspace owner can perform this action")
 	ErrWorkspaceHasDevMachineRuntimes     = errors.New("workspace has non-destroyed dev machine runtimes")
 	ErrWorkspaceEnvironmentCleanupPending = errors.New("workspace environment cleanup is pending")
+	ErrWorkspaceLogoUnavailable           = errors.New("workspace logo uploads are not available")
 )
 
 type WorkspaceService struct {
@@ -28,6 +32,7 @@ type WorkspaceService struct {
 	userRepo      repository.UserRepo
 	hub           *realtime.Hub
 	teamIconStore storage.Backend
+	logoStore     storage.Backend
 }
 
 func NewWorkspaceService(workspaceRepo repository.WorkspaceRepo, userRepo repository.UserRepo, hubs ...*realtime.Hub) *WorkspaceService {
@@ -40,6 +45,25 @@ func NewWorkspaceService(workspaceRepo repository.WorkspaceRepo, userRepo reposi
 
 // SetTeamIconStore lets Delete remove the icon images of the workspace's teams.
 func (s *WorkspaceService) SetTeamIconStore(store storage.Backend) { s.teamIconStore = store }
+
+// SetLogoStore enables workspace logo uploads.
+func (s *WorkspaceService) SetLogoStore(store storage.Backend) { s.logoStore = store }
+
+func workspaceLogoKey(workspaceID uuid.UUID, file string) string {
+	return "workspace-logo-" + workspaceID.String() + "-" + file
+}
+
+// deleteLogoFile removes a stored workspace logo, if the URL is an upload of
+// this workspace. It is best effort: a failure leaves only an unused file.
+func (s *WorkspaceService) deleteLogoFile(ctx context.Context, workspaceID uuid.UUID, logoURL *string) {
+	file, ok := domain.WorkspaceLogoFile(workspaceID, logoURL)
+	if !ok || s.logoStore == nil {
+		return
+	}
+	if err := s.logoStore.Delete(ctx, workspaceLogoKey(workspaceID, file)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.WithError(err).Warn("failed to delete workspace logo image")
+	}
+}
 
 func (s *WorkspaceService) refreshAccess(workspaceID uuid.UUID) {
 	if s.hub != nil {
@@ -135,6 +159,12 @@ func (s *WorkspaceService) Update(ctx context.Context, slug string, userID uuid.
 		return nil, ErrNotWorkspaceOwner
 	}
 
+	var previousLogo *string
+	if ws.LogoURL != nil {
+		v := *ws.LogoURL
+		previousLogo = &v
+	}
+
 	if req.Name != nil {
 		ws.Name = *req.Name
 	}
@@ -153,12 +183,71 @@ func (s *WorkspaceService) Update(ctx context.Context, slug string, userID uuid.
 	if err := s.workspaceRepo.Update(ctx, ws); err != nil {
 		return nil, err
 	}
+	if req.LogoURL.Set && (previousLogo == nil || ws.LogoURL == nil || *previousLogo != *ws.LogoURL) {
+		s.deleteLogoFile(ctx, ws.ID, previousLogo)
+	}
 
 	audit.Log("workspace.updated", userID, map[string]interface{}{
 		"workspace_id": ws.ID, "slug": ws.Slug,
 	})
 
 	return ws, nil
+}
+
+// UploadLogo stores an already validated image as the workspace logo and
+// removes the previous uploaded logo. ext is one of the AvatarImageTypes
+// extensions, the same raster formats users may upload as their own avatar.
+func (s *WorkspaceService) UploadLogo(ctx context.Context, slug string, userID uuid.UUID, src io.Reader, contentType, ext string) (*domain.Workspace, error) {
+	if s.logoStore == nil {
+		return nil, ErrWorkspaceLogoUnavailable
+	}
+	ws, err := s.workspaceRepo.GetBySlug(ctx, slug)
+	if err != nil || ws == nil {
+		return nil, ErrWorkspaceNotFound
+	}
+	if ws.OwnerID != userID {
+		return nil, ErrNotWorkspaceOwner
+	}
+
+	file := uuid.New().String() + ext
+	if _, err := s.logoStore.Put(ctx, workspaceLogoKey(ws.ID, file), src, contentType); err != nil {
+		return nil, err
+	}
+	previousLogo := ws.LogoURL
+	logoURL := domain.WorkspaceLogoPath(ws.ID, file)
+	ws.LogoURL = &logoURL
+	if err := s.workspaceRepo.Update(ctx, ws); err != nil {
+		_ = s.logoStore.Delete(ctx, workspaceLogoKey(ws.ID, file))
+		return nil, err
+	}
+	s.deleteLogoFile(ctx, ws.ID, previousLogo)
+
+	audit.Log("workspace.updated", userID, map[string]interface{}{
+		"workspace_id": ws.ID, "slug": ws.Slug,
+	})
+
+	return ws, nil
+}
+
+// Logo opens the workspace's current uploaded logo. Only the file the
+// workspace references is served, so a replaced logo stops being public.
+func (s *WorkspaceService) Logo(ctx context.Context, workspaceID uuid.UUID, file string) (io.ReadCloser, string, error) {
+	if s.logoStore == nil || !domain.WorkspaceLogoFilePattern.MatchString(file) {
+		return nil, "", os.ErrNotExist
+	}
+	ws, err := s.workspaceRepo.GetByID(ctx, workspaceID)
+	if err != nil {
+		return nil, "", err
+	}
+	if ws == nil {
+		return nil, "", os.ErrNotExist
+	}
+	current, ok := domain.WorkspaceLogoFile(workspaceID, ws.LogoURL)
+	if !ok || current != file {
+		return nil, "", os.ErrNotExist
+	}
+	rc, err := s.logoStore.Get(ctx, workspaceLogoKey(workspaceID, file))
+	return rc, domain.WorkspaceLogoContentType(file), err
 }
 
 func (s *WorkspaceService) Delete(ctx context.Context, slug string, userID uuid.UUID) error {
@@ -185,6 +274,7 @@ func (s *WorkspaceService) Delete(ctx context.Context, slug string, userID uuid.
 	for _, team := range teamIcons {
 		deleteTeamIconImage(ctx, s.teamIconStore, team.TeamID, &team.Icon)
 	}
+	s.deleteLogoFile(ctx, ws.ID, ws.LogoURL)
 
 	audit.Log("workspace.deleted", userID, map[string]interface{}{
 		"workspace_id": ws.ID, "slug": ws.Slug,

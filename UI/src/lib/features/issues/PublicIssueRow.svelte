@@ -5,6 +5,7 @@
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import IssueLabelChips from './IssueLabelChips.svelte';
+	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import { formatDate, formatIssueListDate, formatIssueListRelativeTime } from '$lib/utils/format';
 	import { CalendarDays } from '@lucide/svelte';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
@@ -63,17 +64,24 @@
 		<span class="shrink-0 flex items-center">
 			{#if issue.assignees.length > 1}
 				<div class="flex -space-x-2">
-					<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-[var(--app-accent-foreground)] ring-1 ring-[var(--color-bg)]" title={issue.assignees[0].name}>
-						{(issue.assignees[0].name ?? 'U').charAt(0).toUpperCase()}
-					</div>
+					<Avatar
+						name={issue.assignees[0].name}
+						avatarUrl={issue.assignees[0].avatar_url}
+						size="sm"
+						title={issue.assignees[0].name}
+						class="ring-1 ring-[var(--color-bg)]"
+					/>
 					<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-bg-tertiary)] text-[8px] font-medium text-[var(--color-text-secondary)] ring-1 ring-[var(--color-bg)]">
 						+{issue.assignees.length - 1}
 					</div>
 				</div>
 			{:else}
-				<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-[var(--app-accent-foreground)]" title={issue.assignees[0].name}>
-					{(issue.assignees[0].name ?? 'U').charAt(0).toUpperCase()}
-				</div>
+				<Avatar
+					name={issue.assignees[0].name}
+					avatarUrl={issue.assignees[0].avatar_url}
+					size="sm"
+					title={issue.assignees[0].name}
+				/>
 			{/if}
 		</span>
 	{/if}

@@ -24,6 +24,7 @@
 	import { isPersonalView, isTeamView, isWorkspaceView } from '$lib/types/view';
 	import ProjectIcon from '$lib/components/shared/ProjectIcon.svelte';
 	import TeamIcon from '$lib/components/shared/TeamIcon.svelte';
+	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import WorkspaceSwitcher from './WorkspaceSwitcher.svelte';
 	import type { Favorite } from '$lib/api/favorites';
 	import type { Project } from '$lib/types/project';
@@ -1225,19 +1226,12 @@
 	<div class="flex items-center gap-2 px-2 py-2">
 		<Popover.Root>
 			<Popover.Trigger>
-				{#if authState.user?.avatar_url}
-					<img
-						src={authState.user.avatar_url}
-						alt=""
-						class="h-7 w-7 shrink-0 cursor-pointer rounded-full transition-[filter] hover:brightness-125"
-					/>
-				{:else}
-					<div
-						class="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-bold text-[var(--app-accent-foreground)] transition-[filter] hover:brightness-125"
-					>
-						{(authState.user?.name ?? 'U').charAt(0).toUpperCase()}
-					</div>
-				{/if}
+				<Avatar
+					name={authState.user?.name ?? 'U'}
+					avatarUrl={authState.user?.avatar_url}
+					size="sm"
+					class="size-7 cursor-pointer text-xs transition-[filter] hover:brightness-125"
+				/>
 			</Popover.Trigger>
 			<Popover.Content side="top" align="start" class="w-52 p-1">
 				<a

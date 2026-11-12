@@ -5,6 +5,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Progress } from '$lib/components/ui/progress';
 	import { Upload } from '@lucide/svelte';
+	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import { updateProfile, uploadAvatar } from '$lib/api/auth';
 	import type { User } from '$lib/types/auth';
 	import { appToast } from '$lib/features/toast/toast';
@@ -103,20 +104,13 @@
 			</Tabs.List>
 
 			<div class="mt-4 flex items-start gap-4">
-				<div
-					class="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--app-accent)] text-2xl font-medium text-[var(--app-accent-foreground)]"
-				>
-					{#if previewSrc && !previewBroken}
-						<img
-							src={previewSrc}
-							alt={m['avatar.preview_alt']()}
-							class="h-full w-full object-cover"
-							onerror={() => (previewBroken = true)}
-						/>
-					{:else}
-						{name.charAt(0).toUpperCase()}
-					{/if}
-				</div>
+				<Avatar
+					name={name}
+					avatarUrl={previewSrc && !previewBroken ? previewSrc : null}
+					size="lg"
+					class="size-20 text-2xl"
+					onerror={() => (previewBroken = true)}
+				/>
 
 				<div class="min-w-0 flex-1 space-y-2">
 					<Tabs.Content value="upload" class="space-y-2">

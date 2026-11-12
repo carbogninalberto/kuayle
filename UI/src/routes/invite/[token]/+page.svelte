@@ -1,5 +1,6 @@
 <script lang="ts">
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
+	import WorkspaceLogo from '$lib/components/shared/WorkspaceLogo.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -119,15 +120,12 @@
 		</div>
 	{:else if preview}
 		<div class="w-full max-w-sm space-y-6 p-8 text-center">
-			{#if preview.workspace_logo_url}
-				<img src={preview.workspace_logo_url} alt={preview.workspace_name} class="mx-auto h-14 w-14 rounded-lg" />
-			{:else}
-				<div
-					class="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-[var(--app-accent)] text-xl font-semibold text-[var(--app-accent-foreground)]"
-				>
-					{preview.workspace_name.charAt(0).toUpperCase()}
-				</div>
-			{/if}
+			<WorkspaceLogo
+				name={preview.workspace_name}
+				logoUrl={preview.workspace_logo_url}
+				size="lg"
+				class="mx-auto size-14 text-xl"
+			/>
 			<div>
 				<h1 class="text-xl font-semibold text-[var(--color-text-primary)]">
 					{m['invite.heading']({ name: preview.workspace_name })}

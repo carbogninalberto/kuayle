@@ -46,6 +46,7 @@
 	import IssuePickerDialog from './IssuePickerDialog.svelte';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
+	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import DueDatePickerPanel from '$lib/components/shared/DueDatePickerPanel.svelte';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
@@ -934,10 +935,7 @@
 									onpointerenter={() => (selectedIndex = rowIndex)}
 									onclick={() => toggleAssignee(member.user_id)}
 								>
-									<span
-										class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[10px] text-[var(--app-accent-foreground)]"
-										>{(member.name || member.email).charAt(0).toUpperCase()}</span
-									>
+									<Avatar name={member.name || member.email} avatarUrl={member.avatar_url} size="sm" />
 									<span class="min-w-0 flex-1 truncate">{member.name || member.email}</span>
 									<span
 										class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-[var(--app-border)] text-[10px] {isSelected

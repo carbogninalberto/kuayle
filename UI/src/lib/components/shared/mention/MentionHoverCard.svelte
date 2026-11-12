@@ -72,7 +72,7 @@
 		</div>
 	{:else}
 		<div class="flex items-center gap-3">
-			<Avatar name={displayName} size="md" />
+			<Avatar name={displayName} avatarUrl={member?.avatar_url} size="md" />
 			<div class="min-w-0">
 				<div class="truncate font-medium">{displayName}</div>
 				{#if member}

@@ -20,6 +20,7 @@
 	import type { Team } from '$lib/types/team';
 	import type { Project } from '$lib/types/project';
 	import IssueTreeItem from '$lib/features/issues/IssueTreeItem.svelte';
+	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { Button } from '$lib/components/ui/button';
@@ -218,15 +219,12 @@
 				{#if owner}
 					<Tooltip.Root>
 						<Tooltip.Trigger>
-							<div
-								class="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-medium text-[var(--app-accent-foreground)]"
-							>
-								{#if authState.user?.id === owner.user_id && authState.user?.avatar_url}
-									<img src={authState.user.avatar_url} alt="" class="h-7 w-7 rounded-full" />
-								{:else}
-									{(owner.name ?? owner.email ?? 'U').charAt(0).toUpperCase()}
-								{/if}
-							</div>
+							<Avatar
+								name={owner.name || owner.email || 'U'}
+								avatarUrl={owner.avatar_url}
+								size="md"
+								class="size-7 text-xs"
+							/>
 						</Tooltip.Trigger>
 						<Tooltip.Content>
 							<p class="text-sm font-medium">{owner.name || owner.email}</p>

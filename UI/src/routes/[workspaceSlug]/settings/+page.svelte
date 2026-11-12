@@ -1,17 +1,26 @@
 <script lang="ts">
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
+	import WorkspaceLogo from '$lib/components/shared/WorkspaceLogo.svelte';
+	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { getWorkspace, updateWorkspace, deleteWorkspace, downloadWorkspaceExport } from '$lib/api/workspaces';
+	import {
+		getWorkspace,
+		updateWorkspace,
+		deleteWorkspace,
+		downloadWorkspaceExport,
+		uploadWorkspaceLogo
+	} from '$lib/api/workspaces';
 	import type { Workspace } from '$lib/types/workspace';
 	import { onMount } from 'svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
+	import { AVATAR_TYPES, validateAvatarFile } from '$lib/features/profile/avatar-rules';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
-	import { Trash2, Download, Loader2 } from '@lucide/svelte';
+	import { Trash2, Download, Loader2, Upload } from '@lucide/svelte';
 	import WorkspaceImportDialog from '$lib/features/workspaces/WorkspaceImportDialog.svelte';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
@@ -23,10 +32,17 @@
 	let savingName = $state(false);
 	let savingLogo = $state(false);
 	let savingRole = $state(false);
+	let uploadingLogo = $state(false);
+	let logoError = $state('');
+	let logoFileInput = $state<HTMLInputElement | null>(null);
 	let showDelete = $state(false);
 	let deleteConfirm = $state('');
 	let deleting = $state(false);
 	let exporting = $state(false);
+
+	const uploadedLogo = $derived((workspace?.logo_url ?? '').startsWith('/api/workspace-logos/'));
+	const logoValue = (url: string | null | undefined) =>
+		url?.startsWith('/api/workspace-logos/') ? '' : (url ?? '');
 
 	const minRoleOptions = $derived([
 		{ value: 'owner', label: m['settings.role_owner']() },
@@ -37,7 +53,7 @@
 	onMount(async () => {
 		workspace = await getWorkspace(slug);
 		wsName = workspace.name;
-		logoUrl = workspace.logo_url ?? '';
+		logoUrl = logoValue(workspace.logo_url);
 		shareLinkMinRole = workspace.share_link_min_role ?? 'admin';
 	});
 
@@ -81,16 +97,62 @@
 
 	async function handleLogoBlur() {
 		if (!workspace) return;
+		// An uploaded logo is shown as its image, not its internal path. Leaving
+		// the empty URL field must not remove it.
+		if (uploadedLogo && logoUrl.trim() === '') return;
 		const next = logoUrl.trim() === '' ? null : logoUrl.trim();
 		if ((workspace.logo_url ?? null) === next) return;
 		savingLogo = true;
+		logoError = '';
 		try {
 			workspace = await updateWorkspace(slug, { logo_url: next });
-			logoUrl = workspace.logo_url ?? '';
+			logoUrl = logoValue(workspace.logo_url);
 			appToast.success(m['settings.general.logo_updated']());
 		} catch (err: any) {
 			appToast.apiError(err, m['settings.general.failed_update_logo']());
-			logoUrl = workspace.logo_url ?? '';
+			logoUrl = logoValue(workspace.logo_url);
+		} finally {
+			savingLogo = false;
+		}
+	}
+
+	function pickLogo(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file) return;
+		const issue = validateAvatarFile(file);
+		if (issue) {
+			logoError = m[issue === 'size' ? 'settings.general.logo_size_error' : 'settings.general.logo_type_error']();
+			return;
+		}
+		logoError = '';
+		void uploadLogo(file);
+	}
+
+	async function uploadLogo(file: File) {
+		uploadingLogo = true;
+		try {
+			workspace = await uploadWorkspaceLogo(slug, file);
+			logoUrl = logoValue(workspace.logo_url);
+			appToast.success(m['settings.general.logo_updated']());
+		} catch (err: any) {
+			logoError = err?.error?.message && err.status && err.status < 500 ? err.error.message : m['settings.general.failed_update_logo']();
+		} finally {
+			uploadingLogo = false;
+		}
+	}
+
+	async function removeLogo() {
+		if (!workspace?.logo_url) return;
+		savingLogo = true;
+		logoError = '';
+		try {
+			workspace = await updateWorkspace(slug, { logo_url: null });
+			logoUrl = '';
+			appToast.success(m['settings.general.logo_updated']());
+		} catch (err: any) {
+			appToast.apiError(err, m['settings.general.failed_update_logo']());
 		} finally {
 			savingLogo = false;
 		}
@@ -163,18 +225,62 @@
 
 			<div class="border-t border-[var(--app-border)]"></div>
 
+			<!-- Logo -->
+			<div class="flex items-center justify-between gap-4 px-5 py-4">
+				<div class="min-w-0">
+					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.general.logo']()}</p>
+					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.general.logo_desc']()}</p>
+					{#if logoError}
+						<p class="text-xs text-red-500">{logoError}</p>
+					{/if}
+				</div>
+				<div class="flex shrink-0 items-center gap-2">
+					<WorkspaceLogo name={workspace.name} logoUrl={workspace.logo_url} size="lg" class="size-10" />
+					<input
+						bind:this={logoFileInput}
+						type="file"
+						accept={AVATAR_TYPES.join(',')}
+						class="hidden"
+						onchange={pickLogo}
+					/>
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={!isOwner || uploadingLogo || savingLogo}
+						onclick={() => logoFileInput?.click()}
+					>
+						{#if uploadingLogo}
+							<Loader2 size={13} class="animate-spin" />
+						{:else}
+							<Upload size={13} />
+						{/if}
+						{uploadingLogo ? m['settings.general.logo_uploading']() : m['settings.general.logo_upload']()}
+					</Button>
+					{#if workspace.logo_url}
+						<Button variant="outline" size="sm" disabled={!isOwner || savingLogo || uploadingLogo} onclick={removeLogo}>
+							<Trash2 size={13} />
+							{m['settings.general.logo_remove']()}
+						</Button>
+					{/if}
+				</div>
+			</div>
+
+			<div class="border-t border-[var(--app-border)]"></div>
+
 			<!-- Logo URL -->
 			<div class="flex items-center justify-between px-5 py-4">
 				<div class="min-w-0">
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.general.logo_url']()}</p>
-					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.general.logo_url_desc']()}</p>
+					<p class="text-xs text-[var(--color-text-tertiary)]">
+						{uploadedLogo ? m['settings.general.logo_uploaded']() : m['settings.general.logo_url_desc']()}
+					</p>
 				</div>
 				<Input variant="plain"
 					type="url"
 					bind:value={logoUrl}
 					onblur={handleLogoBlur}
-					placeholder="https://"
-					disabled={!isOwner || savingLogo}
+					placeholder={uploadedLogo ? m['settings.general.logo_uploaded']() : 'https://'}
+					disabled={!isOwner || savingLogo || uploadingLogo}
 					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] disabled:cursor-not-allowed disabled:opacity-60"
 				/>
 			</div>
@@ -188,9 +294,12 @@
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.general.owner_desc']()}</p>
 				</div>
 				<div class="flex items-center gap-2">
-					<div class="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--app-accent)] text-[10px] font-medium text-[var(--app-accent-foreground)]">
-						{(workspace.owner?.name ?? workspace.owner?.email ?? 'U').charAt(0).toUpperCase()}
-					</div>
+					<Avatar
+						name={workspace.owner?.name ?? workspace.owner?.email ?? 'U'}
+						avatarUrl={workspace.owner?.avatar_url}
+						size="sm"
+						class="text-[10px]"
+					/>
 					<span class="text-sm text-[var(--color-text-secondary)]">
 						{workspace.owner?.name ?? workspace.owner?.email ?? m['settings.unknown']()}
 					</span>
