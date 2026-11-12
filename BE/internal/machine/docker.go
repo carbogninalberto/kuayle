@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -1063,6 +1064,15 @@ func (r *DockerRuntime) resumeExecution(ctx context.Context, inspection containe
 		}()
 		result, waitError = results, failures
 	}
+	// The kernel's PID limit kills a process without leaving a message;
+	// sample an agent attempt's process count while it runs so a crash at the
+	// limit can be told from any other signal. No extra container is started,
+	// and validation or tool containers (which never report a PID class) are
+	// not sampled at all.
+	var pids pidsSample
+	if inspection.State.Running && deliverSecrets {
+		go r.sampleContainerPids(logCtx, containerID, &pids)
+	}
 	waiting, logging := inspection.State.Running, true
 	for waiting || logging {
 		select {
@@ -1090,9 +1100,54 @@ func (r *DockerRuntime) resumeExecution(ctx context.Context, inspection containe
 			return r.agentOutputFailure(containerID, ctx.Err())
 		}
 	}
-	execution := &AgentExecution{ContainerID: containerID, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: inspection.State.ExitCode}
+	execution := &AgentExecution{ContainerID: containerID, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: inspection.State.ExitCode, PidsPeak: pids.peak.Load()}
 	r.inspectMemoryLimit(ctx, execution)
 	return execution, nil
+}
+
+// pidsSample keeps the highest process and thread count seen in one container.
+type pidsSample struct {
+	peak atomic.Int64
+}
+
+func (p *pidsSample) observe(current uint64) {
+	value := int64(current)
+	for {
+		seen := p.peak.Load()
+		if value <= seen || p.peak.CompareAndSwap(seen, value) {
+			return
+		}
+	}
+}
+
+// sampleContainerPids records the container's process count every few
+// seconds. A run that ends first keeps 0, as does a daemon that cannot report
+// stats: the classifier never invents a PID-limit failure from a guess.
+var pidsSampleInterval = 2 * time.Second
+
+func (r *DockerRuntime) sampleContainerPids(ctx context.Context, containerID string, sample *pidsSample) {
+	ticker := time.NewTicker(pidsSampleInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			reader, err := r.client.ContainerStats(ctx, containerID, client.ContainerStatsOptions{Stream: false})
+			if err != nil {
+				if errdefs.IsNotFound(err) {
+					return
+				}
+				continue
+			}
+			var stats container.StatsResponse
+			err = json.NewDecoder(reader.Body).Decode(&stats)
+			reader.Body.Close()
+			if err == nil {
+				sample.observe(stats.PidsStats.Current)
+			}
+		}
+	}
 }
 
 // inspectMemoryLimit records whether the exited container hit its memory
@@ -1109,6 +1164,10 @@ func (r *DockerRuntime) inspectMemoryLimit(ctx context.Context, execution *Agent
 	}
 	if result.Container.HostConfig != nil {
 		execution.MemoryLimitBytes = result.Container.HostConfig.Memory
+		execution.CPUMillis = result.Container.HostConfig.NanoCPUs / 1_000_000
+		if result.Container.HostConfig.PidsLimit != nil {
+			execution.PidsLimit = *result.Container.HostConfig.PidsLimit
+		}
 	}
 	if result.Container.Config != nil {
 		execution.MachineMemory = result.Container.Config.Labels[resourceScopeLabel] == resourceScopeMachine
@@ -1835,6 +1894,24 @@ func (r *DockerRuntime) ensureEnvironmentImage(ctx context.Context, reference st
 		return fmt.Errorf("environment image %s is not valid for this machine: %w", reference, err)
 	}
 	return nil
+}
+
+// ImageIdentity is the local image ID a reference resolves to and its
+// repository digest, when the image has one. It reads the daemon's existing
+// record; it starts nothing.
+func (r *DockerRuntime) ImageIdentity(ctx context.Context, reference string) (string, string, error) {
+	inspection, err := r.client.ImageInspect(ctx, reference)
+	if err != nil {
+		return "", "", err
+	}
+	digest := ""
+	for _, repoDigest := range inspection.RepoDigests {
+		if _, value, ok := strings.Cut(repoDigest, "@"); ok {
+			digest = value
+			break
+		}
+	}
+	return inspection.ID, digest, nil
 }
 
 func (r *DockerRuntime) imageConfig(ctx context.Context, reference string) ([]string, []string, error) {

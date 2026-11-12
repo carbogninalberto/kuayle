@@ -89,6 +89,52 @@ func TestCISignalsFollowUpOnlyForThePublishedCommitWithinBudget(t *testing.T) {
 	require.ErrorIs(t, err, ErrConversationNotFound)
 }
 
+func classifiedCI(id, outcome, sha, class, evidence string) domain.AgentTaskSignalInput {
+	in := ci(id, outcome, sha)
+	in.Failure = &domain.CIFailure{Class: class, Rule: "test_rule", Evidence: evidence}
+	return in
+}
+
+// A failure of the runner or the network is recorded as infrastructure: it
+// starts no follow-up and uses none of the two CI fixes a task has.
+func TestRunnerFailuresAreInfrastructureAndUseNoFollowUpBudget(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	background := context.Background()
+	runner := classifiedCI("runner", "failure", publishedCommit, domain.CIFailureRunner, "Docker Runtime Integration: Temporary failure resolving 'azure.archive.ubuntu.com'")
+	for range 2 {
+		followUps, err := repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, runner)
+		require.NoError(t, err)
+		require.Empty(t, followUps, "a runner problem is not the agent's to fix, even when redelivered")
+	}
+	for _, id := range []string{"test-1", "test-2"} {
+		followUps, err := repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, classifiedCI(id, "failure", publishedCommit, domain.CIFailureTest, "--- FAIL: TestRetry"))
+		require.NoError(t, err)
+		require.Len(t, followUps, 1, "the runner failure used no budget")
+	}
+	followUps, err := repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, classifiedCI("test-3", "failure", publishedCommit, domain.CIFailureTest, "--- FAIL: TestRetry"))
+	require.NoError(t, err)
+	require.Empty(t, followUps, "two CI fixes are still the budget")
+
+	signals, err := repo.Signals(ctx, task.WorkspaceID, task.ID)
+	require.NoError(t, err)
+	byID := map[string]domain.AgentTaskSignal{}
+	for _, signal := range signals {
+		byID[signal.ExternalID] = signal
+		require.NotNil(t, signal.FailureClass, "the signals endpoint returns the class")
+	}
+	require.Equal(t, "infrastructure", byID["runner"].Action)
+	require.Equal(t, domain.CIFailureRunner, *byID["runner"].FailureClass)
+	require.Contains(t, byID["runner"].FailureEvidence, "Temporary failure resolving")
+	require.Equal(t, "follow_up", byID["test-1"].Action)
+	require.Equal(t, domain.CIFailureTest, *byID["test-1"].FailureClass)
+	require.Contains(t, byID["test-1"].FailureEvidence, "--- FAIL: TestRetry")
+	require.Equal(t, "budget_exhausted", byID["test-3"].Action)
+
+	var recorded int
+	require.NoError(t, db.Get(&recorded, `SELECT count(*) FROM agent_task_signals WHERE task_id=$1 AND action='infrastructure'`, task.ID))
+	require.Equal(t, 1, recorded)
+}
+
 func TestReviewSignalsRequireTrustedChangeRequestsWhileReviewable(t *testing.T) {
 	_, repo, ctx, task := reviewableTask(t)
 	background := context.Background()
@@ -490,4 +536,83 @@ func TestMachineTasksListOnlyTheOwnersVisibleTasksOnThatMachine(t *testing.T) {
 	items, err = repo.MachineTasks(ctx, task.WorkspaceID, machine)
 	require.NoError(t, err)
 	require.Empty(t, items)
+}
+
+// The webhook matches a task before it reads GitHub: only the published PR
+// and commit of a task count, and only a task still awaiting review makes the
+// classification read worth it.
+func TestSignalCandidatesAreMatchedBeforeGitHubIsRead(t *testing.T) {
+	db, repo, _, task := reviewableTask(t)
+	background := context.Background()
+	matched, reviewable, err := repo.HasSignalCandidate(background, task.WorkspaceID, "fixture/repo", 12, publishedCommit)
+	require.NoError(t, err)
+	require.True(t, matched)
+	require.True(t, reviewable)
+	for _, other := range []struct {
+		ws     uuid.UUID
+		repo   string
+		number int
+		sha    string
+	}{
+		{uuid.New(), "fixture/repo", 12, publishedCommit},
+		{task.WorkspaceID, "other/repo", 12, publishedCommit},
+		{task.WorkspaceID, "fixture/repo", 13, publishedCommit},
+		{task.WorkspaceID, "fixture/repo", 12, "ffffffffffffffffffffffffffffffffffffffff"},
+	} {
+		matched, reviewable, err = repo.HasSignalCandidate(background, other.ws, other.repo, other.number, other.sha)
+		require.NoError(t, err)
+		require.False(t, matched)
+		require.False(t, reviewable)
+	}
+	// A task that is publishing, blocked or completed still records the
+	// signal; only its GitHub read is skipped.
+	_, err = db.Exec(`UPDATE agent_tasks SET state='completed' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	matched, reviewable, err = repo.HasSignalCandidate(background, task.WorkspaceID, "fixture/repo", 12, publishedCommit)
+	require.NoError(t, err)
+	require.True(t, matched)
+	require.False(t, reviewable)
+}
+
+// A signal that lands while the task no longer awaits review is still
+// recorded, exactly as before this branch: it is not reviewable, so it
+// starts no follow-up.
+func TestSignalsForTasksThatNoLongerAwaitReviewAreStillRecorded(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	_, err := db.Exec(`UPDATE agent_tasks SET state='completed' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	followUps, err := repo.RecordSignal(context.Background(), task.WorkspaceID, "fixture/repo", 12, ci("late", "failure", publishedCommit))
+	require.NoError(t, err)
+	require.Empty(t, followUps)
+	signals, err := repo.Signals(ctx, task.WorkspaceID, task.ID)
+	require.NoError(t, err)
+	require.Len(t, signals, 1)
+	require.Equal(t, "late", signals[0].ExternalID)
+	require.Equal(t, "not_reviewable", signals[0].Action)
+}
+
+// A redelivery whose first delivery could not read GitHub keeps the first
+// decision (no second follow-up) but corrects the class and evidence a person
+// sees.
+func TestARedeliveryCorrectsTheClassOfAnAlreadyQueuedFollowUp(t *testing.T) {
+	db, repo, _, task := reviewableTask(t)
+	background := context.Background()
+	first := classifiedCI("same", "failure", publishedCommit, domain.CIFailureTest, "the delivery timed out before GitHub was read")
+	followUps, err := repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, first)
+	require.NoError(t, err)
+	require.Len(t, followUps, 1)
+	generation := int64(2)
+	require.NoError(t, repo.FinishFollowUp(background, followUps[0].Signal.ID, &generation))
+
+	runner := classifiedCI("same", "failure", publishedCommit, domain.CIFailureRunner, "Docker Runtime Integration: Could not resolve 'archive.ubuntu.com'")
+	again, err := repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, runner)
+	require.NoError(t, err)
+	require.Empty(t, again, "the first decision stands; nothing new is queued")
+
+	var signal domain.AgentTaskSignal
+	require.NoError(t, db.Get(&signal, `SELECT * FROM agent_task_signals WHERE task_id=$1 AND external_id='same'`, task.ID))
+	require.Equal(t, "follow_up", signal.Action)
+	require.NotNil(t, signal.FailureClass)
+	require.Equal(t, domain.CIFailureRunner, *signal.FailureClass)
+	require.Contains(t, signal.FailureEvidence, "Could not resolve")
 }

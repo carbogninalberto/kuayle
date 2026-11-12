@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Задача не ожидала проверки",
 	"tasks.signal_untrusted": "Игнорируется: у ревьюера нет доступа на запись",
 	"tasks.signal_follow_up_failed": "Не удалось поставить доработку в очередь",
+	"tasks.signal_infrastructure": "CI завершился ошибкой на runner. Запустите его снова.",
 	"machines.ports": "Порты приложений",
 	"machines.ports_desc": "Приватные адреса приложений, запущенных на этой машине. Открыть их можете только вы.",
 	"machines.ports_empty": "Открытых портов пока нет.",

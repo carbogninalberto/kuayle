@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Task was not awaiting review",
 	"tasks.signal_untrusted": "Ignored: reviewer has no write access",
 	"tasks.signal_follow_up_failed": "Follow-up could not be queued",
+	"tasks.signal_infrastructure": "CI failed on the runner. Run it again.",
 	"machines.ports": "App ports",
 	"machines.ports_desc": "Private addresses for apps running on this machine. Only you can open them.",
 	"machines.ports_empty": "No ports exposed yet.",

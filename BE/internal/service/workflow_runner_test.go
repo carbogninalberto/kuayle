@@ -115,6 +115,10 @@ func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowAp
 		w.reviews[review] = &repository.WorkflowReview{State: "queued"}
 		w.steps[result.FinalSequence].ReviewTaskID = &review
 	}
+	if entry.Kind == repository.WorkflowEnterFail && apply.FailureClass != "" {
+		class := string(apply.FailureClass)
+		w.task.FailureClass = &class
+	}
 	w.task.State, w.task.Reason = repository.WorkflowEntryState(entry.Kind), entry.Reason
 	copy := w.task
 	return &copy, nil
@@ -782,4 +786,80 @@ func TestWorkflowRunnerMarksTheWaitsThatNeedAPerson(t *testing.T) {
 
 	h.decide(WorkflowDecisionApprove)
 	require.True(t, entered("merge").NeedsPerson, "the merge waits for a person")
+}
+
+// A workflow task's failure carries the run's class and real cause: the step
+// keeps the whole cause and a workflow that ends here tells a person the
+// class and one short line, never only "The agent's iteration failed".
+func TestWorkflowFailureCarriesTheRunsClassAndCause(t *testing.T) {
+	h := newPlanHarness(t, "{{plan}}")
+	h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{Status: "failed"}
+	sequence := h.w.task.WorkflowSequence
+	cause := "The provider's usage limit was reached: resets 4pm (UTC)\nline two of the cause"
+	require.NoError(t, h.runner.OutcomeFailure(context.Background(), h.w.task, cause, domain.FailureProvider))
+	require.Equal(t, "failed", h.current().NodeID)
+	require.Equal(t, cause, h.w.steps[sequence].Detail, "the step keeps the whole cause")
+	require.NotNil(t, h.w.task.FailureClass)
+	require.Equal(t, string(domain.FailureProvider), *h.w.task.FailureClass)
+	require.Contains(t, h.w.task.Reason, "Provider failure")
+	require.Contains(t, h.w.task.Reason, "usage limit")
+	require.NotContains(t, h.w.task.Reason, "line two", "only one short line reaches the reason")
+	require.NotContains(t, h.w.task.Reason, "The agent's iteration failed")
+}
+
+// A CI suite that failed on the runner is still "checks failed", as on main:
+// the step says in one line that every failed suite was the runner's, so the
+// next agent and the person can see it.
+func TestWorkflowCIRunnerFailureIsChecksFailedWithANote(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{})
+	ci := &repository.WorkflowCI{
+		Failed: []domain.AgentTaskSignal{{
+			Name: "GitHub Actions", Outcome: "failure", FailureClass: ptr(domain.CIFailureRunner),
+			FailureEvidence: "Docker Runtime Integration, step Build: dns_resolution: Could not resolve 'archive.ubuntu.com'",
+		}},
+		Published: true, Repository: "acme/app", CommitSHA: h.w.task.RunID.String(),
+	}
+	outcome, detail, waiting, wake, err := h.runner.ciOutcome(context.Background(), h.w.task, ci, h.w.now)
+	require.NoError(t, err)
+	require.Equal(t, domain.WorkflowChecksFailed, outcome, "the runner's class never waits or passes")
+	require.Contains(t, detail, "CI failed on the runner; it may need to be run again:")
+	require.Contains(t, detail, "Docker Runtime Integration")
+	require.NotContains(t, detail, "no timeout")
+	require.Empty(t, waiting)
+	require.Nil(t, wake)
+
+	// One failure the change owns means no runner note: the change is what
+	// the next agent has to fix.
+	testClass := domain.CIFailureTest
+	ci.Failed = append(ci.Failed, domain.AgentTaskSignal{Name: "GitHub Actions", Outcome: "failure", FailureClass: &testClass, Summary: "TestX failed"})
+	outcome, detail, _, _, err = h.runner.ciOutcome(context.Background(), h.w.task, ci, h.w.now)
+	require.NoError(t, err)
+	require.Equal(t, domain.WorkflowChecksFailed, outcome)
+	require.NotContains(t, detail, "CI failed on the runner")
+	require.Contains(t, detail, "TestX failed")
+}
+
+// The step a person looks at says the runner may have caused the failure, and
+// the workflow still treats it as checks failed.
+func TestWorkflowCIStepSaysARunnerFailureNeedsARerun(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{})
+	h.agentFinishes("done")
+	h.published()
+	h.review("approve", "ok")
+	run := h.w.task.RunID
+	h.w.ci[run] = &repository.WorkflowCI{
+		Failed: []domain.AgentTaskSignal{{
+			Name: "GitHub Actions", Outcome: "failure", FailureClass: ptr(domain.CIFailureRunner),
+			FailureEvidence: "Docker Runtime Integration, step Build: dns_resolution: Could not resolve 'archive.ubuntu.com'",
+		}},
+		Published: true, Repository: "acme/app", CommitSHA: run.String(),
+	}
+	h.w.checks[run] = []PullRequestCheck{{Name: "Tests", State: "failed"}}
+	at := h.w.now
+	h.w.task.WorkflowWakeAt = &at
+	require.True(t, h.tick())
+	require.Equal(t, "implement", h.current().NodeID, "checks failed sends the work back, as on main")
+	require.Contains(t, h.w.steps[h.w.task.WorkflowSequence-1].Detail, "CI failed on the runner")
+	require.Contains(t, h.w.steps[h.w.task.WorkflowSequence-1].Detail, "Docker Runtime Integration")
+	require.Equal(t, "queued", h.w.task.State, "the next iteration is queued")
 }

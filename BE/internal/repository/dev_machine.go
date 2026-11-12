@@ -1339,11 +1339,20 @@ func (r *DevMachineRepository) CompleteAgentRun(ctx context.Context, run *domain
 		changed_files=$4, commits=$5, branch=$6, pull_request_url=$7, tests_run=$8, test_status=$9,
 		risk_notes=$10, exit_code=$11, error_message=$12, diff=$14, diff_truncated=$15,
 		declared_validation=COALESCE($16, declared_validation), worktree_changed=$17,
-		worktree_changed_files=COALESCE($18, '[]'::jsonb), completed_at=NOW()
+		worktree_changed_files=COALESCE($18, '[]'::jsonb), failure_class=$19, failure_rule=$20,
+		failure_cause=$21, environment=$22, output_cuts=COALESCE($23, '[]'::jsonb), completed_at=NOW()
 		WHERE id=$13 AND (status NOT IN ('succeeded','failed','cancelled','timeout') OR status=$1)`,
 		run.Status, nullJSONPointer(run.Result), run.Summary, run.ChangedFiles, run.Commits, run.Branch,
 		run.PullRequestURL, run.TestsRun, run.TestStatus, run.RiskNotes, run.ExitCode, run.ErrorMessage, run.ID,
-		run.Diff, run.DiffTruncated, nullJSONPointer(run.DeclaredValidation), run.WorktreeChanged, nullJSON(run.WorktreeChangedFiles))
+		run.Diff, run.DiffTruncated, nullJSONPointer(run.DeclaredValidation), run.WorktreeChanged, nullJSON(run.WorktreeChangedFiles),
+		run.FailureClass, run.FailureRule, run.FailureCause, nullJSON(run.Environment), nullJSON(run.OutputCuts))
+	return err
+}
+
+// RecordAgentRunEnvironment keeps what a run was given when its container
+// starts, so a run that never finishes still says what it ran on.
+func (r *DevMachineRepository) RecordAgentRunEnvironment(ctx context.Context, runID uuid.UUID, environment domain.NullJSON) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET environment=$2 WHERE id=$1`, runID, nullJSON(environment))
 	return err
 }
 

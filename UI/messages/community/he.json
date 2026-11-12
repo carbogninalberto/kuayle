@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "המשימה לא המתינה לבדיקה",
 	"tasks.signal_untrusted": "התעלמות: לסוקר אין הרשאת כתיבה",
 	"tasks.signal_follow_up_failed": "לא ניתן היה להוסיף את ההמשך לתור",
+	"tasks.signal_infrastructure": "ה-CI נכשל ב-runner. הפעילו אותו שוב.",
 	"machines.ports": "פורטים של האפליקציה",
 	"machines.ports_desc": "כתובות פרטיות לאפליקציות הרצות במכונה הזו. רק אתם יכולים לפתוח אותן.",
 	"machines.ports_empty": "עדיין לא נחשפו פורטים.",

@@ -120,7 +120,8 @@
 		budget_exhausted: m['tasks.signal_budget_exhausted'],
 		not_reviewable: m['tasks.signal_not_reviewable'],
 		untrusted: m['tasks.signal_untrusted'],
-		follow_up_failed: m['tasks.signal_follow_up_failed']
+		follow_up_failed: m['tasks.signal_follow_up_failed'],
+		infrastructure: m['tasks.signal_infrastructure']
 	};
 	let selectedRun = $state(untrack(() => task.run_id));
 	let seenAttempt = untrack(() => task.run_id),

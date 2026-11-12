@@ -149,31 +149,31 @@ func (m *Manager) worktreeBefore(ctx context.Context, machine *domain.DevMachine
 
 // recordWorktreeChange sets on the run whether its agent changed the
 // worktree and which files, or leaves it unknown.
-func (m *Manager) recordWorktreeChange(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, before string) {
+func (m *Manager) recordWorktreeChange(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, before string) string {
 	run.WorktreeChanged, run.WorktreeChangedFiles = nil, []byte(`[]`)
 	runtime, ok := m.runtime.(worktreeRuntime)
 	if !ok || before == "" {
-		return
+		return ""
 	}
 	after, err := runtime.WorktreeState(ctx, machine, services, checkout)
 	if err != nil {
-		return
+		return ""
 	}
 	changed, fromTree, toTree := worktreeChange(before, after)
 	run.WorktreeChanged = &changed
 	if !changed {
-		return
+		return after
 	}
 	if fromTree == toTree {
 		// Same files: a commit, or only what git ignores changed.
 		if was, is := strings.Fields(before), strings.Fields(after); len(was) == 3 && len(is) == 3 && was[0] == is[0] {
 			run.WorktreeChangedFiles, _ = json.Marshal([]string{ignoredFilesChanged})
 		}
-		return
+		return after
 	}
 	files, err := runtime.WorktreeChangedFiles(ctx, services, checkout, fromTree, toTree)
 	if err != nil {
-		return
+		return after
 	}
 	if len(files) > maxWorktreeChangedFiles {
 		files = files[:maxWorktreeChangedFiles]
@@ -181,4 +181,5 @@ func (m *Manager) recordWorktreeChange(ctx context.Context, machine *domain.DevM
 	if encoded, err := json.Marshal(files); err == nil {
 		run.WorktreeChangedFiles = encoded
 	}
+	return after
 }

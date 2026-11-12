@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Tugas tidak menunggu semakan",
 	"tasks.signal_untrusted": "Diabaikan: penyemak tiada akses tulis",
 	"tasks.signal_follow_up_failed": "Susulan tidak dapat diletakkan dalam baris gilir",
+	"tasks.signal_infrastructure": "CI gagal pada runner. Jalankan semula.",
 	"machines.ports": "Port aplikasi",
 	"machines.ports_desc": "Alamat peribadi untuk aplikasi yang berjalan pada mesin ini. Hanya anda boleh membukanya.",
 	"machines.ports_empty": "Belum ada port didedahkan.",

@@ -55,6 +55,7 @@ func TestUsageLimitPausesHoldsAndResumesTheTask(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "blocked", current.State, "a usage limit pauses, never fails")
 	require.Equal(t, "Paused: Codex usage limit reached.", current.Reason)
+	require.Nil(t, current.FailureClass, "a pause is not a failure and has no class")
 
 	// The other queued task waits for the creator's hold, then runs.
 	_, err = db.Exec(`UPDATE agent_tasks SET next_poll_at=now() WHERE id=$1`, second.ID)

@@ -127,7 +127,14 @@ export interface TaskSignal {
 	name: string;
 	summary: string;
 	url: string;
-	action: 'recorded' | 'follow_up' | 'budget_exhausted' | 'not_reviewable' | 'untrusted' | 'follow_up_failed';
+	action:
+		| 'recorded'
+		| 'follow_up'
+		| 'budget_exhausted'
+		| 'not_reviewable'
+		| 'untrusted'
+		| 'follow_up_failed'
+		| 'infrastructure';
 	follow_up_generation?: number;
 	created_at: string;
 	updated_at: string;

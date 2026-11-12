@@ -85,6 +85,21 @@ func TestWorkflowRunsAreFoundByCommitWithTheirJobs(t *testing.T) {
 	require.Equal(t, 404, api.Status)
 }
 
+func TestWorkflowJobStepsAreReadForTheFailedStep(t *testing.T) {
+	c := pullsClient(func(r *http.Request, _ map[string]any) (int, string) {
+		require.Equal(t, "/repos/owner/repo/actions/jobs/42", r.URL.Path)
+		require.Equal(t, "Bearer secret", r.Header.Get("Authorization"))
+		return 200, `{"id":42,"name":"api","status":"completed","conclusion":"failure","steps":[{"name":"Set up job","status":"completed","conclusion":"success"},{"name":"Install packages","status":"completed","conclusion":"failure"},{"name":"Run tests","status":"completed","conclusion":"skipped"}]}`
+	})
+	job, err := c.GetWorkflowJob("secret", "owner", "repo", 42)
+	require.NoError(t, err)
+	require.EqualValues(t, 42, job.ID)
+	require.Equal(t, "failure", job.Conclusion)
+	require.Len(t, job.Steps, 3)
+	require.Equal(t, "Install packages", job.Steps[1].Name)
+	require.Equal(t, "failure", job.Steps[1].Conclusion)
+}
+
 func TestComparisonFilesCarryTheirPatch(t *testing.T) {
 	c := pullsClient(func(r *http.Request, _ map[string]any) (int, string) {
 		return 200, `{"status":"ahead","files":[{"filename":"a.go","status":"modified","patch":"@@ -1 +1 @@\n-old\n+new"}]}`

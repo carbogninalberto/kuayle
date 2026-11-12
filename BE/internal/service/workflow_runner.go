@@ -130,12 +130,27 @@ func (w *WorkflowRunner) graph(ctx context.Context, task domain.AgentTask) (*dom
 // a person asked to pause: the pause then takes effect instead (see
 // AgentFinished).
 func (w *WorkflowRunner) Outcome(ctx context.Context, task domain.AgentTask, outcome, detail string) error {
+	return w.outcome(ctx, task, outcome, detail, "")
+}
+
+// OutcomeFailure advances the task after its agent's iteration failed for
+// class. The step's detail keeps the whole cause; a workflow that ends here
+// tells a person the class and one short line of it.
+func (w *WorkflowRunner) OutcomeFailure(ctx context.Context, task domain.AgentTask, detail string, class domain.FailureClass) error {
+	return w.outcome(ctx, task, domain.WorkflowAgentFailed, detail, class)
+}
+
+func (w *WorkflowRunner) outcome(ctx context.Context, task domain.AgentTask, outcome, detail string, class domain.FailureClass) error {
 	if task.WorkflowPauseRequest != nil {
 		return w.tasks.ParkWorkflow(ctx, task)
 	}
 	apply, err := w.plan(ctx, task, outcome, detail, false)
 	if err != nil {
 		return err
+	}
+	if class != "" && apply.Entry.Kind == repository.WorkflowEnterFail {
+		apply.FailureClass = class
+		apply.Entry.Reason += " · " + domain.TaskFailureReason(class, detail)
 	}
 	_, err = w.tasks.ApplyWorkflow(ctx, task, *apply)
 	return err
@@ -603,11 +618,30 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 // (waiting says why) and polls again.
 func (w *WorkflowRunner) ciOutcome(ctx context.Context, task domain.AgentTask, ci *repository.WorkflowCI, now time.Time) (outcome, detail, waiting string, wake *time.Time, err error) {
 	if len(ci.Failed) > 0 {
-		var lines []string
+		var lines, names []string
+		everyRunner := true
 		for _, signal := range ci.Failed {
 			lines = append(lines, ciFailureLine(fmt.Sprintf("CI check suite %q concluded %q", signal.Name, signal.Outcome), signal.URL, signal.Summary))
+			if signal.FailureClass == nil || *signal.FailureClass != domain.CIFailureRunner {
+				everyRunner = false
+			}
+			label := strings.TrimSpace(signal.Summary)
+			if label == "" {
+				label = strings.TrimSpace(signal.FailureEvidence)
+			}
+			if label == "" {
+				label = signal.Name
+			}
+			names = append(names, oneLine(label, 200))
 		}
-		return domain.WorkflowChecksFailed, strings.Join(lines, "\n\n"), "", nil, nil
+		detail = strings.Join(lines, "\n\n")
+		// The result is still "checks failed"; the one line only tells the
+		// next agent and the person that every failed suite was the runner's
+		// or the network's and may need a re-run.
+		if everyRunner {
+			detail += "\n\nCI failed on the runner; it may need to be run again: " + strings.Join(names, "; ")
+		}
+		return domain.WorkflowChecksFailed, detail, "", nil, nil
 	}
 	idle := now.Add(ciIdlePoll)
 	if w.checks == nil || ci.Repository == "" || ci.CommitSHA == "" {

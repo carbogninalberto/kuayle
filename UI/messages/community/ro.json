@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Sarcina nu aștepta revizuirea",
 	"tasks.signal_untrusted": "Ignorat: recenzentul nu are acces de scriere",
 	"tasks.signal_follow_up_failed": "Continuarea nu a putut fi pusă în coadă",
+	"tasks.signal_infrastructure": "CI a eșuat pe runner. Rulați din nou.",
 	"machines.ports": "Porturi aplicație",
 	"machines.ports_desc": "Adrese private pentru aplicațiile care rulează pe această mașină. Doar tu le poți deschide.",
 	"machines.ports_empty": "Niciun port expus încă.",

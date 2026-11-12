@@ -82,6 +82,7 @@ type ManagerStore interface {
 	UpdateAgentRunStarted(context.Context, uuid.UUID) error
 	SealAgentRunSecrets(context.Context, uuid.UUID, string) (string, error)
 	AuthorizeAgentRun(context.Context, uuid.UUID) error
+	RecordAgentRunEnvironment(context.Context, uuid.UUID, domain.NullJSON) error
 	CompleteAgentRun(context.Context, *domain.DevMachineAgentRun) error
 	CreateEvent(context.Context, *domain.DevMachineEvent) error
 	CreateLogChunk(context.Context, *domain.DevMachineLogChunk) error
@@ -626,7 +627,7 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		if !updated {
 			return nil
 		}
-		m.cancelActiveRuns(ctx, machine.ID, nil)
+		m.cancelActiveRuns(ctx, machine.ID, nil, "")
 		_ = m.store.RevokeMachineAccess(ctx, machine.ID)
 		if err := m.runtime.Teardown(ctx, machine, services); err != nil {
 			return err
@@ -674,7 +675,15 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		if err != nil || run == nil {
 			return err
 		}
-		m.cancelActiveRuns(ctx, machine.ID, &run.ID)
+		// A task's attempt already has the class and cause the repository
+		// wrote with its cancellation (a person's cancel, pause, message,
+		// policy or the failure that cleanup follows); the manager must not
+		// label every cancel operation "person". A manual run is a person's.
+		cancelledBy := domain.CancelledByPerson
+		if run.TaskID != nil {
+			cancelledBy = ""
+		}
+		m.cancelActiveRuns(ctx, machine.ID, &run.ID, cancelledBy)
 		if err := m.runtime.CancelAgent(ctx, run); err != nil {
 			return err
 		}
@@ -866,7 +875,7 @@ func (m *Manager) unregisterActiveRun(machineID, runID uuid.UUID) {
 	}
 }
 
-func (m *Manager) cancelActiveRuns(ctx context.Context, machineID uuid.UUID, runID *uuid.UUID) {
+func (m *Manager) cancelActiveRuns(ctx context.Context, machineID uuid.UUID, runID *uuid.UUID, cancelledBy string) {
 	m.activeRunsMu.Lock()
 	active := make(map[uuid.UUID]context.CancelFunc)
 	for activeRunID, cancel := range m.activeRuns[machineID] {
@@ -876,10 +885,7 @@ func (m *Manager) cancelActiveRuns(ctx context.Context, machineID uuid.UUID, run
 	}
 	m.activeRunsMu.Unlock()
 	for activeRunID, cancel := range active {
-		if run, err := m.store.GetAgentRunInternal(ctx, activeRunID); err == nil && run != nil && !terminalAgentStatus(run.Status) {
-			run.Status = domain.DevMachineAgentRunStatusCancelled
-			_ = m.store.CompleteAgentRun(ctx, run)
-		}
+		m.cancelAgentRun(ctx, activeRunID, cancelledBy)
 		cancel()
 	}
 }
@@ -1262,6 +1268,11 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if err := m.store.CreateRuntimeService(ctx, service); err != nil {
 		return err
 	}
+	startEnvironment := m.runEnvironment(ctx, machine, run, providerRecord, nil)
+	if startEnvironment.HarnessVersion == "" {
+		startEnvironment.HarnessVersion, startEnvironment.HarnessVersionFrom = m.harnessVersion(run.ProviderID)
+	}
+	m.recordRunEnvironment(ctx, run, startEnvironment)
 	runContext, cancel := context.WithTimeout(ctx, time.Duration(run.MaxRuntimeSeconds)*time.Second)
 	defer cancel()
 	output := newAgentOutputBuffer(secrets.Redactions, func(stream string, sequence int64, source string, content string, truncated bool) error {
@@ -1411,6 +1422,8 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if currentErr == nil && currentRun != nil && currentRun.Status == domain.DevMachineAgentRunStatusCancelled {
 		result.Status = "cancelled"
 		run.Status = domain.DevMachineAgentRunStatusCancelled
+		// The cancellation operation already recorded who stopped the run.
+		run.FailureClass, run.FailureRule, run.FailureCause = currentRun.FailureClass, currentRun.FailureRule, currentRun.FailureCause
 	} else if timedOut {
 		result.Status = "timeout"
 		run.Status = domain.DevMachineAgentRunStatusTimeout
@@ -1436,7 +1449,15 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		result.ChangedFiles = gitState.ChangedFiles
 		run.Diff, run.DiffTruncated = gitState.Diff, gitState.DiffTruncated
 	}
-	m.recordWorktreeChange(ctx, machine, run, services, checkout, worktreeBefore)
+	worktreeAfter := m.recordWorktreeChange(ctx, machine, run, services, checkout, worktreeBefore)
+	environment := m.runEnvironment(ctx, machine, run, providerRecord, execution)
+	environment.WorktreeBefore, environment.WorktreeAfter = worktreeBefore, worktreeAfter
+	if encoded, err := json.Marshal(environment); err == nil {
+		run.Environment = domain.NullJSON(encoded)
+	}
+	if encoded, err := json.Marshal(output.Cuts()); err == nil {
+		run.OutputCuts = encoded
+	}
 	resultJSON, _ := json.Marshal(result)
 	resultRaw := json.RawMessage(resultJSON)
 	changedFiles, _ := json.Marshal(result.ChangedFiles)
@@ -1459,6 +1480,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if result.PullRequestURL != "" {
 		run.PullRequestURL = &result.PullRequestURL
 	}
+	usageLimit := ""
 	if executionErr != nil {
 		message := safeError(executionErr)
 		run.ErrorMessage = &message
@@ -1470,6 +1492,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 			// The provider's usage limit: the task pauses until the reset.
 			message := limit.ErrorMessage()
 			run.ErrorMessage = &message
+			usageLimit = limit.Message
 		} else if run.ErrorMessage == nil && result.NoFinalMessage {
 			// The harness exited normally but the agent never concluded.
 			message := domain.NoFinalMessageReason(result.FailureReason)
@@ -1479,6 +1502,15 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		} else if run.ErrorMessage == nil && execution.ExitCode == 137 {
 			message := "The agent process was killed (exit code 137) without an out-of-memory event; it may have been stopped by a signal."
 			run.ErrorMessage = &message
+		}
+	}
+	if run.Status == domain.DevMachineAgentRunStatusFailed || run.Status == domain.DevMachineAgentRunStatusTimeout || run.Status == domain.DevMachineAgentRunStatusCancelled {
+		if run.FailureClass == nil {
+			evidence := runFailureEvidence(string(run.Status), run.MaxRuntimeSeconds, execution, result, executionErr, memoryLimit, usageLimit, "", stderr)
+			// A specific message (memory, usage limit, no final message, what the
+			// harness said) stays the run's error; the class and cause are added.
+			preserve := memoryLimit != "" || usageLimit != "" || result.NoFinalMessage || result.FailureReason != "" || execution.ExitCode == 137
+			applyRunFailure(run, domain.ClassifyRunFailure(evidence), preserve)
 		}
 	}
 	for _, commit := range result.Commits {
@@ -1523,6 +1555,9 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		exitCode := -1
 		run.Status = domain.DevMachineAgentRunStatusTimeout
 		run.ExitCode = &exitCode
+		execution := &AgentExecution{ExitCode: exitCode}
+		evidence := runFailureEvidence(string(run.Status), run.MaxRuntimeSeconds, execution, agent.RunResult{}, nil, "", "", "", "")
+		applyRunFailure(run, domain.ClassifyRunFailure(evidence), false)
 		if len(run.ChangedFiles) == 0 {
 			run.ChangedFiles = json.RawMessage(`[]`)
 			run.Commits = json.RawMessage(`[]`)
@@ -1645,7 +1680,7 @@ func (m *Manager) reconcileMachine(ctx context.Context, machine *domain.DevMachi
 	if machine.Status != machine.DesiredStatus {
 		switch machine.DesiredStatus {
 		case domain.DevMachineStatusDestroyed:
-			m.cancelActiveRuns(ctx, machine.ID, nil)
+			m.cancelActiveRuns(ctx, machine.ID, nil, "")
 			_ = m.store.RevokeMachineAccess(ctx, machine.ID)
 			if err := m.runtime.Teardown(ctx, machine, services); err != nil {
 				log.WithField("machine_id", machine.ID).WithError(err).Warn("teardown reconciliation failed")
@@ -1908,10 +1943,19 @@ func (m *Manager) failAgentRun(ctx context.Context, runID uuid.UUID, runErr erro
 	run.Commits = json.RawMessage(`[]`)
 	run.TestsRun = json.RawMessage(`[]`)
 	run.RiskNotes = json.RawMessage(`[]`)
+	execution := &AgentExecution{ExitCode: exitCode}
+	evidence := runFailureEvidence(string(run.Status), run.MaxRuntimeSeconds, execution, agent.RunResult{}, runErr, "", "", "", "")
+	applyRunFailure(run, domain.ClassifyRunFailure(evidence), true)
 	_ = m.store.CompleteAgentRun(ctx, run)
 }
 
 func (m *Manager) cancelStaleAgentRun(ctx context.Context, runID uuid.UUID) {
+	m.cancelAgentRun(ctx, runID, "")
+}
+
+// cancelAgentRun records a run Kuayle stopped and who stopped it: a person,
+// the policy, or empty when Kuayle itself (a restart, a stop) did.
+func (m *Manager) cancelAgentRun(ctx context.Context, runID uuid.UUID, cancelledBy string) {
 	run, err := m.store.GetAgentRunInternal(ctx, runID)
 	if err != nil || run == nil || terminalAgentStatus(run.Status) {
 		return
@@ -1923,6 +1967,9 @@ func (m *Manager) cancelStaleAgentRun(ctx context.Context, runID uuid.UUID) {
 	run.Commits = json.RawMessage(`[]`)
 	run.TestsRun = json.RawMessage(`[]`)
 	run.RiskNotes = json.RawMessage(`[]`)
+	execution := &AgentExecution{ExitCode: exitCode}
+	evidence := runFailureEvidence(string(run.Status), run.MaxRuntimeSeconds, execution, agent.RunResult{}, nil, "", "", cancelledBy, "")
+	applyRunFailure(run, domain.ClassifyRunFailure(evidence), false)
 	_ = m.store.CompleteAgentRun(ctx, run)
 }
 
@@ -2055,7 +2102,7 @@ func (m *Manager) cancelUnauthorizedRun(ctx context.Context, run *domain.DevMach
 	if err := m.runtime.CancelAgent(ctx, run); err != nil {
 		return err
 	}
-	m.cancelStaleAgentRun(ctx, run.ID)
+	m.cancelAgentRun(ctx, run.ID, domain.CancelledByPolicy)
 	return nil
 }
 

@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Задача не очікувала рев'ю",
 	"tasks.signal_untrusted": "Проігноровано: рев'юер не має доступу на запис",
 	"tasks.signal_follow_up_failed": "Не вдалося додати наступну ітерацію до черги",
+	"tasks.signal_infrastructure": "CI завершився помилкою на runner. Запустіть його знову.",
 	"machines.ports": "Порти застосунків",
 	"machines.ports_desc": "Приватні адреси для застосунків, що працюють на цій машині. Відкрити їх можете лише ви.",
 	"machines.ports_empty": "Відкритих портів ще немає.",

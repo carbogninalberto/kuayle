@@ -75,6 +75,7 @@ func TestAgentTaskCheckoutsAreIsolatedAndRecoverable(t *testing.T) {
 
 type taskStoreFake struct {
 	failReason     string
+	failClass      domain.FailureClass
 	signInRequired bool
 	waiting        string
 	startedIssue   *domain.Issue
@@ -229,11 +230,17 @@ func TestAgentTaskWorkerRevocationCancellationAndQuota(t *testing.T) {
 }
 
 func (f *taskStoreFake) FailForSignIn(ctx context.Context, task domain.AgentTask, reason string) error {
-	f.signInRequired = true
-	return f.Fail(ctx, task, reason)
+	return f.FailForSignInWithClass(ctx, task, domain.FailureProvider, reason)
 }
-func (f *taskStoreFake) Fail(_ context.Context, _ domain.AgentTask, reason string) error {
-	f.failReason = reason
+func (f *taskStoreFake) FailForSignInWithClass(ctx context.Context, task domain.AgentTask, class domain.FailureClass, reason string) error {
+	f.signInRequired = true
+	return f.FailWithClass(ctx, task, class, reason)
+}
+func (f *taskStoreFake) Fail(ctx context.Context, task domain.AgentTask, reason string) error {
+	return f.FailWithClass(ctx, task, "", reason)
+}
+func (f *taskStoreFake) FailWithClass(_ context.Context, _ domain.AgentTask, class domain.FailureClass, reason string) error {
+	f.failReason, f.failClass = reason, class
 	f.task.State = "cancelling"
 	f.task.FailurePending = true
 	return nil
@@ -770,7 +777,23 @@ func TestFailedAgentChosenTestsFailTheTaskWithTheCommand(t *testing.T) {
 		Commands: []byte(`[["go","vet","./..."],["go","test","./internal/service/..."]]`), CommandResults: []byte(`[{"exit_code":0},{"exit_code":2}]`)}}
 	service := &AgentTaskService{store: store, runtime: runtime}
 	require.NoError(t, service.step(context.Background(), task))
-	require.Equal(t, "Kuayle re-ran the agent's tests and they failed: go test ./internal/service/... exit 2", store.failReason)
+	require.Equal(t, domain.TaskFailureReason(domain.FailureAgent, "Kuayle re-ran the agent's tests and they failed: go test ./internal/service/... exit 2"), store.failReason)
+}
+
+// An independent check that fails names the command and its exit code in the
+// task's reason too, not only "Independent validation failed".
+func TestIndependentValidationFailureNamesTheCommand(t *testing.T) {
+	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New(), State: "validating"}
+	store := &taskStoreFake{task: task}
+	source := domain.CheckSourceConfigured
+	exit := 1
+	runtime := &taskRuntimeFake{validation: &domain.DevMachineAgentRunStep{Status: "failed", CommandSource: &source, ExitCode: &exit,
+		Commands: []byte(`[["go","test","./..."]]`), CommandResults: []byte(`[{"exit_code":1}]`)}}
+	service := &AgentTaskService{store: store, runtime: runtime}
+	require.NoError(t, service.step(context.Background(), task))
+	require.Equal(t, domain.FailureAgent, store.failClass)
+	require.Equal(t, domain.TaskFailureReason(domain.FailureAgent, "An independent check failed: go test ./... exit 1"), store.failReason)
+	require.Contains(t, store.failReason, "go test ./... exit 1")
 }
 
 func TestHandoffNamesTheFailedAgentChosenTest(t *testing.T) {

@@ -54,7 +54,8 @@ func (r *AgentTaskRepository) PauseForUsageLimit(ctx context.Context, claimed do
 	if err = noteNotebook(ctx, tx, task.ID, nil, domain.NotebookNote{Event: "Paused by the provider's usage limit; the attempt did not fail and the worktree is unchanged"}); err != nil {
 		return err
 	}
-	if err = beginAgentTaskFailure(ctx, tx, task, reason); err != nil {
+	// A pause is not a failure: the task keeps no failure class.
+	if err = beginAgentTaskFailure(ctx, tx, task, "", reason); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -142,7 +143,7 @@ func (r *AgentTaskRepository) resumeAfterUsageLimit(ctx context.Context, id uuid
 	if pending {
 		return nil, ErrAgentTaskConflict
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,sign_in_required=false,
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,failure_class=NULL,sign_in_required=false,
  lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at,
  usage_limit_resumes=CASE WHEN $2 THEN t.usage_limit_resumes+1 ELSE 0 END,
  usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,resume_native_session=true,

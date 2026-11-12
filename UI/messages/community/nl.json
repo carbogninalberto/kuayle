@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Taak wachtte niet op review",
 	"tasks.signal_untrusted": "Genegeerd: reviewer heeft geen schrijfrechten",
 	"tasks.signal_follow_up_failed": "Vervolgstap kon niet in de wachtrij worden gezet",
+	"tasks.signal_infrastructure": "CI is mislukt op de runner. Voer het opnieuw uit.",
 	"machines.ports": "App-poorten",
 	"machines.ports_desc": "Privéadressen voor apps die op deze machine draaien. Alleen jij kunt ze openen.",
 	"machines.ports_empty": "Nog geen poorten beschikbaar gesteld.",

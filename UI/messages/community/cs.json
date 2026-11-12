@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Úloha nečekala na kontrolu",
 	"tasks.signal_untrusted": "Ignorováno: recenzent nemá právo zápisu",
 	"tasks.signal_follow_up_failed": "Navazující iteraci se nepodařilo zařadit do fronty",
+	"tasks.signal_infrastructure": "CI selhala na runneru. Spusťte ji znovu.",
 	"machines.ports": "Porty aplikací",
 	"machines.ports_desc": "Soukromé adresy aplikací běžících na tomto stroji. Otevřít je můžete jen vy.",
 	"machines.ports_empty": "Zatím nejsou zveřejněny žádné porty.",

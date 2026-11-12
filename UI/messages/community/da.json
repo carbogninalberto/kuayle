@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Opgaven afventede ikke review",
 	"tasks.signal_untrusted": "Ignoreret: reviewer har ikke skriveadgang",
 	"tasks.signal_follow_up_failed": "Opfølgningen kunne ikke sættes i kø",
+	"tasks.signal_infrastructure": "CI mislykkedes på runneren. Kør den igen.",
 	"machines.ports": "App-porte",
 	"machines.ports_desc": "Private adresser til apps, der kører på denne maskine. Kun du kan åbne dem.",
 	"machines.ports_empty": "Ingen porte eksponeret endnu.",

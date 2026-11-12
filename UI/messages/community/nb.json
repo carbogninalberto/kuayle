@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Oppgaven ventet ikke på vurdering",
 	"tasks.signal_untrusted": "Ignorert: vurderingen er gjort av noen uten skrivetilgang",
 	"tasks.signal_follow_up_failed": "Oppfølgingen kunne ikke legges i kø",
+	"tasks.signal_infrastructure": "CI feilet på runneren. Kjør den på nytt.",
 	"machines.ports": "Appporter",
 	"machines.ports_desc": "Private adresser for apper som kjører på denne maskinen. Bare du kan åpne dem.",
 	"machines.ports_empty": "Ingen porter eksponert ennå.",

@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Tehtävä ei odottanut katselmointia",
 	"tasks.signal_untrusted": "Ohitettu: katselmoijalla ei ole kirjoitusoikeutta",
 	"tasks.signal_follow_up_failed": "Jatkoa ei voitu lisätä jonoon",
+	"tasks.signal_infrastructure": "CI epäonnistui runnerissa. Suorita se uudelleen.",
 	"machines.ports": "Sovelluksen portit",
 	"machines.ports_desc": "Tällä koneella ajettavien sovellusten yksityiset osoitteet. Vain sinä voit avata ne.",
 	"machines.ports_empty": "Portteja ei ole vielä avattu.",

@@ -59,6 +59,7 @@ type managerStoreFake struct {
 	agentRun                  *domain.DevMachineAgentRun
 	provider                  *domain.DevMachineAgentProvider
 	completedRun              *domain.DevMachineAgentRun
+	recordedEnvironment       domain.NullJSON
 	runtimeCredentials        []domain.DevMachineRuntimeCredential
 	purgedCredentialNow       *time.Time
 	purgedAccessLogBefore     *time.Time
@@ -251,6 +252,10 @@ func (f *managerStoreFake) UpdateAgentRunStarted(context.Context, uuid.UUID) err
 			f.agentRun.StartedAt = &now
 		}
 	}
+	return nil
+}
+func (f *managerStoreFake) RecordAgentRunEnvironment(_ context.Context, _ uuid.UUID, environment domain.NullJSON) error {
+	f.recordedEnvironment = environment
 	return nil
 }
 func (f *managerStoreFake) CompleteAgentRun(_ context.Context, run *domain.DevMachineAgentRun) error {

@@ -1,8 +1,10 @@
 package github
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -91,12 +93,22 @@ type WorkflowRun struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-// WorkflowJob is one job of a run.
-type WorkflowJob struct {
+// WorkflowStep is one step of a job.
+type WorkflowStep struct {
 	Name       string `json:"name"`
 	Status     string `json:"status"`
 	Conclusion string `json:"conclusion"`
-	HTMLURL    string `json:"html_url"`
+}
+
+// WorkflowJob is one job of a run. Steps are returned by GetWorkflowJob, not
+// by the run's job list.
+type WorkflowJob struct {
+	ID         int64          `json:"id"`
+	Name       string         `json:"name"`
+	Status     string         `json:"status"`
+	Conclusion string         `json:"conclusion"`
+	HTMLURL    string         `json:"html_url"`
+	Steps      []WorkflowStep `json:"steps"`
 }
 
 // ListWorkflowRuns lists the newest runs (at most 30) for a commit.
@@ -120,6 +132,21 @@ func (c *Client) GetWorkflowRun(token, owner, repo string, id int64) (*WorkflowR
 	return &run, nil
 }
 
+// GetWorkflowJob reads one job, including the steps that failed. It is the
+// single call Kuayle makes per failed check when it classifies CI (KUA-137).
+func (c *Client) GetWorkflowJob(token, owner, repo string, id int64) (*WorkflowJob, error) {
+	return c.GetWorkflowJobContext(context.Background(), token, owner, repo, id)
+}
+
+// GetWorkflowJobContext is GetWorkflowJob bounded by ctx.
+func (c *Client) GetWorkflowJobContext(ctx context.Context, token, owner, repo string, id int64) (*WorkflowJob, error) {
+	var job WorkflowJob
+	if err := c.doContext(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/%s/actions/jobs/%d", githubAPIBaseURL, owner, repo, id), token, nil, &job); err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
 // maxJobPages bounds the jobs read for one run.
 const maxJobPages = 3
 
@@ -141,4 +168,64 @@ func (c *Client) ListWorkflowJobs(token, owner, repo string, id int64) (jobs []W
 		}
 	}
 	return jobs, true, nil
+}
+
+// MaxWorkflowJobLogBytes bounds how much of the end of an Actions job log
+// Kuayle reads: the reason a runner failed is printed last, and a log can be
+// very large.
+const MaxWorkflowJobLogBytes = 256 << 10
+
+// GetWorkflowJobLog reads the end of an Actions job's log. The API answers
+// with a redirect to the log file; the HTTP client follows it. Kuayle asks
+// for the last limit bytes with a Range header, so a large log is not
+// downloaded whole; a server that ignores it still leaves at most the end
+// (MaxWorkflowJobLogBytes when limit is not positive).
+func (c *Client) GetWorkflowJobLog(ctx context.Context, token, owner, repo string, id int64, limit int64) (string, error) {
+	if limit <= 0 {
+		limit = MaxWorkflowJobLogBytes
+	}
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/actions/jobs/%d/logs", githubAPIBaseURL, owner, repo, id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "token "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Range", fmt.Sprintf("bytes=-%d", limit))
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", &APIError{Status: resp.StatusCode, Message: string(body)}
+	}
+	if resp.StatusCode == http.StatusPartialContent {
+		body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+		return string(body), err
+	}
+	return readEnd(resp.Body, limit)
+}
+
+// readEnd reads a stream and keeps only its last limit bytes.
+func readEnd(r io.Reader, limit int64) (string, error) {
+	kept := make([]byte, 0, min(limit, 64<<10))
+	buf := make([]byte, 32<<10)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			kept = append(kept, buf[:n]...)
+			if int64(len(kept)) > limit {
+				kept = append(kept[:0], kept[int64(len(kept))-limit:]...)
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	return string(kept), nil
 }

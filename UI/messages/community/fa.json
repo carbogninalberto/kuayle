@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "وظیفه در انتظار بازبینی نبود",
 	"tasks.signal_untrusted": "نادیده گرفته شد: بازبین دسترسی نوشتن ندارد",
 	"tasks.signal_follow_up_failed": "قرار دادن پیگیری در صف ممکن نشد",
+	"tasks.signal_infrastructure": "CI روی runner شکست خورد. دوباره اجرا کنید.",
 	"machines.ports": "پورت‌های برنامه",
 	"machines.ports_desc": "نشانی‌های خصوصی برای برنامه‌های در حال اجرا روی این دستگاه. فقط شما می‌توانید آن‌ها را باز کنید.",
 	"machines.ports_empty": "هنوز پورتی در معرض دسترس نیست.",

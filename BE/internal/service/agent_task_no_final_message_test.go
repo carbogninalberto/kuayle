@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -60,6 +61,19 @@ func TestWorkflowStepWithoutAFinalMessageFailsWithThatReason(t *testing.T) {
 	require.NoError(t, h.runner.AgentFailedBecause(context.Background(), h.w.task, problem))
 	require.Equal(t, "failed", h.current().NodeID)
 	require.Equal(t, "Workflow · Plan → Failed: agent failed. Plan: "+problem, h.w.task.Reason)
+}
+
+// A failure whose class is known names its cause once: the task reason is one
+// short line, and the step keeps the whole problem.
+func TestAgentFailedForRunNamesTheCauseOnce(t *testing.T) {
+	h := newPlanHarness(t, "{{plan}}")
+	h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{Status: "failed"}
+	problem := "The provider's usage limit was reached: resets 4pm (UTC)"
+	require.NoError(t, h.runner.AgentFailedForRun(context.Background(), h.w.task, problem, domain.FailureProvider))
+	require.Equal(t, "failed", h.current().NodeID)
+	require.Equal(t, 1, strings.Count(h.w.task.Reason, problem), h.w.task.Reason)
+	require.Contains(t, h.w.task.Reason, "Provider failure")
+	require.Equal(t, "Plan: "+problem, h.w.steps[h.w.task.WorkflowSequence-1].Detail)
 }
 
 // Agents reported "not committed or pushed: this container has no git

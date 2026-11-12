@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Tugas tidak sedang menunggu review",
 	"tasks.signal_untrusted": "Diabaikan: reviewer tidak memiliki akses tulis",
 	"tasks.signal_follow_up_failed": "Tindak lanjut tidak dapat diantrekan",
+	"tasks.signal_infrastructure": "CI gagal di runner. Jalankan lagi.",
 	"machines.ports": "Port aplikasi",
 	"machines.ports_desc": "Alamat privat untuk aplikasi yang berjalan di mesin ini. Hanya Anda yang dapat membukanya.",
 	"machines.ports_empty": "Belum ada port yang diekspos.",

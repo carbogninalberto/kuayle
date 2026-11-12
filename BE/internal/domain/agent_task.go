@@ -11,10 +11,13 @@ import (
 // AgentTask is the durable business workflow. Native execution attempts remain
 // DevMachineAgentRuns; a task can survive replacement of a runtime or a worker.
 type AgentTask struct {
-	IssueStatusID     *uuid.UUID `json:"-" db:"issue_status_id"`
-	IssueUpdatedAt    *time.Time `json:"-" db:"issue_updated_at"`
-	FailureCount      int        `json:"failure_count" db:"failure_count"`
-	FailurePending    bool       `json:"-" db:"failure_pending"`
+	IssueStatusID  *uuid.UUID `json:"-" db:"issue_status_id"`
+	IssueUpdatedAt *time.Time `json:"-" db:"issue_updated_at"`
+	FailureCount   int        `json:"failure_count" db:"failure_count"`
+	FailurePending bool       `json:"-" db:"failure_pending"`
+	// FailureClass is the class (a FailureClass) of the failure the task is
+	// failing or failed with; Reason is its cause. Nil otherwise.
+	FailureClass      *string    `json:"failure_class,omitempty" db:"failure_class"`
 	ID                uuid.UUID  `json:"id" db:"id"`
 	WorkspaceID       uuid.UUID  `json:"workspace_id" db:"workspace_id"`
 	ConversationID    *uuid.UUID `json:"conversation_id" db:"conversation_id"`
@@ -374,16 +377,21 @@ type AgentPublicationResult struct {
 // AgentTaskSignal is a GitHub CI or review event for a task attempt's recorded
 // pull request. Summary text comes from GitHub and is untrusted.
 type AgentTaskSignal struct {
-	ID                 uuid.UUID `json:"id" db:"id"`
-	TaskID             uuid.UUID `json:"task_id" db:"task_id"`
-	RunID              uuid.UUID `json:"run_id" db:"run_id"`
-	Kind               string    `json:"kind" db:"kind"`
-	ExternalID         string    `json:"external_id" db:"external_id"`
-	Outcome            string    `json:"outcome" db:"outcome"`
-	Name               string    `json:"name" db:"name"`
-	Summary            string    `json:"summary" db:"summary"`
-	URL                string    `json:"url" db:"url"`
-	Action             string    `json:"action" db:"action"`
+	ID         uuid.UUID `json:"id" db:"id"`
+	TaskID     uuid.UUID `json:"task_id" db:"task_id"`
+	RunID      uuid.UUID `json:"run_id" db:"run_id"`
+	Kind       string    `json:"kind" db:"kind"`
+	ExternalID string    `json:"external_id" db:"external_id"`
+	Outcome    string    `json:"outcome" db:"outcome"`
+	Name       string    `json:"name" db:"name"`
+	Summary    string    `json:"summary" db:"summary"`
+	URL        string    `json:"url" db:"url"`
+	Action     string    `json:"action" db:"action"`
+	// FailureClass classifies a failed CI signal (a CIFailure class) and
+	// FailureEvidence is what decided it; a runner or network failure has
+	// the action "infrastructure" and starts no follow-up.
+	FailureClass       *string   `json:"failure_class,omitempty" db:"failure_class"`
+	FailureEvidence    string    `json:"failure_evidence,omitempty" db:"failure_evidence"`
 	RequestID          uuid.UUID `json:"-" db:"request_id"`
 	FollowUpGeneration *int64    `json:"follow_up_generation,omitempty" db:"follow_up_generation"`
 	CreatedAt          time.Time `json:"created_at" db:"created_at"`
@@ -398,6 +406,8 @@ type AgentTaskSignalInput struct {
 	// Trusted is true for a changes_requested review whose author GitHub
 	// confirmed can push to the repository.
 	Trusted bool
+	// Failure classifies a failed CI signal; nil for other signals.
+	Failure *CIFailure
 }
 
 // AgentTaskFollowUp is a follow-up attempt the caller must request.

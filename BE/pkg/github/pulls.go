@@ -2,11 +2,13 @@ package github
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 // APIError is a GitHub response the caller can act on: 403 means the App lacks
@@ -23,6 +25,11 @@ func (e *APIError) Error() string {
 // do sends one authenticated request and decodes a JSON answer into result
 // when it is not nil. Any status outside 2xx is an *APIError.
 func (c *Client) do(method, endpoint, token string, body, result any) error {
+	return c.doContext(context.Background(), method, endpoint, token, body, result)
+}
+
+// doContext is do for a caller whose context bounds the request.
+func (c *Client) doContext(ctx context.Context, method, endpoint, token string, body, result any) error {
 	var reader io.Reader
 	if body != nil {
 		payload, err := json.Marshal(body)
@@ -31,7 +38,7 @@ func (c *Client) do(method, endpoint, token string, body, result any) error {
 		}
 		reader = bytes.NewReader(payload)
 	}
-	request, err := http.NewRequest(method, endpoint, reader)
+	request, err := http.NewRequestWithContext(ctx, method, endpoint, reader)
 	if err != nil {
 		return err
 	}
@@ -109,30 +116,70 @@ func (c *Client) GetRepositoryMergeSettings(token, owner, repo string) (*Reposit
 	return &settings, nil
 }
 
+// CheckRunOutput is what a check printed. Text is the bounded body GitHub
+// attaches; Kuayle reads it only to classify a failure (KUA-137).
+type CheckRunOutput struct {
+	Title   string `json:"title"`
+	Summary string `json:"summary"`
+	Text    string `json:"text"`
+}
+
 // CheckRun is one CI check of a commit.
 type CheckRun struct {
-	Name       string `json:"name"`
-	Status     string `json:"status"`
-	Conclusion string `json:"conclusion"`
-	HTMLURL    string `json:"html_url"`
-	DetailsURL string `json:"details_url"`
-	Output     struct {
-		Title   string `json:"title"`
-		Summary string `json:"summary"`
-	} `json:"output"`
+	ID               int64          `json:"id"`
+	Name             string         `json:"name"`
+	Status           string         `json:"status"`
+	Conclusion       string         `json:"conclusion"`
+	HTMLURL          string         `json:"html_url"`
+	DetailsURL       string         `json:"details_url"`
+	Output           CheckRunOutput `json:"output"`
+	AnnotationsCount int            `json:"annotations_count"`
+	StartedAt        *time.Time     `json:"started_at"`
+	CompletedAt      *time.Time     `json:"completed_at"`
+}
+
+// CheckRunAnnotation is one failure message GitHub attached to a check run.
+type CheckRunAnnotation struct {
+	Level      string `json:"annotation_level"`
+	Message    string `json:"message"`
+	Title      string `json:"title"`
+	RawDetails string `json:"raw_details"`
+	Path       string `json:"path"`
+	StartLine  int    `json:"start_line"`
+	EndLine    int    `json:"end_line"`
+}
+
+// ListCheckRunAnnotations reads the annotations of one check run. It is the
+// single call Kuayle makes for a failed check before reading its job log.
+func (c *Client) ListCheckRunAnnotations(token, owner, repo string, checkRunID int64) ([]CheckRunAnnotation, error) {
+	return c.ListCheckRunAnnotationsContext(context.Background(), token, owner, repo, checkRunID)
+}
+
+// ListCheckRunAnnotationsContext is ListCheckRunAnnotations bounded by ctx.
+func (c *Client) ListCheckRunAnnotationsContext(ctx context.Context, token, owner, repo string, checkRunID int64) ([]CheckRunAnnotation, error) {
+	var annotations []CheckRunAnnotation
+	if err := c.doContext(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/%s/check-runs/%d/annotations", githubAPIBaseURL, owner, repo, checkRunID), token, nil, &annotations); err != nil {
+		return nil, err
+	}
+	return annotations, nil
 }
 
 // ListCheckRuns lists the check runs of a commit, following pages of 100
 // until total_count is reached. truncated is true when the page limit cut the
 // list short, so failures may be unseen.
 func (c *Client) ListCheckRuns(token, owner, repo, sha string) (runs []CheckRun, truncated bool, err error) {
+	return c.ListCheckRunsContext(context.Background(), token, owner, repo, sha)
+}
+
+// ListCheckRunsContext is ListCheckRuns bounded by ctx.
+func (c *Client) ListCheckRunsContext(ctx context.Context, token, owner, repo, sha string) (runs []CheckRun, truncated bool, err error) {
 	for page := 1; page <= maxReviewPages; page++ {
 		var batch struct {
 			TotalCount int        `json:"total_count"`
 			CheckRuns  []CheckRun `json:"check_runs"`
 		}
 		endpoint := fmt.Sprintf("%s/repos/%s/%s/commits/%s/check-runs?per_page=100&page=%d", githubAPIBaseURL, owner, repo, url.PathEscape(sha), page)
-		if err = c.do(http.MethodGet, endpoint, token, nil, &batch); err != nil {
+		if err = c.doContext(ctx, http.MethodGet, endpoint, token, nil, &batch); err != nil {
 			return nil, false, err
 		}
 		runs = append(runs, batch.CheckRuns...)

@@ -3,9 +3,11 @@ package machine
 import (
 	"bytes"
 	"fmt"
-	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 	"strings"
 	"time"
+
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 )
 
 const maxAgentOutputLine = 16 * 1024
@@ -49,6 +51,50 @@ type agentOutputStream struct {
 	tailBytes  int
 	skip       bool
 	incomplete bool
+	// lineBytes counts the bytes read of the logical line being read; cuts
+	// is what Kuayle left out of the stored stream, by reason, and capped
+	// the cut of the storage cap, which counts everything read after it.
+	lineBytes int64
+	cuts      map[string]*domain.OutputCut
+	capped    *domain.OutputCut
+}
+
+// cut records one cut of the stream: reason, the bytes left out, the stored
+// record it happened at and the limit that caused it.
+func (s *agentOutputStream) cut(stream, reason string, bytes, line, limit int64) *domain.OutputCut {
+	if s.cuts == nil {
+		s.cuts = map[string]*domain.OutputCut{}
+	}
+	cut := s.cuts[reason]
+	if cut == nil {
+		cut = &domain.OutputCut{Stream: stream, Reason: reason, FirstLine: line, Limit: limit}
+		s.cuts[reason] = cut
+	}
+	cut.Count++
+	cut.Bytes += bytes
+	return cut
+}
+
+// outputCutOrder is the order cuts are listed in.
+var outputCutOrder = []string{domain.OutputCutLine, domain.OutputCutValues, domain.OutputCutRecords, domain.OutputCutBytes, domain.OutputCutTelemetry}
+
+// Cuts lists what Kuayle left out of the run's stored output, standard
+// output first: lines omitted, values cut inside events, and what came
+// after a storage cap. Empty when everything is stored whole.
+func (o *agentOutputBuffer) Cuts() []domain.OutputCut {
+	cuts := []domain.OutputCut{}
+	for _, stream := range []string{"stdout", "stderr"} {
+		state := o.streams[stream]
+		if state == nil {
+			continue
+		}
+		for _, reason := range outputCutOrder {
+			if cut := state.cuts[reason]; cut != nil {
+				cuts = append(cuts, *cut)
+			}
+		}
+	}
+	return cuts
 }
 
 // maxAgentResultTail bounds the lines kept for the result parser after the
@@ -98,12 +144,17 @@ func (o *agentOutputBuffer) write(stream string, data []byte, docker bool) error
 	}
 	for len(data) > 0 {
 		if state.limited {
+			state.capped.Bytes += int64(len(data))
 			o.afterLimit(state, data)
 			return nil
 		}
 		if state.sequence >= maxAgentOutputRecords || state.used >= maxCapturedLogBytes {
+			reason, limit := domain.OutputCutBytes, int64(maxCapturedLogBytes)
+			if state.sequence >= maxAgentOutputRecords {
+				reason, limit = domain.OutputCutRecords, maxAgentOutputRecords
+			}
 			// A line that was open here is lost to storage and to the parser.
-			if err := o.limit(stream, state, len(state.pending) > 0 || state.oversized); err != nil {
+			if err := o.limit(stream, state, len(state.pending) > 0 || state.oversized, reason, limit); err != nil {
 				return err
 			}
 			continue
@@ -115,6 +166,7 @@ func (o *agentOutputBuffer) write(stream string, data []byte, docker bool) error
 		}
 		size = min(size, maxCapturedLogBytes-state.used)
 		state.used += size
+		state.lineBytes += int64(size)
 		if len(state.pending)+size > maxAgentOutputEventLine {
 			state.pending = nil
 			state.oversized = true
@@ -129,7 +181,7 @@ func (o *agentOutputBuffer) write(stream string, data []byte, docker bool) error
 				return err
 			}
 		} else if state.used == maxCapturedLogBytes {
-			if err := o.limit(stream, state, true); err != nil {
+			if err := o.limit(stream, state, true, domain.OutputCutBytes, maxCapturedLogBytes); err != nil {
 				return err
 			}
 		}
@@ -139,9 +191,12 @@ func (o *agentOutputBuffer) write(stream string, data []byte, docker bool) error
 
 // limit ends storage for the stream. openLine: a line was being read, so the
 // rest of it is skipped.
-func (o *agentOutputBuffer) limit(stream string, state *agentOutputStream, openLine bool) error {
+func (o *agentOutputBuffer) limit(stream string, state *agentOutputStream, openLine bool, reason string, limit int64) error {
 	state.pending, state.oversized = nil, false
 	state.limited = true
+	// The marker is the next stored record; the open line is not stored.
+	state.capped = state.cut(stream, reason, state.lineBytes, state.sequence+1, limit)
+	state.lineBytes = 0
 	state.skip, state.incomplete = openLine, state.incomplete || openLine
 	return o.emit(stream, state, "[Output limit reached]\n", "", true)
 }
@@ -214,15 +269,19 @@ func (o *agentOutputBuffer) line(state *agentOutputStream, content string) (stor
 	stored, whole, ok = cutEventLine(content, o.redact)
 	return stored, whole, ok, nil
 }
+
 func (o *agentOutputBuffer) flush(stream string, state *agentOutputStream) error {
 	content := string(state.pending)
 	truncated := state.oversized
+	read := state.lineBytes
 	state.pending = nil
 	state.oversized = false
+	state.lineBytes = 0
 	// Claude Code streams a telemetry event every token or two; storing them
 	// would exhaust the record budget and hide the agent's real output.
 	if !truncated && isTokenTelemetry(content) {
 		state.used -= len(content)
+		state.cut(stream, domain.OutputCutTelemetry, read, 0, 0)
 		return nil
 	}
 	whole := ""
@@ -233,10 +292,14 @@ func (o *agentOutputBuffer) flush(stream string, state *agentOutputStream) error
 			return err
 		}
 		truncated = !ok
+		if ok && len(whole) > len(content) {
+			state.cut(stream, domain.OutputCutValues, int64(len(whole)-len(content)), state.sequence+1, maxAgentOutputLine)
+		}
 	}
 	if truncated {
 		// The parser never sees this line; it may have been the final message.
 		content, whole, state.incomplete = "[Oversized output line omitted]\n", "", true
+		state.cut(stream, domain.OutputCutLine, read, state.sequence+1, maxAgentOutputLine)
 	}
 	return o.emit(stream, state, content, whole, truncated)
 }

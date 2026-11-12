@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "La tâche n'était pas en attente de revue",
 	"tasks.signal_untrusted": "Ignorée : le relecteur n'a pas d'accès en écriture",
 	"tasks.signal_follow_up_failed": "Le suivi n'a pas pu être mis en file d'attente",
+	"tasks.signal_infrastructure": "La CI a échoué sur le runner. Relancez-la.",
 	"machines.ports": "Ports de l'application",
 	"machines.ports_desc": "Adresses privées des applications exécutées sur cette machine. Vous seul pouvez les ouvrir.",
 	"machines.ports_empty": "Aucun port exposé pour l'instant.",

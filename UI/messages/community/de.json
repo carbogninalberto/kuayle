@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Aufgabe wartete nicht auf Review",
 	"tasks.signal_untrusted": "Ignoriert: Reviewer hat keinen Schreibzugriff",
 	"tasks.signal_follow_up_failed": "Folgeschritt konnte nicht eingereiht werden",
+	"tasks.signal_infrastructure": "CI ist auf dem Runner fehlgeschlagen. Starten Sie sie erneut.",
 	"machines.ports": "App-Ports",
 	"machines.ports_desc": "Private Adressen für Apps, die auf dieser Maschine laufen. Nur du kannst sie öffnen.",
 	"machines.ports_empty": "Noch keine Ports freigegeben.",

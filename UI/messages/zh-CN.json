@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "任务未处于待审查状态",
 	"tasks.signal_untrusted": "已忽略：审查者没有写入权限",
 	"tasks.signal_follow_up_failed": "无法排队后续尝试",
+	"tasks.signal_infrastructure": "CI 在运行器上失败。请重新运行。",
 	"machines.ports": "应用端口",
 	"machines.ports_desc": "为此机器上运行的应用提供的私有地址。只有你可以打开。",
 	"machines.ports_empty": "尚未暴露任何端口。",

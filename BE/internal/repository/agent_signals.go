@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -44,6 +45,24 @@ func (r *AgentTaskRepository) RecordSignal(ctx context.Context, ws uuid.UUID, re
 	return followUps, nil
 }
 
+// HasSignalCandidate reports what a CI or review signal could concern before
+// Kuayle reads GitHub: whether a task's current attempt published that pull
+// request (and, for CI, that commit), and whether one of those tasks still
+// awaits review, where the signal can lead to a follow-up. A task that is
+// publishing, blocked or completed still records the signal; only the GitHub
+// read is skipped for it.
+func (r *AgentTaskRepository) HasSignalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (matched, reviewable bool, err error) {
+	err = r.db.QueryRowxContext(ctx, `SELECT
+ EXISTS(SELECT 1 FROM agent_tasks t JOIN dev_machine_git_refs g ON g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id
+  WHERE t.workspace_id=$1 AND LOWER(g.repository_full_name)=LOWER($2) AND g.pull_request_number=$3
+  AND ($4='' OR EXISTS(SELECT 1 FROM dev_machine_git_refs c WHERE c.agent_run_id=t.run_id AND c.workspace_id=t.workspace_id AND c.ref_type='commit' AND c.commit_sha=$4))),
+ EXISTS(SELECT 1 FROM agent_tasks t JOIN dev_machine_git_refs g ON g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id
+  WHERE t.workspace_id=$1 AND t.state='awaiting_review' AND LOWER(g.repository_full_name)=LOWER($2) AND g.pull_request_number=$3
+  AND ($4='' OR EXISTS(SELECT 1 FROM dev_machine_git_refs c WHERE c.agent_run_id=t.run_id AND c.workspace_id=t.workspace_id AND c.ref_type='commit' AND c.commit_sha=$4)))`,
+		ws, repository, number, headSHA).Scan(&matched, &reviewable)
+	return matched, reviewable, err
+}
+
 func signalNeedsFollowUp(in domain.AgentTaskSignalInput) bool {
 	if in.Kind == "ci" {
 		return in.Outcome == "failure" || in.Outcome == "timed_out"
@@ -72,15 +91,37 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
+	var failureClass *string
+	failureEvidence := ""
+	if in.Kind == "ci" && in.Failure != nil && slices.Contains(domain.CIFailureClasses, in.Failure.Class) {
+		class := in.Failure.Class
+		failureClass, failureEvidence = &class, in.Failure.Evidence
+	}
 	if existing && signal.Action == "follow_up" {
-		// Already decided; resume a follow-up that was recorded but not queued.
+		// The first delivery's decision stands: no second follow-up. But a
+		// redelivery may now know the class (the first read of GitHub timed
+		// out), so what a person sees is corrected without queueing work.
+		if failureClass != nil && (signal.FailureClass == nil || *signal.FailureClass != *failureClass) {
+			if err = tx.GetContext(ctx, signal, `UPDATE agent_task_signals SET failure_class=$2,failure_evidence=$3,updated_at=now() WHERE id=$1 RETURNING *`, signal.ID, failureClass, failureEvidence); err != nil {
+				return nil, err
+			}
+			if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.signal_recorded", signal); err != nil {
+				return nil, err
+			}
+		}
+		// Resume a follow-up that was recorded but not queued.
 		if signal.FollowUpGeneration == nil {
 			return &domain.AgentTaskFollowUp{Signal: *signal, Task: *task}, tx.Commit()
 		}
 		return nil, tx.Commit()
 	}
+	// A runner or network failure is not the change's: it is recorded as
+	// infrastructure and uses none of the CI follow-up budget (KUA-137).
+	infrastructure := failureClass != nil && *failureClass == domain.CIFailureRunner
 	action := "recorded"
-	if signalNeedsFollowUp(in) {
+	if infrastructure {
+		action = "infrastructure"
+	} else if signalNeedsFollowUp(in) {
 		budget := CIFollowUpBudget
 		if in.Kind == "review" {
 			budget = ReviewFollowUpBudget
@@ -111,10 +152,10 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 		}
 	}
 	if existing {
-		err = tx.GetContext(ctx, signal, `UPDATE agent_task_signals SET outcome=$2,name=$3,summary=$4,url=$5,action=$6,updated_at=now() WHERE id=$1 RETURNING *`, signal.ID, in.Outcome, in.Name, in.Summary, in.URL, action)
+		err = tx.GetContext(ctx, signal, `UPDATE agent_task_signals SET outcome=$2,name=$3,summary=$4,url=$5,action=$6,failure_class=$7,failure_evidence=$8,updated_at=now() WHERE id=$1 RETURNING *`, signal.ID, in.Outcome, in.Name, in.Summary, in.URL, action, failureClass, failureEvidence)
 	} else {
 		requestID := uuid.NewSHA1(signalNamespace, []byte(task.ID.String()+"/"+task.RunID.String()+"/"+in.Kind+"/"+in.ExternalID))
-		err = tx.GetContext(ctx, signal, `INSERT INTO agent_task_signals(task_id,run_id,kind,external_id,outcome,name,summary,url,action,request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`, task.ID, task.RunID, in.Kind, in.ExternalID, in.Outcome, in.Name, in.Summary, in.URL, action, requestID)
+		err = tx.GetContext(ctx, signal, `INSERT INTO agent_task_signals(task_id,run_id,kind,external_id,outcome,name,summary,url,action,failure_class,failure_evidence,request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`, task.ID, task.RunID, in.Kind, in.ExternalID, in.Outcome, in.Name, in.Summary, in.URL, action, failureClass, failureEvidence, requestID)
 	}
 	if err != nil {
 		return nil, err

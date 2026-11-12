@@ -519,11 +519,13 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 		target, reason = "blocked", task.Reason
 	} else if task.FailurePending {
 		target = "failed"
-		// A resource limit stays the final reason: it tells the user what to
-		// change. So does a workflow's own reason, such as a step's visit
-		// limit, which is why the task stopped, and an agent that ended
-		// without a final message.
-		if domain.IsResourceLimitReason(task.Reason) || domain.IsWorkflowReason(task.Reason) || domain.IsNoFinalMessageReason(task.Reason) {
+		// A classified failure keeps the real cause recorded by the run: it
+		// tells the user what to change or retry. So does a resource limit, a
+		// workflow's own reason such as a step's visit limit, and an agent
+		// that ended without a final message.
+		if task.FailureClass != nil && strings.TrimSpace(task.Reason) != "" {
+			reason = task.Reason
+		} else if domain.IsResourceLimitReason(task.Reason) || domain.IsWorkflowReason(task.Reason) || domain.IsNoFinalMessageReason(task.Reason) {
 			reason = task.Reason
 		} else {
 			reason = "Execution failed; runtime cleanup confirmed"
@@ -687,6 +689,24 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
 	return machineID, task.ReservedMachineID, tx.Commit()
 }
 
+// stopFailure says who stopped an attempt this repository is cancelling, and
+// why, from what the task already records. A cleanup that follows a failure
+// keeps the run's own class and cause, so it returns nothing.
+func stopFailure(task domain.AgentTask) (domain.FailureClass, string) {
+	switch {
+	case task.FailurePending:
+		return "", ""
+	case task.WorkflowPausedAt != nil:
+		return domain.FailurePerson, "A person paused the work; the run was stopped to wait for them"
+	case task.LiveInterrupting():
+		return domain.FailurePerson, "A person stopped the run to deliver their message"
+	case task.Reason == "Issue access was revoked":
+		return domain.FailurePolicy, "The run was stopped because access to the issue or the workspace policy no longer allows it"
+	default:
+		return domain.FailurePerson, "The run was cancelled by a person"
+	}
+}
+
 // CancelAttempt always queues physical cleanup, including for native attempts
 // already marked failed/cancelled. Their status alone says nothing about a live
 // container. The operation key makes crash recovery and repeated calls harmless.
@@ -721,7 +741,14 @@ func (r *AgentTaskRepository) CancelAttempt(ctx context.Context, claimed domain.
 	if err = tx.GetContext(ctx, &generation, `SELECT generation FROM dev_machines WHERE id=$1 AND workspace_id=$2 FOR SHARE`, run.MachineID, task.WorkspaceID); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET status='cancelled',cancelled_at=now(),completed_at=now() WHERE id=$1 AND status IN ('queued','starting','running','waiting_input')`, run.ID)
+	// The reason the attempt is stopped is known here, so the class and cause
+	// are written with the cancellation: a person's cancel, pause or message,
+	// a policy refusal, or the failure that cleanup follows. A run that
+	// already has a class keeps it.
+	class, cause := stopFailure(*task)
+	_, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET status='cancelled',cancelled_at=now(),completed_at=now(),
+ failure_class=COALESCE(failure_class,NULLIF($2,'')),failure_cause=COALESCE(failure_cause,NULLIF($3,''))
+ WHERE id=$1 AND status IN ('queued','starting','running','waiting_input')`, run.ID, string(class), cause)
 	if err != nil {
 		return err
 	}
@@ -820,7 +847,7 @@ func (r *AgentTaskRepository) RecordStepResult(ctx context.Context, claimed doma
 		return err
 	}
 	if count == 5 && task.State != "cancelling" {
-		if err = beginAgentTaskFailure(ctx, tx, task, "Worker recovery exhausted; stopping execution"); err != nil {
+		if err = beginAgentTaskFailure(ctx, tx, task, "", "Worker recovery exhausted; stopping execution"); err != nil {
 			return err
 		}
 	}
@@ -836,14 +863,20 @@ func (r *AgentTaskRepository) RecordStepResult(ctx context.Context, claimed doma
 	}
 	return tx.Commit()
 }
-func beginAgentTaskFailure(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, reason string) error {
-	if _, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET failure_pending=true WHERE id=$1`, task.ID); err != nil {
+func beginAgentTaskFailure(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, class domain.FailureClass, reason string) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET failure_pending=true, failure_class=NULLIF($2,'') WHERE id=$1`, task.ID, string(class)); err != nil {
 		return err
 	}
 	task.FailurePending = true
 	return transitionAgentTask(ctx, tx, task, "cancelling", reason, nil)
 }
 func (r *AgentTaskRepository) Fail(ctx context.Context, claimed domain.AgentTask, reason string) error {
+	return r.FailWithClass(ctx, claimed, "", reason)
+}
+
+// FailWithClass fails the attempt and stores who or what caused it (KUA-137),
+// so a task never ends with only "Execution failed".
+func (r *AgentTaskRepository) FailWithClass(ctx context.Context, claimed domain.AgentTask, class domain.FailureClass, reason string) error {
 	tx, task, err := r.transaction(ctx, claimed.ID, false)
 	if err != nil {
 		return err
@@ -852,7 +885,7 @@ func (r *AgentTaskRepository) Fail(ctx context.Context, claimed domain.AgentTask
 	if err = fenceAgentTask(ctx, tx, *task, claimed); err != nil {
 		return err
 	}
-	if err = beginAgentTaskFailure(ctx, tx, task, reason); err != nil {
+	if err = beginAgentTaskFailure(ctx, tx, task, class, reason); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -861,6 +894,10 @@ func (r *AgentTaskRepository) Fail(ctx context.Context, claimed domain.AgentTask
 // FailForSignIn fails the attempt like Fail and marks that the agent needs the
 // user's own sign-in, which the task panel then offers.
 func (r *AgentTaskRepository) FailForSignIn(ctx context.Context, claimed domain.AgentTask, reason string) error {
+	return r.FailForSignInWithClass(ctx, claimed, domain.FailureProvider, reason)
+}
+
+func (r *AgentTaskRepository) FailForSignInWithClass(ctx context.Context, claimed domain.AgentTask, class domain.FailureClass, reason string) error {
 	tx, task, err := r.transaction(ctx, claimed.ID, false)
 	if err != nil {
 		return err
@@ -872,7 +909,7 @@ func (r *AgentTaskRepository) FailForSignIn(ctx context.Context, claimed domain.
 	if _, err = tx.ExecContext(ctx, `UPDATE agent_tasks SET sign_in_required=true WHERE id=$1`, task.ID); err != nil {
 		return err
 	}
-	if err = beginAgentTaskFailure(ctx, tx, task, reason); err != nil {
+	if err = beginAgentTaskFailure(ctx, tx, task, class, reason); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -930,7 +967,7 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 	if err != nil {
 		return nil, err
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET model=COALESCE(NULLIF($9::text,''),t.model),thinking=CASE WHEN $9::text<>'' THEN $10::text ELSE t.thinking END,model_server_id=CASE WHEN $9::text<>'' THEN $11::uuid ELSE t.model_server_id END,prompt=$2,test_command=$3,validation_command=$4,agent_instructions=CASE WHEN t.workflow_version_id IS NOT NULL AND t.kind<>'review' THEN t.agent_instructions ELSE $5 END,compose_file=$6,preview_command=$7,preview_port=$8,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,sign_in_required=false,usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,usage_limit_resumes=0,resume_native_session=false,live_resume_generation=NULL,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, req.Prompt, requested, command, instructions, compose, preview, previewPort, req.Model, req.Thinking, req.ModelServerID); err != nil {
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET model=COALESCE(NULLIF($9::text,''),t.model),thinking=CASE WHEN $9::text<>'' THEN $10::text ELSE t.thinking END,model_server_id=CASE WHEN $9::text<>'' THEN $11::uuid ELSE t.model_server_id END,prompt=$2,test_command=$3,validation_command=$4,agent_instructions=CASE WHEN t.workflow_version_id IS NOT NULL AND t.kind<>'review' THEN t.agent_instructions ELSE $5 END,compose_file=$6,preview_command=$7,preview_port=$8,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,failure_class=NULL,sign_in_required=false,usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,usage_limit_resumes=0,resume_native_session=false,live_resume_generation=NULL,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, req.Prompt, requested, command, instructions, compose, preview, previewPort, req.Model, req.Thinking, req.ModelServerID); err != nil {
 		return nil, err
 	}
 	// A workflow task continues on its implementing agent step, keeping that

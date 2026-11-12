@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Görev inceleme beklemiyordu",
 	"tasks.signal_untrusted": "Yoksayıldı: inceleyenin yazma erişimi yok",
 	"tasks.signal_follow_up_failed": "Takip kuyruğa alınamadı",
+	"tasks.signal_infrastructure": "CI runner üzerinde başarısız oldu. Yeniden çalıştırın.",
 	"machines.ports": "Uygulama portları",
 	"machines.ports_desc": "Bu makinede çalışan uygulamalar için özel adresler. Yalnızca siz açabilirsiniz.",
 	"machines.ports_empty": "Henüz açılmış port yok.",
