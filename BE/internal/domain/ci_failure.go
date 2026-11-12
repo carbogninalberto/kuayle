@@ -75,17 +75,28 @@ type ciRunnerSignature struct {
 	pattern *regexp.Regexp
 }
 
+// ciHostWithDots is a hostname-shaped target: at least one dot, so a module
+// name, a dependency or a local path is not one.
+const ciHostWithDots = `[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+`
+
 // ciRunnerSignatures are the only signs that make a suite the runner's. Each
 // names a real failure seen on GitHub Actions; ordinary test output that
 // mentions a word like "timeout" or "connection refused" is not here.
 var ciRunnerSignatures = []ciRunnerSignature{
-	{"dns_resolution", regexp.MustCompile(`(?i)(could not resolve (?:host )?(?:'[^']+'|"[^"]+"|[a-z0-9._-]+)|temporary failure (?:in name resolution|resolving)|name or service not known|no such host|EAI_AGAIN|ENOTFOUND)`)},
+	// DNS needs a hostname-shaped target or the resolver's own message: a
+	// module ("Could not resolve dependency"), an import ("./Foo.svelte") or
+	// a bare error code is a build failure, not the network's.
+	{"dns_resolution", regexp.MustCompile(`(?i)(could not resolve (?:host:?\s*)?(?:'` + ciHostWithDots + `'|"` + ciHostWithDots + `"|` + ciHostWithDots + `)|temporary failure resolving '[a-z0-9][^']*'|temporary failure in name resolution|getaddrinfo (?:ENOTFOUND|EAI_AGAIN) ` + ciHostWithDots + `|dial tcp: lookup ` + ciHostWithDots + `|lookup [^\n:]{1,200}: no such host|name or service not known)`)},
 	{"package_mirror_unreachable", regexp.MustCompile(`(?i)(failed to fetch[^\n]{0,200}(?:temporary failure|connection|network is unreachable|no route to host|\b404\b|\b5\d\d\b|\b429\b)|(?:archive|mirror|registry|pypi|npmjs|proxy\.golang)[^\n]{0,100}(?:unreachable|timed out|connection (?:refused|reset)))`)},
 	{"registry_unavailable", regexp.MustCompile(`(?i)(error response from daemon:[^\n]{0,200}(?:toomanyrequests|\b(?:429|50[0-4])\b)|failed to (?:pull|download) (?:image|action)[^\n]{0,200}(?:toomanyrequests|\b(?:429|50[0-4])\b)|toomanyrequests|(?:npm|yarn|pnpm|pip|go|cargo|apt|apk|docker)[^\n]{0,120}\b(?:429|50[0-4])\b[^\n]{0,80}(?:too many requests|bad gateway|service unavailable|gateway time-?out))`)},
 	{"download_interrupted", regexp.MustCompile(`(?i)((?:download(?:ing|ed)?|fetch(?:ing)?|pull(?:ing)?|resolv(?:ing|ed)?|read(?:ing)?|installing)[^\n]{0,120}(?:connection reset by peer|connection timed out|i/o timeout|tls handshake timeout|read: connection reset|ECONNRESET|ETIMEDOUT|ECONNREFUSED)|read: connection reset by peer|connection reset by peer[^\n]{0,120}(?:download|module|image|package)|(?:npm|yarn|pnpm|pip|go|cargo|apt|apk|docker)[^\n]{0,120}(?:connection timed out|connection reset by peer|i/o timeout|ECONNRESET|ETIMEDOUT))`)},
-	{"no_space", regexp.MustCompile(`(?i)no space left on device`)},
+	// Only a tool's own line can report the disk: quoted test output and a
+	// test's assertion mention the phrase without the runner failing.
+	{"no_space", regexp.MustCompile(`(?im)^(?:E:|ERROR:|error:|npm ERR!|#\d+ |fatal:)[^\n]*no space left on device`)},
 	{"runner_shutdown", regexp.MustCompile(`(?i)(runner has received a shutdown signal|lost communication with the server|the runner (?:was )?(?:shut down|lost|stopped responding))`)},
-	{"out_of_memory", regexp.MustCompile(`(?i)(javascript heap out of memory|fatal error: reached heap limit|allocation failed - javascript heap|runtime: out of memory|cannot allocate memory|oom[- ]?kill|killed process[^\n]{0,80}(?:memory|oom)|(?:\b137\b|signal: killed)[^\n]{0,80}(?:memory|oom))`)},
+	// A bare "OOMKilled" or "oom-kill" is a word in test output; the process
+	// has to say it ran out of memory or was killed for memory.
+	{"out_of_memory", regexp.MustCompile(`(?i)(javascript heap out of memory|fatal error: reached heap limit|allocation failed - javascript heap|runtime: out of memory|cannot allocate memory|killed process[^\n]{0,80}(?:memory|oom)|(?:\b137\b|signal: killed)[^\n]{0,80}(?:memory|oom))`)},
 }
 
 // runnerSignature names the first strong runner or network sign in text.
@@ -107,10 +118,11 @@ var ciBuildText = regexp.MustCompile(`(?i)(compilation (?:failed|error)|build fa
 // ciRunnerStep is a step of the runner's own work, never the change's.
 var ciRunnerStep = regexp.MustCompile(`(?i)^(set up job|set up runner|initialize containers|complete runner|pull [^\n]*image|run actions/checkout[^\n]*|checkout( code| repository)?|post [^\n]*)$`)
 
-// ciTestStep names a step that runs the change's own tests or checks. Its
-// output can contain any word a network failure also uses, so a signature in
-// a test step never makes the suite the runner's.
-var ciTestStep = regexp.MustCompile(`(?i)^(run |running )?(unit |integration |e2e |end-to-end |go |npm |yarn |pnpm |pytest |jest |vitest |playwright |cargo |make )?(test|tests|testing|spec|specs|lint|format|check|checks|typecheck)\b`)
+// ciTestStep names a step that runs the change's own tests or checks, as a
+// whole word anywhere in the name. Its output can contain any word a network
+// failure also uses, so a signature in a test step never makes the suite the
+// runner's.
+var ciTestStep = regexp.MustCompile(`(?i)(\b(?:test|tests|testing|pytest|vitest|jest|playwright|spec|specs|check|checks|typecheck|type-check|lint|format)\b|\bmake\s+ci\b)`)
 
 var ciBuildName = regexp.MustCompile(`(?i)\b(build|compile|typecheck|type-check|bundle|package|docker|image)\b`)
 

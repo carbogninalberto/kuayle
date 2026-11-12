@@ -539,13 +539,15 @@ func TestMachineTasksListOnlyTheOwnersVisibleTasksOnThatMachine(t *testing.T) {
 }
 
 // The webhook matches a task before it reads GitHub: only the published PR
-// and commit of a task still waiting are candidates.
+// and commit of a task count, and only a task still awaiting review makes the
+// classification read worth it.
 func TestSignalCandidatesAreMatchedBeforeGitHubIsRead(t *testing.T) {
-	_, repo, _, task := reviewableTask(t)
+	db, repo, _, task := reviewableTask(t)
 	background := context.Background()
-	ok, err := repo.HasSignalCandidate(background, task.WorkspaceID, "fixture/repo", 12, publishedCommit)
+	matched, reviewable, err := repo.HasSignalCandidate(background, task.WorkspaceID, "fixture/repo", 12, publishedCommit)
 	require.NoError(t, err)
-	require.True(t, ok)
+	require.True(t, matched)
+	require.True(t, reviewable)
 	for _, other := range []struct {
 		ws     uuid.UUID
 		repo   string
@@ -557,10 +559,36 @@ func TestSignalCandidatesAreMatchedBeforeGitHubIsRead(t *testing.T) {
 		{task.WorkspaceID, "fixture/repo", 13, publishedCommit},
 		{task.WorkspaceID, "fixture/repo", 12, "ffffffffffffffffffffffffffffffffffffffff"},
 	} {
-		ok, err = repo.HasSignalCandidate(background, other.ws, other.repo, other.number, other.sha)
+		matched, reviewable, err = repo.HasSignalCandidate(background, other.ws, other.repo, other.number, other.sha)
 		require.NoError(t, err)
-		require.False(t, ok)
+		require.False(t, matched)
+		require.False(t, reviewable)
 	}
+	// A task that is publishing, blocked or completed still records the
+	// signal; only its GitHub read is skipped.
+	_, err = db.Exec(`UPDATE agent_tasks SET state='completed' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	matched, reviewable, err = repo.HasSignalCandidate(background, task.WorkspaceID, "fixture/repo", 12, publishedCommit)
+	require.NoError(t, err)
+	require.True(t, matched)
+	require.False(t, reviewable)
+}
+
+// A signal that lands while the task no longer awaits review is still
+// recorded, exactly as before this branch: it is not reviewable, so it
+// starts no follow-up.
+func TestSignalsForTasksThatNoLongerAwaitReviewAreStillRecorded(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	_, err := db.Exec(`UPDATE agent_tasks SET state='completed' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	followUps, err := repo.RecordSignal(context.Background(), task.WorkspaceID, "fixture/repo", 12, ci("late", "failure", publishedCommit))
+	require.NoError(t, err)
+	require.Empty(t, followUps)
+	signals, err := repo.Signals(ctx, task.WorkspaceID, task.ID)
+	require.NoError(t, err)
+	require.Len(t, signals, 1)
+	require.Equal(t, "late", signals[0].ExternalID)
+	require.Equal(t, "not_reviewable", signals[0].Action)
 }
 
 // A redelivery whose first delivery could not read GitHub keeps the first

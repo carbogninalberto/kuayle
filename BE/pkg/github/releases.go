@@ -135,8 +135,13 @@ func (c *Client) GetWorkflowRun(token, owner, repo string, id int64) (*WorkflowR
 // GetWorkflowJob reads one job, including the steps that failed. It is the
 // single call Kuayle makes per failed check when it classifies CI (KUA-137).
 func (c *Client) GetWorkflowJob(token, owner, repo string, id int64) (*WorkflowJob, error) {
+	return c.GetWorkflowJobContext(context.Background(), token, owner, repo, id)
+}
+
+// GetWorkflowJobContext is GetWorkflowJob bounded by ctx.
+func (c *Client) GetWorkflowJobContext(ctx context.Context, token, owner, repo string, id int64) (*WorkflowJob, error) {
 	var job WorkflowJob
-	if err := c.do(http.MethodGet, fmt.Sprintf("%s/repos/%s/%s/actions/jobs/%d", githubAPIBaseURL, owner, repo, id), token, nil, &job); err != nil {
+	if err := c.doContext(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/%s/actions/jobs/%d", githubAPIBaseURL, owner, repo, id), token, nil, &job); err != nil {
 		return nil, err
 	}
 	return &job, nil
@@ -171,9 +176,10 @@ func (c *Client) ListWorkflowJobs(token, owner, repo string, id int64) (jobs []W
 const MaxWorkflowJobLogBytes = 256 << 10
 
 // GetWorkflowJobLog reads the end of an Actions job's log. The API answers
-// with a redirect to the log file; the HTTP client follows it. At most limit
-// bytes from the end are kept (MaxWorkflowJobLogBytes when limit is not
-// positive).
+// with a redirect to the log file; the HTTP client follows it. Kuayle asks
+// for the last limit bytes with a Range header, so a large log is not
+// downloaded whole; a server that ignores it still leaves at most the end
+// (MaxWorkflowJobLogBytes when limit is not positive).
 func (c *Client) GetWorkflowJobLog(ctx context.Context, token, owner, repo string, id int64, limit int64) (string, error) {
 	if limit <= 0 {
 		limit = MaxWorkflowJobLogBytes
@@ -185,6 +191,7 @@ func (c *Client) GetWorkflowJobLog(ctx context.Context, token, owner, repo strin
 	}
 	req.Header.Set("Authorization", "token "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Range", fmt.Sprintf("bytes=-%d", limit))
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return "", err
@@ -193,6 +200,10 @@ func (c *Client) GetWorkflowJobLog(ctx context.Context, token, owner, repo strin
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return "", &APIError{Status: resp.StatusCode, Message: string(body)}
+	}
+	if resp.StatusCode == http.StatusPartialContent {
+		body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+		return string(body), err
 	}
 	return readEnd(resp.Body, limit)
 }

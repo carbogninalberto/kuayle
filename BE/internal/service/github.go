@@ -58,9 +58,9 @@ type GitHubService struct {
 	taskReviews mergedPullRequestCompleter
 	// taskSignals records CI and review events for agent task pull requests.
 	taskSignals taskSignalRecorder
-	// ciChecks reads the failed checks of a suite for classification; replaced
-	// in tests.
-	ciChecks func(ctx context.Context, ws uuid.UUID, repository, headSHA string) []domain.CIFailedCheck
+	// ciChecks reads the failed checks of a suite for classification, and
+	// whether GitHub cut the list short; replaced in tests.
+	ciChecks func(ctx context.Context, ws uuid.UUID, repository, headSHA string) ([]domain.CIFailedCheck, bool)
 	// pullRequestMerged asks GitHub whether a pull request merged; replaced in tests.
 	pullRequestMerged func(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (bool, error)
 	// mergePullRequest merges through the GitHub App; replaced in tests.
@@ -1349,7 +1349,7 @@ const signalWriteTimeout = 5 * time.Second
 // signalCandidateMatcher matches a webhook to an agent task before Kuayle
 // reads GitHub.
 type signalCandidateMatcher interface {
-	HasSignalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (bool, error)
+	HasSignalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (matched, reviewable bool, err error)
 }
 
 // finalSignalContext is the delivery's context without its cancellation: a
@@ -1358,12 +1358,13 @@ func finalSignalContext(ctx context.Context) (context.Context, context.CancelFun
 	return context.WithTimeout(context.WithoutCancel(ctx), signalWriteTimeout)
 }
 
-// signalCandidate reports whether the pull request belongs to an agent task
-// that is still open to follow-ups. Without a matcher (a test), it reads first.
-func (s *GitHubService) signalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (bool, error) {
+// signalCandidate reports what the pull request matched before any GitHub
+// read: a task that published it, and a task still awaiting review whose
+// classification can matter. Without a matcher (a test), it reads first.
+func (s *GitHubService) signalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (matched, reviewable bool, err error) {
 	matcher, ok := s.taskSignals.(signalCandidateMatcher)
 	if !ok {
-		return true, nil
+		return true, true, nil
 	}
 	return matcher.HasSignalCandidate(ctx, ws, repository, number, headSHA)
 }
@@ -1436,16 +1437,18 @@ func (s *GitHubService) processCheckSuiteEvent(ctx context.Context, payload []by
 		if ciOutcomeFailed(outcome) {
 			// Match first: a failed suite of somebody else's pull request
 			// never needs GitHub's annotations or job logs.
-			candidate, err := s.signalCandidate(ctx, inst.WorkspaceID, repo.FullName, pr.Number, event.CheckSuite.HeadSHA)
+			matched, reviewable, err := s.signalCandidate(ctx, inst.WorkspaceID, repo.FullName, pr.Number, event.CheckSuite.HeadSHA)
 			if err != nil {
 				return fmt.Errorf("matching check suite: %w", err)
 			}
-			if !candidate {
+			if !matched {
 				continue
 			}
-		}
-		if failure == nil && ciOutcomeFailed(outcome) {
-			failure = s.ciFailure(ctx, inst.WorkspaceID, repo.FullName, event.CheckSuite.HeadSHA, outcome)
+			// A task that is not awaiting review still records the suite
+			// (as not_reviewable); only the read classification needs is skipped.
+			if failure == nil && reviewable {
+				failure = s.ciFailure(ctx, inst.WorkspaceID, repo.FullName, event.CheckSuite.HeadSHA, outcome)
+			}
 		}
 		in := domain.AgentTaskSignalInput{
 			Kind: "ci", ExternalID: strconv.FormatInt(event.CheckSuite.ID, 10), Outcome: outcome,

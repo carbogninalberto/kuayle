@@ -188,15 +188,6 @@ func (s worldStore) WorkflowRun(_ context.Context, task domain.AgentTask) (*repo
 	}
 	return &repository.WorkflowRun{}, nil
 }
-func (s worldStore) SetWorkflowStepDetail(_ context.Context, task domain.AgentTask, detail string) error {
-	if task.WorkflowSequence != s.w.task.WorkflowSequence {
-		return repository.ErrAgentTaskConflict
-	}
-	if step := s.w.steps[task.WorkflowSequence]; step != nil && step.FinishedAt == nil {
-		step.Detail = detail
-	}
-	return nil
-}
 func (s worldStore) SetWorkflowWake(_ context.Context, task domain.AgentTask, at *time.Time) error {
 	if task.WorkflowSequence != s.w.task.WorkflowSequence {
 		return repository.ErrAgentTaskConflict
@@ -816,59 +807,49 @@ func TestWorkflowFailureCarriesTheRunsClassAndCause(t *testing.T) {
 	require.NotContains(t, h.w.task.Reason, "The agent's iteration failed")
 }
 
-// A CI suite that failed on the runner is not "checks failed": the step keeps
-// waiting and says so, and a later suite of the same commit decides.
-func TestWorkflowCIWaitsForARunnerFailureToBeRerun(t *testing.T) {
+// A CI suite that failed on the runner is still "checks failed", as on main:
+// the step says in one line that every failed suite was the runner's, so the
+// next agent and the person can see it.
+func TestWorkflowCIRunnerFailureIsChecksFailedWithANote(t *testing.T) {
 	h := newWorkflowHarness(t, domain.WorkflowBudget{})
-	h.agentFinishes("done")
-	h.published()
-	h.review("approve", "ok")
-	run := h.w.task.RunID
-	h.w.checks[run] = []PullRequestCheck{{Name: "Tests", State: "failed", Summary: "apt-get failed"}}
 	ci := &repository.WorkflowCI{
-		Infrastructure: []domain.AgentTaskSignal{{
+		Failed: []domain.AgentTaskSignal{{
 			Name: "GitHub Actions", Outcome: "failure", FailureClass: ptr(domain.CIFailureRunner),
 			FailureEvidence: "Docker Runtime Integration, step Build: dns_resolution: Could not resolve 'archive.ubuntu.com'",
 		}},
-		Published: true, Repository: "acme/app", CommitSHA: run.String(),
+		Published: true, Repository: "acme/app", CommitSHA: h.w.task.RunID.String(),
 	}
-	outcome, detail, waiting, wake, err := h.runner.ciOutcome(context.Background(), h.w.task, ci, h.w.now, 0)
+	outcome, detail, waiting, wake, err := h.runner.ciOutcome(context.Background(), h.w.task, ci, h.w.now)
 	require.NoError(t, err)
-	require.Empty(t, outcome, "a runner failure never fails the change")
-	require.Contains(t, detail, "CI failed on the runner")
+	require.Equal(t, domain.WorkflowChecksFailed, outcome, "the runner's class never waits or passes")
+	require.Contains(t, detail, "CI failed on the runner; it may need to be run again:")
 	require.Contains(t, detail, "Docker Runtime Integration")
-	require.Contains(t, detail, "no timeout")
-	require.Equal(t, detail, waiting)
-	require.NotNil(t, wake, "the step polls for the re-run")
+	require.NotContains(t, detail, "no timeout")
+	require.Empty(t, waiting)
+	require.Nil(t, wake)
 
-	// A person re-ran it and the suite passed: the re-run decides.
-	ci.Infrastructure, ci.Passed = nil, []domain.AgentTaskSignal{{Name: "GitHub Actions", Outcome: "success"}}
-	h.w.checks[run] = []PullRequestCheck{{Name: "Tests", State: "passed"}}
-	outcome, detail, _, _, err = h.runner.ciOutcome(context.Background(), h.w.task, ci, h.w.now, 60)
-	require.NoError(t, err)
-	require.Equal(t, domain.WorkflowChecksPassed, outcome)
-	require.Contains(t, detail, "All 1 CI checks passed")
-
-	// A later real failure is the change's after all.
-	ci.Failed = []domain.AgentTaskSignal{{Name: "GitHub Actions", Outcome: "failure", Summary: "TestX failed"}}
-	outcome, detail, _, _, err = h.runner.ciOutcome(context.Background(), h.w.task, ci, h.w.now, 60)
+	// One failure the change owns means no runner note: the change is what
+	// the next agent has to fix.
+	testClass := domain.CIFailureTest
+	ci.Failed = append(ci.Failed, domain.AgentTaskSignal{Name: "GitHub Actions", Outcome: "failure", FailureClass: &testClass, Summary: "TestX failed"})
+	outcome, detail, _, _, err = h.runner.ciOutcome(context.Background(), h.w.task, ci, h.w.now)
 	require.NoError(t, err)
 	require.Equal(t, domain.WorkflowChecksFailed, outcome)
+	require.NotContains(t, detail, "CI failed on the runner")
 	require.Contains(t, detail, "TestX failed")
 }
 
-// The step a person looks at says the runner failed and the check must run
-// again; it does not stay on "Waiting for CI".
+// The step a person looks at says the runner may have caused the failure, and
+// the workflow still treats it as checks failed.
 func TestWorkflowCIStepSaysARunnerFailureNeedsARerun(t *testing.T) {
 	h := newWorkflowHarness(t, domain.WorkflowBudget{})
 	h.agentFinishes("done")
 	h.published()
 	h.review("approve", "ok")
 	run := h.w.task.RunID
-	runner := string(domain.CIFailureRunner)
 	h.w.ci[run] = &repository.WorkflowCI{
-		Infrastructure: []domain.AgentTaskSignal{{
-			Name: "GitHub Actions", Outcome: "failure", FailureClass: &runner,
+		Failed: []domain.AgentTaskSignal{{
+			Name: "GitHub Actions", Outcome: "failure", FailureClass: ptr(domain.CIFailureRunner),
 			FailureEvidence: "Docker Runtime Integration, step Build: dns_resolution: Could not resolve 'archive.ubuntu.com'",
 		}},
 		Published: true, Repository: "acme/app", CommitSHA: run.String(),
@@ -877,8 +858,8 @@ func TestWorkflowCIStepSaysARunnerFailureNeedsARerun(t *testing.T) {
 	at := h.w.now
 	h.w.task.WorkflowWakeAt = &at
 	require.True(t, h.tick())
-	require.Equal(t, "ci", h.current().NodeID)
-	require.Contains(t, h.current().Detail, "CI failed on the runner")
-	require.Contains(t, h.current().Detail, "Docker Runtime Integration")
-	require.Equal(t, "awaiting_review", h.w.task.State, "the task still waits")
+	require.Equal(t, "implement", h.current().NodeID, "checks failed sends the work back, as on main")
+	require.Contains(t, h.w.steps[h.w.task.WorkflowSequence-1].Detail, "CI failed on the runner")
+	require.Contains(t, h.w.steps[h.w.task.WorkflowSequence-1].Detail, "Docker Runtime Integration")
+	require.Equal(t, "queued", h.w.task.State, "the next iteration is queued")
 }

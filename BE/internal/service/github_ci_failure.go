@@ -47,12 +47,13 @@ func (s *GitHubService) ciFailure(ctx context.Context, ws uuid.UUID, repository,
 	var checks []domain.CIFailedCheck
 	more := false
 	if conclusion == "failure" && headSHA != "" {
-		read := s.ciChecks
-		if read == nil {
-			read = s.readCIChecks
+		var truncated bool
+		if read := s.ciChecks; read != nil {
+			checks, truncated = read(ctx, ws, repository, headSHA)
+		} else {
+			checks, truncated = s.readCIChecks(ctx, ws, repository, headSHA)
 		}
-		checks = read(ctx, ws, repository, headSHA)
-		more = len(checks) > maxCIClassifiedLogs
+		more = truncated || len(checks) > maxCIClassifiedLogs
 	}
 	failure := domain.ClassifyCIFailure(domain.CIFailureEvidence{Conclusion: conclusion, Checks: checks, MoreChecks: more})
 	return &failure
@@ -61,29 +62,34 @@ func (s *GitHubService) ciFailure(ctx context.Context, ws uuid.UUID, repository,
 // readCIChecks reads a failed suite's checks within ciClassifyTimeout. The
 // GitHub read continues in the background if it overruns; its result is only
 // ever used to classify this signal.
-func (s *GitHubService) readCIChecks(ctx context.Context, ws uuid.UUID, repository, headSHA string) []domain.CIFailedCheck {
+func (s *GitHubService) readCIChecks(ctx context.Context, ws uuid.UUID, repository, headSHA string) ([]domain.CIFailedCheck, bool) {
 	readCtx, cancel := context.WithTimeout(ctx, ciClassifyTimeout)
 	defer cancel()
-	read := make(chan []domain.CIFailedCheck, 1)
+	type answer struct {
+		checks    []domain.CIFailedCheck
+		truncated bool
+	}
+	read := make(chan answer, 1)
 	go func() {
-		read <- s.readCIChecksFromGitHub(readCtx, ws, repository, headSHA)
+		checks, truncated := s.readCIChecksFromGitHub(readCtx, ws, repository, headSHA)
+		read <- answer{checks, truncated}
 	}()
 	select {
-	case checks := <-read:
-		return checks
+	case got := <-read:
+		return got.checks, got.truncated
 	case <-readCtx.Done():
-		return nil
+		return nil, false
 	}
 }
 
-func (s *GitHubService) readCIChecksFromGitHub(ctx context.Context, ws uuid.UUID, repository, headSHA string) []domain.CIFailedCheck {
+func (s *GitHubService) readCIChecksFromGitHub(ctx context.Context, ws uuid.UUID, repository, headSHA string) ([]domain.CIFailedCheck, bool) {
 	client, token, owner, name, err := s.repositoryClient(ctx, ws, repository)
 	if err != nil {
-		return nil
+		return nil, false
 	}
-	runs, _, err := client.ListCheckRuns(token, owner, name, headSHA)
+	runs, truncated, err := client.ListCheckRunsContext(ctx, token, owner, name, headSHA)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	checks := ciFailedChecks(runs)
 	logs := 0
@@ -91,12 +97,12 @@ func (s *GitHubService) readCIChecksFromGitHub(ctx context.Context, ws uuid.UUID
 		run := checks[i].run
 		id := actionsJobID(run.DetailsURL)
 		if id > 0 {
-			if job, err := client.GetWorkflowJob(token, owner, name, id); err == nil {
+			if job, err := client.GetWorkflowJobContext(ctx, token, owner, name, id); err == nil {
 				checks[i].check.FailedStep = failedWorkflowStep(job.Steps)
 			}
 		}
 		if run.ID > 0 && run.AnnotationsCount > 0 {
-			if annotations, err := client.ListCheckRunAnnotations(token, owner, name, run.ID); err == nil {
+			if annotations, err := client.ListCheckRunAnnotationsContext(ctx, token, owner, name, run.ID); err == nil {
 				for _, annotation := range annotations {
 					if message := strings.TrimSpace(annotation.Message); message != "" {
 						checks[i].check.Annotations = append(checks[i].check.Annotations, message)
@@ -115,7 +121,7 @@ func (s *GitHubService) readCIChecksFromGitHub(ctx context.Context, ws uuid.UUID
 	for i := range checks {
 		failed[i] = checks[i].check
 	}
-	return failed
+	return failed, truncated
 }
 
 // failedCheckRun pairs a failed check with the run it came from, whose ID

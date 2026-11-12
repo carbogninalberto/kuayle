@@ -29,8 +29,8 @@ func (f *feedbackStoreFake) RecordCommentSignal(_ context.Context, _, _, _, _ uu
 func (f *feedbackStoreFake) RecordSignal(context.Context, uuid.UUID, string, int, domain.AgentTaskSignalInput) ([]domain.AgentTaskFollowUp, error) {
 	return f.followUps, nil
 }
-func (f *feedbackStoreFake) HasSignalCandidate(context.Context, uuid.UUID, string, int, string) (bool, error) {
-	return true, nil
+func (f *feedbackStoreFake) HasSignalCandidate(context.Context, uuid.UUID, string, int, string) (bool, bool, error) {
+	return true, true, nil
 }
 func (f *feedbackStoreFake) PendingFollowUps(context.Context, int) ([]domain.AgentTaskFollowUp, error) {
 	return f.followUps, nil

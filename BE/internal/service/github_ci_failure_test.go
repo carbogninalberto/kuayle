@@ -16,12 +16,12 @@ import (
 func TestFailedCheckSuitesAreClassifiedFromWhatKuayleCanRead(t *testing.T) {
 	svc := NewGitHubService(nil, nil, nil, nil, nil, nil, nil, "", "", nil)
 	calls := 0
-	svc.ciChecks = func(context.Context, uuid.UUID, string, string) []domain.CIFailedCheck {
+	svc.ciChecks = func(context.Context, uuid.UUID, string, string) ([]domain.CIFailedCheck, bool) {
 		calls++
 		return []domain.CIFailedCheck{{
 			Name: "Docker Runtime Integration", Conclusion: "failure", FailedStep: "Install packages",
 			Text: "E: Failed to fetch http://azure.archive.ubuntu.com/ubuntu/dists/noble/InRelease  Temporary failure resolving 'azure.archive.ubuntu.com'",
-		}}
+		}}, false
 	}
 	failure := svc.ciFailure(context.Background(), uuid.New(), "acme/app", "abc123", "failure")
 	require.NotNil(t, failure)
@@ -32,9 +32,9 @@ func TestFailedCheckSuitesAreClassifiedFromWhatKuayleCanRead(t *testing.T) {
 
 	// An unreadable check list never fails the webhook: the conclusion alone
 	// still classifies the failure, as before this classification existed.
-	svc.ciChecks = func(context.Context, uuid.UUID, string, string) []domain.CIFailedCheck {
+	svc.ciChecks = func(context.Context, uuid.UUID, string, string) ([]domain.CIFailedCheck, bool) {
 		calls++
-		return nil
+		return nil, false
 	}
 	failure = svc.ciFailure(context.Background(), uuid.New(), "acme/app", "abc123", "failure")
 	require.Equal(t, domain.CIFailureTest, failure.Class)
@@ -42,10 +42,21 @@ func TestFailedCheckSuitesAreClassifiedFromWhatKuayleCanRead(t *testing.T) {
 	require.NotEmpty(t, failure.Evidence)
 	require.Equal(t, 2, calls)
 
+	// A truncated list may hide a failure the change owns, so it is never
+	// the runner's.
+	svc.ciChecks = func(context.Context, uuid.UUID, string, string) ([]domain.CIFailedCheck, bool) {
+		calls++
+		return []domain.CIFailedCheck{{Name: "Build UI", Conclusion: "failure", FailedStep: "Build image",
+			Text: "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory"}}, true
+	}
+	failure = svc.ciFailure(context.Background(), uuid.New(), "acme/app", "abc123", "failure")
+	require.NotEqual(t, domain.CIFailureRunner, failure.Class)
+	require.Equal(t, 3, calls)
+
 	failure = svc.ciFailure(context.Background(), uuid.New(), "acme/app", "abc123", "cancelled")
 	require.Equal(t, domain.CIFailureCancel, failure.Class)
 	require.Equal(t, "conclusion_cancelled", failure.Rule)
-	require.Equal(t, 2, calls, "a cancellation is GitHub's verdict; no check read is needed")
+	require.Equal(t, 3, calls, "a cancellation is GitHub's verdict; no check read is needed")
 }
 
 // The checks handed to the classifier keep what GitHub printed and the failed

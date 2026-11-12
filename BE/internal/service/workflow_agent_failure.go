@@ -34,10 +34,13 @@ func (w *WorkflowRunner) agentFailedBecause(ctx context.Context, task domain.Age
 		return err
 	}
 	if last := len(apply.Moves) - 1; apply.Entry.Kind == repository.WorkflowEnterFail && last >= 0 && !apply.Moves[last].Stop {
-		apply.Entry.Reason += ". " + problem
+		// The reason names the problem once: the class's one-line cause is
+		// the problem, and the step's detail keeps all of it.
 		if class != "" {
 			apply.FailureClass = class
-			apply.Entry.Reason += " · " + domain.TaskFailureReason(class, problem)
+			apply.Entry.Reason += ". " + domain.TaskFailureReason(class, problem)
+		} else {
+			apply.Entry.Reason += ". " + problem
 		}
 	}
 	_, err = w.tasks.ApplyWorkflow(ctx, task, *apply)

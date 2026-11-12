@@ -30,7 +30,7 @@ type AgentTaskFeedback struct {
 
 type feedbackStore interface {
 	RecordSignal(ctx context.Context, ws uuid.UUID, repository string, number int, in domain.AgentTaskSignalInput) ([]domain.AgentTaskFollowUp, error)
-	HasSignalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (bool, error)
+	HasSignalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (matched, reviewable bool, err error)
 	FinishFollowUp(ctx context.Context, signal uuid.UUID, generation *int64) error
 	PendingFollowUps(ctx context.Context, limit int) ([]domain.AgentTaskFollowUp, error)
 	RecordCommentSignal(ctx context.Context, ws, issue, comment, author uuid.UUID, summary string) (*domain.AgentTaskFollowUp, error)
@@ -62,9 +62,10 @@ func (f *AgentTaskFeedback) Record(ctx context.Context, ws uuid.UUID, repository
 	return f.request(ctx, followUps)
 }
 
-// HasSignalCandidate reports whether a webhook could concern a task that is
-// still open to follow-ups, before any GitHub read.
-func (f *AgentTaskFeedback) HasSignalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (bool, error) {
+// HasSignalCandidate reports what a webhook matched before any GitHub read:
+// whether a task published the pull request, and whether one of those tasks
+// still awaits review, where the signal can lead to a follow-up.
+func (f *AgentTaskFeedback) HasSignalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (matched, reviewable bool, err error) {
 	return f.repo.HasSignalCandidate(ctx, ws, repository, number, headSHA)
 }
 

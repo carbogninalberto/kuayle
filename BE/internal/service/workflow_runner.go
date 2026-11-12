@@ -37,7 +37,6 @@ type workflowTaskStore interface {
 	ValidationOutput(context.Context, domain.AgentTask) (string, error)
 	WorkflowRun(context.Context, domain.AgentTask) (*repository.WorkflowRun, error)
 	SetWorkflowWake(context.Context, domain.AgentTask, *time.Time) error
-	SetWorkflowStepDetail(context.Context, domain.AgentTask, string) error
 	ScopeInstructions(context.Context, domain.AgentTask) (string, error)
 	WorkflowDecisionTask(context.Context, uuid.UUID, uuid.UUID) (*domain.AgentTask, error)
 	DecideWorkflow(context.Context, uuid.UUID, uuid.UUID, repository.WorkflowApply) (*domain.AgentTask, error)
@@ -573,7 +572,7 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 		if err != nil {
 			return err
 		}
-		if outcome, detail, waiting, wake, err = w.ciOutcome(ctx, task, ci, now, node.TimeoutMinutes); err != nil {
+		if outcome, detail, waiting, wake, err = w.ciOutcome(ctx, task, ci, now); err != nil {
 			return err
 		}
 	}
@@ -585,13 +584,6 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 		}
 	}
 	if outcome == "" {
-		// A CI step that waits for a runner failure to be re-run says so on
-		// the step, not only in a timeout message.
-		if detail != "" {
-			if err := w.tasks.SetWorkflowStepDetail(ctx, task, detail); err != nil {
-				return err
-			}
-		}
 		// The time budget also bounds a wait (a reviewer, an approval, CI):
 		// the task stays on the step and fails or asks a person.
 		budget := graph.BudgetDeadline(task.Cursor())
@@ -624,21 +616,15 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 // at least one check for the published commit, none failed, none is still
 // running and the whole list could be read. Otherwise the node keeps waiting
 // (waiting says why) and polls again.
-func (w *WorkflowRunner) ciOutcome(ctx context.Context, task domain.AgentTask, ci *repository.WorkflowCI, now time.Time, timeoutMinutes int) (outcome, detail, waiting string, wake *time.Time, err error) {
+func (w *WorkflowRunner) ciOutcome(ctx context.Context, task domain.AgentTask, ci *repository.WorkflowCI, now time.Time) (outcome, detail, waiting string, wake *time.Time, err error) {
 	if len(ci.Failed) > 0 {
-		var lines []string
+		var lines, names []string
+		everyRunner := true
 		for _, signal := range ci.Failed {
 			lines = append(lines, ciFailureLine(fmt.Sprintf("CI check suite %q concluded %q", signal.Name, signal.Outcome), signal.URL, signal.Summary))
-		}
-		return domain.WorkflowChecksFailed, strings.Join(lines, "\n\n"), "", nil, nil
-	}
-	// A suite that failed for the runner or the network is not the change's:
-	// the step keeps waiting for a re-run, and the timeout or the workflow's
-	// time budget still bounds it.
-	runnerWaiting := ""
-	if len(ci.Infrastructure) > 0 {
-		lines := make([]string, 0, len(ci.Infrastructure))
-		for _, signal := range ci.Infrastructure {
+			if signal.FailureClass == nil || *signal.FailureClass != domain.CIFailureRunner {
+				everyRunner = false
+			}
 			label := strings.TrimSpace(signal.Summary)
 			if label == "" {
 				label = strings.TrimSpace(signal.FailureEvidence)
@@ -646,12 +632,16 @@ func (w *WorkflowRunner) ciOutcome(ctx context.Context, task domain.AgentTask, c
 			if label == "" {
 				label = signal.Name
 			}
-			lines = append(lines, label)
+			names = append(names, oneLine(label, 200))
 		}
-		runnerWaiting = "CI failed on the runner and needs to be run again: " + strings.Join(lines, "; ")
-		if timeoutMinutes == 0 {
-			runnerWaiting += " (this step has no timeout; the workflow's time budget still applies)"
+		detail = strings.Join(lines, "\n\n")
+		// The result is still "checks failed"; the one line only tells the
+		// next agent and the person that every failed suite was the runner's
+		// or the network's and may need a re-run.
+		if everyRunner {
+			detail += "\n\nCI failed on the runner; it may need to be run again: " + strings.Join(names, "; ")
 		}
+		return domain.WorkflowChecksFailed, detail, "", nil, nil
 	}
 	idle := now.Add(ciIdlePoll)
 	if w.checks == nil || ci.Repository == "" || ci.CommitSHA == "" {
@@ -676,18 +666,13 @@ func (w *WorkflowRunner) ciOutcome(ctx context.Context, task domain.AgentTask, c
 		}
 	}
 	switch {
-	case len(failed) > 0 && runnerWaiting == "":
+	case len(failed) > 0:
 		return domain.WorkflowChecksFailed, strings.Join(failed, "\n\n"), "", nil, nil
 	case coverage.incomplete():
 		return "", "", "not every check of the commit could be read", &idle, nil
 	case pending > 0:
 		poll := now.Add(ciPoll)
 		return "", "", fmt.Sprintf("%d of %d CI checks still running", pending, len(checks)), &poll, nil
-	case runnerWaiting != "":
-		// The failed checks GitHub still lists are the ones the runner
-		// caused; only a later suite of the same commit decides now.
-		poll := now.Add(ciPoll)
-		return "", runnerWaiting, runnerWaiting, &poll, nil
 	case len(checks) == 0:
 		return "", "", "no CI check has started on the commit", &idle, nil
 	}

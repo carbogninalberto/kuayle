@@ -34,14 +34,17 @@ func TestClassifyCIFailure(t *testing.T) {
 			CIFailureEvidence{Conclusion: "failure", Checks: check("Docker Runtime Integration", "failure", "Install packages", "E: Failed to fetch http://azure.archive.ubuntu.com/ubuntu/dists/noble/InRelease  Temporary failure resolving 'azure.archive.ubuntu.com'")},
 			CIFailureRunner, "runner_output",
 		},
-		"the real runner failure shape": {
+		// The failed step names a test, so the veto wins even though the log
+		// carries the runner's own DNS failure. What the other rules still
+		// see is the change's build step; it is never the runner's.
+		"the real runner failure shape in a test step": {
 			CIFailureEvidence{Conclusion: "failure", Checks: []CIFailedCheck{{
 				Name: "Docker Runtime Integration", Conclusion: "failure",
 				FailedStep:  "Build, smoke test and scan native architecture image",
 				Annotations: []string{`buildx failed with: ERROR: failed to build: failed to solve: process "/bin/sh -c apt-get update && apt-get install -y ..." did not complete successfully`},
 				LogTail:     "#7 [build 2/3] RUN apt-get update\nCould not resolve 'archive.ubuntu.com'\nTemporary failure resolving 'azure.archive.ubuntu.com'",
 			}}},
-			CIFailureRunner, "runner_output",
+			CIFailureBuild, "build_step",
 		},
 		"an annotation alone names the runner": {
 			CIFailureEvidence{Conclusion: "failure", Checks: []CIFailedCheck{{
@@ -119,10 +122,10 @@ func TestEachRunnerSignatureDecidesTheSuite(t *testing.T) {
 		"registry 429":              {"Build image", "docker: failed to pull image: 429 Too Many Requests"},
 		"download connection reset": {"Build image", "go: downloading example.com/mod\nread: connection reset by peer"},
 		"download timed out":        {"Build image", "npm ERR! network request failed: connection timed out while downloading dependencies"},
-		"no space left":             {"Build image", "failed to write layer: no space left on device"},
+		"no space left":             {"Build image", "E: failed to write layer: no space left on device"},
 		"runner shutdown":           {"", "The runner has received a shutdown signal. This can happen when the runner service is stopped."},
 		"lost communication":        {"", "lost communication with the server"},
-		"heap out of memory":        {"Build, smoke test and scan native architecture image", "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory"},
+		"heap out of memory":        {"Build image", "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory"},
 		"process killed for memory": {"Build image", "Killed process 4242 (node) total-vm:1kB, oom-kill"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -157,6 +160,49 @@ func TestOrdinaryTestOutputNeverMakesTheSuiteTheRunners(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			got := ClassifyCIFailure(CIFailureEvidence{Conclusion: "failure", Checks: []CIFailedCheck{check}})
+			require.Equal(t, CIFailureTest, got.Class, got.Evidence)
+			require.Equal(t, "default_test_failure", got.Rule)
+		})
+	}
+}
+
+// A runner or network word alone is no evidence: each signature needs the
+// shape a tool prints when the runner or the network failed. Ordinary build
+// and test output names these words without meaning them.
+func TestAWordThatOnlyLooksLikeARunnerFailureIsNotOne(t *testing.T) {
+	for name, check := range map[string]CIFailedCheck{
+		"a dependency that did not resolve": {Name: "Build UI", Conclusion: "failure", FailedStep: "Build image",
+			Text: "Could not resolve dependency: peer vite@5 from @sveltejs/kit@"},
+		"an import that did not resolve": {Name: "Build UI", Conclusion: "failure", FailedStep: "Build image",
+			Text: `Could not resolve "./Foo.svelte" from "src/App.svelte"`},
+		"a bare no such host": {Name: "Build image", Conclusion: "failure", FailedStep: "Build image",
+			Text: "no such host"},
+		"a bare ENOTFOUND": {Name: "Build image", Conclusion: "failure", FailedStep: "Build image",
+			Text: "ENOTFOUND"},
+		"disk space in ordinary output": {Name: "Build image", Conclusion: "failure", FailedStep: "Build image",
+			Text: "no space left on device"},
+		"a bare OOMKilled": {Name: "Build image", Conclusion: "failure", FailedStep: "Build image",
+			Text: "OOMKilled"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := ClassifyCIFailure(CIFailureEvidence{Conclusion: "failure", Checks: []CIFailedCheck{check}})
+			require.NotEqual(t, CIFailureRunner, got.Class, got.Evidence)
+		})
+	}
+}
+
+// A failed step that ran the change's own tests or checks is never the
+// runner's, whatever its output quotes.
+func TestAFailedTestStepVetoesRunnerClassification(t *testing.T) {
+	for _, step := range []string{
+		"Run npm run test:unit", "Run pytest", "Run vitest", "Run jest",
+		"Run make ci", "Backend tests", "Run npx playwright test", "Frontend Checks",
+		"Run go test", "Lint", "Specs",
+	} {
+		t.Run(step, func(t *testing.T) {
+			got := ClassifyCIFailure(CIFailureEvidence{Conclusion: "failure", Checks: []CIFailedCheck{{
+				Name: "CI", Conclusion: "failure", FailedStep: step, Text: "Could not resolve 'archive.ubuntu.com'",
+			}}})
 			require.Equal(t, CIFailureTest, got.Class, got.Evidence)
 			require.Equal(t, "default_test_failure", got.Rule)
 		})

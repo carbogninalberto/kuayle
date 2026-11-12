@@ -45,17 +45,22 @@ func (r *AgentTaskRepository) RecordSignal(ctx context.Context, ws uuid.UUID, re
 	return followUps, nil
 }
 
-// HasSignalCandidate reports whether a CI or review signal could concern an
-// agent task that is still open to follow-ups: the task's current attempt
-// published that pull request (and, for CI, that commit). The webhook matches
-// first and reads GitHub only then.
-func (r *AgentTaskRepository) HasSignalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (bool, error) {
-	var exists bool
-	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM agent_tasks t JOIN dev_machine_git_refs g ON g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id
- WHERE t.workspace_id=$1 AND t.state='awaiting_review' AND LOWER(g.repository_full_name)=LOWER($2) AND g.pull_request_number=$3
- AND ($4='' OR EXISTS(SELECT 1 FROM dev_machine_git_refs c WHERE c.agent_run_id=t.run_id AND c.workspace_id=t.workspace_id AND c.ref_type='commit' AND c.commit_sha=$4)))`,
-		ws, repository, number, headSHA)
-	return exists, err
+// HasSignalCandidate reports what a CI or review signal could concern before
+// Kuayle reads GitHub: whether a task's current attempt published that pull
+// request (and, for CI, that commit), and whether one of those tasks still
+// awaits review, where the signal can lead to a follow-up. A task that is
+// publishing, blocked or completed still records the signal; only the GitHub
+// read is skipped for it.
+func (r *AgentTaskRepository) HasSignalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (matched, reviewable bool, err error) {
+	err = r.db.QueryRowxContext(ctx, `SELECT
+ EXISTS(SELECT 1 FROM agent_tasks t JOIN dev_machine_git_refs g ON g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id
+  WHERE t.workspace_id=$1 AND LOWER(g.repository_full_name)=LOWER($2) AND g.pull_request_number=$3
+  AND ($4='' OR EXISTS(SELECT 1 FROM dev_machine_git_refs c WHERE c.agent_run_id=t.run_id AND c.workspace_id=t.workspace_id AND c.ref_type='commit' AND c.commit_sha=$4))),
+ EXISTS(SELECT 1 FROM agent_tasks t JOIN dev_machine_git_refs g ON g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id
+  WHERE t.workspace_id=$1 AND t.state='awaiting_review' AND LOWER(g.repository_full_name)=LOWER($2) AND g.pull_request_number=$3
+  AND ($4='' OR EXISTS(SELECT 1 FROM dev_machine_git_refs c WHERE c.agent_run_id=t.run_id AND c.workspace_id=t.workspace_id AND c.ref_type='commit' AND c.commit_sha=$4)))`,
+		ws, repository, number, headSHA).Scan(&matched, &reviewable)
+	return matched, reviewable, err
 }
 
 func signalNeedsFollowUp(in domain.AgentTaskSignalInput) bool {
@@ -137,12 +142,9 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 		}
 	}
 	// A workflow decides what CI results do (its CI checks); they never queue
-	// the Standard flow's follow-ups. An infrastructure signal keeps its action
-	// so the task says the runner failed, not the change.
+	// the Standard flow's follow-ups.
 	if task.RunsWorkflow() {
-		if action != "infrastructure" {
-			action = "recorded"
-		}
+		action = "recorded"
 		if in.Kind == "ci" {
 			if _, err = tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_wake_at=now() WHERE id=$1 AND state='awaiting_review' AND workflow_status='waiting'`, task.ID); err != nil {
 				return nil, err
