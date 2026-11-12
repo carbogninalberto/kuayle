@@ -712,7 +712,7 @@ test('issue context menu lists the team projects first, then Teams > team > proj
 		})
 	);
 	await page.goto(`${cyclePath}/${cycleId}`);
-	await page.getByTestId('scoped-issues').getByText('Scoped issue 2', { exact: true }).click({ button: 'right' });
+	await page.getByTestId('scoped-issues').getByText('Scoped issue 1', { exact: true }).click({ button: 'right' });
 	await page.getByRole('menuitem', { name: 'Project', exact: true }).hover();
 	await expect(page.getByRole('menuitem', { name: 'No project', exact: true })).toBeVisible();
 	// The issue's own team is listed directly; other teams' and workspace-wide projects sit one level down.
@@ -724,7 +724,7 @@ test('issue context menu lists the team projects first, then Teams > team > proj
 	await expect(page.getByRole('menuitem', { name: 'Company', exact: true })).toHaveCount(0);
 	await page.getByRole('menuitem', { name: 'Website', exact: true }).click();
 	await expect
-		.poll(() => state.mutations.find((m) => m.method === 'PATCH' && m.path.endsWith('/issues/ENG-2'))?.body)
+		.poll(() => state.mutations.find((m) => m.method === 'PATCH' && m.path.endsWith('/issues/ENG-1'))?.body)
 		.toEqual({ project_id: websiteId });
 	expect(state.errors).toEqual([]);
 });
