@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "לא ניתן למחוק. המתינו לסיום תשובות או עבודת סוכנים שרצות.",
 	"assistant.resize_sidebar": "שינוי גודל רשימת השיחות",
 	"tasks.view_diff": "הצגת diff",
+	"tasks.download_trace": "הורדת מעקב",
 	"tasks.diff_title": "שינויים",
 	"tasks.diff_close": "סגירת השינויים",
 	"tasks.diff_resize": "שינוי גודל לוח השינויים",

@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "Smazání se nezdařilo. Počkejte na dokončení běžících odpovědí nebo práce agentů.",
 	"assistant.resize_sidebar": "Změnit velikost seznamu konverzací",
 	"tasks.view_diff": "Zobrazit diff",
+	"tasks.download_trace": "Stáhnout trasování",
 	"tasks.diff_title": "Změny",
 	"tasks.diff_close": "Zavřít změny",
 	"tasks.diff_resize": "Změnit velikost panelu změn",

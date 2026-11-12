@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "Не удалось удалить. Дождитесь завершения ответов или работы агентов.",
 	"assistant.resize_sidebar": "Изменить размер списка диалогов",
 	"tasks.view_diff": "Показать diff",
+	"tasks.download_trace": "Скачать трассировку",
 	"tasks.diff_title": "Изменения",
 	"tasks.diff_close": "Закрыть изменения",
 	"tasks.diff_resize": "Изменить размер панели изменений",

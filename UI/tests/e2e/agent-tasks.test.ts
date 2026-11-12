@@ -63,6 +63,7 @@ async function fixture(page: Page) {
 		liveMessages: [] as any[],
 		liveSends: [] as string[],
 		transitions: null as any[] | null,
+		traceDownloads: 0,
 		chatAgentMessages: [] as any[],
 		messageQueries: [] as string[],
 		messageActions: [] as string[],
@@ -357,6 +358,16 @@ async function fixture(page: Page) {
 			if (path.endsWith('/validation')) return route.fulfill({ json: state.validation });
 			if (path.endsWith('/signals')) return route.fulfill({ json: state.signals });
 			if (path.endsWith('/sessions')) return route.fulfill({ json: { sessions: state.sessions } });
+			if (path.endsWith('/agent-tasks/task-1/debug')) {
+				state.traceDownloads++;
+				return route.fulfill({
+					body: JSON.stringify({ format: 'kuayle.task-trace/v1', entries: [], cuts: [], redacted: true }),
+					headers: {
+						'content-type': 'application/json',
+						'content-disposition': 'attachment; filename="kuayle-trace-ENG-1.json"'
+					}
+				});
+			}
 
 			if (path.endsWith('/publication')) {
 				state.publications++;
@@ -1120,6 +1131,31 @@ async function openTaskMenu(page: Page) {
 		.click();
 	return page.getByRole('menu').first();
 }
+
+// The one trace action downloads the same JSON file from the task card's menu
+// and from the agent view.
+test('downloads the task trace from the card menu and the agent view', async ({ page }) => {
+	const { state } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+
+	const menu = await openTaskMenu(page);
+	const [fromCard] = await Promise.all([
+		page.waitForEvent('download'),
+		menu.getByRole('menuitem', { name: 'Download trace', exact: true }).click()
+	]);
+	expect(fromCard.suggestedFilename()).toBe('kuayle-trace-ENG-1.json');
+	expect(state.traceDownloads).toBe(1);
+
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+	const [fromThread] = await Promise.all([
+		page.waitForEvent('download'),
+		thread.getByRole('button', { name: 'Download trace', exact: true }).click()
+	]);
+	expect(fromThread.suggestedFilename()).toBe('kuayle-trace-ENG-1.json');
+	expect(state.traceDownloads).toBe(2);
+});
 
 async function awaitReview(state: any, emit: (type: string, payload: any) => void) {
 	state.publication = {

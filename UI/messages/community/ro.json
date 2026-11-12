@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "Nu s-a putut șterge. Așteaptă să se termine răspunsurile sau munca agenților aflate în curs.",
 	"assistant.resize_sidebar": "Redimensionează lista de conversații",
 	"tasks.view_diff": "Vezi diff-ul",
+	"tasks.download_trace": "Descarcă urma",
 	"tasks.diff_title": "Modificări",
 	"tasks.diff_close": "Închide modificările",
 	"tasks.diff_resize": "Redimensionează panoul de modificări",

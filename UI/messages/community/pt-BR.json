@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "Não foi possível excluir. Aguarde o término das respostas ou do trabalho de agente em andamento.",
 	"assistant.resize_sidebar": "Redimensionar lista de conversas",
 	"tasks.view_diff": "Ver diff",
+	"tasks.download_trace": "Baixar rastreamento",
 	"tasks.diff_title": "Alterações",
 	"tasks.diff_close": "Fechar alterações",
 	"tasks.diff_resize": "Redimensionar painel de alterações",

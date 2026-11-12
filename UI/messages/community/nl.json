@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "Verwijderen mislukt. Wacht tot lopende antwoorden of agentwerk klaar zijn.",
 	"assistant.resize_sidebar": "Formaat van gesprekkenlijst wijzigen",
 	"tasks.view_diff": "Diff bekijken",
+	"tasks.download_trace": "Trace downloaden",
 	"tasks.diff_title": "Wijzigingen",
 	"tasks.diff_close": "Wijzigingen sluiten",
 	"tasks.diff_resize": "Formaat van wijzigingenpaneel wijzigen",

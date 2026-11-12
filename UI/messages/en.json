@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "Could not delete. Wait for running replies or agent work to finish.",
 	"assistant.resize_sidebar": "Resize conversation list",
 	"tasks.view_diff": "View diff",
+	"tasks.download_trace": "Download trace",
 	"tasks.diff_title": "Changes",
 	"tasks.diff_close": "Close changes",
 	"tasks.diff_resize": "Resize changes panel",

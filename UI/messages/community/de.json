@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "Löschen nicht möglich. Warte, bis laufende Antworten oder Agent-Arbeit beendet sind.",
 	"assistant.resize_sidebar": "Größe der Unterhaltungsliste ändern",
 	"tasks.view_diff": "Diff ansehen",
+	"tasks.download_trace": "Trace herunterladen",
 	"tasks.diff_title": "Änderungen",
 	"tasks.diff_close": "Änderungen schließen",
 	"tasks.diff_resize": "Größe des Änderungsbereichs ändern",

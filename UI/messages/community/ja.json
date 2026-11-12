@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "削除できませんでした。実行中の返信やエージェントの作業が終わるまでお待ちください。",
 	"assistant.resize_sidebar": "会話リストをリサイズ",
 	"tasks.view_diff": "差分を表示",
+	"tasks.download_trace": "トレースをダウンロード",
 	"tasks.diff_title": "変更",
 	"tasks.diff_close": "変更を閉じる",
 	"tasks.diff_resize": "変更パネルをリサイズ",

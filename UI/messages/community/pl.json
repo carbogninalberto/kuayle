@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "Nie udało się usunąć. Poczekaj na zakończenie trwających odpowiedzi lub pracy agentów.",
 	"assistant.resize_sidebar": "Zmień rozmiar listy rozmów",
 	"tasks.view_diff": "Zobacz diff",
+	"tasks.download_trace": "Pobierz ślad",
 	"tasks.diff_title": "Zmiany",
 	"tasks.diff_close": "Zamknij zmiany",
 	"tasks.diff_resize": "Zmień rozmiar panelu zmian",

@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "تعذر الحذف. انتظر انتهاء الردود أو عمل الوكلاء الجاري.",
 	"assistant.resize_sidebar": "تغيير حجم قائمة المحادثات",
 	"tasks.view_diff": "عرض الفروقات",
+	"tasks.download_trace": "تنزيل التتبع",
 	"tasks.diff_title": "التغييرات",
 	"tasks.diff_close": "إغلاق التغييرات",
 	"tasks.diff_resize": "تغيير حجم لوحة التغييرات",

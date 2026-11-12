@@ -457,6 +457,30 @@ func (h *AgentTaskHandler) Prompt(c *echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
+// DebugTrace downloads the task's full debug trace as one JSON file. The
+// document is assembled under the task's access rules and redacted; it is
+// not wrapped in the usual response envelope so the file is the document.
+func (h *AgentTaskHandler) DebugTrace(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.DebugTrace(c.Request().Context(), middleware.GetWorkspace(c).ID, id)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	name := result.Task.Identifier
+	if name == "" {
+		name = result.Task.ID.String()
+	}
+	name = "kuayle-trace-" + unsafeArtifactName.ReplaceAllString(name, "_") + ".json"
+	headers := c.Response().Header()
+	headers.Set("X-Content-Type-Options", "nosniff")
+	headers.Set("Cache-Control", "private, no-store")
+	headers.Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	return c.JSON(http.StatusOK, result)
+}
+
 // Diff returns an attempt's captured diff against its base branch.
 func (h *AgentTaskHandler) Diff(c *echo.Context) error {
 	id, err := taskID(c, "taskId")

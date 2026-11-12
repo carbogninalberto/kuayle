@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "ไม่สามารถลบได้ รอให้การตอบหรืองานของ Agent ที่กำลังทำเสร็จก่อน",
 	"assistant.resize_sidebar": "ปรับขนาดรายการการสนทนา",
 	"tasks.view_diff": "ดู diff",
+	"tasks.download_trace": "ดาวน์โหลดร่องรอย",
 	"tasks.diff_title": "การเปลี่ยนแปลง",
 	"tasks.diff_close": "ปิดการเปลี่ยนแปลง",
 	"tasks.diff_resize": "ปรับขนาดแผงการเปลี่ยนแปลง",

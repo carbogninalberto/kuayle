@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "無法刪除。請等待進行中的回覆或代理工作完成。",
 	"assistant.resize_sidebar": "調整對話清單寬度",
 	"tasks.view_diff": "檢視差異",
+	"tasks.download_trace": "下載追蹤",
 	"tasks.diff_title": "變更",
 	"tasks.diff_close": "關閉變更",
 	"tasks.diff_resize": "調整變更面板寬度",

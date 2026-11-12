@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "Kunne ikke slette. Vent, til igangværende svar eller agentarbejde er færdigt.",
 	"assistant.resize_sidebar": "Tilpas størrelsen på samtalelisten",
 	"tasks.view_diff": "Vis diff",
+	"tasks.download_trace": "Download spor",
 	"tasks.diff_title": "Ændringer",
 	"tasks.diff_close": "Luk ændringer",
 	"tasks.diff_resize": "Tilpas størrelsen på ændringspanelet",

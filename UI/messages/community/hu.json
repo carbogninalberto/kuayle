@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "A törlés nem sikerült. Várd meg, amíg a futó válaszok vagy az agent munka befejeződik.",
 	"assistant.resize_sidebar": "Beszélgetéslista átméretezése",
 	"tasks.view_diff": "Diff megtekintése",
+	"tasks.download_trace": "Nyomkövetés letöltése",
 	"tasks.diff_title": "Változtatások",
 	"tasks.diff_close": "Változtatások bezárása",
 	"tasks.diff_resize": "Változtatások panel átméretezése",

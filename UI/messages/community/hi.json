@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "हटाया नहीं जा सका। चल रहे जवाब या एजेंट के काम के खत्म होने तक प्रतीक्षा करें।",
 	"assistant.resize_sidebar": "बातचीत सूची का आकार बदलें",
 	"tasks.view_diff": "डिफ़ देखें",
+	"tasks.download_trace": "ट्रेस डाउनलोड करें",
 	"tasks.diff_title": "बदलाव",
 	"tasks.diff_close": "बदलाव बंद करें",
 	"tasks.diff_resize": "बदलाव पैनल का आकार बदलें",

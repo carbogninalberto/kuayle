@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { setContext, tick, untrack } from 'svelte';
-	import { RefreshCw } from '@lucide/svelte';
+	import { FileDown, RefreshCw } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import * as Breadcrumb from '$lib/components/ui/breadcrumb/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -28,6 +28,7 @@
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { taskLabel } from './task-labels';
 	import { taskTone, toneBadge } from './task-tone';
+	import { downloadTaskTrace } from './task-trace';
 	import { m } from '$lib/features/i18n/messages';
 
 	// One coding task as the centre conversation: where it is (a breadcrumb
@@ -60,11 +61,26 @@
 	const identifier = $derived(chat.issue?.identifier ?? '');
 	const tone = $derived(taskTone(task.state));
 	let stopError = $state('');
+	let traceError = $state('');
+	let traceBusy = $state(false);
 	// A refused stop is about the state the task was in.
 	$effect(() => {
 		void task.state;
 		stopError = '';
+		traceError = '';
 	});
+	async function downloadTrace() {
+		if (traceBusy) return;
+		traceBusy = true;
+		traceError = '';
+		try {
+			await downloadTaskTrace(chat.slug, task.id, identifier);
+		} catch {
+			if (!disposed) traceError = m['tasks.load_error']();
+		} finally {
+			if (!disposed) traceBusy = false;
+		}
+	}
 
 	let disposed = false;
 	$effect(() => () => {
@@ -205,12 +221,16 @@
 			<ClampedText text={task.prompt} class="text-sm font-medium" />
 			<div class="flex shrink-0 items-center gap-2">
 				<AgentReviewRequest {chat} {task} {allowedAgents} onrequest={requestReview} />
+				<Button variant="outline" size="sm" disabled={traceBusy} onclick={() => void downloadTrace()}
+					><FileDown />{m['tasks.download_trace']()}</Button
+				>
 				<TaskStopButton {chat} {task} {identifier} onerror={(message) => (stopError = message)} />
 				<Badge variant="outline" class={toneBadge[tone]} role="status">{taskLabel(task.state)}</Badge>
 			</div>
 		</div>
 		{#if task.reason}<p class="text-xs break-words text-muted-foreground">{task.reason}</p>{/if}
 		{#if stopError}<p role="alert" class="text-sm break-words text-destructive">{stopError}</p>{/if}
+		{#if traceError}<p role="alert" class="text-sm break-words text-destructive">{traceError}</p>{/if}
 	</div>
 
 	{#if run.notebook}<TaskNotebook view={run.notebook} request={task.prompt} name={personName} bind:open={notebookOpen} onopened={() => scroller.scrollToStart({ behavior: 'auto' })} />{/if}

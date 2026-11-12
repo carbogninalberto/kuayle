@@ -2248,6 +2248,7 @@
 	"assistant.delete_failed": "Silinemedi. Çalışan yanıtların veya ajan işinin bitmesini bekleyin.",
 	"assistant.resize_sidebar": "Sohbet listesini yeniden boyutlandır",
 	"tasks.view_diff": "Diff'i görüntüle",
+	"tasks.download_trace": "İzi indir",
 	"tasks.diff_title": "Değişiklikler",
 	"tasks.diff_close": "Değişiklikleri kapat",
 	"tasks.diff_resize": "Değişiklikler panelini yeniden boyutlandır",
