@@ -7,9 +7,10 @@
 	import { m } from '$lib/features/i18n/messages';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 
-	// The issue conversation's coding tasks, newest first. Each task reads as a
-	// conversation with its agent (TaskCard): state, actions, the live thread,
-	// then the execution details. Finished and failed tasks stay listed.
+	// The issue conversation's coding tasks, newest first. Each task (TaskCard)
+	// is its state, its actions, the path it took and the execution details;
+	// talking to its agent and reviews are in the agent view. Finished and
+	// failed tasks stay listed.
 	let { chat, board }: { chat: ConversationState; board: TaskBoard } = $props();
 	const dock = useTerminalDock();
 	// Seeing agent work turns on the dock's Agents tab for this workspace.
@@ -46,7 +47,6 @@
 					{task}
 					{chat}
 					pinned={i === 0}
-					allowedAgents={board.options?.providers.map((provider) => provider.id) ?? []}
 					onretry={(value) => board.retry(value)}
 					ondenied={(e) => board.fail(e)}
 				/>{/each}

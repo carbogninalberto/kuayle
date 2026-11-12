@@ -1,16 +1,10 @@
 <script lang="ts">
 	import {
 		ChevronRight,
-		CircleAlert,
-		CircleCheck,
-		CircleDot,
-		CirclePause,
-		CircleSlash,
 		Flag,
 		GitMerge,
 		GitPullRequestArrow,
 		ListChecks,
-		LoaderCircle,
 		MessageCircleWarning,
 		Play,
 		SearchCheck,
@@ -24,7 +18,9 @@
 	import type { ConversationState } from './conversation-state.svelte';
 	import AgentStepRun from './AgentStepRun.svelte';
 	import Markdown from './Markdown.svelte';
-	import { stepDuration, type StepStatus, type TimelineStep } from './agent-timeline';
+	import StepStatus from './StepStatus.svelte';
+	import { stepDuration, type TimelineStep } from './agent-timeline';
+	import { stepAgent, stepTitle } from './step-labels';
 	import type { Conversation } from './agent-conversation';
 	import { formatDuration } from './shell-rules';
 	import { getLocale, m } from '$lib/features/i18n/messages';
@@ -61,28 +57,9 @@
 		merge: GitMerge,
 		end: Flag
 	};
-	const statusLabel: Record<StepStatus, () => string> = {
-		running: m['workflows.task.status_running'],
-		waiting: m['workflows.task.status_waiting'],
-		done: m['workflows.task.status_done'],
-		changes: m['tasks.review_verdict_request_changes'],
-		failed: m['workflows.task.status_failed'],
-		stopped: m['assistant.cancelled']
-	};
-	const statusTone: Record<StepStatus, string> = {
-		running: 'text-[var(--status-running)]',
-		waiting: 'text-[var(--status-warning)]',
-		done: 'text-[var(--status-success)]',
-		changes: 'text-[var(--status-warning)]',
-		failed: 'text-[var(--status-error)]',
-		stopped: 'text-muted-foreground'
-	};
 	const harness = $derived(step.harness ? agentInfo(step.harness).name : '');
-	const title = $derived(
-		step.label || (step.kind === 'agent' && harness ? harness : m[`workflows.type.${step.nodeType}`]())
-	);
-	// Who ran it: the profile, or the harness when the step is not named after it.
-	const who = $derived(step.profile ?? (step.label ? harness : ''));
+	const title = $derived(stepTitle(step));
+	const who = $derived(stepAgent(step));
 	const ms = $derived(stepDuration(step, now));
 	// A step passed through at once (start, end) has no time worth showing.
 	const time = $derived(ms === undefined || ms < 1000 ? '' : formatDuration(ms));
@@ -101,16 +78,7 @@
 	const note = $derived(step.detail || (step.status === 'done' ? '' : step.reason));
 </script>
 
-{#snippet status()}
-	<span role="img" aria-label={statusLabel[step.status]()} class="inline-flex shrink-0 {statusTone[step.status]}">
-		{#if step.status === 'running'}<LoaderCircle size={15} class="animate-spin motion-reduce:animate-none" />
-		{:else if step.status === 'waiting'}<CirclePause size={15} />
-		{:else if step.status === 'done'}<CircleCheck size={15} />
-		{:else if step.status === 'changes'}<CircleDot size={15} />
-		{:else if step.status === 'failed'}<CircleAlert size={15} />
-		{:else}<CircleSlash size={15} />{/if}
-	</span>
-{/snippet}
+{#snippet status()}<StepStatus status={step.status} />{/snippet}
 
 {#snippet tail()}
 	{#if step.visit > 1}<span class="shrink-0 text-xs text-muted-foreground tabular-nums">×{step.visit}</span>{/if}

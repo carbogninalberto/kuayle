@@ -185,11 +185,17 @@ export interface WorkflowStep {
 	paused_seconds?: number;
 }
 
-/** One pause or resume of a task's workflow, on the step it happened at. */
+/**
+ * One pause or resume of a task's workflow, or its move to a newer version
+ * of the workflow, on the step it happened at.
+ */
 export interface WorkflowPauseEvent {
-	action: 'pause_requested' | 'paused' | 'resumed' | 'pause_withdrawn';
+	action: 'pause_requested' | 'paused' | 'resumed' | 'pause_withdrawn' | 'version_switched';
 	sequence: number;
 	mode?: 'now' | 'after_step';
+	/** A move: the versions it went from and to. */
+	from_version?: number;
+	to_version?: number;
 	/** Absent when a requested pause took effect by itself. */
 	actor_id?: string | null;
 	at: string;
@@ -244,7 +250,7 @@ export interface TaskWorkflow {
 	/** Set while a person's pause holds the workflow. */
 	paused_at?: string | null;
 	pause_request?: 'now' | 'after_step' | null;
-	/** The workflow's pauses and resumes, oldest first. */
+	/** The workflow's pauses, resumes and version moves, oldest first. */
 	pauses?: WorkflowPauseEvent[];
 }
 

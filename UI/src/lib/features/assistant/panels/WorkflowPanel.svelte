@@ -2,6 +2,7 @@
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import TaskWorkflowView from '$lib/features/workflows/TaskWorkflowView.svelte';
+	import TaskPath from '../TaskPath.svelte';
 	import { m } from '$lib/features/i18n/messages';
 	import type { PanelContext } from './panel-host.svelte';
 
@@ -15,9 +16,6 @@
 	// The newest task until the person picks another.
 	const taskId = $derived(tasks.some((task) => task.id === chosen) ? chosen : (tasks[0]?.id ?? ''));
 	const task = $derived(tasks.find((t) => t.id === taskId));
-	const refreshKey = $derived(
-		task ? [task.state, task.generation, task.workflow_node ?? '', task.workflow_status ?? ''].join(':') : ''
-	);
 	const taskName = (prompt: string) => (prompt.length > 60 ? `${prompt.slice(0, 60)}…` : prompt);
 </script>
 
@@ -32,6 +30,9 @@
 					options={tasks.map((t) => ({ value: t.id, label: taskName(t.prompt) }))}
 				/>
 			</div>{/if}
-		{#key task.id}<TaskWorkflowView slug={context.slug} taskId={task.id} {refreshKey} compact />{/key}
+		{#key task.id}
+			<TaskWorkflowView chat={context.chat} {task} compact />
+			<TaskPath chat={context.chat} {task} />
+		{/key}
 	{/if}
 </div>

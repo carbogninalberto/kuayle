@@ -669,10 +669,10 @@ once more to the same step's next attempt. The task's creator can also
 interrupt the working agent with a message (its session resumes with it; with
 or without a workflow) or start an attempt for one, see the
 [live channel](BE/docs/agent-tasks.md#live-channel). The agent view shows the
-conversation in the task's timeline and has the composer; the task card's
-**Live messages** thread reads and sends through the same
-`GET/POST /agent-tasks/:taskId/live-messages` (and the assistant composer,
-aimed at a task's agent from the chat, sends through it); the assistant has
+conversation in the task's timeline and has the composer, which reads and
+sends through `GET/POST /agent-tasks/:taskId/live-messages` (the assistant
+composer, aimed at a task's agent from the chat, sends through it too; the
+task card in the sidebar has no thread and shows the path the task took); the assistant has
 `message_task` (the task's creator approves the exact text on a card before
 anything is sent) and the read-only `get_task_messages`; agent messages appear in the owning chat as escaped,
 untrusted items through `task.live_message` conversation events and history

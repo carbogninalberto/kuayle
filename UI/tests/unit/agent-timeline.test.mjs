@@ -229,6 +229,14 @@ test('a step’s duration runs to its end, or to now while it is going', () => {
 	assert.equal(stepDuration(current, Date.parse(at(20))), 2 * 60_000);
 	const waiting = { ...current, status: 'waiting' };
 	assert.equal(stepDuration(waiting, Date.parse(at(20))), undefined);
+	// Time a person paused the step is not time it worked.
+	const paused = view();
+	paused.steps[1] = { ...paused.steps[1], paused_seconds: 90 };
+	paused.steps[5] = { ...paused.steps[5], paused_seconds: 60 };
+	const steps = workflowTimeline(paused, task());
+	assert.equal(stepDuration(steps[1], Date.parse(at(50))), 4 * 60_000 - 90_000);
+	assert.equal(stepDuration(steps[5], Date.parse(at(20))), 60_000);
+	assert.equal(stepDuration({ ...steps[1], pausedSeconds: 3600 }, Date.parse(at(50))), 0);
 });
 
 test('the final message of a finished run is told apart from its trace', () => {

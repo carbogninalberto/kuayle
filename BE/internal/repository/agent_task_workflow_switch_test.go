@@ -95,6 +95,15 @@ func TestWorkflowSwitchMovesAPausedTaskToTheNewestVersion(t *testing.T) {
 	require.NoError(t, f.db.QueryRow(`SELECT detail,actor_id FROM workflow_audit_events WHERE entity='task_workflow' AND entity_id=$1 AND action=$2`, f.task.ID, domain.WorkflowSwitchAction).Scan(&detail, &actor))
 	require.Equal(t, f.task.CreatorID, actor)
 	require.JSONEq(t, `{"from_version":1,"to_version":2,"node":"implement","sequence":`+jsonInt(int64(after.WorkflowSequence))+`}`, string(detail))
+	// The workflow view lists the move with the task's pauses, on the step
+	// it happened at, so the task's path shows it there.
+	events, err := f.repo.WorkflowPauses(f.ctx, f.ws, f.task.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, events)
+	move := events[len(events)-1]
+	require.Equal(t, domain.WorkflowSwitchAction, move.Action)
+	require.Equal(t, []int{1, 2, after.WorkflowSequence}, []int{move.FromVersion, move.ToVersion, move.Sequence})
+	require.Equal(t, f.task.CreatorID, *move.ActorID)
 
 	// It is on the newest version now.
 	plan, _, err = f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, true)

@@ -196,7 +196,7 @@ compact steps where they started) and a floating composer; the right side is a
 resizable [panel host](../../UI/src/lib/features/assistant/panels/panel-host.svelte.ts)
 (inline from 1280 px, a drawer below) with Details (environment, context
 usage of the 50-message model window, changes, background tasks), Agents (each
-coding task as a thread with its agent) and Diff panels. New panels, such as a
+coding task with the path it took) and Diff panels. New panels, such as a
 future workflow editor, register as one more `PanelDefinition`. Unknown tool
 names render through the generic step chip; [tool-chips.ts](../../UI/src/lib/features/assistant/tool-chips.ts)
 registers per-tool labels, icons or renderers. The one composer sends to the
@@ -253,9 +253,17 @@ message is "no reply" once the attempt that received it ran to its end
 without one (or the task ended); an attempt that was interrupted or paused
 hands it to the one that continues it. A missing reply never fails the
 attempt, so the task goes on; the step's line carries a warning icon, also
-when closed, and the attempt's risk notes say which message. There is no separate "Live messages" thread in this view; the task
-card in the sidebar keeps its own.
-The header has a Stop button
+when closed, and the attempt's risk notes say which message. There is no
+separate "Live messages" thread, in this view or on the task card in the
+sidebar.
+The header has "Request review"
+([AgentReviewRequest.svelte](../../UI/src/lib/features/assistant/AgentReviewRequest.svelte))
+while the task awaits review with its pull request open: a menu of the
+allowed harnesses that writes the request into the assistant's composer and
+returns to the chat, where the assistant asks for approval (see
+[requested agent reviews](agent-tasks.md#requested-agent-reviews)). The
+requested reviews and their findings are listed under the timeline.
+The header also has a Stop button
 ([TaskStopButton.svelte](../../UI/src/lib/features/assistant/TaskStopButton.svelte))
 while the task can still be stopped, shown to the person who started it: one
 confirmation, then the existing cancel endpoint, and the task reads as
@@ -265,7 +273,8 @@ The thread is a timeline of the task's workflow steps, oldest first
 ([agent-timeline.ts](../../UI/src/lib/features/assistant/agent-timeline.ts),
 from `GET /agent-tasks/:taskId/workflow`): one line per step with its name,
 the profile and harness that ran it, the model, the visit when it is not the
-first, how long it took (the start time on hover) and a status icon. An agent
+first, how long it worked (the time a person's pause held it,
+`paused_seconds`, is left out; the start time on hover) and a status icon. An agent
 step opens to its work; a step that is not an agent's (start, publish, check,
 approval, merge, end) is a compact row that opens only when the runner
 recorded a detail for it. The step an agent is running is open and streams;
@@ -277,11 +286,20 @@ own agent view (`?agent=<review task id>`, read by id because the conversation
 does not list reviews). A task without a workflow is one step per attempt,
 from `/runs`. Each section's element id is stable (`step-<sequence>`, or
 `run-<run id>` without a workflow), and a link with that fragment opens the
-step. The request and a prompt in the session are clamped with "Expand" in
+step, also when the view is already open (the sidebar's path links here). The request and a prompt in the session are clamped with "Expand" in
 place; the original output is behind the terminal toggle under each run. The
 harness name and the start time are read out with the line and shown in a
 tooltip on hover or keyboard focus.
 
+What a task did is loaded once per task and shared
+([task-run.svelte.ts](../../UI/src/lib/features/assistant/task-run.svelte.ts),
+`useTaskRun`): the agent view's timeline, the task card's path and the
+workflow chart read the same run, so the workflow is fetched and polled once
+however many of them are open. A read that fails is tried once more after two
+seconds; if that fails too the card shows one retry button (the chart says so
+in words). For a task without a workflow the attempts, the Standard chart and
+the state changes are read independently, so one failing takes none of the
+others.
 The steps reload on the task's events (`task.state_changed`, `task.updated`,
 `task.workflow_updated`, `task.review_updated`). As a fallback for missed
 events the workflow is polled every 15 s while a step runs and every 2 min
@@ -321,6 +339,34 @@ duration; `status: "error"` or a non-zero `metadata.exit` is a failure), a
 provider's usage limit. Oversized or limit-truncated lines say so,
 unknown events and plain output stay visible as escaped text, and "Raw" shows
 the original output. The task card's Execution output uses the same view.
+
+**Task card.** In the Agents panel each task is its state, its actions, the
+path it took and its execution details. It has no composer, no message thread
+and no review action: those are in the agent view. The path
+([TaskPath.svelte](../../UI/src/lib/features/assistant/TaskPath.svelte),
+[task-path.ts](../../UI/src/lib/features/assistant/task-path.ts), built on the
+timeline's steps) is one short vertical line: a step's name, its agent
+(profile), how it went as an icon in its colour, the visit when above one,
+when it started and how long it worked (as in the agent view, without the
+time it was paused). Compact, the default, is each step
+once, as it last went, in the order the task last passed them, without the
+start; "Full path" opens every step with its loops, and the pauses, resumes
+and moves to a newer workflow version where they happened. Only the step the
+task is on says more by itself: what it waits for (CI on the pull request, an
+approval with its question, the merge, a limit, a person's pause) or, for a
+failed task, why it stopped there; the card then does not repeat the task's
+reason. A step opens to what the runner recorded for it and to where the task
+went next and on which transition. Each step links to its section in the
+agent view; on narrow screens following it closes the panel's sheet. The time
+on every entry, a state change's included, is absolute for assistive
+technology and in a tooltip on hover or keyboard focus; a step's tooltip also
+has its whole name, which a narrow row may cut. A task without a workflow
+shows its attempts the same way (the last outcome and the current attempt
+when compact), each opening to its state changes from `/history`. An attempt
+is numbered by its generation and paired with the changes of that generation
+(the nth "queued" opens the nth attempt), so one that failed before a run was
+recorded shifts nothing. The Workflow panel shows the same path under
+the chart.
 
 Focused checks, in addition to the repository testing skill's area checks:
 
@@ -739,11 +785,12 @@ ENG-1", rendered as escaped plain text (never Markdown, so no links, images or
 HTML), with a note that the assistant does not act on them unless asked. A
 `kind: "question"` item is marked as a question, and one that arrives live
 raises a toast; the creator also gets a [Telegram notice](telegram.md#task-notifications)
-when linked. The task card's **Live messages** thread lists both directions
-with their delivery state and has a composer that posts to
+when linked. The agent view shows both directions with their delivery state
+in the task's timeline and has the composer that posts to
 `POST /agent-tasks/:taskId/live-messages` (see
 [agent tasks](agent-tasks.md#live-channel)); it reloads on each
-`task.live_message` event of its task.
+`task.live_message` event of its task. The task card in the sidebar has no
+thread.
 
 ## Approvals
 

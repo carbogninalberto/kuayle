@@ -204,6 +204,15 @@
 	$effect(() => {
 		if (!wide.current) untrack(() => (host.active = null));
 	});
+	// A step of a task's path opens in the agent view, which a drawer would
+	// cover: on narrow screens following the link closes it.
+	let pathTarget = untrack(() => `${page.url.searchParams.get('agent') ?? ''}${page.url.hash}`);
+	$effect(() => {
+		const target = `${page.url.searchParams.get('agent') ?? ''}${page.url.hash}`;
+		if (target === pathTarget) return;
+		pathTarget = target;
+		if (target && !wide.current) untrack(() => (host.active = null));
+	});
 	// A diff asked for from a task, a step or the overview opens in the panel.
 	$effect(() => {
 		if (chat.diffView) untrack(() => host.open('diff'));
@@ -578,8 +587,10 @@
 			clearInterval(queueTimer);
 		};
 	});
-	// A task card can ask for a message, such as a review request; the user
-	// still reads, edits and sends it — to the assistant.
+	// A view can ask for a message, such as a review request from an agent's
+	// view; the user still reads, edits and sends it — to the assistant. The
+	// composer takes focus once it is on screen again.
+	let draftFocus = $state(false);
 	$effect(() => {
 		const draft = chat.composerDraft;
 		if (draft === null) return;
@@ -588,8 +599,14 @@
 			chat.composerTarget = null;
 			text = draft;
 			if (!wide.current) host.close();
-			void tick().then(() => textarea?.focus());
+			draftFocus = true;
 		});
+	});
+	$effect(() => {
+		if (!draftFocus || !textarea?.isConnected) return;
+		const target = textarea;
+		untrack(() => (draftFocus = false));
+		void tick().then(() => target.focus());
 	});
 	$effect(() => {
 		if (!draftLoaded) return;
@@ -1275,6 +1292,7 @@
 												task={agentTask}
 												backHref={assistantHref}
 												onback={closeAgent}
+												allowedAgents={board?.options?.providers.map((provider) => provider.id) ?? []}
 											/>{/key}{:else if firstLoad || (chat.issue && !chat.unavailable && (!board || board.loading))}<p
 											class="text-sm text-muted-foreground"
 											role="status"
