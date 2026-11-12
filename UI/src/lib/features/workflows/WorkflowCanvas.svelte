@@ -23,7 +23,7 @@
 	import FlowBridge, { type FlowApi } from './FlowBridge.svelte';
 	import RouteEdge from './RouteEdge.svelte';
 	import type { WorkflowNodeType } from '$lib/api/workflows';
-	import { conditionLabel, issueLabel, profileTitle } from './labels';
+	import { conditionLabel, issueLabel, profileTitle, warningLabels } from './labels';
 	import {
 		extent,
 		nodeWidth,
@@ -43,6 +43,7 @@
 		graph,
 		profiles,
 		issues = [],
+		warnings = [],
 		editable = false,
 		selection = null,
 		run,
@@ -61,6 +62,8 @@
 		graph: WorkflowGraph;
 		profiles: AgentProfile[];
 		issues?: WorkflowIssue[];
+		/** Problems that do not stop a save, shown on their step. */
+		warnings?: WorkflowIssue[];
 		editable?: boolean;
 		selection?: Selection;
 		/** A task's run: its current node, the nodes it entered, visit counts and fired transitions. */
@@ -133,6 +136,7 @@
 				node,
 				subtitle: subtitle(node),
 				problems: (placed.nodes.get(node.id) ?? []).map((issue) => issueLabel(issue.code, issue.message)),
+				warnings: warningLabels(warnings, node.id),
 				current: run?.current === node.id,
 				visited: run?.visited.has(node.id),
 				visits: run ? (run.visits[node.id] ?? 0) : undefined,

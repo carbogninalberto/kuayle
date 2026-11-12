@@ -17,11 +17,14 @@
 	import AgentLiveMessage from './AgentLiveMessage.svelte';
 	import AgentReviewRequest from './AgentReviewRequest.svelte';
 	import AgentReviews from './AgentReviews.svelte';
+	import TaskNotebook from './TaskNotebook.svelte';
+	import { missedNotebook } from './task-notebook';
 	import TaskStopButton from './TaskStopButton.svelte';
 	import { openStep } from './agent-timeline';
 	import { answerContext, placeConversation, sendOptions, type AnswerContext } from './agent-conversation';
 	import { reviewSessions } from './agent-review';
 	import { useTaskRun } from './task-run.svelte';
+	import { useMessageScroller } from '$lib/components/ui/message-scroller/index.js';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { taskLabel } from './task-labels';
 	import { taskTone, toneBadge } from './task-tone';
@@ -37,7 +40,9 @@
 	// last step, where the next iteration picks it up. It is written in the
 	// composer under the view (AgentComposer). A review of the task's pull
 	// request is asked for from its header, and the requested reviews are
-	// read under the timeline.
+	// read under the timeline. The task's notebook is one line above the
+	// timeline that opens to the working document, and each agent step's line
+	// opens the prompt its agent received; both are its creator's to read.
 	let {
 		chat,
 		task,
@@ -69,8 +74,22 @@
 	// What the task did is loaded once for this view, the sidebar's path and
 	// the workflow chart; it reloads on the task's events and is polled as a
 	// fallback (see TaskRun).
-	const run = useTaskRun(untrack(() => chat), () => task);
+	// The notebook and a run's prompt are read by the task's creator alone; a
+	// review has no notebook.
+	const mine = $derived(task.creator_id === authState.user?.id);
+	const run = useTaskRun(
+		untrack(() => chat),
+		() => task,
+		untrack(() => ({ notebook: mine && task.kind !== 'review' }))
+	);
 	const steps = $derived(run.steps);
+	const missed = $derived(missedNotebook(run.notebook));
+	let notebookOpen = $state(false);
+	// The transcript follows its live end while the reader is there, and a
+	// short one is at its end and its start at once: the opened notebook
+	// would send the reader below it. Opening it is reading from the top.
+	const scroller = useMessageScroller();
+	const personName = (id: string | undefined) => (id && id === authState.user?.id ? authState.user.display_name || authState.user.name : '');
 	// The task's live channel, reloaded on each of its events. A review has
 	// none; another member's task answers "not found" and shows nothing.
 	let live = $state<LiveMessage[]>([]);
@@ -85,8 +104,14 @@
 		}
 	}
 	$effect(() => {
-		void [task.id, chat.taskLiveCursor[task.id]];
-		if (task.kind !== 'review') untrack(() => void loadLive());
+		const cursor = chat.taskLiveCursor[task.id];
+		void task.id;
+		if (task.kind === 'review') return;
+		untrack(() => {
+			void loadLive();
+			// A message to the agent is an instruction in its notebook.
+			if (cursor !== undefined) void run.loadNotebook();
+		});
 	});
 	const conversation = $derived(placeConversation(live, steps, task));
 	// An agent's question is answered in the composer under the view: it
@@ -188,6 +213,8 @@
 		{#if stopError}<p role="alert" class="text-sm break-words text-destructive">{stopError}</p>{/if}
 	</div>
 
+	{#if run.notebook}<TaskNotebook view={run.notebook} request={task.prompt} name={personName} bind:open={notebookOpen} onopened={() => scroller.scrollToStart({ behavior: 'auto' })} />{/if}
+
 	<ol aria-label={m['workflows.task.path']()} class="flex min-w-0 flex-col gap-1">
 		{#each steps as step (step.anchor)}
 			<li class="min-w-0">
@@ -197,6 +224,8 @@
 					{now}
 					reviewHref={step.reviewTaskId ? reviewHref(step.reviewTaskId) : undefined}
 					{conversation}
+					promptable={mine}
+					{missed}
 					bind:open={() => chosen[step.anchor] ?? step.anchor === current, (open) => (chosen[step.anchor] = open)}
 				/>
 			</li>

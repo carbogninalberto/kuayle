@@ -291,6 +291,55 @@ place; the original output is behind the terminal toggle under each run. The
 harness name and the start time are read out with the line and shown in a
 tooltip on hover or keyboard focus.
 
+**Notebook, prompt and flags** (KUA-134), for the task's creator, who alone
+can read them. The [task notebook](agent-tasks.md#task-notebook) is one quiet
+line above the timeline, "Notebook" with the plan's progress ("2 of 5"), so
+the transcript stays the view; it opens in place to a short working document
+([TaskNotebook.svelte](../../UI/src/lib/features/assistant/TaskNotebook.svelte),
+[task-notebook.ts](../../UI/src/lib/features/assistant/task-notebook.ts)):
+the plan as a checklist that shows what is done (a step opens to its
+acceptance check, commands and files; a plan without steps shows its text),
+then what is done (an entry Kuayle recorded from an agent's final message
+says so), what remains, how to verify, decisions and findings (open ones
+first, each with its source). What people asked is a block of its own,
+"From people", apart from what agents wrote, without the request the header
+already shows. Who changed which sections at which step, and what Kuayle
+noted (pauses, updates accepted in part), is "History" at the end, closed
+until asked for. The view has no labels beyond the section names and nothing
+to fill in: there is no write route. It is read with the task's shared load
+(below), so it follows the task's events and the workflow's fallback poll
+without a poll of its own, and again when a message is sent to the agent (an
+instruction in it); the same revision is not rendered again. Once the opened
+document is laid out the transcript is scrolled to its start
+(`scrollToStart`), which also stops the scroller following the live end: a
+short transcript is at both ends at once and would otherwise jump below the
+notebook as it grows. A review task has
+no notebook, and another member's task shows none.
+
+An opened agent step has one small button above its work, "Prompt", that
+opens [the prompt its agent received](agent-tasks.md#the-prompt-a-step-received)
+in a sheet ([RunPrompt.svelte](../../UI/src/lib/features/assistant/RunPrompt.svelte),
+[run-prompt.ts](../../UI/src/lib/features/assistant/run-prompt.ts)); nothing
+of it is read before. It is one section per source in the order Kuayle
+assembled it, the source's name as the heading with its size, a mark for
+parts that went to the instructions file or were cut when recorded, and
+"Read-only worktree" for a planning step. Sections are open, show their first
+six lines, expand in place and can be closed, so two sources that contradict
+each other (a step that says "implement", a profile that says "do not") are
+on screen together. A step resumed in several runs offers each by its start
+time, newest first; a run from before prompts were recorded says so.
+
+A run that ended without updating the notebook is flagged on its step's
+line, also when closed, with a quiet icon named "Did not update the
+notebook", beside the "No reply" icon of a run that did not answer a
+message. It is read from the notebook's history: Kuayle then records the
+agent's final message as done itself, the only time it writes that section,
+with the run it belongs to (so the flag covers the notebook's newest 50
+changes). `closing_seconds` is not returned by the API and is not shown.
+Browser coverage: `UI/tests/e2e/task-notebook.test.ts` (desktop and phone
+widths), with the models in `UI/tests/unit/task-notebook.test.mjs` and
+`run-prompt.test.mjs`.
+
 What a task did is loaded once per task and shared
 ([task-run.svelte.ts](../../UI/src/lib/features/assistant/task-run.svelte.ts),
 `useTaskRun`): the agent view's timeline, the task card's path and the

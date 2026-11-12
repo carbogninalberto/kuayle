@@ -64,7 +64,8 @@ const issues: Record<string, () => string> = {
 	unreachable: m['workflows.issue.unreachable'],
 	unguarded_loop: m['workflows.issue.unguarded_loop'],
 	merge_target: m['workflows.issue.merge_target'],
-	plan_target: m['workflows.issue.plan_target']
+	plan_target: m['workflows.issue.plan_target'],
+	planning_step_implements: m['workflows.issue.planning_step_implements']
 };
 
 const statuses: Record<string, () => string> = {
@@ -84,4 +85,9 @@ export function profileTitle(profile: Pick<AgentProfile, 'name' | 'role'>): stri
 	return !role || role.toLowerCase() === profile.name.trim().toLowerCase() ? profile.name : `${profile.name} · ${role}`;
 }
 export const issueLabel = (code: string, fallback: string) => issues[code]?.() ?? fallback;
+
+/** What a step's warnings say, each once (a step's name and its prompt can earn the same one). */
+export const warningLabels = (warnings: { code: string; message: string; node_id?: string }[], nodeId: string) => [
+	...new Set(warnings.filter((warning) => warning.node_id === nodeId).map((warning) => issueLabel(warning.code, warning.message)))
+];
 export const statusLabel = (status: string) => statuses[status]?.();

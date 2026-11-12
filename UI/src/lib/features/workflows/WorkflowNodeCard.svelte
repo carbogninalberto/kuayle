@@ -8,6 +8,8 @@
 		subtitle: string;
 		/** Translated validation problems located on this node. */
 		problems: string[];
+		/** Translated warnings on this node; they do not stop a save. */
+		warnings?: string[];
 		/** For a task's run: the node it is on, whether it entered it, and how often. */
 		current?: boolean;
 		visited?: boolean;
@@ -22,7 +24,7 @@
 
 <script lang="ts">
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
-	import { CircleAlert, Plus, RotateCcw } from '@lucide/svelte';
+	import { CircleAlert, Plus, RotateCcw, TriangleAlert } from '@lucide/svelte';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import { BLOCKS, type Block } from './workflow-graph';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -81,7 +83,7 @@
 	)}
 	data-testid="workflow-node-{node.id}"
 	data-current={data.current ? 'true' : undefined}
-	title={data.problems.join('\n') || undefined}
+	title={[...data.problems, ...(data.warnings ?? [])].join('\n') || undefined}
 >
 	<span class={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', nodeTone(node))}>
 		<Icon class="size-4" aria-hidden="true" />
@@ -99,6 +101,11 @@
 			><RotateCcw class="size-3" /></span
 		>{/if}
 	{#if data.current}<Badge class="h-4 shrink-0 px-1.5 text-[10px]">{m['workflows.task.current']()}</Badge>{/if}
+	{#if data.warnings?.length}<TriangleAlert
+			class="size-4 shrink-0 text-[var(--status-warning)]"
+			aria-label={data.warnings.join('. ')}
+			data-testid="workflow-node-warning-icon"
+		/>{/if}
 	{#if data.problems.length > 0}<CircleAlert
 			class="size-4 shrink-0 text-destructive"
 			aria-label={data.problems.join('. ')}

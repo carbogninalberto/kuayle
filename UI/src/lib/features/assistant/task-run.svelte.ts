@@ -1,5 +1,5 @@
 import { untrack } from 'svelte';
-import { agentTasks, type AgentTask, type TaskTransition } from '$lib/api/agent-tasks';
+import { agentTasks, type AgentTask, type TaskNotebook, type TaskTransition } from '$lib/api/agent-tasks';
 import { workflows, type TaskWorkflow } from '$lib/api/workflows';
 import type { AgentRun } from '$lib/types/dev-machine';
 import type { ConversationState } from './conversation-state.svelte';
@@ -13,11 +13,14 @@ const RETRY_AFTER = 2000;
 // so the workflow is fetched and polled once however many of them are open.
 // A task that follows a workflow reads its workflow view; any other reads its
 // attempts, and its state changes or the Standard workflow's graph when a
-// view asks for them.
+// view asks for them. The task's notebook is read with every load once a view
+// asks for it, so it follows the steps without a poll of its own.
 export class TaskRun {
 	view = $state.raw<TaskWorkflow | null>(null);
 	attempts = $state.raw<AgentRun[]>([]);
 	transitions = $state.raw<TaskTransition[]>([]);
+	/** The task's notebook, for its creator; null until read or when it cannot be. */
+	notebook = $state.raw<TaskNotebook | null>(null);
 	/** What the task did could not be read, also when tried again. */
 	failed = $state(false);
 	/** A task without a workflow: the Standard chart could not be read. */
@@ -38,6 +41,8 @@ export class TaskRun {
 	private key = '';
 	private history = false;
 	private chart = false;
+	private notes = false;
+	private notesRequest = 0;
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private pace = 0;
 	private failures = 0;
@@ -59,11 +64,16 @@ export class TaskRun {
 	 * workflow step, or one of its events), and the first view to say so
 	 * reloads for all of them.
 	 */
-	sync(task: AgentTask, key: string, wants: { history?: boolean; chart?: boolean } = {}) {
+	sync(task: AgentTask, key: string, wants: TaskRunWants = {}) {
 		this.task = task;
 		const more = (!!wants.history && !this.history) || (!!wants.chart && !this.chart && !this.followsWorkflow);
+		// A view that asks for the notebook after the task was read (the path
+		// in the sidebar came first) reads the notebook alone.
+		const notes = !!wants.notebook && !this.notes;
 		this.history ||= !!wants.history;
 		this.chart ||= !!wants.chart;
+		this.notes ||= !!wants.notebook;
+		if (notes && key === this.key && !more) void this.loadNotebook();
 		if (key !== this.key || more) {
 			this.key = key;
 			void this.load();
@@ -80,6 +90,7 @@ export class TaskRun {
 		const current = ++this.request;
 		clearTimeout(this.again);
 		this.again = undefined;
+		if (this.notes) void this.loadNotebook();
 		try {
 			if (this.followsWorkflow) {
 				const loaded = await workflows.task(this.slug, this.task.id, this.knownUntil || undefined);
@@ -111,6 +122,24 @@ export class TaskRun {
 			else this.failed = true;
 		}
 		this.schedule();
+	}
+
+	/**
+	 * Reads the notebook again: with every load of the task, and when a view
+	 * knows it changed (a message to the agent is an instruction in it). A
+	 * read that fails keeps the last one.
+	 */
+	async loadNotebook() {
+		if (!this.notes) return;
+		const current = ++this.notesRequest;
+		try {
+			const loaded = await agentTasks.notebook(this.slug, this.task.id);
+			// The same revision is the same notebook: views keep what they show.
+			if (current === this.notesRequest && loaded?.notebook && loaded.revision !== this.notebook?.revision)
+				this.notebook = loaded;
+		} catch {
+			/* Another member's task has no notebook to show; the timeline stands. */
+		}
 	}
 
 	private async loadChart(current: number) {
@@ -167,10 +196,18 @@ export class TaskRun {
 	release() {
 		if (--this.users > 0) return false;
 		this.request++;
+		this.notesRequest++;
 		clearTimeout(this.again);
 		this.schedule();
 		return true;
 	}
+}
+
+export interface TaskRunWants {
+	history?: boolean;
+	chart?: boolean;
+	/** The task's notebook, which only its creator can read. */
+	notebook?: boolean;
 }
 
 /**
@@ -182,7 +219,7 @@ export class TaskRun {
 export function useTaskRun(
 	chat: ConversationState,
 	task: () => AgentTask,
-	wants: { history?: boolean; chart?: boolean } = {}
+	wants: TaskRunWants = {}
 ): TaskRun {
 	const id = untrack(() => task().id);
 	let run = chat.taskRuns.get(id);

@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { cubicOut } from 'svelte/easing';
 	import {
+		Lightbulb,
 		ArrowLeft,
 		User,
 		Users,
@@ -115,6 +116,7 @@
 							{ label: m['settings.nav.dev_machines'](), href: `/${slug}/settings/dev-machines`, icon: SlidersHorizontal },
 							{ label: m['settings.nav.agents'](), href: `/${slug}/settings/agents`, icon: Bot },
 							{ label: m['settings.nav.workflows'](), href: `/${slug}/settings/workflows`, icon: Workflow },
+							{ label: m['lessons.title'](), href: `/${slug}/settings/lessons`, icon: Lightbulb },
 							{ label: m['agent_messages.nav'](), href: `/${slug}/settings/agent-messages`, icon: MessagesSquare }
 						]
 					: [])

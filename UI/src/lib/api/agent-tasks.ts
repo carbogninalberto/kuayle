@@ -235,6 +235,78 @@ export interface AgentLiveMessage {
 	/** How many attempts received a message to the agent; 0 owes no reply. */
 	deliveries?: number;
 }
+// The task notebook (KUA-134): one working document per task that every step
+// receives and updates. Agents write the plan's steps, decisions, what is
+// done, what remains, how to verify and their findings; Kuayle records
+// people's instructions, review and CI findings and events.
+export interface NotebookPlanStep {
+	title: string;
+	files?: string[];
+	commands?: string[];
+	acceptance?: string;
+	done?: boolean;
+}
+export interface NotebookFinding {
+	id: number;
+	source: 'review' | 'ci' | 'check' | 'comment' | 'agent';
+	text: string;
+	resolved?: boolean;
+	at: string;
+}
+export interface NotebookInstruction {
+	source: 'request' | 'retry' | 'follow_up' | 'live_message';
+	author_id?: string;
+	/** Sent by the assistant for the person. */
+	assistant?: boolean;
+	text: string;
+	at: string;
+}
+export interface Notebook {
+	plan: { text: string; steps: NotebookPlanStep[] | null };
+	decisions: { decision: string; why?: string }[] | null;
+	done: string[] | null;
+	remaining: string[] | null;
+	verify: string[] | null;
+	findings: NotebookFinding[] | null;
+	instructions: NotebookInstruction[] | null;
+	events: { text: string; at: string }[] | null;
+}
+// Who changed which sections of the notebook, at which step and attempt.
+export interface NotebookChange {
+	revision: number;
+	author: 'agent' | 'kuayle' | 'person';
+	user_id?: string;
+	run_id?: string;
+	generation?: number;
+	step_sequence?: number;
+	step_label: string;
+	sections: string[];
+	summary: string;
+	created_at: string;
+}
+export interface TaskNotebook {
+	task_id: string;
+	revision: number;
+	updated_at?: string;
+	notebook: Notebook;
+	/** Newest first, at most 50. */
+	history: NotebookChange[];
+}
+// One part of the prompt an attempt received: where it came from and how it
+// reached the agent. The "prompt" parts, in order, are the prompt as sent.
+export interface PromptSource {
+	source: string;
+	channel: 'prompt' | 'instructions_file';
+	text: string;
+	truncated?: boolean;
+}
+export interface RunPrompt {
+	run_id: string;
+	/** False for attempts that ran before prompts were recorded. */
+	recorded: boolean;
+	worktree_read_only: boolean;
+	sources: PromptSource[] | null;
+}
 // How a message is sent: queued for the working agent (or the next
 // iteration), by interrupting the working agent so it reads it now, or by
 // starting an iteration for it when none runs.
@@ -323,6 +395,11 @@ export const agentTasks = {
 		api.get<ValidationArtifact[]>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/artifacts`),
 	artifact: (slug: string, id: string, run: string, artifact: string) =>
 		api.blob(`${task(slug, id)}/runs/${encodeURIComponent(run)}/artifacts/${encodeURIComponent(artifact)}`),
+	// The task's notebook and its newest changes; creator only.
+	notebook: (slug: string, id: string) => api.get<TaskNotebook>(`${task(slug, id)}/notebook`),
+	// The prompt an attempt received, split by source; creator only.
+	runPrompt: (slug: string, id: string, run: string) =>
+		api.get<RunPrompt>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/prompt`),
 	diff: (slug: string, id: string, run: string) =>
 		api.get<{ diff: string; truncated: boolean }>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/diff`),
 	validation: (slug: string, id: string, run: string) =>

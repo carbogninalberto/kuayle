@@ -1702,6 +1702,27 @@ does the same for a known repository. Both redact the machine's secret values
 and well-known credential formats again, and fail rather than return
 unredacted text when the secrets cannot be read.
 
+**In Settings.** Settings → Lessons
+([+page.svelte](../../UI/src/routes/%5BworkspaceSlug%5D/settings/lessons/+page.svelte),
+[lessons.ts](../../UI/src/lib/features/memory/lessons.ts)) is the whole
+interface, with no explanatory text: "Proposals" at the top, one dashed list
+for every repository, each proposal with its repository, where it came from
+("Written by an agent", "From a GitHub review", "Proposed by <name>"; a link
+to the task's agent view when the reader can open that task) and, for owners
+and admins, "Edited" opening the text as it was proposed. Its three actions
+are approve, edit (the dialog's button approves with the edited text) and
+drop (asked once, as it is final). Below, each repository has its numbered
+list of approved lessons, in the order agents read them; a lesson's one
+control is a menu with edit, move up, move down and retire (asked once). A
+proposal is in no repository's list, which is how the page says that nothing
+reaches an agent before approval. "Add lesson" writes one by hand for a
+connected repository: a lesson at once for an owner or admin, a proposal for
+any other member, who otherwise sees the approved lessons and their own
+proposals with no actions. Retired and dropped lessons are not listed. A
+refusal (a limit, a duplicate) is shown as the server said it and keeps the
+dialog's text. Browser coverage: `UI/tests/e2e/lessons.test.ts` as an admin
+and as a member, at desktop and phone widths.
+
 Rolling migration 149 back drops the lessons and their audit trail.
 
 ## Configurable workflows
@@ -1941,7 +1962,12 @@ its name is that of an implementing role (it contains "implement", "build",
 "coder", "developer" or "engineer") or a sentence or clause of its prompt
 starts with an order to change code (implement, write the code, make the
 changes, fix, commit, push, open a pull request). "Plan how to implement" and
-"do not implement" start with something else and pass.
+"do not implement" start with something else and pass. The editor shows it
+on the step it concerns: a warning icon on the step's card and one line at
+the top of the step's inspector ("This profile only plans, but the step tells
+it to implement", once even when the name and the prompt both earn it). It is
+not listed among the problems to fix and does not disable Save
+(`UI/tests/e2e/workflow-warning.test.ts`).
 
 A profile used as an [agent assignee](#agents-as-issue-assignees) runs the built-in flow
 whatever its behaviour; planning applies to workflow steps.

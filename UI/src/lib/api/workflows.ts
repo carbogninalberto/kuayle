@@ -287,8 +287,9 @@ export const workflows = {
 		api.post<WorkflowSummary>(`${one(slug, id)}/duplicate`, name ? { name } : {}),
 	/** Deletes a workflow; for "standard", discards the workspace's edits. */
 	remove: (slug: string, id: string) => api.delete<void>(one(slug, id)),
+	/** Issues refuse a save; warnings (absent on older servers) never do. */
 	validate: (slug: string, graph: WorkflowGraph) =>
-		api.post<{ issues: WorkflowIssue[] }>(`${base(slug)}/workflows/validate`, { graph }),
+		api.post<{ issues: WorkflowIssue[]; warnings?: WorkflowIssue[] }>(`${base(slug)}/workflows/validate`, { graph }),
 	/** workflow_id "standard" chooses Standard; null makes a team or project inherit. */
 	setDefault: (slug: string, scope: WorkflowScope, scopeId: string, workflowId: string | null) =>
 		api.put<WorkflowList>(`${base(slug)}/workflow-defaults`, { scope, scope_id: scopeId, workflow_id: workflowId }),
