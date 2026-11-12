@@ -30,7 +30,9 @@ type taskLifecycleStore interface {
 	Release(context.Context, domain.AgentTask) error
 	RecordStepResult(context.Context, domain.AgentTask, bool) error
 	Fail(context.Context, domain.AgentTask, string) error
+	FailWithClass(context.Context, domain.AgentTask, domain.FailureClass, string) error
 	FailForSignIn(context.Context, domain.AgentTask, string) error
+	FailForSignInWithClass(context.Context, domain.AgentTask, domain.FailureClass, string) error
 	PauseForUsageLimit(context.Context, domain.AgentTask, domain.UsageLimit, string, string) error
 	ResumeDueUsageLimits(context.Context, string) (int, error)
 	CompleteReview(context.Context, domain.AgentTask) error
@@ -292,11 +294,11 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		// An agent without a model server needs the user's own sign-in, done
 		// once in their machine's terminal; the task then continues.
 		if run.ErrorMessage != nil && strings.HasPrefix(*run.ErrorMessage, "sign_in_required") {
-			return s.store.FailForSignIn(ctx, task, agentDisplayNames[task.Provider]+" needs you to sign in. Sign in from the terminal, then continue")
+			return s.store.FailForSignInWithClass(ctx, task, runFailureClass(run, domain.FailureProvider), agentDisplayNames[task.Provider]+" needs you to sign in. Sign in from the terminal, then continue")
 		}
 		// A container that hit its memory or disk limit says so and how to fix it.
 		if run.ErrorMessage != nil && domain.IsResourceLimitReason(*run.ErrorMessage) {
-			return s.store.Fail(ctx, task, *run.ErrorMessage)
+			return s.store.FailWithClass(ctx, task, runFailureClass(run, domain.FailurePlatform), *run.ErrorMessage)
 		}
 		// The provider's usage limit pauses the task until it resets, also in
 		// a workflow: nothing failed, and the work and session are kept.
@@ -311,7 +313,7 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			if task.RunsWorkflow() && s.workflow != nil && task.State == "running" {
 				return s.workflow.AgentFailedBecause(ctx, task, *run.ErrorMessage)
 			}
-			return s.store.Fail(ctx, task, *run.ErrorMessage)
+			return s.store.FailWithClass(ctx, task, runFailureClass(run, domain.FailureAgent), *run.ErrorMessage)
 		}
 		// A workflow decides what an agent's failure leads to; a run that
 		// never started still fails through cleanup.
@@ -322,7 +324,20 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			}
 			return s.workflow.Outcome(ctx, task, domain.WorkflowAgentFailed, detail)
 		}
-		return s.store.Fail(ctx, task, "Native coding iteration failed; stopping execution before retry")
+		// The run's class and cause are the task's: a failed run never ends
+		// with only "Execution failed". Older runs without them keep the
+		// previous text.
+		cause := "Native coding iteration failed; stopping execution before retry"
+		class := runFailureClass(run, "")
+		if run.FailureCause != nil && strings.TrimSpace(*run.FailureCause) != "" {
+			// A recorded cause always survives cleanup, even when the class
+			// was not recorded (a run from before classes were stored).
+			cause = *run.FailureCause
+			if class == "" {
+				class = domain.FailureUnknown
+			}
+		}
+		return s.store.FailWithClass(ctx, task, class, cause)
 	case domain.DevMachineAgentRunStatusCancelled:
 		return s.store.Transition(ctx, task, "cancelling", "Native coding iteration was cancelled")
 	case domain.DevMachineAgentRunStatusRunning, domain.DevMachineAgentRunStatusWaitingInput, domain.DevMachineAgentRunStatusSucceeded:
@@ -366,6 +381,16 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 	}
 	return nil
 }
+
+// runFailureClass is the class the machine recorded for the run, or the
+// fallback for a run that finished before classes were stored.
+func runFailureClass(run *domain.DevMachineAgentRun, fallback domain.FailureClass) domain.FailureClass {
+	if run != nil && run.FailureClass != nil && domain.ValidFailureClass(*run.FailureClass) {
+		return domain.FailureClass(*run.FailureClass)
+	}
+	return fallback
+}
+
 func (s *AgentTaskService) recordStart(ctx context.Context, task *domain.AgentTask) error {
 	issue, err := s.store.Start(ctx, *task)
 	if err != nil {

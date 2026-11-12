@@ -39,6 +39,11 @@ type AgentExecution struct {
 	// reaching MemoryLimitBytes, the container's memory limit.
 	OOMKilled        bool
 	MemoryLimitBytes int64
+	// CPUMillis and PidsLimit are the container's limits as created; PidsPeak
+	// is the most processes and threads seen in it while it ran.
+	CPUMillis int64
+	PidsLimit int64
+	PidsPeak  int64
 	// MachineMemory reports that the container shares the machine's memory,
 	// so MemoryLimitBytes is the machine's size (machine_slice.go).
 	MachineMemory bool

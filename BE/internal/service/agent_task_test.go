@@ -75,6 +75,7 @@ func TestAgentTaskCheckoutsAreIsolatedAndRecoverable(t *testing.T) {
 
 type taskStoreFake struct {
 	failReason     string
+	failClass      domain.FailureClass
 	signInRequired bool
 	waiting        string
 	startedIssue   *domain.Issue
@@ -229,11 +230,17 @@ func TestAgentTaskWorkerRevocationCancellationAndQuota(t *testing.T) {
 }
 
 func (f *taskStoreFake) FailForSignIn(ctx context.Context, task domain.AgentTask, reason string) error {
-	f.signInRequired = true
-	return f.Fail(ctx, task, reason)
+	return f.FailForSignInWithClass(ctx, task, domain.FailureProvider, reason)
 }
-func (f *taskStoreFake) Fail(_ context.Context, _ domain.AgentTask, reason string) error {
-	f.failReason = reason
+func (f *taskStoreFake) FailForSignInWithClass(ctx context.Context, task domain.AgentTask, class domain.FailureClass, reason string) error {
+	f.signInRequired = true
+	return f.FailWithClass(ctx, task, class, reason)
+}
+func (f *taskStoreFake) Fail(ctx context.Context, task domain.AgentTask, reason string) error {
+	return f.FailWithClass(ctx, task, "", reason)
+}
+func (f *taskStoreFake) FailWithClass(_ context.Context, _ domain.AgentTask, class domain.FailureClass, reason string) error {
+	f.failReason, f.failClass = reason, class
 	f.task.State = "cancelling"
 	f.task.FailurePending = true
 	return nil

@@ -280,7 +280,7 @@ func startForLiveMessage(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTas
 	if pending {
 		return ErrAgentTaskConflict
 	}
-	err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET generation=generation+1,run_id=gen_random_uuid(),live_resume_generation=generation+1,failure_count=0,failure_pending=false,sign_in_required=false,
+	err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET generation=generation+1,run_id=gen_random_uuid(),live_resume_generation=generation+1,failure_count=0,failure_pending=false,failure_class=NULL,sign_in_required=false,
  usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,usage_limit_resumes=0,resume_native_session=false,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),
  issue_status_id=i.status_id,issue_updated_at=i.updated_at FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, task.ID)
 	if errors.Is(err, sql.ErrNoRows) {

@@ -433,10 +433,20 @@ type DevMachineAgentRun struct {
 	RiskNotes            json.RawMessage `json:"risk_notes" db:"risk_notes"`
 	ExitCode             *int            `json:"exit_code,omitempty" db:"exit_code"`
 	ErrorMessage         *string         `json:"error_message,omitempty" db:"error_message"`
-	CreatedAt            time.Time       `json:"created_at" db:"created_at"`
-	StartedAt            *time.Time      `json:"started_at,omitempty" db:"started_at"`
-	CompletedAt          *time.Time      `json:"completed_at,omitempty" db:"completed_at"`
-	CancelledAt          *time.Time      `json:"cancelled_at,omitempty" db:"cancelled_at"`
+	// A run that did not succeed (KUA-137): FailureClass is who or what
+	// stopped it (a FailureClass), FailureRule the classification rule that
+	// decided, FailureCause the real message. Environment is what the run
+	// ran on (AgentRunEnvironment); OutputCuts what Kuayle left out of its
+	// stored output ([]OutputCut). Both are read by the task's debug trace.
+	FailureClass *string         `json:"failure_class,omitempty" db:"failure_class"`
+	FailureRule  *string         `json:"-" db:"failure_rule"`
+	FailureCause *string         `json:"failure_cause,omitempty" db:"failure_cause"`
+	Environment  NullJSON        `json:"-" db:"environment"`
+	OutputCuts   json.RawMessage `json:"-" db:"output_cuts"`
+	CreatedAt    time.Time       `json:"created_at" db:"created_at"`
+	StartedAt    *time.Time      `json:"started_at,omitempty" db:"started_at"`
+	CompletedAt  *time.Time      `json:"completed_at,omitempty" db:"completed_at"`
+	CancelledAt  *time.Time      `json:"cancelled_at,omitempty" db:"cancelled_at"`
 }
 
 type DevMachineAgentRunStep struct {
