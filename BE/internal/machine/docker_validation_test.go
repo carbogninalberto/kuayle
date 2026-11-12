@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidationRunsExactCommandWithoutHarnessOrCredentialHandoff(t *testing.T) {
@@ -148,4 +149,51 @@ func TestValidationRecoveryReplaysExitedContainerWithoutRerunning(t *testing.T) 
 			require.Zero(t, creates)
 		})
 	}
+}
+
+// Process counts are only used to explain an agent attempt's PID-limit crash;
+// validation and tool containers are not sampled at all.
+func TestValidationContainersAreNotSampledForProcesses(t *testing.T) {
+	previous := pidsSampleInterval
+	pidsSampleInterval = 5 * time.Millisecond
+	t.Cleanup(func() { pidsSampleInterval = previous })
+
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture", DockerNetworkName: ptr("network"), WorkspaceVolumeName: ptr("workspace"), CPUMillis: 1000, MemoryMB: 2048, PidsLimit: 256}
+	run := &domain.DevMachineAgentRun{ID: uuid.New()}
+	step := &domain.DevMachineAgentRunStep{ID: uuid.New(), CommandArgv: json.RawMessage(`["sh","-c","exit 0"]`)}
+	checkout := &domain.DevMachineCheckout{WorkspacePath: "/workspace/tasks/fixture"}
+	var stats int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/images/"):
+			_, _ = w.Write([]byte(`{"Id":"image","Config":{}}`))
+		case strings.HasSuffix(r.URL.Path, "/containers/json"):
+			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "/json"):
+			http.NotFound(w, r)
+		case strings.HasSuffix(r.URL.Path, "/containers/create"):
+			_, _ = w.Write([]byte(`{"Id":"validation"}`))
+		case strings.HasSuffix(r.URL.Path, "/start"):
+			w.WriteHeader(204)
+		case strings.HasSuffix(r.URL.Path, "/archive"):
+			http.Error(w, "credentials must not be copied", 500)
+		case strings.HasSuffix(r.URL.Path, "/wait"):
+			time.Sleep(30 * time.Millisecond)
+			_, _ = w.Write([]byte(`{"StatusCode":0}`))
+		case strings.HasSuffix(r.URL.Path, "/logs"):
+			w.WriteHeader(200)
+		case strings.Contains(r.URL.Path, "/stats"):
+			stats++
+			_, _ = w.Write([]byte(`{"pids_stats":{"current":42}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	docker, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.52"))
+	require.NoError(t, err)
+	defer docker.Close()
+	_, err = (&DockerRuntime{client: docker}).RunValidation(context.Background(), machine, run, step, 0, checkout, "developer:fixture", nil)
+	require.NoError(t, err)
+	require.Zero(t, stats, "a validation container is never sampled")
 }

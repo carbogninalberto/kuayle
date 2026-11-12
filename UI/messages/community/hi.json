@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "टास्क समीक्षा की प्रतीक्षा में नहीं था",
 	"tasks.signal_untrusted": "अनदेखा किया गया: समीक्षक के पास लिखने का एक्सेस नहीं है",
 	"tasks.signal_follow_up_failed": "फ़ॉलो-अप कतार में नहीं डाला जा सका",
+	"tasks.signal_infrastructure": "CI रनर पर विफल हुआ। इसे फिर से चलाएँ।",
 	"machines.ports": "ऐप पोर्ट",
 	"machines.ports_desc": "इस मशीन पर चल रहे ऐप के निजी पते। केवल आप ही इन्हें खोल सकते हैं।",
 	"machines.ports_empty": "अभी कोई पोर्ट एक्सपोज़ नहीं है।",

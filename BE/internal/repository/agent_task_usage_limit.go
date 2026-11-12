@@ -54,7 +54,8 @@ func (r *AgentTaskRepository) PauseForUsageLimit(ctx context.Context, claimed do
 	if err = noteNotebook(ctx, tx, task.ID, nil, domain.NotebookNote{Event: "Paused by the provider's usage limit; the attempt did not fail and the worktree is unchanged"}); err != nil {
 		return err
 	}
-	if err = beginAgentTaskFailure(ctx, tx, task, domain.FailureProvider, reason); err != nil {
+	// A pause is not a failure: the task keeps no failure class.
+	if err = beginAgentTaskFailure(ctx, tx, task, "", reason); err != nil {
 		return err
 	}
 	return tx.Commit()

@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "A tarefa não estava aguardando revisão",
 	"tasks.signal_untrusted": "Ignorado: o revisor não tem acesso de escrita",
 	"tasks.signal_follow_up_failed": "Não foi possível enfileirar o acompanhamento",
+	"tasks.signal_infrastructure": "A CI falhou no runner. Execute novamente.",
 	"machines.ports": "Portas do app",
 	"machines.ports_desc": "Endereços privados para os apps em execução nesta máquina. Somente você pode abri-los.",
 	"machines.ports_empty": "Nenhuma porta exposta ainda.",

@@ -3,10 +3,12 @@ package machine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -65,7 +67,7 @@ func (m *Manager) runEnvironment(ctx context.Context, machine *domain.DevMachine
 	if run.NativeSessionID != nil {
 		environment.ResumedSession = *run.NativeSessionID
 	}
-	environment.HarnessVersion, environment.HarnessVersionFrom = m.harnessVersion(run.ProviderID)
+	// The version is recorded once, by the start, and the end keeps it.
 	if identifier, ok := m.runtime.(agentImageIdentity); ok && environment.ImageRef != "" && environment.ImageID == "" && environment.ImageDigest == "" {
 		if id, digest, err := identifier.ImageIdentity(ctx, environment.ImageRef); err == nil {
 			environment.ImageID, environment.ImageDigest = id, digest
@@ -124,6 +126,9 @@ func runFailureEvidence(status string, timeLimitSeconds int, execution *AgentExe
 		message := safeError(executionErr)
 		if strings.HasPrefix(message, "sign_in_required") {
 			evidence.HarnessError = message
+		} else if errors.Is(executionErr, repository.ErrAgentTaskUnauthorized) {
+			// A policy check when a step starts refused the run: the policy's.
+			evidence.PolicyRefused = true
 		} else {
 			evidence.ExecutionError = message
 		}

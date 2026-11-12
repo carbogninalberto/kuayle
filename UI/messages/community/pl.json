@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Zadanie nie oczekiwało na przegląd",
 	"tasks.signal_untrusted": "Zignorowano: recenzent nie ma uprawnień do zapisu",
 	"tasks.signal_follow_up_failed": "Nie udało się dodać iteracji uzupełniającej do kolejki",
+	"tasks.signal_infrastructure": "CI nie powiodło się na runnerze. Uruchom je ponownie.",
 	"machines.ports": "Porty aplikacji",
 	"machines.ports_desc": "Prywatne adresy aplikacji działających na tej maszynie. Tylko Ty możesz je otworzyć.",
 	"machines.ports_empty": "Nie udostępniono jeszcze portów.",

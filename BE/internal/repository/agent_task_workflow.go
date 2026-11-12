@@ -98,6 +98,9 @@ type WorkflowApply struct {
 	// agent: the review or check findings that send the work back, a pause,
 	// a person's decision.
 	Notes []domain.NotebookNote
+	// FailureClass is who or what made an agent's iteration fail, when the
+	// move ends the workflow in failure. The step's detail keeps the cause.
+	FailureClass domain.FailureClass
 }
 
 func workflowEvent(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) error {
@@ -464,7 +467,7 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 		}
 		err = transitionWorkflowTask(ctx, tx, task, "awaiting_review", reason, apply.Actor)
 	case WorkflowEnterFail:
-		err = beginAgentTaskFailure(ctx, tx, task, "", reason)
+		err = beginAgentTaskFailure(ctx, tx, task, apply.FailureClass, reason)
 	default:
 		err = transitionWorkflowTask(ctx, tx, task, WorkflowEntryState(apply.Entry.Kind), reason, apply.Actor)
 	}
@@ -784,11 +787,15 @@ func (r *AgentTaskRepository) LatestWorkflowPlan(ctx context.Context, task domai
 // proves that nothing is still running: the runner reads the commit's full
 // check list from GitHub (Repository, CommitSHA) before it passes CI.
 type WorkflowCI struct {
-	Failed     []domain.AgentTaskSignal
-	Passed     []domain.AgentTaskSignal
-	Published  bool
-	Repository string
-	CommitSHA  string
+	Failed []domain.AgentTaskSignal
+	// Infrastructure are failed suites the runner or network caused. They
+	// are not the change's and never fail the step; a later suite of the same
+	// commit replaces them.
+	Infrastructure []domain.AgentTaskSignal
+	Passed         []domain.AgentTaskSignal
+	Published      bool
+	Repository     string
+	CommitSHA      string
 }
 
 // failedCIOutcomes and passedCIOutcomes classify GitHub check suite conclusions.
@@ -808,15 +815,27 @@ func (r *AgentTaskRepository) WorkflowCI(ctx context.Context, task domain.AgentT
 	if err := r.db.SelectContext(ctx, &signals, `SELECT * FROM agent_task_signals WHERE task_id=$1 AND run_id=$2 AND kind='ci' ORDER BY updated_at`, task.ID, task.RunID); err != nil {
 		return nil, err
 	}
+	out.Failed, out.Infrastructure, out.Passed = classifyWorkflowCISignals(signals)
+	return out, nil
+}
+
+// classifyWorkflowCISignals splits completed suites into the change's
+// failures, the runner's and the passes. Signals are ordered by time, so a
+// later suite (a person re-ran it) replaces an earlier runner failure.
+func classifyWorkflowCISignals(signals []domain.AgentTaskSignal) (failed, infrastructure, passed []domain.AgentTaskSignal) {
 	for _, signal := range signals {
 		switch {
 		case failedCIOutcomes[signal.Outcome]:
-			out.Failed = append(out.Failed, signal)
+			if signal.FailureClass != nil && *signal.FailureClass == domain.CIFailureRunner {
+				infrastructure = append(infrastructure, signal)
+				continue
+			}
+			failed, infrastructure = append(failed, signal), nil
 		case passedCIOutcomes[signal.Outcome]:
-			out.Passed = append(out.Passed, signal)
+			passed, infrastructure = append(passed, signal), nil
 		}
 	}
-	return out, nil
+	return failed, infrastructure, passed
 }
 
 // HasPublishedWork reports whether the task's current attempt has a pull
@@ -897,6 +916,22 @@ func (r *AgentTaskRepository) WorkflowRun(ctx context.Context, task domain.Agent
 // again (nil: only on an event), fenced by the worker lease.
 func (r *AgentTaskRepository) SetWorkflowWake(ctx context.Context, claimed domain.AgentTask, at *time.Time) error {
 	res, err := r.db.ExecContext(ctx, `UPDATE agent_tasks SET workflow_wake_at=$3 WHERE id=$1 AND lease_token=$2 AND workflow_sequence=$4`, claimed.ID, claimed.LeaseToken, at, claimed.WorkflowSequence)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrAgentTaskConflict
+	}
+	return nil
+}
+
+// SetWorkflowStepDetail says on the open step what it is waiting for, fenced
+// by the worker's lease. A later outcome still replaces the step's detail.
+func (r *AgentTaskRepository) SetWorkflowStepDetail(ctx context.Context, claimed domain.AgentTask, detail string) error {
+	res, err := r.db.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET detail=left($3,16000)
+ WHERE task_id=$1 AND sequence=$4 AND finished_at IS NULL
+ AND EXISTS(SELECT 1 FROM agent_tasks WHERE id=$1 AND lease_token=$2 AND workflow_sequence=$4)`,
+		claimed.ID, claimed.LeaseToken, detail, claimed.WorkflowSequence)
 	if err != nil {
 		return err
 	}

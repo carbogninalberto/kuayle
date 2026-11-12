@@ -537,3 +537,54 @@ func TestMachineTasksListOnlyTheOwnersVisibleTasksOnThatMachine(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, items)
 }
+
+// The webhook matches a task before it reads GitHub: only the published PR
+// and commit of a task still waiting are candidates.
+func TestSignalCandidatesAreMatchedBeforeGitHubIsRead(t *testing.T) {
+	_, repo, _, task := reviewableTask(t)
+	background := context.Background()
+	ok, err := repo.HasSignalCandidate(background, task.WorkspaceID, "fixture/repo", 12, publishedCommit)
+	require.NoError(t, err)
+	require.True(t, ok)
+	for _, other := range []struct {
+		ws     uuid.UUID
+		repo   string
+		number int
+		sha    string
+	}{
+		{uuid.New(), "fixture/repo", 12, publishedCommit},
+		{task.WorkspaceID, "other/repo", 12, publishedCommit},
+		{task.WorkspaceID, "fixture/repo", 13, publishedCommit},
+		{task.WorkspaceID, "fixture/repo", 12, "ffffffffffffffffffffffffffffffffffffffff"},
+	} {
+		ok, err = repo.HasSignalCandidate(background, other.ws, other.repo, other.number, other.sha)
+		require.NoError(t, err)
+		require.False(t, ok)
+	}
+}
+
+// A redelivery whose first delivery could not read GitHub keeps the first
+// decision (no second follow-up) but corrects the class and evidence a person
+// sees.
+func TestARedeliveryCorrectsTheClassOfAnAlreadyQueuedFollowUp(t *testing.T) {
+	db, repo, _, task := reviewableTask(t)
+	background := context.Background()
+	first := classifiedCI("same", "failure", publishedCommit, domain.CIFailureTest, "the delivery timed out before GitHub was read")
+	followUps, err := repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, first)
+	require.NoError(t, err)
+	require.Len(t, followUps, 1)
+	generation := int64(2)
+	require.NoError(t, repo.FinishFollowUp(background, followUps[0].Signal.ID, &generation))
+
+	runner := classifiedCI("same", "failure", publishedCommit, domain.CIFailureRunner, "Docker Runtime Integration: Could not resolve 'archive.ubuntu.com'")
+	again, err := repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, runner)
+	require.NoError(t, err)
+	require.Empty(t, again, "the first decision stands; nothing new is queued")
+
+	var signal domain.AgentTaskSignal
+	require.NoError(t, db.Get(&signal, `SELECT * FROM agent_task_signals WHERE task_id=$1 AND external_id='same'`, task.ID))
+	require.Equal(t, "follow_up", signal.Action)
+	require.NotNil(t, signal.FailureClass)
+	require.Equal(t, domain.CIFailureRunner, *signal.FailureClass)
+	require.Contains(t, signal.FailureEvidence, "Could not resolve")
+}

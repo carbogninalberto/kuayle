@@ -1,8 +1,10 @@
 package github
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -161,4 +163,58 @@ func (c *Client) ListWorkflowJobs(token, owner, repo string, id int64) (jobs []W
 		}
 	}
 	return jobs, true, nil
+}
+
+// MaxWorkflowJobLogBytes bounds how much of the end of an Actions job log
+// Kuayle reads: the reason a runner failed is printed last, and a log can be
+// very large.
+const MaxWorkflowJobLogBytes = 256 << 10
+
+// GetWorkflowJobLog reads the end of an Actions job's log. The API answers
+// with a redirect to the log file; the HTTP client follows it. At most limit
+// bytes from the end are kept (MaxWorkflowJobLogBytes when limit is not
+// positive).
+func (c *Client) GetWorkflowJobLog(ctx context.Context, token, owner, repo string, id int64, limit int64) (string, error) {
+	if limit <= 0 {
+		limit = MaxWorkflowJobLogBytes
+	}
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/actions/jobs/%d/logs", githubAPIBaseURL, owner, repo, id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "token "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", &APIError{Status: resp.StatusCode, Message: string(body)}
+	}
+	return readEnd(resp.Body, limit)
+}
+
+// readEnd reads a stream and keeps only its last limit bytes.
+func readEnd(r io.Reader, limit int64) (string, error) {
+	kept := make([]byte, 0, min(limit, 64<<10))
+	buf := make([]byte, 32<<10)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			kept = append(kept, buf[:n]...)
+			if int64(len(kept)) > limit {
+				kept = append(kept[:0], kept[int64(len(kept))-limit:]...)
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	return string(kept), nil
 }

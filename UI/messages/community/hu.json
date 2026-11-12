@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "A taszk nem várt átnézésre",
 	"tasks.signal_untrusted": "Figyelmen kívül hagyva: az átnéző nem rendelkezik írási joggal",
 	"tasks.signal_follow_up_failed": "A követés nem állítható sorba",
+	"tasks.signal_infrastructure": "A CI meghiúsult a runneren. Futtassa újra.",
 	"machines.ports": "Alkalmazásportok",
 	"machines.ports_desc": "Privát címek a gépen futó alkalmazásokhoz. Csak te nyithatod meg őket.",
 	"machines.ports_empty": "Még nincs megnyitott port.",

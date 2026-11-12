@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,7 +63,7 @@ func TestFailedRunRecordsItsClassAndCause(t *testing.T) {
 	run := store.completedRun
 	require.Equal(t, domain.DevMachineAgentRunStatusFailed, run.Status)
 	require.NotNil(t, run.FailureClass)
-	require.Equal(t, string(domain.FailureAgent), *run.FailureClass)
+	require.Equal(t, string(domain.FailureUnknown), *run.FailureClass, "exit 1 without a harness-reported error does not blame the agent")
 	require.NotNil(t, run.FailureRule)
 	require.Equal(t, "harness_exit_with_output", *run.FailureRule)
 	require.NotNil(t, run.FailureCause)
@@ -191,6 +192,39 @@ func TestCancelledRunRecordsWhoStoppedIt(t *testing.T) {
 	require.NotNil(t, policyStore.completedRun.FailureClass)
 	require.Equal(t, string(domain.FailurePolicy), *policyStore.completedRun.FailureClass)
 	require.Equal(t, "cancelled_by_policy", *policyStore.completedRun.FailureRule)
+
+	personStore := &managerStoreFake{
+		machine: machine,
+		agentRun: &domain.DevMachineAgentRun{
+			ID: runID, MachineID: machine.ID, WorkspaceID: machine.WorkspaceID,
+			ProviderID: "opencode", Status: domain.DevMachineAgentRunStatusRunning,
+		},
+	}
+	manager.store = personStore
+	manager.cancelAgentRun(context.Background(), runID, domain.CancelledByPerson)
+	require.NotNil(t, personStore.completedRun.FailureClass)
+	require.Equal(t, string(domain.FailurePerson), *personStore.completedRun.FailureClass)
+	require.Equal(t, "cancelled_by_person", *personStore.completedRun.FailureRule)
+}
+
+// The repository writes the class and cause in the transaction that stops an
+// attempt; the manager never replaces them with "the platform".
+func TestTheManagerKeepsAClassTheRepositoryAlreadyRecorded(t *testing.T) {
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusRunning}
+	class, cause := string(domain.FailurePerson), "A person cancelled the run"
+	store := &managerStoreFake{
+		machine: machine,
+		agentRun: &domain.DevMachineAgentRun{
+			ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID,
+			ProviderID: "opencode", Status: domain.DevMachineAgentRunStatusCancelled,
+			FailureClass: &class, FailureCause: &cause,
+		},
+	}
+	manager := &Manager{store: store, runtime: &runtimeFake{}}
+	manager.cancelAgentRun(context.Background(), store.agentRun.ID, "")
+	require.Equal(t, class, *store.agentRun.FailureClass)
+	require.Equal(t, cause, *store.agentRun.FailureCause)
+	require.Nil(t, store.completedRun, "a terminal run is left as the repository recorded it")
 }
 
 func TestRunThatCouldNotStartRecordsTheManagerError(t *testing.T) {
@@ -220,4 +254,35 @@ func TestRunThatCouldNotStartRecordsTheManagerError(t *testing.T) {
 	require.NotNil(t, signIn.completedRun.FailureClass)
 	require.Equal(t, string(domain.FailureProvider), *signIn.completedRun.FailureClass)
 	require.Equal(t, "sign_in_required", *signIn.completedRun.FailureRule)
+}
+
+// An authorization failure while a step starts is a policy refusal, not a
+// failure of Kuayle's platform.
+func TestAnAuthorizationFailureMidRunIsPolicy(t *testing.T) {
+	calls := 0
+	store := runAgentForTrace(t, &AgentExecution{ContainerID: "agent", ExitCode: -1}, func(_ *domain.DevMachineAgentRun, store *managerStoreFake, _ *runtimeFake) {
+		store.onAuthorizeAgentRun = func() error {
+			calls++
+			if calls >= 3 {
+				return repository.ErrAgentTaskUnauthorized
+			}
+			return nil
+		}
+	})
+	require.NotNil(t, store.completedRun.FailureClass)
+	require.Equal(t, string(domain.FailurePolicy), *store.completedRun.FailureClass)
+	require.Equal(t, "policy_refusal", *store.completedRun.FailureRule)
+}
+
+// The harness version is recorded once, when the run starts. A run's end may
+// be long after a shared CLI refresh, so it never replaces what started.
+func TestTheHarnessVersionIsRecordedOnceAtTheStart(t *testing.T) {
+	manager := &Manager{agentCLIVersions: map[string]string{"opencode-ai": "2.0.0"}}
+	run := &domain.DevMachineAgentRun{
+		ProviderID:  "opencode",
+		Environment: domain.NullJSON([]byte(`{"harness_version":"1.0.0","harness_version_from":"shared agent CLI refresh"}`)),
+	}
+	environment := manager.runEnvironment(context.Background(), &domain.DevMachine{CPUMillis: 1000, MemoryMB: 1024, PidsLimit: 128}, run, nil, nil)
+	require.Equal(t, "1.0.0", environment.HarnessVersion)
+	require.Equal(t, "shared agent CLI refresh", environment.HarnessVersionFrom)
 }

@@ -226,12 +226,18 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			// The work is still published, as a draft that says it was not tested.
 			return s.store.Transition(ctx, task, "publishing", unvalidatedPublishingReason)
 		case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
-			if result.CommandSource != nil && *result.CommandSource == domain.CheckSourceAgent {
-				if command, exit, failed := result.FailedCommand(); failed {
-					return s.store.Fail(ctx, task, fmt.Sprintf("Kuayle re-ran the agent's tests and they failed: %s exit %d", truncateRunes(strings.Join(command, " "), 300), exit))
+			// Name the command that failed, not only that validation did.
+			cause := "Independent validation failed; stopping execution before retry"
+			if command, exit, failed := result.FailedCommand(); failed {
+				cause = fmt.Sprintf("An independent check failed: %s exit %d", truncateRunes(strings.Join(command, " "), 300), exit)
+				if result.CommandSource != nil && *result.CommandSource == domain.CheckSourceAgent {
+					cause = fmt.Sprintf("Kuayle re-ran the agent's tests and they failed: %s exit %d", truncateRunes(strings.Join(command, " "), 300), exit)
 				}
 			}
-			return s.store.Fail(ctx, task, "Independent validation failed; stopping execution before retry")
+			if result.Status == domain.DevMachineAgentRunStepStatusFailed {
+				return s.store.FailWithClass(ctx, task, domain.FailureAgent, domain.TaskFailureReason(domain.FailureAgent, cause))
+			}
+			return s.store.Fail(ctx, task, cause)
 		}
 		return nil
 	}
@@ -311,7 +317,7 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		// (which still decides what follows) and outside one.
 		if run.ErrorMessage != nil && domain.IsNoFinalMessageReason(*run.ErrorMessage) {
 			if task.RunsWorkflow() && s.workflow != nil && task.State == "running" {
-				return s.workflow.AgentFailedBecause(ctx, task, *run.ErrorMessage)
+				return s.workflow.AgentFailedForRun(ctx, task, *run.ErrorMessage, runFailureClass(run, domain.FailureAgent))
 			}
 			return s.store.FailWithClass(ctx, task, runFailureClass(run, domain.FailureAgent), *run.ErrorMessage)
 		}
@@ -322,7 +328,16 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			if run.Status == domain.DevMachineAgentRunStatusTimeout {
 				detail = "The agent's iteration reached its time limit"
 			}
-			return s.workflow.Outcome(ctx, task, domain.WorkflowAgentFailed, detail)
+			class := runFailureClass(run, "")
+			if run.FailureCause != nil && strings.TrimSpace(*run.FailureCause) != "" {
+				// The step keeps the whole cause; a workflow that ends in
+				// failure gives a person its class and one line.
+				detail = *run.FailureCause
+				if class == "" {
+					class = domain.FailureUnknown
+				}
+			}
+			return s.workflow.OutcomeFailure(ctx, task, detail, class)
 		}
 		// The run's class and cause are the task's: a failed run never ends
 		// with only "Execution failed". Older runs without them keep the
@@ -336,6 +351,11 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			if class == "" {
 				class = domain.FailureUnknown
 			}
+		}
+		if class != "" {
+			// The run keeps the full cause; the task says the class and one
+			// short line, since everyone who can see it reads this reason.
+			cause = domain.TaskFailureReason(class, cause)
 		}
 		return s.store.FailWithClass(ctx, task, class, cause)
 	case domain.DevMachineAgentRunStatusCancelled:

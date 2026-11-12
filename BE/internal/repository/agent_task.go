@@ -689,6 +689,24 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
 	return machineID, task.ReservedMachineID, tx.Commit()
 }
 
+// stopFailure says who stopped an attempt this repository is cancelling, and
+// why, from what the task already records. A cleanup that follows a failure
+// keeps the run's own class and cause, so it returns nothing.
+func stopFailure(task domain.AgentTask) (domain.FailureClass, string) {
+	switch {
+	case task.FailurePending:
+		return "", ""
+	case task.WorkflowPausedAt != nil:
+		return domain.FailurePerson, "A person paused the work; the run was stopped to wait for them"
+	case task.LiveInterrupting():
+		return domain.FailurePerson, "A person stopped the run to deliver their message"
+	case task.Reason == "Issue access was revoked":
+		return domain.FailurePolicy, "The run was stopped because access to the issue or the workspace policy no longer allows it"
+	default:
+		return domain.FailurePerson, "The run was cancelled by a person"
+	}
+}
+
 // CancelAttempt always queues physical cleanup, including for native attempts
 // already marked failed/cancelled. Their status alone says nothing about a live
 // container. The operation key makes crash recovery and repeated calls harmless.
@@ -723,7 +741,14 @@ func (r *AgentTaskRepository) CancelAttempt(ctx context.Context, claimed domain.
 	if err = tx.GetContext(ctx, &generation, `SELECT generation FROM dev_machines WHERE id=$1 AND workspace_id=$2 FOR SHARE`, run.MachineID, task.WorkspaceID); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET status='cancelled',cancelled_at=now(),completed_at=now() WHERE id=$1 AND status IN ('queued','starting','running','waiting_input')`, run.ID)
+	// The reason the attempt is stopped is known here, so the class and cause
+	// are written with the cancellation: a person's cancel, pause or message,
+	// a policy refusal, or the failure that cleanup follows. A run that
+	// already has a class keeps it.
+	class, cause := stopFailure(*task)
+	_, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET status='cancelled',cancelled_at=now(),completed_at=now(),
+ failure_class=COALESCE(failure_class,NULLIF($2,'')),failure_cause=COALESCE(failure_cause,NULLIF($3,''))
+ WHERE id=$1 AND status IN ('queued','starting','running','waiting_input')`, run.ID, string(class), cause)
 	if err != nil {
 		return err
 	}

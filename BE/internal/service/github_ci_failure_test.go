@@ -27,7 +27,7 @@ func TestFailedCheckSuitesAreClassifiedFromWhatKuayleCanRead(t *testing.T) {
 	require.NotNil(t, failure)
 	require.Equal(t, domain.CIFailureRunner, failure.Class)
 	require.Equal(t, "runner_output", failure.Rule)
-	require.Contains(t, failure.Evidence, "Failed to fetch")
+	require.Contains(t, failure.Evidence, "Temporary failure resolving")
 	require.Equal(t, 1, calls)
 
 	// An unreadable check list never fails the webhook: the conclusion alone
@@ -61,20 +61,14 @@ func TestFailedChecksCarryTheirOutputAndFailedJobStep(t *testing.T) {
 	runs[1].Output.Text = "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory"
 	runs = append(runs, gh.CheckRun{Name: "integration", Status: "completed", Conclusion: "failure", DetailsURL: "https://ci.example/build/7"})
 
-	checks := ciFailedChecks(runs, func(run gh.CheckRun) string {
-		if run.DetailsURL == "https://github.com/acme/app/actions/runs/9/job/42" {
-			return "npm run build"
-		}
-		return ""
-	})
+	checks := ciFailedChecks(runs)
 	require.Len(t, checks, 2, "a passing check is not evidence of a failure")
-	require.Equal(t, "Build UI", checks[0].Name)
-	require.Equal(t, "failure", checks[0].Conclusion)
-	require.Equal(t, "npm run build", checks[0].FailedStep)
-	require.Contains(t, checks[0].Text, "the build stopped")
-	require.Contains(t, checks[0].Text, "out of memory")
-	require.Equal(t, "integration", checks[1].Name)
-	require.Empty(t, checks[1].FailedStep, "a check outside Actions has no job to read")
+	require.Equal(t, "Build UI", checks[0].check.Name)
+	require.Equal(t, "failure", checks[0].check.Conclusion)
+	require.Contains(t, checks[0].check.Text, "the build stopped")
+	require.Contains(t, checks[0].check.Text, "out of memory")
+	require.Equal(t, "integration", checks[1].check.Name)
+	require.Zero(t, actionsJobID(checks[1].run.DetailsURL), "a check outside Actions has no job to read")
 }
 
 func TestActionsJobURLsNameTheirJob(t *testing.T) {
@@ -100,7 +94,7 @@ func TestClassificationReadsAtMostAFixedNumberOfFailedChecks(t *testing.T) {
 	for range maxCIClassifiedChecks + 5 {
 		runs = append(runs, gh.CheckRun{Name: "job", Status: "completed", Conclusion: "failure", Output: gh.CheckRunOutput{Text: "--- FAIL: TestX"}})
 	}
-	checks := ciFailedChecks(runs, func(gh.CheckRun) string { return "" })
+	checks := ciFailedChecks(runs)
 	require.Len(t, checks, maxCIClassifiedChecks)
-	require.True(t, strings.HasPrefix(checks[0].Name, "job"))
+	require.True(t, strings.HasPrefix(checks[0].check.Name, "job"))
 }

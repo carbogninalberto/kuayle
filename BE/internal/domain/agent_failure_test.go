@@ -44,7 +44,7 @@ func TestClassifyRunFailure(t *testing.T) {
 		},
 		"exit 1 with standard error": {
 			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), Stderr: "\nError: config file is not valid JSON\n"},
-			FailureAgent, "harness_exit_with_output", []string{"exit code 1", "Error: config file is not valid JSON"},
+			FailureUnknown, "harness_exit_with_output", []string{"exit code 1", "Error: config file is not valid JSON"},
 		},
 		"usage limit": {
 			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), UsageLimit: "You've hit your usage limit · resets 4pm (UTC)", HarnessError: "You've hit your usage limit"},
@@ -58,12 +58,20 @@ func TestClassifyRunFailure(t *testing.T) {
 			RunFailureEvidence{Status: "failed", ExitCode: exitCode(0), NoFinalMessage: true, HarnessError: "The harness reported an error: APIError: 429 Too Many Requests"},
 			FailureProvider, "provider_error", []string{"429"},
 		},
+		"no final message after an overload on standard error": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(0), NoFinalMessage: true, Stderr: `API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`},
+			FailureProvider, "provider_error_output", []string{"provider error"},
+		},
+		"ordinary words in standard error do not make a provider error": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), Stderr: "--- FAIL: TestBilling\n    billing_test.go:12: expected status 429, got 200\n    connection refused retry timed out"},
+			FailureUnknown, "harness_exit_with_output", []string{"exit code 1", "billing_test.go"},
+		},
 		"no final message": {
 			RunFailureEvidence{Status: "failed", ExitCode: exitCode(0), NoFinalMessage: true},
 			FailureAgent, "no_final_message", []string{"The agent ended without a final message", "exit code 0"},
 		},
 		"the harness reported an error": {
-			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), HarnessError: "error_max_turns"},
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), HarnessError: "The harness reported an error: error_max_turns"},
 			FailureAgent, "harness_error", []string{"The harness reported an error: error_max_turns"},
 		},
 		"sign-in required": {
@@ -81,6 +89,14 @@ func TestClassifyRunFailure(t *testing.T) {
 		"persistence failure": {
 			RunFailureEvidence{Status: "failed", ExitCode: exitCode(0), ExecutionError: "agent_output_persistence_failed: context deadline exceeded", HarnessError: "interrupted"},
 			FailurePlatform, "platform_error", []string{"could not store the agent's output"},
+		},
+		"a usage limit beats a persistence failure": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(0), ExecutionError: "agent_output_persistence_failed: context deadline exceeded", UsageLimit: "You've hit your usage limit"},
+			FailureProvider, "usage_limit", []string{"usage limit was reached"},
+		},
+		"the runtime declined to spawn a process": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), Stderr: "Error: spawn /usr/bin/node EAGAIN\nResource temporarily unavailable"},
+			FailurePlatform, "pid_limit", []string{"PID limit", "spawn /usr/bin/node EAGAIN"},
 		},
 		"a person's cancel": {
 			RunFailureEvidence{Status: "cancelled", ExitCode: exitCode(-1), CancelledBy: CancelledByPerson},
@@ -144,10 +160,34 @@ func TestRunFailureCauseIsBounded(t *testing.T) {
 	require.Equal(t, "ab…", TruncateBytes("abcdefgh", 5))
 }
 
-func TestWorkflowOutcomeFailureClass(t *testing.T) {
-	require.Equal(t, FailureAgent, WorkflowOutcomeFailureClass(WorkflowChecksFailed))
-	require.Equal(t, FailurePlatform, WorkflowOutcomeFailureClass(WorkflowPublishFailed))
-	require.Equal(t, FailurePolicy, WorkflowOutcomeFailureClass(WorkflowTimeout))
-	require.Equal(t, FailurePerson, WorkflowOutcomeFailureClass(WorkflowApprovalDenied))
-	require.Equal(t, FailureUnknown, WorkflowOutcomeFailureClass("something_else"))
+// A harness error carries its prefix once, whether the harness wrote it or
+// the classifier adds it.
+func TestHarnessErrorsArePrefixedOnce(t *testing.T) {
+	failure := ClassifyRunFailure(RunFailureEvidence{
+		Status: "failed", ExitCode: exitCode(1),
+		HarnessError: "The harness reported an error: error_max_turns",
+	})
+	require.Equal(t, "harness_error", failure.Rule)
+	require.Equal(t, 1, strings.Count(failure.Cause, "The harness reported an error:"))
+}
+
+// A policy refusal in the middle of a run is the policy's, not the platform's.
+func TestAPolicyRefusalIsNotThePlatforms(t *testing.T) {
+	failure := ClassifyRunFailure(RunFailureEvidence{
+		Status: "failed", ExitCode: exitCode(-1), PolicyRefused: true,
+		ExecutionError: "execution is no longer authorized",
+	})
+	require.Equal(t, FailurePolicy, failure.Class)
+	require.Equal(t, "policy_refusal", failure.Rule)
+}
+
+// People read the class and one short line; the full cause stays on the run.
+func TestTaskFailureReasonIsShortAndNamed(t *testing.T) {
+	cause := "The agent failed\nline two of stderr\n" + strings.Repeat("x", 1000)
+	reason := TaskFailureReason(FailureAgent, cause)
+	require.LessOrEqual(t, len(reason), 300)
+	require.NotContains(t, reason, "\n")
+	require.Contains(t, reason, "Agent failure")
+	require.Contains(t, reason, "The agent failed")
+	require.NotContains(t, reason, "line two")
 }

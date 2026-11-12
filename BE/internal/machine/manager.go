@@ -675,7 +675,15 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		if err != nil || run == nil {
 			return err
 		}
-		m.cancelActiveRuns(ctx, machine.ID, &run.ID, domain.CancelledByPerson)
+		// A task's attempt already has the class and cause the repository
+		// wrote with its cancellation (a person's cancel, pause, message,
+		// policy or the failure that cleanup follows); the manager must not
+		// label every cancel operation "person". A manual run is a person's.
+		cancelledBy := domain.CancelledByPerson
+		if run.TaskID != nil {
+			cancelledBy = ""
+		}
+		m.cancelActiveRuns(ctx, machine.ID, &run.ID, cancelledBy)
 		if err := m.runtime.CancelAgent(ctx, run); err != nil {
 			return err
 		}
@@ -1260,7 +1268,11 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if err := m.store.CreateRuntimeService(ctx, service); err != nil {
 		return err
 	}
-	m.recordRunEnvironment(ctx, run, m.runEnvironment(ctx, machine, run, providerRecord, nil))
+	startEnvironment := m.runEnvironment(ctx, machine, run, providerRecord, nil)
+	if startEnvironment.HarnessVersion == "" {
+		startEnvironment.HarnessVersion, startEnvironment.HarnessVersionFrom = m.harnessVersion(run.ProviderID)
+	}
+	m.recordRunEnvironment(ctx, run, startEnvironment)
 	runContext, cancel := context.WithTimeout(ctx, time.Duration(run.MaxRuntimeSeconds)*time.Second)
 	defer cancel()
 	output := newAgentOutputBuffer(secrets.Redactions, func(stream string, sequence int64, source string, content string, truncated bool) error {

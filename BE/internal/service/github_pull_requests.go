@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -151,6 +152,51 @@ func (s *GitHubService) PullRequestChecks(ctx context.Context, ws uuid.UUID, rep
 	return head, checks, coverage, nil
 }
 
+// latestCheckRuns keeps the newest check run of each name: GitHub lists every
+// attempt of a re-run, and only the last one is the check's result.
+func latestCheckRuns(runs []gh.CheckRun) []gh.CheckRun {
+	latest := make(map[string]gh.CheckRun, len(runs))
+	order := make([]string, 0, len(runs))
+	for _, run := range runs {
+		key := run.Name
+		if key == "" {
+			key = "#" + strconv.FormatInt(run.ID, 10)
+		}
+		current, seen := latest[key]
+		if !seen {
+			order = append(order, key)
+			latest[key] = run
+			continue
+		}
+		if checkRunNewer(run, current) {
+			latest[key] = run
+		}
+	}
+	out := make([]gh.CheckRun, 0, len(order))
+	for _, key := range order {
+		out = append(out, latest[key])
+	}
+	return out
+}
+
+func checkRunNewer(a, b gh.CheckRun) bool {
+	if a.CompletedAt != nil || b.CompletedAt != nil {
+		if a.CompletedAt == nil {
+			return false
+		}
+		if b.CompletedAt == nil {
+			return true
+		}
+		if !a.CompletedAt.Equal(*b.CompletedAt) {
+			return a.CompletedAt.After(*b.CompletedAt)
+		}
+	}
+	if a.StartedAt != nil && b.StartedAt != nil && !a.StartedAt.Equal(*b.StartedAt) {
+		return a.StartedAt.After(*b.StartedAt)
+	}
+	return a.ID > b.ID
+}
+
 // commitChecks reads a commit's check runs and legacy statuses. A failed read
 // of the statuses is flagged rather than fatal, so it never looks like green CI.
 func commitChecks(client *gh.Client, token, owner, name, sha string) ([]PullRequestCheck, ChecksCoverage, error) {
@@ -161,7 +207,7 @@ func commitChecks(client *gh.Client, token, owner, name, sha string) ([]PullRequ
 	}
 	coverage.Truncated = truncated
 	var checks []PullRequestCheck
-	for _, run := range runs {
+	for _, run := range latestCheckRuns(runs) {
 		check := PullRequestCheck{Name: truncateRunes(run.Name, 120), State: checkRunState(run), URL: run.HTMLURL}
 		if run.DetailsURL != "" {
 			check.URL = run.DetailsURL

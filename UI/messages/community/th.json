@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "งานไม่ได้อยู่ในสถานะรอการตรวจสอบ",
 	"tasks.signal_untrusted": "ละเว้น: ผู้รีวิวไม่มีสิทธิ์เขียน",
 	"tasks.signal_follow_up_failed": "ไม่สามารถเข้าคิวการติดตามผลได้",
+	"tasks.signal_infrastructure": "CI ล้มเหลวบน runner โปรดรันอีกครั้ง",
 	"machines.ports": "พอร์ตของแอป",
 	"machines.ports_desc": "ที่อยู่ส่วนตัวสำหรับแอปที่รันบนเครื่องนี้ เฉพาะคุณเท่านั้นที่เปิดได้",
 	"machines.ports_empty": "ยังไม่ได้เปิดพอร์ตใด",

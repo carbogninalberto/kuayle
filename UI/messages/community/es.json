@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "La tarea no estaba pendiente de revisión",
 	"tasks.signal_untrusted": "Ignorada: el revisor no tiene acceso de escritura",
 	"tasks.signal_follow_up_failed": "No se pudo poner en cola el seguimiento",
+	"tasks.signal_infrastructure": "La CI falló en el runner. Vuelve a ejecutarla.",
 	"machines.ports": "Puertos de la aplicación",
 	"machines.ports_desc": "Direcciones privadas de las aplicaciones que se ejecutan en esta máquina. Solo tú puedes abrirlas.",
 	"machines.ports_empty": "Aún no hay puertos expuestos.",

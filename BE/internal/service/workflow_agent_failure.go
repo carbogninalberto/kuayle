@@ -12,6 +12,16 @@ import (
 // that ends here gives it as the task's reason instead of only "agent
 // failed". The workflow still decides what the failure leads to.
 func (w *WorkflowRunner) AgentFailedBecause(ctx context.Context, task domain.AgentTask, problem string) error {
+	return w.agentFailedBecause(ctx, task, problem, "")
+}
+
+// AgentFailedForRun is AgentFailedBecause for a run whose class is known: a
+// workflow that ends here says the class and one short line of the cause.
+func (w *WorkflowRunner) AgentFailedForRun(ctx context.Context, task domain.AgentTask, problem string, class domain.FailureClass) error {
+	return w.agentFailedBecause(ctx, task, problem, class)
+}
+
+func (w *WorkflowRunner) agentFailedBecause(ctx context.Context, task domain.AgentTask, problem string, class domain.FailureClass) error {
 	graph, _, err := w.graph(ctx, task)
 	if err != nil {
 		return err
@@ -25,6 +35,10 @@ func (w *WorkflowRunner) AgentFailedBecause(ctx context.Context, task domain.Age
 	}
 	if last := len(apply.Moves) - 1; apply.Entry.Kind == repository.WorkflowEnterFail && last >= 0 && !apply.Moves[last].Stop {
 		apply.Entry.Reason += ". " + problem
+		if class != "" {
+			apply.FailureClass = class
+			apply.Entry.Reason += " · " + domain.TaskFailureReason(class, problem)
+		}
 	}
 	_, err = w.tasks.ApplyWorkflow(ctx, task, *apply)
 	return err

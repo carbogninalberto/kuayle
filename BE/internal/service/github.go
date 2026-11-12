@@ -1342,6 +1342,32 @@ func (s *GitHubService) UpdateAutoTransitions(ctx context.Context, workspaceID u
 	return nil
 }
 
+// signalWriteTimeout bounds the final write of a webhook's signal, which must
+// land even when GitHub gives up on the delivery.
+const signalWriteTimeout = 5 * time.Second
+
+// signalCandidateMatcher matches a webhook to an agent task before Kuayle
+// reads GitHub.
+type signalCandidateMatcher interface {
+	HasSignalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (bool, error)
+}
+
+// finalSignalContext is the delivery's context without its cancellation: a
+// signal already received is recorded even when GitHub drops the delivery.
+func finalSignalContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), signalWriteTimeout)
+}
+
+// signalCandidate reports whether the pull request belongs to an agent task
+// that is still open to follow-ups. Without a matcher (a test), it reads first.
+func (s *GitHubService) signalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (bool, error) {
+	matcher, ok := s.taskSignals.(signalCandidateMatcher)
+	if !ok {
+		return true, nil
+	}
+	return matcher.HasSignalCandidate(ctx, ws, repository, number, headSHA)
+}
+
 var signalOutcome = regexp.MustCompile(`^[a-z_]{1,32}$`)
 
 func normalizedOutcome(value string) string {
@@ -1407,6 +1433,17 @@ func (s *GitHubService) processCheckSuiteEvent(ctx context.Context, payload []by
 		if i >= 10 || pr.Number <= 0 {
 			break
 		}
+		if ciOutcomeFailed(outcome) {
+			// Match first: a failed suite of somebody else's pull request
+			// never needs GitHub's annotations or job logs.
+			candidate, err := s.signalCandidate(ctx, inst.WorkspaceID, repo.FullName, pr.Number, event.CheckSuite.HeadSHA)
+			if err != nil {
+				return fmt.Errorf("matching check suite: %w", err)
+			}
+			if !candidate {
+				continue
+			}
+		}
 		if failure == nil && ciOutcomeFailed(outcome) {
 			failure = s.ciFailure(ctx, inst.WorkspaceID, repo.FullName, event.CheckSuite.HeadSHA, outcome)
 		}
@@ -1415,7 +1452,10 @@ func (s *GitHubService) processCheckSuiteEvent(ctx context.Context, payload []by
 			Name: truncateRunes(event.CheckSuite.App.Name, 200), HeadSHA: event.CheckSuite.HeadSHA,
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d/checks", repo.FullName, pr.Number), Failure: failure,
 		}
-		if err := s.taskSignals.Record(ctx, inst.WorkspaceID, repo.FullName, pr.Number, in); err != nil {
+		writeCtx, cancel := finalSignalContext(ctx)
+		err = s.taskSignals.Record(writeCtx, inst.WorkspaceID, repo.FullName, pr.Number, in)
+		cancel()
+		if err != nil {
 			return fmt.Errorf("recording check suite: %w", err)
 		}
 	}

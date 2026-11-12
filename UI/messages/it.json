@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "L'attività non era in revisione",
 	"tasks.signal_untrusted": "Ignorata: il revisore non ha accesso in scrittura",
 	"tasks.signal_follow_up_failed": "Impossibile accodare il nuovo tentativo",
+	"tasks.signal_infrastructure": "La CI non è riuscita sul runner. Eseguila di nuovo.",
 	"machines.ports": "Porte delle app",
 	"machines.ports_desc": "Indirizzi privati per le app in esecuzione su questa macchina. Solo tu puoi aprirli.",
 	"machines.ports_empty": "Nessuna porta esposta.",

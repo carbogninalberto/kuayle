@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "La tasca no esperava revisió",
 	"tasks.signal_untrusted": "Ignorat: el revisor no té accés d'escriptura",
 	"tasks.signal_follow_up_failed": "No s'ha pogut posar el seguiment a la cua",
+	"tasks.signal_infrastructure": "La CI ha fallat al runner. Torna a executar-la.",
 	"machines.ports": "Ports de l'aplicació",
 	"machines.ports_desc": "Adreces privades per a les aplicacions que s'executen en aquesta màquina. Només tu les pots obrir.",
 	"machines.ports_empty": "Encara no s'ha exposat cap port.",

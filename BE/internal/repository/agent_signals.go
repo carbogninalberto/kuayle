@@ -45,6 +45,19 @@ func (r *AgentTaskRepository) RecordSignal(ctx context.Context, ws uuid.UUID, re
 	return followUps, nil
 }
 
+// HasSignalCandidate reports whether a CI or review signal could concern an
+// agent task that is still open to follow-ups: the task's current attempt
+// published that pull request (and, for CI, that commit). The webhook matches
+// first and reads GitHub only then.
+func (r *AgentTaskRepository) HasSignalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (bool, error) {
+	var exists bool
+	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM agent_tasks t JOIN dev_machine_git_refs g ON g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id
+ WHERE t.workspace_id=$1 AND t.state='awaiting_review' AND LOWER(g.repository_full_name)=LOWER($2) AND g.pull_request_number=$3
+ AND ($4='' OR EXISTS(SELECT 1 FROM dev_machine_git_refs c WHERE c.agent_run_id=t.run_id AND c.workspace_id=t.workspace_id AND c.ref_type='commit' AND c.commit_sha=$4)))`,
+		ws, repository, number, headSHA)
+	return exists, err
+}
+
 func signalNeedsFollowUp(in domain.AgentTaskSignalInput) bool {
 	if in.Kind == "ci" {
 		return in.Outcome == "failure" || in.Outcome == "timed_out"
@@ -73,18 +86,29 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	if existing && signal.Action == "follow_up" {
-		// Already decided; resume a follow-up that was recorded but not queued.
-		if signal.FollowUpGeneration == nil {
-			return &domain.AgentTaskFollowUp{Signal: *signal, Task: *task}, tx.Commit()
-		}
-		return nil, tx.Commit()
-	}
 	var failureClass *string
 	failureEvidence := ""
 	if in.Kind == "ci" && in.Failure != nil && slices.Contains(domain.CIFailureClasses, in.Failure.Class) {
 		class := in.Failure.Class
 		failureClass, failureEvidence = &class, in.Failure.Evidence
+	}
+	if existing && signal.Action == "follow_up" {
+		// The first delivery's decision stands: no second follow-up. But a
+		// redelivery may now know the class (the first read of GitHub timed
+		// out), so what a person sees is corrected without queueing work.
+		if failureClass != nil && (signal.FailureClass == nil || *signal.FailureClass != *failureClass) {
+			if err = tx.GetContext(ctx, signal, `UPDATE agent_task_signals SET failure_class=$2,failure_evidence=$3,updated_at=now() WHERE id=$1 RETURNING *`, signal.ID, failureClass, failureEvidence); err != nil {
+				return nil, err
+			}
+			if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.signal_recorded", signal); err != nil {
+				return nil, err
+			}
+		}
+		// Resume a follow-up that was recorded but not queued.
+		if signal.FollowUpGeneration == nil {
+			return &domain.AgentTaskFollowUp{Signal: *signal, Task: *task}, tx.Commit()
+		}
+		return nil, tx.Commit()
 	}
 	// A runner or network failure is not the change's: it is recorded as
 	// infrastructure and uses none of the CI follow-up budget (KUA-137).

@@ -8,7 +8,6 @@ ALTER TABLE agent_task_signals
     DROP COLUMN failure_class,
     DROP COLUMN failure_evidence;
 ALTER TABLE agent_tasks DROP COLUMN failure_class;
-DROP INDEX dev_machine_agent_runs_failures;
 ALTER TABLE dev_machine_agent_runs
     DROP COLUMN failure_class,
     DROP COLUMN failure_rule,

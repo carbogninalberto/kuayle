@@ -509,20 +509,36 @@ unqueued by transient errors after 30 seconds.
 
 A failed CI signal is classified before it decides anything (KUA-137):
 `test_failure`, `build_failure`, `runner_or_network`, `timeout` or `cancelled`.
-The inputs are the suite's conclusion, the failed checks' names, conclusions and
-output title/summary/text, and the first failed step of each failed Actions job
-(`/actions/jobs/{id}`, at most one read per failed check, ten checks and eight
-seconds per suite). If those reads fail, the conclusion and whatever was read
-still classify it, and the webhook never fails because classification could not
-reach GitHub; with nothing else, it stays a `test_failure` as before. A
-`runner_or_network` failure is the runner's, not the change's: it is stored with
-its class and evidence and the action `infrastructure`, starts no attempt and
-uses none of the two CI fixes. The other classes follow up exactly as before.
+The webhook first matches the pull request to an agent task that is still open
+to follow-ups, and only then reads GitHub: the suite's conclusion, the failed
+checks' names, conclusions and output, each failed check's annotations (one
+call), and the failed step and the end of the log of a failed Actions job
+(`/actions/jobs/{id}` and `/actions/jobs/{id}/logs`, at most the last 256 KiB,
+three job logs and eight seconds per suite). If those reads fail, the
+conclusion and whatever was read still classify it, and the webhook never fails
+because classification could not reach GitHub; with nothing else, it stays a
+`test_failure` as before. Only strong runner or network signatures decide
+`runner_or_network` (DNS resolution failures, an unreachable package mirror or
+registry, a download reset or timed out, no space left, a runner shutdown or
+lost communication, a build killed for memory), and only when every failed
+check matches one and no failed step runs the change's tests. A truncated list
+of failed checks is never the runner's. Such a failure is stored with its class
+and evidence and the action `infrastructure`, starts no attempt and uses none
+of the two CI fixes. A redelivery keeps the first decision (it never queues a
+second follow-up) but corrects the stored class and evidence when this time the
+GitHub read succeeded. The other classes follow up exactly as before.
 `GET /agent-tasks/:taskId/signals` adds `failure_class` and `failure_evidence`
-to each signal without changing its existing fields. Job logs are not fetched:
-Kuayle reads only the check output and a failed step's name. The agent has no
-GitHub credential and must reproduce failures with the configured test command.
-The new attempt then revalidates and republishes to the same pull request.
+to each signal without changing its existing fields. The agent has no GitHub
+credential and must reproduce failures with the configured test command. The
+new attempt then revalidates and republishes to the same pull request.
+
+A workflow's CI step reads completed suites into three groups: the change's
+failures, passes, and suites the runner or network caused. An
+`infrastructure` suite never fails the step and never sends the agent to fix a
+runner; the step keeps waiting, its detail names the check and says it needs to
+be run again, and its timeout (or the workflow's time budget, when it has no
+timeout) still bounds the wait. A later suite of the same commit replaces an
+earlier runner failure: a pass lets CI pass, a real failure fails the step.
 
 ### Kuayle issue comments
 
@@ -778,10 +794,27 @@ failures move the task to `cancelling`; capacity waits and stale leases are not
 failures, and a successful step resets the counter. A native failure also enters
 cleanup first. Only confirmed cleanup produces the terminal `failed` state.
 Exhausted cleanup stays visibly pending rather than claiming the process stopped.
+Every run that does not succeed records a failure class (`agent`, `provider`,
+`platform`, `ci_infrastructure`, `policy`, `person` or `unknown`), the rule that
+decided and a bounded cause, redacted with the run's secrets. The class is
+written where the reason is known: a person's cancel, pause or message
+interruption is `person` (with a cause naming which), a policy refusal is
+`policy`, a machine stop is `platform`, and the cleanup that follows a failure
+keeps that failure's class. Cleanup never replaces a class the run already has.
+The creator-only run endpoints show the full cause. A task shows its class in
+words and one line of that cause (at most 300 characters), never the raw end of
+standard error, because everyone who can see the task reads the reason. A
+workflow task carries the run's class and cause into the step's detail and,
+when the workflow ends in failure, into the task's reason and
+`failure_class`. A paused task (a usage limit, a person's pause) has not
+failed and keeps no failure class.
+
 A native failure caused by a resource limit (an out-of-memory kill of the agent
 container, see [resource limits](../../TECHNICAL.md#resource-limits-and-quotas))
-fails with that explanation as its reason, kept as the final `failed` reason;
-other native failures use the generic reason and cleanup message.
+fails with that explanation as its reason, kept as the final `failed` reason.
+An independent validation that fails says the command and its exit code, and
+names who chose it (Kuayle re-ran the agent's tests, or the independent check);
+it is the change's failure (`agent`), not the platform's.
 Configuration failures after reserving an environment also enter cleanup: a
 preparing task may already have started native execution between worker polls.
 An authorized repeat cancellation request can retry failed cleanup operations

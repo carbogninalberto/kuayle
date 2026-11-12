@@ -30,6 +30,7 @@ type AgentTaskFeedback struct {
 
 type feedbackStore interface {
 	RecordSignal(ctx context.Context, ws uuid.UUID, repository string, number int, in domain.AgentTaskSignalInput) ([]domain.AgentTaskFollowUp, error)
+	HasSignalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (bool, error)
 	FinishFollowUp(ctx context.Context, signal uuid.UUID, generation *int64) error
 	PendingFollowUps(ctx context.Context, limit int) ([]domain.AgentTaskFollowUp, error)
 	RecordCommentSignal(ctx context.Context, ws, issue, comment, author uuid.UUID, summary string) (*domain.AgentTaskFollowUp, error)
@@ -59,6 +60,12 @@ func (f *AgentTaskFeedback) Record(ctx context.Context, ws uuid.UUID, repository
 		return err
 	}
 	return f.request(ctx, followUps)
+}
+
+// HasSignalCandidate reports whether a webhook could concern a task that is
+// still open to follow-ups, before any GitHub read.
+func (f *AgentTaskFeedback) HasSignalCandidate(ctx context.Context, ws uuid.UUID, repository string, number int, headSHA string) (bool, error) {
+	return f.repo.HasSignalCandidate(ctx, ws, repository, number, headSHA)
 }
 
 // RecordComment treats a Kuayle issue comment as review feedback when the

@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "작업이 검토 대기 상태가 아니었습니다",
 	"tasks.signal_untrusted": "무시됨: 리뷰어에게 쓰기 권한이 없습니다",
 	"tasks.signal_follow_up_failed": "후속 작업을 대기열에 추가할 수 없습니다",
+	"tasks.signal_infrastructure": "CI가 러너에서 실패했습니다. 다시 실행하세요.",
 	"machines.ports": "앱 포트",
 	"machines.ports_desc": "이 머신에서 실행 중인 앱의 비공개 주소입니다. 나만 열 수 있습니다.",
 	"machines.ports_empty": "아직 노출된 포트가 없습니다.",

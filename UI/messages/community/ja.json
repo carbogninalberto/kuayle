@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "タスクはレビュー待ちではありませんでした",
 	"tasks.signal_untrusted": "無視: レビュアーに書き込み権限がありません",
 	"tasks.signal_follow_up_failed": "フォローアップを待機に追加できませんでした",
+	"tasks.signal_infrastructure": "CI がランナーで失敗しました。再実行してください。",
 	"machines.ports": "アプリのポート",
 	"machines.ports_desc": "このマシンで動作するアプリのプライベートアドレスです。開けるのは自分だけです。",
 	"machines.ports_empty": "公開されているポートはまだありません。",

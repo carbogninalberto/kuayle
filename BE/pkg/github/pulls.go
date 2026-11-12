@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 // APIError is a GitHub response the caller can act on: 403 means the App lacks
@@ -119,12 +120,37 @@ type CheckRunOutput struct {
 
 // CheckRun is one CI check of a commit.
 type CheckRun struct {
-	Name       string         `json:"name"`
-	Status     string         `json:"status"`
-	Conclusion string         `json:"conclusion"`
-	HTMLURL    string         `json:"html_url"`
-	DetailsURL string         `json:"details_url"`
-	Output     CheckRunOutput `json:"output"`
+	ID               int64          `json:"id"`
+	Name             string         `json:"name"`
+	Status           string         `json:"status"`
+	Conclusion       string         `json:"conclusion"`
+	HTMLURL          string         `json:"html_url"`
+	DetailsURL       string         `json:"details_url"`
+	Output           CheckRunOutput `json:"output"`
+	AnnotationsCount int            `json:"annotations_count"`
+	StartedAt        *time.Time     `json:"started_at"`
+	CompletedAt      *time.Time     `json:"completed_at"`
+}
+
+// CheckRunAnnotation is one failure message GitHub attached to a check run.
+type CheckRunAnnotation struct {
+	Level      string `json:"annotation_level"`
+	Message    string `json:"message"`
+	Title      string `json:"title"`
+	RawDetails string `json:"raw_details"`
+	Path       string `json:"path"`
+	StartLine  int    `json:"start_line"`
+	EndLine    int    `json:"end_line"`
+}
+
+// ListCheckRunAnnotations reads the annotations of one check run. It is the
+// single call Kuayle makes for a failed check before reading its job log.
+func (c *Client) ListCheckRunAnnotations(token, owner, repo string, checkRunID int64) ([]CheckRunAnnotation, error) {
+	var annotations []CheckRunAnnotation
+	if err := c.do(http.MethodGet, fmt.Sprintf("%s/repos/%s/%s/check-runs/%d/annotations", githubAPIBaseURL, owner, repo, checkRunID), token, nil, &annotations); err != nil {
+		return nil, err
+	}
+	return annotations, nil
 }
 
 // ListCheckRuns lists the check runs of a commit, following pages of 100

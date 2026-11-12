@@ -5,16 +5,13 @@ package domain
 // and the command line on the run (command_argv): the debug trace links
 // them, this record does not copy them.
 type AgentRunEnvironment struct {
-	// Harness is the provider ID; HarnessCommand the binary the run started
-	// and HarnessPath where the container resolved it. HarnessVersion is
-	// what that binary reports; when it could not be read it is empty and
-	// HarnessVersionError says why.
-	Harness             string `json:"harness"`
-	HarnessCommand      string `json:"harness_command,omitempty"`
-	HarnessPath         string `json:"harness_path,omitempty"`
-	HarnessVersion      string `json:"harness_version,omitempty"`
-	HarnessVersionFrom  string `json:"harness_version_from,omitempty"`
-	HarnessVersionError string `json:"harness_version_error,omitempty"`
+	// Harness is the provider ID; HarnessCommand the binary the run started.
+	// HarnessVersion is what that binary reported when the run started, and
+	// HarnessVersionFrom where that reading came from.
+	Harness            string `json:"harness"`
+	HarnessCommand     string `json:"harness_command,omitempty"`
+	HarnessVersion     string `json:"harness_version,omitempty"`
+	HarnessVersionFrom string `json:"harness_version_from,omitempty"`
 	// ImageRef is the image the run asked for, ImageID the local image it
 	// resolved to and ImageDigest its repository digest, when it has one.
 	ImageRef    string `json:"image_ref,omitempty"`

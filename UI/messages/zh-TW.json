@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "任務未處於待審查狀態",
 	"tasks.signal_untrusted": "已忽略：審查者沒有寫入權限",
 	"tasks.signal_follow_up_failed": "無法排入後續嘗試",
+	"tasks.signal_infrastructure": "CI 在執行器上失敗。請重新執行。",
 	"machines.ports": "應用程式連接埠",
 	"machines.ports_desc": "為此機器上執行的應用程式提供的私人位址。只有你可以開啟。",
 	"machines.ports_empty": "尚未公開任何連接埠。",

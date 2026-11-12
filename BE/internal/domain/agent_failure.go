@@ -81,6 +81,9 @@ type RunFailureEvidence struct {
 	// CancelledByPolicy when access or the policy was withdrawn; empty when
 	// Kuayle stopped it itself (its machine restarted or stopped).
 	CancelledBy string
+	// PolicyRefused is set when an authorization or policy check refused the
+	// run while it was working.
+	PolicyRefused bool
 }
 
 const (
@@ -107,16 +110,39 @@ type runFailureRule struct {
 
 // Signatures the harness, its runtime or a shell print when the kernel
 // refuses a new thread or process: the container's PID limit.
-var pidLimitText = regexp.MustCompile(`(?i)(failed to create new os thread|pthread_create failed|cannot fork|fork: retry|unable to create (?:new )?(?:native )?thread|uv_thread_create|(?:fork|thread|clone|spawn|process)[^\n]{0,80}resource temporarily unavailable|resource temporarily unavailable[^\n]{0,80}(?:fork|thread|clone|spawn))`)
+var pidLimitText = regexp.MustCompile(`(?i)(failed to create new os thread|pthread_create failed|cannot fork|fork: retry|unable to create (?:new )?(?:native )?thread|uv_thread_create|spawn[^\n]{0,80}EAGAIN|(?:fork|thread|clone|spawn|process)[^\n]{0,80}resource temporarily unavailable|resource temporarily unavailable[^\n]{0,80}(?:fork|thread|clone|spawn)|resource temporarily unavailable)`)
 
 // providerErrorText is wording model providers and their SDKs use for a
 // failure on their side or of the account: overload, rate limits, server
 // errors, rejected credentials, exhausted credit, an unreachable API.
 var providerErrorText = regexp.MustCompile(`(?i)(overloaded|\b529\b|rate[ _-]?limit|too many requests|\b429\b|api ?error:? ?5\d\d|\b50[0234]\b[^\n]{0,40}(?:error|unavailable|gateway)|internal server error|service unavailable|bad gateway|authentication_error|invalid (?:x-)?api[ _-]?key|invalid_api_key|\b401\b[^\n]{0,40}unauthorized|insufficient_quota|credit balance is too low|billing|api connection error|connection error\.|model_not_found|upstream connect error)`)
 
+// providerFailureOutput is the narrower wording of a provider failure that a
+// harness prints as its own structured error and then stops without a final
+// message. Ordinary test output can quote words like "429" or "billing"; only
+// a structured API error is the provider's.
+var providerFailureOutput = regexp.MustCompile(`(?i)(overloaded_error|rate_limit_error|insufficient_quota|authentication_error|invalid_api_key|api ?error:? ?(?:429|5\d\d)|rate_limit_event|usage_limit_reached|you've hit your [\w-]*\s*(?:usage |weekly |session )?limit|usage limit reached|server is overloaded|the model is overloaded)`)
+
 // IsProviderError reports whether text reads as a model provider's failure.
 func IsProviderError(text string) bool {
 	return providerErrorText.MatchString(text)
+}
+
+// isProviderFailureOutput reports whether standard error carries the
+// provider's own structured failure, the one worth preferring over a missing
+// final message.
+func isProviderFailureOutput(text string) bool {
+	return providerFailureOutput.MatchString(text)
+}
+
+// harnessErrorCause names the harness's error once, whether it already
+// carries the prefix providers write or not.
+func harnessErrorCause(text string) string {
+	const prefix = "The harness reported an error: "
+	if strings.HasPrefix(text, prefix) {
+		return text
+	}
+	return prefix + text
 }
 
 // pidLimitReached: the container ran at its PID limit, or the output says the
@@ -144,8 +170,11 @@ func exitSignal(code *int) string {
 }
 
 // runFailureRules is the classification table, most decisive evidence first.
-// What the platform did to the run comes before what the provider or the
-// harness said: a run killed at its memory limit often also prints an error.
+// What the platform did to the run (memory, PID or time limit) comes before
+// what the provider or the harness said, because such a run often also prints
+// an error. A usage limit and a provider error are the exception: they decide
+// before a persistence failure or a missing final message, since the task
+// pauses as the provider's or the cause would quote the wrong thing.
 var runFailureRules = []runFailureRule{
 	{"cancelled_by_person", FailurePerson,
 		func(e RunFailureEvidence) bool { return e.Status == "cancelled" && e.CancelledBy == CancelledByPerson },
@@ -159,6 +188,11 @@ var runFailureRules = []runFailureRule{
 		func(e RunFailureEvidence) bool { return e.Status == "cancelled" },
 		func(RunFailureEvidence) string {
 			return "Kuayle stopped the run: its machine was restarted, stopped or replaced"
+		}},
+	{"policy_refusal", FailurePolicy,
+		func(e RunFailureEvidence) bool { return e.PolicyRefused },
+		func(RunFailureEvidence) string {
+			return "The run was stopped because the workspace policy no longer allows it"
 		}},
 	{"out_of_memory", FailurePlatform,
 		func(e RunFailureEvidence) bool { return e.OOMKilled || e.MemoryLimit != "" },
@@ -183,37 +217,39 @@ var runFailureRules = []runFailureRule{
 			}
 			return "Kuayle stopped the run at its time limit"
 		}},
-	{"platform_error", FailurePlatform,
-		func(e RunFailureEvidence) bool { return e.ExecutionError != "" },
-		func(e RunFailureEvidence) string { return platformErrorCause(e.ExecutionError) }},
 	{"usage_limit", FailureProvider,
 		func(e RunFailureEvidence) bool { return e.UsageLimit != "" },
 		func(e RunFailureEvidence) string { return "The provider's usage limit was reached: " + e.UsageLimit }},
+	{"platform_error", FailurePlatform,
+		func(e RunFailureEvidence) bool { return e.ExecutionError != "" },
+		func(e RunFailureEvidence) string { return platformErrorCause(e.ExecutionError) }},
 	{"sign_in_required", FailureProvider,
 		func(e RunFailureEvidence) bool { return strings.HasPrefix(e.HarnessError, "sign_in_required") },
 		func(e RunFailureEvidence) string { return "The provider needs a sign-in: " + e.HarnessError }},
 	{"provider_error", FailureProvider,
 		func(e RunFailureEvidence) bool { return IsProviderError(e.HarnessError) },
 		func(e RunFailureEvidence) string { return "The provider reported an error: " + e.HarnessError }},
+	{"provider_error_output", FailureProvider,
+		func(e RunFailureEvidence) bool { return isProviderFailureOutput(e.Stderr) },
+		func(RunFailureEvidence) string { return "The harness stopped on a provider error" }},
 	{"no_final_message", FailureAgent,
 		func(e RunFailureEvidence) bool { return e.NoFinalMessage },
 		func(e RunFailureEvidence) string { return NoFinalMessageReason(e.HarnessError) }},
 	{"harness_error", FailureAgent,
 		func(e RunFailureEvidence) bool { return e.HarnessError != "" },
-		func(e RunFailureEvidence) string { return "The harness reported an error: " + e.HarnessError }},
-	{"provider_error_output", FailureProvider,
-		func(e RunFailureEvidence) bool { return IsProviderError(e.Stderr) },
-		func(RunFailureEvidence) string { return "The harness stopped on a provider error" }},
+		func(e RunFailureEvidence) string { return harnessErrorCause(e.HarnessError) }},
 	{"killed", FailureUnknown,
 		func(e RunFailureEvidence) bool { return exitSignal(e.ExitCode) != "" },
 		func(e RunFailureEvidence) string {
 			return "The harness process was ended by " + exitSignal(e.ExitCode) + " without an out-of-memory event, and nothing recorded says what sent it"
 		}},
-	{"harness_exit_with_output", FailureAgent,
+	{"harness_exit_with_output", FailureUnknown,
 		func(e RunFailureEvidence) bool {
 			return exited(e.ExitCode) && *e.ExitCode != 0 && strings.TrimSpace(e.Stderr) != ""
 		},
-		func(RunFailureEvidence) string { return "The harness exited with an error" }},
+		func(RunFailureEvidence) string {
+			return "The harness exited with an error and did not report whether the provider or Kuayle stopped it"
+		}},
 	{"harness_exit_silent", FailureUnknown,
 		func(e RunFailureEvidence) bool { return exited(e.ExitCode) && *e.ExitCode != 0 },
 		func(RunFailureEvidence) string {
@@ -310,6 +346,23 @@ type TaskFailure struct {
 	Reason string
 }
 
+// TaskFailureReason is the short sentence a task records when it fails: the
+// class in words and one line of cause, at most 300 characters. The run keeps
+// the full cause; a reason shown to everyone must stay short.
+func TaskFailureReason(class FailureClass, cause string) string {
+	line := ""
+	for _, raw := range strings.Split(strings.ReplaceAll(cause, "\r", ""), "\n") {
+		if line = strings.Join(strings.Fields(raw), " "); line != "" {
+			break
+		}
+	}
+	reason := FailureClassLabel(class) + " failure"
+	if line != "" {
+		reason += ": " + line
+	}
+	return TruncateBytes(reason, 300)
+}
+
 // FailureClassLabel is the class in words, for summaries.
 func FailureClassLabel(class FailureClass) string {
 	switch class {
@@ -327,22 +380,4 @@ func FailureClassLabel(class FailureClass) string {
 		return "Person"
 	}
 	return "Unknown"
-}
-
-// WorkflowOutcomeFailureClass is the class of a task whose workflow ends as
-// failed after outcome, when nothing more specific is known: failed checks
-// and reviews are the agent's work, a publication Kuayle could not make is
-// the platform's, a wait that timed out or a limit is the workflow's policy.
-func WorkflowOutcomeFailureClass(outcome string) FailureClass {
-	switch outcome {
-	case WorkflowAgentFailed, WorkflowChecksFailed, WorkflowReviewChangesRequested:
-		return FailureAgent
-	case WorkflowPublishFailed:
-		return FailurePlatform
-	case WorkflowTimeout, WorkflowChecksSkipped:
-		return FailurePolicy
-	case WorkflowApprovalDenied:
-		return FailurePerson
-	}
-	return FailureUnknown
 }

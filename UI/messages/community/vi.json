@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Tác vụ không ở trạng thái chờ xem xét",
 	"tasks.signal_untrusted": "Đã bỏ qua: người đánh giá không có quyền ghi",
 	"tasks.signal_follow_up_failed": "Không thể xếp hàng lần chạy tiếp theo",
+	"tasks.signal_infrastructure": "CI thất bại trên runner. Hãy chạy lại.",
 	"machines.ports": "Cổng ứng dụng",
 	"machines.ports_desc": "Địa chỉ riêng cho các ứng dụng chạy trên máy này. Chỉ bạn mới mở được.",
 	"machines.ports_empty": "Chưa mở cổng nào.",

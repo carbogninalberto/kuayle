@@ -88,14 +88,21 @@ func TestMergedPullRequestWebhookCompletesAgentTasks(t *testing.T) {
 }
 
 type signalRecorder struct {
-	inputs  []domain.AgentTaskSignalInput
-	repos   []string
-	numbers []int
+	inputs         []domain.AgentTaskSignalInput
+	repos          []string
+	numbers        []int
+	candidate      bool
+	candidateCalls int
 }
 
 func (r *signalRecorder) Record(_ context.Context, _ uuid.UUID, repository string, number int, in domain.AgentTaskSignalInput) error {
 	r.inputs, r.repos, r.numbers = append(r.inputs, in), append(r.repos, repository), append(r.numbers, number)
 	return nil
+}
+
+func (r *signalRecorder) HasSignalCandidate(context.Context, uuid.UUID, string, int, string) (bool, error) {
+	r.candidateCalls++
+	return r.candidate, nil
 }
 
 func TestCheckSuiteAndReviewWebhooksRecordTaskSignals(t *testing.T) {
@@ -119,16 +126,22 @@ func TestCheckSuiteAndReviewWebhooksRecordTaskSignals(t *testing.T) {
 	require.NoError(t, repo.CreateInstallation(ctx, inst))
 	linked := &domain.GitHubRepoModel{ID: uuid.New(), WorkspaceID: ws, InstallationID: inst.ID, GitHubRepoID: time.Now().UnixNano(), FullName: "acme/app", DefaultBranch: "main", IsActive: true}
 	require.NoError(t, repo.CreateRepo(ctx, linked))
-	recorder := &signalRecorder{}
+	recorder := &signalRecorder{candidate: true}
 	svc := NewGitHubService(repo, repository.NewIssueRepository(db), nil, nil, nil, nil, nil, "https://kuayle.test", "", nil)
 	svc.SetTaskSignals(recorder)
 	svc.repositoryPermission = func(context.Context, *domain.GitHubInstallation, *domain.GitHubRepoModel, string) (string, error) {
 		return "write", nil
 	}
+	ciReads := 0
 	svc.ciChecks = func(context.Context, uuid.UUID, string, string) []domain.CIFailedCheck {
+		ciReads++
+		// The real shape of a runner failure: empty check output, one
+		// annotation naming the build step, and the reason only in the job log.
 		return []domain.CIFailedCheck{{
-			Name: "Docker Runtime Integration", Conclusion: "failure", FailedStep: "Install packages",
-			Text: "Temporary failure resolving 'azure.archive.ubuntu.com'",
+			Name: "Docker Runtime Integration", Conclusion: "failure",
+			FailedStep:  "Build, smoke test and scan native architecture image",
+			Annotations: []string{`buildx failed with: ERROR: failed to build: failed to solve: process "/bin/sh -c apt-get update && apt-get install -y ..." did not complete successfully`},
+			LogTail:     "#7 [build 2/3] RUN apt-get update\nCould not resolve 'archive.ubuntu.com'\nTemporary failure resolving 'azure.archive.ubuntu.com'",
 		}}
 	}
 	send := func(kind string, body map[string]any) {
@@ -150,9 +163,20 @@ func TestCheckSuiteAndReviewWebhooksRecordTaskSignals(t *testing.T) {
 	require.NotNil(t, first.Failure, "a failed suite is classified when it is recorded")
 	require.Equal(t, domain.CIFailureRunner, first.Failure.Class)
 	require.Equal(t, "runner_output", first.Failure.Rule)
-	require.Contains(t, first.Failure.Evidence, "Temporary failure resolving")
+	require.Contains(t, first.Failure.Evidence, "Could not resolve")
+	require.Equal(t, 1, ciReads)
 	require.Equal(t, "acme/app", recorder.repos[0], "the repository comes from Kuayle's link, not the payload")
 	require.Equal(t, 12, recorder.numbers[0])
+	// A suite of a pull request without a task open to follow-ups is matched
+	// first: GitHub's checks are never read for it.
+	recorder.candidate = false
+	stray := suite("completed", "failure")
+	stray["check_suite"].(map[string]any)["id"] = 88
+	send("check_suite", stray)
+	require.Equal(t, 1, ciReads, "no GitHub read for a PR no task waits on")
+	require.Len(t, recorder.inputs, 1)
+	recorder.candidate = true
+
 	review := func(association string) map[string]any {
 		return map[string]any{"action": "submitted", "pull_request": map[string]any{"number": 12}, "review": map[string]any{"id": 5, "state": "changes_requested", "body": "Rename it", "author_association": association, "user": map[string]any{"login": "reviewer"}}}
 	}

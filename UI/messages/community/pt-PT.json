@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "A tarefa não estava a aguardar revisão",
 	"tasks.signal_untrusted": "Ignorado: o revisor não tem acesso de escrita",
 	"tasks.signal_follow_up_failed": "Não foi possível colocar o seguimento em fila",
+	"tasks.signal_infrastructure": "A CI falhou no runner. Volte a executar.",
 	"machines.ports": "Portas da app",
 	"machines.ports_desc": "Endereços privados das apps em execução nesta máquina. Só você as pode abrir.",
 	"machines.ports_empty": "Ainda sem portas expostas.",

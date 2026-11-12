@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "لم تكن المهمة بانتظار المراجعة",
 	"tasks.signal_untrusted": "تم التجاهل: المراجع ليس لديه صلاحية كتابة",
 	"tasks.signal_follow_up_failed": "تعذرت إضافة المتابعة إلى الطابور",
+	"tasks.signal_infrastructure": "فشلت CI على المشغّل. أعد تشغيلها.",
 	"machines.ports": "منافذ التطبيق",
 	"machines.ports_desc": "عناوين خاصة للتطبيقات التي تعمل على هذا الجهاز. أنت وحدك يمكنك فتحها.",
 	"machines.ports_empty": "لا توجد منافذ مكشوفة بعد.",

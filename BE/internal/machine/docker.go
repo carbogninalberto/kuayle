@@ -1065,10 +1065,12 @@ func (r *DockerRuntime) resumeExecution(ctx context.Context, inspection containe
 		result, waitError = results, failures
 	}
 	// The kernel's PID limit kills a process without leaving a message;
-	// sample the container's process count while it runs so a crash at the
-	// limit can be told from any other signal. No extra container is started.
+	// sample an agent attempt's process count while it runs so a crash at the
+	// limit can be told from any other signal. No extra container is started,
+	// and validation or tool containers (which never report a PID class) are
+	// not sampled at all.
 	var pids pidsSample
-	if inspection.State.Running {
+	if inspection.State.Running && deliverSecrets {
 		go r.sampleContainerPids(logCtx, containerID, &pids)
 	}
 	waiting, logging := inspection.State.Running, true
@@ -1121,8 +1123,10 @@ func (p *pidsSample) observe(current uint64) {
 // sampleContainerPids records the container's process count every few
 // seconds. A run that ends first keeps 0, as does a daemon that cannot report
 // stats: the classifier never invents a PID-limit failure from a guess.
+var pidsSampleInterval = 2 * time.Second
+
 func (r *DockerRuntime) sampleContainerPids(ctx context.Context, containerID string, sample *pidsSample) {
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(pidsSampleInterval)
 	defer ticker.Stop()
 	for {
 		select {

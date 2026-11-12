@@ -2080,6 +2080,7 @@
 	"tasks.signal_not_reviewable": "Uppgiften väntade inte på granskning",
 	"tasks.signal_untrusted": "Ignorerad: granskaren saknar skrivåtkomst",
 	"tasks.signal_follow_up_failed": "Uppföljningen kunde inte köas",
+	"tasks.signal_infrastructure": "CI misslyckades på runnern. Kör den igen.",
 	"machines.ports": "Appportar",
 	"machines.ports_desc": "Privata adresser för appar som körs på den här maskinen. Bara du kan öppna dem.",
 	"machines.ports_empty": "Inga portar exponerade ännu.",

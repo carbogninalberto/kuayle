@@ -23,8 +23,9 @@ func TestAgentTaskCarriesTheRunsFailureClassAndCause(t *testing.T) {
 	svc := &AgentTaskService{store: store, runtime: runtime}
 	require.NoError(t, svc.step(context.Background(), store.task))
 	require.Equal(t, domain.FailurePlatform, store.failClass)
-	require.Equal(t, cause, store.failReason)
+	require.Equal(t, domain.TaskFailureReason(domain.FailurePlatform, cause), store.failReason)
 	require.NotContains(t, store.failReason, "Execution failed; runtime cleanup confirmed")
+	require.NotContains(t, store.failReason, "\n", "the task reason is one line")
 }
 
 // The run's classes carry into the specific reasons the task already gives.
