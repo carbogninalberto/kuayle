@@ -125,6 +125,12 @@ func TestCheckSuiteAndReviewWebhooksRecordTaskSignals(t *testing.T) {
 	svc.repositoryPermission = func(context.Context, *domain.GitHubInstallation, *domain.GitHubRepoModel, string) (string, error) {
 		return "write", nil
 	}
+	svc.ciChecks = func(context.Context, uuid.UUID, string, string) []domain.CIFailedCheck {
+		return []domain.CIFailedCheck{{
+			Name: "Docker Runtime Integration", Conclusion: "failure", FailedStep: "Install packages",
+			Text: "Temporary failure resolving 'azure.archive.ubuntu.com'",
+		}}
+	}
 	send := func(kind string, body map[string]any) {
 		body["repository"] = map[string]any{"id": linked.GitHubRepoID, "full_name": "attacker/other"}
 		body["installation"] = map[string]any{"id": inst.InstallationID}
@@ -139,7 +145,12 @@ func TestCheckSuiteAndReviewWebhooksRecordTaskSignals(t *testing.T) {
 	require.Empty(t, recorder.inputs, "only completed suites carry an outcome")
 	send("check_suite", suite("completed", "FAILURE"))
 	require.Len(t, recorder.inputs, 1)
-	require.Equal(t, domain.AgentTaskSignalInput{Kind: "ci", ExternalID: "77", Outcome: "failure", Name: "GitHub Actions", HeadSHA: "abc123", URL: "https://github.com/acme/app/pull/12/checks"}, recorder.inputs[0])
+	first := recorder.inputs[0]
+	require.Equal(t, domain.AgentTaskSignalInput{Kind: "ci", ExternalID: "77", Outcome: "failure", Name: "GitHub Actions", HeadSHA: "abc123", URL: "https://github.com/acme/app/pull/12/checks", Failure: first.Failure}, first)
+	require.NotNil(t, first.Failure, "a failed suite is classified when it is recorded")
+	require.Equal(t, domain.CIFailureRunner, first.Failure.Class)
+	require.Equal(t, "runner_output", first.Failure.Rule)
+	require.Contains(t, first.Failure.Evidence, "Temporary failure resolving")
 	require.Equal(t, "acme/app", recorder.repos[0], "the repository comes from Kuayle's link, not the payload")
 	require.Equal(t, 12, recorder.numbers[0])
 	review := func(association string) map[string]any {

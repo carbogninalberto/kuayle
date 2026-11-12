@@ -91,12 +91,22 @@ type WorkflowRun struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-// WorkflowJob is one job of a run.
-type WorkflowJob struct {
+// WorkflowStep is one step of a job.
+type WorkflowStep struct {
 	Name       string `json:"name"`
 	Status     string `json:"status"`
 	Conclusion string `json:"conclusion"`
-	HTMLURL    string `json:"html_url"`
+}
+
+// WorkflowJob is one job of a run. Steps are returned by GetWorkflowJob, not
+// by the run's job list.
+type WorkflowJob struct {
+	ID         int64          `json:"id"`
+	Name       string         `json:"name"`
+	Status     string         `json:"status"`
+	Conclusion string         `json:"conclusion"`
+	HTMLURL    string         `json:"html_url"`
+	Steps      []WorkflowStep `json:"steps"`
 }
 
 // ListWorkflowRuns lists the newest runs (at most 30) for a commit.
@@ -118,6 +128,16 @@ func (c *Client) GetWorkflowRun(token, owner, repo string, id int64) (*WorkflowR
 		return nil, err
 	}
 	return &run, nil
+}
+
+// GetWorkflowJob reads one job, including the steps that failed. It is the
+// single call Kuayle makes per failed check when it classifies CI (KUA-137).
+func (c *Client) GetWorkflowJob(token, owner, repo string, id int64) (*WorkflowJob, error) {
+	var job WorkflowJob
+	if err := c.do(http.MethodGet, fmt.Sprintf("%s/repos/%s/%s/actions/jobs/%d", githubAPIBaseURL, owner, repo, id), token, nil, &job); err != nil {
+		return nil, err
+	}
+	return &job, nil
 }
 
 // maxJobPages bounds the jobs read for one run.

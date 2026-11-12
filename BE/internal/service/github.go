@@ -58,6 +58,9 @@ type GitHubService struct {
 	taskReviews mergedPullRequestCompleter
 	// taskSignals records CI and review events for agent task pull requests.
 	taskSignals taskSignalRecorder
+	// ciChecks reads the failed checks of a suite for classification; replaced
+	// in tests.
+	ciChecks func(ctx context.Context, ws uuid.UUID, repository, headSHA string) []domain.CIFailedCheck
 	// pullRequestMerged asks GitHub whether a pull request merged; replaced in tests.
 	pullRequestMerged func(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (bool, error)
 	// mergePullRequest merges through the GitHub App; replaced in tests.
@@ -1398,14 +1401,19 @@ func (s *GitHubService) processCheckSuiteEvent(ctx context.Context, payload []by
 	if err = s.requireAbility(ctx, inst.WorkspaceID, domain.GitHubBotTaskFeedback); err != nil {
 		return ignoreDisabledAbility(err)
 	}
+	outcome := normalizedOutcome(event.CheckSuite.Conclusion)
+	var failure *domain.CIFailure
 	for i, pr := range event.CheckSuite.PullRequests {
 		if i >= 10 || pr.Number <= 0 {
 			break
 		}
+		if failure == nil && ciOutcomeFailed(outcome) {
+			failure = s.ciFailure(ctx, inst.WorkspaceID, repo.FullName, event.CheckSuite.HeadSHA, outcome)
+		}
 		in := domain.AgentTaskSignalInput{
-			Kind: "ci", ExternalID: strconv.FormatInt(event.CheckSuite.ID, 10), Outcome: normalizedOutcome(event.CheckSuite.Conclusion),
+			Kind: "ci", ExternalID: strconv.FormatInt(event.CheckSuite.ID, 10), Outcome: outcome,
 			Name: truncateRunes(event.CheckSuite.App.Name, 200), HeadSHA: event.CheckSuite.HeadSHA,
-			URL: fmt.Sprintf("https://github.com/%s/pull/%d/checks", repo.FullName, pr.Number),
+			URL: fmt.Sprintf("https://github.com/%s/pull/%d/checks", repo.FullName, pr.Number), Failure: failure,
 		}
 		if err := s.taskSignals.Record(ctx, inst.WorkspaceID, repo.FullName, pr.Number, in); err != nil {
 			return fmt.Errorf("recording check suite: %w", err)

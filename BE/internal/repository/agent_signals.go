@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -79,8 +80,19 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 		}
 		return nil, tx.Commit()
 	}
+	var failureClass *string
+	failureEvidence := ""
+	if in.Kind == "ci" && in.Failure != nil && slices.Contains(domain.CIFailureClasses, in.Failure.Class) {
+		class := in.Failure.Class
+		failureClass, failureEvidence = &class, in.Failure.Evidence
+	}
+	// A runner or network failure is not the change's: it is recorded as
+	// infrastructure and uses none of the CI follow-up budget (KUA-137).
+	infrastructure := failureClass != nil && *failureClass == domain.CIFailureRunner
 	action := "recorded"
-	if signalNeedsFollowUp(in) {
+	if infrastructure {
+		action = "infrastructure"
+	} else if signalNeedsFollowUp(in) {
 		budget := CIFollowUpBudget
 		if in.Kind == "review" {
 			budget = ReviewFollowUpBudget
@@ -101,9 +113,12 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 		}
 	}
 	// A workflow decides what CI results do (its CI checks); they never queue
-	// the Standard flow's follow-ups.
+	// the Standard flow's follow-ups. An infrastructure signal keeps its action
+	// so the task says the runner failed, not the change.
 	if task.RunsWorkflow() {
-		action = "recorded"
+		if action != "infrastructure" {
+			action = "recorded"
+		}
 		if in.Kind == "ci" {
 			if _, err = tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_wake_at=now() WHERE id=$1 AND state='awaiting_review' AND workflow_status='waiting'`, task.ID); err != nil {
 				return nil, err
@@ -111,10 +126,10 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 		}
 	}
 	if existing {
-		err = tx.GetContext(ctx, signal, `UPDATE agent_task_signals SET outcome=$2,name=$3,summary=$4,url=$5,action=$6,updated_at=now() WHERE id=$1 RETURNING *`, signal.ID, in.Outcome, in.Name, in.Summary, in.URL, action)
+		err = tx.GetContext(ctx, signal, `UPDATE agent_task_signals SET outcome=$2,name=$3,summary=$4,url=$5,action=$6,failure_class=$7,failure_evidence=$8,updated_at=now() WHERE id=$1 RETURNING *`, signal.ID, in.Outcome, in.Name, in.Summary, in.URL, action, failureClass, failureEvidence)
 	} else {
 		requestID := uuid.NewSHA1(signalNamespace, []byte(task.ID.String()+"/"+task.RunID.String()+"/"+in.Kind+"/"+in.ExternalID))
-		err = tx.GetContext(ctx, signal, `INSERT INTO agent_task_signals(task_id,run_id,kind,external_id,outcome,name,summary,url,action,request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`, task.ID, task.RunID, in.Kind, in.ExternalID, in.Outcome, in.Name, in.Summary, in.URL, action, requestID)
+		err = tx.GetContext(ctx, signal, `INSERT INTO agent_task_signals(task_id,run_id,kind,external_id,outcome,name,summary,url,action,failure_class,failure_evidence,request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`, task.ID, task.RunID, in.Kind, in.ExternalID, in.Outcome, in.Name, in.Summary, in.URL, action, failureClass, failureEvidence, requestID)
 	}
 	if err != nil {
 		return nil, err

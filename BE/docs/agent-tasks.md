@@ -505,10 +505,24 @@ suite or the fenced review text. Its request ID is derived from the task,
 attempt and event, so redelivery and recovery replay the same attempt. A
 permanent refusal records `follow_up_failed`. Because GitHub does not redeliver
 failed webhooks automatically, a background loop resumes follow-ups left
-unqueued by transient errors after 30 seconds. CI logs are not fetched: the
-agent has no GitHub credential and must reproduce failures with the configured
-test command. The new attempt then revalidates and republishes to the same pull
-request.
+unqueued by transient errors after 30 seconds.
+
+A failed CI signal is classified before it decides anything (KUA-137):
+`test_failure`, `build_failure`, `runner_or_network`, `timeout` or `cancelled`.
+The inputs are the suite's conclusion, the failed checks' names, conclusions and
+output title/summary/text, and the first failed step of each failed Actions job
+(`/actions/jobs/{id}`, at most one read per failed check, ten checks and eight
+seconds per suite). If those reads fail, the conclusion and whatever was read
+still classify it, and the webhook never fails because classification could not
+reach GitHub; with nothing else, it stays a `test_failure` as before. A
+`runner_or_network` failure is the runner's, not the change's: it is stored with
+its class and evidence and the action `infrastructure`, starts no attempt and
+uses none of the two CI fixes. The other classes follow up exactly as before.
+`GET /agent-tasks/:taskId/signals` adds `failure_class` and `failure_evidence`
+to each signal without changing its existing fields. Job logs are not fetched:
+Kuayle reads only the check output and a failed step's name. The agent has no
+GitHub credential and must reproduce failures with the configured test command.
+The new attempt then revalidates and republishes to the same pull request.
 
 ### Kuayle issue comments
 

@@ -89,6 +89,52 @@ func TestCISignalsFollowUpOnlyForThePublishedCommitWithinBudget(t *testing.T) {
 	require.ErrorIs(t, err, ErrConversationNotFound)
 }
 
+func classifiedCI(id, outcome, sha, class, evidence string) domain.AgentTaskSignalInput {
+	in := ci(id, outcome, sha)
+	in.Failure = &domain.CIFailure{Class: class, Rule: "test_rule", Evidence: evidence}
+	return in
+}
+
+// A failure of the runner or the network is recorded as infrastructure: it
+// starts no follow-up and uses none of the two CI fixes a task has.
+func TestRunnerFailuresAreInfrastructureAndUseNoFollowUpBudget(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	background := context.Background()
+	runner := classifiedCI("runner", "failure", publishedCommit, domain.CIFailureRunner, "Docker Runtime Integration: Temporary failure resolving 'azure.archive.ubuntu.com'")
+	for range 2 {
+		followUps, err := repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, runner)
+		require.NoError(t, err)
+		require.Empty(t, followUps, "a runner problem is not the agent's to fix, even when redelivered")
+	}
+	for _, id := range []string{"test-1", "test-2"} {
+		followUps, err := repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, classifiedCI(id, "failure", publishedCommit, domain.CIFailureTest, "--- FAIL: TestRetry"))
+		require.NoError(t, err)
+		require.Len(t, followUps, 1, "the runner failure used no budget")
+	}
+	followUps, err := repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, classifiedCI("test-3", "failure", publishedCommit, domain.CIFailureTest, "--- FAIL: TestRetry"))
+	require.NoError(t, err)
+	require.Empty(t, followUps, "two CI fixes are still the budget")
+
+	signals, err := repo.Signals(ctx, task.WorkspaceID, task.ID)
+	require.NoError(t, err)
+	byID := map[string]domain.AgentTaskSignal{}
+	for _, signal := range signals {
+		byID[signal.ExternalID] = signal
+		require.NotNil(t, signal.FailureClass, "the signals endpoint returns the class")
+	}
+	require.Equal(t, "infrastructure", byID["runner"].Action)
+	require.Equal(t, domain.CIFailureRunner, *byID["runner"].FailureClass)
+	require.Contains(t, byID["runner"].FailureEvidence, "Temporary failure resolving")
+	require.Equal(t, "follow_up", byID["test-1"].Action)
+	require.Equal(t, domain.CIFailureTest, *byID["test-1"].FailureClass)
+	require.Contains(t, byID["test-1"].FailureEvidence, "--- FAIL: TestRetry")
+	require.Equal(t, "budget_exhausted", byID["test-3"].Action)
+
+	var recorded int
+	require.NoError(t, db.Get(&recorded, `SELECT count(*) FROM agent_task_signals WHERE task_id=$1 AND action='infrastructure'`, task.ID))
+	require.Equal(t, 1, recorded)
+}
+
 func TestReviewSignalsRequireTrustedChangeRequestsWhileReviewable(t *testing.T) {
 	_, repo, ctx, task := reviewableTask(t)
 	background := context.Background()

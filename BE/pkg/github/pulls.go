@@ -109,17 +109,22 @@ func (c *Client) GetRepositoryMergeSettings(token, owner, repo string) (*Reposit
 	return &settings, nil
 }
 
+// CheckRunOutput is what a check printed. Text is the bounded body GitHub
+// attaches; Kuayle reads it only to classify a failure (KUA-137).
+type CheckRunOutput struct {
+	Title   string `json:"title"`
+	Summary string `json:"summary"`
+	Text    string `json:"text"`
+}
+
 // CheckRun is one CI check of a commit.
 type CheckRun struct {
-	Name       string `json:"name"`
-	Status     string `json:"status"`
-	Conclusion string `json:"conclusion"`
-	HTMLURL    string `json:"html_url"`
-	DetailsURL string `json:"details_url"`
-	Output     struct {
-		Title   string `json:"title"`
-		Summary string `json:"summary"`
-	} `json:"output"`
+	Name       string         `json:"name"`
+	Status     string         `json:"status"`
+	Conclusion string         `json:"conclusion"`
+	HTMLURL    string         `json:"html_url"`
+	DetailsURL string         `json:"details_url"`
+	Output     CheckRunOutput `json:"output"`
 }
 
 // ListCheckRuns lists the check runs of a commit, following pages of 100
