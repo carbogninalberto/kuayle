@@ -158,7 +158,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
           SOURCE_SHA: ${{ needs.release-source.outputs.source_sha }}
-          PLAN: ${{ needs.changes.outputs.plan }}
+          INCLUDE_ARM64: ${{ contains(fromJSON(needs.changes.outputs.plan).architectures, 'arm64') }}
         run: |
           set -euo pipefail
 
@@ -196,12 +196,10 @@ jobs:
             publish_latest=true
           fi
 
-          include_arm64=$(printf '%s' "$PLAN" | jq -r 'any(.architectures[]; . == "arm64")')
-
           {
             echo "tag=$RELEASE_TAG"
             echo "source_ref=$source_ref"
-            echo "include_arm64=$include_arm64"
+            echo "include_arm64=$INCLUDE_ARM64"
             echo "publish_latest=$publish_latest"
           } >> "$GITHUB_OUTPUT"
 

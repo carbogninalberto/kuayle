@@ -106,7 +106,8 @@ test('automatic releases are amd64-only; manual dispatch opts into arm64', () =>
   assert.match(workflow, /include_arm64:[\s\S]*?type: boolean\n        default: false/);
   assert.match(workflow, /include_arm64: \$\{\{ inputs\.include_arm64 \|\| false \}\}/);
   // The planner is the single source of the architecture selection.
-  assert.match(context, /include_arm64=\$\(printf '%s' "\$PLAN" \| jq -r 'any\(\.architectures\[\]; \. == "arm64"\)'\)/);
+  assert.match(context, /INCLUDE_ARM64: \$\{\{ contains\(fromJSON\(needs\.changes\.outputs\.plan\)\.architectures, 'arm64'\) \}\}/);
+  assert.match(context, /include_arm64=\$INCLUDE_ARM64/);
   assert.match(build, /include_arm64 == 'true'/);
   assert.match(build, /platforms: \$\{\{ needs\.release-context\.outputs\.include_arm64 == 'true' && 'linux\/amd64,linux\/arm64' \|\| 'linux\/amd64' \}\}/);
   // Application images stay on the single build-push-action push path so their
