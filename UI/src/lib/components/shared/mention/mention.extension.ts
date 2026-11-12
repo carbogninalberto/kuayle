@@ -17,7 +17,7 @@ export interface MentionIssue {
 }
 
 export type MentionItem =
-	| { kind: 'user'; id: string; name: string; email: string }
+	| { kind: 'user'; id: string; name: string; email: string; avatar_url?: string | null }
 	| { kind: 'agent'; id: string; name: string; harness: string }
 	| { kind: 'issue'; id: string; identifier: string; title: string; status?: string; status_category?: string; status_color?: string | null }
 	/** A wiki page of any team or project the person can see; scope names that team or project. */

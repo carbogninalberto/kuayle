@@ -8,6 +8,7 @@
 	import type { Label } from '$lib/types/label';
 	import { labelAppliesTo } from '$lib/features/labels/label-scope';
 	import type { Project } from '$lib/types/project';
+	import ProjectPickerMenu from '$lib/features/projects/ProjectPickerMenu.svelte';
 	import type { Cycle } from '$lib/types/cycle';
 	import * as ContextMenu from '$lib/components/ui/context-menu';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
@@ -341,15 +342,11 @@
 						></ContextMenu.SubTrigger
 					>
 					<ContextMenu.SubContent class="w-48">
-						<ContextMenu.Item onclick={() => updateField('project_id', membershipClearValue)}
-							><span class={rowClass}><X class={iconClass} />{m['common.context_menu.no_project']()}</span
-							></ContextMenu.Item
-						>
-						{#each projects as project}
-							<ContextMenu.Item onclick={() => updateField('project_id', project.id)}
-								><span class={rowClass}><FolderKanban class={iconClass} />{project.name}</span></ContextMenu.Item
-							>
-						{/each}
+						<ProjectPickerMenu
+							{projects}
+							issues={[issue]}
+							onselect={(projectId) => updateField('project_id', projectId ?? membershipClearValue)}
+						/>
 					</ContextMenu.SubContent>
 				</ContextMenu.Sub>
 			{/if}

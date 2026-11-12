@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.2.32",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.32",
+    "body": "## What's changed\n\n### Fixes\n\n- **A finished OpenCode step is no longer failed for a missing command.** A run that worked around an unavailable command (exit 126/127) or a tool error, then ended with a summary, was marked failed with no reason, and workflows re-ran the step. Such errors are now risk notes and fail a run only when the agent did not conclude; validation still re-runs the declared tests. (#230, KUA-143)\n- **`ripgrep` in the agent image**, so `rg` works in agent runs. (#230)\n- **OpenCode's own warnings and errors** now reach the run's standard error and its failure cause. Before, they were lost with the container's temporary home. (#230)\n\n### Improvements\n\n- **Project picker grouped by team.** The issue context menu, bulk \"Set project\" bar, issue sidebar and create dialog list the issue's own team's projects first, then the other teams and workspace-wide projects. Thanks @kasperhartwich. (#228)\n",
+    "published_at": "2026-11-12T20:14:54Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.32",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.2.31",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.31",
     "body": "## What's changed\n\n### Fixes\n\n- **OpenCode agents no longer fail when they read a live message.** Unattended OpenCode runs couldn't answer OpenCode's permission prompts. OpenCode refused reading the live inbox or any path outside the worktree, ended the session, and the run failed without a final message. OpenCode runs now pass `--auto`, as Claude Code runs with `bypassPermissions`. A run that still stops on a refused permission names it and is classified as a platform failure. Retry a task that failed this way to run it again. (#229, KUA-140)\n",

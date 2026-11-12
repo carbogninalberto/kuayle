@@ -147,10 +147,10 @@ func TestBookkeepingEventsAfterTheFinalMessageDoNotUndoIt(t *testing.T) {
 	require.Equal(t, "succeeded", result.Status)
 }
 
-// "command not found" in a tool's output is a guess. It does not fail a run
-// that concluded and exited 0, and what a read-type tool returned (a file
-// that contains the phrase) is not scanned at all. A shell's exit code 126
-// or 127 is evidence and still fails the run.
+// "command not found" in a shell tool's output and a shell's exit code 126 or
+// 127 are risk notes too, and fail the run only when the agent did not
+// conclude. What a read-type tool returned (a file that contains the phrase)
+// is not scanned at all.
 func TestCommandNotFoundTextDoesNotFailARunThatConcluded(t *testing.T) {
 	tool := func(name, output, metadata string) string {
 		return `{"type":"tool_use","part":{"type":"tool","tool":"` + name + `","callID":"c","state":{"status":"completed","title":"` + strings.Repeat("t", 5000) + `","output":"` + output + `","metadata":` + metadata + `}}}`
@@ -166,11 +166,18 @@ func TestCommandNotFoundTextDoesNotFailARunThatConcluded(t *testing.T) {
 	require.LessOrEqual(t, len(shell.RiskNotes[0]), 300, "the tool's title is capped")
 
 	missing := NewOpenCodeProvider("").ParseResult(tool("bash", "sh: 1: go: command not found", `{"exit":127}`)+"\n"+final, "", 0)
-	require.Equal(t, "failed", missing.Status)
+	require.Equal(t, "succeeded", missing.Status, "the agent worked around it and concluded")
+	require.Len(t, missing.RiskNotes, 1)
 	require.LessOrEqual(t, len(missing.RiskNotes[0]), 300)
 
 	// Without a conclusion the guess still fails the run, as before.
 	guess := NewOpenCodeProvider("").ParseResult(tool("bash", "sh: 1: rg: command not found", `{"exit":1}`), "", 0)
 	require.Equal(t, "failed", guess.Status)
 	require.False(t, guess.NoFinalMessage)
+
+	// So does a tool failure, when no final message followed it.
+	unfinished := NewOpenCodeProvider("").ParseResult(tool("bash", "sh: 1: go: command not found", `{"exit":127}`), "", 0)
+	require.Equal(t, "failed", unfinished.Status)
+	require.Len(t, unfinished.RiskNotes, 1)
+	require.LessOrEqual(t, len(unfinished.RiskNotes[0]), 300)
 }

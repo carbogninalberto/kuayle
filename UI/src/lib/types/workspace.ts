@@ -23,6 +23,7 @@ export interface WorkspaceMember {
 	user_id: string;
 	email: string;
 	name: string;
+	avatar_url: string | null;
 	role: string;
 	created_at: string;
 }

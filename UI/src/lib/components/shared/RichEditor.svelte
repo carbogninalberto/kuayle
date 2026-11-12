@@ -185,7 +185,7 @@
 
 	const mentionFilteredItems: MentionItem[] = $derived.by(() => {
 		const q = mentionQuery.toLowerCase();
-		const userItems = members.map((m) => ({ kind: 'user' as const, id: m.user_id, name: m.name, email: m.email }));
+		const userItems = members.map((m) => ({ kind: 'user' as const, id: m.user_id, name: m.name, email: m.email, avatar_url: m.avatar_url }));
 		const issueItems = issues.map((i) => ({
 			kind: 'issue' as const,
 			id: i.id,

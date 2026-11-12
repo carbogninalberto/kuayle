@@ -142,6 +142,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	public(e, http.MethodGet, "/api/config", h.config.Get, m.publicAssetRateLimit)
 	public(e, http.MethodGet, "/api/invite/:token", h.inviteLink.Preview, m.authRateLimit)
+	// The uploaded workspace logo is public: the invite preview shows it before
+	// sign-in.
+	public(e, http.MethodGet, "/api/workspace-logos/:workspaceId/:file", h.workspace.Logo, m.publicAssetRateLimit)
 	// The public API reference (internal/openapi); a test keeps it equal to the
 	// token-accessible routes below.
 	public(e, http.MethodGet, "/api/openapi.json", h.openapi.Spec, m.publicAssetRateLimit)
@@ -189,6 +192,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	ws := api.Group("/workspaces/:slug", m.workspaceMembership)
 	scoped(ws, http.MethodGet, "", h.workspace.Get, "workspaces:read")
 	ownerOnly(ws, http.MethodPatch, "", h.workspace.Update)
+	ownerOnly(ws, http.MethodPost, "/logo", h.workspace.UploadLogo)
 	ownerOnly(ws, http.MethodDelete, "", h.workspace.Delete)
 	scoped(ws, http.MethodGet, "/export", h.workspaceTransfer.Export, "workspace:transfer")
 	scoped(ws, http.MethodPost, "/invite-links", h.inviteLink.Create, "member:invite")

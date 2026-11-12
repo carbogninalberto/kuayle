@@ -5,6 +5,8 @@
 	import type { Project } from '$lib/types/project';
 	import type { Snippet } from 'svelte';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
+	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
+	import { groupProjectsByTeam } from '$lib/features/projects/project-scope';
 
 	let {
 		open = $bindable(false),
@@ -16,6 +18,7 @@
 		width = 'w-48',
 		align = 'start' as 'start' | 'center' | 'end',
 		shortcutKey,
+		ownTeamId = null,
 	}: {
 		open?: boolean;
 		projects: Project[];
@@ -26,8 +29,24 @@
 		width?: string;
 		align?: 'start' | 'center' | 'end';
 		shortcutKey?: string;
+		/** The issue's team: its projects come first, other teams follow as named groups. */
+		ownTeamId?: string | null;
 	} = $props();
+
+	const groups = $derived(groupProjectsByTeam(projects, sidebarState.teams, ownTeamId));
 </script>
+
+{#snippet projectItem(project: Project)}
+	<Command.Item
+		value={project.name}
+		onSelect={() => { onchange(project.id); open = false; }}
+		data-checked={value === project.id}
+		class="flex items-center gap-2"
+	>
+		<FolderKanban size={14} class="text-[var(--color-text-tertiary)]" />
+		{project.name}
+	</Command.Item>
+{/snippet}
 
 <ComboboxPopover bind:open placeholder={m['sharedComponents.selectors.search_projects']()} emptyMessage={m['sharedComponents.selectors.no_projects']()} {width} {align} {shortcutKey} {trigger}>
 	{#if showNone}
@@ -39,15 +58,21 @@
 			{m['sharedComponents.filter_builder.no_project']()}
 		</Command.Item>
 	{/if}
-	{#each projects as project (project.id)}
-		<Command.Item
-			value={project.name}
-			onSelect={() => { onchange(project.id); open = false; }}
-			data-checked={value === project.id}
-			class="flex items-center gap-2"
-		>
-			<FolderKanban size={14} class="text-[var(--color-text-tertiary)]" />
-			{project.name}
-		</Command.Item>
+	{#each groups.own as project (project.id)}
+		{@render projectItem(project)}
 	{/each}
+	{#each groups.teams as group (group.team.id)}
+		<Command.Group heading={group.team.name}>
+			{#each group.projects as project (project.id)}
+				{@render projectItem(project)}
+			{/each}
+		</Command.Group>
+	{/each}
+	{#if groups.workspace.length > 0}
+		<Command.Group heading={m['projects.picker.workspace']()}>
+			{#each groups.workspace as project (project.id)}
+				{@render projectItem(project)}
+			{/each}
+		</Command.Group>
+	{/if}
 </ComboboxPopover>

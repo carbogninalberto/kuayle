@@ -10,6 +10,7 @@
 	import type { Cycle } from '$lib/types/cycle';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
+	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import SubIssueCounterTag from './SubIssueCounterTag.svelte';
 	import IssueLabelChips from './IssueLabelChips.svelte';
 	import ProjectChip from '$lib/components/shared/ProjectChip.svelte';
@@ -449,12 +450,13 @@
 					{/each}
 					{#if issue.assignees && issue.assignees.length > 1}
 						<div class="flex -space-x-2 rounded-full hover:ring-2 hover:ring-[var(--app-accent)]">
-							<div
-								class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-[var(--app-accent-foreground)] ring-1 ring-[var(--color-bg)]"
+							<Avatar
+								name={issue.assignees[0].name}
+								avatarUrl={issue.assignees[0].avatar_url}
+								size="sm"
 								title={issue.assignees[0].name}
-							>
-								{(issue.assignees[0].name ?? 'U').charAt(0).toUpperCase()}
-							</div>
+								class="ring-1 ring-[var(--color-bg)]"
+							/>
 							<div
 								class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-bg-tertiary)] text-[8px] font-medium text-[var(--color-text-secondary)] ring-1 ring-[var(--color-bg)]"
 							>
@@ -462,19 +464,21 @@
 							</div>
 						</div>
 					{:else if issue.assignees && issue.assignees.length === 1}
-						<div
-							class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-[var(--app-accent-foreground)] hover:ring-2 hover:ring-[var(--app-accent)]"
+						<Avatar
+							name={issue.assignees[0].name}
+							avatarUrl={issue.assignees[0].avatar_url}
+							size="sm"
 							title={issue.assignees[0].name}
-						>
-							{(issue.assignees[0].name ?? 'U').charAt(0).toUpperCase()}
-						</div>
+							class="hover:ring-2 hover:ring-[var(--app-accent)]"
+						/>
 					{:else if issue.assignee}
-						<div
-							class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-[var(--app-accent-foreground)] hover:ring-2 hover:ring-[var(--app-accent)]"
+						<Avatar
+							name={issue.assignee.name}
+							avatarUrl={issue.assignee.avatar_url}
+							size="sm"
 							title={issue.assignee.name}
-						>
-							{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
-						</div>
+							class="hover:ring-2 hover:ring-[var(--app-accent)]"
+						/>
 					{:else if (issue.agent_assignees ?? []).length === 0}
 						<span
 							class="text-[var(--color-text-tertiary)] opacity-40 hover:opacity-100 hover:text-[var(--color-text-secondary)] transition-all"
@@ -505,12 +509,19 @@
 								? 'bg-[var(--color-bg-hover)]'
 								: ''}"
 						>
-							<div
-								class="flex h-4 w-4 items-center justify-center rounded-full {isAssigned
-									? 'bg-[var(--app-accent)] text-[var(--app-accent-foreground)]'
-									: 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-tertiary)]'} text-[8px]"
-							>
-								{isAssigned ? '✓' : (member.name || member.email || 'U').charAt(0).toUpperCase()}
+							<div class="relative flex h-4 w-4 shrink-0 items-center justify-center">
+								<Avatar
+									name={member.name || member.email}
+									avatarUrl={member.avatar_url}
+									size="xs"
+									class={isAssigned ? 'ring-1 ring-[var(--app-accent)]' : ''}
+								/>
+								{#if isAssigned}
+									<span
+										class="absolute -bottom-1 -right-1 flex h-2.5 w-2.5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[7px] leading-none text-[var(--app-accent-foreground)]"
+										>✓</span
+									>
+								{/if}
 							</div>
 							{member.name || member.email}
 						</Button>

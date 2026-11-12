@@ -989,9 +989,10 @@ reason in its detail and, when the workflow ends there, in the task's reason.
 Only work clears the final flag: a Codex `command_execution`, `file_change`,
 `mcp_tool_call`, `web_search` or `collab_tool_call` item and an OpenCode
 `tool_use`; a `todo_list`, `step_finish` or reasoning after the message does
-not. "command not found" in a shell tool's output is only a guess: it is a
-risk note, and fails the run only when the agent did not conclude (a shell
-exit code 126 or 127 always does); output of other tools is not scanned. The
+not. "command not found" in a shell tool's output, a shell exit code 126 or 127
+and a tool error are risk notes: they fail the run only when the agent did not
+conclude, because validation re-runs the declared tests of a run that did;
+output of other tools is not scanned. The
 next attempt of the task keeps the worktree (attempts share the task's
 checkout) and its handoff says that the previous attempt ended without a final
 message, to check the worktree, finish and end with a summary.

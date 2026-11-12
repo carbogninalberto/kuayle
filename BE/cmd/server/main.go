@@ -275,6 +275,7 @@ func main() {
 	authH.SetAvatarStore(store)
 	teamSvc.SetIconStore(store)
 	workspaceSvc.SetTeamIconStore(store)
+	workspaceSvc.SetLogoStore(store)
 	uploadH := handler.NewUploadHandler(store, assetRepo, issueRepo, cfg.JWTSecret)
 	wikiPublishSvc := service.NewWikiPublishService(repository.NewWikiRepository(db), sharedLinkRepo, workspaceRepo, cfg.JWTSecret)
 	uploadH.SetWikiPublicPages(wikiPublishSvc.PublicPageReachable)

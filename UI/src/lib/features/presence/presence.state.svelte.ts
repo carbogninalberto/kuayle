@@ -29,6 +29,7 @@ export interface FocusInfo {
 export interface PresenceUser {
 	user_id: string;
 	name: string;
+	avatar_url?: string | null;
 	color: string;
 	focus?: FocusInfo;
 	last_seen: number;
@@ -87,6 +88,7 @@ class PresenceState {
 		next.set(payload.user_id, {
 			user_id: payload.user_id,
 			name: this.resolveName(payload.user_id),
+			avatar_url: this.resolveAvatar(payload.user_id),
 			color: getColor(payload.user_id),
 			last_seen: Date.now()
 		});
@@ -107,6 +109,7 @@ class PresenceState {
 			next.set(userId, {
 				user_id: userId,
 				name: this.resolveName(userId),
+				avatar_url: this.resolveAvatar(userId),
 				color: getColor(userId),
 				last_seen: Date.now()
 			});
@@ -125,6 +128,7 @@ class PresenceState {
 			next.set(payload.user_id, {
 				user_id: payload.user_id,
 				name: this.resolveName(payload.user_id),
+				avatar_url: this.resolveAvatar(payload.user_id),
 				color: getColor(payload.user_id),
 				focus,
 				last_seen: Date.now()
@@ -186,6 +190,11 @@ class PresenceState {
 	private resolveName(userId: string): string {
 		const member = this.members.find((m) => m.user_id === userId);
 		return member?.name ?? 'Unknown';
+	}
+
+	private resolveAvatar(userId: string): string | null {
+		const member = this.members.find((m) => m.user_id === userId);
+		return member?.avatar_url ?? null;
 	}
 
 	private resolveNames() {

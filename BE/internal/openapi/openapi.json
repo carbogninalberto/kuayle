@@ -2910,6 +2910,12 @@
 			},
 			"WorkspaceMember": {
 				"properties": {
+					"avatar_url": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
 					"created_at": {
 						"format": "date-time",
 						"type": "string"
@@ -2931,6 +2937,7 @@
 					"user_id",
 					"email",
 					"name",
+					"avatar_url",
 					"role",
 					"created_at"
 				],

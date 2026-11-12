@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { projectsForIssues } from '../../src/lib/features/projects/project-scope.ts';
+import {
+	commonTeamId,
+	flattenProjectGroups,
+	groupProjectsByTeam,
+	projectsForIssues
+} from '../../src/lib/features/projects/project-scope.ts';
 
 const teams = [
 	{ id: 'open', is_private: false },
@@ -35,4 +40,42 @@ test('a selection takes the projects every selected issue can join', () => {
 test('a team whose privacy is unknown is treated as private', () => {
 	assert.deepEqual(ids(projectsForIssues(projects, [{ team_id: 'unknown' }], teams)), []);
 	assert.deepEqual(ids(projectsForIssues([{ id: 'x', team_id: 'unknown' }], [{ team_id: 'open' }], teams)), []);
+});
+
+const named = [
+	{ id: 'open', name: 'Open' },
+	{ id: 'other-open', name: 'Other open' },
+	{ id: 'secret', name: 'Secret' }
+];
+
+test('grouping puts the issue team first, then other teams that have projects, then workspace ones', () => {
+	const groups = groupProjectsByTeam(projects, named, 'open');
+	assert.deepEqual(ids(groups.own), ['open']);
+	assert.deepEqual(
+		groups.teams.map((group) => [group.team.id, ids(group.projects)]),
+		[
+			['other-open', ['other-open']],
+			['secret', ['secret']]
+		]
+	);
+	assert.deepEqual(ids(groups.workspace), ['workspace']);
+	assert.deepEqual(ids(flattenProjectGroups(groups)), ['open', 'other-open', 'secret', 'workspace']);
+});
+
+test('grouping without a single team has no own group and lists every team', () => {
+	const groups = groupProjectsByTeam(projects, named, null);
+	assert.deepEqual(groups.own, []);
+	assert.deepEqual(groups.teams.map((group) => group.team.id), ['open', 'other-open', 'secret']);
+});
+
+test('grouping drops teams without projects and projects of unknown teams', () => {
+	const groups = groupProjectsByTeam([openProject, otherSecretProject], named, null);
+	assert.deepEqual(groups.teams.map((group) => group.team.id), ['open']);
+	assert.deepEqual(groups.workspace, []);
+});
+
+test('the common team is the shared one of a selection, else none', () => {
+	assert.equal(commonTeamId([{ team_id: 'a' }, { team_id: 'a' }]), 'a');
+	assert.equal(commonTeamId([{ team_id: 'a' }, { team_id: 'b' }]), null);
+	assert.equal(commonTeamId([]), null);
 });

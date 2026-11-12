@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ComboboxPopover from '$lib/components/shared/ComboboxPopover.svelte';
+	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import * as Command from '$lib/components/ui/command/index.js';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import type { WorkspaceMember } from '$lib/types/workspace';
@@ -40,9 +41,7 @@
 			class="flex items-center gap-2"
 		>
 			<Checkbox checked={isAssigned} />
-			<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-[var(--app-accent-foreground)] shrink-0">
-				{(member.name || member.email).charAt(0).toUpperCase()}
-			</div>
+			<Avatar name={member.name || member.email} avatarUrl={member.avatar_url} size="xs" />
 			{member.name || member.email}
 		</Command.Item>
 	{/each}

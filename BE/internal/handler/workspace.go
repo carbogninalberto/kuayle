@@ -87,8 +87,15 @@ func (h *WorkspaceHandler) Update(c *echo.Context) error {
 		return response.ValidationError(c, details)
 	}
 	if req.LogoURL.Set && req.LogoURL.Value != nil && strings.TrimSpace(*req.LogoURL.Value) != "" {
-		if err := validateLogoURL(*req.LogoURL.Value); err != nil {
-			return response.ValidationError(c, []dto.ErrorDetail{{Field: "LogoURL", Message: err.Error()}})
+		value := strings.TrimSpace(*req.LogoURL.Value)
+		current, _ := c.Get("workspace").(*domain.Workspace)
+		unchanged := current != nil && current.LogoURL != nil && value == strings.TrimSpace(*current.LogoURL)
+		// Re-saving an uploaded logo unchanged must keep working; a different
+		// relative path is still rejected below.
+		if !unchanged {
+			if err := validateLogoURL(value); err != nil {
+				return response.ValidationError(c, []dto.ErrorDetail{{Field: "LogoURL", Message: err.Error()}})
+			}
 		}
 	}
 
@@ -162,6 +169,7 @@ func (h *WorkspaceHandler) ListMembers(c *echo.Context) error {
 			UserID:    m.UserID.String(),
 			Email:     m.Email,
 			Name:      m.Name,
+			AvatarURL: m.AvatarURL,
 			Role:      m.Role,
 			CreatedAt: m.CreatedAt,
 		})
