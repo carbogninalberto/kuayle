@@ -485,10 +485,16 @@ for (const size of sizes) {
 			await expect.poll(() => chart.evaluate((el) => el.scrollLeft)).toBeGreaterThan(from);
 
 			// Scrolling sideways reaches both ends.
-			await chart.evaluate((el) => el.scrollTo({ left: el.scrollWidth }));
-			await expect.poll(() => inView('done')).toBe(true);
-			await chart.evaluate((el) => el.scrollTo({ left: 0 }));
-			await expect.poll(() => inView('start')).toBe(true);
+			// (The arrow key scrolls smoothly and may still be moving: each end is
+			// asked for until the chart rests there.)
+			await expect(async () => {
+				await chart.evaluate((el) => el.scrollTo({ left: el.scrollWidth, behavior: 'instant' }));
+				expect(await inView('done')).toBe(true);
+			}).toPass();
+			await expect(async () => {
+				await chart.evaluate((el) => el.scrollTo({ left: 0, behavior: 'instant' }));
+				expect(await inView('start')).toBe(true);
+			}).toPass();
 		});
 	});
 }
