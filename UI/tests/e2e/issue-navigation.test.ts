@@ -239,7 +239,13 @@ test('keeps the app shell fixed when a long issue page scrolls to its end', asyn
 	// The issue body scrolls inside the reading column. Nothing inside it may
 	// grow the document, or trackpad momentum at the end lifts the whole shell.
 	const documentScrollHeight = () => page.evaluate(() => document.documentElement.scrollHeight);
+	const overflowingReaders = () =>
+		page.evaluate(
+			() => [...document.querySelectorAll('main *')].filter((element) => element.scrollHeight > element.clientHeight + 1).length
+		);
 	const viewportHeight = await page.evaluate(() => window.innerHeight);
+	// The description must really be taller than the reader, or the assertions below prove nothing.
+	expect(await overflowingReaders()).toBeGreaterThan(0);
 	expect(await documentScrollHeight()).toBeLessThanOrEqual(viewportHeight);
 
 	await page.evaluate(() => {
