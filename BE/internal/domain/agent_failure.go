@@ -46,6 +46,11 @@ func ValidFailureClass(class string) bool {
 // FailureCauseMaxBytes bounds a stored cause.
 const FailureCauseMaxBytes = 2000
 
+// HarnessPermissionRefusedPrefix starts the failure reason a harness records
+// when it refused a tool call's permission and stopped. The agent package
+// writes it, so agent.HarnessPermissionRefusedPrefix must equal it.
+const HarnessPermissionRefusedPrefix = "The harness refused"
+
 // failureStderrLines and failureStderrBytes bound the stderr a cause quotes.
 const (
 	failureStderrLines = 12
@@ -232,6 +237,13 @@ var runFailureRules = []runFailureRule{
 	{"provider_error_output", FailureProvider,
 		func(e RunFailureEvidence) bool { return isProviderFailureOutput(e.Stderr) },
 		func(RunFailureEvidence) string { return "The harness stopped on a provider error" }},
+	{"permission_refused", FailurePlatform,
+		func(e RunFailureEvidence) bool {
+			return strings.HasPrefix(e.HarnessError, HarnessPermissionRefusedPrefix)
+		},
+		func(e RunFailureEvidence) string {
+			return e.HarnessError + ": Kuayle's harness settings did not allow what the agent tried, so it stopped without a final message"
+		}},
 	{"no_final_message", FailureAgent,
 		func(e RunFailureEvidence) bool { return e.NoFinalMessage },
 		func(e RunFailureEvidence) string { return NoFinalMessageReason(e.HarnessError) }},

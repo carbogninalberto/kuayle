@@ -386,6 +386,10 @@ checkout and credentials.
 - **Claude Code** runs with `--permission-mode bypassPermissions`. In its
   default mode every edit and write was denied in a real run, and the attempt
   ended without changes.
+- **OpenCode** runs with `--auto` (approve what the configuration does not
+  explicitly deny). Without it OpenCode auto-rejected reading the live inbox
+  and paths outside the worktree, then ended the session, so the run failed
+  without a final message.
 
 ## Native session resume and handoff
 

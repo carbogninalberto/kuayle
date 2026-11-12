@@ -70,6 +70,11 @@ func TestClassifyRunFailure(t *testing.T) {
 			RunFailureEvidence{Status: "failed", ExitCode: exitCode(0), NoFinalMessage: true},
 			FailureAgent, "no_final_message", []string{"The agent ended without a final message", "exit code 0"},
 		},
+		"a refused permission": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(0), NoFinalMessage: true,
+				HarnessError: "The harness refused the permission external_directory (/run/kuayle/inbox/*) and ended the session"},
+			FailurePlatform, "permission_refused", []string{"The harness refused", "external_directory", "harness settings"},
+		},
 		"the harness reported an error": {
 			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), HarnessError: "The harness reported an error: error_max_turns"},
 			FailureAgent, "harness_error", []string{"The harness reported an error: error_max_turns"},

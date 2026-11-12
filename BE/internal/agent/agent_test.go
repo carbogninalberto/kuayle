@@ -224,7 +224,7 @@ func TestOpenCodeProviderBuildInvocation(t *testing.T) {
 	p := NewOpenCodeProvider("")
 	inv, err := p.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "fix bug"})
 	require.NoError(t, err)
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--", "fix bug"}, inv.Argv)
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--", "fix bug"}, inv.Argv)
 	require.Equal(t, "/workspace", inv.WorkingDir)
 	require.False(t, inv.Interactive)
 	require.Empty(t, inv.Environment)
@@ -243,13 +243,13 @@ func TestOpenCodeProviderPassesModelAndEffort(t *testing.T) {
 		return inv.Argv
 	}
 
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--model", model, "--variant", "high", "--", "fix bug"},
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--model", model, "--variant", "high", "--", "fix bug"},
 		argv(RunInput{Mode: ModeAutonomous, Model: model, Thinking: "high"}))
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--model", model, "--", "fix bug"},
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--model", model, "--", "fix bug"},
 		argv(RunInput{Mode: ModeAutonomous, Model: model}))
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--model", model, "--", "fix bug"},
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--model", model, "--", "fix bug"},
 		argv(RunInput{Mode: ModeAutonomous, Model: model, Thinking: "off"}))
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--variant", "max", "--", "fix bug"},
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--variant", "max", "--", "fix bug"},
 		argv(RunInput{Mode: ModeAutonomous, Thinking: "max"}))
 
 	// The terminal UI takes a model but has no variant flag.
@@ -264,7 +264,7 @@ func TestOpenCodeProviderKeepsThePromptOutOfItsFlags(t *testing.T) {
 	for _, prompt := range []string{"--auto fix the build", "-m other/model", "--help"} {
 		inv, err := p.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: prompt, Model: "opencode-go/deepseek-v4.1-flash", ExtraArgs: []string{"--agent", "build"}})
 		require.NoError(t, err)
-		require.Equal(t, []string{"opencode", "run", "--format", "json", "--model", "opencode-go/deepseek-v4.1-flash", "--agent", "build", "--", prompt}, inv.Argv)
+		require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--model", "opencode-go/deepseek-v4.1-flash", "--agent", "build", "--", prompt}, inv.Argv)
 	}
 }
 
@@ -295,6 +295,50 @@ func TestOpenCodeParseResultExitCodeNonZero(t *testing.T) {
 	result := p.ParseResult("some output", "", 1)
 	require.Equal(t, "failed", result.Status)
 	require.Equal(t, "some output", result.Summary)
+}
+
+// openCodeRefusedStream is what OpenCode writes when nobody answers a
+// permission prompt: the tool call fails and the session ends without a final
+// text event.
+const (
+	openCodeRefusedToolUse = `{"type":"tool_use","part":{"type":"tool","tool":"read","state":{"status":"error","error":"The user rejected permission to use this specific tool call."}}}`
+	openCodeRefusedStderr  = "\x1b[93m\x1b[1m! \x1b[0mpermission requested: external_directory (/run/kuayle/inbox/*); auto-rejecting"
+)
+
+func openCodeRefusedStream() string {
+	return strings.Join([]string{
+		`{"type":"step_start","part":{"type":"step-start"}}`,
+		openCodeRefusedToolUse,
+		`{"type":"step_finish","part":{"type":"step-finish","reason":"error"}}`,
+	}, "\n")
+}
+
+func TestOpenCodeParseResultNamesTheRefusedPermission(t *testing.T) {
+	p := NewOpenCodeProvider("")
+	result := p.ParseResult(openCodeRefusedStream(), openCodeRefusedStderr, 0)
+	require.Equal(t, "failed", result.Status)
+	require.True(t, result.NoFinalMessage)
+	require.Equal(t, "The harness refused the permission external_directory (/run/kuayle/inbox/*) and ended the session", result.FailureReason)
+}
+
+func TestOpenCodeParseResultNamesARefusedPermissionFromStdoutOnly(t *testing.T) {
+	p := NewOpenCodeProvider("")
+	result := p.ParseResult(openCodeRefusedStream(), "", 0)
+	require.Equal(t, "failed", result.Status)
+	require.True(t, result.NoFinalMessage)
+	require.Equal(t, "The harness refused a tool call's permission and ended the session", result.FailureReason)
+}
+
+// A refusal the agent worked past is not the run's failure.
+func TestOpenCodeParseResultKeepsAFinalMessageAfterARefusal(t *testing.T) {
+	p := NewOpenCodeProvider("")
+	stdout := strings.Join([]string{
+		openCodeRefusedToolUse,
+		`{"type":"text","part":{"type":"text","text":"done"}}`,
+	}, "\n")
+	result := p.ParseResult(stdout, openCodeRefusedStderr, 0)
+	require.Equal(t, "succeeded", result.Status)
+	require.Empty(t, result.FailureReason)
 }
 
 func TestOpenCodeParseResultExtractsFinalAssistantText(t *testing.T) {
