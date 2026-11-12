@@ -79,9 +79,10 @@ Go test files and README files do not enter the built application.
 Pushes to main, security tag/schedule runs and releases keep their existing
 full job/image coverage. On a release, `release-source` commits the version bump
 and refreshed agent CLIs; `release-context` validates the tag and selects the
-source, architecture set and latest-tag policy; `build` (application images) and
-the unbounded `dev-machine-publish` matrix then both start from that commit in
-parallel. Automatic releases are amd64-only, so `dev-machine-publish` runs the
+source, architecture set and latest-tag policy; the `build` application-image
+matrix (all-in-one, API and web in parallel) and the unbounded
+`dev-machine-publish` matrix then both start from that commit in parallel.
+Automatic releases are amd64-only, so `dev-machine-publish` runs the
 amd64 native build, smoke tests and scan for every image once, then pushes that
 scanned image as `kuayle-<service>:<tag>-amd64`; `dev-machine-manifests` waits
 for `build` and combines the built architectures into `:<tag>` and `:latest`
@@ -95,7 +96,9 @@ self-hosting and CI-validation jobs also run with full Tests coverage on main.
 PR execution uses read-only contents permission, no persisted checkout
 credentials, and no `pull_request_target` or secrets handoff. Only the release
 jobs (`release-source`, `build`, `dev-machine-publish`, `dev-machine-manifests`)
-retain write permissions; `release-context` is read-only.
+retain write permissions; `release-context` is read-only. The application-image,
+readiness and dev-machine scan matrices have no workflow-level fan-out cap;
+GitHub queues any jobs beyond the account's runner concurrency.
 
 ## Manual release rebuilds and ARM64 images
 

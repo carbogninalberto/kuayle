@@ -119,9 +119,19 @@ test('automatic releases are amd64-only; manual dispatch opts into arm64', () =>
   assert.ok(tags, 'expected application tag preparation');
   assert.match(tags, /PUBLISH_LATEST/);
   assert.match(tags, /:latest/);
-  assert.match(build, /tags: \$\{\{ steps\.tags\.outputs\.all_in_one \}\}/);
-  assert.match(build, /tags: \$\{\{ steps\.tags\.outputs\.api \}\}/);
-  assert.match(build, /tags: \$\{\{ steps\.tags\.outputs\.web \}\}/);
+  // Every application image builds in its own matrix job.
+  assert.match(build, /name: Build Images \(\$\{\{ matrix\.image\.name \}\}\)\n/);
+  assert.match(build, /matrix:\n        image: \$\{\{ fromJSON\(needs\.changes\.outputs\.plan\)\.releaseImages \}\}/);
+  assert.match(build, /context: \$\{\{ matrix\.image\.context \}\}/);
+  assert.match(build, /tags: \$\{\{ steps\.tags\.outputs\.tags \}\}/);
+  assert.match(build, /cache-from: type=gha,scope=\$\{\{ matrix\.image\.id \}\}/);
+});
+
+test('image matrices run without artificial fan-out caps', () => {
+  for (const file of ['build', 'release-readiness', 'security']) {
+    const workflow = readFileSync(new URL(`../../.github/workflows/${file}.yml`, import.meta.url), 'utf8');
+    assert.doesNotMatch(workflow, /max-parallel/, file);
+  }
 });
 
 test('QEMU is installed only for the opt-in arm64 application build', () => {

@@ -33,7 +33,6 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 2
       matrix:
         architecture: ${{ fromJSON(needs.changes.outputs.plan).architectures }}
         image: ${{ fromJSON(needs.changes.outputs.plan).releaseImages }}

@@ -4,9 +4,9 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const releaseImages = [
-  { id: 'all-in-one', context: '.', dockerfile: './Dockerfile' },
-  { id: 'api', context: './BE', dockerfile: './BE/Dockerfile' },
-  { id: 'web', context: './UI', dockerfile: './UI/Dockerfile' }
+  { id: 'all-in-one', name: 'All-in-one', package: 'kuayle', context: '.', dockerfile: './Dockerfile' },
+  { id: 'api', name: 'API', package: 'kuayle-api', context: './BE', dockerfile: './BE/Dockerfile' },
+  { id: 'web', name: 'Web', package: 'kuayle-web', context: './UI', dockerfile: './UI/Dockerfile' }
 ];
 const goImage = (id, name) => ({ id, name, context: './BE', dockerfile: `./BE/Dockerfile.${id === 'updater' ? id : `machine-${id}`}`, build_args: '', package: `kuayle-${id === 'updater' ? id : `machine-${id}`}` });
 // `package` is the GHCR repository published on release: kuayle-<Compose service>,

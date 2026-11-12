@@ -122,8 +122,6 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      # Bound image fan-out while preserving every architecture and scan.
-      max-parallel: 4
       matrix:
         # On PRs only updater remains here; Build & Push scans the other
         # selected runtime images on both native architectures.

@@ -172,6 +172,11 @@ test('mixed changes union their coverage; non-PR events retain the full original
   assert.deepEqual(pr.required.build, ['dev-machine-images'], 'PRs build and scan without publishing');
 });
 
+test('application images name the GHCR packages they publish', () => {
+  const packages = planForPaths([], 'release').releaseImages.map((image) => image.package);
+  assert.deepEqual(packages, ['kuayle', 'kuayle-api', 'kuayle-web']);
+});
+
 test('every dev machine image names the GHCR package the release updater pulls', () => {
   const packages = planForPaths([], 'release').devImages.map((image) => image.package);
   assert.deepEqual(packages, ['kuayle-machine-gateway', 'kuayle-machine-manager',

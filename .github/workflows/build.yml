@@ -207,12 +207,16 @@ jobs:
   build:
     needs: [changes, release-source, release-context]
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.release-context.result == 'success' }}
-    name: Build Images
+    name: Build Images (${{ matrix.image.name }})
     # PR application images are built, smoke-tested and scanned by Release Readiness.
     permissions:
       contents: read
       packages: write
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.changes.outputs.plan).releaseImages }}
 
     steps:
       - name: Checkout release source
@@ -260,66 +264,45 @@ jobs:
         run: |
           set -euo pipefail
 
-          add_tags() {
-            local repository="$1"
-            local output="$2"
-            {
-              echo "${output}<<EOF"
-              echo "${IMAGE_PREFIX}/${repository}:${RELEASE_TAG}"
-              if [ "${PUBLISH_LATEST}" = "true" ]; then
-                echo "${IMAGE_PREFIX}/${repository}:latest"
-              fi
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
-          }
+          {
+            echo "tags<<EOF"
+            echo "${IMAGE_PREFIX}/${{ matrix.image.package }}:${RELEASE_TAG}"
+            if [ "${PUBLISH_LATEST}" = "true" ]; then
+              echo "${IMAGE_PREFIX}/${{ matrix.image.package }}:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
-          add_tags kuayle all_in_one
-          add_tags kuayle-api api
-          add_tags kuayle-web web
-
-      # All-in-one image
-      - name: Build & push all-in-one
-        uses: docker/build-push-action@v7.2.0
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: ${{ needs.release-context.outputs.include_arm64 == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
-          pull: true
-          build-args: SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
-          push: true
-          tags: ${{ steps.tags.outputs.all_in_one }}
-          cache-from: type=gha,scope=all-in-one
-          cache-to: type=gha,mode=max,scope=all-in-one
-
-      # API-only image
+      # The API image alone receives the release version build argument.
       - name: Build & push API
+        if: matrix.image.id == 'api'
         uses: docker/build-push-action@v7.2.0
         with:
-          context: ./BE
-          file: ./BE/Dockerfile
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
           platforms: ${{ needs.release-context.outputs.include_arm64 == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           pull: true
           build-args: |
             SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
             VERSION=${{ steps.version.outputs.number }}
           push: true
-          tags: ${{ steps.tags.outputs.api }}
-          cache-from: type=gha,scope=api
-          cache-to: type=gha,mode=max,scope=api
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.image.id }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.id }}
 
-      # Web-only image
-      - name: Build & push Web
+      - name: Build & push application image
+        if: matrix.image.id != 'api'
         uses: docker/build-push-action@v7.2.0
         with:
-          context: ./UI
-          file: ./UI/Dockerfile
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
           platforms: ${{ needs.release-context.outputs.include_arm64 == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           pull: true
           build-args: SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
           push: true
-          tags: ${{ steps.tags.outputs.web }}
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,mode=max,scope=web
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.image.id }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.id }}
 
   dev-machine-images:
     needs: [changes, release-source]
@@ -328,8 +311,6 @@ jobs:
     runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
-      # Bound image fan-out while preserving every architecture and scan.
-      max-parallel: 4
       matrix:
         architecture: ${{ fromJSON(needs.changes.outputs.plan).architectures }}
         image: ${{ fromJSON(needs.changes.outputs.plan).devImages }}
