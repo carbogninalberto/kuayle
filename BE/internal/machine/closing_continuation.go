@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,15 +16,17 @@ import (
 // The closing continuation asks an attempt that concluded with something
 // still missing for exactly those things, in its own session, once.
 //
-//	asked := m.askToClose(ctx, attempt, []domain.ClosingAsk{...})
+//	asked, reply := m.askToClose(ctx, attempt, []domain.ClosingAsk{...})
 //
 // It is one place on purpose: every reason to ask an agent for something
 // before its step closes (a notebook update, a reply to a message from the
-// task's owner) adds a domain.ClosingAsk to the list instead of a
-// continuation of its own, so an attempt is continued at most once whatever
-// is missing. settleClosing builds that list when a run ends: it decides
-// what is missing before the call, and looks again after it; the
-// continuation never decides the attempt's outcome.
+// task's owner, a plan too long to hand on whole) adds a domain.ClosingAsk to
+// the list instead of a continuation of its own, so an attempt is continued
+// at most once whatever is missing. settleClosing builds that list when a run
+// ends: it decides what is missing before the call, and looks again after it;
+// the continuation never decides the attempt's outcome. The plan ask is the
+// only one whose reply Kuayle reads: when the agent answers with a shorter
+// plan that fits, that plan is the one the attempt hands on.
 //
 // What it guarantees:
 //   - same session: the attempt's own harness session is continued (Claude
@@ -39,7 +42,8 @@ import (
 //   - contained: it is a second container of the same run, named
 //     "...-agent-<run>-closing", under the run's sandbox, mounts and
 //     authorization, without the live inbox. Its output is not the
-//     attempt's: summary and logs stay those of the work;
+//     attempt's: summary and logs stay those of the work, except for a
+//     rewritten plan that fits;
 //   - cleaned up: that container is removed by its exact name on every
 //     path out, and one found left over by a crash is removed, not re-run.
 //     The attempt's own container is never touched from here.
@@ -111,7 +115,9 @@ func (m *Manager) removeClosingContainer(ctx context.Context, attempt closingAtt
 // closingState is what the end of a run knows when it settles what is
 // missing: the machine's services and how collecting the outbox went, when
 // the harness exited, how the attempt ended (concluded: it did not fail;
-// succeeded: it ended well), and whether it left the worktree unchanged.
+// succeeded: it ended well), whether it left the worktree unchanged, whether
+// it is a planning step whose plan was too long to hand on (planTooLong), and
+// how to parse the reply of the shortened plan (parseReply).
 type closingState struct {
 	services     []domain.DevMachineService
 	collectErr   error
@@ -119,22 +125,37 @@ type closingState struct {
 	concluded    bool
 	succeeded    bool
 	unchangedRun func() bool
+	planTooLong  bool
+	parseReply   func(stdout, stderr string) agent.RunResult
 }
 
-// closingSettlement is what was still missing when the attempt closed.
+// closingSettlement is what was still missing when the attempt closed. plan
+// is the shortened plan to use instead of a truncated one, empty when none.
 type closingSettlement struct {
 	replies              liveReplySettlement
 	notebookNotCollected bool
+	plan                 string
+}
+
+// closingReply is what the continuation wrote, kept only when an ask is
+// answered with its final message. complete is false when the stream did not
+// reach the result parser whole (a line was too long to keep, or was still
+// open when the continuation ended).
+type closingReply struct {
+	stdout, stderr string
+	complete       bool
 }
 
 // settleClosing is the one place that decides what an ended attempt is
 // asked for. After the outbox was collected it lists what is missing (a
 // reply to each delivered message of the task's owner, for an attempt that
-// ended well; a notebook update, for one that concluded), asks for all of it
-// in one closing continuation, collects the outbox again and looks again.
-// Nothing is asked for what Kuayle itself failed to collect, and the
-// attempt's outcome is never changed here: what is still missing is
-// reported, for notes on the run.
+// ended well; a notebook update, for one that concluded; a shorter plan, for
+// a planning step whose plan was too long), asks for all of it in one closing
+// continuation, collects the outbox again and looks again. The plan ask is
+// the only one whose reply Kuayle reads: when it comes back whole and fits,
+// it is the plan the attempt hands on. Nothing is asked for what Kuayle
+// itself failed to collect, and the attempt's outcome is never changed here:
+// what is still missing is reported, for notes on the run.
 func (m *Manager) settleClosing(ctx context.Context, attempt closingAttempt, state closingState) closingSettlement {
 	run := attempt.run
 	// Replies are judged only on an outbox that was really read.
@@ -150,23 +171,35 @@ func (m *Manager) settleClosing(ctx context.Context, attempt closingAttempt, sta
 	if notebook != nil {
 		asks = append(asks, *notebook)
 	}
+	planAsked := state.planTooLong && state.concluded
+	if planAsked {
+		asks = append(asks, domain.PlanClosingAsk())
+	}
 	if len(asks) == 0 && run.ClosingAskedAt != nil {
 		// Asked before a crash, and by now nothing is missing: what the
 		// crash left is removed here, since nothing will be asked.
 		m.removeClosingContainer(ctx, attempt)
 	}
-	if len(asks) > 0 && m.askToClose(ctx, attempt, asks) {
-		collectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
-		err := m.collectOutbox(collectCtx, attempt.machine, state.services)
-		cancel()
-		if notebook != nil {
-			settled.notebookNotCollected = err != nil
+	if len(asks) > 0 {
+		ran, reply := m.askToClose(ctx, attempt, asks)
+		if planAsked && ran && reply.complete && state.parseReply != nil {
+			if parsed := state.parseReply(reply.stdout, reply.stderr); parsed.FinalMessage && !parsed.SummaryTruncated && strings.TrimSpace(parsed.Summary) != "" {
+				settled.plan = parsed.Summary
+			}
 		}
-		// Replies are judged only on an outbox that was really read: without
-		// the developer container the collection reads nothing and reports
-		// no error.
-		if read := err == nil && developerRunning(state.services); read || !settled.replies.unknown {
-			settled.replies = m.repliesAfterClosing(ctx, run, read)
+		if ran {
+			collectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+			err := m.collectOutbox(collectCtx, attempt.machine, state.services)
+			cancel()
+			if notebook != nil {
+				settled.notebookNotCollected = err != nil
+			}
+			// Replies are judged only on an outbox that was really read: without
+			// the developer container the collection reads nothing and reports
+			// no error.
+			if read := err == nil && developerRunning(state.services); read || !settled.replies.unknown {
+				settled.replies = m.repliesAfterClosing(ctx, run, read)
+			}
 		}
 	}
 	switch {
@@ -191,23 +224,25 @@ type closingRuntime interface {
 }
 
 // askToClose continues the attempt's own session once to ask for asks, and
-// reports whether the continuation ran. It returns false, having asked
-// nothing, when there is nothing to ask, the harness cannot continue a
-// session, the session is unknown, or the attempt was already asked.
-func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks []domain.ClosingAsk) bool {
+// reports whether the continuation ran and what it replied when an ask is
+// answered with the final message. It returns false, having asked nothing,
+// when there is nothing to ask, the harness cannot continue a session, the
+// session is unknown, or the attempt was already asked. Without a Reply ask
+// the output is discarded, as before.
+func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks []domain.ClosingAsk) (bool, closingReply) {
 	run := attempt.run
 	store, ok := m.store.(closingStore)
 	prompt := domain.ClosingPrompt(asks)
 	if !ok || prompt == "" || run.Mode == "interactive" || len(run.ClosingContinuation) == 0 || attempt.secrets == nil {
-		return false
+		return false, closingReply{}
 	}
 	current, err := m.store.GetAgentRunInternal(ctx, run.ID)
 	if err != nil || current == nil || current.NativeSessionID == nil || !agent.ValidSessionID(*current.NativeSessionID) || current.Status == domain.DevMachineAgentRunStatusCancelled {
-		return false
+		return false, closingReply{}
 	}
 	var argv []string
 	if json.Unmarshal(run.ClosingContinuation, &argv) != nil {
-		return false
+		return false, closingReply{}
 	}
 	session, prompted := false, false
 	for i, argument := range argv {
@@ -220,7 +255,7 @@ func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks [
 	}
 	command, err := json.Marshal(argv)
 	if err != nil || !session || !prompted {
-		return false
+		return false, closingReply{}
 	}
 	// The sign-in the attempt may have refreshed is read again, so the
 	// continuation never presents a rotated credential.
@@ -231,7 +266,7 @@ func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks [
 	used := environment[signInSecretNames[run.ProviderID]]
 	if used != "" {
 		if err := m.agentSignInSecrets(ctx, run, environment, map[string]string{}); err != nil {
-			return false
+			return false, closingReply{}
 		}
 		used = environment[signInSecretNames[run.ProviderID]]
 	}
@@ -242,31 +277,51 @@ func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks [
 	// left is removed.
 	if run.ClosingAskedAt != nil || current.ClosingAskedAt != nil {
 		remove()
-		return false
+		return false, closingReply{}
 	}
 	// Never past the attempt's own time limit, and not at all with too
 	// little of it left: decided before the attempt is marked as asked.
 	end, enough := closingEnd(attempt.deadline)
 	if !enough {
-		return false
+		return false, closingReply{}
 	}
 	// Once per attempt: the mark is taken before the container starts. A
 	// mark already taken means a continuation ran, or was running when the
 	// manager stopped: what it left is removed, and it is not run again.
 	if first, err := store.MarkClosingAsked(ctx, run.ID); err != nil || !first {
 		remove()
-		return false
+		return false, closingReply{}
 	}
 	defer remove()
 	continuation := *run
 	continuation.CommandArgv, continuation.ContainerSuffix = command, closingSuffix
 	askCtx, cancel := context.WithDeadline(ctx, end)
+	output := func(string, []byte) error { return nil }
+	var buffer *agentOutputBuffer
+	reply := closingReply{}
+	for _, ask := range asks {
+		if !ask.Reply {
+			continue
+		}
+		// The reply is read exactly like the attempt's own output, so the
+		// plan Kuayle hands on is redacted the same way: a secret that reached
+		// the continuation must not reach the next agent's prompt. Nothing is
+		// persisted: the continuation's output is not the attempt's log.
+		buffer = newAgentOutputBuffer(attempt.secrets.Redactions, func(string, int64, string, string, bool) error { return nil })
+		output = buffer.WriteDocker
+		break
+	}
 	observer := &AgentObserver{
 		Authorize: func() error { return m.store.AuthorizeAgentRun(askCtx, run.ID) },
-		Output:    func(string, []byte) error { return nil },
+		Output:    output,
 	}
 	started := time.Now()
 	_, runErr := m.runtime.RunAgent(askCtx, attempt.machine, &continuation, attempt.provider, attempt.checkout, environment, observer)
+	if buffer != nil {
+		finishErr := buffer.Finish()
+		reply.stdout, reply.stderr = buffer.ResultText("stdout"), buffer.ResultText("stderr")
+		reply.complete = finishErr == nil && !buffer.Incomplete("stdout")
+	}
 	seconds := int(time.Since(started).Round(time.Second) / time.Second)
 	timedOut := errors.Is(askCtx.Err(), context.DeadlineExceeded)
 	cancel()
@@ -287,5 +342,5 @@ func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks [
 	}
 	_ = m.createEvent(ctx, attempt.machine, &run.ID, "agent", "agent_run.closing_continuation", map[string]any{
 		"provider_id": run.ProviderID, "asks": len(asks), "seconds": seconds, "finished": runErr == nil, "timed_out": timedOut})
-	return true
+	return true, reply
 }

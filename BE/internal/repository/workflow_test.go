@@ -645,6 +645,74 @@ func TestRetryRestartsAFailedWorkflowOnItsImplementingStep(t *testing.T) {
 	require.Equal(t, last.Sequence, *runs[1].Step)
 }
 
+// A retry of a task whose budget is used up grants another budget of the same
+// size and restarts the time budget, as a person continuing past the budget
+// does; a retry within budget leaves the budget alone.
+func TestRetryGrantsAFreshBudgetWhenTheWorkflowBudgetIsUsedUp(t *testing.T) {
+	run := func(t *testing.T, usedUp bool) {
+		db, repo, ctx, legacy, fixture := taskRecoveryFixture(t)
+		_, err := db.Exec(`UPDATE agent_tasks SET state='completed' WHERE id=$1`, legacy.ID)
+		require.NoError(t, err)
+		ws := legacy.WorkspaceID
+		workflows := NewWorkflowRepository(db)
+		implementer, reviewer := builtinIDs(t, workflows, ws)
+		graph := domain.ReviewLoopWorkflowGraph(implementer, reviewer)
+		graph.Budget.MaxIterations = 2
+		raw, err := json.Marshal(graph)
+		require.NoError(t, err)
+		created, err := workflows.CreateWorkflow(ctx, ws, fixture.userID, "Retry budget loop", "", raw, "created")
+		require.NoError(t, err)
+		chosen := created.ID.String()
+		version, err := workflows.ResolveWorkflow(ctx, ws, legacy.IssueID, &chosen)
+		require.NoError(t, err)
+		task, err := repo.Create(ctx, ws, *legacy.ConversationID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Add dark mode", Provider: "claude-code",
+			Workflow: version, WorkflowInstructions: "Agent profile \"Implementer\" (implementer):\nWrite tests."})
+		require.NoError(t, err)
+
+		// The implementing agent fails and the workflow ends at Failed.
+		claimed := prepareTaskStart(t, db, repo, ctx, *task, fixture)
+		_, err = repo.Start(ctx, *claimed)
+		require.NoError(t, err)
+		_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='failed',completed_at=now(),exit_code=1 WHERE id=$1`, task.RunID)
+		require.NoError(t, err)
+		toFailed := graph.Decide(claimed.Cursor(), domain.WorkflowAgentFailed, time.Now(), nil)
+		require.Equal(t, "failed", toFailed.To.ID)
+		failed, err := repo.ApplyWorkflow(ctx, *claimed, WorkflowApply{Sequence: 2, Outcome: domain.WorkflowAgentFailed, Moves: []WorkflowMove{{Decision: toFailed}},
+			Entry: WorkflowEntry{Kind: WorkflowEnterFail, Reason: "Workflow · " + toFailed.Reason}})
+		require.NoError(t, err)
+		_, err = db.Exec(`INSERT INTO dev_machine_operations(workspace_id,machine_id,agent_run_id,action,status,generation,idempotency_key) VALUES($1,$2,$3,'cancel_agent','completed',1,$4)`,
+			ws, *failed.MachineID, failed.RunID, "task-cancel:"+failed.ID.String()+":"+failed.RunID.String())
+		require.NoError(t, err)
+		require.NoError(t, repo.FinishCancellation(ctx, *claimed, "Cleanup confirmed"))
+		failed, err = repo.Get(ctx, ws, task.ID)
+		require.NoError(t, err)
+		require.Equal(t, "failed", failed.State)
+		require.Equal(t, 0, failed.WorkflowExtensions)
+		require.Nil(t, failed.WorkflowBudgetFrom)
+
+		if usedUp {
+			// The failing run used the workflow's whole iteration budget.
+			_, err = db.Exec(`UPDATE agent_tasks SET workflow_iterations=$2 WHERE id=$1`, task.ID, graph.Budget.MaxIterations)
+			require.NoError(t, err)
+		}
+		retried, err := repo.Retry(ctx, ws, task.ID, domain.AgentTaskRetryRequest{RequestID: uuid.New(), Generation: failed.Generation, Prompt: "Add dark mode, and keep the toggle accessible"})
+		require.NoError(t, err)
+		require.Equal(t, "implement", *retried.WorkflowNode)
+		if !usedUp {
+			require.Equal(t, failed.WorkflowIterations+1, retried.WorkflowIterations, "a retry within budget is another iteration")
+			require.Equal(t, 0, retried.WorkflowExtensions, "a retry within budget keeps the budget it has")
+			require.Nil(t, retried.WorkflowBudgetFrom)
+			return
+		}
+		require.Equal(t, 1, retried.WorkflowExtensions, "a retry past the budget grants another one")
+		require.NotNil(t, retried.WorkflowBudgetFrom)
+		require.WithinDuration(t, time.Now(), *retried.WorkflowBudgetFrom, time.Minute, "the time budget restarts now")
+		require.Greater(t, graph.Budget.IterationAllowance(retried.Cursor()), retried.Cursor().Iterations, "the next agent step is allowed")
+	}
+	t.Run("budget used up", func(t *testing.T) { run(t, true) })
+	t.Run("within budget", func(t *testing.T) { run(t, false) })
+}
+
 // A build step that follows a planning step is run by another profile: the
 // handoff says so, so the builder starts its own native session. A failed
 // re-plan stores an empty plan, which hides the earlier visit's.

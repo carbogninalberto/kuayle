@@ -911,7 +911,9 @@ func (r *AgentTaskRepository) SetWorkflowWake(ctx context.Context, claimed domai
 
 // RetryWorkflow places a task a person retries back on its latest
 // implementing agent step, as a new visit outside the guards: retrying is
-// the person's decision. Called in Retry's transaction.
+// the person's decision. A task whose budget is used up gets another budget
+// of the same size and its time budget restarts, as when a person continues
+// past the budget. Called in Retry's transaction.
 func retryWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, actor uuid.UUID) error {
 	if !task.RunsWorkflow() {
 		return nil
@@ -947,6 +949,16 @@ func retryWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, act
 		return err
 	}
 	cursor.Visits[step.NodeID]++
+	// A retry of a task whose budget is used up continues past it, exactly as
+	// a person continuing does: another budget of the same size, and the time
+	// budget starts again now.
+	now := time.Now()
+	exhausted := (graph.Budget.MaxIterations > 0 && cursor.Iterations >= graph.Budget.IterationAllowance(cursor)) ||
+		(graph.BudgetDeadline(cursor) != nil && !now.Before(*graph.BudgetDeadline(cursor)))
+	if exhausted {
+		cursor.Extensions++
+		cursor.BudgetFrom = now
+	}
 	cursor.Iterations++
 	visits, _ := json.Marshal(cursor.Visits)
 	sequence := task.WorkflowSequence + 1
@@ -954,8 +966,8 @@ func retryWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, act
 		task.ID, sequence, step.NodeID, step.NodeType, cursor.Visits[step.NodeID], cursor.Node, task.Generation, actor); err != nil {
 		return err
 	}
-	return tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_node=$2,workflow_visits=$3,workflow_iterations=$4,workflow_sequence=$5,workflow_status='running',workflow_wake_at=NULL WHERE id=$1 RETURNING *`,
-		task.ID, step.NodeID, visits, cursor.Iterations, sequence)
+	return tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_node=$2,workflow_visits=$3,workflow_iterations=$4,workflow_sequence=$5,workflow_status='running',workflow_wake_at=NULL,workflow_budget_extensions=$6,workflow_budget_from=$7 WHERE id=$1 RETURNING *`,
+		task.ID, step.NodeID, visits, cursor.Iterations, sequence, cursor.Extensions, nullTime(cursor.BudgetFrom))
 }
 
 // joinInstructions appends a workflow step's trusted instructions (its
