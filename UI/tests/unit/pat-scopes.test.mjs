@@ -83,9 +83,10 @@ test('full access includes every selectable scope including workspace transfer',
 	assert.ok(PRESET_SCOPES.full_access.includes('workspace:transfer'));
 });
 
-test('issue:delete_own is only reachable via full access or explicit Issues write', () => {
+test('issue:delete_own and issue:delete are only reachable via full access or explicit Issues write', () => {
 	for (const preset of ['read_only', 'developer', 'triage_bot']) {
 		assert.ok(!PRESET_SCOPES[preset].includes('issue:delete_own'), preset);
+		assert.ok(!PRESET_SCOPES[preset].includes('issue:delete'), preset);
 	}
 });
 
@@ -108,7 +109,7 @@ test('applyLevel moves a row between levels without touching other scopes', () =
 	const write = applyLevel(read, issues, 'write');
 	assert.deepEqual(
 		sorted(write),
-		sorted(['labels:read', 'issues:read', 'issue:create', 'issue:update', 'issue:delete_own'])
+		sorted(['labels:read', 'issues:read', 'issue:create', 'issue:update', 'issue:delete_own', 'issue:delete'])
 	);
 
 	const none = applyLevel(write, issues, 'none');

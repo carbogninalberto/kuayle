@@ -35,7 +35,8 @@ func TestIsValidScope(t *testing.T) {
 		"labels:read", "teams:read", "members:read", "templates:read",
 		"views:read", "analytics:read", "notifications:read",
 		"workspaces:read", "account:read", "assets:read",
-		"issue:create", "issue:update", "issue:delete_own",
+		"issue:create", "issue:update", "issue:delete", "issue:delete_own",
+		"cycle:manage", "view:manage", "account:write", "notifications:write",
 		"project:manage", "label:manage", "team:manage", "member:invite",
 		"workspace:manage", "workspace:transfer",
 		"dev_machine:read", "dev_machine:create", "dev_machine:manage", "dev_machine:admin",
@@ -46,10 +47,10 @@ func TestIsValidScope(t *testing.T) {
 
 	invalid := []string{
 		"", "admin", "read", "issue:read", // renamed to issues:read
-		"issue:delete",   // exists as RBAC code but is not annotated on any route
-		"cycle:manage",   // not annotated on any route
-		"view:manage",    // not annotated on any route
 		"comment:create", // comments reuse issue:create
+		"issue:delete_any",
+		"cycle:read",
+		"view:write",
 	}
 	for _, scope := range invalid {
 		assert.False(t, IsValidScope(scope), scope)

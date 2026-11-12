@@ -16,6 +16,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	mw "github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
@@ -692,4 +693,51 @@ func TestIssueHistoryResponseOptionalActor(t *testing.T) {
 
 func (r *testIssueRepo) ValidateLabelScope(ctx context.Context, projectID *uuid.UUID, labelIDs []uuid.UUID) error {
 	return nil
+}
+
+// A token holding only issue:delete_own must not inherit its owner's
+// admin/owner ability to delete other people's issues (KUA-111).
+func TestIssueHandler_Delete_TokenCeilingAppliesToDeleteAny(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		scopes  []string
+		creator uuid.UUID
+		want    int
+	}{
+		{"own scope cannot delete another user's issue", []string{domain.PermIssueDeleteOwn}, uuid.New(), http.StatusForbidden},
+		{"own scope can delete its owner's issue", []string{domain.PermIssueDeleteOwn}, uuid.Nil, http.StatusOK},
+		{"issue:delete scope can delete another user's issue", []string{domain.PermIssueDeleteOwn, domain.PermIssueDelete}, uuid.New(), http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			issueRepo := newTestIssueRepo()
+			wsID := uuid.New()
+			userID := uuid.New()
+			creatorID := tc.creator
+			if creatorID == uuid.Nil {
+				creatorID = userID
+			}
+			issueRepo.issues["ENG-1"] = &domain.Issue{
+				ID:          uuid.New(),
+				WorkspaceID: wsID,
+				Identifier:  "ENG-1",
+				Title:       "Delete me",
+				CreatorID:   creatorID,
+			}
+			notifSvc := service.NewNotificationService(&testNotifRepo{})
+			issueSvc := service.NewIssueService(issueRepo, newTestTeamRepo(), &testTeamStatusRepo{}, &testHistoryRepo{}, realtime.NewHub(), notifSvc)
+			h := NewIssueHandler(issueSvc, service.NewCommentService(&testCommentRepo{}, issueRepo, realtime.NewHub(), notifSvc), &testUserRepo{}, &testTeamStatusRepo{}, nil, nil, nil)
+
+			c, rec := setupIssueContext(e, http.MethodDelete, "/api/workspaces/test/issues/ENG-1", "")
+			c.Set("workspace", &domain.Workspace{ID: wsID, Name: "Test", Slug: "test"})
+			c.Set("workspace_role", domain.RoleAdmin)
+			c.Set(string(mw.UserIDKey), userID)
+			c.Set(mw.TokenScopesKey, tc.scopes)
+			c.SetPathValues(echo.PathValues{{Name: "identifier", Value: "ENG-1"}})
+
+			err := h.Delete(c)
+			assert.NoError(t, err)
+			assert.Equal(t, tc.want, rec.Code)
+		})
+	}
 }

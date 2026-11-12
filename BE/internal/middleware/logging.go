@@ -3,6 +3,7 @@ package middleware
 import (
 	"time"
 
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
@@ -19,8 +20,10 @@ func Logging() echo.MiddlewareFunc {
 				status = res.Status
 			}
 			log.WithFields(log.Fields{
-				"method":  c.Request().Method,
-				"path":    c.Request().URL.Path,
+				"method": c.Request().Method,
+				// The route template, not the raw URL: invite, share, wiki and
+				// asset tokens live in path parameters and must not reach logs.
+				"path":    domain.RedactSecrets(c.Path()),
 				"status":  status,
 				"latency": latency.String(),
 				"ip":      c.RealIP(),

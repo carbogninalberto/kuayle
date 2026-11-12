@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
@@ -49,6 +50,9 @@ func (h *CycleHandler) Create(c *echo.Context) error {
 	teamID, err := uuid.Parse(c.Param("teamId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team ID")
+	}
+	if err := h.cycleSvc.AuthorizeTeam(c.Request().Context(), middleware.GetWorkspace(c).ID, teamID); err != nil {
+		return response.NotFound(c, "Team")
 	}
 
 	var req dto.CreateCycleRequest
@@ -97,6 +101,10 @@ func (h *CycleHandler) Update(c *echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid cycle ID")
 	}
 
+	if err := h.cycleSvc.AuthorizeCycle(c.Request().Context(), middleware.GetWorkspace(c).ID, id); err != nil {
+		return response.NotFound(c, "Cycle")
+	}
+
 	var req dto.UpdateCycleRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -114,6 +122,10 @@ func (h *CycleHandler) Complete(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("cycleId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid cycle ID")
+	}
+
+	if err := h.cycleSvc.AuthorizeCycle(c.Request().Context(), middleware.GetWorkspace(c).ID, id); err != nil {
+		return response.NotFound(c, "Cycle")
 	}
 
 	var req dto.CompleteCycleRequest
@@ -151,6 +163,10 @@ func (h *CycleHandler) Delete(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("cycleId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid cycle ID")
+	}
+
+	if err := h.cycleSvc.AuthorizeCycle(c.Request().Context(), middleware.GetWorkspace(c).ID, id); err != nil {
+		return response.NotFound(c, "Cycle")
 	}
 
 	if err := h.cycleSvc.Delete(c.Request().Context(), id); err != nil {

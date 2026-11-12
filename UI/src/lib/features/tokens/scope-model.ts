@@ -21,20 +21,20 @@ export interface ResourceRow {
 }
 
 export const RESOURCE_ROWS: ResourceRow[] = [
-	{ key: 'issues', readScopes: ['issues:read'], writeScopes: ['issue:create', 'issue:update', 'issue:delete_own'] },
+	{ key: 'issues', readScopes: ['issues:read'], writeScopes: ['issue:create', 'issue:update', 'issue:delete_own', 'issue:delete'] },
 	{ key: 'comments', readScopes: ['comments:read'], writeScopes: [], note: 'comments_write_note' },
 	{ key: 'projects', readScopes: ['projects:read'], writeScopes: ['project:manage'] },
-	{ key: 'cycles', readScopes: ['cycles:read'], writeScopes: [] },
+	{ key: 'cycles', readScopes: ['cycles:read'], writeScopes: ['cycle:manage'] },
 	{ key: 'labels', readScopes: ['labels:read'], writeScopes: ['label:manage'] },
 	{ key: 'teams', readScopes: ['teams:read'], writeScopes: ['team:manage'] },
 	{ key: 'members', readScopes: ['members:read'], writeScopes: ['member:invite'] },
 	{ key: 'workspace', readScopes: ['workspaces:read'], writeScopes: ['workspace:manage', 'workspace:transfer'] },
 	{ key: 'templates', readScopes: ['templates:read'], writeScopes: [] },
-	{ key: 'views', readScopes: ['views:read'], writeScopes: [] },
+	{ key: 'views', readScopes: ['views:read'], writeScopes: ['view:manage'] },
 	{ key: 'wiki', readScopes: ['wiki:read'], writeScopes: ['wiki:write'] },
 	{ key: 'analytics', readScopes: ['analytics:read'], writeScopes: [] },
-	{ key: 'notifications', readScopes: ['notifications:read'], writeScopes: [] },
-	{ key: 'account', readScopes: ['account:read'], writeScopes: [] },
+	{ key: 'notifications', readScopes: ['notifications:read'], writeScopes: ['notifications:write'] },
+	{ key: 'account', readScopes: ['account:read'], writeScopes: ['account:write'] },
 	{ key: 'assets', readScopes: ['assets:read'], writeScopes: [] },
 	// Read-only, member-only (guests never hold them); for the Kuayle CLI.
 	{ key: 'agent_tasks', readScopes: ['agent_tasks:read'], writeScopes: [], advanced: true },

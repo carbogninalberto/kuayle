@@ -33,10 +33,29 @@ cargo install --git https://github.com/carbogninalberto/kuayle kuayle
 
 ## Sign in
 
-Create a personal access token in **Settings → API Tokens**. The **Developer**
-preset covers the CLI, including wiki editing (`wiki:write`); **Read only** is
-enough for reading. Resetting your password through the emailed link revokes
-all of your tokens, so create a new one and sign in again afterwards. Then:
+The quickest way is a connection link: open **Settings → API Tokens → Connect
+CLI**, choose the scopes, workspace and lifetime, then run the command it shows:
+
+```sh
+kuayle auth connect 'https://kuayle.example.com/cli/connect#code=kuayle_cl_...'
+kuayle auth status
+```
+
+The secret is in the URL fragment, so a browser never sends it to the server; the
+CLI posts it directly and the server stores only its hash. Links expire (15
+minutes by default, up to 24 hours) and are single-use unless you allow more
+uses. Pass the link on stdin or set `KUAYLE_CONNECT_LINK` to keep it out of shell
+history. If the profile already has credentials, `--force` replaces them; a
+failed setup restores the previous credentials and config and revokes the new
+token. Revoking the link in the token settings only blocks future setups; the
+token it already minted stays valid until you revoke it in the token list, and
+resetting your password revokes both.
+
+Alternatively, create a personal access token in **Settings → API Tokens**. The
+**Developer** preset covers the CLI, including wiki editing (`wiki:write`);
+**Read only** is enough for reading. Resetting your password through the emailed
+link revokes all of your tokens, so create a new one and sign in again
+afterwards. Then:
 
 ```sh
 kuayle auth login --url https://kuayle.example.com --workspace acme --token kuayle_pat_...
@@ -51,6 +70,11 @@ Commands that need a workspace fail with exit code 4 when none is set.
 
 The CLI only calls the REST API with the token. What it can do is the token's
 scopes intersected with your workspace role, exactly as in the web app.
+[`docs/api-tokens.md`](api-tokens.md) lists every endpoint and the scope it
+requires.
+
+`kuayle auth logout` also revokes the current token, best effort, before deleting
+the local credential.
 
 ## Use
 
@@ -80,8 +104,8 @@ Exit codes: 2 authentication, 3 not found, 4 invalid input, 5 forbidden,
 show agent tasks and workflows, read-only. They need the `agent_tasks:read` and
 `workflows:read` token scopes (in the Developer preset, under Dev machines in the
 token form). Guests never get these, and a token sees exactly the tasks its owner
-sees in the app. Starting, cancelling or approving tasks, run logs and diffs, and
-issue subscriptions stay in the web app: their API accepts signed-in sessions only.
+sees in the app. Starting, cancelling or approving tasks, and run logs and diffs
+stay in the web app: their API accepts signed-in sessions only.
 
 ## Agents
 

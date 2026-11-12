@@ -1221,9 +1221,25 @@ token's user. `/mcp` has its own per-address rate limit.
 The `kuayle` CLI and Rust SDK live in [`CLI/`](CLI/) (MIT, originally by @uiYzzi;
 see [NOTICE](NOTICE)). The CLI is a REST client authenticated by a personal access
 token: every call is checked by the same `scoped` route annotation, token scope and
-workspace RBAC as any other PAT request, and it adds no server permissions. Routes
-registered `sessionOnly` are unavailable to it. Agent task reads (queue, task,
-history, runs) and workflow reads (list, get, agent profiles) accept tokens with
+workspace RBAC as any other PAT request, and it adds no server permissions.
+[`docs/api-tokens.md`](docs/api-tokens.md) generates the endpoint-by-endpoint
+scope matrix and records why the remaining `sessionOnly` routes stay interactive.
+
+`kuayle auth connect <link>` configures a profile from a connection link instead
+of a copied token. The link keeps a one-time code (`kuayle_cl_`) in its URL
+fragment; `POST /api/cli/connect` redeems it for a newly minted PAT with the
+scopes, workspace restriction and expiry fixed when the link was created. Links
+expire (15 minutes by default, 24 hours maximum), are single-use unless created
+with more uses, and can be revoked without touching tokens they already minted.
+A password reset revokes open links and tokens together. The CLI verifies the new
+token, writes credentials atomically, and on any failure restores the profile
+snapshot and revokes the token via `DELETE /api/tokens/current`; codes and tokens
+are redacted from output and logs.
+
+Cycle, view, favorite, notification, preference and issue-subscription writes are
+reachable with tokens holding `cycle:manage`, `view:manage`, `account:write` or
+`notifications:write`. Agent task reads (queue, task, history, runs) and workflow
+reads (list, get, agent profiles) accept tokens with
 `agent_tasks:read` / `workflows:read`; only owner, admin and member roles hold these
 codes, and the repositories apply the same task and member visibility as for
 sessions. Task writes, run logs, diffs, artifacts, sessions and live messages stay

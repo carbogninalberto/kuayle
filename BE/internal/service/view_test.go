@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -99,13 +99,14 @@ func TestViewService_Update_OwnerOnly(t *testing.T) {
 	ctx := context.Background()
 	ownerID := uuid.New()
 	otherID := uuid.New()
+	wsID := uuid.New()
 	viewID := uuid.New()
 
-	view := &domain.View{ID: viewID, CreatorID: ownerID, Name: "Old"}
+	view := &domain.View{ID: viewID, WorkspaceID: wsID, CreatorID: ownerID, Name: "Old"}
 	repo.On("GetByID", ctx, viewID).Return(view, nil)
 
 	newName := "New Name"
-	_, err := svc.Update(ctx, viewID, otherID, dto.UpdateViewRequest{Name: &newName})
+	_, err := svc.Update(ctx, wsID, viewID, otherID, dto.UpdateViewRequest{Name: &newName})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "only the creator")
 }
@@ -116,14 +117,15 @@ func TestViewService_Update_Happy(t *testing.T) {
 
 	ctx := context.Background()
 	ownerID := uuid.New()
+	wsID := uuid.New()
 	viewID := uuid.New()
 
-	view := &domain.View{ID: viewID, CreatorID: ownerID, Name: "Old"}
+	view := &domain.View{ID: viewID, WorkspaceID: wsID, CreatorID: ownerID, Name: "Old"}
 	repo.On("GetByID", ctx, viewID).Return(view, nil)
 	repo.On("Update", ctx, mock.AnythingOfType("*domain.View")).Return(nil)
 
 	newName := "Updated"
-	result, err := svc.Update(ctx, viewID, ownerID, dto.UpdateViewRequest{Name: &newName})
+	result, err := svc.Update(ctx, wsID, viewID, ownerID, dto.UpdateViewRequest{Name: &newName})
 
 	assert.NoError(t, err)
 	assert.Equal(t, "Updated", result.Name)
@@ -136,12 +138,13 @@ func TestViewService_Delete_OwnerOnly(t *testing.T) {
 	ctx := context.Background()
 	ownerID := uuid.New()
 	otherID := uuid.New()
+	wsID := uuid.New()
 	viewID := uuid.New()
 
-	view := &domain.View{ID: viewID, CreatorID: ownerID}
+	view := &domain.View{ID: viewID, WorkspaceID: wsID, CreatorID: ownerID}
 	repo.On("GetByID", ctx, viewID).Return(view, nil)
 
-	err := svc.Delete(ctx, viewID, otherID)
+	err := svc.Delete(ctx, wsID, viewID, otherID)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "only the creator")
 }
@@ -152,12 +155,13 @@ func TestViewService_Delete_Happy(t *testing.T) {
 
 	ctx := context.Background()
 	ownerID := uuid.New()
+	wsID := uuid.New()
 	viewID := uuid.New()
 
-	view := &domain.View{ID: viewID, CreatorID: ownerID}
+	view := &domain.View{ID: viewID, WorkspaceID: wsID, CreatorID: ownerID}
 	repo.On("GetByID", ctx, viewID).Return(view, nil)
 	repo.On("Delete", ctx, viewID).Return(nil)
 
-	err := svc.Delete(ctx, viewID, ownerID)
+	err := svc.Delete(ctx, wsID, viewID, ownerID)
 	assert.NoError(t, err)
 }

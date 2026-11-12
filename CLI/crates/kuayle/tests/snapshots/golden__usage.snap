@@ -17,6 +17,8 @@ kuayle — the official Kuayle CLI
 ## Commands
 
   kuayle auth login
+  kuayle auth connect
+    Configure this profile from a connection link
   kuayle auth logout
   kuayle auth status
   kuayle whoami

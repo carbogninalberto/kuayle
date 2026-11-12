@@ -62,20 +62,40 @@ impl CredentialStore for FileCredentialStore {
         let path = self.file_path(profile);
         let json = serde_json::to_string_pretty(session).map_err(|e| format!("serialize: {e}"))?;
 
-        // Write with restrictive permissions (0600), atomically where supported.
-        // 以严格权限（0600）原子写入（在支持的平台上）。
-        let mut opts = std::fs::OpenOptions::new();
-        opts.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            opts.mode(0o600);
-        }
-        let mut file = opts.open(&path).map_err(|e| format!("create file: {e}"))?;
+        // Write the new session to a sibling temp file (0600) and rename it
+        // over the profile, so a crash or a failed setup never leaves a
+        // half-written credential file behind.
+        // 先写同目录临时文件（0600）再重命名，避免崩溃或失败留下半写凭据。
+        fs::create_dir_all(&self.dir).map_err(|e| format!("create credentials dir: {e}"))?;
+        let temp = self
+            .dir
+            .join(format!(".{profile}.{}.tmp", std::process::id()));
+        let _ = fs::remove_file(&temp);
 
-        file.write_all(json.as_bytes())
-            .map_err(|e| format!("write: {e}"))?;
-        Ok(())
+        let result = (|| -> Result<(), String> {
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                opts.mode(0o600);
+            }
+            let mut file = opts.open(&temp).map_err(|e| format!("create file: {e}"))?;
+            file.write_all(json.as_bytes())
+                .map_err(|e| format!("write: {e}"))?;
+            file.sync_all().map_err(|e| format!("sync: {e}"))?;
+
+            #[cfg(windows)]
+            if path.exists() {
+                fs::remove_file(&path).map_err(|e| format!("replace: {e}"))?;
+            }
+            fs::rename(&temp, &path).map_err(|e| format!("rename: {e}"))
+        })();
+
+        if result.is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        result
     }
 
     fn delete(&self, profile: &str) -> Result<(), String> {
@@ -247,6 +267,19 @@ mod tests {
             store.load("home").unwrap().unwrap().bearer_token(),
             "token_h"
         );
+    }
+
+    #[test]
+    fn file_store_save_leaves_only_the_profile_file() {
+        let dir = TempDir::new().unwrap();
+        let store = FileCredentialStore::at(dir.path().to_path_buf());
+        store.save("work", &Session::pat("tok")).unwrap();
+
+        let names: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["work.json".to_string()]);
     }
 
     #[test]

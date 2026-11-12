@@ -87,6 +87,26 @@ func (h *TokenHandler) Revoke(c *echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// DeleteCurrent revokes the personal access token that authenticated the
+// request. The CLI uses it for logout and to roll back a failed setup.
+func (h *TokenHandler) DeleteCurrent(c *echo.Context) error {
+	if c.Get(middleware.TokenScopesKey) == nil {
+		return response.Forbidden(c)
+	}
+	id, ok := c.Get(middleware.TokenIDKey).(uuid.UUID)
+	if !ok || id == uuid.Nil {
+		return response.Unauthorized(c)
+	}
+	if err := h.tokenSvc.Revoke(c.Request().Context(), id, middleware.GetUserID(c)); err != nil {
+		if errors.Is(err, service.ErrTokenNotFound) {
+			// Already revoked: the caller's goal is met.
+			return c.NoContent(http.StatusNoContent)
+		}
+		return response.InternalError(c)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
 func toPersonalAccessTokenResponse(t domain.PersonalAccessToken, plaintext string) dto.PersonalAccessTokenResponse {
 	return dto.PersonalAccessTokenResponse{
 		ID:             t.ID,

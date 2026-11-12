@@ -40,7 +40,21 @@ Shell completions: `kuayle completion <bash|zsh|fish>`
 
 ## Authenticate
 
-Create a token in Kuayle (**Settings → API Tokens**; the `Developer` preset covers the CLI, including wiki editing), then:
+In Kuayle open **Settings → API Tokens → Connect CLI**, choose the scopes and
+workspace, and run the command it shows:
+
+```sh
+kuayle auth connect 'https://kuayle.example.com/cli/connect#code=kuayle_cl_...'
+kuayle auth status
+```
+
+The link is single-use by default and expires after 15 minutes (up to 24 hours
+when generated). Pass it on stdin or set `KUAYLE_CONNECT_LINK` to keep it out of
+shell history. `--force` replaces existing credentials; a failed setup restores
+the previous state and revokes the token it minted.
+
+You can still create a token manually (**Settings → API Tokens**; the
+`Developer` preset covers the CLI, including wiki editing) and log in with it:
 
 ```sh
 kuayle auth login --token kuayle_pat_... --url https://kuayle.example.com --workspace acme
@@ -84,7 +98,7 @@ on exit codes: 2=re-auth needed, 3=not found, 4=invalid input, 5=forbidden,
 
 | Area | Commands |
 |------|----------|
-| **Auth** | `auth login`, `auth logout`, `auth status`, `whoami` |
+| **Auth** | `auth connect`, `auth login`, `auth logout`, `auth status`, `whoami` |
 | **Issues** | `list`, `read`, `create`, `update`, `delete`, `batch-update`, `batch-delete`, `history`, `sub-issues-list`, `sub-issues-create` |
 | **Comments** | `list`, `create`, `resolve`, `reopen` |
 | **Relations** | `list`, `create`, `delete` |
@@ -109,7 +123,7 @@ kuayle issues list --status in_progress --format json
 kuayle comments create ENG-42 --body "Fixed in 3a7d5ee"
 ```
 
-Some operations (issue subscriptions; cycle, view, favorite and notification writes; starting or changing agent tasks and workflows; run logs and diffs) accept only signed-in browser sessions, not tokens, so the CLI does not offer them.
+Some operations (starting or changing agent tasks and workflows; run logs and diffs) accept only signed-in browser sessions, not tokens, so the CLI does not offer them. Cycle, view, favorite, notification and issue-subscription writes are reachable with tokens whose scopes include them; the CLI may not expose a command for each yet, but the REST API does.
 
 ## SDK: kuayle-sdk
 
