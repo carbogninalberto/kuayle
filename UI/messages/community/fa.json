@@ -2238,6 +2238,7 @@
 	"assistant.delete_failed": "حذف ممکن نشد. منتظر پایان پاسخ‌ها یا کار عامل در حال اجرا بمانید.",
 	"assistant.resize_sidebar": "تغییر اندازه فهرست گفتگوها",
 	"tasks.view_diff": "مشاهده diff",
+	"tasks.download_trace": "دانلود ردپا",
 	"tasks.diff_title": "تغییرات",
 	"tasks.diff_close": "بستن تغییرات",
 	"tasks.diff_resize": "تغییر اندازه پنل تغییرات",

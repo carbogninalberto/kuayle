@@ -2238,6 +2238,7 @@
 	"assistant.delete_failed": "Không thể xóa. Hãy đợi các phản hồi hoặc công việc của agent đang chạy hoàn tất.",
 	"assistant.resize_sidebar": "Đổi kích thước danh sách cuộc trò chuyện",
 	"tasks.view_diff": "Xem diff",
+	"tasks.download_trace": "Tải dấu vết",
 	"tasks.diff_title": "Thay đổi",
 	"tasks.diff_close": "Đóng thay đổi",
 	"tasks.diff_resize": "Đổi kích thước bảng thay đổi",

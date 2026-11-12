@@ -2238,6 +2238,7 @@
 	"assistant.delete_failed": "Poisto epäonnistui. Odota, että käynnissä olevat vastaukset tai agenttityö päättyvät.",
 	"assistant.resize_sidebar": "Muuta keskustelulistan kokoa",
 	"tasks.view_diff": "Näytä diff",
+	"tasks.download_trace": "Lataa jäljitys",
 	"tasks.diff_title": "Muutokset",
 	"tasks.diff_close": "Sulje muutokset",
 	"tasks.diff_resize": "Muuta muutospaneelin kokoa",

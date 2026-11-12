@@ -2238,6 +2238,7 @@
 	"assistant.delete_failed": "Impossibile eliminare. Attendi la fine delle risposte o del lavoro degli agenti in corso.",
 	"assistant.resize_sidebar": "Ridimensiona l'elenco delle conversazioni",
 	"tasks.view_diff": "Vedi modifiche",
+	"tasks.download_trace": "Scarica traccia",
 	"tasks.diff_title": "Modifiche",
 	"tasks.diff_close": "Chiudi modifiche",
 	"tasks.diff_resize": "Ridimensiona il pannello delle modifiche",

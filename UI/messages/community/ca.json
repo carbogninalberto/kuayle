@@ -2238,6 +2238,7 @@
 	"assistant.delete_failed": "No s'ha pogut suprimir. Espera que acabin les respostes o la feina d'agents en execució.",
 	"assistant.resize_sidebar": "Canvia la mida de la llista de converses",
 	"tasks.view_diff": "Mostra el diff",
+	"tasks.download_trace": "Baixa la traça",
 	"tasks.diff_title": "Canvis",
 	"tasks.diff_close": "Tanca els canvis",
 	"tasks.diff_resize": "Canvia la mida del tauler de canvis",

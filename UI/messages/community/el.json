@@ -2238,6 +2238,7 @@
 	"assistant.delete_failed": "Δεν ήταν δυνατή η διαγραφή. Περιμένετε να ολοκληρωθούν οι απαντήσεις ή οι εργασίες πρακτόρων που εκτελούνται.",
 	"assistant.resize_sidebar": "Αλλαγή μεγέθους λίστας συνομιλιών",
 	"tasks.view_diff": "Προβολή diff",
+	"tasks.download_trace": "Λήψη ίχνους",
 	"tasks.diff_title": "Αλλαγές",
 	"tasks.diff_close": "Κλείσιμο αλλαγών",
 	"tasks.diff_resize": "Αλλαγή μεγέθους πίνακα αλλαγών",

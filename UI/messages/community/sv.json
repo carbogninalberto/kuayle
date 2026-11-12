@@ -2238,6 +2238,7 @@
 	"assistant.delete_failed": "Det gick inte att ta bort. Vänta tills pågående svar eller agentarbete är klart.",
 	"assistant.resize_sidebar": "Ändra storlek på konversationslistan",
 	"tasks.view_diff": "Visa diff",
+	"tasks.download_trace": "Ladda ner spårning",
 	"tasks.diff_title": "Ändringar",
 	"tasks.diff_close": "Stäng ändringar",
 	"tasks.diff_resize": "Ändra storlek på ändringspanelen",

@@ -2238,6 +2238,7 @@
 	"assistant.delete_failed": "Impossible de supprimer. Attendez la fin des réponses ou des travaux d'agent en cours.",
 	"assistant.resize_sidebar": "Redimensionner la liste des conversations",
 	"tasks.view_diff": "Voir le diff",
+	"tasks.download_trace": "Télécharger la trace",
 	"tasks.diff_title": "Modifications",
 	"tasks.diff_close": "Fermer les modifications",
 	"tasks.diff_resize": "Redimensionner le panneau des modifications",

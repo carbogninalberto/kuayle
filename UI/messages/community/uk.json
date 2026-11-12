@@ -2238,6 +2238,7 @@
 	"assistant.delete_failed": "Не вдалося видалити. Дочекайтеся завершення відповідей або роботи агентів.",
 	"assistant.resize_sidebar": "Змінити розмір списку розмов",
 	"tasks.view_diff": "Переглянути diff",
+	"tasks.download_trace": "Завантажити трасування",
 	"tasks.diff_title": "Зміни",
 	"tasks.diff_close": "Закрити зміни",
 	"tasks.diff_resize": "Змінити розмір панелі змін",

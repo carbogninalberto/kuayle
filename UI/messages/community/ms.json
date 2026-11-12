@@ -2238,6 +2238,7 @@
 	"assistant.delete_failed": "Tidak dapat memadam. Tunggu balasan atau kerja ejen yang sedang berjalan selesai.",
 	"assistant.resize_sidebar": "Ubah saiz senarai perbualan",
 	"tasks.view_diff": "Lihat diff",
+	"tasks.download_trace": "Muat turun jejak",
 	"tasks.diff_title": "Perubahan",
 	"tasks.diff_close": "Tutup perubahan",
 	"tasks.diff_resize": "Ubah saiz panel perubahan",

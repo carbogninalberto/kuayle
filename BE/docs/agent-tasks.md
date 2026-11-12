@@ -2389,6 +2389,59 @@ it to the task's creator with `recorded` (false for older runs) and
 `worktree_read_only`, redacted with the machine's current and retained
 credentials.
 
+### Downloading a task's trace
+
+`GET /agent-tasks/:taskId/debug` returns one JSON document assembled from the
+tables that already hold the task's history, in time order, for the task's
+creator or a workspace owner/admin who can see its issue (private teams
+included; everyone else gets 404). It is session-only and answers as an
+attachment, `kuayle-trace-<identifier>.json`, with `Cache-Control: private,
+no-store`. The body is the document itself, not the usual response envelope,
+so the file can be handed to an LLM or attached to an issue unchanged.
+
+The document (`format: "kuayle.task-trace/v1"`) has a `task` header (state,
+reason, failure class, workflow version and node, creator and timestamps), the
+configured `limits`, `entries`, and `cuts`. Every entry has a start, an end
+(null while it is still open), an outcome and a reason, and carries its kind,
+a stable ID and `run_id` when it belongs to an attempt. Entries come from:
+
+| Kind | What it records |
+| --- | --- |
+| `transition` | every task state change, its reason and actor |
+| `workflow_step` | each workflow node entered, its visit, condition, outcome, detail and plan |
+| `run` | each attempt (including its review tasks' attempts): status, failure class/rule/cause, environment, output cuts, branch, pull request and notebook result |
+| `prompt` | the prompt each attempt received, one entry per attempt, by source and channel |
+| `closing_continuation` | when Kuayle asked an attempt for what was missing and for how long |
+| `run_step` | the independent check, publication and manual checks with their commands and summaries |
+| `operation` | machine operations requested for the task or its attempts |
+| `retry` | retries a person requested, with the instruction they gave |
+| `live_message` | both directions of the task's live channel, with deliveries and replies |
+| `agent_message` | messages this task's agent sent or received |
+| `review` | requested reviews of the task's published work and their findings |
+| `ci_signal` | CI and review signals with their outcome, failure class and evidence |
+| `pause`, `version_switch` | pauses, resumes and moves to another workflow version |
+| `notebook_change`, `notebook` | each notebook revision's author and sections, and the current document |
+
+Free text is redacted twice: first with the current and retained credential
+values of every machine an attempt ran on, then with the well-known credential
+formats (private keys, cloud keys, GitHub/GitLab/Slack tokens, API keys, JWTs
+and passwords embedded in URLs). The document is bounded in three ways:
+
+- Each text field is cut at 64 KB with `…[truncated]`.
+- Each source query keeps at most 500 rows (2000 transitions); one extra row
+  proves that more exist.
+- The whole document is kept under 4 MiB: the largest prompt-source texts are
+  dropped first, then the oldest entries.
+
+Every cut is listed in `cuts` (`kind`, `what`, `kept`, `total`, removed
+`bytes`); `cuts` is an empty array when nothing was left out. A run's own
+`output_cuts` (KUA-137) travel in its `run` entry unchanged. The trace never
+includes machine operation payloads, arguments or environment, workspace env
+vars, runtime credentials or tokens, log chunks or diffs, or the closing
+continuation's command line (only when it was asked and for how long). There
+is no Debug view in the app: the action downloads the file, and the file is
+the input for an LLM.
+
 ## Remaining workflow work
 
 The worker progresses through preparation, native execution (with native
