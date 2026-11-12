@@ -36,15 +36,26 @@ for (const [scope, file] of Object.entries(workflows)) {
 
 test('release runtime checks consume refreshed source while PR checks survive skipped publishing', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
-  const source = workflow.split('  release-source:\n')[1].split('  build:\n')[0];
+  const source = workflow.split('  release-source:\n')[1].split('  release-context:\n')[0];
+  const context = workflow.split('  release-context:\n')[1].split('  build:\n')[0];
   const build = workflow.split('  build:\n')[1].split('  dev-machine-images:\n')[0];
   const runtime = workflow.split('  dev-machine-images:\n')[1].split('  result:\n')[0];
   assert.ok(source.indexOf('run: node scripts/ci/upgrade-agent-clis.mjs') < source.indexOf('- name: Commit version bump'));
   assert.match(source, /source_sha: \$\{\{ steps.source.outputs.sha \}\}/);
   assert.match(source, /git add devmachine\/common\/install-agent-clis.sh devmachine\/\{agent,ide,headless\}\/Dockerfile/);
-  // Application images are built from the bumped commit, without repeating the bump.
-  assert.match(build, /needs: \[release-source\]/);
-  assert.match(build, /ref: \$\{\{ needs.release-source.outputs.source_sha \}\}/);
+  // Automatic releases and manual republishes share one validated source/tag context.
+  assert.match(context, /gh api "repos\/\$GITHUB_REPOSITORY\/releases\/tags\/\$RELEASE_TAG"/);
+  assert.match(context, /must identify a published, non-draft release/);
+  assert.match(context, /does not identify an existing release/);
+  assert.match(context, /releases\/latest/);
+  assert.match(context, /git log HEAD --format='%H%x09%s'.*bump\(version\): \$RELEASE_TAG/);
+  assert.match(context, /no 'bump\(version\): \$RELEASE_TAG' commit found on main/);
+  assert.match(context, /does not match \$RELEASE_TAG/);
+  assert.match(context, /ref: main\n          fetch-depth: 0/);
+  assert.match(context, /publish_latest=false/);
+  // Application images are built from that context, without repeating the bump.
+  assert.match(build, /needs: \[changes, release-source, release-context\]/);
+  assert.match(build, /ref: \$\{\{ needs.release-context.outputs.source_ref \}\}/);
   assert.doesNotMatch(build, /Commit version bump|git push/);
   assert.match(runtime, /needs: \[changes, release-source\]/);
   assert.match(runtime, /!cancelled\(\)/);
@@ -64,24 +75,79 @@ test('releases publish the scanned runtime images the updater pulls; PR builds n
   assert.match(action, /push: false\n\s+load: true/);
   // The pushed image is the one that passed the smoke tests and scan.
   assert.ok(action.indexOf('Scan native architecture image') > action.indexOf('Build native architecture image'));
-  assert.match(publish, /github.event_name == 'release'/);
-  // Runtime images build alongside the application images, not after them.
-  assert.match(publish, /needs: \[changes, release-source\]/);
-  assert.match(publish, /needs.release-source.result == 'success'/);
+  assert.match(publish, /needs: \[changes, release-source, release-context\]/);
+  assert.match(publish, /needs.release-context.result == 'success'/);
+  // The planner decides whether the native arm64 jobs run.
+  assert.match(publish, /architecture: \$\{\{ fromJSON\(needs\.changes\.outputs\.plan\)\.architectures \}\}/);
+  assert.doesNotMatch(publish, /architecture: \[amd64, arm64\]/);
   assert.doesNotMatch(publish, /needs.build|max-parallel/);
   assert.match(publish, /packages: write/);
   assert.ok(publish.indexOf('docker push') > publish.indexOf('uses: ./.github/actions/dev-machine-image'));
-  assert.match(publish, /ref: \$\{\{ needs.release-source.outputs.source_sha \}\}/);
+  assert.match(publish, /ref: \$\{\{ needs.release-context.outputs.source_ref \}\}/);
   // Release tags appear only once the application images are published too.
-  assert.match(manifests, /needs: \[changes, build, dev-machine-publish\]/);
+  assert.match(manifests, /needs: \[changes, release-context, build, dev-machine-publish\]/);
   assert.match(manifests, /needs.build.result == 'success' && needs.dev-machine-publish.result == 'success'/);
   assert.match(manifests, /imagetools create/);
-  assert.match(manifests, /-amd64.*-arm64/s);
+  assert.match(manifests, /if \[ "\$INCLUDE_ARM64" = "true" \]/);
+  assert.match(manifests, /sources\+=\("\$REPOSITORY:\$VERSION-arm64"\)/);
+  assert.match(manifests, /PUBLISH_LATEST/);
   // Updater convention: Compose service NAME is published as kuayle-NAME.
   const services = [...compose.matchAll(/^  ([a-z0-9-]+):\n(?:    .*\n)*?    profiles: \["dev-machine-images"\]/gm)].map((match) => match[1]);
   assert.equal(services.length, 9);
   const packages = planForPaths([], 'release').devImages.map((image) => image.package);
   assert.deepEqual(packages.sort(), ['machine-gateway', 'machine-manager', ...services].map((name) => `kuayle-${name}`).sort());
+});
+
+test('automatic releases are amd64-only; manual dispatch opts into arm64', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
+  const context = workflow.split('  release-context:\n')[1].split('  build:\n')[0];
+  const build = workflow.split('  build:\n')[1].split('  dev-machine-images:\n')[0];
+  assert.match(workflow, /workflow_dispatch:\n    inputs:\n      release_tag:/);
+  assert.match(workflow, /include_arm64:[\s\S]*?type: boolean\n        default: false/);
+  assert.match(workflow, /include_arm64: \$\{\{ inputs\.include_arm64 \|\| false \}\}/);
+  // The planner is the single source of the architecture selection.
+  assert.match(context, /include_arm64=\$\(printf '%s' "\$PLAN" \| jq -r 'any\(\.architectures\[\]; \. == "arm64"\)'\)/);
+  assert.match(build, /include_arm64 == 'true'/);
+  assert.match(build, /platforms: \$\{\{ needs\.release-context\.outputs\.include_arm64 == 'true' && 'linux\/amd64,linux\/arm64' \|\| 'linux\/amd64' \}\}/);
+  // Application images stay on the single build-push-action push path so their
+  // provenance attestations are preserved.
+  assert.match(build, /uses: docker\/build-push-action@/);
+  assert.match(build, /push: true/);
+  assert.doesNotMatch(build, /imagetools create/);
+  const tags = build.split('- name: Prepare application image tags\n')[1]?.split('- name:')[0];
+  assert.ok(tags, 'expected application tag preparation');
+  assert.match(tags, /PUBLISH_LATEST/);
+  assert.match(tags, /:latest/);
+  assert.match(build, /tags: \$\{\{ steps\.tags\.outputs\.all_in_one \}\}/);
+  assert.match(build, /tags: \$\{\{ steps\.tags\.outputs\.api \}\}/);
+  assert.match(build, /tags: \$\{\{ steps\.tags\.outputs\.web \}\}/);
+});
+
+test('QEMU is installed only for the opt-in arm64 application build', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
+  const build = workflow.split('  build:\n')[1].split('  dev-machine-images:\n')[0];
+  const qemu = build.split('- name: Set up QEMU for optional ARM64 application images\n')[1]?.split('- name:')[0];
+  assert.ok(qemu, 'expected a QEMU setup step in Build Images');
+  assert.match(qemu, /if: \$\{\{ needs\.release-context\.outputs\.include_arm64 == 'true' \}\}/);
+  assert.match(qemu, /platforms: arm64/);
+  assert.equal((workflow.match(/docker\/setup-qemu-action/g) ?? []).length, 1);
+  assert.doesNotMatch(workflow.split('  dev-machine-images:\n')[1].split('  dev-machine-publish:\n')[0], /setup-qemu/);
+  assert.doesNotMatch(workflow.split('  dev-machine-publish:\n')[1].split('  dev-machine-manifests:\n')[0], /setup-qemu/);
+});
+
+test('manual release readiness defaults to amd64 and include_arm64 adds both', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/release-readiness.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /workflow_dispatch:\n    inputs:\n      include_arm64:/);
+  assert.match(workflow, /include_arm64:[\s\S]*?type: boolean\n        default: false/);
+  assert.match(workflow, /include_arm64: \$\{\{ inputs\.include_arm64 \|\| false \}\}/);
+  assert.match(workflow, /architecture: \$\{\{ fromJSON\(needs\.changes\.outputs\.plan\)\.architectures \}\}/);
+  assert.doesNotMatch(workflow, /setup-qemu/);
+});
+
+test('CI impact forwards the manual include_arm64 selection', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/ci-impact.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /include_arm64:[\s\S]*?type: boolean\n        default: false/);
+  assert.match(workflow, /INCLUDE_ARM64: \$\{\{ inputs\.include_arm64 \}\}/);
 });
 
 test('release API image is built with the release number', () => {

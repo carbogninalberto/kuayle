@@ -5,6 +5,19 @@ on:
     types: [published]
   pull_request:
     branches: [main]
+  # Rebuild an existing release tag, optionally adding the native arm64 images.
+  # Automatic releases stay amd64-only; this manual path never bumps main.
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing server release tag to rebuild and publish (for example v0.2.32)
+        required: true
+        type: string
+      include_arm64:
+        description: Also build and publish ARM64 images (application images use QEMU)
+        required: false
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
@@ -17,9 +30,12 @@ jobs:
   changes:
     name: CI Impact
     uses: ./.github/workflows/ci-impact.yml
+    with:
+      include_arm64: ${{ inputs.include_arm64 || false }}
 
-  # Releases first commit the version bump and refreshed agent CLIs, then build
-  # the application and runtime images from that commit in parallel.
+  # Automatic releases first commit the version bump and refreshed agent CLIs,
+  # then build the application and runtime images from that commit in parallel.
+  # A manual republish builds an existing tag instead and skips this job.
   release-source:
     # cli-v* releases are published by CLI Release, not as a server release.
     if: github.event_name == 'release' && !startsWith(github.event.release.tag_name, 'cli-v')
@@ -111,9 +127,87 @@ jobs:
         id: source
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+  # One validated source and tag selection for automatic releases and manual
+  # republishes. A manual run builds the tagged source, never a branch, and only
+  # moves :latest when the tag is the current latest release.
+  release-context:
+    name: Resolve Release Context
+    needs: [changes, release-source]
+    if: ${{ !cancelled() && (github.event_name == 'release' || github.event_name == 'workflow_dispatch') && (github.event_name != 'release' || needs.release-source.result == 'success') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.context.outputs.tag }}
+      source_ref: ${{ steps.context.outputs.source_ref }}
+      include_arm64: ${{ steps.context.outputs.include_arm64 }}
+      publish_latest: ${{ steps.context.outputs.publish_latest }}
+    steps:
+      - name: Checkout main for the release source lookup
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/checkout@v7.0.0
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve tag, source and architecture selection
+        id: context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+          SOURCE_SHA: ${{ needs.release-source.outputs.source_sha }}
+          PLAN: ${{ needs.changes.outputs.plan }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.+-]+)?$ ]]; then
+            echo "::error::release_tag must be a server release tag such as v0.2.32"
+            exit 1
+          fi
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if ! release=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" 2>/dev/null); then
+              echo "::error::release_tag does not identify an existing release"
+              exit 1
+            fi
+            if [ "$(printf '%s' "$release" | jq -r '.draft')" != "false" ]; then
+              echo "::error::release_tag must identify a published, non-draft release"
+              exit 1
+            fi
+            source_ref=$(git log HEAD --format='%H%x09%s' | awk -F '\t' -v subject="bump(version): $RELEASE_TAG" '$2 == subject && !found { print $1; found = 1 }')
+            if [ -z "$source_ref" ]; then
+              echo "::error::no 'bump(version): $RELEASE_TAG' commit found on main; publish a new release instead"
+              exit 1
+            fi
+            if [ "$(git show "$source_ref:UI/package.json" | jq -r .version)" != "${RELEASE_TAG#v}" ]; then
+              echo "::error::the release source $source_ref does not match $RELEASE_TAG"
+              exit 1
+            fi
+            latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)
+            if [ "$latest" = "$RELEASE_TAG" ]; then
+              publish_latest=true
+            else
+              publish_latest=false
+            fi
+          else
+            source_ref="$SOURCE_SHA"
+            publish_latest=true
+          fi
+
+          include_arm64=$(printf '%s' "$PLAN" | jq -r 'any(.architectures[]; . == "arm64")')
+
+          {
+            echo "tag=$RELEASE_TAG"
+            echo "source_ref=$source_ref"
+            echo "include_arm64=$include_arm64"
+            echo "publish_latest=$publish_latest"
+          } >> "$GITHUB_OUTPUT"
+
   build:
-    needs: [release-source]
-    if: github.event_name == 'release' && needs.release-source.result == 'success'
+    needs: [changes, release-source, release-context]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.release-context.result == 'success' }}
     name: Build Images
     # PR application images are built, smoke-tested and scanned by Release Readiness.
     permissions:
@@ -122,18 +216,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout refreshed release source
+      - name: Checkout release source
         uses: actions/checkout@v7.0.0
         with:
-          ref: ${{ needs.release-source.outputs.source_sha }}
+          ref: ${{ needs.release-context.outputs.source_ref }}
           persist-credentials: false
 
       - name: Extract version
         id: version
+        env:
+          RELEASE_TAG: ${{ needs.release-context.outputs.tag }}
         run: |
-          version="${{ github.event.release.tag_name }}"
+          version="$RELEASE_TAG"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "number=${version#v}" >> "$GITHUB_OUTPUT"
+
+      # QEMU is only needed for the opt-in multi-platform application build.
+      # Dev-machine and readiness ARM64 builds use native runners.
+      - name: Set up QEMU for optional ARM64 application images
+        if: ${{ needs.release-context.outputs.include_arm64 == 'true' }}
+        uses: docker/setup-qemu-action@v4.2.0
+        with:
+          platforms: arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.1.0
@@ -149,18 +253,42 @@ jobs:
         id: security-refresh
         run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare application image tags
+        id: tags
+        env:
+          RELEASE_TAG: ${{ needs.release-context.outputs.tag }}
+          PUBLISH_LATEST: ${{ needs.release-context.outputs.publish_latest }}
+        run: |
+          set -euo pipefail
+
+          add_tags() {
+            local repository="$1"
+            local output="$2"
+            {
+              echo "${output}<<EOF"
+              echo "${IMAGE_PREFIX}/${repository}:${RELEASE_TAG}"
+              if [ "${PUBLISH_LATEST}" = "true" ]; then
+                echo "${IMAGE_PREFIX}/${repository}:latest"
+              fi
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          add_tags kuayle all_in_one
+          add_tags kuayle-api api
+          add_tags kuayle-web web
+
       # All-in-one image
       - name: Build & push all-in-one
         uses: docker/build-push-action@v7.2.0
         with:
           context: .
           file: ./Dockerfile
+          platforms: ${{ needs.release-context.outputs.include_arm64 == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           pull: true
           build-args: SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
-          push: ${{ github.event_name == 'release' }}
-          tags: |
-            ${{ env.IMAGE_PREFIX }}/kuayle:latest
-            ${{ env.IMAGE_PREFIX }}/kuayle:${{ steps.version.outputs.version }}
+          push: true
+          tags: ${{ steps.tags.outputs.all_in_one }}
           cache-from: type=gha,scope=all-in-one
           cache-to: type=gha,mode=max,scope=all-in-one
 
@@ -170,14 +298,13 @@ jobs:
         with:
           context: ./BE
           file: ./BE/Dockerfile
+          platforms: ${{ needs.release-context.outputs.include_arm64 == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           pull: true
           build-args: |
             SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
             VERSION=${{ steps.version.outputs.number }}
-          push: ${{ github.event_name == 'release' }}
-          tags: |
-            ${{ env.IMAGE_PREFIX }}/kuayle-api:latest
-            ${{ env.IMAGE_PREFIX }}/kuayle-api:${{ steps.version.outputs.version }}
+          push: true
+          tags: ${{ steps.tags.outputs.api }}
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
 
@@ -187,12 +314,11 @@ jobs:
         with:
           context: ./UI
           file: ./UI/Dockerfile
+          platforms: ${{ needs.release-context.outputs.include_arm64 == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           pull: true
           build-args: SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
-          push: ${{ github.event_name == 'release' }}
-          tags: |
-            ${{ env.IMAGE_PREFIX }}/kuayle-web:latest
-            ${{ env.IMAGE_PREFIX }}/kuayle-web:${{ steps.version.outputs.version }}
+          push: true
+          tags: ${{ steps.tags.outputs.web }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
@@ -226,12 +352,13 @@ jobs:
 
   # Releases run the same native build/smoke/scan once here instead of in
   # dev-machine-images, then push exactly the scanned local image. The release
-  # updater pulls these images rather than building them on the server. The
-  # matrix is unbounded so it runs alongside Build Images; GitHub queues any
-  # jobs beyond the account's runner concurrency.
+  # updater pulls these images rather than building them on the server. Automatic
+  # releases are amd64-only; include_arm64 adds the native arm64 jobs. The matrix
+  # is unbounded so it runs alongside Build Images; GitHub queues any jobs beyond
+  # the account's runner concurrency.
   dev-machine-publish:
-    needs: [changes, release-source]
-    if: ${{ !cancelled() && github.event_name == 'release' && needs.changes.result == 'success' && needs.release-source.result == 'success' && contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-publish') }}
+    needs: [changes, release-source, release-context]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.release-context.result == 'success' && contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-publish') }}
     name: Publish Dev Machine Image (${{ matrix.image.name }}, ${{ matrix.architecture }})
     runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     permissions:
@@ -240,13 +367,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        architecture: [amd64, arm64]
+        architecture: ${{ fromJSON(needs.changes.outputs.plan).architectures }}
         image: ${{ fromJSON(needs.changes.outputs.plan).devImages }}
 
     steps:
       - uses: actions/checkout@v7.0.0
         with:
-          ref: ${{ needs.release-source.outputs.source_sha }}
+          ref: ${{ needs.release-context.outputs.source_ref }}
           persist-credentials: false
 
       - name: Build, smoke test and scan native architecture image
@@ -269,14 +396,14 @@ jobs:
       - name: Push scanned architecture image
         env:
           SOURCE: ${{ steps.image.outputs.image }}
-          TARGET: ${{ env.IMAGE_PREFIX }}/${{ matrix.image.package }}:${{ github.event.release.tag_name }}-${{ matrix.architecture }}
+          TARGET: ${{ env.IMAGE_PREFIX }}/${{ matrix.image.package }}:${{ needs.release-context.outputs.tag }}-${{ matrix.architecture }}
         run: |
           docker tag "$SOURCE" "$TARGET"
           docker push "$TARGET"
 
   dev-machine-manifests:
-    needs: [changes, build, dev-machine-publish]
-    if: ${{ !cancelled() && github.event_name == 'release' && needs.build.result == 'success' && needs.dev-machine-publish.result == 'success' && contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-manifests') }}
+    needs: [changes, release-context, build, dev-machine-publish]
+    if: ${{ !cancelled() && needs.release-context.result == 'success' && needs.build.result == 'success' && needs.dev-machine-publish.result == 'success' && contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-manifests') }}
     name: Publish Dev Machine Manifest (${{ matrix.image.name }})
     runs-on: ubuntu-latest
     permissions:
@@ -298,21 +425,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create multi-architecture release manifest
+      - name: Create release manifest for the selected architectures
         env:
           REPOSITORY: ${{ env.IMAGE_PREFIX }}/${{ matrix.image.package }}
-          VERSION: ${{ github.event.release.tag_name }}
+          VERSION: ${{ needs.release-context.outputs.tag }}
+          INCLUDE_ARM64: ${{ needs.release-context.outputs.include_arm64 }}
+          PUBLISH_LATEST: ${{ needs.release-context.outputs.publish_latest }}
         run: |
-          docker buildx imagetools create \
-            --tag "$REPOSITORY:$VERSION" \
-            --tag "$REPOSITORY:latest" \
-            "$REPOSITORY:$VERSION-amd64" "$REPOSITORY:$VERSION-arm64"
+          set -euo pipefail
+
+          sources=("$REPOSITORY:$VERSION-amd64")
+          if [ "$INCLUDE_ARM64" = "true" ]; then
+            sources+=("$REPOSITORY:$VERSION-arm64")
+          fi
+
+          tags=(--tag "$REPOSITORY:$VERSION")
+          if [ "$PUBLISH_LATEST" = "true" ]; then
+            tags+=(--tag "$REPOSITORY:latest")
+          fi
+
+          docker buildx imagetools create "${tags[@]}" "${sources[@]}"
           docker buildx imagetools inspect "$REPOSITORY:$VERSION"
 
   result:
     name: Build CI Result
     if: always()
-    needs: [changes, release-source, build, dev-machine-images, dev-machine-publish, dev-machine-manifests]
+    needs: [changes, release-source, release-context, build, dev-machine-images, dev-machine-publish, dev-machine-manifests]
     runs-on: ubuntu-latest
     permissions:
       contents: read

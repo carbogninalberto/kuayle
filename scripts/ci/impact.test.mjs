@@ -136,8 +136,11 @@ test('PR images build on amd64 only unless an input is architecture-sensitive', 
   }
   assert.deepEqual(planForPaths(['UI/src/app.css', 'BE/go.mod']).architectures, ['amd64', 'arm64'], 'mixed changes take the union');
   assert.deepEqual(planForPaths(['.github/workflows/test.yml']).architectures, ['amd64', 'arm64'], 'routing changes run broadly');
-  assert.deepEqual(planForPaths([], 'push').architectures, ['amd64', 'arm64'], 'pushes and releases always build both');
-  assert.deepEqual(planForPaths([], 'release').architectures, ['amd64', 'arm64']);
+  assert.deepEqual(planForPaths([], 'push').architectures, ['amd64'], 'automatic pushes default to amd64');
+  assert.deepEqual(planForPaths([], 'release').architectures, ['amd64'], 'automatic releases default to amd64');
+  assert.deepEqual(planForPaths([], 'release', true).architectures, ['amd64', 'arm64'], 'include_arm64 adds arm64');
+  assert.deepEqual(planForPaths([], 'workflow_dispatch').architectures, ['amd64']);
+  assert.deepEqual(planForPaths([], 'workflow_dispatch', true).architectures, ['amd64', 'arm64']);
 });
 
 test('workflow, routing, unknown and shared root changes conservatively exercise all areas', () => {
@@ -159,7 +162,10 @@ test('mixed changes union their coverage; non-PR events retain the full original
     assert.equal(plan.devImages.length, 11);
     assert.equal(plan.securityImages.length, 12);
     // Releases build, scan and publish every runtime image once, in the publish job.
-    assert.deepEqual(plan.required.build, ['release-source', 'build', 'dev-machine-publish', 'dev-machine-manifests']);
+    const releaseJobs = ['release-context', 'build', 'dev-machine-publish', 'dev-machine-manifests'];
+    // A manual release republish builds an existing tag; it must not bump main.
+    const expected = event === 'workflow_dispatch' ? releaseJobs : ['release-source', ...releaseJobs];
+    assert.deepEqual(plan.required.build, expected, event);
     assert.ok(plan.required.security.includes('docker-security'));
   }
   const pr = planForPaths(['.github/workflows/build.yml']);
@@ -325,5 +331,22 @@ test('a cli-v* release selects no server release jobs and the gates pass', () =>
   for (const job of plan.jobs.build) needs[job] = { result: 'skipped' };
   assert.deepEqual(checkResults('build', needs), []);
   // Server releases keep their full coverage.
-  assert.deepEqual(detectPlan({ event: 'release', releaseTag: 'v0.2.30' }).required.build, ['release-source', 'build', 'dev-machine-publish', 'dev-machine-manifests']);
+  assert.deepEqual(detectPlan({ event: 'release', releaseTag: 'v0.2.30' }).required.build, ['release-source', 'release-context', 'build', 'dev-machine-publish', 'dev-machine-manifests']);
+  assert.deepEqual(detectPlan({ event: 'release', releaseTag: 'v0.2.30', includeArm64: true }).architectures, ['amd64', 'arm64']);
+});
+
+test('manual server releases reuse the release source without another bump', () => {
+  const plan = detectPlan({ event: 'workflow_dispatch' });
+  assert.deepEqual(plan.architectures, ['amd64']);
+  assert.deepEqual(plan.required.build, ['release-context', 'build', 'dev-machine-publish', 'dev-machine-manifests']);
+  assert.deepEqual(detectPlan({ event: 'workflow_dispatch', includeArm64: true }).architectures, ['amd64', 'arm64']);
+});
+
+test('release result gates accept the automatic and manual job selections', () => {
+  for (const [event, includeArm64] of [['release', false], ['release', true], ['workflow_dispatch', false], ['workflow_dispatch', true]]) {
+    const plan = detectPlan({ event, includeArm64 });
+    const needs = { changes: { result: 'success', outputs: { plan: JSON.stringify(plan) } } };
+    for (const job of plan.jobs.build) needs[job] = { result: plan.required.build.includes(job) ? 'success' : 'skipped' };
+    assert.deepEqual(checkResults('build', needs), [], `${event} arm=${includeArm64}`);
+  }
 });

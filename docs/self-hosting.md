@@ -345,12 +345,15 @@ records, including nullable authors for writes without an identified editor.
 ## Release candidate validation
 
 The **Release Readiness** workflow builds the all-in-one, API and web images on
-native amd64 and arm64 runners without publishing. It checks the PR head commit
-(or the selected workflow-dispatch revision), runs the packaged runtime smoke
-test, and fails on HIGH or CRITICAL image scan findings. Each job uploads the
-source commit, build digest/metadata, local image identity, runtime log, Trivy
-JSON report and an archive of the exact image tested. Require all six image jobs and the **Tests** workflow to pass for
-the same reviewed commit before declaring a candidate ready.
+native runners without publishing. Pull requests default to amd64 and add native
+arm64 jobs when the diff touches a platform-sensitive input. A manual dispatch
+defaults to amd64; set `include_arm64=true` to verify both architectures. The
+workflow checks the PR head commit (or the selected workflow-dispatch revision),
+runs the packaged runtime smoke test, and fails on HIGH or CRITICAL image scan
+findings. Each job uploads the source commit, build digest/metadata, local image
+identity, runtime log, Trivy JSON report and an archive of the exact image tested.
+Require all six image jobs (three on an amd64-only run) and the **Tests** workflow
+to pass for the same reviewed commit before declaring a candidate ready.
 The existing **Security Scan** and **Build & Push** PR checks also remain
 required, including the native Dev Machine image builds and scans. PR builds
 do not publish images.
@@ -369,6 +372,21 @@ Both Caddy images verify SPA deep links and static assets as well as backend
 routes. Container UI builds default to an 8 GB Node heap, the same as host
 builds (the client build no longer fits in 6 GB); use
 `--build-arg NODE_OPTIONS=--max-old-space-size=<MB>` to override it.
-A successful candidate run does not authorize publishing. The existing
-release-publishing workflow updates source files on `main`; its output must be
-revalidated if its revision differs from the reviewed candidate.
+A successful candidate run does not authorize publishing. Automatic releases
+publish amd64 images only. Before deploying an automatic release on an ARM64
+host, rebuild that release tag with both architectures:
+
+```sh
+gh workflow run build.yml --ref main \
+  -f release_tag=v0.2.32 \
+  -f include_arm64=true
+```
+
+The manual run builds the release's version-bump commit on `main` without
+creating another commit, and updates `:latest` only when the tag is the current
+latest release. See the
+[CI routing guide](../scripts/ci/README.md#manual-release-rebuilds-and-arm64-images)
+for the tag and republishing risks. A successful candidate run does not authorize
+publishing. The existing automatic release-publishing workflow updates source
+files on `main`; its output must be revalidated if its revision differs from the
+reviewed candidate.
