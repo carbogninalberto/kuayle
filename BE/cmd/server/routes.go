@@ -74,6 +74,7 @@ type appHandlers struct {
 	fav               *handler.FavoriteHandler
 	prefs             *handler.PreferencesHandler
 	token             *handler.TokenHandler
+	cliLink           *handler.CLILinkHandler
 	aiSettings        *handler.AISettingsHandler
 	agentTask         *handler.AgentTaskHandler
 	workflow          *handler.WorkflowHandler
@@ -140,6 +141,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	public(e, http.MethodGet, "/api/public/assets/:token", h.upload.PublicAsset, m.publicAssetRateLimit)
 	public(pub, http.MethodGet, "/system/update-activity", h.system.UpdateActivity)
 
+	public(e, http.MethodPost, "/api/cli/connect", h.cliLink.Connect, m.authRateLimit)
 	public(e, http.MethodGet, "/api/config", h.config.Get, m.publicAssetRateLimit)
 	public(e, http.MethodGet, "/api/invite/:token", h.inviteLink.Preview, m.authRateLimit)
 	// The uploaded workspace logo is public: the invite preview shows it before
@@ -171,12 +173,18 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(api, http.MethodPatch, "/auth/passkey/credentials/:id", h.passkey.Rename)
 	sessionOnly(api, http.MethodDelete, "/auth/passkey/credentials/:id", h.passkey.Delete)
 	scoped(api, http.MethodGet, "/preferences", h.prefs.Get, "account:read", mw.RequireUnrestrictedTokenWorkspaces())
-	sessionOnly(api, http.MethodPatch, "/preferences", h.prefs.Update)
+	scoped(api, http.MethodPatch, "/preferences", h.prefs.Update, "account:write", mw.RequireUnrestrictedTokenWorkspaces())
 
 	// Token management requires a session; handlers also guard direct calls.
 	sessionOnly(api, http.MethodGet, "/tokens", h.token.List)
 	sessionOnly(api, http.MethodPost, "/tokens", h.token.Create)
 	sessionOnly(api, http.MethodDelete, "/tokens/:id", h.token.Revoke)
+	addNamedRoute(api, http.MethodDelete, "/tokens/current", h.token.DeleteCurrent, "token")
+	// Connection links for kuayle_cli are created and revoked from a browser
+	// session; the public redeem route below never exposes link management.
+	sessionOnly(api, http.MethodGet, "/cli-links", h.cliLink.List)
+	sessionOnly(api, http.MethodPost, "/cli-links", h.cliLink.Create)
+	sessionOnly(api, http.MethodDelete, "/cli-links/:id", h.cliLink.Revoke)
 	sessionOnly(api, http.MethodGet, "/system/update-status", h.system.UpdateStatus)
 	sessionOnly(api, http.MethodPost, "/system/update", h.system.StartUpdate)
 
@@ -225,13 +233,13 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Cycles (team-scoped)
 	scoped(ws, http.MethodGet, "/teams/:teamId/cycles", h.cycle.List, "cycles:read")
-	sessionOnly(ws, http.MethodPost, "/teams/:teamId/cycles", h.cycle.Create, mw.RequirePermission("cycle:manage"))
+	scoped(ws, http.MethodPost, "/teams/:teamId/cycles", h.cycle.Create, "cycle:manage")
 	scoped(ws, http.MethodGet, "/teams/:teamId/cycles/velocity", h.cycle.Velocity, "cycles:read")
 	scoped(ws, http.MethodGet, "/teams/:teamId/cycles/:cycleId", h.cycle.Get, "cycles:read")
-	sessionOnly(ws, http.MethodPatch, "/teams/:teamId/cycles/:cycleId", h.cycle.Update, mw.RequirePermission("cycle:manage"))
-	sessionOnly(ws, http.MethodPost, "/teams/:teamId/cycles/:cycleId/complete", h.cycle.Complete, mw.RequirePermission("cycle:manage"))
+	scoped(ws, http.MethodPatch, "/teams/:teamId/cycles/:cycleId", h.cycle.Update, "cycle:manage")
+	scoped(ws, http.MethodPost, "/teams/:teamId/cycles/:cycleId/complete", h.cycle.Complete, "cycle:manage")
 	scoped(ws, http.MethodGet, "/teams/:teamId/cycles/:cycleId/burndown", h.cycle.Burndown, "cycles:read")
-	sessionOnly(ws, http.MethodDelete, "/teams/:teamId/cycles/:cycleId", h.cycle.Delete, mw.RequirePermission("cycle:manage"))
+	scoped(ws, http.MethodDelete, "/teams/:teamId/cycles/:cycleId", h.cycle.Delete, "cycle:manage")
 
 	// Issues
 	scoped(ws, http.MethodGet, "/issues", h.issue.List, "issues:read")
@@ -242,8 +250,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodGet, "/issues/:identifier", h.issue.Get, "issues:read")
 	scoped(ws, http.MethodPatch, "/issues/:identifier", h.issue.Update, "issue:update")
 	scoped(ws, http.MethodDelete, "/issues/:identifier", h.issue.Delete, "issue:delete_own")
-	sessionOnly(ws, http.MethodPost, "/issues/:identifier/subscribe", h.issue.Subscribe)
-	sessionOnly(ws, http.MethodDelete, "/issues/:identifier/subscribe", h.issue.Unsubscribe)
+	scoped(ws, http.MethodPost, "/issues/:identifier/subscribe", h.issue.Subscribe, "account:write")
+	scoped(ws, http.MethodDelete, "/issues/:identifier/subscribe", h.issue.Unsubscribe, "account:write")
 	scoped(ws, http.MethodPost, "/issues/:identifier/duplicate", h.issue.Duplicate, "issue:create")
 	scoped(ws, http.MethodPost, "/issues/:identifier/convert-to-project", h.issue.ConvertToProject, "project:manage")
 	scoped(ws, http.MethodPost, "/issues/:identifier/expand-description", h.aiSettings.ExpandIssueDescription, "issue:update")
@@ -323,10 +331,10 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Views
 	scoped(ws, http.MethodGet, "/views", h.view.List, "views:read")
-	sessionOnly(ws, http.MethodPost, "/views", h.view.Create, mw.RequirePermission(domain.PermViewManage))
+	scoped(ws, http.MethodPost, "/views", h.view.Create, "view:manage")
 	scoped(ws, http.MethodGet, "/views/:id", h.view.Get, "views:read")
-	sessionOnly(ws, http.MethodPatch, "/views/:id", h.view.Update, mw.RequirePermission(domain.PermViewManage))
-	sessionOnly(ws, http.MethodDelete, "/views/:id", h.view.Delete, mw.RequirePermission(domain.PermViewManage))
+	scoped(ws, http.MethodPatch, "/views/:id", h.view.Update, "view:manage")
+	scoped(ws, http.MethodDelete, "/views/:id", h.view.Delete, "view:manage")
 
 	// Analytics
 	scoped(ws, http.MethodGet, "/analytics/overview", h.analytics.Overview, "analytics:read")
@@ -609,8 +617,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Favorites
 	scoped(ws, http.MethodGet, "/favorites", h.fav.List, "account:read")
-	sessionOnly(ws, http.MethodPost, "/favorites", h.fav.Create)
-	sessionOnly(ws, http.MethodDelete, "/favorites/:id", h.fav.Delete)
+	scoped(ws, http.MethodPost, "/favorites", h.fav.Create, "account:write")
+	scoped(ws, http.MethodDelete, "/favorites/:id", h.fav.Delete, "account:write")
 
 	// Shared Links
 	sessionOnly(ws, http.MethodGet, "/shared-links", h.sharedLink.List)
@@ -628,12 +636,12 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Notifications (user-scoped, not workspace-scoped)
 	scoped(api, http.MethodGet, "/notifications", h.notif.List, "notifications:read", mw.RequireUnrestrictedTokenWorkspaces())
-	sessionOnly(api, http.MethodPatch, "/notifications/:id", h.notif.Update)
-	sessionOnly(api, http.MethodPost, "/notifications/:id/read", h.notif.MarkRead)
-	sessionOnly(api, http.MethodPost, "/notifications/:id/unread", h.notif.MarkUnread)
-	sessionOnly(api, http.MethodPost, "/notifications/:id/snooze", h.notif.Snooze)
-	sessionOnly(api, http.MethodPost, "/notifications/:id/unsnooze", h.notif.Unsnooze)
-	sessionOnly(api, http.MethodPost, "/notifications/:id/archive", h.notif.Archive)
-	sessionOnly(api, http.MethodPost, "/notifications/:id/unarchive", h.notif.Unarchive)
-	sessionOnly(api, http.MethodPost, "/notifications/mark-all-read", h.notif.MarkAllRead)
+	scoped(api, http.MethodPatch, "/notifications/:id", h.notif.Update, "notifications:write", mw.RequireUnrestrictedTokenWorkspaces())
+	scoped(api, http.MethodPost, "/notifications/:id/read", h.notif.MarkRead, "notifications:write", mw.RequireUnrestrictedTokenWorkspaces())
+	scoped(api, http.MethodPost, "/notifications/:id/unread", h.notif.MarkUnread, "notifications:write", mw.RequireUnrestrictedTokenWorkspaces())
+	scoped(api, http.MethodPost, "/notifications/:id/snooze", h.notif.Snooze, "notifications:write", mw.RequireUnrestrictedTokenWorkspaces())
+	scoped(api, http.MethodPost, "/notifications/:id/unsnooze", h.notif.Unsnooze, "notifications:write", mw.RequireUnrestrictedTokenWorkspaces())
+	scoped(api, http.MethodPost, "/notifications/:id/archive", h.notif.Archive, "notifications:write", mw.RequireUnrestrictedTokenWorkspaces())
+	scoped(api, http.MethodPost, "/notifications/:id/unarchive", h.notif.Unarchive, "notifications:write", mw.RequireUnrestrictedTokenWorkspaces())
+	scoped(api, http.MethodPost, "/notifications/mark-all-read", h.notif.MarkAllRead, "notifications:write", mw.RequireUnrestrictedTokenWorkspaces())
 }

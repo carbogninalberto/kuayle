@@ -39,33 +39,11 @@ func (s *TokenService) Create(ctx context.Context, userID uuid.UUID, req dto.Cre
 		return nil, "", ErrInvalidTokenName
 	}
 
-	for _, scope := range req.Scopes {
-		if !domain.IsValidScope(scope) {
-			return nil, "", fmt.Errorf("%w: %s", ErrInvalidTokenScope, scope)
-		}
+	workspaceSlugs, err := s.ValidateScopesAndWorkspaces(ctx, userID, req.Scopes, req.WorkspaceSlugs)
+	if err != nil {
+		return nil, "", err
 	}
-
-	// An empty list means "all workspaces" (NULL), same as omitting the field.
-	if len(req.WorkspaceSlugs) == 0 {
-		req.WorkspaceSlugs = nil
-	}
-
-	for _, slug := range req.WorkspaceSlugs {
-		ws, err := s.workspaceRepo.GetBySlug(ctx, slug)
-		if err != nil {
-			return nil, "", err
-		}
-		if ws == nil {
-			return nil, "", fmt.Errorf("%w: %s", ErrInvalidTokenWorkspace, slug)
-		}
-		member, err := s.workspaceRepo.GetMember(ctx, ws.ID, userID)
-		if err != nil {
-			return nil, "", err
-		}
-		if member == nil {
-			return nil, "", fmt.Errorf("%w: %s", ErrInvalidTokenWorkspace, slug)
-		}
-	}
+	req.WorkspaceSlugs = workspaceSlugs
 
 	if req.ExpiresAt != nil && !req.ExpiresAt.After(time.Now()) {
 		return nil, "", ErrInvalidTokenExpiry
@@ -90,6 +68,39 @@ func (s *TokenService) Create(ctx context.Context, userID uuid.UUID, req dto.Cre
 		return nil, "", err
 	}
 	return token, plaintext, nil
+}
+
+// ValidateScopesAndWorkspaces is the shared contract for token and
+// connection-link creation: every scope must be a valid token scope and every
+// workspace must exist and still contain the user. An empty list means "all
+// workspaces" (nil).
+func (s *TokenService) ValidateScopesAndWorkspaces(ctx context.Context, userID uuid.UUID, scopes, workspaceSlugs []string) ([]string, error) {
+	for _, scope := range scopes {
+		if !domain.IsValidScope(scope) {
+			return nil, fmt.Errorf("%w: %s", ErrInvalidTokenScope, scope)
+		}
+	}
+
+	if len(workspaceSlugs) == 0 {
+		return nil, nil
+	}
+	for _, slug := range workspaceSlugs {
+		ws, err := s.workspaceRepo.GetBySlug(ctx, slug)
+		if err != nil {
+			return nil, err
+		}
+		if ws == nil {
+			return nil, fmt.Errorf("%w: %s", ErrInvalidTokenWorkspace, slug)
+		}
+		member, err := s.workspaceRepo.GetMember(ctx, ws.ID, userID)
+		if err != nil {
+			return nil, err
+		}
+		if member == nil {
+			return nil, fmt.Errorf("%w: %s", ErrInvalidTokenWorkspace, slug)
+		}
+	}
+	return workspaceSlugs, nil
 }
 
 func (s *TokenService) List(ctx context.Context, userID uuid.UUID) ([]domain.PersonalAccessToken, error) {

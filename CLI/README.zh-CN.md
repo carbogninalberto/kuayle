@@ -39,7 +39,18 @@ Shell 补全:`kuayle completion <bash|zsh|fish>`
 
 ## 认证
 
-在 kuayle 中创建 PAT(**Settings → API Tokens**;`Developer` 预设覆盖 CLI 全部功能),然后:
+在 Kuayle 中打开 **Settings → API Tokens → Connect CLI**,选择 scope 和工作区,然后运行页面给出的命令:
+
+```sh
+kuayle auth connect 'https://kuayle.example.com/cli/connect#code=kuayle_cl_...'
+kuayle auth status
+```
+
+链接默认只能使用一次,15 分钟后过期(生成时最长可选 24 小时)。通过 stdin 传入
+或设置 `KUAYLE_CONNECT_LINK`,可避免链接进入 shell 历史。`--force` 会替换已有凭据;
+设置失败时恢复之前的状态并撤销新生成的 token。
+
+也可以手动创建 PAT(**Settings → API Tokens**;`Developer` 预设覆盖 CLI 全部功能),然后:
 
 ```sh
 kuayle auth login --token kuayle_pat_... --url https://kuayle.example.com --workspace acme
@@ -83,7 +94,7 @@ on exit codes: 2=re-auth needed, 3=not found, 4=invalid input, 5=forbidden,
 
 | 领域 | 命令 |
 |------|----------|
-| **认证** | `auth login`、`auth logout`、`auth status`、`whoami` |
+| **认证** | `auth connect`、`auth login`、`auth logout`、`auth status`、`whoami` |
 | **Issues** | `list`、`read`、`create`、`update`、`delete`、`batch-update`、`batch-delete`、`subscribe`、`unsubscribe`、`history` |
 | **Comments** | `list`、`create`、`resolve`、`reopen` |
 | **Relations** | `list`、`create`、`delete` |
@@ -104,7 +115,10 @@ kuayle issues list --status in_progress --format json
 kuayle comments create ENG-42 --body "Fixed in 3a7d5ee"
 ```
 
-部分写操作(cycles、views、favorites、notifications)目前被服务端对 PAT 禁用,待 kuayle 补充权限码后开放——见 [PR #55](https://github.com/carbogninalberto/kuayle/pull/55)。
+部分操作(启动或变更 agent 任务与工作流、run 日志和 diff)只接受浏览器会话,不接受
+token,因此 CLI 不提供。cycles、views、favorites、notifications 和 issue 订阅的写操作
+已可通过包含相应 scope 的 token 调用;CLI 可能尚未为每个操作提供命令,但 REST API
+已经开放。完整清单见 [docs/api-tokens.md](../docs/api-tokens.md)。
 
 ## SDK:kuayle-sdk
 

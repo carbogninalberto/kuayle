@@ -81,6 +81,7 @@ func main() {
 	assetRepo := repository.NewAssetRepository(db)
 	aiSettingsRepo := repository.NewAISettingsRepository(db)
 	inviteLinkRepo := repository.NewWorkspaceInviteLinkRepository(db)
+	cliLinkRepo := repository.NewCLILinkRepository(db)
 
 	// Dev Machine control-plane store
 	devMachineRepo := repository.NewDevMachineRepository(db)
@@ -107,6 +108,7 @@ func main() {
 	favSvc := service.NewFavoriteService(favRepo)
 	prefsSvc := service.NewPreferencesService(prefsRepo)
 	tokenSvc := service.NewTokenService(patRepo, workspaceRepo)
+	cliLinkSvc := service.NewCLILinkService(cliLinkRepo, tokenSvc, cfg.FrontendURL)
 	aiSettingsSvc := service.NewAISettingsService(aiSettingsRepo, workspaceRepo, issueRepo, crypto.DeriveKey(cfg.JWTSecret+":ai"), service.WithAIPrivateNetworkAccess(cfg.AIAllowPrivateNetwork))
 
 	// Dev Machine agent registry
@@ -170,6 +172,7 @@ func main() {
 	favH := handler.NewFavoriteHandler(favSvc)
 	prefsH := handler.NewPreferencesHandler(prefsSvc)
 	tokenH := handler.NewTokenHandler(tokenSvc)
+	cliLinkH := handler.NewCLILinkHandler(cliLinkSvc)
 	aiSettingsH := handler.NewAISettingsHandler(aiSettingsSvc)
 	conversationSvc := service.NewConversationService(repository.NewConversationRepository(db), aiSettingsSvc)
 	assistantTools := service.NewAssistantTools(issueRepo, teamRepo, workspaceRepo, issueSvc)
@@ -402,6 +405,7 @@ func main() {
 		fav:               favH,
 		prefs:             prefsH,
 		token:             tokenH,
+		cliLink:           cliLinkH,
 		aiSettings:        aiSettingsH,
 		conversation:      conversationH,
 		assistantSkill:    assistantSkillH,

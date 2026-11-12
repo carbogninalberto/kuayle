@@ -52,12 +52,15 @@ func (s *ViewService) List(ctx context.Context, workspaceID, userID uuid.UUID) (
 	return s.viewRepo.ListByWorkspace(ctx, workspaceID, userID)
 }
 
-func (s *ViewService) Update(ctx context.Context, id, userID uuid.UUID, req dto.UpdateViewRequest) (*domain.View, error) {
+func (s *ViewService) Update(ctx context.Context, workspaceID, id, userID uuid.UUID, req dto.UpdateViewRequest) (*domain.View, error) {
 	view, err := s.viewRepo.GetByID(ctx, id)
 	if err != nil || view == nil {
 		return nil, fmt.Errorf("view not found")
 	}
 
+	if view.WorkspaceID != workspaceID {
+		return nil, fmt.Errorf("view not found")
+	}
 	if view.CreatorID != userID {
 		return nil, fmt.Errorf("only the creator can update this view")
 	}
@@ -85,12 +88,15 @@ func (s *ViewService) Update(ctx context.Context, id, userID uuid.UUID, req dto.
 	return view, nil
 }
 
-func (s *ViewService) Delete(ctx context.Context, id, userID uuid.UUID) error {
+func (s *ViewService) Delete(ctx context.Context, workspaceID, id, userID uuid.UUID) error {
 	view, err := s.viewRepo.GetByID(ctx, id)
 	if err != nil || view == nil {
 		return fmt.Errorf("view not found")
 	}
 
+	if view.WorkspaceID != workspaceID {
+		return fmt.Errorf("view not found")
+	}
 	if view.CreatorID != userID {
 		return fmt.Errorf("only the creator can delete this view")
 	}

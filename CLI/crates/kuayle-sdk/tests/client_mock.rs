@@ -521,3 +521,50 @@ async fn non_retryable_500_does_not_retry() {
         .unwrap_err();
     assert!(matches!(err, KuayleError::Server { status: 500, .. }));
 }
+
+// ── anonymous client and path prefixes ────────────────────────────
+
+struct NoAuthorizationHeader;
+
+impl wiremock::Match for NoAuthorizationHeader {
+    fn matches(&self, request: &wiremock::Request) -> bool {
+        request.headers.get("authorization").is_none()
+    }
+}
+
+#[tokio::test]
+async fn anonymous_client_sends_no_authorization_header() {
+    let server = MockServer::start().await;
+    let client = Client::anonymous(Url::parse(&server.uri()).unwrap());
+
+    Mock::given(method("POST"))
+        .and(path("/api/cli/connect"))
+        .and(NoAuthorizationHeader)
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"token": "issued"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let response: serde_json::Value = client
+        .post("/api/cli/connect", &json!({"code": "kuayle_cl_test"}))
+        .await
+        .unwrap();
+    assert_eq!(response["token"], "issued");
+}
+
+#[tokio::test]
+async fn base_url_path_prefix_is_preserved() {
+    let server = MockServer::start().await;
+    let base = Url::parse(&format!("{}/kuayle", server.uri())).unwrap();
+    let client = Client::anonymous(base);
+
+    Mock::given(method("GET"))
+        .and(path("/kuayle/api/config"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let response: serde_json::Value = client.get("/api/config").await.unwrap();
+    assert_eq!(response["ok"], true);
+}

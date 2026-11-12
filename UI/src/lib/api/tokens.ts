@@ -35,3 +35,43 @@ export function createToken(data: CreateTokenRequest): Promise<CreatedPersonalAc
 export function revokeToken(id: string): Promise<void> {
 	return api.delete<void>(`/api/tokens/${id}`);
 }
+
+// Connection links for kuayle_cli. The plaintext link is present only in the
+// create response; the server stores the code's hash.
+export interface CLIConnectionLink {
+	id: string;
+	name: string;
+	code_prefix: string;
+	scopes: string[];
+	workspace_slugs: string[] | null;
+	token_expires_at: string | null;
+	expires_at: string;
+	max_uses: number;
+	uses: number;
+	created_at: string;
+}
+
+export interface CreatedCLIConnectionLink extends CLIConnectionLink {
+	link: string;
+}
+
+export interface CreateCLILinkRequest {
+	name?: string;
+	scopes: string[];
+	workspace_slugs?: string[];
+	ttl_minutes?: number;
+	max_uses?: number;
+	token_expires_at?: string;
+}
+
+export function listCLILinks(): Promise<CLIConnectionLink[]> {
+	return api.get<CLIConnectionLink[]>('/api/cli-links');
+}
+
+export function createCLILink(data: CreateCLILinkRequest): Promise<CreatedCLIConnectionLink> {
+	return api.post<CreatedCLIConnectionLink>('/api/cli-links', data);
+}
+
+export function revokeCLILink(id: string): Promise<void> {
+	return api.delete<void>(`/api/cli-links/${id}`);
+}

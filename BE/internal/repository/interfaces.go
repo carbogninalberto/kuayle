@@ -319,3 +319,12 @@ type PasskeyRepo interface {
 	SaveChallenge(ctx context.Context, ch *domain.PasskeyChallenge, replacesHash string) error
 	ConsumeChallenge(ctx context.Context, handleHash string) (*domain.PasskeyChallenge, error)
 }
+
+// CLILinkRepo stores revocable connection links for kuayle_cli.
+type CLILinkRepo interface {
+	Create(ctx context.Context, link *domain.CLIConnectionLink) error
+	GetByHash(ctx context.Context, hash string) (*domain.CLIConnectionLink, error)
+	ListActiveByUser(ctx context.Context, userID uuid.UUID) ([]domain.CLIConnectionLink, error)
+	Revoke(ctx context.Context, id, userID uuid.UUID) error
+	Redeem(ctx context.Context, codeHash string, build func(link *domain.CLIConnectionLink) (*domain.PersonalAccessToken, error)) (*domain.PersonalAccessToken, error)
+}

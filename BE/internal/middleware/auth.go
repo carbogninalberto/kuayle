@@ -23,6 +23,9 @@ const UserIDKey contextKey = "user_id"
 const (
 	TokenScopesKey     = "token_scopes"
 	TokenWorkspacesKey = "token_workspaces"
+	// TokenIDKey is the authenticated token's row id, so a token can revoke
+	// itself (logout / failed CLI setup rollback).
+	TokenIDKey = "token_id"
 )
 
 // Context keys describing an interactive session.
@@ -141,6 +144,7 @@ func authenticatePAT(c *echo.Context, patRepo repository.PersonalAccessTokenRepo
 	c.SetRequest(c.Request().WithContext(domain.WithAccess(c.Request().Context(), domain.Access{UserID: token.UserID})))
 	c.Set(TokenScopesKey, []string(token.Scopes))
 	c.Set(TokenWorkspacesKey, []string(token.WorkspaceSlugs))
+	c.Set(TokenIDKey, token.ID)
 
 	// Best-effort usage tracking; never blocks or fails the request.
 	go func() {

@@ -108,22 +108,43 @@ func TestViewWritesRequireViewManage(t *testing.T) {
 	}
 }
 
-// Personal access tokens stay excluded from view writes even with the scope.
-func TestViewWritesRejectTokens(t *testing.T) {
+// View writes are scoped: view:manage authorizes them for a token, and a
+// token without it is rejected before the handler runs.
+func TestViewWritesRequireViewManageScope(t *testing.T) {
 	for _, target := range []struct{ method, path string }{
 		{http.MethodPost, "/views"}, {http.MethodPatch, "/views/example"}, {http.MethodDelete, "/views/example"},
 	} {
-		e := echo.New()
-		auth := func(next echo.HandlerFunc) echo.HandlerFunc {
-			return func(c *echo.Context) error {
-				c.Set(mw.TokenScopesKey, []string{domain.PermViewManage, domain.PermViewsRead})
-				c.Set("workspace_role", domain.RoleOwner)
-				return next(c)
-			}
+		for _, tc := range []struct {
+			name   string
+			scopes []string
+			allow  bool
+		}{
+			{"with view:manage", []string{domain.PermViewManage, domain.PermViewsRead}, true},
+			{"without view:manage", []string{domain.PermViewsRead}, false},
+		} {
+			t.Run(tc.name+" "+target.method+target.path, func(t *testing.T) {
+				e := echo.New()
+				auth := func(next echo.HandlerFunc) echo.HandlerFunc {
+					return func(c *echo.Context) error {
+						c.Set(mw.TokenScopesKey, tc.scopes)
+						c.Set("workspace_role", domain.RoleOwner)
+						return next(c)
+					}
+				}
+				registerRoutes(e, &appHandlers{}, testMiddleware(auth))
+				rec := httptest.NewRecorder()
+				panicked := false
+				func() {
+					defer func() { panicked = recover() != nil }()
+					e.ServeHTTP(rec, httptest.NewRequest(target.method, "/api/workspaces/acme"+target.path, nil))
+				}()
+				if !tc.allow {
+					require.Equal(t, http.StatusForbidden, rec.Code, target.method+" "+target.path)
+					return
+				}
+				// The nil handler panics once the request passes authorization.
+				require.True(t, panicked || rec.Code != http.StatusForbidden, "a token with view:manage must pass the route middleware")
+			})
 		}
-		registerRoutes(e, &appHandlers{}, testMiddleware(auth))
-		rec := httptest.NewRecorder()
-		e.ServeHTTP(rec, httptest.NewRequest(target.method, "/api/workspaces/acme"+target.path, nil))
-		require.Equal(t, http.StatusForbidden, rec.Code, target.method+" "+target.path)
 	}
 }

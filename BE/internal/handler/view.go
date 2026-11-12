@@ -94,7 +94,8 @@ func (h *ViewHandler) Update(c *echo.Context) error {
 
 	userID := middleware.GetUserID(c)
 
-	view, err := h.viewSvc.Update(c.Request().Context(), id, userID, req)
+	ws := c.Get("workspace").(*domain.Workspace)
+	view, err := h.viewSvc.Update(c.Request().Context(), ws.ID, id, userID, req)
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
@@ -109,8 +110,9 @@ func (h *ViewHandler) Delete(c *echo.Context) error {
 	}
 
 	userID := middleware.GetUserID(c)
+	ws := c.Get("workspace").(*domain.Workspace)
 
-	if err := h.viewSvc.Delete(c.Request().Context(), id, userID); err != nil {
+	if err := h.viewSvc.Delete(c.Request().Context(), ws.ID, id, userID); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 

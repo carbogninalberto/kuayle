@@ -21,6 +21,9 @@
 - [API reference](api.md): the OpenAPI 3.1 document every instance serves at
   `/api/openapi.json`, how it is generated and tested, and a generated-client
   smoke test.
+- [API tokens](api-tokens.md): which endpoints and verbs a personal access
+  token can reach, the scope for each route, session-only reasons, and the
+  `kuayle_cli` connection-link contract.
 
 ## Contributors
 

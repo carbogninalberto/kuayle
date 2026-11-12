@@ -217,3 +217,71 @@ test('retries a failed token list without treating it as an empty list', async (
 	await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0);
 	expect(attempts).toBe(2);
 });
+
+test('connects kuayle_cli from a generated link and revokes it', async ({ page, context }) => {
+	const link = 'https://app.example.com/cli/connect#code=kuayle_cl_abcdefghijklmnopqrstuvwxyz0123456789&workspace=test';
+	const created = {
+		id: 'link-1',
+		name: 'Laptop',
+		code_prefix: 'kuayle_cl_abcdefgh',
+		scopes: ['issues:read', 'issue:create', 'issue:update', 'label:manage', 'wiki:read', 'wiki:write'],
+		workspace_slugs: ['test'],
+		token_expires_at: null,
+		expires_at: '2026-01-01T00:15:00Z',
+		max_uses: 1,
+		uses: 0,
+		created_at: '2026-01-01T00:00:00Z',
+		link
+	};
+	let createdNow = false;
+	let payload: Record<string, any> | undefined;
+	let deleted = false;
+	await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+	await mockApi(page, async (route) => route.fulfill({ json: [] }));
+	await page.route('**/api/cli-links**', async (route) => {
+		const request = route.request();
+		const path = new URL(request.url()).pathname;
+		if (request.method() === 'GET') {
+			const listed = { ...created } as Record<string, any>;
+			delete listed.link;
+			return route.fulfill({ json: createdNow ? [listed] : [] });
+		}
+		if (request.method() === 'POST') {
+			payload = request.postDataJSON();
+			createdNow = true;
+			return route.fulfill({ status: 201, json: created });
+		}
+		if (request.method() === 'DELETE') {
+			deleted = true;
+			createdNow = false;
+			return route.fulfill({ status: 204, body: '' });
+		}
+		return route.fulfill({ status: 404, json: {} });
+	});
+
+	await page.goto('/test/settings/tokens');
+	await page.getByRole('button', { name: 'Connect CLI' }).click();
+	await expect(page.getByRole('heading', { name: 'Connect kuayle_cli' })).toBeVisible();
+	await page.getByLabel('Name', { exact: true }).fill('Laptop');
+	await page.getByRole('button', { name: 'Generate link' }).click();
+
+	await expect(page.getByText(`kuayle auth connect '${link}'`)).toBeVisible();
+	expect(payload).toMatchObject({
+		name: 'Laptop',
+		workspace_slugs: ['test'],
+		ttl_minutes: 15,
+		max_uses: 1
+	});
+	expect(payload?.scopes).toContain('wiki:write');
+	expect(payload?.scopes).not.toContain('issue:delete');
+
+	await page.getByRole('button', { name: 'Copy command' }).click();
+	const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+	expect(clipboard).toContain(`kuayle auth connect '${link}'`);
+
+	await page.getByRole('button', { name: 'Done' }).click();
+	await page.getByRole('button', { name: 'Connect CLI' }).click();
+	await expect(page.getByText('Laptop')).toBeVisible();
+	await page.getByRole('button', { name: 'Revoke' }).click();
+	await expect.poll(() => deleted).toBe(true);
+});

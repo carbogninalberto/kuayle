@@ -24,6 +24,32 @@ func NewCycleService(cycleRepo repository.CycleRepo, teamRepo repository.TeamRep
 	return &CycleService{cycleRepo: cycleRepo, teamRepo: teamRepo, hub: hub, notifSvc: notifSvc}
 }
 
+// AuthorizeTeam reports whether the team belongs to the request's workspace
+// and is visible to the caller. Cycle writes call it before touching a team.
+func (s *CycleService) AuthorizeTeam(ctx context.Context, workspaceID, teamID uuid.UUID) error {
+	team, err := s.teamRepo.GetByID(ctx, teamID)
+	if err != nil {
+		return err
+	}
+	if team == nil || team.WorkspaceID != workspaceID {
+		return fmt.Errorf("team not found")
+	}
+	return nil
+}
+
+// AuthorizeCycle reports whether the cycle's team belongs to the request's
+// workspace and is visible to the caller.
+func (s *CycleService) AuthorizeCycle(ctx context.Context, workspaceID, cycleID uuid.UUID) error {
+	cycle, err := s.cycleRepo.GetByID(ctx, cycleID)
+	if err != nil {
+		return err
+	}
+	if cycle == nil {
+		return fmt.Errorf("cycle not found")
+	}
+	return s.AuthorizeTeam(ctx, workspaceID, cycle.TeamID)
+}
+
 func (s *CycleService) Create(ctx context.Context, teamID uuid.UUID, req dto.CreateCycleRequest) (*domain.Cycle, error) {
 	exists, err := s.cycleRepo.ExistsByName(ctx, teamID, req.Name)
 	if err != nil {
