@@ -124,7 +124,9 @@ func (p *openCodeProvider) Metadata() Metadata { return p.metadata }
 // OpenCode). The terminal UI has no variant flag. The prompt follows "--" as
 // one argument: without it OpenCode's argument parser reads a prompt that
 // begins with a dash as its own flags (--help, --auto), so extra arguments
-// go before it.
+// go before it. Unattended runs cannot answer OpenCode's permission prompts,
+// which it auto-rejects and then ends the session, so autonomous runs pass
+// --auto; the container is the boundary, as for Claude Code's bypassPermissions.
 func (p *openCodeProvider) BuildInvocation(input RunInput) (Invocation, error) {
 	if err := validateInput(p.metadata, input); err != nil {
 		return Invocation{}, err
@@ -138,7 +140,7 @@ func (p *openCodeProvider) BuildInvocation(input RunInput) (Invocation, error) {
 	}
 	argv := []string{"opencode"}
 	if input.Mode == ModeAutonomous {
-		argv = append(argv, "run", "--format", "json")
+		argv = append(argv, "run", "--format", "json", "--auto")
 	}
 	if input.Model != "" {
 		argv = append(argv, "--model", input.Model)
@@ -161,8 +163,72 @@ func (p *openCodeProvider) BuildInvocation(input RunInput) (Invocation, error) {
 
 func (p *openCodeProvider) ParseEvents(raw []byte) []Event { return parseJSONLines(raw) }
 
+// HarnessPermissionRefusedPrefix starts the failure reason a run records when
+// the harness refused a tool call's permission and stopped. The domain package
+// classifies it, so domain.HarnessPermissionRefusedPrefix must equal it.
+const HarnessPermissionRefusedPrefix = "The harness refused"
+
 func (p *openCodeProvider) ParseResult(stdout, stderr string, exitCode int) RunResult {
-	return requireFinalMessage(parseAssistantJSONResult(stdout, stderr, exitCode), stdout)
+	result := requireFinalMessage(parseAssistantJSONResult(stdout, stderr, exitCode), stdout)
+	if result.FinalMessage || result.FailureReason != "" {
+		return result
+	}
+	detail, refused := openCodeRefusedPermission(stdout, stderr)
+	if !refused {
+		return result
+	}
+	if detail == "" {
+		result.FailureReason = HarnessPermissionRefusedPrefix + " a tool call's permission and ended the session"
+	} else {
+		result.FailureReason = HarnessPermissionRefusedPrefix + " the permission " + detail + " and ended the session"
+	}
+	return result
+}
+
+var (
+	openCodeANSI = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	// openCodeRefusedPermissionLine is what the harness prints on its standard
+	// error when nobody answered a permission prompt.
+	openCodeRefusedPermissionLine = regexp.MustCompile(`permission requested: ([A-Za-z_]+) \(([^)\n]*)\); auto-rejecting`)
+)
+
+// openCodeRefusedPermission reports whether the harness refused a tool call's
+// permission and stopped. detail names the permission as "name (pattern)"; it
+// is empty when only the tool call's error records the refusal.
+func openCodeRefusedPermission(stdout, stderr string) (string, bool) {
+	matches := openCodeRefusedPermissionLine.FindAllStringSubmatch(openCodeANSI.ReplaceAllString(stderr, ""), -1)
+	if len(matches) > 0 {
+		last := matches[len(matches)-1]
+		pattern := last[2]
+		if len(pattern) > 200 {
+			pattern = strings.ToValidUTF8(pattern[:200], "")
+		}
+		return last[1] + " (" + pattern + ")", true
+	}
+
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !json.Valid([]byte(line)) {
+			continue
+		}
+		var evt struct {
+			Type string `json:"type"`
+			Part struct {
+				State struct {
+					Status string `json:"status"`
+					Error  string `json:"error"`
+				} `json:"state"`
+			} `json:"part"`
+		}
+		if json.Unmarshal([]byte(line), &evt) != nil {
+			continue
+		}
+		if evt.Type == "tool_use" && evt.Part.State.Status == "error" &&
+			strings.Contains(strings.ToLower(evt.Part.State.Error), "rejected permission") {
+			return "", true
+		}
+	}
+	return "", false
 }
 
 func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
