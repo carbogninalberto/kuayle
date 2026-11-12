@@ -5,6 +5,7 @@
 	import { getPriorityLabel } from '$lib/types/issue';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
+	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { sanitizeHtml } from '$lib/security/sanitize';
 	import { X, CalendarDays, ChevronUp, ChevronDown } from '@lucide/svelte';
@@ -151,9 +152,12 @@
 						<Tooltip.Trigger>
 							<span class="flex items-center gap-1 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-1">
 								{#each issue.assignees.slice(0, 3) as assignee}
-									<span class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-[var(--app-accent-foreground)]">
-										{(assignee.name ?? 'U').charAt(0).toUpperCase()}
-									</span>
+									<Avatar
+										name={assignee.name}
+										avatarUrl={assignee.avatar_url}
+										size="xs"
+										title={assignee.name}
+									/>
 								{/each}
 								{#if issue.assignees.length > 3}
 									<span class="text-[10px] text-[var(--color-text-tertiary)] ml-0.5">+{issue.assignees.length - 3}</span>

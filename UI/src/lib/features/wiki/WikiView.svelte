@@ -8,6 +8,7 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import * as Popover from '$lib/components/ui/popover';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
+	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import VersionHistoryDialog, { type VersionEntry } from '$lib/components/shared/VersionHistoryDialog.svelte';
 	import {
@@ -531,13 +532,13 @@
 				{#if presenceState.activeViewers.length > 0}
 					<div class="ml-1 flex items-center -space-x-1.5 border-l border-[var(--app-border)] pl-2">
 						{#each presenceState.activeViewers.slice(0, 5) as viewer (viewer.user_id)}
-							<div
-								class="relative flex h-6 w-6 items-center justify-center rounded-full border-2 border-[var(--color-bg)] text-[8px] font-medium text-white"
-								style="background-color: {viewer.color};"
+							<Avatar
+								name={viewer.name}
+								avatarUrl={viewer.avatar_url}
+								size="sm"
 								title={m['wiki.viewing']({ name: viewer.name })}
-							>
-								{viewer.name.charAt(0).toUpperCase()}
-							</div>
+								class="border-2 border-[var(--color-bg)]"
+							/>
 						{/each}
 					</div>
 				{/if}

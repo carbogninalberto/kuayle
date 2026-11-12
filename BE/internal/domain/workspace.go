@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,6 +44,46 @@ const (
 	RoleMember = "member"
 	RoleGuest  = "guest"
 )
+
+// WorkspaceLogoMaxBytes bounds an uploaded workspace logo.
+const WorkspaceLogoMaxBytes = 2 * 1024 * 1024
+
+// WorkspaceLogoFilePattern matches a stored workspace logo file name.
+var WorkspaceLogoFilePattern = regexp.MustCompile(`^[0-9a-f-]{36}\.(png|jpg|webp|gif)$`)
+
+// WorkspaceLogoPath is where Kuayle serves an uploaded workspace logo.
+func WorkspaceLogoPath(workspaceID uuid.UUID, file string) string {
+	return "/api/workspace-logos/" + workspaceID.String() + "/" + file
+}
+
+// WorkspaceLogoFile returns the uploaded file behind a workspace logo URL when
+// it belongs to that workspace.
+func WorkspaceLogoFile(workspaceID uuid.UUID, logoURL *string) (string, bool) {
+	if logoURL == nil {
+		return "", false
+	}
+	prefix := "/api/workspace-logos/" + workspaceID.String() + "/"
+	raw := strings.TrimSpace(*logoURL)
+	if !strings.HasPrefix(raw, prefix) {
+		return "", false
+	}
+	file := strings.TrimPrefix(raw, prefix)
+	return file, WorkspaceLogoFilePattern.MatchString(file)
+}
+
+// WorkspaceLogoContentType returns the content type to serve a stored logo with.
+func WorkspaceLogoContentType(file string) string {
+	switch {
+	case strings.HasSuffix(file, ".jpg"):
+		return "image/jpeg"
+	case strings.HasSuffix(file, ".webp"):
+		return "image/webp"
+	case strings.HasSuffix(file, ".gif"):
+		return "image/gif"
+	default:
+		return "image/png"
+	}
+}
 
 // WorkspaceInviteLink is a shareable invite link. Only the SHA-256 hash of the
 // token is stored; the raw token appears solely in the generated invite URL.

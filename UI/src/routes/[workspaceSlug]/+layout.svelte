@@ -19,6 +19,7 @@
 	import type { View } from '$lib/types/view';
 	import type { IssuePriority } from '$lib/types/issue';
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
+	import WorkspaceLogo from '$lib/components/shared/WorkspaceLogo.svelte';
 	import CommandPalette from '$lib/components/layout/CommandPalette.svelte';
 	import CreateIssueDialog from '$lib/features/issues/CreateIssueDialog.svelte';
 	import CreateTeamDialog from '$lib/features/teams/CreateTeamDialog.svelte';
@@ -626,6 +627,7 @@
 						<Button variant="ghost" size="icon-lg" onclick={() => (showMobileSidebar = true)} aria-label={m['sidebar.open_navigation']()}>
 							<Menu size={18} />
 						</Button>
+						<WorkspaceLogo name={workspace.name} logoUrl={workspace.logo_url} size="sm" class="size-6 text-xs" />
 						<span class="truncate text-sm font-medium text-[var(--color-text-primary)]">{workspace.name}</span>
 					</div>
 					<div class="flex shrink-0 items-center gap-1">

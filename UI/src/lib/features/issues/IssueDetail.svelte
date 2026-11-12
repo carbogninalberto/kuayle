@@ -23,6 +23,7 @@
 	import { mentionInteractivity } from '$lib/components/shared/mention/mention-interactivity.action';
 	import HistoryAssignees from './HistoryAssignees.svelte';
 	import IssueVersionHistory from './IssueVersionHistory.svelte';
+	import Avatar from '$lib/components/shared/Avatar.svelte';
 
 	let {
 		issue,
@@ -127,6 +128,10 @@
 		if (!value) return 'None';
 		if (field === 'priority') return getPriorityLabel(Number(value) as IssuePriority) ?? value;
 		return value;
+	}
+
+	function historyMember(entry: IssueHistory): WorkspaceMember | undefined {
+		return entry.user_id ? members.find((member) => member.user_id === entry.user_id) : undefined;
 	}
 
 	function historyFieldLabel(field: string): string {
@@ -235,6 +240,12 @@
 					{#each comments as comment}
 						<div class="text-sm">
 							<div class="flex items-center gap-2">
+								<Avatar
+									name={comment.user?.name ?? 'U'}
+									avatarUrl={comment.user?.avatar_url}
+									size="sm"
+									class="shrink-0"
+								/>
 								<span class="font-medium text-[var(--color-text-primary)]"
 									>{comment.user?.name ?? 'User'}</span
 								>
@@ -279,10 +290,20 @@
 
 					<div class="space-y-0">
 						{#each visibleHistory as entry}
+							{@const actorMember = historyMember(entry)}
 							<div class="relative flex items-center gap-3 pb-3">
 								<div class="relative z-10 flex h-4 w-4 shrink-0 items-center justify-center">
 									<div class="h-1.5 w-1.5 rounded-full bg-[var(--color-text-tertiary)] ring-2 ring-[var(--color-bg)]"></div>
 								</div>
+								{#if actorMember}
+									<Avatar
+										name={actorMember.name || actorMember.email}
+										avatarUrl={actorMember.avatar_url}
+										size="xs"
+										title={actorMember.name || actorMember.email}
+										class="shrink-0"
+									/>
+								{/if}
 								<div class="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] min-w-0">
 									{#if entry.field === 'title' || entry.field === 'description'}
 										<span>updated <strong class="text-[var(--color-text-secondary)]">{historyFieldLabel(entry.field)}</strong></span>
