@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.2.33",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.33",
+    "body": "## What's changed\n\n### New\n\n- **Download a task's full trace.** One \"Download trace\" action on the task card menu and in the agent view downloads a JSON file with everything Kuayle recorded about the task, in time order: workflow steps and visits, attempts and their causes, the prompt each run received by source, machine operations, messages and replies, reviews, CI results, pauses, version moves and notebook changes. Secrets are redacted, size is bounded with what was cut listed, and it's available only to the task's creator and workspace owners/admins who can see the issue. (#231, KUA-138)\n\n### Fixes\n\n- **An overlong plan gets one more chance.** A Claude Code or Codex planning step whose plan is too long to hand on whole is asked once, in its own session, to rewrite it under 12,000 characters, moving detail to the notebook. The rewrite replaces the plan when it fits; otherwise the step fails as before. (#233, KUA-154)\n- **Retrying a task past its budget grants a new one**, the same as continuing past the budget, so the retried task no longer fails again at its next agent step. (#233, KUA-154)\n\n### Improvements\n\n- Avatar images and workspace logo upload and display. (#232, KUA-115)\n",
+    "published_at": "2026-11-12T23:17:31Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.33",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.2.32",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.32",
     "body": "## What's changed\n\n### Fixes\n\n- **A finished OpenCode step is no longer failed for a missing command.** A run that worked around an unavailable command (exit 126/127) or a tool error, then ended with a summary, was marked failed with no reason, and workflows re-ran the step. Such errors are now risk notes and fail a run only when the agent did not conclude; validation still re-runs the declared tests. (#230, KUA-143)\n- **`ripgrep` in the agent image**, so `rg` works in agent runs. (#230)\n- **OpenCode's own warnings and errors** now reach the run's standard error and its failure cause. Before, they were lost with the container's temporary home. (#230)\n\n### Improvements\n\n- **Project picker grouped by team.** The issue context menu, bulk \"Set project\" bar, issue sidebar and create dialog list the issue's own team's projects first, then the other teams and workspace-wide projects. Thanks @kasperhartwich. (#228)\n",
