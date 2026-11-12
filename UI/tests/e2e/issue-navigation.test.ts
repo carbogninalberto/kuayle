@@ -7,7 +7,7 @@ const statusId = '00000000-0000-0000-0000-000000000020';
 const teamPath = `/test/teams/${teamId}`;
 const createdAt = '2026-01-01T00:00:00Z';
 
-async function mockWorkspace(page: Page) {
+async function mockWorkspace(page: Page, options: { longDescription?: boolean } = {}) {
 	await page.routeWebSocket('**/ws', () => {});
 	const unhandledPaths: string[] = [];
 	const pageErrors: string[] = [];
@@ -45,7 +45,7 @@ async function mockWorkspace(page: Page) {
 		id: `00000000-0000-0000-0000-${String(100 + number).padStart(12, '0')}`,
 		identifier: `ENG-${number}`,
 		title: `Navigation issue ${number}`,
-		description: null,
+		description: options.longDescription && number === 1 ? '<p>' + 'Long description paragraph. '.repeat(300) + '</p>' : null,
 		status: 'todo',
 		status_id: statusId,
 		status_info: { id: statusId, name: 'Todo', category: 'unstarted', color: '#6366f1', position: 0 },
@@ -228,6 +228,31 @@ test('loads adjacent issues when opening a direct link in a fresh session', asyn
 	await page.getByRole('button', { name: 'Previous issue (K)' }).click();
 	await expect(page).toHaveURL('/test/issue/ENG-2');
 	await expect(page.getByText('Navigation issue 2', { exact: true })).toBeVisible();
+	assertHealthy();
+});
+
+test('keeps the app shell fixed when a long issue page scrolls to its end', async ({ page }) => {
+	const assertHealthy = await mockWorkspace(page, { longDescription: true });
+	await page.goto('/test/issue/ENG-1');
+	await expect(page.getByText('Navigation issue 1', { exact: true })).toBeVisible();
+
+	// The issue body scrolls inside the reading column. Nothing inside it may
+	// grow the document, or trackpad momentum at the end lifts the whole shell.
+	const documentScrollHeight = () => page.evaluate(() => document.documentElement.scrollHeight);
+	const viewportHeight = await page.evaluate(() => window.innerHeight);
+	expect(await documentScrollHeight()).toBeLessThanOrEqual(viewportHeight);
+
+	await page.evaluate(() => {
+		for (const element of document.querySelectorAll('main *')) {
+			if (element.scrollHeight > element.clientHeight + 1) element.scrollTop = element.scrollHeight;
+		}
+	});
+	await page.mouse.move(600, 400);
+	await page.mouse.wheel(0, 5000);
+	await page.waitForTimeout(200);
+
+	expect(await page.evaluate(() => window.scrollY)).toBe(0);
+	expect(await documentScrollHeight()).toBeLessThanOrEqual(viewportHeight);
 	assertHealthy();
 });
 
