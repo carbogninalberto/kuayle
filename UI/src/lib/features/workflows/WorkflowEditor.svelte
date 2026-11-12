@@ -4,6 +4,7 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import { Switch } from '$lib/components/ui/switch/index.js';
 	import {
+		TriangleAlert,
 		ArrowLeft,
 		ArrowRight,
 		Check,
@@ -34,6 +35,7 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import * as Popover from '$lib/components/ui/popover/index.js';
 	import * as Tabs from '$lib/components/ui/tabs/index.js';
+	import * as Alert from '$lib/components/ui/alert/index.js';
 	import { cn } from '$lib/utils.js';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import {
@@ -48,7 +50,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
 	import WorkflowCanvas, { type Selection } from './WorkflowCanvas.svelte';
-	import { conditionLabel, issueLabel, nodeTypeLabel, profileTitle } from './labels';
+	import { conditionLabel, issueLabel, nodeTypeLabel, profileTitle, warningLabels } from './labels';
 	import { blockHint, blockIcon, blockLabel, blockTone, nodeIcon, nodeTone } from './node-style';
 	import {
 		BLOCKS,
@@ -80,7 +82,8 @@
 	// with the selection (Inspect), every step and transition as keyboard-
 	// reachable lists (Outline), and the description and budget (Settings).
 	// The server validates as you edit and on save; each save is a new
-	// immutable version.
+	// immutable version. A warning (a planning profile on a step told to
+	// implement) is shown on its step and never holds a save back.
 	let {
 		slug,
 		workflow,
@@ -111,6 +114,7 @@
 	let selection = $state<Selection>(null);
 	let tab = $state<'inspect' | 'outline' | 'settings'>('inspect');
 	let issues = $state<WorkflowIssue[]>([]);
+	let warnings = $state<WorkflowIssue[]>([]);
 	let checking = $state(false);
 	let saving = $state(false);
 	let dirty = $state(false);
@@ -301,7 +305,10 @@
 			checking = true;
 			try {
 				const result = await workflows.validate(slug, snapshot);
-				if (run === validationRun) issues = result.issues;
+				if (run === validationRun) {
+					issues = result.issues;
+					warnings = result.warnings ?? [];
+				}
 			} catch {
 				/* Saving validates again and reports any problem. */
 			} finally {
@@ -456,6 +463,7 @@
 					{graph}
 					{profiles}
 					{issues}
+					{warnings}
 					{editable}
 					{selection}
 					controls={!editable}
@@ -678,7 +686,18 @@
 					{#if selectedNode}
 						{@const node = selectedNode}
 						{@const Icon = nodeIcon(node)}
+						{@const warned = warningLabels(warnings, node.id)}
 						<div class="space-y-4" data-testid="workflow-node-inspector">
+							{#if warned.length}<Alert.Root
+									role="status"
+									class="border-[var(--status-warning)]/40 text-[var(--status-warning)]"
+									data-testid="workflow-node-warning"
+								>
+									<TriangleAlert />
+									<Alert.Description class="text-[var(--status-warning)]"
+										>{#each warned as text (text)}<span class="block">{text}</span>{/each}</Alert.Description
+									>
+								</Alert.Root>{/if}
 							<div class="flex items-center gap-2.5">
 								<span class={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', nodeTone(node))}
 									><Icon class="size-4" /></span

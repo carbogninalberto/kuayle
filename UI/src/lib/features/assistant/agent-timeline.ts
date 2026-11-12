@@ -26,6 +26,8 @@ export interface TimelineStep {
 	current: boolean;
 	startedAt: string;
 	finishedAt?: string;
+	/** Seconds a person's pause held the step; not time it worked. */
+	pausedSeconds?: number;
 	/** Oldest first; a resumed step has several. */
 	runs: WorkflowStepRun[];
 	/** The review task a reviewer step started; its runs are read under it. */
@@ -33,6 +35,13 @@ export interface TimelineStep {
 	plan?: string;
 	detail: string;
 	reason: string;
+	/** The step's node in its workflow; absent for a task without one. */
+	nodeId?: string;
+	/** The transition the task took to get here. */
+	condition?: string;
+	/** What a check step checks, and what an approval step asks. */
+	check?: 'tests' | 'ci';
+	question?: string;
 }
 
 type Task = Pick<AgentTask, 'id' | 'state' | 'run_id' | 'provider' | 'model' | 'updated_at'>;
@@ -126,11 +135,16 @@ export function workflowTimeline(view: View, task: Task): TimelineStep[] {
 			current,
 			startedAt: step.entered_at,
 			finishedAt: step.finished_at ?? undefined,
+			pausedSeconds: step.paused_seconds || undefined,
 			runs: own,
 			reviewTaskId: step.review_task_id ?? undefined,
 			plan: step.plan || undefined,
 			detail: step.detail,
-			reason: step.reason
+			reason: step.reason,
+			nodeId: step.node_id,
+			condition: step.condition ?? undefined,
+			check: node?.check,
+			question: step.node_type === 'approval' ? node?.prompt || undefined : undefined
 		};
 	});
 }
@@ -196,9 +210,15 @@ export function openStep(steps: TimelineStep[]): string | undefined {
 	return (agents.find((step) => step.current && step.status === 'running') ?? agents.at(-1))?.anchor;
 }
 
-/** How long a step took, or has been going while it runs. */
-export function stepDuration(step: Pick<TimelineStep, 'startedAt' | 'finishedAt' | 'status'>, now: number) {
+/**
+ * How long a step worked, or has been working while it runs: the time a
+ * person's pause held it is left out.
+ */
+export function stepDuration(
+	step: Pick<TimelineStep, 'startedAt' | 'finishedAt' | 'status' | 'pausedSeconds'>,
+	now: number
+) {
 	const end = step.finishedAt ? Date.parse(step.finishedAt) : step.status === 'running' ? now : NaN;
 	const ms = end - Date.parse(step.startedAt);
-	return Number.isFinite(ms) && ms >= 0 ? ms : undefined;
+	return Number.isFinite(ms) && ms >= 0 ? Math.max(0, ms - (step.pausedSeconds ?? 0) * 1000) : undefined;
 }

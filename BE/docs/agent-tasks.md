@@ -747,10 +747,13 @@ uses the existing retry path with the original instructions plus a
 (`agent_review`: state, harness, verdict, commit, the start of the findings
 and the comment state).
 
-The task card's "Request review" menu (allowed harnesses, implementer first)
-only writes "Review ENG-12 with Codex" into the chat composer; chat remains the
-only way to request one. A review requested by another member appears on the
-creator's task card; its full logs belong to the requester's review task.
+The agent view's "Request review" menu (allowed harnesses, implementer first;
+shown while the task awaits review with its pull request open) only writes
+"Review ENG-12 with Codex" into the assistant's composer and returns to the
+chat; chat remains the only way to request one. The requested reviews are
+listed under the agent view's timeline. A review requested by another member
+appears there for the task's creator; its full logs belong to the requester's
+review task. The task card in the sidebar neither requests nor lists reviews.
 
 Limitations: reviewer output parsing and the detached checkout were exercised
 with fakes and fixtures, not against a real machine and harness. The review
@@ -1380,12 +1383,12 @@ the agent marker of posted comments (the comments stay as their authors').
 
 Migration 95 adds `agent_live_messages`: one task's two-way channel between
 its creator (or the orchestrator acting for them) and its agent, while the
-agent works. The task card, the chat and the assistant use it as described in
+agent works. The agent view, the chat and the assistant use it as described in
 [agent messages in chat](conversations.md#agent-messages-in-chat).
 
 **Sending to the agent.** `AgentTaskService.QueueLiveMessage(ws, task, sender,
 body)` (repository `QueueLiveMessage`) records a message from `user` or
-`orchestrator`. The task card's composer sends as `user` directly. The
+`orchestrator`. The agent view's composer sends as `user` directly. The
 assistant never calls it: its `message_task` tool only requests an approval,
 and the approved text is queued by `QueueApprovedLiveMessage(ws, task,
 request, body)` as `orchestrator`, under the same rules, with the approval's
@@ -1746,6 +1749,34 @@ does the same for a known repository. Both redact the machine's secret values
 and well-known credential formats again, and fail rather than return
 unredacted text when the secrets cannot be read.
 
+**In Settings.** Settings → Lessons
+([+page.svelte](../../UI/src/routes/%5BworkspaceSlug%5D/settings/lessons/+page.svelte),
+[lessons.ts](../../UI/src/lib/features/memory/lessons.ts)) is the whole
+interface, with no explanatory text: "Proposals" at the top, one dashed list
+for every repository, each proposal with its repository, where it came from
+("Written by an agent", "From a GitHub review", "Proposed by <name>"; a link
+to the task's agent view when the reader can open that task) and, for owners
+and admins, "Edited" opening the text as it was proposed. Its three actions
+are approve, edit (the dialog's button approves with the edited text) and
+drop (asked once, as it is final). Below, each repository has its numbered
+list of approved lessons, in the order agents read them; a lesson's one
+control is a menu with edit, move up, move down and retire (asked once). A
+proposal is in no repository's list, which is how the page says that nothing
+reaches an agent before approval. "Add lesson" writes one by hand for a
+connected repository: a lesson at once for an owner or admin, a proposal for
+any other member, who otherwise sees the approved lessons and their own
+proposals with no actions. Retired and dropped lessons are not listed. A
+lesson of a private team the reader can see carries a lock icon named
+"Private". A refusal is said in the reader's language, chosen by the
+server's code (`lessonRefusal`), with a generic line for anything else. A
+`409`, a `404` or `LESSON_ORDER` means the page is out of date: the list is
+read again, a confirmation is closed, and the dialog is closed when its
+lesson is gone or was decided meanwhile; a refusal that leaves the lesson as
+it was (a limit, a duplicate) keeps the dialog and its text. Guests are not
+offered the page in the settings menu, and its address answers with the
+"unavailable or no access" line and nothing to retry. Browser coverage: `UI/tests/e2e/lessons.test.ts` as an admin
+and as a member, at desktop and phone widths.
+
 Rolling migration 149 back drops the lessons and their audit trail.
 
 ## Configurable workflows
@@ -1985,7 +2016,12 @@ its name is that of an implementing role (it contains "implement", "build",
 "coder", "developer" or "engineer") or a sentence or clause of its prompt
 starts with an order to change code (implement, write the code, make the
 changes, fix, commit, push, open a pull request). "Plan how to implement" and
-"do not implement" start with something else and pass.
+"do not implement" start with something else and pass. The editor shows it
+on the step it concerns: a warning icon on the step's card and one line at
+the top of the step's inspector ("This profile only plans, but the step tells
+it to implement", once even when the name and the prompt both earn it). It is
+not listed among the problems to fix and does not disable Save
+(`UI/tests/e2e/workflow-warning.test.ts`).
 
 A profile used as an [agent assignee](#agents-as-issue-assignees) runs the built-in flow
 whatever its behaviour; planning applies to workflow steps.
@@ -2085,7 +2121,10 @@ Every request, pause, resume and withdrawal is a `workflow_audit_events` row
 `GET /agent-tasks/:taskId/workflow` returns `paused_at`, `pause_request`, the
 `pauses` list (the newest 500: action, sequence, mode, actor, time, oldest
 first) and each
-step's `paused_seconds`. The task card shows "Paused" with one Resume button,
+step's `paused_seconds`. The same list carries a task's moves to another
+version of its workflow (audit action `version_switched`, with `from_version`
+and `to_version`), under the same authorization, so the sidebar's path shows a
+move where it happened. The task card shows "Paused" with one Resume button,
 and offers Pause in its menu; `WorkflowPauseControl.svelte` is the same
 control as a standalone component.
 
@@ -2134,7 +2173,8 @@ version (KUA-130). It is never automatic.
   and offers "Move to workflow version N" in its menu; the dialog says where
   the task continues, or why it cannot be moved
   ([workflow-switch.ts](../../UI/src/lib/features/assistant/workflow-switch.ts)).
-  The step timeline does not show moves yet.
+  The move is listed in the workflow view's `pauses`, and the task card's
+  path shows it where it happened ("Moved to workflow version N").
 
 ## Task notebook
 

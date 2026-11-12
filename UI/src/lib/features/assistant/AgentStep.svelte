@@ -1,30 +1,30 @@
 <script lang="ts">
 	import {
 		ChevronRight,
-		CircleAlert,
-		CircleCheck,
-		CircleDot,
-		CirclePause,
-		CircleSlash,
 		Flag,
 		GitMerge,
 		GitPullRequestArrow,
 		ListChecks,
-		LoaderCircle,
 		MessageCircleWarning,
+		NotebookPen,
 		Play,
+		ScrollText,
 		SearchCheck,
 		UserCheck
 	} from '@lucide/svelte';
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
 	import type { WorkflowNodeType } from '$lib/api/workflows';
 	import type { ConversationState } from './conversation-state.svelte';
 	import AgentStepRun from './AgentStepRun.svelte';
 	import Markdown from './Markdown.svelte';
-	import { stepDuration, type StepStatus, type TimelineStep } from './agent-timeline';
+	import RunPrompt from './RunPrompt.svelte';
+	import StepStatus from './StepStatus.svelte';
+	import { stepDuration, type TimelineStep } from './agent-timeline';
+	import { stepAgent, stepTitle } from './step-labels';
 	import type { Conversation } from './agent-conversation';
 	import { formatDuration } from './shell-rules';
 	import { getLocale, m } from '$lib/features/i18n/messages';
@@ -39,7 +39,9 @@
 		open = $bindable(false),
 		now,
 		reviewHref,
-		conversation
+		conversation,
+		promptable = false,
+		missed
 	}: {
 		chat: ConversationState;
 		step: TimelineStep;
@@ -50,6 +52,10 @@
 		reviewHref?: string;
 		// What was said to the agent and what it answered, by run.
 		conversation?: Conversation;
+		// The reader may open the prompt the step's agent received.
+		promptable?: boolean;
+		// The runs that ended without updating the task's notebook.
+		missed?: Set<string>;
 	} = $props();
 
 	const rowIcon: Record<WorkflowNodeType, typeof Play> = {
@@ -61,28 +67,9 @@
 		merge: GitMerge,
 		end: Flag
 	};
-	const statusLabel: Record<StepStatus, () => string> = {
-		running: m['workflows.task.status_running'],
-		waiting: m['workflows.task.status_waiting'],
-		done: m['workflows.task.status_done'],
-		changes: m['tasks.review_verdict_request_changes'],
-		failed: m['workflows.task.status_failed'],
-		stopped: m['assistant.cancelled']
-	};
-	const statusTone: Record<StepStatus, string> = {
-		running: 'text-[var(--status-running)]',
-		waiting: 'text-[var(--status-warning)]',
-		done: 'text-[var(--status-success)]',
-		changes: 'text-[var(--status-warning)]',
-		failed: 'text-[var(--status-error)]',
-		stopped: 'text-muted-foreground'
-	};
 	const harness = $derived(step.harness ? agentInfo(step.harness).name : '');
-	const title = $derived(
-		step.label || (step.kind === 'agent' && harness ? harness : m[`workflows.type.${step.nodeType}`]())
-	);
-	// Who ran it: the profile, or the harness when the step is not named after it.
-	const who = $derived(step.profile ?? (step.label ? harness : ''));
+	const title = $derived(stepTitle(step));
+	const who = $derived(stepAgent(step));
 	const ms = $derived(stepDuration(step, now));
 	// A step passed through at once (start, end) has no time worth showing.
 	const time = $derived(ms === undefined || ms < 1000 ? '' : formatDuration(ms));
@@ -97,20 +84,18 @@
 	const aside = $derived(harness ? `${harness} · ${started}` : started);
 	// A run of this step ended without replying to a message.
 	const unanswered = $derived(step.runs.some((run) => conversation?.unanswered.has(run.id)));
+	// A run of this step ended without updating the task's notebook.
+	const unrecorded = $derived(step.runs.some((run) => missed?.has(run.id)));
+	// The prompt the step's agent received opens from the opened step, so a
+	// closed line stays one control. A run the task was only just given has
+	// no prompt recorded yet.
+	const prompted = $derived(step.runs.filter((run) => run.status !== 'queued'));
+	let prompt = $state(false);
 	// What a compact row says when opened: what the runner recorded for it.
 	const note = $derived(step.detail || (step.status === 'done' ? '' : step.reason));
 </script>
 
-{#snippet status()}
-	<span role="img" aria-label={statusLabel[step.status]()} class="inline-flex shrink-0 {statusTone[step.status]}">
-		{#if step.status === 'running'}<LoaderCircle size={15} class="animate-spin motion-reduce:animate-none" />
-		{:else if step.status === 'waiting'}<CirclePause size={15} />
-		{:else if step.status === 'done'}<CircleCheck size={15} />
-		{:else if step.status === 'changes'}<CircleDot size={15} />
-		{:else if step.status === 'failed'}<CircleAlert size={15} />
-		{:else}<CircleSlash size={15} />{/if}
-	</span>
-{/snippet}
+{#snippet status()}<StepStatus status={step.status} />{/snippet}
 
 {#snippet tail()}
 	{#if step.visit > 1}<span class="shrink-0 text-xs text-muted-foreground tabular-nums">×{step.visit}</span>{/if}
@@ -159,6 +144,13 @@
 						title={m['tasks.live_state_unanswered']()}
 						class="inline-flex shrink-0 text-[var(--status-warning)]"><MessageCircleWarning size={14} /></span
 					>{/if}
+				{#if unrecorded}<span
+						role="img"
+						aria-label={m['notebook.missed']()}
+						title={m['notebook.missed']()}
+						class="inline-flex shrink-0 text-[var(--status-warning)]"
+						data-flag="notebook"><NotebookPen size={14} /></span
+					>{/if}
 				{@render tail()}
 				{@render status()}
 				{@render chevron()}
@@ -171,6 +163,14 @@
 			<Collapsible.Content>
 				{#if open}<div class="ml-2.5 flex min-w-0 flex-col gap-4 border-l py-3 pl-4 sm:pl-5">
 						{#if step.model}<p class="truncate text-xs text-muted-foreground sm:hidden">{step.model}</p>{/if}
+						{#if promptable && prompted.length}<Button
+								variant="ghost"
+								size="xs"
+								class="-my-1 -ml-2 self-start text-muted-foreground"
+								aria-label="{m['tasks.transcript_from_you']()} · {title}"
+								aria-haspopup="dialog"
+								onclick={() => (prompt = true)}><ScrollText />{m['tasks.transcript_from_you']()}</Button
+							>{/if}
 						{#if step.plan}<article aria-label={m['tasks.plan']()} class="min-w-0 text-sm">
 								<Markdown source={step.plan} />
 							</article>{/if}
@@ -195,6 +195,7 @@
 					</div>{/if}
 			</Collapsible.Content>
 		</Collapsible.Root>
+		{#if prompt}<RunPrompt slug={chat.slug} runs={prompted} {title} onclose={() => (prompt = false)} />{/if}
 	{:else}
 		{@const Icon = rowIcon[step.nodeType]}
 		{#snippet row()}

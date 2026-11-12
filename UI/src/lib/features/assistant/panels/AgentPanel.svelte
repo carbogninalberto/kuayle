@@ -4,24 +4,18 @@
 	import type { PanelContext } from './panel-host.svelte';
 	import { m } from '$lib/features/i18n/messages';
 
-	// The issue chat's coding agents: each task as a conversation with its agent.
-	// When the newest task follows a configurable workflow, its graph, current
-	// step and path come first so each step and loop shows as it happens.
+	// The issue chat's coding tasks. When the newest one follows a
+	// configurable workflow, its graph and current step come first; each task
+	// then shows the path it took.
 	let { context }: { context: PanelContext } = $props();
 	const workflowTask = $derived(context.board?.tasks.find((task) => task.kind !== 'review'));
-	const refreshKey = $derived(
-		workflowTask
-			? [workflowTask.state, workflowTask.generation, workflowTask.workflow_node ?? '', workflowTask.workflow_status ?? ''].join(':')
-			: ''
-	);
 </script>
 
 <div class="min-w-0 space-y-4 px-4 py-3">
 	{#if context.board}
 		{#if workflowTask?.workflow_version_id}{#key workflowTask.id}<TaskWorkflowView
-					slug={context.slug}
-					taskId={workflowTask.id}
-					{refreshKey}
+					chat={context.chat}
+					task={workflowTask}
 					compact
 				/>{/key}{/if}
 		<TaskPanel chat={context.chat} board={context.board} />

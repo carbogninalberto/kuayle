@@ -5,16 +5,26 @@
 	import * as Breadcrumb from '$lib/components/ui/breadcrumb/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { agentTasks, type AgentLiveMessage as LiveMessage, type AgentTask } from '$lib/api/agent-tasks';
-	import { workflows, type TaskWorkflow } from '$lib/api/workflows';
-	import type { AgentRun } from '$lib/types/dev-machine';
+	import {
+		agentTasks,
+		type AgentLiveMessage as LiveMessage,
+		type AgentSession,
+		type AgentTask
+	} from '$lib/api/agent-tasks';
 	import type { ConversationState } from './conversation-state.svelte';
 	import AgentStep from './AgentStep.svelte';
 	import ClampedText from './ClampedText.svelte';
 	import AgentLiveMessage from './AgentLiveMessage.svelte';
+	import AgentReviewRequest from './AgentReviewRequest.svelte';
+	import AgentReviews from './AgentReviews.svelte';
+	import TaskNotebook from './TaskNotebook.svelte';
+	import { missedNotebook } from './task-notebook';
 	import TaskStopButton from './TaskStopButton.svelte';
-	import { attemptTimeline, openStep, workflowTimeline } from './agent-timeline';
+	import { openStep } from './agent-timeline';
 	import { answerContext, placeConversation, sendOptions, type AnswerContext } from './agent-conversation';
+	import { reviewSessions } from './agent-review';
+	import { useTaskRun } from './task-run.svelte';
+	import { useMessageScroller } from '$lib/components/ui/message-scroller/index.js';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { taskLabel } from './task-labels';
 	import { taskTone, toneBadge } from './task-tone';
@@ -28,21 +38,27 @@
 	// that received it, at the moment it was delivered, with the agent's
 	// reply as the next item; one that waits while no step runs follows the
 	// last step, where the next iteration picks it up. It is written in the
-	// composer under the view (AgentComposer).
+	// composer under the view (AgentComposer). A review of the task's pull
+	// request is asked for from its header, and the requested reviews are
+	// read under the timeline. The task's notebook is one line above the
+	// timeline that opens to the working document, and each agent step's line
+	// opens the prompt its agent received; both are its creator's to read.
 	let {
 		chat,
 		task,
 		backHref,
-		onback
+		onback,
+		allowedAgents = []
 	}: {
 		chat: ConversationState;
 		task: AgentTask;
 		backHref: string;
 		onback: () => void;
+		// Coding agents the workspace allows, offered for a requested review.
+		allowedAgents?: string[];
 	} = $props();
 	const identifier = $derived(chat.issue?.identifier ?? '');
 	const tone = $derived(taskTone(task.state));
-	const followsWorkflow = $derived(!!task.workflow_version_id);
 	let stopError = $state('');
 	// A refused stop is about the state the task was in.
 	$effect(() => {
@@ -50,62 +66,30 @@
 		stopError = '';
 	});
 
-	let view = $state<TaskWorkflow | null>(null),
-		attempts = $state<AgentRun[]>([]),
-		failed = $state(false);
-	let request = 0,
-		disposed = false;
-	// A finished run's summary is final: the view keeps the ones it has and
-	// asks only for those of runs finished since (knownUntil).
-	const summaries = new Map<string, string>();
-	let knownUntil = '';
+	let disposed = false;
 	$effect(() => () => {
 		disposed = true;
 	});
-	async function load() {
-		const current = ++request;
-		try {
-			if (followsWorkflow) {
-				const loaded = await workflows.task(chat.slug, task.id, knownUntil || undefined);
-				if (disposed || current !== request) return;
-				const runs = (loaded.runs ?? []).map((run) => {
-					if (run.summary) summaries.set(run.id, run.summary);
-					if (run.completed_at && (!knownUntil || Date.parse(run.completed_at) > Date.parse(knownUntil)))
-						knownUntil = run.completed_at;
-					return run.summary || !summaries.has(run.id) ? run : { ...run, summary: summaries.get(run.id) };
-				});
-				view = { ...loaded, runs };
-			} else {
-				const loaded = await agentTasks.runs(chat.slug, task.id);
-				if (disposed || current !== request) return;
-				attempts = loaded.runs;
-			}
-			failed = false;
-		} catch {
-			if (!disposed && current === request) failed = true;
-		}
-	}
-	// The task moving (state, attempt, workflow step) or one of its reviews
-	// changing arrives as an event and reloads the steps; each open step
-	// streams its own output.
-	$effect(() => {
-		void [
-			task.id,
-			task.state,
-			task.run_id,
-			task.generation,
-			task.workflow_node,
-			task.workflow_status,
-			task.updated_at,
-			chat.taskWorkflowCursor[task.id],
-			chat.taskReviewCursor[task.id]
-		];
-		untrack(() => void load());
-	});
 
-	const steps = $derived(
-		followsWorkflow ? (view ? workflowTimeline(view, task) : []) : attemptTimeline(task, attempts)
+	// What the task did is loaded once for this view, the sidebar's path and
+	// the workflow chart; it reloads on the task's events and is polled as a
+	// fallback (see TaskRun).
+	// The notebook and a run's prompt are read by the task's creator alone; a
+	// review has no notebook.
+	const mine = $derived(task.creator_id === authState.user?.id);
+	const run = useTaskRun(
+		untrack(() => chat),
+		() => task,
+		untrack(() => ({ notebook: mine && task.kind !== 'review' }))
 	);
+	const steps = $derived(run.steps);
+	const missed = $derived(missedNotebook(run.notebook));
+	let notebookOpen = $state(false);
+	// The transcript follows its live end while the reader is there, and a
+	// short one is at its end and its start at once: the opened notebook
+	// would send the reader below it. Opening it is reading from the top.
+	const scroller = useMessageScroller();
+	const personName = (id: string | undefined) => (id && id === authState.user?.id ? authState.user.display_name || authState.user.name : '');
 	// The task's live channel, reloaded on each of its events. A review has
 	// none; another member's task answers "not found" and shows nothing.
 	let live = $state<LiveMessage[]>([]);
@@ -120,8 +104,14 @@
 		}
 	}
 	$effect(() => {
-		void [task.id, chat.taskLiveCursor[task.id]];
-		if (task.kind !== 'review') untrack(() => void loadLive());
+		const cursor = chat.taskLiveCursor[task.id];
+		void task.id;
+		if (task.kind === 'review') return;
+		untrack(() => {
+			void loadLive();
+			// A message to the agent is an instruction in its notebook.
+			if (cursor !== undefined) void run.loadNotebook();
+		});
 	});
 	const conversation = $derived(placeConversation(live, steps, task));
 	// An agent's question is answered in the composer under the view: it
@@ -135,32 +125,42 @@
 				}
 			: undefined
 	);
-	// Events can be missed (a dropped connection), so the workflow is also
-	// polled: modestly while a step runs, rarely while it waits (an approval
-	// can take days), never once it has ended.
-	const pace = $derived(
-		!followsWorkflow || !view || view.status === 'done' || view.status === 'failed'
-			? 0
-			: steps.some((step) => step.status === 'running')
-				? 15_000
-				: 120_000
-	);
-	$effect(() => {
-		if (!pace) return;
-		const timer = setInterval(() => void load(), pace);
-		return () => clearInterval(timer);
-	});
 	// The running step is open and the finished ones are closed, until the
 	// reader opens or closes one; a link to a step (#step-4) opens it.
-	const linked = untrack(() => page.url.hash.slice(1));
-	let chosen = $state<Record<string, boolean>>(linked ? { [linked]: true } : {});
+	let chosen = $state<Record<string, boolean>>({});
 	const current = $derived(openStep(steps));
-	let scrolled = false;
+	let followed = '';
 	$effect(() => {
-		if (scrolled || !linked || !steps.some((step) => step.anchor === linked)) return;
-		scrolled = true;
+		const linked = page.url.hash.slice(1);
+		if (!linked || linked === followed || !steps.some((step) => step.anchor === linked)) return;
+		followed = linked;
+		untrack(() => (chosen[linked] = true));
 		void tick().then(() => document.getElementById(linked)?.scrollIntoView({ block: 'start' }));
 	});
+
+	// The reviews asked of the task's pull request; their changes arrive as
+	// task.review_updated events.
+	let sessions = $state<AgentSession[]>([]);
+	$effect(() => {
+		void [task.id, task.state, chat.taskReviewCursor[task.id]];
+		if (task.kind === 'review') return;
+		untrack(() => {
+			agentTasks
+				.sessions(chat.slug, task.id)
+				.then((view) => {
+					if (!disposed) sessions = view.sessions ?? [];
+				})
+				.catch(() => {
+					/* The timeline still shows the task's own work. */
+				});
+		});
+	});
+	const reviews = $derived(reviewSessions(sessions));
+	// The request is written for the assistant, which asks for approval.
+	function requestReview(text: string) {
+		chat.composerDraft = text;
+		onback();
+	}
 
 	// Durations of running steps tick.
 	let now = $state(Date.now());
@@ -204,6 +204,7 @@
 		<div class="flex min-w-0 items-start justify-between gap-3">
 			<ClampedText text={task.prompt} class="text-sm font-medium" />
 			<div class="flex shrink-0 items-center gap-2">
+				<AgentReviewRequest {chat} {task} {allowedAgents} onrequest={requestReview} />
 				<TaskStopButton {chat} {task} {identifier} onerror={(message) => (stopError = message)} />
 				<Badge variant="outline" class={toneBadge[tone]} role="status">{taskLabel(task.state)}</Badge>
 			</div>
@@ -211,6 +212,8 @@
 		{#if task.reason}<p class="text-xs break-words text-muted-foreground">{task.reason}</p>{/if}
 		{#if stopError}<p role="alert" class="text-sm break-words text-destructive">{stopError}</p>{/if}
 	</div>
+
+	{#if run.notebook}<TaskNotebook view={run.notebook} request={task.prompt} name={personName} bind:open={notebookOpen} onopened={() => scroller.scrollToStart({ behavior: 'auto' })} />{/if}
 
 	<ol aria-label={m['workflows.task.path']()} class="flex min-w-0 flex-col gap-1">
 		{#each steps as step (step.anchor)}
@@ -221,6 +224,8 @@
 					{now}
 					reviewHref={step.reviewTaskId ? reviewHref(step.reviewTaskId) : undefined}
 					{conversation}
+					promptable={mine}
+					{missed}
 					bind:open={() => chosen[step.anchor] ?? step.anchor === current, (open) => (chosen[step.anchor] = open)}
 				/>
 			</li>
@@ -230,10 +235,11 @@
 				{#each conversation.pending as placed (placed.message.id)}<AgentLiveMessage {placed} />{/each}
 			</li>{/if}
 	</ol>
-	{#if failed}<div class="flex flex-wrap items-center gap-2">
+	{#if run.failed}<div class="flex flex-wrap items-center gap-2">
 			<p role="alert" class="text-sm text-destructive">
-				{followsWorkflow ? m['workflows.task.load_failed']() : m['tasks.load_error']()}
+				{run.followsWorkflow ? m['workflows.task.load_failed']() : m['tasks.load_error']()}
 			</p>
-			<Button variant="ghost" size="sm" onclick={() => void load()}><RefreshCw />{m['tasks.refresh']()}</Button>
+			<Button variant="ghost" size="sm" onclick={() => void run.load()}><RefreshCw />{m['tasks.refresh']()}</Button>
 		</div>{/if}
+	<AgentReviews {reviews} />
 </div>
