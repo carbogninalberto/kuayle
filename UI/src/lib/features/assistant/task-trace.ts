@@ -10,12 +10,9 @@ export async function downloadTaskTrace(
 ): Promise<void> {
 	const { blob, filename } = await agentTasks.debugTrace(slug, id);
 	const url = URL.createObjectURL(blob);
-	try {
-		const link = document.createElement('a');
-		link.href = url;
-		link.download = filename ?? taskTraceFilename(identifier, id);
-		link.click();
-	} finally {
-		URL.revokeObjectURL(url);
-	}
+	const link = document.createElement('a');
+	link.href = url;
+	link.download = filename ?? taskTraceFilename(identifier, id);
+	link.click();
+	setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
