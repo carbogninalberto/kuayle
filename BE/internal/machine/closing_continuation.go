@@ -79,6 +79,35 @@ func closingEnd(deadline time.Time) (time.Time, bool) {
 	return end, !deadline.IsZero() && time.Until(end) >= closingMinimum
 }
 
+// closingDeadline is the attempt's time limit for its closing continuation:
+// the earlier of the limit the manager is running it under (limit) and the
+// one counted from when the attempt started, which is what the timeout sweep
+// uses. They differ after a manager restart, when limit starts over.
+func closingDeadline(run *domain.DevMachineAgentRun, limit time.Time) time.Time {
+	if run.StartedAt == nil || run.MaxRuntimeSeconds <= 0 {
+		return limit
+	}
+	recorded := run.StartedAt.Add(time.Duration(run.MaxRuntimeSeconds) * time.Second)
+	if limit.IsZero() || recorded.Before(limit) {
+		return recorded
+	}
+	return limit
+}
+
+// removeClosingContainer removes the continuation's container of the run by
+// its exact name, never the attempt's own.
+func (m *Manager) removeClosingContainer(ctx context.Context, attempt closingAttempt) {
+	runtime, ok := m.runtime.(closingRuntime)
+	if !ok {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	if err := runtime.RemoveClosingContainer(cleanupCtx, attempt.machine, attempt.run, closingSuffix); err != nil {
+		log.WithFields(log.Fields{"machine_id": attempt.machine.ID, "agent_run_id": attempt.run.ID}).WithError(err).Warn("the closing continuation's container could not be removed")
+	}
+}
+
 // closingState is what the end of a run knows when it settles what is
 // missing: the machine's services and how collecting the outbox went, when
 // the harness exited, how the attempt ended (concluded: it did not fail;
@@ -121,6 +150,11 @@ func (m *Manager) settleClosing(ctx context.Context, attempt closingAttempt, sta
 	if notebook != nil {
 		asks = append(asks, *notebook)
 	}
+	if len(asks) == 0 && run.ClosingAskedAt != nil {
+		// Asked before a crash, and by now nothing is missing: what the
+		// crash left is removed here, since nothing will be asked.
+		m.removeClosingContainer(ctx, attempt)
+	}
 	if len(asks) > 0 && m.askToClose(ctx, attempt, asks) {
 		collectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		err := m.collectOutbox(collectCtx, attempt.machine, state.services)
@@ -128,7 +162,12 @@ func (m *Manager) settleClosing(ctx context.Context, attempt closingAttempt, sta
 		if notebook != nil {
 			settled.notebookNotCollected = err != nil
 		}
-		settled.replies = m.repliesAfterClosing(ctx, run, err == nil)
+		// Replies are judged only on an outbox that was really read: without
+		// the developer container the collection reads nothing and reports
+		// no error.
+		if read := err == nil && developerRunning(state.services); read || !settled.replies.unknown {
+			settled.replies = m.repliesAfterClosing(ctx, run, read)
+		}
 	}
 	switch {
 	case settled.replies.unknown:
@@ -197,16 +236,13 @@ func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks [
 		used = environment[signInSecretNames[run.ProviderID]]
 	}
 	// Whatever happens next, no continuation container outlives this call.
-	remove := func() {
-		runtime, ok := m.runtime.(closingRuntime)
-		if !ok {
-			return
-		}
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-		defer cancel()
-		if err := runtime.RemoveClosingContainer(cleanupCtx, attempt.machine, run, closingSuffix); err != nil {
-			log.WithFields(log.Fields{"machine_id": attempt.machine.ID, "agent_run_id": run.ID}).WithError(err).Warn("the closing continuation's container could not be removed")
-		}
+	remove := func() { m.removeClosingContainer(ctx, attempt) }
+	// An attempt already asked (a continuation ran, or was running when the
+	// manager stopped) is not asked again, whatever time is left: what it
+	// left is removed.
+	if run.ClosingAskedAt != nil || current.ClosingAskedAt != nil {
+		remove()
+		return false
 	}
 	// Never past the attempt's own time limit, and not at all with too
 	// little of it left: decided before the attempt is marked as asked.

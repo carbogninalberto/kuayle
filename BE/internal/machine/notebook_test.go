@@ -202,6 +202,10 @@ type notebookScenario struct {
 	// maxRuntime: its time limit in seconds (an hour when zero).
 	unanswered []int64
 	maxRuntime int
+	// startedAgo: the attempt was started that long ago, before a manager
+	// restart; noDeveloper: the machine's developer container is not running.
+	startedAgo  time.Duration
+	noDeveloper bool
 }
 
 const openCodeConclusion = `{"type":"text","part":{"type":"text","text":"Implemented the toggle and ran the tests."}}`
@@ -236,6 +240,14 @@ func notebookRunWith(t *testing.T, scenario notebookScenario, prepared func(*not
 	if scenario.session != "" {
 		run.NativeSessionID = &scenario.session
 	}
+	if scenario.startedAgo > 0 {
+		started := time.Now().Add(-scenario.startedAgo)
+		run.StartedAt = &started
+	}
+	if scenario.alreadyAsked {
+		asked := time.Now().Add(-time.Minute)
+		run.ClosingAskedAt = &asked
+	}
 	if scenario.continuation != nil {
 		run.ClosingContinuation, _ = json.Marshal(scenario.continuation)
 	}
@@ -252,6 +264,9 @@ func notebookRunWith(t *testing.T, scenario notebookScenario, prepared func(*not
 		services: []domain.DevMachineService{{ServiceType: "ide", Status: "running", ContainerID: &container}},
 		envVars:  []domain.DevMachineEnvVar{{Name: "OPENAI_API_KEY", EncryptedValue: sealed}, {Name: "ANTHROPIC_API_KEY", EncryptedValue: sealed}},
 	}}
+	if scenario.noDeveloper {
+		store.services = nil
+	}
 	runtime := &notebookRuntimeFake{takeErr: scenario.takeErr, prepareErr: scenario.prepareErr, failCall: scenario.failCall, worktreeChanged: scenario.worktreeChanged, runtimeFake: &runtimeFake{agentExecution: &AgentExecution{ContainerID: "agent-container", ExitCode: scenario.exit, Stdout: scenario.stdout}}}
 	if prepared != nil {
 		prepared(runtime)
