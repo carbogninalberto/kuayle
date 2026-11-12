@@ -1385,13 +1385,16 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	// for all of it once, in its own session, before its inbox and run
 	// directory go (settleClosing).
 	ended := executionErr == nil && !timedOut && execution.ExitCode == 0
-	status := provider.ParseResult(output.ResultText("stdout"), output.ResultText("stderr"), execution.ExitCode).Status
+	first := provider.ParseResult(output.ResultText("stdout"), output.ResultText("stderr"), execution.ExitCode)
+	status := first.Status
 	limit, _ := runContext.Deadline()
 	// After a restart the context's limit starts over; the attempt's does not.
 	limit = closingDeadline(run, limit)
 	closing := m.settleClosing(ctx,
 		closingAttempt{machine: machine, run: run, provider: providerRecord, checkout: checkout, secrets: secrets, deadline: limit},
-		closingState{services: services, collectErr: collectErr, exited: exited, concluded: ended && status != "failed", succeeded: ended && status == "succeeded", unchangedRun: unchangedRun})
+		closingState{services: services, collectErr: collectErr, exited: exited, concluded: ended && status != "failed", succeeded: ended && status == "succeeded", unchangedRun: unchangedRun,
+			planTooLong: run.WorktreeReadOnly && first.FinalMessage && first.SummaryTruncated,
+			parseReply:  func(stdout, stderr string) agent.RunResult { return provider.ParseResult(stdout, stderr, 0) }})
 	notebookNotCollected, replies := closing.notebookNotCollected, closing.replies
 	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	m.closeLiveInbox(outboxCtx, machine, run)
@@ -1408,6 +1411,12 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if result.NoFinalMessage && output.Incomplete("stdout") {
 		result.Status, result.NoFinalMessage = "succeeded", false
 		result.RiskNotes = append(result.RiskNotes, "Kuayle did not keep all of the agent's output, so its final message may be missing from the summary.")
+	}
+	// A planning step's plan that fit after the one ask replaces the cut one:
+	// it is the plan handed to the next agent, and the run says how it came.
+	if closing.plan != "" && result.SummaryTruncated {
+		result.Summary, result.SummaryTruncated = closing.plan, false
+		result.RiskNotes = append(result.RiskNotes, domain.PlanShortenedNote)
 	}
 	repositoryFullName := checkoutRepositoryFullName(machine, checkout)
 	if result.PullRequestURL != "" {

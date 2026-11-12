@@ -1958,7 +1958,12 @@ step the same way whatever it is.
     Code's `result` event, Codex's last `agent_message` item, OpenCode's last
     `text` part, the last two only when no tool call follows them; text
     before a tool call and raw output are not a plan) that is not blank and was not cut
-    at the 16 KB summary limit (`summary_truncated`).
+    at the 16 KB summary limit (`summary_truncated`). A plan cut at that
+    limit is not failed at once: the step is asked once, in its
+    [closing continuation](#closing-continuation), to rewrite it under
+    `domain.PlanMaxCharacters` (12000) characters, and a rewritten plan that
+    fits is the one accepted (with `domain.PlanShortenedNote` in the run's
+    risk notes).
 
   Otherwise the step leaves on `agent_failed` with the reason in its detail,
   and a workflow that ends there carries it in the task's reason. Kuayle does
@@ -2278,6 +2283,7 @@ collected, `Manager.settleClosing` lists what is missing, each as a
 | --- | --- | --- |
 | a reply to a delivered message of the task's owner ([live channel](#live-channel)) | an attempt that ended well | `domain.ReplyClosingAsk`: the message numbers and the reply format |
 | a task notebook update that counts ([below](#task-notebook)) | an attempt that concluded | `domain.NotebookClosingAsk`: the validator's message, write the file now |
+| a plan short enough to hand on whole ([planning steps](#workflows)) | a planning step whose plan was cut | `domain.PlanClosingAsk`: rewrite it under `domain.PlanMaxCharacters` (12000) characters |
 
 `Manager.askToClose(ctx, attempt, asks)` then continues the attempt's own
 session once with one short prompt (`domain.ClosingPrompt`) that lists them,
@@ -2286,6 +2292,12 @@ to ask adds a `ClosingAsk` to that list, never a second continuation.
 Afterwards the outbox is collected again and each thing is looked at again;
 what is still missing is noted on the run. The continuation never changes how
 the attempt ended.
+
+The plan ask is the only one whose reply Kuayle reads: when a planning step's
+plan was longer than the next agent can receive whole and the continuation
+answers with a plan that fits, that plan replaces the cut one, and the run
+carries `domain.PlanShortenedNote` in its risk notes. A rewrite that is still
+too long, or none at all, changes nothing: the step fails as before.
 
 - It is a second container of the same run (`…-agent-<run>-closing`) with
   the command line stored at creation (`closing_continuation`, the same

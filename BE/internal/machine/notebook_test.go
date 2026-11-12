@@ -202,6 +202,8 @@ type notebookScenario struct {
 	// maxRuntime: its time limit in seconds (an hour when zero).
 	unanswered []int64
 	maxRuntime int
+	// secondStdout is what the closing continuation writes, when set.
+	secondStdout string
 	// startedAgo: the attempt was started that long ago, before a manager
 	// restart; noDeveloper: the machine's developer container is not running.
 	startedAgo  time.Duration
@@ -272,8 +274,13 @@ func notebookRunWith(t *testing.T, scenario notebookScenario, prepared func(*not
 		prepared(runtime)
 	}
 	runtime.onRun = func(call int) {
-		if call == 2 && scenario.afterAsk != nil {
-			scenario.afterAsk(store)
+		if call == 2 {
+			if scenario.secondStdout != "" {
+				runtime.runtimeFake.agentExecution = &AgentExecution{ContainerID: "agent-container", ExitCode: 0, Stdout: scenario.secondStdout}
+			}
+			if scenario.afterAsk != nil {
+				scenario.afterAsk(store)
+			}
 		}
 	}
 	registry := agent.NewRegistry(agent.NewOpenCodeProvider("kuayle/agent:test"), agent.NewClaudeCodeProvider("kuayle/agent:test"), agent.NewCodexProvider("kuayle/agent:test"), agent.NewCustomCLIProvider("kuayle/agent:test"))
@@ -329,6 +336,58 @@ func TestAttemptWithoutANotebookUpdateIsAskedOnceInTheSameSession(t *testing.T) 
 	require.True(t, asked)
 	require.NotContains(t, string(completed.RiskNotes), "notebook")
 	require.Equal(t, "Implemented the toggle and ran the tests.", *completed.Summary, "the continuation's reply is not the attempt's summary")
+}
+
+// A planning step's plan that is longer than the next agent can receive whole
+// is asked once, in the same continuation, to be rewritten shorter; when the
+// rewritten plan fits it is the one stored, and the run says so. The reply is
+// redacted like the attempt's own output: the shortened plan becomes the next
+// agent's prompt and is stored, so the run's secrets never reach it.
+func TestAnOverlongPlanIsAskedOnceToBeShortened(t *testing.T) {
+	overlong := fmt.Sprintf(`{"type":"result","subtype":"success","is_error":false,"result":"%s"}`, strings.Repeat("Step. ", 4000))
+	completed, _, runtime := notebookRun(t, notebookScenario{provider: "claude-code", readOnly: true,
+		session: "0c9a6c1e-session", continuation: resumeCommand, stdout: overlong,
+		secondStdout: `{"type":"result","subtype":"success","is_error":false,"result":"Short plan: rotate fixture-api-key, then change Y."}`})
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, completed.Status)
+	require.Len(t, runtime.runs, 2, "the attempt and one continuation")
+	var argv []string
+	require.NoError(t, json.Unmarshal(runtime.runs[1].CommandArgv, &argv))
+	require.Contains(t, argv[4], "Your final message must be the rewritten plan")
+	require.NotNil(t, completed.Summary)
+	require.NotContains(t, *completed.Summary, "fixture-api-key", "the run's secret is redacted like the attempt's own output")
+	require.Equal(t, "Short plan: rotate [REDACTED], then change Y.", *completed.Summary, "the shortened plan is handed on")
+	require.NotNil(t, completed.Result)
+	var result agent.RunResult
+	require.NoError(t, json.Unmarshal(*completed.Result, &result))
+	require.False(t, result.SummaryTruncated)
+	require.Contains(t, string(completed.RiskNotes), "shortened plan")
+}
+
+// A rewrite that is still too long changes nothing: the plan stays cut and
+// the step fails as it did before.
+func TestAPlanStillTooLongAfterTheAskStaysCut(t *testing.T) {
+	overlong := fmt.Sprintf(`{"type":"result","subtype":"success","is_error":false,"result":"%s"}`, strings.Repeat("Step. ", 4000))
+	completed, _, runtime := notebookRun(t, notebookScenario{provider: "claude-code", readOnly: true,
+		session: "0c9a6c1e-session", continuation: resumeCommand, stdout: overlong, secondStdout: overlong})
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, completed.Status)
+	require.Len(t, runtime.runs, 2, "only the one ask")
+	require.NotNil(t, completed.Result)
+	var result agent.RunResult
+	require.NoError(t, json.Unmarshal(*completed.Result, &result))
+	require.True(t, result.SummaryTruncated, "the cut plan is not replaced")
+	require.NotContains(t, string(completed.RiskNotes), "shortened plan")
+}
+
+// A planning step whose plan fits is not asked at all.
+func TestAPlanThatFitsIsNotAskedToBeShortened(t *testing.T) {
+	completed, _, runtime := notebookRun(t, notebookScenario{provider: "claude-code", readOnly: true,
+		session: "0c9a6c1e-session", continuation: resumeCommand,
+		stdout: `{"type":"result","subtype":"success","is_error":false,"result":"Plan: change X, then Y."}`})
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, completed.Status)
+	require.Len(t, runtime.runs, 1, "nothing to ask")
+	require.NotNil(t, completed.Summary)
+	require.Equal(t, "Plan: change X, then Y.", *completed.Summary)
+	require.NotContains(t, string(completed.RiskNotes), "shortened plan")
 }
 
 // The work is never lost over a missing notebook: when asking did not help,
