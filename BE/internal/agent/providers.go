@@ -127,6 +127,9 @@ func (p *openCodeProvider) Metadata() Metadata { return p.metadata }
 // go before it. Unattended runs cannot answer OpenCode's permission prompts,
 // which it auto-rejects and then ends the session, so autonomous runs pass
 // --auto; the container is the boundary, as for Claude Code's bypassPermissions.
+// OpenCode keeps its log in the container's temporary home, which is lost when
+// the run ends, so autonomous runs print warnings and errors to standard error,
+// where the run's failure cause quotes them.
 func (p *openCodeProvider) BuildInvocation(input RunInput) (Invocation, error) {
 	if err := validateInput(p.metadata, input); err != nil {
 		return Invocation{}, err
@@ -140,7 +143,7 @@ func (p *openCodeProvider) BuildInvocation(input RunInput) (Invocation, error) {
 	}
 	argv := []string{"opencode"}
 	if input.Mode == ModeAutonomous {
-		argv = append(argv, "run", "--format", "json", "--auto")
+		argv = append(argv, "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN")
 	}
 	if input.Model != "" {
 		argv = append(argv, "--model", input.Model)
@@ -241,8 +244,9 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 	concluded := false
 	// harnessError is the error OpenCode reported after the agent last spoke.
 	harnessError := ""
-	// toolFailures fail the run; toolGuesses (a phrase in a tool's output)
-	// fail it only when it did not conclude.
+	// toolFailures and toolGuesses are risk notes; they fail the run only
+	// when the agent did not conclude. Kuayle's validation re-runs the
+	// declared tests, so a concluded run's claims are checked there.
 	var toolFailures, toolGuesses []string
 
 	for _, line := range lines {
@@ -351,9 +355,10 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 		result.FailureReason = "The harness reported an error: " + harnessError
 	}
 
-	// A guess does not fail a run that exited 0 and concluded: the agent saw
-	// the same output and went on. It stays a risk note.
-	if len(toolFailures) > 0 || (len(toolGuesses) > 0 && !result.FinalMessage) {
+	// A tool failure or a guess is a risk note; it fails the run only when
+	// the agent did not conclude. Kuayle's validation re-runs the declared
+	// tests, so a concluded run's claims are checked there.
+	if (len(toolFailures) > 0 || len(toolGuesses) > 0) && !result.FinalMessage {
 		if result.Status == "succeeded" {
 			result.Status = "failed"
 		}

@@ -657,7 +657,9 @@ func (f *runtimeFake) DeleteEnvironmentImage(_ context.Context, environment *dom
 }
 func (f *runtimeFake) Ping(context.Context) error { return nil }
 
-func TestAgentToolchainFailureOverridesOuterSuccess(t *testing.T) {
+// A tool failure is a risk note: the agent saw it, worked around it and ended
+// with a summary, so the run succeeded and Kuayle's validation re-checks it.
+func TestAgentToolFailureDoesNotFailAConcludedRun(t *testing.T) {
 	machineID, workspaceID, runID := uuid.New(), uuid.New(), uuid.New()
 	run := &domain.DevMachineAgentRun{
 		ID: runID, MachineID: machineID, WorkspaceID: workspaceID,
@@ -688,7 +690,7 @@ func TestAgentToolchainFailureOverridesOuterSuccess(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, store.completedRun)
-	require.Equal(t, domain.DevMachineAgentRunStatusFailed, store.completedRun.Status)
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, store.completedRun.Status)
 	require.Equal(t, "Unable to verify the build", *store.completedRun.Summary)
 	require.Contains(t, string(store.completedRun.RiskNotes), "Build project")
 }

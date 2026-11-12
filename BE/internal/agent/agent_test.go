@@ -224,7 +224,7 @@ func TestOpenCodeProviderBuildInvocation(t *testing.T) {
 	p := NewOpenCodeProvider("")
 	inv, err := p.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "fix bug"})
 	require.NoError(t, err)
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--", "fix bug"}, inv.Argv)
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--", "fix bug"}, inv.Argv)
 	require.Equal(t, "/workspace", inv.WorkingDir)
 	require.False(t, inv.Interactive)
 	require.Empty(t, inv.Environment)
@@ -243,13 +243,13 @@ func TestOpenCodeProviderPassesModelAndEffort(t *testing.T) {
 		return inv.Argv
 	}
 
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--model", model, "--variant", "high", "--", "fix bug"},
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--model", model, "--variant", "high", "--", "fix bug"},
 		argv(RunInput{Mode: ModeAutonomous, Model: model, Thinking: "high"}))
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--model", model, "--", "fix bug"},
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--model", model, "--", "fix bug"},
 		argv(RunInput{Mode: ModeAutonomous, Model: model}))
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--model", model, "--", "fix bug"},
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--model", model, "--", "fix bug"},
 		argv(RunInput{Mode: ModeAutonomous, Model: model, Thinking: "off"}))
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--variant", "max", "--", "fix bug"},
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--variant", "max", "--", "fix bug"},
 		argv(RunInput{Mode: ModeAutonomous, Thinking: "max"}))
 
 	// The terminal UI takes a model but has no variant flag.
@@ -264,7 +264,7 @@ func TestOpenCodeProviderKeepsThePromptOutOfItsFlags(t *testing.T) {
 	for _, prompt := range []string{"--auto fix the build", "-m other/model", "--help"} {
 		inv, err := p.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: prompt, Model: "opencode-go/deepseek-v4.1-flash", ExtraArgs: []string{"--agent", "build"}})
 		require.NoError(t, err)
-		require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--model", "opencode-go/deepseek-v4.1-flash", "--agent", "build", "--", prompt}, inv.Argv)
+		require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--model", "opencode-go/deepseek-v4.1-flash", "--agent", "build", "--", prompt}, inv.Argv)
 	}
 }
 
@@ -364,7 +364,7 @@ func TestOpenCodeParseResultToolFailureExit127(t *testing.T) {
 	}, "\n")
 
 	result := p.ParseResult(stdout, "", 0)
-	require.Equal(t, "failed", result.Status, "should detect tool failure even when outer exit code is 0")
+	require.Equal(t, "succeeded", result.Status, "the agent stated the tool failure and concluded")
 	require.Equal(t, "The build failed because Go is not installed.", result.Summary)
 	require.NotEmpty(t, result.RiskNotes)
 	require.Contains(t, strings.Join(result.RiskNotes, " "), "tool failure")
@@ -380,7 +380,7 @@ func TestOpenCodeParseResultUsesCurrentJSONFormat(t *testing.T) {
 
 	result := p.ParseResult(stdout, "", 0)
 
-	require.Equal(t, "failed", result.Status)
+	require.Equal(t, "succeeded", result.Status, "the agent concluded after the failing tool")
 	require.Equal(t, "Final summary from OpenCode", result.Summary)
 	require.Contains(t, strings.Join(result.RiskNotes, " "), "Check Go compilation")
 }
@@ -394,7 +394,7 @@ func TestOpenCodeParseResultToolFailureIsError(t *testing.T) {
 	}, "\n")
 
 	result := p.ParseResult(stdout, "", 0)
-	require.Equal(t, "failed", result.Status, "should detect is_error:true tool result")
+	require.Equal(t, "succeeded", result.Status, "the agent concluded after the tool error")
 	require.NotEmpty(t, result.RiskNotes)
 }
 
