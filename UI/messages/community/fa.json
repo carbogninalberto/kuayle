@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "برای سازمان‌دهی مسئله‌هایتان یک پروژه ایجاد کنید",
 	"projects.no_team_projects": "پروژه‌ای برای این تیم نیست",
 	"projects.no_team_projects_desc": "برای سازمان‌دهی مسئله‌های این تیم یک پروژه ایجاد کنید",
+	"projects.picker.teams": "تیم‌ها",
+	"projects.picker.workspace": "فضای کاری",
 	"projects.progress": "{completed} از {total} مسئله انجام شد",
 	"projects.set_start": "تنظیم شروع",
 	"projects.set_target": "تنظیم هدف",

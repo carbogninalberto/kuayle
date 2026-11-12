@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Issue'larınızı düzenlemek için bir proje oluşturun",
 	"projects.no_team_projects": "Bu takım için proje yok",
 	"projects.no_team_projects_desc": "Bu takımın issue'larını düzenlemek için bir proje oluşturun",
+	"projects.picker.teams": "Takımlar",
+	"projects.picker.workspace": "Çalışma alanı",
 	"projects.progress": "{total} issue'dan {completed} tanesi bitti",
 	"projects.set_start": "Başlangıcı belirle",
 	"projects.set_target": "Hedefi belirle",

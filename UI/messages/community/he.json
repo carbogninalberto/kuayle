@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "יוצרים פרויקט כדי לארגן את המשימות",
 	"projects.no_team_projects": "אין פרויקטים לצוות הזה",
 	"projects.no_team_projects_desc": "יוצרים פרויקט כדי לארגן את משימות הצוות",
+	"projects.picker.teams": "צוותים",
+	"projects.picker.workspace": "סביבת עבודה",
 	"projects.progress": "{completed} מתוך {total} משימות הושלמו",
 	"projects.set_start": "הגדרת התחלה",
 	"projects.set_target": "הגדרת יעד",

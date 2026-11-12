@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Crea un projecte per organitzar les incidències",
 	"projects.no_team_projects": "Cap projecte per a aquest equip",
 	"projects.no_team_projects_desc": "Crea un projecte per organitzar les incidències d'aquest equip",
+	"projects.picker.teams": "Equips",
+	"projects.picker.workspace": "Espai de treball",
 	"projects.progress": "{completed} de {total} incidències fetes",
 	"projects.set_start": "Defineix l'inici",
 	"projects.set_target": "Defineix l'objectiu",

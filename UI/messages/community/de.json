@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Erstelle ein Projekt, um deine Issues zu organisieren",
 	"projects.no_team_projects": "Keine Projekte für dieses Team",
 	"projects.no_team_projects_desc": "Erstelle ein Projekt, um die Issues dieses Teams zu organisieren",
+	"projects.picker.teams": "Teams",
+	"projects.picker.workspace": "Arbeitsbereich",
 	"projects.progress": "{completed} von {total} Issues erledigt",
 	"projects.set_start": "Start festlegen",
 	"projects.set_target": "Ziel festlegen",

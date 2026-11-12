@@ -693,6 +693,42 @@ test('issue context menu offers only labels that apply to the issue project', as
 	expect(state.errors).toEqual([]);
 });
 
+test('issue context menu lists the team projects first, then Teams > team > projects', async ({ page }) => {
+	const state = await mockWorkspace(page);
+	const team = (id: string, name: string, key: string) => ({ id, name, key, is_private: false, created_at: now });
+	const project = (id: string, name: string, team_id: string | null) => ({ id, name, team_id, status: 'planned', created_at: now });
+	const designId = '00000000-0000-0000-0000-000000000071';
+	const websiteId = '00000000-0000-0000-0000-000000000081';
+	await page.route('**/api/workspaces/test/teams', (route) =>
+		route.fulfill({ json: [team(teamId, 'Engineering', 'ENG'), team(designId, 'Design', 'DES')] })
+	);
+	await page.route('**/api/workspaces/test/projects', (route) =>
+		route.fulfill({
+			json: [
+				project(projectId, 'Launch', teamId),
+				project(websiteId, 'Website', designId),
+				project('00000000-0000-0000-0000-000000000082', 'Company', null)
+			]
+		})
+	);
+	await page.goto(`${cyclePath}/${cycleId}`);
+	await page.getByTestId('scoped-issues').getByText('Scoped issue 1', { exact: true }).click({ button: 'right' });
+	await page.getByRole('menuitem', { name: 'Project', exact: true }).hover();
+	await expect(page.getByRole('menuitem', { name: 'No project', exact: true })).toBeVisible();
+	// The issue's own team is listed directly; other teams' and workspace-wide projects sit one level down.
+	await expect(page.getByRole('menuitem', { name: 'Launch', exact: true })).toBeVisible();
+	await expect(page.getByRole('menuitem', { name: 'Website', exact: true })).toHaveCount(0);
+	await page.getByRole('menuitem', { name: 'Teams', exact: true }).hover();
+	await expect(page.getByRole('menuitem', { name: 'Engineering', exact: true })).toHaveCount(0);
+	await page.getByRole('menuitem', { name: 'Design', exact: true }).hover();
+	await expect(page.getByRole('menuitem', { name: 'Company', exact: true })).toHaveCount(0);
+	await page.getByRole('menuitem', { name: 'Website', exact: true }).click();
+	await expect
+		.poll(() => state.mutations.find((m) => m.method === 'PATCH' && m.path.endsWith('/issues/ENG-1'))?.body)
+		.toEqual({ project_id: websiteId });
+	expect(state.errors).toEqual([]);
+});
+
 test('project name renames inline with Enter, Esc cancels and empty is rejected', async ({
 	page
 }) => {

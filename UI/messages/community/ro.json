@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Creează un proiect pentru a-ți organiza problemele",
 	"projects.no_team_projects": "Niciun proiect pentru această echipă",
 	"projects.no_team_projects_desc": "Creează un proiect pentru a organiza problemele echipei",
+	"projects.picker.teams": "Echipe",
+	"projects.picker.workspace": "Spațiu de lucru",
 	"projects.progress": "Probleme finalizate: {completed} din {total}",
 	"projects.set_start": "Setează începutul",
 	"projects.set_target": "Setează ținta",

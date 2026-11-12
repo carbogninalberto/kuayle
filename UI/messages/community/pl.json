@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Utwórz projekt, aby uporządkować zgłoszenia",
 	"projects.no_team_projects": "Brak projektów dla tego zespołu",
 	"projects.no_team_projects_desc": "Utwórz projekt, aby uporządkować zgłoszenia tego zespołu",
+	"projects.picker.teams": "Zespoły",
+	"projects.picker.workspace": "Przestrzeń robocza",
 	"projects.progress": "Ukończone zgłoszenia: {completed} z {total}",
 	"projects.set_start": "Ustaw start",
 	"projects.set_target": "Ustaw cel",

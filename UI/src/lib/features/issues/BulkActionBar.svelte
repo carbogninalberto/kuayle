@@ -8,7 +8,12 @@
 	import type { Cycle } from '$lib/types/cycle';
 	import type { Project } from '$lib/types/project';
 	import type { Team } from '$lib/types/team';
-	import { projectsForIssues } from '$lib/features/projects/project-scope';
+	import {
+		commonTeamId,
+		flattenProjectGroups,
+		groupProjectsByTeam,
+		projectsForIssues
+	} from '$lib/features/projects/project-scope';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import { issuesState } from './issues.state.svelte';
@@ -245,15 +250,30 @@
 		if (!term) return cycles ?? [];
 		return (cycles ?? []).filter((cycle) => cycle.name.toLowerCase().includes(term));
 	});
-	let filteredProjects = $derived.by(() => {
+	// The selection's projects arranged like the context menu: the issues' common team first, then
+	// each other team and the workspace-wide ones under a heading. Searching narrows every group.
+	let projectGroups = $derived.by(() => {
 		const term = searchQuery.trim().toLowerCase();
-		const compatible = projectsForIssues(
-			projects ?? [],
-			issuesState.issues.filter((issue) => issuesState.selectedIds.has(issue.id)),
-			teams
+		const selected = issuesState.issues.filter((issue) => issuesState.selectedIds.has(issue.id));
+		const compatible = projectsForIssues(projects ?? [], selected, teams).filter(
+			(project) => !term || project.name.toLowerCase().includes(term)
 		);
-		if (!term) return compatible;
-		return compatible.filter((project) => project.name.toLowerCase().includes(term));
+		return groupProjectsByTeam(compatible, teams, commonTeamId(selected));
+	});
+	let filteredProjects = $derived(flattenProjectGroups(projectGroups));
+	// Sections of rows in display order; `start` is the first row's index (row 0 is "No project").
+	let projectSections = $derived.by(() => {
+		const sections: { key: string; heading: string | null; projects: Project[]; start: number }[] = [];
+		let start = 1;
+		const add = (key: string, heading: string | null, list: Project[]) => {
+			if (list.length === 0) return;
+			sections.push({ key, heading, projects: list, start });
+			start += list.length;
+		};
+		add('own', null, projectGroups.own);
+		for (const group of projectGroups.teams) add(group.team.id, group.team.name, group.projects);
+		add('workspace', m['projects.picker.workspace'](), projectGroups.workspace);
+		return sections;
 	});
 	let activeTitle = $derived(
 		commands.find((command) => command.id === activeCommand)?.title ?? m['bulkActions.title']()
@@ -1041,17 +1061,22 @@
 								{m['bulkActions.no_projects']()}
 							</div>
 						{:else}
-							{#each filteredProjects as project, index (project.id)}
-								{@const rowIndex = index + 1}
-								<Button variant="plain" id={`bulk-action-row-${rowIndex}`}
-									class={optionButtonClass}
-									data-selected={selectedIndex === rowIndex}
-									onpointerenter={() => (selectedIndex = rowIndex)}
-									onclick={() => bulkSetProject(project.id)}
-								>
-									<FolderKanban size={14} class="text-[var(--color-text-tertiary)]" />
-									<span class="truncate">{project.name}</span>
-								</Button>
+							{#each projectSections as section (section.key)}
+								{#if section.heading}
+									<div class="px-2 pb-1 pt-2 text-[11px] font-medium text-[var(--color-text-tertiary)]">{section.heading}</div>
+								{/if}
+								{#each section.projects as project, index (project.id)}
+									{@const rowIndex = section.start + index}
+									<Button variant="plain" id={`bulk-action-row-${rowIndex}`}
+										class={optionButtonClass}
+										data-selected={selectedIndex === rowIndex}
+										onpointerenter={() => (selectedIndex = rowIndex)}
+										onclick={() => bulkSetProject(project.id)}
+									>
+										<FolderKanban size={14} class="text-[var(--color-text-tertiary)]" />
+										<span class="truncate">{project.name}</span>
+									</Button>
+								{/each}
 							{/each}
 						{/if}
 					{:else if activeCommand === 'due_date'}

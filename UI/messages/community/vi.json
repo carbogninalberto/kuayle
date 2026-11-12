@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Tạo dự án để sắp xếp các issue của bạn",
 	"projects.no_team_projects": "Team này chưa có dự án",
 	"projects.no_team_projects_desc": "Tạo dự án để sắp xếp các issue của team này",
+	"projects.picker.teams": "Team",
+	"projects.picker.workspace": "Không gian làm việc",
 	"projects.progress": "{completed}/{total} issue đã xong",
 	"projects.set_start": "Đặt ngày bắt đầu",
 	"projects.set_target": "Đặt ngày mục tiêu",

@@ -1568,6 +1568,7 @@
 						<ProjectSelector
 							bind:open={projectOpen}
 							{projects}
+							ownTeamId={issue.team_id}
 							value={issue.project_id}
 							onchange={(id) => { updateField('project_id', id ?? ''); if (!id && issue.cycle_id) updateField('cycle_id', ''); }}
 						>

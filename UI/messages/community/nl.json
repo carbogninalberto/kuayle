@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Maak een project om je issues te organiseren",
 	"projects.no_team_projects": "Geen projecten voor dit team",
 	"projects.no_team_projects_desc": "Maak een project om de issues van dit team te organiseren",
+	"projects.picker.teams": "Teams",
+	"projects.picker.workspace": "Werkruimte",
 	"projects.progress": "{completed} van {total} issues klaar",
 	"projects.set_start": "Start instellen",
 	"projects.set_target": "Doel instellen",

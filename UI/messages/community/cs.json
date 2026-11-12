@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Vytvořte projekt a uspořádejte své úkoly",
 	"projects.no_team_projects": "Tento tým nemá žádné projekty",
 	"projects.no_team_projects_desc": "Vytvořte projekt a uspořádejte úkoly tohoto týmu",
+	"projects.picker.teams": "Týmy",
+	"projects.picker.workspace": "Pracovní prostor",
 	"projects.progress": "Hotovo {completed} z {total} úkolů",
 	"projects.set_start": "Nastavit začátek",
 	"projects.set_target": "Nastavit cíl",

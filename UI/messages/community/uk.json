@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Створіть проєкт, щоб упорядкувати завдання",
 	"projects.no_team_projects": "У цієї команди немає проєктів",
 	"projects.no_team_projects_desc": "Створіть проєкт, щоб упорядкувати завдання цієї команди",
+	"projects.picker.teams": "Команди",
+	"projects.picker.workspace": "Робочий простір",
 	"projects.progress": "Виконано завдань: {completed} з {total}",
 	"projects.set_start": "Задати початок",
 	"projects.set_target": "Задати ціль",

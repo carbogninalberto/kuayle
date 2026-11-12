@@ -876,6 +876,8 @@
 	"projects.no_projects_desc": "Cipta projek untuk menyusun isu anda",
 	"projects.no_team_projects": "Tiada projek untuk pasukan ini",
 	"projects.no_team_projects_desc": "Cipta projek untuk menyusun isu pasukan ini",
+	"projects.picker.teams": "Pasukan",
+	"projects.picker.workspace": "Ruang kerja",
 	"projects.progress": "{completed} daripada {total} isu selesai",
 	"projects.set_start": "Tetapkan mula",
 	"projects.set_target": "Tetapkan sasaran",
