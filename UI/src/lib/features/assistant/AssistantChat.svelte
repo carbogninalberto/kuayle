@@ -965,11 +965,12 @@
 				/>{/if}
 			{#if message.content}
 				<Bubble.Root variant="muted">
-					<Bubble.Content class="rounded-2xl rounded-br-md px-3.5 py-2">
+					<Bubble.Content class="rounded-2xl rounded-br-md ps-3.5 pe-9 py-2">
 						<!-- Kept on one line: the paragraph preserves whitespace. -->
 						<!-- prettier-ignore -->
 						<p class="break-words whitespace-pre-wrap">{#each chatReferenceParts(message.content) as part, index (index)}{#if part.pageId}<WikiReferenceChip {slug} pageId={part.pageId} />{:else}{part.text}{/if}{/each}</p>
 					</Bubble.Content>
+					<CopyMessageButton text={message.content} />
 				</Bubble.Root>
 			{/if}
 			<Message.Footer
@@ -978,7 +979,6 @@
 				<time datetime={message.created_at}
 					>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time
 				>
-				{#if message.content}<CopyMessageButton text={message.content} />{/if}
 			</Message.Footer>
 		</Message.Content>
 	</Message.Root>
@@ -995,9 +995,13 @@
 				slug={chat.slug}
 			/>
 			<Bubble.Root variant="ghost">
-				<Bubble.Content>
+				<Bubble.Content data-selectable="text" class="pe-8! min-h-6">
 					<Markdown source={message.content} />
 				</Bubble.Content>
+				{#if message.content}<CopyMessageButton
+						class="top-0 end-0"
+						text={() => markdownToPlainText(message.content)}
+					/>{/if}
 			</Bubble.Root>
 			<!-- Approval requests always close the message, after its text. -->
 			<ToolCalls
@@ -1013,7 +1017,6 @@
 				>
 				<span role={message.status === 'streaming' ? 'status' : undefined}>{statusLabel(message.status)}</span>
 				{#if message.model}<span class="hidden sm:inline">· {message.model}</span>{/if}
-				{#if message.content}<CopyMessageButton text={() => markdownToPlainText(message.content)} />{/if}
 				{#if ['failed', 'interrupted', 'cancelled'].includes(message.status) && message.id === chat.messages.at(-1)?.id}
 					<Button variant="ghost" size="sm" class="h-6 px-2 text-xs" disabled={sending} onclick={() => void retry(message.id)}
 						><RefreshCw size={12} />{m['assistant.retry']()}</Button

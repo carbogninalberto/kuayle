@@ -92,3 +92,6 @@ patterns; reuse the installed Message, Bubble, Message Scroller and Input Group
 primitives. The [conversation contract](../../../BE/docs/conversations.md) records
 sources, typed backend events, scrolling and verification. Keep execution state
 on the Go backend and render only actual persisted/live events.
+Assistant prose that should be selectable opts in with `data-selectable="text"` on
+its container; the global `user-select: none` in [UI CSS](../../../UI/src/app.css)
+stays, and user-authored bubbles do not opt in.
