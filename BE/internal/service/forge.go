@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -27,7 +30,22 @@ var (
 	ErrForgeDeliveryID         = errors.New("forge webhook delivery ID is invalid")
 	ErrForgeConnectionNotFound = errors.New("forge connection not found")
 	ErrForgeRepoNotFound       = errors.New("linked forge repository not found")
+	ErrForgeInvalidInput       = errors.New("invalid forge input")
+	ErrForgeConnectionExists   = repository.ErrForgeConnectionExists
+	ErrForgeBaseURLInUse       = errors.New("the base URL cannot change while repositories are linked")
 )
+
+// forgeInputError is a validation failure whose message is safe to show to the
+// caller. It matches ErrForgeInvalidInput so handlers can map it to 400.
+type forgeInputError struct{ message string }
+
+func (e *forgeInputError) Error() string { return e.message }
+
+func (e *forgeInputError) Is(target error) bool { return target == ErrForgeInvalidInput }
+
+func forgeInvalidf(format string, args ...any) error {
+	return &forgeInputError{message: fmt.Sprintf(format, args...)}
+}
 
 // ForgeService configures GitLab, Gitea and Forgejo connections and processes
 // their webhooks through the shared linking and automation rules. GitHub keeps
@@ -42,6 +60,7 @@ type ForgeService struct {
 	encryptionKey  []byte
 	hub            *realtime.Hub
 	frontendURL    string
+	webhookBaseURL string
 	allowPrivate   bool
 	webhooks       map[domain.ForgeProvider]domain.ForgeWebhook
 	commenters     map[domain.ForgeProvider]domain.ForgeCommenter
@@ -57,6 +76,7 @@ func NewForgeService(
 	encryptionKey []byte,
 	hub *realtime.Hub,
 	frontendURL string,
+	webhookBaseURL string,
 	allowPrivateNetwork bool,
 ) *ForgeService {
 	client := forgepkg.NewHTTPClient(allowPrivateNetwork)
@@ -67,7 +87,8 @@ func NewForgeService(
 		repo: repo, rules: rules, issueRepo: issueRepo, teamRepo: teamRepo,
 		teamStatusRepo: teamStatusRepo, historyRepo: historyRepo,
 		encryptionKey: encryptionKey, hub: hub, frontendURL: frontendURL,
-		allowPrivate: allowPrivateNetwork,
+		webhookBaseURL: webhookBaseURL,
+		allowPrivate:   allowPrivateNetwork,
 		webhooks: map[domain.ForgeProvider]domain.ForgeWebhook{
 			domain.ForgeGitLab:  gitlabProvider,
 			domain.ForgeGitea:   giteaProvider,
@@ -110,9 +131,11 @@ func (s *ForgeService) broadcastAppRefresh(workspaceID uuid.UUID, resources ...s
 }
 
 func (s *ForgeService) webhookURL(id uuid.UUID) string {
-	base := strings.TrimRight(s.frontendURL, "/")
-	base = strings.Replace(base, ":5173", ":8080", 1)
-	return base + "/api/forges/webhook/" + id.String()
+	base := s.webhookBaseURL
+	if base == "" {
+		base = strings.Replace(strings.TrimRight(s.frontendURL, "/"), ":5173", ":8080", 1)
+	}
+	return strings.TrimRight(base, "/") + "/api/forges/webhook/" + id.String()
 }
 
 func (s *ForgeService) normalizeBaseURL(raw string) (string, error) {
@@ -124,6 +147,24 @@ func (s *ForgeService) normalizeBaseURL(raw string) (string, error) {
 		return "", errors.New("must use https; set FORGE_ALLOW_PRIVATE_NETWORK for a private http instance")
 	}
 	return parsed.String(), nil
+}
+
+// validForgeRepoWebURL accepts an empty URL or an absolute http(s) URL with a
+// host. The API does not pass stored links through the UI's URL sanitizer.
+func validForgeRepoWebURL(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return true
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return false
+	}
+	return parsed.User == nil && parsed.Hostname() != ""
 }
 
 func validForgeProvider(provider string) bool {
@@ -165,14 +206,14 @@ func (s *ForgeService) repoResponse(repo *domain.ForgeRepo) dto.ForgeRepoRespons
 
 func (s *ForgeService) CreateConnection(ctx context.Context, workspaceID, userID uuid.UUID, req dto.CreateForgeConnectionRequest) (*dto.ForgeConnectionResponse, error) {
 	if !validForgeProvider(req.Provider) {
-		return nil, errors.New("provider must be gitlab, gitea or forgejo")
+		return nil, forgeInvalidf("provider must be gitlab, gitea or forgejo")
 	}
 	baseURL, err := s.normalizeBaseURL(req.BaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("base URL %w", err)
+		return nil, forgeInvalidf("base URL %v", err)
 	}
 	if req.WebhookSecret == "" {
-		return nil, errors.New("webhook secret is required")
+		return nil, forgeInvalidf("webhook secret is required")
 	}
 	encSecret, err := crypto.Encrypt(req.WebhookSecret, s.encryptionKey)
 	if err != nil {
@@ -242,13 +283,22 @@ func (s *ForgeService) UpdateConnection(ctx context.Context, workspaceID, id uui
 	if req.BaseURL != nil {
 		baseURL, err := s.normalizeBaseURL(*req.BaseURL)
 		if err != nil {
-			return nil, fmt.Errorf("base URL %w", err)
+			return nil, forgeInvalidf("base URL %v", err)
+		}
+		if baseURL != conn.BaseURL {
+			repos, err := s.repo.ListReposByConnection(ctx, workspaceID, conn.ID)
+			if err != nil {
+				return nil, err
+			}
+			if len(repos) > 0 {
+				return nil, ErrForgeBaseURLInUse
+			}
 		}
 		conn.BaseURL = baseURL
 	}
 	if req.WebhookSecret != nil {
 		if *req.WebhookSecret == "" {
-			return nil, errors.New("webhook secret is required")
+			return nil, forgeInvalidf("webhook secret is required")
 		}
 		secret, err := crypto.Encrypt(*req.WebhookSecret, s.encryptionKey)
 		if err != nil {
@@ -315,11 +365,15 @@ func (s *ForgeService) LinkRepo(ctx context.Context, workspaceID, connectionID u
 		return nil, ErrForgeConnectionNotFound
 	}
 	if req.ExternalRepoID <= 0 {
-		return nil, errors.New("external_repo_id must be positive")
+		return nil, forgeInvalidf("external_repo_id must be positive")
 	}
 	fullName := strings.TrimSpace(req.FullName)
 	if fullName == "" || strings.ContainsAny(fullName, " \t\r\n") {
-		return nil, errors.New("full_name is invalid")
+		return nil, forgeInvalidf("full_name is invalid")
+	}
+	webURL := strings.TrimSpace(req.WebURL)
+	if !validForgeRepoWebURL(webURL) {
+		return nil, forgeInvalidf("web_url must be an absolute http(s) URL")
 	}
 	defaultBranch := strings.TrimSpace(req.DefaultBranch)
 	if defaultBranch == "" {
@@ -331,7 +385,7 @@ func (s *ForgeService) LinkRepo(ctx context.Context, workspaceID, connectionID u
 		WorkspaceID:    workspaceID,
 		ExternalRepoID: req.ExternalRepoID,
 		FullName:       fullName,
-		WebURL:         strings.TrimSpace(req.WebURL),
+		WebURL:         webURL,
 		DefaultBranch:  defaultBranch,
 		IsActive:       true,
 	}
@@ -379,6 +433,13 @@ func (s *ForgeService) HandleWebhook(ctx context.Context, connectionID uuid.UUID
 		return ErrForgeUnauthorized
 	}
 	deliveryID := webhook.DeliveryID(header)
+	if deliveryID == "" {
+		// Older GitLab deliveries may omit X-Gitlab-Event-UUID and
+		// Idempotency-Key. Identical bodies are true replays, so the content
+		// hash is a safe delivery ID. It runs only after verification.
+		sum := sha256.Sum256(body)
+		deliveryID = "sha256-" + hex.EncodeToString(sum[:])
+	}
 	if !ValidWebhookDeliveryID(deliveryID) {
 		return ErrForgeDeliveryID
 	}

@@ -709,7 +709,9 @@ type ghWebhookPR struct {
 		Body      string     `json:"body"`
 	} `json:"pull_request"`
 	Repository struct {
-		ID int64 `json:"id"`
+		ID       int64  `json:"id"`
+		FullName string `json:"full_name"`
+		HTMLURL  string `json:"html_url"`
 	} `json:"repository"`
 	Installation struct {
 		ID int64 `json:"id"`
@@ -738,13 +740,7 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 		return nil
 	}
 
-	state := event.PullRequest.State
-	if event.PullRequest.Draft {
-		state = "draft"
-	}
-	if event.PullRequest.Merged {
-		state = "merged"
-	}
+	state := githubMergeRequestState(event.PullRequest.State, event.PullRequest.Draft, event.PullRequest.Merged)
 
 	// The bot signature Kuayle starts agent descriptions with is not searched:
 	// a bot name or picture address that looks like an identifier is no link.
@@ -847,7 +843,9 @@ type ghWebhookPush struct {
 		} `json:"author"`
 	} `json:"commits"`
 	Repository struct {
-		ID int64 `json:"id"`
+		ID       int64  `json:"id"`
+		FullName string `json:"full_name"`
+		HTMLURL  string `json:"html_url"`
 	} `json:"repository"`
 	Installation struct {
 		ID int64 `json:"id"`
@@ -920,8 +918,9 @@ type ghWebhookCreate struct {
 	RefType    string `json:"ref_type"`
 	Ref        string `json:"ref"`
 	Repository struct {
-		ID      int64  `json:"id"`
-		HTMLURL string `json:"html_url"`
+		ID       int64  `json:"id"`
+		FullName string `json:"full_name"`
+		HTMLURL  string `json:"html_url"`
 	} `json:"repository"`
 	Installation struct {
 		ID int64 `json:"id"`

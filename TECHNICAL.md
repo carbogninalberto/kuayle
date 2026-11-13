@@ -1058,13 +1058,18 @@ same key handling as other integration credentials and are never returned by
 the API. Each connection has its own webhook URL,
 `POST /api/forges/webhook/:connectionId`; the connection ID selects the secret,
 and an unknown ID, bad token or bad signature answers `401` before any payload
-field is trusted. Deliveries are processed at most once per connection in
-`forge_webhook_deliveries`.
+field is trusted. `FORGE_WEBHOOK_BASE_URL` overrides the origin shown in that
+URL; without it the URL follows `FRONTEND_URL` (with `:5173` mapped to `:8080`
+in development). Deliveries are processed at most once per connection in
+`forge_webhook_deliveries`; a delivery without an ID header uses the SHA-256 of
+the body.
 
 The new tables (`forge_connections`, `forge_repos`, `forge_merge_requests`,
 `forge_branches`, `forge_commits`) mirror the GitHub ones with `forge_repo_id`,
 so GitHub data and behaviour stay unchanged; issue activity merges both sources.
-Linking rules and status automation are shared with GitHub: forge connections
+The GitHub forge adapter decodes the same `ghWebhook*` payload types as the live
+GitHub processor, which keeps its own flow for installations, the bot, check
+suites and reviews. Linking rules and status automation are shared with GitHub: forge connections
 seed the `branch_created`, `pr_opened` and `pr_merged` defaults in
 `github_auto_transitions` only when missing, and edits made in GitHub settings
 apply to every forge. Unknown or inactive repositories and unsupported events

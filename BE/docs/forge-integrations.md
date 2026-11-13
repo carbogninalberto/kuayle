@@ -48,8 +48,14 @@ The page shows the webhook URL for that connection:
 POST https://<kuayle-host>/api/forges/webhook/<connection-id>
 ```
 
+`FORGE_WEBHOOK_BASE_URL` overrides the origin in that URL when the API is served
+from a different origin than `FRONTEND_URL`. Without it, the URL follows
+`FRONTEND_URL` with `:5173` mapped to `:8080` in development.
+
 The secret is looked up by the connection ID before any payload field is read.
-A bad secret or signature answers `401`; a missing delivery ID answers `400`.
+A bad secret or signature answers `401`; a present but invalid delivery ID
+header answers `400`. A delivery that carries no delivery ID header uses the
+SHA-256 of the verified body, so an identical replay is ignored.
 
 Then link each repository by its external ID and full name. The external ID is
 the numeric project ID GitLab reports in `project.id` and the numeric
@@ -68,7 +74,10 @@ repository ID Gitea/Forgejo report in `repository.id`; the full name is
    `POST /api/v4/projects/:id/merge_requests/:iid/notes` with `PRIVATE-TOKEN`.
 
 GitLab has no branch-created event. Kuayle treats a push whose `before` commit
-is all zeroes as the creation of that branch.
+is all zeroes as the creation of that branch. When a delivery omits both
+`X-Gitlab-Event-UUID` and `Idempotency-Key`, Kuayle derives the delivery ID
+from the body hash instead of rejecting the webhook; redelivering the same body
+is treated as a replay.
 
 ## Gitea and Forgejo
 

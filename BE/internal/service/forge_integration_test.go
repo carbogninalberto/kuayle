@@ -63,7 +63,7 @@ func newForgeFixture(t *testing.T) *forgeFixture {
 	svc := NewForgeService(repository.NewForgeRepository(db), repository.NewGitHubRepository(db),
 		repository.NewIssueRepository(db), repository.NewTeamRepository(db),
 		repository.NewTeamStatusRepository(db), repository.NewIssueHistoryRepository(db),
-		key, nil, "https://kuayle.test", false)
+		key, nil, "https://kuayle.test", "", false)
 	return &forgeFixture{db: db, svc: svc, owner: owner, ws: ws, team: team, issue: issue, status: status}
 }
 
@@ -229,6 +229,99 @@ func TestForgeWebhookReplayIsProcessedOncePostgres(t *testing.T) {
 	var count int
 	require.NoError(t, f.db.Get(&count, `SELECT count(*) FROM forge_merge_requests WHERE workspace_id=$1`, f.ws))
 	require.Equal(t, 1, count)
+}
+
+// Older GitLab deliveries may omit X-Gitlab-Event-UUID and Idempotency-Key.
+// The body hash identifies the delivery, so it is processed once and a replay
+// with the same body is ignored.
+func TestForgeGitLabMissingDeliveryIDPostgres(t *testing.T) {
+	f := newForgeFixture(t)
+	ctx := context.Background()
+	conn := f.createConnection(t, domain.ForgeGitLab, "https://gitlab.example.com", "secret")
+	f.linkRepo(t, conn.ID, 42)
+	header := make(http.Header)
+	header.Set("X-Gitlab-Event", "Merge Request Hook")
+	header.Set("X-Gitlab-Token", "secret")
+	body := gitlabMRBody("open", "opened", "KUA-1 fix")
+
+	require.NoError(t, f.svc.HandleWebhook(ctx, uuid.MustParse(conn.ID), header, body))
+	require.Equal(t, "in_review", f.issueStatus(t))
+	var count int
+	require.NoError(t, f.db.Get(&count, `SELECT count(*) FROM forge_merge_requests WHERE workspace_id=$1`, f.ws))
+	require.Equal(t, 1, count)
+
+	_, err := f.db.Exec(`UPDATE issues SET status='todo' WHERE id=$1`, f.issue)
+	require.NoError(t, err)
+	require.NoError(t, f.svc.HandleWebhook(ctx, uuid.MustParse(conn.ID), header, body))
+	require.Equal(t, "todo", f.issueStatus(t), "an identical body is the same delivery")
+	require.NoError(t, f.db.Get(&count, `SELECT count(*) FROM forge_merge_requests WHERE workspace_id=$1`, f.ws))
+	require.Equal(t, 1, count)
+
+	header.Set("X-Gitlab-Event-UUID", "not a delivery id")
+	require.ErrorIs(t, f.svc.HandleWebhook(ctx, uuid.MustParse(conn.ID), header, body), ErrForgeDeliveryID,
+		"a present but invalid delivery ID is still rejected")
+}
+
+func TestForgeDuplicateConnectionPostgres(t *testing.T) {
+	f := newForgeFixture(t)
+	ctx := context.Background()
+	first, err := f.svc.CreateConnection(ctx, f.ws, f.owner, dto.CreateForgeConnectionRequest{
+		Provider: "gitlab", BaseURL: "https://gitlab.example.com", WebhookSecret: "secret",
+	})
+	require.NoError(t, err)
+	_, err = f.svc.CreateConnection(ctx, f.ws, f.owner, dto.CreateForgeConnectionRequest{
+		Provider: "gitlab", BaseURL: "https://gitlab.example.com/", WebhookSecret: "secret",
+	})
+	require.ErrorIs(t, err, ErrForgeConnectionExists)
+
+	second, err := f.svc.CreateConnection(ctx, f.ws, f.owner, dto.CreateForgeConnectionRequest{
+		Provider: "gitlab", BaseURL: "https://gitlab-second.example.com", WebhookSecret: "secret",
+	})
+	require.NoError(t, err)
+	baseURL := first.BaseURL
+	_, err = f.svc.UpdateConnection(ctx, f.ws, uuid.MustParse(second.ID), dto.UpdateForgeConnectionRequest{BaseURL: &baseURL})
+	require.ErrorIs(t, err, ErrForgeConnectionExists)
+}
+
+func TestForgeBaseURLChangeRequiresUnlinkedReposPostgres(t *testing.T) {
+	f := newForgeFixture(t)
+	ctx := context.Background()
+	conn := f.createConnection(t, domain.ForgeGitLab, "https://gitlab.example.com", "secret")
+	f.linkRepo(t, conn.ID, 42)
+	id := uuid.MustParse(conn.ID)
+
+	same := "https://gitlab.example.com/"
+	updated, err := f.svc.UpdateConnection(ctx, f.ws, id, dto.UpdateForgeConnectionRequest{BaseURL: &same})
+	require.NoError(t, err, "normalising the same URL is not a change")
+	require.Equal(t, "https://gitlab.example.com", updated.BaseURL)
+
+	other := "https://gitlab-other.example.com"
+	_, err = f.svc.UpdateConnection(ctx, f.ws, id, dto.UpdateForgeConnectionRequest{BaseURL: &other})
+	require.ErrorIs(t, err, ErrForgeBaseURLInUse)
+
+	var repoID uuid.UUID
+	require.NoError(t, f.db.Get(&repoID, `SELECT id FROM forge_repos WHERE connection_id=$1`, id))
+	require.NoError(t, f.svc.UnlinkRepo(ctx, f.ws, id, repoID))
+	updated, err = f.svc.UpdateConnection(ctx, f.ws, id, dto.UpdateForgeConnectionRequest{BaseURL: &other})
+	require.NoError(t, err)
+	require.Equal(t, other, updated.BaseURL)
+}
+
+func TestForgeLinkRepoRejectsUnsafeWebURLPostgres(t *testing.T) {
+	f := newForgeFixture(t)
+	ctx := context.Background()
+	conn := f.createConnection(t, domain.ForgeGitLab, "https://gitlab.example.com", "secret")
+	for _, webURL := range []string{"javascript:alert(1)", "/relative", "ftp://x", "https://"} {
+		_, err := f.svc.LinkRepo(ctx, f.ws, uuid.MustParse(conn.ID), dto.LinkForgeRepoRequest{
+			ExternalRepoID: 42, FullName: "team/app", WebURL: webURL,
+		})
+		require.ErrorIs(t, err, ErrForgeInvalidInput, webURL)
+	}
+	repo, err := f.svc.LinkRepo(ctx, f.ws, uuid.MustParse(conn.ID), dto.LinkForgeRepoRequest{
+		ExternalRepoID: 42, FullName: "team/app", WebURL: "https://gitlab.example/g/p",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "https://gitlab.example/g/p", repo.WebURL)
 }
 
 func TestForgeConnectionIsolationPostgres(t *testing.T) {

@@ -7,9 +7,22 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
+
+// ErrForgeConnectionExists reports a duplicate (workspace, provider, base URL)
+// connection. Callers map it to a conflict instead of echoing a driver error.
+var ErrForgeConnectionExists = errors.New("a connection for this provider and base URL already exists")
+
+func forgeConnectionWriteError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "forge_connections_workspace_id_provider_base_url_key" {
+		return ErrForgeConnectionExists
+	}
+	return err
+}
 
 // ForgeRepository stores admin-configured forge connections and the merge
 // requests, branches and commits their webhooks report. Every read and write
@@ -27,10 +40,11 @@ func NewForgeRepository(db *sqlx.DB) *ForgeRepository {
 func (r *ForgeRepository) CreateConnection(ctx context.Context, conn *domain.ForgeConnection) error {
 	query := `INSERT INTO forge_connections (id, workspace_id, provider, name, base_url, webhook_secret, access_token, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING created_at, updated_at`
-	return r.db.QueryRowContext(ctx, query,
+	err := r.db.QueryRowContext(ctx, query,
 		conn.ID, conn.WorkspaceID, conn.Provider, conn.Name, conn.BaseURL,
 		conn.WebhookSecret, conn.AccessToken, conn.CreatedBy,
 	).Scan(&conn.CreatedAt, &conn.UpdatedAt)
+	return forgeConnectionWriteError(err)
 }
 
 // GetConnection returns a connection by ID without workspace scoping. It is
@@ -64,7 +78,7 @@ func (r *ForgeRepository) UpdateConnection(ctx context.Context, conn *domain.For
 	result, err := r.db.ExecContext(ctx, `UPDATE forge_connections SET provider=$1, name=$2, base_url=$3, webhook_secret=$4, access_token=$5, updated_at=NOW()
 		WHERE workspace_id=$6 AND id=$7`, conn.Provider, conn.Name, conn.BaseURL, conn.WebhookSecret, conn.AccessToken, conn.WorkspaceID, conn.ID)
 	if err != nil {
-		return err
+		return forgeConnectionWriteError(err)
 	}
 	if changed, err := result.RowsAffected(); err != nil {
 		return err

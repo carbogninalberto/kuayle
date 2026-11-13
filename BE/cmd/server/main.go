@@ -357,7 +357,7 @@ func main() {
 	forgeRepo := repository.NewForgeRepository(db)
 	forgeSvc := service.NewForgeService(
 		forgeRepo, githubRepo, issueRepo, teamRepo, teamStatusRepo, historyRepo,
-		crypto.DeriveKey(cfg.JWTSecret+":forge"), hub, cfg.FrontendURL, cfg.ForgeAllowPrivateNetwork,
+		crypto.DeriveKey(cfg.JWTSecret+":forge"), hub, cfg.FrontendURL, cfg.ForgeWebhookBaseURL, cfg.ForgeAllowPrivateNetwork,
 	)
 	forgeH := handler.NewForgeHandler(forgeSvc)
 

@@ -11,6 +11,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/labstack/echo/v5"
+	log "github.com/sirupsen/logrus"
 )
 
 // Forge webhook payloads are bounded like GitHub's 25 MB limit.
@@ -22,6 +23,27 @@ type ForgeHandler struct {
 
 func NewForgeHandler(forgeSvc *service.ForgeService) *ForgeHandler {
 	return &ForgeHandler{forgeSvc: forgeSvc}
+}
+
+// configError maps forge configuration failures to HTTP statuses. Validation
+// messages are safe to return; repository and driver errors are logged and
+// answered with the generic internal error.
+func (h *ForgeHandler) configError(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, service.ErrForgeConnectionNotFound):
+		return response.NotFound(c, "Connection")
+	case errors.Is(err, service.ErrForgeRepoNotFound):
+		return response.NotFound(c, "Repository")
+	case errors.Is(err, service.ErrForgeInvalidInput):
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	case errors.Is(err, service.ErrForgeConnectionExists):
+		return response.Error(c, http.StatusConflict, "CONFLICT", "A connection for this provider and base URL already exists")
+	case errors.Is(err, service.ErrForgeBaseURLInUse):
+		return response.Error(c, http.StatusConflict, "CONFLICT", "Unlink repositories before changing the base URL")
+	default:
+		log.WithError(err).Error("Forge configuration request failed")
+		return response.InternalError(c)
+	}
 }
 
 // ListConnections returns the workspace's forge connections without secrets.
@@ -44,7 +66,7 @@ func (h *ForgeHandler) CreateConnection(c *echo.Context) error {
 	}
 	connection, err := h.forgeSvc.CreateConnection(c.Request().Context(), ws.ID, userID, req)
 	if err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+		return h.configError(c, err)
 	}
 	return response.Success(c, http.StatusCreated, connection)
 }
@@ -62,10 +84,7 @@ func (h *ForgeHandler) UpdateConnection(c *echo.Context) error {
 	}
 	connection, err := h.forgeSvc.UpdateConnection(c.Request().Context(), ws.ID, id, req)
 	if err != nil {
-		if errors.Is(err, service.ErrForgeConnectionNotFound) {
-			return response.NotFound(c, "Connection")
-		}
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+		return h.configError(c, err)
 	}
 	return response.Success(c, http.StatusOK, connection)
 }
@@ -78,10 +97,7 @@ func (h *ForgeHandler) DeleteConnection(c *echo.Context) error {
 	}
 	ws := c.Get("workspace").(*domain.Workspace)
 	if err := h.forgeSvc.DeleteConnection(c.Request().Context(), ws.ID, id); err != nil {
-		if errors.Is(err, service.ErrForgeConnectionNotFound) {
-			return response.NotFound(c, "Connection")
-		}
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+		return h.configError(c, err)
 	}
 	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
 }
@@ -116,10 +132,7 @@ func (h *ForgeHandler) LinkRepo(c *echo.Context) error {
 	}
 	repo, err := h.forgeSvc.LinkRepo(c.Request().Context(), ws.ID, id, req)
 	if err != nil {
-		if errors.Is(err, service.ErrForgeConnectionNotFound) {
-			return response.NotFound(c, "Connection")
-		}
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+		return h.configError(c, err)
 	}
 	return response.Success(c, http.StatusCreated, repo)
 }
@@ -136,10 +149,7 @@ func (h *ForgeHandler) UnlinkRepo(c *echo.Context) error {
 	}
 	ws := c.Get("workspace").(*domain.Workspace)
 	if err := h.forgeSvc.UnlinkRepo(c.Request().Context(), ws.ID, connectionID, repoID); err != nil {
-		if errors.Is(err, service.ErrForgeRepoNotFound) {
-			return response.NotFound(c, "Repository")
-		}
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+		return h.configError(c, err)
 	}
 	return response.Success(c, http.StatusOK, map[string]string{"status": "unlinked"})
 }

@@ -45,83 +45,31 @@ func verifyGitHubWebhookSignature(secret string, payload []byte, signature strin
 	return hmac.Equal([]byte(sig), []byte(expected))
 }
 
-type githubForgePRPayload struct {
-	Action      string `json:"action"`
-	Number      int    `json:"number"`
-	PullRequest struct {
-		ID      int64  `json:"id"`
-		Number  int    `json:"number"`
-		Title   string `json:"title"`
-		State   string `json:"state"`
-		Draft   bool   `json:"draft"`
-		Merged  bool   `json:"merged"`
-		HTMLURL string `json:"html_url"`
-		Body    string `json:"body"`
-		Head    struct {
-			Ref string `json:"ref"`
-		} `json:"head"`
-		Base struct {
-			Ref string `json:"ref"`
-		} `json:"base"`
-		User struct {
-			Login string `json:"login"`
-		} `json:"user"`
-		MergedAt *time.Time `json:"merged_at"`
-		ClosedAt *time.Time `json:"closed_at"`
-	} `json:"pull_request"`
-	Repository struct {
-		ID       int64  `json:"id"`
-		FullName string `json:"full_name"`
-		HTMLURL  string `json:"html_url"`
-	} `json:"repository"`
-}
-
-type githubForgePushPayload struct {
-	Ref     string `json:"ref"`
-	Commits []struct {
-		ID        string `json:"id"`
-		Message   string `json:"message"`
-		URL       string `json:"url"`
-		Timestamp string `json:"timestamp"`
-		Author    struct {
-			Username string `json:"username"`
-			Name     string `json:"name"`
-		} `json:"author"`
-	} `json:"commits"`
-	Repository struct {
-		ID       int64  `json:"id"`
-		FullName string `json:"full_name"`
-		HTMLURL  string `json:"html_url"`
-	} `json:"repository"`
-}
-
-type githubForgeCreatePayload struct {
-	RefType    string `json:"ref_type"`
-	Ref        string `json:"ref"`
-	Repository struct {
-		ID       int64  `json:"id"`
-		FullName string `json:"full_name"`
-		HTMLURL  string `json:"html_url"`
-	} `json:"repository"`
+// githubMergeRequestState is the state both GitHub processors store for a pull
+// request. The live processor and the forge adapter share it so a payload
+// cannot be interpreted differently by each path.
+func githubMergeRequestState(state string, draft, merged bool) string {
+	if draft {
+		state = "draft"
+	}
+	if merged {
+		state = "merged"
+	}
+	return state
 }
 
 func (githubForge) ParseWebhook(header http.Header, body []byte) (*domain.ForgeEvent, error) {
 	switch header.Get("X-GitHub-Event") {
 	case "pull_request":
-		var payload githubForgePRPayload
+		var payload ghWebhookPR
 		if err := json.Unmarshal(body, &payload); err != nil {
 			return nil, fmt.Errorf("unmarshaling GitHub pull request: %w", err)
 		}
 		pr := payload.PullRequest
-		state := pr.State
-		switch {
-		case pr.Merged:
-			state = "merged"
-		case payload.Action == "closed":
+		state := githubMergeRequestState(pr.State, pr.Draft, pr.Merged)
+		if !pr.Merged && payload.Action == "closed" {
 			state = "closed"
-		case pr.Draft:
-			state = "draft"
-		case state == "":
+		} else if state == "" {
 			state = "open"
 		}
 		action := "updated"
@@ -166,7 +114,7 @@ func (githubForge) ParseWebhook(header http.Header, body []byte) (*domain.ForgeE
 			},
 		}, nil
 	case "push":
-		var payload githubForgePushPayload
+		var payload ghWebhookPush
 		if err := json.Unmarshal(body, &payload); err != nil {
 			return nil, fmt.Errorf("unmarshaling GitHub push: %w", err)
 		}
@@ -194,7 +142,7 @@ func (githubForge) ParseWebhook(header http.Header, body []byte) (*domain.ForgeE
 		}
 		return event, nil
 	case "create":
-		var payload githubForgeCreatePayload
+		var payload ghWebhookCreate
 		if err := json.Unmarshal(body, &payload); err != nil {
 			return nil, fmt.Errorf("unmarshaling GitHub create: %w", err)
 		}

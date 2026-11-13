@@ -14,8 +14,14 @@ POST https://<kuayle-host>/api/forges/webhook/<connection-id>
 
 The connection ID selects the secret, so a request with an unknown ID, a bad
 token or a bad signature is rejected with `401` before any payload field is
-trusted. Link each repository by its numeric external ID and full name
-(`group/project` or `owner/repository`).
+trusted. Set `FORGE_WEBHOOK_BASE_URL` when the API origin differs from
+`FRONTEND_URL`; without it the URL follows `FRONTEND_URL` (with `:5173` mapped
+to `:8080` in development). Link each repository by its numeric external ID and
+full name (`group/project` or `owner/repository`).
+
+Deliveries are processed once per connection. A GitLab delivery without
+`X-Gitlab-Event-UUID` or `Idempotency-Key` is identified by the SHA-256 of its
+body, so an identical redelivery is ignored rather than rejected.
 
 ## GitLab
 
