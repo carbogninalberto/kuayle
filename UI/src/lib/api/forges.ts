@@ -8,6 +8,7 @@ import type {
 	ForgeRepoInput
 } from '$lib/types/forge';
 import { safeForgeUrl } from '$lib/security/forge-url';
+import { normalizeForgeActivity } from './forge-activity';
 
 export function listForgeConnections(slug: string): Promise<ForgeConnection[]> {
 	return api.get<ForgeConnection[]>(`/api/workspaces/${slug}/forges/connections`);
@@ -63,8 +64,8 @@ export async function getIssueForgeActivity(
 	slug: string,
 	identifier: string
 ): Promise<ForgeIssueActivity> {
-	const activity = await api.get<ForgeIssueActivity>(
-		`/api/workspaces/${slug}/issues/${identifier}/forges`
+	const activity = normalizeForgeActivity(
+		await api.get<ForgeIssueActivity>(`/api/workspaces/${slug}/issues/${identifier}/forges`)
 	);
 	return {
 		merge_requests: activity.merge_requests.map((mr) => ({
