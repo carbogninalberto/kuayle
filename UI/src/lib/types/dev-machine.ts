@@ -64,6 +64,8 @@ export interface DevMachine {
 	memory_mb: number;
 	disk_gb: number;
 	pids_limit: number;
+	/** This machine's own agent task limit; null follows the workspace policy. */
+	max_tasks?: number | null;
 	environment_id?: string;
 	repository_affinity_id?: string;
 	environment_builder: boolean;

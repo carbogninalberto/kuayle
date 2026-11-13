@@ -647,9 +647,10 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
 	// validation or publication) comes first: one already used for this
 	// issue, then the most recently active. Otherwise the task shares the
 	// least loaded busy machine that runs fewer active tasks than the
-	// workspace's task_machine_max_tasks. Only when none is left does the task
-	// get a new machine. The workspace lock above serializes these choices, so
-	// concurrent tasks cannot take the same last place.
+	// machine's own max_tasks, or the workspace's task_machine_max_tasks when
+	// it has none. Only when none is left does the task get a new machine. The
+	// workspace lock above serializes these choices, so concurrent tasks
+	// cannot take the same last place.
 	var machineID uuid.UUID
 	err = tx.GetContext(ctx, &machineID, `SELECT m.id FROM dev_machines m
  JOIN dev_machine_workspace_policies policy ON policy.workspace_id=m.workspace_id AND policy.enabled
@@ -665,7 +666,7 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
  AND m.environment_id IS NOT DISTINCT FROM $4::uuid
  AND (policy.allow_sudo OR NOT m.sudo_enabled)
  AND (policy.allow_docker OR NOT EXISTS(SELECT 1 FROM dev_machine_services s WHERE s.machine_id=m.id AND s.service_type='docker'))
- AND load.tasks < policy.task_machine_max_tasks
+ AND load.tasks < COALESCE(m.max_tasks, policy.task_machine_max_tasks)
  AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.task_id IS NULL AND r.status IN ('queued','starting','running','waiting_input'))
  AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased')
   AND o.action IN ('stop','pause','teardown','snapshot_environment','run_check','run_tool'))

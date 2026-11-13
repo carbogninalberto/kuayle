@@ -678,13 +678,63 @@ func (s *DevMachineService) NameAvailable(ctx context.Context, workspaceID, user
 	return !exists, err
 }
 
-// Update resizes the machine; a request without a size change returns it
-// unchanged.
+// Update resizes the machine and/or changes its own agent task limit; a
+// request that changes neither returns it unchanged. The limit is validated
+// and authorized before a resize writes anything, so a request carrying both
+// never half-applies.
 func (s *DevMachineService) Update(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.UpdateDevMachineRequest) (*domain.DevMachine, error) {
-	if request.Resizes() {
-		return s.resize(ctx, workspaceID, machineID, userID, request)
+	if !request.ChangesTaskLimit() {
+		if request.Resizes() {
+			return s.resize(ctx, workspaceID, machineID, userID, request)
+		}
+		return s.GetForUser(ctx, workspaceID, machineID, userID)
 	}
-	return s.GetForUser(ctx, workspaceID, machineID, userID)
+	maxTasks, err := requestedTaskLimit(request)
+	if err != nil {
+		return nil, err
+	}
+	// The same owner check as resizing, additive to the route's
+	// dev_machine:manage scope.
+	if _, err = s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
+		return nil, err
+	}
+	if request.Resizes() {
+		if _, err = s.resize(ctx, workspaceID, machineID, userID, request); err != nil {
+			return nil, err
+		}
+	}
+	return s.updateTaskLimit(ctx, workspaceID, machineID, userID, maxTasks)
+}
+
+// requestedTaskLimit is the limit the request sets; nil clears it and makes
+// the machine follow the workspace policy again.
+func requestedTaskLimit(request dto.UpdateDevMachineRequest) (*int, error) {
+	switch {
+	case request.ClearMaxTasks && request.MaxTasks != nil:
+		return nil, fmt.Errorf("%w: send max_tasks or clear_max_tasks, not both", ErrInvalidMachineInput)
+	case request.MaxTasks != nil:
+		if *request.MaxTasks < 1 || *request.MaxTasks > domain.MaxTaskMachineMaxTasks {
+			return nil, fmt.Errorf("%w: max_tasks must be between 1 and %d", ErrInvalidMachineInput, domain.MaxTaskMachineMaxTasks)
+		}
+		return request.MaxTasks, nil
+	default:
+		return nil, nil
+	}
+}
+
+// updateTaskLimit sets or clears how many active agent tasks may share an
+// authorized machine. The machine may be in any status: the limit is only read
+// when a task is placed or an attempt starts, so nothing restarts.
+func (s *DevMachineService) updateTaskLimit(ctx context.Context, workspaceID, machineID, userID uuid.UUID, maxTasks *int) (*domain.DevMachine, error) {
+	updated, err := s.store.UpdateMachineMaxTasks(ctx, workspaceID, machineID, maxTasks)
+	if err != nil {
+		return nil, err
+	}
+	if updated == nil {
+		return nil, ErrMachineNotFound
+	}
+	s.emit(ctx, updated, nil, &userID, "lifecycle", "machine.task_limit_updated", map[string]any{"max_tasks": maxTasks})
+	return updated, nil
 }
 
 func (s *DevMachineService) TouchActivity(ctx context.Context, workspaceID, machineID, userID uuid.UUID) error {

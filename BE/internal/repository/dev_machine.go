@@ -25,6 +25,7 @@ type DevMachineStore interface {
 	GetMachine(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachine, error)
 	GetMachineForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachine, error)
 	GetMachineInternal(context.Context, uuid.UUID) (*domain.DevMachine, error)
+	UpdateMachineMaxTasks(context.Context, uuid.UUID, uuid.UUID, *int) (*domain.DevMachine, error)
 	ListMachinesForUser(context.Context, uuid.UUID, uuid.UUID, string, *uuid.UUID, int, int) ([]domain.DevMachine, int, error)
 	CountActiveMachines(context.Context, uuid.UUID, *uuid.UUID) (int, error)
 	GetOperationByIdempotency(context.Context, uuid.UUID, uuid.UUID, string) (*domain.DevMachineOperation, error)
@@ -321,6 +322,22 @@ func (r *DevMachineRepository) GetMachineForUser(ctx context.Context, workspaceI
 		return nil, nil
 	}
 	return &machine, err
+}
+
+// UpdateMachineMaxTasks sets or clears how many active agent tasks may share
+// the machine. It touches nothing else, and no operation or restart follows:
+// only future task placement reads the limit.
+func (r *DevMachineRepository) UpdateMachineMaxTasks(ctx context.Context, workspaceID, machineID uuid.UUID, maxTasks *int) (*domain.DevMachine, error) {
+	var machine domain.DevMachine
+	err := r.db.GetContext(ctx, &machine, `UPDATE dev_machines SET max_tasks=$3, updated_at=now()
+		WHERE workspace_id=$1 AND id=$2 RETURNING *`, workspaceID, machineID, maxTasks)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &machine, nil
 }
 
 func (r *DevMachineRepository) GetMachineInternal(ctx context.Context, machineID uuid.UUID) (*domain.DevMachine, error) {
@@ -1153,15 +1170,18 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 		}
 	} else {
 		// Attempts of different tasks share the machine, each in its own
-		// worktree, while fewer tasks than the workspace limit work there
-		// (attempt, validation, publication or cleanup). The machine lock
-		// above serializes this count. A task waits for the user's own
-		// session and never runs two attempts at once.
+		// worktree, while fewer tasks than the machine's limit (its max_tasks,
+		// or the workspace's when it has none) work there (attempt,
+		// validation, publication or cleanup). The machine lock above
+		// serializes this count. A task waits for the user's own session and
+		// never runs two attempts at once.
 		if err := tx.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE machine_id=$1 AND task_id IS NULL AND status IN ('queued','starting','running','waiting_input'))
 		OR EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE task_id=$2 AND id<>$3 AND status IN ('queued','starting','running','waiting_input'))
 		OR (SELECT count(DISTINCT r.task_id) FROM dev_machine_agent_runs r WHERE r.machine_id=$1 AND r.task_id<>$2
 			AND (r.status IN ('queued','starting','running','waiting_input') OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.run_id=r.id AND t.state IN ('preparing','running','waiting_input','validating','publishing','cancelling') AND `+taskHoldsMachine("t")+`)))
-			>= COALESCE((SELECT task_machine_max_tasks FROM dev_machine_workspace_policies WHERE workspace_id=$4), $5)`,
+			>= COALESCE((SELECT COALESCE(m.max_tasks, p.task_machine_max_tasks) FROM dev_machines m
+				JOIN dev_machine_workspace_policies p ON p.workspace_id=m.workspace_id
+				WHERE m.id=$1 AND m.workspace_id=$4), $5)`,
 			run.MachineID, *run.TaskID, run.ID, run.WorkspaceID, domain.DefaultTaskMachineMaxTasks); err != nil {
 			return err
 		}
