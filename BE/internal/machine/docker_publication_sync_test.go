@@ -52,6 +52,11 @@ func (f *scriptFixture) run(dir string, env []string, args ...string) string {
 	f.t.Helper()
 	command := exec.Command(f.realGit, append([]string{"-c", "core.hooksPath=/dev/null"}, args...)...)
 	command.Dir = dir
+	if env == nil {
+		// Git setup steps such as a maintainer's merge need an identity; CI
+		// runners have no global one.
+		env = fixtureIdentity
+	}
 	command.Env = append(os.Environ(), env...)
 	output, err := command.CombinedOutput()
 	require.NoError(f.t, err, string(output))
@@ -383,7 +388,8 @@ func TestPushScriptPublishesAForceThatOnlyDropsKuayleCommits(t *testing.T) {
 	// The checkout is rebuilt from the base branch without the published commit,
 	// as the merge-base fallback leaves it.
 	f.freshCheckout()
-	rebuiltCommit := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+	// A different file, so the rebuild never has the published commit's ID.
+	rebuiltCommit := f.commitFile(f.checkout, "rebuilt.txt", kuayleIdentity)
 	lease, err := f.sync(published)
 	require.NoError(t, err, lease)
 	require.Equal(t, "lease "+published, lease)
