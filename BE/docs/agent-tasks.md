@@ -888,7 +888,12 @@ slot on one of them instead of creating a task machine the host cannot start: it
 stays `preparing` with "Waiting for a free task slot on <name> (<tasks> of
 <limit> in use)..." and does not count a failure. A task whose own task machine
 was created but never started moves to a free slot when one appears, and that
-unstarted machine is deleted. Paused and stopped machines are not
+unstarted machine is deleted. The limit bounds concurrency on a machine, not
+the number of machines, so raising it (up to 10) lets more tasks run there at
+once. A machine excluded from selection (running the user's own agent session,
+or with a pending stop, pause, teardown, snapshot, check or custom tool
+operation) counts as no suitable machine, so a task creates a task machine
+while such a machine exists. Paused and stopped machines are not
 chosen, since their user paused or stopped them. The full rule is in
 [task machine reuse](../../TECHNICAL.md#resource-limits-and-quotas). Each task
 has its own checkout, branch and session directory; attempt creation re-checks

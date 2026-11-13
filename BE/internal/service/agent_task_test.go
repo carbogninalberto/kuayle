@@ -165,6 +165,22 @@ func (f *taskRuntimeStoreFake) ProfileBundle(context.Context, domain.AgentTask) 
 	return nil, nil
 }
 
+// flakyDeleteStore fails the first deletes of a machine, then delegates.
+type flakyDeleteStore struct {
+	*devMachineStoreFake
+	failures int
+	requests int
+}
+
+func (f *flakyDeleteStore) RequestPermanentDelete(ctx context.Context, workspaceID, machineID uuid.UUID, requestedByUserID *uuid.UUID) (*domain.DevMachineOperation, error) {
+	f.requests++
+	if f.failures > 0 {
+		f.failures--
+		return nil, errors.New("temporary delete failure")
+	}
+	return f.devMachineStoreFake.RequestPermanentDelete(ctx, workspaceID, machineID, requestedByUserID)
+}
+
 func TestAgentTaskWorkerUsesNativeExecutionState(t *testing.T) {
 	store := &taskStoreFake{task: domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New(), State: "queued"}}
 	runtime := &taskRuntimeFake{ready: false}
@@ -891,6 +907,30 @@ func TestPreparationWaitsForAFreeTaskSlotAndDeletesItsUnstartedMachine(t *testin
 
 	svc.process(context.Background(), tasks.task)
 	require.Equal(t, []bool{false}, tasks.results, "a slot wait is not a failure")
+}
+
+// Deleting the task's unstarted machine is retried after transient failures,
+// so the machine is not left orphaned when the task moves to a free slot.
+func TestPreparationRetriesDeletingItsUnstartedMachine(t *testing.T) {
+	store, runtime, task := reusedMachineFixture(domain.DevMachineStatusQueued, domain.DevMachineStatusRunning)
+	own := task.ReservedMachineID
+	task.MachineID = &own
+	store.machine.ID = own
+	store.machine.Status = domain.DevMachineStatusQueued
+	flaky := &flakyDeleteStore{devMachineStoreFake: store, failures: 2}
+	runtime.machines = newTestDevMachineService(flaky)
+	runtime.tasks = &taskRuntimeStoreFake{
+		reservation: repository.MachineReservation{ReservedID: uuid.New(), Abandoned: &own},
+		err:         &repository.MachineSlotWaitError{Name: "dev-machine", Tasks: 2, Limit: 2},
+	}
+
+	ready, err := runtime.Prepare(context.Background(), &task)
+	require.False(t, ready)
+	var wait *repository.MachineSlotWaitError
+	require.ErrorAs(t, err, &wait)
+	require.Equal(t, 3, flaky.requests, "the delete is retried after two transient failures")
+	require.Equal(t, 1, store.permanentDeleteRequests, "the third attempt queues the teardown")
+	require.NotNil(t, store.machine.DeleteRequestedAt)
 }
 
 // A stopped or paused machine the task restarts waits for host capacity too.

@@ -288,6 +288,39 @@ func TestReservationWaitsForATaskSlotOnAFullMachine(t *testing.T) {
 	require.Equal(t, 1, machines)
 }
 
+// A suitable machine with a free task slot that another transaction holds a
+// row lock on is skipped by the locked selection. It is not full, so the task
+// retries next poll instead of waiting on it or creating another machine.
+func TestReservationRetriesWhenAFreeMachineIsRowLocked(t *testing.T) {
+	f := newMachineShareFixture(t)
+	f.taskLimit(t, 2)
+	machine := f.runningMachine(t, "1 minute")
+	claimed := f.preparingTask(t)
+
+	held, err := f.db.BeginTxx(context.Background(), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = held.Rollback() })
+	var locked uuid.UUID
+	require.NoError(t, held.GetContext(context.Background(), &locked, `SELECT id FROM dev_machines WHERE id=$1 FOR UPDATE`, machine))
+
+	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+	require.ErrorIs(t, err, ErrAgentTaskConflict, "a merely row-locked machine is not full; the task retries")
+	require.Equal(t, uuid.Nil, reservation.ReservedID)
+	require.Equal(t, uuid.Nil, reservation.MachineID)
+	require.Nil(t, reservation.Abandoned)
+	var machines int
+	require.NoError(t, f.db.Get(&machines, `SELECT count(*) FROM dev_machines WHERE workspace_id=$1`, f.workspaceID))
+	require.Equal(t, 1, machines, "no new machine is reserved while the free one is busy")
+	var waiting int
+	require.NoError(t, f.db.Get(&waiting, `SELECT count(*) FROM agent_tasks WHERE id=$1 AND machine_id IS NULL`, claimed.ID))
+	require.Equal(t, 1, waiting, "nothing is written")
+
+	require.NoError(t, held.Rollback())
+	reservation, err = f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+	require.NoError(t, err)
+	require.Equal(t, machine, reservation.MachineID, "the next poll takes the free slot")
+}
+
 // Without any suitable running machine the task still reserves a new task
 // machine, as before.
 func TestReservationCreatesATaskMachineWithoutASuitableMachine(t *testing.T) {

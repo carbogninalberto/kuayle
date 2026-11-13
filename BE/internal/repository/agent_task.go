@@ -674,21 +674,32 @@ func reusableMachine(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, r
 	return machineID, err
 }
 
-// fullMachine reports the suitable machine whose task slots are all in use, if
-// the task's creator has one: the task waits for a place there.
-func fullMachine(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, repositoryID uuid.UUID, environmentID *uuid.UUID) (*MachineSlotWaitError, error) {
-	var name string
-	var tasks, limit int
+// machineLoad is a suitable machine of the task's creator and how much of its
+// task slot limit is in use.
+type machineLoad struct {
+	Name  string
+	Tasks int
+	Limit int
+}
+
+// fullMachine returns the suitable machine a task would use, whether or not it
+// has a free task slot. reusableMachine already took every unlocked machine
+// with a free slot, so a machine below its limit here is held by another
+// transaction's row lock or freed its last slot between the two reads: the
+// reservation retries instead of creating a machine. A machine at its limit is
+// the one the task waits on.
+func fullMachine(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, repositoryID uuid.UUID, environmentID *uuid.UUID) (*machineLoad, error) {
+	var load machineLoad
 	err := tx.QueryRowxContext(ctx, `SELECT m.name, load.tasks, `+taskSlotLimit+` `+machineSelectionSQL()+machineSelectionOrder+`
  LIMIT 1`,
-		task.WorkspaceID, task.CreatorID, repositoryID, environmentID, task.Provider, task.ID, task.IssueID).Scan(&name, &tasks, &limit)
+		task.WorkspaceID, task.CreatorID, repositoryID, environmentID, task.Provider, task.ID, task.IssueID).Scan(&load.Name, &load.Tasks, &load.Limit)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &MachineSlotWaitError{Name: name, Tasks: tasks, Limit: limit}, nil
+	return &load, nil
 }
 
 // saveTaskMachine stores the machine a task waits on and, when it left a
@@ -740,6 +751,10 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
 		// a new reservation, since that machine ID cannot be reused. A machine
 		// created for this task that never started can make way for a slot.
 		var pending, unstarted bool
+		// This read is unlocked, so the manager may move the machine from
+		// queued to spawning before the delete below. That is safe:
+		// requestPermanentDelete locks the row and queues a teardown with a
+		// generation bump, and the task never ran on that machine.
 		if err = tx.QueryRowContext(ctx, `SELECT $1::uuid=$2::uuid AND NOT EXISTS(SELECT 1 FROM dev_machines WHERE id=$1),
  EXISTS(SELECT 1 FROM dev_machines WHERE id=$1 AND (status='destroyed' OR delete_requested_at IS NOT NULL)),
  $1::uuid=$2::uuid AND EXISTS(SELECT 1 FROM dev_machines WHERE id=$1 AND status='queued' AND started_at IS NULL AND delete_requested_at IS NULL)`,
@@ -775,13 +790,18 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
 	if !errors.Is(err, sql.ErrNoRows) {
 		return MachineReservation{}, err
 	}
-	// No machine has a free task slot. If one is full, the task waits for a
-	// place there rather than starting a machine the host cannot admit.
-	wait, err := fullMachine(ctx, tx, task, repositoryID, environmentID)
+	// No machine has a free task slot. A machine below its limit is here
+	// because another transaction locks its row (or a slot freed between the
+	// two reads): the next poll takes that slot rather than starting a machine
+	// the host cannot admit. A machine at its limit is one the task waits on.
+	load, err := fullMachine(ctx, tx, task, repositoryID, environmentID)
 	if err != nil {
 		return MachineReservation{}, err
 	}
-	if wait != nil {
+	if load != nil {
+		if load.Tasks < load.Limit {
+			return MachineReservation{}, ErrAgentTaskConflict
+		}
 		if gone || abandoned != nil {
 			reservation.MachineID = uuid.Nil
 			reservation.Abandoned = abandoned
@@ -793,7 +813,7 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
 				return MachineReservation{}, err
 			}
 		}
-		return reservation, wait
+		return reservation, &MachineSlotWaitError{Name: load.Name, Tasks: load.Tasks, Limit: load.Limit}
 	}
 	if abandoned != nil {
 		// No other machine: the task keeps waiting for host capacity on its own

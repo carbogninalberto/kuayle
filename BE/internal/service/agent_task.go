@@ -538,6 +538,31 @@ func taskMachineRequest(task domain.AgentTask, profile string, resources domain.
 	}
 }
 
+// removeUnstartedMachine removes a machine the task's own reservation created
+// and never started, so the manager tears it down instead of leaving it queued
+// for host capacity. A transient failure is retried: the task's next
+// reservation cannot reuse that name, so nothing else would clean it up.
+func (r *devMachineTaskRuntime) removeUnstartedMachine(ctx context.Context, task domain.AgentTask, machineID uuid.UUID) {
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if _, err = r.machines.requestPermanentDelete(ctx, task.WorkspaceID, machineID, task.CreatorID); err == nil || errors.Is(err, ErrMachineNotFound) {
+			return
+		}
+		if attempt == 3 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(attempt) * 200 * time.Millisecond):
+		}
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	log.WithFields(log.Fields{"task_id": task.ID, "machine_id": machineID}).WithError(err).Warn("Could not remove the task's unstarted machine")
+}
+
 func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentTask) (bool, error) {
 	s := r.machines
 	// The worker acts as the task's creator, so the demo rule is theirs.
@@ -575,9 +600,7 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 			// A machine the task's own reservation created and never started
 			// is removed, so the manager tears it down instead of leaving it
 			// queued for host capacity.
-			if _, deleteErr := s.requestPermanentDelete(ctx, task.WorkspaceID, *reservation.Abandoned, task.CreatorID); deleteErr != nil {
-				log.WithFields(log.Fields{"task_id": task.ID, "machine_id": *reservation.Abandoned}).WithError(deleteErr).Warn("Could not remove the task's unstarted machine")
-			}
+			r.removeUnstartedMachine(ctx, *task, *reservation.Abandoned)
 		}
 		return err
 	}
