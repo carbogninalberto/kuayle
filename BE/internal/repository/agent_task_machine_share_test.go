@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"sync"
@@ -104,9 +105,9 @@ func TestReservationSharesABusyMachineBelowItsTaskLimit(t *testing.T) {
 		t.Helper()
 		f.exec(t, `UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, claimed.ID)
 		claimed.MachineID = nil
-		id, _, err := f.repo.ReserveMachine(f.ctx, claimed, repository, &f.environmentID)
+		reservation, err := f.repo.ReserveMachine(f.ctx, claimed, repository, &f.environmentID)
 		require.NoError(t, err)
-		return id
+		return reservation.MachineID
 	}
 
 	busy := f.runningMachine(t, "1 minute")
@@ -124,7 +125,9 @@ func TestReservationSharesABusyMachineBelowItsTaskLimit(t *testing.T) {
 	require.Equal(t, busy, reserve())
 
 	f.workingTask(t, busy)
-	require.Equal(t, claimed.ReservedMachineID, reserve(), "a machine at the limit is not shared: a new machine is created")
+	f.exec(t, `UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, claimed.ID)
+	_, err := f.repo.ReserveMachine(f.ctx, claimed, repository, &f.environmentID)
+	require.ErrorIs(t, err, ErrMachineSlotWait, "a machine at the limit waits for a place instead of creating a machine")
 
 	f.exec(t, `UPDATE dev_machine_workspace_policies SET task_machine_max_tasks=3 WHERE workspace_id=$1`, f.workspaceID)
 	require.Equal(t, busy, reserve(), "the workspace limit decides how many tasks share a machine")
@@ -150,9 +153,8 @@ func TestReservationSharesABusyMachineBelowItsTaskLimit(t *testing.T) {
 }
 
 // With the default limit ten tasks of a user share one running machine. The
-// eleventh gets a machine of its own, which waits while the user's machine
-// limit is reached; ten attempts run on the shared machine together and an
-// eleventh attempt waits for a place.
+// eleventh waits for a place on it rather than getting a machine of its own;
+// ten attempts run on the shared machine together and an eleventh waits.
 func TestTenTasksShareOneMachineByDefault(t *testing.T) {
 	f := newMachineShareFixture(t)
 	var limit int
@@ -163,15 +165,15 @@ func TestTenTasksShareOneMachineByDefault(t *testing.T) {
 		f.workingTask(t, machine)
 	}
 	tenth := f.preparingTask(t)
-	id, _, err := f.repo.ReserveMachine(f.ctx, tenth, uuid.New(), &f.environmentID)
+	first, err := f.repo.ReserveMachine(f.ctx, tenth, uuid.New(), &f.environmentID)
 	require.NoError(t, err)
-	require.Equal(t, machine, id, "the tenth task shares the machine")
+	require.Equal(t, machine, first.MachineID, "the tenth task shares the machine")
 
 	eleventh := f.preparingTask(t)
-	id, reserved, err := f.repo.ReserveMachine(f.ctx, eleventh, uuid.New(), &f.environmentID)
-	require.NoError(t, err)
-	require.Equal(t, eleventh.ReservedMachineID, id, "the eleventh task gets a new machine")
-	require.Equal(t, eleventh.ReservedMachineID, reserved)
+	reservation, err := f.repo.ReserveMachine(f.ctx, eleventh, uuid.New(), &f.environmentID)
+	require.ErrorIs(t, err, ErrMachineSlotWait, "the eleventh task waits for a place on the shared machine")
+	require.Equal(t, eleventh.ReservedMachineID, reservation.ReservedID)
+	reserved := reservation.ReservedID
 
 	f.exec(t, `UPDATE dev_machine_workspace_policies SET max_machines_per_user=1 WHERE workspace_id=$1`, f.workspaceID)
 	routingKey := strings.ReplaceAll(reserved.String(), "-", "")[:16]
@@ -209,15 +211,20 @@ func TestConcurrentReservationsDoNotExceedTheMachineTaskLimit(t *testing.T) {
 		tasks[i] = f.preparingTask(t)
 	}
 	chosen := make(chan uuid.UUID, len(tasks))
+	waited := make(chan struct{}, len(tasks))
 	var wg sync.WaitGroup
 	for _, task := range tasks {
 		wg.Go(func() {
-			id, _, err := f.repo.ReserveMachine(f.ctx, task, uuid.New(), &f.environmentID)
+			reservation, err := f.repo.ReserveMachine(f.ctx, task, uuid.New(), &f.environmentID)
+			if errors.Is(err, ErrMachineSlotWait) {
+				waited <- struct{}{}
+				return
+			}
 			if err != nil {
 				t.Error(err)
 				return
 			}
-			chosen <- id
+			chosen <- reservation.MachineID
 		})
 	}
 	wg.Wait()
@@ -228,7 +235,138 @@ func TestConcurrentReservationsDoNotExceedTheMachineTaskLimit(t *testing.T) {
 			shared++
 		}
 	}
-	require.Equal(t, 2, shared, "two tasks share the machine; the others get new machines")
+	require.Equal(t, 2, shared, "two tasks share the machine; the others wait for a place")
+	require.Len(t, waited, 2)
+}
+
+// reservedTaskMachine inserts the machine a task reserved for itself and
+// points the task at it. A machine that never started is queued, as the
+// service leaves it while the host cannot admit it.
+func (f machineShareFixture) reservedTaskMachine(t *testing.T, task domain.AgentTask, status domain.DevMachineStatus, started bool) uuid.UUID {
+	t.Helper()
+	suffix := strings.ReplaceAll(task.ReservedMachineID.String(), "-", "")
+	var startedAt any
+	if started {
+		startedAt = time.Now().UTC()
+	}
+	f.exec(t, `INSERT INTO dev_machines
+		(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,
+		 repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,
+		 machine_size,cpu_millis,memory_mb,disk_gb,environment_id,started_at)
+		VALUES($1,$2,$3,$4,$5,$6,'running',1,'','github','','','','','small',1000,2048,20,$7,$8)`,
+		task.ReservedMachineID, f.workspaceID, f.userID, suffix[:16], "task-"+suffix, status, f.environmentID, startedAt)
+	f.exec(t, `UPDATE agent_tasks SET machine_id=$2 WHERE id=$1`, task.ID, task.ReservedMachineID)
+	return task.ReservedMachineID
+}
+
+// A creator whose suitable machine is at its task limit waits for a place
+// there instead of getting a task machine the host cannot start.
+func TestReservationWaitsForATaskSlotOnAFullMachine(t *testing.T) {
+	f := newMachineShareFixture(t)
+	f.taskLimit(t, 2)
+	machine := f.runningMachine(t, "1 minute")
+	f.exec(t, `UPDATE dev_machines SET name='dev-machine' WHERE id=$1`, machine)
+	f.workingTask(t, machine)
+	f.workingTask(t, machine)
+	claimed := f.preparingTask(t)
+
+	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+	var wait *MachineSlotWaitError
+	require.ErrorAs(t, err, &wait)
+	require.ErrorIs(t, err, ErrMachineSlotWait)
+	require.Equal(t, "dev-machine", wait.Name)
+	require.Equal(t, 2, wait.Tasks)
+	require.Equal(t, 2, wait.Limit)
+	require.Equal(t, claimed.ReservedMachineID, reservation.ReservedID)
+	require.Equal(t, uuid.Nil, reservation.MachineID, "a waiting task keeps no machine")
+	require.Nil(t, reservation.Abandoned)
+	var waiting int
+	require.NoError(t, f.db.Get(&waiting, `SELECT count(*) FROM agent_tasks WHERE id=$1 AND machine_id IS NULL`, claimed.ID))
+	require.Equal(t, 1, waiting, "the placeholder is not reserved for a machine that cannot start")
+	var machines int
+	require.NoError(t, f.db.Get(&machines, `SELECT count(*) FROM dev_machines WHERE workspace_id=$1`, f.workspaceID))
+	require.Equal(t, 1, machines)
+}
+
+// Without any suitable running machine the task still reserves a new task
+// machine, as before.
+func TestReservationCreatesATaskMachineWithoutASuitableMachine(t *testing.T) {
+	f := newMachineShareFixture(t)
+	claimed := f.preparingTask(t)
+	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+	require.NoError(t, err)
+	require.Equal(t, claimed.ReservedMachineID, reservation.MachineID)
+	require.Equal(t, claimed.ReservedMachineID, reservation.ReservedID)
+	require.Nil(t, reservation.Abandoned)
+}
+
+// A task whose own task machine never started moves to a slot that freed on a
+// suitable machine; the unstarted machine is reported for deletion.
+func TestReservationMovesATaskFromItsUnstartedMachineToAFreeSlot(t *testing.T) {
+	f := newMachineShareFixture(t)
+	f.taskLimit(t, 1)
+	machine := f.runningMachine(t, "1 minute")
+	holder := f.workingTask(t, machine)
+	claimed := f.preparingTask(t)
+	own := f.reservedTaskMachine(t, claimed, domain.DevMachineStatusQueued, false)
+	f.exec(t, `UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now() WHERE task_id=$1`, holder)
+	f.exec(t, `UPDATE agent_tasks SET state='awaiting_review' WHERE id=$1`, holder)
+
+	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+	require.NoError(t, err)
+	require.Equal(t, machine, reservation.MachineID)
+	require.NotEqual(t, claimed.ReservedMachineID, reservation.ReservedID, "the next machine gets a fresh reservation")
+	require.NotNil(t, reservation.Abandoned)
+	require.Equal(t, own, *reservation.Abandoned)
+	var machineID, reserved uuid.UUID
+	require.NoError(t, f.db.Get(&machineID, `SELECT machine_id FROM agent_tasks WHERE id=$1`, claimed.ID))
+	require.Equal(t, machine, machineID)
+	require.NoError(t, f.db.Get(&reserved, `SELECT reserved_machine_id FROM agent_tasks WHERE id=$1`, claimed.ID))
+	require.Equal(t, reservation.ReservedID, reserved)
+}
+
+// With no free slot anywhere, a task whose own machine never started waits for
+// a place and reports that machine for deletion.
+func TestReservationWaitsForASlotAndAbandonsItsUnstartedMachine(t *testing.T) {
+	f := newMachineShareFixture(t)
+	f.taskLimit(t, 1)
+	machine := f.runningMachine(t, "1 minute")
+	f.exec(t, `UPDATE dev_machines SET name='dev-machine' WHERE id=$1`, machine)
+	f.workingTask(t, machine)
+	claimed := f.preparingTask(t)
+	own := f.reservedTaskMachine(t, claimed, domain.DevMachineStatusQueued, false)
+
+	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+	var wait *MachineSlotWaitError
+	require.ErrorAs(t, err, &wait)
+	require.ErrorIs(t, err, ErrMachineSlotWait)
+	require.Equal(t, "dev-machine", wait.Name)
+	require.Equal(t, uuid.Nil, reservation.MachineID)
+	require.NotEqual(t, claimed.ReservedMachineID, reservation.ReservedID)
+	require.NotNil(t, reservation.Abandoned)
+	require.Equal(t, own, *reservation.Abandoned)
+	var waiting int
+	require.NoError(t, f.db.Get(&waiting, `SELECT count(*) FROM agent_tasks WHERE id=$1 AND machine_id IS NULL`, claimed.ID))
+	require.Equal(t, 1, waiting, "the task waits for a place, without its unstarted machine")
+}
+
+// A machine that started is the task's machine: it is never abandoned for a
+// free slot elsewhere.
+func TestReservationKeepsAStartedMachineOfTheTask(t *testing.T) {
+	f := newMachineShareFixture(t)
+	f.taskLimit(t, 1)
+	f.runningMachine(t, "1 minute")
+	claimed := f.preparingTask(t)
+	own := f.reservedTaskMachine(t, claimed, domain.DevMachineStatusRunning, true)
+
+	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+	require.NoError(t, err)
+	require.Equal(t, own, reservation.MachineID)
+	require.Equal(t, claimed.ReservedMachineID, reservation.ReservedID)
+	require.Nil(t, reservation.Abandoned)
+	var machineID uuid.UUID
+	require.NoError(t, f.db.Get(&machineID, `SELECT machine_id FROM agent_tasks WHERE id=$1`, claimed.ID))
+	require.Equal(t, own, machineID)
 }
 
 // machineTaskLimit overrides how many active agent tasks may share one

@@ -90,11 +90,13 @@ func (m *Manager) admit(ctx context.Context, machine *domain.DevMachine) (func()
 	}
 	memoryLimit := host.MemoryMB - m.capacity.ReservedMemoryMB
 	cpuLimit := int(float64(host.CPUMillis-m.capacity.ReservedCPUMillis) * m.capacity.CPUOvercommit)
+	runningMemory := memory - machine.MemoryMB
 	if memory > memoryLimit {
-		return release, &capacityWaitError{message: fmt.Sprintf("waiting for host memory: %d MB requested of %d MB available to machines", memory, max(memoryLimit, 0))}
+		return release, &capacityWaitError{message: fmt.Sprintf("waiting for host memory: this machine needs %d MB and running machines already use %d MB of the %d MB available to machines", machine.MemoryMB, runningMemory, max(memoryLimit, 0))}
 	}
+	runningCPU := cpu - machine.CPUMillis
 	if cpu > cpuLimit {
-		return release, &capacityWaitError{message: fmt.Sprintf("waiting for host CPU: %d millicores requested of %d available to machines", cpu, max(cpuLimit, 0))}
+		return release, &capacityWaitError{message: fmt.Sprintf("waiting for host CPU: this machine needs %d millicores and running machines already use %d of the %d available to machines", machine.CPUMillis, runningCPU, max(cpuLimit, 0))}
 	}
 	if m.admitted == nil {
 		m.admitted = map[uuid.UUID]HostResources{}

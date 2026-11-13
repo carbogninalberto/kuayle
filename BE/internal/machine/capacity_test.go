@@ -59,6 +59,23 @@ func TestHostAdmissionReservesCapacityAndQueuesWhatDoesNotFit(t *testing.T) {
 	release()
 }
 
+// A machine that does not fit says what it needs, beside what the running
+// machines already use of the limit, so a person can tell why it waits.
+func TestHostAdmissionNamesWhatTheWaitingMachineNeeds(t *testing.T) {
+	running := uuid.New()
+	store := &capacityStoreFake{managerStoreFake: &managerStoreFake{}, allocations: []domain.DevMachineResourceAllocation{{MachineID: running, CPUMillis: 2000, MemoryMB: 4096}}}
+	manager := &Manager{store: store, runtime: &runtimeFake{host: HostResources{CPUMillis: 8000, MemoryMB: 16384}}}
+	manager.SetCapacity(CapacityConfig{ReservedCPUMillis: 1000, ReservedMemoryMB: 2048, CPUOvercommit: 1})
+	var wait *capacityWaitError
+	_, err := manager.admit(context.Background(), &domain.DevMachine{ID: uuid.New(), CPUMillis: 1000, MemoryMB: 12288})
+	require.ErrorAs(t, err, &wait)
+	require.Equal(t, "waiting for host memory: this machine needs 12288 MB and running machines already use 4096 MB of the 14336 MB available to machines", wait.message)
+
+	_, err = manager.admit(context.Background(), &domain.DevMachine{ID: uuid.New(), CPUMillis: 6000, MemoryMB: 512})
+	require.ErrorAs(t, err, &wait)
+	require.Equal(t, "waiting for host CPU: this machine needs 6000 millicores and running machines already use 2000 of the 7000 available to machines", wait.message)
+}
+
 type deferringStoreFake struct {
 	*capacityStoreFake
 	deferred []string

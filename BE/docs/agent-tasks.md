@@ -882,7 +882,13 @@ the policy's `task_machine_max_tasks` when it has none (default 10, from 1 to
 10; the override is migration 156 and can change while the machine runs). An
 idle machine comes first (one already
 used for the same issue, then the most recently active); otherwise the task
-shares the least loaded busy machine. Paused and stopped machines are not
+shares the least loaded busy machine. When every suitable machine of the
+creator already runs `task_machine_max_tasks` tasks, the task waits for a free
+slot on one of them instead of creating a task machine the host cannot start: it
+stays `preparing` with "Waiting for a free task slot on <name> (<tasks> of
+<limit> in use)..." and does not count a failure. A task whose own task machine
+was created but never started moves to a free slot when one appears, and that
+unstarted machine is deleted. Paused and stopped machines are not
 chosen, since their user paused or stopped them. The full rule is in
 [task machine reuse](../../TECHNICAL.md#resource-limits-and-quotas). Each task
 has its own checkout, branch and session directory; attempt creation re-checks
