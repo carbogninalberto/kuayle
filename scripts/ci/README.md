@@ -101,12 +101,17 @@ read-only contents permission, no persisted checkout credentials, and no
 `pull_request_target` or secrets handoff. Only the release jobs
 (`release-source`, `build`, `promote-latest`, `dev-machine-publish`,
 `dev-machine-manifests`) retain write permissions; `release-context` is
-read-only. Release and manual dispatch runs share one concurrency queue per
-release tag; latest writers also serialize per image across different tags so
-an older release cannot overwrite a newer `:latest`. PR runs cancel superseded
-work. The application-image, readiness and dev-machine scan matrices have no
-workflow-level fan-out cap; GitHub queues any jobs beyond the account's runner
-concurrency.
+read-only. Release and manual dispatch runs use a per-tag workflow queue, with
+additional per-job queues for `release-source`, builds, dev publishes and latest
+writers. GitHub keeps one running and one pending job per queue, so a third
+overlapping release can cancel the pending one; re-run that workflow. Latest
+writers serialize per image across tags and recheck the current release, so an
+older tag cannot overwrite a newer `:latest`. If overlapping release bumps
+finish out of order, main's UI version can move backwards even though the images
+are tagged correctly; avoid overlapping backports or re-run the newer release.
+PR runs cancel superseded work. The application-image, readiness and
+dev-machine scan matrices have no workflow-level fan-out cap; GitHub queues any
+jobs beyond the account's runner concurrency.
 
 ## Manual release rebuilds and ARM64 images
 

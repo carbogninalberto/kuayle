@@ -140,9 +140,9 @@ test('release publishing serializes and change detection gates the version bump'
   const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
   const source = workflow.split('  release-source:\n')[1].split('\n    name:')[0];
   assert.match(workflow, /concurrency:\n(?:  #.*\n)*  group: .*format\('release-publish-\{0\}', github\.event\.release\.tag_name \|\| inputs\.release_tag\).*\n  cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/s);
-  assert.match(workflow, /group: release-source/);
-  assert.match(workflow, /group: release-build-\$\{\{ needs\.release-context\.outputs\.tag \}\}-\$\{\{ matrix\.image\.package \}\}/);
-  assert.match(workflow, /group: release-dev-\$\{\{ needs\.release-context\.outputs\.tag \}\}-\$\{\{ matrix\.image\.id \}\}-\$\{\{ matrix\.architecture \}\}/);
+  assert.match(workflow, /group: release-source\n      cancel-in-progress: false/);
+  assert.match(workflow, /group: release-build-\$\{\{ needs\.release-context\.outputs\.tag \}\}-\$\{\{ matrix\.image\.package \}\}\n      cancel-in-progress: false/);
+  assert.match(workflow, /group: release-dev-\$\{\{ needs\.release-context\.outputs\.tag \}\}-\$\{\{ matrix\.image\.id \}\}-\$\{\{ matrix\.architecture \}\}\n      cancel-in-progress: false/);
   assert.match(source, /needs: \[changes\]/);
   assert.match(source, /needs.changes.result == 'success'/);
   assert.match(workflow, /Validate release tag before committing/);
