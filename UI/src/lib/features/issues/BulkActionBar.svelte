@@ -745,8 +745,10 @@
 </script>
 
 {#if issuesState.selectionCount > 0}
+	<!-- A modal ContextMenu sets body pointer-events:none while each row trigger stays auto;
+	     keep the bar hit-testable so clicks never fall through to rows (KUA-65). -->
 	<div
-		class="fixed bottom-4 left-1/2 z-40 flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center justify-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)]/95 p-1.5 shadow-xl backdrop-blur max-sm:bottom-3"
+		class="pointer-events-auto fixed bottom-4 left-1/2 z-40 flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center justify-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)]/95 p-1.5 shadow-xl backdrop-blur max-sm:bottom-3"
 	>
 		<span
 			class="inline-flex h-7 items-center rounded-md bg-[var(--color-bg-tertiary)] px-2.5 text-xs font-medium whitespace-nowrap text-[var(--color-text-primary)]"
@@ -784,7 +786,10 @@
 
 	{#if actionsOpen}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[12vh]" onkeydown={handleActionsKeydown}>
+		<div
+			class="pointer-events-auto fixed inset-0 z-50 flex items-start justify-center px-3 pt-[12vh]"
+			onkeydown={handleActionsKeydown}
+		>
 			<Button variant="plain" class="fixed inset-0 cursor-default"
 				style="background: rgba(0,0,0,{actionsVisible ? 0.5 : 0}); transition: background {ANIM_DURATION}ms ease;"
 				onclick={closeActions}
