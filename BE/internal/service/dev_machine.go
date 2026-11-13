@@ -680,8 +680,8 @@ func (s *DevMachineService) NameAvailable(ctx context.Context, workspaceID, user
 
 // Update resizes the machine and/or changes its own agent task limit; a
 // request that changes neither returns it unchanged. The limit is validated
-// and authorized before a resize writes anything, so a request carrying both
-// never half-applies.
+// and authorized before a resize is queued, so an invalid limit or a caller
+// who is not the creator changes nothing.
 func (s *DevMachineService) Update(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.UpdateDevMachineRequest) (*domain.DevMachine, error) {
 	if !request.ChangesTaskLimit() {
 		if request.Resizes() {

@@ -45,8 +45,8 @@
 	let draft = $state(DEFAULT_TASK_MACHINE_MAX_TASKS);
 	let saving = $state(false);
 
-	// Background refreshes update the server value; keep an unsaved draft while
-	// the user drags or waits to save.
+	// The draft follows the effective limit whenever it changes on the server;
+	// refreshes that leave it unchanged keep an unsaved draft.
 	$effect(() => {
 		const current = effectiveLimit;
 		untrack(() => {
@@ -108,7 +108,7 @@
 						aria-valuetext={m['machines.task_slots_value']({ count: draft })}
 					/>
 					<span class="w-6 text-right text-sm tabular-nums" aria-hidden="true">{draft}</span>
-					<Button size="sm" variant="outline" disabled={saving || draft === effectiveLimit} onclick={() => saveLimit(draft)}>
+					<Button size="sm" variant="outline" disabled={saving || (maxTasks != null && draft === maxTasks)} onclick={() => saveLimit(draft)}>
 						{m['machines.task_slots_save']()}
 					</Button>
 				</div>
