@@ -163,12 +163,14 @@ g rev-parse --verify HEAD
 `
 
 // The push step copies only the recorded commit into a new temporary repository
-// with no hooks or inherited configuration, then pushes it. It is forced only
-// under the lease of a rewrite the sync accepted, and that lease is checked
-// against GitHub's tip at push time, so a commit that landed in between is never
-// discarded. The commit is read through publishCheckoutScript, so the
-// agent-writable checkout's configuration is never loaded, with or without the
-// token.
+// with no hooks or inherited configuration, then pushes it. With the lease of a
+// rewrite the sync accepted, the push is usually a fast-forward, because the
+// commit step rebuilt the changes on the published commit. It is a real force
+// only when the published commit is missing from the checkout, and then every
+// commit it drops must be Kuayle's own. The lease is checked against GitHub's
+// tip at push time, so a commit that landed in between is never discarded. The
+// commit is read through publishCheckoutScript, so the agent-writable
+// checkout's configuration is never loaded, with or without the token.
 const publishPushScript = `set -eu
 repository=$1 branch=$2 path=$3 commit=$4 base=$5 email=$6 lease=${7:-} step=publish
 umask 077
@@ -206,8 +208,22 @@ if printf '%s\n' "$authors" | grep -vxF -- "$email" | grep -q . || printf '%s\n'
 fi
 # The bare repository has no remote-tracking ref, so the expected tip is named
 # explicitly. It is the tip the sync saw; if the branch moved since then, GitHub
-# refuses the push instead of losing that commit.
+# refuses the push instead of losing that commit. A force can also replace
+# commits that are on the branch today: the commit step usually rebuilt on the
+# published commit, so this is a fast-forward, but when it could not (the
+# published commit is missing from the checkout) it rebuilt from the merge base
+# and this push really drops commits. Every dropped commit must then be Kuayle's
+# own, or the push loses someone else's work; the lease commit is present here
+# because the branch fetched above carries it, and when GitHub no longer has it
+# the expected tip cannot match anyway.
 if [ -n "$lease" ]; then
+  if git --git-dir="$work/repo" cat-file -e "$lease^{commit}" 2>/dev/null &&
+    ! git --git-dir="$work/repo" merge-base --is-ancestor "$lease" "$commit"; then
+    dropped=$(git --git-dir="$work/repo" log --format='%ae%n%ce' "$lease" --not "$commit" --glob='refs/kuayle/remote/base')
+    if printf '%s\n' "$dropped" | grep -vxF -- "$email" | grep -q .; then
+      echo "the push would drop commits someone else pushed to the task branch; nothing was force-pushed" >&2; exit 1
+    fi
+  fi
   remote push -q --force-with-lease="refs/heads/$branch:$lease" "$url" "$commit:refs/heads/$branch"
 else
   remote push -q "$url" "$commit:refs/heads/$branch"

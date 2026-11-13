@@ -88,6 +88,16 @@ func (f *scriptFixture) push(commit, lease string) (string, error) {
 	return f.script(publishPushScript, "fixture-credential\n", "push", "acme/app", "kuayle/rec-1", f.checkout, commit, "main", "agent@kuayle.invalid", lease)
 }
 
+// freshCheckout replaces the checkout with a clone that only knows the base
+// branch, as when the agent rebuilt its branch from scratch: the commits only
+// GitHub's task branch has, the published one included, are no longer in it.
+func (f *scriptFixture) freshCheckout() {
+	f.t.Helper()
+	require.NoError(f.t, os.RemoveAll(f.checkout))
+	f.run(f.root, nil, "clone", "-q", "--single-branch", "--branch", "main", f.origin, f.checkout)
+	f.run(f.checkout, nil, "checkout", "-q", "-b", "kuayle/rec-1")
+}
+
 func (f *scriptFixture) head() string { return f.run(f.checkout, nil, "rev-parse", "HEAD") }
 
 func (f *scriptFixture) originTip() string {
@@ -264,24 +274,24 @@ func TestSyncScriptRefusesDivergenceWhenSomeoneElsePushedAfterKuayle(t *testing.
 	require.Equal(t, other, f.originTip(), "nothing was pushed")
 }
 
-// The lease names the tip the sync saw. A push that finds a different tip on
-// GitHub fails instead of discarding the commit that landed in between.
+// The lease is what protects a rewrite: the pushed commit here is the amended
+// one, which does not descend from GitHub's tip, so the push is a real force
+// rather than a fast-forward. When the branch moves between the sync and the
+// push, git's stale-info check refuses the force and GitHub keeps the newer
+// commit.
 func TestPushScriptRefusesAStaleLeaseWhenTheRemoteMovedAfterSync(t *testing.T) {
 	f := newScriptFixture(t)
 	published := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
 	f.run(f.checkout, nil, "push", "-q", f.origin, "kuayle/rec-1")
 
-	// The agent rewrote the published commit, so the sync reports a lease.
-	require.NoError(t, os.WriteFile(filepath.Join(f.checkout, "feature.txt"), []byte("rewritten\n"), 0o644))
-	f.run(f.checkout, nil, "add", "feature.txt")
-	f.run(f.checkout, fixtureIdentity, "commit", "-q", "--amend", "-m", "rewritten")
+	// The agent rewrote the published commit under Kuayle's identity, so the
+	// sync accepts the rewrite and returns the lease.
+	f.run(f.checkout, kuayleIdentity, "commit", "-q", "--amend", "-m", "rewritten")
+	rewritten := f.head()
+	require.True(t, f.fails(f.checkout, "merge-base", "--is-ancestor", published, rewritten), "the rewrite is not a fast-forward")
 	lease, err := f.sync(published)
 	require.NoError(t, err, lease)
 	require.Equal(t, "lease "+published, lease)
-	// The commit step folds the rewrite onto the published commit.
-	folded, err := f.commit(published)
-	require.NoError(t, err, folded)
-	require.Equal(t, published, f.run(f.checkout, nil, "rev-parse", folded+"^"))
 
 	// Someone else pushes after the sync and before the push.
 	maintainer := filepath.Join(f.root, "maintainer")
@@ -289,8 +299,76 @@ func TestPushScriptRefusesAStaleLeaseWhenTheRemoteMovedAfterSync(t *testing.T) {
 	other := f.commitFile(maintainer, "other.txt", fixtureIdentity)
 	f.run(maintainer, nil, "push", "-q", f.origin, "kuayle/rec-1")
 
-	output, err := f.push(folded, published)
+	output, err := f.push(rewritten, published)
 	require.Error(t, err)
 	require.Contains(t, output, "stale info")
 	require.Equal(t, other, f.originTip(), "the lease refused the push and GitHub keeps the newer commit")
+}
+
+// A maintainer's commit on the task branch must survive a publication that no
+// longer has the published commit. The lease lets the push replace GitHub's tip,
+// but only while every commit it drops is Kuayle's own.
+func TestPushScriptRefusesToDropCommitsSomeoneElsePushed(t *testing.T) {
+	f := newScriptFixture(t)
+
+	// A maintainer pushed M to the task branch, and Kuayle published P on top.
+	maintainer := filepath.Join(f.root, "maintainer")
+	f.run(f.root, nil, "clone", "-q", f.origin, maintainer)
+	f.run(maintainer, nil, "checkout", "-q", "-b", "kuayle/rec-1")
+	maintainerCommit := f.commitFile(maintainer, "review.txt", fixtureIdentity)
+	f.run(maintainer, nil, "push", "-q", f.origin, "kuayle/rec-1")
+	f.run(f.checkout, nil, "fetch", "-q", "origin")
+	f.run(f.checkout, nil, "reset", "-q", "--hard", "refs/remotes/origin/kuayle/rec-1")
+	require.NoError(t, os.WriteFile(filepath.Join(f.checkout, "feature.txt"), []byte("feature\n"), 0o644))
+	published, err := f.commit("")
+	require.NoError(t, err, published)
+	output, err := f.push(published, "")
+	require.NoError(t, err, output)
+	require.Equal(t, published, f.originTip())
+
+	// The checkout is rebuilt from the base branch without the published commit
+	// or the maintainer's commit below it, as the merge-base fallback leaves it.
+	// The push gets that commit, which does not descend from the lease.
+	f.freshCheckout()
+	rebuiltCommit := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+	lease, err := f.sync(published)
+	require.NoError(t, err, lease)
+	require.Equal(t, "lease "+published, lease)
+	require.True(t, f.fails(f.checkout, "merge-base", "--is-ancestor", published, rebuiltCommit), "the push would not descend from the lease")
+
+	output, err = f.push(rebuiltCommit, published)
+	require.Error(t, err)
+	require.Contains(t, output, "the push would drop commits someone else pushed to the task branch; nothing was force-pushed")
+	require.Equal(t, published, f.originTip(), "GitHub still ends at the published commit")
+	require.Contains(t, f.run(f.origin, nil, "rev-list", published), maintainerCommit, "the maintainer's commit is still on the branch")
+}
+
+// The other side of the same guard: a force push that only drops commits Kuayle
+// published itself replaces them with the rebuilt commit.
+func TestPushScriptPublishesAForceThatOnlyDropsKuayleCommits(t *testing.T) {
+	f := newScriptFixture(t)
+	published := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+	output, err := f.push(published, "")
+	require.NoError(t, err, output)
+	require.Equal(t, published, f.originTip())
+
+	// The checkout is rebuilt from the base branch without the published commit,
+	// as the merge-base fallback leaves it.
+	f.freshCheckout()
+	rebuiltCommit := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+	lease, err := f.sync(published)
+	require.NoError(t, err, lease)
+	require.Equal(t, "lease "+published, lease)
+	require.True(t, f.fails(f.checkout, "merge-base", "--is-ancestor", published, rebuiltCommit), "the push would drop the published commit")
+	// Someone else's commit lands on the base branch meanwhile; it is not on
+	// the task branch, so it is not among the commits the force drops.
+	maintainer := filepath.Join(f.root, "maintainer")
+	f.run(f.root, nil, "clone", "-q", f.origin, maintainer)
+	f.commitFile(maintainer, "base.txt", fixtureIdentity)
+	f.run(maintainer, nil, "push", "-q", f.origin, "HEAD:main")
+
+	output, err = f.push(rebuiltCommit, published)
+	require.NoError(t, err, output)
+	require.Equal(t, rebuiltCommit, f.originTip())
+	require.NotContains(t, f.run(f.origin, nil, "rev-list", rebuiltCommit), published, "the push dropped Kuayle's own published commit")
 }
