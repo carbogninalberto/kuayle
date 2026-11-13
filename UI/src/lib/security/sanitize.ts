@@ -7,7 +7,8 @@ const ALLOWED_TAGS = [
 	'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
 	'ul', 'ol', 'li', 'blockquote', 'hr',
 	'input', 'span', 'div', 'label',
-	'img'
+	'img',
+	'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td'
 ];
 
 const ALLOWED_ATTR = [
@@ -15,8 +16,11 @@ const ALLOWED_ATTR = [
 	'data-filename', 'data-size',
 	'href', 'target', 'rel', 'download',
 	'type', 'checked', 'disabled',
-	'src', 'alt', 'width', 'height'
+	'src', 'alt', 'width', 'height',
+	'align', 'colspan', 'rowspan'
 ];
+
+const TABLE_ALIGNMENTS = new Set(['left', 'center', 'right']);
 
 const SAFE_URL_PATTERN = /^(https?:|mailto:)/i;
 
@@ -37,6 +41,19 @@ function createPurify() {
 			const kept = filterEditorClasses(classes);
 			if (kept) node.setAttribute('class', kept);
 			else node.removeAttribute('class');
+		}
+		// Table column alignment uses the inert align attribute, never style:
+		// model output must not be able to restyle the page.
+		if (node.tagName === 'TH' || node.tagName === 'TD') {
+			const align = node.getAttribute('align')?.toLowerCase();
+			if (align && TABLE_ALIGNMENTS.has(align)) node.setAttribute('align', align);
+			else node.removeAttribute('align');
+			for (const name of ['colspan', 'rowspan']) {
+				const span = node.getAttribute(name);
+				if (span !== null && !/^\d{1,3}$/.test(span)) node.removeAttribute(name);
+			}
+		} else {
+			node.removeAttribute('align');
 		}
 		if (node.tagName === 'A') {
 			node.setAttribute('rel', 'noopener noreferrer nofollow');
