@@ -107,12 +107,37 @@
 	}
 	.assistant-markdown :global(table) {
 		display: block;
+		width: max-content;
 		max-width: 100%;
 		overflow-x: auto;
+		border-collapse: collapse;
+		margin-block: 0.75rem;
+		font-size: 0.9em;
 	}
 	.assistant-markdown :global(th),
 	.assistant-markdown :global(td) {
-		padding: 0.4rem;
+		min-width: 6rem;
+		padding: 0.4rem 0.6rem;
 		border: 1px solid var(--border);
+		text-align: left;
+		vertical-align: top;
+		white-space: normal;
+		overflow-wrap: normal;
+	}
+	.assistant-markdown :global(th) {
+		font-weight: 600;
+		background: var(--muted);
+	}
+	.assistant-markdown :global(th[align='left']),
+	.assistant-markdown :global(td[align='left']) {
+		text-align: left;
+	}
+	.assistant-markdown :global(th[align='center']),
+	.assistant-markdown :global(td[align='center']) {
+		text-align: center;
+	}
+	.assistant-markdown :global(th[align='right']),
+	.assistant-markdown :global(td[align='right']) {
+		text-align: right;
 	}
 </style>

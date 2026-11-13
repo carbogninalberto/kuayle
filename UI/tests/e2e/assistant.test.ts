@@ -425,6 +425,94 @@ test('does not fetch provider-authored image URLs or execute agent HTML', async 
 	);
 });
 
+test('renders Markdown tables in assistant replies with alignment and horizontal scroll', async ({ page }, testInfo) => {
+	const state = await fixture(page);
+	const wideHeader = Array.from({ length: 12 }, (_, i) => `Header ${i + 1}`);
+	const wideRow = Array.from({ length: 12 }, (_, i) => `Wide cell data ${i + 1}`);
+	const wideTable = [wideHeader, wideHeader.map(() => '---'), wideRow]
+		.map((cells) => `| ${cells.join(' | ')} |`)
+		.join('\n');
+	state.messages = [
+		userMessage,
+		{
+			...reply,
+			status: 'completed',
+			content: [
+				'Aligned table:',
+				'',
+				'| Left | Center | Right |',
+				'|:--|:-:|--:|',
+				'| one | two | three |',
+				'',
+				'Wide table:',
+				'',
+				wideTable,
+				'',
+				'Malformed table:',
+				'',
+				'| Name | Value |',
+				'|--|--|',
+				'| kept | extra-dropped | merged-cell |',
+				'',
+				'| not | a table',
+				'|--',
+				'| 1 | 2 |',
+				'',
+				'<table style="position:fixed" onclick="window.agentExecuted=true"><tr><td>injected</td></tr></table>'
+			].join('\n')
+		}
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+
+	const markdown = page.locator('.assistant-markdown');
+	await expect(markdown.locator('table')).toHaveCount(3);
+
+	const aligned = markdown.locator('table').first();
+	await expect(aligned.locator('thead th')).toHaveCount(3);
+	await expect(aligned.locator('tbody td')).toHaveCount(3);
+	await expect(aligned.getByRole('columnheader', { name: 'Center', exact: true })).toBeVisible();
+	await expect(aligned.getByRole('cell', { name: 'two', exact: true })).toBeVisible();
+	expect(
+		await aligned
+			.locator('tbody td')
+			.evaluateAll((cells) => cells.map((cell) => getComputedStyle(cell).textAlign))
+	).toEqual(['left', 'center', 'right']);
+	expect(
+		await aligned
+			.locator('tbody td')
+			.first()
+			.evaluate((cell) => getComputedStyle(cell).borderTopWidth)
+	).not.toBe('0px');
+
+	const wide = markdown.locator('table').nth(1);
+	await expect(wide.locator('thead th')).toHaveCount(12);
+	const overflow = await wide.evaluate((table) => ({
+		scrollWidth: table.scrollWidth,
+		clientWidth: table.clientWidth
+	}));
+	expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+	const malformed = markdown.locator('table').nth(2);
+	await expect(malformed.getByRole('cell', { name: 'kept', exact: true })).toBeVisible();
+	await expect(malformed.getByRole('cell', { name: 'extra-dropped', exact: true })).toBeVisible();
+	await expect(malformed.getByText('merged-cell', { exact: true })).toHaveCount(0);
+	await expect(markdown.locator('p').filter({ hasText: '| not | a table' })).toHaveCount(1);
+
+	// Model-authored HTML stays text; alignment survives only as the inert attribute.
+	await expect(markdown.locator('[style]')).toHaveCount(0);
+	await expect(
+		markdown.getByText(
+			'<table style="position:fixed" onclick="window.agentExecuted=true"><tr><td>injected</td></tr></table>',
+			{ exact: true }
+		)
+	).toBeVisible();
+	expect(await page.evaluate(() => Boolean((window as unknown as { agentExecuted?: boolean }).agentExecuted))).toBe(
+		false
+	);
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('assistant-tables.png') });
+});
+
 test('keeps accepted sends visible while a history reload fails', async ({ page }) => {
 	const state = await fixture(page);
 	state.failAfterSend = true;
@@ -2590,4 +2678,149 @@ test('a refused copy says so instead of confirming', async ({ page }) => {
 	await page.getByRole('button', { name: 'Copy message' }).click();
 	await expect(page.getByText('Could not copy the message')).toBeVisible();
 	await expect(page.getByText('Copied', { exact: true })).toHaveCount(0);
+});
+
+test('the copy control sits at the top-right inside the bubble and never covers text', async ({ page }) => {
+	const state = await fixture(page);
+	const wideUser =
+		'A user message whose first line runs the full width of its bubble so the copy control has to stay in the reserved space at the right. '.repeat(
+			2
+		);
+	const wideReply =
+		'An assistant reply whose first line also runs the full width of its bubble, leaving the copy control clear of every glyph. '.repeat(
+			2
+		);
+	state.messages = [
+		{ ...userMessage, content: wideUser },
+		{ ...reply, content: wideReply, status: 'completed' }
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const buttons = page.getByRole('button', { name: 'Copy message' });
+	await expect(buttons).toHaveCount(2);
+
+	// Hover still reveals the control, and keyboard focus keeps it visible.
+	await page.mouse.move(0, 0);
+	await expect(buttons.first()).toHaveCSS('opacity', '0');
+	await page.getByText('A user message', { exact: false }).hover();
+	await expect(buttons.first()).toHaveCSS('opacity', '1');
+	await page.mouse.move(0, 0);
+	await buttons.nth(1).focus();
+	await expect(buttons.nth(1)).toHaveCSS('opacity', '1');
+
+	const firstLineRight = (content: ReturnType<Page['locator']>) =>
+		content.evaluate((el) => {
+			const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+			let node = walker.nextNode();
+			while (node && !node.textContent?.trim()) node = walker.nextNode();
+			if (!node) return null;
+			const range = document.createRange();
+			range.selectNodeContents(node);
+			return (range.getClientRects()[0] ?? range.getBoundingClientRect()).right;
+		});
+
+	for (const button of await buttons.all()) {
+		await button.scrollIntoViewIfNeeded();
+		const bubble = button.locator('xpath=ancestor::*[@data-slot="bubble"]');
+		await expect(bubble).toHaveCount(1);
+		const box = (await button.boundingBox())!;
+		const bubbleBox = (await bubble.boundingBox())!;
+		expect(box.x).toBeGreaterThanOrEqual(bubbleBox.x);
+		expect(box.y).toBeGreaterThanOrEqual(bubbleBox.y);
+		expect(box.x + box.width).toBeLessThanOrEqual(bubbleBox.x + bubbleBox.width);
+		expect(box.y + box.height).toBeLessThanOrEqual(bubbleBox.y + bubbleBox.height);
+		expect(bubbleBox.x + bubbleBox.width - (box.x + box.width)).toBeLessThanOrEqual(8);
+		expect(box.y - bubbleBox.y).toBeLessThanOrEqual(8);
+		const right = await firstLineRight(bubble.locator('[data-slot=bubble-content]'));
+		expect(right).not.toBeNull();
+		expect(right!).toBeLessThanOrEqual(box.x);
+	}
+
+	// A one-word reply stays clear too: the bubble grows around the reserved space.
+	state.messages = [{ ...userMessage, content: 'Hi' }, { ...reply, content: 'OK', status: 'completed' }];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const shortButton = page.getByRole('button', { name: 'Copy message' }).nth(1);
+	await shortButton.scrollIntoViewIfNeeded();
+	const shortBubble = shortButton.locator('xpath=ancestor::*[@data-slot="bubble"]');
+	await expect(shortBubble).toHaveCount(1);
+	const shortBox = (await shortButton.boundingBox())!;
+	const shortBubbleBox = (await shortBubble.boundingBox())!;
+	expect(shortBox.x + shortBox.width).toBeLessThanOrEqual(shortBubbleBox.x + shortBubbleBox.width);
+	expect(shortBubbleBox.x + shortBubbleBox.width - (shortBox.x + shortBox.width)).toBeLessThanOrEqual(8);
+	const shortRight = await firstLineRight(shortBubble.locator('[data-slot=bubble-content]'));
+	expect(shortRight).not.toBeNull();
+	expect(shortRight!).toBeLessThanOrEqual(shortBox.x);
+});
+
+test('assistant reply text can be drag-selected and copied exactly; user text cannot', async ({ page, context }) => {
+	await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+	const state = await fixture(page);
+	state.messages = [
+		{ ...userMessage, content: 'User words that must stay untouched.' },
+		{ ...reply, content: copyAnswer, status: 'completed' }
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const selectable = page.locator('[data-selectable="text"]');
+	await expect(selectable).toHaveCount(1);
+	expect(await selectable.evaluate((el) => getComputedStyle(el).userSelect)).toBe('text');
+	const replyParagraph = selectable.locator('p').filter({ hasText: 'Use' }).first();
+	expect(await replyParagraph.evaluate((el) => getComputedStyle(el).userSelect)).toBe('text');
+	const userParagraph = page
+		.locator('[data-slot=bubble-content]')
+		.filter({ hasText: 'User words that must stay untouched.' })
+		.locator('p');
+	expect(await userParagraph.evaluate((el) => getComputedStyle(el).userSelect)).toBe('none');
+
+	const points = await replyParagraph.evaluate((el) => {
+		const text = el.textContent ?? '';
+		const start = text.indexOf('Use');
+		const end = text.indexOf('bold') + 'bold'.length;
+		const nodes: Node[] = [];
+		const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+		let node = walker.nextNode();
+		while (node) {
+			nodes.push(node);
+			node = walker.nextNode();
+		}
+		const locate = (offset: number) => {
+			let remaining = offset;
+			for (const candidate of nodes) {
+				const length = candidate.textContent?.length ?? 0;
+				if (remaining <= length) return { node: candidate, offset: remaining };
+				remaining -= length;
+			}
+			const last = nodes[nodes.length - 1];
+			return { node: last, offset: last.textContent?.length ?? 0 };
+		};
+		const range = (from: number, to: number) => {
+			const value = document.createRange();
+			const a = locate(from);
+			const b = locate(to);
+			value.setStart(a.node, a.offset);
+			value.setEnd(b.node, b.offset);
+			return value;
+		};
+		const first = range(start, start + 3).getClientRects()[0];
+		const lastRects = range(end - 4, end).getClientRects();
+		const last = lastRects[lastRects.length - 1];
+		return {
+			from: { x: first.left + 1, y: first.top + first.height / 2 },
+			to: { x: last.right - 1, y: last.top + last.height / 2 }
+		};
+	});
+	await page.mouse.move(points.from.x, points.from.y);
+	await page.mouse.down();
+	await page.mouse.move(points.to.x, points.to.y, { steps: 8 });
+	await page.mouse.up();
+	await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('Use bold');
+	await page.keyboard.press('ControlOrMeta+c');
+	await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Use bold');
+
+	// The user's plain text is not selectable, as before.
+	await page.evaluate(() => window.getSelection()?.removeAllRanges());
+	const userBox = (await userParagraph.boundingBox())!;
+	await page.mouse.move(userBox.x + 2, userBox.y + userBox.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(userBox.x + userBox.width - 2, userBox.y + userBox.height / 2, { steps: 8 });
+	await page.mouse.up();
+	await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
 });

@@ -1606,7 +1606,11 @@ that tries `location=`, a meta refresh or a link cannot navigate its frame and
 no request leaves. `srcdoc` is never fetched and still loads under `'none'`. A
 second frame load (the widget navigating itself) still tears the frame down as a
 backstop. A future parent CSP must keep allowing inline scripts in `srcdoc`
-frames, because they inherit the parent policy.
+frames, because they inherit the parent policy. Verified on Chromium, WebKit and
+Firefox: no request leaves in any of them, but Firefox fires no load event for a
+CSP-blocked navigation, so there the blocked frame simply stays instead of being
+replaced by the code fallback (the front-end skill documents the page-wide
+`frame-src 'none'` constraint for embed authors).
 
 Caps apply per fence (16 KB chart, 64 KB html) and per message (four rich blocks
 and 128 KB total); a malformed, oversized or otherwise refused block stays an

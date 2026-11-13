@@ -1,5 +1,17 @@
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
 
+// Cross-browser verification (Playwright 1.58.2, 2026-11-13; CI runs Chromium):
+// - WebKit: every sandbox, navigation-block and fallback test below passes. Only
+//   the copy test cannot run there: Playwright's WebKit has no
+//   'clipboard-read'/'clipboard-write' permission names, the same gap the other
+//   clipboard e2e tests in this repo share.
+// - Firefox: sandbox, no-network, widget-replacement, malformed/oversized
+//   fallback and streaming tests pass. A CSP-blocked self-navigation sends no
+//   request and no navigation content, but Firefox fires no load event for it,
+//   so the second-load teardown keeps the blocked frame instead of swapping in
+//   the code fallback; the two navigation tests assert the Chromium/WebKit
+//   behaviour. The copy test hits the same clipboard-permission gap as WebKit.
+
 const workspace = { id: 'workspace-1', slug: 'test', name: 'Test Workspace', current_user_role: 'owner' };
 const conversation = {
 	id: 'chat-1',

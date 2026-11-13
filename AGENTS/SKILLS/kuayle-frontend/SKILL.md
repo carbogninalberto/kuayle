@@ -92,3 +92,19 @@ patterns; reuse the installed Message, Bubble, Message Scroller and Input Group
 primitives. The [conversation contract](../../../BE/docs/conversations.md) records
 sources, typed backend events, scrolling and verification. Keep execution state
 on the Go backend and render only actual persisted/live events.
+Assistant prose that should be selectable opts in with `data-selectable="text"` on
+its container; the global `user-select: none` in [UI CSS](../../../UI/src/app.css)
+stays, and user-authored bubbles do not opt in.
+
+Assistant replies may carry two rich fences the web chat renders directly: a
+`chart` JSON spec and a sandboxed `html` widget (see [rich blocks](../../../UI/src/lib/features/assistant/rich-blocks.ts)
+and [TECHNICAL.md](../../../TECHNICAL.md)). Rendering is opt-in through the
+`richBlocks` prop on [Markdown](../../../UI/src/lib/features/assistant/Markdown.svelte);
+only the assistant reply bubble passes it, so every other Markdown caller keeps
+plain sanitized rendering and no styling of its fence fallbacks. The widget
+iframe needs the page-wide CSP meta `frame-src 'none'` in
+[UI/src/app.html](../../../UI/src/app.html): srcdoc frames are never fetched, so
+the sandboxed widget still loads, while network iframes stay blocked app-wide.
+That meta is why an embed's `<iframe>` fails to load; change the policy
+deliberately, never per page. A future parent CSP must keep allowing inline
+scripts, because srcdoc frames inherit the parent's script policy.
