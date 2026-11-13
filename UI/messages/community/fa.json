@@ -3991,5 +3991,8 @@
 	"lessons.error_pending": "پیشنهادهای زیادی در انتظار این مخزن هستند",
 	"lessons.error_duplicate": "این درس از قبل برای این مخزن وجود دارد",
 	"lessons.error_invalid": "هر درس یک خط با حداکثر {max} نویسه است",
-	"lessons.error_repository": "این مخزن به فضای کاری متصل نیست"
+	"lessons.error_repository": "این مخزن به فضای کاری متصل نیست",
+	"assistant.rich_chart_failed": "این نمودار نمایش داده نشد؛ منبع آن نشان داده می‌شود.",
+	"assistant.rich_widget_failed": "این ویجت نمایش داده نشد؛ منبع آن نشان داده می‌شود.",
+	"assistant.rich_widget_title": "ویجت تعاملی"
 }

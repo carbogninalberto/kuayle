@@ -3991,5 +3991,8 @@
 	"lessons.error_pending": "יותר מדי הצעות ממתינות במאגר זה",
 	"lessons.error_duplicate": "לקח זה כבר קיים עבור מאגר זה",
 	"lessons.error_invalid": "לקח הוא שורה אחת של עד {max} תווים",
-	"lessons.error_repository": "מאגר זה אינו מחובר לסביבת העבודה"
+	"lessons.error_repository": "מאגר זה אינו מחובר לסביבת העבודה",
+	"assistant.rich_chart_failed": "לא ניתן היה להציג תרשים זה; מוצג קוד המקור.",
+	"assistant.rich_widget_failed": "לא ניתן היה להציג וידג'ט זה; מוצג קוד המקור.",
+	"assistant.rich_widget_title": "וידג'ט אינטראקטיבי"
 }

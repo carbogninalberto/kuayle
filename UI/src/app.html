@@ -2,6 +2,10 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
+		<!-- Rich chat widgets are sandboxed srcdoc frames. A widget's own navigation
+		     must never leave the page: frame-src governs child-frame navigations, and
+		     srcdoc is never fetched, so the widget still loads under 'none'. -->
+		<meta http-equiv="Content-Security-Policy" content="frame-src 'none'" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
 		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
 		<link rel="apple-touch-icon" href="%sveltekit.assets%/icons/apple-touch-icon.png" />

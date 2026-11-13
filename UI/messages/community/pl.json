@@ -3991,5 +3991,8 @@
 	"lessons.error_pending": "Zbyt wiele propozycji oczekuje na to repozytorium",
 	"lessons.error_duplicate": "Ta lekcja już istnieje dla tego repozytorium",
 	"lessons.error_invalid": "Lekcja to jedna linia o maksymalnie {max} znakach",
-	"lessons.error_repository": "To repozytorium nie jest połączone z przestrzenią roboczą"
+	"lessons.error_repository": "To repozytorium nie jest połączone z przestrzenią roboczą",
+	"assistant.rich_chart_failed": "Nie udało się wyświetlić tego wykresu; pokazano kod źródłowy.",
+	"assistant.rich_widget_failed": "Nie udało się wyświetlić tego widżetu; pokazano kod źródłowy.",
+	"assistant.rich_widget_title": "Interaktywny widżet"
 }

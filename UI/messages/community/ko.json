@@ -3991,5 +3991,8 @@
 	"lessons.error_pending": "이 저장소에 대기 중인 제안이 너무 많습니다",
 	"lessons.error_duplicate": "이 레슨은 이미 이 저장소에 존재합니다",
 	"lessons.error_invalid": "레슨은 최대 {max}자까지의 한 줄입니다",
-	"lessons.error_repository": "이 저장소는 워크스페이스에 연결되어 있지 않습니다"
+	"lessons.error_repository": "이 저장소는 워크스페이스에 연결되어 있지 않습니다",
+	"assistant.rich_chart_failed": "차트를 렌더링하지 못했습니다. 소스를 표시합니다.",
+	"assistant.rich_widget_failed": "위젯을 렌더링하지 못했습니다. 소스를 표시합니다.",
+	"assistant.rich_widget_title": "대화형 위젯"
 }

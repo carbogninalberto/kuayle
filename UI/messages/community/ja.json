@@ -3991,5 +3991,8 @@
 	"lessons.error_pending": "このリポジトリには保留中の提案が多すぎます",
 	"lessons.error_duplicate": "このレッスンはこのリポジトリにすでに存在します",
 	"lessons.error_invalid": "レッスンは{max}文字以内の1行で入力してください",
-	"lessons.error_repository": "このリポジトリはワークスペースに接続されていません"
+	"lessons.error_repository": "このリポジトリはワークスペースに接続されていません",
+	"assistant.rich_chart_failed": "グラフを描画できませんでした。ソースを表示しています。",
+	"assistant.rich_widget_failed": "ウィジェットを描画できませんでした。ソースを表示しています。",
+	"assistant.rich_widget_title": "インタラクティブウィジェット"
 }

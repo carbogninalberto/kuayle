@@ -1,13 +1,88 @@
 <script lang="ts">
+	import { SvelteSet } from 'svelte/reactivity';
 	import { renderMarkdown } from '$lib/markdown';
+	import { m } from '$lib/features/i18n/messages';
+	import ChatHtmlWidget from './ChatHtmlWidget.svelte';
+	import { richSegments, type RichSegment } from './rich-blocks';
+
+	// ChatChart pulls in all of echarts. Most Markdown callers never render a
+	// chart, so the module is fetched only when a chart segment appears.
+	let chartLoadFailed = $state(false);
+	let chartModule: Promise<typeof import('./ChatChart.svelte')> | undefined;
+	const loadChart = () =>
+		(chartModule ??= import('./ChatChart.svelte').catch((error: unknown) => {
+			chartLoadFailed = true;
+			throw error;
+		}));
+
 	// Model and agent text is untrusted: renderMarkdown sanitizes it and images
-	// are not loaded.
-	let { source, class: className = '' }: { source: string; class?: string } = $props();
+	// are not loaded. Rich fences are opt-in for the assistant chat, where a
+	// chart is drawn from validated JSON and an html widget stays sandboxed.
+	let {
+		source,
+		class: className = '',
+		richBlocks = false
+	}: { source: string; class?: string; richBlocks?: boolean } = $props();
+
+	const failed = new SvelteSet<string>();
+	const segments = $derived(richBlocks ? richSegments(source) : []);
+
+	// Key by content so changed text replaces a widget or chart instead of
+	// reusing it with a stale srcdoc/spec; the index keeps equal fences unique.
+	const keyOf = (segment: RichSegment, index: number) =>
+		`${index}:${segment.kind}:${segment.kind === 'markdown' ? segment.source : segment.fence}`;
+
+	$effect(() => {
+		source;
+		richBlocks;
+		failed.clear();
+	});
 </script>
 
-<div class="assistant-markdown min-w-0 break-words {className}">
-	{@html renderMarkdown(source, undefined, { allowImages: false })}
-</div>
+{#if richBlocks}
+	<div class="assistant-markdown min-w-0 break-words {className}">
+		<!-- Each Markdown segment renders on its own, so reference-style links and
+		     footnotes defined on the other side of a rich fence do not resolve. -->
+		{#each segments as segment, index (keyOf(segment, index))}
+			{#if segment.kind === 'markdown'}
+				{@html renderMarkdown(segment.source, undefined, { allowImages: false })}
+			{:else if failed.has(keyOf(segment, index)) || (segment.kind === 'chart' && chartLoadFailed)}
+				<div class="my-3">
+					<p class="mb-1.5 text-xs text-muted-foreground"
+						>{segment.kind === 'chart'
+							? m['assistant.rich_chart_failed']()
+							: m['assistant.rich_widget_failed']()}</p
+					>
+					{@html renderMarkdown(segment.fence, undefined, { allowImages: false })}
+				</div>
+			{:else if segment.kind === 'chart'}
+				<div class="my-3">
+					<svelte:boundary onerror={() => failed.add(keyOf(segment, index))}>
+						{#await loadChart()}
+							<!-- Same height as ChatChart, so the lazy import does not shift the thread. -->
+							<div class="h-64 w-full"></div>
+						{:then { default: Chart }}
+							<Chart spec={segment.spec} onfail={() => failed.add(keyOf(segment, index))} />
+						{:catch}
+							<!-- chartLoadFailed already switched this segment to the code fallback. -->
+							<div class="h-64 w-full"></div>
+						{/await}
+					</svelte:boundary>
+				</div>
+			{:else}
+				<div class="my-3">
+					<svelte:boundary onerror={() => failed.add(keyOf(segment, index))}>
+						<ChatHtmlWidget html={segment.html} onfail={() => failed.add(keyOf(segment, index))} />
+					</svelte:boundary>
+				</div>
+			{/if}
+		{/each}
+	</div>
+{:else}
+	<div class="assistant-markdown min-w-0 break-words {className}">
+		{@html renderMarkdown(source, undefined, { allowImages: false })}
+	</div>
+{/if}
 
 <style>
 	.assistant-markdown :global(p) {

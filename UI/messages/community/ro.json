@@ -3991,5 +3991,8 @@
 	"lessons.error_pending": "Prea multe propuneri așteaptă în acest repository",
 	"lessons.error_duplicate": "Această lecție există deja pentru acest repository",
 	"lessons.error_invalid": "O lecție este o singură linie de cel mult {max} caractere",
-	"lessons.error_repository": "Acest repository nu este conectat la spațiul de lucru"
+	"lessons.error_repository": "Acest repository nu este conectat la spațiul de lucru",
+	"assistant.rich_chart_failed": "Graficul nu a putut fi afișat; se afișează codul sursă.",
+	"assistant.rich_widget_failed": "Widgetul nu a putut fi afișat; se afișează codul sursă.",
+	"assistant.rich_widget_title": "Widget interactiv"
 }

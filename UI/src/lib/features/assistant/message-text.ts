@@ -1,5 +1,6 @@
 import MarkdownIt from 'markdown-it';
 import type { Token } from 'markdown-it';
+import { acceptedRichFences } from './rich-blocks.ts';
 
 // The parser the chat renders with (see $lib/markdown): no raw HTML, bare URLs
 // are links and images stay text, so the copied text matches what is read.
@@ -38,7 +39,12 @@ const indent = (text: string, first: string, rest: string) =>
 
 // Renders the blocks from `start` up to the token of type `close` and returns
 // them with the index after it. Tight lists keep their items on adjacent lines.
-function blockTexts(tokens: Token[], start: number, close?: string): { blocks: string[]; next: number; tight: boolean } {
+function blockTexts(
+	tokens: Token[],
+	start: number,
+	close: string | undefined,
+	rich: Set<Token>
+): { blocks: string[]; next: number; tight: boolean } {
 	const blocks: string[] = [];
 	let tight = true;
 	let i = start;
@@ -53,6 +59,10 @@ function blockTexts(tokens: Token[], start: number, close?: string): { blocks: s
 				blocks.push(inlineText(token.children));
 				break;
 			case 'fence':
+				// Rich blocks render as a chart or a widget, not as text.
+				if (rich.has(token)) break;
+				blocks.push(token.content.replace(/\n$/, ''));
+				break;
 			case 'code_block':
 				blocks.push(token.content.replace(/\n$/, ''));
 				break;
@@ -60,7 +70,7 @@ function blockTexts(tokens: Token[], start: number, close?: string): { blocks: s
 				blocks.push('---');
 				break;
 			case 'blockquote_open': {
-				const inner = blockTexts(tokens, i + 1, 'blockquote_close');
+				const inner = blockTexts(tokens, i + 1, 'blockquote_close', rich);
 				blocks.push(
 					inner.blocks
 						.join('\n\n')
@@ -78,7 +88,7 @@ function blockTexts(tokens: Token[], start: number, close?: string): { blocks: s
 				let j = i + 1;
 				for (; j < tokens.length && tokens[j].type === 'list_item_open'; j++) {
 					const marker = token.type === 'ordered_list_open' ? `${tokens[j].info}${tokens[j].markup} ` : '- ';
-					const item = blockTexts(tokens, j + 1, 'list_item_close');
+					const item = blockTexts(tokens, j + 1, 'list_item_close', rich);
 					loose ||= !item.tight;
 					items.push(indent(item.blocks.join(item.tight ? '\n' : '\n\n'), marker, ' '.repeat(marker.length)));
 					j = item.next;
@@ -113,7 +123,8 @@ function blockTexts(tokens: Token[], start: number, close?: string): { blocks: s
  * addresses kept. Nothing is shortened.
  */
 export function markdownToPlainText(source: string): string {
-	return blockTexts(md.parse(source, {}), 0).blocks.join('\n\n');
+	const tokens = md.parse(source, {});
+	return blockTexts(tokens, 0, undefined, acceptedRichFences(tokens)).blocks.join('\n\n');
 }
 
 // Pages served without a secure context (a self-hosted instance over plain

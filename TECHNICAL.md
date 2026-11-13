@@ -1622,6 +1622,45 @@ volume read-only and pass the storage settings. See
 [conversation images](BE/docs/conversations.md#images) and
 [task images](BE/docs/agent-tasks.md#issue-images).
 
+### Rich chat blocks
+
+Completed assistant replies in the web chat may contain two extra fences. A
+`chart` fence holds only a JSON series spec (bar, line, area or pie; one to five
+series, at most 100 categories), which `ChatChart` draws on an echarts canvas
+with theme colours from `--chart-1..5` and a rich-text tooltip, so no model
+string becomes HTML. An `html` fence renders as `ChatHtmlWidget`: an iframe with
+`sandbox="allow-scripts"` only (never `allow-same-origin`) and a fixed 360px
+height. Its `srcdoc` document starts with a CSP of `default-src 'none'` that
+allows only inline scripts and styles and data images and fonts, and adds
+`connect-src`, `frame-src`, `child-src`, `worker-src`, `form-action` and
+`base-uri` of `'none'`, `webrtc 'block'` and DNS prefetch off. A prelude script
+before model markup overrides `RTCPeerConnection`, `webkitRTCPeerConnection` and
+`RTCDataChannel`. That only raises the bar: in browsers without the `webrtc` CSP
+directive, WebRTC is reduced rather than proven blocked, a residual risk.
+
+The page itself carries `frame-src 'none'` in `UI/src/app.html`, so a widget
+that tries `location=`, a meta refresh or a link cannot navigate its frame and
+no request leaves. `srcdoc` is never fetched and still loads under `'none'`. A
+second frame load (the widget navigating itself) still tears the frame down as a
+backstop. A future parent CSP must keep allowing inline scripts in `srcdoc`
+frames, because they inherit the parent policy. Verified on Chromium, WebKit and
+Firefox: no request leaves in any of them, but Firefox fires no load event for a
+CSP-blocked navigation, so there the blocked frame simply stays instead of being
+replaced by the code fallback (the front-end skill documents the page-wide
+`frame-src 'none'` constraint for embed authors).
+
+Caps apply per fence (16 KB chart, 64 KB html) and per message (four rich blocks
+and 128 KB total); a malformed, oversized or otherwise refused block stays an
+ordinary escaped code fence, and a rendering failure shows the original fence
+with a short note, never a blank bubble. Rich blocks render only outside
+streaming. The per-message copy path and `stripRichBlocks` use the same
+parse-and-cap decision, so a fence refused by parsing or caps is copied as code;
+a fence that already rendered and then failed at runtime is still left out
+(known). Each Markdown segment renders on its own, so reference-style links and
+footnote definitions across a rich fence do not resolve (known).
+`BE/internal/service/conversation.go` adds the capability to the shared system
+prompt, so the model knows both fences (Telegram shows them as code).
+
 ### Telegram assistant channel
 
 Workspace Settings → Telegram configures an encrypted bot token and numeric user-ID

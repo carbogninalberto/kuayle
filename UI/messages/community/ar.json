@@ -3991,5 +3991,8 @@
 	"lessons.error_pending": "هناك مقترحات كثيرة جدًا بانتظار الموافقة في هذا المستودع",
 	"lessons.error_duplicate": "هذا الدرس موجود بالفعل لهذا المستودع",
 	"lessons.error_invalid": "الدرس سطر واحد بحد أقصى {max} حرفًا",
-	"lessons.error_repository": "هذا المستودع غير متصل بمساحة العمل"
+	"lessons.error_repository": "هذا المستودع غير متصل بمساحة العمل",
+	"assistant.rich_chart_failed": "تعذّر عرض هذا المخطط؛ يتم عرض مصدره.",
+	"assistant.rich_widget_failed": "تعذّر عرض هذه الأداة؛ يتم عرض مصدرها.",
+	"assistant.rich_widget_title": "أداة تفاعلية"
 }

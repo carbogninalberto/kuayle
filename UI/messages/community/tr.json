@@ -3991,5 +3991,8 @@
 	"lessons.error_pending": "Bu depoda çok fazla öneri bekliyor",
 	"lessons.error_duplicate": "Bu ders bu depo için zaten mevcut",
 	"lessons.error_invalid": "Bir ders en fazla {max} karakterlik tek bir satırdır",
-	"lessons.error_repository": "Bu depo çalışma alanına bağlı değil"
+	"lessons.error_repository": "Bu depo çalışma alanına bağlı değil",
+	"assistant.rich_chart_failed": "Bu grafik oluşturulamadı; kaynak kodu gösteriliyor.",
+	"assistant.rich_widget_failed": "Bu widget oluşturulamadı; kaynak kodu gösteriliyor.",
+	"assistant.rich_widget_title": "Etkileşimli widget"
 }
