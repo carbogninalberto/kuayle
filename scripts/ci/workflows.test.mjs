@@ -44,15 +44,10 @@ test('release runtime checks consume refreshed source while PR checks survive sk
   assert.match(source, /source_sha: \$\{\{ steps.source.outputs.sha \}\}/);
   assert.match(source, /git add devmachine\/common\/install-agent-clis.sh devmachine\/\{agent,ide,headless\}\/Dockerfile/);
   // Automatic releases and manual republishes share one validated source/tag context.
-  assert.match(context, /gh api "repos\/\$GITHUB_REPOSITORY\/releases\/tags\/\$RELEASE_TAG"/);
-  assert.match(context, /must identify a published, non-draft release/);
-  assert.match(context, /does not identify an existing release/);
-  assert.match(context, /releases\/latest/);
-  assert.match(context, /git log HEAD --format='%H%x09%s'.*bump\(version\): \$RELEASE_TAG/);
-  assert.match(context, /no 'bump\(version\): \$RELEASE_TAG' commit found on main/);
-  assert.match(context, /does not match \$RELEASE_TAG/);
-  assert.match(context, /ref: main\n          fetch-depth: 0/);
-  assert.match(context, /publish_latest=false/);
+  assert.match(context, /ref: \$\{\{ github\.event_name == 'workflow_dispatch' && 'main' \|\| needs\.release-source\.outputs\.source_sha \}\}/);
+  assert.match(context, /run: bash scripts\/ci\/release-context\.sh/);
+  assert.match(context, /INCLUDE_ARM64: \$\{\{ contains\(fromJSON\(needs\.changes\.outputs\.plan\)\.architectures, 'arm64'\) \}\}/);
+  assert.doesNotMatch(context, /gh api|git log/);
   // Application images are built from that context, without repeating the bump.
   assert.match(build, /needs: \[changes, release-source, release-context\]/);
   assert.match(build, /ref: \$\{\{ needs.release-context.outputs.source_ref \}\}/);
@@ -101,30 +96,50 @@ test('releases publish the scanned runtime images the updater pulls; PR builds n
 test('automatic releases are amd64-only; manual dispatch opts into arm64', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
   const context = workflow.split('  release-context:\n')[1].split('  build:\n')[0];
-  const build = workflow.split('  build:\n')[1].split('  dev-machine-images:\n')[0];
+  const build = workflow.split('  build:\n')[1].split('  # Promote :latest')[0];
   assert.match(workflow, /workflow_dispatch:\n    inputs:\n      release_tag:/);
   assert.match(workflow, /include_arm64:[\s\S]*?type: boolean\n        default: false/);
   assert.match(workflow, /include_arm64: \$\{\{ inputs\.include_arm64 \|\| false \}\}/);
   // The planner is the single source of the architecture selection.
   assert.match(context, /INCLUDE_ARM64: \$\{\{ contains\(fromJSON\(needs\.changes\.outputs\.plan\)\.architectures, 'arm64'\) \}\}/);
-  assert.match(context, /include_arm64=\$INCLUDE_ARM64/);
   assert.match(build, /include_arm64 == 'true'/);
   assert.match(build, /platforms: \$\{\{ needs\.release-context\.outputs\.include_arm64 == 'true' && 'linux\/amd64,linux\/arm64' \|\| 'linux\/amd64' \}\}/);
   // Application images stay on the single build-push-action push path so their
-  // provenance attestations are preserved.
+  // provenance attestations are preserved. They publish the version tag only;
+  // latest is promoted after every build succeeds.
   assert.match(build, /uses: docker\/build-push-action@/);
   assert.match(build, /push: true/);
-  assert.doesNotMatch(build, /imagetools create/);
-  const tags = build.split('- name: Prepare application image tags\n')[1]?.split('- name:')[0];
-  assert.ok(tags, 'expected application tag preparation');
-  assert.match(tags, /PUBLISH_LATEST/);
-  assert.match(tags, /:latest/);
+  assert.doesNotMatch(build, /imagetools create|:latest/);
   // Every application image builds in its own matrix job.
   assert.match(build, /name: Build Images \(\$\{\{ matrix\.image\.name \}\}\)\n/);
   assert.match(build, /matrix:\n        image: \$\{\{ fromJSON\(needs\.changes\.outputs\.plan\)\.releaseImages \}\}/);
   assert.match(build, /context: \$\{\{ matrix\.image\.context \}\}/);
-  assert.match(build, /tags: \$\{\{ steps\.tags\.outputs\.tags \}\}/);
-  assert.match(build, /cache-from: type=gha,scope=\$\{\{ matrix\.image\.id \}\}/);
+  assert.match(build, /tags: \$\{\{ env\.IMAGE_PREFIX \}\}\/\$\{\{ matrix\.image\.package \}\}:\$\{\{ needs\.release-context\.outputs\.tag \}\}/);
+  assert.match(build, /cache-from: type=gha,scope=\$\{\{ matrix\.image\.id \}\}-\$\{\{ needs\.release-context\.outputs\.include_arm64 == 'true' && 'multi' \|\| 'amd64' \}\}/);
+});
+
+test('latest is promoted only after successful builds and by exact digest', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
+  const build = workflow.split('  build:\n')[1].split('  # Promote :latest')[0];
+  const promote = workflow.split('  promote-latest:\n')[1].split('  dev-machine-images:\n')[0];
+  const manifests = workflow.split('  dev-machine-manifests:\n')[1].split('  result:\n')[0];
+  assert.doesNotMatch(build, /:latest/);
+  assert.match(promote, /needs: \[changes, release-context, build, dev-machine-publish\]/);
+  assert.match(promote, /gh api .*releases\/latest/);
+  assert.match(promote, /imagetools create/);
+  assert.match(promote, /before=.*after=/s);
+  assert.match(promote, /if \[ "\$before" != "\$after" \]/);
+  assert.match(manifests, /Confirm release is still latest/);
+  assert.match(manifests, /PUBLISH_LATEST: \$\{\{ steps\.latest\.outputs\.publish \}\}/);
+});
+
+test('release publishing serializes and change detection gates the version bump', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
+  const source = workflow.split('  release-source:\n')[1].split('\n    name:')[0];
+  assert.match(workflow, /concurrency:\n(?:  #.*\n)*  group: .*release-publish.*\n  cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/s);
+  assert.match(source, /needs: \[changes\]/);
+  assert.match(source, /needs.changes.result == 'success'/);
+  assert.match(workflow, /Validate release tag before committing/);
 });
 
 test('image matrices run without artificial fan-out caps', () => {
@@ -164,16 +179,17 @@ test('CI impact forwards the manual include_arm64 selection', () => {
 test('release API image is built with the release number', () => {
   // Release Readiness runs the built binary to verify the stamp itself.
   const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
-  const api = workflow.split('- name: Build & push API\n')[1].split('- name: Build & push Web\n')[0];
+  const api = workflow.split('- name: Build & push API\n')[1].split('- name: Build & push application image\n')[0];
   assert.match(api, /VERSION=\$\{\{ steps.version.outputs.number \}\}/);
-  const build = workflow.split('  build:\n')[1].split('  dev-machine-images:\n')[0];
+  const build = workflow.split('  build:\n')[1].split('  promote-latest:\n')[0];
   assert.match(build, /echo "number=\$\{version#v\}" >> "\$GITHUB_OUTPUT"/);
 });
 
 test('server release jobs skip cli-v* releases, which CLI Release publishes', () => {
   const build = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
   const source = build.split('  release-source:\n')[1].split('\n    name:')[0];
-  assert.match(source, /if: github.event_name == 'release' && !startsWith\(github.event.release.tag_name, 'cli-v'\)/);
+  assert.match(source, /if: github.event_name == 'release' && needs.changes.result == 'success' && !startsWith\(github.event.release.tag_name, 'cli-v'\)/);
+  assert.match(source, /needs: \[changes\]/);
   const impact = readFileSync(new URL('../../.github/workflows/ci-impact.yml', import.meta.url), 'utf8');
   assert.match(impact, /RELEASE_TAG: \$\{\{ github.event.release.tag_name \}\}/);
   const cli = readFileSync(new URL('../../.github/workflows/cli-release.yml', import.meta.url), 'utf8');

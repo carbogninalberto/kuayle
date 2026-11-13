@@ -383,8 +383,9 @@ gh workflow run build.yml --ref main \
 ```
 
 The manual run builds the release's version-bump commit on `main` without
-creating another commit, and updates `:latest` only when the tag is the current
-latest release. See the
+creating another commit. It promotes `:latest` only after all application images
+build successfully and only when the tag is still the current latest release at
+promotion time. See the
 [CI routing guide](../scripts/ci/README.md#manual-release-rebuilds-and-arm64-images)
 for the tag and republishing risks. A successful candidate run does not authorize
 publishing. The existing automatic release-publishing workflow updates source

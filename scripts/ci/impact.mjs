@@ -145,7 +145,7 @@ export function planForPaths(paths, event = 'pull_request', includeArm64 = false
     // builds, scans and publishes every runtime image once in
     // dev-machine-publish instead. Manual dispatch reuses an existing tag, so
     // it skips the release-source version bump.
-    build: { 'release-source': !pr, 'release-context': !pr, build: !pr, 'dev-machine-images': pr && plan.devImages.length > 0, 'dev-machine-publish': !pr, 'dev-machine-manifests': !pr },
+    build: { 'release-source': !pr, 'release-context': !pr, build: !pr, 'promote-latest': !pr, 'dev-machine-images': pr && plan.devImages.length > 0, 'dev-machine-publish': !pr, 'dev-machine-manifests': !pr },
     readiness: { images: plan.releaseImages.length > 0 }
   };
   plan.jobs = Object.fromEntries(Object.entries(jobs).map(([scope, entries]) => [scope, Object.keys(entries)]));

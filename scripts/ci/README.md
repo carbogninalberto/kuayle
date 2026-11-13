@@ -79,26 +79,32 @@ Go test files and README files do not enter the built application.
 Pushes to main, security tag/schedule runs and releases keep their existing
 full job/image coverage. On a release, `release-source` commits the version bump
 and refreshed agent CLIs; `release-context` validates the tag and selects the
-source, architecture set and latest-tag policy; the `build` application-image
-matrix (all-in-one, API and web in parallel) and the unbounded
-`dev-machine-publish` matrix then both start from that commit in parallel.
-Automatic releases are amd64-only, so `dev-machine-publish` runs the
-amd64 native build, smoke tests and scan for every image once, then pushes that
-scanned image as `kuayle-<service>:<tag>-amd64`; `dev-machine-manifests` waits
-for `build` and combines the built architectures into `:<tag>` and `:latest`
-(`:latest` only when the context allows it). With `include_arm64: true`, the same
-flow also runs the native arm64 jobs and produces a two-architecture manifest.
-Each planner dev image's `package` is that GHCR repository and must stay
-`kuayle-` plus its self-hosting Compose service name, which the release updater
-pulls (a workflow test checks it). Release publishing/version updates remain
-release-only; publishing does not depend on the change-detection job. The new
-self-hosting and CI-validation jobs also run with full Tests coverage on main.
-PR execution uses read-only contents permission, no persisted checkout
-credentials, and no `pull_request_target` or secrets handoff. Only the release
-jobs (`release-source`, `build`, `dev-machine-publish`, `dev-machine-manifests`)
-retain write permissions; `release-context` is read-only. The application-image,
-readiness and dev-machine scan matrices have no workflow-level fan-out cap;
-GitHub queues any jobs beyond the account's runner concurrency.
+source and architecture set; the `build` application-image matrix (all-in-one,
+API and web in parallel) and the unbounded `dev-machine-publish` matrix then both
+start from that commit in parallel. Application images push only `:<tag>`.
+`promote-latest` waits for every application-image leg and
+`dev-machine-publish` to succeed, rechecks the current latest release, and copies
+the exact `:<tag>` index to `:latest` after verifying the digest is unchanged.
+Automatic releases are amd64-only, so `dev-machine-publish` runs the amd64
+native build, smoke tests and scan for every
+image once, then pushes that scanned image as `kuayle-<service>:<tag>-amd64`;
+`dev-machine-manifests` waits for `build` and combines the built architectures
+into `:<tag>` and, when the release is still current, `:latest`. With
+`include_arm64: true`, the same flow also runs the native arm64 jobs and produces
+a two-architecture manifest. Each planner dev image's `package` is that GHCR
+repository and must stay `kuayle-` plus its self-hosting Compose service name,
+which the release updater pulls (a workflow test checks it). Release
+publishing/version updates remain release-only; both `release-source` and image
+publishing require change detection to succeed. The new self-hosting and
+CI-validation jobs also run with full Tests coverage on main. PR execution uses
+read-only contents permission, no persisted checkout credentials, and no
+`pull_request_target` or secrets handoff. Only the release jobs
+(`release-source`, `build`, `promote-latest`, `dev-machine-publish`,
+`dev-machine-manifests`) retain write permissions; `release-context` is
+read-only. Release and manual dispatch runs share one concurrency queue; PR runs
+cancel superseded work. The application-image, readiness and dev-machine scan
+matrices have no workflow-level fan-out cap; GitHub queues any jobs beyond the
+account's runner concurrency.
 
 ## Manual release rebuilds and ARM64 images
 
@@ -128,14 +134,17 @@ Manual republishing is tag-safe but mutable:
   pull current base images, so the result is not bit-for-bit identical to the
   original run even for the same source commit.
 - `:latest` is updated only when `release_tag` is the repository's current latest
-  published release. Republishing an older release leaves `:latest` alone.
+  published release; `promote-latest` and `dev-machine-manifests` recheck that
+  immediately before promoting. Republishing an older release leaves `:latest`
+  alone. Manual runs from any ref other than `main` fail before publishing.
 - A manual run with `include_arm64=false` republishes amd64 only and replaces the
   tag manifest with a single-architecture amd64 image, even if that tag
   previously had arm64. Set `include_arm64=true` to keep or add ARM64.
-- Releases predating the `bump(version): <tag>` convention, or whose bump commit
-  is no longer on `main`, cannot be rebuilt; the workflow fails before publishing.
-  A partial matrix failure can still leave some per-architecture tags updated;
-  inspect the workflow result and registry digests before deploying.
+- Releases predating the `bump(version): <tag>` convention, whose bump commit is
+  no longer on `main`, or whose release-source found nothing to change (and so
+  created no bump commit) cannot be rebuilt; the workflow fails before
+  publishing. A partial matrix failure can still leave some per-architecture tags
+  updated; inspect the workflow result and registry digests before deploying.
 - The selected bump commit already carries the release's agent CLI pins and
   generated release files. There is no new release-source commit, so use a new
   release when those need refreshing.
@@ -180,8 +189,9 @@ The Node tests create disposable Git histories without changing git identity and
 cover docs/harness, BE/UI/WEB, dependencies, shared inputs, workflows, mixed edits,
 renames/deletions, earlier commits, base advancement, >300 files, CLI output,
 unreachable comparison SHAs, cross-package scope contracts, failed gates, the
-amd64 default, the `include_arm64` opt-in and the automatic/manual release result
-gates.
+amd64 default, the `include_arm64` opt-in, the automatic/manual release result
+gates and the mocked release-context scenarios (main guard, draft/missing tags,
+bot-authored bump commit, version mismatch and invalid metadata tags).
 Workflow contract tests inspect our simple job-block/inline-needs conventions;
 actionlint supplies full YAML/expression validation.
 Actionlint validates workflow syntax/expressions; it does not run shell or Python

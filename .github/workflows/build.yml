@@ -26,6 +26,12 @@ env:
 permissions:
   contents: read
 
+concurrency:
+  # Release and manual republish runs share one queue so :latest cannot be
+  # promoted by an older run after a newer release. PR runs cancel superseded work.
+  group: ${{ github.event_name == 'pull_request' && format('build-pr-{0}', github.event.pull_request.number) || 'release-publish' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   changes:
     name: CI Impact
@@ -37,8 +43,9 @@ jobs:
   # then build the application and runtime images from that commit in parallel.
   # A manual republish builds an existing tag instead and skips this job.
   release-source:
+    needs: [changes]
     # cli-v* releases are published by CLI Release, not as a server release.
-    if: github.event_name == 'release' && !startsWith(github.event.release.tag_name, 'cli-v')
+    if: github.event_name == 'release' && needs.changes.result == 'success' && !startsWith(github.event.release.tag_name, 'cli-v')
     name: Prepare Release Source
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
@@ -47,6 +54,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Validate release tag before committing
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::release tag is not a valid server/Docker tag"
+            exit 1
+          fi
+
       - name: Checkout main for release build
         uses: actions/checkout@v7.0.0
         with:
@@ -128,8 +144,9 @@ jobs:
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   # One validated source and tag selection for automatic releases and manual
-  # republishes. A manual run builds the tagged source, never a branch, and only
-  # moves :latest when the tag is the current latest release.
+  # republishes. A manual run reuses the release bump commit and never creates a
+  # new one. The latest-tag writers recheck the current release immediately
+  # before promoting.
   release-context:
     name: Resolve Release Context
     needs: [changes, release-source]
@@ -141,13 +158,11 @@ jobs:
       tag: ${{ steps.context.outputs.tag }}
       source_ref: ${{ steps.context.outputs.source_ref }}
       include_arm64: ${{ steps.context.outputs.include_arm64 }}
-      publish_latest: ${{ steps.context.outputs.publish_latest }}
     steps:
-      - name: Checkout main for the release source lookup
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: Checkout release source for the context lookup
         uses: actions/checkout@v7.0.0
         with:
-          ref: main
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || needs.release-source.outputs.source_sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -159,50 +174,7 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
           SOURCE_SHA: ${{ needs.release-source.outputs.source_sha }}
           INCLUDE_ARM64: ${{ contains(fromJSON(needs.changes.outputs.plan).architectures, 'arm64') }}
-        run: |
-          set -euo pipefail
-
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.+-]+)?$ ]]; then
-            echo "::error::release_tag must be a server release tag such as v0.2.32"
-            exit 1
-          fi
-
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            if ! release=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" 2>/dev/null); then
-              echo "::error::release_tag does not identify an existing release"
-              exit 1
-            fi
-            if [ "$(printf '%s' "$release" | jq -r '.draft')" != "false" ]; then
-              echo "::error::release_tag must identify a published, non-draft release"
-              exit 1
-            fi
-            source_ref=$(git log HEAD --format='%H%x09%s' | awk -F '\t' -v subject="bump(version): $RELEASE_TAG" '$2 == subject && !found { print $1; found = 1 }')
-            if [ -z "$source_ref" ]; then
-              echo "::error::no 'bump(version): $RELEASE_TAG' commit found on main; publish a new release instead"
-              exit 1
-            fi
-            source_version=$(git show "$source_ref:UI/package.json" 2>/dev/null | jq -r .version || true)
-            if [ "$source_version" != "${RELEASE_TAG#v}" ]; then
-              echo "::error::the release source $source_ref does not match $RELEASE_TAG"
-              exit 1
-            fi
-            latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)
-            if [ "$latest" = "$RELEASE_TAG" ]; then
-              publish_latest=true
-            else
-              publish_latest=false
-            fi
-          else
-            source_ref="$SOURCE_SHA"
-            publish_latest=true
-          fi
-
-          {
-            echo "tag=$RELEASE_TAG"
-            echo "source_ref=$source_ref"
-            echo "include_arm64=$INCLUDE_ARM64"
-            echo "publish_latest=$publish_latest"
-          } >> "$GITHUB_OUTPUT"
+        run: bash scripts/ci/release-context.sh
 
   build:
     needs: [changes, release-source, release-context]
@@ -256,23 +228,6 @@ jobs:
         id: security-refresh
         run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare application image tags
-        id: tags
-        env:
-          RELEASE_TAG: ${{ needs.release-context.outputs.tag }}
-          PUBLISH_LATEST: ${{ needs.release-context.outputs.publish_latest }}
-        run: |
-          set -euo pipefail
-
-          {
-            echo "tags<<EOF"
-            echo "${IMAGE_PREFIX}/${{ matrix.image.package }}:${RELEASE_TAG}"
-            if [ "${PUBLISH_LATEST}" = "true" ]; then
-              echo "${IMAGE_PREFIX}/${{ matrix.image.package }}:latest"
-            fi
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
       # The API image alone receives the release version build argument.
       - name: Build & push API
         if: matrix.image.id == 'api'
@@ -286,9 +241,9 @@ jobs:
             SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
             VERSION=${{ steps.version.outputs.number }}
           push: true
-          tags: ${{ steps.tags.outputs.tags }}
-          cache-from: type=gha,scope=${{ matrix.image.id }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image.id }}
+          tags: ${{ env.IMAGE_PREFIX }}/${{ matrix.image.package }}:${{ needs.release-context.outputs.tag }}
+          cache-from: type=gha,scope=${{ matrix.image.id }}-${{ needs.release-context.outputs.include_arm64 == 'true' && 'multi' || 'amd64' }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.id }}-${{ needs.release-context.outputs.include_arm64 == 'true' && 'multi' || 'amd64' }}
 
       - name: Build & push application image
         if: matrix.image.id != 'api'
@@ -300,9 +255,70 @@ jobs:
           pull: true
           build-args: SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
           push: true
-          tags: ${{ steps.tags.outputs.tags }}
-          cache-from: type=gha,scope=${{ matrix.image.id }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image.id }}
+          tags: ${{ env.IMAGE_PREFIX }}/${{ matrix.image.package }}:${{ needs.release-context.outputs.tag }}
+          cache-from: type=gha,scope=${{ matrix.image.id }}-${{ needs.release-context.outputs.include_arm64 == 'true' && 'multi' || 'amd64' }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.id }}-${{ needs.release-context.outputs.include_arm64 == 'true' && 'multi' || 'amd64' }}
+
+  # Promote :latest only after every application image built successfully.
+  # imagetools copies the existing index, and the digest check below rejects any
+  # promotion that would drop provenance attestations.
+  promote-latest:
+    needs: [changes, release-context, build, dev-machine-publish]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.release-context.result == 'success' && needs.build.result == 'success' && needs.dev-machine-publish.result == 'success' }}
+    name: Promote Application Image to Latest (${{ matrix.image.name }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.changes.outputs.plan).releaseImages }}
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.2.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4.2.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Confirm release is still latest
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-context.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! current=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null); then
+            echo "::error::could not confirm the latest release"
+            exit 1
+          fi
+          if [ "$current" = "$RELEASE_TAG" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Promote image to latest by digest
+        if: steps.latest.outputs.publish == 'true'
+        env:
+          REPOSITORY: ${{ env.IMAGE_PREFIX }}/${{ matrix.image.package }}
+          VERSION: ${{ needs.release-context.outputs.tag }}
+        run: |
+          set -euo pipefail
+          source="${REPOSITORY}:${VERSION}"
+          before=$(docker buildx imagetools inspect "$source" --format '{{json .Manifest}}' | jq -r .digest)
+          docker buildx imagetools create --tag "${REPOSITORY}:latest" "$source"
+          after=$(docker buildx imagetools inspect "${REPOSITORY}:latest" --format '{{json .Manifest}}' | jq -r .digest)
+          if [ "$before" != "$after" ]; then
+            echo "::error::latest promotion changed the image digest; refusing partial attestations"
+            exit 1
+          fi
+          echo "Promoted ${source} (${before}) to ${REPOSITORY}:latest"
 
   dev-machine-images:
     needs: [changes, release-source]
@@ -405,12 +421,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Confirm release is still latest
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-context.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! current=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null); then
+            echo "::error::could not confirm the latest release"
+            exit 1
+          fi
+          if [ "$current" = "$RELEASE_TAG" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create release manifest for the selected architectures
         env:
           REPOSITORY: ${{ env.IMAGE_PREFIX }}/${{ matrix.image.package }}
           VERSION: ${{ needs.release-context.outputs.tag }}
           INCLUDE_ARM64: ${{ needs.release-context.outputs.include_arm64 }}
-          PUBLISH_LATEST: ${{ needs.release-context.outputs.publish_latest }}
+          PUBLISH_LATEST: ${{ steps.latest.outputs.publish }}
         run: |
           set -euo pipefail
 
@@ -430,7 +463,7 @@ jobs:
   result:
     name: Build CI Result
     if: always()
-    needs: [changes, release-source, release-context, build, dev-machine-images, dev-machine-publish, dev-machine-manifests]
+    needs: [changes, release-source, release-context, build, promote-latest, dev-machine-images, dev-machine-publish, dev-machine-manifests]
     runs-on: ubuntu-latest
     permissions:
       contents: read

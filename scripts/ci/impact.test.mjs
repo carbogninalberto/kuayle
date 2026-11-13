@@ -162,7 +162,7 @@ test('mixed changes union their coverage; non-PR events retain the full original
     assert.equal(plan.devImages.length, 11);
     assert.equal(plan.securityImages.length, 12);
     // Releases build, scan and publish every runtime image once, in the publish job.
-    const releaseJobs = ['release-context', 'build', 'dev-machine-publish', 'dev-machine-manifests'];
+    const releaseJobs = ['release-context', 'build', 'promote-latest', 'dev-machine-publish', 'dev-machine-manifests'];
     // A manual release republish builds an existing tag; it must not bump main.
     const expected = event === 'workflow_dispatch' ? releaseJobs : ['release-source', ...releaseJobs];
     assert.deepEqual(plan.required.build, expected, event);
@@ -336,14 +336,14 @@ test('a cli-v* release selects no server release jobs and the gates pass', () =>
   for (const job of plan.jobs.build) needs[job] = { result: 'skipped' };
   assert.deepEqual(checkResults('build', needs), []);
   // Server releases keep their full coverage.
-  assert.deepEqual(detectPlan({ event: 'release', releaseTag: 'v0.2.30' }).required.build, ['release-source', 'release-context', 'build', 'dev-machine-publish', 'dev-machine-manifests']);
+  assert.deepEqual(detectPlan({ event: 'release', releaseTag: 'v0.2.30' }).required.build, ['release-source', 'release-context', 'build', 'promote-latest', 'dev-machine-publish', 'dev-machine-manifests']);
   assert.deepEqual(detectPlan({ event: 'release', releaseTag: 'v0.2.30', includeArm64: true }).architectures, ['amd64', 'arm64']);
 });
 
 test('manual server releases reuse the release source without another bump', () => {
   const plan = detectPlan({ event: 'workflow_dispatch' });
   assert.deepEqual(plan.architectures, ['amd64']);
-  assert.deepEqual(plan.required.build, ['release-context', 'build', 'dev-machine-publish', 'dev-machine-manifests']);
+  assert.deepEqual(plan.required.build, ['release-context', 'build', 'promote-latest', 'dev-machine-publish', 'dev-machine-manifests']);
   assert.deepEqual(detectPlan({ event: 'workflow_dispatch', includeArm64: true }).architectures, ['amd64', 'arm64']);
 });
 

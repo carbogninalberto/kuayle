@@ -113,7 +113,8 @@ Keep private backups off-host according to the deployment's backup policy.
 Automatic release publishing (`.github/workflows/build.yml`) builds each Dev
 Machines image natively on amd64, runs its smoke tests and HIGH/CRITICAL scan,
 then pushes that scanned image as `kuayle-SERVICE:TAG-amd64` and creates the
-`kuayle-SERVICE:TAG` and `:latest` manifests the updater pulls. A manual Build &
+`kuayle-SERVICE:TAG` manifest; `:latest` is promoted by digest only when the
+release is still current. A manual Build &
 Push run with `include_arm64=true` also builds the native arm64 image and creates
 a two-architecture manifest. Automatic releases are therefore amd64-only: an
 ARM64 host must rebuild the release with `include_arm64=true` before updating,

@@ -124,7 +124,7 @@ jobs:
       fail-fast: false
       matrix:
         # On PRs only updater remains here; Build & Push scans the other
-        # selected runtime images on both native architectures.
+        # selected runtime images on the planned native architectures.
         include: ${{ fromJSON(needs.changes.outputs.plan).securityImages }}
 
     steps:
