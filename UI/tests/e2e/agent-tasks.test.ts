@@ -2671,6 +2671,7 @@ test('coding agent messages copy in full from the chat, the conversation in the 
 	const copy = { name: 'Copy message' };
 
 	const item = page.getByRole('article', { name: 'Message from the coding agent of ENG-1' });
+	await expect(item.locator('[data-slot=bubble]').getByRole('button', copy)).toHaveCount(1);
 	await item.getByRole('button', copy).focus();
 	await page.keyboard.press('Enter');
 	await expect.poll(clipboard).toBe(body);
@@ -2679,14 +2680,15 @@ test('coding agent messages copy in full from the chat, the conversation in the 
 	await page.getByRole('button', { name: /^Agent · ENG-1/ }).click();
 	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
 	// The session's message is copied as it reads, without its Markdown markers.
-	await thread
+	const sessionMessage = thread
 		.getByRole('region', { name: 'Agent session' })
 		.getByRole('article', { name: 'Agent' })
-		.filter({ hasText: '000116' })
-		.getByRole('button', copy)
-		.click();
+		.filter({ hasText: '000116' });
+	await expect(sessionMessage.locator('[data-slot=bubble]').getByRole('button', copy)).toHaveCount(1);
+	await sessionMessage.getByRole('button', copy).click();
 	await expect.poll(clipboard).toBe('Up to date with main; next migration is 000116.');
 	const live = thread.getByRole('article', { name: 'Agent' }).filter({ hasText: 'Tests added.' });
+	await expect(live.locator('[data-slot=bubble]').getByRole('button', copy)).toHaveCount(1);
 	await live.getByRole('button', copy).click();
 	await expect.poll(clipboard).toBe(body);
 });

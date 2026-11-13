@@ -88,12 +88,14 @@
 		<Message.Content class="gap-1">
 			<Bubble.Root variant="outline" class="max-w-[92%]"
 				><Bubble.Content
-					class="rounded-2xl rounded-bl-md border px-3.5 py-2 break-words whitespace-pre-wrap {item.kind ===
+					data-selectable="text"
+					class="rounded-2xl rounded-bl-md border ps-3.5 pe-9 py-2 break-words whitespace-pre-wrap {item.kind ===
 					'question'
 						? 'border-[var(--status-warning)]/50'
 						: ''} {state === 'rejected' ? 'text-muted-foreground' : ''}">{item.body}</Bubble.Content
-				></Bubble.Root
-			>
+				>
+				<CopyMessageButton text={item.body} />
+			</Bubble.Root>
 			<Message.Footer class="gap-1.5 px-1 text-[11px] font-normal">
 				{#if state === 'rejected'}{@render mark(state, item)}{:else if item.kind === 'question'}<span
 						role="img"
@@ -102,7 +104,6 @@
 						class="inline-flex shrink-0 text-[var(--status-warning)]"><CircleHelp size={13} aria-hidden="true" /></span
 					>{:else}<CornerDownRight size={13} aria-hidden="true" class="shrink-0" />{/if}
 				{@render when(item.created_at)}
-				<CopyMessageButton text={item.body} />
 			</Message.Footer>
 			{#if item.kind === 'question' && state === 'received' && answer?.()}<Button
 					variant="outline"
@@ -126,12 +127,12 @@
 		>
 			<Message.Content class="items-end gap-1">
 				<Bubble.Root variant="muted" class="max-w-[92%]"
-					><Bubble.Content class="rounded-2xl rounded-br-md px-3.5 py-2 break-words whitespace-pre-wrap"
+					><Bubble.Content class="rounded-2xl rounded-br-md ps-3.5 pe-9 py-2 break-words whitespace-pre-wrap"
 						>{message.body}</Bubble.Content
-					></Bubble.Root
-				>
-				<Message.Footer class="gap-1.5 px-1 text-[11px] font-normal">
+					>
 					<CopyMessageButton text={message.body} />
+				</Bubble.Root>
+				<Message.Footer class="gap-1.5 px-1 text-[11px] font-normal">
 					{#if message.sender === 'orchestrator'}<span
 							role="img"
 							aria-label={m['tasks.live_from_orchestrator']()}

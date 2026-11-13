@@ -5,6 +5,7 @@
 	import * as Bubble from '$lib/components/ui/bubble/index.js';
 	import type { AgentLiveChatMessage } from '$lib/api/agent-tasks';
 	import { m } from '$lib/features/i18n/messages';
+	import { cn } from '$lib/utils.js';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 
 	// A message a coding agent sent this conversation through its live channel.
@@ -36,16 +37,16 @@
 				>{/if}
 		</Message.Header>
 		<Bubble.Root variant="outline">
-			<Bubble.Content class={question ? 'border-[var(--status-warning)]/40' : ''}>
+			<Bubble.Content data-selectable="text" class={cn('pe-9', question ? 'border-[var(--status-warning)]/40' : '')}>
 				<p class="break-words whitespace-pre-wrap">{message.body}</p>
 			</Bubble.Content>
+			<CopyMessageButton text={message.body} />
 		</Bubble.Root>
 		<Message.Footer class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
 			<time datetime={message.created_at}
 				>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time
 			>
 			<span>{m['assistant.agent_message_untrusted']()}</span>
-			<CopyMessageButton text={message.body} />
 		</Message.Footer>
 	</Message.Content>
 </Message.Root>
