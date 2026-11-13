@@ -219,7 +219,7 @@ fi
 if [ -n "$lease" ]; then
   if git --git-dir="$work/repo" cat-file -e "$lease^{commit}" 2>/dev/null &&
     ! git --git-dir="$work/repo" merge-base --is-ancestor "$lease" "$commit"; then
-    dropped=$(git --git-dir="$work/repo" log --format='%ae%n%ce' "$lease" --not "$commit" --glob='refs/kuayle/remote/base')
+    dropped=$(git --git-dir="$work/repo" log --format='%ae%n%ce' "$lease" --not "$commit" refs/kuayle/remote/base)
     if printf '%s\n' "$dropped" | grep -vxF -- "$email" | grep -q .; then
       echo "the push would drop commits someone else pushed to the task branch; nothing was force-pushed" >&2; exit 1
     fi

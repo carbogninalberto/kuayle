@@ -343,6 +343,34 @@ func TestPushScriptRefusesToDropCommitsSomeoneElsePushed(t *testing.T) {
 	require.Contains(t, f.run(f.origin, nil, "rev-list", published), maintainerCommit, "the maintainer's commit is still on the branch")
 }
 
+// Base-branch commits on the task branch are never counted as dropped: a
+// published commit built on a newer base, replaced by a rebuild from an older
+// base, only drops Kuayle's own commit.
+func TestPushScriptDoesNotCountBaseCommitsAsDropped(t *testing.T) {
+	f := newScriptFixture(t)
+	oldBase := strings.TrimSpace(f.run(f.checkout, nil, "rev-parse", "HEAD"))
+
+	// Someone else's commit lands on the base branch, and Kuayle publishes on it.
+	maintainer := filepath.Join(f.root, "maintainer")
+	f.run(f.root, nil, "clone", "-q", f.origin, maintainer)
+	baseCommit := f.commitFile(maintainer, "base.txt", fixtureIdentity)
+	f.run(maintainer, nil, "push", "-q", f.origin, "HEAD:main")
+	f.run(f.checkout, nil, "fetch", "-q", "origin")
+	f.run(f.checkout, nil, "reset", "-q", "--hard", "refs/remotes/origin/main")
+	published := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+	output, err := f.push(published, "")
+	require.NoError(t, err, output)
+
+	// The checkout is rebuilt from the older base, without either commit.
+	f.run(f.checkout, nil, "reset", "-q", "--hard", oldBase)
+	rebuiltCommit := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+	require.True(t, f.fails(f.checkout, "merge-base", "--is-ancestor", baseCommit, rebuiltCommit), "the rebuild lacks the base commit")
+
+	output, err = f.push(rebuiltCommit, published)
+	require.NoError(t, err, output)
+	require.Equal(t, rebuiltCommit, f.originTip())
+}
+
 // The other side of the same guard: a force push that only drops commits Kuayle
 // published itself replaces them with the rebuilt commit.
 func TestPushScriptPublishesAForceThatOnlyDropsKuayleCommits(t *testing.T) {
