@@ -145,6 +145,7 @@ authentication.
 | DELETE | `/api/tokens/:id` | session only | A token cannot mint, inspect or revoke tokens; those actions require the interactive sign-in. |
 | DELETE | `/api/tokens/current` | token only | the caller's own token |
 | GET | `/api/users/:userId/avatar/:file` | token | account:read |
+| GET | `/api/workspace-logos/:workspaceId/:file` | public |  |
 | GET | `/api/workspaces` | token | workspaces:read |
 | POST | `/api/workspaces` | session only | Workspace creation, import and invite acceptance bind the signed-in account and stay interactive. |
 | DELETE | `/api/workspaces/:slug` | session only | workspace owner |
@@ -185,6 +186,7 @@ authentication.
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/accept` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/cancel` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/checks` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| GET | `/api/workspaces/:slug/agent-tasks/:taskId/debug` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/history` | token | agent_tasks:read |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/live-messages` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/live-messages` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
@@ -386,6 +388,7 @@ authentication.
 | POST | `/api/workspaces/:slug/labels` | token | label:manage |
 | DELETE | `/api/workspaces/:slug/labels/:id` | token | label:manage |
 | PATCH | `/api/workspaces/:slug/labels/:id` | token | label:manage |
+| POST | `/api/workspaces/:slug/logo` | session only | workspace owner |
 | GET | `/api/workspaces/:slug/members` | token | members:read |
 | DELETE | `/api/workspaces/:slug/members/:userId` | token | member:invite |
 | PATCH | `/api/workspaces/:slug/members/:userId` | token | member:invite |

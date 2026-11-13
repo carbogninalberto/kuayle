@@ -485,7 +485,9 @@
 							{...props}
 							variant="ghost"
 							size="icon-sm"
-							aria-label={m['workflows.editor.inspector']()}
+							aria-label={panelOpen
+								? m['workflows.editor.hide_panel']()
+								: m['workflows.editor.show_panel']()}
 							aria-expanded={panelOpen}
 							aria-controls={panelOpen ? 'workflow-inspector-panel' : undefined}
 							data-testid="workflow-panel-toggle"

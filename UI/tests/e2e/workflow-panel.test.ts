@@ -134,12 +134,14 @@ test('desktop: the side panel collapses to give the canvas the width, survives a
 
 	// The toggle is keyboard reachable and reports its expanded state.
 	const toggle = editor.getByTestId('workflow-panel-toggle');
+	await expect(toggle).toHaveAccessibleName('Hide side panel');
 	await expect(toggle).toHaveAttribute('aria-expanded', 'true');
 	await toggle.focus();
 	await page.keyboard.press('Enter');
 
 	// The panel is gone from the DOM, so its controls cannot take focus.
 	await expect(editor.getByTestId('workflow-inspector-panel')).toHaveCount(0);
+	await expect(toggle).toHaveAccessibleName('Show side panel');
 	await expect(toggle).toHaveAttribute('aria-expanded', 'false');
 	await expect.poll(async () => (await canvas.boundingBox())!.width).toBeGreaterThan(openWidth + 300);
 
