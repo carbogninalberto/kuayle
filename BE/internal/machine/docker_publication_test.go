@@ -73,7 +73,7 @@ func TestPublishScriptsIgnoreAgentGitConfigurationAndKeepTheCredentialOut(t *tes
 	commit, err := script(publishCommitScript, "commit", "REC-1: Dark mode\n\nKuayle agent task", worktree, "kuayle/rec-1", "main", "Kuayle Agent", "agent@kuayle.invalid")
 	require.NoError(t, err, commit)
 	require.Regexp(t, publishCommitPattern, commit)
-	output, err := script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, commit, "main", "agent@kuayle.invalid")
+	output, err := script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, commit, "main", "agent@kuayle.invalid", "")
 	require.NoError(t, err, output)
 
 	require.Equal(t, commit, run(origin, nil, "rev-parse", "refs/heads/kuayle/rec-1"))
@@ -94,14 +94,14 @@ func TestPublishScriptsIgnoreAgentGitConfigurationAndKeepTheCredentialOut(t *tes
 	again, err := script(publishCommitScript, "commit", "REC-1: Dark mode", worktree, "kuayle/rec-1", "main", "Kuayle Agent", "agent@kuayle.invalid")
 	require.NoError(t, err, again)
 	require.Equal(t, commit, again)
-	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, commit, "main", "agent@kuayle.invalid")
+	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, commit, "main", "agent@kuayle.invalid", "")
 	require.NoError(t, err, output)
 
 	// A branch that moved after the commit was recorded is not pushed.
 	require.NoError(t, os.WriteFile(filepath.Join(worktree, "late.txt"), []byte("late\n"), 0o644))
 	run(worktree, identity, "-c", "core.hooksPath=/dev/null", "add", "late.txt")
 	run(worktree, identity, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "late")
-	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, commit, "main", "agent@kuayle.invalid")
+	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, commit, "main", "agent@kuayle.invalid", "")
 	require.Error(t, err)
 	require.Contains(t, output, "task branch moved")
 	require.Equal(t, commit, run(origin, nil, "rev-parse", "refs/heads/kuayle/rec-1"))
@@ -122,7 +122,7 @@ func TestPublishScriptsIgnoreAgentGitConfigurationAndKeepTheCredentialOut(t *tes
 	require.NotContains(t, run(worktree, nil, "log", "-1", "--format=%B", follow), "Co-Authored-By")
 	require.Contains(t, run(worktree, nil, "show", "--name-only", "--format=", follow), "follow.txt")
 	require.Contains(t, run(worktree, nil, "show", "--name-only", "--format=", follow), "uncommitted.txt")
-	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, follow, "main", "agent@kuayle.invalid")
+	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, follow, "main", "agent@kuayle.invalid", "")
 	require.NoError(t, err, output, "a fast-forward of the published branch")
 	same, err := script(publishCommitScript, "commit", "REC-1: Dark mode", worktree, "kuayle/rec-1", "main", "Kuayle Agent", "agent@kuayle.invalid", follow)
 	require.NoError(t, err, same)
@@ -135,7 +135,7 @@ func TestPublishScriptsIgnoreAgentGitConfigurationAndKeepTheCredentialOut(t *tes
 	run(worktree, bot, "-c", "core.hooksPath=/dev/null", "add", "bot.txt")
 	run(worktree, bot, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "Bot change\n\nCo-Authored-By: Claude Code <noreply@anthropic.com>")
 	botCommit := run(worktree, nil, "rev-parse", "HEAD")
-	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, botCommit, "main", "agent@kuayle.invalid")
+	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, botCommit, "main", "agent@kuayle.invalid", "")
 	require.Error(t, err, "Kuayle never publishes another author's commit itself")
 	require.Contains(t, output, "another author")
 	run(origin, nil, "fetch", "-q", cache, "+refs/heads/kuayle/rec-1:refs/heads/kuayle/rec-1")
@@ -145,7 +145,7 @@ func TestPublishScriptsIgnoreAgentGitConfigurationAndKeepTheCredentialOut(t *tes
 	after, err := script(publishCommitScript, "commit", "REC-1: Dark mode", worktree, "kuayle/rec-1", "main", "Kuayle Agent", "agent@kuayle.invalid", botCommit)
 	require.NoError(t, err, after)
 	require.Equal(t, botCommit, run(worktree, nil, "rev-parse", after+"^"), "the published bot commit is kept")
-	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, after, "main", "agent@kuayle.invalid")
+	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, after, "main", "agent@kuayle.invalid", "")
 	require.NoError(t, err, output)
 
 	// A checkout whose history was rewritten below the published commit (by an
@@ -157,7 +157,7 @@ func TestPublishScriptsIgnoreAgentGitConfigurationAndKeepTheCredentialOut(t *tes
 	require.NoError(t, err, rebuilt)
 	require.Equal(t, after, run(worktree, nil, "rev-parse", rebuilt+"^"))
 	require.Equal(t, "rewrite.txt", run(worktree, nil, "show", "--name-only", "--format=", rebuilt), "only the new change is on top")
-	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, rebuilt, "main", "agent@kuayle.invalid")
+	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, rebuilt, "main", "agent@kuayle.invalid", "")
 	require.NoError(t, err, output)
 
 	// No changes relative to the base branch means nothing to publish.
@@ -305,12 +305,12 @@ func TestPublishScriptsNeverRunProgramsNamedByTheCheckout(t *testing.T) {
 	}
 	push := func(published string) {
 		t.Helper()
-		script("push", publishPushScript, input, "acme/app", "kuayle/rec-1", worktree, published, "main", "agent@kuayle.invalid")
+		script("push", publishPushScript, input, "acme/app", "kuayle/rec-1", worktree, published, "main", "agent@kuayle.invalid", "")
 		require.Equal(t, published, run(origin, nil, "rev-parse", "refs/heads/kuayle/rec-1"))
 	}
 	sync := func() {
 		t.Helper()
-		script("sync", publishSyncScript, input, "acme/app", "kuayle/rec-1", worktree)
+		script("sync", publishSyncScript, input, "acme/app", "kuayle/rec-1", worktree, "")
 	}
 
 	sync()

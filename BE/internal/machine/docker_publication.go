@@ -16,8 +16,11 @@ type PublishRequest struct {
 	AuthorEmail string
 	// The last commit Kuayle published on this branch; commits up to it are kept.
 	PublishedCommit string
-	Message         string
-	Token           string
+	// Lease is the GitHub tip SyncCheckout saw when the agent had rewritten the
+	// published commit. When set, the push is guarded by force-with-lease.
+	Lease   string
+	Message string
+	Token   string
 }
 
 var (
@@ -160,11 +163,14 @@ g rev-parse --verify HEAD
 `
 
 // The push step copies only the recorded commit into a new temporary repository
-// with no hooks or inherited configuration, then pushes it non-forcefully. The
-// commit is read through publishCheckoutScript, so the agent-writable
-// checkout's configuration is never loaded, with or without the token.
+// with no hooks or inherited configuration, then pushes it. It is forced only
+// under the lease of a rewrite the sync accepted, and that lease is checked
+// against GitHub's tip at push time, so a commit that landed in between is never
+// discarded. The commit is read through publishCheckoutScript, so the
+// agent-writable checkout's configuration is never loaded, with or without the
+// token.
 const publishPushScript = `set -eu
-repository=$1 branch=$2 path=$3 commit=$4 base=$5 email=$6 step=publish
+repository=$1 branch=$2 path=$3 commit=$4 base=$5 email=$6 lease=${7:-} step=publish
 umask 077
 ` + publishCheckoutScript + `git init -q --bare "$work/repo"
 git --git-dir="$work/repo" fetch -q --no-tags --no-recurse-submodules "$work/checkout" "+refs/heads/$branch:refs/kuayle/publish" </dev/null
@@ -184,9 +190,11 @@ chmod 0700 "$work/askpass"
 remote() { GIT_ASKPASS="$work/askpass" KUAYLE_PUBLISH_TOKEN_FILE="$work/token" git --git-dir="$work/repo" -c credential.helper= -c core.hooksPath=/dev/null "$@" </dev/null; }
 url="https://github.com/$repository"
 # Every commit this push adds to GitHub must be by the configured author and
-# carry no co-author trailers. The commit step trusted the checkout's
-# remote-tracking refs to keep base and task-branch commits; here they come from
-# GitHub itself.
+# carry no co-author trailers. The range is every commit not reachable from the
+# base and task-branch tips fetched from GitHub, so a forced push's rewritten
+# commits are checked as well, not only the commits beyond them. The commit step
+# trusted the checkout's remote-tracking refs to keep base and task-branch
+# commits; here they come from GitHub itself.
 remote fetch -q --no-tags --no-recurse-submodules "$url" "+refs/heads/$base:refs/kuayle/remote/base"
 if remote ls-remote --exit-code --heads "$url" "refs/heads/$branch" >/dev/null; then
   remote fetch -q --no-tags --no-recurse-submodules "$url" "+refs/heads/$branch:refs/kuayle/remote/branch"
@@ -196,7 +204,14 @@ messages=$(git --git-dir="$work/repo" log --format=%B "$commit" --not --glob='re
 if printf '%s\n' "$authors" | grep -vxF -- "$email" | grep -q . || printf '%s\n' "$messages" | grep -qi '^co-authored-by:'; then
   echo "publication adds commits by another author" >&2; exit 1
 fi
-remote push -q "$url" "$commit:refs/heads/$branch"
+# The bare repository has no remote-tracking ref, so the expected tip is named
+# explicitly. It is the tip the sync saw; if the branch moved since then, GitHub
+# refuses the push instead of losing that commit.
+if [ -n "$lease" ]; then
+  remote push -q --force-with-lease="refs/heads/$branch:$lease" "$url" "$commit:refs/heads/$branch"
+else
+  remote push -q "$url" "$commit:refs/heads/$branch"
+fi
 `
 
 // PublishCheckout commits pending task changes and pushes the task branch. It
@@ -215,6 +230,9 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 	if request.PublishedCommit != "" && !publishCommitPattern.MatchString(request.PublishedCommit) {
 		return "", fmt.Errorf("invalid published commit")
 	}
+	if request.Lease != "" && !publishCommitPattern.MatchString(request.Lease) {
+		return "", fmt.Errorf("invalid publication lease")
+	}
 	output, err := r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishCommitScript, "kuayle-publish-commit",
 		checkout.WorkspacePath, checkout.WorkingBranch, checkout.BaseBranch, request.AuthorName, request.AuthorEmail, request.PublishedCommit}, request.Message)
 	if err != nil {
@@ -228,7 +246,7 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 		return "", fmt.Errorf("publication returned an invalid commit")
 	}
 	if _, err = r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishPushScript, "kuayle-publish-push",
-		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit, checkout.BaseBranch, request.AuthorEmail}, request.Token+"\n"); err != nil {
+		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit, checkout.BaseBranch, request.AuthorEmail, request.Lease}, request.Token+"\n"); err != nil {
 		return "", err
 	}
 	return commit, nil
@@ -236,12 +254,17 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 
 // The sync step brings the checkout up to the task branch on GitHub before it is
 // published: commits others pushed (a maintainer merging the base branch into
-// the pull request) are fetched and fast-forwarded to, never overwritten. The
-// credential is used only in a fresh bare repository. The checkout is updated
-// from that repository through publishCheckoutScript, after the credential is
-// gone, so no program named by its configuration or attributes runs.
+// the pull request) are fetched and fast-forwarded to, never overwritten. When
+// the histories diverged because the agent rewrote the commits Kuayle published
+// itself, GitHub's tip is still exactly the commit Kuayle recorded as published
+// ($4). Nobody else pushed then, so the checkout is left alone and the tip is
+// printed as the lease for a guarded force push. Any other divergence is
+// refused. The credential is used only in a fresh bare repository. The checkout
+// is updated from that repository through publishCheckoutScript, after the
+// credential is gone, so no program named by its configuration or attributes
+// runs.
 const publishSyncScript = `set -eu
-repository=$1 branch=$2 path=$3 step=sync
+repository=$1 branch=$2 path=$3 published=$4 step=sync
 umask 077
 ` + publishCheckoutScript + `on_task_branch
 IFS= read -r token
@@ -275,24 +298,55 @@ if g merge-base --is-ancestor HEAD "$tip"; then
   g merge -q --ff-only "$tip" || { echo "could not fast-forward the checkout to commits pushed to GitHub; resolve it by hand, nothing was force-pushed" >&2; exit 1; }
   exit 0
 fi
-echo "the task branch on GitHub has commits the checkout does not have and the checkout has commits GitHub does not have; it cannot be fast-forwarded and nothing was force-pushed" >&2
+if [ -n "$published" ] && [ "$tip" = "$published" ]; then
+  # GitHub's tip is the commit Kuayle published last and nobody else pushed, so
+  # the divergence is the agent's own rewrite: leave the checkout for the commit
+  # step and report the expected tip for the push's lease.
+  echo "lease $tip"
+  exit 0
+fi
+echo "the task branch on GitHub has commits the checkout does not have and the checkout has commits GitHub does not have; someone else pushed to the branch, so it cannot be fast-forwarded and nothing was force-pushed" >&2
 exit 1
 `
 
-// SyncCheckout fast-forwards the task checkout to the task branch on GitHub. It
-// fails, leaving the checkout alone, when the histories diverged.
-func (r *DockerRuntime) SyncCheckout(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, token string) error {
+// SyncCheckout fast-forwards the task checkout to the task branch on GitHub,
+// leaving it alone when someone else pushed commits the checkout does not have.
+// When the checkout rewrote the commits Kuayle published and GitHub's tip is
+// still the commit Kuayle recorded as published, nobody else pushed: it returns
+// that tip as the lease for a guarded force push instead of changing the
+// checkout.
+func (r *DockerRuntime) SyncCheckout(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, token, published string) (string, error) {
 	developerContainer := developerContainerID(services)
 	if developerContainer == "" {
-		return fmt.Errorf("developer container is unavailable")
+		return "", fmt.Errorf("developer container is unavailable")
 	}
 	if checkout == nil || !publishRepositoryPattern.MatchString(checkout.RepositoryFullName) {
-		return fmt.Errorf("invalid publication repository")
+		return "", fmt.Errorf("invalid publication repository")
 	}
 	if token == "" {
-		return fmt.Errorf("repository credential is unavailable")
+		return "", fmt.Errorf("repository credential is unavailable")
 	}
-	_, err := r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishSyncScript, "kuayle-publish-sync",
-		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath}, token+"\n")
-	return err
+	if published != "" && !publishCommitPattern.MatchString(published) {
+		return "", fmt.Errorf("invalid published commit")
+	}
+	output, err := r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishSyncScript, "kuayle-publish-sync",
+		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, published}, token+"\n")
+	if err != nil {
+		return "", err
+	}
+	return parseSyncLease(output)
+}
+
+// parseSyncLease validates the sync step's stdout: nothing for a fast-forward or
+// the refusal of a divergence, or the lease of a rewrite the sync accepted.
+func parseSyncLease(output string) (string, error) {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return "", nil
+	}
+	lease, ok := strings.CutPrefix(output, "lease ")
+	if !ok || !publishCommitPattern.MatchString(lease) {
+		return "", fmt.Errorf("checkout sync returned an unexpected result")
+	}
+	return lease, nil
 }

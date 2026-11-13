@@ -299,7 +299,16 @@ queues one `publication` step (sequence 1) and a `publish_agent` operation in th
 fenced task transaction, using the same machine locks as validation. The manager
 re-verifies the same phase authority (task still `publishing`, current run,
 creator, machine generation, enabled policy, live operation lease) on every read
-and write, checks that the checkout is the task's own ready checkout, then:
+and write, and checks that the checkout is the task's own ready checkout. It
+first fetches the task branch from GitHub with a credential used only in a fresh
+repository and fast-forwards the checkout to commits others pushed (a maintainer
+merging the base branch into the pull request). When the histories diverged
+because the agent rebased its own branch, GitHub's tip is exactly the commit
+Kuayle recorded as published (`PublishedCommit`) and nobody else pushed: the
+checkout is left alone, and the push is guarded by `--force-with-lease` against
+that tip after the commit step rebuilds the agent's changes on it. Any other
+divergence is refused with a reason saying someone else pushed to the branch,
+and nothing is force-pushed. Then:
 
 1. Commits pending changes in the developer container **without any credential**,
    as `DEV_MACHINE_AGENT_GIT_NAME <DEV_MACHINE_AGENT_GIT_EMAIL>` (default
@@ -321,10 +330,12 @@ and write, checks that the checkout is the task's own ready checkout, then:
    task branches from GitHub and refuses a push that would add a commit by
    another author or with a co-author trailer, since the checkout's
    remote-tracking refs the commit step relied on are agent-writable. It pushes
-   the commit to the fixed `https://github.com/<checkout repository>` URL without
-   force. The agent-writable checkout's configuration (hooks, URL rewrites,
-   credential helpers) is never loaded, and the token is never written to the
-   workspace volume.
+   the commit to the fixed `https://github.com/<checkout repository>` URL, without
+   force unless the sync returned a lease; the lease makes the push the
+   `--force-with-lease` one described above, and the author check still covers
+   every commit the push adds, including a rewrite's. The agent-writable
+   checkout's configuration (hooks, URL rewrites, credential helpers) is never
+   loaded, and the token is never written to the workspace volume.
 3. Reuses an open pull request from the task branch into the base branch, or opens
    one with the GitHub App, as a draft when the attempt's check was skipped. A
    reused pull request gets this attempt's description, so a later passing check
@@ -2626,8 +2637,11 @@ task's published commit changed.
 
 Publication first fetches the task branch from GitHub with a credential used
 only in a fresh repository, and fast-forwards the checkout to commits others
-pushed. It never force-pushes; diverged histories fail the publication with the
-reason. An agent review is stale when its commit is no longer the recorded head
+pushed. A divergence is published only when GitHub's tip is exactly the commit
+Kuayle recorded as published, which is the agent's own rewrite: the push is
+then guarded by `--force-with-lease` against that tip. Any other divergence
+fails the publication with a reason saying someone else pushed to the branch.
+An agent review is stale when its commit is no longer the recorded head
 or the task has published a newer commit:
 `get_agent_work` withholds its findings and tells the assistant to offer
 `request_agent_review` for the new head. Re-running a review still pins the
