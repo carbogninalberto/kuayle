@@ -65,6 +65,16 @@ func signedGitHubWebhook(secret, event, delivery string, body []byte) *http.Requ
 	return req
 }
 
+// A bad signature is rejected before the delivery is recorded or processed.
+func TestGitHubWebhookRejectsBadSignature(t *testing.T) {
+	svc := service.NewGitHubService(nil, nil, nil, nil, nil, nil, nil, "https://kuayle.test", "", &service.GlobalGitHubAppConfig{AppID: 1, WebhookSecret: "fixture"})
+	req := signedGitHubWebhook("fixture", "ping", uuid.NewString(), []byte(`{"zen":"Keep it simple"}`))
+	req.Header.Set("X-Hub-Signature-256", "sha256=00")
+	rec := httptest.NewRecorder()
+	require.NoError(t, NewGitHubHandler(svc).HandleWebhook(echo.New().NewContext(req, rec)))
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
 // GitHub sends X-GitHub-Delivery with every delivery; without it a delivery
 // cannot be told apart from a replay, so even a correctly signed one is refused.
 func TestGitHubWebhookRejectsSignedDeliveryWithoutDeliveryID(t *testing.T) {

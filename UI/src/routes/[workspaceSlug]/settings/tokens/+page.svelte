@@ -2,12 +2,18 @@
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
+	import { page } from '$app/state';
 	import {
 		listTokens,
 		createToken,
 		revokeToken,
+		listCLILinks,
+		createCLILink,
+		revokeCLILink,
 		type PersonalAccessToken,
-		type CreatedPersonalAccessToken
+		type CreatedPersonalAccessToken,
+		type CLIConnectionLink,
+		type CreatedCLIConnectionLink
 	} from '$lib/api/tokens';
 	import { listWorkspaces } from '$lib/api/workspaces';
 	import type { Workspace } from '$lib/types/workspace';
@@ -35,7 +41,7 @@
 	import { m, getLocale } from '$lib/features/i18n/messages';
 	import { expiresAt, localDateString, type ExpiryChoice } from '$lib/features/tokens/expiry';
 	import { formatDate, formatRelativeTime } from '$lib/utils/format';
-	import { Plus, Trash2, KeyRound, Copy, ChevronDown, TriangleAlert } from '@lucide/svelte';
+	import { Plus, Trash2, KeyRound, Copy, ChevronDown, TriangleAlert, Terminal } from '@lucide/svelte';
 
 	const tokenMessages: Record<string, () => string> = {
 		preset_read_only: m['settings.tokens.preset_read_only'],
@@ -102,11 +108,28 @@
 	let tokenToRevoke = $state<PersonalAccessToken | null>(null);
 	let revoking = $state(false);
 
+	// Connect CLI state
+	let showConnect = $state(false);
+	let connectName = $state('');
+	let connectScopes = $state<Set<string>>(new Set(PRESET_SCOPES.developer));
+	let connectAdvanced = $state(false);
+	let connectTTL = $state(15);
+	let connectMaxUses = $state(1);
+	let connectCreating = $state(false);
+	let connectCreated = $state<CreatedCLIConnectionLink | null>(null);
+	let cliLinks = $state<CLIConnectionLink[]>([]);
+	let cliLinksLoading = $state(false);
+	let cliLinksFailed = $state(false);
+	let revokingCLILink = $state<string | null>(null);
+	const workspaceSlug = $derived(page.params.workspaceSlug ?? '');
+	const connectPreset = $derived(matchPreset(connectScopes));
+
 	const preset = $derived(matchPreset(selectedScopes));
 	const mainRows = RESOURCE_ROWS.filter((row) => !row.advanced);
 	const advancedRows = RESOURCE_ROWS.filter((row) => row.advanced);
 	const todayStr = $derived(localDateString(new Date()));
 	const customDateValid = $derived(expiresAt('custom', customDate) !== null);
+	const canConnect = $derived(connectScopes.size > 0 && !connectCreating);
 	const canSubmit = $derived(
 		name.trim().length > 0 &&
 			selectedScopes.size > 0 &&
@@ -211,6 +234,85 @@
 		}
 	}
 
+	async function openConnect() {
+		connectName = '';
+		connectScopes = new Set(PRESET_SCOPES.developer);
+		connectAdvanced = false;
+		connectTTL = 15;
+		connectMaxUses = 1;
+		connectCreated = null;
+		showConnect = true;
+		if (workspaces.length === 0 || workspacesFailed) await loadWorkspaces();
+		await loadCLILinks();
+	}
+
+	async function loadCLILinks() {
+		cliLinksLoading = true;
+		cliLinksFailed = false;
+		try {
+			cliLinks = await listCLILinks();
+		} catch (err: any) {
+			cliLinksFailed = true;
+			appToast.apiError(err, m['settings.tokens.cli_failed_load']());
+		} finally {
+			cliLinksLoading = false;
+		}
+	}
+
+	async function handleConnect(e: Event) {
+		e.preventDefault();
+		if (!canConnect) return;
+		connectCreating = true;
+		try {
+			const created = await createCLILink({
+				...(connectName.trim() ? { name: connectName.trim() } : {}),
+				scopes: [...connectScopes].sort(),
+				...(workspaceSlug ? { workspace_slugs: [workspaceSlug] } : {}),
+				ttl_minutes: connectTTL,
+				max_uses: connectMaxUses
+			});
+			const { link: _link, ...listed } = created;
+			cliLinks = [listed, ...cliLinks];
+			connectCreated = created;
+		} catch (err: any) {
+			appToast.apiError(err, m['settings.tokens.cli_failed']());
+		} finally {
+			connectCreating = false;
+		}
+	}
+
+	async function copyConnectCommand() {
+		if (!connectCreated) return;
+		try {
+			await navigator.clipboard.writeText(`kuayle auth connect '${connectCreated.link}'`);
+			appToast.success(m['settings.tokens.cli_copied']());
+		} catch {
+			appToast.error(m['settings.tokens.failed_copy']());
+		}
+	}
+
+	async function handleRevokeCLILink(id: string) {
+		if (revokingCLILink) return;
+		revokingCLILink = id;
+		try {
+			await revokeCLILink(id);
+			cliLinks = cliLinks.filter((link) => link.id !== id);
+			appToast.success(m['settings.tokens.cli_revoked']());
+		} catch (err: any) {
+			appToast.apiError(err, m['settings.tokens.cli_failed_revoke']());
+		} finally {
+			revokingCLILink = null;
+		}
+	}
+
+	function applyConnectPreset(key: PresetKey) {
+		connectScopes = new Set(PRESET_SCOPES[key]);
+	}
+
+	function setConnectRowLevel(row: ResourceRow, level: AccessLevel) {
+		connectScopes = applyLevel(connectScopes, row, level);
+	}
+
 	async function copyCreatedToken() {
 		if (!createdToken) return;
 		try {
@@ -250,13 +352,19 @@
 <div class="mx-auto max-w-2xl px-4 py-10 sm:px-8">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.tokens.title']()}</h1>
-		<Button variant="plain" onclick={openCreate}
-			disabled={loading || loadFailed || creating}
-			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
-		>
-			<Plus size={14} />
-			{m['settings.tokens.new']()}
-		</Button>
+		<div class="flex items-center gap-2">
+			<Button variant="outline" size="sm" onclick={openConnect} disabled={loading || loadFailed}>
+				<Terminal size={14} />
+				{m['settings.tokens.cli_button']()}
+			</Button>
+			<Button variant="plain" onclick={openCreate}
+				disabled={loading || loadFailed || creating}
+				class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
+			>
+				<Plus size={14} />
+				{m['settings.tokens.new']()}
+			</Button>
+		</div>
 	</div>
 	<p class="mt-1 text-sm text-[var(--color-text-secondary)]">{m['settings.tokens.desc']()}</p>
 
@@ -647,5 +755,315 @@
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
+
+<Dialog.Root
+	open={showConnect}
+	onOpenChange={(open) => {
+		if (!connectCreating) showConnect = open;
+	}}
+>
+	<Dialog.Content
+		class="overflow-hidden rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 sm:max-w-[560px]"
+		showCloseButton={!connectCreating}
+		interactOutsideBehavior={connectCreating ? 'ignore' : 'close'}
+		escapeKeydownBehavior={connectCreating ? 'ignore' : 'close'}
+	>
+		{#if connectCreated}
+			<div class="space-y-4 px-5 pt-5 pb-4">
+				<div>
+					<Dialog.Title class="text-base font-semibold text-[var(--color-text-primary)]">
+						{m['settings.tokens.cli_created_title']()}
+					</Dialog.Title>
+					<Dialog.Description
+						class="mt-0.5 flex items-start gap-1.5 text-xs text-[var(--color-error)]"
+					>
+						<TriangleAlert size={13} class="mt-0.5 shrink-0" />
+						{m['settings.tokens.cli_created_warning']()}
+					</Dialog.Description>
+				</div>
+				<div class="space-y-1.5">
+					<Label class="text-xs text-[var(--color-text-secondary)]">
+						{m['settings.tokens.cli_command']()}
+					</Label>
+					<code
+						class="block select-all break-all rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-xs text-[var(--color-text-primary)]"
+					>
+						kuayle auth connect '{connectCreated.link}'
+					</code>
+					<Button variant="outline" size="sm" onclick={copyConnectCommand}>
+						<Copy size={13} />
+						{m['settings.tokens.cli_copy_command']()}
+					</Button>
+				</div>
+				<p class="text-xs text-[var(--color-text-tertiary)]">
+					{m['settings.tokens.cli_expires']({
+						time: formatDate(connectCreated.expires_at, getLocale())
+					})}
+				</p>
+			</div>
+			<div class="flex justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
+				<Button size="sm" onclick={() => (showConnect = false)}>{m['settings.tokens.cli_done']()}</Button>
+			</div>
+		{:else}
+			<form onsubmit={handleConnect}>
+				<div class="max-h-[80vh] space-y-4 overflow-y-auto px-5 pt-5 pb-4">
+					<div>
+						<Dialog.Title class="text-base font-semibold text-[var(--color-text-primary)]">
+							{m['settings.tokens.cli_title']()}
+						</Dialog.Title>
+						<Dialog.Description class="mt-0.5 text-xs text-[var(--color-text-tertiary)]">
+							{m['settings.tokens.cli_desc']()}
+						</Dialog.Description>
+					</div>
+
+					<div class="space-y-1.5">
+						<Label for="cli-link-name" class="text-xs text-[var(--color-text-secondary)]">
+							{m['settings.tokens.cli_name']()}
+						</Label>
+						<Input
+							id="cli-link-name"
+							bind:value={connectName}
+							placeholder={m['settings.tokens.cli_name_placeholder']()}
+							maxlength={100}
+							class=""
+						/>
+					</div>
+
+					<div class="space-y-1.5">
+						<Label class="text-xs text-[var(--color-text-secondary)]">
+							{m['settings.tokens.preset']()}
+						</Label>
+						<Select.Root
+							type="single"
+							value={connectPreset}
+							onValueChange={(value) =>
+								PRESET_KEYS.includes(value as PresetKey) && applyConnectPreset(value as PresetKey)}
+						>
+							<Select.Trigger
+								aria-label={m['settings.tokens.preset']()}
+								class="w-full border-[var(--app-border)] bg-[var(--color-bg)]"
+							>
+								{tokenMessages[`preset_${connectPreset}`]()}
+							</Select.Trigger>
+							<Select.Content>
+								{#each PRESET_KEYS as key}
+									<Select.Item value={key} label={tokenMessages[`preset_${key}`]()}>
+										{tokenMessages[`preset_${key}`]()}
+									</Select.Item>
+								{/each}
+								<Select.Item value="custom" disabled label={m['settings.tokens.preset_custom']()}>
+									{m['settings.tokens.preset_custom']()}
+								</Select.Item>
+							</Select.Content>
+						</Select.Root>
+					</div>
+
+					<div class="space-y-1.5">
+						<Label class="text-xs text-[var(--color-text-secondary)]">
+							{m['settings.tokens.permissions']()}
+						</Label>
+						<div class="rounded-md border border-[var(--app-border)]">
+							{#each mainRows as row, i (row.key)}
+								{@const level = levelForScopes(row, connectScopes)}
+								<div class="flex items-center gap-3 px-3 py-2 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
+									<span class="min-w-0 flex-1 text-xs text-[var(--color-text-primary)]">
+										{tokenMessages[`res_${row.key}`]()}
+									</span>
+									<Select.Root
+										type="single"
+										value={level}
+										onValueChange={(value) => value && setConnectRowLevel(row, value as AccessLevel)}
+									>
+										<Select.Trigger
+											aria-label={tokenMessages[`res_${row.key}`]()}
+											class="w-32 shrink-0 border-[var(--app-border)] bg-[var(--color-bg)]"
+										>
+											{tokenMessages[`access_${level}`]()}
+										</Select.Trigger>
+										<Select.Content>
+											<Select.Item value="none" label={m['settings.tokens.access_none']()}>
+												{m['settings.tokens.access_none']()}
+											</Select.Item>
+											<Select.Item value="read" label={m['settings.tokens.access_read']()}>
+												{m['settings.tokens.access_read']()}
+											</Select.Item>
+											{#if row.writeScopes.length > 0}
+												<Select.Item value="write" label={m['settings.tokens.access_write']()}>
+													{m['settings.tokens.access_write']()}
+												</Select.Item>
+											{/if}
+										</Select.Content>
+									</Select.Root>
+								</div>
+							{/each}
+							<div class="border-t border-[var(--app-border)]">
+								<Button variant="plain" type="button"
+									class="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-[var(--color-bg-hover)]"
+									onclick={() => (connectAdvanced = !connectAdvanced)}
+								>
+									<ChevronDown
+										size={12}
+										class="shrink-0 text-[var(--color-text-tertiary)] transition-transform {connectAdvanced
+											? ''
+											: '-rotate-90'}"
+									/>
+									<span class="text-xs text-[var(--color-text-secondary)]">{m['settings.tokens.advanced']()}</span>
+								</Button>
+								{#if connectAdvanced}
+									{#each advancedRows as row (row.key)}
+										{@const level = levelForScopes(row, connectScopes)}
+										<div class="flex items-center gap-3 border-t border-[var(--app-border)] px-3 py-2">
+											<span class="min-w-0 flex-1 text-xs text-[var(--color-text-primary)]">
+												{tokenMessages[`res_${row.key}`]()}
+											</span>
+											<Select.Root
+												type="single"
+												value={level}
+												onValueChange={(value) => value && setConnectRowLevel(row, value as AccessLevel)}
+											>
+												<Select.Trigger
+													aria-label={tokenMessages[`res_${row.key}`]()}
+													class="w-32 shrink-0 border-[var(--app-border)] bg-[var(--color-bg)]"
+												>
+													{tokenMessages[`access_${level}`]()}
+												</Select.Trigger>
+												<Select.Content>
+													<Select.Item value="none" label={m['settings.tokens.access_none']()}>
+														{m['settings.tokens.access_none']()}
+													</Select.Item>
+													<Select.Item value="read" label={m['settings.tokens.access_read']()}>
+														{m['settings.tokens.access_read']()}
+													</Select.Item>
+													<Select.Item value="write" label={m['settings.tokens.access_write']()}>
+														{m['settings.tokens.access_write']()}
+													</Select.Item>
+												</Select.Content>
+											</Select.Root>
+										</div>
+									{/each}
+								{/if}
+							</div>
+						</div>
+					</div>
+
+					<div class="grid gap-3 sm:grid-cols-2">
+						<div class="space-y-1.5">
+							<Label class="text-xs text-[var(--color-text-secondary)]">
+								{m['settings.tokens.cli_ttl']()}
+							</Label>
+							<Select.Root
+								type="single"
+								value={String(connectTTL)}
+								onValueChange={(value) => value && (connectTTL = Number(value))}
+							>
+								<Select.Trigger
+									aria-label={m['settings.tokens.cli_ttl']()}
+									class="w-full border-[var(--app-border)] bg-[var(--color-bg)]"
+								>
+									{connectTTL === 15
+										? m['settings.tokens.cli_ttl_15']()
+										: connectTTL === 60
+											? m['settings.tokens.cli_ttl_60']()
+											: m['settings.tokens.cli_ttl_1440']()}
+								</Select.Trigger>
+								<Select.Content>
+									<Select.Item value="15" label={m['settings.tokens.cli_ttl_15']()}>
+										{m['settings.tokens.cli_ttl_15']()}
+									</Select.Item>
+									<Select.Item value="60" label={m['settings.tokens.cli_ttl_60']()}>
+										{m['settings.tokens.cli_ttl_60']()}
+									</Select.Item>
+									<Select.Item value="1440" label={m['settings.tokens.cli_ttl_1440']()}>
+										{m['settings.tokens.cli_ttl_1440']()}
+									</Select.Item>
+								</Select.Content>
+							</Select.Root>
+						</div>
+						<div class="space-y-1.5">
+							<Label class="text-xs text-[var(--color-text-secondary)]">
+								{m['settings.tokens.cli_uses']()}
+							</Label>
+							<Select.Root
+								type="single"
+								value={String(connectMaxUses)}
+								onValueChange={(value) => value && (connectMaxUses = Number(value))}
+							>
+								<Select.Trigger
+									aria-label={m['settings.tokens.cli_uses']()}
+									class="w-full border-[var(--app-border)] bg-[var(--color-bg)]"
+								>
+									{connectMaxUses === 1
+										? m['settings.tokens.cli_uses_single']()
+										: connectMaxUses === 5
+											? m['settings.tokens.cli_uses_5']()
+											: m['settings.tokens.cli_uses_10']()}
+								</Select.Trigger>
+								<Select.Content>
+									<Select.Item value="1" label={m['settings.tokens.cli_uses_single']()}>
+										{m['settings.tokens.cli_uses_single']()}
+									</Select.Item>
+									<Select.Item value="5" label={m['settings.tokens.cli_uses_5']()}>
+										{m['settings.tokens.cli_uses_5']()}
+									</Select.Item>
+									<Select.Item value="10" label={m['settings.tokens.cli_uses_10']()}>
+										{m['settings.tokens.cli_uses_10']()}
+									</Select.Item>
+								</Select.Content>
+							</Select.Root>
+						</div>
+					</div>
+
+					<div class="space-y-1.5">
+						<Label class="text-xs text-[var(--color-text-secondary)]">
+							{m['settings.tokens.cli_active']()}
+						</Label>
+						{#if cliLinksLoading}
+							<p role="status" class="text-xs text-[var(--color-text-tertiary)]">{m['common.loading']()}</p>
+						{:else if cliLinksFailed}
+							<p role="alert" class="text-xs text-[var(--color-error)]">
+								{m['settings.tokens.cli_failed_load']()}
+							</p>
+						{:else if cliLinks.length === 0}
+							<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.tokens.cli_none']()}</p>
+						{:else}
+							<div class="rounded-md border border-[var(--app-border)]">
+								{#each cliLinks as link, i (link.id)}
+									<div class="flex items-center gap-3 px-3 py-2 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
+										<div class="min-w-0 flex-1">
+											<p class="truncate text-xs text-[var(--color-text-primary)]">{link.name}</p>
+											<p class="text-[10px] text-[var(--color-text-tertiary)]">
+												{m['settings.tokens.cli_uses_label']({ used: link.uses, max: link.max_uses })}
+												· {m['settings.tokens.cli_expires']({
+													time: formatDate(link.expires_at, getLocale())
+												})}
+											</p>
+										</div>
+										<Button
+											variant="ghost"
+											size="icon-sm"
+											onclick={() => handleRevokeCLILink(link.id)}
+											disabled={revokingCLILink === link.id}
+											aria-label={m['settings.tokens.cli_revoke']()}
+										>
+											<Trash2 size={14} />
+										</Button>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				</div>
+				<div class="flex justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
+					<Button variant="outline" size="sm" type="button" onclick={() => (showConnect = false)}>
+						{m['settings.cancel']()}
+					</Button>
+					<Button size="sm" type="submit" disabled={!canConnect}>
+						{connectCreating ? m['settings.creating']() : m['settings.tokens.cli_create']()}
+					</Button>
+				</div>
+			</form>
+		{/if}
+	</Dialog.Content>
+</Dialog.Root>
 
 <PageTitle parts={[m['settings.tokens.title'](), m['settings.title']()]} />

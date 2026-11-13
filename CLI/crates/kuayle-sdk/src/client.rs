@@ -33,6 +33,7 @@ pub struct Client {
     session: Arc<RwLock<Session>>,
     retry: RetryPolicy,
     user_agent: String,
+    anonymous: bool,
 }
 
 impl Client {
@@ -47,7 +48,16 @@ impl Client {
             session: Arc::new(RwLock::new(session)),
             retry: RetryPolicy::default(),
             user_agent: format!("kuayle-sdk/{version}"),
+            anonymous: false,
         }
+    }
+
+    /// Build a client for public endpoints that must not send an
+    /// Authorization header, such as redeeming a CLI connection link.
+    pub fn anonymous(base_url: Url) -> Self {
+        let mut client = Self::new(base_url, String::new());
+        client.anonymous = true;
+        client
     }
 
     /// Return a clone of the base URL.
@@ -206,9 +216,10 @@ impl Client {
             }
         };
 
-        req = req
-            .header(AUTHORIZATION, format!("Bearer {token}"))
-            .header(USER_AGENT, &self.user_agent);
+        if !self.anonymous {
+            req = req.header(AUTHORIZATION, format!("Bearer {token}"));
+        }
+        req = req.header(USER_AGENT, &self.user_agent);
 
         let resp = req.send().await?;
         self.handle_response(resp).await
@@ -228,7 +239,11 @@ impl Client {
     // ── private helpers ────────────────────────────────────────────
 
     fn build_url(&self, path: &str) -> Result<Url, KuayleError> {
-        self.base_url.join(path).map_err(|e| KuayleError::Api {
+        // Keep any path prefix in the base URL (an instance served under a
+        // subpath) and append the API path. Url::join would drop it.
+        let base = self.base_url.as_str().trim_end_matches('/');
+        let path = path.trim_start_matches('/');
+        Url::parse(&format!("{base}/{path}")).map_err(|e| KuayleError::Api {
             code: "INVALID_URL".into(),
             message: format!("failed to join URL: {e}"),
         })

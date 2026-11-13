@@ -86,5 +86,10 @@ func (r *PasswordResetRepository) Reset(ctx context.Context, hash, passwordHash 
 	if _, err := tx.ExecContext(ctx, `UPDATE personal_access_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`, userID); err != nil {
 		return err
 	}
+	// A connection link mints a token without a session, so recovery also
+	// closes every open link before it can be redeemed again.
+	if _, err := tx.ExecContext(ctx, `UPDATE cli_connection_links SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`, userID); err != nil {
+		return err
+	}
 	return tx.Commit()
 }

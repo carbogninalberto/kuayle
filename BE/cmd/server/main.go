@@ -81,6 +81,7 @@ func main() {
 	assetRepo := repository.NewAssetRepository(db)
 	aiSettingsRepo := repository.NewAISettingsRepository(db)
 	inviteLinkRepo := repository.NewWorkspaceInviteLinkRepository(db)
+	cliLinkRepo := repository.NewCLILinkRepository(db)
 
 	// Dev Machine control-plane store
 	devMachineRepo := repository.NewDevMachineRepository(db)
@@ -107,6 +108,7 @@ func main() {
 	favSvc := service.NewFavoriteService(favRepo)
 	prefsSvc := service.NewPreferencesService(prefsRepo)
 	tokenSvc := service.NewTokenService(patRepo, workspaceRepo)
+	cliLinkSvc := service.NewCLILinkService(cliLinkRepo, tokenSvc, cfg.FrontendURL)
 	aiSettingsSvc := service.NewAISettingsService(aiSettingsRepo, workspaceRepo, issueRepo, crypto.DeriveKey(cfg.JWTSecret+":ai"), service.WithAIPrivateNetworkAccess(cfg.AIAllowPrivateNetwork))
 
 	// Dev Machine agent registry
@@ -170,6 +172,7 @@ func main() {
 	favH := handler.NewFavoriteHandler(favSvc)
 	prefsH := handler.NewPreferencesHandler(prefsSvc)
 	tokenH := handler.NewTokenHandler(tokenSvc)
+	cliLinkH := handler.NewCLILinkHandler(cliLinkSvc)
 	aiSettingsH := handler.NewAISettingsHandler(aiSettingsSvc)
 	conversationSvc := service.NewConversationService(repository.NewConversationRepository(db), aiSettingsSvc)
 	assistantTools := service.NewAssistantTools(issueRepo, teamRepo, workspaceRepo, issueSvc)
@@ -351,6 +354,12 @@ func main() {
 	githubBotSvc.SetAppSlug(githubSvc.AppSlug)
 	githubSvc.SetMentionReviews(service.NewGitHubMentionReviews(repository.NewAgentTaskRepository(db), conversationSvc.Repo, agentTaskSvc))
 	githubH := handler.NewGitHubHandler(githubSvc)
+	forgeRepo := repository.NewForgeRepository(db)
+	forgeSvc := service.NewForgeService(
+		forgeRepo, githubRepo, issueRepo, teamRepo, teamStatusRepo, historyRepo,
+		crypto.DeriveKey(cfg.JWTSecret+":forge"), hub, cfg.FrontendURL, cfg.ForgeWebhookBaseURL, cfg.ForgeAllowPrivateNetwork,
+	)
+	forgeH := handler.NewForgeHandler(forgeSvc)
 
 	// Background: clean up expired refresh tokens every hour
 	go func() {
@@ -402,6 +411,7 @@ func main() {
 		fav:               favH,
 		prefs:             prefsH,
 		token:             tokenH,
+		cliLink:           cliLinkH,
 		aiSettings:        aiSettingsH,
 		conversation:      conversationH,
 		assistantSkill:    assistantSkillH,
@@ -424,6 +434,7 @@ func main() {
 		upload:            uploadH,
 		github:            githubH,
 		githubBot:         handler.NewGitHubBotHandler(githubBotSvc),
+		forge:             forgeH,
 		wiki:              handler.NewWikiHandler(wikiSvc, aiSettingsSvc),
 		wikiPublish:       handler.NewWikiPublishHandler(wikiPublishSvc, cfg.FrontendURL),
 		openapi:           handler.NewOpenAPIHandler(buildinfo.Version),
@@ -453,6 +464,7 @@ func main() {
 	go githubSvc.RunMergeReconciliation(conversationCtx, 2*time.Minute)
 	// Replay markers of GitHub webhook deliveries expire after a few days.
 	go githubSvc.RunWebhookDeliveryCleanup(conversationCtx, time.Hour)
+	go forgeSvc.RunWebhookDeliveryCleanup(conversationCtx, time.Hour)
 	go githubSvc.RunReviewComments(conversationCtx, 15*time.Second)
 	go telegramSvc.Run(conversationCtx)
 	// Removes expired scan checkouts (and roots a crashed process left), and

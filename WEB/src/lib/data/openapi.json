@@ -278,6 +278,35 @@
 				],
 				"type": "object"
 			},
+			"CompleteCycleRequest": {
+				"properties": {
+					"carry_over": {
+						"type": "boolean"
+					},
+					"retrospective": {
+						"type": [
+							"string",
+							"null"
+						]
+					}
+				},
+				"type": "object"
+			},
+			"CompleteCycleResult": {
+				"properties": {
+					"carried_over_count": {
+						"type": "integer"
+					},
+					"cycle": {
+						"$ref": "#/components/schemas/Cycle"
+					}
+				},
+				"required": [
+					"cycle",
+					"carried_over_count"
+				],
+				"type": "object"
+			},
 			"ConvertIssueToProject": {
 				"properties": {
 					"project": {
@@ -305,6 +334,39 @@
 				},
 				"required": [
 					"body"
+				],
+				"type": "object"
+			},
+			"CreateCycleRequest": {
+				"properties": {
+					"description": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"end_date": {
+						"type": "string"
+					},
+					"goals": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"name": {
+						"maxLength": 100,
+						"minLength": 1,
+						"type": "string"
+					},
+					"start_date": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"name",
+					"start_date",
+					"end_date"
 				],
 				"type": "object"
 			},
@@ -687,6 +749,44 @@
 				"required": [
 					"name",
 					"category"
+				],
+				"type": "object"
+			},
+			"CreateViewRequest": {
+				"properties": {
+					"color": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"description": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"filters": {
+						"description": "Any JSON value."
+					},
+					"icon": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"is_shared": {
+						"type": "boolean"
+					},
+					"name": {
+						"maxLength": 100,
+						"minLength": 1,
+						"type": "string"
+					}
+				},
+				"required": [
+					"name",
+					"filters"
 				],
 				"type": "object"
 			},
@@ -1745,6 +1845,60 @@
 				],
 				"type": "object"
 			},
+			"UpdateCycleRequest": {
+				"properties": {
+					"description": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"end_date": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"goals": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"name": {
+						"maxLength": 100,
+						"minLength": 1,
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"retrospective": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"start_date": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"status": {
+						"enum": [
+							"upcoming",
+							"active",
+							"completed"
+						],
+						"type": [
+							"string",
+							"null"
+						]
+					}
+				},
+				"type": "object"
+			},
 			"UpdateIssueRequest": {
 				"properties": {
 					"assignee_id": {
@@ -2061,6 +2215,46 @@
 						},
 						"type": [
 							"array",
+							"null"
+						]
+					}
+				},
+				"type": "object"
+			},
+			"UpdateViewRequest": {
+				"properties": {
+					"color": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"description": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"filters": {
+						"description": "Any JSON value."
+					},
+					"icon": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"is_shared": {
+						"type": [
+							"boolean",
+							"null"
+						]
+					},
+					"name": {
+						"maxLength": 100,
+						"minLength": 1,
+						"type": [
+							"string",
 							"null"
 						]
 					}
@@ -2980,7 +3174,7 @@
 		}
 	},
 	"info": {
-		"description": "The public HTTP API of Kuayle, the open-source issue tracker. It covers issues, comments, teams, statuses, cycles, projects, labels, views, wikis, members and webhooks, for use with personal access tokens.\n\n## Authentication\n\nEvery request is authenticated with a personal access token. Create one in the app under Settings, API Tokens: choose its scopes, optionally limit it to some workspaces and give it an expiry date. The token is shown once and stored only as a hash.\n\nSend the token in the Authorization header as \"Bearer kuayle_pat_...\". Use HTTPS; a token grants access until it expires or is revoked.\n\nA token acts as the user who created it and never has more access than that user. Creating, listing and revoking tokens needs a signed-in browser session and is not possible with a token.\n\n```sh\ncurl -H \"Authorization: Bearer $KUAYLE_TOKEN\" \\\n  https://kuayle.example.com/api/workspaces\n```\n\n## Token scopes\n\nEach operation names the scope it needs. A request passes when the token has that scope and the user's workspace role grants the same permission: scopes are a ceiling on the role, not an addition to it. Guests, for example, only read, whatever scopes their token carries.\n\nA request without the needed scope or permission gets 403 FORBIDDEN. Private teams stay invisible to non-members: their issues, projects, cycles and wiki pages answer 404 or are left out of lists.\n\nScopes used by this reference:\n\n- account:read\n- comments:read\n- cycles:read\n- issue:create\n- issue:delete_own\n- issue:update\n- issues:read\n- label:manage\n- labels:read\n- member:invite\n- members:read\n- project:manage\n- projects:read\n- team:manage\n- teams:read\n- views:read\n- wiki:read\n- wiki:write\n- workspace:manage\n- workspaces:read\n\n## Pagination\n\nThe issue list is paginated with the page and per_page query parameters (per_page defaults to 50 and should not exceed 100). The response wraps the items in data and adds total_count, page, per_page and has_more; request the next page while has_more is true.\n\nThe wiki registry and its overviews use a cursor: pass the next_before value of one response as before in the next request, and stop when next_before is null.\n\nEvery other list returns all items the user can see in one JSON array.\n\n## Errors\n\nErrors use the HTTP status and one JSON shape: an error object with a machine-readable code, a message for people, and for validation errors a details array naming each field.\n\n- 400 BAD_REQUEST: malformed JSON, an invalid ID, or a rule the request breaks; the message says which\n- 400 VALIDATION_ERROR: one or more fields are invalid; see details\n- 401 UNAUTHORIZED: the token is missing, unknown, expired or revoked\n- 403 FORBIDDEN: the token's scopes, workspace limit or the user's role do not allow the request\n- 404 NOT_FOUND: the resource does not exist or the user cannot see it\n- 409 with a specific code such as CONFLICT or WIKI_VERSION_CONFLICT: the request conflicts with the current state\n- 429 RATE_LIMITED: too many requests; wait for the number of seconds in the Retry-After header\n- 500 INTERNAL_ERROR: the server failed; the request can be retried\n\n```json\n{\n  \"error\": {\n    \"code\": \"VALIDATION_ERROR\",\n    \"message\": \"Request validation failed\",\n    \"details\": [{ \"field\": \"Title\", \"message\": \"Title is required\" }]\n  }\n}\n```\n\n## Rate limits\n\nKuayle does not apply a request quota to authenticated API calls. Unauthenticated endpoints are limited per IP address: sign-in endpoints refill 5 requests per second with a burst of 10, and this document refills 10 per second with a burst of 20. A limited request gets 429 RATE_LIMITED with a Retry-After header.\n\nThe operator of an instance can add limits at the reverse proxy, so treat 429 as retryable everywhere: wait for Retry-After, then retry. Keep bulk jobs sequential or at low concurrency; the instance is shared with the people using the app.\n\n## Webhooks and signature verification\n\nA webhook is a URL of yours registered for a workspace with a secret and a list of event names. The URL must be reachable from the instance and must not be a private, loopback or link-local address. The secret is stored encrypted and never returned.\n\nA delivery is an HTTP POST with a JSON body holding event, payload and timestamp (RFC 3339, UTC). The X-Webhook-Event header repeats the event name. The X-Webhook-Signature header is \"sha256=\" followed by the hex HMAC-SHA256 of the raw request body, keyed with the webhook's secret.\n\nTo verify a delivery, compute the same HMAC over the bytes you received, before parsing them, and compare it with the header in constant time. Reject the request when they differ. Deliveries time out after 10 seconds and are not retried, so answer quickly and do slow work afterwards.\n\nPreview: this release registers webhooks and signs deliveries as described, but does not emit issue or comment events yet. Until a release note announces event delivery, read changes through the API.\n\n```js\nimport { createHmac, timingSafeEqual } from 'node:crypto';\n\n// rawBody: the request body bytes exactly as received, before any JSON parsing.\nexport function isFromKuayle(rawBody, signatureHeader, secret) {\n  const expected = 'sha256=' + createHmac('sha256', secret).update(rawBody).digest('hex');\n  const received = Buffer.from(signatureHeader ?? '');\n  return received.length === expected.length && timingSafeEqual(received, Buffer.from(expected));\n}\n```\n\n## Stability and versions\n\nThis document lists the stable operations. Its version is the Kuayle release it was built from, and each instance serves the document for its own release at /api/openapi.json. Changes to a stable operation ship with a release and are listed in its notes.\n\nRoutes of the app that are not listed here are internal: they serve the web app, the dev machines or integration setup, may change in any release, and most reject tokens.\n",
+		"description": "The public HTTP API of Kuayle, the open-source issue tracker. It covers issues, comments, teams, statuses, cycles, projects, labels, views, wikis, members and webhooks, for use with personal access tokens.\n\n## Authentication\n\nEvery request is authenticated with a personal access token. Create one in the app under Settings, API Tokens: choose its scopes, optionally limit it to some workspaces and give it an expiry date. The token is shown once and stored only as a hash.\n\nSend the token in the Authorization header as \"Bearer kuayle_pat_...\". Use HTTPS; a token grants access until it expires or is revoked.\n\nA token acts as the user who created it and never has more access than that user. Creating, listing and revoking tokens needs a signed-in browser session and is not possible with a token.\n\n```sh\ncurl -H \"Authorization: Bearer $KUAYLE_TOKEN\" \\\n  https://kuayle.example.com/api/workspaces\n```\n\n## Token scopes\n\nEach operation names the scope it needs. A request passes when the token has that scope and the user's workspace role grants the same permission: scopes are a ceiling on the role, not an addition to it. Guests, for example, only read, whatever scopes their token carries.\n\nA request without the needed scope or permission gets 403 FORBIDDEN. Private teams stay invisible to non-members: their issues, projects, cycles and wiki pages answer 404 or are left out of lists.\n\nScopes used by this reference:\n\n- account:read\n- comments:read\n- cycle:manage\n- cycles:read\n- issue:create\n- issue:delete_own\n- issue:update\n- issues:read\n- label:manage\n- labels:read\n- member:invite\n- members:read\n- project:manage\n- projects:read\n- team:manage\n- teams:read\n- view:manage\n- views:read\n- wiki:read\n- wiki:write\n- workspace:manage\n- workspaces:read\n\n## Pagination\n\nThe issue list is paginated with the page and per_page query parameters (per_page defaults to 50 and should not exceed 100). The response wraps the items in data and adds total_count, page, per_page and has_more; request the next page while has_more is true.\n\nThe wiki registry and its overviews use a cursor: pass the next_before value of one response as before in the next request, and stop when next_before is null.\n\nEvery other list returns all items the user can see in one JSON array.\n\n## Errors\n\nErrors use the HTTP status and one JSON shape: an error object with a machine-readable code, a message for people, and for validation errors a details array naming each field.\n\n- 400 BAD_REQUEST: malformed JSON, an invalid ID, or a rule the request breaks; the message says which\n- 400 VALIDATION_ERROR: one or more fields are invalid; see details\n- 401 UNAUTHORIZED: the token is missing, unknown, expired or revoked\n- 403 FORBIDDEN: the token's scopes, workspace limit or the user's role do not allow the request\n- 404 NOT_FOUND: the resource does not exist or the user cannot see it\n- 409 with a specific code such as CONFLICT or WIKI_VERSION_CONFLICT: the request conflicts with the current state\n- 429 RATE_LIMITED: too many requests; wait for the number of seconds in the Retry-After header\n- 500 INTERNAL_ERROR: the server failed; the request can be retried\n\n```json\n{\n  \"error\": {\n    \"code\": \"VALIDATION_ERROR\",\n    \"message\": \"Request validation failed\",\n    \"details\": [{ \"field\": \"Title\", \"message\": \"Title is required\" }]\n  }\n}\n```\n\n## Rate limits\n\nKuayle does not apply a request quota to authenticated API calls. Unauthenticated endpoints are limited per IP address: sign-in endpoints refill 5 requests per second with a burst of 10, and this document refills 10 per second with a burst of 20. A limited request gets 429 RATE_LIMITED with a Retry-After header.\n\nThe operator of an instance can add limits at the reverse proxy, so treat 429 as retryable everywhere: wait for Retry-After, then retry. Keep bulk jobs sequential or at low concurrency; the instance is shared with the people using the app.\n\n## Webhooks and signature verification\n\nA webhook is a URL of yours registered for a workspace with a secret and a list of event names. The URL must be reachable from the instance and must not be a private, loopback or link-local address. The secret is stored encrypted and never returned.\n\nA delivery is an HTTP POST with a JSON body holding event, payload and timestamp (RFC 3339, UTC). The X-Webhook-Event header repeats the event name. The X-Webhook-Signature header is \"sha256=\" followed by the hex HMAC-SHA256 of the raw request body, keyed with the webhook's secret.\n\nTo verify a delivery, compute the same HMAC over the bytes you received, before parsing them, and compare it with the header in constant time. Reject the request when they differ. Deliveries time out after 10 seconds and are not retried, so answer quickly and do slow work afterwards.\n\nPreview: this release registers webhooks and signs deliveries as described, but does not emit issue or comment events yet. Until a release note announces event delivery, read changes through the API.\n\n```js\nimport { createHmac, timingSafeEqual } from 'node:crypto';\n\n// rawBody: the request body bytes exactly as received, before any JSON parsing.\nexport function isFromKuayle(rawBody, signatureHeader, secret) {\n  const expected = 'sha256=' + createHmac('sha256', secret).update(rawBody).digest('hex');\n  const received = Buffer.from(signatureHeader ?? '');\n  return received.length === expected.length && timingSafeEqual(received, Buffer.from(expected));\n}\n```\n\n## Stability and versions\n\nThis document lists the stable operations. Its version is the Kuayle release it was built from, and each instance serves the document for its own release at /api/openapi.json. Changes to a stable operation ship with a release and are listed in its notes.\n\nRoutes of the app that are not listed here are internal: they serve the web app, the dev machines or integration setup, may change in any release, and most reject tokens.\n",
 		"license": {
 			"identifier": "Apache-2.0",
 			"name": "Apache 2.0"
@@ -7895,6 +8089,83 @@
 					"cycles:read"
 				],
 				"x-kuayle-stability": "stable"
+			},
+			"post": {
+				"description": "Required scope: `cycle:manage`.",
+				"operationId": "createCycle",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Team ID.",
+						"in": "path",
+						"name": "teamId",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CreateCycleRequest"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"201": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Cycle"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"cycle:manage"
+						]
+					}
+				],
+				"summary": "Create a cycle",
+				"tags": [
+					"Cycles"
+				],
+				"x-kuayle-scopes": [
+					"cycle:manage"
+				],
+				"x-kuayle-stability": "stable"
 			}
 		},
 		"/api/workspaces/{slug}/teams/{teamId}/cycles/velocity": {
@@ -7970,6 +8241,83 @@
 			}
 		},
 		"/api/workspaces/{slug}/teams/{teamId}/cycles/{cycleId}": {
+			"delete": {
+				"description": "Required scope: `cycle:manage`.",
+				"operationId": "deleteCycle",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Team ID.",
+						"in": "path",
+						"name": "teamId",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					},
+					{
+						"description": "Cycle ID.",
+						"in": "path",
+						"name": "cycleId",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/StatusResult"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"cycle:manage"
+						]
+					}
+				],
+				"summary": "Delete a cycle",
+				"tags": [
+					"Cycles"
+				],
+				"x-kuayle-scopes": [
+					"cycle:manage"
+				],
+				"x-kuayle-stability": "stable"
+			},
 			"get": {
 				"description": "Required scope: `cycles:read`.",
 				"operationId": "getCycle",
@@ -8044,6 +8392,93 @@
 				],
 				"x-kuayle-scopes": [
 					"cycles:read"
+				],
+				"x-kuayle-stability": "stable"
+			},
+			"patch": {
+				"description": "Required scope: `cycle:manage`.",
+				"operationId": "updateCycle",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Team ID.",
+						"in": "path",
+						"name": "teamId",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					},
+					{
+						"description": "Cycle ID.",
+						"in": "path",
+						"name": "cycleId",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/UpdateCycleRequest"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Cycle"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"cycle:manage"
+						]
+					}
+				],
+				"summary": "Update a cycle",
+				"tags": [
+					"Cycles"
+				],
+				"x-kuayle-scopes": [
+					"cycle:manage"
 				],
 				"x-kuayle-stability": "stable"
 			}
@@ -8126,6 +8561,95 @@
 				],
 				"x-kuayle-scopes": [
 					"cycles:read"
+				],
+				"x-kuayle-stability": "stable"
+			}
+		},
+		"/api/workspaces/{slug}/teams/{teamId}/cycles/{cycleId}/complete": {
+			"post": {
+				"description": "Optionally carries unfinished issues over to the next upcoming cycle.\n\nRequired scope: `cycle:manage`.",
+				"operationId": "completeCycle",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Team ID.",
+						"in": "path",
+						"name": "teamId",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					},
+					{
+						"description": "Cycle ID.",
+						"in": "path",
+						"name": "cycleId",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CompleteCycleRequest"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/CompleteCycleResult"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"cycle:manage"
+						]
+					}
+				],
+				"summary": "Complete a cycle",
+				"tags": [
+					"Cycles"
+				],
+				"x-kuayle-scopes": [
+					"cycle:manage"
 				],
 				"x-kuayle-stability": "stable"
 			}
@@ -10289,9 +10813,143 @@
 					"views:read"
 				],
 				"x-kuayle-stability": "stable"
+			},
+			"post": {
+				"description": "Required scope: `view:manage`.",
+				"operationId": "createView",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CreateViewRequest"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"201": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/View"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"view:manage"
+						]
+					}
+				],
+				"summary": "Create a saved view",
+				"tags": [
+					"Views"
+				],
+				"x-kuayle-scopes": [
+					"view:manage"
+				],
+				"x-kuayle-stability": "stable"
 			}
 		},
 		"/api/workspaces/{slug}/views/{id}": {
+			"delete": {
+				"description": "Only the creator can delete a view.\n\nRequired scope: `view:manage`.",
+				"operationId": "deleteView",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Resource ID.",
+						"in": "path",
+						"name": "id",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/StatusResult"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"view:manage"
+						]
+					}
+				],
+				"summary": "Delete a saved view",
+				"tags": [
+					"Views"
+				],
+				"x-kuayle-scopes": [
+					"view:manage"
+				],
+				"x-kuayle-stability": "stable"
+			},
 			"get": {
 				"description": "Required scope: `views:read`.",
 				"operationId": "getView",
@@ -10356,6 +11014,83 @@
 				],
 				"x-kuayle-scopes": [
 					"views:read"
+				],
+				"x-kuayle-stability": "stable"
+			},
+			"patch": {
+				"description": "Only the creator can change a view.\n\nRequired scope: `view:manage`.",
+				"operationId": "updateView",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Resource ID.",
+						"in": "path",
+						"name": "id",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/UpdateViewRequest"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/View"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"view:manage"
+						]
+					}
+				],
+				"summary": "Update a saved view",
+				"tags": [
+					"Views"
+				],
+				"x-kuayle-scopes": [
+					"view:manage"
 				],
 				"x-kuayle-stability": "stable"
 			}
@@ -10933,6 +11668,7 @@
 			"list": [
 				"account:read",
 				"comments:read",
+				"cycle:manage",
 				"cycles:read",
 				"issue:create",
 				"issue:delete_own",
@@ -10946,6 +11682,7 @@
 				"projects:read",
 				"team:manage",
 				"teams:read",
+				"view:manage",
 				"views:read",
 				"wiki:read",
 				"wiki:write",

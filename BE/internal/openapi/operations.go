@@ -53,10 +53,13 @@ type InternalRoute struct {
 
 // Matches reports whether the rule covers the registered route.
 func (r InternalRoute) Matches(method, path string) bool {
+	if r.Method != "" && r.Method != method {
+		return false
+	}
 	if r.Prefix {
 		return strings.HasPrefix(path, r.Path)
 	}
-	return r.Method == method && r.Path == path
+	return r.Path == path
 }
 
 // StatusResult is the body of writes that return no resource, for example
@@ -73,6 +76,12 @@ type BulkUpdateResult struct {
 // BulkDeleteResult counts the issues a bulk delete removed.
 type BulkDeleteResult struct {
 	Deleted int `json:"deleted"`
+}
+
+// CompleteCycleResult is the body of a completed cycle.
+type CompleteCycleResult struct {
+	Cycle            dto.CycleResponse `json:"cycle"`
+	CarriedOverCount int               `json:"carried_over_count"`
 }
 
 const ws = "/api/workspaces/:slug"
@@ -161,7 +170,7 @@ func Operations() []Operation {
 		{Method: http.MethodDelete, Path: ws + "/teams/:teamId/statuses/:statusId", Scope: domain.PermTeamManage, ID: "deleteStatus", Tag: "Statuses",
 			Summary: "Delete a status", Status: 200, Response: StatusResult{}},
 
-		// Cycles: tokens read cycles; writes need an interactive session.
+		// Cycles
 		{Method: http.MethodGet, Path: ws + "/teams/:teamId/cycles", Scope: domain.PermCyclesRead, ID: "listCycles", Tag: "Cycles",
 			Summary: "List a team's cycles", Description: "Each cycle carries its progress counts.",
 			Status: 200, Response: []dto.CycleResponse{}},
@@ -169,6 +178,15 @@ func Operations() []Operation {
 			Summary: "Get velocity across a team's cycles", Status: 200, Response: []dto.VelocityPoint{}},
 		{Method: http.MethodGet, Path: ws + "/teams/:teamId/cycles/:cycleId", Scope: domain.PermCyclesRead, ID: "getCycle", Tag: "Cycles",
 			Summary: "Get a cycle", Status: 200, Response: dto.CycleResponse{}},
+		{Method: http.MethodPost, Path: ws + "/teams/:teamId/cycles", Scope: domain.PermCycleManage, ID: "createCycle", Tag: "Cycles",
+			Summary: "Create a cycle", Body: dto.CreateCycleRequest{}, Status: 201, Response: dto.CycleResponse{}},
+		{Method: http.MethodPatch, Path: ws + "/teams/:teamId/cycles/:cycleId", Scope: domain.PermCycleManage, ID: "updateCycle", Tag: "Cycles",
+			Summary: "Update a cycle", Body: dto.UpdateCycleRequest{}, Status: 200, Response: dto.CycleResponse{}},
+		{Method: http.MethodPost, Path: ws + "/teams/:teamId/cycles/:cycleId/complete", Scope: domain.PermCycleManage, ID: "completeCycle", Tag: "Cycles",
+			Summary: "Complete a cycle", Description: "Optionally carries unfinished issues over to the next upcoming cycle.",
+			Body: dto.CompleteCycleRequest{}, Status: 200, Response: CompleteCycleResult{}},
+		{Method: http.MethodDelete, Path: ws + "/teams/:teamId/cycles/:cycleId", Scope: domain.PermCycleManage, ID: "deleteCycle", Tag: "Cycles",
+			Summary: "Delete a cycle", Status: 200, Response: StatusResult{}},
 		{Method: http.MethodGet, Path: ws + "/teams/:teamId/cycles/:cycleId/burndown", Scope: domain.PermCyclesRead, ID: "getCycleBurndown", Tag: "Cycles",
 			Summary: "Get a cycle's burndown", Status: 200, Response: []dto.BurndownPoint{}},
 
@@ -257,10 +275,18 @@ func Operations() []Operation {
 		{Method: http.MethodGet, Path: ws + "/teams/:teamId/projects", Scope: domain.PermProjectsRead, ID: "listTeamProjects", Tag: "Projects",
 			Summary: "List a team's projects", Status: 200, Response: []dto.ProjectResponse{}},
 
-		// Views: tokens read views; writes need an interactive session.
+		// Views
 		{Method: http.MethodGet, Path: ws + "/views", Scope: domain.PermViewsRead, ID: "listViews", Tag: "Views",
 			Summary: "List saved views", Description: "Lists the user's own views and the views shared with the workspace.",
 			Status: 200, Response: []dto.ViewResponse{}},
+		{Method: http.MethodPost, Path: ws + "/views", Scope: domain.PermViewManage, ID: "createView", Tag: "Views",
+			Summary: "Create a saved view", Body: dto.CreateViewRequest{}, Status: 201, Response: dto.ViewResponse{}},
+		{Method: http.MethodPatch, Path: ws + "/views/:id", Scope: domain.PermViewManage, ID: "updateView", Tag: "Views",
+			Summary: "Update a saved view", Description: "Only the creator can change a view.",
+			Body: dto.UpdateViewRequest{}, Status: 200, Response: dto.ViewResponse{}},
+		{Method: http.MethodDelete, Path: ws + "/views/:id", Scope: domain.PermViewManage, ID: "deleteView", Tag: "Views",
+			Summary: "Delete a saved view", Description: "Only the creator can delete a view.",
+			Status: 200, Response: StatusResult{}},
 		{Method: http.MethodGet, Path: ws + "/views/:id", Scope: domain.PermViewsRead, ID: "getView", Tag: "Views",
 			Summary: "Get a saved view", Status: 200, Response: dto.ViewResponse{}},
 
@@ -385,11 +411,13 @@ func InternalRoutes() []InternalRoute {
 		{Path: ws + "/agent-", Prefix: true, Reason: machines},
 		{Path: ws + "/workflows", Prefix: true, Reason: machines},
 		{Path: ws + "/github", Prefix: true, Reason: integration},
+		{Path: ws + "/forges", Prefix: true, Reason: integration},
 		{Path: ws + "/invite-links", Prefix: true, Reason: integration},
 		{Path: ws + "/ai-settings", Prefix: true, Reason: ai},
 		{Path: ws + "/analytics", Prefix: true, Reason: app},
 		{Path: ws + "/issue-templates", Prefix: true, Reason: app},
 		{Method: http.MethodGet, Path: ws + "/issues/:identifier/github", Reason: integration},
+		{Method: http.MethodGet, Path: ws + "/issues/:identifier/forges", Reason: integration},
 		{Method: http.MethodPost, Path: ws + "/issues/expand-description", Reason: ai},
 		{Method: http.MethodPost, Path: ws + "/issues/:identifier/expand-description", Reason: ai},
 		{Method: http.MethodPost, Path: ws + "/teams/:teamId/wiki/:pageId/rework", Reason: ai},
@@ -398,8 +426,15 @@ func InternalRoutes() []InternalRoute {
 		{Method: http.MethodPost, Path: ws + "/projects/:id/wiki/registry/overviews", Reason: ai},
 		{Method: http.MethodGet, Path: ws + "/export", Reason: "Workspace transfer archive; see the self-hosting guide."},
 		{Method: http.MethodGet, Path: ws + "/favorites", Reason: app},
+		{Method: http.MethodPost, Path: ws + "/favorites", Reason: app},
+		{Method: http.MethodDelete, Path: ws + "/favorites/:id", Reason: app},
+		{Method: http.MethodPost, Path: ws + "/issues/:identifier/subscribe", Reason: app},
+		{Method: http.MethodDelete, Path: ws + "/issues/:identifier/subscribe", Reason: app},
 		{Method: http.MethodGet, Path: "/api/preferences", Reason: app},
+		{Method: http.MethodPatch, Path: "/api/preferences", Reason: app},
 		{Method: http.MethodGet, Path: "/api/notifications", Reason: app},
+		{Method: http.MethodPost, Path: "/api/notifications/", Prefix: true, Reason: app},
+		{Method: http.MethodPatch, Path: "/api/notifications/:id", Reason: app},
 		{Method: http.MethodGet, Path: "/api/users/:userId/avatar/:file", Reason: binary},
 		{Method: http.MethodGet, Path: ws + "/teams/:teamId/icon/:file", Reason: binary},
 		{Method: http.MethodPost, Path: ws + "/upload", Reason: binary},

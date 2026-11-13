@@ -66,6 +66,18 @@ func RequireOwner() echo.MiddlewareFunc {
 	}
 }
 
+// TokenAllows reports whether the caller's token ceiling permits permission.
+// Interactive sessions always pass; a personal access token must hold the
+// scope. Combine it with the role check when a handler grants broader access
+// than the route's annotated scope (for example deleting any issue).
+func TokenAllows(c *echo.Context, permission string) bool {
+	scopes, ok := c.Get(TokenScopesKey).([]string)
+	if !ok {
+		return true
+	}
+	return slices.Contains(scopes, permission)
+}
+
 func GetUserID(c *echo.Context) uuid.UUID {
 	id, _ := c.Get(string(UserIDKey)).(uuid.UUID)
 	return id

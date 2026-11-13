@@ -136,6 +136,17 @@ pub enum AuthAction {
         #[arg(long)]
         token: Option<String>,
     },
+    /// Configure this profile from a connection link
+    ///
+    /// The link is shown once when it is generated in the workspace settings.
+    /// Pass it as an argument, set KUAYLE_CONNECT_LINK, or pipe it on stdin to
+    /// keep the code out of shell history.
+    Connect {
+        link: Option<String>,
+        /// Replace the profile's existing credentials
+        #[arg(long)]
+        force: bool,
+    },
     Logout,
     Status,
 }

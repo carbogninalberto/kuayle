@@ -1,11 +1,9 @@
 package domain
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"math/big"
-	"strings"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,34 +27,28 @@ const (
 // access. Its effective permissions are the intersection of Scopes (the
 // ceiling) and the owner's workspace RBAC role (the floor).
 type PersonalAccessToken struct {
-	ID             uuid.UUID      `json:"id" db:"id"`
-	UserID         uuid.UUID      `json:"user_id" db:"user_id"`
-	Name           string         `json:"name" db:"name"`
-	TokenHash      string         `json:"-" db:"token_hash"`
-	TokenPrefix    string         `json:"token_prefix" db:"token_prefix"`
-	Scopes         pq.StringArray `json:"scopes" db:"scopes"`
-	WorkspaceSlugs pq.StringArray `json:"workspace_slugs" db:"workspace_slugs"` // nil = all workspaces
-	ExpiresAt      *time.Time     `json:"expires_at" db:"expires_at"`           // nil = never expires
-	LastUsedAt     *time.Time     `json:"last_used_at" db:"last_used_at"`
-	CreatedAt      time.Time      `json:"created_at" db:"created_at"`
-	RevokedAt      *time.Time     `json:"revoked_at" db:"revoked_at"`
+	ID               uuid.UUID      `json:"id" db:"id"`
+	UserID           uuid.UUID      `json:"user_id" db:"user_id"`
+	Name             string         `json:"name" db:"name"`
+	TokenHash        string         `json:"-" db:"token_hash"`
+	TokenPrefix      string         `json:"token_prefix" db:"token_prefix"`
+	Scopes           pq.StringArray `json:"scopes" db:"scopes"`
+	WorkspaceSlugs   pq.StringArray `json:"workspace_slugs" db:"workspace_slugs"` // nil = all workspaces
+	ExpiresAt        *time.Time     `json:"expires_at" db:"expires_at"`           // nil = never expires
+	LastUsedAt       *time.Time     `json:"last_used_at" db:"last_used_at"`
+	ConnectionLinkID *uuid.UUID     `json:"connection_link_id,omitempty" db:"connection_link_id"`
+	CreatedAt        time.Time      `json:"created_at" db:"created_at"`
+	RevokedAt        *time.Time     `json:"revoked_at" db:"revoked_at"`
 }
 
 // GenerateToken creates a new token. The plaintext is returned once and never
 // stored; only its SHA-256 hex hash persists (same convention as refresh
 // tokens — a high-entropy random string needs no slow hash).
 func GenerateToken() (plaintext, hash, prefix string, err error) {
-	var b strings.Builder
-	b.Grow(tokenRandomLength)
-	max := big.NewInt(int64(len(tokenAlphabet)))
-	for i := 0; i < tokenRandomLength; i++ {
-		n, err := rand.Int(rand.Reader, max)
-		if err != nil {
-			return "", "", "", err
-		}
-		b.WriteByte(tokenAlphabet[n.Int64()])
+	random, err := randomString(tokenRandomLength)
+	if err != nil {
+		return "", "", "", err
 	}
-	random := b.String()
 	plaintext = TokenPrefix + random
 	return plaintext, HashToken(plaintext), TokenPrefix + random[:tokenPrefixVisible], nil
 }
@@ -70,6 +62,16 @@ func HashToken(token string) string {
 // IsValidScope reports whether scope is a permission code a token may request.
 func IsValidScope(scope string) bool {
 	return validTokenScopes[scope]
+}
+
+// TokenScopes returns every scope a personal access token may request.
+func TokenScopes() []string {
+	scopes := make([]string, 0, len(validTokenScopes))
+	for scope := range validTokenScopes {
+		scopes = append(scopes, scope)
+	}
+	sort.Strings(scopes)
+	return scopes
 }
 
 // Active reports whether the token can authenticate right now.
@@ -87,20 +89,25 @@ func (t *PersonalAccessToken) Active() bool {
 // codes already enforced by route annotations, plus the *:read codes.
 var validTokenScopes = map[string]bool{
 	// Write codes (as annotated on routes)
-	PermWorkspaceManage:   true,
-	PermWorkspaceTransfer: true,
-	PermTeamManage:        true,
-	PermIssueCreate:       true,
-	PermIssueUpdate:       true,
-	PermIssueDeleteOwn:    true,
-	PermProjectManage:     true,
-	PermLabelManage:       true,
-	PermMemberInvite:      true,
-	PermDevMachineRead:    true,
-	PermDevMachineCreate:  true,
-	PermDevMachineManage:  true,
-	PermDevMachineAdmin:   true,
-	PermWikiWrite:         true,
+	PermWorkspaceManage:    true,
+	PermWorkspaceTransfer:  true,
+	PermTeamManage:         true,
+	PermIssueCreate:        true,
+	PermIssueUpdate:        true,
+	PermIssueDelete:        true,
+	PermIssueDeleteOwn:     true,
+	PermProjectManage:      true,
+	PermLabelManage:        true,
+	PermMemberInvite:       true,
+	PermCycleManage:        true,
+	PermViewManage:         true,
+	PermAccountWrite:       true,
+	PermNotificationsWrite: true,
+	PermDevMachineRead:     true,
+	PermDevMachineCreate:   true,
+	PermDevMachineManage:   true,
+	PermDevMachineAdmin:    true,
+	PermWikiWrite:          true,
 	// Read codes
 	PermIssuesRead:        true,
 	PermCommentsRead:      true,

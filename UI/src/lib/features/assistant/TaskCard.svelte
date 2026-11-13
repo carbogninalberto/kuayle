@@ -30,7 +30,8 @@
 		FlaskConical,
 		CirclePause,
 		Pause,
-		CircleArrowUp
+		CircleArrowUp,
+		FileDown
 	} from '@lucide/svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import TaskActions from './TaskActions.svelte';
@@ -72,6 +73,7 @@
 	import type { ConversationState } from './conversation-state.svelte';
 	import { taskLabel } from './task-labels';
 	import { iterationReasons, workflowIterationReasons, type IterationReason } from './shell-rules';
+	import { downloadTaskTrace } from './task-trace';
 	import { m } from '$lib/features/i18n/messages';
 	let {
 		task,
@@ -94,6 +96,7 @@
 	let open = $state(false),
 		busy = $state(false),
 		loading = $state(false),
+		traceBusy = $state(false),
 		error = $state('');
 	let history = $state<TaskTransition[]>([]),
 		runs = $state<AgentRun[]>([]),
@@ -567,6 +570,20 @@
 			if (!disposed) busy = false;
 		}
 	}
+	// One JSON file with everything Kuayle recorded about the task, ready to
+	// hand to an LLM or attach to an issue.
+	async function downloadTrace() {
+		if (traceBusy) return;
+		traceBusy = true;
+		error = '';
+		try {
+			await downloadTaskTrace(chat.slug, task.id, chat.issue?.identifier);
+		} catch (e) {
+			if (!disposed) error = getErrorMessage(e, m['tasks.load_error']());
+		} finally {
+			if (!disposed) traceBusy = false;
+		}
+	}
 	// Pausing holds the task's workflow where it is; resuming continues it.
 	async function pauseAction(request: () => Promise<AgentTask>) {
 		if (busy) return;
@@ -842,6 +859,14 @@
 				href: `/${chat.slug}/machines/${task.machine_id}`,
 				group: 'tools'
 			});
+		list.push({
+			id: 'trace',
+			icon: FileDown,
+			label: m['tasks.download_trace'](),
+			group: 'tools',
+			disabled: traceBusy,
+			onclick: () => void downloadTrace()
+		});
 		if (pause === 'pausable')
 			list.push({
 				id: 'pause',

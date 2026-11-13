@@ -7,10 +7,11 @@
 	import { cn } from '$lib/utils.js';
 	import { copyText } from './message-text';
 
-	// Copies one chat message's whole text. Inside a Message (or any
-	// `group/message` element) it stays out of the way until the message is
-	// hovered or the button focused; where nothing can hover (touch) it is
-	// always shown. The name stays "Copy message"; the result is announced.
+	// Copies one chat message's whole text. It sits at the top-right of its
+	// bubble, which must reserve end padding for it, and stays out of the way
+	// until the message is hovered or the button focused; where nothing can
+	// hover (touch) it is always shown. The name stays "Copy message"; the
+	// result is announced.
 	let {
 		text,
 		class: className = ''
@@ -39,7 +40,7 @@
 	aria-label={m['assistant.copy']()}
 	title={m['assistant.copy']()}
 	class={cn(
-		'shrink-0 text-muted-foreground opacity-0 transition-opacity group-focus-within/message:opacity-100 group-hover/message:opacity-100 focus-visible:opacity-100 data-[copied]:opacity-100 pointer-coarse:opacity-100',
+		'absolute end-1 top-1 z-10 text-muted-foreground opacity-0 transition-opacity group-focus-within/message:opacity-100 group-hover/message:opacity-100 focus-visible:opacity-100 data-[copied]:opacity-100 pointer-coarse:opacity-100',
 		className
 	)}
 	onclick={() => void copy()}

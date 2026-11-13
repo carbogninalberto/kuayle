@@ -12,7 +12,9 @@ wikis, members and webhooks.
 
 The document's `info.description` covers authentication and token scopes,
 pagination, the error format, rate limits, webhook payloads and signature
-verification. This page is for people changing the API.
+verification. [API tokens](api-tokens.md) records every endpoint and verb a
+token can reach, the scope that gates it, and the routes that stay
+session-only. This page is for people changing the API.
 
 ## How the document is produced
 

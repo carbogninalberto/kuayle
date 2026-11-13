@@ -407,6 +407,9 @@ export const agentTasks = {
 	// The prompt an attempt received, split by source; creator only.
 	runPrompt: (slug: string, id: string, run: string) =>
 		api.get<RunPrompt>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/prompt`),
+	// The task's full debug trace as one JSON file; creator or workspace
+	// owner/admin who can see the issue.
+	debugTrace: (slug: string, id: string) => api.blob(`${task(slug, id)}/debug`),
 	diff: (slug: string, id: string, run: string) =>
 		api.get<{ diff: string; truncated: boolean }>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/diff`),
 	validation: (slug: string, id: string, run: string) =>

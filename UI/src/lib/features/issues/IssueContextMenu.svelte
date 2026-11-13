@@ -92,6 +92,8 @@
 	let dueDateVisible = $state(false);
 	let closingDueDate = false;
 	let includeSubIssues = $state(false);
+	// An outside pointer press must not pull focus back to the row after a control it opened takes it.
+	let closedByOutsidePointer = false;
 	const ANIM_DURATION = 100;
 
 	let pickerTitle = $derived(
@@ -229,7 +231,14 @@
 	<ContextMenu.Trigger>
 		{@render children()}
 	</ContextMenu.Trigger>
-	<ContextMenu.Content class="w-60">
+	<ContextMenu.Content
+		class="w-60"
+		onInteractOutside={() => (closedByOutsidePointer = true)}
+		onCloseAutoFocus={(e) => {
+			if (closedByOutsidePointer) e.preventDefault();
+			closedByOutsidePointer = false;
+		}}
+	>
 		{#if !readOnly}
 			{#if onremove && removeLabel}<ContextMenu.Item onclick={onremove}
 					><span class={rowClass}><X class={iconClass} />{removeLabel}</span></ContextMenu.Item

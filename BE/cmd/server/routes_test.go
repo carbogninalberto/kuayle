@@ -301,6 +301,7 @@ func TestAgentTaskAndWorkflowReadRoutes(t *testing.T) {
 		"GET " + ws + "/agent-tasks/:taskId/runs/:runId/diff":      "session",
 		"GET " + ws + "/agent-tasks/:taskId/runs/:runId/artifacts": "session",
 		"GET " + ws + "/agent-tasks/:taskId/sessions":              "session",
+		"GET " + ws + "/agent-tasks/:taskId/debug":                 "session",
 		"GET " + ws + "/agent-tasks/:taskId/live-messages":         "session",
 		"POST " + ws + "/agent-tasks/:taskId/cancel":               "session",
 		"POST " + ws + "/workflows":                                "session",
@@ -391,6 +392,36 @@ func TestModelCatalogRouteIsReadWithTheDevMachineReadPermission(t *testing.T) {
 			rec := httptest.NewRecorder()
 			// The nil handler panics if the request gets past authorization.
 			e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workspaces/acme/agent-model-catalog?harness=opencode&refresh=true", nil))
+			require.Equal(t, http.StatusForbidden, rec.Code)
+		})
+	}
+}
+
+// Forge connections carry secrets and change what a workspace publishes, so
+// every configuration route stays with workspace:manage (owner only).
+func TestForgeConfigurationRequiresWorkspaceManage(t *testing.T) {
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodGet, "/api/workspaces/:slug/forges/connections"},
+		{http.MethodPost, "/api/workspaces/:slug/forges/connections"},
+		{http.MethodPatch, "/api/workspaces/:slug/forges/connections/:id"},
+		{http.MethodDelete, "/api/workspaces/:slug/forges/connections/:id"},
+		{http.MethodGet, "/api/workspaces/:slug/forges/connections/:id/repos"},
+		{http.MethodPost, "/api/workspaces/:slug/forges/connections/:id/repos"},
+		{http.MethodDelete, "/api/workspaces/:slug/forges/connections/:id/repos/:repoId"},
+	} {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			e := echo.New()
+			auth := func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c *echo.Context) error {
+					c.Set(mw.TokenScopesKey, domain.TokenScopes())
+					c.Set("workspace_role", domain.RoleMember)
+					return next(c)
+				}
+			}
+			registerRoutes(e, &appHandlers{}, testMiddleware(auth))
+			rec := httptest.NewRecorder()
+			path := pathParam.ReplaceAllString(tc.path, "example")
+			e.ServeHTTP(rec, httptest.NewRequest(tc.method, path, nil))
 			require.Equal(t, http.StatusForbidden, rec.Code)
 		})
 	}
