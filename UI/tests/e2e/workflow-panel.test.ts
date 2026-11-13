@@ -145,12 +145,15 @@ test('desktop: the side panel collapses to give the canvas the width, survives a
 	await expect(toggle).toHaveAttribute('aria-expanded', 'false');
 	await expect.poll(async () => (await canvas.boundingBox())!.width).toBeGreaterThan(openWidth + 300);
 
-	// The refit leaves every step inside the wider canvas.
-	const canvasBox = (await canvas.boundingBox())!;
-	for (const id of ['start', 'plan', 'done']) {
-		const box = (await editor.getByTestId(`workflow-node-${id}`).boundingBox())!;
-		expect(inside(box, canvasBox), `${id} is inside the canvas`).toBe(true);
-	}
+	// The refit leaves every step inside the wider canvas. fitView animates for
+	// 200 ms after the width change, so re-read both boxes until it settles.
+	await expect(async () => {
+		const canvasBox = (await canvas.boundingBox())!;
+		for (const id of ['start', 'plan', 'done']) {
+			const box = (await editor.getByTestId(`workflow-node-${id}`).boundingBox())!;
+			expect(inside(box, canvasBox), `${id} is inside the canvas`).toBe(true);
+		}
+	}).toPass({ timeout: 5000 });
 
 	// The preference is saved for this user, not only in this browser.
 	await expect.poll(() => state.patches.at(-1)?.workflow_editor_panel_open).toBe(false);
