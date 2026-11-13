@@ -425,6 +425,94 @@ test('does not fetch provider-authored image URLs or execute agent HTML', async 
 	);
 });
 
+test('renders Markdown tables in assistant replies with alignment and horizontal scroll', async ({ page }, testInfo) => {
+	const state = await fixture(page);
+	const wideHeader = Array.from({ length: 12 }, (_, i) => `Header ${i + 1}`);
+	const wideRow = Array.from({ length: 12 }, (_, i) => `Wide cell data ${i + 1}`);
+	const wideTable = [wideHeader, wideHeader.map(() => '---'), wideRow]
+		.map((cells) => `| ${cells.join(' | ')} |`)
+		.join('\n');
+	state.messages = [
+		userMessage,
+		{
+			...reply,
+			status: 'completed',
+			content: [
+				'Aligned table:',
+				'',
+				'| Left | Center | Right |',
+				'|:--|:-:|--:|',
+				'| one | two | three |',
+				'',
+				'Wide table:',
+				'',
+				wideTable,
+				'',
+				'Malformed table:',
+				'',
+				'| Name | Value |',
+				'|--|--|',
+				'| kept | extra-dropped | merged-cell |',
+				'',
+				'| not | a table',
+				'|--',
+				'| 1 | 2 |',
+				'',
+				'<table style="position:fixed" onclick="window.agentExecuted=true"><tr><td>injected</td></tr></table>'
+			].join('\n')
+		}
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+
+	const markdown = page.locator('.assistant-markdown');
+	await expect(markdown.locator('table')).toHaveCount(3);
+
+	const aligned = markdown.locator('table').first();
+	await expect(aligned.locator('thead th')).toHaveCount(3);
+	await expect(aligned.locator('tbody td')).toHaveCount(3);
+	await expect(aligned.getByRole('columnheader', { name: 'Center', exact: true })).toBeVisible();
+	await expect(aligned.getByRole('cell', { name: 'two', exact: true })).toBeVisible();
+	expect(
+		await aligned
+			.locator('tbody td')
+			.evaluateAll((cells) => cells.map((cell) => getComputedStyle(cell).textAlign))
+	).toEqual(['left', 'center', 'right']);
+	expect(
+		await aligned
+			.locator('tbody td')
+			.first()
+			.evaluate((cell) => getComputedStyle(cell).borderTopWidth)
+	).not.toBe('0px');
+
+	const wide = markdown.locator('table').nth(1);
+	await expect(wide.locator('thead th')).toHaveCount(12);
+	const overflow = await wide.evaluate((table) => ({
+		scrollWidth: table.scrollWidth,
+		clientWidth: table.clientWidth
+	}));
+	expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+	const malformed = markdown.locator('table').nth(2);
+	await expect(malformed.getByRole('cell', { name: 'kept', exact: true })).toBeVisible();
+	await expect(malformed.getByRole('cell', { name: 'extra-dropped', exact: true })).toBeVisible();
+	await expect(malformed.getByText('merged-cell', { exact: true })).toHaveCount(0);
+	await expect(markdown.locator('p').filter({ hasText: '| not | a table' })).toHaveCount(1);
+
+	// Model-authored HTML stays text; alignment survives only as the inert attribute.
+	await expect(markdown.locator('[style]')).toHaveCount(0);
+	await expect(
+		markdown.getByText(
+			'<table style="position:fixed" onclick="window.agentExecuted=true"><tr><td>injected</td></tr></table>',
+			{ exact: true }
+		)
+	).toBeVisible();
+	expect(await page.evaluate(() => Boolean((window as unknown as { agentExecuted?: boolean }).agentExecuted))).toBe(
+		false
+	);
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('assistant-tables.png') });
+});
+
 test('keeps accepted sends visible while a history reload fails', async ({ page }) => {
 	const state = await fixture(page);
 	state.failAfterSend = true;
