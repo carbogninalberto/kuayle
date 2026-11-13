@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "Trop de propositions sont en attente sur ce dépôt",
 	"lessons.error_duplicate": "Cette leçon existe déjà pour ce dépôt",
 	"lessons.error_invalid": "Une leçon tient sur une ligne de {max} caractères maximum",
-	"lessons.error_repository": "Ce dépôt n'est pas connecté à l'espace de travail"
+	"lessons.error_repository": "Ce dépôt n'est pas connecté à l'espace de travail",
+	"assistant.rich_chart_failed": "Impossible d'afficher ce graphique ; le code source est affiché.",
+	"assistant.rich_widget_failed": "Impossible d'afficher ce widget ; le code source est affiché.",
+	"assistant.rich_widget_title": "Widget interactif"
 }

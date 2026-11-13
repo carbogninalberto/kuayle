@@ -1,13 +1,64 @@
 <script lang="ts">
+	import { SvelteSet } from 'svelte/reactivity';
 	import { renderMarkdown } from '$lib/markdown';
+	import { m } from '$lib/features/i18n/messages';
+	import ChatChart from './ChatChart.svelte';
+	import ChatHtmlWidget from './ChatHtmlWidget.svelte';
+	import { richSegments } from './rich-blocks';
+
 	// Model and agent text is untrusted: renderMarkdown sanitizes it and images
-	// are not loaded.
-	let { source, class: className = '' }: { source: string; class?: string } = $props();
+	// are not loaded. Rich fences are opt-in for the assistant chat, where a
+	// chart is drawn from validated JSON and an html widget stays sandboxed.
+	let {
+		source,
+		class: className = '',
+		richBlocks = false
+	}: { source: string; class?: string; richBlocks?: boolean } = $props();
+
+	const failed = new SvelteSet<number>();
+	const segments = $derived(richBlocks ? richSegments(source) : []);
+
+	$effect(() => {
+		source;
+		richBlocks;
+		failed.clear();
+	});
 </script>
 
-<div class="assistant-markdown min-w-0 break-words {className}">
-	{@html renderMarkdown(source, undefined, { allowImages: false })}
-</div>
+{#if richBlocks}
+	<div class="assistant-markdown min-w-0 break-words {className}">
+		{#each segments as segment, index (index)}
+			{#if segment.kind === 'markdown'}
+				{@html renderMarkdown(segment.source, undefined, { allowImages: false })}
+			{:else if failed.has(index)}
+				<div class="my-3">
+					<p class="mb-1.5 text-xs text-muted-foreground"
+						>{segment.kind === 'chart'
+							? m['assistant.rich_chart_failed']()
+							: m['assistant.rich_widget_failed']()}</p
+					>
+					{@html renderMarkdown(segment.fence, undefined, { allowImages: false })}
+				</div>
+			{:else if segment.kind === 'chart'}
+				<div class="my-3">
+					<svelte:boundary onerror={() => failed.add(index)}>
+						<ChatChart spec={segment.spec} onfail={() => failed.add(index)} />
+					</svelte:boundary>
+				</div>
+			{:else}
+				<div class="my-3">
+					<svelte:boundary onerror={() => failed.add(index)}>
+						<ChatHtmlWidget html={segment.html} onfail={() => failed.add(index)} />
+					</svelte:boundary>
+				</div>
+			{/if}
+		{/each}
+	</div>
+{:else}
+	<div class="assistant-markdown min-w-0 break-words {className}">
+		{@html renderMarkdown(source, undefined, { allowImages: false })}
+	</div>
+{/if}
 
 <style>
 	.assistant-markdown :global(p) {

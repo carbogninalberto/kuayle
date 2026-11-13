@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "Too many proposals are waiting on this repository",
 	"lessons.error_duplicate": "This lesson already exists for this repository",
 	"lessons.error_invalid": "A lesson is one line of at most {max} characters",
-	"lessons.error_repository": "This repository is not connected to the workspace"
+	"lessons.error_repository": "This repository is not connected to the workspace",
+	"assistant.rich_chart_failed": "Couldn't render this chart; showing its source.",
+	"assistant.rich_widget_failed": "Couldn't render this widget; showing its source.",
+	"assistant.rich_widget_title": "Interactive widget"
 }

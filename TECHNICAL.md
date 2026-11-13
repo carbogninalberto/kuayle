@@ -1585,6 +1585,27 @@ volume read-only and pass the storage settings. See
 [conversation images](BE/docs/conversations.md#images) and
 [task images](BE/docs/agent-tasks.md#issue-images).
 
+### Rich chat blocks
+
+Completed assistant replies in the web chat may contain two extra fences. A
+`chart` fence holds only a JSON series spec (bar, line, area or pie; one to five
+series, at most 100 categories), which `ChatChart` draws on an echarts canvas
+with theme colours from `--chart-1..5` and a rich-text tooltip, so no model
+string becomes HTML. An `html` fence renders as `ChatHtmlWidget`: an iframe with
+`sandbox="allow-scripts"` only (never `allow-same-origin` or navigation), a
+`srcdoc` document whose first element is a CSP of `default-src 'none'` with
+inline script and style allowed and data images and fonts, a fixed 360px height
+and no network access. A second frame load (the widget navigating itself) tears
+the frame down, because CSP cannot stop self-navigation. Caps apply per fence
+(16 KB chart, 64 KB html) and per message (four rich blocks); a malformed,
+oversized or otherwise refused block stays an ordinary escaped code fence, and a
+rendering failure shows the original fence with a short note, never a blank
+bubble. Rich blocks render only outside streaming. The per-message copy path and
+`stripRichBlocks` omit fences that render as rich blocks, so clipboard text
+never contains chart JSON or widget markup; a fence shown as code is copied as
+code. `BE/internal/service/conversation.go` adds the capability to the shared
+system prompt, so the model knows both fences (Telegram shows them as code).
+
 ### Telegram assistant channel
 
 Workspace Settings → Telegram configures an encrypted bot token and numeric user-ID

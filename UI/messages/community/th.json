@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "มีข้อเสนอรออยู่ที่ที่เก็บนี้มากเกินไป",
 	"lessons.error_duplicate": "บทเรียนนี้มีอยู่แล้วสำหรับที่เก็บนี้",
 	"lessons.error_invalid": "บทเรียนคือหนึ่งบรรทัดที่มีความยาวไม่เกิน {max} ตัวอักษร",
-	"lessons.error_repository": "ที่เก็บนี้ไม่ได้เชื่อมต่อกับพื้นที่ทำงาน"
+	"lessons.error_repository": "ที่เก็บนี้ไม่ได้เชื่อมต่อกับพื้นที่ทำงาน",
+	"assistant.rich_chart_failed": "ไม่สามารถแสดงแผนภูมินี้ได้ กำลังแสดงซอร์สโค้ด",
+	"assistant.rich_widget_failed": "ไม่สามารถแสดงวิดเจ็ตนี้ได้ กำลังแสดงซอร์สโค้ด",
+	"assistant.rich_widget_title": "วิดเจ็ตแบบโต้ตอบ"
 }

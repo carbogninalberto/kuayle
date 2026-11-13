@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "För många förslag väntar på det här repot",
 	"lessons.error_duplicate": "Den här lektionen finns redan för det här repot",
 	"lessons.error_invalid": "En lektion är en rad med högst {max} tecken",
-	"lessons.error_repository": "Det här repot är inte anslutet till arbetsytan"
+	"lessons.error_repository": "Det här repot är inte anslutet till arbetsytan",
+	"assistant.rich_chart_failed": "Diagrammet kunde inte visas; källkoden visas.",
+	"assistant.rich_widget_failed": "Widgeten kunde inte visas; källkoden visas.",
+	"assistant.rich_widget_title": "Interaktiv widget"
 }

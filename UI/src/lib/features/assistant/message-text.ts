@@ -1,5 +1,6 @@
 import MarkdownIt from 'markdown-it';
 import type { Token } from 'markdown-it';
+import { isRichFence } from './rich-blocks.ts';
 
 // The parser the chat renders with (see $lib/markdown): no raw HTML, bare URLs
 // are links and images stay text, so the copied text matches what is read.
@@ -53,6 +54,10 @@ function blockTexts(tokens: Token[], start: number, close?: string): { blocks: s
 				blocks.push(inlineText(token.children));
 				break;
 			case 'fence':
+				// Rich blocks render as a chart or a widget, not as text.
+				if (isRichFence(token)) break;
+				blocks.push(token.content.replace(/\n$/, ''));
+				break;
 			case 'code_block':
 				blocks.push(token.content.replace(/\n$/, ''));
 				break;

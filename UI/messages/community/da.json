@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "Der venter for mange forslag på dette repository",
 	"lessons.error_duplicate": "Denne lektion findes allerede for dette repository",
 	"lessons.error_invalid": "En lektion er én linje med højst {max} tegn",
-	"lessons.error_repository": "Dette repository er ikke forbundet med workspacet"
+	"lessons.error_repository": "Dette repository er ikke forbundet med workspacet",
+	"assistant.rich_chart_failed": "Kunne ikke vise dette diagram; viser kildekoden.",
+	"assistant.rich_widget_failed": "Kunne ikke vise denne widget; viser kildekoden.",
+	"assistant.rich_widget_title": "Interaktiv widget"
 }

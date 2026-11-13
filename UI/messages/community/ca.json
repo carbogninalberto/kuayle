@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "Hi ha massa propostes pendents en aquest repositori",
 	"lessons.error_duplicate": "Aquesta lliçó ja existeix en aquest repositori",
 	"lessons.error_invalid": "Una lliçó és una línia de com a màxim {max} caràcters",
-	"lessons.error_repository": "Aquest repositori no està connectat a l'espai de treball"
+	"lessons.error_repository": "Aquest repositori no està connectat a l'espai de treball",
+	"assistant.rich_chart_failed": "No s'ha pogut mostrar aquest gràfic; es mostra el codi.",
+	"assistant.rich_widget_failed": "No s'ha pogut mostrar aquest giny; es mostra el codi.",
+	"assistant.rich_widget_title": "Giny interactiu"
 }

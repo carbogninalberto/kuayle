@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "Na tomto repozitáři čeká příliš mnoho návrhů",
 	"lessons.error_duplicate": "Tato lekce už pro tento repozitář existuje",
 	"lessons.error_invalid": "Lekce je jeden řádek o nejvýše {max} znacích",
-	"lessons.error_repository": "Tento repozitář není připojen k pracovnímu prostoru"
+	"lessons.error_repository": "Tento repozitář není připojen k pracovnímu prostoru",
+	"assistant.rich_chart_failed": "Tento graf nelze vykreslit; zobrazuje se zdroj.",
+	"assistant.rich_widget_failed": "Tento widget nelze vykreslit; zobrazuje se zdroj.",
+	"assistant.rich_widget_title": "Interaktivní widget"
 }

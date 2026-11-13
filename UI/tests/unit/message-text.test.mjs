@@ -50,6 +50,26 @@ test('raw HTML and entities are copied as the reader sees them', () => {
 	assert.equal(markdownToPlainText('<img src=x onerror="evil()"> &amp; 1 &lt; 2'), '<img src=x onerror="evil()"> & 1 < 2');
 });
 
+test('rich chart and html fences are not copied as code', () => {
+	const chart = JSON.stringify({
+		type: 'bar',
+		title: 'Issues this quarter',
+		categories: ['Q1', 'Q2'],
+		series: [{ name: 'Created', data: [4, 7] }]
+	});
+	const source = `Quarterly summary\n\n\`\`\`chart\n${chart}\n\`\`\`\n\nWidget:\n\n\`\`\`html\n<script>document.body.dataset.ran = "1"</script>\n\`\`\`\n\nDone.`;
+	const text = markdownToPlainText(source);
+	assert.equal(text, 'Quarterly summary\n\nWidget:\n\nDone.');
+	assert.ok(!text.includes('"series"'));
+	assert.ok(!text.includes('<script'));
+	assert.ok(!text.includes('<iframe'));
+});
+
+test('a chart fence that cannot render is copied as code', () => {
+	const source = 'Before\n\n```chart\n{"type":"bar","series":[]}\n```\n\nAfter';
+	assert.equal(markdownToPlainText(source), 'Before\n\n{"type":"bar","series":[]}\n\nAfter');
+});
+
 test('long messages are not truncated', () => {
 	const paragraphs = Array.from({ length: 4000 }, (_, index) => `Paragraph ${index} with **bold** text.`);
 	const text = markdownToPlainText(paragraphs.join('\n\n'));

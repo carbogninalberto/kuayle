@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "Er wachten te veel voorstellen op deze repository",
 	"lessons.error_duplicate": "Deze les bestaat al voor deze repository",
 	"lessons.error_invalid": "Een les is één regel van maximaal {max} tekens",
-	"lessons.error_repository": "Deze repository is niet verbonden met de werkruimte"
+	"lessons.error_repository": "Deze repository is niet verbonden met de werkruimte",
+	"assistant.rich_chart_failed": "Deze grafiek kon niet worden weergegeven; de bron wordt getoond.",
+	"assistant.rich_widget_failed": "Deze widget kon niet worden weergegeven; de bron wordt getoond.",
+	"assistant.rich_widget_title": "Interactieve widget"
 }

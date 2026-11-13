@@ -996,7 +996,7 @@
 			/>
 			<Bubble.Root variant="ghost">
 				<Bubble.Content>
-					<Markdown source={message.content} />
+					<Markdown source={message.content} richBlocks={message.status !== 'streaming'} />
 				</Bubble.Content>
 			</Bubble.Root>
 			<!-- Approval requests always close the message, after its text. -->

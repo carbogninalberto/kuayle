@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "该仓库等待审批的提议过多",
 	"lessons.error_duplicate": "该仓库已存在此经验",
 	"lessons.error_invalid": "经验只能是一行，最多 {max} 个字符",
-	"lessons.error_repository": "该仓库未连接到工作区"
+	"lessons.error_repository": "该仓库未连接到工作区",
+	"assistant.rich_chart_failed": "无法渲染此图表，改为显示源代码。",
+	"assistant.rich_widget_failed": "无法渲染此小组件，改为显示源代码。",
+	"assistant.rich_widget_title": "交互式小组件"
 }

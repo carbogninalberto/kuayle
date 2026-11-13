@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "Túl sok javaslat vár ebben a tárolóban",
 	"lessons.error_duplicate": "Ez a tanulság már létezik ehhez a tárolóhoz",
 	"lessons.error_invalid": "Egy tanulság legfeljebb {max} karakterből álló egyetlen sor",
-	"lessons.error_repository": "Ez a tároló nincs csatlakoztatva a munkaterülethez"
+	"lessons.error_repository": "Ez a tároló nincs csatlakoztatva a munkaterülethez",
+	"assistant.rich_chart_failed": "A diagramot nem sikerült megjeleníteni; a forrás látható.",
+	"assistant.rich_widget_failed": "A widgetet nem sikerült megjeleníteni; a forrás látható.",
+	"assistant.rich_widget_title": "Interaktív widget"
 }

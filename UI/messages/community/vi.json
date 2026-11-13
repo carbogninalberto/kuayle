@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "Quá nhiều đề xuất đang chờ trên kho lưu trữ này",
 	"lessons.error_duplicate": "Bài học này đã tồn tại cho kho lưu trữ này",
 	"lessons.error_invalid": "Một bài học là một dòng tối đa {max} ký tự",
-	"lessons.error_repository": "Kho lưu trữ này chưa được kết nối với không gian làm việc"
+	"lessons.error_repository": "Kho lưu trữ này chưa được kết nối với không gian làm việc",
+	"assistant.rich_chart_failed": "Không thể hiển thị biểu đồ này; đang hiển thị mã nguồn.",
+	"assistant.rich_widget_failed": "Không thể hiển thị tiện ích này; đang hiển thị mã nguồn.",
+	"assistant.rich_widget_title": "Tiện ích tương tác"
 }

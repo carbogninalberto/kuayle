@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "Auf diesem Repository warten zu viele Vorschläge",
 	"lessons.error_duplicate": "Diese Lektion existiert bereits für dieses Repository",
 	"lessons.error_invalid": "Eine Lektion ist eine Zeile mit höchstens {max} Zeichen",
-	"lessons.error_repository": "Dieses Repository ist nicht mit dem Workspace verbunden"
+	"lessons.error_repository": "Dieses Repository ist nicht mit dem Workspace verbunden",
+	"assistant.rich_chart_failed": "Dieses Diagramm konnte nicht dargestellt werden; die Quelle wird angezeigt.",
+	"assistant.rich_widget_failed": "Dieses Widget konnte nicht dargestellt werden; die Quelle wird angezeigt.",
+	"assistant.rich_widget_title": "Interaktives Widget"
 }

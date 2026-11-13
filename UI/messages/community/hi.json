@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "इस रिपॉज़िटरी पर बहुत सारे प्रस्ताव प्रतीक्षा में हैं",
 	"lessons.error_duplicate": "यह सीख इस रिपॉज़िटरी के लिए पहले से मौजूद है",
 	"lessons.error_invalid": "एक सीख अधिकतम {max} अक्षरों की एक पंक्ति है",
-	"lessons.error_repository": "यह रिपॉज़िटरी वर्कस्पेस से जुड़ी नहीं है"
+	"lessons.error_repository": "यह रिपॉज़िटरी वर्कस्पेस से जुड़ी नहीं है",
+	"assistant.rich_chart_failed": "यह चार्ट प्रस्तुत नहीं हो सका; इसका स्रोत दिखाया जा रहा है।",
+	"assistant.rich_widget_failed": "यह विजेट प्रस्तुत नहीं हो सका; इसका स्रोत दिखाया जा रहा है।",
+	"assistant.rich_widget_title": "इंटरैक्टिव विजेट"
 }

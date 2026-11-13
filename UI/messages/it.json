@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "Troppe proposte in attesa su questo repository",
 	"lessons.error_duplicate": "Questa lezione esiste già per questo repository",
 	"lessons.error_invalid": "Una lezione è una riga di al massimo {max} caratteri",
-	"lessons.error_repository": "Questo repository non è collegato allo spazio di lavoro"
+	"lessons.error_repository": "Questo repository non è collegato allo spazio di lavoro",
+	"assistant.rich_chart_failed": "Impossibile mostrare questo grafico; ecco il codice.",
+	"assistant.rich_widget_failed": "Impossibile mostrare questo widget; ecco il codice.",
+	"assistant.rich_widget_title": "Widget interattivo"
 }

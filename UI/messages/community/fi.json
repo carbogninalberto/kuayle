@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "Tässä repositoriossa odottaa liian monta ehdotusta",
 	"lessons.error_duplicate": "Tämä opetus on jo olemassa tässä repositoriossa",
 	"lessons.error_invalid": "Opetus on yksi rivi, enintään {max} merkkiä",
-	"lessons.error_repository": "Tämä repositorio ei ole yhteydessä työtilaan"
+	"lessons.error_repository": "Tämä repositorio ei ole yhteydessä työtilaan",
+	"assistant.rich_chart_failed": "Tätä kaaviota ei voitu näyttää; lähdekoodi näytetään.",
+	"assistant.rich_widget_failed": "Tätä widgetiä ei voitu näyttää; lähdekoodi näytetään.",
+	"assistant.rich_widget_title": "Interaktiivinen widget"
 }

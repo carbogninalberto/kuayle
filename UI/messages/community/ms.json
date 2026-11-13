@@ -3954,5 +3954,8 @@
 	"lessons.error_pending": "Terlalu banyak cadangan sedang menunggu pada repositori ini",
 	"lessons.error_duplicate": "Pelajaran ini sudah wujud untuk repositori ini",
 	"lessons.error_invalid": "Pelajaran ialah satu baris dengan maksimum {max} aksara",
-	"lessons.error_repository": "Repositori ini tidak disambungkan ke ruang kerja"
+	"lessons.error_repository": "Repositori ini tidak disambungkan ke ruang kerja",
+	"assistant.rich_chart_failed": "Carta tidak dapat dipaparkan; sumber ditunjukkan.",
+	"assistant.rich_widget_failed": "Widget tidak dapat dipaparkan; sumber ditunjukkan.",
+	"assistant.rich_widget_title": "Widget interaktif"
 }
