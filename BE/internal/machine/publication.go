@@ -87,12 +87,15 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	}
 	// Commits others pushed to the pull request branch (a maintainer merging the
 	// base branch into it) come first, so this publication builds on them
-	// instead of being refused as a non-fast-forward push.
-	if err = m.runtime.SyncCheckout(ctx, machine, services, checkout, token); err != nil {
+	// instead of being refused. When the agent rewrote the commits Kuayle
+	// published itself, the sync returns Kuayle's published commit as the lease
+	// for a guarded force push instead of changing the checkout.
+	lease, err := m.runtime.SyncCheckout(ctx, machine, services, checkout, token, publication.PublishedCommit)
+	if err != nil {
 		return errors.New("checkout_sync_failed: " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
 	}
 	commit, err := m.runtime.PublishCheckout(ctx, machine, services, checkout, PublishRequest{
-		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token, PublishedCommit: publication.PublishedCommit,
+		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token, PublishedCommit: publication.PublishedCommit, Lease: lease,
 		Message: title + "\n\nKuayle agent task " + run.TaskID.String(),
 	})
 	if err != nil {
