@@ -101,10 +101,12 @@ read-only contents permission, no persisted checkout credentials, and no
 `pull_request_target` or secrets handoff. Only the release jobs
 (`release-source`, `build`, `promote-latest`, `dev-machine-publish`,
 `dev-machine-manifests`) retain write permissions; `release-context` is
-read-only. Release and manual dispatch runs share one concurrency queue; PR runs
-cancel superseded work. The application-image, readiness and dev-machine scan
-matrices have no workflow-level fan-out cap; GitHub queues any jobs beyond the
-account's runner concurrency.
+read-only. Release and manual dispatch runs share one concurrency queue per
+release tag; latest writers also serialize per image across different tags so
+an older release cannot overwrite a newer `:latest`. PR runs cancel superseded
+work. The application-image, readiness and dev-machine scan matrices have no
+workflow-level fan-out cap; GitHub queues any jobs beyond the account's runner
+concurrency.
 
 ## Manual release rebuilds and ARM64 images
 
@@ -119,6 +121,10 @@ gh workflow run build.yml --ref main \
 ```
 
 `release_tag` must be an existing, published, non-draft server release tag.
+The dispatch must run from `main`; that check is an accident guard, not a
+security boundary, because anyone with write access can change the workflow.
+Use a protected GitHub environment for the release jobs if a stronger boundary
+is required.
 `include_arm64` defaults to `false`; with `true`, application images are built
 for `linux/amd64,linux/arm64` (QEMU is installed only for that step) and
 Dev Machines images add the native arm64 jobs. The run locates the release's

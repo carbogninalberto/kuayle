@@ -131,12 +131,18 @@ test('latest is promoted only after successful builds and by exact digest', () =
   assert.match(promote, /if \[ "\$before" != "\$after" \]/);
   assert.match(manifests, /Confirm release is still latest/);
   assert.match(manifests, /PUBLISH_LATEST: \$\{\{ steps\.latest\.outputs\.publish \}\}/);
+  for (const job of [promote, manifests]) {
+    assert.match(job, /concurrency:\n(?:      #.*\n)*      group: latest-\$\{\{ matrix\.image\.package \}\}/);
+  }
 });
 
 test('release publishing serializes and change detection gates the version bump', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
   const source = workflow.split('  release-source:\n')[1].split('\n    name:')[0];
-  assert.match(workflow, /concurrency:\n(?:  #.*\n)*  group: .*release-publish.*\n  cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/s);
+  assert.match(workflow, /concurrency:\n(?:  #.*\n)*  group: .*format\('release-publish-\{0\}', github\.event\.release\.tag_name \|\| inputs\.release_tag\).*\n  cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/s);
+  assert.match(workflow, /group: release-source/);
+  assert.match(workflow, /group: release-build-\$\{\{ needs\.release-context\.outputs\.tag \}\}-\$\{\{ matrix\.image\.package \}\}/);
+  assert.match(workflow, /group: release-dev-\$\{\{ needs\.release-context\.outputs\.tag \}\}-\$\{\{ matrix\.image\.id \}\}-\$\{\{ matrix\.architecture \}\}/);
   assert.match(source, /needs: \[changes\]/);
   assert.match(source, /needs.changes.result == 'success'/);
   assert.match(workflow, /Validate release tag before committing/);

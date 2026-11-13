@@ -16,7 +16,19 @@ function fixture(t) {
   const commit = (version, subject, author, email) => {
     writeFileSync(join(cwd, 'UI/package.json'), `${JSON.stringify({ version })}\n`);
     git('add', 'UI/package.json');
-    git('-c', `user.name=${author}`, '-c', `user.email=${email}`, 'commit', '-q', '-m', subject);
+    // Explicit identity env overrides any inherited GIT_AUTHOR_* values.
+    execFileSync('git', ['commit', '-q', '-m', subject], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: author,
+        GIT_AUTHOR_EMAIL: email,
+        GIT_COMMITTER_NAME: author,
+        GIT_COMMITTER_EMAIL: email
+      }
+    });
     return git('rev-parse', 'HEAD');
   };
   return { cwd, commit };
@@ -99,6 +111,7 @@ test('manual rebuild rejects draft, missing and invalid releases', (t) => {
     ['draft', { release: '{"draft":true}' }, /published, non-draft release/],
     ['missing', { releaseFails: true }, /does not identify an existing release/],
     ['metadata tag', { tag: 'v0.2.32+meta' }, /server release tag/],
+    ['dot suffix', { tag: 'v0.2.32.1' }, /server release tag/],
     ['cli tag', { tag: 'cli-v0.2.32' }, /server release tag/]
   ]) {
     const result = run({ cwd: repo.cwd, bin: mock(t, options), event: 'workflow_dispatch', ...options });

@@ -18,7 +18,7 @@ case "$INCLUDE_ARM64" in
 esac
 
 # Docker tags cannot contain '+', so build-metadata tags are not publishable.
-if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
   echo "::error::release_tag must be a server release tag such as v0.2.32" >&2
   exit 1
 fi

@@ -27,9 +27,9 @@ permissions:
   contents: read
 
 concurrency:
-  # Release and manual republish runs share one queue so :latest cannot be
-  # promoted by an older run after a newer release. PR runs cancel superseded work.
-  group: ${{ github.event_name == 'pull_request' && format('build-pr-{0}', github.event.pull_request.number) || 'release-publish' }}
+  # Same-tag release and rebuild runs share one queue; different tags may run
+  # concurrently. PR runs cancel superseded work.
+  group: ${{ github.event_name == 'pull_request' && format('build-pr-{0}', github.event.pull_request.number) || format('release-publish-{0}', github.event.release.tag_name || inputs.release_tag) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -51,6 +51,10 @@ jobs:
       source_sha: ${{ steps.source.outputs.sha }}
     permissions:
       contents: write
+    concurrency:
+      # Serialize the version-bump commit across different release tags.
+      group: release-source
+      cancel-in-progress: false
     runs-on: ubuntu-latest
 
     steps:
@@ -58,7 +62,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::release tag is not a valid server/Docker tag"
             exit 1
           fi
@@ -184,6 +188,11 @@ jobs:
     permissions:
       contents: read
       packages: write
+    concurrency:
+      # Same tag + image cannot be built twice at once; different tags may run
+      # in parallel.
+      group: release-build-${{ needs.release-context.outputs.tag }}-${{ matrix.image.package }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -270,6 +279,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+    concurrency:
+      # Serialize latest writers per image across different release tags.
+      group: latest-${{ matrix.image.package }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
@@ -360,6 +373,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+    concurrency:
+      # Same tag + image + architecture cannot be published twice at once.
+      group: release-dev-${{ needs.release-context.outputs.tag }}-${{ matrix.image.id }}-${{ matrix.architecture }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
@@ -405,6 +422,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+    concurrency:
+      # Serialize latest writers per image across different release tags.
+      group: latest-${{ matrix.image.package }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
