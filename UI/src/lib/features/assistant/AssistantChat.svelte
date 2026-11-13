@@ -87,6 +87,7 @@
 		type TaskIndicator
 	} from './shell-rules';
 	import { listProjects } from '$lib/api/projects';
+	import { readRecents, recentsKey, writeRecents } from './recents-cache';
 	import type { Project } from '$lib/types/project';
 	import { listQuery, newChatProject, resolveProjectFilter, type ProjectFilter } from './project-filter';
 	import { MediaQuery } from 'svelte/reactivity';
@@ -111,7 +112,6 @@
 	$effect(() => (conversationId ? onScreenSubjects.show(conversationSubject(conversationId)) : undefined));
 	const userKey = untrack(() => `${authState.user?.id}:${slug}`);
 	const draftKey = untrack(() => assistantDraftKey(authState.user?.id, slug, conversationId));
-	let history = $state<Conversation[]>([]);
 	let status = $state<AssistantStatus>({ configured: false });
 	let initialized = $state(false);
 	let text = $state('');
@@ -128,6 +128,19 @@
 			}
 		})
 	);
+	// Remounting for a conversation switch restarts this component, so seed the
+	// sidebar's Recents from the cache while the fresh list loads.
+	const initialHistoryKey = untrack(() => recentsKey(authState.user?.id, slug, projectFilter));
+	let history = $state<Conversation[]>(untrack(() => readRecents(initialHistoryKey)) ?? []);
+	let historyLoaded = $state(untrack(() => readRecents(initialHistoryKey) !== undefined));
+	let historyFailed = $state(false);
+	$effect(() => {
+		const key = recentsKey(authState.user?.id, slug, projectFilter);
+		// Never let the empty initial list overwrite a good cache before a real
+		// list has loaded.
+		if (!key || !historyLoaded) return;
+		writeRecents(key, $state.snapshot(history));
+	});
 	const projectOptions = $derived([
 		{ value: 'all', label: m['assistant.all_projects']() },
 		{ value: 'none', label: m['assistant.no_project']() },
@@ -135,19 +148,35 @@
 	]);
 	function loadHistory(filter: ProjectFilter) {
 		return conversations.list(slug, listQuery(filter)).then((items) => {
-			if (!disposed && projectFilter === filter) history = items;
+			if (!disposed && projectFilter === filter) {
+				history = items;
+				historyLoaded = true;
+				historyFailed = false;
+			}
 		});
 	}
 	function chooseProject(next: string) {
 		if (next === projectFilter) return;
 		projectFilter = next;
+		historyFailed = false;
 		try {
 			if (next === 'all') localStorage.removeItem(filterKey);
 			else localStorage.setItem(filterKey, next);
 		} catch {
 			/* The filter still applies without storage. */
 		}
-		void loadHistory(next).catch((error) => appToast.apiError(error, m['assistant.error']()));
+		const cached = readRecents(recentsKey(authState.user?.id, slug, next));
+		if (cached) {
+			history = cached;
+			historyLoaded = true;
+		} else {
+			// Keep the current rows visible until the filtered list arrives.
+			historyLoaded = false;
+		}
+		void loadHistory(next).catch((error) => {
+			historyFailed = true;
+			appToast.apiError(error, m['assistant.error']());
+		});
 	}
 
 	// ── Layout: fixed sidebar from lg, inline side panel from xl, drawers below.
@@ -565,7 +594,12 @@
 		])
 			.then(([items, provider, visible]) => {
 				if (disposed) return;
-				history = items;
+				// A filter change while the first list was loading owns the list now.
+				if (projectFilter === saved) {
+					history = items;
+					historyLoaded = true;
+					historyFailed = false;
+				}
 				status = provider;
 				projects = visible;
 				initialized = true;
@@ -574,7 +608,10 @@
 				if (resolved !== saved) chooseProject(resolved);
 			})
 			.catch(() => {
-				if (!disposed) error = m['assistant.error']();
+				if (!disposed) {
+					error = m['assistant.error']();
+					historyFailed = true;
+				}
 			});
 		if (conversationId) void chat.load();
 		else chat.loading = false;
@@ -790,6 +827,7 @@
 		projects,
 		projectFilter,
 		projectOptions,
+		loading: !historyLoaded && !historyFailed,
 		indicators,
 		onproject: chooseProject,
 		onrenamed: renamed
