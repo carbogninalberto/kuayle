@@ -61,6 +61,12 @@ type Config struct {
 	// set the base URL, so enabling it trusts every owner with internal access.
 	AIAllowPrivateNetwork bool `envconfig:"AI_ALLOW_PRIVATE_NETWORK" default:"false"`
 
+	// ForgeAllowPrivateNetwork lets admin-configured GitLab, Gitea and Forgejo
+	// base URLs target private or loopback addresses. Off by default: the base
+	// URL is workspace-admin supplied, so enabling it trusts every workspace
+	// admin with internal access.
+	ForgeAllowPrivateNetwork bool `envconfig:"FORGE_ALLOW_PRIVATE_NETWORK" default:"false"`
+
 	// Voice transcription service (optional). Both are operator settings:
 	// VOICE_URL is the internal address of the voice container and
 	// VOICE_INTERNAL_TOKEN the shared secret it requires. Voice stays off

@@ -2,10 +2,7 @@ package service
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,8 +22,6 @@ import (
 	gh "github.com/kuayle/kuayle-backend/pkg/github"
 	log "github.com/sirupsen/logrus"
 )
-
-var issueIdentifierRegex = regexp.MustCompile(`(?i)([A-Z][A-Z0-9]+-\d+)`)
 
 // GlobalGitHubAppConfig holds pre-configured GitHub App credentials for SaaS mode.
 // When set, all workspaces share this app instead of creating per-workspace apps via manifest.
@@ -611,11 +606,7 @@ func (s *GitHubService) DeleteApp(ctx context.Context, workspaceID uuid.UUID) er
 // In self-hosted mode, looks up the webhook secret from the DB using the installation ID.
 func (s *GitHubService) VerifyWebhookSignature(ctx context.Context, payload []byte, signature string) bool {
 	if s.globalApp != nil {
-		sig := strings.TrimPrefix(signature, "sha256=")
-		mac := hmac.New(sha256.New, []byte(s.globalApp.WebhookSecret))
-		mac.Write(payload)
-		expected := hex.EncodeToString(mac.Sum(nil))
-		return hmac.Equal([]byte(sig), []byte(expected))
+		return verifyGitHubWebhookSignature(s.globalApp.WebhookSecret, payload, signature)
 	}
 
 	// Self-hosted: extract installation ID from payload to look up the webhook secret
@@ -643,11 +634,7 @@ func (s *GitHubService) VerifyWebhookSignature(ctx context.Context, payload []by
 		return false
 	}
 
-	sig := strings.TrimPrefix(signature, "sha256=")
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(payload)
-	expected := hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(sig), []byte(expected))
+	return verifyGitHubWebhookSignature(secret, payload, signature)
 }
 
 // HandleWebhookEvent processes an incoming GitHub webhook event.
@@ -826,11 +813,12 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 	}
 
 	if issue != nil {
-		switch {
-		case (event.Action == "opened" && inserted) || event.Action == "ready_for_review":
-			s.applyAutoTransition(ctx, inst.WorkspaceID, "pr_opened", issue)
-		case event.PullRequest.Merged:
-			s.applyAutoTransition(ctx, inst.WorkspaceID, "pr_merged", issue)
+		action := event.Action
+		if action == "ready_for_review" {
+			action = "ready"
+		}
+		if transition := mergeRequestTransition(action, inserted, event.PullRequest.Merged); transition != "" {
+			s.applyAutoTransition(ctx, inst.WorkspaceID, transition, issue)
 		}
 
 		s.broadcastRealtimeEvent(inst.WorkspaceID, realtime.Event{
@@ -1018,215 +1006,6 @@ func (s *GitHubService) processInstallationEvent(ctx context.Context, payload []
 	}
 
 	return nil
-}
-
-// --- Issue Linking ---
-
-func (s *GitHubService) resolveIssueFromRef(ctx context.Context, workspaceID uuid.UUID, texts ...string) *domain.Issue {
-	seen := make(map[string]bool)
-	for _, text := range texts {
-		matches := issueIdentifierRegex.FindAllString(text, -1)
-		for _, m := range matches {
-			if seen[m] {
-				continue
-			}
-			seen[m] = true
-			issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, strings.ToUpper(m))
-			if err == nil && issue != nil {
-				return issue
-			}
-		}
-	}
-	return nil
-}
-
-// resolvePullRequestIssue requires exactly one visible issue among the candidate
-// identifiers. Words such as SHA-256 and node-18 are not issues unless they exist
-// in this workspace. Bound the work without choosing a partial/ambiguous result.
-func (s *GitHubService) resolvePullRequestIssue(ctx context.Context, workspaceID uuid.UUID, texts ...string) (*domain.Issue, error) {
-	identifiers := make(map[string]bool)
-	for _, text := range texts {
-		for _, loc := range issueIdentifierRegex.FindAllStringIndex(text, -1) {
-			isWord := func(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' }
-			if loc[0] > 0 && isWord(text[loc[0]-1]) || loc[1] < len(text) && isWord(text[loc[1]]) {
-				continue
-			}
-			identifiers[strings.ToUpper(text[loc[0]:loc[1]])] = true
-			if len(identifiers) > 20 {
-				return nil, nil
-			}
-		}
-	}
-	var resolved *domain.Issue
-	for identifier := range identifiers {
-		issue, err := s.issueRepo.GetByIdentifier(domain.PublicContext(ctx), workspaceID, identifier)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		if issue == nil {
-			continue
-		}
-		if resolved != nil && resolved.ID != issue.ID {
-			return nil, nil
-		}
-		resolved = issue
-	}
-	return resolved, nil
-}
-
-// --- Auto-Transitions ---
-
-func (s *GitHubService) applyAutoTransition(ctx context.Context, workspaceID uuid.UUID, event string, issue *domain.Issue) {
-	rule, err := s.ghRepo.GetAutoTransitionByEvent(ctx, workspaceID, event)
-	if err != nil || rule == nil {
-		return
-	}
-
-	oldStatus := string(issue.Status)
-	newStatus := rule.TargetStatus
-	if oldStatus == newStatus {
-		return
-	}
-
-	issue.Status = domain.IssueStatus(newStatus)
-	if rule.TargetStatusID != nil {
-		issue.StatusID = rule.TargetStatusID
-	} else {
-		// Resolve the team's custom status ID from the slug
-		ts, err := s.teamStatusRepo.GetByTeamAndSlug(ctx, issue.TeamID, newStatus)
-		if err == nil && ts != nil {
-			issue.StatusID = &ts.ID
-		}
-	}
-
-	if err := s.issueRepo.Update(ctx, issue); err != nil {
-		log.WithError(err).WithField("issue_id", issue.ID).Warn("failed to auto-transition issue")
-		return
-	}
-
-	_ = s.historyRepo.Create(ctx, issue.ID, uuid.Nil, "status", &oldStatus, &newStatus)
-
-	s.broadcastRealtimeEvent(workspaceID, realtime.Event{
-		Type:    "issue.updated",
-		Payload: issue,
-	})
-	s.applyStatusAutomation(ctx, workspaceID, issue, map[uuid.UUID]bool{})
-}
-
-func (s *GitHubService) applyStatusAutomation(ctx context.Context, workspaceID uuid.UUID, issue *domain.Issue, visited map[uuid.UUID]bool) {
-	if issue == nil || visited[issue.ID] || s.teamRepo == nil {
-		return
-	}
-	visited[issue.ID] = true
-
-	category := s.issueStatusCategory(ctx, issue)
-	if category == domain.StatusCategoryCompleted {
-		team, err := s.teamRepo.GetByID(ctx, issue.TeamID)
-		if err == nil && team != nil && team.SubIssueAutoCloseEnabled {
-			s.autoCloseSubIssues(ctx, workspaceID, issue.ID, visited)
-		}
-	}
-	if issue.ParentID != nil {
-		s.maybeAutoCloseParent(ctx, workspaceID, *issue.ParentID, visited)
-	}
-}
-
-func (s *GitHubService) maybeAutoCloseParent(ctx context.Context, workspaceID, parentID uuid.UUID, visited map[uuid.UUID]bool) {
-	parent, err := s.issueRepo.GetByID(ctx, parentID)
-	if err != nil || parent == nil || parent.WorkspaceID != workspaceID || visited[parent.ID] || s.teamRepo == nil {
-		return
-	}
-	team, err := s.teamRepo.GetByID(ctx, parent.TeamID)
-	if err != nil || team == nil || !team.ParentAutoCloseEnabled {
-		return
-	}
-	total, done, err := s.issueRepo.CountSubIssues(ctx, parent.ID)
-	if err != nil || total == 0 || total != done {
-		return
-	}
-	s.moveIssueToCompleted(ctx, workspaceID, parent, visited)
-}
-
-func (s *GitHubService) autoCloseSubIssues(ctx context.Context, workspaceID, parentID uuid.UUID, visited map[uuid.UUID]bool) {
-	subIssues, err := s.issueRepo.ListSubIssues(ctx, parentID)
-	if err != nil {
-		return
-	}
-	for i := range subIssues {
-		sub := subIssues[i]
-		if sub.WorkspaceID != workspaceID || s.isTerminalStatus(ctx, &sub) {
-			continue
-		}
-		s.moveIssueToCompleted(ctx, workspaceID, &sub, visited)
-	}
-}
-
-func (s *GitHubService) moveIssueToCompleted(ctx context.Context, workspaceID uuid.UUID, issue *domain.Issue, visited map[uuid.UUID]bool) {
-	if issue == nil || s.isTerminalStatus(ctx, issue) {
-		return
-	}
-	completedStatus, err := s.completedStatusForTeam(ctx, issue.TeamID)
-	if err != nil || completedStatus == nil {
-		return
-	}
-
-	old := string(issue.Status)
-	issue.Status = domain.IssueStatus(completedStatus.Slug)
-	issue.StatusID = &completedStatus.ID
-	if err := s.issueRepo.Update(ctx, issue); err != nil {
-		log.WithError(err).WithField("issue_id", issue.ID).Warn("failed to auto-close issue")
-		return
-	}
-	newVal := completedStatus.Slug
-	_ = s.historyRepo.Create(ctx, issue.ID, uuid.Nil, "status", &old, &newVal)
-	s.broadcastRealtimeEvent(workspaceID, realtime.Event{Type: "issue.updated", Payload: issue})
-	s.applyStatusAutomation(ctx, workspaceID, issue, visited)
-}
-
-func (s *GitHubService) completedStatusForTeam(ctx context.Context, teamID uuid.UUID) (*domain.TeamStatus, error) {
-	status, err := s.teamStatusRepo.GetByTeamAndSlug(ctx, teamID, string(domain.IssueStatusDone))
-	if err == nil && status != nil {
-		return status, nil
-	}
-	statuses, err := s.teamStatusRepo.ListByTeam(ctx, teamID)
-	if err != nil {
-		return nil, err
-	}
-	for i := range statuses {
-		if statuses[i].Category == domain.StatusCategoryCompleted {
-			return &statuses[i], nil
-		}
-	}
-	return nil, nil
-}
-
-func (s *GitHubService) isTerminalStatus(ctx context.Context, issue *domain.Issue) bool {
-	category := s.issueStatusCategory(ctx, issue)
-	return category == domain.StatusCategoryCompleted || category == domain.StatusCategoryCancelled
-}
-
-func (s *GitHubService) issueStatusCategory(ctx context.Context, issue *domain.Issue) domain.StatusCategory {
-	if issue.StatusID != nil {
-		status, err := s.teamStatusRepo.GetByID(ctx, *issue.StatusID)
-		if err == nil && status != nil {
-			return status.Category
-		}
-	}
-	switch issue.Status {
-	case domain.IssueStatusDone:
-		return domain.StatusCategoryCompleted
-	case domain.IssueStatusCancelled:
-		return domain.StatusCategoryCancelled
-	case domain.IssueStatusInProgress, domain.IssueStatusInReview:
-		return domain.StatusCategoryStarted
-	case domain.IssueStatusTodo:
-		return domain.StatusCategoryUnstarted
-	default:
-		return domain.StatusCategoryBacklog
-	}
 }
 
 // --- Data Access ---
