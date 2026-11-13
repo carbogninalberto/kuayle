@@ -414,9 +414,22 @@ func (f machineShareFixture) reserve(t *testing.T, task domain.AgentTask) uuid.U
 	t.Helper()
 	f.exec(t, `UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, task.ID)
 	task.MachineID = nil
-	machine, _, err := f.repo.ReserveMachine(f.ctx, task, uuid.New(), &f.environmentID)
+	reservation, err := f.repo.ReserveMachine(f.ctx, task, uuid.New(), &f.environmentID)
 	require.NoError(t, err)
-	return machine
+	return reservation.MachineID
+}
+
+// waitsForSlot asks for a machine for a fresh task and requires it to wait for
+// a free slot on a full machine with the given limit.
+func (f machineShareFixture) waitsForSlot(t *testing.T, task domain.AgentTask, limit int) {
+	t.Helper()
+	f.exec(t, `UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, task.ID)
+	task.MachineID = nil
+	_, err := f.repo.ReserveMachine(f.ctx, task, uuid.New(), &f.environmentID)
+	var wait *MachineSlotWaitError
+	require.ErrorAs(t, err, &wait)
+	require.Equal(t, limit, wait.Limit)
+	require.GreaterOrEqual(t, wait.Tasks, limit)
 }
 
 // A machine's own max_tasks decides how many tasks share it: above the
@@ -442,7 +455,7 @@ func TestMachineTaskLimitOverridesTheWorkspacePolicy(t *testing.T) {
 
 		f.workingTask(t, machine)
 		next := f.preparingTask(t)
-		require.Equal(t, next.ReservedMachineID, f.reserve(t, next), "at its own limit the machine is not shared")
+		f.waitsForSlot(t, next, above) // at its own limit the task waits for a slot
 	})
 
 	t.Run("below the policy", func(t *testing.T) {
@@ -453,7 +466,7 @@ func TestMachineTaskLimitOverridesTheWorkspacePolicy(t *testing.T) {
 		f.machineTaskLimit(t, machine, &below)
 		f.workingTask(t, machine)
 		claimed := f.preparingTask(t)
-		require.Equal(t, claimed.ReservedMachineID, f.reserve(t, claimed), "a machine below the policy takes no second task")
+		f.waitsForSlot(t, claimed, below) // a machine below the policy takes no second task
 
 		f.machineTaskLimit(t, machine, nil)
 		shared := f.preparingTask(t)
@@ -463,7 +476,7 @@ func TestMachineTaskLimitOverridesTheWorkspacePolicy(t *testing.T) {
 		require.Equal(t, machine, f.reserve(t, fourth), "the policy's fourth task still shares the machine")
 		f.workingTask(t, machine)
 		fifth := f.preparingTask(t)
-		require.Equal(t, fifth.ReservedMachineID, f.reserve(t, fifth), "the policy's limit is reached")
+		f.waitsForSlot(t, fifth, 4) // the policy's limit is reached
 	})
 }
 
