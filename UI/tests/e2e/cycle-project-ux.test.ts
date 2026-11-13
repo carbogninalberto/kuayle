@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const teamId = '00000000-0000-0000-0000-000000000010';
 const projectId = '00000000-0000-0000-0000-000000000020';
@@ -414,6 +414,153 @@ test('bulk actions set the project of the selected issues and can remove it', as
 	await expect.poll(() => bulkRequests().length).toBe(2);
 	expect(bulkRequests()[1].body.project_id).toBe('');
 	expect(state.errors).toEqual([]);
+});
+
+test.describe('KUA-65: bulk actions stay clickable over the issue list', () => {
+	async function selectAllInCycle(page: Page, viewport?: { width: number; height: number }) {
+		const state = await mockWorkspace(page);
+		// The stock fixture has one issue in the cycle; fill the list so rows really scroll under the bar.
+		await page.route('**/api/workspaces/test/issues?**', (route) => {
+			const url = new URL(route.request().url());
+			if (route.request().method() !== 'GET' || url.pathname !== '/api/workspaces/test/issues') return route.fallback();
+			const issues = Array.from({ length: 40 }, (_, i) => ({
+				id: `00000000-0000-0000-0000-${String(300 + i).padStart(12, '0')}`,
+				identifier: `ENG-${i + 1}`,
+				title: `Scoped issue ${i + 1}`,
+				team_id: teamId,
+				status_id: statusId,
+				status: 'todo',
+				priority: 3,
+				status_info: { id: statusId, name: 'Todo', category: 'unstarted', color: '#6366f1', position: 0 },
+				cycle_id: cycleId,
+				project_id: null,
+				labels: [],
+				assignees: [],
+				sort_order: i * 1000,
+				created_at: now,
+				updated_at: now
+			}));
+			return route.fulfill({ json: { data: issues, total_count: issues.length, page: 1, has_more: false } });
+		});
+		if (viewport) await page.setViewportSize(viewport);
+		await page.goto(`${cyclePath}/${cycleId}`);
+		const scoped = page.getByTestId('scoped-issues');
+		await expect(scoped.getByText('Scoped issue 1', { exact: true })).toBeVisible();
+		await page.keyboard.press('Control+a');
+		await expect(page.getByRole('button', { name: 'Actions', exact: true })).toBeVisible();
+		return { state, scoped };
+	}
+
+	async function openIssueMenu(page: Page, scoped: Locator) {
+		await scoped.getByText('Scoped issue 1', { exact: true }).click({ button: 'right' });
+		await expect(page.getByRole('menu')).toBeVisible();
+	}
+
+	async function actionsBox(page: Page) {
+		const box = await page.getByRole('button', { name: 'Actions', exact: true }).boundingBox();
+		expect(box).not.toBeNull();
+		return box!;
+	}
+
+	/** The bar is fixed over the list; a row must really sit under it for this regression to mean anything. */
+	async function expectRowBeneath(page: Page, x: number, y: number) {
+		const labels = await page.evaluate(
+			({ x, y }) =>
+				document
+					.elementsFromPoint(x, y)
+					.map((element) => element.getAttribute('aria-label'))
+					.filter((label): label is string => !!label),
+			{ x, y }
+		);
+		expect(labels.some((label) => /^ENG-\d+$/.test(label))).toBe(true);
+	}
+
+	const bulkSearch = (page: Page) => page.locator('#bulk-actions-search');
+
+	test('Actions opens bulk actions while the issue context menu is open', async ({ page }) => {
+		const { state, scoped } = await selectAllInCycle(page);
+		await openIssueMenu(page, scoped);
+		const box = await actionsBox(page);
+		const x = box.x + box.width / 2;
+		const y = box.y + box.height / 2;
+		await expectRowBeneath(page, x, y);
+		const url = page.url();
+		await page.mouse.click(x, y);
+		await expect(bulkSearch(page)).toBeVisible();
+		await expect(bulkSearch(page)).toBeFocused();
+		await expect(page).toHaveURL(url);
+		expect(new URL(page.url()).pathname).not.toContain('/issue/');
+		await expect(page.getByRole('menu')).toBeHidden();
+		expect(state.errors).toEqual([]);
+	});
+
+	test('edge clicks on the Actions button open bulk actions and bar gaps never open the issue', async ({ page }) => {
+		const { state, scoped } = await selectAllInCycle(page);
+		const positions = [
+			{ x: (box: { x: number }) => box.x + 2, y: (box: { y: number; height: number }) => box.y + box.height / 2 },
+			{
+				x: (box: { x: number; width: number }) => box.x + box.width - 2,
+				y: (box: { y: number; height: number }) => box.y + box.height / 2
+			},
+			{ x: (box: { x: number; width: number }) => box.x + box.width / 2, y: (box: { y: number }) => box.y + 2 },
+			{
+				x: (box: { x: number; width: number }) => box.x + box.width / 2,
+				y: (box: { y: number; height: number }) => box.y + box.height - 2
+			}
+		];
+		for (const position of positions) {
+			await openIssueMenu(page, scoped);
+			const box = await actionsBox(page);
+			const x = position.x(box);
+			const y = position.y(box);
+			await expectRowBeneath(page, x, y);
+			const url = page.url();
+			await page.mouse.click(x, y);
+			await expect(bulkSearch(page)).toBeVisible();
+			await expect(page).toHaveURL(url);
+			await page.keyboard.press('Escape');
+			await expect(bulkSearch(page)).toHaveCount(0);
+		}
+		// The bar itself swallows clicks in its padding instead of passing them to the row below.
+		await openIssueMenu(page, scoped);
+		const box = await actionsBox(page);
+		const url = page.url();
+		await page.mouse.click(box.x - 3, box.y + box.height / 2);
+		await expect(page).toHaveURL(url);
+		expect(new URL(page.url()).pathname).not.toContain('/issue/');
+		await expect(bulkSearch(page)).toHaveCount(0);
+		await expect(page.getByRole('menu')).toBeHidden();
+		expect(state.errors).toEqual([]);
+	});
+
+	test('Actions opens bulk actions over the issue list on a small viewport', async ({ page }) => {
+		const { state, scoped } = await selectAllInCycle(page, { width: 390, height: 844 });
+		await openIssueMenu(page, scoped);
+		const box = await actionsBox(page);
+		const x = box.x + box.width / 2;
+		const y = box.y + box.height / 2;
+		await expectRowBeneath(page, x, y);
+		const url = page.url();
+		await page.mouse.click(x, y);
+		await expect(bulkSearch(page)).toBeVisible();
+		await expect(page).toHaveURL(url);
+		await expect(page.getByRole('menu')).toBeHidden();
+		expect(state.errors).toEqual([]);
+	});
+
+	test('Actions behaves the same with the issue context menu closed', async ({ page }) => {
+		const { state } = await selectAllInCycle(page);
+		const box = await actionsBox(page);
+		const x = box.x + box.width / 2;
+		const y = box.y + box.height / 2;
+		await expectRowBeneath(page, x, y);
+		const url = page.url();
+		await page.mouse.click(x, y);
+		await expect(bulkSearch(page)).toBeVisible();
+		await expect(page).toHaveURL(url);
+		expect(new URL(page.url()).pathname).not.toContain('/issue/');
+		expect(state.errors).toEqual([]);
+	});
 });
 
 test('dragging an issue to another status group sets its status, mapped to the issue team', async ({ page }) => {
