@@ -3465,6 +3465,8 @@
 	"workflows.editor.problems_title": "Problem att åtgärda före sparning",
 	"workflows.editor.unsaved": "Osparade ändringar",
 	"workflows.editor.inspector": "Inspektör",
+	"workflows.editor.hide_panel": "Dölj sidopanelen",
+	"workflows.editor.show_panel": "Visa sidopanelen",
 	"workflows.editor.nothing_selected": "Välj ett steg eller en övergång på ytan, eller i listorna nedan.",
 	"workflows.editor.node_label": "Namn",
 	"workflows.editor.node_profile": "Agentprofil",

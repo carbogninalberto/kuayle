@@ -3465,6 +3465,8 @@
 	"workflows.editor.problems_title": "Проблеми, які слід виправити перед збереженням",
 	"workflows.editor.unsaved": "Незбережені зміни",
 	"workflows.editor.inspector": "Інспектор",
+	"workflows.editor.hide_panel": "Сховати бічну панель",
+	"workflows.editor.show_panel": "Показати бічну панель",
 	"workflows.editor.nothing_selected": "Виберіть крок або перехід на полотні чи в списках нижче.",
 	"workflows.editor.node_label": "Назва",
 	"workflows.editor.node_profile": "Профіль агента",

@@ -3465,6 +3465,8 @@
 	"workflows.editor.problems_title": "Проблемы, которые нужно исправить перед сохранением",
 	"workflows.editor.unsaved": "Несохранённые изменения",
 	"workflows.editor.inspector": "Инспектор",
+	"workflows.editor.hide_panel": "Скрыть боковую панель",
+	"workflows.editor.show_panel": "Показать боковую панель",
 	"workflows.editor.nothing_selected": "Выберите шаг или переход на холсте либо в списках ниже.",
 	"workflows.editor.node_label": "Название",
 	"workflows.editor.node_profile": "Профиль агента",

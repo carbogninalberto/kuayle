@@ -3465,6 +3465,8 @@
 	"workflows.editor.problems_title": "Problemi da risolvere prima di salvare",
 	"workflows.editor.unsaved": "Modifiche non salvate",
 	"workflows.editor.inspector": "Ispettore",
+	"workflows.editor.hide_panel": "Nascondi pannello laterale",
+	"workflows.editor.show_panel": "Mostra pannello laterale",
 	"workflows.editor.nothing_selected": "Seleziona un passaggio o una transizione nell'area o negli elenchi qui sotto.",
 	"workflows.editor.node_label": "Nome",
 	"workflows.editor.node_profile": "Profilo agente",

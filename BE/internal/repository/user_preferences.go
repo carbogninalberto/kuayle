@@ -21,7 +21,7 @@ func NewUserPreferencesRepository(db *sqlx.DB) *UserPreferencesRepository {
 func (r *UserPreferencesRepository) Get(ctx context.Context, userID uuid.UUID) (*domain.UserPreferences, error) {
 	var prefs domain.UserPreferences
 	err := r.db.GetContext(ctx, &prefs, `SELECT p.user_id,p.font_size,p.pointer_cursors,p.theme_mode,p.light_theme,p.dark_theme,
- p.workflow_sort_mode,p.workflow_sort_order,p.recent_due_dates,p.issues_group_by,p.browser_notifications,p.notification_sound,p.notification_events,p.updated_at,
+ p.workflow_sort_mode,p.workflow_sort_order,p.recent_due_dates,p.issues_group_by,p.browser_notifications,p.workflow_editor_panel_open,p.notification_sound,p.notification_events,p.updated_at,
  COALESCE((SELECT jsonb_object_agg(entry.key,entry.value)
  FROM jsonb_each(p.team_workflow_sort_overrides) entry
  JOIN teams preference_team ON preference_team.id::text=split_part(entry.key,'/',2)
@@ -37,8 +37,8 @@ func (r *UserPreferencesRepository) Get(ctx context.Context, userID uuid.UUID) (
 
 func (r *UserPreferencesRepository) Upsert(ctx context.Context, prefs *domain.UserPreferences) error {
 	query := `
-		INSERT INTO user_preferences (user_id, font_size, pointer_cursors, theme_mode, light_theme, dark_theme, workflow_sort_mode, workflow_sort_order, team_workflow_sort_overrides, recent_due_dates, issues_group_by, browser_notifications, notification_sound, notification_events, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+		INSERT INTO user_preferences (user_id, font_size, pointer_cursors, theme_mode, light_theme, dark_theme, workflow_sort_mode, workflow_sort_order, team_workflow_sort_overrides, recent_due_dates, issues_group_by, browser_notifications, workflow_editor_panel_open, notification_sound, notification_events, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
 		ON CONFLICT (user_id) DO UPDATE SET
 			font_size = EXCLUDED.font_size,
 			pointer_cursors = EXCLUDED.pointer_cursors,
@@ -51,6 +51,7 @@ func (r *UserPreferencesRepository) Upsert(ctx context.Context, prefs *domain.Us
 			recent_due_dates = EXCLUDED.recent_due_dates,
 			issues_group_by = EXCLUDED.issues_group_by,
 			browser_notifications = EXCLUDED.browser_notifications,
+			workflow_editor_panel_open = EXCLUDED.workflow_editor_panel_open,
 			notification_sound = EXCLUDED.notification_sound,
 			notification_events = EXCLUDED.notification_events,
 			updated_at = NOW()
@@ -59,6 +60,6 @@ func (r *UserPreferencesRepository) Upsert(ctx context.Context, prefs *domain.Us
 		prefs.UserID, prefs.FontSize, prefs.PointerCursors,
 		prefs.ThemeMode, prefs.LightTheme, prefs.DarkTheme,
 		prefs.WorkflowSortMode, prefs.WorkflowSortOrder, prefs.TeamWorkflowSortOverrides, prefs.RecentDueDates, prefs.IssuesGroupBy,
-		prefs.BrowserNotifications, prefs.NotificationSound, prefs.NotificationEvents,
+		prefs.BrowserNotifications, prefs.WorkflowEditorPanelOpen, prefs.NotificationSound, prefs.NotificationEvents,
 	).Scan(&prefs.UpdatedAt)
 }

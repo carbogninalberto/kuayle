@@ -3465,6 +3465,8 @@
 	"workflows.editor.problems_title": "儲存前需修正的問題",
 	"workflows.editor.unsaved": "未儲存的變更",
 	"workflows.editor.inspector": "檢視器",
+	"workflows.editor.hide_panel": "隱藏側邊面板",
+	"workflows.editor.show_panel": "顯示側邊面板",
 	"workflows.editor.nothing_selected": "在畫布或下方清單中選擇一個步驟或轉換。",
 	"workflows.editor.node_label": "名稱",
 	"workflows.editor.node_profile": "代理設定檔",

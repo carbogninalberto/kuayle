@@ -3465,6 +3465,8 @@
 	"workflows.editor.problems_title": "Problemer, der skal rettes før gem",
 	"workflows.editor.unsaved": "Ikke-gemte ændringer",
 	"workflows.editor.inspector": "Inspektør",
+	"workflows.editor.hide_panel": "Skjul sidepanelet",
+	"workflows.editor.show_panel": "Vis sidepanelet",
 	"workflows.editor.nothing_selected": "Vælg et trin eller en overgang på lærredet eller i listerne nedenfor.",
 	"workflows.editor.node_label": "Navn",
 	"workflows.editor.node_profile": "Agentprofil",

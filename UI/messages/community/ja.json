@@ -3465,6 +3465,8 @@
 	"workflows.editor.problems_title": "保存前に修正が必要な問題",
 	"workflows.editor.unsaved": "未保存の変更",
 	"workflows.editor.inspector": "インスペクター",
+	"workflows.editor.hide_panel": "サイドパネルを隠す",
+	"workflows.editor.show_panel": "サイドパネルを表示",
 	"workflows.editor.nothing_selected": "キャンバス上、または下のリストからステップか遷移を選択してください。",
 	"workflows.editor.node_label": "名前",
 	"workflows.editor.node_profile": "エージェントプロファイル",

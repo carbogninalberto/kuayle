@@ -3465,6 +3465,8 @@
 	"workflows.editor.problems_title": "저장하기 전에 해결할 문제",
 	"workflows.editor.unsaved": "저장되지 않은 변경 사항",
 	"workflows.editor.inspector": "인스펙터",
+	"workflows.editor.hide_panel": "사이드 패널 숨기기",
+	"workflows.editor.show_panel": "사이드 패널 표시",
 	"workflows.editor.nothing_selected": "캔버스나 아래 목록에서 단계 또는 전환을 선택하세요.",
 	"workflows.editor.node_label": "이름",
 	"workflows.editor.node_profile": "에이전트 프로필",

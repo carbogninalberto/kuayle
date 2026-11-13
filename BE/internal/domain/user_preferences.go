@@ -124,6 +124,7 @@ type UserPreferences struct {
 	RecentDueDates            RecentDueDates            `json:"recent_due_dates" db:"recent_due_dates"`
 	IssuesGroupBy             string                    `json:"issues_group_by" db:"issues_group_by"`
 	BrowserNotifications      bool                      `json:"browser_notifications" db:"browser_notifications"`
+	WorkflowEditorPanelOpen   bool                      `json:"workflow_editor_panel_open" db:"workflow_editor_panel_open"`
 	NotificationSound         string                    `json:"notification_sound" db:"notification_sound"`
 	NotificationEvents        NotificationEvents        `json:"notification_events" db:"notification_events"`
 	UpdatedAt                 time.Time                 `json:"updated_at" db:"updated_at"`

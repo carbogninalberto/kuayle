@@ -3465,6 +3465,8 @@
 	"workflows.editor.problems_title": "Kaydetmeden önce düzeltilecek sorunlar",
 	"workflows.editor.unsaved": "Kaydedilmemiş değişiklikler",
 	"workflows.editor.inspector": "Denetçi",
+	"workflows.editor.hide_panel": "Kenar panelini gizle",
+	"workflows.editor.show_panel": "Kenar panelini göster",
 	"workflows.editor.nothing_selected": "Tuvalde veya aşağıdaki listelerde bir adım ya da geçiş seçin.",
 	"workflows.editor.node_label": "Ad",
 	"workflows.editor.node_profile": "Ajan profili",

@@ -35,6 +35,7 @@ interface PreferencesData {
 	recentDueDates: string[];
 	issuesGroupBy: GroupByField;
 	browserNotifications: boolean;
+	workflowEditorPanelOpen?: boolean;
 	notificationSound: NotificationSound;
 	notificationEvents: NotificationEvents;
 	localDirty?: boolean;
@@ -65,6 +66,7 @@ class PreferencesState {
 	recentDueDates = $state<string[]>([]);
 	issuesGroupBy = $state<GroupByField>('status');
 	browserNotifications = $state(true);
+	workflowEditorPanelOpen = $state(true);
 	notificationSound = $state<NotificationSound>(DEFAULT_NOTIFICATION_SOUND);
 	notificationEvents = $state<NotificationEvents>(defaultNotificationEvents());
 
@@ -136,6 +138,7 @@ class PreferencesState {
 			if (data.recentDueDates) this.recentDueDates = normalizeRecentDueDates(data.recentDueDates);
 			if (data.issuesGroupBy !== undefined) this.issuesGroupBy = normalizeIssuesGroupBy(data.issuesGroupBy);
 			if (data.browserNotifications !== undefined) this.browserNotifications = data.browserNotifications !== false;
+			if (data.workflowEditorPanelOpen !== undefined) this.workflowEditorPanelOpen = data.workflowEditorPanelOpen !== false;
 			if (data.notificationSound !== undefined) this.notificationSound = normalizeNotificationSound(data.notificationSound);
 			if (data.notificationEvents !== undefined) this.notificationEvents = normalizeNotificationEvents(data.notificationEvents);
 			if (data.localDirty !== undefined) this.localDirty = data.localDirty;
@@ -177,6 +180,7 @@ class PreferencesState {
 			this.issuesGroupBy = normalizeIssuesGroupBy(data.issues_group_by);
 			// Absent on a server that predates these fields: keep the defaults.
 			this.browserNotifications = data.browser_notifications !== false;
+			this.workflowEditorPanelOpen = data.workflow_editor_panel_open !== false;
 			this.notificationSound = normalizeNotificationSound(data.notification_sound);
 			this.notificationEvents = normalizeNotificationEvents(data.notification_events);
 			this.localDirty = false;
@@ -199,6 +203,7 @@ class PreferencesState {
 			recentDueDates: this.recentDueDates,
 			issuesGroupBy: this.issuesGroupBy,
 			browserNotifications: this.browserNotifications,
+			workflowEditorPanelOpen: this.workflowEditorPanelOpen,
 			notificationSound: this.notificationSound,
 			notificationEvents: this.notificationEvents,
 			localDirty: this.localDirty
@@ -259,6 +264,7 @@ class PreferencesState {
 			recent_due_dates: this.recentDueDates,
 			issues_group_by: toIssuesGroupByPreference(this.issuesGroupBy),
 			browser_notifications: this.browserNotifications,
+			workflow_editor_panel_open: this.workflowEditorPanelOpen,
 			notification_sound: this.notificationSound,
 			notification_events: { ...this.notificationEvents }
 		};
@@ -349,6 +355,11 @@ class PreferencesState {
 
 	setBrowserNotifications(enabled: boolean) {
 		this.browserNotifications = enabled;
+		this.persist();
+	}
+
+	setWorkflowEditorPanelOpen(open: boolean) {
+		this.workflowEditorPanelOpen = open;
 		this.persist();
 	}
 

@@ -3465,6 +3465,8 @@
 	"workflows.editor.problems_title": "Problemes que cal corregir abans de desar",
 	"workflows.editor.unsaved": "Canvis sense desar",
 	"workflows.editor.inspector": "Inspector",
+	"workflows.editor.hide_panel": "Amaga el panell lateral",
+	"workflows.editor.show_panel": "Mostra el panell lateral",
 	"workflows.editor.nothing_selected": "Selecciona un pas o una transició al llenç, o a les llistes de sota.",
 	"workflows.editor.node_label": "Nom",
 	"workflows.editor.node_profile": "Perfil d'agent",

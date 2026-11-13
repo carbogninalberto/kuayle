@@ -3465,6 +3465,8 @@
 	"workflows.editor.problems_title": "Προβλήματα προς διόρθωση πριν την αποθήκευση",
 	"workflows.editor.unsaved": "Μη αποθηκευμένες αλλαγές",
 	"workflows.editor.inspector": "Επιθεωρητής",
+	"workflows.editor.hide_panel": "Απόκρυψη πλαϊνού πίνακα",
+	"workflows.editor.show_panel": "Εμφάνιση πλαϊνού πίνακα",
 	"workflows.editor.nothing_selected": "Επιλέξτε ένα βήμα ή μια μετάβαση στον καμβά ή στις λίστες παρακάτω.",
 	"workflows.editor.node_label": "Όνομα",
 	"workflows.editor.node_profile": "Προφίλ πράκτορα",

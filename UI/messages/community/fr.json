@@ -3465,6 +3465,8 @@
 	"workflows.editor.problems_title": "Problèmes à corriger avant d'enregistrer",
 	"workflows.editor.unsaved": "Modifications non enregistrées",
 	"workflows.editor.inspector": "Inspecteur",
+	"workflows.editor.hide_panel": "Masquer le panneau latéral",
+	"workflows.editor.show_panel": "Afficher le panneau latéral",
 	"workflows.editor.nothing_selected": "Sélectionnez une étape ou une transition sur le canevas, ou dans les listes ci-dessous.",
 	"workflows.editor.node_label": "Nom",
 	"workflows.editor.node_profile": "Profil d'agent",
