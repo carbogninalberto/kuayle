@@ -3147,6 +3147,7 @@
 	"assistant.places": "Assistentsteder",
 	"assistant.recents": "Nylige",
 	"assistant.recents_empty": "Ingen samtaler ennå.",
+	"assistant.recents_loading": "Laster inn samtaler…",
 	"assistant.resize_panel": "Endre størrelse på sidepanelet",
 	"assistant.sent_to_agent": "Sendt til {agent}-agenten for {identifier}",
 	"assistant.show_earlier": "Vis {count} tidligere meldinger",

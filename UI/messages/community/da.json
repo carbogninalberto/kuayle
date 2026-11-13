@@ -3147,6 +3147,7 @@
 	"assistant.places": "Assistentens steder",
 	"assistant.recents": "Seneste",
 	"assistant.recents_empty": "Ingen samtaler endnu.",
+	"assistant.recents_loading": "Indlæser samtaler…",
 	"assistant.resize_panel": "Tilpas sidepanelets størrelse",
 	"assistant.sent_to_agent": "Sendt til {agent}-agenten på {identifier}",
 	"assistant.show_earlier": "Vis {count} tidligere beskeder",

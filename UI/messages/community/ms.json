@@ -3147,6 +3147,7 @@
 	"assistant.places": "Tempat pembantu",
 	"assistant.recents": "Terkini",
 	"assistant.recents_empty": "Belum ada perbualan.",
+	"assistant.recents_loading": "Memuatkan perbualan…",
 	"assistant.resize_panel": "Ubah saiz panel sisi",
 	"assistant.sent_to_agent": "Dihantar kepada ejen {agent} bagi {identifier}",
 	"assistant.show_earlier": "Tunjukkan {count} mesej terdahulu",

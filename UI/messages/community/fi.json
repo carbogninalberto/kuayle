@@ -3147,6 +3147,7 @@
 	"assistant.places": "Avustajan paikat",
 	"assistant.recents": "Viimeaikaiset",
 	"assistant.recents_empty": "Ei vielä keskusteluja.",
+	"assistant.recents_loading": "Ladataan keskusteluja…",
 	"assistant.resize_panel": "Muuta sivupaneelin kokoa",
 	"assistant.sent_to_agent": "Lähetetty agentille {agent} (kohde {identifier})",
 	"assistant.show_earlier": "Näytä aiemmat viestit: {count}",

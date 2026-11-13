@@ -3147,6 +3147,7 @@
 	"assistant.places": "Các mục của trợ lý",
 	"assistant.recents": "Gần đây",
 	"assistant.recents_empty": "Chưa có cuộc trò chuyện nào.",
+	"assistant.recents_loading": "Đang tải cuộc trò chuyện…",
 	"assistant.resize_panel": "Đổi kích thước bảng bên",
 	"assistant.sent_to_agent": "Đã gửi cho agent {agent} của {identifier}",
 	"assistant.show_earlier": "Hiện {count} tin nhắn trước đó",

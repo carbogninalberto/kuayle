@@ -3147,6 +3147,7 @@
 	"assistant.places": "Místa asistenta",
 	"assistant.recents": "Nedávné",
 	"assistant.recents_empty": "Zatím žádné konverzace.",
+	"assistant.recents_loading": "Načítání konverzací…",
 	"assistant.resize_panel": "Změnit velikost bočního panelu",
 	"assistant.sent_to_agent": "Odesláno agentovi {agent} úkolu {identifier}",
 	"assistant.show_earlier": "Zobrazit dřívější zprávy: {count}",

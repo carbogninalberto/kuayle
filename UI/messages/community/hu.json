@@ -3147,6 +3147,7 @@
 	"assistant.places": "Asszisztens helyei",
 	"assistant.recents": "Legutóbbiak",
 	"assistant.recents_empty": "Még nincs beszélgetés.",
+	"assistant.recents_loading": "Beszélgetések betöltése…",
 	"assistant.resize_panel": "Oldalpanel átméretezése",
 	"assistant.sent_to_agent": "Elküldve a(z) {identifier} {agent} agentjének",
 	"assistant.show_earlier": "{count} korábbi üzenet megjelenítése",

@@ -3147,6 +3147,7 @@
 	"assistant.places": "असिस्टेंट के स्थान",
 	"assistant.recents": "हाल के",
 	"assistant.recents_empty": "अभी कोई बातचीत नहीं।",
+	"assistant.recents_loading": "बातचीत लोड हो रही हैं…",
 	"assistant.resize_panel": "साइड पैनल का आकार बदलें",
 	"assistant.sent_to_agent": "{identifier} के {agent} एजेंट को भेजा गया",
 	"assistant.show_earlier": "पिछले {count} संदेश दिखाएँ",

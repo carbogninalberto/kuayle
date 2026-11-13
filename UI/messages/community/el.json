@@ -3147,6 +3147,7 @@
 	"assistant.places": "Σημεία του βοηθού",
 	"assistant.recents": "Πρόσφατα",
 	"assistant.recents_empty": "Δεν υπάρχουν συνομιλίες ακόμη.",
+	"assistant.recents_loading": "Φόρτωση συνομιλιών…",
 	"assistant.resize_panel": "Αλλαγή μεγέθους πλευρικού πίνακα",
 	"assistant.sent_to_agent": "Στάλθηκε στον πράκτορα {agent} του {identifier}",
 	"assistant.show_earlier": "Εμφάνιση προηγούμενων μηνυμάτων ({count})",

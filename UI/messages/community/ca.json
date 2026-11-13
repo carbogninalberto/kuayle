@@ -3147,6 +3147,7 @@
 	"assistant.places": "Llocs de l'assistent",
 	"assistant.recents": "Recents",
 	"assistant.recents_empty": "Encara no hi ha converses.",
+	"assistant.recents_loading": "S'estan carregant les converses…",
 	"assistant.resize_panel": "Canvia la mida del tauler lateral",
 	"assistant.sent_to_agent": "Enviat a l'agent {agent} de {identifier}",
 	"assistant.show_earlier": "Mostra {count} missatges anteriors",

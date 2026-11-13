@@ -3147,6 +3147,7 @@
 	"assistant.places": "أماكن المساعد",
 	"assistant.recents": "الأخيرة",
 	"assistant.recents_empty": "لا توجد محادثات بعد.",
+	"assistant.recents_loading": "جارٍ تحميل المحادثات…",
 	"assistant.resize_panel": "تغيير حجم اللوحة الجانبية",
 	"assistant.sent_to_agent": "تم الإرسال إلى وكيل {agent} الخاص بـ {identifier}",
 	"assistant.show_earlier": "عرض الرسائل الأقدم: {count}",
