@@ -97,6 +97,7 @@ type appHandlers struct {
 	upload            *handler.UploadHandler
 	github            *handler.GitHubHandler
 	githubBot         *handler.GitHubBotHandler
+	forge             *handler.ForgeHandler
 	wiki              *handler.WikiHandler
 	wikiPublish       *handler.WikiPublishHandler
 	openapi           *handler.OpenAPIHandler
@@ -468,6 +469,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// GitHub integration (conditional)
 	// Public webhook endpoint (no auth, signature-verified internally)
 	public(e, http.MethodPost, "/api/github/webhook", h.github.HandleWebhook)
+	// One webhook URL per forge connection; the connection's own secret is used.
+	public(e, http.MethodPost, "/api/forges/webhook/:connectionId", h.forge.HandleWebhook)
 	// The uploaded bot picture is public so GitHub can show it in bot comments.
 	public(e, http.MethodGet, "/api/github-bot/:workspaceId/avatar/:file", h.githubBot.Avatar, m.publicAssetRateLimit)
 	public(e, http.MethodPost, "/api/dev-machine-ingest/events", h.devMachine.IngestEvent, m.machineEventsRateLimit)
@@ -493,6 +496,17 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodPost, "/github/bot/avatar", h.githubBot.UploadAvatar, "workspace:manage")
 	scoped(ws, http.MethodGet, "/issues/:identifier/github", h.github.IssueGitHubActivity, "issues:read")
 	scoped(ws, http.MethodGet, "/github/issue-links", h.github.AgentIssueLinks, "issues:read")
+
+	// Forge integrations (GitLab, Gitea, Forgejo). Configuration is admin-only
+	// and responses never include secrets.
+	scoped(ws, http.MethodGet, "/forges/connections", h.forge.ListConnections, "workspace:manage")
+	scoped(ws, http.MethodPost, "/forges/connections", h.forge.CreateConnection, "workspace:manage")
+	scoped(ws, http.MethodPatch, "/forges/connections/:id", h.forge.UpdateConnection, "workspace:manage")
+	scoped(ws, http.MethodDelete, "/forges/connections/:id", h.forge.DeleteConnection, "workspace:manage")
+	scoped(ws, http.MethodGet, "/forges/connections/:id/repos", h.forge.ListRepos, "workspace:manage")
+	scoped(ws, http.MethodPost, "/forges/connections/:id/repos", h.forge.LinkRepo, "workspace:manage")
+	scoped(ws, http.MethodDelete, "/forges/connections/:id/repos/:repoId", h.forge.UnlinkRepo, "workspace:manage")
+	scoped(ws, http.MethodGet, "/issues/:identifier/forges", h.forge.IssueForgeActivity, "issues:read")
 
 	// Dev Machines — guarded by demo-mode restriction when active
 	dm := ws.Group("", m.devMachineDemoGuard)

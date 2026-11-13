@@ -198,6 +198,18 @@ func (r *GitHubRepository) UpsertAutoTransition(ctx context.Context, t *domain.G
 	return err
 }
 
+// SeedAutoTransitionDefaults creates the three standard automation rules when
+// a workspace first connects a forge. Existing rules (including ones an admin
+// edited) are left untouched.
+func (r *GitHubRepository) SeedAutoTransitionDefaults(ctx context.Context, workspaceID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO github_auto_transitions (id, workspace_id, event, target_status, is_active)
+		VALUES (gen_random_uuid(), $1, 'branch_created', 'in_progress', true),
+		       (gen_random_uuid(), $1, 'pr_opened', 'in_review', true),
+		       (gen_random_uuid(), $1, 'pr_merged', 'done', true)
+		ON CONFLICT (workspace_id, event) DO NOTHING`, workspaceID)
+	return err
+}
+
 func (r *GitHubRepository) ListAutoTransitions(ctx context.Context, workspaceID uuid.UUID) ([]domain.GitHubAutoTransition, error) {
 	var transitions []domain.GitHubAutoTransition
 	err := r.db.SelectContext(ctx, &transitions, `SELECT * FROM github_auto_transitions WHERE workspace_id = $1`, workspaceID)
