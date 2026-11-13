@@ -2,9 +2,18 @@
 	import { SvelteSet } from 'svelte/reactivity';
 	import { renderMarkdown } from '$lib/markdown';
 	import { m } from '$lib/features/i18n/messages';
-	import ChatChart from './ChatChart.svelte';
 	import ChatHtmlWidget from './ChatHtmlWidget.svelte';
 	import { richSegments, type RichSegment } from './rich-blocks';
+
+	// ChatChart pulls in all of echarts. Most Markdown callers never render a
+	// chart, so the module is fetched only when a chart segment appears.
+	let chartLoadFailed = $state(false);
+	let chartModule: Promise<typeof import('./ChatChart.svelte')> | undefined;
+	const loadChart = () =>
+		(chartModule ??= import('./ChatChart.svelte').catch((error: unknown) => {
+			chartLoadFailed = true;
+			throw error;
+		}));
 
 	// Model and agent text is untrusted: renderMarkdown sanitizes it and images
 	// are not loaded. Rich fences are opt-in for the assistant chat, where a
@@ -37,7 +46,7 @@
 		{#each segments as segment, index (keyOf(segment, index))}
 			{#if segment.kind === 'markdown'}
 				{@html renderMarkdown(segment.source, undefined, { allowImages: false })}
-			{:else if failed.has(keyOf(segment, index))}
+			{:else if failed.has(keyOf(segment, index)) || (segment.kind === 'chart' && chartLoadFailed)}
 				<div class="my-3">
 					<p class="mb-1.5 text-xs text-muted-foreground"
 						>{segment.kind === 'chart'
@@ -49,7 +58,15 @@
 			{:else if segment.kind === 'chart'}
 				<div class="my-3">
 					<svelte:boundary onerror={() => failed.add(keyOf(segment, index))}>
-						<ChatChart spec={segment.spec} onfail={() => failed.add(keyOf(segment, index))} />
+						{#await loadChart()}
+							<!-- Same height as ChatChart, so the lazy import does not shift the thread. -->
+							<div class="h-64 w-full"></div>
+						{:then { default: Chart }}
+							<Chart spec={segment.spec} onfail={() => failed.add(keyOf(segment, index))} />
+						{:catch}
+							<!-- chartLoadFailed already switched this segment to the code fallback. -->
+							<div class="h-64 w-full"></div>
+						{/await}
 					</svelte:boundary>
 				</div>
 			{:else}

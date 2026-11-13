@@ -1044,6 +1044,43 @@ Each workspace customizes its GitHub bot in Settings > GitHub > Kuayle bot (`wor
 
 Each issue checkout is an idempotent `dev_machine_checkouts` record with its own working branch and workspace path under `/workspace/tasks/{issue-key}`. Agents and terminal sessions can target a checkout; if multiple checkouts exist, agent runs must name the checkout to avoid ambiguous writes.
 
+## Forge Integrations
+
+GitLab (gitlab.com and self-managed), Gitea and Forgejo link issues through the
+same normalized forge abstraction as GitHub. `domain.ForgeWebhook` verifies and
+parses webhooks, `domain.ForgeCommenter` posts the issue link comment, and
+`domain.ForgePublisher` is the declared extension point for agent publishing
+and Bitbucket.
+
+Connections are admin-configured per workspace (`workspace:manage`) with a base
+URL, webhook secret and optional access token. Secrets are encrypted with the
+same key handling as other integration credentials and are never returned by
+the API. Each connection has its own webhook URL,
+`POST /api/forges/webhook/:connectionId`; the connection ID selects the secret,
+and an unknown ID, bad token or bad signature answers `401` before any payload
+field is trusted. `FORGE_WEBHOOK_BASE_URL` overrides the origin shown in that
+URL; without it the URL follows `FRONTEND_URL` (with `:5173` mapped to `:8080`
+in development). Deliveries are processed at most once per connection in
+`forge_webhook_deliveries`; a delivery without an ID header uses the SHA-256 of
+the body.
+
+The new tables (`forge_connections`, `forge_repos`, `forge_merge_requests`,
+`forge_branches`, `forge_commits`) mirror the GitHub ones with `forge_repo_id`,
+so GitHub data and behaviour stay unchanged; issue activity merges both sources.
+The GitHub forge adapter decodes the same `ghWebhook*` payload types as the live
+GitHub processor, which keeps its own flow for installations, the bot, check
+suites and reviews. Linking rules and status automation are shared with GitHub: forge connections
+seed the `branch_created`, `pr_opened` and `pr_merged` defaults in
+`github_auto_transitions` only when missing, and edits made in GitHub settings
+apply to every forge. Unknown or inactive repositories and unsupported events
+are acknowledged and ignored.
+
+Outbound calls dial through `validate.PublicAddressControl` with no redirects.
+`FORGE_ALLOW_PRIVATE_NETWORK=true` opts into private/loopback base URLs (and
+plain http) for self-hosted forges on a LAN. Setup, events, token scopes and
+extension points are documented in
+[Forge integrations](BE/docs/forge-integrations.md).
+
 ## Activity and Logs
 
 | Event | Source |
