@@ -8,6 +8,7 @@ import type { Token } from 'markdown-it';
 export const CHART_MAX_BYTES = 16384;
 export const HTML_MAX_BYTES = 65536;
 export const MAX_RICH_BLOCKS = 4;
+export const MAX_RICH_BYTES_PER_MESSAGE = 131072;
 
 const MAX_STRING_LENGTH = 200;
 const MAX_CATEGORIES = 100;
@@ -113,11 +114,21 @@ export function isRichFence(token: Token): boolean {
 	return fenceInfo(token) !== null;
 }
 
-function acceptedFences(tokens: Token[]): Token[] {
-	const accepted: Token[] = [];
+/**
+ * The fences this message actually renders as rich blocks: valid, within the
+ * per-fence caps, at most MAX_RICH_BLOCKS, and within the per-message byte
+ * budget. Rendering, stripping and copying all use this one decision.
+ */
+export function acceptedRichFences(tokens: Token[]): Set<Token> {
+	const accepted = new Set<Token>();
+	let bytes = 0;
 	for (const token of tokens) {
-		if (accepted.length >= MAX_RICH_BLOCKS) break;
-		if (isRichFence(token)) accepted.push(token);
+		if (accepted.size >= MAX_RICH_BLOCKS) break;
+		if (!isRichFence(token)) continue;
+		const size = byteLength(token.content);
+		if (bytes + size > MAX_RICH_BYTES_PER_MESSAGE) continue;
+		accepted.add(token);
+		bytes += size;
 	}
 	return accepted;
 }
@@ -132,8 +143,8 @@ function cleanMarkdown(source: string): string {
  */
 export function richSegments(source: string): RichSegment[] {
 	const tokens = md.parse(source, {});
-	const accepted = acceptedFences(tokens);
-	if (accepted.length === 0) return source.trim() ? [{ kind: 'markdown', source }] : [];
+	const accepted = acceptedRichFences(tokens);
+	if (accepted.size === 0) return source.trim() ? [{ kind: 'markdown', source }] : [];
 	const lines = source.split('\n');
 	const segments: RichSegment[] = [];
 	let cursor = 0;
@@ -141,7 +152,8 @@ export function richSegments(source: string): RichSegment[] {
 		const text = cleanMarkdown(lines.slice(cursor, end).join('\n'));
 		if (text) segments.push({ kind: 'markdown', source: text });
 	};
-	for (const token of accepted) {
+	for (const token of tokens) {
+		if (!accepted.has(token)) continue;
 		const map = token.map;
 		if (!map) continue;
 		pushMarkdown(map[0]);
@@ -162,8 +174,8 @@ export function richSegments(source: string): RichSegment[] {
  */
 export function stripRichBlocks(source: string): string {
 	const tokens = md.parse(source, {});
-	const accepted = acceptedFences(tokens);
-	if (accepted.length === 0) return source.replace(/\n{3,}/g, '\n\n').trim();
+	const accepted = acceptedRichFences(tokens);
+	if (accepted.size === 0) return source.replace(/\n{3,}/g, '\n\n').trim();
 	const lines = source.split('\n');
 	const removed = new Set<number>();
 	for (const token of accepted) {
@@ -178,7 +190,11 @@ export function stripRichBlocks(source: string): string {
 		.trim();
 }
 
+// Some browsers have no CSP directive for WebRTC, so a prelude raises the bar
+// before model markup runs; this reduces the risk, it does not prove a block.
+const rtcPrelude = `<script>(function(){['RTCPeerConnection','webkitRTCPeerConnection','RTCDataChannel'].forEach(function(name){try{Object.defineProperty(window,name,{value:undefined,writable:false,configurable:false})}catch(e){}})})()</script>`;
+
 /** The complete document loaded into the widget frame, before any model markup. */
 export function widgetDocument(html: string): string {
-	return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; form-action 'none'; base-uri 'none'"><style>html,body{margin:0;font:14px system-ui}</style></head><body>${html}</body></html>`;
+	return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'; webrtc 'block'"><meta http-equiv="x-dns-prefetch-control" content="off">${rtcPrelude}<style>html,body{margin:0;font:14px system-ui}</style></head><body>${html}</body></html>`;
 }

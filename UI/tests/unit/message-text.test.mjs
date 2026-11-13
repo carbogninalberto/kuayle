@@ -70,6 +70,33 @@ test('a chart fence that cannot render is copied as code', () => {
 	assert.equal(markdownToPlainText(source), 'Before\n\n{"type":"bar","series":[]}\n\nAfter');
 });
 
+test('copy keeps a fifth rich fence that the per-message block cap turns into code', () => {
+	const fences = Array.from({ length: 5 }, (_, index) =>
+		[
+			'```chart',
+			JSON.stringify({
+				type: 'bar',
+				title: `Chart ${index}`,
+				categories: ['Q1'],
+				series: [{ name: 'Created', data: [index] }]
+			}),
+			'```'
+		].join('\n')
+	);
+	const text = markdownToPlainText(fences.join('\n\n'));
+	assert.ok(text.includes('"title":"Chart 4"'));
+	for (let index = 0; index < 4; index++) assert.ok(!text.includes(`"title":"Chart ${index}"`));
+});
+
+test('copy keeps fences the per-message byte cap turns into code', () => {
+	const part = 'x'.repeat(60 * 1024);
+	const html = (id) => `\`\`\`html\n<p id="${id}">${part}</p>\n\`\`\``;
+	const text = markdownToPlainText([html('a'), html('b'), html('c')].join('\n\n'));
+	assert.ok(text.includes('id="c"'));
+	assert.ok(!text.includes('id="a"'));
+	assert.ok(!text.includes('id="b"'));
+});
+
 test('long messages are not truncated', () => {
 	const paragraphs = Array.from({ length: 4000 }, (_, index) => `Paragraph ${index} with **bold** text.`);
 	const text = markdownToPlainText(paragraphs.join('\n\n'));

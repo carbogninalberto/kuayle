@@ -4,8 +4,9 @@
 
 	let { html, onfail }: { html: string; onfail: () => void } = $props();
 
-	// The srcdoc load fires once. A second load means the widget navigated its
-	// own frame; CSP cannot stop that, so tear it down and show the source.
+	// The srcdoc load fires once. A second load means the widget tried to
+	// navigate its own frame; the page's frame-src blocks the request, and this
+	// teardown is the backstop that shows the source instead.
 	let loads = 0;
 	let failed = false;
 	const srcdoc = $derived(widgetDocument(html));

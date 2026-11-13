@@ -41,6 +41,8 @@
 		const foreground = resolveColor('--foreground', '#1a1a1a');
 		const muted = resolveColor('--muted-foreground', '#6b6b6b');
 		const border = resolveColor('--border', '#d4d4d4');
+		const popover = resolveColor('--popover', resolveColor('--background', '#ffffff'));
+		const popoverForeground = resolveColor('--popover-foreground', foreground);
 		const pie = spec.type === 'pie';
 
 		return {
@@ -53,12 +55,12 @@
 				trigger: pie ? 'item' : 'axis',
 				// richText draws model-provided names on the canvas instead of innerHTML.
 				renderMode: 'richText',
-				backgroundColor: border,
+				backgroundColor: popover,
 				borderColor: border,
 				borderWidth: 1,
 				borderRadius: 6,
 				padding: [5, 8],
-				textStyle: { color: foreground, fontSize: 12 }
+				textStyle: { color: popoverForeground, fontSize: 12 }
 			},
 			legend:
 				pie || spec.series.length > 1

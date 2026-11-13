@@ -117,7 +117,7 @@ test('runs an html widget in a sandbox with scripts but no same-origin or networ
 		if (request.url().startsWith('https://untrusted.example/')) fetched.push(request.url());
 	});
 	await page.route('https://untrusted.example/**', (route) => route.fulfill({ status: 200, body: 'ok', contentType: 'text/html' }));
-	const widget = `<button>Run</button><script>document.body.dataset.ran = '1'; fetch('https://untrusted.example/x').catch(() => {});</script>`;
+	const widget = `<button>Run</button><script>document.body.dataset.ran = '1'; document.body.dataset.rtc = typeof RTCPeerConnection; fetch('https://untrusted.example/x').catch(() => {});</script>`;
 	await showReply(page, `Widget:\n\n\`\`\`html\n${widget}\n\`\`\``);
 
 	const frame = page.locator('iframe');
@@ -125,21 +125,63 @@ test('runs an html widget in a sandbox with scripts but no same-origin or networ
 	await expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
 	await expect(frame).not.toHaveAttribute('sandbox', /allow-same-origin/);
 	await expect(page.frameLocator('iframe').locator('body')).toHaveAttribute('data-ran', '1');
+	await expect(page.frameLocator('iframe').locator('body')).toHaveAttribute('data-rtc', 'undefined');
 	expect(await frame.evaluate((element) => (element as HTMLIFrameElement).contentDocument === null)).toBe(true);
 	expect(fetched).toEqual([]);
 });
 
-test('tears down a widget that navigates its own frame', async ({ page }) => {
+function recordUntrusted(page: Page) {
+	const requested: string[] = [];
+	page.on('request', (request) => {
+		if (request.url().startsWith('https://untrusted.example/')) requested.push(request.url());
+	});
+	return requested;
+}
+
+async function stubUntrusted(page: Page) {
 	await page.route('https://untrusted.example/**', (route) =>
 		route.fulfill({ status: 200, body: '<!doctype html><title>Gone</title>', contentType: 'text/html' })
 	);
+}
+
+test('a widget cannot navigate its own frame to the network', async ({ page }) => {
+	const requested = recordUntrusted(page);
+	await stubUntrusted(page);
 	const widget = `<button onclick="location.href = 'https://untrusted.example/'">Leave</button>`;
 	await showReply(page, `Widget:\n\n\`\`\`html\n${widget}\n\`\`\``);
 
 	await page.frameLocator('iframe').getByRole('button', { name: 'Leave' }).click();
+	await expect.poll(() => requested).toEqual([]);
+	await expect(page.getByText('Gone', { exact: true })).toHaveCount(0);
 	await expect(page.locator('iframe')).toHaveCount(0);
 	await expect(page.getByText("Couldn't render this widget; showing its source.")).toBeVisible();
-	await expect(page.locator('.assistant-markdown pre code')).toContainText('Leave');
+});
+
+test('a widget cannot navigate its own frame with a meta refresh', async ({ page }) => {
+	const requested = recordUntrusted(page);
+	await stubUntrusted(page);
+	const widget = `<meta http-equiv="refresh" content="0;url=https://untrusted.example/r"><p>Refresh</p>`;
+	await showReply(page, `Widget:\n\n\`\`\`html\n${widget}\n\`\`\``);
+
+	await expect.poll(() => requested).toEqual([]);
+	await expect(page.getByText('Gone', { exact: true })).toHaveCount(0);
+	await expect(page.locator('iframe')).toHaveCount(0);
+	await expect(page.getByText("Couldn't render this widget; showing its source.")).toBeVisible();
+	await expect(page.locator('.assistant-markdown pre code')).toContainText('http-equiv="refresh"');
+});
+
+test('a changed widget replaces the old one instead of being torn down', async ({ page }) => {
+	const state = await showReply(page, `Widget:\n\n\`\`\`html\n<p>Widget A</p>\n\`\`\``, 'failed');
+	await expect(page.frameLocator('iframe').getByText('Widget A')).toBeVisible();
+
+	state.messages = [
+		userMessage,
+		{ ...reply, content: 'Widget:\n\n```html\n<p>Widget B</p>\n```', status: 'failed' }
+	];
+	await page.getByRole('button', { name: 'Retry' }).click();
+
+	await expect(page.frameLocator('iframe').getByText('Widget B')).toBeVisible();
+	await expect(page.getByText("Couldn't render this widget; showing its source.")).toHaveCount(0);
 });
 
 test('malformed and oversized blocks fall back to visible code text', async ({ page }) => {

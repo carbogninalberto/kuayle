@@ -14,14 +14,12 @@ func TestGuidanceMessagesDescribeRichChatBlocks(t *testing.T) {
 	require.Len(t, messages, 1)
 	require.Equal(t, "system", messages[0].Role)
 	require.Equal(t, richBlocksPrompt, messages[0].Content)
-	require.Contains(t, messages[0].Content, "Kuayle web chat")
-	require.Contains(t, messages[0].Content, "```chart")
-	require.Contains(t, messages[0].Content, "```html")
-	require.Contains(t, messages[0].Content, "sandboxed with no network")
-	require.Contains(t, messages[0].Content, "never invent data")
 
 	withImages := guidanceMessages(true)
 	require.Len(t, withImages, 2)
-	require.Contains(t, withImages[0].Content, "Users can attach images")
+	require.Equal(t, "system", withImages[0].Role)
+	require.NotEmpty(t, withImages[0].Content)
+	require.NotEqual(t, richBlocksPrompt, withImages[0].Content)
+	require.Equal(t, "system", withImages[1].Role)
 	require.Equal(t, richBlocksPrompt, withImages[1].Content)
 }

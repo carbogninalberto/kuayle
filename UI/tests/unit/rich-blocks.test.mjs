@@ -5,6 +5,7 @@ import {
 	CHART_MAX_BYTES,
 	HTML_MAX_BYTES,
 	MAX_RICH_BLOCKS,
+	MAX_RICH_BYTES_PER_MESSAGE,
 	isRichFence,
 	parseChartSpec,
 	richSegments,
@@ -103,6 +104,38 @@ test('size caps and the per-message block cap leave the rest as code', () => {
 	assert.match(segments.at(-1).source, /```chart/);
 });
 
+test('the per-message byte cap leaves an over-budget fence as code but keeps scanning', () => {
+	const part = 'x'.repeat(60 * 1024);
+	const big = (id) => html(`<p id="${id}">${part}</p>`);
+	const source = [big('a'), big('b'), big('c'), chart(spec)].join('\n\n');
+	assert.ok(Buffer.byteLength(big('a')) <= HTML_MAX_BYTES);
+	assert.ok(3 * Buffer.byteLength(big('a')) > MAX_RICH_BYTES_PER_MESSAGE);
+	const segments = richSegments(source);
+	assert.deepEqual(
+		segments.map((segment) => segment.kind),
+		['html', 'html', 'markdown', 'chart']
+	);
+	assert.match(segments[2].source, /```html/);
+	assert.match(segments[2].source, /id="c"/);
+});
+
+test('stripRichBlocks keeps fences the per-message caps turn into code', () => {
+	const five = Array.from({ length: MAX_RICH_BLOCKS + 1 }, (_, index) =>
+		chart({ ...spec, title: `Chart ${index}` })
+	).join('\n\n');
+	const stripped = stripRichBlocks(five);
+	assert.equal((stripped.match(/```chart/g) ?? []).length, 1);
+	assert.match(stripped, /"title":"Chart 4"/);
+
+	const part = 'x'.repeat(60 * 1024);
+	const total = [html(`<p id="a">${part}</p>`), html(`<p id="b">${part}</p>`), html(`<p id="c">${part}</p>`)].join(
+		'\n\n'
+	);
+	const kept = stripRichBlocks(total);
+	assert.equal((kept.match(/```html/g) ?? []).length, 1);
+	assert.match(kept, /id="c"/);
+});
+
 test('a fence nested in a list stays markdown', () => {
 	const nested = ['- Item', '', '  ```chart', `  ${JSON.stringify(spec)}`, '  ```'].join('\n');
 	assert.deepEqual(
@@ -143,12 +176,17 @@ test('isRichFence rejects non-rich fences and applies the byte caps', () => {
 	assert.equal(isRichFence(large[0]), false);
 });
 
-test('the widget document declares a strict CSP before the widget body', () => {
+test('the widget document declares a strict CSP before the prelude and the widget body', () => {
 	const document = widgetDocument('<script>document.body.dataset.ran = "1"</script>');
-	assert.match(
-		document,
-		/<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; form-action 'none'; base-uri 'none'">/
-	);
-	assert.ok(document.indexOf('Content-Security-Policy') < document.indexOf('<script>'));
+	const csp = document.indexOf('Content-Security-Policy');
+	const prelude = document.indexOf('RTCPeerConnection');
+	const body = document.indexOf('<body>');
+	assert.ok(csp !== -1 && prelude > csp && body > prelude, 'CSP, then prelude, then model markup');
+	assert.match(document, /connect-src 'none'/);
+	assert.match(document, /frame-src 'none'/);
+	assert.match(document, /worker-src 'none'/);
+	assert.match(document, /webrtc 'block'/);
+	assert.match(document, /x-dns-prefetch-control/);
+	assert.ok(!document.includes('allow-same-origin'));
 	assert.ok(document.endsWith('</body></html>'));
 });
