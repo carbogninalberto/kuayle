@@ -4,9 +4,9 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const releaseImages = [
-  { id: 'all-in-one', context: '.', dockerfile: './Dockerfile' },
-  { id: 'api', context: './BE', dockerfile: './BE/Dockerfile' },
-  { id: 'web', context: './UI', dockerfile: './UI/Dockerfile' }
+  { id: 'all-in-one', name: 'All-in-one', package: 'kuayle', context: '.', dockerfile: './Dockerfile' },
+  { id: 'api', name: 'API', package: 'kuayle-api', context: './BE', dockerfile: './BE/Dockerfile' },
+  { id: 'web', name: 'Web', package: 'kuayle-web', context: './UI', dockerfile: './UI/Dockerfile' }
 ];
 const goImage = (id, name) => ({ id, name, context: './BE', dockerfile: `./BE/Dockerfile.${id === 'updater' ? id : `machine-${id}`}`, build_args: '', package: `kuayle-${id === 'updater' ? id : `machine-${id}`}` });
 // `package` is the GHCR repository published on release: kuayle-<Compose service>,
@@ -39,18 +39,18 @@ export function platformSensitive(path) {
 
 // Match actual consumers, not every file in a broad Docker COPY context.
 // Unknown inputs and changes to the routing/workflow implementation run broadly.
-export function planForPaths(paths, event = 'pull_request') {
+export function planForPaths(paths, event = 'pull_request', includeArm64 = false) {
   const pr = event === 'pull_request';
   const flags = { harness: true, backend: false, frontend: false, web: false, runtime: false, selfhosting: false, ci: false, cli: false };
   const release = new Set(), dev = new Set(), security = new Set();
   let reason = pr ? 'PR merge-base diff' : `full ${event} coverage`;
-  // PRs build images on amd64 only, unless an input can behave differently per
-  // architecture; pushes, releases and manual runs always build both.
-  let arm = !pr;
+  // Automatic releases build amd64 only; the manual include_arm64 input adds
+  // arm64. PRs still add arm64 for inputs that can behave differently there.
+  let arm = !pr && includeArm64;
   const add = (set, values) => values.forEach((value) => set.add(value));
   const all = () => {
     for (const key of Object.keys(flags)) flags[key] = true;
-    arm = true;
+    if (pr) arm = true;
     add(release, releaseImages.map((image) => image.id));
     add(dev, devImages.map((image) => image.id));
     security.add('updater');
@@ -141,13 +141,18 @@ export function planForPaths(paths, event = 'pull_request') {
   const jobs = {
     tests: { 'agent-harness': plan.harness, 'backend-test': plan.backend, 'frontend-check': plan.frontend, 'web-check': plan.web, 'docker-integration': plan.runtime, 'selfhosting-check': plan.selfhosting, 'ci-validation': plan.ci, 'cli-check': plan.cli },
     security: { 'go-security': plan.backend, 'frontend-security': plan.frontend, 'docker-security': !pr, 'dev-machine-security': plan.securityImages.length > 0, 'cli-security': plan.cli },
-    // Build & Push runs only for PRs and releases. A release builds, scans and
-    // publishes every runtime image once in dev-machine-publish instead.
-    build: { 'release-source': !pr, build: !pr, 'dev-machine-images': pr && plan.devImages.length > 0, 'dev-machine-publish': !pr, 'dev-machine-manifests': !pr },
+    // Build & Push runs for PRs, releases and manual republishes. A release
+    // builds, scans and publishes every runtime image once in
+    // dev-machine-publish instead. Manual dispatch reuses an existing tag, so
+    // it skips the release-source version bump.
+    build: { 'release-source': !pr, 'release-context': !pr, build: !pr, 'promote-latest': !pr, 'dev-machine-images': pr && plan.devImages.length > 0, 'dev-machine-publish': !pr, 'dev-machine-manifests': !pr },
     readiness: { images: plan.releaseImages.length > 0 }
   };
   plan.jobs = Object.fromEntries(Object.entries(jobs).map(([scope, entries]) => [scope, Object.keys(entries)]));
   plan.required = Object.fromEntries(Object.entries(jobs).map(([scope, entries]) => [scope, enabled(entries)]));
+  // A manual republish builds an existing tag, so it does not run the
+  // release-source version bump even though that job stays in the catalog.
+  if (event === 'workflow_dispatch') plan.required.build = plan.required.build.filter((job) => job !== 'release-source');
   return plan;
 }
 
@@ -169,20 +174,26 @@ export function cliReleasePlan() {
   return plan;
 }
 
-export function detectPlan({ cwd = process.cwd(), event, base, head, releaseTag = '' }) {
+export function detectPlan({ cwd = process.cwd(), event, base, head, releaseTag = '', includeArm64 = false }) {
   if (event === 'release' && releaseTag.startsWith('cli-v')) return cliReleasePlan();
-  if (event !== 'pull_request') return planForPaths([], event || 'unknown');
+  if (event !== 'pull_request') return planForPaths([], event || 'unknown', includeArm64);
   try {
-    return planForPaths(changedPaths(cwd, base, head));
+    return planForPaths(changedPaths(cwd, base, head), 'pull_request', includeArm64);
   } catch (error) {
-    const plan = planForPaths(['unknown-input']);
+    const plan = planForPaths(['unknown-input'], 'pull_request', includeArm64);
     plan.reason = `fallback to broad PR verification: ${error.message.split('\n')[0]}`;
     return plan;
   }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const plan = detectPlan({ event: process.env.GITHUB_EVENT_NAME, base: process.env.PR_BASE_SHA, head: process.env.PR_HEAD_SHA, releaseTag: process.env.RELEASE_TAG });
+  const plan = detectPlan({
+    event: process.env.GITHUB_EVENT_NAME,
+    base: process.env.PR_BASE_SHA,
+    head: process.env.PR_HEAD_SHA,
+    releaseTag: process.env.RELEASE_TAG,
+    includeArm64: process.env.INCLUDE_ARM64 === 'true'
+  });
   const json = JSON.stringify(plan);
   console.log(JSON.stringify(plan, null, 2));
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `plan=${json}\n`);
