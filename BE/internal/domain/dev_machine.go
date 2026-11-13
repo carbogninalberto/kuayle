@@ -136,6 +136,7 @@ type DevMachine struct {
 	MemoryMB             int              `json:"memory_mb" db:"memory_mb"`
 	DiskGB               int              `json:"disk_gb" db:"disk_gb"`
 	PidsLimit            int              `json:"pids_limit" db:"pids_limit"`
+	MaxTasks             *int             `json:"max_tasks" db:"max_tasks"` // own agent task limit; nil follows the policy's task_machine_max_tasks
 	EnvironmentID        *uuid.UUID       `json:"environment_id,omitempty" db:"environment_id"`
 	RepositoryAffinityID *uuid.UUID       `json:"repository_affinity_id,omitempty" db:"repository_affinity_id"`
 	EnvironmentBuilder   bool             `json:"environment_builder" db:"environment_builder"`

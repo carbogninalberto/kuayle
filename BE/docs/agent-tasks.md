@@ -861,8 +861,10 @@ machine: same workspace and environment (so the same profile), not an
 Environment Builder or being deleted, still allowed by the enabled policy (sudo
 and Docker machines only while those stay allowed), without the user's own
 agent session or a queued lifecycle, snapshot, check or custom tool operation,
-and working on fewer other active tasks than the policy's
-`task_machine_max_tasks` (default 10, from 1 to 10). An idle machine comes first (one already
+and working on fewer other active tasks than the machine's own `max_tasks`, or
+the policy's `task_machine_max_tasks` when it has none (default 10, from 1 to
+10; the override is migration 156 and can change while the machine runs). An
+idle machine comes first (one already
 used for the same issue, then the most recently active); otherwise the task
 shares the least loaded busy machine. Paused and stopped machines are not
 chosen, since their user paused or stopped them. The full rule is in

@@ -294,6 +294,46 @@ func TestDevMachineGetIsCreatorScoped(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 }
 
+func TestDevMachineUpdateSetsAndClearsTheTaskLimit(t *testing.T) {
+	workspaceID, ownerID, machineID := uuid.New(), uuid.New(), uuid.New()
+	store := &handlerDevMachineStoreFake{machine: &domain.DevMachine{
+		ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &ownerID,
+		Name: "builder-01", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
+		Generation: 1, MachineSize: "small", CPUMillis: 1000, MemoryMB: 2048, DiskGB: 20,
+	}}
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	))
+	update := func(body string, userID uuid.UUID) *httptest.ResponseRecorder {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPatch, "/dev-machines/"+machineID.String(), strings.NewReader(body))
+		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		ctx := devMachineHandlerContext(request, recorder, workspaceID, userID)
+		ctx.SetPathValues(echo.PathValues{{Name: "machineId", Value: machineID.String()}})
+		require.NoError(t, h.Update(ctx))
+		return recorder
+	}
+
+	set := update(`{"max_tasks":4}`, ownerID)
+	require.Equal(t, http.StatusOK, set.Code, set.Body.String())
+	var machine domain.DevMachine
+	require.NoError(t, json.Unmarshal(set.Body.Bytes(), &machine))
+	require.NotNil(t, machine.MaxTasks)
+	require.Equal(t, 4, *machine.MaxTasks)
+
+	cleared := update(`{"clear_max_tasks":true}`, ownerID)
+	require.Equal(t, http.StatusOK, cleared.Code, cleared.Body.String())
+	require.NoError(t, json.Unmarshal(cleared.Body.Bytes(), &machine))
+	require.Nil(t, machine.MaxTasks, "the workspace policy applies again")
+
+	for _, invalid := range []int{0, 11} {
+		recorder := update(fmt.Sprintf(`{"max_tasks":%d}`, invalid), ownerID)
+		require.Equal(t, http.StatusBadRequest, recorder.Code, "%d is refused", invalid)
+	}
+	require.Equal(t, http.StatusNotFound, update(`{"max_tasks":4}`, uuid.New()).Code, "only the creator changes the limit")
+}
+
 func modelServerHandler(store *handlerDevMachineStoreFake) *DevMachineHandler {
 	return NewDevMachineHandler(service.NewDevMachineService(
 		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
@@ -780,6 +820,14 @@ func (f *handlerDevMachineStoreFake) GetMachineForUser(_ context.Context, worksp
 	if f.machine == nil || f.machine.WorkspaceID != workspaceID || f.machine.ID != machineID || f.machine.CreatedByUserID == nil || *f.machine.CreatedByUserID != userID {
 		return nil, nil
 	}
+	return f.machine, nil
+}
+
+func (f *handlerDevMachineStoreFake) UpdateMachineMaxTasks(_ context.Context, workspaceID, machineID uuid.UUID, maxTasks *int) (*domain.DevMachine, error) {
+	if f.machine == nil || f.machine.WorkspaceID != workspaceID || f.machine.ID != machineID {
+		return nil, nil
+	}
+	f.machine.MaxTasks = maxTasks
 	return f.machine, nil
 }
 

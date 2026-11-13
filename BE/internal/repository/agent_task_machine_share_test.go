@@ -231,6 +231,71 @@ func TestConcurrentReservationsDoNotExceedTheMachineTaskLimit(t *testing.T) {
 	require.Equal(t, 2, shared, "two tasks share the machine; the others get new machines")
 }
 
+// machineTaskLimit overrides how many active agent tasks may share one
+// machine; nil makes it follow the workspace policy again.
+func (f machineShareFixture) machineTaskLimit(t *testing.T, machine uuid.UUID, limit *int) {
+	t.Helper()
+	f.exec(t, `UPDATE dev_machines SET max_tasks=$2 WHERE id=$1`, machine, limit)
+}
+
+// reserve asks for a machine for a fresh task and reports the machine it got.
+func (f machineShareFixture) reserve(t *testing.T, task domain.AgentTask) uuid.UUID {
+	t.Helper()
+	f.exec(t, `UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, task.ID)
+	task.MachineID = nil
+	machine, _, err := f.repo.ReserveMachine(f.ctx, task, uuid.New(), &f.environmentID)
+	require.NoError(t, err)
+	return machine
+}
+
+// A machine's own max_tasks decides how many tasks share it: above the
+// workspace limit it takes more, below it fewer, and without one the workspace
+// policy applies. Attempt creation reads the same limit, so a task placed on a
+// machine with a higher override can run beyond the policy.
+func TestMachineTaskLimitOverridesTheWorkspacePolicy(t *testing.T) {
+	t.Run("above the policy", func(t *testing.T) {
+		f := newMachineShareFixture(t)
+		f.taskLimit(t, 2)
+		machine := f.runningMachine(t, "1 minute")
+		above := 4
+		f.machineTaskLimit(t, machine, &above)
+		for range 3 {
+			f.workingTask(t, machine)
+		}
+		claimed := f.preparingTask(t)
+		require.Equal(t, machine, f.reserve(t, claimed), "a machine above the policy shares with a third task")
+		claimed.MachineID = &machine
+		run, op := taskRun(claimed, machine)
+		require.NoError(t, f.repository.CreateAgentRun(domain.WithTaskExecution(f.ctx, claimed), run, op),
+			"the attempt runs beside the three already there, beyond the workspace limit")
+
+		f.workingTask(t, machine)
+		next := f.preparingTask(t)
+		require.Equal(t, next.ReservedMachineID, f.reserve(t, next), "at its own limit the machine is not shared")
+	})
+
+	t.Run("below the policy", func(t *testing.T) {
+		f := newMachineShareFixture(t)
+		f.taskLimit(t, 4)
+		machine := f.runningMachine(t, "1 minute")
+		below := 1
+		f.machineTaskLimit(t, machine, &below)
+		f.workingTask(t, machine)
+		claimed := f.preparingTask(t)
+		require.Equal(t, claimed.ReservedMachineID, f.reserve(t, claimed), "a machine below the policy takes no second task")
+
+		f.machineTaskLimit(t, machine, nil)
+		shared := f.preparingTask(t)
+		require.Equal(t, machine, f.reserve(t, shared), "without an override the workspace policy applies")
+		f.workingTask(t, machine)
+		fourth := f.preparingTask(t)
+		require.Equal(t, machine, f.reserve(t, fourth), "the policy's fourth task still shares the machine")
+		f.workingTask(t, machine)
+		fifth := f.preparingTask(t)
+		require.Equal(t, fifth.ReservedMachineID, f.reserve(t, fifth), "the policy's limit is reached")
+	})
+}
+
 func taskRun(task domain.AgentTask, machine uuid.UUID) (*domain.DevMachineAgentRun, *domain.DevMachineOperation) {
 	run := &domain.DevMachineAgentRun{ID: task.RunID, WorkspaceID: task.WorkspaceID, MachineID: machine, IssueID: &task.IssueID, RequestedByUserID: &task.CreatorID, ProviderID: "codex", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusQueued, Prompt: "Implement issue", AcceptanceCriteria: []byte(`[]`), AllowedCommands: []byte(`[]`), ForbiddenPaths: []byte(`[]`), AllowedSecrets: []byte(`[]`), CommandArgv: []byte(`["codex","exec","fixture"]`), MaxRuntimeSeconds: 60}
 	op := &domain.DevMachineOperation{ID: uuid.New(), WorkspaceID: task.WorkspaceID, MachineID: machine, Action: domain.DevMachineOpRunAgent, Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "run-agent:" + run.ID.String(), RequestedByUserID: &task.CreatorID, MaxAttempts: 3}
