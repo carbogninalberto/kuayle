@@ -14,6 +14,13 @@
 	import type { User } from '$lib/types/auth';
 	import { listWorkspaces } from '$lib/api/workspaces';
 	import { getConfig } from '$lib/api/invite';
+	import { sso } from '$lib/api/sso';
+	import {
+		normalizeWorkspaceSlug,
+		ssoErrorKey,
+		ssoRequiredSlug,
+		ssoStartUrl
+	} from '$lib/features/sso/sso-rules';
 	import { demoMode, demoUsers, type DemoUser } from '$lib/demo';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
@@ -26,7 +33,13 @@
 	let demoDrawerOpen = $state(false);
 	let registrationEnabled = $state(true);
 	let passkeysEnabled = $state(false);
+	let ssoInstanceEnabled = $state(false);
+	let ssoOpen = $state(false);
+	let ssoSlug = $state('');
+	let ssoBusy = $state(false);
+	let ssoMessage = $state<string | null>(null);
 	const inviteToken = $derived(page.url.searchParams.get('invite') ?? '');
+	const ssoError = $derived(page.url.searchParams.get('sso_error'));
 	const authInputClass =
 		'mt-1 h-auto w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] focus-visible:border-[var(--app-accent)] focus-visible:ring-0';
 
@@ -35,6 +48,7 @@
 			const config = await getConfig();
 			registrationEnabled = config.registration_enabled;
 			passkeysEnabled = config.passkeys_enabled === true;
+			ssoInstanceEnabled = config.sso_enabled_instance === true;
 			// With an invite token, registration stays available even when
 			// public registration is disabled (the backend accepts the token).
 			if (!registrationEnabled && !inviteToken) mode = 'login';
@@ -64,9 +78,37 @@
 			if (mode === 'login') markPasskeyPromptPending();
 			await enterApp(user);
 		} catch (err: any) {
-			appToast.apiError(err, m['login.error_generic']());
+			const requiredSlug = ssoRequiredSlug(err);
+			if (requiredSlug) {
+				ssoSlug = requiredSlug;
+				ssoOpen = true;
+				ssoMessage = m['login.sso.required']();
+			} else {
+				appToast.apiError(err, m['login.error_generic']());
+			}
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function startSSO(e: Event) {
+		e.preventDefault();
+		const slug = normalizeWorkspaceSlug(ssoSlug);
+		if (!slug || ssoBusy) return;
+		ssoBusy = true;
+		ssoMessage = null;
+		try {
+			const info = await sso.publicInfo(slug);
+			if (!info.enabled) {
+				ssoMessage = m['login.sso.not_enabled']();
+				return;
+			}
+			const after = page.url.pathname === '/login' ? '' : page.url.pathname + page.url.search;
+			window.location.href = ssoStartUrl(slug, after);
+		} catch {
+			ssoMessage = m['login.sso.not_enabled']();
+		} finally {
+			ssoBusy = false;
 		}
 	}
 
@@ -163,6 +205,58 @@
 
 		{#if mode === 'login'}
 			<PasskeySignInButton enabled={passkeysEnabled} disabled={loading} autofill onSignedIn={passkeySignedIn} />
+
+			{#if ssoError || ssoInstanceEnabled || ssoOpen}
+				<div class="space-y-2 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-3">
+					{#if ssoError}
+						<p class="text-sm text-[var(--status-error)]" role="alert">{m[ssoErrorKey(ssoError)]()}</p>
+					{/if}
+					{#if !ssoOpen}
+						<Button variant="plain" type="button"
+							onclick={() => (ssoOpen = true)}
+							class="w-full rounded-md border border-[var(--app-border)] px-4 py-2 text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+						>
+							{m['login.sso.button']()}
+						</Button>
+					{:else}
+						<form onsubmit={startSSO} class="space-y-2">
+							<label for="sso-workspace" class="block text-sm text-[var(--color-text-secondary)]">
+								{m['login.sso.slug_label']()}
+							</label>
+							<Input
+								id="sso-workspace"
+								bind:value={ssoSlug}
+								placeholder={m['login.sso.slug_placeholder']()}
+								autocomplete="off"
+								class={authInputClass}
+							/>
+							{#if ssoMessage}
+								<p class="text-xs text-[var(--status-error)]" role="alert">{ssoMessage}</p>
+							{/if}
+							<div class="flex gap-2">
+								<Button variant="plain" type="submit" disabled={ssoBusy || !ssoSlug.trim()}
+									class="inline-flex h-9 flex-1 items-center justify-center rounded-md bg-[var(--app-accent)] px-4 text-sm font-medium text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
+								>
+									{#if ssoBusy}<Loader2 size={14} class="animate-spin" />{:else}{m['login.sso.continue']()}{/if}
+								</Button>
+								<Button variant="plain" type="button"
+									onclick={() => { ssoOpen = false; ssoMessage = null; }}
+									class="rounded-md border border-[var(--app-border)] px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+								>
+									{m['login.sso.cancel']()}
+								</Button>
+							</div>
+						</form>
+					{/if}
+				</div>
+			{:else}
+				<Button variant="plain" type="button"
+					onclick={() => (ssoOpen = true)}
+					class="w-full rounded-md border border-[var(--app-border)] px-4 py-2 text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+				>
+					{m['login.sso.button']()}
+				</Button>
+			{/if}
 		{/if}
 
 		{#if registrationEnabled || inviteToken}

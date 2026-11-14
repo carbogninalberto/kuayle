@@ -120,3 +120,72 @@ func TestWorkspaceMembershipNonMember(t *testing.T) {
 	}
 	assert.Equal(t, http.StatusForbidden, runMembership(t, repo, uuid.New(), nil, false))
 }
+
+type fakeSSORequirement struct {
+	required map[uuid.UUID]bool
+}
+
+func (f fakeSSORequirement) RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (bool, error) {
+	return f.required[workspaceID], nil
+}
+
+func runMembershipWithSSO(t *testing.T, repo *fakeWorkspaceRepo, sso SSORequirementSource, userID, sessionSSOWorkspace uuid.UUID, markPAT bool) (int, string) {
+	t.Helper()
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/acme/issues", nil)
+	c := e.NewContext(req, rec)
+	c.SetPathValues(echo.PathValues{{Name: "slug", Value: "acme"}})
+	c.Set(string(UserIDKey), userID)
+	if sessionSSOWorkspace != uuid.Nil {
+		c.Set(SessionSSOWorkspaceKey, sessionSSOWorkspace)
+	}
+	if markPAT {
+		c.Set(TokenScopesKey, []string{})
+		c.Set(TokenWorkspacesKey, []string(nil))
+	}
+	handler := WorkspaceMembership(repo, sso)(func(c *echo.Context) error {
+		return c.NoContent(http.StatusNoContent)
+	})
+	require.NoError(t, handler(c))
+	return rec.Code, rec.Body.String()
+}
+
+func TestWorkspaceMembershipRequiresSSO(t *testing.T) {
+	userID := uuid.New()
+	workspaceID := uuid.New()
+	otherWorkspaceID := uuid.New()
+	repo := &fakeWorkspaceRepo{
+		workspace: &domain.Workspace{ID: workspaceID, Slug: "acme"},
+		member:    &domain.WorkspaceMember{WorkspaceID: workspaceID, UserID: userID, Role: domain.RoleMember},
+	}
+	sso := fakeSSORequirement{required: map[uuid.UUID]bool{workspaceID: true}}
+
+	code, body := runMembershipWithSSO(t, repo, sso, userID, uuid.Nil, false)
+	assert.Equal(t, http.StatusForbidden, code)
+	assert.Contains(t, body, `"code":"SSO_REQUIRED"`)
+	assert.Contains(t, body, `"workspace_slug":"acme"`)
+
+	// A session minted by this workspace's SSO passes.
+	code, _ = runMembershipWithSSO(t, repo, sso, userID, workspaceID, false)
+	assert.Equal(t, http.StatusNoContent, code)
+
+	// A session minted by another workspace's SSO does not.
+	code, _ = runMembershipWithSSO(t, repo, sso, userID, otherWorkspaceID, false)
+	assert.Equal(t, http.StatusForbidden, code)
+
+	// Owners keep the break-glass password path.
+	repo.member.Role = domain.RoleOwner
+	code, _ = runMembershipWithSSO(t, repo, sso, userID, uuid.Nil, false)
+	assert.Equal(t, http.StatusNoContent, code)
+
+	// PAT callers are unaffected in phase 1.
+	repo.member.Role = domain.RoleMember
+	code, _ = runMembershipWithSSO(t, repo, sso, userID, uuid.Nil, true)
+	assert.Equal(t, http.StatusNoContent, code)
+
+	// Without require-SSO a password session stays valid.
+	repo.member.Role = domain.RoleMember
+	code, _ = runMembershipWithSSO(t, repo, fakeSSORequirement{}, userID, uuid.Nil, false)
+	assert.Equal(t, http.StatusNoContent, code)
+}

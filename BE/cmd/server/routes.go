@@ -59,6 +59,7 @@ type appHandlers struct {
 	health            *handler.HealthHandler
 	auth              *handler.AuthHandler
 	passkey           *handler.PasskeyHandler
+	sso               *handler.SSOHandler
 	workspace         *handler.WorkspaceHandler
 	team              *handler.TeamHandler
 	issue             *handler.IssueHandler
@@ -133,6 +134,14 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// Passkey sign-in is anonymous: the assertion is the credential.
 	public(auth, http.MethodPost, "/passkey/login/begin", h.passkey.BeginLogin)
 	public(auth, http.MethodPost, "/passkey/login/complete", h.passkey.FinishLogin)
+	// OIDC sign-in is anonymous too: the IdP assertion and the server-side
+	// state are the credentials. The per-workspace paths keep workspace A's
+	// state and ID token from ever authenticating into workspace B.
+	if h.sso != nil {
+		public(auth, http.MethodGet, "/sso/:slug", h.sso.Public)
+		public(auth, http.MethodGet, "/sso/:slug/start", h.sso.Start)
+		public(auth, http.MethodGet, "/sso/:slug/callback", h.sso.Callback)
+	}
 
 	// Public share routes (no auth, rate limited)
 	pub := e.Group("/api/public", m.publicRateLimit)
@@ -211,6 +220,14 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodGet, "/members", h.workspace.ListMembers, "members:read")
 	scoped(ws, http.MethodPatch, "/members/:userId", h.workspace.UpdateMemberRole, "member:invite")
 	scoped(ws, http.MethodDelete, "/members/:userId", h.workspace.RemoveMember, "member:invite")
+
+	// SSO configuration is interactive-only: a leaked personal access token
+	// must never be able to point a workspace at an identity provider.
+	if h.sso != nil {
+		sessionOnly(ws, http.MethodGet, "/sso", h.sso.Get, mw.RequireWorkspaceAdmin())
+		sessionOnly(ws, http.MethodPut, "/sso", h.sso.Save, mw.RequireWorkspaceAdmin())
+		sessionOnly(ws, http.MethodDelete, "/sso", h.sso.Delete, mw.RequireWorkspaceAdmin())
+	}
 
 	// Teams
 	scoped(ws, http.MethodGet, "/teams", h.team.List, "teams:read")

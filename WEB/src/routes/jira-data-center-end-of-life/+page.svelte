@@ -146,7 +146,7 @@
 			<p class="mt-4 leading-relaxed text-muted-foreground">
 				Kuayle is an Apache 2.0 issue tracker you run with Docker Compose, with no licence fee and no paid tier. It covers
 				issues with multiple assignees, cycles, projects with a Gantt view, private teams and GitHub automation. It does not
-				replace everything in Jira: there are no custom fields, Marketplace apps, service desk or SSO yet, and no built-in
+				replace everything in Jira: there are no custom fields, Marketplace apps, service desk or SAML SSO yet, and no built-in
 				Jira importer.
 			</p>
 			<a href="/jira-alternative" class="mt-5 inline-flex items-center gap-1 text-sm font-medium text-brand-300">

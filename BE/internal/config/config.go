@@ -67,6 +67,23 @@ type Config struct {
 	// admin with internal access.
 	ForgeAllowPrivateNetwork bool `envconfig:"FORGE_ALLOW_PRIVATE_NETWORK" default:"false"`
 
+	// OIDCAllowPrivateNetwork lets a workspace's OIDC issuer target a private
+	// or loopback address (for example the Keycloak development container).
+	// Off by default: the issuer URL is workspace-admin supplied.
+	OIDCAllowPrivateNetwork bool `envconfig:"OIDC_ALLOW_PRIVATE_NETWORK" default:"false"`
+
+	// Instance-level OIDC configuration for one workspace. When set, it wins
+	// over the workspace settings and the settings page becomes read-only.
+	// They are flat here because envconfig prefixes nested struct fields with
+	// the Go field name, which would rename the documented variables.
+	SSOInstanceWorkspaceSlug  string `envconfig:"SSO_OIDC_WORKSPACE_SLUG"`
+	SSOInstanceIssuerURL      string `envconfig:"SSO_OIDC_ISSUER"`
+	SSOInstanceClientID       string `envconfig:"SSO_OIDC_CLIENT_ID"`
+	SSOInstanceClientSecret   string `envconfig:"SSO_OIDC_CLIENT_SECRET"`
+	SSOInstanceAllowedDomains string `envconfig:"SSO_OIDC_ALLOWED_DOMAINS"`
+	SSOInstanceDefaultRole    string `envconfig:"SSO_OIDC_DEFAULT_ROLE" default:"member"`
+	SSOInstanceRequireSSO     bool   `envconfig:"SSO_OIDC_REQUIRE_SSO" default:"false"`
+
 	// ForgeWebhookBaseURL overrides the origin of the forge webhook URL shown
 	// to workspace admins. When empty, FRONTEND_URL (with the development API
 	// port) is used.
@@ -104,6 +121,53 @@ type Config struct {
 
 	// Dev machine configuration
 	DevMachine DevMachineConfig
+}
+
+// SSOInstanceEnv is the optional instance-level OIDC configuration for one
+// workspace (SSO_OIDC_* environment variables).
+type SSOInstanceEnv struct {
+	WorkspaceSlug  string
+	IssuerURL      string
+	ClientID       string
+	ClientSecret   string
+	AllowedDomains string
+	DefaultRole    string
+	RequireSSO     bool
+}
+
+// SSOInstanceConfig groups the flat SSO_OIDC_* settings.
+func (c *Config) SSOInstanceConfig() SSOInstanceEnv {
+	role := strings.TrimSpace(c.SSOInstanceDefaultRole)
+	if role == "" {
+		role = domainRoleMember
+	}
+	return SSOInstanceEnv{
+		WorkspaceSlug:  c.SSOInstanceWorkspaceSlug,
+		IssuerURL:      c.SSOInstanceIssuerURL,
+		ClientID:       c.SSOInstanceClientID,
+		ClientSecret:   c.SSOInstanceClientSecret,
+		AllowedDomains: c.SSOInstanceAllowedDomains,
+		DefaultRole:    role,
+		RequireSSO:     c.SSOInstanceRequireSSO,
+	}
+}
+
+// Configured reports whether any instance-level SSO setting is present.
+func (s SSOInstanceEnv) Configured() bool {
+	return strings.TrimSpace(s.WorkspaceSlug) != "" || strings.TrimSpace(s.IssuerURL) != "" ||
+		strings.TrimSpace(s.ClientID) != "" || strings.TrimSpace(s.ClientSecret) != ""
+}
+
+// AllowedDomainList splits the comma-separated SSO_OIDC_ALLOWED_DOMAINS.
+func (s SSOInstanceEnv) AllowedDomainList() []string {
+	domains := make([]string, 0)
+	for _, domain := range strings.Split(s.AllowedDomains, ",") {
+		domain = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(domain)), "@")
+		if domain != "" {
+			domains = append(domains, domain)
+		}
+	}
+	return domains
 }
 
 type DevMachineConfig struct {
@@ -354,6 +418,9 @@ func Load() (*Config, error) {
 	if err := cfg.rejectPlaceholderSecrets(); err != nil {
 		return nil, err
 	}
+	if err := cfg.validateInstanceSSO(); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(cfg.WebSearchSearXNGURL) != "" {
 		parsed, err := validate.OperatorBaseURL(cfg.WebSearchSearXNGURL)
 		if err != nil {
@@ -379,6 +446,35 @@ func Load() (*Config, error) {
 	cfg.DevMachine.Domain = strings.Trim(strings.ToLower(cfg.DevMachine.Domain), ".")
 	return &cfg, nil
 }
+
+// validateInstanceSSO refuses a half-configured or unsafe instance-level SSO.
+func (c *Config) validateInstanceSSO() error {
+	sso := c.SSOInstanceConfig()
+	if !sso.Configured() {
+		return nil
+	}
+	if strings.TrimSpace(sso.WorkspaceSlug) == "" || strings.TrimSpace(sso.IssuerURL) == "" || strings.TrimSpace(sso.ClientID) == "" {
+		return fmt.Errorf("SSO_OIDC_WORKSPACE_SLUG, SSO_OIDC_ISSUER and SSO_OIDC_CLIENT_ID are required together")
+	}
+	if role := strings.TrimSpace(sso.DefaultRole); role != "" && role != domainRoleMember && role != domainRoleGuest {
+		return fmt.Errorf("SSO_OIDC_DEFAULT_ROLE must be member or guest")
+	}
+	issuer, err := validate.OperatorBaseURL(sso.IssuerURL)
+	if err != nil {
+		return fmt.Errorf("SSO_OIDC_ISSUER %w", err)
+	}
+	if issuer.Scheme != "https" && !c.OIDCAllowPrivateNetwork {
+		return fmt.Errorf("SSO_OIDC_ISSUER must use https; set OIDC_ALLOW_PRIVATE_NETWORK for a private http identity provider")
+	}
+	return nil
+}
+
+// Role names accepted by SSO_OIDC_DEFAULT_ROLE. The domain package cannot be
+// imported here without a cycle, so the two values are repeated.
+const (
+	domainRoleMember = "member"
+	domainRoleGuest  = "guest"
+)
 
 func LoadMachineGateway() (*Config, error) {
 	var gatewayCfg machineGatewayEnvConfig
@@ -526,6 +622,7 @@ func (c *Config) rejectPlaceholderSecrets() error {
 		{"S3_SECRET_KEY", c.Storage.S3SecretKey},
 		{"GITHUB_APP_CLIENT_SECRET", c.GitHubApp.ClientSecret},
 		{"GITHUB_APP_WEBHOOK_SECRET", c.GitHubApp.WebhookSecret},
+		{"SSO_OIDC_CLIENT_SECRET", c.SSOInstanceClientSecret},
 	} {
 		if isPlaceholderSecret(setting.value) {
 			return placeholderSecretError(setting.name)

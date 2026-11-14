@@ -19,6 +19,9 @@ type RefreshToken struct {
 	// PasskeyCredentialID is the passkey that minted the session, if any. The
 	// row is deleted with that passkey.
 	PasskeyCredentialID *uuid.UUID `db:"passkey_credential_id"`
+	// SSOWorkspaceID is the workspace whose SSO minted the session, if any.
+	// Rotation carries it over for require-SSO enforcement.
+	SSOWorkspaceID *uuid.UUID `db:"sso_workspace_id"`
 }
 
 type RefreshTokenRepository struct {
@@ -30,14 +33,14 @@ func NewRefreshTokenRepository(db *sqlx.DB) *RefreshTokenRepository {
 }
 
 func (r *RefreshTokenRepository) Create(ctx context.Context, rt *RefreshToken) error {
-	query := `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, authenticated_at, passkey_credential_id)
-		VALUES ($1, $2, $3, $4, $5, $6) RETURNING created_at`
-	return r.db.QueryRowContext(ctx, query, rt.ID, rt.UserID, rt.TokenHash, rt.ExpiresAt, rt.AuthenticatedAt, rt.PasskeyCredentialID).Scan(&rt.CreatedAt)
+	query := `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, authenticated_at, passkey_credential_id, sso_workspace_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING created_at`
+	return r.db.QueryRowContext(ctx, query, rt.ID, rt.UserID, rt.TokenHash, rt.ExpiresAt, rt.AuthenticatedAt, rt.PasskeyCredentialID, rt.SSOWorkspaceID).Scan(&rt.CreatedAt)
 }
 
 func (r *RefreshTokenRepository) GetByHash(ctx context.Context, hash string) (*RefreshToken, error) {
 	var rt RefreshToken
-	err := r.db.GetContext(ctx, &rt, `SELECT id, user_id, token_hash, expires_at, created_at, authenticated_at, passkey_credential_id FROM refresh_tokens WHERE token_hash = $1 AND expires_at > NOW()`, hash)
+	err := r.db.GetContext(ctx, &rt, `SELECT id, user_id, token_hash, expires_at, created_at, authenticated_at, passkey_credential_id, sso_workspace_id FROM refresh_tokens WHERE token_hash = $1 AND expires_at > NOW()`, hash)
 	if err != nil {
 		return nil, err
 	}

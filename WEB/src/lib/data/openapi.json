@@ -982,6 +982,9 @@
 					},
 					"message": {
 						"type": "string"
+					},
+					"workspace_slug": {
+						"type": "string"
 					}
 				},
 				"required": [

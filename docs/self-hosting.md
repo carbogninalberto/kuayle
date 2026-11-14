@@ -2,7 +2,7 @@
 
 Kuayle is designed to be self-hosted. The reference stack in [`selfhosting/`](../selfhosting/) includes Caddy, PostgreSQL, Redis, the backend, the frontend, and an update script. Review secrets, backups, monitoring, and host security before production use.
 
-Related guides: [GitHub integration](github-integration.md), [Dev Machines](dev-machines.md), [development setup](development.md).
+Related guides: [GitHub integration](github-integration.md), [single sign-on](sso.md), [Dev Machines](dev-machines.md), [development setup](development.md).
 
 ## Prerequisites
 
@@ -39,7 +39,7 @@ openssl rand -hex 32
 
 This applies to `POSTGRES_PASSWORD` and `JWT_SECRET`, and to `SYSTEM_UPDATER_TOKEN`, `VOICE_INTERNAL_TOKEN`, `DEV_MACHINE_ENCRYPTION_KEY` and `DEV_MACHINE_GATEWAY_DB_PASSWORD` when you enable those features.
 
-Unless `ENVIRONMENT=development`, Kuayle refuses to start while one of these settings (or `SMTP_PASSWORD`, `S3_SECRET_KEY`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_WEBHOOK_SECRET`) still holds an example placeholder, a development default from the repository's root `.env.example`, or a `<...>` value copied from this guide. The backend and the machine gateway exit with an error that names the setting (never its value), the `dev-machines` profile preflight fails, and `update.sh` stops before rebuilding or stopping anything. Check `docker compose logs backend` if the site does not come up.
+Unless `ENVIRONMENT=development`, Kuayle refuses to start while one of these settings (or `SMTP_PASSWORD`, `S3_SECRET_KEY`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_WEBHOOK_SECRET`, `SSO_OIDC_CLIENT_SECRET`) still holds an example placeholder, a development default from the repository's root `.env.example`, or a `<...>` value copied from this guide. The backend and the machine gateway exit with an error that names the setting (never its value), the `dev-machines` profile preflight fails, and `update.sh` stops before rebuilding or stopping anything. Check `docker compose logs backend` if the site does not come up.
 
 The same applies when `POSTGRES_PASSWORD` is not set at all: the Compose files then fall back to a password that is published in this repository, and Kuayle and `update.sh` refuse it the same way. If your `.env` has no `POSTGRES_PASSWORD` line, your database uses that fallback today; change it as described below before upgrading.
 
@@ -243,6 +243,32 @@ Endpoints, the full configuration rules, reverse-proxy behaviour and the threat 
 are in the [passkey reference](../BE/docs/passkeys.md). The migration adds two tables and
 two nullable columns on `refresh_tokens`; rolling it back deletes the passkeys and
 ends the sessions that were signed in with one.
+
+## Single sign-on (OIDC)
+
+An owner or admin can configure OpenID Connect per workspace under
+**Settings → SSO**: issuer URL, client ID, client secret, allowed email domains,
+the default role for just-in-time users and whether the workspace requires SSO.
+OIDC is free and ungated. SAML 2.0 and SCIM 2.0 are follow-ups.
+
+- The client secret is encrypted at rest and write-only: no API response
+  returns it and it is never logged.
+- The issuer must use HTTPS. `OIDC_ALLOW_PRIVATE_NETWORK=true` allows a private
+  or plain-http issuer, such as the Keycloak development profile.
+- `SSO_OIDC_WORKSPACE_SLUG`, `SSO_OIDC_ISSUER` and `SSO_OIDC_CLIENT_ID` (plus
+  the optional `SSO_OIDC_CLIENT_SECRET`, `SSO_OIDC_ALLOWED_DOMAINS`,
+  `SSO_OIDC_DEFAULT_ROLE` and `SSO_OIDC_REQUIRE_SSO`) pin one workspace's
+  configuration to the instance; its settings page becomes read-only.
+- With **Require SSO** on, password and passkey sessions for members and guests
+  must come from that workspace's SSO. Owners keep password sign-in as the
+  break-glass path, so an identity-provider outage cannot lock them out.
+- Personal access tokens are not blocked by require-SSO in this phase; revoke
+  them manually when someone leaves. SCIM deprovisioning will do it atomically.
+
+The provider walkthrough (Keycloak included), provider notes and troubleshooting
+are in the [single sign-on guide](sso.md). The migration adds
+`workspace_sso_configs`, `user_identities` and `sso_login_states` and a
+nullable `refresh_tokens.sso_workspace_id`.
 
 ## Private teams
 

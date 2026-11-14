@@ -180,6 +180,9 @@ func (h *PasskeyHandler) fail(c *echo.Context, event string, err error) error {
 		log.WithFields(fields).WithField("reason", reason).Warn("passkey request refused")
 	}
 	switch {
+	case errors.Is(err, service.ErrSSORequired):
+		warn("sso_required")
+		return SSORequiredReply(c, err)
 	case errors.Is(err, service.ErrPasskeysDisabled):
 		return response.Error(c, http.StatusForbidden, "PASSKEYS_DISABLED", "Passkeys are not available on this instance")
 	case errors.Is(err, service.ErrPasskeyOrigin):

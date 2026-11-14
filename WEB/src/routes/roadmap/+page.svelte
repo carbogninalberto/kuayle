@@ -46,7 +46,7 @@
 			body: 'These capabilities are not available in the current user interface. Their absence is documented so teams can evaluate Kuayle against present requirements rather than future assumptions.',
 			list: [
 				'Importers from other trackers (workspace transfer only moves data between Kuayle instances)',
-				'Enterprise identity: SSO, SAML, SCIM and LDAP',
+				'Enterprise identity: SAML SSO, SCIM and LDAP (OIDC SSO is available)',
 				'GitLab and chat integrations',
 				'Email notifications (notifications are delivered in-app)',
 				'Restoring an earlier issue version (history is read-only)',

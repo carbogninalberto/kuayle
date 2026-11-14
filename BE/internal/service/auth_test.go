@@ -499,3 +499,78 @@ func TestRefreshTokens_RejectsAccessToken(t *testing.T) {
 	refreshRepo.AssertNotCalled(t, "GetByHash", mock.Anything, mock.Anything)
 	refreshRepo.AssertNotCalled(t, "DeleteByHash", mock.Anything, mock.Anything)
 }
+
+type fakeSSOEnforcer struct {
+	slug     string
+	required bool
+	err      error
+}
+
+func (f fakeSSOEnforcer) UserSSORequired(ctx context.Context, userID uuid.UUID) (string, bool, error) {
+	return f.slug, f.required, f.err
+}
+
+func TestLogin_SSORequiredOnlyAfterPasswordVerification(t *testing.T) {
+	userRepo := new(mockUserRepo)
+	refreshRepo := new(mockRefreshTokenRepo)
+	svc := NewAuthService(userRepo, refreshRepo, "test-secret")
+	svc.SetSSOEnforcer(fakeSSOEnforcer{slug: "acme", required: true})
+
+	hash, _ := bcryptGenerateHelper("Password123!!")
+	existingUser := &domain.User{ID: uuid.New(), Email: "test@example.com", PasswordHash: hash}
+	userRepo.On("GetByEmail", mock.Anything, "test@example.com").Return(existingUser, nil)
+
+	// A wrong password still reports invalid credentials, never the SSO policy.
+	_, _, _, err := svc.Login(context.Background(), dto.LoginRequest{Email: "test@example.com", Password: "wrongpassword"})
+	assert.ErrorIs(t, err, ErrInvalidCredentials)
+
+	_, access, refresh, err := svc.Login(context.Background(), dto.LoginRequest{Email: "test@example.com", Password: "Password123!!"})
+	assert.ErrorIs(t, err, ErrSSORequired)
+	assert.Empty(t, access)
+	assert.Empty(t, refresh)
+	var required *SSORequiredError
+	assert.ErrorAs(t, err, &required)
+	assert.Equal(t, "acme", required.WorkspaceSlug)
+}
+
+func TestLogin_AllowedWhenSSONotRequired(t *testing.T) {
+	userRepo := new(mockUserRepo)
+	refreshRepo := new(mockRefreshTokenRepo)
+	svc := NewAuthService(userRepo, refreshRepo, "test-secret")
+	svc.SetSSOEnforcer(fakeSSOEnforcer{required: false})
+
+	hash, _ := bcryptGenerateHelper("Password123!!")
+	existingUser := &domain.User{ID: uuid.New(), Email: "test@example.com", PasswordHash: hash}
+	userRepo.On("GetByEmail", mock.Anything, "test@example.com").Return(existingUser, nil)
+	refreshRepo.On("Create", mock.Anything, mock.AnythingOfType("*repository.RefreshToken")).Return(nil)
+
+	_, access, refresh, err := svc.Login(context.Background(), dto.LoginRequest{Email: "test@example.com", Password: "Password123!!"})
+	assert.NoError(t, err)
+	assert.NotEmpty(t, access)
+	assert.NotEmpty(t, refresh)
+}
+
+func TestRefreshTokens_CarriesSSOWorkspace(t *testing.T) {
+	userRepo := new(mockUserRepo)
+	refreshRepo := new(mockRefreshTokenRepo)
+	svc := NewAuthService(userRepo, refreshRepo, "test-secret")
+	userID := uuid.New()
+	workspaceID := uuid.New()
+	refreshToken, _, err := jwtpkg.GenerateRefreshToken(userID, "test-secret")
+	require.NoError(t, err)
+	hash := hashToken(refreshToken)
+	refreshRepo.On("GetByHash", mock.Anything, hash).Return(&repository.RefreshToken{
+		ID: uuid.New(), UserID: userID, TokenHash: hash, ExpiresAt: time.Now().Add(time.Hour),
+		SSOWorkspaceID: &workspaceID,
+	}, nil)
+	refreshRepo.On("DeleteByHash", mock.Anything, hash).Return(nil)
+	refreshRepo.On("Create", mock.Anything, mock.MatchedBy(func(rt *repository.RefreshToken) bool {
+		return rt.SSOWorkspaceID != nil && *rt.SSOWorkspaceID == workspaceID
+	})).Return(nil)
+
+	access, _, err := svc.RefreshTokens(context.Background(), refreshToken)
+	require.NoError(t, err)
+	claims, err := jwtpkg.ValidateAccessToken(access, "test-secret")
+	require.NoError(t, err)
+	assert.Equal(t, workspaceID.String(), claims.SSOWorkspaceID)
+}

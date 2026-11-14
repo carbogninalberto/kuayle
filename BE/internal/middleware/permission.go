@@ -48,6 +48,24 @@ func RequireSession() echo.MiddlewareFunc {
 	}
 }
 
+// RequireWorkspaceAdmin allows an interactive owner or admin and rejects
+// personal access tokens. Used where the product grants admins a workspace
+// setting without granting them every workspace:manage permission.
+func RequireWorkspaceAdmin() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if c.Get(TokenScopesKey) != nil {
+				return response.Forbidden(c)
+			}
+			role := GetWorkspaceRole(c)
+			if role != domain.RoleOwner && role != domain.RoleAdmin {
+				return response.Forbidden(c)
+			}
+			return next(c)
+		}
+	}
+}
+
 // RequireOwner restricts access to the workspace owner only.
 // PAT callers are always rejected: owner-only operations (e.g. deleting a
 // workspace) stay interactive-session-only as defense in depth.

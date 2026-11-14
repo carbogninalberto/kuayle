@@ -1095,6 +1095,44 @@ plain http) for self-hosted forges on a LAN. Setup, events, token scopes and
 extension points are documented in
 [Forge integrations](BE/docs/forge-integrations.md).
 
+## Single Sign-On (OIDC)
+
+OIDC sign-in is per workspace and free. `workspace_sso_configs` holds the issuer,
+client ID, encrypted client secret, allowed domains, provider name, default role
+(`member` or `guest`) and the `enabled`/`require_sso` flags. The client secret is
+encrypted with `crypto.DeriveKey(JWT_SECRET + ":sso")` and is write-only: API
+responses expose only `has_client_secret`, and no log line includes it.
+
+`SSOService` runs the authorization-code flow with PKCE `S256`, a random state,
+a random nonce and a browser-binding cookie. The server keeps the flow in
+`sso_login_states` keyed by the SHA-256 of the state for ten minutes and consumes
+it once with `DELETE … RETURNING`. Discovery, JWKS and token calls use
+`pkg/forge.NewHTTPClient`; `OIDC_ALLOW_PRIVATE_NETWORK=true` permits a private or
+plain-http issuer. `github.com/coreos/go-oidc/v3` verifies the ID token signature,
+issuer, audience, expiry and nonce; a missing `email_verified` is unverified.
+
+The callback is per workspace (`/api/auth/sso/:slug/callback`) and refuses a state
+minted for another workspace. Identities are unique on
+`(workspace_id, issuer, subject)`, so a configuration in one workspace cannot
+authenticate into another. First sign-in creates the account with a random
+unusable password and adds the workspace membership in one transaction; an
+existing account is linked only by a verified email.
+
+SSO sessions carry the `sso_ws` JWT claim and `refresh_tokens.sso_workspace_id`,
+so refresh rotation keeps the minting workspace. `WorkspaceMembership` answers
+`403 SSO_REQUIRED` when the workspace requires SSO, the session was minted
+elsewhere and the member is not an owner; owners keep the break-glass password
+path. Password and passkey sign-in are refused with `SSO_REQUIRED` only when every
+workspace of the account requires SSO and the account owns none. PATs are not
+affected in phase 1.
+
+Instance-level variables: `SSO_OIDC_WORKSPACE_SLUG`, `SSO_OIDC_ISSUER`,
+`SSO_OIDC_CLIENT_ID`, `SSO_OIDC_CLIENT_SECRET`, `SSO_OIDC_ALLOWED_DOMAINS`,
+`SSO_OIDC_DEFAULT_ROLE`, `SSO_OIDC_REQUIRE_SSO` and `OIDC_ALLOW_PRIVATE_NETWORK`.
+They win over the database configuration for that workspace and make the settings
+page read-only. The Keycloak development profile and provider notes are in
+[docs/sso.md](docs/sso.md). SAML 2.0 and SCIM 2.0 are follow-ups.
+
 ## Activity and Logs
 
 | Event | Source |

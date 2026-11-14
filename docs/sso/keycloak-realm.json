@@ -1,0 +1,50 @@
+{
+	"realm": "kuayle",
+	"enabled": true,
+	"displayName": "Kuayle development",
+	"registrationAllowed": false,
+	"loginWithEmailAllowed": true,
+	"duplicateEmailsAllowed": false,
+	"resetPasswordAllowed": false,
+	"editUsernameAllowed": false,
+	"clients": [
+		{
+			"clientId": "kuayle",
+			"name": "Kuayle",
+			"enabled": true,
+			"protocol": "openid-connect",
+			"publicClient": false,
+			"secret": "kuayle-dev-client-secret",
+			"standardFlowEnabled": true,
+			"implicitFlowEnabled": false,
+			"directAccessGrantsEnabled": false,
+			"serviceAccountsEnabled": false,
+			"redirectUris": [
+				"http://localhost:5173/api/auth/sso/*",
+				"http://localhost:8080/api/auth/sso/*"
+			],
+			"webOrigins": ["http://localhost:5173", "http://localhost:8080"],
+			"attributes": {
+				"pkce.code.challenge.method": "S256",
+				"post.logout.redirect.uris": "+"
+			}
+		}
+	],
+	"users": [
+		{
+			"username": "demo",
+			"enabled": true,
+			"emailVerified": true,
+			"email": "demo@example.com",
+			"firstName": "Demo",
+			"lastName": "User",
+			"credentials": [
+				{
+					"type": "password",
+					"value": "demo",
+					"temporary": false
+				}
+			]
+		}
+	]
+}
