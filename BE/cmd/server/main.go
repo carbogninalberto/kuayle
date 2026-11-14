@@ -166,6 +166,7 @@ func main() {
 	healthH := handler.NewHealthHandler(db)
 	loginThrottle := mw.NewLoginThrottle(5, 15*time.Minute)
 	authH := handler.NewAuthHandler(authSvc, cfg.Environment != "development", loginThrottle, cfg.IsSysAdmin, cfg.DevMachine.AllowSameSite)
+	authH.SetWorkspaceLookup(workspaceRepo)
 	workspaceH := handler.NewWorkspaceHandler(workspaceSvc)
 	inviteLinkH := handler.NewInviteLinkHandler(inviteLinkSvc, cfg.FrontendURL)
 	passkeySvc, err := service.NewPasskeyService(authSvc, userRepo, repository.NewPasskeyRepository(db), passkeyRelyingParty(cfg))

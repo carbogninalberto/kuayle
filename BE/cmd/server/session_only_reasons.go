@@ -33,6 +33,7 @@ var sessionOnlyReasons = []sessionOnlyReason{
 	{PathPrefix: "/api/tokens", Reason: reasonTokenManagement},
 	{PathPrefix: "/api/cli-links", Reason: reasonTokenManagement},
 	{PathPrefix: "/api/auth/passkey", Reason: reasonSignInSecrets},
+	{Method: "POST", PathPrefix: "/api/auth/sso/:slug/link", Exact: true, Reason: reasonSignInSecrets},
 	{Method: "PATCH", PathPrefix: "/api/auth/me", Exact: true, Reason: reasonSignInSecrets},
 	{Method: "POST", PathPrefix: "/api/auth/me/avatar", Exact: true, Reason: reasonSignInSecrets},
 	{PathPrefix: "/api/system/update", Reason: reasonInstanceUpdate},

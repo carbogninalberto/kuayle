@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/url"
@@ -16,8 +18,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// SSOBindCookieName is the short-lived, HttpOnly cookie that proves the
-// callback belongs to the browser that started the flow.
+// SSOBindCookieName is the prefix of the short-lived, HttpOnly cookie that
+// proves a callback belongs to the browser that started that flow. Each flow
+// gets its own cookie so two tabs (or workspaces) cannot overwrite each other.
 const SSOBindCookieName = "kuayle_sso_bind"
 
 // SSOHandler serves workspace OIDC settings and the public sign-in flow.
@@ -102,16 +105,53 @@ func (h *SSOHandler) Start(c *echo.Context) error {
 	if err != nil {
 		return h.startFailure(c, err)
 	}
+	h.setBindCookie(c, c.Param("slug"), authURL, bind)
+	return c.Redirect(http.StatusFound, authURL)
+}
+
+// StartLink handles POST /api/auth/sso/:slug/link. It links the IdP subject to
+// the signed-in account and returns the authorization URL. It deliberately
+// lives outside the workspace group so require-SSO cannot block a member who is
+// trying to link; the service checks membership.
+func (h *SSOHandler) StartLink(c *echo.Context) error {
+	authURL, bind, err := h.sso.StartLink(c.Request().Context(), c.Param("slug"), middleware.GetUserID(c), c.QueryParam("redirect_after"))
+	if err != nil {
+		return h.startFailure(c, err)
+	}
+	h.setBindCookie(c, c.Param("slug"), authURL, bind)
+	return response.Success(c, http.StatusOK, map[string]string{"auth_url": authURL})
+}
+
+// setBindCookie stores the per-flow binding value. The cookie name carries a
+// digest of the state and its path is the flow's callback, so concurrent flows
+// in two tabs or two workspaces never share a binding.
+func (h *SSOHandler) setBindCookie(c *echo.Context, slug, authURL, bind string) {
+	parsed, err := url.Parse(authURL)
+	if err != nil {
+		return
+	}
+	state := parsed.Query().Get("state")
+	if state == "" {
+		return
+	}
 	c.SetCookie(&http.Cookie{
-		Name:     SSOBindCookieName,
+		Name:     ssoBindCookieName(state),
 		Value:    bind,
-		Path:     "/",
+		Path:     ssoBindCookiePath(slug),
 		HttpOnly: true,
 		Secure:   h.secureCookie,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(service.SSOLoginStateTTL / time.Second),
 	})
-	return c.Redirect(http.StatusFound, authURL)
+}
+
+func ssoBindCookieName(state string) string {
+	sum := sha256.Sum256([]byte(state))
+	return SSOBindCookieName + "_" + hex.EncodeToString(sum[:])[:16]
+}
+
+func ssoBindCookiePath(slug string) string {
+	return "/api/auth/sso/" + url.PathEscape(slug) + "/callback"
 }
 
 func (h *SSOHandler) startFailure(c *echo.Context, err error) error {
@@ -119,10 +159,14 @@ func (h *SSOHandler) startFailure(c *echo.Context, err error) error {
 	log.WithFields(log.Fields{
 		"event": "sso.start_failed", "workspace_slug": c.Param("slug"), "reason": code, "ip": c.RealIP(),
 	}).Warn("SSO sign-in could not start")
-	if errors.Is(err, service.ErrSSONotConfigured) {
+	switch {
+	case errors.Is(err, service.ErrSSONotConfigured):
 		return response.Error(c, http.StatusNotFound, "SSO_NOT_CONFIGURED", "This workspace does not offer single sign-on")
+	case errors.Is(err, service.ErrSSONotMember):
+		return response.Error(c, http.StatusForbidden, "SSO_NOT_MEMBER", "You are not a member of this workspace")
+	default:
+		return response.Error(c, http.StatusBadRequest, "SSO_START_FAILED", "The sign-in could not be started")
 	}
-	return response.Error(c, http.StatusBadRequest, "SSO_START_FAILED", "The sign-in could not be started")
 }
 
 // Callback handles GET /api/auth/sso/:slug/callback. Every outcome is a
@@ -130,11 +174,14 @@ func (h *SSOHandler) startFailure(c *echo.Context, err error) error {
 // the URL or the logs.
 func (h *SSOHandler) Callback(c *echo.Context) error {
 	slug := c.Param("slug")
+	state := c.QueryParam("state")
 	bind := ""
-	if cookie, err := c.Cookie(SSOBindCookieName); err == nil {
-		bind = cookie.Value
+	if state != "" {
+		if cookie, err := c.Cookie(ssoBindCookieName(state)); err == nil {
+			bind = cookie.Value
+		}
 	}
-	h.clearBindCookie(c)
+	h.clearBindCookie(c, slug, state)
 
 	if idpError := strings.TrimSpace(c.QueryParam("error")); idpError != "" {
 		log.WithFields(log.Fields{
@@ -144,7 +191,7 @@ func (h *SSOHandler) Callback(c *echo.Context) error {
 	}
 
 	user, accessToken, refreshToken, redirectAfter, err := h.sso.CallbackRedirect(
-		c.Request().Context(), slug, c.QueryParam("state"), c.QueryParam("code"), bind)
+		c.Request().Context(), slug, state, c.QueryParam("code"), bind)
 	if err != nil {
 		code := ssoErrorCode(err)
 		fields := log.Fields{"event": "sso.callback_failed", "workspace_slug": slug, "reason": code, "ip": c.RealIP()}
@@ -168,14 +215,21 @@ func (h *SSOHandler) Callback(c *echo.Context) error {
 }
 
 func (h *SSOHandler) redirectLogin(c *echo.Context, code string) error {
-	return c.Redirect(http.StatusFound, "/login?sso_error="+url.QueryEscape(code))
+	target := "/login?sso_error=" + url.QueryEscape(code)
+	if slug := c.Param("slug"); slug != "" {
+		target += "&workspace=" + url.QueryEscape(slug)
+	}
+	return c.Redirect(http.StatusFound, target)
 }
 
-func (h *SSOHandler) clearBindCookie(c *echo.Context) {
+func (h *SSOHandler) clearBindCookie(c *echo.Context, slug, state string) {
+	if state == "" {
+		return
+	}
 	c.SetCookie(&http.Cookie{
-		Name:     SSOBindCookieName,
+		Name:     ssoBindCookieName(state),
 		Value:    "",
-		Path:     "/",
+		Path:     ssoBindCookiePath(slug),
 		HttpOnly: true,
 		Secure:   h.secureCookie,
 		SameSite: http.SameSiteLaxMode,
@@ -195,6 +249,12 @@ func ssoErrorCode(err error) string {
 		return "domain_not_allowed"
 	case errors.Is(err, service.ErrSSOTokenInvalid):
 		return "token_invalid"
+	case errors.Is(err, service.ErrSSOLinkRequired):
+		return "link_required"
+	case errors.Is(err, service.ErrSSONotMember):
+		return "not_member"
+	case errors.Is(err, service.ErrSSOIdentityTaken):
+		return "identity_taken"
 	default:
 		return "failed"
 	}

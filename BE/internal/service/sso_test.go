@@ -127,34 +127,50 @@ func (r *ssoFakeRepo) TouchIdentity(ctx context.Context, id uuid.UUID) error {
 func (r *ssoFakeRepo) ProvisionIdentity(ctx context.Context, params repository.SSOProvisionParams) (*domain.User, error) {
 	r.provisioned = append(r.provisioned, params)
 	key := identityKey(params.WorkspaceID, params.Issuer, params.Subject)
-	identity := r.identities[key]
-	var user *domain.User
-	if identity != nil {
-		user = r.users[identity.UserID]
+	if identity := r.identities[key]; identity != nil {
+		return r.users[identity.UserID], nil
 	}
-	if user == nil {
-		for _, candidate := range r.users {
-			if strings.EqualFold(candidate.Email, params.Email) {
-				user = candidate
-				break
-			}
+	for _, candidate := range r.users {
+		if strings.EqualFold(candidate.Email, params.Email) {
+			return nil, repository.ErrSSOLinkRequired
 		}
 	}
-	if user == nil {
-		user = &domain.User{ID: uuid.New(), Email: params.Email, Name: params.Name, DisplayName: params.Name, PasswordHash: params.PasswordHash}
-		r.users[user.ID] = user
-	}
-	if identity == nil {
-		r.identities[key] = &domain.UserIdentity{
-			ID: uuid.New(), UserID: user.ID, WorkspaceID: params.WorkspaceID,
-			Provider: params.Provider, Issuer: params.Issuer, Subject: params.Subject, Email: params.Email,
-		}
+	user := &domain.User{ID: uuid.New(), Email: params.Email, Name: params.Name, DisplayName: params.Name, PasswordHash: params.PasswordHash}
+	r.users[user.ID] = user
+	r.identities[key] = &domain.UserIdentity{
+		ID: uuid.New(), UserID: user.ID, WorkspaceID: params.WorkspaceID,
+		Provider: params.Provider, Issuer: params.Issuer, Subject: params.Subject, Email: params.Email,
 	}
 	memberKey := params.WorkspaceID.String() + "|" + user.ID.String()
 	if _, ok := r.memberships[memberKey]; !ok {
 		r.memberships[memberKey] = params.DefaultRole
 	}
 	return user, nil
+}
+
+func (r *ssoFakeRepo) LinkIdentity(ctx context.Context, userID, workspaceID uuid.UUID, provider, issuer, subject, email string) (*domain.UserIdentity, error) {
+	key := identityKey(workspaceID, issuer, subject)
+	if identity := r.identities[key]; identity != nil {
+		if identity.UserID != userID {
+			return nil, repository.ErrSSOIdentityTaken
+		}
+		return identity, nil
+	}
+	identity := &domain.UserIdentity{
+		ID: uuid.New(), UserID: userID, WorkspaceID: workspaceID,
+		Provider: provider, Issuer: issuer, Subject: subject, Email: email,
+	}
+	r.identities[key] = identity
+	return identity, nil
+}
+
+func (r *ssoFakeRepo) HasIdentity(ctx context.Context, userID, workspaceID uuid.UUID) (bool, error) {
+	for _, identity := range r.identities {
+		if identity.UserID == userID && identity.WorkspaceID == workspaceID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (r *ssoFakeRepo) UserWorkspaceRoles(ctx context.Context, userID uuid.UUID) ([]domain.SSOWorkspaceRole, error) {
@@ -201,10 +217,21 @@ func (r *ssoFakeRefresh) DeleteByUser(ctx context.Context, userID uuid.UUID) err
 }
 func (r *ssoFakeRefresh) DeleteExpired(ctx context.Context) error { return nil }
 
-type ssoFakeWorkspaces map[string]*domain.Workspace
+type ssoFakeWorkspaces struct {
+	workspaces  map[string]*domain.Workspace
+	memberships map[string]string
+}
 
 func (w ssoFakeWorkspaces) GetBySlug(ctx context.Context, slug string) (*domain.Workspace, error) {
-	return w[slug], nil
+	return w.workspaces[slug], nil
+}
+
+func (w ssoFakeWorkspaces) GetMember(ctx context.Context, workspaceID, userID uuid.UUID) (*domain.WorkspaceMember, error) {
+	role, ok := w.memberships[workspaceID.String()+"|"+userID.String()]
+	if !ok {
+		return nil, nil
+	}
+	return &domain.WorkspaceMember{WorkspaceID: workspaceID, UserID: userID, Role: role}, nil
 }
 
 // --- fake identity provider ---
@@ -218,12 +245,17 @@ type fakeIDPCode struct {
 }
 
 type fakeIDP struct {
-	server   *httptest.Server
-	key      *rsa.PrivateKey
-	otherKey *rsa.PrivateKey
-	mu       sync.Mutex
-	codes    map[string]*fakeIDPCode
+	server     *httptest.Server
+	key        *rsa.PrivateKey
+	otherKey   *rsa.PrivateKey
+	issuerPath string
+	mu         sync.Mutex
+	codes      map[string]*fakeIDPCode
 }
+
+// issuer is the exact issuer the IdP advertises. Tests set issuerPath to "/"
+// to cover IdPs such as Auth0 whose issuer ends in a slash.
+func (f *fakeIDP) issuer() string { return f.server.URL + f.issuerPath }
 
 func newFakeIDP(t *testing.T) *fakeIDP {
 	t.Helper()
@@ -235,7 +267,7 @@ func newFakeIDP(t *testing.T) *fakeIDP {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{
-			"issuer":                                idp.server.URL,
+			"issuer":                                idp.issuer(),
 			"authorization_endpoint":                idp.server.URL + "/authorize",
 			"token_endpoint":                        idp.server.URL + "/token",
 			"jwks_uri":                              idp.server.URL + "/jwks",
@@ -298,7 +330,7 @@ func (f *fakeIDP) token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	claims := map[string]any{
-		"iss":   f.server.URL,
+		"iss":   f.issuer(),
 		"aud":   "test-client",
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
 		"iat":   time.Now().Unix(),
@@ -366,7 +398,7 @@ func newSSOTestRig(t *testing.T) *ssoTestRig {
 	users := &ssoFakeUsers{users: map[uuid.UUID]*domain.User{}}
 	refresh := &ssoFakeRefresh{}
 	workspace := &domain.Workspace{ID: uuid.New(), Slug: "acme", Name: "Acme", OwnerID: uuid.New()}
-	workspaces := ssoFakeWorkspaces{"acme": workspace}
+	workspaces := ssoFakeWorkspaces{workspaces: map[string]*domain.Workspace{"acme": workspace}, memberships: repo.memberships}
 	idp := newFakeIDP(t)
 	key := kcrypto.DeriveKey("sso-test-secret")
 	secret, err := kcrypto.Encrypt("client-secret", key)
@@ -546,33 +578,185 @@ func TestSSODomainNotAllowed(t *testing.T) {
 	require.Empty(t, rig.repo.provisioned)
 }
 
-func TestSSOExistingPasswordUserIsLinkedOnlyWithVerifiedEmail(t *testing.T) {
+func TestSSOExistingAccountIsNeverAutoLinked(t *testing.T) {
 	rig := newSSOTestRig(t)
 	existing := &domain.User{ID: uuid.New(), Email: "person@example.com", Name: "Existing", PasswordHash: "hash"}
 	rig.users.users[existing.ID] = existing
 	rig.repo.users[existing.ID] = existing
 
+	_, _, _, _, err := rig.callback(t, nil)
+	require.ErrorIs(t, err, ErrSSOLinkRequired)
+	require.Empty(t, rig.repo.identities, "no identity may be created for an existing account")
+	require.Empty(t, rig.repo.memberships, "an existing account is never added to the workspace")
+	require.Empty(t, rig.refresh.created, "no session may be minted")
+}
+
+func TestSSOAttackerWorkspaceCannotTakeOverAccount(t *testing.T) {
+	rig := newSSOTestRig(t)
+	ctx := context.Background()
+	attacker := &domain.Workspace{ID: uuid.New(), Slug: "attacker", Name: "Attacker", OwnerID: uuid.New()}
+	rig.service.workspaces.(ssoFakeWorkspaces).workspaces[attacker.Slug] = attacker
+	secret, err := kcrypto.Encrypt("client-secret", rig.key)
+	require.NoError(t, err)
+	rig.repo.configs[attacker.ID] = &domain.SSOConfig{
+		WorkspaceID: attacker.ID, IssuerURL: rig.idp.server.URL, ClientID: "test-client",
+		ClientSecretEncrypted: secret, DefaultRole: domain.RoleMember, Enabled: true, UpdatedAt: time.Now(),
+	}
+
+	victim := &domain.User{ID: uuid.New(), Email: "person@example.com", Name: "Victim", PasswordHash: "hash"}
+	rig.users.users[victim.ID] = victim
+	rig.repo.users[victim.ID] = victim
+	// Being invited to the attacker's workspace is not consent to link: the
+	// invite adds any existing account by email alone.
+	rig.repo.memberships[attacker.ID.String()+"|"+victim.ID.String()] = domain.RoleMember
+
+	authURL, bind, err := rig.service.Start(ctx, attacker.Slug, "")
+	require.NoError(t, err)
+	code := rig.idp.authorize(t, authURL, nil)
+	_, _, _, _, err = rig.service.CallbackRedirect(ctx, attacker.Slug, stateFromAuthURL(t, authURL), code, bind)
+	require.ErrorIs(t, err, ErrSSOLinkRequired)
+	require.Empty(t, rig.refresh.created, "no session may be minted for the victim")
+	for _, identity := range rig.repo.identities {
+		require.NotEqual(t, victim.ID, identity.UserID)
+	}
+}
+
+func TestSSOLinkFlow(t *testing.T) {
+	ctx := context.Background()
+	newLinkedRig := func(t *testing.T) (*ssoTestRig, *domain.User) {
+		t.Helper()
+		rig := newSSOTestRig(t)
+		user := &domain.User{ID: uuid.New(), Email: "person@example.com", Name: "Existing", PasswordHash: "hash"}
+		rig.users.users[user.ID] = user
+		rig.repo.users[user.ID] = user
+		rig.repo.memberships[rig.workspace.ID.String()+"|"+user.ID.String()] = domain.RoleMember
+		return rig, user
+	}
+
+	t.Run("member links and signs in", func(t *testing.T) {
+		rig, user := newLinkedRig(t)
+		authURL, bind, err := rig.service.StartLink(ctx, "acme", user.ID, "/acme/inbox")
+		require.NoError(t, err)
+		code := rig.idp.authorize(t, authURL, nil)
+		signedIn, access, refresh, redirect, err := rig.service.CallbackRedirect(ctx, "acme", stateFromAuthURL(t, authURL), code, bind)
+		require.NoError(t, err)
+		require.Equal(t, user.ID, signedIn.ID)
+		require.NotEmpty(t, access)
+		require.NotEmpty(t, refresh)
+		require.Equal(t, "/acme/inbox", redirect)
+		identity, err := rig.repo.GetIdentity(ctx, rig.workspace.ID, rig.idp.server.URL, "user-1")
+		require.NoError(t, err)
+		require.NotNil(t, identity)
+		require.Equal(t, user.ID, identity.UserID)
+	})
+
+	t.Run("non-member cannot start a link", func(t *testing.T) {
+		rig, _ := newLinkedRig(t)
+		_, _, err := rig.service.StartLink(ctx, "acme", uuid.New(), "")
+		require.ErrorIs(t, err, ErrSSONotMember)
+	})
+
+	t.Run("subject linked to another account is refused", func(t *testing.T) {
+		rig, user := newLinkedRig(t)
+		other := &domain.User{ID: uuid.New(), Email: "other@example.com", Name: "Other", PasswordHash: "hash"}
+		rig.users.users[other.ID] = other
+		rig.repo.users[other.ID] = other
+		rig.repo.identities[identityKey(rig.workspace.ID, rig.idp.server.URL, "user-1")] = &domain.UserIdentity{
+			ID: uuid.New(), UserID: other.ID, WorkspaceID: rig.workspace.ID,
+			Provider: domain.ProviderOIDC, Issuer: rig.idp.server.URL, Subject: "user-1", Email: other.Email,
+		}
+		authURL, bind, err := rig.service.StartLink(ctx, "acme", user.ID, "")
+		require.NoError(t, err)
+		code := rig.idp.authorize(t, authURL, nil)
+		_, _, _, _, err = rig.service.CallbackRedirect(ctx, "acme", stateFromAuthURL(t, authURL), code, bind)
+		require.ErrorIs(t, err, ErrSSOIdentityTaken)
+	})
+
+	t.Run("link state cannot be replayed on another workspace", func(t *testing.T) {
+		rig, user := newLinkedRig(t)
+		other := &domain.Workspace{ID: uuid.New(), Slug: "beta", Name: "Beta", OwnerID: uuid.New()}
+		rig.service.workspaces.(ssoFakeWorkspaces).workspaces["beta"] = other
+		secret, err := kcrypto.Encrypt("client-secret", rig.key)
+		require.NoError(t, err)
+		rig.repo.configs[other.ID] = &domain.SSOConfig{
+			WorkspaceID: other.ID, IssuerURL: rig.idp.server.URL, ClientID: "test-client",
+			ClientSecretEncrypted: secret, DefaultRole: domain.RoleMember, Enabled: true, UpdatedAt: time.Now(),
+		}
+		authURL, bind, err := rig.service.StartLink(ctx, "acme", user.ID, "")
+		require.NoError(t, err)
+		code := rig.idp.authorize(t, authURL, nil)
+		_, _, _, _, err = rig.service.CallbackRedirect(ctx, "beta", stateFromAuthURL(t, authURL), code, bind)
+		require.ErrorIs(t, err, ErrSSOStateInvalid)
+	})
+
+	t.Run("link flow still honours allowed domains", func(t *testing.T) {
+		rig, user := newLinkedRig(t)
+		rig.repo.configs[rig.workspace.ID].AllowedDomains = []string{"company.example"}
+		authURL, bind, err := rig.service.StartLink(ctx, "acme", user.ID, "")
+		require.NoError(t, err)
+		code := rig.idp.authorize(t, authURL, nil)
+		_, _, _, _, err = rig.service.CallbackRedirect(ctx, "acme", stateFromAuthURL(t, authURL), code, bind)
+		require.ErrorIs(t, err, ErrSSODomainNotAllowed)
+	})
+}
+
+func TestSSOReturningIdentityRechecksMembershipAndDomain(t *testing.T) {
+	t.Run("removed member is refused", func(t *testing.T) {
+		rig := newSSOTestRig(t)
+		user, _, _, _, err := rig.callback(t, nil)
+		require.NoError(t, err)
+		delete(rig.repo.memberships, rig.workspace.ID.String()+"|"+user.ID.String())
+		_, _, _, _, err = rig.callback(t, nil)
+		require.ErrorIs(t, err, ErrSSONotMember)
+	})
+
+	t.Run("narrowed allowed domains cut off returning identities", func(t *testing.T) {
+		rig := newSSOTestRig(t)
+		_, _, _, _, err := rig.callback(t, nil)
+		require.NoError(t, err)
+		rig.repo.configs[rig.workspace.ID].AllowedDomains = []string{"company.example"}
+		_, _, _, _, err = rig.callback(t, func(c *fakeIDPCode) { c.claims["email"] = "person@other.example" })
+		require.ErrorIs(t, err, ErrSSODomainNotAllowed)
+	})
+}
+
+func TestSSOIssuerWithTrailingSlash(t *testing.T) {
+	rig := newSSOTestRig(t)
+	rig.idp.issuerPath = "/"
+	issuer := rig.idp.issuer()
+
+	// Saving keeps the trailing slash that discovery advertises.
+	_, err := rig.service.SaveConfig(context.Background(), "acme", dto.SSOConfigRequest{
+		IssuerURL: issuer, ClientID: "test-client", DefaultRole: domain.RoleMember,
+		Enabled: true, AllowedDomains: []string{"example.com"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, issuer, rig.repo.configs[rig.workspace.ID].IssuerURL)
+
 	user, _, _, _, err := rig.callback(t, nil)
 	require.NoError(t, err)
-	require.Equal(t, existing.ID, user.ID)
-	require.Len(t, rig.repo.provisioned, 1)
-	require.Equal(t, existing.Email, rig.repo.provisioned[0].Email)
-	require.Equal(t, domain.RoleMember, rig.repo.memberships[rig.workspace.ID.String()+"|"+existing.ID.String()])
+	require.Equal(t, "person@example.com", user.Email)
+}
 
-	second := newSSOTestRig(t)
-	secondExisting := &domain.User{ID: uuid.New(), Email: "person@example.com", Name: "Existing", PasswordHash: "hash"}
-	second.users.users[secondExisting.ID] = secondExisting
-	second.repo.users[secondExisting.ID] = secondExisting
-	_, _, _, _, err = second.callback(t, func(c *fakeIDPCode) { c.claims["email_verified"] = false })
-	require.ErrorIs(t, err, ErrSSOEmailUnverified)
-	require.Empty(t, second.repo.identities)
-	require.Empty(t, second.repo.memberships)
+func TestSSOLinkRejectsWrongBrowserBinding(t *testing.T) {
+	rig := newSSOTestRig(t)
+	user := &domain.User{ID: uuid.New(), Email: "person@example.com", Name: "Existing", PasswordHash: "hash"}
+	rig.users.users[user.ID] = user
+	rig.repo.users[user.ID] = user
+	rig.repo.memberships[rig.workspace.ID.String()+"|"+user.ID.String()] = domain.RoleMember
+
+	authURL, _, err := rig.service.StartLink(context.Background(), "acme", user.ID, "")
+	require.NoError(t, err)
+	code := rig.idp.authorize(t, authURL, nil)
+	_, _, _, _, err = rig.service.CallbackRedirect(context.Background(), "acme", stateFromAuthURL(t, authURL), code, "wrong-bind")
+	require.ErrorIs(t, err, ErrSSOStateInvalid)
+	require.Empty(t, rig.repo.identities)
 }
 
 func TestSSOIdentityInAnotherWorkspaceDoesNotAuthenticate(t *testing.T) {
 	rig := newSSOTestRig(t)
 	other := &domain.Workspace{ID: uuid.New(), Slug: "beta", Name: "Beta", OwnerID: uuid.New()}
-	rig.service.workspaces.(ssoFakeWorkspaces)["beta"] = other
+	rig.service.workspaces.(ssoFakeWorkspaces).workspaces["beta"] = other
 	secret, err := kcrypto.Encrypt("client-secret", rig.key)
 	require.NoError(t, err)
 	rig.repo.configs[other.ID] = &domain.SSOConfig{
@@ -669,7 +853,7 @@ func sha256Challenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-func TestUserSSORequiredExemptsOwnersAndNonEnforcedWorkspaces(t *testing.T) {
+func TestUserSSORequiredUsesLinkedIdentities(t *testing.T) {
 	rig := newSSOTestRig(t)
 	ctx := context.Background()
 	userID := uuid.New()
@@ -679,11 +863,27 @@ func TestUserSSORequiredExemptsOwnersAndNonEnforcedWorkspaces(t *testing.T) {
 		DefaultRole: domain.RoleMember, Enabled: true, RequireSSO: true, UpdatedAt: time.Now(),
 	}
 	rig.repo.configs[rig.workspace.ID].RequireSSO = true
+	link := func(workspaceID uuid.UUID) {
+		rig.repo.identities[identityKey(workspaceID, rig.idp.server.URL, "user-"+workspaceID.String())] = &domain.UserIdentity{
+			ID: uuid.New(), UserID: userID, WorkspaceID: workspaceID,
+			Provider: domain.ProviderOIDC, Issuer: rig.idp.server.URL, Subject: "user-" + workspaceID.String(),
+		}
+	}
 
 	rig.repo.roles = []domain.SSOWorkspaceRole{
 		{WorkspaceID: rig.workspace.ID, Slug: "acme", Role: domain.RoleMember},
 		{WorkspaceID: second.ID, Slug: "beta", Role: domain.RoleMember},
 	}
+	// No identity yet: the account must still be able to sign in with its
+	// password and link, so password sign-in is not refused.
+	_, required, err := rig.service.UserSSORequired(ctx, userID)
+	require.NoError(t, err)
+	require.False(t, required)
+
+	// With a linked identity in every enforced workspace, password sign-in is
+	// refused and the first workspace is named.
+	link(rig.workspace.ID)
+	link(second.ID)
 	slug, required, err := rig.service.UserSSORequired(ctx, userID)
 	require.NoError(t, err)
 	require.True(t, required)

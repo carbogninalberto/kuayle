@@ -47,6 +47,16 @@ var (
 	ErrSSOInstanceManaged = errors.New("SSO for this workspace is managed by the instance configuration")
 	// ErrSSOInvalidInput is the base of a safe validation failure.
 	ErrSSOInvalidInput = errors.New("invalid SSO configuration")
+	// ErrSSOLinkRequired: the verified email belongs to an existing account,
+	// which must link the identity from its own authenticated session.
+	ErrSSOLinkRequired = errors.New("the existing account must sign in and link SSO")
+	// ErrSSONotMember: the account is not a member of the workspace any more.
+	ErrSSONotMember = errors.New("the account is not a member of this workspace")
+	// ErrSSOIdentityTaken: the IdP subject is linked to another account.
+	ErrSSOIdentityTaken = errors.New("this identity is already linked to another account")
+	// ErrSSOSessionScoped: the SSO-minted session may only act in the
+	// workspace whose IdP minted it.
+	ErrSSOSessionScoped = errors.New("this session is limited to its SSO workspace")
 )
 
 // SSOConfigError is a validation failure whose message is safe to show to the
@@ -77,9 +87,11 @@ func (c InstanceSSOConfig) Configured() bool {
 	return strings.TrimSpace(c.WorkspaceSlug) != "" && strings.TrimSpace(c.IssuerURL) != "" && strings.TrimSpace(c.ClientID) != ""
 }
 
-// SSOWorkspaceLookup resolves a workspace slug for the public sign-in routes.
+// SSOWorkspaceLookup resolves a workspace slug and the caller's membership for
+// the public sign-in routes.
 type SSOWorkspaceLookup interface {
 	GetBySlug(ctx context.Context, slug string) (*domain.Workspace, error)
+	GetMember(ctx context.Context, workspaceID, userID uuid.UUID) (*domain.WorkspaceMember, error)
 }
 
 type resolvedSSOConfig struct {
@@ -179,7 +191,7 @@ func (s *SSOService) resolved(ctx context.Context, workspaceID uuid.UUID) (*reso
 		if instance != nil && instance.ID == workspaceID {
 			return &resolvedSSOConfig{
 				WorkspaceID:       workspaceID,
-				IssuerURL:         strings.TrimRight(s.instance.IssuerURL, "/"),
+				IssuerURL:         strings.TrimSpace(s.instance.IssuerURL),
 				ClientID:          s.instance.ClientID,
 				ClientSecret:      s.instance.ClientSecret,
 				AllowedDomains:    normalizeDomains(s.instance.AllowedDomains),
@@ -203,7 +215,7 @@ func (s *SSOService) resolved(ctx context.Context, workspaceID uuid.UUID) (*reso
 	}
 	return &resolvedSSOConfig{
 		WorkspaceID:    stored.WorkspaceID,
-		IssuerURL:      strings.TrimRight(stored.IssuerURL, "/"),
+		IssuerURL:      strings.TrimSpace(stored.IssuerURL),
 		ClientID:       stored.ClientID,
 		ClientSecret:   secret,
 		AllowedDomains: normalizeDomains(stored.AllowedDomains),
@@ -226,8 +238,10 @@ func (s *SSOService) RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (bo
 }
 
 // UserSSORequired reports whether every workspace the user belongs to requires
-// SSO and none of them is owned by the user. It returns one workspace slug to
-// start the flow from.
+// SSO, has a linked identity for the user and is not owned by them. It returns
+// one workspace slug to start the flow from. A workspace without a linked
+// identity never blocks the password sign-in: the user must be able to sign in
+// first and link.
 func (s *SSOService) UserSSORequired(ctx context.Context, userID uuid.UUID) (string, bool, error) {
 	roles, err := s.repo.UserWorkspaceRoles(ctx, userID)
 	if err != nil {
@@ -246,6 +260,13 @@ func (s *SSOService) UserSSORequired(ctx context.Context, userID uuid.UUID) (str
 			return "", false, err
 		}
 		if !required {
+			return "", false, nil
+		}
+		hasIdentity, err := s.repo.HasIdentity(ctx, userID, membership.WorkspaceID)
+		if err != nil {
+			return "", false, err
+		}
+		if !hasIdentity {
 			return "", false, nil
 		}
 		if slug == "" {
@@ -304,12 +325,20 @@ func (s *SSOService) SaveConfig(ctx context.Context, slug string, req dto.SSOCon
 	if !validSSODefaultRole(req.DefaultRole) {
 		return nil, ssoInvalidf("Default role must be member or guest")
 	}
-	issuer, err := validate.OperatorBaseURL(req.IssuerURL)
+	rawIssuer := strings.TrimSpace(req.IssuerURL)
+	issuer, err := validate.OperatorBaseURL(rawIssuer)
 	if err != nil {
 		return nil, ssoInvalidf("Issuer URL %s", err.Error())
 	}
 	if issuer.Scheme != "https" && !s.allowPrivate {
 		return nil, ssoInvalidf("Issuer URL must use https; set OIDC_ALLOW_PRIVATE_NETWORK for a private http identity provider")
+	}
+	// go-oidc matches the issuer exactly. OperatorBaseURL drops a trailing
+	// slash for dialing, so put it back when the admin entered one: Auth0's
+	// issuer is "https://tenant.auth0.com/".
+	issuerURL := issuer.String()
+	if strings.HasSuffix(rawIssuer, "/") && !strings.HasSuffix(issuerURL, "/") {
+		issuerURL += "/"
 	}
 	clientID := strings.TrimSpace(req.ClientID)
 	if clientID == "" {
@@ -322,7 +351,7 @@ func (s *SSOService) SaveConfig(ctx context.Context, slug string, req dto.SSOCon
 
 	// Discovery validates the issuer and must happen before the secret is
 	// touched or stored. A failure never echoes the client secret.
-	probe := &resolvedSSOConfig{IssuerURL: issuer.String(), ClientID: clientID}
+	probe := &resolvedSSOConfig{IssuerURL: issuerURL, ClientID: clientID}
 	probeCtx := oidc.ClientContext(ctx, s.httpClient)
 	if _, err := oidc.NewProvider(probeCtx, probe.IssuerURL); err != nil {
 		return nil, ssoInvalidf("OIDC discovery failed for the issuer URL")
@@ -334,7 +363,7 @@ func (s *SSOService) SaveConfig(ctx context.Context, slug string, req dto.SSOCon
 	}
 	config := &domain.SSOConfig{
 		WorkspaceID:    ws.ID,
-		IssuerURL:      issuer.String(),
+		IssuerURL:      issuerURL,
 		ClientID:       clientID,
 		AllowedDomains: domains,
 		ProviderName:   strings.TrimSpace(req.ProviderName),
@@ -402,6 +431,27 @@ func (s *SSOService) Start(ctx context.Context, slug, redirectAfter string) (str
 	if err != nil {
 		return "", "", err
 	}
+	return s.startFlow(ctx, ws, redirectAfter, nil)
+}
+
+// StartLink begins an authorization-code flow that links the returned identity
+// to the signed-in account. Only the account's own session may request it.
+func (s *SSOService) StartLink(ctx context.Context, slug string, userID uuid.UUID, redirectAfter string) (string, string, error) {
+	ws, err := s.workspace(ctx, slug)
+	if err != nil {
+		return "", "", err
+	}
+	member, err := s.workspaces.GetMember(ctx, ws.ID, userID)
+	if err != nil {
+		return "", "", err
+	}
+	if member == nil {
+		return "", "", ErrSSONotMember
+	}
+	return s.startFlow(ctx, ws, redirectAfter, &userID)
+}
+
+func (s *SSOService) startFlow(ctx context.Context, ws *domain.Workspace, redirectAfter string, linkUserID *uuid.UUID) (string, string, error) {
 	config, err := s.resolved(ctx, ws.ID)
 	if err != nil {
 		return "", "", err
@@ -438,6 +488,7 @@ func (s *SSOService) Start(ctx context.Context, slug, redirectAfter string) (str
 		CodeVerifierEncrypted: encryptedVerifier,
 		BindHash:              hashValue(bind),
 		RedirectAfter:         SanitizeRedirectAfter(redirectAfter),
+		LinkUserID:            linkUserID,
 		ExpiresAt:             s.now().Add(SSOLoginStateTTL),
 	}
 	if err := s.repo.CreateLoginState(ctx, loginState); err != nil {
@@ -527,7 +578,57 @@ func (s *SSOService) CallbackRedirect(ctx context.Context, slug, state, code, bi
 	if err != nil {
 		return nil, "", "", "", err
 	}
+	if loginState.LinkUserID != nil {
+		// The session already proved the account, so the IdP only has to
+		// prove the subject. Linking never adds membership.
+		linkedUserID := *loginState.LinkUserID
+		if identity != nil && identity.UserID != linkedUserID {
+			return nil, "", "", "", ErrSSOIdentityTaken
+		}
+		member, err := s.workspaces.GetMember(ctx, ws.ID, linkedUserID)
+		if err != nil {
+			return nil, "", "", "", err
+		}
+		if member == nil {
+			return nil, "", "", "", ErrSSONotMember
+		}
+		if len(config.AllowedDomains) > 0 && (email == "" || !domainAllowed(email, config.AllowedDomains)) {
+			return nil, "", "", "", ErrSSODomainNotAllowed
+		}
+		if _, err := s.repo.LinkIdentity(ctx, linkedUserID, ws.ID, domain.ProviderOIDC,
+			idToken.Issuer, idToken.Subject, email); err != nil {
+			if errors.Is(err, repository.ErrSSOIdentityTaken) {
+				return nil, "", "", "", ErrSSOIdentityTaken
+			}
+			return nil, "", "", "", err
+		}
+		user, err := s.users.GetByID(ctx, linkedUserID)
+		if err != nil {
+			return nil, "", "", "", err
+		}
+		if user == nil {
+			return nil, "", "", "", ErrSSOTokenInvalid
+		}
+		accessToken, refreshToken, err := s.auth.IssueSSOSession(ctx, user.ID, ws.ID)
+		if err != nil {
+			return nil, "", "", "", err
+		}
+		return user, accessToken, refreshToken, loginState.RedirectAfter, nil
+	}
+
 	if identity != nil {
+		// A returning identity still needs current membership and, when the
+		// workspace narrowed allowed_domains, a current email inside them.
+		member, err := s.workspaces.GetMember(ctx, ws.ID, identity.UserID)
+		if err != nil {
+			return nil, "", "", "", err
+		}
+		if member == nil {
+			return nil, "", "", "", ErrSSONotMember
+		}
+		if len(config.AllowedDomains) > 0 && (email == "" || !domainAllowed(email, config.AllowedDomains)) {
+			return nil, "", "", "", ErrSSODomainNotAllowed
+		}
 		user, err := s.users.GetByID(ctx, identity.UserID)
 		if err != nil {
 			return nil, "", "", "", err
@@ -571,6 +672,12 @@ func (s *SSOService) CallbackRedirect(ctx context.Context, slug, state, code, bi
 		PasswordHash: passwordHash,
 	})
 	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrSSOLinkRequired):
+			return nil, "", "", "", ErrSSOLinkRequired
+		case errors.Is(err, repository.ErrSSOIdentityTaken):
+			return nil, "", "", "", ErrSSOIdentityTaken
+		}
 		return nil, "", "", "", err
 	}
 	accessToken, refreshToken, err := s.auth.IssueSSOSession(ctx, user.ID, ws.ID)

@@ -32,6 +32,10 @@ export interface SSOPublicInfo {
 	provider_name: string;
 }
 
+export interface SSOLinkResponse {
+	auth_url: string;
+}
+
 const path = (slug: string) => `/api/workspaces/${encodeURIComponent(slug)}/sso`;
 
 export const sso = {
@@ -42,5 +46,16 @@ export const sso = {
 		api.get<SSOPublicInfo>(`/api/auth/sso/${encodeURIComponent(slug)}`, {
 			redirectOnUnauthorized: false,
 			retryUnauthorized: false
-		})
+		}),
+	/** Link the IdP subject to the signed-in account, returning the IdP URL. */
+	startLink: (slug: string, redirectAfter?: string) => {
+		const target = redirectAfter?.trim();
+		const query =
+			target && target.startsWith('/') && !target.startsWith('//')
+				? `?redirect_after=${encodeURIComponent(target)}`
+				: '';
+		return api.post<SSOLinkResponse>(
+			`/api/auth/sso/${encodeURIComponent(slug)}/link${query}`
+		);
+	}
 };

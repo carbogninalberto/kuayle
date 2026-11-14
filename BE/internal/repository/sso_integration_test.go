@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -119,18 +118,40 @@ func TestSSORepositoryPostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, domain.RoleGuest, member.Role, "an existing membership keeps its role")
 
-	// A verified email that already has an account links to it instead of
-	// creating a duplicate.
-	linked, err := repo.ProvisionIdentity(ctx, SSOProvisionParams{
+	// A verified email that already has an account is never auto-linked: the
+	// sign-in must come from that account's own authenticated link flow.
+	_, err = repo.ProvisionIdentity(ctx, SSOProvisionParams{
 		WorkspaceID: workspace.ID, Issuer: "https://idp.example", Subject: "subject-2",
 		Provider: domain.ProviderOIDC, Email: owner.Email, Name: "Owner via SSO",
 		DefaultRole: domain.RoleMember, PasswordHash: "other-hash",
 	})
+	require.ErrorIs(t, err, ErrSSOLinkRequired)
+	stillUnlinked, err := repo.GetIdentity(ctx, workspace.ID, "https://idp.example", "subject-2")
 	require.NoError(t, err)
-	require.Equal(t, owner.ID, linked.ID)
+	require.Nil(t, stillUnlinked)
+
+	// The account's own link flow binds the subject without adding membership.
+	linkedIdentity, err := repo.LinkIdentity(ctx, owner.ID, workspace.ID, domain.ProviderOIDC, "https://idp.example", "subject-2", owner.Email)
+	require.NoError(t, err)
+	require.Equal(t, owner.ID, linkedIdentity.UserID)
 	member, err = workspaceRepo.GetMember(ctx, workspace.ID, owner.ID)
 	require.NoError(t, err)
 	require.Equal(t, domain.RoleOwner, member.Role, "linking never changes an existing role")
+	hasIdentity, err := repo.HasIdentity(ctx, owner.ID, workspace.ID)
+	require.NoError(t, err)
+	require.True(t, hasIdentity)
+
+	// The same subject cannot be rebound to another account.
+	other := &domain.User{ID: uuid.New(), Email: uuid.NewString() + "@example.test", Name: "Other", PasswordHash: "hash"}
+	require.NoError(t, NewUserRepository(db).Create(ctx, other))
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM users WHERE id = $1`, other.ID) })
+	_, err = repo.LinkIdentity(ctx, other.ID, workspace.ID, domain.ProviderOIDC, "https://idp.example", "subject-2", other.Email)
+	require.ErrorIs(t, err, ErrSSOIdentityTaken)
+
+	// Linking is idempotent for the same account.
+	linkedAgain, err := repo.LinkIdentity(ctx, owner.ID, workspace.ID, domain.ProviderOIDC, "https://idp.example", "subject-2", owner.Email)
+	require.NoError(t, err)
+	require.Equal(t, owner.ID, linkedAgain.UserID)
 
 	roles, err := repo.UserWorkspaceRoles(ctx, user.ID)
 	require.NoError(t, err)
@@ -138,19 +159,18 @@ func TestSSORepositoryPostgres(t *testing.T) {
 	require.Equal(t, workspace.Slug, roles[0].Slug)
 	require.Equal(t, domain.RoleGuest, roles[0].Role)
 
-	// Two concurrent first sign-ins with different subjects and the same
-	// verified email converge on one account instead of failing the transaction
-	// with a unique violation.
+	// Two concurrent first sign-ins of the same subject converge on one
+	// account instead of failing the transaction with a unique violation.
 	concurrentEmail := uuid.NewString() + "@example.test"
 	users := make(chan *domain.User, 2)
 	failures := make(chan error, 2)
 	var wait sync.WaitGroup
 	for index := 0; index < 2; index++ {
 		wait.Add(1)
-		go func(index int) {
+		go func() {
 			defer wait.Done()
 			concurrentUser, err := repo.ProvisionIdentity(ctx, SSOProvisionParams{
-				WorkspaceID: workspace.ID, Issuer: "https://idp.example", Subject: fmt.Sprintf("subject-concurrent-%d", index),
+				WorkspaceID: workspace.ID, Issuer: "https://idp.example", Subject: "subject-concurrent",
 				Provider: domain.ProviderOIDC, Email: concurrentEmail, Name: "Concurrent Person",
 				DefaultRole: domain.RoleMember, PasswordHash: "other-hash",
 			})
@@ -159,7 +179,7 @@ func TestSSORepositoryPostgres(t *testing.T) {
 				return
 			}
 			users <- concurrentUser
-		}(index)
+		}()
 	}
 	wait.Wait()
 	close(users)

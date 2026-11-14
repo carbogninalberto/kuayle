@@ -88,7 +88,7 @@ func runMembership(t *testing.T, repo *fakeWorkspaceRepo, userID uuid.UUID, toke
 	if markPAT {
 		c.Set(TokenWorkspacesKey, tokenWorkspaces)
 	}
-	handler := WorkspaceMembership(repo)(func(c *echo.Context) error {
+	handler := WorkspaceMembership(repo, SSONotEnforced)(func(c *echo.Context) error {
 		return c.NoContent(http.StatusNoContent)
 	})
 	require.NoError(t, handler(c))
@@ -170,9 +170,10 @@ func TestWorkspaceMembershipRequiresSSO(t *testing.T) {
 	code, _ = runMembershipWithSSO(t, repo, sso, userID, workspaceID, false)
 	assert.Equal(t, http.StatusNoContent, code)
 
-	// A session minted by another workspace's SSO does not.
-	code, _ = runMembershipWithSSO(t, repo, sso, userID, otherWorkspaceID, false)
+	// A session minted by another workspace's SSO is refused as scoped.
+	code, body = runMembershipWithSSO(t, repo, sso, userID, otherWorkspaceID, false)
 	assert.Equal(t, http.StatusForbidden, code)
+	assert.Contains(t, body, `"code":"SSO_SESSION_SCOPED"`)
 
 	// Owners keep the break-glass password path.
 	repo.member.Role = domain.RoleOwner
@@ -187,5 +188,33 @@ func TestWorkspaceMembershipRequiresSSO(t *testing.T) {
 	// Without require-SSO a password session stays valid.
 	repo.member.Role = domain.RoleMember
 	code, _ = runMembershipWithSSO(t, repo, fakeSSORequirement{}, userID, uuid.Nil, false)
+	assert.Equal(t, http.StatusNoContent, code)
+}
+
+func TestWorkspaceMembershipRequiresSSOSource(t *testing.T) {
+	require.Panics(t, func() { WorkspaceMembership(&fakeWorkspaceRepo{}, nil) })
+}
+
+func TestWorkspaceMembershipScopesSSOSessionToItsWorkspace(t *testing.T) {
+	userID := uuid.New()
+	workspaceID := uuid.New()
+	otherWorkspaceID := uuid.New()
+	repo := &fakeWorkspaceRepo{
+		workspace: &domain.Workspace{ID: workspaceID, Slug: "acme"},
+		member:    &domain.WorkspaceMember{WorkspaceID: workspaceID, UserID: userID, Role: domain.RoleMember},
+	}
+	sso := fakeSSORequirement{}
+
+	// The session's own workspace passes.
+	code, _ := runMembershipWithSSO(t, repo, sso, userID, workspaceID, false)
+	assert.Equal(t, http.StatusNoContent, code)
+
+	// Another workspace is refused even when it does not require SSO.
+	code, body := runMembershipWithSSO(t, repo, sso, userID, otherWorkspaceID, false)
+	assert.Equal(t, http.StatusForbidden, code)
+	assert.Contains(t, body, `"code":"SSO_SESSION_SCOPED"`)
+
+	// Personal access tokens are unaffected by the session scope.
+	code, _ = runMembershipWithSSO(t, repo, sso, userID, otherWorkspaceID, true)
 	assert.Equal(t, http.StatusNoContent, code)
 }

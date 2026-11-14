@@ -14,30 +14,76 @@ to register at the identity provider.
 1. Kuayle sends the browser to the provider with an authorization-code request
    (PKCE `S256`, a random state and a random nonce). The flow state is stored
    server-side for ten minutes, keyed by the SHA-256 of the state, and bound to
-   the browser with an HttpOnly `kuayle_sso_bind` cookie.
+   the browser with an HttpOnly cookie named `kuayle_sso_bind_<state digest>`
+   whose path is that flow's callback. Two tabs or two workspaces can run at
+   once without overwriting each other's binding.
 2. The provider redirects to
    `https://<your-kuayle>/api/auth/sso/<workspace-slug>/callback`. Kuayle consumes
    the state once, checks the browser binding, exchanges the code with the PKCE
    verifier, and verifies the ID token signature, issuer, audience, expiry and
    nonce with the discovery document's JWKS.
 3. Kuayle looks up the identity by `(workspace, issuer, subject)`.
-   - A known identity signs that user in.
+   - A known identity signs that user in, but only while the user is still a
+     member of the workspace and, when `allowed_domains` is set, only with a
+     current email inside that list. Removing a member or narrowing the domains
+     therefore cuts off returning identities too.
    - Otherwise the email must be present and `email_verified: true`. A missing
      claim counts as unverified.
    - The email domain must be in the workspace's allowed domains (an empty list
      allows any domain the provider verified).
-   - An existing Kuayle account with that verified email is linked. The account
-     is never linked on an unverified email.
+   - An existing Kuayle account with that verified email is **never linked
+     automatically**: Kuayle refuses with `link_required`. The account owner
+     signs in with their password (or passkey) and then links the identity from
+     the profile page or the sign-in page. Only that authenticated session may
+     bind the IdP subject. Being invited to, or added to, a workspace is not
+     consent to link.
    - Otherwise Kuayle creates the account with a random unusable password and
      adds it to the workspace with the configured default role (`member` or
-     `guest`).
+     `guest`). Linking an existing account never adds membership.
 4. The session carries the workspace that minted it, also across refresh-token
-   rotation, so require-SSO enforcement does not disappear when the access token
-   is refreshed.
+   rotation, and that scope is enforced on every request: an SSO session only
+   works in the workspace whose IdP minted it.
 
 Identities are unique per `(workspace, issuer, subject)`. A configuration in
 workspace A therefore cannot authenticate into workspace B, and a state started
 for A is refused on B's callback.
+
+## The trust model of an SSO session
+
+A workspace owner or admin controls that workspace's IdP and can mint any
+subject, so an SSO-minted session is deliberately limited to its own workspace:
+
+- Other workspaces return `403 SSO_SESSION_SCOPED`; the workspace list hides
+  them.
+- Account-level and durable actions are refused in the same way: registering or
+  deleting passkeys, changing the profile or avatar, creating a personal access
+  token for any other workspace (or for all workspaces), creating CLI links,
+  creating or importing workspaces, accepting invites, and starting a system
+  update.
+- A personal access token may be created only when it is restricted to exactly
+  the SSO workspace's slug. That token is a normal PAT and is not protected by
+  this scope afterwards.
+
+Use a password or passkey sign-in for account administration. This is what stops
+an admin of one workspace from claiming a victim's email at their own IdP and
+taking over the victim's other workspaces or credentials.
+
+## Linking an existing account
+
+An existing account is linked only by a session that already proved the
+account's own credential:
+
+1. Sign in with the password (or passkey) as usual.
+2. If the workspace offers SSO, the profile page shows **Link SSO sign-in**, or
+   the `link_required` redirect on the sign-in page resumes the flow after the
+   password sign-in.
+3. The browser goes to the IdP, then back to the callback. Kuayle binds the
+   subject to the signed-in account and signs it in with a scoped session. No
+   workspace membership is added.
+
+An existing account is never linked by a public SSO callback, even when the IdP
+asserts a verified email and even when the account is already a member.
+
 
 ## Configure a provider
 
@@ -45,7 +91,9 @@ You need:
 
 - **Issuer URL**: the OIDC discovery issuer. Kuayle fetches
   `<issuer>/.well-known/openid-configuration`. Most providers want the bare
-  realm/tenant URL without `/.well-known/...`.
+  realm/tenant URL without `/.well-known/...`. The issuer is matched exactly as
+  entered (only surrounding whitespace is trimmed): if the provider's discovery
+  document ends with `/` (Auth0 does), keep the trailing slash.
 - **Client ID** and **client secret**.
 - **Redirect URI**: copy it from the settings page; it is
   `https://<your-kuayle>/api/auth/sso/<workspace-slug>/callback` (the exact
@@ -90,10 +138,12 @@ Owners keep password sign-in for that workspace as the break-glass path. An
 owner should keep an up-to-date password (and ideally a passkey) so a
 misconfigured identity provider cannot lock the workspace out.
 
-Password and passkey sign-in are also refused with `403 SSO_REQUIRED` only when
-**every** workspace the account belongs to requires SSO and the account owns
-none of them. Members of several workspaces keep password access to the ones
-that do not require SSO.
+Password and passkey sign-in are refused only when **every** workspace the
+account belongs to requires SSO, the account has a linked identity in each of
+them and the account owns none of them. An account without a linked identity can
+still sign in with its password and link: never lock out the very people who
+need to link. Members of several workspaces keep password access to the ones that
+do not require SSO.
 
 Personal access tokens are **not** affected in phase 1: a PAT remains usable in a
 workspace that requires SSO. SCIM 2.0 deprovisioning (phase 3) will revoke a
@@ -178,6 +228,15 @@ development Compose file.
 - **`token_invalid`**: discovery, the token exchange, PKCE, the signature,
   issuer, audience, expiry or nonce check failed. Check the issuer URL, client
   ID/secret and the provider's clock.
+- **`link_required`**: an account with this verified email already exists.
+  Sign in with the password (or passkey) and use **Link SSO sign-in**.
+- **`not_member`**: the identity is linked, but the account is no longer a
+  member of the workspace, or it tried to link while not a member.
+- **`identity_taken`**: the IdP subject is already linked to another account in
+  this workspace. Use a different IdP subject or unlink the other account.
+- **`SSO_SESSION_SCOPED`**: the request came from an SSO session and targets
+  another workspace or a durable/account-level action. Sign in with the password
+  or passkey for those actions.
 - **`provider_error`**: the provider redirected back with an error. Its text is
   deliberately not shown or logged; check the provider's own logs.
 

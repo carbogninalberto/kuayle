@@ -57,7 +57,7 @@ func TestAssistantCustomToolsHTTP(t *testing.T) {
 	tokens := repository.NewPersonalAccessTokenRepository(db)
 	secret := "tools-http-test-secret-at-least-32-chars"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
-	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces)
+	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces, mw.SSONotEnforced)
 	e := echo.New()
 	registerRoutes(e, &appHandlers{assistantTool: handler.NewAssistantCustomToolHandler(tools)}, middleware)
 	server := httptest.NewServer(e)

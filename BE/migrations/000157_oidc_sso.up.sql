@@ -42,6 +42,9 @@ CREATE TABLE sso_login_states (
     code_verifier_encrypted TEXT NOT NULL,
     bind_hash TEXT NOT NULL,
     redirect_after TEXT NOT NULL DEFAULT '',
+    -- Set when the flow started from an authenticated session that wants to
+    -- link this IdP subject to that account. Never set by a public sign-in.
+    link_user_id UUID NULL REFERENCES users(id) ON DELETE CASCADE,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

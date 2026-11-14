@@ -172,16 +172,19 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// User
 	scoped(api, http.MethodGet, "/auth/me", h.auth.Me, "account:read")
-	sessionOnly(api, http.MethodPatch, "/auth/me", h.auth.UpdateProfile)
-	sessionOnly(api, http.MethodPost, "/auth/me/avatar", h.auth.UploadAvatar)
+	sessionOnly(api, http.MethodPatch, "/auth/me", h.auth.UpdateProfile, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/auth/me/avatar", h.auth.UploadAvatar, mw.RejectSSOScopedSession())
 	scoped(api, http.MethodGet, "/users/:userId/avatar/:file", h.auth.GetAvatar, "account:read")
 	// Passkey management is for interactive sessions only; a token can neither
 	// add a way to sign in nor inspect the existing ones.
-	sessionOnly(api, http.MethodPost, "/auth/passkey/register/begin", h.passkey.BeginRegistration, m.authRateLimit)
-	sessionOnly(api, http.MethodPost, "/auth/passkey/register/complete", h.passkey.FinishRegistration, m.authRateLimit)
+	sessionOnly(api, http.MethodPost, "/auth/passkey/register/begin", h.passkey.BeginRegistration, mw.RejectSSOScopedSession(), m.authRateLimit)
+	sessionOnly(api, http.MethodPost, "/auth/passkey/register/complete", h.passkey.FinishRegistration, mw.RejectSSOScopedSession(), m.authRateLimit)
+	// Linking a subject to the signed-in account needs that account's own
+	// session; it is not a public sign-in and not available to a token.
+	sessionOnly(api, http.MethodPost, "/auth/sso/:slug/link", h.sso.StartLink, mw.RejectSSOScopedSession(), m.authRateLimit)
 	sessionOnly(api, http.MethodGet, "/auth/passkey/credentials", h.passkey.List)
 	sessionOnly(api, http.MethodPatch, "/auth/passkey/credentials/:id", h.passkey.Rename)
-	sessionOnly(api, http.MethodDelete, "/auth/passkey/credentials/:id", h.passkey.Delete)
+	sessionOnly(api, http.MethodDelete, "/auth/passkey/credentials/:id", h.passkey.Delete, mw.RejectSSOScopedSession())
 	scoped(api, http.MethodGet, "/preferences", h.prefs.Get, "account:read", mw.RequireUnrestrictedTokenWorkspaces())
 	scoped(api, http.MethodPatch, "/preferences", h.prefs.Update, "account:write", mw.RequireUnrestrictedTokenWorkspaces())
 
@@ -193,18 +196,18 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// Connection links for kuayle_cli are created and revoked from a browser
 	// session; the public redeem route below never exposes link management.
 	sessionOnly(api, http.MethodGet, "/cli-links", h.cliLink.List)
-	sessionOnly(api, http.MethodPost, "/cli-links", h.cliLink.Create)
+	sessionOnly(api, http.MethodPost, "/cli-links", h.cliLink.Create, mw.RejectSSOScopedSession())
 	sessionOnly(api, http.MethodDelete, "/cli-links/:id", h.cliLink.Revoke)
 	sessionOnly(api, http.MethodGet, "/system/update-status", h.system.UpdateStatus)
-	sessionOnly(api, http.MethodPost, "/system/update", h.system.StartUpdate)
+	sessionOnly(api, http.MethodPost, "/system/update", h.system.StartUpdate, mw.RejectSSOScopedSession())
 
 	// Workspaces (no workspace context needed for list/create)
 	scoped(api, http.MethodGet, "/workspaces", h.workspace.List, "workspaces:read")
-	sessionOnly(api, http.MethodPost, "/workspaces", h.workspace.Create)
+	sessionOnly(api, http.MethodPost, "/workspaces", h.workspace.Create, mw.RejectSSOScopedSession())
 
-	sessionOnly(api, http.MethodPost, "/workspaces/import/preview", h.workspaceTransfer.Preview)
-	sessionOnly(api, http.MethodPost, "/workspaces/import", h.workspaceTransfer.Import)
-	sessionOnly(api, http.MethodPost, "/invite/:token/accept", h.inviteLink.Accept)
+	sessionOnly(api, http.MethodPost, "/workspaces/import/preview", h.workspaceTransfer.Preview, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/workspaces/import", h.workspaceTransfer.Import, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/invite/:token/accept", h.inviteLink.Accept, mw.RejectSSOScopedSession())
 
 	// Workspace-scoped routes
 	ws := api.Group("/workspaces/:slug", m.workspaceMembership)

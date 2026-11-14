@@ -50,8 +50,11 @@ type SSOLoginState struct {
 	CodeVerifierEncrypted string    `db:"code_verifier_encrypted"`
 	BindHash              string    `db:"bind_hash"`
 	RedirectAfter         string    `db:"redirect_after"`
-	ExpiresAt             time.Time `db:"expires_at"`
-	CreatedAt             time.Time `db:"created_at"`
+	// LinkUserID is the signed-in account that requested an identity link.
+	// It is nil for a public sign-in, which may never bind an existing account.
+	LinkUserID *uuid.UUID `db:"link_user_id"`
+	ExpiresAt  time.Time  `db:"expires_at"`
+	CreatedAt  time.Time  `db:"created_at"`
 }
 
 // SSOWorkspaceRole is one workspace a user belongs to, as needed by the

@@ -261,7 +261,13 @@ OIDC is free and ungated. SAML 2.0 and SCIM 2.0 are follow-ups.
   configuration to the instance; its settings page becomes read-only.
 - With **Require SSO** on, password and passkey sessions for members and guests
   must come from that workspace's SSO. Owners keep password sign-in as the
-  break-glass path, so an identity-provider outage cannot lock them out.
+  break-glass path, so an identity-provider outage cannot lock them out. A
+  member without a linked identity can still sign in with a password and link.
+- An SSO-minted session is scoped to its workspace: other workspaces and
+  account-level actions (passkeys, profile, workspace creation, invites, tokens
+  for other workspaces) answer `403 SSO_SESSION_SCOPED`.
+- Existing accounts are never linked by a public SSO callback; linking requires
+  signing in with the account's own password or passkey first.
 - Personal access tokens are not blocked by require-SSO in this phase; revoke
   them manually when someone leaves. SCIM deprovisioning will do it atomically.
 

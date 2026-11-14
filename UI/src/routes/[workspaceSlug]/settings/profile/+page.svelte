@@ -7,7 +7,9 @@
 	import { getMe, updateProfile } from '$lib/api/auth';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import type { User } from '$lib/types/auth';
-	import { Copy } from '@lucide/svelte';
+	import { Copy, Link2 } from '@lucide/svelte';
+	import { page } from '$app/state';
+	import { sso } from '$lib/api/sso';
 	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import AvatarDialog from '$lib/features/profile/AvatarDialog.svelte';
 	import PasskeySettings from '$lib/features/auth/PasskeySettings.svelte';
@@ -18,12 +20,35 @@
 	let displayName = $state('');
 	let avatarOpen = $state(false);
 	let saving = $state(false);
+	let ssoAvailable = $state(false);
+	let ssoLinking = $state(false);
+	const workspaceSlug = $derived(page.params.workspaceSlug ?? '');
 
 	onMount(async () => {
 		user = authState.user ?? await getMe();
 		name = user.name;
 		displayName = user.display_name;
+		if (workspaceSlug) {
+			try {
+				ssoAvailable = (await sso.publicInfo(workspaceSlug)).enabled;
+			} catch {
+				ssoAvailable = false;
+			}
+		}
 	});
+
+	async function linkSSO() {
+		if (!workspaceSlug || ssoLinking) return;
+		ssoLinking = true;
+		try {
+			const { auth_url } = await sso.startLink(workspaceSlug);
+			window.location.href = auth_url;
+		} catch (err: any) {
+			appToast.apiError(err, m['settings.profile.sso_link_failed']());
+		} finally {
+			ssoLinking = false;
+		}
+	}
 
 	async function saveProfile() {
 		if (!user || !name.trim()) {
@@ -78,6 +103,15 @@
 	<p class="mt-1 text-sm text-[var(--color-text-tertiary)]">{m['settings.profile.desc']()}</p>
 
 	{#if user}
+		{#if user.sso_workspace_slug}
+			<div class="mt-8 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-5 py-4">
+				<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.profile.sso_linked_title']()}</p>
+				<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">
+					{m['settings.profile.sso_linked_desc']({ workspace: user.sso_workspace_slug })}
+				</p>
+			</div>
+		{/if}
+
 		<div class="mt-8 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 			<div class="flex items-center justify-between gap-4 px-5 py-4">
 				<div>
@@ -151,6 +185,21 @@
 		<div class="mt-4 flex justify-end">
 			<Button onclick={saveProfile} disabled={saving || !name.trim()}>{saving ? m['settings.profile.saving']() : m['settings.profile.save_profile']()}</Button>
 		</div>
+
+		{#if ssoAvailable && !user.sso_workspace_slug}
+			<div class="mt-8 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-5 py-4">
+				<div class="flex items-center justify-between gap-4">
+					<div>
+						<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.profile.sso_link']()}</p>
+						<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">{m['settings.profile.sso_link_desc']()}</p>
+					</div>
+					<Button variant="outline" size="sm" onclick={linkSSO} disabled={ssoLinking}>
+						<Link2 size={13} />
+						{ssoLinking ? m['settings.profile.sso_linking']() : m['settings.profile.sso_link']()}
+					</Button>
+				</div>
+			</div>
+		{/if}
 		<AvatarDialog bind:open={avatarOpen} name={user.display_name || user.name} onSaved={avatarSaved} />
 		<PasskeySettings />
 	{:else}

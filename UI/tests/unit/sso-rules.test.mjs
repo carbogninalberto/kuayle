@@ -3,7 +3,9 @@ import test from 'node:test';
 import {
 	normalizeWorkspaceSlug,
 	ssoErrorKey,
+	ssoLinkWorkspace,
 	ssoRequiredSlug,
+	ssoSessionScoped,
 	ssoStartUrl
 } from '../../src/lib/features/sso/sso-rules.ts';
 
@@ -27,8 +29,26 @@ test('the start URL encodes the slug and a relative return path only', () => {
 test('callback error codes map to translated messages', () => {
 	assert.equal(ssoErrorKey('invalid_state'), 'login.sso.error_invalid_state');
 	assert.equal(ssoErrorKey('email_unverified'), 'login.sso.error_email_unverified');
+	assert.equal(ssoErrorKey('link_required'), 'login.sso.error_link_required');
+	assert.equal(ssoErrorKey('not_member'), 'login.sso.error_not_member');
+	assert.equal(ssoErrorKey('identity_taken'), 'login.sso.error_identity_taken');
+	assert.equal(ssoErrorKey('SSO_SESSION_SCOPED'), 'login.sso.error_session_scoped');
 	assert.equal(ssoErrorKey('unknown'), 'login.sso.error_generic');
 	assert.equal(ssoErrorKey(null), 'login.sso.error_generic');
+});
+
+test('only link_required resumes the link flow after sign-in', () => {
+	assert.equal(ssoLinkWorkspace('link_required', ' Acme '), 'acme');
+	assert.equal(ssoLinkWorkspace('link_required', null), null);
+	assert.equal(ssoLinkWorkspace('not_member', 'acme'), null);
+	assert.equal(ssoLinkWorkspace(null, 'acme'), null);
+});
+
+test('an SSO-scoped API error is recognised', () => {
+	assert.equal(ssoSessionScoped({ status: 403, error: { code: 'SSO_SESSION_SCOPED' } }), true);
+	assert.equal(ssoSessionScoped({ status: 403, error: { code: 'SSO_REQUIRED' } }), false);
+	assert.equal(ssoSessionScoped({ status: 401, error: { code: 'SSO_SESSION_SCOPED' } }), false);
+	assert.equal(ssoSessionScoped(null), false);
 });
 
 test('an SSO_REQUIRED API error names the workspace to start from', () => {

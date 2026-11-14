@@ -67,22 +67,29 @@ func TestWorkspaceHandler_CreateReturnsInternalErrorForRepositoryFailure(t *test
 
 type workspaceListRepoStub struct{ repository.WorkspaceRepo }
 
+var (
+	allowedWorkspaceID = uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	privateWorkspaceID = uuid.MustParse("22222222-2222-2222-2222-222222222222")
+)
+
 func (*workspaceListRepoStub) ListByUser(context.Context, uuid.UUID) ([]domain.Workspace, error) {
-	return []domain.Workspace{{Slug: "allowed"}, {Slug: "private"}}, nil
+	return []domain.Workspace{{ID: allowedWorkspaceID, Slug: "allowed"}, {ID: privateWorkspaceID, Slug: "private"}}, nil
 }
 
 func TestWorkspaceListHonorsTokenWorkspaceRestriction(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		pat   bool
-		slugs []string
-		want  []string
+		name         string
+		pat          bool
+		slugs        []string
+		ssoWorkspace uuid.UUID
+		want         []string
 	}{
-		{"session", false, nil, []string{"allowed", "private"}},
-		{"unrestricted", true, nil, []string{"allowed", "private"}},
-		{"restricted", true, []string{"allowed"}, []string{"allowed"}},
-		{"no accessible matches", true, []string{"other"}, []string{}},
-		{"stored empty restriction", true, []string{}, []string{}},
+		{"session", false, nil, uuid.Nil, []string{"allowed", "private"}},
+		{"unrestricted", true, nil, uuid.Nil, []string{"allowed", "private"}},
+		{"restricted", true, []string{"allowed"}, uuid.Nil, []string{"allowed"}},
+		{"no accessible matches", true, []string{"other"}, uuid.Nil, []string{}},
+		{"stored empty restriction", true, []string{}, uuid.Nil, []string{}},
+		{"sso scoped", false, nil, allowedWorkspaceID, []string{"allowed"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := echo.New()
@@ -91,6 +98,9 @@ func TestWorkspaceListHonorsTokenWorkspaceRestriction(t *testing.T) {
 			c.Set("user_id", uuid.New())
 			if tc.pat {
 				c.Set(middleware.TokenWorkspacesKey, tc.slugs)
+			}
+			if tc.ssoWorkspace != uuid.Nil {
+				c.Set(middleware.SessionSSOWorkspaceKey, tc.ssoWorkspace)
 			}
 			h := NewWorkspaceHandler(service.NewWorkspaceService(&workspaceListRepoStub{}, nil))
 			require.NoError(t, h.List(c))

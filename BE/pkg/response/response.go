@@ -52,6 +52,12 @@ func SSORequired(c *echo.Context, workspaceSlug string) error {
 	}})
 }
 
+// SSOSessionScoped refuses an SSO-minted session outside the workspace whose
+// IdP minted it, or on a durable/account-level action.
+func SSOSessionScoped(c *echo.Context) error {
+	return Error(c, http.StatusForbidden, "SSO_SESSION_SCOPED", "This session is limited to the workspace it signed in through")
+}
+
 func InternalError(c *echo.Context) error {
 	return Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "An internal error occurred")
 }

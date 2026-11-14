@@ -58,7 +58,7 @@ func TestGitHubBotHTTP(t *testing.T) {
 	tokens := repository.NewPersonalAccessTokenRepository(db)
 	secret := "github-bot-http-test-secret-32-chars-min"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
-	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db))
+	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db), mw.SSONotEnforced)
 	e := echo.New()
 	registerRoutes(e, &appHandlers{githubBot: handler.NewGitHubBotHandler(botSvc)}, middleware)
 	server := httptest.NewServer(e)

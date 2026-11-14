@@ -24,6 +24,10 @@ export type SSOErrorKey =
 	| 'login.sso.error_domain_not_allowed'
 	| 'login.sso.error_token_invalid'
 	| 'login.sso.error_provider'
+	| 'login.sso.error_link_required'
+	| 'login.sso.error_not_member'
+	| 'login.sso.error_identity_taken'
+	| 'login.sso.error_session_scoped'
 	| 'login.sso.error_generic';
 
 const ERROR_KEYS: Record<string, SSOErrorKey> = {
@@ -33,6 +37,11 @@ const ERROR_KEYS: Record<string, SSOErrorKey> = {
 	domain_not_allowed: 'login.sso.error_domain_not_allowed',
 	token_invalid: 'login.sso.error_token_invalid',
 	provider_error: 'login.sso.error_provider',
+	link_required: 'login.sso.error_link_required',
+	not_member: 'login.sso.error_not_member',
+	identity_taken: 'login.sso.error_identity_taken',
+	session_scoped: 'login.sso.error_session_scoped',
+	SSO_SESSION_SCOPED: 'login.sso.error_session_scoped',
 	failed: 'login.sso.error_generic'
 };
 
@@ -49,4 +58,24 @@ export function ssoRequiredSlug(error: unknown): string | null {
 	if (body.status !== 403 || body.error?.code !== 'SSO_REQUIRED') return null;
 	const slug = normalizeWorkspaceSlug(body.error.workspace_slug ?? '');
 	return slug || null;
+}
+
+/**
+ * The workspace whose link flow must resume after a password or passkey
+ * sign-in. Only a link_required callback carries it; any other outcome leaves
+ * the sign-in to continue normally.
+ */
+export function ssoLinkWorkspace(
+	errorCode: string | null | undefined,
+	workspaceSlug: string | null | undefined
+): string | null {
+	if (errorCode !== 'link_required') return null;
+	return normalizeWorkspaceSlug(workspaceSlug ?? '') || null;
+}
+
+/** Whether an API error says the session is limited to its SSO workspace. */
+export function ssoSessionScoped(error: unknown): boolean {
+	if (!error || typeof error !== 'object') return false;
+	const body = error as { status?: number; error?: { code?: string } };
+	return body.status === 403 && body.error?.code === 'SSO_SESSION_SCOPED';
 }

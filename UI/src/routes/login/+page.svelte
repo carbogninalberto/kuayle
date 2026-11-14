@@ -18,6 +18,7 @@
 	import {
 		normalizeWorkspaceSlug,
 		ssoErrorKey,
+		ssoLinkWorkspace,
 		ssoRequiredSlug,
 		ssoStartUrl
 	} from '$lib/features/sso/sso-rules';
@@ -35,11 +36,14 @@
 	let passkeysEnabled = $state(false);
 	let ssoInstanceEnabled = $state(false);
 	let ssoOpen = $state(false);
-	let ssoSlug = $state('');
+	let ssoSlug = $state(page.url.searchParams.get('workspace') ?? '');
 	let ssoBusy = $state(false);
 	let ssoMessage = $state<string | null>(null);
 	const inviteToken = $derived(page.url.searchParams.get('invite') ?? '');
 	const ssoError = $derived(page.url.searchParams.get('sso_error'));
+	// A link_required callback names the workspace whose IdP the account must
+	// link after proving its password or passkey.
+	const linkWorkspace = $derived(ssoLinkWorkspace(ssoError, page.url.searchParams.get('workspace')));
 	const authInputClass =
 		'mt-1 h-auto w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] focus-visible:border-[var(--app-accent)] focus-visible:ring-0';
 
@@ -76,6 +80,10 @@
 			}
 			// A password sign-in is the moment to offer a passkey for next time.
 			if (mode === 'login') markPasskeyPromptPending();
+			if (mode === 'login' && linkWorkspace) {
+				await continueWithSSOLink(linkWorkspace, user);
+				return;
+			}
 			await enterApp(user);
 		} catch (err: any) {
 			const requiredSlug = ssoRequiredSlug(err);
@@ -132,9 +140,25 @@
 
 	async function passkeySignedIn(user: User) {
 		try {
+			if (linkWorkspace) {
+				await continueWithSSOLink(linkWorkspace, user);
+				return;
+			}
 			await enterApp(user);
 		} catch (err: any) {
 			appToast.apiError(err, m['login.error_generic']());
+		}
+	}
+
+	// The password or passkey sign-in just proved the account, so the link
+	// flow can bind the workspace's IdP subject to it.
+	async function continueWithSSOLink(slug: string, user: User) {
+		authState.setUser(user);
+		try {
+			const { auth_url } = await sso.startLink(slug);
+			window.location.href = auth_url;
+		} catch (err: any) {
+			appToast.apiError(err, m['login.sso.link_start_failed']());
 		}
 	}
 

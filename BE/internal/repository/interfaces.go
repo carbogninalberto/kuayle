@@ -46,6 +46,8 @@ type SSORepo interface {
 	GetIdentity(ctx context.Context, workspaceID uuid.UUID, issuer, subject string) (*domain.UserIdentity, error)
 	TouchIdentity(ctx context.Context, id uuid.UUID) error
 	ProvisionIdentity(ctx context.Context, params SSOProvisionParams) (*domain.User, error)
+	LinkIdentity(ctx context.Context, userID, workspaceID uuid.UUID, provider, issuer, subject, email string) (*domain.UserIdentity, error)
+	HasIdentity(ctx context.Context, userID, workspaceID uuid.UUID) (bool, error)
 	UserWorkspaceRoles(ctx context.Context, userID uuid.UUID) ([]domain.SSOWorkspaceRole, error)
 }
 

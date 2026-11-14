@@ -10,6 +10,16 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
+var (
+	// ErrSSOLinkRequired: the verified email belongs to an account created
+	// before this sign-in, so it must be linked from that account's own
+	// authenticated session instead of being taken over by the IdP.
+	ErrSSOLinkRequired = errors.New("the account must be linked before it can sign in with SSO")
+	// ErrSSOIdentityTaken: the IdP subject is already linked to another user
+	// in this workspace.
+	ErrSSOIdentityTaken = errors.New("this identity is already linked to another account")
+)
+
 // SSORepository persists workspace OIDC settings, flow state and identities.
 type SSORepository struct {
 	db *sqlx.DB
@@ -61,10 +71,10 @@ func (r *SSORepository) DeleteConfig(ctx context.Context, workspaceID uuid.UUID)
 
 func (r *SSORepository) CreateLoginState(ctx context.Context, state *domain.SSOLoginState) error {
 	return r.db.QueryRowContext(ctx, `INSERT INTO sso_login_states
-		(state_hash, workspace_id, nonce, code_verifier_encrypted, bind_hash, redirect_after, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING created_at`,
+		(state_hash, workspace_id, nonce, code_verifier_encrypted, bind_hash, redirect_after, link_user_id, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING created_at`,
 		state.StateHash, state.WorkspaceID, state.Nonce, state.CodeVerifierEncrypted,
-		state.BindHash, state.RedirectAfter, state.ExpiresAt,
+		state.BindHash, state.RedirectAfter, state.LinkUserID, state.ExpiresAt,
 	).Scan(&state.CreatedAt)
 }
 
@@ -73,7 +83,7 @@ func (r *SSORepository) CreateLoginState(ctx context.Context, state *domain.SSOL
 func (r *SSORepository) ConsumeLoginState(ctx context.Context, stateHash string) (*domain.SSOLoginState, error) {
 	var state domain.SSOLoginState
 	err := r.db.GetContext(ctx, &state, `DELETE FROM sso_login_states WHERE state_hash = $1
-		RETURNING state_hash, workspace_id, nonce, code_verifier_encrypted, bind_hash, redirect_after, expires_at, created_at`, stateHash)
+		RETURNING state_hash, workspace_id, nonce, code_verifier_encrypted, bind_hash, redirect_after, link_user_id, expires_at, created_at`, stateHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -106,11 +116,11 @@ func (r *SSORepository) TouchIdentity(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-// ProvisionIdentity resolves the user of an SSO sign-in: an existing identity
-// owner, an existing account with the same verified email, or a newly created
-// account, then links the identity and adds the workspace membership. All of
-// it commits or rolls back together, and concurrent first sign-ins cannot
-// create duplicate identities.
+// ProvisionIdentity creates the account of a first SSO sign-in, links the
+// identity and adds the workspace membership. It never binds an account that
+// existed before this sign-in: a matching email returns ErrSSOLinkRequired,
+// because only that account's own authenticated session may link an identity.
+// Concurrent first sign-ins of the same subject converge on one account.
 func (r *SSORepository) ProvisionIdentity(ctx context.Context, params SSOProvisionParams) (*domain.User, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -118,43 +128,75 @@ func (r *SSORepository) ProvisionIdentity(ctx context.Context, params SSOProvisi
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var user domain.User
-	err = tx.GetContext(ctx, &user, `SELECT * FROM users WHERE lower(email) = lower($1)
-		ORDER BY created_at LIMIT 1 FOR UPDATE`, params.Email)
-	if errors.Is(err, sql.ErrNoRows) {
-		// ON CONFLICT DO NOTHING keeps the transaction usable when another
-		// first sign-in creates the same account concurrently; a unique
-		// violation would otherwise abort the whole transaction.
-		err = tx.GetContext(ctx, &user, `INSERT INTO users (id, email, name, display_name, password_hash)
-			VALUES ($1, $2, $3, $3, $4) ON CONFLICT DO NOTHING RETURNING *`,
-			uuid.New(), params.Email, params.Name, params.PasswordHash)
-		if errors.Is(err, sql.ErrNoRows) {
-			// Another request won the insert; lock and use its account.
-			err = tx.GetContext(ctx, &user, `SELECT * FROM users WHERE lower(email) = lower($1)
-				ORDER BY created_at LIMIT 1 FOR UPDATE`, params.Email)
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	var identity domain.UserIdentity
-	err = tx.GetContext(ctx, &identity, `INSERT INTO user_identities
-		(id, user_id, workspace_id, provider, issuer, subject, email, last_login_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-		ON CONFLICT (workspace_id, issuer, subject) DO UPDATE SET
-			last_login_at = NOW(), email = EXCLUDED.email
-		RETURNING *`,
-		uuid.New(), user.ID, params.WorkspaceID, params.Provider, params.Issuer, params.Subject, params.Email)
-	if err != nil {
-		return nil, err
-	}
-
-	// An identity bound by a concurrent request wins; never rebind it.
-	if identity.UserID != user.ID {
-		if err := tx.GetContext(ctx, &user, `SELECT * FROM users WHERE id = $1`, identity.UserID); err != nil {
+	// A concurrent request may have committed this exact identity between the
+	// service's lookup and this transaction. That is a returning identity, not
+	// an existing account being claimed.
+	var racer domain.UserIdentity
+	err = tx.GetContext(ctx, &racer, `SELECT * FROM user_identities
+		WHERE workspace_id = $1 AND issuer = $2 AND subject = $3`,
+		params.WorkspaceID, params.Issuer, params.Subject)
+	if err == nil {
+		var user domain.User
+		if err := tx.GetContext(ctx, &user, `SELECT * FROM users WHERE id = $1`, racer.UserID); err != nil {
 			return nil, err
 		}
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return &user, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	var existing domain.User
+	err = tx.GetContext(ctx, &existing, `SELECT id FROM users WHERE lower(email) = lower($1)
+		ORDER BY created_at LIMIT 1`, params.Email)
+	if err == nil {
+		return nil, ErrSSOLinkRequired
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	var user domain.User
+	// ON CONFLICT DO NOTHING keeps the transaction usable when another first
+	// sign-in creates the same account concurrently; a unique violation would
+	// otherwise abort the whole transaction.
+	err = tx.GetContext(ctx, &user, `INSERT INTO users (id, email, name, display_name, password_hash)
+		VALUES ($1, $2, $3, $3, $4) ON CONFLICT DO NOTHING RETURNING *`,
+		uuid.New(), params.Email, params.Name, params.PasswordHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Another request created the account. Only accept it when the same
+		// identity already points at it: that is this same first sign-in
+		// committed twice, not an existing account being claimed.
+		var identity domain.UserIdentity
+		identityErr := tx.GetContext(ctx, &identity, `SELECT * FROM user_identities
+			WHERE workspace_id = $1 AND issuer = $2 AND subject = $3`,
+			params.WorkspaceID, params.Issuer, params.Subject)
+		if errors.Is(identityErr, sql.ErrNoRows) {
+			return nil, ErrSSOLinkRequired
+		}
+		if identityErr != nil {
+			return nil, identityErr
+		}
+		if identityErr := tx.GetContext(ctx, &user, `SELECT * FROM users WHERE id = $1`, identity.UserID); identityErr != nil {
+			return nil, identityErr
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return &user, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.ExecContext(ctx, `INSERT INTO user_identities
+		(id, user_id, workspace_id, provider, issuer, subject, email, last_login_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+		uuid.New(), user.ID, params.WorkspaceID, params.Provider, params.Issuer, params.Subject, params.Email); err != nil {
+		return nil, err
 	}
 
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workspace_members (workspace_id, user_id, role)
@@ -167,6 +209,45 @@ func (r *SSORepository) ProvisionIdentity(ctx context.Context, params SSOProvisi
 		return nil, err
 	}
 	return &user, nil
+}
+
+// LinkIdentity binds an IdP subject to an account that already proved its own
+// credentials. It never adds workspace membership.
+func (r *SSORepository) LinkIdentity(ctx context.Context, userID, workspaceID uuid.UUID, provider, issuer, subject, email string) (*domain.UserIdentity, error) {
+	var identity domain.UserIdentity
+	err := r.db.GetContext(ctx, &identity, `INSERT INTO user_identities
+		(id, user_id, workspace_id, provider, issuer, subject, email, last_login_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		ON CONFLICT (workspace_id, issuer, subject) DO NOTHING
+		RETURNING *`,
+		uuid.New(), userID, workspaceID, provider, issuer, subject, email)
+	if errors.Is(err, sql.ErrNoRows) {
+		// The subject is already linked. Rebinding it to another account is
+		// forbidden; the same account may link it again.
+		var existing domain.UserIdentity
+		if err := r.db.GetContext(ctx, &existing, `SELECT * FROM user_identities
+			WHERE workspace_id = $1 AND issuer = $2 AND subject = $3`,
+			workspaceID, issuer, subject); err != nil {
+			return nil, err
+		}
+		if existing.UserID != userID {
+			return nil, ErrSSOIdentityTaken
+		}
+		return &existing, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &identity, nil
+}
+
+// HasIdentity reports whether the user has an external identity in the
+// workspace, which is what require-SSO may block a password sign-in for.
+func (r *SSORepository) HasIdentity(ctx context.Context, userID, workspaceID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(
+		SELECT 1 FROM user_identities WHERE user_id = $1 AND workspace_id = $2)`, userID, workspaceID)
+	return exists, err
 }
 
 func (r *SSORepository) UserWorkspaceRoles(ctx context.Context, userID uuid.UUID) ([]domain.SSOWorkspaceRole, error) {

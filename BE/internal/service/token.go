@@ -103,6 +103,19 @@ func (s *TokenService) ValidateScopesAndWorkspaces(ctx context.Context, userID u
 	return workspaceSlugs, nil
 }
 
+// WorkspaceSlug resolves a workspace id to its slug. The token handler uses
+// it to limit an SSO-scoped session to a token for its own workspace.
+func (s *TokenService) WorkspaceSlug(ctx context.Context, workspaceID uuid.UUID) (string, error) {
+	ws, err := s.workspaceRepo.GetByID(ctx, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	if ws == nil {
+		return "", ErrInvalidTokenWorkspace
+	}
+	return ws.Slug, nil
+}
+
 func (s *TokenService) List(ctx context.Context, userID uuid.UUID) ([]domain.PersonalAccessToken, error) {
 	return s.tokenRepo.ListByUser(ctx, userID)
 }

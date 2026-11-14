@@ -53,6 +53,18 @@ func (h *TokenHandler) Create(c *echo.Context) error {
 		return response.ValidationError(c, details)
 	}
 
+	// An SSO-scoped session may only mint a token for its own workspace, so a
+	// workspace admin's IdP can never hand out credentials that reach others.
+	if scoped := middleware.GetSessionSSOWorkspace(c); scoped != uuid.Nil {
+		slug, err := h.tokenSvc.WorkspaceSlug(c.Request().Context(), scoped)
+		if err != nil {
+			return response.InternalError(c)
+		}
+		if len(req.WorkspaceSlugs) != 1 || req.WorkspaceSlugs[0] != slug {
+			return response.SSOSessionScoped(c)
+		}
+	}
+
 	token, plaintext, err := h.tokenSvc.Create(c.Request().Context(), middleware.GetUserID(c), req)
 	if err != nil {
 		switch {

@@ -4051,5 +4051,16 @@
 	"login.sso.error_domain_not_allowed": "Your email domain is not allowed for this workspace.",
 	"login.sso.error_token_invalid": "The identity provider response could not be verified. Please start again.",
 	"login.sso.error_provider": "The identity provider refused the sign-in.",
-	"login.sso.error_generic": "Single sign-on failed. Please try again."
+	"login.sso.error_generic": "Single sign-on failed. Please try again.",
+	"login.sso.error_link_required": "An account with this email already exists. Sign in with your password to link SSO.",
+	"login.sso.error_not_member": "You are not a member of this workspace.",
+	"login.sso.error_identity_taken": "This identity is already linked to another account.",
+	"login.sso.error_session_scoped": "This session is limited to the workspace it signed in through.",
+	"login.sso.link_start_failed": "Could not start linking single sign-on.",
+	"settings.profile.sso_link": "Link SSO sign-in",
+	"settings.profile.sso_link_desc": "Connect this account to your workspace identity provider.",
+	"settings.profile.sso_linking": "Starting…",
+	"settings.profile.sso_link_failed": "Could not start linking single sign-on.",
+	"settings.profile.sso_linked_title": "SSO-scoped session",
+	"settings.profile.sso_linked_desc": "This session signed in through {workspace} SSO. It can only access that workspace and cannot change credentials."
 }

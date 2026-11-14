@@ -5,6 +5,8 @@ export interface User {
 	display_name: string;
 	avatar_url: string | null;
 	is_sysadmin: boolean;
+	/** Set when this session was minted by workspace SSO and is scoped to it. */
+	sso_workspace_slug?: string;
 }
 
 export interface LoginRequest {

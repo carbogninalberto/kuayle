@@ -17,10 +17,19 @@ type SSORequirementSource interface {
 	RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (bool, error)
 }
 
-func WorkspaceMembership(workspaceRepo repository.WorkspaceRepo, sso ...SSORequirementSource) echo.MiddlewareFunc {
-	var ssoSource SSORequirementSource
-	if len(sso) > 0 {
-		ssoSource = sso[0]
+// SSONotEnforced is the stub for callers that do not enforce require-SSO,
+// e.g. tests that only exercise membership.
+var SSONotEnforced SSORequirementSource = ssoNotEnforced{}
+
+type ssoNotEnforced struct{}
+
+func (ssoNotEnforced) RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (bool, error) {
+	return false, nil
+}
+
+func WorkspaceMembership(workspaceRepo repository.WorkspaceRepo, sso SSORequirementSource) echo.MiddlewareFunc {
+	if sso == nil {
+		panic("middleware.WorkspaceMembership: an SSO requirement source is required")
 	}
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -52,13 +61,21 @@ func WorkspaceMembership(workspaceRepo repository.WorkspaceRepo, sso ...SSORequi
 				}
 			}
 
-			// Require-SSO is per workspace. A session minted by another
-			// workspace's SSO is not a credential for this one. Owners keep the
-			// break-glass password path, and PAT callers are unaffected in
-			// phase 1 (SCIM deprovisioning revokes them in phase 3).
-			if _, pat := c.Get(TokenScopesKey).([]string); !pat && ssoSource != nil &&
-				member.Role != domain.RoleOwner && GetSessionSSOWorkspace(c) != ws.ID {
-				required, err := ssoSource.RequiresSSO(c.Request().Context(), ws.ID)
+			// An SSO-minted session is scoped to the workspace whose IdP
+			// minted it. It is not a credential for any other workspace, so a
+			// workspace admin's own IdP can never reach beyond their workspace.
+			_, isPAT = c.Get(TokenScopesKey).([]string)
+			if !isPAT {
+				if ssoWorkspace := GetSessionSSOWorkspace(c); ssoWorkspace != uuid.Nil && ssoWorkspace != ws.ID {
+					return response.SSOSessionScoped(c)
+				}
+			}
+
+			// Require-SSO is per workspace. Owners keep the break-glass
+			// password path, and PAT callers are unaffected in phase 1 (SCIM
+			// deprovisioning revokes them in phase 3).
+			if !isPAT && member.Role != domain.RoleOwner && GetSessionSSOWorkspace(c) != ws.ID {
+				required, err := sso.RequiresSSO(c.Request().Context(), ws.ID)
 				if err != nil {
 					return response.InternalError(c)
 				}
