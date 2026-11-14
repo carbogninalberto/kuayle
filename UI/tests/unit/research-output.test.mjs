@@ -114,11 +114,7 @@ test('a live worktree result is read from its own fields', () => {
 	assert.equal(grep.summary, '1', 'a task grep counts matches, not searched files');
 	assert.equal(grep.source, 'task');
 
-	const glob = repoScanOutput(
-		'repo_glob',
-		{ pattern: '**/*.go' },
-		{ source: 'task', files: ['BE/main.go'] }
-	);
+	const glob = repoScanOutput('repo_glob', { pattern: '**/*.go' }, { source: 'task', files: ['BE/main.go'] });
 	assert.deepEqual(glob.lines, ['BE/main.go'], 'a task glob returns plain paths');
 });
 
@@ -130,9 +126,12 @@ test('worktree chips read their recorded state', () => {
 		changed: 2
 	});
 	assert.equal(taskWorktreeOutput('junk'), undefined);
-	assert.deepEqual(machineWorktreesOutput({ worktrees: [{ path: '/workspace/tasks/a' }, { path: '/workspace/tasks/b' }] }), {
-		count: 2
-	});
+	assert.deepEqual(
+		machineWorktreesOutput({ worktrees: [{ path: '/workspace/tasks/a' }, { path: '/workspace/tasks/b' }] }),
+		{
+			count: 2
+		}
+	);
 	assert.deepEqual(machineWorktreesOutput({ worktrees: [] }), { count: 0 });
 	assert.equal(machineWorktreesOutput(null), undefined);
 });
