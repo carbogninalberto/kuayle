@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 
 // The workflow editor's right side panel can be hidden so the canvas gets the
 // width (KUA-147). The choice is a per-user preference, so it survives a
@@ -113,6 +113,16 @@ const inside = (node: Box, canvas: Box) =>
 	node.x + node.width <= canvas.x + canvas.width + 1 &&
 	node.y + node.height <= canvas.y + canvas.height + 1;
 
+async function expectStepsInsideCanvas(editor: Locator, canvas: Locator) {
+	await expect(async () => {
+		const canvasBox = (await canvas.boundingBox())!;
+		for (const id of ['start', 'plan', 'done']) {
+			const box = (await editor.getByTestId(`workflow-node-${id}`).boundingBox())!;
+			expect(inside(box, canvasBox), `${id} is inside the canvas`).toBe(true);
+		}
+	}).toPass({ timeout: 5000 });
+}
+
 test('desktop: the side panel collapses to give the canvas the width, survives a reload and keeps the selection', async ({
 	page
 }) => {
@@ -147,13 +157,7 @@ test('desktop: the side panel collapses to give the canvas the width, survives a
 
 	// The refit leaves every step inside the wider canvas. fitView animates for
 	// 200 ms after the width change, so re-read both boxes until it settles.
-	await expect(async () => {
-		const canvasBox = (await canvas.boundingBox())!;
-		for (const id of ['start', 'plan', 'done']) {
-			const box = (await editor.getByTestId(`workflow-node-${id}`).boundingBox())!;
-			expect(inside(box, canvasBox), `${id} is inside the canvas`).toBe(true);
-		}
-	}).toPass({ timeout: 5000 });
+	await expectStepsInsideCanvas(editor, canvas);
 
 	// The preference is saved for this user, not only in this browser.
 	await expect.poll(() => state.patches.at(-1)?.workflow_editor_panel_open).toBe(false);
@@ -181,8 +185,20 @@ test('desktop: the side panel collapses to give the canvas the width, survives a
 	// inspects that node, even while the panel is collapsed.
 	await editor.getByTestId('workflow-panel-toggle').click();
 	await expect(editor.getByTestId('workflow-inspector-panel')).toHaveCount(0);
+	// The second collapse also refits the chart; wait for the canvas to widen,
+	// for the fit to finish and for the node to stop moving before aiming at it.
+	await expect.poll(async () => (await canvas.boundingBox())!.width).toBeGreaterThan(openWidth + 300);
+	await expectStepsInsideCanvas(editor, canvas);
+	await expect(async () => {
+		const first = (await editor.getByTestId('workflow-node-done').boundingBox())!;
+		await page.waitForTimeout(250);
+		const second = (await editor.getByTestId('workflow-node-done').boundingBox())!;
+		expect(second).toEqual(first);
+	}).toPass({ timeout: 5000 });
 	await editor.getByTestId('workflow-node-done').click({ button: 'right' });
-	await page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+	const edit = page.getByRole('menuitem', { name: 'Edit', exact: true });
+	await expect(edit).toBeVisible();
+	await edit.click();
 	await expect(editor.getByTestId('workflow-inspector-panel')).toBeVisible();
 	await expect(editor.getByTestId('workflow-node-inspector').getByLabel('Name', { exact: true })).toHaveValue(
 		'Done'
