@@ -131,6 +131,12 @@ func (r *DevMachineRepository) CreateWorktreeScan(ctx context.Context, ws, user 
 		scan.MachineName = machine.Name
 		generation = machine.Generation
 	}
+	// The count and the insert are one decision: without this lock two requests
+	// for the same machine and requester could both read a free slot.
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1::text || ':' || $2::text))`,
+		scan.MachineID, user); err != nil {
+		return nil, err
+	}
 	var pending int
 	if err = tx.GetContext(ctx, &pending, `SELECT COUNT(*) FROM dev_machine_worktree_scans
 		WHERE machine_id=$1 AND requested_by=$2 AND completed_at IS NULL

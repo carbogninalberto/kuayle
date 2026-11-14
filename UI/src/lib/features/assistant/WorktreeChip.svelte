@@ -5,8 +5,10 @@
 	import { machineWorktreesOutput, taskWorktreeOutput } from './research-output';
 
 	let { call }: ToolChipRendererProps = $props();
-	const status = $derived(taskWorktreeOutput(call.output));
-	const worktrees = $derived(machineWorktreesOutput(call.output));
+	// The tool name decides the shape: a listing also carries branch and commit,
+	// so the recorded output alone cannot tell the two apart.
+	const status = $derived(call.name === 'get_task_worktree' ? taskWorktreeOutput(call.output) : undefined);
+	const worktrees = $derived(call.name === 'list_machine_worktrees' ? machineWorktreesOutput(call.output) : undefined);
 </script>
 
 <!-- A task worktree's branch and state; a machine lists only how many it holds. -->

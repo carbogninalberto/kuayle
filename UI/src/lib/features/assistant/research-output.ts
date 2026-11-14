@@ -148,6 +148,10 @@ export interface TaskWorktreeOutput {
 export function taskWorktreeOutput(output: unknown): TaskWorktreeOutput | undefined {
 	const data = record(output);
 	if (!data) return undefined;
+	// A machine listing names each worktree, not one task; and a record with
+	// none of these fields is not a status, so it must not render as empty.
+	if (Array.isArray(data.worktrees)) return undefined;
+	if (!('branch' in data) && !('commit' in data) && !('dirty' in data)) return undefined;
 	return {
 		branch: str(data.branch),
 		commit: str(data.commit),
@@ -163,8 +167,8 @@ export interface MachineWorktreesOutput {
 /** list_machine_worktrees: how many task worktrees the machine reported. */
 export function machineWorktreesOutput(output: unknown): MachineWorktreesOutput | undefined {
 	const data = record(output);
-	if (!data) return undefined;
-	return { count: list(data.worktrees).length };
+	if (!data || !Array.isArray(data.worktrees)) return undefined;
+	return { count: data.worktrees.length };
 }
 
 export interface SubagentRow {

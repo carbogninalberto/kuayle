@@ -1445,7 +1445,8 @@ A status or read result's `branch` and `commit` describe the task's branch ref.
 If the agent switched branches, the working tree read is the agent's while the
 header still names the task ref; `dirty` and `changed` likewise describe that
 working tree. `git status` runs with `--ignore-submodules=all`, so a nested
-repository (gitlink) never runs its own configuration.
+repository (gitlink) never runs its own configuration. Changes inside nested
+repositories are not counted in `dirty` or `changed`.
 
 `get_task_worktree(identifier)` reports the task's git state: `machine`,
 `repository`, `branch`, `commit`, `dirty`, `changed` (the

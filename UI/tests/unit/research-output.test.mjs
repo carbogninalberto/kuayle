@@ -137,6 +137,37 @@ test('worktree chips read their recorded state', () => {
 	assert.equal(machineWorktreesOutput(null), undefined);
 });
 
+test('a machine listing and a task worktree are never read as each other', () => {
+	// list_machine_worktrees: each worktree carries its own branch and commit.
+	const listing = {
+		machine: 'dev-1',
+		repository: 'acme/app',
+		worktrees: [{ path: '/workspace/tasks/a', branch: 'kua-141', commit: 'abc', dirty: true }]
+	};
+	assert.equal(taskWorktreeOutput(listing), undefined, 'a listing has no task branch of its own');
+	assert.deepEqual(machineWorktreesOutput(listing), { count: 1 });
+
+	// get_task_worktree: one task's branch and status, with no worktrees array.
+	const task = {
+		machine: 'dev-1',
+		repository: 'acme/app',
+		branch: 'kua-141',
+		commit: 'abc',
+		dirty: false,
+		changed: [],
+		ahead: 0,
+		behind: 0,
+		last_subject: ''
+	};
+	assert.deepEqual(taskWorktreeOutput(task), { branch: 'kua-141', commit: 'abc', dirty: false, changed: 0 });
+	assert.equal(machineWorktreesOutput(task), undefined, 'a task status is not a listing');
+	assert.equal(
+		taskWorktreeOutput({ machine: 'dev-1', repository: 'acme/app' }),
+		undefined,
+		'a record with neither branch, commit nor dirty is not a worktree'
+	);
+});
+
 test('listed files are read from their records, with why one was left out', () => {
 	const scan = repoScanOutput(
 		'repo_list_files',

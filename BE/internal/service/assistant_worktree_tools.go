@@ -241,7 +241,7 @@ func worktreeScanFailure(err error) error {
 	case errors.Is(err, repository.ErrConversationInvalid):
 		return toolFailure("the scan request is invalid for this task; check the path or pattern and try again")
 	case errors.Is(err, repository.ErrWorktreeScanBusy):
-		return toolFailure("too many worktree scans are already running on this machine; try again in a moment")
+		return toolFailure("too many worktree scans are already running on this machine (a scan that timed out counts for two minutes); try again shortly")
 	}
 	return err
 }
@@ -300,7 +300,9 @@ func trimWorktreeContent(content string, start, end int, truncated bool) (string
 		return content, start, end, truncated
 	}
 	cut := content[:scanReadBytes]
-	if index := strings.LastIndexByte(cut, '\n'); index >= 0 {
+	// Index 0 is not a line boundary: only the newline that ends a line lets us
+	// stop there, otherwise fall through to the readable prefix.
+	if index := strings.LastIndexByte(cut, '\n'); index > 0 {
 		cut = cut[:index]
 		last := start + strings.Count(cut, "\n")
 		if end > 0 {

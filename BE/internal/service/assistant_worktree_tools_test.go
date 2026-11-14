@@ -232,6 +232,15 @@ func TestTrimWorktreeContentMarksOneHugeLineAsCut(t *testing.T) {
 	require.Equal(t, 7, end, "a cut line is not reported as a complete one")
 	require.True(t, strings.HasSuffix(cut, " …"))
 	require.True(t, utf8.ValidString(cut))
+
+	// A newline at index 0 closes nothing: keeping the "line" before it would
+	// return empty content.
+	cut, start, end, truncated = trimWorktreeContent("\n"+strings.Repeat("x", scanReadBytes), 3, 3, false)
+	require.True(t, truncated)
+	require.Equal(t, 3, start)
+	require.Equal(t, 3, end)
+	require.NotEmpty(t, cut)
+	require.True(t, strings.HasSuffix(cut, " …"))
 }
 
 func TestTaskSourceBuildsEachScanRequest(t *testing.T) {

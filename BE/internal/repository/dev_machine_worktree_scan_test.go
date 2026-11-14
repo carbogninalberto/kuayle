@@ -3,7 +3,9 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -182,6 +184,40 @@ func TestWorktreeScanRefusesMoreThanFourPendingOnTheSameMachine(t *testing.T) {
 	require.NoError(t, repo.CompleteWorktreeScan(ctx, first, nil, &done))
 	_, err = repo.CreateWorktreeScan(ctx, task.WorkspaceID, task.CreatorID, taskScanTarget(task), request)
 	require.NoError(t, err, "a finished scan frees its slot")
+}
+
+func TestWorktreeScanConcurrentRequestsKeepTheSameLimit(t *testing.T) {
+	_, repo, ctx, task, _, _ := worktreeScanFixture(t)
+	request := domain.WorktreeScanRequest{Kind: domain.WorktreeScanStatus}
+	const attempts = 8
+	start := make(chan struct{})
+	results := make(chan error, attempts)
+	var wait sync.WaitGroup
+	for range attempts {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			_, err := repo.CreateWorktreeScan(ctx, task.WorkspaceID, task.CreatorID, taskScanTarget(task), request)
+			results <- err
+		}()
+	}
+	close(start)
+	wait.Wait()
+	close(results)
+	created, busy := 0, 0
+	for err := range results {
+		switch {
+		case err == nil:
+			created++
+		case errors.Is(err, ErrWorktreeScanBusy):
+			busy++
+		default:
+			require.NoError(t, err)
+		}
+	}
+	require.Equal(t, worktreeScanConcurrencyLimit, created, "the count and insert serialize on the machine and requester")
+	require.Equal(t, attempts-worktreeScanConcurrencyLimit, busy)
 }
 
 func TestWorktreeScanHousekeepingRemovesOnlyThisWorkspacesOldScans(t *testing.T) {
