@@ -410,6 +410,9 @@ func (t *AssistantTools) researchPrompt(ctx context.Context, ws uuid.UUID) strin
 	if scan {
 		parts = append(parts, "You can read the workspace's linked GitHub repositories from a temporary read-only checkout with repo_list_files, repo_glob, repo_grep, repo_read_file and repo_symbols; read the code before stating anything about it and name the exact file paths (and line numbers) you read. When you file or update an issue after a scan, put the concrete file paths and lines in its description, and only ones a tool returned.")
 	}
+	if offered("get_task_worktree") || offered("list_machine_worktrees") {
+		parts = append(parts, `repo_grep, repo_glob and repo_read_file with source "task" read the live worktree of an issue's coding task on its dev machine, uncommitted changes included; get_task_worktree reports a task's git state and list_machine_worktrees reports the worktrees on a machine.`)
+	}
 	if offered(subagentToolName) {
 		parts = append(parts, "For a broad question that splits into independent parts, spawn_research_subagents runs them in parallel with a cheaper model that can only search and read; use it sparingly, give each task self-contained instructions, and verify what matters before acting on its findings.")
 	}

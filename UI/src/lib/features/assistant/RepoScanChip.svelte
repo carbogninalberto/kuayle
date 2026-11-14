@@ -20,6 +20,13 @@
 					: ''}</Trace.Title
 			>
 		</Trace.Line>
+		{#if scan.source === 'task' && scan.branch}
+			<Trace.Line>
+				<Trace.Title class="whitespace-normal break-words text-muted-foreground"
+					>{m['assistant.research_live_worktree']({ branch: scan.branch })}</Trace.Title
+				>
+			</Trace.Line>
+		{/if}
 		{#if scan.lines.length}
 			<ul class="max-h-64 space-y-0.5 overflow-y-auto px-2 font-mono text-[11px]">
 				{#each scan.lines as line, index (index)}

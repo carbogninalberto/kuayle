@@ -2277,6 +2277,7 @@ func (r *DockerRuntime) containerLogs(ctx context.Context, containerID string) (
 type cappedBuffer struct {
 	bytes.Buffer
 	remaining int
+	truncated bool
 }
 
 func newCappedBuffer(limit int) cappedBuffer {
@@ -2287,6 +2288,7 @@ func (b *cappedBuffer) Write(value []byte) (int, error) {
 	originalLength := len(value)
 	if len(value) > b.remaining {
 		value = value[:b.remaining]
+		b.truncated = true
 	}
 	if len(value) > 0 {
 		_, _ = b.Buffer.Write(value)
