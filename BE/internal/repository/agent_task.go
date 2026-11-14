@@ -597,65 +597,47 @@ func beginTaskRuntimeTransaction(ctx context.Context, db *sqlx.DB, kind string, 
 	return tx, nil
 }
 
-// ReserveMachine serializes compatible-machine selection with other task
-// reservations. Attempt creation re-checks the machine's task limit.
-// ReserveMachine picks the machine for a task and returns it with the task's
-// current reservation ID, which changes when a destroyed machine is replaced.
-func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain.AgentTask, repositoryID uuid.UUID, environmentID *uuid.UUID) (uuid.UUID, uuid.UUID, error) {
-	tx, task, err := r.transaction(ctx, claimed.ID, true)
-	if err != nil {
-		return uuid.Nil, uuid.Nil, err
-	}
-	defer tx.Rollback()
-	if err = fenceAgentTask(ctx, tx, *task, claimed); err != nil {
-		return uuid.Nil, uuid.Nil, err
-	}
-	if task.State != "preparing" {
-		return uuid.Nil, uuid.Nil, ErrAgentTaskConflict
-	}
-	if task.MachineID != nil {
-		// A reservation for a machine that was never created (e.g. blocked by
-		// the machine limit) is revisited, so an idle machine can be reused.
-		// A destroyed or deleting machine is kept only as history: the task
-		// gets a new reservation, since that machine ID cannot be reused.
-		var pending, gone bool
-		if err = tx.QueryRowContext(ctx, `SELECT $1::uuid=$2::uuid AND NOT EXISTS(SELECT 1 FROM dev_machines WHERE id=$1),
- EXISTS(SELECT 1 FROM dev_machines WHERE id=$1 AND (status='destroyed' OR delete_requested_at IS NOT NULL))`, *task.MachineID, task.ReservedMachineID).Scan(&pending, &gone); err != nil {
-			return uuid.Nil, uuid.Nil, err
-		}
-		if gone {
-			if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET machine_id=NULL,reserved_machine_id=gen_random_uuid(),updated_at=now() WHERE id=$1 RETURNING *`, task.ID); err != nil {
-				return uuid.Nil, uuid.Nil, err
-			}
-		} else if !pending {
-			return *task.MachineID, task.ReservedMachineID, nil
-		}
-	}
-	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, task.WorkspaceID); err != nil {
-		return uuid.Nil, uuid.Nil, err
-	}
-	// Reuse a running machine of the creator, whatever repositories it served
-	// before: each task gets its own worktree on it. The machine must suit the
-	// task (same environment, so the same profile; not an environment
-	// builder), still be allowed by the workspace policy (Docker and sudo
-	// machines only while those stay allowed), run no agent session of the
-	// user's own and have no queued lifecycle, environment snapshot, check or
-	// tool operation. A paused or stopped machine was paused or stopped by its
-	// user and is left alone.
-	//
-	// An idle machine (no agent run, no other active task, no queued
-	// validation or publication) comes first: one already used for this
-	// issue, then the most recently active. Otherwise the task shares the
-	// least loaded busy machine that runs fewer active tasks than the
-	// machine's own max_tasks, or the workspace's task_machine_max_tasks when
-	// it has none. Only when none is left does the task get a new machine. The
-	// workspace lock above serializes these choices, so concurrent tasks
-	// cannot take the same last place.
-	var machineID uuid.UUID
-	err = tx.GetContext(ctx, &machineID, `SELECT m.id FROM dev_machines m
+// MachineReservation is the machine a task runs on after a reservation and the
+// task's current reservation ID. A uuid.Nil MachineID means the task has no
+// machine yet: it starts a task machine under ReservedID unless it waits for a
+// task slot. Abandoned, when set, is a machine created for this task that never
+// started and can be deleted.
+type MachineReservation struct {
+	MachineID  uuid.UUID
+	ReservedID uuid.UUID
+	Abandoned  *uuid.UUID
+}
+
+// ErrMachineSlotWait reports a task waiting for a free task slot on a suitable
+// machine of its creator that already runs its allowed number of tasks.
+var ErrMachineSlotWait = errors.New("no free task slot on the machine")
+
+// MachineSlotWaitError names the full machine a task waits on.
+type MachineSlotWaitError struct {
+	Name  string
+	Tasks int
+	Limit int
+}
+
+func (e *MachineSlotWaitError) Error() string {
+	return fmt.Sprintf("%s already runs %d of %d task slots", e.Name, e.Tasks, e.Limit)
+}
+
+func (e *MachineSlotWaitError) Unwrap() error { return ErrMachineSlotWait }
+
+// taskSlotLimit bounds how many active tasks share a machine: its own
+// max_tasks, or the workspace policy's task_machine_max_tasks when it has none.
+// The reusable-machine query and the full-machine lookup both use it.
+const taskSlotLimit = "COALESCE(m.max_tasks, policy.task_machine_max_tasks)"
+
+// machineSelectionSQL is a machine that suits a task of its creator, without
+// the free task slot condition: both the machine a task shares and the full
+// machine it waits on are chosen from it.
+func machineSelectionSQL() string {
+	return `FROM dev_machines m
  JOIN dev_machine_workspace_policies policy ON policy.workspace_id=m.workspace_id AND policy.enabled
  CROSS JOIN LATERAL (SELECT count(*) AS tasks FROM agent_tasks t WHERE t.machine_id=m.id AND t.id<>$6
-  AND t.state NOT IN ('completed','cancelled','failed','blocked','awaiting_review') AND `+taskHoldsMachine("t")+`) load
+  AND t.state NOT IN ('completed','cancelled','failed','blocked','awaiting_review') AND ` + taskHoldsMachine("t") + `) load
  CROSS JOIN LATERAL (SELECT load.tasks=0
   AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.status IN ('queued','starting','running','waiting_input'))
   AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased') AND o.action IN ('validate_agent','publish_agent')) AS idle) state
@@ -666,28 +648,184 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
  AND m.environment_id IS NOT DISTINCT FROM $4::uuid
  AND (policy.allow_sudo OR NOT m.sudo_enabled)
  AND (policy.allow_docker OR NOT EXISTS(SELECT 1 FROM dev_machine_services s WHERE s.machine_id=m.id AND s.service_type='docker'))
- AND load.tasks < COALESCE(m.max_tasks, policy.task_machine_max_tasks)
  AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.task_id IS NULL AND r.status IN ('queued','starting','running','waiting_input'))
  AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased')
-  AND o.action IN ('stop','pause','teardown','snapshot_environment','run_check','run_tool'))
+  AND o.action IN ('stop','pause','teardown','snapshot_environment','run_check','run_tool'))`
+}
+
+// machineSelectionOrder ranks an idle machine first, then the least loaded one,
+// with the task's issue, recent activity, cached repository and agent breaking
+// ties.
+const machineSelectionOrder = `
  ORDER BY state.idle DESC, load.tasks,
   EXISTS(SELECT 1 FROM agent_tasks t WHERE t.machine_id=m.id AND t.issue_id=$7) DESC,
   m.last_activity_at DESC NULLS LAST,
   EXISTS(SELECT 1 FROM dev_machine_checkouts c WHERE c.machine_id=m.id AND c.github_repo_id=$3) DESC,
   EXISTS(SELECT 1 FROM dev_machine_agent_providers p WHERE p.machine_id=m.id AND p.provider_id=$5 AND p.enabled) DESC,
-  m.id FOR UPDATE OF m SKIP LOCKED LIMIT 1`, task.WorkspaceID, task.CreatorID, repositoryID, environmentID, task.Provider, task.ID, task.IssueID)
+  m.id`
+
+// reusableMachine returns the machine with a free task slot, if any.
+func reusableMachine(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, repositoryID uuid.UUID, environmentID *uuid.UUID) (uuid.UUID, error) {
+	var machineID uuid.UUID
+	err := tx.GetContext(ctx, &machineID, `SELECT m.id `+machineSelectionSQL()+`
+ AND load.tasks < `+taskSlotLimit+machineSelectionOrder+`
+ FOR UPDATE OF m SKIP LOCKED LIMIT 1`,
+		task.WorkspaceID, task.CreatorID, repositoryID, environmentID, task.Provider, task.ID, task.IssueID)
+	return machineID, err
+}
+
+// machineLoad is a suitable machine of the task's creator and how much of its
+// task slot limit is in use.
+type machineLoad struct {
+	Name  string
+	Tasks int
+	Limit int
+}
+
+// fullMachine returns the suitable machine a task would use, whether or not it
+// has a free task slot. reusableMachine already took every unlocked machine
+// with a free slot, so a machine below its limit here is held by another
+// transaction's row lock or freed its last slot between the two reads: the
+// reservation retries instead of creating a machine. A machine at its limit is
+// the one the task waits on.
+func fullMachine(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, repositoryID uuid.UUID, environmentID *uuid.UUID) (*machineLoad, error) {
+	var load machineLoad
+	err := tx.QueryRowxContext(ctx, `SELECT m.name, load.tasks, `+taskSlotLimit+` `+machineSelectionSQL()+machineSelectionOrder+`
+ LIMIT 1`,
+		task.WorkspaceID, task.CreatorID, repositoryID, environmentID, task.Provider, task.ID, task.IssueID).Scan(&load.Name, &load.Tasks, &load.Limit)
 	if errors.Is(err, sql.ErrNoRows) {
-		machineID = task.ReservedMachineID
-	} else if err != nil {
-		return uuid.Nil, uuid.Nil, err
+		return nil, nil
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET machine_id=$2,updated_at=now() WHERE id=$1 RETURNING *`, task.ID, machineID); err != nil {
-		return uuid.Nil, uuid.Nil, err
+	if err != nil {
+		return nil, err
 	}
-	if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.updated", task); err != nil {
-		return uuid.Nil, uuid.Nil, err
+	return &load, nil
+}
+
+// saveTaskMachine stores the machine a task waits on and, when it left a
+// machine it cannot keep, a fresh reservation for the machine it starts next.
+// uuid.Nil leaves the task without a machine.
+func saveTaskMachine(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, machineID uuid.UUID, freshReservation bool) error {
+	query := `UPDATE agent_tasks SET machine_id=$2,updated_at=now() WHERE id=$1 RETURNING *`
+	if freshReservation {
+		query = `UPDATE agent_tasks SET machine_id=$2,reserved_machine_id=gen_random_uuid(),updated_at=now() WHERE id=$1 RETURNING *`
 	}
-	return machineID, task.ReservedMachineID, tx.Commit()
+	var machine any
+	if machineID != uuid.Nil {
+		machine = machineID
+	}
+	if err := tx.GetContext(ctx, task, query, task.ID, machine); err != nil {
+		return err
+	}
+	_, err := conversationEvent(ctx, tx, *task.ConversationID, "task.updated", task)
+	return err
+}
+
+// ReserveMachine serializes compatible-machine selection with other task
+// reservations. A task waits for a free task slot on a suitable machine of its
+// creator instead of creating one the host cannot start. A task whose own task
+// machine never started moves to such a slot when one frees, reporting its
+// unstarted machine for deletion; otherwise it keeps waiting for host capacity.
+func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain.AgentTask, repositoryID uuid.UUID, environmentID *uuid.UUID) (MachineReservation, error) {
+	tx, task, err := r.transaction(ctx, claimed.ID, true)
+	if err != nil {
+		return MachineReservation{}, err
+	}
+	defer tx.Rollback()
+	if err = fenceAgentTask(ctx, tx, *task, claimed); err != nil {
+		return MachineReservation{}, err
+	}
+	if task.State != "preparing" {
+		return MachineReservation{}, ErrAgentTaskConflict
+	}
+	reservation := MachineReservation{ReservedID: task.ReservedMachineID}
+	if task.MachineID != nil {
+		reservation.MachineID = *task.MachineID
+	}
+	var gone bool
+	var abandoned *uuid.UUID
+	if task.MachineID != nil {
+		// A reservation for a machine that was never created (e.g. blocked by
+		// the machine limit) is revisited, so a free task slot can be used. A
+		// destroyed or deleting machine is kept only as history: the task gets
+		// a new reservation, since that machine ID cannot be reused. A machine
+		// created for this task that never started can make way for a slot.
+		var pending, unstarted bool
+		// This read is unlocked, so the manager may move the machine from
+		// queued to spawning before the delete below. That is safe:
+		// requestPermanentDelete locks the row and queues a teardown with a
+		// generation bump, and the task never ran on that machine.
+		if err = tx.QueryRowContext(ctx, `SELECT $1::uuid=$2::uuid AND NOT EXISTS(SELECT 1 FROM dev_machines WHERE id=$1),
+ EXISTS(SELECT 1 FROM dev_machines WHERE id=$1 AND (status='destroyed' OR delete_requested_at IS NOT NULL)),
+ $1::uuid=$2::uuid AND EXISTS(SELECT 1 FROM dev_machines WHERE id=$1 AND status='queued' AND started_at IS NULL AND delete_requested_at IS NULL)`,
+			*task.MachineID, task.ReservedMachineID).Scan(&pending, &gone, &unstarted); err != nil {
+			return MachineReservation{}, err
+		}
+		switch {
+		case gone:
+			if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET machine_id=NULL,reserved_machine_id=gen_random_uuid(),updated_at=now() WHERE id=$1 RETURNING *`, task.ID); err != nil {
+				return MachineReservation{}, err
+			}
+			reservation = MachineReservation{ReservedID: task.ReservedMachineID}
+		case unstarted:
+			own := *task.MachineID
+			abandoned = &own
+		case !pending:
+			return reservation, nil
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, task.WorkspaceID); err != nil {
+		return MachineReservation{}, err
+	}
+	machineID, err := reusableMachine(ctx, tx, task, repositoryID, environmentID)
+	if err == nil {
+		reservation.MachineID = machineID
+		reservation.Abandoned = abandoned
+		if err = saveTaskMachine(ctx, tx, task, machineID, abandoned != nil); err != nil {
+			return MachineReservation{}, err
+		}
+		reservation.ReservedID = task.ReservedMachineID
+		return reservation, tx.Commit()
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return MachineReservation{}, err
+	}
+	// No machine has a free task slot. A machine below its limit is here
+	// because another transaction locks its row (or a slot freed between the
+	// two reads): the next poll takes that slot rather than starting a machine
+	// the host cannot admit. A machine at its limit is one the task waits on.
+	load, err := fullMachine(ctx, tx, task, repositoryID, environmentID)
+	if err != nil {
+		return MachineReservation{}, err
+	}
+	if load != nil {
+		if load.Tasks < load.Limit {
+			return MachineReservation{}, ErrAgentTaskConflict
+		}
+		if gone || abandoned != nil {
+			reservation.MachineID = uuid.Nil
+			reservation.Abandoned = abandoned
+			if err = saveTaskMachine(ctx, tx, task, uuid.Nil, abandoned != nil); err != nil {
+				return MachineReservation{}, err
+			}
+			reservation.ReservedID = task.ReservedMachineID
+			if err = tx.Commit(); err != nil {
+				return MachineReservation{}, err
+			}
+		}
+		return reservation, &MachineSlotWaitError{Name: load.Name, Tasks: load.Tasks, Limit: load.Limit}
+	}
+	if abandoned != nil {
+		// No other machine: the task keeps waiting for host capacity on its own
+		// unstarted machine, as it did before a slot could free.
+		return reservation, nil
+	}
+	reservation.MachineID = task.ReservedMachineID
+	if err = saveTaskMachine(ctx, tx, task, reservation.MachineID, false); err != nil {
+		return MachineReservation{}, err
+	}
+	reservation.ReservedID = task.ReservedMachineID
+	return reservation, tx.Commit()
 }
 
 // stopFailure says who stopped an attempt this repository is cancelling, and

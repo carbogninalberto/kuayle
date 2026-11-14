@@ -23,7 +23,7 @@ func queuedTaskMachine(t *testing.T, db *sqlx.DB, task domain.AgentTask, fixture
 	}
 	spawn := uuid.New()
 	_, err = db.Exec(`INSERT INTO dev_machine_operations(id,machine_id,workspace_id,action,status,generation,idempotency_key,attempts,error_code,error_message,available_at)
- VALUES($1,$2,$3,$4,'pending',1,$5,0,'host_capacity_wait','waiting for host memory: 12288 MB requested of 4096 MB available to machines',now()+interval '30 seconds')`,
+ VALUES($1,$2,$3,$4,'pending',1,$5,0,'host_capacity_wait','waiting for host memory: this machine needs 12288 MB and running machines already use 4096 MB of the 20480 MB available to machines',now()+interval '30 seconds')`,
 		spawn, machine, fixture.workspaceID, action, key)
 	require.NoError(t, err)
 	return machine, spawn

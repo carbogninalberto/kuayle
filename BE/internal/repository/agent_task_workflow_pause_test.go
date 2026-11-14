@@ -587,13 +587,12 @@ func TestAPausedTaskIsNotMachineLoad(t *testing.T) {
 	parked := f.workingTask(t, machine)
 	f.exec(t, `UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now() WHERE task_id=$1`, parked)
 	claimed := f.preparingTask(t)
-	reserve := func() uuid.UUID {
+	reserve := func() (uuid.UUID, error) {
 		t.Helper()
 		f.exec(t, `UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, claimed.ID)
 		claimed.MachineID = nil
-		id, _, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
-		require.NoError(t, err)
-		return id
+		reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+		return reservation.MachineID, err
 	}
 	start := func() error {
 		f.exec(t, `UPDATE agent_tasks SET machine_id=$2 WHERE id=$1`, claimed.ID, machine)
@@ -602,13 +601,17 @@ func TestAPausedTaskIsNotMachineLoad(t *testing.T) {
 		run, op := taskRun(at, machine)
 		return f.repository.CreateAgentRun(domain.WithTaskExecution(f.ctx, at), run, op)
 	}
-	require.Equal(t, claimed.ReservedMachineID, reserve(), "a task between two steps holds its place")
+	_, err := reserve()
+	require.ErrorIs(t, err, ErrMachineSlotWait, "a task between two steps waits for the machine's only task slot")
 	require.ErrorIs(t, start(), ErrMachineBusy)
 	f.exec(t, `UPDATE agent_tasks SET state='cancelling',workflow_paused_at=now() WHERE id=$1`, parked)
-	require.Equal(t, claimed.ReservedMachineID, reserve(), "stopping the attempt is still work")
+	_, err = reserve()
+	require.ErrorIs(t, err, ErrMachineSlotWait, "stopping the attempt is still work")
 	for _, state := range []string{"validating", "publishing", "running"} {
 		f.exec(t, `UPDATE agent_tasks SET state=$2 WHERE id=$1`, parked, state)
-		require.Equal(t, machine, reserve(), state)
+		id, err := reserve()
+		require.NoError(t, err, state)
+		require.Equal(t, machine, id, state)
 	}
 	require.NoError(t, start(), "the paused task's place is free")
 }
