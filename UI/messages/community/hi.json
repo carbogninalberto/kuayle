@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "रिपॉज़िटरी का कोड खोजें",
 	"assistant.tool_repo_read_file": "रिपॉज़िटरी की फ़ाइल पढ़ें",
 	"assistant.tool_repo_symbols": "कोड सिंबल सूचीबद्ध करें",
+	"assistant.tool_get_task_worktree": "कार्य वर्कट्री स्थिति",
+	"assistant.tool_list_machine_worktrees": "मशीन वर्कट्री सूचीबद्ध करें",
 	"assistant.tool_spawn_research_subagents": "रिसर्च सबएजेंट",
 	"assistant.research_web_results": "“{query}” के {count} परिणाम",
 	"assistant.research_truncated": "बजट में रहने के लिए और परिणाम छोड़ दिए गए।",

@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "搜索仓库代码",
 	"assistant.tool_repo_read_file": "读取仓库文件",
 	"assistant.tool_repo_symbols": "列出代码符号",
+	"assistant.tool_get_task_worktree": "任务工作树状态",
+	"assistant.tool_list_machine_worktrees": "列出机器工作树",
 	"assistant.tool_spawn_research_subagents": "研究子代理",
 	"assistant.research_web_results": "“{query}”的 {count} 条结果",
 	"assistant.research_truncated": "为控制在预算内，省略了更多结果。",

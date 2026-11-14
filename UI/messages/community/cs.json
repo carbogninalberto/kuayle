@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Hledat v kódu repozitáře",
 	"assistant.tool_repo_read_file": "Přečíst soubor repozitáře",
 	"assistant.tool_repo_symbols": "Vypsat symboly kódu",
+	"assistant.tool_get_task_worktree": "Stav pracovního stromu úlohy",
+	"assistant.tool_list_machine_worktrees": "Seznam pracovních stromů počítače",
 	"assistant.tool_spawn_research_subagents": "Výzkumní subagenti",
 	"assistant.research_web_results": "Výsledky pro „{query}“: {count}",
 	"assistant.research_truncated": "Další výsledky byly vynechány kvůli dodržení rozpočtu.",

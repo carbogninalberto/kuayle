@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "リポジトリのコードを検索",
 	"assistant.tool_repo_read_file": "リポジトリのファイルを読み取り",
 	"assistant.tool_repo_symbols": "コードのシンボルを一覧表示",
+	"assistant.tool_get_task_worktree": "タスクのワークツリー状態",
+	"assistant.tool_list_machine_worktrees": "マシンのワークツリーを一覧表示",
 	"assistant.tool_spawn_research_subagents": "リサーチ用サブエージェント",
 	"assistant.research_web_results": "「{query}」の結果 {count} 件",
 	"assistant.research_truncated": "予算内に収めるため、一部の結果は省略されました。",

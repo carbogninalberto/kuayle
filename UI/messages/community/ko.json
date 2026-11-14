@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "저장소 코드 검색",
 	"assistant.tool_repo_read_file": "저장소 파일 읽기",
 	"assistant.tool_repo_symbols": "코드 심볼 목록",
+	"assistant.tool_get_task_worktree": "작업 워크트리 상태",
+	"assistant.tool_list_machine_worktrees": "머신 워크트리 나열",
 	"assistant.tool_spawn_research_subagents": "리서치 서브에이전트",
 	"assistant.research_web_results": "“{query}” 결과 {count}개",
 	"assistant.research_truncated": "예산을 지키기 위해 일부 결과가 제외되었습니다.",

@@ -52,6 +52,10 @@ type ManagerStore interface {
 	GetPublication(context.Context, domain.DevMachineOperation) (*domain.AgentPublication, error)
 	StartPublication(context.Context, domain.DevMachineOperation) error
 	CompletePublication(context.Context, domain.DevMachineOperation, domain.AgentPublicationResult) error
+	// Worktree scans (scan_worktree) are read-only; their result is stored on
+	// the scan row, whose ID is the operation's.
+	WorktreeScanForOperation(context.Context, uuid.UUID) (*domain.WorktreeScan, error)
+	CompleteWorktreeScan(context.Context, uuid.UUID, json.RawMessage, *string) error
 	LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error)
 	RenewOperationLease(context.Context, uuid.UUID, string, time.Duration) error
 	CompleteOperation(context.Context, uuid.UUID, string) error
@@ -399,6 +403,12 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 				log.WithFields(fields).WithError(toolErr).Error("failed to record tool run failure")
 			}
 		}
+		if !willRetry && operation.Action == domain.DevMachineOpScanWorktree {
+			message := worktreeScanFailure(err)
+			if scanErr := m.store.CompleteWorktreeScan(finalCtx, operation.ID, nil, &message); scanErr != nil {
+				log.WithFields(fields).WithError(scanErr).Error("failed to record worktree scan failure")
+			}
+		}
 		if !willRetry && operation.Action == domain.DevMachineOpCheckoutIssue && operation.CheckoutID != nil {
 			message := safeError(err)
 			if checkoutErr := m.store.UpdateCheckoutState(finalCtx, *operation.CheckoutID, "failed", &message); checkoutErr != nil {
@@ -472,6 +482,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			return &terminalOperationError{code: "check_stale", message: "The machine changed before the check ran"}
 		case domain.DevMachineOpRunTool:
 			return &terminalOperationError{code: "tool_stale", message: "The machine changed before the tool ran"}
+		case domain.DevMachineOpScanWorktree:
+			return m.completeStaleWorktreeScan(ctx, operation)
 		case domain.DevMachineOpPublishAgent:
 			return &terminalOperationError{code: "publication_stale", message: "Machine changed during publication"}
 		case domain.DevMachineOpRunAgent:
@@ -647,6 +659,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		return m.validateAgent(ctx, machine, operation)
 	case domain.DevMachineOpRunTool:
 		return m.runTool(ctx, machine, operation)
+	case domain.DevMachineOpScanWorktree:
+		return m.runWorktreeScan(ctx, machine, operation)
 	case domain.DevMachineOpPublishAgent:
 		return m.publishAgent(ctx, machine, operation)
 	case domain.DevMachineOpPurgeTaskSession:

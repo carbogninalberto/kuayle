@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Αναζήτηση κώδικα αποθετηρίου",
 	"assistant.tool_repo_read_file": "Ανάγνωση αρχείου αποθετηρίου",
 	"assistant.tool_repo_symbols": "Λίστα συμβόλων κώδικα",
+	"assistant.tool_get_task_worktree": "Κατάσταση δέντρου εργασίας εργασίας",
+	"assistant.tool_list_machine_worktrees": "Λίστα δέντρων εργασίας μηχανής",
 	"assistant.tool_spawn_research_subagents": "Υποπράκτορες έρευνας",
 	"assistant.research_web_results": "Αποτελέσματα για «{query}»: {count}",
 	"assistant.research_truncated": "Παραλείφθηκαν περισσότερα αποτελέσματα για να μείνει εντός του προϋπολογισμού.",

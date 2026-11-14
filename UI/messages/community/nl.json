@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Repositorycode doorzoeken",
 	"assistant.tool_repo_read_file": "Repositorybestand lezen",
 	"assistant.tool_repo_symbols": "Codesymbolen weergeven",
+	"assistant.tool_get_task_worktree": "Status van de taakworktree",
+	"assistant.tool_list_machine_worktrees": "Worktrees van de machine weergeven",
 	"assistant.tool_spawn_research_subagents": "Onderzoekssubagents",
 	"assistant.research_web_results": "{count} resultaten voor “{query}”",
 	"assistant.research_truncated": "Meer resultaten zijn weggelaten om binnen het budget te blijven.",

@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Hae repositoryn koodista",
 	"assistant.tool_repo_read_file": "Lue repositoryn tiedosto",
 	"assistant.tool_repo_symbols": "Listaa koodin symbolit",
+	"assistant.tool_get_task_worktree": "Tehtävän työpuun tila",
+	"assistant.tool_list_machine_worktrees": "Luettele koneen työpuut",
 	"assistant.tool_spawn_research_subagents": "Tutkimusalitehtävät",
 	"assistant.research_web_results": "Tuloksia {count} haulle “{query}”",
 	"assistant.research_truncated": "Lisää tuloksia jätettiin pois budjetin pitämiseksi.",

@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Keresés a repository kódjában",
 	"assistant.tool_repo_read_file": "Repository fájl olvasása",
 	"assistant.tool_repo_symbols": "Kódszimbólumok listázása",
+	"assistant.tool_get_task_worktree": "A feladat munkafájának állapota",
+	"assistant.tool_list_machine_worktrees": "A gép munkafáinak listázása",
 	"assistant.tool_spawn_research_subagents": "Kutatási subagentek",
 	"assistant.research_web_results": "{count} találat erre: “{query}”",
 	"assistant.research_truncated": "További találatok kimaradtak a keret betartásához.",

@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "חיפוש בקוד המאגר",
 	"assistant.tool_repo_read_file": "קריאת קובץ מהמאגר",
 	"assistant.tool_repo_symbols": "רשימת סמלי קוד",
+	"assistant.tool_get_task_worktree": "מצב עץ העבודה של המשימה",
+	"assistant.tool_list_machine_worktrees": "הצגת עצי העבודה של המכונה",
 	"assistant.tool_spawn_research_subagents": "תת-סוכני מחקר",
 	"assistant.research_web_results": "{count} תוצאות עבור “{query}”",
 	"assistant.research_truncated": "תוצאות נוספות הושמטו כדי להישאר במסגרת התקציב.",

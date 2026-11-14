@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Search repository code",
 	"assistant.tool_repo_read_file": "Read repository file",
 	"assistant.tool_repo_symbols": "List code symbols",
+	"assistant.tool_get_task_worktree": "Task worktree state",
+	"assistant.tool_list_machine_worktrees": "List machine worktrees",
 	"assistant.tool_spawn_research_subagents": "Research subagents",
 	"assistant.research_web_results": "{count} results for “{query}”",
 	"assistant.research_truncated": "More results were left out to stay within the budget.",

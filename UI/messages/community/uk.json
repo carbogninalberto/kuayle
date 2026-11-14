@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Пошук коду в репозиторії",
 	"assistant.tool_repo_read_file": "Читання файлу репозиторію",
 	"assistant.tool_repo_symbols": "Список символів коду",
+	"assistant.tool_get_task_worktree": "Стан робочого дерева задачі",
+	"assistant.tool_list_machine_worktrees": "Список робочих дерев машини",
 	"assistant.tool_spawn_research_subagents": "Субагенти дослідження",
 	"assistant.research_web_results": "Результатів за запитом «{query}»: {count}",
 	"assistant.research_truncated": "Додаткові результати пропущено, щоб вкластися в бюджет.",

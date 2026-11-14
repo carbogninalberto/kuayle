@@ -258,7 +258,7 @@ func (s *ConversationService) runSubagents(ctx context.Context, a domain.Convers
 	var available []chatToolSpec
 	for _, name := range subagentToolNames {
 		if tool, ok := lookupAssistantTool(name); ok && s.tools.available(tool) && !disabled[name] {
-			available = append(available, tool.spec())
+			available = append(available, subagentToolSpec(tool))
 		}
 	}
 	if len(available) == 0 {
@@ -413,6 +413,11 @@ func (s *ConversationService) subagentTool(ctx context.Context, ws, creator uuid
 	if !known || !allowed[tool.name] || !slices.Contains(subagentToolNames, tool.name) || !s.tools.available(tool) {
 		return fail(call.Function.Name + " is not available to research subagents; use web_search or the repo_* tools")
 	}
+	// Sub-tasks read only the pushed code: a live worktree is the creator's
+	// machine, which a cheaper research worker must never reach.
+	if tool.scan && taskSourceRequested(call.Function.Arguments) {
+		return fail(`sub-tasks can only read the pushed code; source "task" reads a live dev-machine worktree and is not available to subagents`)
+	}
 	if err := s.tools.refuseDisabled(ctx, ws, tool.name); err != nil {
 		return fail(toolErrorText(err))
 	}
@@ -433,6 +438,29 @@ func (s *ConversationService) subagentTool(ctx context.Context, ws, creator uuid
 	collectSources(output, seen)
 	step.OK, step.DurationMS = true, time.Since(started).Milliseconds()
 	return `{"untrusted_data":` + string(data) + `}`, step
+}
+
+// subagentToolSpec keeps a sub-task's tools on the pushed code: the scan
+// schemas lose the live worktree source, so a cheaper worker is never offered
+// a task's machine.
+func subagentToolSpec(tool assistantTool) chatToolSpec {
+	spec := tool.spec()
+	if !tool.scan {
+		return spec
+	}
+	var schema map[string]any
+	if json.Unmarshal([]byte(tool.parameters), &schema) != nil {
+		return spec
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	if properties == nil {
+		return spec
+	}
+	delete(properties, "source")
+	if data, err := json.Marshal(schema); err == nil {
+		spec.Function.Parameters = data
+	}
+	return spec
 }
 
 // collectSources records the paths and URLs a tool result names, so a

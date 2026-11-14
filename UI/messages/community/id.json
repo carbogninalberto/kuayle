@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Cari kode repositori",
 	"assistant.tool_repo_read_file": "Baca file repositori",
 	"assistant.tool_repo_symbols": "Daftar simbol kode",
+	"assistant.tool_get_task_worktree": "Status worktree tugas",
+	"assistant.tool_list_machine_worktrees": "Daftar worktree mesin",
 	"assistant.tool_spawn_research_subagents": "Subagen riset",
 	"assistant.research_web_results": "{count} hasil untuk “{query}”",
 	"assistant.research_truncated": "Hasil lainnya dihilangkan agar sesuai anggaran.",

@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Rechercher dans le code du dépôt",
 	"assistant.tool_repo_read_file": "Lire un fichier du dépôt",
 	"assistant.tool_repo_symbols": "Lister les symboles du code",
+	"assistant.tool_get_task_worktree": "État de l’arbre de travail de la tâche",
+	"assistant.tool_list_machine_worktrees": "Lister les arbres de travail de la machine",
 	"assistant.tool_spawn_research_subagents": "Sous-agents de recherche",
 	"assistant.research_web_results": "{count} résultats pour « {query} »",
 	"assistant.research_truncated": "D'autres résultats ont été omis pour respecter le budget.",

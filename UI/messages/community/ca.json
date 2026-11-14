@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Cerca al codi del repositori",
 	"assistant.tool_repo_read_file": "Llegeix un fitxer del repositori",
 	"assistant.tool_repo_symbols": "Llista els símbols del codi",
+	"assistant.tool_get_task_worktree": "Estat de l’arbre de treball de la tasca",
+	"assistant.tool_list_machine_worktrees": "Llista els arbres de treball de la màquina",
 	"assistant.tool_spawn_research_subagents": "Subagents de recerca",
 	"assistant.research_web_results": "{count} resultats per a «{query}»",
 	"assistant.research_truncated": "S'han deixat fora més resultats per ajustar-se al pressupost.",

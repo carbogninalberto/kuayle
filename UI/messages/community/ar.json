@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "البحث في كود المستودع",
 	"assistant.tool_repo_read_file": "قراءة ملف من المستودع",
 	"assistant.tool_repo_symbols": "عرض رموز الكود",
+	"assistant.tool_get_task_worktree": "حالة شجرة عمل المهمة",
+	"assistant.tool_list_machine_worktrees": "عرض أشجار عمل الجهاز",
 	"assistant.tool_spawn_research_subagents": "وكلاء البحث الفرعيون",
 	"assistant.research_web_results": "النتائج: {count} لـ “{query}”",
 	"assistant.research_truncated": "تُركت نتائج إضافية للبقاء ضمن الميزانية.",

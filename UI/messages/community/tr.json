@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Depo kodunda ara",
 	"assistant.tool_repo_read_file": "Depo dosyasını oku",
 	"assistant.tool_repo_symbols": "Kod sembollerini listele",
+	"assistant.tool_get_task_worktree": "Görev çalışma ağacı durumu",
+	"assistant.tool_list_machine_worktrees": "Makine çalışma ağaçlarını listele",
 	"assistant.tool_spawn_research_subagents": "Araştırma alt ajanları",
 	"assistant.research_web_results": "“{query}” için {count} sonuç",
 	"assistant.research_truncated": "Bütçe içinde kalmak için daha fazla sonuç dışarıda bırakıldı.",

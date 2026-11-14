@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "جستجوی کد مخزن",
 	"assistant.tool_repo_read_file": "خواندن فایل مخزن",
 	"assistant.tool_repo_symbols": "فهرست نمادهای کد",
+	"assistant.tool_get_task_worktree": "وضعیت درخت کاری وظیفه",
+	"assistant.tool_list_machine_worktrees": "فهرست درخت‌های کاری ماشین",
 	"assistant.tool_spawn_research_subagents": "زیرعامل‌های پژوهش",
 	"assistant.research_web_results": "{count} نتیجه برای «{query}»",
 	"assistant.research_truncated": "برای ماندن در بودجه، نتایج بیشتری کنار گذاشته شد.",

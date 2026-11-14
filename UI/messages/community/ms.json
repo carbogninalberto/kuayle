@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Cari kod repositori",
 	"assistant.tool_repo_read_file": "Baca fail repositori",
 	"assistant.tool_repo_symbols": "Senaraikan simbol kod",
+	"assistant.tool_get_task_worktree": "Status worktree tugas",
+	"assistant.tool_list_machine_worktrees": "Senaraikan worktree mesin",
 	"assistant.tool_spawn_research_subagents": "Subejen penyelidikan",
 	"assistant.research_web_results": "{count} hasil untuk “{query}”",
 	"assistant.research_truncated": "Lebih banyak hasil ditinggalkan untuk kekal dalam bajet.",

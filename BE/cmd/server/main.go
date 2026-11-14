@@ -333,6 +333,8 @@ func main() {
 	// they expire and on shutdown.
 	repositoryCheckouts := service.NewRepositoryCheckouts(githubSvc)
 	assistantTools.SetRepositoryScans(repositoryCheckouts, devMachineRepo)
+	// Live worktree scans queue a read-only operation on the task's machine.
+	assistantTools.SetWorktreeScans(devMachineRepo)
 	assistantApprovals.SetReleases(githubSvc)
 	githubSvc.SetPullRequestSettings(repository.NewAgentTaskRepository(db))
 	assistantApprovals.SetPullRequestHeads(githubSvc)

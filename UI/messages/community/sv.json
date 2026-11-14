@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Sök i repots kod",
 	"assistant.tool_repo_read_file": "Läs repofil",
 	"assistant.tool_repo_symbols": "Lista kodsymboler",
+	"assistant.tool_get_task_worktree": "Aktivitetens worktree-status",
+	"assistant.tool_list_machine_worktrees": "Lista maskinens worktrees",
 	"assistant.tool_spawn_research_subagents": "Research-subagenter",
 	"assistant.research_web_results": "{count} resultat för ”{query}”",
 	"assistant.research_truncated": "Fler resultat utelämnades för att hålla sig inom budgeten.",

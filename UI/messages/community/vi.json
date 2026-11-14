@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Tìm mã trong repository",
 	"assistant.tool_repo_read_file": "Đọc tệp repository",
 	"assistant.tool_repo_symbols": "Liệt kê ký hiệu mã",
+	"assistant.tool_get_task_worktree": "Trạng thái worktree của tác vụ",
+	"assistant.tool_list_machine_worktrees": "Liệt kê worktree của máy",
 	"assistant.tool_spawn_research_subagents": "Agent con nghiên cứu",
 	"assistant.research_web_results": "{count} kết quả cho “{query}”",
 	"assistant.research_truncated": "Một số kết quả đã bị lược bỏ để nằm trong giới hạn.",

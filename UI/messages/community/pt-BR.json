@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Pesquisar código do repositório",
 	"assistant.tool_repo_read_file": "Ler arquivo do repositório",
 	"assistant.tool_repo_symbols": "Listar símbolos do código",
+	"assistant.tool_get_task_worktree": "Estado da árvore de trabalho da tarefa",
+	"assistant.tool_list_machine_worktrees": "Listar árvores de trabalho da máquina",
 	"assistant.tool_spawn_research_subagents": "Subagentes de pesquisa",
 	"assistant.research_web_results": "{count} resultados para “{query}”",
 	"assistant.research_truncated": "Mais resultados foram omitidos para respeitar o orçamento.",

@@ -3185,6 +3185,8 @@
 	"assistant.tool_repo_grep": "Caută în codul repository-ului",
 	"assistant.tool_repo_read_file": "Citește fișier din repository",
 	"assistant.tool_repo_symbols": "Listează simbolurile din cod",
+	"assistant.tool_get_task_worktree": "Starea arborelui de lucru al sarcinii",
+	"assistant.tool_list_machine_worktrees": "Listează arborii de lucru ai mașinii",
 	"assistant.tool_spawn_research_subagents": "Sub-agenți de cercetare",
 	"assistant.research_web_results": "Rezultate pentru „{query}”: {count}",
 	"assistant.research_truncated": "Alte rezultate au fost omise pentru a rămâne în buget.",
