@@ -3147,6 +3147,7 @@
 	"assistant.places": "Assistant places",
 	"assistant.recents": "Recents",
 	"assistant.recents_empty": "No conversations yet.",
+	"assistant.recents_loading": "Loading conversations…",
 	"assistant.resize_panel": "Resize side panel",
 	"assistant.sent_to_agent": "Sent to the {agent} agent of {identifier}",
 	"assistant.show_earlier": "Show {count} earlier messages",

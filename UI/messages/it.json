@@ -3147,6 +3147,7 @@
 	"assistant.places": "Sezioni dell'assistente",
 	"assistant.recents": "Recenti",
 	"assistant.recents_empty": "Ancora nessuna conversazione.",
+	"assistant.recents_loading": "Caricamento conversazioni…",
 	"assistant.resize_panel": "Ridimensiona il pannello laterale",
 	"assistant.sent_to_agent": "Inviato all'agente {agent} di {identifier}",
 	"assistant.show_earlier": "Mostra {count} messaggi precedenti",

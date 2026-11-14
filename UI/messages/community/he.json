@@ -3147,6 +3147,7 @@
 	"assistant.places": "מקומות העוזר",
 	"assistant.recents": "אחרונות",
 	"assistant.recents_empty": "עדיין אין שיחות.",
+	"assistant.recents_loading": "טוען שיחות…",
 	"assistant.resize_panel": "שינוי גודל לוח הצד",
 	"assistant.sent_to_agent": "נשלח לסוכן {agent} של {identifier}",
 	"assistant.show_earlier": "הצגת הודעות קודמות ({count})",

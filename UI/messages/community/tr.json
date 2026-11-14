@@ -3147,6 +3147,7 @@
 	"assistant.places": "Asistan konumları",
 	"assistant.recents": "Son kullanılanlar",
 	"assistant.recents_empty": "Henüz sohbet yok.",
+	"assistant.recents_loading": "Sohbetler yükleniyor…",
 	"assistant.resize_panel": "Yan paneli yeniden boyutlandır",
 	"assistant.sent_to_agent": "{identifier} issue'sunun {agent} ajanına gönderildi",
 	"assistant.show_earlier": "Önceki {count} mesajı göster",

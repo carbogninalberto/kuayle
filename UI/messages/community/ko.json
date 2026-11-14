@@ -3147,6 +3147,7 @@
 	"assistant.places": "어시스턴트 위치",
 	"assistant.recents": "최근 항목",
 	"assistant.recents_empty": "아직 대화가 없습니다.",
+	"assistant.recents_loading": "대화 불러오는 중…",
 	"assistant.resize_panel": "사이드 패널 크기 조정",
 	"assistant.sent_to_agent": "{identifier}의 {agent} 에이전트에게 보냈습니다",
 	"assistant.show_earlier": "이전 메시지 {count}개 보기",

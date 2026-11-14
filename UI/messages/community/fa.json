@@ -3147,6 +3147,7 @@
 	"assistant.places": "بخش‌های دستیار",
 	"assistant.recents": "اخیر",
 	"assistant.recents_empty": "هنوز گفتگویی نیست.",
+	"assistant.recents_loading": "در حال بارگیری گفتگوها…",
 	"assistant.resize_panel": "تغییر اندازه پنل کناری",
 	"assistant.sent_to_agent": "به عامل {agent} برای {identifier} ارسال شد",
 	"assistant.show_earlier": "نمایش {count} پیام قبلی",

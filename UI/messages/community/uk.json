@@ -3147,6 +3147,7 @@
 	"assistant.places": "Розділи асистента",
 	"assistant.recents": "Нещодавні",
 	"assistant.recents_empty": "Розмов ще немає.",
+	"assistant.recents_loading": "Завантаження розмов…",
 	"assistant.resize_panel": "Змінити розмір бічної панелі",
 	"assistant.sent_to_agent": "Надіслано агенту {agent} для {identifier}",
 	"assistant.show_earlier": "Показати попередні повідомлення: {count}",

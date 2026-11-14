@@ -3147,6 +3147,7 @@
 	"assistant.places": "Assistentens platser",
 	"assistant.recents": "Senaste",
 	"assistant.recents_empty": "Inga konversationer ännu.",
+	"assistant.recents_loading": "Laddar konversationer…",
 	"assistant.resize_panel": "Ändra storlek på sidopanelen",
 	"assistant.sent_to_agent": "Skickat till {agent}-agenten för {identifier}",
 	"assistant.show_earlier": "Visa {count} tidigare meddelanden",

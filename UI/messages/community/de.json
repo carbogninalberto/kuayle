@@ -3147,6 +3147,7 @@
 	"assistant.places": "Assistenten-Bereiche",
 	"assistant.recents": "Zuletzt",
 	"assistant.recents_empty": "Noch keine Unterhaltungen.",
+	"assistant.recents_loading": "Unterhaltungen werden geladen…",
 	"assistant.resize_panel": "Größe des Seitenbereichs ändern",
 	"assistant.sent_to_agent": "An den {agent}-Agent von {identifier} gesendet",
 	"assistant.show_earlier": "{count} frühere Nachrichten anzeigen",

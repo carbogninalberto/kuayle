@@ -3147,6 +3147,7 @@
 	"assistant.places": "Miejsca asystenta",
 	"assistant.recents": "Ostatnie",
 	"assistant.recents_empty": "Brak rozmów.",
+	"assistant.recents_loading": "Ładowanie rozmów…",
 	"assistant.resize_panel": "Zmień rozmiar panelu bocznego",
 	"assistant.sent_to_agent": "Wysłano do agenta {agent} dla {identifier}",
 	"assistant.show_earlier": "Pokaż wcześniejsze wiadomości: {count}",

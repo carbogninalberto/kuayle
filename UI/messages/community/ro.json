@@ -3147,6 +3147,7 @@
 	"assistant.places": "Locații ale asistentului",
 	"assistant.recents": "Recente",
 	"assistant.recents_empty": "Nicio conversație încă.",
+	"assistant.recents_loading": "Se încarcă conversațiile…",
 	"assistant.resize_panel": "Redimensionează panoul lateral",
 	"assistant.sent_to_agent": "Trimis agentului {agent} pentru {identifier}",
 	"assistant.show_earlier": "Afișează mesajele anterioare ({count})",

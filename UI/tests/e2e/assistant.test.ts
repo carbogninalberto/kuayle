@@ -921,6 +921,66 @@ test('a long conversation list scrolls inside the sidebar, never the page', asyn
 	expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
 
+test('switching conversations keeps Recents listed while the next one loads', async ({ page }) => {
+	await fixture(page);
+	const second = { ...conversation, id: 'chat-2', title: 'Second chat' };
+	let releases: (() => void)[] = [];
+	let listRequests = 0;
+	await page.route('**/api/workspaces/test/conversations', async (route) => {
+		if (route.request().method() === 'POST') return route.fulfill({ json: conversation });
+		listRequests += 1;
+		if (listRequests > 1) await new Promise<void>((release) => releases.push(release));
+		return route.fulfill({ json: [conversation, second] });
+	});
+	await page.route(/\/api\/workspaces\/test\/conversations\/chat-2(\?|$)/, (route) =>
+		route.fulfill({
+			json: { conversation: second, messages: [], tools: [], approvals: [], cursor: 0, has_more: false }
+		})
+	);
+	await page.routeWebSocket('**/conversations/chat-2/stream*', () => {});
+	await page.goto('/test/assistant?conversation=chat-1');
+	const nav = page.getByRole('navigation', { name: 'Conversations' });
+	await expect(nav.getByRole('link')).toHaveCount(2);
+	await nav.getByRole('link', { name: 'Second chat' }).click();
+	await expect(page).toHaveURL(/conversation=chat-2/);
+	await expect.poll(() => listRequests).toBeGreaterThanOrEqual(2);
+	// The remounted sidebar still lists both conversations while the fresh list waits.
+	await expect(nav.getByRole('link')).toHaveCount(2);
+	await expect(page.getByText('No conversations yet.')).toHaveCount(0);
+	releases.forEach((release) => release());
+	await expect(nav.getByRole('link')).toHaveCount(2);
+});
+
+test('the first conversation list shows loading, not the empty state', async ({ page }) => {
+	await fixture(page);
+	let release: (() => void) | undefined;
+	let requested = false;
+	await page.route('**/api/workspaces/test/conversations', async (route) => {
+		if (route.request().method() === 'POST') return route.fulfill({ json: conversation });
+		requested = true;
+		await new Promise<void>((resolve) => (release = resolve));
+		return route.fulfill({ json: [conversation] });
+	});
+	await page.goto('/test/assistant');
+	const loading = page.getByRole('status').filter({ hasText: 'Loading conversations…' });
+	await expect(loading).toBeVisible();
+	await expect(page.getByText('No conversations yet.')).toHaveCount(0);
+	await expect.poll(() => requested).toBe(true);
+	release!();
+	await expect(page.getByRole('navigation', { name: 'Conversations' }).getByRole('link')).toHaveCount(1);
+	await expect(loading).toHaveCount(0);
+});
+
+test('a failed conversation list stops loading and shows the empty state', async ({ page }) => {
+	await fixture(page);
+	await page.route('**/api/workspaces/test/conversations', (route) =>
+		route.fulfill({ status: 500, json: { error: { code: 'INTERNAL_ERROR' } } })
+	);
+	await page.goto('/test/assistant');
+	await expect(page.getByText('No conversations yet.')).toBeVisible();
+	await expect(page.getByRole('status').filter({ hasText: 'Loading conversations…' })).toHaveCount(0);
+});
+
 test('lists background agent work; failed tasks stay listed and finished ones fold into one row', async ({ page }) => {
 	const state = await fixture(page);
 	const item = (id: string, identifier: string, taskState: string) => ({
@@ -968,12 +1028,40 @@ test('three columns on desktop; both sidebars become drawers on narrow screens',
 	await expect(panel).toBeVisible();
 	await expect(panel.getByText('Background tasks')).toBeVisible();
 	// The sidebar header holds the settings cog; there is no search button there and no user footer.
-	await expect(sidebar.getByRole('link', { name: 'Assistant', exact: true })).toHaveAttribute(
-		'href',
-		'/test/settings/assistant'
+	const cog = sidebar.getByRole('link', { name: 'Assistant', exact: true });
+	await expect(cog).toHaveAttribute('href', '/test/settings/assistant');
+	const newConversation = sidebar.getByRole('link', { name: 'New conversation', exact: true });
+	await expect(newConversation).toHaveAttribute('href', '/test/assistant');
+	await expect(newConversation).toHaveAttribute('title', 'New conversation');
+	const [newBox, cogBox] = await Promise.all([newConversation.boundingBox(), cog.boundingBox()]);
+	expect(newBox!.x + newBox!.width).toBeLessThanOrEqual(cogBox!.x);
+	expect(cogBox!.x - (newBox!.x + newBox!.width)).toBeLessThanOrEqual(8);
+	expect(Math.abs(newBox!.width - cogBox!.width)).toBeLessThanOrEqual(1);
+	expect(Math.abs(newBox!.height - cogBox!.height)).toBeLessThanOrEqual(1);
+	expect(Math.abs(newBox!.y - cogBox!.y)).toBeLessThanOrEqual(1);
+	// Tab moves straight from New to the cog.
+	await newConversation.focus();
+	await page.keyboard.press('Tab');
+	await expect(cog).toBeFocused();
+	// The three assistant places are one row of icon links with names and tooltips.
+	const places = sidebar.getByRole('navigation', { name: 'Assistant places' });
+	await expect(places.getByRole('link')).toHaveCount(3);
+	const placeLinks = ['Skills and tools', 'Agents', 'Dev Machines'].map((name) =>
+		places.getByRole('link', { name, exact: true })
 	);
+	for (const [index, name] of ['Skills and tools', 'Agents', 'Dev Machines'].entries())
+		await expect(placeLinks[index]!).toHaveAttribute('title', name);
+	await expect(places.getByRole('link', { name: 'New conversation' })).toHaveCount(0);
+	const placeBoxes = await Promise.all(placeLinks.map((link) => link.boundingBox()));
+	for (const box of placeBoxes) expect(Math.round(box!.y)).toBe(Math.round(placeBoxes[0]!.y));
 	await expect(sidebar.getByRole('button', { name: 'Search conversations' })).toHaveCount(0);
 	await expect(sidebar.getByRole('searchbox', { name: 'Search conversations' })).toBeVisible();
+	// Collapsing hides the whole column; reopening brings the new header back.
+	await sidebar.getByRole('button', { name: 'Hide conversations' }).click();
+	await expect(sidebar).toHaveCount(0);
+	await page.getByRole('button', { name: 'Show conversations' }).click();
+	await expect(sidebar).toBeVisible();
+	await expect(newConversation).toBeVisible();
 	const [left, middle, right] = await Promise.all([
 		sidebar.boundingBox(),
 		conversationSection.boundingBox(),
@@ -994,6 +1082,9 @@ test('three columns on desktop; both sidebars become drawers on narrow screens',
 	await page.getByRole('button', { name: 'Show conversations' }).click();
 	const drawer = page.getByRole('dialog', { name: 'Assistant sidebar' });
 	await expect(drawer.getByRole('navigation', { name: 'Conversations' })).toBeVisible();
+	await expect(drawer.getByRole('link', { name: 'New conversation', exact: true })).toBeVisible();
+	await expect(drawer.getByRole('navigation', { name: 'Assistant places' }).getByRole('link')).toHaveCount(3);
+	expect(await drawer.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
 	await page.keyboard.press('Escape');
 	await expect(drawer).toHaveCount(0);
 	await page.getByRole('button', { name: 'Details', exact: true }).click();

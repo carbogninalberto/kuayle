@@ -3147,6 +3147,7 @@
 	"assistant.places": "アシスタントの場所",
 	"assistant.recents": "最近",
 	"assistant.recents_empty": "会話はまだありません。",
+	"assistant.recents_loading": "会話を読み込み中…",
 	"assistant.resize_panel": "サイドパネルをリサイズ",
 	"assistant.sent_to_agent": "{identifier} の {agent} エージェントに送信しました",
 	"assistant.show_earlier": "以前のメッセージ {count} 件を表示",

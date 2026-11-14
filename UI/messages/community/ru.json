@@ -3147,6 +3147,7 @@
 	"assistant.places": "Разделы ассистента",
 	"assistant.recents": "Недавние",
 	"assistant.recents_empty": "Диалогов пока нет.",
+	"assistant.recents_loading": "Загрузка диалогов…",
 	"assistant.resize_panel": "Изменить размер боковой панели",
 	"assistant.sent_to_agent": "Отправлено агенту {agent} для {identifier}",
 	"assistant.show_earlier": "Показать более ранние сообщения ({count})",

@@ -3147,6 +3147,7 @@
 	"assistant.places": "ส่วนต่าง ๆ ของผู้ช่วย",
 	"assistant.recents": "ล่าสุด",
 	"assistant.recents_empty": "ยังไม่มีการสนทนา",
+	"assistant.recents_loading": "กำลังโหลดการสนทนา…",
 	"assistant.resize_panel": "ปรับขนาดแผงด้านข้าง",
 	"assistant.sent_to_agent": "ส่งถึง Agent {agent} ของ {identifier} แล้ว",
 	"assistant.show_earlier": "แสดงข้อความก่อนหน้า {count} รายการ",

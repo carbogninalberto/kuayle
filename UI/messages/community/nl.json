@@ -3147,6 +3147,7 @@
 	"assistant.places": "Plekken van de assistent",
 	"assistant.recents": "Recent",
 	"assistant.recents_empty": "Nog geen gesprekken.",
+	"assistant.recents_loading": "Gesprekken laden…",
 	"assistant.resize_panel": "Formaat van zijpaneel wijzigen",
 	"assistant.sent_to_agent": "Verzonden naar de {agent}-agent van {identifier}",
 	"assistant.show_earlier": "{count} eerdere berichten tonen",

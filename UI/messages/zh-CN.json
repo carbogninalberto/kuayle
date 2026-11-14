@@ -3147,6 +3147,7 @@
 	"assistant.places": "助手入口",
 	"assistant.recents": "最近",
 	"assistant.recents_empty": "暂无对话。",
+	"assistant.recents_loading": "正在加载对话…",
 	"assistant.resize_panel": "调整侧边面板大小",
 	"assistant.sent_to_agent": "已发送给 {identifier} 的 {agent} 代理",
 	"assistant.show_earlier": "显示 {count} 条较早的消息",

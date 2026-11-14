@@ -3147,6 +3147,7 @@
 	"assistant.places": "Tempat asisten",
 	"assistant.recents": "Terbaru",
 	"assistant.recents_empty": "Belum ada percakapan.",
+	"assistant.recents_loading": "Memuat percakapan…",
 	"assistant.resize_panel": "Ubah ukuran panel samping",
 	"assistant.sent_to_agent": "Dikirim ke agen {agent} untuk {identifier}",
 	"assistant.show_earlier": "Tampilkan {count} pesan sebelumnya",
