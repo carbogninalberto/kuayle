@@ -42,6 +42,16 @@ func Unauthorized(c *echo.Context) error {
 	return Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
 }
 
+// SSORequired refuses a password/passkey session in a workspace that requires
+// SSO and names the workspace to start the SSO flow from.
+func SSORequired(c *echo.Context, workspaceSlug string) error {
+	return c.JSON(http.StatusForbidden, dto.ErrorResponse{Error: dto.ErrorBody{
+		Code:          "SSO_REQUIRED",
+		Message:       "This workspace requires single sign-on",
+		WorkspaceSlug: workspaceSlug,
+	}})
+}
+
 func InternalError(c *echo.Context) error {
 	return Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "An internal error occurred")
 }

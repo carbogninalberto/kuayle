@@ -26,6 +26,7 @@ const (
 	reasonGitHubSetup     = "GitHub integration state is managed from the settings pages."
 	reasonWebSocket       = "The realtime WebSocket connection carries live assistant events for a browser session."
 	reasonPersonalState   = "Personal state writes follow the signed-in person's UI session."
+	reasonSSOConfig       = "An SSO client secret is write-only and points the workspace at an identity provider; only an interactive owner or admin may change it."
 )
 
 var sessionOnlyReasons = []sessionOnlyReason{
@@ -63,4 +64,5 @@ var sessionOnlyReasons = []sessionOnlyReason{
 	{Method: "POST", PathPrefix: "/api/workspaces/:slug/teams/:teamId/icon", Exact: true, Reason: reasonWorkspaceAdmin},
 	{Method: "POST", PathPrefix: "/api/workspaces/:slug/teams/:teamId/leave", Exact: true, Reason: reasonWorkspaceAdmin},
 	{PathPrefix: "/api/workspaces/:slug/issues/:identifier/prompt-assets", Exact: true, Reason: reasonAssistant},
+	{PathPrefix: "/api/workspaces/:slug/sso", Reason: reasonSSOConfig},
 }

@@ -101,6 +101,10 @@ func (h *AuthHandler) Login(c *echo.Context) error {
 			log.WithFields(log.Fields{"event": "auth.login_failed", "email": req.Email, "ip": c.RealIP()}).Warn("login failed")
 			return response.Error(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "Invalid email or password")
 		}
+		if errors.Is(err, service.ErrSSORequired) {
+			log.WithFields(log.Fields{"event": "auth.login_sso_required", "email": req.Email, "ip": c.RealIP()}).Info("password sign-in refused: workspace requires SSO")
+			return SSORequiredReply(c, err)
+		}
 		return response.InternalError(c)
 	}
 

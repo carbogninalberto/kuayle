@@ -9,6 +9,8 @@
   private networks and local development.
 - [Forge integrations](forge-integrations.md): GitLab, Gitea and Forgejo
   connections, webhook setup, token scopes and network safety.
+- [Single sign-on](sso.md): per-workspace OIDC, require-SSO and break-glass
+  behaviour, the Keycloak development profile and instance-level configuration.
 - [Dev Machines](dev-machines.md): architecture, modes and machine sizes.
 
 ## Users

@@ -109,6 +109,9 @@ authentication.
 | POST | `/api/auth/refresh` | public |  |
 | POST | `/api/auth/register` | public |  |
 | POST | `/api/auth/reset-password` | public |  |
+| GET | `/api/auth/sso/:slug` | public |  |
+| GET | `/api/auth/sso/:slug/callback` | public |  |
+| GET | `/api/auth/sso/:slug/start` | public |  |
 | GET | `/api/cli-links` | session only | A token cannot mint, inspect or revoke tokens; those actions require the interactive sign-in. |
 | POST | `/api/cli-links` | session only | A token cannot mint, inspect or revoke tokens; those actions require the interactive sign-in. |
 | DELETE | `/api/cli-links/:id` | session only | A token cannot mint, inspect or revoke tokens; those actions require the interactive sign-in. |
@@ -437,6 +440,9 @@ authentication.
 | POST | `/api/workspaces/:slug/shared-links` | session only | Shared links publish workspace data publicly and stay an interactive decision. |
 | DELETE | `/api/workspaces/:slug/shared-links/:id` | session only | Shared links publish workspace data publicly and stay an interactive decision. |
 | PATCH | `/api/workspaces/:slug/shared-links/:id` | session only | Shared links publish workspace data publicly and stay an interactive decision. |
+| DELETE | `/api/workspaces/:slug/sso` | session only | An SSO client secret is write-only and points the workspace at an identity provider; only an interactive owner or admin may change it. |
+| GET | `/api/workspaces/:slug/sso` | session only | An SSO client secret is write-only and points the workspace at an identity provider; only an interactive owner or admin may change it. |
+| PUT | `/api/workspaces/:slug/sso` | session only | An SSO client secret is write-only and points the workspace at an identity provider; only an interactive owner or admin may change it. |
 | GET | `/api/workspaces/:slug/teams` | token | teams:read |
 | POST | `/api/workspaces/:slug/teams` | token | team:manage |
 | DELETE | `/api/workspaces/:slug/teams/:teamId` | token | team:manage |
