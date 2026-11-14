@@ -44,6 +44,17 @@ type taskExecutionRuntime interface {
 	Attempt(context.Context, domain.AgentTask) (*domain.DevMachineAgentRun, error)
 	Cancel(context.Context, domain.AgentTask) error
 }
+
+// taskRuntimeStore is the repository work of a task runtime beyond the machine
+// service: reservation, attempt history and the execution steps it queues.
+type taskRuntimeStore interface {
+	ReserveMachine(context.Context, domain.AgentTask, uuid.UUID, *uuid.UUID) (repository.MachineReservation, error)
+	PreviousAttempt(context.Context, domain.AgentTask) (*domain.AgentHandoff, error)
+	CancelAttempt(context.Context, domain.AgentTask) error
+	EnsureValidation(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error)
+	EnsurePublication(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error)
+	ProfileBundle(context.Context, domain.AgentTask) (*domain.AgentProfileBundle, error)
+}
 type taskEventPublisher interface {
 	Broadcast(uuid.UUID, realtime.Event)
 }
@@ -435,6 +446,12 @@ func (s *AgentTaskService) preparationError(ctx context.Context, task domain.Age
 		// Not a failure: the machine starts once running machines free enough.
 		return s.store.NoteWaiting(ctx, task, hostCapacityWaitReason+" ("+strings.TrimPrefix(err.Error(), ErrHostCapacityWait.Error()+": ")+"). It starts when running machines free enough; cancel the task to withdraw it.")
 	}
+	var slotWait *repository.MachineSlotWaitError
+	if errors.As(err, &slotWait) {
+		// Not a failure either: the task starts once a task on the machine
+		// finishes, instead of starting a machine the host cannot admit.
+		return s.store.NoteWaiting(ctx, task, fmt.Sprintf("Waiting for a free task slot on %s (%d of %d in use). It starts when a task there finishes; cancel the task to withdraw it.", slotWait.Name, slotWait.Tasks, slotWait.Limit))
+	}
 	if errors.Is(err, repository.ErrConversationNotFound) {
 		return s.store.Revoke(ctx, task)
 	}
@@ -470,7 +487,7 @@ type relatedWorkSource interface {
 }
 
 type devMachineTaskRuntime struct {
-	tasks    *repository.AgentTaskRepository
+	tasks    taskRuntimeStore
 	machines *DevMachineService
 	// related supplies coordination context; without it prompts omit it.
 	related relatedWorkSource
@@ -521,6 +538,31 @@ func taskMachineRequest(task domain.AgentTask, profile string, resources domain.
 	}
 }
 
+// removeUnstartedMachine removes a machine the task's own reservation created
+// and never started, so the manager tears it down instead of leaving it queued
+// for host capacity. A transient failure is retried: the task's next
+// reservation cannot reuse that name, so nothing else would clean it up.
+func (r *devMachineTaskRuntime) removeUnstartedMachine(ctx context.Context, task domain.AgentTask, machineID uuid.UUID) {
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if _, err = r.machines.requestPermanentDelete(ctx, task.WorkspaceID, machineID, task.CreatorID); err == nil || errors.Is(err, ErrMachineNotFound) {
+			return
+		}
+		if attempt == 3 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(attempt) * 200 * time.Millisecond):
+		}
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	log.WithFields(log.Fields{"task_id": task.ID, "machine_id": machineID}).WithError(err).Warn("Could not remove the task's unstarted machine")
+}
+
 func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentTask) (bool, error) {
 	s := r.machines
 	// The worker acts as the task's creator, so the demo rule is theirs.
@@ -540,15 +582,27 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 		return false, ErrNoDevelopmentRepository
 	}
 	// The reserved ID is only a placeholder until that machine exists; asking
-	// again lets a now-idle machine be reused instead. A destroyed or deleting
-	// machine is replaced by a new reservation.
+	// again lets a now-idle machine or a freed task slot be used instead. A
+	// destroyed or deleting machine is replaced by a new reservation, and a
+	// machine created for this task that never started makes way for a slot.
 	reserve := func() error {
-		id, reserved, err := r.tasks.ReserveMachine(ctx, *task, *setting.GitHubRepoID, setting.EnvironmentID)
-		if err != nil {
-			return err
+		reservation, err := r.tasks.ReserveMachine(ctx, *task, *setting.GitHubRepoID, setting.EnvironmentID)
+		if reservation.ReservedID != uuid.Nil {
+			// The reservation describes the task's machine even when it waits
+			// for a free task slot.
+			task.MachineID, task.ReservedMachineID = nil, reservation.ReservedID
+			if reservation.MachineID != uuid.Nil {
+				machineID := reservation.MachineID
+				task.MachineID = &machineID
+			}
 		}
-		task.MachineID, task.ReservedMachineID = &id, reserved
-		return nil
+		if reservation.Abandoned != nil {
+			// A machine the task's own reservation created and never started
+			// is removed, so the manager tears it down instead of leaving it
+			// queued for host capacity.
+			r.removeUnstartedMachine(ctx, *task, *reservation.Abandoned)
+		}
+		return err
 	}
 	if task.MachineID == nil || *task.MachineID == task.ReservedMachineID {
 		if err = reserve(); err != nil {
@@ -747,20 +801,22 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	var profileFiles []domain.AgentProfileFile
 	planning := false
 	if !review {
-		profiles := taskProfileSource(r.tasks)
-		if r.profiles != nil {
-			profiles = r.profiles
+		var profiles taskProfileSource = r.profiles
+		if profiles == nil {
+			profiles = r.tasks
 		}
-		bundle, err := profiles.ProfileBundle(ctx, task)
-		if err != nil {
-			return nil, err
-		}
-		if bundle != nil {
-			// Only a workflow step plans; an agent identity's own task
-			// follows the built-in flow whatever its profile does.
-			planning = task.RunsWorkflow() && bundle.Behaviour == domain.AgentBehaviourPlans
-		} else {
-			bundle = &domain.AgentProfileBundle{}
+		bundle := &domain.AgentProfileBundle{}
+		if profiles != nil {
+			loaded, err := profiles.ProfileBundle(ctx, task)
+			if err != nil {
+				return nil, err
+			}
+			if loaded != nil {
+				bundle = loaded
+				// Only a workflow step plans; an agent identity's own task
+				// follows the built-in flow whatever its profile does.
+				planning = task.RunsWorkflow() && bundle.Behaviour == domain.AgentBehaviourPlans
+			}
 		}
 		// Workspace memory: the lessons the workspace's admins approved for
 		// the task's repository. They are the workspace's own configuration,

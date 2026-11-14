@@ -425,6 +425,94 @@ test('does not fetch provider-authored image URLs or execute agent HTML', async 
 	);
 });
 
+test('renders Markdown tables in assistant replies with alignment and horizontal scroll', async ({ page }, testInfo) => {
+	const state = await fixture(page);
+	const wideHeader = Array.from({ length: 12 }, (_, i) => `Header ${i + 1}`);
+	const wideRow = Array.from({ length: 12 }, (_, i) => `Wide cell data ${i + 1}`);
+	const wideTable = [wideHeader, wideHeader.map(() => '---'), wideRow]
+		.map((cells) => `| ${cells.join(' | ')} |`)
+		.join('\n');
+	state.messages = [
+		userMessage,
+		{
+			...reply,
+			status: 'completed',
+			content: [
+				'Aligned table:',
+				'',
+				'| Left | Center | Right |',
+				'|:--|:-:|--:|',
+				'| one | two | three |',
+				'',
+				'Wide table:',
+				'',
+				wideTable,
+				'',
+				'Malformed table:',
+				'',
+				'| Name | Value |',
+				'|--|--|',
+				'| kept | extra-dropped | merged-cell |',
+				'',
+				'| not | a table',
+				'|--',
+				'| 1 | 2 |',
+				'',
+				'<table style="position:fixed" onclick="window.agentExecuted=true"><tr><td>injected</td></tr></table>'
+			].join('\n')
+		}
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+
+	const markdown = page.locator('.assistant-markdown');
+	await expect(markdown.locator('table')).toHaveCount(3);
+
+	const aligned = markdown.locator('table').first();
+	await expect(aligned.locator('thead th')).toHaveCount(3);
+	await expect(aligned.locator('tbody td')).toHaveCount(3);
+	await expect(aligned.getByRole('columnheader', { name: 'Center', exact: true })).toBeVisible();
+	await expect(aligned.getByRole('cell', { name: 'two', exact: true })).toBeVisible();
+	expect(
+		await aligned
+			.locator('tbody td')
+			.evaluateAll((cells) => cells.map((cell) => getComputedStyle(cell).textAlign))
+	).toEqual(['left', 'center', 'right']);
+	expect(
+		await aligned
+			.locator('tbody td')
+			.first()
+			.evaluate((cell) => getComputedStyle(cell).borderTopWidth)
+	).not.toBe('0px');
+
+	const wide = markdown.locator('table').nth(1);
+	await expect(wide.locator('thead th')).toHaveCount(12);
+	const overflow = await wide.evaluate((table) => ({
+		scrollWidth: table.scrollWidth,
+		clientWidth: table.clientWidth
+	}));
+	expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+	const malformed = markdown.locator('table').nth(2);
+	await expect(malformed.getByRole('cell', { name: 'kept', exact: true })).toBeVisible();
+	await expect(malformed.getByRole('cell', { name: 'extra-dropped', exact: true })).toBeVisible();
+	await expect(malformed.getByText('merged-cell', { exact: true })).toHaveCount(0);
+	await expect(markdown.locator('p').filter({ hasText: '| not | a table' })).toHaveCount(1);
+
+	// Model-authored HTML stays text; alignment survives only as the inert attribute.
+	await expect(markdown.locator('[style]')).toHaveCount(0);
+	await expect(
+		markdown.getByText(
+			'<table style="position:fixed" onclick="window.agentExecuted=true"><tr><td>injected</td></tr></table>',
+			{ exact: true }
+		)
+	).toBeVisible();
+	expect(await page.evaluate(() => Boolean((window as unknown as { agentExecuted?: boolean }).agentExecuted))).toBe(
+		false
+	);
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('assistant-tables.png') });
+});
+
 test('keeps accepted sends visible while a history reload fails', async ({ page }) => {
 	const state = await fixture(page);
 	state.failAfterSend = true;
@@ -833,6 +921,66 @@ test('a long conversation list scrolls inside the sidebar, never the page', asyn
 	expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
 
+test('switching conversations keeps Recents listed while the next one loads', async ({ page }) => {
+	await fixture(page);
+	const second = { ...conversation, id: 'chat-2', title: 'Second chat' };
+	let releases: (() => void)[] = [];
+	let listRequests = 0;
+	await page.route('**/api/workspaces/test/conversations', async (route) => {
+		if (route.request().method() === 'POST') return route.fulfill({ json: conversation });
+		listRequests += 1;
+		if (listRequests > 1) await new Promise<void>((release) => releases.push(release));
+		return route.fulfill({ json: [conversation, second] });
+	});
+	await page.route(/\/api\/workspaces\/test\/conversations\/chat-2(\?|$)/, (route) =>
+		route.fulfill({
+			json: { conversation: second, messages: [], tools: [], approvals: [], cursor: 0, has_more: false }
+		})
+	);
+	await page.routeWebSocket('**/conversations/chat-2/stream*', () => {});
+	await page.goto('/test/assistant?conversation=chat-1');
+	const nav = page.getByRole('navigation', { name: 'Conversations' });
+	await expect(nav.getByRole('link')).toHaveCount(2);
+	await nav.getByRole('link', { name: 'Second chat' }).click();
+	await expect(page).toHaveURL(/conversation=chat-2/);
+	await expect.poll(() => listRequests).toBeGreaterThanOrEqual(2);
+	// The remounted sidebar still lists both conversations while the fresh list waits.
+	await expect(nav.getByRole('link')).toHaveCount(2);
+	await expect(page.getByText('No conversations yet.')).toHaveCount(0);
+	releases.forEach((release) => release());
+	await expect(nav.getByRole('link')).toHaveCount(2);
+});
+
+test('the first conversation list shows loading, not the empty state', async ({ page }) => {
+	await fixture(page);
+	let release: (() => void) | undefined;
+	let requested = false;
+	await page.route('**/api/workspaces/test/conversations', async (route) => {
+		if (route.request().method() === 'POST') return route.fulfill({ json: conversation });
+		requested = true;
+		await new Promise<void>((resolve) => (release = resolve));
+		return route.fulfill({ json: [conversation] });
+	});
+	await page.goto('/test/assistant');
+	const loading = page.getByRole('status').filter({ hasText: 'Loading conversations…' });
+	await expect(loading).toBeVisible();
+	await expect(page.getByText('No conversations yet.')).toHaveCount(0);
+	await expect.poll(() => requested).toBe(true);
+	release!();
+	await expect(page.getByRole('navigation', { name: 'Conversations' }).getByRole('link')).toHaveCount(1);
+	await expect(loading).toHaveCount(0);
+});
+
+test('a failed conversation list stops loading and shows the empty state', async ({ page }) => {
+	await fixture(page);
+	await page.route('**/api/workspaces/test/conversations', (route) =>
+		route.fulfill({ status: 500, json: { error: { code: 'INTERNAL_ERROR' } } })
+	);
+	await page.goto('/test/assistant');
+	await expect(page.getByText('No conversations yet.')).toBeVisible();
+	await expect(page.getByRole('status').filter({ hasText: 'Loading conversations…' })).toHaveCount(0);
+});
+
 test('lists background agent work; failed tasks stay listed and finished ones fold into one row', async ({ page }) => {
 	const state = await fixture(page);
 	const item = (id: string, identifier: string, taskState: string) => ({
@@ -880,12 +1028,40 @@ test('three columns on desktop; both sidebars become drawers on narrow screens',
 	await expect(panel).toBeVisible();
 	await expect(panel.getByText('Background tasks')).toBeVisible();
 	// The sidebar header holds the settings cog; there is no search button there and no user footer.
-	await expect(sidebar.getByRole('link', { name: 'Assistant', exact: true })).toHaveAttribute(
-		'href',
-		'/test/settings/assistant'
+	const cog = sidebar.getByRole('link', { name: 'Assistant', exact: true });
+	await expect(cog).toHaveAttribute('href', '/test/settings/assistant');
+	const newConversation = sidebar.getByRole('link', { name: 'New conversation', exact: true });
+	await expect(newConversation).toHaveAttribute('href', '/test/assistant');
+	await expect(newConversation).toHaveAttribute('title', 'New conversation');
+	const [newBox, cogBox] = await Promise.all([newConversation.boundingBox(), cog.boundingBox()]);
+	expect(newBox!.x + newBox!.width).toBeLessThanOrEqual(cogBox!.x);
+	expect(cogBox!.x - (newBox!.x + newBox!.width)).toBeLessThanOrEqual(8);
+	expect(Math.abs(newBox!.width - cogBox!.width)).toBeLessThanOrEqual(1);
+	expect(Math.abs(newBox!.height - cogBox!.height)).toBeLessThanOrEqual(1);
+	expect(Math.abs(newBox!.y - cogBox!.y)).toBeLessThanOrEqual(1);
+	// Tab moves straight from New to the cog.
+	await newConversation.focus();
+	await page.keyboard.press('Tab');
+	await expect(cog).toBeFocused();
+	// The three assistant places are one row of icon links with names and tooltips.
+	const places = sidebar.getByRole('navigation', { name: 'Assistant places' });
+	await expect(places.getByRole('link')).toHaveCount(3);
+	const placeLinks = ['Skills and tools', 'Agents', 'Dev Machines'].map((name) =>
+		places.getByRole('link', { name, exact: true })
 	);
+	for (const [index, name] of ['Skills and tools', 'Agents', 'Dev Machines'].entries())
+		await expect(placeLinks[index]!).toHaveAttribute('title', name);
+	await expect(places.getByRole('link', { name: 'New conversation' })).toHaveCount(0);
+	const placeBoxes = await Promise.all(placeLinks.map((link) => link.boundingBox()));
+	for (const box of placeBoxes) expect(Math.round(box!.y)).toBe(Math.round(placeBoxes[0]!.y));
 	await expect(sidebar.getByRole('button', { name: 'Search conversations' })).toHaveCount(0);
 	await expect(sidebar.getByRole('searchbox', { name: 'Search conversations' })).toBeVisible();
+	// Collapsing hides the whole column; reopening brings the new header back.
+	await sidebar.getByRole('button', { name: 'Hide conversations' }).click();
+	await expect(sidebar).toHaveCount(0);
+	await page.getByRole('button', { name: 'Show conversations' }).click();
+	await expect(sidebar).toBeVisible();
+	await expect(newConversation).toBeVisible();
 	const [left, middle, right] = await Promise.all([
 		sidebar.boundingBox(),
 		conversationSection.boundingBox(),
@@ -906,6 +1082,9 @@ test('three columns on desktop; both sidebars become drawers on narrow screens',
 	await page.getByRole('button', { name: 'Show conversations' }).click();
 	const drawer = page.getByRole('dialog', { name: 'Assistant sidebar' });
 	await expect(drawer.getByRole('navigation', { name: 'Conversations' })).toBeVisible();
+	await expect(drawer.getByRole('link', { name: 'New conversation', exact: true })).toBeVisible();
+	await expect(drawer.getByRole('navigation', { name: 'Assistant places' }).getByRole('link')).toHaveCount(3);
+	expect(await drawer.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
 	await page.keyboard.press('Escape');
 	await expect(drawer).toHaveCount(0);
 	await page.getByRole('button', { name: 'Details', exact: true }).click();
@@ -2590,4 +2769,149 @@ test('a refused copy says so instead of confirming', async ({ page }) => {
 	await page.getByRole('button', { name: 'Copy message' }).click();
 	await expect(page.getByText('Could not copy the message')).toBeVisible();
 	await expect(page.getByText('Copied', { exact: true })).toHaveCount(0);
+});
+
+test('the copy control sits at the top-right inside the bubble and never covers text', async ({ page }) => {
+	const state = await fixture(page);
+	const wideUser =
+		'A user message whose first line runs the full width of its bubble so the copy control has to stay in the reserved space at the right. '.repeat(
+			2
+		);
+	const wideReply =
+		'An assistant reply whose first line also runs the full width of its bubble, leaving the copy control clear of every glyph. '.repeat(
+			2
+		);
+	state.messages = [
+		{ ...userMessage, content: wideUser },
+		{ ...reply, content: wideReply, status: 'completed' }
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const buttons = page.getByRole('button', { name: 'Copy message' });
+	await expect(buttons).toHaveCount(2);
+
+	// Hover still reveals the control, and keyboard focus keeps it visible.
+	await page.mouse.move(0, 0);
+	await expect(buttons.first()).toHaveCSS('opacity', '0');
+	await page.getByText('A user message', { exact: false }).hover();
+	await expect(buttons.first()).toHaveCSS('opacity', '1');
+	await page.mouse.move(0, 0);
+	await buttons.nth(1).focus();
+	await expect(buttons.nth(1)).toHaveCSS('opacity', '1');
+
+	const firstLineRight = (content: ReturnType<Page['locator']>) =>
+		content.evaluate((el) => {
+			const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+			let node = walker.nextNode();
+			while (node && !node.textContent?.trim()) node = walker.nextNode();
+			if (!node) return null;
+			const range = document.createRange();
+			range.selectNodeContents(node);
+			return (range.getClientRects()[0] ?? range.getBoundingClientRect()).right;
+		});
+
+	for (const button of await buttons.all()) {
+		await button.scrollIntoViewIfNeeded();
+		const bubble = button.locator('xpath=ancestor::*[@data-slot="bubble"]');
+		await expect(bubble).toHaveCount(1);
+		const box = (await button.boundingBox())!;
+		const bubbleBox = (await bubble.boundingBox())!;
+		expect(box.x).toBeGreaterThanOrEqual(bubbleBox.x);
+		expect(box.y).toBeGreaterThanOrEqual(bubbleBox.y);
+		expect(box.x + box.width).toBeLessThanOrEqual(bubbleBox.x + bubbleBox.width);
+		expect(box.y + box.height).toBeLessThanOrEqual(bubbleBox.y + bubbleBox.height);
+		expect(bubbleBox.x + bubbleBox.width - (box.x + box.width)).toBeLessThanOrEqual(8);
+		expect(box.y - bubbleBox.y).toBeLessThanOrEqual(8);
+		const right = await firstLineRight(bubble.locator('[data-slot=bubble-content]'));
+		expect(right).not.toBeNull();
+		expect(right!).toBeLessThanOrEqual(box.x);
+	}
+
+	// A one-word reply stays clear too: the bubble grows around the reserved space.
+	state.messages = [{ ...userMessage, content: 'Hi' }, { ...reply, content: 'OK', status: 'completed' }];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const shortButton = page.getByRole('button', { name: 'Copy message' }).nth(1);
+	await shortButton.scrollIntoViewIfNeeded();
+	const shortBubble = shortButton.locator('xpath=ancestor::*[@data-slot="bubble"]');
+	await expect(shortBubble).toHaveCount(1);
+	const shortBox = (await shortButton.boundingBox())!;
+	const shortBubbleBox = (await shortBubble.boundingBox())!;
+	expect(shortBox.x + shortBox.width).toBeLessThanOrEqual(shortBubbleBox.x + shortBubbleBox.width);
+	expect(shortBubbleBox.x + shortBubbleBox.width - (shortBox.x + shortBox.width)).toBeLessThanOrEqual(8);
+	const shortRight = await firstLineRight(shortBubble.locator('[data-slot=bubble-content]'));
+	expect(shortRight).not.toBeNull();
+	expect(shortRight!).toBeLessThanOrEqual(shortBox.x);
+});
+
+test('assistant reply text can be drag-selected and copied exactly; user text cannot', async ({ page, context }) => {
+	await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+	const state = await fixture(page);
+	state.messages = [
+		{ ...userMessage, content: 'User words that must stay untouched.' },
+		{ ...reply, content: copyAnswer, status: 'completed' }
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const selectable = page.locator('[data-selectable="text"]');
+	await expect(selectable).toHaveCount(1);
+	expect(await selectable.evaluate((el) => getComputedStyle(el).userSelect)).toBe('text');
+	const replyParagraph = selectable.locator('p').filter({ hasText: 'Use' }).first();
+	expect(await replyParagraph.evaluate((el) => getComputedStyle(el).userSelect)).toBe('text');
+	const userParagraph = page
+		.locator('[data-slot=bubble-content]')
+		.filter({ hasText: 'User words that must stay untouched.' })
+		.locator('p');
+	expect(await userParagraph.evaluate((el) => getComputedStyle(el).userSelect)).toBe('none');
+
+	const points = await replyParagraph.evaluate((el) => {
+		const text = el.textContent ?? '';
+		const start = text.indexOf('Use');
+		const end = text.indexOf('bold') + 'bold'.length;
+		const nodes: Node[] = [];
+		const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+		let node = walker.nextNode();
+		while (node) {
+			nodes.push(node);
+			node = walker.nextNode();
+		}
+		const locate = (offset: number) => {
+			let remaining = offset;
+			for (const candidate of nodes) {
+				const length = candidate.textContent?.length ?? 0;
+				if (remaining <= length) return { node: candidate, offset: remaining };
+				remaining -= length;
+			}
+			const last = nodes[nodes.length - 1];
+			return { node: last, offset: last.textContent?.length ?? 0 };
+		};
+		const range = (from: number, to: number) => {
+			const value = document.createRange();
+			const a = locate(from);
+			const b = locate(to);
+			value.setStart(a.node, a.offset);
+			value.setEnd(b.node, b.offset);
+			return value;
+		};
+		const first = range(start, start + 3).getClientRects()[0];
+		const lastRects = range(end - 4, end).getClientRects();
+		const last = lastRects[lastRects.length - 1];
+		return {
+			from: { x: first.left + 1, y: first.top + first.height / 2 },
+			to: { x: last.right - 1, y: last.top + last.height / 2 }
+		};
+	});
+	await page.mouse.move(points.from.x, points.from.y);
+	await page.mouse.down();
+	await page.mouse.move(points.to.x, points.to.y, { steps: 8 });
+	await page.mouse.up();
+	await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('Use bold');
+	await page.keyboard.press('ControlOrMeta+c');
+	await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Use bold');
+
+	// The user's plain text is not selectable, as before.
+	await page.evaluate(() => window.getSelection()?.removeAllRanges());
+	const userBox = (await userParagraph.boundingBox())!;
+	await page.mouse.move(userBox.x + 2, userBox.y + userBox.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(userBox.x + userBox.width - 2, userBox.y + userBox.height / 2, { steps: 8 });
+	await page.mouse.up();
+	await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
 });

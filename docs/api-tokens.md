@@ -116,6 +116,7 @@ authentication.
 | GET | `/api/config` | public |  |
 | POST | `/api/dev-machine-ingest/events` | public |  |
 | POST | `/api/dev-machine-ingest/logs` | public |  |
+| POST | `/api/forges/webhook/:connectionId` | public |  |
 | GET | `/api/github-bot/:workspaceId/avatar/:file` | public |  |
 | POST | `/api/github/webhook` | public |  |
 | GET | `/api/invite/:token` | public |  |
@@ -325,6 +326,13 @@ authentication.
 | GET | `/api/workspaces/:slug/favorites` | token | account:read |
 | POST | `/api/workspaces/:slug/favorites` | token | account:write |
 | DELETE | `/api/workspaces/:slug/favorites/:id` | token | account:write |
+| GET | `/api/workspaces/:slug/forges/connections` | token | workspace:manage |
+| POST | `/api/workspaces/:slug/forges/connections` | token | workspace:manage |
+| DELETE | `/api/workspaces/:slug/forges/connections/:id` | token | workspace:manage |
+| PATCH | `/api/workspaces/:slug/forges/connections/:id` | token | workspace:manage |
+| GET | `/api/workspaces/:slug/forges/connections/:id/repos` | token | workspace:manage |
+| POST | `/api/workspaces/:slug/forges/connections/:id/repos` | token | workspace:manage |
+| DELETE | `/api/workspaces/:slug/forges/connections/:id/repos/:repoId` | token | workspace:manage |
 | DELETE | `/api/workspaces/:slug/github/app` | token | workspace:manage |
 | GET | `/api/workspaces/:slug/github/app-setup` | token | workspace:manage |
 | GET | `/api/workspaces/:slug/github/auto-transitions` | token | workspace:manage |
@@ -365,6 +373,7 @@ authentication.
 | POST | `/api/workspaces/:slug/issues/:identifier/convert-to-project` | token | project:manage |
 | POST | `/api/workspaces/:slug/issues/:identifier/duplicate` | token | issue:create |
 | POST | `/api/workspaces/:slug/issues/:identifier/expand-description` | token | issue:update |
+| GET | `/api/workspaces/:slug/issues/:identifier/forges` | token | issues:read |
 | GET | `/api/workspaces/:slug/issues/:identifier/github` | token | issues:read |
 | GET | `/api/workspaces/:slug/issues/:identifier/history` | token | issues:read |
 | POST | `/api/workspaces/:slug/issues/:identifier/prompt-assets` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |

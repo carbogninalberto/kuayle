@@ -143,6 +143,44 @@ func (f *taskRuntimeFake) Cancel(context.Context, domain.AgentTask) error {
 	return f.cancelErr
 }
 
+type taskRuntimeStoreFake struct {
+	reservation repository.MachineReservation
+	err         error
+}
+
+func (f *taskRuntimeStoreFake) ReserveMachine(context.Context, domain.AgentTask, uuid.UUID, *uuid.UUID) (repository.MachineReservation, error) {
+	return f.reservation, f.err
+}
+func (f *taskRuntimeStoreFake) PreviousAttempt(context.Context, domain.AgentTask) (*domain.AgentHandoff, error) {
+	return nil, nil
+}
+func (f *taskRuntimeStoreFake) CancelAttempt(context.Context, domain.AgentTask) error { return nil }
+func (f *taskRuntimeStoreFake) EnsureValidation(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {
+	return nil, nil
+}
+func (f *taskRuntimeStoreFake) EnsurePublication(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {
+	return nil, nil
+}
+func (f *taskRuntimeStoreFake) ProfileBundle(context.Context, domain.AgentTask) (*domain.AgentProfileBundle, error) {
+	return nil, nil
+}
+
+// flakyDeleteStore fails the first deletes of a machine, then delegates.
+type flakyDeleteStore struct {
+	*devMachineStoreFake
+	failures int
+	requests int
+}
+
+func (f *flakyDeleteStore) RequestPermanentDelete(ctx context.Context, workspaceID, machineID uuid.UUID, requestedByUserID *uuid.UUID) (*domain.DevMachineOperation, error) {
+	f.requests++
+	if f.failures > 0 {
+		f.failures--
+		return nil, errors.New("temporary delete failure")
+	}
+	return f.devMachineStoreFake.RequestPermanentDelete(ctx, workspaceID, machineID, requestedByUserID)
+}
+
 func TestAgentTaskWorkerUsesNativeExecutionState(t *testing.T) {
 	store := &taskStoreFake{task: domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New(), State: "queued"}}
 	runtime := &taskRuntimeFake{ready: false}
@@ -287,7 +325,7 @@ func (f *taskStoreFake) RecordStepResult(_ context.Context, _ domain.AgentTask, 
 }
 func (f *taskStoreFake) Release(context.Context, domain.AgentTask) error { f.releases++; return nil }
 func TestAgentTaskWorkerRecordsFailuresButNotCapacityOrLeaseWaits(t *testing.T) {
-	for _, scenario := range []string{"transient", "quota", "stale", "deadline"} {
+	for _, scenario := range []string{"transient", "quota", "slot", "stale", "deadline"} {
 		t.Run(scenario, func(t *testing.T) {
 			store := &taskStoreFake{task: domain.AgentTask{State: "preparing"}}
 			runtime := &taskRuntimeFake{}
@@ -296,6 +334,8 @@ func TestAgentTaskWorkerRecordsFailuresButNotCapacityOrLeaseWaits(t *testing.T) 
 				runtime.prepareErr = errors.New("temporary unavailable")
 			case "quota":
 				runtime.prepareErr = ErrMachineQuota
+			case "slot":
+				runtime.prepareErr = &repository.MachineSlotWaitError{Name: "dev-machine", Tasks: 1, Limit: 1}
 			case "checkout failed":
 				machine := uuid.New()
 				store.task.MachineID = &machine
@@ -311,7 +351,7 @@ func TestAgentTaskWorkerRecordsFailuresButNotCapacityOrLeaseWaits(t *testing.T) 
 			if scenario == "stale" {
 				require.Empty(t, store.results)
 			} else {
-				require.Equal(t, []bool{scenario != "quota"}, store.results)
+				require.Equal(t, []bool{scenario != "quota" && scenario != "slot"}, store.results)
 			}
 		})
 	}
@@ -814,7 +854,7 @@ func TestImplementPromptAsksForAValidationFile(t *testing.T) {
 // instead of only "preparing"; it keeps waiting without counting a failure.
 func TestPreparationExplainsAMachineWaitingForHostCapacity(t *testing.T) {
 	store, runtime, task := reusedMachineFixture(domain.DevMachineStatusQueued, domain.DevMachineStatusRunning)
-	code, message := "host_capacity_wait", "waiting for host memory: 12288 MB requested of 4096 MB available to machines"
+	code, message := "host_capacity_wait", "waiting for host memory: this machine needs 12288 MB and running machines already use 24576 MB of the 30042 MB available to machines"
 	store.queuedOperation = &domain.DevMachineOperation{Action: domain.DevMachineOpSpawn, Status: domain.DevMachineOpStatusPending, ErrorCode: &code, ErrorMessage: &message}
 	ready, err := runtime.Prepare(context.Background(), &task)
 	require.False(t, ready)
@@ -824,7 +864,7 @@ func TestPreparationExplainsAMachineWaitingForHostCapacity(t *testing.T) {
 	svc := &AgentTaskService{store: tasks, runtime: &taskRuntimeFake{prepareErr: err}}
 	require.NoError(t, svc.step(context.Background(), tasks.task))
 	require.Equal(t, "preparing", tasks.task.State)
-	require.Equal(t, "Waiting for host capacity to start the dev machine (waiting for host memory: 12288 MB requested of 4096 MB available to machines). It starts when running machines free enough; cancel the task to withdraw it.", tasks.waiting)
+	require.Equal(t, "Waiting for host capacity to start the dev machine (waiting for host memory: this machine needs 12288 MB and running machines already use 24576 MB of the 30042 MB available to machines). It starts when running machines free enough; cancel the task to withdraw it.", tasks.waiting)
 
 	// A spawn that is not waiting for capacity is ordinary preparation, and
 	// the task stops naming a wait that is over.
@@ -838,6 +878,61 @@ func TestPreparationExplainsAMachineWaitingForHostCapacity(t *testing.T) {
 	require.Equal(t, "Starting the dev machine", tasks.waiting)
 }
 
+// A task on its own unstarted task machine waits for a free slot on the
+// creator's full machine: the task says so, the machine it leaves is deleted,
+// and the wait does not count as a failure.
+func TestPreparationWaitsForAFreeTaskSlotAndDeletesItsUnstartedMachine(t *testing.T) {
+	store, runtime, task := reusedMachineFixture(domain.DevMachineStatusQueued, domain.DevMachineStatusRunning)
+	own := task.ReservedMachineID
+	task.MachineID = &own
+	store.machine.ID = own
+	store.machine.Status = domain.DevMachineStatusQueued
+	runtime.tasks = &taskRuntimeStoreFake{
+		reservation: repository.MachineReservation{ReservedID: uuid.New(), Abandoned: &own},
+		err:         &repository.MachineSlotWaitError{Name: "dev-machine", Tasks: 2, Limit: 2},
+	}
+
+	ready, err := runtime.Prepare(context.Background(), &task)
+	require.False(t, ready)
+	var wait *repository.MachineSlotWaitError
+	require.ErrorAs(t, err, &wait)
+	require.Equal(t, 1, store.permanentDeleteRequests, "the unstarted machine is deleted")
+	require.NotNil(t, store.machine.DeleteRequestedAt)
+
+	tasks := &taskStoreFake{task: domain.AgentTask{ID: task.ID, WorkspaceID: task.WorkspaceID, CreatorID: task.CreatorID, State: "preparing"}}
+	svc := &AgentTaskService{store: tasks, runtime: runtime}
+	require.NoError(t, svc.step(context.Background(), task))
+	require.Equal(t, "preparing", tasks.task.State)
+	require.Equal(t, "Waiting for a free task slot on dev-machine (2 of 2 in use). It starts when a task there finishes; cancel the task to withdraw it.", tasks.waiting)
+
+	svc.process(context.Background(), tasks.task)
+	require.Equal(t, []bool{false}, tasks.results, "a slot wait is not a failure")
+}
+
+// Deleting the task's unstarted machine is retried after transient failures,
+// so the machine is not left orphaned when the task moves to a free slot.
+func TestPreparationRetriesDeletingItsUnstartedMachine(t *testing.T) {
+	store, runtime, task := reusedMachineFixture(domain.DevMachineStatusQueued, domain.DevMachineStatusRunning)
+	own := task.ReservedMachineID
+	task.MachineID = &own
+	store.machine.ID = own
+	store.machine.Status = domain.DevMachineStatusQueued
+	flaky := &flakyDeleteStore{devMachineStoreFake: store, failures: 2}
+	runtime.machines = newTestDevMachineService(flaky)
+	runtime.tasks = &taskRuntimeStoreFake{
+		reservation: repository.MachineReservation{ReservedID: uuid.New(), Abandoned: &own},
+		err:         &repository.MachineSlotWaitError{Name: "dev-machine", Tasks: 2, Limit: 2},
+	}
+
+	ready, err := runtime.Prepare(context.Background(), &task)
+	require.False(t, ready)
+	var wait *repository.MachineSlotWaitError
+	require.ErrorAs(t, err, &wait)
+	require.Equal(t, 3, flaky.requests, "the delete is retried after two transient failures")
+	require.Equal(t, 1, store.permanentDeleteRequests, "the third attempt queues the teardown")
+	require.NotNil(t, store.machine.DeleteRequestedAt)
+}
+
 // A stopped or paused machine the task restarts waits for host capacity too.
 func TestPreparationExplainsARestartWaitingForHostCapacity(t *testing.T) {
 	store, runtime, task := reusedMachineFixture(domain.DevMachineStatusStopped, domain.DevMachineStatusStopped)
@@ -846,7 +941,7 @@ func TestPreparationExplainsARestartWaitingForHostCapacity(t *testing.T) {
 	require.False(t, ready)
 	start := store.queuedOperation
 	require.NotNil(t, start)
-	code, message := "host_capacity_wait", "waiting for host CPU: 4000 millicores requested of 2000 available to machines"
+	code, message := "host_capacity_wait", "waiting for host CPU: this machine needs 4000 millicores and running machines already use 2000 of the 6000 available to machines"
 	start.ErrorCode, start.ErrorMessage = &code, &message
 	store.operationLookups = nil
 	ready, err = runtime.Prepare(context.Background(), &task)

@@ -176,6 +176,20 @@ test('desktop: the side panel collapses to give the canvas the width, survives a
 		'Implementer'
 	);
 	await expect(editor.getByTestId('workflow-save')).toBeDisabled();
+
+	// An explicit "Edit" from a node's context menu opens the panel again and
+	// inspects that node, even while the panel is collapsed.
+	await editor.getByTestId('workflow-panel-toggle').click();
+	await expect(editor.getByTestId('workflow-inspector-panel')).toHaveCount(0);
+	await editor.getByTestId('workflow-node-done').click({ button: 'right' });
+	await page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+	await expect(editor.getByTestId('workflow-inspector-panel')).toBeVisible();
+	await expect(editor.getByTestId('workflow-node-inspector').getByLabel('Name', { exact: true })).toHaveValue(
+		'Done'
+	);
+	await expect(editor.getByTestId('workflow-panel-toggle')).toHaveAttribute('aria-expanded', 'true');
+	await expect(editor.getByTestId('workflow-save')).toBeDisabled();
+	await expect.poll(() => state.patches.at(-1)?.workflow_editor_panel_open).toBe(true);
 });
 
 test('phone: the panel collapses and opens again without losing the canvas', async ({ page }) => {

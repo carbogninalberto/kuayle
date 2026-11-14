@@ -14,7 +14,7 @@ ARG TARGETARCH
 ARG NPM_VERSION=12.2.0
 ARG CLAUDE_CODE_VERSION=2.1.322
 ARG OPENCODE_VERSION=1.19.5
-ARG CODEX_VERSION=0.167.1
+ARG CODEX_VERSION=0.167.2
 
 COPY --from=docker-plugins /out/docker-compose /out/docker-buildx /usr/local/lib/docker/cli-plugins/
 COPY common/install-docker-cli.sh /usr/local/lib/kuayle/

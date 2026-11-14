@@ -4,6 +4,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      include_arm64:
+        description: Also verify ARM64 images on native ARM runners
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -16,6 +22,8 @@ jobs:
   changes:
     name: CI Impact
     uses: ./.github/workflows/ci-impact.yml
+    with:
+      include_arm64: ${{ inputs.include_arm64 || false }}
 
   images:
     needs: changes
@@ -25,7 +33,6 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 2
       matrix:
         architecture: ${{ fromJSON(needs.changes.outputs.plan).architectures }}
         image: ${{ fromJSON(needs.changes.outputs.plan).releaseImages }}

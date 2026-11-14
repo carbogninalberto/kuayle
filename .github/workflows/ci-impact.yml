@@ -2,6 +2,12 @@ name: CI Impact
 
 on:
   workflow_call:
+    inputs:
+      include_arm64:
+        description: Also select ARM64 image builds and scans
+        required: false
+        type: boolean
+        default: false
     outputs:
       plan:
         description: Complete change-impact plan and expected jobs
@@ -32,4 +38,5 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INCLUDE_ARM64: ${{ inputs.include_arm64 }}
         run: node scripts/ci/impact.mjs

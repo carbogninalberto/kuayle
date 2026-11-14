@@ -61,6 +61,17 @@ type Config struct {
 	// set the base URL, so enabling it trusts every owner with internal access.
 	AIAllowPrivateNetwork bool `envconfig:"AI_ALLOW_PRIVATE_NETWORK" default:"false"`
 
+	// ForgeAllowPrivateNetwork lets admin-configured GitLab, Gitea and Forgejo
+	// base URLs target private or loopback addresses. Off by default: the base
+	// URL is workspace-admin supplied, so enabling it trusts every workspace
+	// admin with internal access.
+	ForgeAllowPrivateNetwork bool `envconfig:"FORGE_ALLOW_PRIVATE_NETWORK" default:"false"`
+
+	// ForgeWebhookBaseURL overrides the origin of the forge webhook URL shown
+	// to workspace admins. When empty, FRONTEND_URL (with the development API
+	// port) is used.
+	ForgeWebhookBaseURL string `envconfig:"FORGE_WEBHOOK_BASE_URL"`
+
 	// Voice transcription service (optional). Both are operator settings:
 	// VOICE_URL is the internal address of the voice container and
 	// VOICE_INTERNAL_TOKEN the shared secret it requires. Voice stays off
@@ -349,6 +360,13 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("WEB_SEARCH_SEARXNG_URL %w", err)
 		}
 		cfg.searxngURL = parsed
+	}
+	if strings.TrimSpace(cfg.ForgeWebhookBaseURL) != "" {
+		parsed, err := validate.OperatorBaseURL(cfg.ForgeWebhookBaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("FORGE_WEBHOOK_BASE_URL %w", err)
+		}
+		cfg.ForgeWebhookBaseURL = parsed.String()
 	}
 	sysadmins, err := parseSysadmins(cfg.Sysadmins)
 	if err != nil {

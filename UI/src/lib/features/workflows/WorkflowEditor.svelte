@@ -152,9 +152,21 @@
 		if (next) tab = 'inspect';
 	}
 
-	// Hiding or showing the panel changes the canvas width. Refit once the new
-	// size has landed so no node is left off-screen; this only moves the
-	// viewport, so it never arranges nodes, adds an undo step or marks a save.
+	// An explicit "inspect this" action (Problems entry, context-menu Edit)
+	// shows the panel; plain canvas clicks respect the collapsed choice.
+	function inspect(next: Selection) {
+		select(next);
+		if (next && !panelOpen) preferencesState.setWorkflowEditorPanelOpen(true);
+	}
+
+	// Any change of panelOpen after the first render (the toggle, an inspect
+	// action reopening the panel, or a remote preference sync such as the
+	// server value differing from the locally cached one) refits once the
+	// canvas has actually resized, so no node is left off-screen. The refit
+	// only moves the viewport: it never arranges nodes, adds an undo step or
+	// marks the workflow unsaved.
+	let canvasArea = $state<HTMLDivElement>();
+	let refitPending = false;
 	let panelSizeSettled = false;
 	$effect(() => {
 		void panelOpen;
@@ -162,9 +174,19 @@
 			panelSizeSettled = true;
 			return;
 		}
-		void tick().then(() => {
-			requestAnimationFrame(() => requestAnimationFrame(() => flow?.fit()));
+		refitPending = true;
+	});
+	$effect(() => {
+		const node = canvasArea;
+		if (!node) return;
+		const observer = new ResizeObserver(() => {
+			if (!refitPending) return;
+			refitPending = false;
+			// Let xyflow's own observer store the new size before fitView reads it.
+			requestAnimationFrame(() => flow?.fit());
 		});
+		observer.observe(node);
+		return () => observer.disconnect();
 	});
 
 	// Leaving with unsaved changes asks first, in a dialog. Closing the tab
@@ -439,17 +461,14 @@
 										variant="plain"
 										class="h-auto w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left whitespace-normal hover:bg-muted"
 										disabled={!issue.edge_id && !issue.node_id}
-										onclick={() => {
-											select(
+										onclick={() =>
+											inspect(
 												issue.edge_id
 													? { kind: 'edge', id: issue.edge_id }
 													: issue.node_id
 														? { kind: 'node', id: issue.node_id }
 														: null
-											);
-											// The person asked to inspect this entry, so show the panel.
-											if (!panelOpen) preferencesState.setWorkflowEditorPanelOpen(true);
-										}}
+											)}
 									>
 										{#if issue.edge_id || issue.node_id}<span class="text-xs font-medium"
 												>{issue.edge_id
@@ -510,7 +529,11 @@
 				: 'grid-rows-1 grid-cols-1'
 		)}
 	>
-		<div class="relative min-h-0 bg-muted/30" data-testid="workflow-canvas-area">
+		<div
+			class="relative min-h-0 bg-muted/30"
+			data-testid="workflow-canvas-area"
+			bind:this={canvasArea}
+		>
 			{#snippet canvas()}
 				<WorkflowCanvas
 					{graph}
@@ -545,7 +568,7 @@
 						{#if menuNode}
 							{@const node = menuNode}
 							<ContextMenu.Label class="truncate text-xs text-muted-foreground">{node.label}</ContextMenu.Label>
-							<ContextMenu.Item onclick={() => act(() => select({ kind: 'node', id: node.id }))}
+							<ContextMenu.Item onclick={() => act(() => inspect({ kind: 'node', id: node.id }))}
 								><Pencil />{m['workflows.editor.edit']()}</ContextMenu.Item
 							>
 							{#if node.type !== 'end'}

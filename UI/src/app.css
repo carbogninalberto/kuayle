@@ -20,6 +20,12 @@ code {
 	user-select: text;
 }
 
+[data-selectable="text"],
+[data-selectable="text"] * {
+	-webkit-user-select: text;
+	user-select: text;
+}
+
 ::selection {
 	background-color: color-mix(in srgb, var(--primary-200) 40%, transparent);
 	color: inherit;

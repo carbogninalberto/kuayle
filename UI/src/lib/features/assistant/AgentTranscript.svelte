@@ -232,15 +232,14 @@
 		<Message.Root align="end" role="article" aria-label={m['tasks.transcript_from_you']()}>
 			<Message.Content class="items-end">
 				<Message.Header class="gap-1 text-[11px]"
-					><User size={12} aria-hidden="true" />{m['tasks.transcript_from_you']()}<CopyMessageButton
-						text={block.text}
-					/></Message.Header
+					><User size={12} aria-hidden="true" />{m['tasks.transcript_from_you']()}</Message.Header
 				>
 				<Bubble.Root variant="muted"
-					><Bubble.Content class="rounded-2xl rounded-br-md px-3.5 py-2"
+					><Bubble.Content class="rounded-2xl rounded-br-md ps-3.5 pe-9 py-2"
 						><ClampedText text={block.text} lines={6} /></Bubble.Content
-					></Bubble.Root
-				>
+					>
+					<CopyMessageButton text={block.text} />
+				</Bubble.Root>
 			</Message.Content>
 		</Message.Root>
 	{:else if block.kind === 'thinking'}
@@ -348,8 +347,10 @@
 {#snippet message(text: string)}
 	<Message.Root align="start" role="article" aria-label={m['tasks.live_from_agent']()}>
 		<Message.Content class="w-full">
-			<Bubble.Root variant="ghost"><Bubble.Content><Markdown source={text} /></Bubble.Content></Bubble.Root>
-			<Message.Footer><CopyMessageButton text={() => markdownToPlainText(text)} /></Message.Footer>
+			<Bubble.Root variant="ghost"
+				><Bubble.Content data-selectable="text" class="pe-8! min-h-6"><Markdown source={text} /></Bubble.Content>
+				<CopyMessageButton class="top-0 end-0" text={() => markdownToPlainText(text)} />
+			</Bubble.Root>
 		</Message.Content>
 	</Message.Root>
 {/snippet}

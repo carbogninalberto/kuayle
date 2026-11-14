@@ -26,7 +26,8 @@
 		MessagesSquare,
 		Mic,
 		BotMessageSquare,
-		Workflow
+		Workflow,
+		GitBranch
 	} from '@lucide/svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
 	import type { Snippet } from 'svelte';
@@ -57,6 +58,7 @@
 	// Guests cannot read the workspace's lessons; the server refuses them.
 	const currentWorkspace = getCurrentWorkspace();
 	const isGuest = $derived(currentWorkspace.membership?.workspace.current_user_role === 'guest');
+	const canManageWorkspace = $derived(currentWorkspace.membership?.workspace.current_user_role === 'owner');
 
 	let teams = $state<Team[]>([]);
 	let expandedTeams = $state<Set<string>>(new Set());
@@ -110,6 +112,9 @@
 				{ label: m['settings.nav.labels'](), href: `/${slug}/settings/labels`, icon: Tag },
 				{ label: m['settings.nav.webhooks'](), href: `/${slug}/settings/webhooks`, icon: Webhook },
 				{ label: m['settings.nav.github'](), href: `/${slug}/settings/github`, icon: GithubLogoIcon },
+				...(canManageWorkspace
+					? [{ label: m['settings.nav.forges'](), href: `/${slug}/settings/forges`, icon: GitBranch }]
+					: []),
 				{ label: m['settings.nav.templates'](), href: `/${slug}/settings/templates`, icon: FileText },
 				{ label: m['settings.nav.ai'](), href: `/${slug}/settings/ai`, icon: Sparkles },
 				{ label: m['settings.nav.assistant'](), href: `/${slug}/settings/assistant`, icon: BotMessageSquare },
