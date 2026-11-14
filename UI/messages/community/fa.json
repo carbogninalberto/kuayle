@@ -3511,6 +3511,8 @@
 	"workflows.editor.problems_title": "مشکلاتی که پیش از ذخیره باید رفع شوند",
 	"workflows.editor.unsaved": "تغییرات ذخیره‌نشده",
 	"workflows.editor.inspector": "بازرس",
+	"workflows.editor.hide_panel": "پنهان کردن پنل کناری",
+	"workflows.editor.show_panel": "نمایش پنل کناری",
 	"workflows.editor.nothing_selected": "یک گام یا گذار را روی بوم یا در فهرست‌های زیر انتخاب کنید.",
 	"workflows.editor.node_label": "نام",
 	"workflows.editor.node_profile": "پروفایل عامل",

@@ -3511,6 +3511,8 @@
 	"workflows.editor.problems_title": "Korjattavat ongelmat ennen tallennusta",
 	"workflows.editor.unsaved": "Tallentamattomia muutoksia",
 	"workflows.editor.inspector": "Tarkastelu",
+	"workflows.editor.hide_panel": "Piilota sivupaneeli",
+	"workflows.editor.show_panel": "Näytä sivupaneeli",
 	"workflows.editor.nothing_selected": "Valitse vaihe tai siirtymä kanvaksesta tai alla olevista listoista.",
 	"workflows.editor.node_label": "Nimi",
 	"workflows.editor.node_profile": "Agenttiprofiili",

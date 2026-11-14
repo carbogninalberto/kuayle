@@ -3511,6 +3511,8 @@
 	"workflows.editor.problems_title": "保存前需修复的问题",
 	"workflows.editor.unsaved": "未保存的更改",
 	"workflows.editor.inspector": "检查器",
+	"workflows.editor.hide_panel": "隐藏侧边面板",
+	"workflows.editor.show_panel": "显示侧边面板",
 	"workflows.editor.nothing_selected": "在画布或下方列表中选择一个步骤或转换。",
 	"workflows.editor.node_label": "名称",
 	"workflows.editor.node_profile": "智能体配置",

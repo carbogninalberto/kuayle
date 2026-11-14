@@ -3511,6 +3511,8 @@
 	"workflows.editor.problems_title": "Problemer som må rettes før lagring",
 	"workflows.editor.unsaved": "Ulagrede endringer",
 	"workflows.editor.inspector": "Inspektør",
+	"workflows.editor.hide_panel": "Skjul sidepanelet",
+	"workflows.editor.show_panel": "Vis sidepanelet",
 	"workflows.editor.nothing_selected": "Velg et trinn eller en overgang på lerretet, eller i listene nedenfor.",
 	"workflows.editor.node_label": "Navn",
 	"workflows.editor.node_profile": "Agentprofil",

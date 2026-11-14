@@ -3511,6 +3511,8 @@
 	"workflows.editor.problems_title": "בעיות לתיקון לפני השמירה",
 	"workflows.editor.unsaved": "שינויים שלא נשמרו",
 	"workflows.editor.inspector": "בוחן",
+	"workflows.editor.hide_panel": "הסתר את החלונית הצדדית",
+	"workflows.editor.show_panel": "הצג את החלונית הצדדית",
 	"workflows.editor.nothing_selected": "בחרו שלב או מעבר בקנבס, או ברשימות שלמטה.",
 	"workflows.editor.node_label": "שם",
 	"workflows.editor.node_profile": "פרופיל סוכן",

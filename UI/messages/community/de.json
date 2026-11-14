@@ -3511,6 +3511,8 @@
 	"workflows.editor.problems_title": "Vor dem Speichern zu behebende Probleme",
 	"workflows.editor.unsaved": "Nicht gespeicherte Änderungen",
 	"workflows.editor.inspector": "Inspektor",
+	"workflows.editor.hide_panel": "Seitenleiste ausblenden",
+	"workflows.editor.show_panel": "Seitenleiste einblenden",
 	"workflows.editor.nothing_selected": "Wähle einen Schritt oder Übergang auf dem Canvas oder in den Listen unten.",
 	"workflows.editor.node_label": "Name",
 	"workflows.editor.node_profile": "Agent-Profil",

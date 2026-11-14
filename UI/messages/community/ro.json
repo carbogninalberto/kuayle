@@ -3511,6 +3511,8 @@
 	"workflows.editor.problems_title": "Probleme de remediat înainte de salvare",
 	"workflows.editor.unsaved": "Modificări nesalvate",
 	"workflows.editor.inspector": "Inspector",
+	"workflows.editor.hide_panel": "Ascunde panoul lateral",
+	"workflows.editor.show_panel": "Afișează panoul lateral",
 	"workflows.editor.nothing_selected": "Selectează un pas sau o tranziție pe canvas sau în listele de mai jos.",
 	"workflows.editor.node_label": "Nume",
 	"workflows.editor.node_profile": "Profil de agent",

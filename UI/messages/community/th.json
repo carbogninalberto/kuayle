@@ -3511,6 +3511,8 @@
 	"workflows.editor.problems_title": "ปัญหาที่ต้องแก้ไขก่อนบันทึก",
 	"workflows.editor.unsaved": "มีการเปลี่ยนแปลงที่ยังไม่ได้บันทึก",
 	"workflows.editor.inspector": "ตัวตรวจสอบ",
+	"workflows.editor.hide_panel": "ซ่อนแผงด้านข้าง",
+	"workflows.editor.show_panel": "แสดงแผงด้านข้าง",
 	"workflows.editor.nothing_selected": "เลือกขั้นตอนหรือการเปลี่ยนสถานะบนแคนวาส หรือในรายการด้านล่าง",
 	"workflows.editor.node_label": "ชื่อ",
 	"workflows.editor.node_profile": "โปรไฟล์ Agent",

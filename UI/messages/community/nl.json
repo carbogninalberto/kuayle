@@ -3511,6 +3511,8 @@
 	"workflows.editor.problems_title": "Problemen om op te lossen vóór het opslaan",
 	"workflows.editor.unsaved": "Niet-opgeslagen wijzigingen",
 	"workflows.editor.inspector": "Inspector",
+	"workflows.editor.hide_panel": "Zijpaneel verbergen",
+	"workflows.editor.show_panel": "Zijpaneel tonen",
 	"workflows.editor.nothing_selected": "Selecteer een stap of overgang op het canvas, of in de lijsten hieronder.",
 	"workflows.editor.node_label": "Naam",
 	"workflows.editor.node_profile": "Agentprofiel",

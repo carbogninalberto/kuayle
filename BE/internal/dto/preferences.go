@@ -12,6 +12,7 @@ type UserPreferencesResponse struct {
 	RecentDueDates            []string                        `json:"recent_due_dates"`
 	IssuesGroupBy             string                          `json:"issues_group_by"`
 	BrowserNotifications      bool                            `json:"browser_notifications"`
+	WorkflowEditorPanelOpen   bool                            `json:"workflow_editor_panel_open"`
 	NotificationSound         string                          `json:"notification_sound"`
 	// NotificationEvents always carries every event key.
 	NotificationEvents map[string]bool `json:"notification_events"`
@@ -29,6 +30,7 @@ type UpdatePreferencesRequest struct {
 	RecentDueDates            *[]string                        `json:"recent_due_dates"`
 	IssuesGroupBy             *string                          `json:"issues_group_by" validate:"omitempty,oneof=status priority assignee project none"`
 	BrowserNotifications      *bool                            `json:"browser_notifications"`
+	WorkflowEditorPanelOpen   *bool                            `json:"workflow_editor_panel_open"`
 	NotificationSound         *string                          `json:"notification_sound" validate:"omitempty,oneof=off chime bell pop drop pulse"`
 	// NotificationEvents is merged onto the stored map; unknown keys are refused.
 	NotificationEvents *map[string]bool `json:"notification_events"`

@@ -3511,6 +3511,8 @@
 	"workflows.editor.problems_title": "Masalah untuk dibaiki sebelum menyimpan",
 	"workflows.editor.unsaved": "Perubahan belum disimpan",
 	"workflows.editor.inspector": "Pemeriksa",
+	"workflows.editor.hide_panel": "Sembunyikan panel sisi",
+	"workflows.editor.show_panel": "Tunjukkan panel sisi",
 	"workflows.editor.nothing_selected": "Pilih langkah atau peralihan pada kanvas, atau dalam senarai di bawah.",
 	"workflows.editor.node_label": "Nama",
 	"workflows.editor.node_profile": "Profil ejen",
