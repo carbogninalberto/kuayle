@@ -477,12 +477,10 @@
 		</Collapsible.Root>
 	{/each}
 	{#each ungrouped as item (item.id)}{@render row(item)}{/each}
-	{#if !visible.length}
-		{#if loading && !history.length}
-			<p role="status" class="px-2 py-1 text-xs text-muted-foreground">{m['assistant.recents_loading']()}</p>
-		{:else}
-			<p class="px-2 py-1 text-xs text-muted-foreground">{m['assistant.recents_empty']()}</p>
-		{/if}
+	{#if loading}
+		<p role="status" class="px-2 py-1 text-xs text-muted-foreground">{m['assistant.recents_loading']()}</p>
+	{:else if !visible.length}
+		<p class="px-2 py-1 text-xs text-muted-foreground">{m['assistant.recents_empty']()}</p>
 	{/if}
 </nav>
 </Collapsible.Content>
