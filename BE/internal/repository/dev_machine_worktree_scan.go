@@ -17,7 +17,16 @@ import (
 // names a machine the requester does not own.
 var ErrWorktreeUnavailable = errors.New("the task's worktree is not available on a running machine")
 
-const worktreeScanKeyPrefix = "worktree-scan:"
+// ErrWorktreeScanBusy means the requester already has as many unfinished scans
+// as one machine should run at once.
+var ErrWorktreeScanBusy = errors.New("too many worktree scans are already running on this machine")
+
+const (
+	worktreeScanKeyPrefix = "worktree-scan:"
+	// A scan holds one exec on the machine. Four let one conversation read a
+	// machine while its agent works without flooding it.
+	worktreeScanConcurrencyLimit = 4
+)
 
 // worktreeScanColumns joins the machine and, for a checkout scan, the task
 // checkout whose branch and path the result and its header describe.
@@ -35,7 +44,7 @@ const worktreeScanJoin = `FROM dev_machine_worktree_scans s
 // leased. A task scan is allowed while the task's agent runs: nothing here
 // changes the checkout or the machine.
 func (r *DevMachineRepository) CreateWorktreeScan(ctx context.Context, ws, user uuid.UUID, target domain.WorktreeScanTarget, req domain.WorktreeScanRequest) (*domain.WorktreeScan, error) {
-	if err := validateWorktreeScanRequest(req); err != nil {
+	if err := ValidateWorktreeScanRequest(req); err != nil {
 		return nil, err
 	}
 	if (target.TaskID == nil) == (target.MachineID == nil) {
@@ -122,6 +131,15 @@ func (r *DevMachineRepository) CreateWorktreeScan(ctx context.Context, ws, user 
 		scan.MachineName = machine.Name
 		generation = machine.Generation
 	}
+	var pending int
+	if err = tx.GetContext(ctx, &pending, `SELECT COUNT(*) FROM dev_machine_worktree_scans
+		WHERE machine_id=$1 AND requested_by=$2 AND completed_at IS NULL
+		  AND created_at > now() - interval '2 minutes'`, scan.MachineID, user); err != nil {
+		return nil, err
+	}
+	if pending >= worktreeScanConcurrencyLimit {
+		return nil, ErrWorktreeScanBusy
+	}
 	request, err := json.Marshal(req)
 	if err != nil {
 		return nil, ErrConversationInvalid
@@ -207,7 +225,9 @@ func (r *DevMachineRepository) CompleteWorktreeScan(ctx context.Context, id uuid
 	return err
 }
 
-func validateWorktreeScanRequest(req domain.WorktreeScanRequest) error {
+// ValidateWorktreeScanRequest is the one contract for a scan request: services
+// and test doubles call it so a fake refuses what production refuses.
+func ValidateWorktreeScanRequest(req domain.WorktreeScanRequest) error {
 	if req.Limit < 0 {
 		return ErrConversationInvalid
 	}

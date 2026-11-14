@@ -268,7 +268,8 @@ func (t *AssistantTools) runScanTool(ctx context.Context, ws, user uuid.UUID, ro
 			if err != nil {
 				return nil, nil, err
 			}
-			result, err := t.runTaskScan(ctx, ws, user, identifier, domain.WorktreeScanRequest{Kind: domain.WorktreeScanGlob, Glob: pattern, Limit: input.Limit})
+			result, err := t.runTaskScan(ctx, ws, user, identifier, domain.WorktreeScanRequest{Kind: domain.WorktreeScanGlob, Glob: pattern,
+				Limit: scanLimit(input.Limit, 200, 500)})
 			return result, nil, err
 		}
 		co, release, err := t.openCheckout(ctx, ws, role, input.scanTargetInput)
@@ -355,7 +356,7 @@ func (t *AssistantTools) repoGrep(ctx context.Context, ws, user uuid.UUID, role 
 			return nil, nil, err
 		}
 		result, err := t.runTaskScan(ctx, ws, user, identifier, domain.WorktreeScanRequest{Kind: domain.WorktreeScanGrep, Pattern: input.Pattern,
-			Glob: glob, Fixed: input.Fixed, CaseInsensitive: input.CaseInsensitive, Limit: input.Limit})
+			Glob: glob, Fixed: input.Fixed, CaseInsensitive: input.CaseInsensitive, Limit: scanLimit(input.Limit, 50, 100)})
 		return result, nil, err
 	}
 	co, release, err := t.openCheckout(ctx, ws, role, input.scanTargetInput)
@@ -446,8 +447,18 @@ func (t *AssistantTools) repoReadFile(ctx context.Context, ws, user uuid.UUID, r
 		if err != nil {
 			return nil, nil, err
 		}
+		// A live read has no file listing to learn its length from, so an open
+		// range asks for the same number of lines the GitHub path returns.
+		start := max(input.StartLine, 1)
+		end := input.EndLine
+		if end == 0 {
+			end = start + scanReadLines - 1
+		}
+		if end < start {
+			return nil, nil, toolFailure("end_line is before start_line")
+		}
 		result, err := t.runTaskScan(ctx, ws, user, identifier, domain.WorktreeScanRequest{Kind: domain.WorktreeScanRead, Path: name,
-			StartLine: input.StartLine, EndLine: input.EndLine})
+			StartLine: start, EndLine: end})
 		return result, nil, err
 	}
 	co, release, err := t.openCheckout(ctx, ws, role, input.scanTargetInput)

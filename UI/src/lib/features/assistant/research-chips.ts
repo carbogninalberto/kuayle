@@ -1,9 +1,10 @@
-import { FileSearch, FolderTree, Globe, Network } from '@lucide/svelte';
+import { FileSearch, FolderTree, GitBranch, Globe, Network } from '@lucide/svelte';
 import { m } from '$lib/features/i18n/messages';
 import { registerToolChip } from './tool-chips';
 import RepoScanChip from './RepoScanChip.svelte';
 import SubagentsChip from './SubagentsChip.svelte';
 import WebSearchChip from './WebSearchChip.svelte';
+import WorktreeChip from './WorktreeChip.svelte';
 
 // Step chips for the research tools (KUA-93). Imported once by ToolCalls.
 registerToolChip('web_search', { label: m['assistant.tool_web_search'], icon: Globe, renderer: WebSearchChip });
@@ -20,6 +21,16 @@ registerToolChip('repo_read_file', {
 	renderer: RepoScanChip
 });
 registerToolChip('repo_symbols', { label: m['assistant.tool_repo_symbols'], icon: FileSearch, renderer: RepoScanChip });
+registerToolChip('get_task_worktree', {
+	label: m['assistant.tool_get_task_worktree'],
+	icon: GitBranch,
+	renderer: WorktreeChip
+});
+registerToolChip('list_machine_worktrees', {
+	label: m['assistant.tool_list_machine_worktrees'],
+	icon: FolderTree,
+	renderer: WorktreeChip
+});
 registerToolChip('spawn_research_subagents', {
 	label: m['assistant.tool_spawn_research_subagents'],
 	icon: Network,

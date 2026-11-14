@@ -164,6 +164,26 @@ func TestWorktreeScanValidatesItsRequest(t *testing.T) {
 	}
 }
 
+func TestWorktreeScanRefusesMoreThanFourPendingOnTheSameMachine(t *testing.T) {
+	_, repo, ctx, task, _, _ := worktreeScanFixture(t)
+	request := domain.WorktreeScanRequest{Kind: domain.WorktreeScanStatus}
+	var first uuid.UUID
+	for i := range 4 {
+		scan, err := repo.CreateWorktreeScan(ctx, task.WorkspaceID, task.CreatorID, taskScanTarget(task), request)
+		require.NoError(t, err)
+		if i == 0 {
+			first = scan.ID
+		}
+	}
+	_, err := repo.CreateWorktreeScan(ctx, task.WorkspaceID, task.CreatorID, taskScanTarget(task), request)
+	require.ErrorIs(t, err, ErrWorktreeScanBusy)
+
+	done := "done"
+	require.NoError(t, repo.CompleteWorktreeScan(ctx, first, nil, &done))
+	_, err = repo.CreateWorktreeScan(ctx, task.WorkspaceID, task.CreatorID, taskScanTarget(task), request)
+	require.NoError(t, err, "a finished scan frees its slot")
+}
+
 func TestWorktreeScanHousekeepingRemovesOnlyThisWorkspacesOldScans(t *testing.T) {
 	db, repo, ctx, task, claimed, _ := worktreeScanFixture(t)
 	oldID := uuid.New()

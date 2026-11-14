@@ -1418,10 +1418,17 @@ live checkout of the issue's newest coding task on its dev machine, so it sees
 uncommitted work; it needs `identifier` (not `repository`) and refuses `ref`.
 The task must have been created by the caller: the repository re-checks it, and
 missing or someone else's task looks like `only the task's creator can read its
-machine`. Scans are read-only and run beside the agent, so they are allowed
-while it works. The manager runs one scan in at most 10 s and the server waits
-up to 20 s (polling every 250 ms); a timeout says the machine may be busy. The
-result starts with `source: "task"`, `machine`, `repository`, `branch`,
+machine`. `source: "task"` follows `get_task_worktree`'s workspace switch in
+Settings → Assistant; when that tool is off the scan tools refuse the live
+target too. Scans are read-only and run beside the agent, so they are allowed
+while it works. One requester may keep at most four unfinished scans on a
+machine (created in the last two minutes); the next is refused as busy. The
+manager runs one scan in at most 10 s and the server waits up to 20 s (polling
+every 250 ms); a timeout says the machine may be busy. A list scan prints each
+worktree as it reads it and returns the rows it reached with `truncated: true`
+when its deadline stops it; it skips symlinked entries and counts only tracked
+modifications in each worktree. The result starts with `source: "task"`,
+`machine`, `repository`, `branch`,
 `commit`, `dirty` and `path` (the checkout path), then the kind's fields, within
 the same 16 KB and read caps as the GitHub scans:
 
@@ -1433,6 +1440,12 @@ the same 16 KB and read caps as the GitHub scans:
 // repo_read_file(source "task", path, start_line?, end_line?)
 {"source":"task","machine":"…","repository":"…","branch":"…","commit":"…","dirty":false,"path":"…","file":"BE/main.go","start_line":1,"end_line":400,"total_lines":812,"content":"…","truncated":true}
 ```
+
+A status or read result's `branch` and `commit` describe the task's branch ref.
+If the agent switched branches, the working tree read is the agent's while the
+header still names the task ref; `dirty` and `changed` likewise describe that
+working tree. `git status` runs with `--ignore-submodules=all`, so a nested
+repository (gitlink) never runs its own configuration.
 
 `get_task_worktree(identifier)` reports the task's git state: `machine`,
 `repository`, `branch`, `commit`, `dirty`, `changed` (the

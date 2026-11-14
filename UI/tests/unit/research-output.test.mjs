@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
 	httpURL,
+	machineWorktreesOutput,
 	repoScanOutput,
 	subagentsOutput,
+	taskWorktreeOutput,
 	webSearchOutput
 } from '../../src/lib/features/assistant/research-output.ts';
 
@@ -76,6 +78,63 @@ test('a scan step names the repository, commit and the pattern it used', () => {
 	assert.equal(read.query, 'README.md:1-2');
 	assert.deepEqual(read.lines, ['a', 'b']);
 	assert.equal(repoScanOutput('unknown_tool', {}, {}), undefined);
+});
+
+test('a live worktree result is read from its own fields', () => {
+	const read = repoScanOutput(
+		'repo_read_file',
+		{ path: 'BE/main.go', start_line: 1 },
+		{
+			source: 'task',
+			repository: 'acme/app',
+			branch: 'kua-141-work',
+			commit: 'abc',
+			file: 'BE/main.go',
+			start_line: 1,
+			end_line: 2,
+			total_lines: 9,
+			content: 'a\nb'
+		}
+	);
+	assert.equal(read.query, 'BE/main.go:1-2', 'the task result names its file as file');
+	assert.equal(read.source, 'task');
+	assert.equal(read.branch, 'kua-141-work');
+
+	const grep = repoScanOutput(
+		'repo_grep',
+		{ pattern: 'Serve' },
+		{
+			source: 'task',
+			repository: 'acme/app',
+			branch: 'kua-141-work',
+			pattern: 'Serve',
+			matches: [{ path: 'BE/main.go', line: 7, text: 'Serve()' }]
+		}
+	);
+	assert.equal(grep.summary, '1', 'a task grep counts matches, not searched files');
+	assert.equal(grep.source, 'task');
+
+	const glob = repoScanOutput(
+		'repo_glob',
+		{ pattern: '**/*.go' },
+		{ source: 'task', files: ['BE/main.go'] }
+	);
+	assert.deepEqual(glob.lines, ['BE/main.go'], 'a task glob returns plain paths');
+});
+
+test('worktree chips read their recorded state', () => {
+	assert.deepEqual(taskWorktreeOutput({ branch: 'kua-141', dirty: true, changed: [' M a.go', '?? b.go'] }), {
+		branch: 'kua-141',
+		commit: '',
+		dirty: true,
+		changed: 2
+	});
+	assert.equal(taskWorktreeOutput('junk'), undefined);
+	assert.deepEqual(machineWorktreesOutput({ worktrees: [{ path: '/workspace/tasks/a' }, { path: '/workspace/tasks/b' }] }), {
+		count: 2
+	});
+	assert.deepEqual(machineWorktreesOutput({ worktrees: [] }), { count: 0 });
+	assert.equal(machineWorktreesOutput(null), undefined);
 });
 
 test('listed files are read from their records, with why one was left out', () => {

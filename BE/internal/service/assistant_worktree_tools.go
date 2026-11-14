@@ -75,8 +75,26 @@ func (t *AssistantTools) taskWorktreeTarget(ctx context.Context, ws, user uuid.U
 	return issue, target, nil
 }
 
+// refuseWorktreeScans refuses the live worktree target when the workspace
+// switched its tools off. The conversation refuses a direct call by its own
+// name; source task on repo_grep, repo_glob and repo_read_file needs the same
+// switch checked here.
+func (t *AssistantTools) refuseWorktreeScans(ctx context.Context, ws uuid.UUID) error {
+	disabled, err := t.disabledTools(ctx, ws)
+	if err != nil {
+		return err
+	}
+	if disabled["get_task_worktree"] {
+		return toolFailure("get_task_worktree is disabled in this workspace; a workspace owner or admin can turn it on in Settings → Assistant")
+	}
+	return nil
+}
+
 // runTaskScan queues a scan of a task's live worktree and waits for its result.
 func (t *AssistantTools) runTaskScan(ctx context.Context, ws, user uuid.UUID, identifier string, req domain.WorktreeScanRequest) (map[string]any, error) {
+	if err := t.refuseWorktreeScans(ctx, ws); err != nil {
+		return nil, err
+	}
 	if t.worktreeScans == nil {
 		return nil, toolFailure("live worktree scans are not available; use source github to read the pushed code")
 	}
@@ -222,6 +240,8 @@ func worktreeScanFailure(err error) error {
 		return toolFailure("only the task's creator can read its machine")
 	case errors.Is(err, repository.ErrConversationInvalid):
 		return toolFailure("the scan request is invalid for this task; check the path or pattern and try again")
+	case errors.Is(err, repository.ErrWorktreeScanBusy):
+		return toolFailure("too many worktree scans are already running on this machine; try again in a moment")
 	}
 	return err
 }
@@ -271,21 +291,27 @@ func trimWorktreeItems[T any](items []T, truncated bool, out map[string]any) ([]
 	return kept, truncated
 }
 
-// trimWorktreeContent bounds a read to scanReadBytes and reports the last line
-// the returned content reaches.
+// trimWorktreeContent bounds a read to scanReadBytes and reports the last
+// complete line the returned content reaches. A cut in the middle of one huge
+// line keeps the readable prefix, marked with an ellipsis, and reports only
+// the line it started on.
 func trimWorktreeContent(content string, start, end int, truncated bool) (string, int, int, bool) {
 	if len(content) <= scanReadBytes {
 		return content, start, end, truncated
 	}
 	cut := content[:scanReadBytes]
+	if index := strings.LastIndexByte(cut, '\n'); index >= 0 {
+		cut = cut[:index]
+		last := start + strings.Count(cut, "\n")
+		if end > 0 {
+			last = min(last, end)
+		}
+		return cut, start, last, true
+	}
 	for len(cut) > 0 && !utf8.ValidString(cut) {
 		cut = cut[:len(cut)-1]
 	}
-	last := start + strings.Count(cut, "\n")
-	if end > 0 {
-		last = min(last, end)
-	}
-	return cut, start, last, true
+	return cut + " …", start, start, true
 }
 
 // taskSourceRequested reports a scan call whose source is the live worktree.

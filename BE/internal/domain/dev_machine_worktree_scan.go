@@ -32,8 +32,8 @@ const DevMachineOpScanWorktree DevMachineOperationAction = "scan_worktree"
 // Worktree scan limits, the same as the GitHub repository scans.
 const (
 	WorktreeScanTimeout    = 10 * time.Second
-	WorktreeScanOutputMax  = 64 << 20 // bytes of rg/git output read
-	WorktreeScanLineRunes  = 300      // a match or read line is cut here
+	WorktreeScanOutputMax  = 8 << 20 // bytes of rg/git output read
+	WorktreeScanLineRunes  = 300     // a match or read line is cut here
 	WorktreeScanMaxMatches = 100
 	WorktreeScanMaxFiles   = 500
 	WorktreeScanReadLines  = 400

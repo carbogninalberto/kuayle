@@ -1,11 +1,14 @@
 package machine
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/stretchr/testify/require"
@@ -141,23 +144,108 @@ func TestWorktreeScanNeverRunsACheckoutsConfiguredPrograms(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "a program named by the checkout's configuration ran")
 }
 
+// A nested repository recorded as a gitlink has its own config. git status
+// would run inside it, so its fsmonitor program must never run as the scan.
+func TestWorktreeScansNeverRunANestedRepositoriesConfiguredPrograms(t *testing.T) {
+	scans := map[string]func(*scriptFixture) error{
+		"grep": func(f *scriptFixture) error {
+			_, err := f.grep("needle")
+			return err
+		},
+		"status": func(f *scriptFixture) error {
+			_, err := f.scan(worktreeStatusScript, f.checkout, "kuayle/rec-1", "main")
+			return err
+		},
+		"list": func(f *scriptFixture) error {
+			_, err := f.scan(worktreeListScript, f.root)
+			return err
+		},
+	}
+	for name, scan := range scans {
+		t.Run(name, func(t *testing.T) {
+			if name == "grep" {
+				requireRipgrep(t)
+			}
+			f := newScriptFixture(t)
+			marker := filepath.Join(f.root, "nested-program-ran")
+			sub := filepath.Join(f.checkout, "sub")
+			f.run(f.root, nil, "init", "-q", "-b", "main", sub)
+			nested := f.commitFile(sub, "nested.txt", fixtureIdentity)
+			program := filepath.Join(f.root, "nested-program.sh")
+			require.NoError(t, os.WriteFile(program, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0o755))
+			f.run(sub, nil, "config", "core.fsmonitor", program)
+			f.run(f.checkout, nil, "update-index", "--add", "--cacheinfo", "160000,"+nested+",sub")
+			require.NoError(t, os.WriteFile(filepath.Join(f.checkout, "src.txt"), []byte("needle\n"), 0o644))
+
+			require.NoError(t, scan(f))
+			_, statErr := os.Stat(marker)
+			require.True(t, os.IsNotExist(statErr), "a program named by a nested repository's configuration ran")
+		})
+	}
+}
+
 func TestWorktreeListReportsEachTaskWorktree(t *testing.T) {
 	f := newScriptFixture(t)
+	require.NoError(t, os.Symlink(f.checkout, filepath.Join(f.root, "linked")))
+	require.NoError(t, os.WriteFile(filepath.Join(f.checkout, "untracked.txt"), []byte("new\n"), 0o644))
 	output, err := f.scan(worktreeListScript, f.root)
 	require.NoError(t, err, output)
 	result, err := parseWorktreeScan(WorktreeScanJob{Request: domain.WorktreeScanRequest{Kind: domain.WorktreeScanList}}, output, false)
 	require.NoError(t, err)
 	require.NotEmpty(t, result.Worktrees)
-	var found *domain.WorktreeSummary
-	for i := range result.Worktrees {
-		if result.Worktrees[i].Path == f.checkout {
-			found = &result.Worktrees[i]
-		}
-	}
+	found := worktreeAt(t, result.Worktrees, f.checkout)
 	require.NotNil(t, found, "the checkout is listed")
 	require.Equal(t, "kuayle/rec-1", found.Branch)
 	require.NotEmpty(t, found.Commit)
 	require.False(t, found.ModifiedAt.IsZero())
+	require.False(t, found.Dirty, "a list scan counts only tracked modifications")
+	require.Nil(t, worktreeAt(t, result.Worktrees, filepath.Join(f.root, "linked")), "a symlinked entry is skipped")
+
+	require.NoError(t, os.WriteFile(filepath.Join(f.checkout, "README.md"), []byte("changed\n"), 0o644))
+	output, err = f.scan(worktreeListScript, f.root)
+	require.NoError(t, err, output)
+	result, err = parseWorktreeScan(WorktreeScanJob{Request: domain.WorktreeScanRequest{Kind: domain.WorktreeScanList}}, output, false)
+	require.NoError(t, err)
+	require.True(t, worktreeAt(t, result.Worktrees, f.checkout).Dirty, "a tracked modification is dirty")
+}
+
+func worktreeAt(t *testing.T, worktrees []domain.WorktreeSummary, path string) *domain.WorktreeSummary {
+	t.Helper()
+	for i := range worktrees {
+		if worktrees[i].Path == path {
+			return &worktrees[i]
+		}
+	}
+	return nil
+}
+
+func TestWorktreeListKeepsRowsAStoppedScanPrinted(t *testing.T) {
+	body := "/workspace/tasks/a\tbranch-a\tabc\t0\t1\n/workspace/tasks/b\tbranch-b\tdef\t1\t2\n/workspace/tasks/c"
+	result, err := parseWorktreeScan(WorktreeScanJob{Request: domain.WorktreeScanRequest{Kind: domain.WorktreeScanList}}, body, true)
+	require.NoError(t, err)
+	require.Len(t, result.Worktrees, 2, "the incomplete last row is dropped")
+	require.Equal(t, "branch-a", result.Worktrees[0].Branch)
+	require.True(t, result.Truncated)
+}
+
+func TestWorktreeScanStoppedAtTheDeadlineOrKill(t *testing.T) {
+	deadline, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	require.True(t, worktreeScanStopped(deadline, errors.New("deadline")), "the exec's own deadline")
+	require.True(t, worktreeScanStopped(context.Background(), &worktreeScanExitError{code: 124}), "timeout's exit code")
+	require.True(t, worktreeScanStopped(context.Background(), &worktreeScanExitError{code: 137}), "a kill's exit code")
+	require.False(t, worktreeScanStopped(context.Background(), &worktreeScanExitError{code: 1}))
+	require.False(t, worktreeScanStopped(context.Background(), errors.New("unavailable")))
+}
+
+func TestWorktreeScanPathsStayInTheContainerWorkspace(t *testing.T) {
+	require.True(t, validWorktreeScanPath(domain.WorktreeScanGrep, "/workspace/tasks/rec-1"))
+	require.True(t, validWorktreeScanPath(domain.WorktreeScanList, "/workspace/tasks"))
+	require.False(t, validWorktreeScanPath(domain.WorktreeScanGrep, "/workspace"), "the prefix needs its slash")
+	require.False(t, validWorktreeScanPath(domain.WorktreeScanGrep, "/workspace/"), "the workspace root is not a checkout")
+	require.False(t, validWorktreeScanPath(domain.WorktreeScanGrep, "/workspacex/tasks/rec-1"))
+	require.False(t, validWorktreeScanPath(domain.WorktreeScanList, "/workspace/tasks/rec-1"), "a list scan reads exactly the root")
+	require.False(t, validWorktreeScanPath(domain.WorktreeScanGrep, "/workspace/tasks\x00"))
 }
 
 func TestParseReadOutputCapsLines(t *testing.T) {

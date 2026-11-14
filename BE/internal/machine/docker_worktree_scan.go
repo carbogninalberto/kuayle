@@ -26,7 +26,7 @@ import (
 // --no-config so no configuration file can add a preprocessor (--pre).
 const worktreeScanHeader = `printf '%s\n' "$branch"
 printf '%s\n' "$(g rev-parse --verify HEAD 2>/dev/null || true)"
-changed=$(g status --porcelain=v1 --untracked-files=normal 2>/dev/null || true)
+changed=$(g status --porcelain=v1 --untracked-files=normal --ignore-submodules=all 2>/dev/null || true)
 case $changed in
   "") printf '0\n' ;;
   *) printf '1\n' ;;
@@ -60,7 +60,10 @@ LC_ALL=C sort "$work/files"
 
 const worktreeReadScript = `set -eu
 path=$1 branch=$2 step=scan target=$3 start=$4 end=$5
-` + publishCheckoutScript + worktreeScanHeader + `root=$(cd -P -- "$path" && pwd -P)
+` + publishCheckoutScript + worktreeScanHeader + `# The realpath check and the later read are separate opens: a running agent
+# could swap a path between them. That is harmless here: same uid and
+# container, and the result goes only to the task's own creator.
+root=$(cd -P -- "$path" && pwd -P)
 resolved=$(readlink -f -- "$path/$target" 2>/dev/null || true)
 if [ -z "$resolved" ]; then resolved=$(realpath -- "$path/$target" 2>/dev/null || true); fi
 if [ -z "$resolved" ]; then echo "file is unavailable" >&2; exit 3; fi
@@ -79,7 +82,7 @@ awk -v start="$start" -v end="$end" 'NR>=start && NR<=end {print}' "$resolved"
 
 const worktreeStatusScript = `set -eu
 path=$1 branch=$2 step=scan base=$3
-` + publishCheckoutScript + `changed=$(g status --porcelain=v1 --untracked-files=normal 2>/dev/null || true)
+` + publishCheckoutScript + `changed=$(g status --porcelain=v1 --untracked-files=normal --ignore-submodules=all 2>/dev/null || true)
 printf '%s\n' "$branch"
 printf '%s\n' "$(g rev-parse --verify HEAD 2>/dev/null || true)"
 case $changed in
@@ -98,6 +101,7 @@ root=$1
 step=list
 count=0
 for dir in "$root"/*; do
+  [ ! -L "$dir" ] || continue
   [ -d "$dir" ] || continue
   count=$((count + 1))
   if [ "$count" -gt 100 ]; then printf '@kuayle truncated\n'; break; fi
@@ -129,7 +133,9 @@ for dir in "$root"/*; do
       esac
     fi
     commit=$(g rev-parse --verify HEAD 2>/dev/null || true)
-    changed=$(g status --porcelain=v1 --untracked-files=normal 2>/dev/null || true)
+    # A list scan checks up to 100 worktrees under one deadline. Untracked files
+    # are the slow part, so only tracked modifications count here.
+    changed=$(g status --porcelain=v1 --untracked-files=no --ignore-submodules=all 2>/dev/null || true)
     case $changed in
       "") dirty=0 ;;
       *) dirty=1 ;;
@@ -152,7 +158,7 @@ func (r *DockerRuntime) ScanWorktree(ctx context.Context, _ *domain.DevMachine, 
 	if developerContainer == "" {
 		return nil, fmt.Errorf("developer container is unavailable")
 	}
-	if !strings.HasPrefix(job.Path, "/workspace") || strings.ContainsRune(job.Path, 0) {
+	if !validWorktreeScanPath(job.Request.Kind, job.Path) {
 		return nil, fmt.Errorf("invalid worktree path")
 	}
 	command, err := worktreeScanCommand(job)
@@ -163,9 +169,47 @@ func (r *DockerRuntime) ScanWorktree(ctx context.Context, _ *domain.DevMachine, 
 	defer cancel()
 	output, truncated, err := r.execWorktreeScan(scanCtx, developerContainer, append(append([]string{}, worktreeScanKill...), command...))
 	if err != nil {
-		return nil, err
+		// A list scan prints each worktree as it reads it; a scan stopped at
+		// its deadline still answers with the rows it reached.
+		if job.Request.Kind != domain.WorktreeScanList || !worktreeScanStopped(scanCtx, err) {
+			return nil, err
+		}
+		truncated = true
 	}
 	return parseWorktreeScan(job, output, truncated)
+}
+
+// validWorktreeScanPath keeps a scan inside the developer container's
+// workspace: a checkout below /workspace/, or the root a list scan reads.
+func validWorktreeScanPath(kind domain.WorktreeScanKind, path string) bool {
+	if path == "" || strings.ContainsRune(path, 0) {
+		return false
+	}
+	if kind == domain.WorktreeScanList {
+		return path == worktreeScanRoot
+	}
+	return path != "/workspace/" && strings.HasPrefix(path, "/workspace/")
+}
+
+// worktreeScanStopped reports a scan the container stopped at its deadline or
+// kill signal, whose printed output is still usable.
+func worktreeScanStopped(ctx context.Context, err error) bool {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return true
+	}
+	var exit *worktreeScanExitError
+	return errors.As(err, &exit) && (exit.code == 124 || exit.code == 137)
+}
+
+// worktreeScanExitError is a scan that exited non-zero; a list scan keeps the
+// rows such a scan printed before a timeout or kill.
+type worktreeScanExitError struct {
+	code    int
+	message string
+}
+
+func (e *worktreeScanExitError) Error() string {
+	return fmt.Sprintf("worktree scan failed with exit code %d: %s", e.code, e.message)
 }
 
 func worktreeScanCommand(job WorktreeScanJob) ([]string, error) {
@@ -212,15 +256,17 @@ func (r *DockerRuntime) execWorktreeScan(ctx context.Context, containerID string
 	}
 	stdout := newCappedBuffer(domain.WorktreeScanOutputMax)
 	stderr := newCappedBuffer(64 << 10)
-	if _, err := stdcopy.StdCopy(&stdout, &stderr, attached.Reader); err != nil && !errors.Is(err, io.EOF) {
-		return "", stdout.truncated, err
+	if _, err := stdcopy.StdCopy(&stdout, &stderr, attached.Reader); err != nil && !errors.Is(err, io.EOF) && ctx.Err() == nil {
+		return stdout.String(), stdout.truncated, err
 	}
 	inspection, err := r.client.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
 	if err != nil {
-		return "", stdout.truncated, err
+		return stdout.String(), stdout.truncated, err
 	}
 	if inspection.ExitCode != 0 {
-		return "", stdout.truncated, fmt.Errorf("worktree scan failed with exit code %d: %s", inspection.ExitCode, strings.TrimSpace(stderr.String()))
+		return stdout.String(), stdout.truncated, &worktreeScanExitError{
+			code: inspection.ExitCode, message: strings.TrimSpace(stderr.String()),
+		}
 	}
 	return stdout.String(), stdout.truncated, nil
 }

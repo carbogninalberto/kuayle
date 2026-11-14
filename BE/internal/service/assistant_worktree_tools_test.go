@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -29,6 +30,9 @@ type fakeWorktreeScanStore struct {
 func (f *fakeWorktreeScanStore) CreateWorktreeScan(_ context.Context, _, user uuid.UUID, target domain.WorktreeScanTarget, req domain.WorktreeScanRequest) (*domain.WorktreeScan, error) {
 	f.creates++
 	f.user, f.target, f.request = user, target, req
+	if err := repository.ValidateWorktreeScanRequest(req); err != nil {
+		return nil, err
+	}
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
@@ -153,6 +157,81 @@ func TestTaskSourceReadsTheLiveWorktree(t *testing.T) {
 	require.True(t, f.store.request.Fixed)
 	require.True(t, f.store.request.CaseInsensitive)
 	require.Equal(t, 5, f.store.request.Limit)
+}
+
+// worktreeSettings is the workspace's per-tool switches in a unit test.
+type worktreeSettings map[string]bool
+
+func (s worktreeSettings) Disabled(context.Context, uuid.UUID) (map[string]bool, error) {
+	return s, nil
+}
+
+func (s worktreeSettings) Set(context.Context, uuid.UUID, uuid.UUID, string, bool) error { return nil }
+
+func TestTaskReadDefaultsItsLineRange(t *testing.T) {
+	f := newWorktreeFixture(t)
+	f.store.createScan = completedWorktreeScan(t, domain.WorktreeScanResult{Content: "one", StartLine: 1, EndLine: 1})
+	_, err := f.run(t, "repo_read_file", `{"identifier":"ENG-1","source":"task","path":"BE/main.go"}`)
+	require.NoError(t, err)
+	require.Equal(t, 1, f.store.request.StartLine)
+	require.Equal(t, scanReadLines, f.store.request.EndLine, "an open read asks for one full batch")
+
+	f.store.createScan = completedWorktreeScan(t, domain.WorktreeScanResult{Content: "five", StartLine: 5, EndLine: 5})
+	_, err = f.run(t, "repo_read_file", `{"identifier":"ENG-1","source":"task","path":"BE/main.go","start_line":5}`)
+	require.NoError(t, err)
+	require.Equal(t, 5, f.store.request.StartLine)
+	require.Equal(t, 5+scanReadLines-1, f.store.request.EndLine)
+}
+
+func TestTaskReadRefusesAReversedRange(t *testing.T) {
+	f := newWorktreeFixture(t)
+	_, err := f.run(t, "repo_read_file", `{"identifier":"ENG-1","source":"task","path":"BE/main.go","start_line":10,"end_line":5}`)
+	require.Error(t, err)
+	require.Contains(t, toolErrorText(err), "end_line is before start_line")
+	require.Zero(t, f.store.creates)
+}
+
+func TestTaskSourceIsRefusedWhenTheWorktreeSwitchIsOff(t *testing.T) {
+	f := newWorktreeFixture(t)
+	f.tools.SetSettings(worktreeSettings{"get_task_worktree": true})
+	_, err := f.run(t, "repo_grep", `{"identifier":"ENG-1","source":"task","pattern":"x"}`)
+	require.Error(t, err)
+	require.Contains(t, toolErrorText(err), "get_task_worktree")
+	require.Contains(t, toolErrorText(err), "Settings → Assistant")
+	require.Zero(t, f.store.creates)
+}
+
+func TestTaskLimitsAreClampedLikeTheGitHubScans(t *testing.T) {
+	f := newWorktreeFixture(t)
+	f.store.createScan = completedWorktreeScan(t, domain.WorktreeScanResult{Files: []string{"BE/main.go"}})
+	_, err := f.run(t, "repo_glob", `{"identifier":"ENG-1","source":"task","pattern":"**/*.go","limit":600}`)
+	require.NoError(t, err)
+	require.Equal(t, domain.WorktreeScanMaxFiles, f.store.request.Limit)
+
+	_, err = f.run(t, "repo_grep", `{"identifier":"ENG-1","source":"task","pattern":"x","limit":600}`)
+	require.NoError(t, err)
+	require.Equal(t, domain.WorktreeScanMaxMatches, f.store.request.Limit)
+}
+
+func TestTrimWorktreeContentCutsAtALineBoundary(t *testing.T) {
+	line := strings.Repeat("a", 100)
+	content := strings.TrimSuffix(strings.Repeat(line+"\n", 200), "\n")
+	cut, start, end, truncated := trimWorktreeContent(content, 10, 209, false)
+	require.True(t, truncated)
+	require.Equal(t, 10, start)
+	require.Equal(t, 10+strings.Count(cut, "\n"), end, "end_line is the last complete line")
+	for _, kept := range strings.Split(cut, "\n") {
+		require.Len(t, kept, 100, "no partial line is reported")
+	}
+}
+
+func TestTrimWorktreeContentMarksOneHugeLineAsCut(t *testing.T) {
+	cut, start, end, truncated := trimWorktreeContent(strings.Repeat("é", scanReadBytes), 7, 7, false)
+	require.True(t, truncated)
+	require.Equal(t, 7, start)
+	require.Equal(t, 7, end, "a cut line is not reported as a complete one")
+	require.True(t, strings.HasSuffix(cut, " …"))
+	require.True(t, utf8.ValidString(cut))
 }
 
 func TestTaskSourceBuildsEachScanRequest(t *testing.T) {

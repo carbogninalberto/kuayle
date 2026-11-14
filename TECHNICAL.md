@@ -629,10 +629,18 @@ inspect a task's checkout while its agent works: grep, glob, read, git status
 and a list of `/workspace/tasks` run in the developer container. Every git
 command goes through the publication preamble's throwaway git directory, so no
 configuration, hook, fsmonitor or attribute program from the agent-writable
-checkout runs. A scan row and its operation share an ID; the result, or a short
-error, is stored on `dev_machine_worktree_scans`, and a workspace's scans older
-than an hour are removed. rg respects the checkout's ignore files, read paths
-cannot leave the checkout, and output, line, file and match counts are bounded.
+checkout runs; `git status` also passes `--ignore-submodules=all`, so a nested
+repository never runs its own configuration. A scan row and its operation share
+an ID; the result, or a short error, is stored on
+`dev_machine_worktree_scans`, and a workspace's scans older than an hour are
+removed. One requester may keep four unfinished scans per machine; more are
+refused as busy. A list scan prints each worktree as it reads it, skips
+symlinked entries, returns partial rows with `truncated: true` when its 10 s
+deadline stops it, and checks only tracked modifications per worktree. rg
+respects the checkout's ignore files, read paths cannot leave the checkout, and
+output, line, file and match counts are bounded. A status or read result's
+`branch` and `commit` name the task's branch ref: an agent that switched
+branches leaves its own working tree, which is what the scan reads.
 
 Every task attempt runs inside a tracked [agent session](BE/docs/agent-tasks.md#agent-sessions)
 (migration 84, `agent_sessions`): an implementing task keeps one session across
