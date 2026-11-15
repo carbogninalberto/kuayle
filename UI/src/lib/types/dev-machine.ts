@@ -200,6 +200,35 @@ export interface ResourceSample {
 	created_at: string;
 }
 
+/**
+ * The apt package index of the running developer container: absent is
+ * expected (the images delete it to stay small), unknown when the machine is
+ * not running or the probe failed. Never a failure of the machine.
+ */
+export type PackageIndexState = 'absent' | 'present' | 'unknown';
+
+export type PackageIndexRefreshState = 'queued' | 'running' | 'succeeded' | 'failed';
+
+export interface PackageIndexRefresh {
+	state: PackageIndexRefreshState;
+	exit_code: number | null;
+	/** The last lines of "sudo apt-get update". */
+	output: string | null;
+	started_at: string | null;
+	finished_at: string | null;
+}
+
+/** What the machine manager last found in the running developer container. */
+export interface EnvironmentStatus {
+	package_index: {
+		state: PackageIndexState;
+		index_mtime: string | null;
+		sudo_available: boolean;
+		checked_at: string | null;
+		refresh: PackageIndexRefresh | null;
+	};
+}
+
 interface CreateDevMachineBaseInput {
 	name?: string;
 	issue_id?: string;

@@ -304,10 +304,14 @@ func (m *Manager) scanPorts(ctx context.Context) error {
 // syncMachinePorts scans the developer container, the Docker daemon and the
 // task preview containers, applies the agent requests it found, records the
 // listening ports and publishes the result to agents.
-// It also collects the agents' outbox messages.
+// It also collects the agents' outbox messages and refreshes the cached
+// environment status, whose failures never fail the scan.
 func (m *Manager) syncMachinePorts(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) error {
 	_, err := m.syncPorts(ctx, machine, services)
 	m.collectOutbox(ctx, machine, services)
+	if envErr := m.syncEnvironmentStatus(ctx, machine, services); envErr != nil && ctx.Err() == nil {
+		log.WithFields(log.Fields{"machine_id": machine.ID, "event_type": "machine.environment_check"}).WithError(envErr).Debug("environment status skipped")
+	}
 	return err
 }
 

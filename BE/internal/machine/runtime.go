@@ -139,6 +139,11 @@ type Runtime interface {
 	// WritePortState publishes the result to them.
 	ScanPorts(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) (PortScan, error)
 	WritePortState(ctx context.Context, services []domain.DevMachineService, state []byte) error
+	// ProbePackageIndex reads whether the running developer container has
+	// apt package lists; RefreshPackageIndex runs "sudo apt-get update" in it
+	// and returns the exit code and output (a non-zero exit is no error).
+	ProbePackageIndex(ctx context.Context, services []domain.DevMachineService) (PackageIndexProbe, error)
+	RefreshPackageIndex(ctx context.Context, services []domain.DevMachineService) (int, string, error)
 	ReadSignIn(ctx context.Context, services []domain.DevMachineService, provider string) (string, error)
 	TakeSignInReturn(ctx context.Context, services []domain.DevMachineService, runID uuid.UUID) (string, error)
 	// SyncAgentSignIns replaces the owner's sign-in files in the developer

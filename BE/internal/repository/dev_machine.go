@@ -21,6 +21,10 @@ type DevMachineStore interface {
 	CreatePort(context.Context, *domain.DevMachinePort) error
 	UpdatePortLabel(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, *string) (*domain.DevMachinePort, error)
 	DeletePort(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachinePort, error)
+	// GetEnvironmentCheck and RequestPackageIndexRefresh read and queue the
+	// cached environment check of a machine's developer container.
+	GetEnvironmentCheck(context.Context, uuid.UUID) (*domain.DevMachineEnvironmentCheck, error)
+	RequestPackageIndexRefresh(context.Context, uuid.UUID, uuid.UUID, string, uuid.UUID) (bool, error)
 	CreateBundle(context.Context, *domain.DevMachine, []domain.DevMachineAgentProvider, []domain.DevMachineService, []domain.DevMachineVolume, []domain.DevMachineEnvVar, []domain.DevMachineToken, *domain.DevMachineOperation) error
 	GetMachine(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachine, error)
 	GetMachineForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachine, error)

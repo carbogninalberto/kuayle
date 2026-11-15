@@ -640,6 +640,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/services", h.devMachine.Services, "dev_machine:read")
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/providers", h.devMachine.MachineProviders, "dev_machine:read")
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/resource-usage", h.devMachine.ResourceUsage, "dev_machine:read")
+	scoped(dm, http.MethodGet, "/dev-machines/:machineId/environment-status", h.devMachine.EnvironmentStatus, "dev_machine:read")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/environment-status/package-index/refresh", h.devMachine.RefreshPackageIndex, "dev_machine:manage")
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/services/:service/launch", h.devMachine.LaunchService, "dev_machine:read", mw.RequireTokenPermission("dev_machine:manage"))
 	sessionOnly(dm, http.MethodGet, "/dev-machines/:machineId/ports", h.devMachine.ListPorts)
 	sessionOnly(dm, http.MethodPost, "/dev-machines/:machineId/ports", h.devMachine.CreatePort)
