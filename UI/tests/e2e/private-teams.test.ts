@@ -154,13 +154,21 @@ async function mockWorkspace(page: Page) {
 			});
 		if (path === '/api/workspaces/test/issues/OLD-1') return route.fulfill({ json: { ...issues[0], identifier: 'PLT-1' } });
 		if (path === '/api/workspaces/test/issues/PLT-1') return route.fulfill({ json: { ...issues[0], identifier: 'PLT-1' } });
-		if (path.match(/^\/api\/workspaces\/test\/issues\/(OLD|PLT)-1\/(github|comments|history|relations|sub-issues|wiki-references)$/))
-			return route.fulfill({ json: path.endsWith('/github') ? { pull_requests: [], branches: [], commits: [] } : [] });
+		if (path.match(/^\/api\/workspaces\/test\/issues\/(OLD|PLT)-1\/(github|forges|comments|history|relations|sub-issues|wiki-references)$/))
+			return route.fulfill({
+				json: path.endsWith('/github')
+					? { pull_requests: [], branches: [], commits: [] }
+					: path.endsWith('/forges')
+						? { merge_requests: [], branches: [], commits: [] }
+						: []
+			});
 		const detailMatch = path.match(/^\/api\/workspaces\/test\/issues\/(ENG-[123])$/);
 		if (detailMatch && revoked) return route.fulfill({status: 404, json: {error: {message: 'Not found'}}});
 		if (detailMatch) return route.fulfill({ json: issues.find((issue) => issue.identifier === detailMatch[1]) });
 		if (path.match(/^\/api\/workspaces\/test\/issues\/ENG-[123]\/github$/))
 			return route.fulfill({ json: { pull_requests: [], branches: [], commits: [] } });
+		if (path.match(/^\/api\/workspaces\/test\/issues\/ENG-[123]\/forges$/))
+			return route.fulfill({ json: { merge_requests: [], branches: [], commits: [] } });
 		if (
 			[
 				'/api/workspaces/test/projects',

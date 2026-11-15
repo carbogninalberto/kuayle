@@ -84,6 +84,8 @@ async function openIssue(
 		}
 		if (/\/issues\/ENG-[12]\/github$/.test(path))
 			return route.fulfill({ json: { pull_requests: [], branches: [], commits: [] } });
+		if (/\/issues\/ENG-[12]\/forges$/.test(path))
+			return route.fulfill({ json: { merge_requests: [], branches: [], commits: [] } });
 		if (path.endsWith('/issue-copy-prompt')) return route.fulfill({ json: { prompt: '' } });
 		if (/\/(projects|labels|members|views|statuses|cycles|comments|history|relations|wiki-references|dev-machines)$/.test(path))
 			return route.fulfill({ json: [] });

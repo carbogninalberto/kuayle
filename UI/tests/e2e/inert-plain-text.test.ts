@@ -117,6 +117,8 @@ async function mockWorkspace(page: Page) {
 		if (path === '/api/workspaces/test/issues/ENG-2') return route.fulfill({ json: child });
 		if (path === '/api/workspaces/test/issues/ENG-2/github')
 			return route.fulfill({ json: { pull_requests: [], branches: [], commits: [] } });
+		if (path === '/api/workspaces/test/issues/ENG-2/forges')
+			return route.fulfill({ json: { merge_requests: [], branches: [], commits: [] } });
 		if (path === '/api/workspaces/test/dev-machines')
 			return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
 		if (path.match(/^\/api\/workspaces\/test\/teams\/[^/]+\/statuses$/)) return route.fulfill({ json: [status] });

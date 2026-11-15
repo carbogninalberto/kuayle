@@ -131,15 +131,26 @@
 	// Remounting for a conversation switch restarts this component, so seed the
 	// sidebar's Recents from the cache while the fresh list loads.
 	const initialHistoryKey = untrack(() => recentsKey(authState.user?.id, slug, projectFilter));
-	let history = $state<Conversation[]>(untrack(() => readRecents(initialHistoryKey)) ?? []);
-	let historyLoaded = $state(untrack(() => readRecents(initialHistoryKey) !== undefined));
+	const seededHistory = untrack(() => readRecents(initialHistoryKey));
+	let history = $state<Conversation[]>(seededHistory ?? []);
+	let historyLoaded = $state(seededHistory !== undefined);
+	// A list taken from the cache is not written back: that would only reorder
+	// the cache's eviction without changing its content.
+	let historyFromCache = seededHistory !== undefined;
 	let historyFailed = $state(false);
 	$effect(() => {
 		const key = recentsKey(authState.user?.id, slug, projectFilter);
 		// Never let the empty initial list overwrite a good cache before a real
 		// list has loaded.
 		if (!key || !historyLoaded) return;
-		writeRecents(key, $state.snapshot(history));
+		// Read the list before skipping, so the effect keeps tracking it and
+		// writes the fresh list when it arrives.
+		const snapshot = $state.snapshot(history);
+		if (historyFromCache) {
+			historyFromCache = false;
+			return;
+		}
+		writeRecents(key, snapshot);
 	});
 	const projectOptions = $derived([
 		{ value: 'all', label: m['assistant.all_projects']() },
@@ -169,8 +180,9 @@
 		if (cached) {
 			history = cached;
 			historyLoaded = true;
+			historyFromCache = true;
 		} else {
-			// Keep the current rows visible until the filtered list arrives.
+			// Keep the current rows visible, flagged as loading, until the filtered list arrives.
 			historyLoaded = false;
 		}
 		void loadHistory(next).catch((error) => {

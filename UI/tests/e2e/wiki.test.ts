@@ -162,6 +162,8 @@ async function mockWorkspace(
 			});
 		if (path === '/api/workspaces/test/issues/ENG-1/github')
 			return route.fulfill({ json: { pull_requests: [], branches: [], commits: [] } });
+		if (path === '/api/workspaces/test/issues/ENG-1/forges')
+			return route.fulfill({ json: { merge_requests: [], branches: [], commits: [] } });
 		if (/^\/api\/workspaces\/test\/issues\/ENG-1\/(comments|history|relations|sub-issues)$/.test(path))
 			return route.fulfill({ json: [] });
 

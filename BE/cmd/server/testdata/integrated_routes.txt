@@ -8,6 +8,8 @@ DELETE /api/workspaces/:slug/favorites/:id
 DELETE /api/workspaces/:slug/github/app
 DELETE /api/workspaces/:slug/github/disconnect
 DELETE /api/workspaces/:slug/github/repos/:id
+DELETE /api/workspaces/:slug/forges/connections/:id
+DELETE /api/workspaces/:slug/forges/connections/:id/repos/:repoId
 DELETE /api/workspaces/:slug/invite-links/:id
 DELETE /api/workspaces/:slug/issue-templates/:id
 DELETE /api/workspaces/:slug/issues/:identifier
@@ -69,6 +71,8 @@ GET /api/workspaces/:slug/github/repos
 GET /api/workspaces/:slug/github/setup
 GET /api/workspaces/:slug/github/setup/callback
 GET /api/workspaces/:slug/github/status
+GET /api/workspaces/:slug/forges/connections
+GET /api/workspaces/:slug/forges/connections/:id/repos
 GET /api/workspaces/:slug/invite-links
 GET /api/workspaces/:slug/issue-templates
 GET /api/workspaces/:slug/issue-templates/:id
@@ -76,6 +80,7 @@ GET /api/workspaces/:slug/issues
 GET /api/workspaces/:slug/issues/:identifier
 GET /api/workspaces/:slug/issues/:identifier/comments
 GET /api/workspaces/:slug/issues/:identifier/github
+GET /api/workspaces/:slug/issues/:identifier/forges
 GET /api/workspaces/:slug/issues/:identifier/history
 GET /api/workspaces/:slug/issues/:identifier/relations
 GET /api/workspaces/:slug/issues/:identifier/sub-issues
@@ -107,6 +112,7 @@ PATCH /api/workspaces/:slug/ai-settings
 PATCH /api/workspaces/:slug/dev-machine-policy
 PATCH /api/workspaces/:slug/dev-machines/:machineId
 PATCH /api/workspaces/:slug/github/auto-transitions
+PATCH /api/workspaces/:slug/forges/connections/:id
 PATCH /api/workspaces/:slug/issue-templates/:id
 PATCH /api/workspaces/:slug/issues/:identifier
 PATCH /api/workspaces/:slug/issues/bulk
@@ -120,6 +126,7 @@ PATCH /api/workspaces/:slug/teams/:teamId/statuses/:statusId
 PATCH /api/workspaces/:slug/views/:id
 PATCH /api/workspaces/:slug/webhooks/:id
 POST /api/auth/login
+POST /api/forges/webhook/:connectionId
 POST /api/auth/logout
 POST /api/auth/passkey/login/begin
 POST /api/auth/passkey/login/complete
@@ -155,6 +162,8 @@ POST /api/workspaces/:slug/dev-machines/:machineId/terminal-sessions/:sessionId/
 POST /api/workspaces/:slug/dev-machines/bulk/permanent-delete
 POST /api/workspaces/:slug/favorites
 POST /api/workspaces/:slug/github/repos
+POST /api/workspaces/:slug/forges/connections
+POST /api/workspaces/:slug/forges/connections/:id/repos
 POST /api/workspaces/:slug/invite
 POST /api/workspaces/:slug/invite-links
 POST /api/workspaces/:slug/issue-templates

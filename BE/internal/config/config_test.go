@@ -329,6 +329,29 @@ func TestLoadValidatesTheSearXNGURL(t *testing.T) {
 	}
 }
 
+func TestLoadValidatesForgeWebhookBaseURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://db/kuayle?sslmode=disable")
+	t.Setenv("REDIS_URL", "redis://redis:6379")
+	t.Setenv("JWT_SECRET", "01234567890123456789012345678901")
+	t.Setenv("DEV_MACHINES_ENABLED", "false")
+	t.Setenv("FORGE_WEBHOOK_BASE_URL", "")
+	cfg, err := Load()
+	if err != nil || cfg.ForgeWebhookBaseURL != "" {
+		t.Fatalf("unset forge webhook base URL: %v %v", cfg, err)
+	}
+	t.Setenv("FORGE_WEBHOOK_BASE_URL", " https://API.Example.com/kuayle/ ")
+	cfg, err = Load()
+	if err != nil || cfg.ForgeWebhookBaseURL != "https://api.example.com/kuayle" {
+		t.Fatalf("configured forge webhook base URL: %v %v", cfg, err)
+	}
+	for _, bad := range []string{"api.example.com", "ftp://api.example.com", "https://user:pw@api.example.com", "https://api.example.com?x=1"} {
+		t.Setenv("FORGE_WEBHOOK_BASE_URL", bad)
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "FORGE_WEBHOOK_BASE_URL") {
+			t.Fatalf("%s: want a FORGE_WEBHOOK_BASE_URL error, got %v", bad, err)
+		}
+	}
+}
+
 // exampleEnvValues reads KEY=value pairs from an example env file, including
 // commented-out examples, so the tests follow the placeholders actually shipped.
 func exampleEnvValues(t *testing.T, relativePath string) map[string]string {

@@ -128,6 +128,8 @@ async function mockWorkspace(page: Page, history: unknown[] = []) {
 		if (detailMatch) return route.fulfill({ json: issues.find((issue) => issue.identifier === detailMatch[1]) });
 		if (path.match(/^\/api\/workspaces\/test\/issues\/ENG-[123]\/github$/))
 			return route.fulfill({ json: { pull_requests: [], branches: [], commits: [] } });
+		if (path.match(/^\/api\/workspaces\/test\/issues\/ENG-[123]\/forges$/))
+			return route.fulfill({ json: { merge_requests: [], branches: [], commits: [] } });
 		if (
 			[
 				'/api/workspaces/test/projects',

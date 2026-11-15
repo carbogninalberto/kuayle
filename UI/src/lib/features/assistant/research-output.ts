@@ -47,6 +47,9 @@ export function webSearchOutput(output: unknown): WebSearchOutput | undefined {
 export interface RepoScanOutput {
 	repository: string;
 	commit: string;
+	/** task: the live worktree of a coding task, not the pushed code. */
+	source: 'github' | 'task';
+	branch: string;
 	/** The path or pattern the tool used, so the step is auditable. */
 	query: string;
 	lines: string[];
@@ -70,16 +73,38 @@ export function repoScanOutput(name: string, input: unknown, output: unknown): R
 	if (!data) return undefined;
 	const args = record(input) ?? {};
 	const commit = str(data.commit).slice(0, 12);
-	const scan: RepoScanOutput = { repository: str(data.repository), commit, query: '', lines: [], summary: '' };
+	const source = data.source === 'task' ? 'task' : 'github';
+	const scan: RepoScanOutput = {
+		repository: str(data.repository),
+		commit,
+		source,
+		branch: str(data.branch),
+		query: '',
+		lines: [],
+		summary: ''
+	};
+	// GitHub listings are records; a live worktree returns plain paths.
+	const files = () =>
+		list(data.files)
+			.map((file) => {
+				if (typeof file === 'string') return source === 'task' ? file : '';
+				return fileLine(file);
+			})
+			.filter(Boolean);
+	const path = () => {
+		// A task read names its file in `file`; the GitHub path uses `path`.
+		if (source === 'task') return str(data.file) || str(args.path);
+		return str(data.path) || str(args.path);
+	};
 	switch (name) {
 		case 'repo_list_files':
-			scan.query = str(data.path) || str(args.path);
-			scan.lines = list(data.files).map(fileLine).filter(Boolean);
+			scan.query = path();
+			scan.lines = files();
 			scan.summary = `${num(data.matched) || scan.lines.length} / ${num(data.total_files)}`;
 			break;
 		case 'repo_glob':
 			scan.query = str(data.pattern) || str(args.pattern);
-			scan.lines = list(data.files).map(fileLine).filter(Boolean);
+			scan.lines = files();
 			scan.summary = `${num(data.matched) || scan.lines.length}`;
 			break;
 		case 'repo_grep':
@@ -88,15 +113,18 @@ export function repoScanOutput(name: string, input: unknown, output: unknown): R
 				.map(record)
 				.filter((item) => item !== undefined)
 				.map((item) => `${str(item.path)}:${num(item.line)}  ${str(item.text)}`);
-			scan.summary = `${num(data.files_matched)} / ${num(data.files_searched)}${data.timed_out === true ? ' · timed out' : ''}`;
+			scan.summary =
+				source === 'task'
+					? `${list(data.matches).length}${data.truncated === true ? ' · truncated' : ''}`
+					: `${num(data.files_matched)} / ${num(data.files_searched)}${data.timed_out === true ? ' · timed out' : ''}`;
 			break;
 		case 'repo_read_file':
-			scan.query = `${str(data.path) || str(args.path)}:${num(data.start_line)}-${num(data.end_line)}`;
+			scan.query = `${path()}:${num(data.start_line)}-${num(data.end_line)}`;
 			scan.lines = str(data.content).split('\n');
 			scan.summary = `${num(data.end_line) - num(data.start_line) + 1} / ${num(data.total_lines)}${data.truncated === true ? ' · truncated' : ''}`;
 			break;
 		case 'repo_symbols':
-			scan.query = str(data.path) || str(args.path);
+			scan.query = path();
 			scan.lines = list(data.symbols)
 				.map(record)
 				.filter((item) => item !== undefined)
@@ -107,6 +135,40 @@ export function repoScanOutput(name: string, input: unknown, output: unknown): R
 	}
 	scan.lines = scan.lines.slice(0, maxLines);
 	return scan;
+}
+
+export interface TaskWorktreeOutput {
+	branch: string;
+	commit: string;
+	dirty: boolean;
+	changed: number;
+}
+
+/** get_task_worktree: the task branch and how far its worktree differs. */
+export function taskWorktreeOutput(output: unknown): TaskWorktreeOutput | undefined {
+	const data = record(output);
+	if (!data) return undefined;
+	// A machine listing names each worktree, not one task; and a record with
+	// none of these fields is not a status, so it must not render as empty.
+	if (Array.isArray(data.worktrees)) return undefined;
+	if (!('branch' in data) && !('commit' in data) && !('dirty' in data)) return undefined;
+	return {
+		branch: str(data.branch),
+		commit: str(data.commit),
+		dirty: data.dirty === true,
+		changed: list(data.changed).length
+	};
+}
+
+export interface MachineWorktreesOutput {
+	count: number;
+}
+
+/** list_machine_worktrees: how many task worktrees the machine reported. */
+export function machineWorktreesOutput(output: unknown): MachineWorktreesOutput | undefined {
+	const data = record(output);
+	if (!data || !Array.isArray(data.worktrees)) return undefined;
+	return { count: data.worktrees.length };
 }
 
 export interface SubagentRow {

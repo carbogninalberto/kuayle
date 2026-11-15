@@ -492,6 +492,8 @@ type runtimeFake struct {
 	Runtime
 	syncErr            error
 	syncs              int
+	syncPublished      string
+	lease              string
 	beforeAgentStarted func()
 	host               HostResources
 	artifacts          []domain.ValidationArtifact
@@ -2048,7 +2050,8 @@ func TestManagerRedactsCredentialsWithoutCorruptingModelConfigurationOrNumbers(t
 	}
 }
 
-func (f *runtimeFake) SyncCheckout(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, string) error {
+func (f *runtimeFake) SyncCheckout(_ context.Context, _ *domain.DevMachine, _ []domain.DevMachineService, _ *domain.DevMachineCheckout, _, published string) (string, error) {
 	f.syncs++
-	return f.syncErr
+	f.syncPublished = published
+	return f.lease, f.syncErr
 }

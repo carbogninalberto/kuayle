@@ -14,6 +14,8 @@
 		Link2,
 		Maximize,
 		MousePointerClick,
+		PanelRightClose,
+		PanelRightOpen,
 		Pencil,
 		Plus,
 		Redo2,
@@ -48,6 +50,7 @@
 		type WorkflowSummary
 	} from '$lib/api/workflows';
 	import { appToast } from '$lib/features/toast/toast';
+	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
 	import { m } from '$lib/features/i18n/messages';
 	import WorkflowCanvas, { type Selection } from './WorkflowCanvas.svelte';
 	import { conditionLabel, issueLabel, nodeTypeLabel, profileTitle, warningLabels } from './labels';
@@ -83,7 +86,8 @@
 	// reachable lists (Outline), and the description and budget (Settings).
 	// The server validates as you edit and on save; each save is a new
 	// immutable version. A warning (a planning profile on a step told to
-	// implement) is shown on its step and never holds a save back.
+	// implement) is shown on its step and never holds a save back. The side
+	// panel can be hidden (a per-user preference) to give the canvas the width.
 	let {
 		slug,
 		workflow,
@@ -131,6 +135,8 @@
 		future = $state<WorkflowGraph[]>([]),
 		lastChange = 0;
 
+	const panelOpen = $derived(preferencesState.workflowEditorPanelOpen);
+
 	const activeProfiles = $derived(profiles.filter((p) => !p.archived_at));
 	const selectedNode = $derived(
 		selection?.kind === 'node' ? graph.nodes.find((n) => n.id === selection?.id) : undefined
@@ -145,6 +151,43 @@
 		selection = next;
 		if (next) tab = 'inspect';
 	}
+
+	// An explicit "inspect this" action (Problems entry, context-menu Edit)
+	// shows the panel; plain canvas clicks respect the collapsed choice.
+	function inspect(next: Selection) {
+		select(next);
+		if (next && !panelOpen) preferencesState.setWorkflowEditorPanelOpen(true);
+	}
+
+	// Any change of panelOpen after the first render (the toggle, an inspect
+	// action reopening the panel, or a remote preference sync such as the
+	// server value differing from the locally cached one) refits once the
+	// canvas has actually resized, so no node is left off-screen. The refit
+	// only moves the viewport: it never arranges nodes, adds an undo step or
+	// marks the workflow unsaved.
+	let canvasArea = $state<HTMLDivElement>();
+	let refitPending = false;
+	let panelSizeSettled = false;
+	$effect(() => {
+		void panelOpen;
+		if (!panelSizeSettled) {
+			panelSizeSettled = true;
+			return;
+		}
+		refitPending = true;
+	});
+	$effect(() => {
+		const node = canvasArea;
+		if (!node) return;
+		const observer = new ResizeObserver(() => {
+			if (!refitPending) return;
+			refitPending = false;
+			// Let xyflow's own observer store the new size before fitView reads it.
+			requestAnimationFrame(() => flow?.fit());
+		});
+		observer.observe(node);
+		return () => observer.disconnect();
+	});
 
 	// Leaving with unsaved changes asks first, in a dialog. Closing the tab
 	// can only use the browser's own prompt.
@@ -419,7 +462,7 @@
 										class="h-auto w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left whitespace-normal hover:bg-muted"
 										disabled={!issue.edge_id && !issue.node_id}
 										onclick={() =>
-											select(
+											inspect(
 												issue.edge_id
 													? { kind: 'edge', id: issue.edge_id }
 													: issue.node_id
@@ -454,10 +497,43 @@
 					data-testid="workflow-save">{m['workflows.editor.save']()}</Button
 				>{/if}
 		</div>
+		<Tooltip.Provider delayDuration={300}>
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}<Button
+							{...props}
+							variant="ghost"
+							size="icon-sm"
+							aria-label={panelOpen
+								? m['workflows.editor.hide_panel']()
+								: m['workflows.editor.show_panel']()}
+							aria-expanded={panelOpen}
+							aria-controls={panelOpen ? 'workflow-inspector-panel' : undefined}
+							data-testid="workflow-panel-toggle"
+							onclick={() => preferencesState.setWorkflowEditorPanelOpen(!panelOpen)}
+							>{#if panelOpen}<PanelRightClose />{:else}<PanelRightOpen />{/if}</Button
+						>{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content side="bottom"
+					>{panelOpen ? m['workflows.editor.hide_panel']() : m['workflows.editor.show_panel']()}</Tooltip.Content
+				>
+			</Tooltip.Root>
+		</Tooltip.Provider>
 	</header>
 
-	<div class="grid min-h-0 flex-1 grid-rows-[minmax(22rem,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_22rem] lg:grid-rows-1">
-		<div class="relative min-h-0 bg-muted/30">
+	<div
+		class={cn(
+			'grid min-h-0 flex-1',
+			panelOpen
+				? 'grid-rows-[minmax(22rem,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_22rem] lg:grid-rows-1'
+				: 'grid-rows-1 grid-cols-1'
+		)}
+	>
+		<div
+			class="relative min-h-0 bg-muted/30"
+			data-testid="workflow-canvas-area"
+			bind:this={canvasArea}
+		>
 			{#snippet canvas()}
 				<WorkflowCanvas
 					{graph}
@@ -492,7 +568,7 @@
 						{#if menuNode}
 							{@const node = menuNode}
 							<ContextMenu.Label class="truncate text-xs text-muted-foreground">{node.label}</ContextMenu.Label>
-							<ContextMenu.Item onclick={() => act(() => select({ kind: 'node', id: node.id }))}
+							<ContextMenu.Item onclick={() => act(() => inspect({ kind: 'node', id: node.id }))}
 								><Pencil />{m['workflows.editor.edit']()}</ContextMenu.Item
 							>
 							{#if node.type !== 'end'}
@@ -669,7 +745,10 @@
 			{/if}
 		</div>
 
+		{#if panelOpen}
 		<aside
+			id="workflow-inspector-panel"
+			data-testid="workflow-inspector-panel"
 			class="flex min-h-0 flex-col border-t bg-background lg:border-t-0 lg:border-l"
 			aria-label={m['workflows.editor.inspector']()}
 		>
@@ -1050,6 +1129,7 @@
 				</Tabs.Content>
 			</Tabs.Root>
 		</aside>
+		{/if}
 	</div>
 </div>
 

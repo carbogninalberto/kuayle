@@ -2,6 +2,10 @@
 
 Connects GitHub repositories to Kuayle workspaces, automatically linking pull requests, branches, and commits to issues and transitioning issue status based on GitHub activity.
 
+GitLab, Gitea and Forgejo use the same linking and automation rules through a
+workspace connection instead of a GitHub App; see
+[Forge integrations](forge-integrations.md).
+
 ## How It Works
 
 - **Issue linking**: Branch names, PR titles/bodies, and commit messages are scanned for issue identifiers matching the pattern `[A-Z][A-Z0-9]+-\d+` (e.g., `PROJ-42`, `ENG-123`). The match is case-insensitive — `kua-1`, `KUA-1`, and `Kua-1` all work. When a match is found, the GitHub activity is linked to the corresponding issue.

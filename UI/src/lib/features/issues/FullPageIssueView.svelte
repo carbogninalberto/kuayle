@@ -49,6 +49,7 @@
 	import { hasPermission } from '$lib/security/permissions';
 	import type { Role } from '$lib/security/roles';
 	import IssueGitHubActivity from './IssueGitHubActivity.svelte';
+	import IssueForgeActivity from './IssueForgeActivity.svelte';
 	import { goto } from '$app/navigation';
 	import { sanitizeHtml } from '$lib/security/sanitize';
 	import { mentionInteractivity } from '$lib/components/shared/mention/mention-interactivity.action';
@@ -1089,6 +1090,11 @@
 				<!-- GitHub Activity -->
 				<div class="mt-2">
 					<IssueGitHubActivity {slug} identifier={issue.identifier} />
+				</div>
+
+				<!-- Forge Activity -->
+				<div class="mt-2">
+					<IssueForgeActivity {slug} identifier={issue.identifier} />
 				</div>
 
 			<div class="mt-5"><IssueVersionHistory {slug} identifier={issue.identifier} {members} /></div>

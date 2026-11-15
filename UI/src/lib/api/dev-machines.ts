@@ -62,7 +62,15 @@ export function getDevMachine(slug: string, machineId: string): Promise<DevMachi
 export function updateDevMachine(
 	slug: string,
 	machineId: string,
-	input: { cpu_millis?: number; memory_mb?: number; disk_gb?: number }
+	input: {
+		cpu_millis?: number;
+		memory_mb?: number;
+		disk_gb?: number;
+		/** Overrides how many active agent tasks share this machine. */
+		max_tasks?: number;
+		/** Restores the workspace policy's task limit. */
+		clear_max_tasks?: boolean;
+	}
 ): Promise<DevMachine> {
 	return api.patch(`${base(slug)}/dev-machines/${machineId}`, input);
 }

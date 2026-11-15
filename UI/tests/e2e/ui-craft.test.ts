@@ -127,6 +127,8 @@ async function mockWorkspace(page: Page, theme: 'light' | 'dark' = 'dark') {
 			return route.fulfill({ json: issues.find((issue) => path.endsWith(`/${issue.identifier}`)) });
 		if (/^\/api\/workspaces\/test\/issues\/ENG-\d+\/github$/.test(path))
 			return route.fulfill({ json: { pull_requests: [], branches: [], commits: [] } });
+		if (/^\/api\/workspaces\/test\/issues\/ENG-\d+\/forges$/.test(path))
+			return route.fulfill({ json: { merge_requests: [], branches: [], commits: [] } });
 		return route.fulfill({ json: [] });
 	});
 }

@@ -1812,7 +1812,12 @@ func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType
 		// Docker defaults tmpfs to noexec; Codex runs its managed app-server from ~/.codex.
 		homeOptions = "rw,exec,nosuid,uid=1000,gid=1000,size=512m"
 	}
+	// Docker's bundled init (tini) is PID 1 so it reaps orphaned children. An
+	// agent CLI run as PID 1 does not, and the zombies it leaves count against
+	// PidsLimit until the run crashes at the limit.
+	initProcess := true
 	hostConfig := &container.HostConfig{
+		Init:        &initProcess,
 		NetworkMode: container.NetworkMode(networkName), ReadonlyRootfs: true, Privileged: false,
 		CapDrop: []string{"ALL"}, SecurityOpt: securityOptions,
 		LogConfig: boundedLogConfig(),
@@ -2277,6 +2282,7 @@ func (r *DockerRuntime) containerLogs(ctx context.Context, containerID string) (
 type cappedBuffer struct {
 	bytes.Buffer
 	remaining int
+	truncated bool
 }
 
 func newCappedBuffer(limit int) cappedBuffer {
@@ -2287,6 +2293,7 @@ func (b *cappedBuffer) Write(value []byte) (int, error) {
 	originalLength := len(value)
 	if len(value) > b.remaining {
 		value = value[:b.remaining]
+		b.truncated = true
 	}
 	if len(value) > 0 {
 		_, _ = b.Buffer.Write(value)
