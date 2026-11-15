@@ -1046,7 +1046,7 @@
 			/>
 			<Bubble.Root variant="ghost">
 				<Bubble.Content data-selectable="text" class="pe-8! min-h-6">
-					<Markdown source={message.content} />
+					<Markdown source={message.content} richBlocks={message.status !== 'streaming'} />
 				</Bubble.Content>
 				{#if message.content}<CopyMessageButton
 						class="top-0 end-0"
