@@ -442,6 +442,19 @@ Docker's bundled init (`HostConfig.Init`, tini) as PID 1: the agent CLIs do not 
 as a `git` child of a tool run, and those zombies count against the container's
 PID limit until the run crashes at it.
 
+An autonomous attempt's home and `/tmp` are small tmpfs mounts (512 MiB and
+256 MiB), so its temporary files, caches, and XDG data and state
+(`XDG_DATA_HOME`, `XDG_STATE_HOME`) go to the attempt's run directory
+`/workspace/.kuayle/tmp/agent-<run>` on the workspace volume
+(`BE/internal/machine/run_tmp.go`), recreated when the container starts and
+removed by the manager once the attempt ends. OpenCode keeps its SQLite
+database, session snapshots and logs there (`opencode/` under each); on the
+home tmpfs they filled it and runs failed with `database or disk is full`
+(KUA-187). OpenCode does not resume a session across attempts, so a
+per-attempt directory loses nothing. Claude Code and Codex keep their state
+in `~/.claude` and `~/.codex`, whose transcripts are linked to the task's
+session directory (below). Interactive attempts keep the tmpfs defaults.
+
 ## Native session resume and handoff
 
 Codex and Claude Code task attempts keep their native session **transcripts** in
@@ -865,7 +878,10 @@ standard error, because everyone who can see the task reads the reason. A
 workflow task carries the run's class and cause into the step's detail and,
 when the workflow ends in failure, into the task's reason and
 `failure_class`. A paused task (a usage limit, a person's pause) has not
-failed and keeps no failure class.
+failed and keeps no failure class. A run whose harness output says a write
+found no space (`database or disk is full`, `SQLITE_FULL`, `ENOSPC`,
+`no space left on device`, `disk quota exceeded`) is `platform` with rule
+`disk_full`, not the agent's `harness_error`.
 
 A native failure caused by a resource limit (an out-of-memory kill of the agent
 container, see [resource limits](../../TECHNICAL.md#resource-limits-and-quotas))

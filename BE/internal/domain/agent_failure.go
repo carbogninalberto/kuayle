@@ -117,6 +117,10 @@ type runFailureRule struct {
 // refuses a new thread or process: the container's PID limit.
 var pidLimitText = regexp.MustCompile(`(?i)(failed to create new os thread|pthread_create failed|cannot fork|fork: retry|unable to create (?:new )?(?:native )?thread|uv_thread_create|spawn[^\n]{0,80}EAGAIN|(?:fork|thread|clone|spawn|process)[^\n]{0,80}resource temporarily unavailable|resource temporarily unavailable[^\n]{0,80}(?:fork|thread|clone|spawn)|resource temporarily unavailable)`)
 
+// diskFullText is what a harness, SQLite or the kernel prints when a write
+// finds no space: the home or /tmp tmpfs, or the workspace volume's quota.
+var diskFullText = regexp.MustCompile(`(?i)(database or disk is full|SQLITE_FULL|no space left on device|\bENOSPC\b|disk quota exceeded|\bEDQUOT\b)`)
+
 // providerErrorText is wording model providers and their SDKs use for a
 // failure on their side or of the account: overload, rate limits, server
 // errors, rejected credentials, exhausted credit, an unreachable API.
@@ -221,6 +225,13 @@ var runFailureRules = []runFailureRule{
 				return fmt.Sprintf("Kuayle stopped the run at its time limit of %d minutes", e.TimeLimitSeconds/60)
 			}
 			return "Kuayle stopped the run at its time limit"
+		}},
+	{"disk_full", FailurePlatform,
+		func(e RunFailureEvidence) bool {
+			return diskFullText.MatchString(e.Stderr) || diskFullText.MatchString(e.HarnessError)
+		},
+		func(RunFailureEvidence) string {
+			return "The agent container ran out of disk space (its home or temporary directory, or the workspace volume's quota), so the harness could not write its files"
 		}},
 	{"usage_limit", FailureProvider,
 		func(e RunFailureEvidence) bool { return e.UsageLimit != "" },
