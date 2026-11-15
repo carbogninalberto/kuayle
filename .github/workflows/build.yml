@@ -72,6 +72,11 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          # The version bump is pushed straight to main. The ruleset on main
+          # requires up-to-date, green branches and lets only deploy keys and
+          # repository admins bypass it, so the push uses a write deploy key
+          # (KUA-194). Without the secret, checkout falls back to the token.
+          ssh-key: ${{ secrets.RELEASE_BUMP_DEPLOY_KEY }}
 
       - name: Extract version
         id: version
