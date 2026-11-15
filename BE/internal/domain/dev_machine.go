@@ -175,6 +175,11 @@ type DevMachine struct {
 	ResourceLimitKind    *string    `json:"resource_limit_kind,omitempty" db:"resource_limit_kind"`
 	ResourceLimitMessage *string    `json:"resource_limit_message,omitempty" db:"resource_limit_message"`
 	ResourceLimitAt      *time.Time `json:"resource_limit_at,omitempty" db:"resource_limit_at"`
+	// A temporary machine was started by the assistant for one conversation
+	// (TemporaryConversationID) and is permanently deleted after
+	// TemporaryExpiresAt; see TemporaryMachineResources.
+	TemporaryConversationID *uuid.UUID `json:"temporary_conversation_id,omitempty" db:"temporary_conversation_id"`
+	TemporaryExpiresAt      *time.Time `json:"temporary_expires_at,omitempty" db:"temporary_expires_at"`
 }
 
 type DevMachineAgentProvider struct {
@@ -623,11 +628,14 @@ type DevMachineWorkspacePolicy struct {
 	TaskMachineDiskGB    int `json:"task_machine_disk_gb" db:"task_machine_disk_gb"`
 	// TaskMachineMaxTasks is how many active agent tasks share one machine,
 	// each in its own worktree, before a task gets a new machine.
-	TaskMachineMaxTasks int                   `json:"task_machine_max_tasks" db:"task_machine_max_tasks"`
-	DiskQuotaMode       string                `json:"disk_quota_mode" db:"-"`
-	SizeOptions         DevMachineSizeOptions `json:"size_options" db:"-"`
-	CreatedAt           time.Time             `json:"created_at" db:"created_at"`
-	UpdatedAt           time.Time             `json:"updated_at" db:"updated_at"`
+	TaskMachineMaxTasks int `json:"task_machine_max_tasks" db:"task_machine_max_tasks"`
+	// MaxTemporaryMachines is how many assistant temporary machines may be
+	// live in the workspace at once; 0 turns them off.
+	MaxTemporaryMachines int                   `json:"max_temporary_machines" db:"max_temporary_machines"`
+	DiskQuotaMode        string                `json:"disk_quota_mode" db:"-"`
+	SizeOptions          DevMachineSizeOptions `json:"size_options" db:"-"`
+	CreatedAt            time.Time             `json:"created_at" db:"created_at"`
+	UpdatedAt            time.Time             `json:"updated_at" db:"updated_at"`
 }
 
 type DevMachineSizeOptions struct {

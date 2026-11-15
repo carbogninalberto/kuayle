@@ -796,7 +796,7 @@ func TestTaskMachinesUseTheWorkspaceTaskMachineResources(t *testing.T) {
 			store, runtime, task := reusedMachineFixture(domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 			test.policy(store.policy)
 			request := taskMachineRequest(task, domain.DevMachineProfileHeadless, store.policy.TaskMachine())
-			machine, _, err := runtime.machines.create(context.Background(), task.WorkspaceID, task.CreatorID, request, task.ReservedMachineID)
+			machine, _, err := runtime.machines.create(context.Background(), task.WorkspaceID, task.CreatorID, request, task.ReservedMachineID, nil)
 			require.NoError(t, err)
 			require.Equal(t, task.ReservedMachineID, machine.ID)
 			require.Equal(t, "task-"+task.ReservedMachineID.String(), machine.Name)
