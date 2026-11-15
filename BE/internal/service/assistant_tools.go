@@ -102,6 +102,9 @@ type AssistantTools struct {
 	// The repository scan tools are unavailable until SetRepositoryScans wires them.
 	checkouts *RepositoryCheckouts
 	scanRepos linkedRepositories
+	// The live worktree tools are unavailable until SetWorktreeScans wires them.
+	worktreeScans    worktreeScanStore
+	worktreeScanWait time.Duration
 	// web_search is unavailable until SetWebSearch wires it.
 	research       assistantResearchSettings
 	searchProvider map[string]WebSearchProvider
@@ -200,6 +203,8 @@ type assistantTool struct {
 	releases bool
 	// scan tools need SetRepositoryScans.
 	scan bool
+	// worktree tools need SetWorktreeScans and the scan tools.
+	worktree bool
 	// webSearch tools need SetWebSearch.
 	webSearch bool
 	// subagents tools need SetSubagents and a research tool to delegate to.
@@ -244,6 +249,7 @@ func assistantTools() []assistantTool {
 		assistantShipToolCatalog,
 		assistantResearchToolCatalog,
 		assistantScanToolCatalog,
+		assistantWorktreeToolCatalog,
 		assistantWikiToolCatalog,
 	} {
 		tools = append(tools, catalog...)
@@ -283,6 +289,7 @@ func (t *AssistantTools) available(tool assistantTool) bool {
 		(!tool.pulls || (t.pulls != nil && t.pullTargets != nil)) &&
 		(!tool.releases || (t.releases != nil && t.releaseRepos != nil && t.releaseStyles != nil)) &&
 		(!tool.scan || (t.checkouts != nil && t.scanRepos != nil)) &&
+		(!tool.worktree || (t.worktreeScans != nil && t.checkouts != nil && t.scanRepos != nil)) &&
 		(!tool.webSearch || (t.research != nil && len(t.searchProvider) > 0)) &&
 		(!tool.subagents || (t.subagents && t.research != nil && (t.checkouts != nil && t.scanRepos != nil || len(t.searchProvider) > 0)))
 }
@@ -457,7 +464,9 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 	case "list_releases", "get_release", "draft_release_notes", "get_workflow_run":
 		return t.runReleaseTool(ctx, ws, name, arguments)
 	case "repo_list_files", "repo_glob", "repo_grep", "repo_read_file", "repo_symbols":
-		return t.runScanTool(ctx, ws, member.Role, name, arguments)
+		return t.runScanTool(ctx, ws, user, member.Role, name, arguments)
+	case "get_task_worktree", "list_machine_worktrees":
+		return t.runWorktreeTool(ctx, ws, user, name, arguments)
 	case "web_search":
 		return t.webSearch(ctx, ws, arguments)
 	case "get_instance_version":
