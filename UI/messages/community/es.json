@@ -529,6 +529,7 @@
 	"issue.show_less": "Mostrar menos",
 	"issue.status": "Estado",
 	"issue.sub_issue_of": "Subincidencia de",
+	"issue.sub_issues_deselected": "Subincidencias ocultas deseleccionadas: {n}",
 	"issue.sub_issues_toggle": "Subincidencias de {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Prompt de IA copiado",
 	"issue.toast.branch_copied": "Rama copiada",

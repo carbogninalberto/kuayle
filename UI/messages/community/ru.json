@@ -529,6 +529,7 @@
 	"issue.show_less": "Показать меньше",
 	"issue.status": "Статус",
 	"issue.sub_issue_of": "Подзадача для",
+	"issue.sub_issues_deselected": "Снято выделение со скрытых подзадач: {n}",
 	"issue.sub_issues_toggle": "Подзадачи {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Промпт для ИИ скопирован",
 	"issue.toast.branch_copied": "Ветка скопирована",

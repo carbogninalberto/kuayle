@@ -529,6 +529,7 @@
 	"issue.show_less": "Vis mindre",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Underissue af",
+	"issue.sub_issues_deselected": "Skjulte underissues fravalgt: {n}",
 	"issue.sub_issues_toggle": "Underissues af {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "AI-prompt kopieret",
 	"issue.toast.branch_copied": "Branch kopieret",

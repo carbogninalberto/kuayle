@@ -529,6 +529,7 @@
 	"issue.show_less": "Tampilkan lebih sedikit",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Sub-issue dari",
+	"issue.sub_issues_deselected": "Sub-issue tersembunyi tidak lagi dipilih: {n}",
 	"issue.sub_issues_toggle": "Sub-issue dari {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Prompt AI disalin",
 	"issue.toast.branch_copied": "Branch disalin",

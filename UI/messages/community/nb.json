@@ -529,6 +529,7 @@
 	"issue.show_less": "Vis færre",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Undersak av",
+	"issue.sub_issues_deselected": "Skjulte undersaker fravalgt: {n}",
 	"issue.sub_issues_toggle": "Undersaker av {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "AI-prompt kopiert",
 	"issue.toast.branch_copied": "Branch kopiert",

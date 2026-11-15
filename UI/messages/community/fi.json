@@ -529,6 +529,7 @@
 	"issue.show_less": "Näytä vähemmän",
 	"issue.status": "Tila",
 	"issue.sub_issue_of": "Aliissue kohteelle",
+	"issue.sub_issues_deselected": "Piilotettujen aliissueiden valinta poistettu: {n}",
 	"issue.sub_issues_toggle": "Aliissuet kohteelle {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Tekoälyprompt kopioitu",
 	"issue.toast.branch_copied": "Haara kopioitu",

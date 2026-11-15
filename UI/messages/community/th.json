@@ -529,6 +529,7 @@
 	"issue.show_less": "แสดงน้อยลง",
 	"issue.status": "สถานะ",
 	"issue.sub_issue_of": "Sub-issue ของ",
+	"issue.sub_issues_deselected": "ยกเลิกการเลือก sub-issue ที่ซ่อนอยู่ {n} รายการ",
 	"issue.sub_issues_toggle": "Sub-issue ของ {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "คัดลอกพรอมต์ AI แล้ว",
 	"issue.toast.branch_copied": "คัดลอก branch แล้ว",

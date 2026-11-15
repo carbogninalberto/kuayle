@@ -529,6 +529,7 @@
 	"issue.show_less": "Mostra meno",
 	"issue.status": "Stato",
 	"issue.sub_issue_of": "Sotto-attività di",
+	"issue.sub_issues_deselected": "Sotto-attività nascoste deselezionate: {n}",
 	"issue.sub_issues_toggle": "Sotto-attività di {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Prompt AI copiato",
 	"issue.toast.branch_copied": "Branch copiato",

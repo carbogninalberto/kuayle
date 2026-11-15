@@ -529,6 +529,7 @@
 	"issue.show_less": "نمایش کمتر",
 	"issue.status": "وضعیت",
 	"issue.sub_issue_of": "زیرمسئلهٔ",
+	"issue.sub_issues_deselected": "زیرمسئله‌های پنهان از انتخاب خارج شدند: {n}",
 	"issue.sub_issues_toggle": "زیرمسئله‌های {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "پرامپت هوش مصنوعی کپی شد",
 	"issue.toast.branch_copied": "شاخه کپی شد",

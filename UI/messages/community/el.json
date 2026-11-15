@@ -529,6 +529,7 @@
 	"issue.show_less": "Εμφάνιση λιγότερων",
 	"issue.status": "Κατάσταση",
 	"issue.sub_issue_of": "Υπο-ζήτημα του",
+	"issue.sub_issues_deselected": "Αποεπιλέχθηκαν κρυφά υπο-ζητήματα: {n}",
 	"issue.sub_issues_toggle": "Υπο-ζητήματα του {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Το AI prompt αντιγράφηκε",
 	"issue.toast.branch_copied": "Το branch αντιγράφηκε",

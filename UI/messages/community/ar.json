@@ -529,6 +529,7 @@
 	"issue.show_less": "عرض أقل",
 	"issue.status": "الحالة",
 	"issue.sub_issue_of": "مشكلة فرعية من",
+	"issue.sub_issues_deselected": "تم إلغاء تحديد المشكلات الفرعية المخفية: {n}",
 	"issue.sub_issues_toggle": "المشكلات الفرعية لـ {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "تم نسخ موجّه الذكاء الاصطناعي",
 	"issue.toast.branch_copied": "تم نسخ الفرع",

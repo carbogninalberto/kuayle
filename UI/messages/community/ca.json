@@ -529,6 +529,7 @@
 	"issue.show_less": "Mostra'n menys",
 	"issue.status": "Estat",
 	"issue.sub_issue_of": "Subincidència de",
+	"issue.sub_issues_deselected": "Subincidències ocultes desseleccionades: {n}",
 	"issue.sub_issues_toggle": "Subincidències de {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "S'ha copiat el prompt d'IA",
 	"issue.toast.branch_copied": "S'ha copiat la branca",

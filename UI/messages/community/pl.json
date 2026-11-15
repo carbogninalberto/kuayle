@@ -529,6 +529,7 @@
 	"issue.show_less": "Pokaż mniej",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Podzgłoszenie",
+	"issue.sub_issues_deselected": "Odznaczono ukryte podzgłoszenia: {n}",
 	"issue.sub_issues_toggle": "Podzgłoszenia {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Skopiowano prompt AI",
 	"issue.toast.branch_copied": "Skopiowano gałąź",

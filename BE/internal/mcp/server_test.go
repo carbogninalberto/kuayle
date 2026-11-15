@@ -172,6 +172,29 @@ func TestToolCallsBecomeAPIRequestsAsTheCaller(t *testing.T) {
 	require.JSONEq(t, `{"version":3,"content":"# Hi"}`, api.bodies[0])
 }
 
+// KUA-195: status takes a team status name, such as "In Progress", or its
+// slug. A schema limited to the default slugs makes clients refuse names
+// before they reach the API, which resolves them against the team.
+func TestIssueStatusTakesAStatusName(t *testing.T) {
+	_, out := post(t, &fakeAPI{}, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, false)
+	checked := 0
+	for _, tool := range out.Result.Tools {
+		if tool.Name != "create_issue" && tool.Name != "update_issue" {
+			continue
+		}
+		status, ok := tool.InputSchema.Properties["status"].(map[string]any)
+		require.True(t, ok, "%s has a status argument", tool.Name)
+		require.NotContains(t, status, "enum", "%s must accept any status name", tool.Name)
+		checked++
+	}
+	require.Equal(t, 2, checked)
+
+	api := &fakeAPI{response: `{"identifier":"KUA-195"}`}
+	out = call(t, api, "/mcp?workspace=acme", "update_issue", `{"identifier":"KUA-195","status":"In Progress"}`)
+	require.False(t, out.Result.IsError)
+	require.JSONEq(t, `{"status":"In Progress"}`, api.bodies[0])
+}
+
 func TestWorkspaceDefaultsToTheOnlyOneTheTokenReaches(t *testing.T) {
 	api := &fakeAPI{response: `[]`}
 	out := call(t, api, "/mcp", "list_teams", `{}`)

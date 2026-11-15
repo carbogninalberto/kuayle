@@ -70,12 +70,14 @@ var assistantActionPolicies = map[string]assistantActionPolicy{
 	// Public links: also the workspace's share role, checked by the
 	// publishing service when requested and again when approved.
 	wikiShareAction:      {},
-	"merge_pull_request": {github: map[string]string{"pull_requests": "write", "contents": "write"}, role: roleAdminOrCreator, refusal: "only workspace admins or the task's creator can merge"},
+	"merge_pull_request": {github: map[string]string{"pull_requests": "write", "contents": "write", "checks": "read", "statuses": "read"}, role: roleAdminOrCreator, refusal: "only workspace admins or the task's creator can merge"},
 	"upgrade_instance":   {role: roleInstanceAdmin, refusal: "only an instance administrator can upgrade this instance; ask one to upgrade it"},
 	// Pull request tools (KUA-87). Reads use the pull request, the base
 	// comparison (contents), check runs and commit statuses; changes post
 	// replies, resolve threads and change the draft state (pull requests), and
-	// update-branch also writes the head branch (contents).
+	// update-branch also writes the head branch (contents). merge_pull_request
+	// above reads the same comparison and checks before merging and may update
+	// a branch behind its base (KUA-194).
 	"get_pull_request":           {github: map[string]string{"pull_requests": "read", "contents": "read"}},
 	"get_pull_request_checks":    {github: map[string]string{"pull_requests": "read", "checks": "read", "statuses": "read"}},
 	"list_pull_request_comments": {github: map[string]string{"pull_requests": "read"}},

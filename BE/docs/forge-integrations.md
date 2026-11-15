@@ -112,6 +112,9 @@ access, like `AI_ALLOW_PRIVATE_NETWORK` does for AI providers.
 
 `domain.ForgePublisher` declares opening and merging a merge/pull request. It is
 intentionally unimplemented: agent publishing and merging on non-GitHub forges
-is a follow-up phase. Bitbucket is reserved as `domain.ForgeBitbucket` and can
+is a follow-up phase. An implementation merges only a source branch that
+contains its target's tip and whose pipeline passed, bringing one that is
+behind up to date first (`UpdateMergeRequestBranch`), as Kuayle does on GitHub
+([merging only up-to-date heads](agent-tasks.md#merging-only-up-to-date-heads)). Bitbucket is reserved as `domain.ForgeBitbucket` and can
 add another `domain.ForgeWebhook`/`ForgeCommenter`/`ForgePublisher`
 implementation without changing the webhook service.

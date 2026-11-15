@@ -529,6 +529,7 @@
 	"issue.show_less": "Zobrazit méně",
 	"issue.status": "Stav",
 	"issue.sub_issue_of": "Podúkol úkolu",
+	"issue.sub_issues_deselected": "Zrušen výběr skrytých podúkolů: {n}",
 	"issue.sub_issues_toggle": "Podúkoly úkolu {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "AI prompt zkopírován",
 	"issue.toast.branch_copied": "Větev zkopírována",

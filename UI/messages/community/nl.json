@@ -529,6 +529,7 @@
 	"issue.show_less": "Minder tonen",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Subissue van",
+	"issue.sub_issues_deselected": "Verborgen subissues gedeselecteerd: {n}",
 	"issue.sub_issues_toggle": "Subissues van {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "AI-prompt gekopieerd",
 	"issue.toast.branch_copied": "Branch gekopieerd",

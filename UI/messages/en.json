@@ -529,6 +529,7 @@
 	"issue.show_less": "Show less",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Sub-issue of",
+	"issue.sub_issues_deselected": "{n} hidden sub-issue{s} deselected",
 	"issue.sub_issues_toggle": "Sub-issues of {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "AI prompt copied",
 	"issue.toast.branch_copied": "Branch copied",

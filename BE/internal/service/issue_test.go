@@ -477,11 +477,13 @@ func TestIssueService_Update(t *testing.T) {
 	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-1").Return(issue, nil)
 	issueRepo.On("UpdateContent", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue"), true, false).Return(nil)
 	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
-	teamStatusRepo.On("GetByTeamAndSlug", ctx, issue.TeamID, "todo").Return(nil, nil)
+	statuses := defaultWorkflow(issue.TeamID)
+	teamStatusRepo.On("ListByTeam", ctx, issue.TeamID).Return(statuses, nil)
+	teamStatusRepo.On("GetByID", ctx, statuses[1].ID).Return(&statuses[1], nil)
 
 	newTitle := "New Title"
 	newStatus := "todo"
-	historyRepo.On("Create", ctx, issueID, userID, "status", mock.AnythingOfType("*string"), &newStatus).Return(nil)
+	historyRepo.On("Create", ctx, issueID, userID, "status", mock.AnythingOfType("*string"), ptr("Todo")).Return(nil)
 
 	req := dto.UpdateIssueRequest{
 		Title:  &newTitle,
@@ -545,8 +547,10 @@ func TestIssueService_Update_ConsolidatesFieldNotifications(t *testing.T) {
 	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-1").Return(issue, nil)
 	issueRepo.On("UpdateContent", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue"), true, false).Return(nil)
 	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
-	teamStatusRepo.On("GetByTeamAndSlug", ctx, issue.TeamID, "todo").Return(nil, nil)
-	historyRepo.On("Create", ctx, issueID, userID, "status", mock.AnythingOfType("*string"), &newStatus).Return(nil)
+	statuses := defaultWorkflow(issue.TeamID)
+	teamStatusRepo.On("ListByTeam", ctx, issue.TeamID).Return(statuses, nil)
+	teamStatusRepo.On("GetByID", ctx, statuses[1].ID).Return(&statuses[1], nil)
+	historyRepo.On("Create", ctx, issueID, userID, "status", mock.AnythingOfType("*string"), ptr("Todo")).Return(nil)
 	notifRepo.On("CreateOrRefresh", ctx, mock.MatchedBy(func(n *domain.Notification) bool {
 		return n.UserID == assigneeID && n.WorkspaceID == wsID && n.IssueID != nil && *n.IssueID == issueID && n.Type == "issue_updated" && n.Title == "ENG-1 updated: title, status"
 	}), issueUpdateNotificationWindow).Return(nil).Once()

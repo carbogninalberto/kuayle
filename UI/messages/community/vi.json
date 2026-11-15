@@ -529,6 +529,7 @@
 	"issue.show_less": "Thu gọn",
 	"issue.status": "Trạng thái",
 	"issue.sub_issue_of": "Issue con của",
+	"issue.sub_issues_deselected": "Đã bỏ chọn {n} issue con bị ẩn",
 	"issue.sub_issues_toggle": "Issue con của {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Đã sao chép prompt AI",
 	"issue.toast.branch_copied": "Đã sao chép nhánh",

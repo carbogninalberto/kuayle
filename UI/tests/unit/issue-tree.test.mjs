@@ -6,6 +6,7 @@ import {
 	hiddenTreeIds,
 	issueRowTrees,
 	rangeSelection,
+	selectedRowsHiddenByCollapse,
 	visibleTreeIssues
 } from '../../src/lib/features/issues/issue-tree.ts';
 
@@ -135,6 +136,37 @@ test('hiddenTreeIds is exactly the rows visibleTreeIssues leaves out', () => {
 		);
 	}
 	assert.deepEqual([...hiddenTreeIds(tree, new Set(['a']))].sort(), ['c', 'e']);
+});
+
+test('selectedRowsHiddenByCollapse counts the selected sub-issues a collapse takes off screen', () => {
+	const tree = buildIssueTree([
+		issue('a'),
+		issue('b', 'a'),
+		issue('c', 'b'),
+		issue('e', 'a'),
+		issue('f', 'e'),
+		issue('x')
+	]);
+	assert.equal(shape(tree), 'a(b(c),e(f)),x');
+	const [a, x] = tree;
+	const e = a.children[1];
+
+	// Every depth counts while it is on screen; the parent itself and other rows do not.
+	const allOpen = new Set(['a', 'b', 'e']);
+	assert.equal(selectedRowsHiddenByCollapse(a, allOpen, new Set(['a', 'b', 'c', 'x'])), 2);
+	assert.equal(selectedRowsHiddenByCollapse(a, allOpen, new Set(['a', 'b', 'c', 'e', 'f'])), 4);
+
+	// Nothing selected below the parent: nothing to report.
+	assert.equal(selectedRowsHiddenByCollapse(a, allOpen, new Set(['a', 'x'])), 0);
+	assert.equal(selectedRowsHiddenByCollapse(a, allOpen, new Set()), 0);
+	assert.equal(selectedRowsHiddenByCollapse(x, allOpen, new Set(['x'])), 0);
+
+	// A sub-issue already hidden under a collapsed child was not on screen, so it is not counted.
+	assert.equal(selectedRowsHiddenByCollapse(a, new Set(['a', 'e']), new Set(['b', 'c', 'f'])), 2);
+	assert.equal(selectedRowsHiddenByCollapse(e, new Set(['a']), new Set(['f'])), 0);
+
+	// Collapsing a parent that is already collapsed hides nothing.
+	assert.equal(selectedRowsHiddenByCollapse(a, new Set(), new Set(['b', 'c'])), 0);
 });
 
 test('rangeSelection spans the visible rows from the anchor to the clicked row', () => {
