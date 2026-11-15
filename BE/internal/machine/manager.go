@@ -150,6 +150,16 @@ const gatewayAccessLogRetention = 90 * 24 * time.Hour
 
 const gatewayAccessLogPurgeBatch = 1000
 
+// DefaultShutdownDrain is how long a stopping manager lets operations other
+// than following agent runs and checks finish (an agent's closing steps, a
+// publication, lifecycle work) before it stops them and hands them to the
+// next manager.
+const DefaultShutdownDrain = 90 * time.Second
+
+// errManagerShutdown hands an operation to the next manager: it never
+// counts as a failed attempt.
+var errManagerShutdown = errors.New("manager_restart: the machine manager is shutting down; the next manager continues this operation")
+
 type githubAPI interface {
 	GetRepositoryInstallationToken(int64, string) (string, time.Time, error)
 	CreatePullRequest(string, string, string, string, string, string, string, bool) (*githubclient.PullRequest, error)
@@ -197,10 +207,15 @@ type Manager struct {
 	hostDiskBreached    atomic.Bool
 	operationSlots      chan struct{}
 	operations          sync.WaitGroup
-	activeRunsMu        sync.Mutex
-	activeRuns          map[uuid.UUID]map[uuid.UUID]context.CancelFunc
-	diskQuotaWarnMu     sync.Mutex
-	diskQuotaWarnings   map[uuid.UUID]int64
+	// detach closes when the manager stops: agent runs then keep running for
+	// the next manager to re-adopt.
+	detach            chan struct{}
+	detachOnce        sync.Once
+	shutdownDrain     time.Duration
+	activeRunsMu      sync.Mutex
+	activeRuns        map[uuid.UUID]map[uuid.UUID]context.CancelFunc
+	diskQuotaWarnMu   sync.Mutex
+	diskQuotaWarnings map[uuid.UUID]int64
 
 	// machineDomain builds app port URLs for agents; empty omits them.
 	machineDomain string
@@ -252,10 +267,63 @@ func NewManager(store ManagerStore, runtime Runtime, agents *agent.Registry, git
 		activeRuns:        make(map[uuid.UUID]map[uuid.UUID]context.CancelFunc),
 		diskQuotaWarnings: make(map[uuid.UUID]int64),
 		diskQuota:         diskQuota,
+		detach:            make(chan struct{}),
+		shutdownDrain:     DefaultShutdownDrain,
+	}
+}
+
+// SetShutdownDrain sets how long a stopping manager waits for operations other
+// than following agents. A negative value restores the default; 0 stops at once.
+func (m *Manager) SetShutdownDrain(d time.Duration) {
+	if d < 0 {
+		d = DefaultShutdownDrain
+	}
+	m.shutdownDrain = d
+}
+
+// beginShutdown stops following agent runs once. NewManager creates the
+// channel; a manager built without it has no runs to detach.
+func (m *Manager) beginShutdown() {
+	m.detachOnce.Do(func() {
+		if m.detach != nil {
+			close(m.detach)
+		}
+	})
+}
+
+// shuttingDown reports whether the manager has stopped following agent runs.
+func (m *Manager) shuttingDown() bool {
+	select {
+	case <-m.detach:
+		return true
+	default:
+		return false
+	}
+}
+
+// drainOperations waits up to the shutdown drain for the running operations and
+// reports whether they all finished.
+func (m *Manager) drainOperations() bool {
+	done := make(chan struct{})
+	go func() {
+		m.operations.Wait()
+		close(done)
+	}()
+	timer := time.NewTimer(m.shutdownDrain)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
 	}
 }
 
 func (m *Manager) Run(ctx context.Context) error {
+	// Leased operations run under work, which outlives the signal: a stopping
+	// manager lets them end their own way and hands them over.
+	work, stopWork := context.WithCancelCause(context.WithoutCancel(ctx))
+	defer stopWork(errManagerShutdown)
 	operationTicker := time.NewTicker(m.pollInterval)
 	reconcileTicker := time.NewTicker(30 * time.Second)
 	portTicker := time.NewTicker(portScanInterval)
@@ -274,12 +342,18 @@ func (m *Manager) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			m.operations.Wait()
+			m.beginShutdown()
+			log.Info("machine manager stopping; agent runs keep running and the next manager re-adopts them")
+			if !m.drainOperations() {
+				log.WithField("drain", m.shutdownDrain).Warn("operations still running after the shutdown drain; stopping them for the next manager")
+				stopWork(errManagerShutdown)
+				m.operations.Wait()
+			}
 			return nil
 		case <-portTicker.C:
 			m.schedulePortScan(ctx)
 		case <-operationTicker.C:
-			if err := m.processBatch(ctx); err != nil {
+			if err := m.processBatch(ctx, work); err != nil {
 				log.WithError(err).Error("dev machine operation batch failed")
 			}
 		case <-reconcileTicker.C:
@@ -323,7 +397,7 @@ func (m *Manager) Metrics() map[string]uint64 {
 	}
 }
 
-func (m *Manager) processBatch(ctx context.Context) error {
+func (m *Manager) processBatch(ctx, work context.Context) error {
 	available := cap(m.operationSlots) - len(m.operationSlots)
 	if available == 0 {
 		return nil
@@ -336,7 +410,7 @@ func (m *Manager) processBatch(ctx context.Context) error {
 		operation := operations[i]
 		m.operationSlots <- struct{}{}
 		m.operations.Add(1)
-		go m.processLeasedOperation(ctx, operation)
+		go m.processLeasedOperation(work, operation)
 	}
 	return nil
 }
@@ -388,6 +462,16 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 	}
 	finalCtx, finalCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer finalCancel()
+	if err != nil && (errors.Is(err, errManagerShutdown) || errors.Is(context.Cause(ctx), errManagerShutdown)) {
+		// The manager is stopping: hand the operation to the next one, which
+		// continues it. It never counts as a failed attempt.
+		if deferErr := m.store.DeferOperation(finalCtx, operation.ID, m.owner, "manager_restart", "The machine manager restarted; the next manager continues this operation", 0); deferErr != nil {
+			log.WithFields(fields).WithError(deferErr).Error("failed to hand the operation to the next machine manager")
+		} else {
+			log.WithFields(fields).Info("operation handed to the next machine manager")
+		}
+		return
+	}
 	var waitErr *capacityWaitError
 	if errors.As(err, &waitErr) {
 		if deferErr := m.store.DeferOperation(finalCtx, operation.ID, m.owner, "host_capacity_wait", waitErr.message, capacityRetryDelay); deferErr != nil {
@@ -1312,6 +1396,10 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 			}
 		}
 	}
+	if m.shuttingDown() {
+		// A stopping manager starts no container: the next manager does.
+		return errManagerShutdown
+	}
 	service := &domain.DevMachineService{
 		ID: uuid.New(), WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceType: "agent",
 		ServiceKey: "agent-" + run.ID.String(), ContainerName: "kuayle-" + machine.RoutingKey + "-agent-" + run.ID.String(),
@@ -1364,7 +1452,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 			run.Status = domain.DevMachineAgentRunStatusRunning
 		}
 		return m.store.UpdateServiceRuntime(runContext, service.ID, containerID, "running", "healthy", nil)
-	}}
+	}, Detach: m.detach}
 	// While an unattended attempt runs, queued live messages reach its inbox
 	// and its outbox is collected every few seconds.
 	stopLive := func() {}
@@ -1373,6 +1461,15 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	}
 	worktreeBefore := m.worktreeBefore(ctx, machine, run, runServices, checkout)
 	execution, executionErr := m.runtime.RunAgent(runContext, machine, run, providerRecord, checkout, secrets.Environment, observer)
+	if errors.Is(executionErr, ErrAgentDetached) {
+		// The container keeps running; the next manager re-adopts it.
+		stopLive()
+		return errManagerShutdown
+	}
+	if errors.Is(executionErr, ErrAgentContainerGone) {
+		stopLive()
+		return m.completeOrphanedRun(ctx, machine, run)
+	}
 	// When the harness exited: what reached its inbox just before that may
 	// not have been read, however long the steps below take.
 	exited := time.Now()
@@ -1436,11 +1533,16 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	limit, _ := runContext.Deadline()
 	// After a restart the context's limit starts over; the attempt's does not.
 	limit = closingDeadline(run, limit)
-	closing := m.settleClosing(ctx,
+	closing, closingErr := m.settleClosing(ctx,
 		closingAttempt{machine: machine, run: run, provider: providerRecord, checkout: checkout, secrets: secrets, deadline: limit},
 		closingState{services: services, collectErr: collectErr, exited: exited, concluded: ended && status != "failed", succeeded: ended && status == "succeeded", unchangedRun: unchangedRun,
 			planTooLong: run.WorktreeReadOnly && first.FinalMessage && first.SummaryTruncated,
 			parseReply:  func(stdout, stderr string) agent.RunResult { return provider.ParseResult(stdout, stderr, 0) }})
+	if closingErr != nil {
+		// The attempt's container has exited; the next manager re-adopts it,
+		// replays its log and asks then, since closing_asked_at was not taken.
+		return closingErr
+	}
 	notebookNotCollected, replies := closing.notebookNotCollected, closing.replies
 	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	m.closeLiveInbox(outboxCtx, machine, run)
@@ -1562,10 +1664,16 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if run.Status == domain.DevMachineAgentRunStatusFailed || run.Status == domain.DevMachineAgentRunStatusTimeout || run.Status == domain.DevMachineAgentRunStatusCancelled {
 		if run.FailureClass == nil {
 			evidence := runFailureEvidence(string(run.Status), run.MaxRuntimeSeconds, execution, result, executionErr, memoryLimit, usageLimit, "", stderr)
+			failure := domain.ClassifyRunFailure(evidence)
 			// A specific message (memory, usage limit, no final message, what the
 			// harness said) stays the run's error; the class and cause are added.
 			preserve := memoryLimit != "" || usageLimit != "" || result.NoFinalMessage || result.FailureReason != "" || execution.ExitCode == 137
-			applyRunFailure(run, domain.ClassifyRunFailure(evidence), preserve)
+			if failure.Rule == domain.FailureRuleManagerRestart {
+				// A restart says what really ended the run; the generic killed
+				// message would hide it.
+				preserve = false
+			}
+			applyRunFailure(run, failure, preserve)
 		}
 	}
 	for _, commit := range result.Commits {
@@ -1581,6 +1689,34 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	m.agentRunsCompleted.Add(1)
 	return m.createEvent(ctx, machine, &run.ID, "agent", "agent_run.completed", map[string]any{
 		"provider_id": run.ProviderID, "status": run.Status, "exit_code": execution.ExitCode,
+	})
+}
+
+// completeOrphanedRun records a run whose container was removed while no
+// machine manager followed it. The container is not re-created: what the agent
+// did is gone with it, so the run is a platform failure of the restart.
+func (m *Manager) completeOrphanedRun(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun) error {
+	run.Status = domain.DevMachineAgentRunStatusFailed
+	code := -1
+	run.ExitCode = &code
+	applyRunFailure(run, domain.ClassifyRunFailure(domain.RunFailureEvidence{
+		Status: "failed", ExitCode: &code, ManagerRestart: true,
+	}), false)
+	// The run's leftover networks and inbox volumes are removed best effort;
+	// the run's ended state is what matters.
+	cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	m.closeLiveInbox(cleanupCtx, machine, run)
+	if cleanupErr := m.runtime.CancelAgent(cleanupCtx, run); cleanupErr != nil {
+		log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID}).WithError(cleanupErr).Warn("the orphaned agent run's containers and networks could not be removed")
+	}
+	cancelCleanup()
+	if err := m.store.CompleteAgentRun(ctx, run); err != nil {
+		return err
+	}
+	m.agentRunsCompleted.Add(1)
+	log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID}).Warn("agent run's container was gone after a machine manager restart; recorded as a platform failure")
+	return m.createEvent(ctx, machine, &run.ID, "agent", "agent_run.completed", map[string]any{
+		"provider_id": run.ProviderID, "status": run.Status, "exit_code": code,
 	})
 }
 

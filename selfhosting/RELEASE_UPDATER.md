@@ -66,7 +66,9 @@ recreate the updater service.
    precede any downtime.
 4. Back up configuration and `.env` under `selfhosting/backups/release-TIMESTAMP/`.
    Enable maintenance, stop backend/manager/gateway writers, and dump PostgreSQL
-   in custom format. A failed backup restarts the same previous containers.
+   in custom format. Running agent runs are not interrupted: the stopped manager
+   hands them over and the new one re-adopts them, while their containers keep
+   running on the host. A failed backup restarts the same previous containers.
 5. Write the candidate production configuration (JSON, also valid YAML), migrate
    with the new backend, provision gateway grants if active, and start the new
    application and control plane with health waits. The proxy, database, Redis,

@@ -16,7 +16,7 @@ import (
 // The closing continuation asks an attempt that concluded with something
 // still missing for exactly those things, in its own session, once.
 //
-//	asked, reply := m.askToClose(ctx, attempt, []domain.ClosingAsk{...})
+//	asked, reply, err := m.askToClose(ctx, attempt, []domain.ClosingAsk{...})
 //
 // It is one place on purpose: every reason to ask an agent for something
 // before its step closes (a notebook update, a reply to a message from the
@@ -46,7 +46,9 @@ import (
 //     rewritten plan that fits;
 //   - cleaned up: that container is removed by its exact name on every
 //     path out, and one found left over by a crash is removed, not re-run.
-//     The attempt's own container is never touched from here.
+//     The attempt's own container is never touched from here;
+//   - handed over: a stopping manager starts no continuation; it hands the
+//     operation over before taking the mark, so the next manager asks.
 
 // closingTimeout bounds the closing continuation. It also ends
 // closingMargin before the attempt's own time limit, which leaves room to
@@ -155,8 +157,9 @@ type closingReply struct {
 // the only one whose reply Kuayle reads: when it comes back whole and fits,
 // it is the plan the attempt hands on. Nothing is asked for what Kuayle
 // itself failed to collect, and the attempt's outcome is never changed here:
-// what is still missing is reported, for notes on the run.
-func (m *Manager) settleClosing(ctx context.Context, attempt closingAttempt, state closingState) closingSettlement {
+// what is still missing is reported, for notes on the run. A stopping manager
+// asks nothing and returns errManagerShutdown.
+func (m *Manager) settleClosing(ctx context.Context, attempt closingAttempt, state closingState) (closingSettlement, error) {
 	run := attempt.run
 	// Replies are judged only on an outbox that was really read.
 	collected := state.collectErr == nil && developerRunning(state.services)
@@ -181,7 +184,10 @@ func (m *Manager) settleClosing(ctx context.Context, attempt closingAttempt, sta
 		m.removeClosingContainer(ctx, attempt)
 	}
 	if len(asks) > 0 {
-		ran, reply := m.askToClose(ctx, attempt, asks)
+		ran, reply, err := m.askToClose(ctx, attempt, asks)
+		if err != nil {
+			return settled, err
+		}
 		if planAsked && ran && reply.complete && state.parseReply != nil {
 			if parsed := state.parseReply(reply.stdout, reply.stderr); parsed.FinalMessage && !parsed.SummaryTruncated && strings.TrimSpace(parsed.Summary) != "" {
 				settled.plan = parsed.Summary
@@ -209,7 +215,7 @@ func (m *Manager) settleClosing(ctx context.Context, attempt closingAttempt, sta
 	case state.succeeded && len(settled.replies.unanswered) > 0:
 		settled.replies.notes = []string{domain.UnansweredMessageNote(settled.replies.unanswered)}
 	}
-	return settled
+	return settled, nil
 }
 
 // closingStore keeps the continuation to once per attempt and records it.
@@ -227,22 +233,23 @@ type closingRuntime interface {
 // reports whether the continuation ran and what it replied when an ask is
 // answered with the final message. It returns false, having asked nothing,
 // when there is nothing to ask, the harness cannot continue a session, the
-// session is unknown, or the attempt was already asked. Without a Reply ask
-// the output is discarded, as before.
-func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks []domain.ClosingAsk) (bool, closingReply) {
+// session is unknown, or the attempt was already asked. A stopping manager
+// returns errManagerShutdown before taking the mark, so the next manager asks.
+// Without a Reply ask the output is discarded, as before.
+func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks []domain.ClosingAsk) (bool, closingReply, error) {
 	run := attempt.run
 	store, ok := m.store.(closingStore)
 	prompt := domain.ClosingPrompt(asks)
 	if !ok || prompt == "" || run.Mode == "interactive" || len(run.ClosingContinuation) == 0 || attempt.secrets == nil {
-		return false, closingReply{}
+		return false, closingReply{}, nil
 	}
 	current, err := m.store.GetAgentRunInternal(ctx, run.ID)
 	if err != nil || current == nil || current.NativeSessionID == nil || !agent.ValidSessionID(*current.NativeSessionID) || current.Status == domain.DevMachineAgentRunStatusCancelled {
-		return false, closingReply{}
+		return false, closingReply{}, nil
 	}
 	var argv []string
 	if json.Unmarshal(run.ClosingContinuation, &argv) != nil {
-		return false, closingReply{}
+		return false, closingReply{}, nil
 	}
 	session, prompted := false, false
 	for i, argument := range argv {
@@ -255,7 +262,7 @@ func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks [
 	}
 	command, err := json.Marshal(argv)
 	if err != nil || !session || !prompted {
-		return false, closingReply{}
+		return false, closingReply{}, nil
 	}
 	// The sign-in the attempt may have refreshed is read again, so the
 	// continuation never presents a rotated credential.
@@ -266,7 +273,7 @@ func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks [
 	used := environment[signInSecretNames[run.ProviderID]]
 	if used != "" {
 		if err := m.agentSignInSecrets(ctx, run, environment, map[string]string{}); err != nil {
-			return false, closingReply{}
+			return false, closingReply{}, nil
 		}
 		used = environment[signInSecretNames[run.ProviderID]]
 	}
@@ -277,20 +284,25 @@ func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks [
 	// left is removed.
 	if run.ClosingAskedAt != nil || current.ClosingAskedAt != nil {
 		remove()
-		return false, closingReply{}
+		return false, closingReply{}, nil
 	}
 	// Never past the attempt's own time limit, and not at all with too
 	// little of it left: decided before the attempt is marked as asked.
 	end, enough := closingEnd(attempt.deadline)
 	if !enough {
-		return false, closingReply{}
+		return false, closingReply{}, nil
+	}
+	// A stopping manager starts no continuation and takes no mark: the next
+	// manager re-adopts the attempt and asks.
+	if m.shuttingDown() {
+		return false, closingReply{}, errManagerShutdown
 	}
 	// Once per attempt: the mark is taken before the container starts. A
 	// mark already taken means a continuation ran, or was running when the
 	// manager stopped: what it left is removed, and it is not run again.
 	if first, err := store.MarkClosingAsked(ctx, run.ID); err != nil || !first {
 		remove()
-		return false, closingReply{}
+		return false, closingReply{}, nil
 	}
 	defer remove()
 	continuation := *run
@@ -342,5 +354,5 @@ func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks [
 	}
 	_ = m.createEvent(ctx, attempt.machine, &run.ID, "agent", "agent_run.closing_continuation", map[string]any{
 		"provider_id": run.ProviderID, "asks": len(asks), "seconds": seconds, "finished": runErr == nil, "timed_out": timedOut})
-	return true, reply
+	return true, reply, nil
 }

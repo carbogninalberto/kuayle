@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -86,6 +87,43 @@ type managerStoreFake struct {
 	// signInReads records the workspace/user of each sign-in read.
 	signInReads []string
 	tokenExpiry time.Time
+	// leased is a one-shot list of operations LeaseOperations hands out;
+	// deferredCalls records how operations were handed to the next manager.
+	leaseMu       sync.Mutex
+	leased        []domain.DevMachineOperation
+	deferredCalls []deferredOperationCall
+}
+
+// deferredOperationCall is one DeferOperation call as the fakes record it.
+type deferredOperationCall struct {
+	ID      uuid.UUID
+	Code    string
+	Message string
+}
+
+func (f *managerStoreFake) LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error) {
+	f.leaseMu.Lock()
+	defer f.leaseMu.Unlock()
+	if len(f.leased) == 0 {
+		return nil, nil
+	}
+	operation := f.leased[0]
+	f.leased = f.leased[1:]
+	return []domain.DevMachineOperation{operation}, nil
+}
+
+func (f *managerStoreFake) DeferOperation(_ context.Context, id uuid.UUID, _, code, message string, _ time.Duration) error {
+	f.leaseMu.Lock()
+	defer f.leaseMu.Unlock()
+	f.deferredCalls = append(f.deferredCalls, deferredOperationCall{ID: id, Code: code, Message: message})
+	return nil
+}
+
+// deferredOperations returns a copy of the recorded DeferOperation calls.
+func (f *managerStoreFake) deferredOperations() []deferredOperationCall {
+	f.leaseMu.Lock()
+	defer f.leaseMu.Unlock()
+	return append([]deferredOperationCall(nil), f.deferredCalls...)
 }
 
 func (f *managerStoreFake) ListAgentSignIns(_ context.Context, workspace, user uuid.UUID) ([]domain.AgentSignIn, error) {
@@ -109,9 +147,6 @@ func (f *managerStoreFake) RecordResourceLimit(_ context.Context, _ uuid.UUID, k
 	return nil
 }
 
-func (f *managerStoreFake) LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error) {
-	return nil, nil
-}
 func (f *managerStoreFake) RenewOperationLease(context.Context, uuid.UUID, string, time.Duration) error {
 	return nil
 }
@@ -505,6 +540,7 @@ type runtimeFake struct {
 
 	agentCancellations                          int
 	onAgentOutput                               func(AgentOutput) error
+	onRunAgent                                  func(ctx context.Context, observer *AgentObserver) (*AgentExecution, error)
 	spawned, started, paused, stopped, tornDown int
 	teardownErr                                 error
 	snapshots                                   int
@@ -580,12 +616,15 @@ func (f *runtimeFake) Teardown(context.Context, *domain.DevMachine, []domain.Dev
 	f.tornDown++
 	return f.teardownErr
 }
-func (f *runtimeFake) RunAgent(_ context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, _ *domain.DevMachineAgentProvider, _ *domain.DevMachineCheckout, secrets map[string]string, observer *AgentObserver) (*AgentExecution, error) {
+func (f *runtimeFake) RunAgent(ctx context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, _ *domain.DevMachineAgentProvider, _ *domain.DevMachineCheckout, secrets map[string]string, observer *AgentObserver) (*AgentExecution, error) {
 	f.agentRuns++
 	if f.beforeAgentStarted != nil {
 		f.beforeAgentStarted()
 	}
 	f.agentSecrets = secrets
+	if f.onRunAgent != nil {
+		return f.onRunAgent(ctx, observer)
+	}
 	var output AgentOutput
 	if observer != nil {
 		if observer.Authorize != nil {

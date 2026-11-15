@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -130,6 +131,7 @@ func main() {
 	}
 	manager.SetAgentGitIdentity(machine.GitIdentity{Name: configValue.DevMachine.AgentGitName, Email: configValue.DevMachine.AgentGitEmail})
 	manager.SetFrontendURL(configValue.FrontendURL)
+	manager.SetShutdownDrain(shutdownDrain())
 	// Task images are read from the API's storage; without it runs get none.
 	if files, err := storage.New(configValue.Storage); err == nil {
 		manager.SetAttachmentStorage(files)
@@ -195,4 +197,20 @@ func composeImages() []string {
 		return []string{"docker.io/library"}
 	}
 	return strings.Split(value, ",")
+}
+
+// shutdownDrain is how long a stopping manager lets operations other than
+// following agents finish. DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS overrides it; 0
+// stops at once.
+func shutdownDrain() time.Duration {
+	value := strings.TrimSpace(os.Getenv("DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS"))
+	if value == "" {
+		return machine.DefaultShutdownDrain
+	}
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds < 0 {
+		log.WithField("value", value).Warn("DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS is not a non-negative number of seconds; using the default")
+		return machine.DefaultShutdownDrain
+	}
+	return time.Duration(seconds) * time.Second
 }

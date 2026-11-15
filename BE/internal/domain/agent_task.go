@@ -73,6 +73,12 @@ type AgentTask struct {
 	UsageLimitResumeAt *time.Time `json:"usage_limit_resume_at,omitempty" db:"usage_limit_resume_at"`
 	// UsageLimitResumes counts automatic resumes in a row (MaxUsageLimitAutoResumes).
 	UsageLimitResumes int `json:"usage_limit_resumes" db:"usage_limit_resumes"`
+	// PlatformRetries counts the automatic retries of the current step after
+	// a retryable platform failure (MaxPlatformRetries); a new step resets it.
+	PlatformRetries int `json:"platform_retries" db:"platform_retries"`
+	// PlatformRetryPending marks a cleanup that ends in that retry instead of
+	// a failure.
+	PlatformRetryPending bool `json:"-" db:"platform_retry_pending"`
 	// ResumeNativeSession makes the next attempt continue the previous
 	// attempt's native session: set when a usage-limited task resumes, or a
 	// workflow a person paused while its agent was working.
@@ -448,6 +454,9 @@ type AgentHandoff struct {
 	// NotebookProblem is the note that the previous attempt did not update
 	// the task notebook (domain.NotebookNotUpdated); empty when it did.
 	NotebookProblem string
+	// FailureRule is the rule the previous run's failure was classified by,
+	// if any.
+	FailureRule string
 }
 
 // ValidationArtifact is a file the independent check left in its report

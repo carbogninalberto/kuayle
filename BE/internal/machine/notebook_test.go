@@ -208,6 +208,9 @@ type notebookScenario struct {
 	// restart; noDeveloper: the machine's developer container is not running.
 	startedAgo  time.Duration
 	noDeveloper bool
+	// shutdownAfterAttempt stops the manager while the attempt's own container
+	// is running.
+	shutdownAfterAttempt bool
 }
 
 const openCodeConclusion = `{"type":"text","part":{"type":"text","text":"Implemented the toggle and ran the tests."}}`
@@ -273,7 +276,13 @@ func notebookRunWith(t *testing.T, scenario notebookScenario, prepared func(*not
 	if prepared != nil {
 		prepared(runtime)
 	}
+	var manager *Manager
 	runtime.onRun = func(call int) {
+		if call == 1 && scenario.shutdownAfterAttempt {
+			// The attempt's own container is running; runAgent's own shutdown
+			// check has already passed.
+			manager.beginShutdown()
+		}
 		if call == 2 {
 			if scenario.secondStdout != "" {
 				runtime.runtimeFake.agentExecution = &AgentExecution{ContainerID: "agent-container", ExitCode: 0, Stdout: scenario.secondStdout}
@@ -284,7 +293,7 @@ func notebookRunWith(t *testing.T, scenario notebookScenario, prepared func(*not
 		}
 	}
 	registry := agent.NewRegistry(agent.NewOpenCodeProvider("kuayle/agent:test"), agent.NewClaudeCodeProvider("kuayle/agent:test"), agent.NewCodexProvider("kuayle/agent:test"), agent.NewCustomCLIProvider("kuayle/agent:test"))
-	manager := NewManager(store, runtime, registry, nil, make([]byte, 32), make([]byte, 32), "test")
+	manager = NewManager(store, runtime, registry, nil, make([]byte, 32), make([]byte, 32), "test")
 	var checkout *domain.DevMachineCheckout
 	if scenario.readOnly || scenario.checkout {
 		checkoutID := uuid.New()
@@ -292,9 +301,14 @@ func notebookRunWith(t *testing.T, scenario notebookScenario, prepared func(*not
 		checkout = &domain.DevMachineCheckout{ID: checkoutID, MachineID: machineID, WorkspaceID: workspaceID, Status: "ready", WorkspacePath: "/workspace/tasks/eng-9"}
 		store.checkout = checkout
 	}
-	require.NoError(t, manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{
-		MachineID: machineID, WorkspaceID: workspaceID, AgentRunID: &runID, Action: domain.DevMachineOpRunAgent, Generation: 1}))
-	require.NotNil(t, store.completedRun)
+	err = manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{
+		MachineID: machineID, WorkspaceID: workspaceID, AgentRunID: &runID, Action: domain.DevMachineOpRunAgent, Generation: 1})
+	if scenario.shutdownAfterAttempt {
+		require.ErrorIs(t, err, errManagerShutdown)
+	} else {
+		require.NoError(t, err)
+		require.NotNil(t, store.completedRun)
+	}
 	return store.completedRun, store, runtime
 }
 
@@ -336,6 +350,20 @@ func TestAttemptWithoutANotebookUpdateIsAskedOnceInTheSameSession(t *testing.T) 
 	require.True(t, asked)
 	require.NotContains(t, string(completed.RiskNotes), "notebook")
 	require.Equal(t, "Implemented the toggle and ran the tests.", *completed.Summary, "the continuation's reply is not the attempt's summary")
+}
+
+// A stopping manager starts no closing continuation: the attempt's own
+// container is left for the next manager, which re-adopts it, replays its log
+// and asks then, because closing_asked_at was not taken.
+func TestStoppingManagerHandsTheClosingContinuationOver(t *testing.T) {
+	completed, store, runtime := notebookRun(t, notebookScenario{provider: "claude-code", required: true, session: "0c9a6c1e-session", continuation: resumeCommand,
+		stdout:               `{"type":"result","subtype":"success","is_error":false,"result":"Implemented the toggle and ran the tests."}`,
+		problem:              `"instructions" is the people's instructions, which an agent cannot write; remove it from the update`,
+		shutdownAfterAttempt: true})
+	require.Nil(t, completed)
+	require.Len(t, runtime.runs, 1, "no continuation container is started")
+	require.Zero(t, store.asked, "the mark is not taken, so the next manager asks")
+	require.Empty(t, runtime.removed)
 }
 
 // A planning step's plan that is longer than the next agent can receive whole
