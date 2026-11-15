@@ -217,6 +217,46 @@ func TestMCPToolsFollowTokenScopesAndTeamPrivacy(t *testing.T) {
 	var editors []string
 	require.NoError(t, db.Select(&editors, `SELECT DISTINCT user_id::text FROM issue_history WHERE issue_id=$1 AND field IN ('priority','status')`, issue.ID))
 	require.Equal(t, []string{owner.String()}, editors)
+
+	// KUA-195: a status name picks the team status with that name, never
+	// another one of its category (In Progress and In Review are both
+	// "started"), and the response shows what was stored.
+	statusNamed := func(name string) string {
+		t.Helper()
+		var id string
+		require.NoError(t, db.Get(&id, `SELECT id::text FROM team_statuses WHERE team_id=$1 AND name=$2`, team.ID, name))
+		return id
+	}
+	type issueStatus struct {
+		ID         string `json:"id"`
+		Status     string `json:"status"`
+		StatusID   string `json:"status_id"`
+		StatusInfo struct {
+			Name string `json:"name"`
+		} `json:"status_info"`
+	}
+	stored := func(id string) issueStatus {
+		t.Helper()
+		got := issueStatus{ID: id}
+		require.NoError(t, db.QueryRow(`SELECT status, status_id::text FROM issues WHERE id=$1`, id).Scan(&got.Status, &got.StatusID))
+		return got
+	}
+	for _, step := range []struct{ given, name, slug string }{
+		{"In Review", "In Review", "in_review"},
+		{"In Progress", "In Progress", "in_progress"},
+		{" in review ", "In Review", "in_review"},
+		{"in_progress", "In Progress", "in_progress"},
+	} {
+		var got issueStatus
+		require.NoError(t, json.Unmarshal([]byte(ok(ownerWrite, "update_issue", map[string]any{"identifier": "SEC-1", "status": step.given})), &got))
+		require.Equal(t, step.slug, got.Status, step.given)
+		require.Equal(t, statusNamed(step.name), got.StatusID, step.given)
+		require.Equal(t, step.name, got.StatusInfo.Name, step.given)
+		require.Equal(t, issueStatus{ID: issue.ID, Status: step.slug, StatusID: statusNamed(step.name)}, stored(issue.ID), step.given)
+	}
+	refused(ownerWrite, "update_issue", map[string]any{"identifier": "SEC-1", "status": "Doing"}, "Backlog, Todo, In Progress, In Review, Done, Cancelled")
+	require.Equal(t, statusNamed("In Progress"), stored(issue.ID).StatusID)
+
 	// The API's validation applies unchanged.
 	refused(ownerWrite, "update_issue", map[string]any{"identifier": "SEC-1", "status_id": uuid.NewString()}, "BAD_REQUEST")
 	refused(ownerWrite, "create_issue", map[string]any{"team_id": team.ID}, "VALIDATION_ERROR")
@@ -287,4 +327,13 @@ func TestMCPToolsFollowTokenScopesAndTeamPrivacy(t *testing.T) {
 
 	// A token restricted to this workspace cannot name another one.
 	refused(ownerWrite, "list_teams", map[string]any{"workspace": "another-workspace"}, "")
+
+	// create_issue resolves a status name the same way.
+	var created issueStatus
+	require.NoError(t, json.Unmarshal([]byte(ok(ownerWrite, "create_issue", map[string]any{"title": "Named status", "team_id": team.ID, "status": "in review"})), &created))
+	require.Equal(t, "In Review", created.StatusInfo.Name)
+	require.Equal(t, issueStatus{ID: created.ID, Status: "in_review", StatusID: statusNamed("In Review")}, stored(created.ID))
+	refused(ownerWrite, "create_issue", map[string]any{"title": "Unknown status", "team_id": team.ID, "status": "Doing"}, "Backlog, Todo, In Progress, In Review, Done, Cancelled")
+	require.NoError(t, db.Get(&count, `SELECT COUNT(*) FROM issues WHERE workspace_id=$1`, ws))
+	require.Equal(t, 2, count)
 }
