@@ -6,6 +6,8 @@ import type { IssueAgentAssignee } from '$lib/api/agents';
 import { assigneeGroup } from '$lib/features/agents/agent-assignees';
 import { showUndoToast } from '$lib/features/undo/undo.svelte';
 import { m } from '$lib/features/i18n/messages';
+import { buildIssueTree, hiddenTreeIds, rangeSelection, visibleTreeIssues, type IssueTreeNode } from './issue-tree';
+import { subIssueTreeState } from './sub-issue-tree.state.svelte';
 
 export type { GroupByField } from '$lib/features/preferences/preferences.state.svelte';
 
@@ -18,8 +20,11 @@ class IssuesState {
 	hasMore = $state(false);
 	selectedIssue = $state<Issue | null>(null);
 	filters = $state<Record<string, string>>({});
-	selectedIds = $state<Set<string>>(new Set());
+	/** What was selected; read it through `selectedIds`, which leaves out rows hidden by nesting. */
+	private selected = $state<Set<string>>(new Set());
 	groupBy = $state<GroupByField>('status');
+	/** Tells whether the issue list on screen nests sub-issues; set through `useNestedList`. */
+	private nestedSource = $state<(() => boolean) | null>(null);
 	private currentSlug = '';
 	private currentPage = 1;
 	private loadRequestId = 0;
@@ -123,8 +128,66 @@ class IssuesState {
 		return preferencesState.getWorkflowSortOrder(this.currentSlug, teamId);
 	}
 
-	/** Flat issue order matching the visual rendering (respects grouping). */
-	private visibleOrder = $derived<Issue[]>(this.groupBy ? this.groupedIssues.flatMap((g) => g.issues) : this.issues);
+	/** True while the issue list on screen nests sub-issues under their parent. */
+	get nestedList(): boolean {
+		return this.nestedSource?.() ?? false;
+	}
+
+	/**
+	 * The mounted issue list passes whether it nests sub-issues, read live. Call the returned
+	 * function when the list unmounts; it only clears the source no other list has replaced.
+	 */
+	useNestedList(nested: () => boolean): () => void {
+		this.nestedSource = nested;
+		return () => {
+			if (this.nestedSource === nested) this.nestedSource = null;
+		};
+	}
+
+	/** The issues of each rendered list, one per group, in display order. */
+	private listIssues = $derived<Issue[][]>(this.groupBy ? this.groupedIssues.map((group) => group.issues) : [this.issues]);
+
+	/** Sub-issue trees of each list while the list nests them, built once per data change. */
+	private listTrees = $derived<IssueTreeNode<Issue>[][] | null>(
+		this.nestedList ? this.listIssues.map((issues) => buildIssueTree(issues)) : null
+	);
+
+	/** Flat issue order matching the visual rendering (respects grouping and nested, collapsed sub-issues). */
+	private visibleOrder = $derived<Issue[]>(
+		this.listTrees
+			? this.listTrees.flatMap((nodes) => visibleTreeIssues(nodes, subIssueTreeState.expanded))
+			: this.listIssues.flat()
+	);
+
+	/** Ids nested under a collapsed parent of the list on screen. */
+	private hiddenByNesting = $derived.by(() => {
+		const hidden = new Set<string>();
+		for (const nodes of this.listTrees ?? []) {
+			for (const id of hiddenTreeIds(nodes, subIssueTreeState.expanded)) hidden.add(id);
+		}
+		return hidden;
+	});
+
+	/** The selection without rows hidden by nesting; the same Set as `selected` when none is hidden. */
+	private visibleSelection = $derived.by(() => {
+		const selected = this.selected;
+		if (selected.size === 0) return selected;
+		const hidden = this.hiddenByNesting;
+		if (hidden.size === 0 || ![...selected].some((id) => hidden.has(id))) return selected;
+		return new Set([...selected].filter((id) => !hidden.has(id)));
+	});
+
+	/**
+	 * Selected issue ids. A row hidden under a collapsed parent of a nested list is never part of
+	 * it, so bulk actions only act on rows the user can see.
+	 */
+	get selectedIds(): Set<string> {
+		return this.visibleSelection;
+	}
+
+	set selectedIds(ids: Set<string>) {
+		this.selected = ids;
+	}
 
 	getAdjacentIdentifier(current: string, direction: 'prev' | 'next'): string | null {
 		const idx = this.issueIdentifiers.indexOf(current);
@@ -134,6 +197,8 @@ class IssuesState {
 	}
 
 	toggleSelect(id: string) {
+		// A row hidden under a collapsed parent cannot be selected, e.g. with `x` after collapsing it.
+		if (this.hiddenByNesting.has(id)) return;
 		const next = new Set(this.selectedIds);
 		if (next.has(id)) {
 			next.delete(id);
@@ -144,21 +209,24 @@ class IssuesState {
 	}
 
 	selectRange(fromId: string, toId: string) {
-		const order = this.visibleOrder;
-		const fromIdx = order.findIndex((i) => i.id === fromId);
-		const toIdx = order.findIndex((i) => i.id === toId);
-		if (fromIdx === -1 || toIdx === -1) return;
-		const start = Math.min(fromIdx, toIdx);
-		const end = Math.max(fromIdx, toIdx);
+		// A hidden anchor starts the range at its nearest visible ancestor; see rangeSelection.
+		const parents = new Map(this.issues.map((issue) => [issue.id, issue.parent_id]));
 		const next = new Set(this.selectedIds);
-		for (let i = start; i <= end; i++) {
-			next.add(order[i].id);
-		}
+		for (const id of rangeSelection(this.visibleOrder, fromId, toId, (id) => parents.get(id))) next.add(id);
 		this.selectedIds = next;
 	}
 
+	/** Selects every row on screen; sub-issues under a collapsed parent stay unselected. */
 	selectAll() {
-		this.selectedIds = new Set(this.issues.map((i) => i.id));
+		this.selectedIds = new Set(this.visibleOrder.map((issue) => issue.id));
+	}
+
+	/** Takes these ids out of the selection, e.g. the sub-issues of a parent that was just collapsed. */
+	deselect(ids: Iterable<string>) {
+		const next = new Set(this.selected);
+		let changed = false;
+		for (const id of ids) changed = next.delete(id) || changed;
+		if (changed) this.selected = next;
 	}
 
 	clearSelection() {

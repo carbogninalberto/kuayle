@@ -2,15 +2,18 @@
 	import { groupAgentId } from '$lib/features/agents/agent-assignees';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
+	import { subIssueTreeState } from '$lib/features/issues/sub-issue-tree.state.svelte';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import type { GroupByField } from '$lib/features/issues/issues.state.svelte';
 	import { showEmptyStatusGroups, withEmptyStatusGroups } from '$lib/features/issues/empty-status-groups';
 	import { isIssueDrag, issueGroupKey, resolveGroupDrop } from '$lib/features/issues/group-drop';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
+	import IssueTreeRows from '$lib/features/issues/IssueTreeRows.svelte';
+	import type { IssueRowTree } from '$lib/features/issues/issue-tree';
 	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
 	import IssueGroupHeader from '$lib/features/issues/IssueGroupHeader.svelte';
 	import IssueListLoadMore from '$lib/features/issues/IssueListLoadMore.svelte';
@@ -23,6 +26,9 @@
 	import { showIssueCreatedToast } from '$lib/features/issues/issue-created-toast';
 	import SaveViewDialog from '$lib/components/shared/SaveViewDialog.svelte';
 	import * as Popover from '$lib/components/ui/popover';
+	import { Switch } from '$lib/components/ui/switch/index.js';
+	import { Label as FieldLabel } from '$lib/components/ui/label/index.js';
+	import { Separator } from '$lib/components/ui/separator/index.js';
 	import { listTeams } from '$lib/api/teams';
 	import { getCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
 	import { hasPermission } from '$lib/security/permissions';
@@ -75,6 +81,10 @@
 	);
 	let hasActiveFilters = $derived(Object.values(filters).some((value) => value !== undefined && value !== ''));
 	let layout = $state<ViewLayout>(viewLayoutState.layout);
+	// Sub-issues nest under their parent in the list layout only; the board stays flat.
+	const nestSubIssues = $derived(layout === 'list' && subIssueTreeState.nest);
+	// Selection, Ctrl+A and Shift+click ranges follow what this list shows.
+	onDestroy(issuesState.useNestedList(() => nestSubIssues));
 	let groupByOpen = $state(false);
 	let collapsedGroups = $state<Set<string>>(new Set());
 	let loadedCollapsedScope = '';
@@ -117,6 +127,11 @@
 		if (isMobile.current && layout === 'board') {
 			layout = 'list';
 		}
+	});
+
+	// Before the first render, so remembered expanded parents never flash collapsed.
+	$effect.pre(() => {
+		subIssueTreeState.useWorkspace(slug);
 	});
 
 	$effect(() => {
@@ -460,7 +475,7 @@
 							</Button>
 						{/snippet}
 					</Popover.Trigger>
-					<Popover.Content class="w-40 p-1" align="end">
+					<Popover.Content class="w-48 p-1" align="end">
 						{#each groupByOptions as opt}
 							<Button variant="plain" onclick={() => handleGroupByChange(opt.value)}
 								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issuesState.groupBy ===
@@ -471,6 +486,13 @@
 								{opt.label}
 							</Button>
 						{/each}
+						<Separator class="my-1" />
+						<FieldLabel
+							class="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm font-normal text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+						>
+							{m['common.nest_sub_issues']()}
+							<Switch size="sm" checked={subIssueTreeState.nest} onCheckedChange={(value) => subIssueTreeState.setNest(value)} />
+						</FieldLabel>
 					</Popover.Content>
 				</Popover.Root>
 			{/if}
@@ -547,7 +569,7 @@
 							onquickadd={handleQuickAdd}
 						/>
 						{#if !collapsedGroups.has(group.key)}
-							{#each group.issues as issue (issue.id)}
+							{#snippet groupRow(issue: Issue, tree: IssueRowTree | undefined)}
 								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div
 									class="relative"
@@ -581,6 +603,7 @@
 									{/if}
 									<IssueRow
 										{issue}
+										{tree}
 										readOnly={!canUpdateIssues}
 										{slug}
 										{members}
@@ -593,14 +616,16 @@
 										onaddrelation={handleAddRelation}
 									/>
 								</div>
-							{/each}
+							{/snippet}
+							<IssueTreeRows issues={group.issues} nested={nestSubIssues} row={groupRow} />
 						{/if}
 					</div>
 				{/each}
 			{:else}
-				{#each issuesState.issues as issue (issue.id)}
+				{#snippet flatRow(issue: Issue, tree: IssueRowTree | undefined)}
 					<IssueRow
 						{issue}
+						{tree}
 						readOnly={!canUpdateIssues}
 						{slug}
 						{members}
@@ -612,7 +637,8 @@
 						onlastselected={(id) => (lastSelectedId = id)}
 						onaddrelation={handleAddRelation}
 					/>
-				{/each}
+				{/snippet}
+				<IssueTreeRows issues={issuesState.issues} nested={nestSubIssues} row={flatRow} />
 			{/if}
 
 			<IssueListLoadMore />

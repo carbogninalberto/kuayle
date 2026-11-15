@@ -132,7 +132,7 @@ func TestPrivateTeamVisibilityPostgres(t *testing.T) {
 		changed := original
 		changed.Title = "unauthorized change"
 		require.ErrorIs(t, issueRepo.Update(request, &changed), sql.ErrNoRows)
-		require.NoError(t, issueRepo.Delete(request, original.ID))
+		require.ErrorIs(t, issueRepo.Delete(request, original.ID), sql.ErrNoRows)
 		priority := 4
 		count, err := issueRepo.BulkUpdate(request, workspace, []uuid.UUID{original.ID}, nil, &priority, nil, nil, nil, false)
 		require.NoError(t, err)
@@ -361,7 +361,7 @@ func TestPrivateTeamVisibilityPostgres(t *testing.T) {
 		require.NoError(t, err)
 		moved, err := cycles.CarryOverIssues(memberCtx, cycle.ID, cycle.ID)
 		require.NoError(t, err)
-		require.Zero(t, moved)
+		require.Empty(t, moved)
 		var retained uuid.UUID
 		require.NoError(t, db.Get(&retained, `SELECT cycle_id FROM issues WHERE id=$1`, issueIDs[privateB]))
 		require.Equal(t, cycle.ID, retained)

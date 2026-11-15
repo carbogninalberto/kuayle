@@ -48,7 +48,7 @@ export function conditionsFor(node: WorkflowNode, profiles: AgentProfile[]): Wor
 			outcomes = ['approval_approved', 'approval_denied'];
 			break;
 		case 'publish':
-			outcomes = ['published', 'publish_failed'];
+			outcomes = ['published', 'publish_failed', 'no_changes'];
 			break;
 		case 'merge':
 			outcomes = ['merged'];

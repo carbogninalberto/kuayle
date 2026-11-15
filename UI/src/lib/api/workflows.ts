@@ -75,6 +75,7 @@ export type WorkflowCondition =
 	| 'approval_denied'
 	| 'published'
 	| 'publish_failed'
+	| 'no_changes'
 	| 'merged'
 	| 'timeout'
 	| 'else';

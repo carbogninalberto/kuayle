@@ -77,6 +77,27 @@ type AgentTaskService struct {
 	notices       taskNoticeStore
 	notifications notificationCreator
 	userEvents    userEventPublisher
+	// webhooks delivers the issue status changes tasks make; nil until
+	// SetWebhooks wires it.
+	webhooks webhookEmitter
+}
+
+// SetWebhooks makes issue status changes made by tasks deliver workspace
+// webhooks.
+func (s *AgentTaskService) SetWebhooks(w webhookEmitter) { s.webhooks = w }
+
+// issueChanged announces an issue whose status a task changed. The store
+// returns the issue only after committing a status change.
+func (s *AgentTaskService) issueChanged(ctx context.Context, ws uuid.UUID, issue *domain.Issue, actorID uuid.UUID) {
+	if issue == nil {
+		return
+	}
+	if s.events != nil {
+		s.events.Broadcast(ws, realtime.Event{Type: "issue.updated", Payload: issue})
+	}
+	if s.webhooks != nil {
+		s.webhooks.IssueEvent(ctx, ws, WebhookEventIssueUpdated, issue, actorID)
+	}
 }
 
 type taskRegistry interface {
@@ -278,7 +299,10 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			s.notePublished(ctx, task)
 			return nil
 		case domain.DevMachineAgentRunStepStatusSkipped:
-			return s.store.Transition(ctx, task, "blocked", "The iteration produced no changes to publish")
+			// Blocked, so a person can continue the task with new instructions.
+			// The summary says either that the branch added nothing to its base,
+			// or that GitHub's branch still holds work the agent removed.
+			return s.store.Transition(ctx, task, "blocked", publicationSkippedReason(result))
 		case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
 			return s.store.Transition(ctx, task, "blocked", "Publishing failed; check the repository connection and retry")
 		}
@@ -433,9 +457,9 @@ func (s *AgentTaskService) recordStart(ctx context.Context, task *domain.AgentTa
 	if err != nil {
 		return err
 	}
-	if issue != nil && s.events != nil {
-		s.events.Broadcast(task.WorkspaceID, realtime.Event{Type: "issue.updated", Payload: issue})
-	}
+	// The issue moves to a started status on behalf of the task's creator, who
+	// is also the actor its history records.
+	s.issueChanged(ctx, task.WorkspaceID, issue, task.CreatorID)
 	task.State = "running"
 	return nil
 }
@@ -1325,7 +1349,10 @@ func (s *AgentTaskService) workflowValidated(ctx context.Context, task domain.Ag
 	return nil
 }
 
-// workflowPublished reports the publication's result to the workflow.
+// workflowPublished reports the publication's result to the workflow:
+// published, publish_failed, or no_changes when the branch had nothing to
+// publish. A branch that still holds work the agent removed blocks the task
+// instead: the workflow does not move.
 func (s *AgentTaskService) workflowPublished(ctx context.Context, task domain.AgentTask, result *domain.DevMachineAgentRunStep) error {
 	if s.workflow == nil {
 		return ErrInvalidOperation
@@ -1338,11 +1365,28 @@ func (s *AgentTaskService) workflowPublished(ctx context.Context, task domain.Ag
 		s.notePublished(ctx, task)
 		return nil
 	case domain.DevMachineAgentRunStepStatusSkipped:
-		return s.workflow.Outcome(ctx, task, domain.WorkflowPublishFailed, "The iteration produced no changes to publish")
+		reason := publicationSkippedReason(result)
+		if domain.IsPublishedWorkRemainsReason(reason) {
+			// The workflow's publish step stays open, so a retry continues on
+			// the implementing step: finishing would leave the earlier work
+			// published while the task looks done. Blocking also drops a pause
+			// request that had not taken effect.
+			return s.store.Transition(ctx, task, "blocked", reason)
+		}
+		return s.workflow.Outcome(ctx, task, domain.WorkflowNoChanges, reason)
 	case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
 		return s.workflow.Outcome(ctx, task, domain.WorkflowPublishFailed, "Publishing failed; check the repository connection")
 	}
 	return nil
+}
+
+// publicationSkippedReason is why a publication published nothing, as the
+// step recorded it (the base branch named), or a generic reason.
+func publicationSkippedReason(result *domain.DevMachineAgentRunStep) string {
+	if result.Summary != nil && strings.TrimSpace(*result.Summary) != "" {
+		return *result.Summary
+	}
+	return domain.NoChangesReason("")
 }
 
 // SetWorkflows enables configurable workflows: tasks that pin a workflow

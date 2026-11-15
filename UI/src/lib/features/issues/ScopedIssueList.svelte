@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { groupAgentId } from '$lib/features/agents/agent-assignees';
-	import { onMount, untrack } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { listTeams } from '$lib/api/teams';
 	import { listProjects } from '$lib/api/projects';
@@ -26,6 +26,9 @@
 	import { showEmptyStatusGroups, withEmptyStatusGroups } from './empty-status-groups';
 	import { isIssueDrag, resolveGroupDrop } from './group-drop';
 	import IssueRow from './IssueRow.svelte';
+	import IssueTreeRows from './IssueTreeRows.svelte';
+	import type { IssueRowTree } from './issue-tree';
+	import { subIssueTreeState } from './sub-issue-tree.state.svelte';
 	import IssueGroupHeader from './IssueGroupHeader.svelte';
 	import IssueListLoadMore from './IssueListLoadMore.svelte';
 	import KanbanBoard from './KanbanBoard.svelte';
@@ -40,6 +43,9 @@
 	import GanttChart from '$lib/features/projects/GanttChart.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
+	import { Switch } from '$lib/components/ui/switch';
+	import { Label as FieldLabel } from '$lib/components/ui/label';
+	import { Separator } from '$lib/components/ui/separator';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import { appToast } from '$lib/features/toast/toast';
@@ -80,6 +86,10 @@
 	let layout = $state<ViewLayout>('list');
 	let gantt = $state(false);
 	let groupBy = $state<GroupByField>('status');
+	// Sub-issues nest under their parent in the list layout only; board and Gantt stay flat.
+	const nestSubIssues = $derived(layout === 'list' && !gantt && subIssueTreeState.nest);
+	// Selection, Ctrl+A and Shift+click ranges follow what this list shows.
+	onDestroy(issuesState.useNestedList(() => nestSubIssues));
 	let filters = $state<ViewFilter>({});
 	// Statuses of the scope's team, else of the teams that have issues here, are groups even when empty.
 	let displayGroups = $derived(
@@ -235,6 +245,10 @@
 		const version = refreshVersion;
 		if (version) untrack(() => void loadIssues());
 	});
+	// Before the first render, so remembered expanded parents never flash collapsed.
+	$effect.pre(() => {
+		subIssueTreeState.useWorkspace(slug);
+	});
 
 	async function dropOnGroup(identifier: string, groupKey: string) {
 		if (!canUpdate || !groupBy) return;
@@ -318,7 +332,7 @@
 						class="flex items-center gap-1 rounded-md border border-[var(--app-border)] px-2 py-1 text-xs"
 						aria-label={m['common.group_by']()}><Layers size={12} />{m['common.group']()}</Popover.Trigger
 					>
-					<Popover.Content class="w-40 p-1" align="end">
+					<Popover.Content class="w-48 p-1" align="end">
 						{#each groupOptions as option}<Button variant="plain" class="w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-[var(--color-bg-hover)]"
 								onclick={() => {
 									groupBy = option.value;
@@ -326,6 +340,13 @@
 									void loadIssues();
 								}}>{option.label}</Button
 							>{/each}
+						<Separator class="my-1" />
+						<FieldLabel
+							class="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm font-normal text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+						>
+							{m['common.nest_sub_issues']()}
+							<Switch size="sm" checked={subIssueTreeState.nest} onCheckedChange={(value) => subIssueTreeState.setNest(value)} />
+						</FieldLabel>
 					</Popover.Content>
 				</Popover.Root>
 			{/if}
@@ -453,10 +474,10 @@
 							}}
 							onquickadd={canCreate ? openCreate : undefined}
 						/>
-						{#if !collapsed.has(group.key)}{#each group.issues as issue (issue.id)}{@render row(issue)}{/each}{/if}
+						{#if !collapsed.has(group.key)}<IssueTreeRows issues={group.issues} nested={nestSubIssues} {row} />{/if}
 					</div>
 				{/each}
-			{:else}{#each issuesState.issues as issue (issue.id)}{@render row(issue)}{/each}{/if}
+			{:else}<IssueTreeRows issues={issuesState.issues} nested={nestSubIssues} {row} />{/if}
 			<IssueListLoadMore />
 			{#if canUpdate}<BulkActionBar
 					{slug}
@@ -473,9 +494,10 @@
 	{/if}
 </div>
 
-{#snippet row(issue: Issue)}
+{#snippet row(issue: Issue, tree: IssueRowTree | undefined)}
 	<IssueRow
 		{issue}
+		{tree}
 		{slug}
 		{members}
 		{labels}

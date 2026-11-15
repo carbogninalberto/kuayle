@@ -18,11 +18,17 @@ type CycleService struct {
 	teamRepo  repository.TeamRepo
 	hub       *realtime.Hub
 	notifSvc  *NotificationService
+	// webhooks delivers issue events for carried-over issues; nil until
+	// SetWebhooks wires it.
+	webhooks webhookEmitter
 }
 
 func NewCycleService(cycleRepo repository.CycleRepo, teamRepo repository.TeamRepo, hub *realtime.Hub, notifSvc *NotificationService) *CycleService {
 	return &CycleService{cycleRepo: cycleRepo, teamRepo: teamRepo, hub: hub, notifSvc: notifSvc}
 }
+
+// SetWebhooks makes carried-over issues deliver issue.updated.
+func (s *CycleService) SetWebhooks(w webhookEmitter) { s.webhooks = w }
 
 // AuthorizeTeam reports whether the team belongs to the request's workspace
 // and is visible to the caller. Cycle writes call it before touching a team.
@@ -190,17 +196,29 @@ func (s *CycleService) Complete(ctx context.Context, id uuid.UUID, req dto.Compl
 	}
 
 	carriedOver := 0
+	var moved []domain.Issue
 	if req.CarryOver {
 		next, err := s.cycleRepo.GetNextUpcoming(ctx, cycle.TeamID)
 		if err != nil {
 			return nil, 0, err
 		}
 		if next != nil {
-			carriedOver, err = s.cycleRepo.CarryOverIssues(ctx, id, next.ID)
+			moved, err = s.cycleRepo.CarryOverIssues(ctx, id, next.ID)
 			if err != nil {
 				return nil, 0, err
 			}
 		}
+	}
+	carriedOver = len(moved)
+
+	// The move is already committed, so it is announced even if completing the
+	// cycle fails afterwards.
+	if s.webhooks != nil && len(moved) > 0 {
+		actor := uuid.Nil
+		if access, ok := domain.AccessFromContext(ctx); ok {
+			actor = access.UserID
+		}
+		s.webhooks.IssueEvents(ctx, moved[0].WorkspaceID, WebhookEventIssueUpdated, moved, actor)
 	}
 
 	if err := s.cycleRepo.Update(ctx, cycle); err != nil {

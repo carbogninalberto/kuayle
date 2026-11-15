@@ -2,15 +2,17 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // --- Mocks ---
@@ -83,9 +85,10 @@ func (m *mockCycleRepo) GetNextUpcoming(ctx context.Context, teamID uuid.UUID) (
 	return args.Get(0).(*domain.Cycle), args.Error(1)
 }
 
-func (m *mockCycleRepo) CarryOverIssues(ctx context.Context, fromCycleID, toCycleID uuid.UUID) (int, error) {
+func (m *mockCycleRepo) CarryOverIssues(ctx context.Context, fromCycleID, toCycleID uuid.UUID) ([]domain.Issue, error) {
 	args := m.Called(ctx, fromCycleID, toCycleID)
-	return args.Int(0), args.Error(1)
+	moved, _ := args.Get(0).([]domain.Issue)
+	return moved, args.Error(1)
 }
 
 func (m *mockCycleRepo) VelocityData(ctx context.Context, teamID uuid.UUID, limit int) ([]dto.VelocityPoint, error) {
@@ -205,6 +208,35 @@ func TestCycleService_Complete_AlreadyCompleted(t *testing.T) {
 	_, _, err := svc.Complete(ctx, cycleID, dto.CompleteCycleRequest{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already completed")
+}
+
+// The carry-over writes in its own statement, so the move is announced even
+// when completing the cycle fails afterwards.
+func TestCycleService_CompleteAnnouncesCarriedOverIssuesWhenTheCycleUpdateFails(t *testing.T) {
+	repo := new(mockCycleRepo)
+	teamRepo, hub, notifSvc := newCycleTestDeps()
+	svc := NewCycleService(repo, teamRepo, hub, notifSvc)
+	rec := &webhookRecorder{}
+	svc.SetWebhooks(rec)
+
+	ctx := context.Background()
+	cycleID, nextID, workspaceID := uuid.New(), uuid.New(), uuid.New()
+	cycle := &domain.Cycle{ID: cycleID, TeamID: uuid.New(), Status: domain.CycleStatusActive}
+	next := &domain.Cycle{ID: nextID, TeamID: cycle.TeamID, Status: domain.CycleStatusUpcoming}
+	moved := domain.Issue{ID: uuid.New(), WorkspaceID: workspaceID, CycleID: &nextID, Identifier: "ENG-1"}
+
+	repo.On("GetByID", ctx, cycleID).Return(cycle, nil)
+	repo.On("GetNextUpcoming", ctx, cycle.TeamID).Return(next, nil)
+	repo.On("CarryOverIssues", ctx, cycleID, nextID).Return([]domain.Issue{moved}, nil)
+	repo.On("Update", ctx, mock.AnythingOfType("*domain.Cycle")).Return(errors.New("write refused"))
+
+	_, _, err := svc.Complete(ctx, cycleID, dto.CompleteCycleRequest{CarryOver: true})
+
+	assert.Error(t, err)
+	require.Len(t, rec.sent, 1, "the committed move is announced even if completing the cycle fails")
+	assert.Equal(t, WebhookEventIssueUpdated, rec.sent[0].event)
+	assert.Equal(t, moved.ID, rec.sent[0].issue.ID)
+	assert.Equal(t, workspaceID, rec.sent[0].workspace)
 }
 
 func TestCycleService_GetStats(t *testing.T) {

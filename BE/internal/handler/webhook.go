@@ -3,12 +3,12 @@ package handler
 import (
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 )
 
@@ -39,11 +39,7 @@ func (h *WebhookHandler) Create(c *echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
 	}
 	if err := validate.Struct(&req); err != nil {
-		details := make([]dto.ErrorDetail, 0)
-		for _, e := range validate.FormatErrors(err) {
-			details = append(details, dto.ErrorDetail{Field: e["field"], Message: e["message"]})
-		}
-		return response.ValidationError(c, details)
+		return response.ValidationError(c, validationDetails(err))
 	}
 
 	ws := c.Get("workspace").(*domain.Workspace)
@@ -62,6 +58,9 @@ func (h *WebhookHandler) Update(c *echo.Context) error {
 	var req dto.UpdateWebhookRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	if err := validate.Struct(&req); err != nil {
+		return response.ValidationError(c, validationDetails(err))
 	}
 	w, err := h.webhookSvc.Update(c.Request().Context(), id, req)
 	if err != nil {

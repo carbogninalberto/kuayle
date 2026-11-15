@@ -31,7 +31,10 @@ const (
 )
 
 // Transition conditions: the outcome of the node an edge leaves. "else"
-// matches any outcome that has no edge of its own.
+// matches any outcome that has no edge of its own. A publish step's "no
+// changes" outcome is the exception: "else" catches it only when it leads to
+// an approval. A merge only waits for a pull request, and with nothing
+// published none comes.
 const (
 	WorkflowAgentFinished          = "agent_finished"
 	WorkflowAgentFailed            = "agent_failed"
@@ -46,6 +49,16 @@ const (
 	WorkflowMerged                 = "merged"
 	WorkflowTimeout                = "timeout"
 	WorkflowElse                   = "else"
+	// WorkflowNoChanges is a publish step's outcome when the branch adds no
+	// changes to its base (nothing was pushed and no pull request opened,
+	// KUA-176). A transition naming it always follows it. An "else" transition
+	// follows it only when it leads to an approval: in graphs saved before this
+	// outcome existed "else" means a failed publication, so it must not send an
+	// iteration that changed nothing back to an agent or to a failed end; a
+	// merge only waits for a pull request, and with nothing published none
+	// comes. Without either the workflow ends as done with nothing new to
+	// publish (WorkflowDecision.Finish).
+	WorkflowNoChanges = "no_changes"
 	// WorkflowChecksSkipped is an outcome without a condition of its own: no
 	// check command is configured, which is never a pass, so only an "else"
 	// edge follows it.
@@ -355,7 +368,7 @@ func workflowOutcomes(node WorkflowNode, profiles map[uuid.UUID]AgentProfile) []
 	case WorkflowNodeApproval:
 		outcomes = []string{WorkflowApprovalApproved, WorkflowApprovalDenied}
 	case WorkflowNodePublish:
-		outcomes = []string{WorkflowPublished, WorkflowPublishFailed}
+		outcomes = []string{WorkflowPublished, WorkflowPublishFailed, WorkflowNoChanges}
 	case WorkflowNodeMerge:
 		outcomes = []string{WorkflowMerged}
 	}
@@ -672,6 +685,13 @@ type WorkflowDecision struct {
 	Reason string
 	// Stuck means no transition matches the outcome.
 	Stuck bool
+	// Finish means no transition follows the outcome and the workflow ends
+	// with nothing new to publish, without entering a node: a publish step
+	// whose branch had no changes against its base (WorkflowNoChanges) in a
+	// graph that names no transition for it and whose "else", if any, does
+	// not lead to an approval. A merge only waits for a pull request, and with
+	// nothing published none comes.
+	Finish bool
 }
 
 // Iteration reports whether entering the node starts an iteration in the
@@ -680,10 +700,22 @@ func (g WorkflowGraph) Iteration(node WorkflowNode, profiles map[uuid.UUID]Agent
 	return node.Type == WorkflowNodeAgent && node.ProfileID != nil && !profiles[*node.ProfileID].Reviews()
 }
 
+// leadsToApproval reports whether an "else" transition leads to an approval.
+// Only such an "else" catches a publish step's "no changes" outcome; a merge
+// only waits for a pull request, and with nothing published none comes.
+func (g WorkflowGraph) leadsToApproval(id string) bool {
+	node, ok := g.Node(id)
+	return ok && node.Type == WorkflowNodeApproval
+}
+
 // Decide picks the transition the outcome of the cursor's node fires: the
-// edge naming the outcome, else the node's "else" edge. It reports a limit
-// when the target's visit limit or the budget would be exceeded; reaching an
-// end is never limited, so a workflow can always finish.
+// edge naming the outcome, else the node's "else" edge. A publish step's "no
+// changes" outcome follows a transition naming it first, then an "else" that
+// leads to an approval; otherwise the decision finishes the workflow (Finish)
+// with nothing new to publish. A merge only waits for a pull request, and with
+// nothing published none comes. It reports a limit when the target's visit
+// limit or the budget would be exceeded; reaching an end is never limited, so
+// a workflow can always finish.
 func (g WorkflowGraph) Decide(cursor WorkflowCursor, outcome string, now time.Time, profiles map[uuid.UUID]AgentProfile) WorkflowDecision {
 	from, _ := g.Node(cursor.Node)
 	decision := WorkflowDecision{From: from, Outcome: outcome}
@@ -697,9 +729,14 @@ func (g WorkflowGraph) Decide(cursor WorkflowCursor, outcome string, now time.Ti
 			chosen = &edge
 			break
 		}
-		if edge.Condition == WorkflowElse && chosen == nil {
+		if edge.Condition == WorkflowElse && chosen == nil && (outcome != WorkflowNoChanges || g.leadsToApproval(edge.Target)) {
 			chosen = &edge
 		}
+	}
+	if chosen == nil && outcome == WorkflowNoChanges {
+		decision.Finish = true
+		decision.Reason = fmt.Sprintf("%s ended with %s, so the workflow finishes with nothing new to publish", from.Label, WorkflowOutcomeText(outcome))
+		return decision
 	}
 	if chosen == nil {
 		decision.Stuck = true
@@ -773,6 +810,8 @@ func WorkflowOutcomeText(outcome string) string {
 		return "pull request published"
 	case WorkflowPublishFailed:
 		return "publishing failed"
+	case WorkflowNoChanges:
+		return "no changes against the base"
 	case WorkflowMerged:
 		return "pull request merged"
 	case WorkflowTimeout:

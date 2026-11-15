@@ -104,11 +104,14 @@
 						</ul>
 					{/if}
 					{#if section.id === 'webhooks' && reference.webhook}
-						<p class="mt-3 text-sm text-muted-foreground">
-							Delivery body: {@render typeParts(reference.webhook.body)}. Headers:
-							<code class="font-mono text-brand-200">{reference.webhook.signatureHeader}</code> and
-							<code class="font-mono text-brand-200">{reference.webhook.eventHeader}</code>.
-						</p>
+						<ul class="mt-4 list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
+							{#each reference.webhook.events as event (event.name)}
+								<li>
+									<code class="font-mono text-brand-200">{event.name}</code>: {event.description} Body:
+									{@render typeParts(event.body)}.
+								</li>
+							{/each}
+						</ul>
 					{/if}
 					{#if section.code}
 						<pre

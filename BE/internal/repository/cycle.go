@@ -98,15 +98,15 @@ func (r *CycleRepository) GetNextUpcoming(ctx context.Context, teamID uuid.UUID)
 	return &cycle, err
 }
 
-func (r *CycleRepository) CarryOverIssues(ctx context.Context, fromCycleID, toCycleID uuid.UUID) (int, error) {
-	result, err := r.db.ExecContext(ctx,
-		`UPDATE issues SET cycle_id = $2, updated_at = NOW() WHERE cycle_id = $1 AND status NOT IN ('done', 'cancelled') AND `+teamVisible(ctx, "issues.team_id")+` AND EXISTS(SELECT 1 FROM cycles src WHERE src.id=$1 AND `+teamVisible(ctx, "src.team_id")+`) AND EXISTS(SELECT 1 FROM cycles dest WHERE dest.id=$2 AND `+teamVisible(ctx, "dest.team_id")+`)`,
+func (r *CycleRepository) CarryOverIssues(ctx context.Context, fromCycleID, toCycleID uuid.UUID) ([]domain.Issue, error) {
+	var moved []domain.Issue
+	err := r.db.SelectContext(ctx, &moved,
+		`UPDATE issues SET cycle_id = $2, updated_at = NOW() WHERE cycle_id = $1 AND status NOT IN ('done', 'cancelled') AND `+teamVisible(ctx, "issues.team_id")+` AND EXISTS(SELECT 1 FROM cycles src WHERE src.id=$1 AND `+teamVisible(ctx, "src.team_id")+`) AND EXISTS(SELECT 1 FROM cycles dest WHERE dest.id=$2 AND `+teamVisible(ctx, "dest.team_id")+`) RETURNING *`,
 		fromCycleID, toCycleID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	count, _ := result.RowsAffected()
-	return int(count), nil
+	return moved, nil
 }
 
 func (r *CycleRepository) VelocityData(ctx context.Context, teamID uuid.UUID, limit int) ([]dto.VelocityPoint, error) {

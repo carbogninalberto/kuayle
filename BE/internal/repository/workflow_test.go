@@ -565,6 +565,65 @@ func TestWorkflowStopCancelsTheOpenReview(t *testing.T) {
 	require.Equal(t, "cancelling", state, "the open review is asked to stop")
 }
 
+// KUA-176: a publish step whose branch had no changes against its base, in a
+// graph that does not route that outcome, completes the task on the publish
+// step: no transition, the step closed with the outcome, and the reason in
+// the task's history.
+func TestWorkflowNoChangesCompletesTheTaskOnThePublishStep(t *testing.T) {
+	db, repo, ctx, legacy, fixture := taskRecoveryFixture(t)
+	_, err := db.Exec(`UPDATE agent_tasks SET state='completed' WHERE id=$1`, legacy.ID)
+	require.NoError(t, err)
+	ws := legacy.WorkspaceID
+	workflows := NewWorkflowRepository(db)
+	implementer, reviewer := builtinIDs(t, workflows, ws)
+	graph := domain.ReviewLoopWorkflowGraph(implementer, reviewer)
+	raw, err := json.Marshal(graph)
+	require.NoError(t, err)
+	created, err := workflows.CreateWorkflow(ctx, ws, fixture.userID, "Review loop", "", raw, "created")
+	require.NoError(t, err)
+	chosen := created.ID.String()
+	version, err := workflows.ResolveWorkflow(ctx, ws, legacy.IssueID, &chosen)
+	require.NoError(t, err)
+	task, err := repo.Create(ctx, ws, *legacy.ConversationID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Add dark mode", Provider: "claude-code", Workflow: version})
+	require.NoError(t, err)
+	claimed := prepareTaskStart(t, db, repo, ctx, *task, fixture)
+	_, err = repo.Start(ctx, *claimed)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now(),exit_code=0 WHERE id=$1`, task.RunID)
+	require.NoError(t, err)
+	now := time.Now()
+	toPublish := graph.Decide(task.Cursor(), domain.WorkflowAgentFinished, now, nil)
+	moved, err := repo.ApplyWorkflow(ctx, *claimed, WorkflowApply{Sequence: 2, Outcome: domain.WorkflowAgentFinished, Moves: []WorkflowMove{{Decision: toPublish}}, Entry: WorkflowEntry{Kind: WorkflowEnterPublish, Reason: "Workflow · " + toPublish.Reason}})
+	require.NoError(t, err)
+
+	reason := domain.NoChangesReason("main")
+	claimed.WorkflowSequence = moved.WorkflowSequence
+	nothing := graph.Decide(moved.Cursor(), domain.WorkflowNoChanges, now, nil)
+	require.True(t, nothing.Finish, "the review loop does not route the outcome")
+	done, err := repo.ApplyWorkflow(ctx, *claimed, WorkflowApply{Sequence: moved.WorkflowSequence, Outcome: domain.WorkflowNoChanges, Detail: reason,
+		Moves: []WorkflowMove{{Decision: nothing, Stop: true}},
+		Entry: WorkflowEntry{Kind: WorkflowEnterComplete, Reason: "Workflow · Open pull request: " + reason}})
+	require.NoError(t, err)
+	require.Equal(t, "completed", done.State)
+	require.Equal(t, domain.WorkflowStatusDone, *done.WorkflowStatus)
+	require.Equal(t, "publish", *done.WorkflowNode, "the task finishes on the publish step")
+	require.Equal(t, moved.WorkflowSequence, done.WorkflowSequence, "no step is entered")
+	step, err := repo.CurrentWorkflowStep(ctx, *done)
+	require.NoError(t, err)
+	require.Equal(t, "publish", step.NodeID)
+	require.NotNil(t, step.Outcome)
+	require.Equal(t, domain.WorkflowNoChanges, *step.Outcome)
+	require.NotNil(t, step.FinishedAt)
+	require.Contains(t, step.Detail, reason)
+	var transition struct {
+		From   string `db:"from_state"`
+		Reason string `db:"reason"`
+	}
+	require.NoError(t, db.Get(&transition, `SELECT from_state,reason FROM agent_task_transitions WHERE task_id=$1 AND to_state='completed'`, task.ID))
+	require.Equal(t, "publishing", transition.From)
+	require.Contains(t, transition.Reason, reason, "the task's history says why nothing was published")
+}
+
 // A workflow that ends at Failed can be retried: the task goes back to its
 // last implementing step with a new iteration, the workflow runs again from
 // there, and the step history records the retry.

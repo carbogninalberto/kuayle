@@ -137,7 +137,7 @@ func TestIssueService_BulkUpdateWithUndo_ReturnsOneItemPerChangedIssue(t *testin
 	f.repo.On("ListByIDs", f.ctx, f.ws, ids).Return([]domain.Issue{*first, *second}, nil).Once()
 	f.repo.On("ListByIDs", f.ctx, f.ws, ids).Return([]domain.Issue{firstAfter, secondAfter}, nil).Once()
 	priority := 1
-	f.repo.On("BulkUpdate", f.ctx, f.ws, ids, (*string)(nil), &priority, (*uuid.UUID)(nil), (*uuid.UUID)(nil), (*uuid.UUID)(nil), false).Return(2, nil)
+	f.repo.On("BulkUpdateChanged", f.ctx, f.ws, ids, (*string)(nil), &priority, (*uuid.UUID)(nil), (*uuid.UUID)(nil), (*uuid.UUID)(nil), false).Return(2, []domain.Issue{firstAfter, secondAfter}, nil)
 	f.repo.On("GetByID", f.ctx, first.ID).Return(&firstAfter, nil)
 	f.repo.On("GetByID", f.ctx, second.ID).Return(&secondAfter, nil)
 

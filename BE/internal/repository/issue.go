@@ -27,13 +27,13 @@ func (r *IssueRepository) Create(ctx context.Context, tx *sqlx.Tx, issue *domain
 	query := `
 		INSERT INTO issues (id, workspace_id, team_id, project_id, cycle_id, number, identifier_text, title, description, status, status_id, priority, creator_id, assignee_id, parent_id, due_date, sort_order, triaged)
 		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18 WHERE ` + issueReferencesVisible(ctx, issue) + `
-		RETURNING created_at, updated_at`
+		RETURNING created_at, updated_at, started_at, completed_at, cancelled_at, triaged_at`
 	return tx.QueryRowContext(ctx, query,
 		issue.ID, issue.WorkspaceID, issue.TeamID, issue.ProjectID, issue.CycleID,
 		issue.Number, issue.Identifier, issue.Title, issue.Description,
 		issue.Status, issue.StatusID, issue.Priority, issue.CreatorID, issue.AssigneeID,
 		issue.ParentID, issue.DueDate, issue.SortOrder, issue.Triaged,
-	).Scan(&issue.CreatedAt, &issue.UpdatedAt)
+	).Scan(&issue.CreatedAt, &issue.UpdatedAt, &issue.StartedAt, &issue.CompletedAt, &issue.CancelledAt, &issue.TriagedAt)
 }
 
 func (r *IssueRepository) NextNumber(ctx context.Context, tx *sqlx.Tx, teamID uuid.UUID) (int, error) {
@@ -408,6 +408,22 @@ func (r *IssueRepository) Update(ctx context.Context, issue *domain.Issue) error
 
 // UpdateContent writes only the content fields explicitly changed by the editor.
 func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue, titleChanged, descriptionChanged bool) error {
+	return r.updateIssue(ctx, issue, titleChanged, descriptionChanged, false)
+}
+
+// UpdateUntriaged is Update for a triage decision: it writes only while the
+// stored issue is still untriaged and returns ErrIssueAlreadyTriaged when a
+// concurrent request triaged it first.
+func (r *IssueRepository) UpdateUntriaged(ctx context.Context, issue *domain.Issue) error {
+	return r.updateIssue(ctx, issue, false, false, true)
+}
+
+// ErrIssueAlreadyTriaged is returned when a triage decision loses the race
+// against another one: the stored issue is already triaged and nothing was
+// written.
+var ErrIssueAlreadyTriaged = errors.New("issue is already triaged")
+
+func (r *IssueRepository) updateIssue(ctx context.Context, issue *domain.Issue, titleChanged, descriptionChanged, untriagedOnly bool) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
@@ -416,6 +432,12 @@ func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue
 	if err = setHistoryActor(ctx, tx); err != nil {
 		return err
 	}
+	where := `WHERE id = $13 AND ` + teamVisible(ctx, "issues.team_id") + " AND " + issueReferencesVisible(ctx, issue)
+	if untriagedOnly {
+		// A triage decision writes only while the stored issue is untriaged:
+		// a concurrent decline already moved it, and this one must not.
+		where += " AND issues.triaged = FALSE"
+	}
 	query := `
 		UPDATE issues SET
 			title = CASE WHEN $14 THEN $1 ELSE title END,
@@ -423,15 +445,24 @@ func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue
 			assignee_id = $5, project_id = $6, cycle_id = $7, parent_id = $8,
 			due_date = $9, sort_order = $10, triaged = $11,
 			status_id = $12, updated_at = NOW()
-		WHERE id = $13 AND ` + teamVisible(ctx, "issues.team_id") + " AND " + issueReferencesVisible(ctx, issue) + `
-		RETURNING title, description, updated_at, version`
+		` + where + `
+		RETURNING title, description, updated_at, started_at, completed_at, cancelled_at, triaged_at, version`
 	err = tx.QueryRowContext(ctx, query,
 		issue.Title, issue.Description, issue.Status, issue.Priority,
 		issue.AssigneeID, issue.ProjectID, issue.CycleID, issue.ParentID,
 		issue.DueDate, issue.SortOrder, issue.Triaged,
 		issue.StatusID, issue.ID, titleChanged, descriptionChanged,
-	).Scan(&issue.Title, &issue.Description, &issue.UpdatedAt, &issue.Version)
+	).Scan(&issue.Title, &issue.Description, &issue.UpdatedAt, &issue.StartedAt, &issue.CompletedAt, &issue.CancelledAt, &issue.TriagedAt, &issue.Version)
 	if err != nil {
+		if untriagedOnly && errors.Is(err, sql.ErrNoRows) {
+			// Roll back before reading: nothing was written, and the read has
+			// to see the triage that won the race.
+			_ = tx.Rollback()
+			var triaged bool
+			if readErr := r.db.GetContext(ctx, &triaged, `SELECT triaged FROM issues WHERE id = $1 AND `+teamVisible(ctx, "issues.team_id"), issue.ID); readErr == nil && triaged {
+				return ErrIssueAlreadyTriaged
+			}
+		}
 		return err
 	}
 	// The UPDATE above holds the issue row lock until commit, so a concurrent
@@ -446,11 +477,23 @@ func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue
 }
 
 // Delete soft-deletes the issue: it disappears from the issues view and can be
-// restored until PurgeDeletedIssues removes it after the grace period.
+// restored until PurgeDeletedIssues removes it after the grace period. It
+// reports sql.ErrNoRows when nothing was deleted: it was already deleted (e.g.
+// by a concurrent request), or it is not visible to the caller.
 func (r *IssueRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE issue_records SET deleted_at = NOW(), deleted_by = $2
+	result, err := r.db.ExecContext(ctx, `UPDATE issue_records SET deleted_at = NOW(), deleted_by = $2
 		WHERE id = $1 AND deleted_at IS NULL AND `+teamVisible(ctx, "issue_records.team_id"), id, nullableUUID(issueActor(ctx)))
-	return err
+	if err != nil {
+		return err
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if deleted == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labelIDs []uuid.UUID) error {
@@ -600,17 +643,29 @@ func (r *IssueRepository) CycleIsActive(ctx context.Context, cycleID uuid.UUID) 
 }
 
 func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID, cycleID *uuid.UUID, cycleSet bool) (int, error) {
+	n, _, err := r.BulkUpdateChanged(ctx, workspaceID, issueIDs, status, priority, assigneeID, statusID, cycleID, cycleSet)
+	return n, err
+}
+
+// BulkUpdateChanged is BulkUpdate that also returns, in their state after the
+// write, the issues whose written fields took a different value. The count is
+// every row written, as BulkUpdate reports it. The old values come from rows
+// locked in ID order before the write, so they are current.
+func (r *IssueRepository) BulkUpdateChanged(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID, cycleID *uuid.UUID, cycleSet bool) (int, []domain.Issue, error) {
 	setClauses := []string{"updated_at = NOW()"}
+	changedChecks := []string{}
 	args := []interface{}{workspaceID}
 	argIdx := 2
 
 	if status != nil {
 		setClauses = append(setClauses, fmt.Sprintf("status = $%d", argIdx))
+		changedChecks = append(changedChecks, "issues.status IS DISTINCT FROM bulk_old.status")
 		args = append(args, *status)
 		argIdx++
 	}
 	if priority != nil {
 		setClauses = append(setClauses, fmt.Sprintf("priority = $%d", argIdx))
+		changedChecks = append(changedChecks, "issues.priority IS DISTINCT FROM bulk_old.priority")
 		args = append(args, *priority)
 		argIdx++
 	}
@@ -618,18 +673,21 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 	referenceChecks := []string{}
 	if assigneeID != nil {
 		setClauses = append(setClauses, fmt.Sprintf("assignee_id = $%d", argIdx))
+		changedChecks = append(changedChecks, "issues.assignee_id IS DISTINCT FROM bulk_old.assignee_id")
 		referenceChecks = append(referenceChecks, optionalWorkspaceMember("issues.workspace_id", fmt.Sprintf("CAST($%d AS uuid)", argIdx)))
 		args = append(args, *assigneeID)
 		argIdx++
 	}
 	if statusID != nil {
 		setClauses = append(setClauses, fmt.Sprintf("status_id = $%d", argIdx))
+		changedChecks = append(changedChecks, "issues.status_id IS DISTINCT FROM bulk_old.status_id")
 		referenceChecks = append(referenceChecks, fmt.Sprintf("EXISTS (SELECT 1 FROM team_statuses bulk_status JOIN teams bulk_status_team ON bulk_status_team.id = bulk_status.team_id WHERE bulk_status.id = $%d AND bulk_status_team.workspace_id = issues.workspace_id)", argIdx))
 		args = append(args, *statusID)
 		argIdx++
 	}
 	if cycleSet {
 		setClauses = append(setClauses, fmt.Sprintf("cycle_id = $%d", argIdx))
+		changedChecks = append(changedChecks, "issues.cycle_id IS DISTINCT FROM bulk_old.cycle_id")
 		var cycleArg interface{}
 		if cycleID != nil {
 			cycleArg = *cycleID
@@ -639,8 +697,8 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 		argIdx++
 	}
 
-	if len(setClauses) == 1 {
-		return 0, nil
+	if len(setClauses) == 1 || len(issueIDs) == 0 {
+		return 0, nil, nil
 	}
 
 	// Build IN clause for issue IDs
@@ -650,27 +708,46 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 		args = append(args, id)
 		argIdx++
 	}
+	ids := strings.Join(idPlaceholders, ", ")
 
 	query := fmt.Sprintf(
-		`UPDATE issues SET %s WHERE workspace_id = $1 AND id IN (%s) AND `+teamVisible(ctx, "issues.team_id"),
-		strings.Join(setClauses, ", "),
-		strings.Join(idPlaceholders, ", "),
+		`UPDATE issues SET %s
+		FROM (SELECT id, status, priority, assignee_id, status_id, cycle_id FROM issues
+			WHERE workspace_id = $1 AND id IN (%s) AND `+teamVisible(ctx, "issues.team_id")+` ORDER BY id FOR UPDATE) bulk_old
+		WHERE issues.id = bulk_old.id AND issues.workspace_id = $1 AND issues.id IN (%s) AND `+teamVisible(ctx, "issues.team_id"),
+		strings.Join(setClauses, ", "), ids, ids,
 	)
 	for _, check := range referenceChecks {
 		query += " AND " + check
 	}
+	query += " RETURNING issues.*, (" + strings.Join(changedChecks, " OR ") + ") AS bulk_changed"
 
-	result, err := r.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return 0, err
+	var rows []struct {
+		domain.Issue
+		Changed bool `db:"bulk_changed"`
 	}
-	n, _ := result.RowsAffected()
-	return int(n), nil
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return 0, nil, err
+	}
+	changed := make([]domain.Issue, 0, len(rows))
+	for _, row := range rows {
+		if row.Changed {
+			changed = append(changed, row.Issue)
+		}
+	}
+	return len(rows), changed, nil
 }
 
 func (r *IssueRepository) BulkDelete(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) (int, error) {
+	deleted, err := r.BulkDeleteReturning(ctx, workspaceID, issueIDs)
+	return len(deleted), err
+}
+
+// BulkDeleteReturning is BulkDelete that returns the issues it deleted, as
+// they were when deleted.
+func (r *IssueRepository) BulkDeleteReturning(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) ([]domain.Issue, error) {
 	if len(issueIDs) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 	args := []interface{}{workspaceID}
 	placeholders := make([]string, len(issueIDs))
@@ -679,14 +756,18 @@ func (r *IssueRepository) BulkDelete(ctx context.Context, workspaceID uuid.UUID,
 		args = append(args, id)
 	}
 	args = append(args, nullableUUID(issueActor(ctx)))
-	query := fmt.Sprintf(`UPDATE issue_records SET deleted_at = NOW(), deleted_by = $%d
-		WHERE workspace_id = $1 AND id IN (%s) AND deleted_at IS NULL AND `+teamVisible(ctx, "issue_records.team_id"), len(args), strings.Join(placeholders, ", "))
-	result, err := r.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return 0, err
+	// The outer SELECT reads the snapshot from before the UPDATE, so it returns
+	// each issue as it was when deleted, through the issues view's columns.
+	query := fmt.Sprintf(`WITH deleted AS (
+		UPDATE issue_records SET deleted_at = NOW(), deleted_by = $%d
+		WHERE workspace_id = $1 AND id IN (%s) AND deleted_at IS NULL AND `+teamVisible(ctx, "issue_records.team_id")+`
+		RETURNING id
+	) SELECT * FROM issues WHERE id IN (SELECT id FROM deleted)`, len(args), strings.Join(placeholders, ", "))
+	var deleted []domain.Issue
+	if err := r.db.SelectContext(ctx, &deleted, query, args...); err != nil {
+		return nil, err
 	}
-	n, _ := result.RowsAffected()
-	return int(n), nil
+	return deleted, nil
 }
 
 func (r *IssueRepository) SetAssignees(ctx context.Context, issueID uuid.UUID, userIDs []uuid.UUID) error {

@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -371,13 +372,61 @@ type AgentPublication struct {
 	Bot *GitHubBotSettings
 }
 
-// AgentPublicationResult is recorded only after the branch was pushed and the
-// pull request exists on GitHub. An empty Commit means nothing to publish.
+// AgentPublicationResult is recorded after a publication attempt reached
+// GitHub. An empty Commit means nothing was published: the branch adds no
+// changes to its base, or it only holds work the agent has since removed
+// (Remains).
 type AgentPublicationResult struct {
 	Branch            string
 	Commit            string
 	PullRequestNumber int
 	PullRequestURL    string
+	// Remains means nothing new was published (Commit is empty), but the task
+	// branch's open pull request, PullRequestURL, still has changes against its
+	// base from an earlier publication. A branch without an open pull request
+	// is reported as nothing to publish.
+	Remains bool
+}
+
+// publishedWorkRemainsPrefix starts the reason of a publication that had
+// nothing new to publish while the task's open pull request still holds work
+// the agent removed (KUA-176).
+const publishedWorkRemainsPrefix = "The agent removed all its changes, but "
+
+// publishedWorkRemainsLimit is the most bytes a named pull request URL keeps
+// in the reason, well below the 2048-byte limit of a task reason.
+const publishedWorkRemainsLimit = 300
+
+// PublishedWorkRemainsReason is the reason of a publication that had nothing
+// new to publish while the task's open pull request still holds work the agent
+// removed: it names the pull request and what a person can do. A long URL is
+// shortened so the reason stays far below the 2048-byte limit of a task reason.
+func PublishedWorkRemainsReason(pullRequestURL string) string {
+	const action = " Close the pull request and cancel the task, or retry it with new instructions."
+	if pullRequestURL = truncateUTF8(strings.TrimSpace(pullRequestURL), publishedWorkRemainsLimit); pullRequestURL != "" {
+		return publishedWorkRemainsPrefix + "the open pull request " + pullRequestURL + " still contains the earlier work." + action
+	}
+	return publishedWorkRemainsPrefix + "the task's open pull request still contains the earlier work." + action
+}
+
+// IsPublishedWorkRemainsReason reports whether a publication's summary is that
+// reason. It is text because the manager's result reaches the service only
+// through the persisted step summary; a typed flag would need a new column (a
+// migration) on dev_machine_agent_run_steps. The reason is built and
+// recognised only here.
+func IsPublishedWorkRemainsReason(reason string) bool {
+	return strings.HasPrefix(reason, publishedWorkRemainsPrefix)
+}
+
+// NoChangesReason says why a publication published nothing: the agent's
+// branch adds no changes to its base. The work may already be merged, or the
+// run only produced a summary. It is the publication step's summary and the
+// task's reason. An empty base is named generically.
+func NoChangesReason(base string) string {
+	if strings.TrimSpace(base) == "" {
+		base = "its base branch"
+	}
+	return "The agent made no changes against " + base + "; nothing to publish. The work may already be merged, or the run only produced a summary."
 }
 
 // AgentTaskSignal is a GitHub CI or review event for a task attempt's recorded
