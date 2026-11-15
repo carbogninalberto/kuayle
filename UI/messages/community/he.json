@@ -529,6 +529,7 @@
 	"issue.show_less": "הצגת פחות",
 	"issue.status": "סטטוס",
 	"issue.sub_issue_of": "תת-משימה של",
+	"issue.sub_issues_deselected": "בוטלה בחירת תתי-משימות מוסתרות: {n}",
 	"issue.sub_issues_toggle": "תתי-משימות של {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "הפרומפט ל-AI הועתק",
 	"issue.toast.branch_copied": "הענף הועתק",

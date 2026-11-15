@@ -312,6 +312,30 @@ for (const size of sizes) {
 			expect(await fits(page)).toBe(true);
 		});
 
+		test('the opened notebook stays where the reader scrolls it', async ({ page }) => {
+			await fixture(page);
+			await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+			const book = page.getByRole('region', { name: 'Notebook', exact: true });
+			await book.getByRole('button', { name: /^Notebook/ }).click();
+			await expect(book.getByRole('region', { name: 'Remaining' })).toBeVisible();
+			const history = book.getByRole('button', { name: 'History' });
+			await expect(history).toBeVisible();
+
+			// Opening it reads from the top; scrolling down afterwards is the reader's and
+			// stays (KUA-192: it was sent back to the top once, and a click there was lost).
+			const viewport = page.getByRole('region', { name: 'Messages' });
+			const scrolled = await viewport.evaluate(async (element) => {
+				element.scrollTop = element.scrollHeight;
+				// The scroll event, the scroller's state and anything they set off run within these frames.
+				for (let frame = 0; frame < 3; frame++) await new Promise((done) => requestAnimationFrame(done));
+				return element.scrollTop;
+			});
+			expect(scrolled).toBeGreaterThan(0);
+			await expect(history).toBeInViewport();
+			await history.click();
+			await expect(book.getByRole('list', { name: 'History' }).getByRole('listitem')).toHaveCount(4);
+		});
+
 		test('the notebook follows the steps as they write to it', async ({ page }) => {
 			const { state, emit } = await fixture(page);
 			await page.goto('/test/assistant?conversation=chat-1&agent=task-1');

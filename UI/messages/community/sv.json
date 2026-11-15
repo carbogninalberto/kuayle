@@ -529,6 +529,7 @@
 	"issue.show_less": "Visa mindre",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Underärende till",
+	"issue.sub_issues_deselected": "Dolda underärenden avmarkerade: {n}",
 	"issue.sub_issues_toggle": "Underärenden till {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "AI-prompten kopierades",
 	"issue.toast.branch_copied": "Branchen kopierades",

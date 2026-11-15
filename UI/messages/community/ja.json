@@ -529,6 +529,7 @@
 	"issue.show_less": "表示を減らす",
 	"issue.status": "ステータス",
 	"issue.sub_issue_of": "親イシュー",
+	"issue.sub_issues_deselected": "非表示のサブイシュー {n} 件の選択を解除しました",
 	"issue.sub_issues_toggle": "{identifier} のサブイシュー（{count}）",
 	"issue.toast.ai_prompt_copied": "AIプロンプトをコピーしました",
 	"issue.toast.branch_copied": "ブランチをコピーしました",

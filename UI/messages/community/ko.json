@@ -529,6 +529,7 @@
 	"issue.show_less": "간단히 보기",
 	"issue.status": "상태",
 	"issue.sub_issue_of": "상위 이슈",
+	"issue.sub_issues_deselected": "숨겨진 하위 이슈 {n}개 선택 해제됨",
 	"issue.sub_issues_toggle": "{identifier}의 하위 이슈 ({count})",
 	"issue.toast.ai_prompt_copied": "AI 프롬프트를 복사했습니다",
 	"issue.toast.branch_copied": "브랜치를 복사했습니다",

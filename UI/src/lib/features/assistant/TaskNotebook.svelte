@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { BotMessageSquare, ChevronRight, Circle, CircleCheck, NotebookText } from '@lucide/svelte';
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -41,7 +42,9 @@
 		if (!open || !node || !onopened) return;
 		const opened = onopened;
 		let height = node.offsetHeight;
-		opened();
+		// Untracked: placing the view reads the scroller's state, and a change to it (the
+		// reader scrolling) must not count as an opening and send them back to the top.
+		untrack(opened);
 		const observer = new ResizeObserver(() => {
 			if (node.offsetHeight > height) opened();
 			height = node.offsetHeight;

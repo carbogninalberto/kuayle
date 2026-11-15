@@ -529,6 +529,7 @@
 	"issue.show_less": "Tunjukkan kurang",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Sub-isu bagi",
+	"issue.sub_issues_deselected": "Sub-isu tersembunyi dinyahpilih: {n}",
 	"issue.sub_issues_toggle": "Sub-isu bagi {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Gesaan AI disalin",
 	"issue.toast.branch_copied": "Cabang disalin",
