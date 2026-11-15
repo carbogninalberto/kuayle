@@ -32,6 +32,27 @@ services:
       retries: 10
       start_period: 5s
 
+  # Development identity provider for Settings -> SSO (KUA-99). Start it with
+  # docker compose --profile sso up -d keycloak and follow docs/sso.md.
+  # keycloak.localhost resolves to 127.0.0.1 in browsers; the backend container
+  # reaches the published port through the extra_hosts entry below.
+  keycloak:
+    profiles: ["sso"]
+    image: quay.io/keycloak/keycloak:26.1
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    ports:
+      # Bound on all interfaces so the backend container can reach the issuer
+      # through host-gateway at the same URL the browser uses. Development only.
+      - "8081:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-http://keycloak.localhost:8081}
+      KC_HTTP_ENABLED: "true"
+    volumes:
+      - ./docs/sso/keycloak-realm.json:/opt/keycloak/data/import/kuayle-realm.json:ro
+
   backend:
     profiles: ["app"]
     build: ./BE
@@ -43,6 +64,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    extra_hosts:
+      # Resolve keycloak.localhost to the host so OIDC discovery and the token
+      # endpoint use the same issuer the browser uses.
+      - "keycloak.localhost:host-gateway"
     volumes:
       - ./BE:/app
       - uploads:/app/uploads
@@ -62,6 +87,15 @@ services:
       SMTP_FROM: ${SMTP_FROM:-}
       AI_ALLOW_PRIVATE_NETWORK: ${AI_ALLOW_PRIVATE_NETWORK:-false}
       FORGE_ALLOW_PRIVATE_NETWORK: ${FORGE_ALLOW_PRIVATE_NETWORK:-false}
+      # Development Keycloak is on http://keycloak.localhost:8081.
+      OIDC_ALLOW_PRIVATE_NETWORK: ${OIDC_ALLOW_PRIVATE_NETWORK:-true}
+      SSO_OIDC_WORKSPACE_SLUG: ${SSO_OIDC_WORKSPACE_SLUG:-}
+      SSO_OIDC_ISSUER: ${SSO_OIDC_ISSUER:-}
+      SSO_OIDC_CLIENT_ID: ${SSO_OIDC_CLIENT_ID:-}
+      SSO_OIDC_CLIENT_SECRET: ${SSO_OIDC_CLIENT_SECRET:-}
+      SSO_OIDC_ALLOWED_DOMAINS: ${SSO_OIDC_ALLOWED_DOMAINS:-}
+      SSO_OIDC_DEFAULT_ROLE: ${SSO_OIDC_DEFAULT_ROLE:-member}
+      SSO_OIDC_REQUIRE_SSO: ${SSO_OIDC_REQUIRE_SSO:-false}
       FORGE_WEBHOOK_BASE_URL: ${FORGE_WEBHOOK_BASE_URL:-}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       ENVIRONMENT: ${ENVIRONMENT:-development}

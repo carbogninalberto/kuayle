@@ -68,7 +68,7 @@ func TestTeamIconHTTPPrivateTeam(t *testing.T) {
 	handlers := &appHandlers{workspace: handler.NewWorkspaceHandler(workspaceService), team: handler.NewTeamHandler(teamService)}
 	secret := "team-icon-http-test-secret"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
-	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces)
+	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces, mw.SSONotEnforced)
 	e := echo.New()
 	registerRoutes(e, handlers, middleware)
 	server := httptest.NewServer(e)

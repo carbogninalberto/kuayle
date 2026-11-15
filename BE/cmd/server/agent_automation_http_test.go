@@ -61,7 +61,7 @@ func TestAgentAutomationHTTPRequiresAdminsForRulesAndOwnersForDecisions(t *testi
 	automations := service.NewAgentAutomationService(automationRepo, repository.NewConversationRepository(db), taskSvc, service.NewNotificationService(repository.NewNotificationRepository(db)), realtime.NewHub())
 	secret := "automation-http-jwt-secret-with-at-least-32-chars"
 	middleware := testMiddleware(mw.Auth(secret, repository.NewPersonalAccessTokenRepository(db)))
-	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db))
+	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db), mw.SSONotEnforced)
 	middleware.devMachineDemoGuard = mw.DevMachineDemoGuard(func(uuid.UUID) bool { return true })
 	e := echo.New()
 	registerRoutes(e, &appHandlers{agentTask: handler.NewAgentTaskHandler(taskSvc), agentAutomation: handler.NewAgentAutomationHandler(automations), devMachine: handler.NewDevMachineHandler(machineSvc)}, middleware)

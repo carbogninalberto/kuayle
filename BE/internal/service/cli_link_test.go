@@ -67,7 +67,7 @@ func TestCLILinkService_CreateStoresOnlyTheHashAndBuildsTheFragmentLink(t *testi
 		saved = args.Get(1).(*domain.CLIConnectionLink)
 	}).Return(nil)
 
-	link, linkURL, err := svc.Create(ctx, userID, dto.CreateCLILinkRequest{
+	link, linkURL, err := svc.Create(ctx, userID, uuid.Nil, dto.CreateCLILinkRequest{
 		Name:           "Laptop",
 		Scopes:         []string{domain.PermIssuesRead, domain.PermIssueCreate},
 		WorkspaceSlugs: []string{"acme"},

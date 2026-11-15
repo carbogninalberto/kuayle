@@ -22,6 +22,11 @@ A token can additionally be restricted to a list of workspaces
 handler runs. Routes that return data across workspaces (`/api/notifications`,
 `/api/preferences`) also reject tokens with a workspace restriction.
 
+A workspace with **Require SSO** on accepts only tokens minted from a session
+signed in through that workspace's SSO; other tokens get `403 SSO_REQUIRED`,
+at creation and on every request, owners included. See
+[SSO: personal access tokens and CLI links](sso.md#personal-access-tokens-and-cli-links).
+
 Scope names are the permission codes used by role RBAC. `validTokenScopes` in
 `BE/internal/domain/personal_access_token.go` is the public list of scopes a
 token may request. Roles hold `account:write` and `notifications:write` for
@@ -109,6 +114,10 @@ authentication.
 | POST | `/api/auth/refresh` | public |  |
 | POST | `/api/auth/register` | public |  |
 | POST | `/api/auth/reset-password` | public |  |
+| GET | `/api/auth/sso/:slug` | public |  |
+| GET | `/api/auth/sso/:slug/callback` | public |  |
+| POST | `/api/auth/sso/:slug/link` | session only | Sign-in credentials (passkeys, profile, avatar) stay interactive so a leaked token cannot add or read a way to sign in. |
+| GET | `/api/auth/sso/:slug/start` | public |  |
 | GET | `/api/cli-links` | session only | A token cannot mint, inspect or revoke tokens; those actions require the interactive sign-in. |
 | POST | `/api/cli-links` | session only | A token cannot mint, inspect or revoke tokens; those actions require the interactive sign-in. |
 | DELETE | `/api/cli-links/:id` | session only | A token cannot mint, inspect or revoke tokens; those actions require the interactive sign-in. |
@@ -437,6 +446,9 @@ authentication.
 | POST | `/api/workspaces/:slug/shared-links` | session only | Shared links publish workspace data publicly and stay an interactive decision. |
 | DELETE | `/api/workspaces/:slug/shared-links/:id` | session only | Shared links publish workspace data publicly and stay an interactive decision. |
 | PATCH | `/api/workspaces/:slug/shared-links/:id` | session only | Shared links publish workspace data publicly and stay an interactive decision. |
+| DELETE | `/api/workspaces/:slug/sso` | session only | An SSO client secret is write-only and points the workspace at an identity provider; only an interactive owner or admin may change it. |
+| GET | `/api/workspaces/:slug/sso` | session only | An SSO client secret is write-only and points the workspace at an identity provider; only an interactive owner or admin may change it. |
+| PUT | `/api/workspaces/:slug/sso` | session only | An SSO client secret is write-only and points the workspace at an identity provider; only an interactive owner or admin may change it. |
 | GET | `/api/workspaces/:slug/teams` | token | teams:read |
 | POST | `/api/workspaces/:slug/teams` | token | team:manage |
 | DELETE | `/api/workspaces/:slug/teams/:teamId` | token | team:manage |

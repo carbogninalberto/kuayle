@@ -96,6 +96,23 @@ func TestAuthPATSuccess(t *testing.T) {
 	}
 }
 
+func TestAuthPATCarriesItsSSOWorkspace(t *testing.T) {
+	repo := newFakePATRepo()
+	workspaceID := uuid.New()
+	repo.add("kuayle_pat_sso", &domain.PersonalAccessToken{ID: uuid.New(), UserID: uuid.New(), SSOWorkspaceID: &workspaceID})
+	repo.add("kuayle_pat_password", &domain.PersonalAccessToken{ID: uuid.New(), UserID: uuid.New()})
+
+	rec, c := runAuth(t, repo, bearerRequest("kuayle_pat_sso"))
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, workspaceID, c.Get(TokenSSOWorkspaceKey))
+	// The token SSO workspace is not a session SSO scope.
+	assert.Equal(t, uuid.Nil, GetSessionSSOWorkspace(c))
+
+	rec, c = runAuth(t, repo, bearerRequest("kuayle_pat_password"))
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, uuid.Nil, c.Get(TokenSSOWorkspaceKey))
+}
+
 func TestAuthPATCookieRejected(t *testing.T) {
 	repo := newFakePATRepo()
 	userID := uuid.New()

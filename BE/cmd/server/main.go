@@ -82,6 +82,7 @@ func main() {
 	aiSettingsRepo := repository.NewAISettingsRepository(db)
 	inviteLinkRepo := repository.NewWorkspaceInviteLinkRepository(db)
 	cliLinkRepo := repository.NewCLILinkRepository(db)
+	ssoRepo := repository.NewSSORepository(db)
 
 	// Dev Machine control-plane store
 	devMachineRepo := repository.NewDevMachineRepository(db)
@@ -93,6 +94,21 @@ func main() {
 		service.WithInviteRedeemer(inviteLinkSvc),
 		service.WithPasswordReset(repository.NewPasswordResetRepository(db), resetMailer(cfg), cfg.FrontendURL, cfg.Environment == "development"),
 	)
+	ssoSvc := service.NewSSOService(
+		ssoRepo, userRepo, workspaceRepo, authSvc,
+		crypto.DeriveKey(cfg.JWTSecret+":sso"), cfg.FrontendURL, cfg.OIDCAllowPrivateNetwork,
+		service.InstanceSSOConfig{
+			WorkspaceSlug:  cfg.SSOInstanceConfig().WorkspaceSlug,
+			IssuerURL:      cfg.SSOInstanceConfig().IssuerURL,
+			ClientID:       cfg.SSOInstanceConfig().ClientID,
+			ClientSecret:   cfg.SSOInstanceConfig().ClientSecret,
+			AllowedDomains: cfg.SSOInstanceConfig().AllowedDomainList(),
+			DefaultRole:    cfg.SSOInstanceConfig().DefaultRole,
+			RequireSSO:     cfg.SSOInstanceConfig().RequireSSO,
+		},
+	)
+	// Password and passkey sign-in consult the per-workspace require-SSO rule.
+	authSvc.SetSSOEnforcer(ssoSvc)
 	workspaceSvc := service.NewWorkspaceService(workspaceRepo, userRepo, hub)
 	teamSvc := service.NewTeamService(teamRepo, teamStatusRepo, hub)
 	notifSvc := service.NewNotificationService(notifRepo)
@@ -108,6 +124,9 @@ func main() {
 	favSvc := service.NewFavoriteService(favRepo)
 	prefsSvc := service.NewPreferencesService(prefsRepo)
 	tokenSvc := service.NewTokenService(patRepo, workspaceRepo)
+	// Tokens and connection links refuse workspaces that require SSO unless
+	// minted through that workspace's SSO sign-in.
+	tokenSvc.SetSSORequirement(ssoSvc)
 	cliLinkSvc := service.NewCLILinkService(cliLinkRepo, tokenSvc, cfg.FrontendURL)
 	aiSettingsSvc := service.NewAISettingsService(aiSettingsRepo, workspaceRepo, issueRepo, crypto.DeriveKey(cfg.JWTSecret+":ai"), service.WithAIPrivateNetworkAccess(cfg.AIAllowPrivateNetwork))
 
@@ -150,6 +169,7 @@ func main() {
 	healthH := handler.NewHealthHandler(db)
 	loginThrottle := mw.NewLoginThrottle(5, 15*time.Minute)
 	authH := handler.NewAuthHandler(authSvc, cfg.Environment != "development", loginThrottle, cfg.IsSysAdmin, cfg.DevMachine.AllowSameSite)
+	authH.SetWorkspaceLookup(workspaceRepo)
 	workspaceH := handler.NewWorkspaceHandler(workspaceSvc)
 	inviteLinkH := handler.NewInviteLinkHandler(inviteLinkSvc, cfg.FrontendURL)
 	passkeySvc, err := service.NewPasskeyService(authSvc, userRepo, repository.NewPasskeyRepository(db), passkeyRelyingParty(cfg))
@@ -157,7 +177,10 @@ func main() {
 		log.Fatalf("failed to set up passkeys: %v", err)
 	}
 	passkeyH := handler.NewPasskeyHandler(passkeySvc, authH)
-	configH := handler.NewConfigHandler(!cfg.DisableRegistration).WithPasskeys(passkeySvc.Enabled())
+	ssoH := handler.NewSSOHandler(ssoSvc, authH, cfg.Environment != "development" || cfg.DevMachine.AllowSameSite)
+	configH := handler.NewConfigHandler(!cfg.DisableRegistration).
+		WithPasskeys(passkeySvc.Enabled()).
+		WithSSOInstance(cfg.SSOInstanceConfig().Configured())
 	teamH := handler.NewTeamHandler(teamSvc)
 	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo, teamStatusRepo, projectRepo, cycleRepo, relationSvc)
 	labelH := handler.NewLabelHandler(labelSvc)
@@ -398,6 +421,7 @@ func main() {
 		workspaceTransfer: workspaceTransferH,
 		auth:              authH,
 		passkey:           passkeyH,
+		sso:               ssoH,
 		workspace:         workspaceH,
 		team:              teamH,
 		issue:             issueH,
@@ -445,7 +469,7 @@ func main() {
 		authRateLimit:          mw.RateLimit(5, 10),
 		publicRateLimit:        mw.RateLimit(2, 5),
 		publicAssetRateLimit:   mw.RateLimit(10, 20),
-		workspaceMembership:    mw.WorkspaceMembership(workspaceRepo),
+		workspaceMembership:    mw.WorkspaceMembership(workspaceRepo, ssoSvc),
 		devMachineDemoGuard:    mw.DevMachineDemoGuard(cfg.DemoDevMachineAllowed),
 		machineEventsRateLimit: mw.MachineTokenRateLimit(20, 40),
 		machineLogsRateLimit:   mw.MachineTokenRateLimit(50, 100),

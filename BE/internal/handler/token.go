@@ -53,8 +53,14 @@ func (h *TokenHandler) Create(c *echo.Context) error {
 		return response.ValidationError(c, details)
 	}
 
-	token, plaintext, err := h.tokenSvc.Create(c.Request().Context(), middleware.GetUserID(c), req)
+	// The service limits an SSO-scoped session to a token for its own
+	// workspace and refuses any token that would reach a workspace requiring
+	// SSO without having been minted through that workspace's SSO.
+	token, plaintext, err := h.tokenSvc.Create(c.Request().Context(), middleware.GetUserID(c), middleware.GetSessionSSOWorkspace(c), req)
 	if err != nil {
+		if resp, ok := tokenSSOErrorResponse(c, err); ok {
+			return resp
+		}
 		switch {
 		case errors.Is(err, service.ErrInvalidTokenName):
 			return response.ValidationError(c, []dto.ErrorDetail{{Field: "name", Message: err.Error()}})
@@ -105,6 +111,19 @@ func (h *TokenHandler) DeleteCurrent(c *echo.Context) error {
 		return response.InternalError(c)
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// tokenSSOErrorResponse maps the shared SSO refusals of token and connection
+// link creation and redemption. ok is false for any other error.
+func tokenSSOErrorResponse(c *echo.Context, err error) (resp error, ok bool) {
+	var required *service.TokenWorkspaceRequiresSSOError
+	switch {
+	case errors.As(err, &required):
+		return response.SSORequired(c, required.Slug), true
+	case errors.Is(err, service.ErrTokenSSOSessionScoped):
+		return response.SSOSessionScoped(c), true
+	}
+	return nil, false
 }
 
 func toPersonalAccessTokenResponse(t domain.PersonalAccessToken, plaintext string) dto.PersonalAccessTokenResponse {

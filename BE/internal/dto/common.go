@@ -35,6 +35,8 @@ type ErrorBody struct {
 	Code    string        `json:"code"`
 	Message string        `json:"message"`
 	Details []ErrorDetail `json:"details,omitempty"`
+	// WorkspaceSlug names the workspace an SSO_REQUIRED response points at.
+	WorkspaceSlug string `json:"workspace_slug,omitempty"`
 }
 
 type ErrorResponse struct {

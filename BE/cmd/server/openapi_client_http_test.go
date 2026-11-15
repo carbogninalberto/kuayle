@@ -299,7 +299,7 @@ func TestOpenAPIClientCreatesIssueAndComment(t *testing.T) {
 
 	secret := "openapi-client-test-secret"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
-	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces)
+	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces, mw.SSONotEnforced)
 	e := echo.New()
 	registerRoutes(e, &appHandlers{
 		workspace:  handler.NewWorkspaceHandler(service.NewWorkspaceService(workspaces, users, hub)),

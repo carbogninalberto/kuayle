@@ -383,6 +383,8 @@ func setProductionLoadEnv(t *testing.T) {
 		"SYSTEM_UPDATER_URL", "SYSTEM_UPDATER_TOKEN", "VOICE_URL", "VOICE_INTERNAL_TOKEN",
 		"DEV_MACHINE_ENCRYPTION_KEY", "SMTP_PASSWORD", "S3_SECRET_KEY", "WEB_SEARCH_SEARXNG_URL",
 		"GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_WEBHOOK_SECRET", "SYSADMINS",
+		"SSO_OIDC_WORKSPACE_SLUG", "SSO_OIDC_ISSUER", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET",
+		"SSO_OIDC_ALLOWED_DOMAINS", "SSO_OIDC_DEFAULT_ROLE",
 	} {
 		t.Setenv(name, "")
 	}
@@ -393,6 +395,8 @@ func setProductionLoadEnv(t *testing.T) {
 	t.Setenv("FRONTEND_URL", "https://app.example.com")
 	t.Setenv("DEV_MACHINES_ENABLED", "false")
 	t.Setenv("DEV_MACHINE_ALLOW_SAME_SITE", "false")
+	t.Setenv("OIDC_ALLOW_PRIVATE_NETWORK", "false")
+	t.Setenv("SSO_OIDC_REQUIRE_SSO", "false")
 }
 
 func databaseURLWithPassword(password string) string {
@@ -588,4 +592,76 @@ func TestLoadMachineGatewayRejectsComposeFallbackDatabasePasswordInProduction(t 
 	if !strings.Contains(err.Error(), "DEV_MACHINE_GATEWAY_DATABASE_URL password") {
 		t.Fatalf("error does not name the gateway database password: %v", err)
 	}
+}
+
+func TestLoadReadsInstanceSSOConfiguration(t *testing.T) {
+	setProductionLoadEnv(t)
+	t.Setenv("SSO_OIDC_WORKSPACE_SLUG", "acme")
+	t.Setenv("SSO_OIDC_ISSUER", "https://idp.example.com")
+	t.Setenv("SSO_OIDC_CLIENT_ID", "kuayle")
+	t.Setenv("SSO_OIDC_CLIENT_SECRET", generatedFixture("ssosecret-0"))
+	t.Setenv("SSO_OIDC_ALLOWED_DOMAINS", "Example.com, @corp.example")
+	t.Setenv("SSO_OIDC_DEFAULT_ROLE", "guest")
+	t.Setenv("SSO_OIDC_REQUIRE_SSO", "true")
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	require.True(t, cfg.SSOInstanceConfig().Configured())
+	require.Equal(t, "acme", cfg.SSOInstanceConfig().WorkspaceSlug)
+	require.Equal(t, "https://idp.example.com", cfg.SSOInstanceConfig().IssuerURL)
+	require.Equal(t, []string{"example.com", "corp.example"}, cfg.SSOInstanceConfig().AllowedDomainList())
+	require.Equal(t, "guest", cfg.SSOInstanceConfig().DefaultRole)
+	require.True(t, cfg.SSOInstanceConfig().RequireSSO)
+}
+
+func TestLoadValidatesInstanceSSOConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(*testing.T)
+		error string
+	}{
+		{"partial", func(t *testing.T) {
+			t.Setenv("SSO_OIDC_WORKSPACE_SLUG", "acme")
+		}, "required together"},
+		{"invalid role", func(t *testing.T) {
+			t.Setenv("SSO_OIDC_WORKSPACE_SLUG", "acme")
+			t.Setenv("SSO_OIDC_ISSUER", "https://idp.example.com")
+			t.Setenv("SSO_OIDC_CLIENT_ID", "kuayle")
+			t.Setenv("SSO_OIDC_DEFAULT_ROLE", "owner")
+		}, "SSO_OIDC_DEFAULT_ROLE"},
+		{"plain http without private network", func(t *testing.T) {
+			t.Setenv("SSO_OIDC_WORKSPACE_SLUG", "acme")
+			t.Setenv("SSO_OIDC_ISSUER", "http://keycloak:8080")
+			t.Setenv("SSO_OIDC_CLIENT_ID", "kuayle")
+		}, "must use https"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setProductionLoadEnv(t)
+			tc.setup(t)
+			_, err := Load()
+			require.ErrorContains(t, err, tc.error)
+		})
+	}
+
+	t.Run("private network opt-in", func(t *testing.T) {
+		setProductionLoadEnv(t)
+		t.Setenv("OIDC_ALLOW_PRIVATE_NETWORK", "true")
+		t.Setenv("SSO_OIDC_WORKSPACE_SLUG", "acme")
+		t.Setenv("SSO_OIDC_ISSUER", "http://keycloak:8080")
+		t.Setenv("SSO_OIDC_CLIENT_ID", "kuayle")
+		_, err := Load()
+		require.NoError(t, err)
+	})
+}
+
+func TestLoadRejectsPlaceholderInstanceSSOSecret(t *testing.T) {
+	setProductionLoadEnv(t)
+	t.Setenv("SSO_OIDC_WORKSPACE_SLUG", "acme")
+	t.Setenv("SSO_OIDC_ISSUER", "https://idp.example.com")
+	t.Setenv("SSO_OIDC_CLIENT_ID", "kuayle")
+	t.Setenv("SSO_OIDC_CLIENT_SECRET", "CHANGE_ME")
+	_, err := Load()
+	require.ErrorContains(t, err, "SSO_OIDC_CLIENT_SECRET")
+	require.NotContains(t, err.Error(), "CHANGE_ME")
 }

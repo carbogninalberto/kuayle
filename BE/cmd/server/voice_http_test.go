@@ -85,7 +85,7 @@ func TestVoiceHTTP(t *testing.T) {
 	tokens := repository.NewPersonalAccessTokenRepository(db)
 	secret := "voice-http-test-secret-at-least-32-chars"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
-	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces)
+	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces, mw.SSONotEnforced)
 	e := echo.New()
 	registerRoutes(e, &appHandlers{conversation: handler.NewConversationHandler(conversationSvc, "https://kuayle.test"), voice: handler.NewVoiceHandler(voiceSvc)}, middleware)
 	server := httptest.NewServer(e)

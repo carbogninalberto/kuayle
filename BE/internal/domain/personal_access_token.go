@@ -39,6 +39,10 @@ type PersonalAccessToken struct {
 	ConnectionLinkID *uuid.UUID     `json:"connection_link_id,omitempty" db:"connection_link_id"`
 	CreatedAt        time.Time      `json:"created_at" db:"created_at"`
 	RevokedAt        *time.Time     `json:"revoked_at" db:"revoked_at"`
+	// SSOWorkspaceID is the workspace whose SSO sign-in minted the token, or
+	// nil for a token minted from a password session. A workspace that
+	// requires SSO only accepts tokens that carry its own id.
+	SSOWorkspaceID *uuid.UUID `json:"-" db:"sso_workspace_id"`
 }
 
 // GenerateToken creates a new token. The plaintext is returned once and never

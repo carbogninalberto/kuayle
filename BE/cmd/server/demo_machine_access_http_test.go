@@ -61,7 +61,7 @@ func TestDemoModeRefusesCustomToolTestRun(t *testing.T) {
 
 	secret := "demo-http-test-secret-at-least-32-chars"
 	middleware := testMiddleware(mw.Auth(secret, repository.NewPersonalAccessTokenRepository(db)))
-	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces)
+	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces, mw.SSONotEnforced)
 	middleware.devMachineDemoGuard = mw.DevMachineDemoGuard(demoAllowed)
 	e := echo.New()
 	registerRoutes(e, &appHandlers{assistantTool: handler.NewAssistantCustomToolHandler(tools)}, middleware)
