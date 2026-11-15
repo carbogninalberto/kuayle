@@ -9,7 +9,7 @@ import (
 type CreateIssueRequest struct {
 	Title       string   `json:"title" validate:"required,min=1,max=500"`
 	Description *string  `json:"description"`
-	Status      string   `json:"status" validate:"omitempty,oneof=backlog todo in_progress in_review done cancelled"`
+	Status      string   `json:"status" validate:"omitempty,max=100"` // a team status name or slug; see IssueService.statusByName
 	StatusID    *string  `json:"status_id" validate:"omitempty,uuid"`
 	Priority    *int     `json:"priority" validate:"omitempty,min=0,max=4"`
 	TeamID      string   `json:"team_id" validate:"required,uuid"`
@@ -25,7 +25,7 @@ type CreateIssueRequest struct {
 type CreateSubIssueRequest struct {
 	Title       string   `json:"title" validate:"required,min=1,max=500"`
 	Description *string  `json:"description"`
-	Status      string   `json:"status" validate:"omitempty,oneof=backlog todo in_progress in_review done cancelled"`
+	Status      string   `json:"status" validate:"omitempty,max=100"` // a team status name or slug; see IssueService.statusByName
 	StatusID    *string  `json:"status_id" validate:"omitempty,uuid"`
 	Priority    *int     `json:"priority" validate:"omitempty,min=0,max=4"`
 	ProjectID   *string  `json:"project_id" validate:"omitempty,uuid"`
@@ -47,7 +47,7 @@ type DuplicateIssueRequest struct {
 type UpdateIssueRequest struct {
 	Title       *string  `json:"title" validate:"omitempty,min=1,max=500"`
 	Description *string  `json:"description"`
-	Status      *string  `json:"status" validate:"omitempty,oneof=backlog todo in_progress in_review done cancelled"`
+	Status      *string  `json:"status" validate:"omitempty,max=100"` // a team status name or slug; see IssueService.statusByName
 	StatusID    *string  `json:"status_id" validate:"omitempty,uuid"`
 	Priority    *int     `json:"priority" validate:"omitempty,min=0,max=4"`
 	AssigneeID  *string  `json:"assignee_id" validate:"omitempty,uuid"`

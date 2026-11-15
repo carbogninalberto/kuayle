@@ -705,6 +705,55 @@ as the webhook, so both paths converge and neither completes a task twice. A
 pull request that cannot be checked is retried on the next pass without
 blocking the others.
 
+### Merging only up-to-date heads
+
+Kuayle itself merges only through an approved `merge_pull_request` and the merge
+step of `ship_pull_request`, both in `AssistantApprovals.mergeApproved`
+(`BE/internal/service/assistant_approvals.go`); a workflow's `merge` step only
+waits for the merge. CI checks the pull request head, not a merge with its base,
+so a head without the base's newest commits was never tested with them: two pull
+requests that each added migration 162 merged green one after the other and
+broke `main` (KUA-194). Before every merge Kuayle reads the pull request from
+GitHub again (`mergeGate` in `assistant_merge_gate.go`):
+
+- The head must still be the approved commit.
+- **Behind its base** (`behind_by` > 0 in GitHub's comparison): Kuayle calls
+  GitHub's update-branch pinned to the approved head (`expected_head_sha`), as
+  the approver, audits it (`pull_request.branch_updated_before_merge`) and records
+  the new head as for any moved head, then does not merge. The approval fails
+  with the new head and the next step: wait for the checks on that head and ask
+  again; the new card shows the base merge as its `head_change`. A comparison
+  GitHub does not answer is not merged either.
+- **Conflicts with its base** (`mergeable_state` `dirty`, `mergeable` false, or
+  update-branch refused for a conflict): nothing changes or merges. The failure
+  says "the branch conflicts with `<base>`; needs a rebase" and names
+  `update_pull_request_branch`, which sends the task agent to merge the base
+  and resolve the conflicts.
+- **Up to date**: the head's checks (check runs and commit statuses, read as
+  `get_pull_request_checks` does) must not be failing, still running or only
+  partly readable. Checks register a moment after a push or update-branch, so a
+  head reporting none is held like running checks while the repository uses CI:
+  the base's tip (the comparison's merge base, which the head contains) has a
+  check, its checks cannot all be read, or the head was committed less than two
+  minutes ago. Only a repository without checks on its base tip merges a head
+  without checks, leaving any required checks to branch protection.
+- The merge stays pinned to the approved commit. GitHub's 405 "Base branch was
+  modified" (the base moved during the merge), or an out-of-date refusal from
+  strict branch protection, runs these checks again instead of failing, for at
+  most three merges; a branch now behind is updated as above.
+
+The ship chain waits, polling up to its tests timeout, while the head's checks
+are running or have not appeared yet; any other hold fails its merge step and
+nothing is released. A repository whose CI runs on pull requests but not on its
+base branch is held only for the two-minute window.
+Reading the checks adds checks and commit statuses read to `merge_pull_request`'s
+GitHub permissions. Pull requests merged on GitHub are outside this check:
+GitHub's "Require branches to be up to date before merging" protection enforces
+the same rule there, and `BE/migrations/versions_test.go` catches duplicate
+migration versions once a head contains both. Kuayle merges on no other forge;
+`domain.ForgePublisher` documents the rule and an `UpdateMergeRequestBranch`
+capability for a future implementation.
+
 ## Accepting without merge
 
 A task in `awaiting_review` can be accepted in Kuayle when its work is good
@@ -2814,7 +2863,8 @@ unknown comparison counts as changed). Kind is `merge` when every added commit
 has several parents (the merged branch is not verified, so the tree decides
 whether it is harmless), `rewritten` when the published commit is no longer in
 the head's history, otherwise `pushed`. Approving merges exactly `commit`, still pinned as the
-GitHub merge `sha`; if the head moved after the card was shown the approval fails
+GitHub merge `sha`, and only once it contains its base and its checks passed
+([merging only up-to-date heads](#merging-only-up-to-date-heads)); if the head moved after the card was shown the approval fails
 with a message asking to ask again, and a push that lands after the fresh read is
 refused by GitHub with the same clear message. The merge is refused too when the
 task's published commit changed.
