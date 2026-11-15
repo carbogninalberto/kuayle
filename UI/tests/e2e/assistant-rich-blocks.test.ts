@@ -9,7 +9,7 @@ import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
 //   fallback and streaming tests pass. A CSP-blocked self-navigation sends no
 //   request and no navigation content, but Firefox fires no load event for it,
 //   so the second-load teardown keeps the blocked frame instead of swapping in
-//   the code fallback; the two navigation tests assert the Chromium/WebKit
+//   the code fallback; the navigation test asserts the Chromium/WebKit
 //   behaviour. The copy test hits the same clipboard-permission gap as WebKit.
 
 const workspace = { id: 'workspace-1', slug: 'test', name: 'Test Workspace', current_user_role: 'owner' };
@@ -131,6 +131,7 @@ test('runs an html widget in a sandbox with scripts but no same-origin or networ
 	await page.route('https://untrusted.example/**', (route) => route.fulfill({ status: 200, body: 'ok', contentType: 'text/html' }));
 	const widget = `<button>Run</button><script>document.body.dataset.ran = '1'; document.body.dataset.rtc = typeof RTCPeerConnection; fetch('https://untrusted.example/x').catch(() => {});</script>`;
 	await showReply(page, `Widget:\n\n\`\`\`html\n${widget}\n\`\`\``);
+	await page.getByRole('button', { name: 'Run widget' }).click();
 
 	const frame = page.locator('iframe');
 	await expect(frame).toHaveCount(1);
@@ -161,6 +162,7 @@ test('a widget cannot navigate its own frame to the network', async ({ page }) =
 	await stubUntrusted(page);
 	const widget = `<button onclick="location.href = 'https://untrusted.example/'">Leave</button>`;
 	await showReply(page, `Widget:\n\n\`\`\`html\n${widget}\n\`\`\``);
+	await page.getByRole('button', { name: 'Run widget' }).click();
 
 	await page.frameLocator('iframe').getByRole('button', { name: 'Leave' }).click();
 	await expect.poll(() => requested).toEqual([]);
@@ -169,21 +171,32 @@ test('a widget cannot navigate its own frame to the network', async ({ page }) =
 	await expect(page.getByText("Couldn't render this widget; showing its source.")).toBeVisible();
 });
 
-test('a widget cannot navigate its own frame with a meta refresh', async ({ page }) => {
+test('a widget with a meta refresh stays code instead of running', async ({ page }) => {
 	const requested = recordUntrusted(page);
 	await stubUntrusted(page);
 	const widget = `<meta http-equiv="refresh" content="0;url=https://untrusted.example/r"><p>Refresh</p>`;
 	await showReply(page, `Widget:\n\n\`\`\`html\n${widget}\n\`\`\``);
 
-	await expect.poll(() => requested).toEqual([]);
-	await expect(page.getByText('Gone', { exact: true })).toHaveCount(0);
 	await expect(page.locator('iframe')).toHaveCount(0);
-	await expect(page.getByText("Couldn't render this widget; showing its source.")).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Run widget' })).toHaveCount(0);
 	await expect(page.locator('.assistant-markdown pre code')).toContainText('http-equiv="refresh"');
+	expect(requested).toEqual([]);
+});
+
+test('a widget does not run until the reader asks for it', async ({ page }) => {
+	await showReply(page, `Widget:\n\n\`\`\`html\n<p>Widget A</p>\n\`\`\``);
+
+	await expect(page.locator('iframe')).toHaveCount(0);
+	await expect(page.getByText('Generated widget — runs sandboxed, without network access')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Run widget' })).toBeVisible();
+
+	await page.getByRole('button', { name: 'Run widget' }).click();
+	await expect(page.locator('iframe')).toHaveCount(1);
 });
 
 test('a changed widget replaces the old one instead of being torn down', async ({ page }) => {
 	const state = await showReply(page, `Widget:\n\n\`\`\`html\n<p>Widget A</p>\n\`\`\``, 'failed');
+	await page.getByRole('button', { name: 'Run widget' }).click();
 	await expect(page.frameLocator('iframe').getByText('Widget A')).toBeVisible();
 
 	state.messages = [
@@ -192,6 +205,9 @@ test('a changed widget replaces the old one instead of being torn down', async (
 	];
 	await page.getByRole('button', { name: 'Retry' }).click();
 
+	// The replacement remounts stopped, so it needs its own run.
+	await expect(page.locator('iframe')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Run widget' }).click();
 	await expect(page.frameLocator('iframe').getByText('Widget B')).toBeVisible();
 	await expect(page.getByText("Couldn't render this widget; showing its source.")).toHaveCount(0);
 });

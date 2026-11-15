@@ -4011,6 +4011,8 @@
 	"lessons.error_invalid": "经验只能是一行，最多 {max} 个字符",
 	"lessons.error_repository": "该仓库未连接到工作区",
 	"assistant.rich_chart_failed": "无法渲染此图表，改为显示源代码。",
+	"assistant.rich_widget_caption": "生成的小组件——在沙盒中运行，无法访问网络",
 	"assistant.rich_widget_failed": "无法渲染此小组件，改为显示源代码。",
+	"assistant.rich_widget_run": "运行小组件",
 	"assistant.rich_widget_title": "交互式小组件"
 }

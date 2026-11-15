@@ -4011,6 +4011,8 @@
 	"lessons.error_invalid": "Ένα μάθημα είναι μία γραμμή με το πολύ {max} χαρακτήρες",
 	"lessons.error_repository": "Αυτό το αποθετήριο δεν είναι συνδεδεμένο με τον χώρο εργασίας",
 	"assistant.rich_chart_failed": "Δεν ήταν δυνατή η απόδοση αυτού του γραφήματος· εμφανίζεται ο πηγαίος κώδικας.",
+	"assistant.rich_widget_caption": "Generated widget — runs sandboxed, without network access",
 	"assistant.rich_widget_failed": "Δεν ήταν δυνατή η απόδοση αυτού του widget· εμφανίζεται ο πηγαίος κώδικας.",
+	"assistant.rich_widget_run": "Run widget",
 	"assistant.rich_widget_title": "Διαδραστικό widget"
 }

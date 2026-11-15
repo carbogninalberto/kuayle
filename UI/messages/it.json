@@ -4011,6 +4011,8 @@
 	"lessons.error_invalid": "Una lezione è una riga di al massimo {max} caratteri",
 	"lessons.error_repository": "Questo repository non è collegato allo spazio di lavoro",
 	"assistant.rich_chart_failed": "Impossibile mostrare questo grafico; ecco il codice.",
+	"assistant.rich_widget_caption": "Widget generato — eseguito in sandbox, senza accesso alla rete",
 	"assistant.rich_widget_failed": "Impossibile mostrare questo widget; ecco il codice.",
+	"assistant.rich_widget_run": "Esegui widget",
 	"assistant.rich_widget_title": "Widget interattivo"
 }

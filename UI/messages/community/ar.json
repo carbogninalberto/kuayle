@@ -4011,6 +4011,8 @@
 	"lessons.error_invalid": "الدرس سطر واحد بحد أقصى {max} حرفًا",
 	"lessons.error_repository": "هذا المستودع غير متصل بمساحة العمل",
 	"assistant.rich_chart_failed": "تعذّر عرض هذا المخطط؛ يتم عرض مصدره.",
+	"assistant.rich_widget_caption": "Generated widget — runs sandboxed, without network access",
 	"assistant.rich_widget_failed": "تعذّر عرض هذه الأداة؛ يتم عرض مصدرها.",
+	"assistant.rich_widget_run": "Run widget",
 	"assistant.rich_widget_title": "أداة تفاعلية"
 }

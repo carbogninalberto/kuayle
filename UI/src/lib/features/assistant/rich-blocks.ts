@@ -17,6 +17,12 @@ const CHART_TYPES = ['bar', 'line', 'area', 'pie'] as const;
 const SPEC_KEYS = new Set(['type', 'title', 'unit', 'categories', 'series']);
 const SERIES_KEYS = new Set(['name', 'data']);
 
+// Resource hints such as <link rel="dns-prefetch|preconnect|prefetch"> can
+// leak data through DNS even under the widget CSP, and a widget has no use for
+// <meta> (refresh or policy overrides) or <base>. Refuse those fences so they
+// stay visible, inert code.
+const FORBIDDEN_HTML = /<\s*(link|meta|base)\b/i;
+
 export type ChartType = (typeof CHART_TYPES)[number];
 
 export interface ChartSeries {
@@ -89,6 +95,7 @@ export function parseChartSpec(json: string): ChartSpec | null {
 		series.push({ name: entry.name, data: entry.data });
 	}
 	if (value.type === 'pie' && series.length !== 1) return null;
+	if (value.type === 'pie' && series[0].data.some((entry) => entry < 0)) return null;
 
 	return {
 		type: value.type as ChartType,
@@ -105,7 +112,8 @@ function fenceInfo(token: Token): 'chart' | 'html' | null {
 	if (info === 'chart') {
 		return byteLength(token.content) <= CHART_MAX_BYTES && parseChartSpec(token.content) !== null ? 'chart' : null;
 	}
-	if (info === 'html') return byteLength(token.content) <= HTML_MAX_BYTES ? 'html' : null;
+	if (info === 'html')
+		return byteLength(token.content) <= HTML_MAX_BYTES && !FORBIDDEN_HTML.test(token.content) ? 'html' : null;
 	return null;
 }
 

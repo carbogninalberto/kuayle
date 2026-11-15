@@ -4011,6 +4011,8 @@
 	"lessons.error_invalid": "經驗只能是一行，最多 {max} 個字元",
 	"lessons.error_repository": "此儲存庫未連結至工作區",
 	"assistant.rich_chart_failed": "無法顯示此圖表，改為顯示原始碼。",
+	"assistant.rich_widget_caption": "產生的小工具——在沙盒中執行，無法存取網路",
 	"assistant.rich_widget_failed": "無法顯示此小工具，改為顯示原始碼。",
+	"assistant.rich_widget_run": "執行小工具",
 	"assistant.rich_widget_title": "互動式小工具"
 }

@@ -78,6 +78,34 @@ test('a pie chart keeps one series', () => {
 	assert.equal(segments[0].spec.type, 'pie');
 });
 
+test('a pie chart rejects negative values', () => {
+	const pie = { type: 'pie', categories: ['Done', 'Open'], series: [{ name: 'Issues', data: [3, -1] }] };
+	assert.equal(parseChartSpec(JSON.stringify(pie)), null);
+	assert.deepEqual(
+		richSegments(chart(pie)).map((segment) => segment.kind),
+		['markdown']
+	);
+});
+
+test('widgets with resource hints or meta tags stay code', () => {
+	const refused = [
+		'<link rel="dns-prefetch" href="//x.example">',
+		'<LINK rel=preconnect href="//x.example">',
+		'<meta http-equiv="refresh" content="0;url=https://x.example">'
+	];
+	for (const body of refused) {
+		assert.deepEqual(
+			richSegments(html(body)).map((segment) => segment.kind),
+			['markdown'],
+			body
+		);
+	}
+	assert.deepEqual(
+		richSegments(html('<button>Run</button>')).map((segment) => segment.kind),
+		['html']
+	);
+});
+
 test('size caps and the per-message block cap leave the rest as code', () => {
 	const title = 'x'.repeat(180);
 	const categories = Array.from({ length: 100 }, (_, index) => `${index}-${title}`);
