@@ -225,6 +225,8 @@ func TestCommandContainerGetsTheCommandOnlyAsData(t *testing.T) {
 		require.Equal(t, run.ID.String(), input.Labels["com.kuayle.command-run-id"])
 		require.True(t, input.HostConfig.ReadonlyRootfs)
 		require.Contains(t, input.HostConfig.CapDrop, "ALL")
+		require.NotNil(t, input.HostConfig.Init, "tini is PID 1, so the shell's timeout child is reaped and killable")
+		require.True(t, *input.HostConfig.Init)
 		require.Equal(t, "/workspace", input.HostConfig.Mounts[0].Target)
 		require.True(t, input.HostConfig.Mounts[0].ReadOnly, "/workspace is never writable")
 		if !write {

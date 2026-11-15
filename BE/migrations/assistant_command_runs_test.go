@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Migration 158 adds the command approvals to the approval action list and
+// Migration 159 adds the command approvals to the approval action list and
 // keeps every action an earlier migration allowed; rolling back removes only
 // the new ones.
 func TestAssistantCommandRunsMigrationKeepsApprovalActions(t *testing.T) {
@@ -43,16 +43,16 @@ func TestAssistantCommandRunsMigrationKeepsApprovalActions(t *testing.T) {
 		return definition
 	}
 
-	require.NoError(t, m.Migrate(157))
+	require.NoError(t, m.Migrate(158))
 	before := actions()
 	require.Contains(t, before, "'message_task'")
 
-	require.NoError(t, m.Migrate(158))
+	require.NoError(t, m.Migrate(159))
 	after := actions()
 	for _, action := range []string{"message_task", "share_wiki_page", "expose_port", "start_temporary_machine", "run_command", "run_command_write"} {
 		require.Contains(t, after, "'"+action+"'")
 	}
 
-	require.NoError(t, m.Migrate(157))
+	require.NoError(t, m.Migrate(158))
 	require.Equal(t, before, actions(), "rolling back restores the earlier list")
 }

@@ -6,7 +6,8 @@ import {
 	createSharedThrottleStore,
 	electWinner,
 	notificationEventId,
-	openCoordinationChannel
+	openCoordinationChannel,
+	webLockEventClaimer
 } from '../../src/lib/features/notifications/notification-coordinator.ts';
 import { countsAsUnread } from '../../src/lib/features/notifications/notification-policy.ts';
 import { createNotificationSound } from '../../src/lib/features/notifications/notification-sound.ts';
@@ -89,14 +90,15 @@ function manualWindows() {
 	};
 }
 
-function tabs(bus, windows, specs) {
+function tabs(bus, windows, specs, extra = {}) {
 	return specs.map(([tabId, visible, audible = true]) =>
 		createNotificationCoordinator({
 			tabId,
 			channel: bus.open(),
 			isVisible: () => visible,
 			isAudible: () => audible,
-			wait: windows.wait
+			wait: windows.wait,
+			...extra
 		})
 	);
 }
@@ -138,16 +140,27 @@ test('the winner can differ from one event to the next, but is always one tab', 
 	const windows = manualWindows();
 	let visible = 'a';
 	const make = (tabId) =>
-		createNotificationCoordinator({ tabId, channel: bus.open(), isVisible: () => visible === tabId, wait: windows.wait });
+		createNotificationCoordinator({
+			tabId,
+			channel: bus.open(),
+			isVisible: () => visible === tabId,
+			wait: windows.wait
+		});
 	const a = make('a');
 	const b = make('b');
 	let results = [a.coordinate('e-1'), b.coordinate('e-1')];
 	windows.closeAll();
-	assert.deepEqual((await Promise.all(results)).map((result) => result.act), [true, false]);
+	assert.deepEqual(
+		(await Promise.all(results)).map((result) => result.act),
+		[true, false]
+	);
 	visible = 'b';
 	results = [a.coordinate('e-2'), b.coordinate('e-2')];
 	windows.closeAll();
-	assert.deepEqual((await Promise.all(results)).map((result) => result.act), [false, true]);
+	assert.deepEqual(
+		(await Promise.all(results)).map((result) => result.act),
+		[false, true]
+	);
 });
 
 test('a tab whose copy of the event arrives after another tab announced it stays quiet', async () => {
@@ -172,7 +185,10 @@ test('a duplicate delivery of one event to the same tab is announced once', asyn
 	const [only] = tabs(bus, windows, [['a', true]]);
 	const results = [only.coordinate('e-1'), only.coordinate('e-1')];
 	windows.closeAll();
-	assert.deepEqual((await Promise.all(results)).map((result) => result.act), [true, false]);
+	assert.deepEqual(
+		(await Promise.all(results)).map((result) => result.act),
+		[true, false]
+	);
 	assert.equal((await only.coordinate('e-1')).act, false);
 	const next = only.coordinate('e-2');
 	windows.closeAll();
@@ -230,7 +246,10 @@ test('the announcing tab learns that another visible tab shows the event subject
 	asked.length = 0;
 	results = [a.coordinate('e-3'), b.coordinate('e-3', null)];
 	windows.closeAll();
-	assert.deepEqual((await Promise.all(results)).map((result) => result.subjectOnScreen), [false, false]);
+	assert.deepEqual(
+		(await Promise.all(results)).map((result) => result.subjectOnScreen),
+		[false, false]
+	);
 	assert.deepEqual(asked, []);
 });
 
@@ -287,8 +306,16 @@ test('a tab alone reports its own subject, and a failing subject check counts as
 		isVisible: () => true,
 		showsSubject: (subject) => subject === 'conversation:c1'
 	});
-	assert.deepEqual(await alone.coordinate('e-1', 'conversation:c1'), { act: true, visible: true, subjectOnScreen: true });
-	assert.deepEqual(await alone.coordinate('e-2', 'conversation:c2'), { act: true, visible: true, subjectOnScreen: false });
+	assert.deepEqual(await alone.coordinate('e-1', 'conversation:c1'), {
+		act: true,
+		visible: true,
+		subjectOnScreen: true
+	});
+	assert.deepEqual(await alone.coordinate('e-2', 'conversation:c2'), {
+		act: true,
+		visible: true,
+		subjectOnScreen: false
+	});
 	const throwing = createNotificationCoordinator({
 		tabId: 'a',
 		channel: null,
@@ -346,12 +373,122 @@ test('malformed and foreign channel messages are ignored', async () => {
 	const windows = manualWindows();
 	const [only] = tabs(bus, windows, [['b', false]]);
 	const intruder = bus.open();
-	for (const message of [null, 'claim', { kind: 'claim' }, { kind: 'other', eventId: 'e-1', tabId: 'a' }, { eventId: 'e-1' }]) {
+	for (const message of [
+		null,
+		'claim',
+		{ kind: 'claim' },
+		{ kind: 'other', eventId: 'e-1', tabId: 'a' },
+		{ eventId: 'e-1' }
+	]) {
 		intruder.postMessage(message);
 	}
 	const result = only.coordinate('e-1');
 	windows.closeAll();
 	assert.deepEqual(await result, { act: true, visible: false, subjectOnScreen: false });
+});
+
+// --- Exclusive claim gate -------------------------------------------------
+// A slow tab can miss the claim window: the other tab decides before the
+// claim arrives, and its "done" arrives after the second window closed. The
+// optional gate is a final exclusive check that settles that case.
+
+/** A bus that holds every message: a tab only ever sees its own claim. */
+function silentBus() {
+	return {
+		open() {
+			return {
+				onmessage: null,
+				postMessage() {
+					// Arrives after the peer's window closed, i.e. too late to count.
+				},
+				close() {}
+			};
+		}
+	};
+}
+
+/** A gate shared by every tab: the first caller for an event wins it. */
+function firstWinsGate() {
+	const claimed = new Set();
+	return async (eventId) => {
+		if (claimed.has(eventId)) return false;
+		claimed.add(eventId);
+		return true;
+	};
+}
+
+test('when every claim misses the window, the gate still lets exactly one tab announce', async () => {
+	const run = async (claimEvent) => {
+		const bus = silentBus();
+		const windows = manualWindows();
+		const make = (tabId) =>
+			createNotificationCoordinator({
+				tabId,
+				channel: bus.open(),
+				isVisible: () => true,
+				wait: windows.wait,
+				claimEvent
+			});
+		const results = [make('a').coordinate('e-1'), make('b').coordinate('e-1')];
+		// For each tab its own window closes before the other tab's claim arrives.
+		windows.closeAll();
+		return Promise.all(results);
+	};
+
+	const ungated = await run(undefined);
+	assert.deepEqual(
+		ungated.map((result) => result.act),
+		[true, true],
+		'without the gate both tabs elect themselves: the race this fixes'
+	);
+
+	const gated = await run(firstWinsGate());
+	assert.equal(gated.filter((result) => result.act).length, 1, 'the gate lets exactly one tab announce');
+	assert.deepEqual(
+		gated.map((result) => result.visible),
+		[true, true],
+		'both tabs still report what they saw'
+	);
+});
+
+test('a gate that throws leaves the elected tab announcing', async () => {
+	const bus = fakeBus();
+	const windows = manualWindows();
+	const [only] = tabs(bus, windows, [['a', true]], {
+		claimEvent: async () => {
+			throw new Error('locks unavailable');
+		}
+	});
+	const result = only.coordinate('e-1');
+	windows.closeAll();
+	assert.deepEqual(await result, { act: true, visible: true, subjectOnScreen: false });
+});
+
+/** An exclusive lock manager: a held name is not granted again. */
+function fakeLocks() {
+	const held = new Set();
+	return {
+		async request(name, _options, callback) {
+			if (held.has(name)) return callback(null);
+			held.add(name);
+			try {
+				return await callback({ name });
+			} finally {
+				held.delete(name);
+			}
+		}
+	};
+}
+
+test('the web lock gate grants one holder per event and ignores other events', async () => {
+	const locks = fakeLocks();
+	const claim = webLockEventClaimer(locks, 5);
+	assert.equal(typeof claim, 'function');
+	const [first, second] = await Promise.all([claim('e-1'), claim('e-1')]);
+	assert.deepEqual([first, second], [true, false], 'a concurrent request for the same event loses');
+	assert.equal(await claim('e-2'), true, 'another event has its own lock');
+	assert.equal(webLockEventClaimer(null), null);
+	assert.equal(webLockEventClaimer(undefined), null);
 });
 
 // --- Cross-tab sound throttle ---------------------------------------------
@@ -486,7 +623,10 @@ const target = `${origin}/acme/issue/KUA-7`;
 
 test('a page follows only same-origin navigate messages', () => {
 	const message = (url, type = NOTIFICATION_NAVIGATE) => ({ type, url });
-	assert.equal(notificationNavigatePath(message(`${target}?tab=activity#c1`), origin), '/acme/issue/KUA-7?tab=activity#c1');
+	assert.equal(
+		notificationNavigatePath(message(`${target}?tab=activity#c1`), origin),
+		'/acme/issue/KUA-7?tab=activity#c1'
+	);
 	assert.equal(notificationNavigatePath(message('/acme/inbox'), origin), '/acme/inbox');
 	assert.equal(notificationNavigatePath(message('https://evil.example/acme/inbox'), origin), null);
 	assert.equal(notificationNavigatePath(message('//evil.example/acme'), origin), null);
@@ -635,7 +775,10 @@ test('a window that does not acknowledge is reloaded onto the target', async () 
 test('a new window opens when no window can be reused', async () => {
 	const openLog = [`open ${target}`];
 	assert.deepEqual(await open([]), { outcome: 'opened', log: openLog });
-	assert.deepEqual(await open([{ ...windowClient(''), url: 'https://other.example/acme' }]), { outcome: 'opened', log: openLog });
+	assert.deepEqual(await open([{ ...windowClient(''), url: 'https://other.example/acme' }]), {
+		outcome: 'opened',
+		log: openLog
+	});
 
 	// An uncontrolled window: no acknowledgement, and navigate() rejects.
 	const uncontrolled = windowClient('/acme/inbox', {

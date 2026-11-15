@@ -437,6 +437,11 @@ checkout and credentials.
   and paths outside the worktree, then ended the session, so the run failed
   without a final message.
 
+Agent, check and machine service containers (`secureHostConfig`) run with
+Docker's bundled init (`HostConfig.Init`, tini) as PID 1: the agent CLIs do not reap the orphaned children they leave, such
+as a `git` child of a tool run, and those zombies count against the container's
+PID limit until the run crashes at it.
+
 ## Native session resume and handoff
 
 Codex and Claude Code task attempts keep their native session **transcripts** in
@@ -2707,6 +2712,9 @@ Code's "You've hit your 5-hour limit · resets 4:10am (UTC)"), the task is pause
 not failed: it becomes `blocked` with `usage_limit_message`,
 `usage_limit_resets_at` and `usage_limit_resume_at`, keeps its worktree and
 session, and resumes on its own after the reset by continuing the same native
-session. The creator's other queued tasks for that agent wait for the reset.
+session. The provider's wording is read from its JSON events and from the plain
+(non-JSON) lines of its output, so a `tool_result` that mentions
+`usage_limit_reached` because the agent is editing code about usage limits is
+not a limit. The creator's other queued tasks for that agent wait for the reset.
 `POST /agent-tasks/:taskId/resume` resumes now and `DELETE` on the same path
 turns the automatic resume off. See TECHNICAL.md, "Usage limits".

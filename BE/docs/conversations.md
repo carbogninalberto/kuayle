@@ -1054,7 +1054,7 @@ Each run is one `run_command` operation with `MaxAttempts` 1, so a command
 never runs twice. Its container is removed afterwards, whatever the result. It
 holds the machine like a check or a tool run: never beside an agent attempt,
 a check, a tool run or another command (`ErrMachineBusy`). Its output is stored
-up to 64 KiB (a schema CHECK) in `assistant_command_runs` (migration 158), with
+up to 64 KiB (a schema CHECK) in `assistant_command_runs` (migration 159), with
 the machine's name and size, so the transcript still names a deleted temporary
 machine.
 
@@ -1070,7 +1070,7 @@ default 2, 0 to 10, 0 turns the feature off, and the policy API takes it as the
 optional `max_temporary_machines`. Each user has at most one live temporary
 machine. Both limits are counted under the workspace's machine lock in
 `CreateBundle`, and temporary machines also count toward the ordinary machine
-quotas. Rolling back migration 158 drops the runs and the new approvals;
+quotas. Rolling back migration 159 drops the runs and the new approvals;
 temporary machines become ordinary machines that their owners delete.
 
 ## Images

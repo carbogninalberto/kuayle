@@ -34,6 +34,39 @@ func TestDetectUsageLimitFromClaudeStream(t *testing.T) {
 	}
 }
 
+func TestDetectUsageLimitIgnoresJSONThatOnlyMentionsTheLimit(t *testing.T) {
+	now := at(t, "2026-11-10T03:00:00Z")
+	// KUA-175: the agent edited code about usage limits and Claude Code echoed
+	// the edit as a tool_result in its stream-json stdout. The wording alone
+	// paused the task; only JSON events are the provider speaking.
+	toolResult := `{"type":"user","message":{"content":[{"content":"usage_limit_reached: matches the Claude text 'usage limit reached'","tool_use_id":"toolu_1","type":"tool_result"}],"role":"user"},"session_id":"s"}`
+	stdout := `{"type":"system","subtype":"init","session_id":"s"}
+` + toolResult + "\n"
+	if limit, ok := DetectUsageLimit(stdout, "", "", now); ok {
+		t.Fatalf("a tool_result mentioning the limit was detected: %+v", limit)
+	}
+}
+
+func TestDetectUsageLimitFromPlainText(t *testing.T) {
+	now := at(t, "2026-11-10T03:00:00Z")
+	text := "You've hit your limit · resets 3pm (UTC)"
+	for name, detect := range map[string]func() (UsageLimit, bool){
+		"stderr": func() (UsageLimit, bool) { return DetectUsageLimit("", text, "", now) },
+		"stdout": func() (UsageLimit, bool) { return DetectUsageLimit(text, "", "", now) },
+	} {
+		limit, ok := detect()
+		if !ok {
+			t.Fatalf("%s: plain-text limit was not detected", name)
+		}
+		if limit.Message != text {
+			t.Fatalf("%s: message = %q", name, limit.Message)
+		}
+		if limit.ResetsAt == nil || !limit.ResetsAt.Equal(at(t, "2026-11-10T15:00:00Z")) {
+			t.Fatalf("%s: resets at = %v", name, limit.ResetsAt)
+		}
+	}
+}
+
 func TestDetectUsageLimitIgnoresWarningsAndOrdinaryFailures(t *testing.T) {
 	now := at(t, "2026-11-10T03:00:00Z")
 	for name, stdout := range map[string]string{
