@@ -78,6 +78,7 @@ type BackupRunResponse struct {
 	ChecksumSHA256 *string    `json:"checksum_sha256"`
 	FileName       string     `json:"file_name"`
 	S3Key          string     `json:"s3_key"`
+	S3Bucket       string     `json:"s3_bucket"`
 	Destination    string     `json:"destination"`
 	Encrypted      bool       `json:"encrypted"`
 	Error          *string    `json:"error"`

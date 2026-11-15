@@ -24,6 +24,9 @@ type UserResponse struct {
 	DisplayName string  `json:"display_name"`
 	AvatarURL   *string `json:"avatar_url"`
 	IsSysAdmin  bool    `json:"is_sysadmin"`
+	// SSOWorkspaceSlug is set when the session was minted by workspace SSO,
+	// explaining why the session is limited to that workspace.
+	SSOWorkspaceSlug string `json:"sso_workspace_slug"`
 }
 
 type UpdateProfileRequest struct {

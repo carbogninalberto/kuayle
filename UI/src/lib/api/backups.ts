@@ -75,6 +75,7 @@ export interface BackupRun {
 	checksum_sha256: string | null;
 	file_name: string;
 	s3_key: string;
+	s3_bucket: string;
 	destination: string;
 	encrypted: boolean;
 	error: string | null;

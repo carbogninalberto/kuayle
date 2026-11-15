@@ -11,6 +11,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 // S3Config holds the configuration for an S3-compatible backend.
@@ -95,6 +96,73 @@ func (b *S3Backend) PutWithMetadata(ctx context.Context, key string, r io.Reader
 	})
 	if err != nil {
 		return fmt.Errorf("s3 put: %w", err)
+	}
+	return nil
+}
+
+// s3MaxParts is the most parts one multipart upload may have.
+const s3MaxParts = 10000
+
+// PutFileMultipart uploads size bytes of r as key in parts of partSize bytes
+// (the last part may be smaller), for objects too large for one PutObject.
+// Parts are sent one at a time, each from its own section of r, so a retried
+// request rereads the same bytes. On any failure the upload is aborted so no
+// parts are left behind, and the original error is returned.
+func (b *S3Backend) PutFileMultipart(ctx context.Context, key string, r io.ReaderAt, size, partSize int64, contentType string, metadata map[string]string) (err error) {
+	if partSize <= 0 || size < 0 {
+		return fmt.Errorf("s3 multipart: invalid size %d or part size %d", size, partSize)
+	}
+	if (size+partSize-1)/partSize > s3MaxParts {
+		return fmt.Errorf("s3 multipart: %d bytes need more than %d parts of %d bytes", size, s3MaxParts, partSize)
+	}
+	created, err := b.client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
+		Bucket:            aws.String(b.cfg.Bucket),
+		Key:               aws.String(key),
+		ContentType:       aws.String(contentType),
+		Metadata:          metadata,
+		ChecksumAlgorithm: types.ChecksumAlgorithmCrc32,
+	})
+	if err != nil {
+		return fmt.Errorf("s3 multipart create: %w", err)
+	}
+	uploadID := created.UploadId
+	defer func() {
+		if err == nil {
+			return
+		}
+		abortCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		_, _ = b.client.AbortMultipartUpload(abortCtx, &s3.AbortMultipartUploadInput{
+			Bucket: aws.String(b.cfg.Bucket), Key: aws.String(key), UploadId: uploadID,
+		})
+	}()
+
+	count := max(1, (size+partSize-1)/partSize)
+	parts := make([]types.CompletedPart, 0, count)
+	for i := range count {
+		number, offset := int32(i+1), i*partSize
+		length := min(partSize, size-offset)
+		out, partErr := b.client.UploadPart(ctx, &s3.UploadPartInput{
+			Bucket:            aws.String(b.cfg.Bucket),
+			Key:               aws.String(key),
+			UploadId:          uploadID,
+			PartNumber:        aws.Int32(number),
+			Body:              io.NewSectionReader(r, offset, length),
+			ContentLength:     aws.Int64(length),
+			ChecksumAlgorithm: types.ChecksumAlgorithmCrc32,
+		})
+		if partErr != nil {
+			return fmt.Errorf("s3 multipart part %d: %w", number, partErr)
+		}
+		parts = append(parts, types.CompletedPart{ETag: out.ETag, PartNumber: aws.Int32(number), ChecksumCRC32: out.ChecksumCRC32})
+	}
+	if _, err = b.client.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
+		Bucket:          aws.String(b.cfg.Bucket),
+		Key:             aws.String(key),
+		UploadId:        uploadID,
+		MultipartUpload: &types.CompletedMultipartUpload{Parts: parts},
+	}); err != nil {
+		return fmt.Errorf("s3 multipart complete: %w", err)
 	}
 	return nil
 }

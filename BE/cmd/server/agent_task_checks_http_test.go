@@ -74,7 +74,7 @@ func TestAgentTaskChecksHTTPRunsTheCheckForTheCreatorOnly(t *testing.T) {
 	tokens := repository.NewPersonalAccessTokenRepository(db)
 	secret := "task-checks-jwt-secret-with-at-least-32-characters"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
-	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db))
+	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db), mw.SSONotEnforced)
 	middleware.devMachineDemoGuard = mw.DevMachineDemoGuard(func(uuid.UUID) bool { return true })
 	machineSvc := service.NewDevMachineService(machines, agent.NewRegistry(agent.NewCodexProvider("test")), true, "machines.test.invalid", make([]byte, 32), time.Minute, service.DevMachineImages{})
 	e := echo.New()

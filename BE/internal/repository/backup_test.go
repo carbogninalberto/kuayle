@@ -171,11 +171,22 @@ func TestBackupRunsAndStaleRecovery(t *testing.T) {
 	require.NoError(t, repo.CreateRun(ctx, done))
 	sum, size := "abc", int64(42)
 	done.Status, done.ChecksumSHA256, done.SizeBytes = domain.BackupStatusSucceeded, &sum, &size
+	done.UploadStatus, done.S3Key = domain.BackupUploadUploaded, "kuayle/done.tar.gz"
+	done.S3Endpoint, done.S3Bucket = "https://s3.example.com", "backups"
 	require.NoError(t, repo.UpdateRun(ctx, done))
 	retainable, err := repo.ListRetainable(ctx)
 	require.NoError(t, err)
 	require.Len(t, retainable, 1)
 	require.Equal(t, done.ID, retainable[0].ID)
+	require.Equal(t, "https://s3.example.com", retainable[0].S3Endpoint, "retention sees where the copy went")
+	require.Equal(t, "backups", retainable[0].S3Bucket)
+	created := &domain.BackupRun{ID: uuid.New(), Kind: domain.BackupKindManual, Status: domain.BackupStatusFailed,
+		UploadStatus: domain.BackupUploadNone, S3Endpoint: "https://other.example.com", S3Bucket: "other"}
+	require.NoError(t, repo.CreateRun(ctx, created))
+	got, err = repo.GetRun(ctx, created.ID)
+	require.NoError(t, err)
+	require.Equal(t, "https://other.example.com", got.S3Endpoint)
+	require.Equal(t, "other", got.S3Bucket)
 	require.NoError(t, repo.MarkDeleted(ctx, done.ID, time.Now()))
 	retainable, err = repo.ListRetainable(ctx)
 	require.NoError(t, err)
@@ -183,7 +194,7 @@ func TestBackupRunsAndStaleRecovery(t *testing.T) {
 
 	runs, err := repo.ListRuns(ctx, 10, 0)
 	require.NoError(t, err)
-	require.Len(t, runs, 2)
+	require.Len(t, runs, 3)
 
 	_, err = repo.GetRun(ctx, uuid.New())
 	require.ErrorIs(t, err, ErrBackupRunNotFound)

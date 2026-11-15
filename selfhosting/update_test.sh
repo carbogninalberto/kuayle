@@ -245,6 +245,7 @@ run_placeholder_case placeholder-jwt "POSTGRES_PASSWORD=$generated\nJWT_SECRET=$
 run_placeholder_case quoted-development-jwt "ENVIRONMENT=production\nJWT_SECRET=\"$development_jwt\"\n" false JWT_SECRET
 run_placeholder_case placeholder-database-password "POSTGRES_PASSWORD=$selfhost_postgres\nJWT_SECRET=$generated\n" false POSTGRES_PASSWORD
 run_placeholder_case placeholder-updater-token "POSTGRES_PASSWORD=$generated\nJWT_SECRET=$generated\nSYSTEM_UPDATER_TOKEN=$selfhost_updater\n" false SYSTEM_UPDATER_TOKEN
+run_placeholder_case placeholder-sso-secret "POSTGRES_PASSWORD=$generated\nJWT_SECRET=$generated\nSSO_OIDC_CLIENT_SECRET=local_dev_sso_secret_do_not_use_prod\n" false SSO_OIDC_CLIENT_SECRET
 # An unset POSTGRES_PASSWORD makes the Compose files use their published fallback.
 run_placeholder_case unset-database-password "JWT_SECRET=$generated\n" false POSTGRES_PASSWORD
 fallback_key=POSTGRES_PASSWORD

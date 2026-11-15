@@ -72,7 +72,7 @@ func TestAgentMessageHTTPRegistryAndModeration(t *testing.T) {
 
 	secret := "message-http-jwt-secret-with-at-least-32-characters"
 	middleware := testMiddleware(mw.Auth(secret, repository.NewPersonalAccessTokenRepository(db)))
-	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db))
+	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db), mw.SSONotEnforced)
 	middleware.devMachineDemoGuard = mw.DevMachineDemoGuard(func(uuid.UUID) bool { return true })
 	e := echo.New()
 	registerRoutes(e, &appHandlers{agentMessage: handler.NewAgentMessageHandler(service.NewAgentMessageService(messages, nil))}, middleware)

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
 	buildConnectionTest,
+	connectionTestNeedsKeys,
 	buildSettingsPayload,
 	formFromSettings,
 	formatBytes,
@@ -80,6 +81,16 @@ test('the connection test sends unsaved destination values and only typed keys',
 	assert.equal(buildConnectionTest({ ...form, s3_secret_key: 'x' }).s3_secret_key, 'x');
 });
 
+
+test('a different endpoint needs both keys typed before it can be tested', () => {
+	const form = formFromSettings(settings);
+	assert.equal(connectionTestNeedsKeys(form, settings), false, 'the saved endpoint reuses the stored keys');
+	assert.equal(connectionTestNeedsKeys({ ...form, s3_endpoint: ' HTTPS://s3.example.com/ ' }, settings), false);
+	const moved = { ...form, s3_endpoint: 'https://other.example.org' };
+	assert.equal(connectionTestNeedsKeys(moved, settings), true);
+	assert.equal(connectionTestNeedsKeys({ ...moved, s3_access_key: 'a' }, settings), true);
+	assert.equal(connectionTestNeedsKeys({ ...moved, s3_access_key: ' a ', s3_secret_key: 's' }, settings), false);
+});
 test('validates HH:MM times', () => {
 	for (const ok of ['00:00', '09:05', '23:59']) assert.equal(isValidTime(ok), true, ok);
 	for (const bad of ['24:00', '9:05', '12:60', '', '12-30', '1230']) assert.equal(isValidTime(bad), false, bad);

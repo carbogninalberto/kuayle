@@ -258,11 +258,18 @@ func (s *BackupService) destination(settings *domain.BackupSettings) (BackupS3De
 
 // TestConnection writes and deletes an object with the given destination.
 // Empty credentials fall back to the stored ones, so an unsaved form can be
-// tested without retyping them. The returned error is safe to show.
+// tested without retyping them, but only against the saved endpoint: keys
+// are never sent to another host. The returned error is safe to show.
 func (s *BackupService) TestConnection(ctx context.Context, dest BackupS3Destination) error {
 	settings, err := s.repo.GetSettings(ctx)
 	if err != nil {
 		return err
+	}
+	dest.Endpoint = normalizeS3Endpoint(dest.Endpoint)
+	if (dest.AccessKey == "" || dest.SecretKey == "") &&
+		!strings.EqualFold(dest.Endpoint, normalizeS3Endpoint(settings.S3Endpoint)) {
+		// The stored keys only ever go to the endpoint they were saved for.
+		return backupInvalid("enter the access key and secret to test a different endpoint")
 	}
 	stored, err := s.destination(settings)
 	if err != nil {
@@ -274,7 +281,6 @@ func (s *BackupService) TestConnection(ctx context.Context, dest BackupS3Destina
 	if dest.SecretKey == "" {
 		dest.SecretKey = stored.SecretKey
 	}
-	dest.Endpoint = strings.TrimRight(strings.TrimSpace(dest.Endpoint), "/")
 	dest.Prefix = strings.Trim(strings.TrimSpace(dest.Prefix), "/")
 	if err := validateBackupS3Destination(dest); err != nil {
 		return err
@@ -507,6 +513,9 @@ func (s *BackupService) execute(parent context.Context, token uuid.UUID, run *do
 	if settings.S3Enabled {
 		run.UploadStatus = domain.BackupUploadUploading
 		run.S3Key = dest.Key(backupObjectName(archive.Path))
+		// Retention and Verify reach this copy only while it is still in
+		// the configured endpoint and bucket.
+		run.S3Endpoint, run.S3Bucket = dest.Endpoint, dest.Bucket
 		s.save(run)
 		uploadErr = s.upload(ctx, dest, run, archive)
 		if uploadErr != nil {
@@ -610,6 +619,14 @@ func (s *BackupService) applyRetention(ctx context.Context, settings *domain.Bac
 	var dest BackupS3Destination
 	for _, run := range expired {
 		if run.S3Key != "" && run.UploadStatus == domain.BackupUploadUploaded {
+			if !sameS3Location(run, settings) {
+				// Deleting through the current settings would "succeed" on a
+				// key that is not there and orphan the old copy, so the whole
+				// run stays for manual cleanup.
+				s.logger.WithFields(log.Fields{"run_id": run.ID, "bucket": run.S3Bucket}).
+					Warn("retention kept a backup: its S3 copy is in a different bucket or endpoint than the current settings")
+				continue
+			}
 			if store == nil {
 				if dest, err = s.destination(settings); err == nil && dest.Bucket != "" {
 					store, err = s.openS3(dest)
@@ -638,6 +655,21 @@ func (s *BackupService) applyRetention(ctx context.Context, settings *domain.Bac
 			s.logger.WithError(err).WithField("run_id", run.ID).Warn("could not mark a backup deleted")
 		}
 	}
+}
+
+// sameS3Location reports whether a run's bucket copy lives in the endpoint
+// and bucket the settings point at now. A run without a recorded bucket does
+// not match: where its copy went is unknown. An empty endpoint means AWS.
+func sameS3Location(run domain.BackupRun, settings *domain.BackupSettings) bool {
+	if run.S3Bucket == "" {
+		return false
+	}
+	return strings.EqualFold(normalizeS3Endpoint(run.S3Endpoint), normalizeS3Endpoint(settings.S3Endpoint)) &&
+		run.S3Bucket == strings.TrimSpace(settings.S3Bucket)
+}
+
+func normalizeS3Endpoint(endpoint string) string {
+	return strings.TrimRight(strings.TrimSpace(endpoint), "/")
 }
 
 func removeIfExists(path string) error {
@@ -733,6 +765,9 @@ func (s *BackupService) verifyRun(ctx context.Context, run *domain.BackupRun, se
 		}
 		if !settings.S3Enabled || dest.Bucket == "" {
 			return errors.New("the local file is gone and the S3 destination is not configured")
+		}
+		if !sameS3Location(*run, settings) {
+			return errors.New("the local file is gone and the S3 copy is in a bucket that is no longer configured")
 		}
 		store, openErr := s.openS3(dest)
 		if openErr != nil {

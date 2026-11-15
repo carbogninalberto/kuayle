@@ -46,6 +46,10 @@ CREATE TABLE backup_runs (
     checksum_sha256 TEXT NULL,
     local_path TEXT NOT NULL DEFAULT '',
     s3_key TEXT NOT NULL DEFAULT '',
+    -- Where the bucket copy went, so retention and Verify never act on a
+    -- copy through a bucket or endpoint that has since changed.
+    s3_endpoint TEXT NOT NULL DEFAULT '',
+    s3_bucket TEXT NOT NULL DEFAULT '',
     destination TEXT NOT NULL DEFAULT '',
     encrypted BOOLEAN NOT NULL DEFAULT FALSE,
     error TEXT NULL,

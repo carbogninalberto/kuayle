@@ -30,7 +30,7 @@ const backupSettingsColumns = `enabled, schedule_kind, schedule_time, schedule_w
 	next_run_at, updated_at, updated_by`
 
 const backupRunColumns = `id, kind, status, upload_status, started_at, finished_at, duration_ms,
-	size_bytes, checksum_sha256, local_path, s3_key, destination, encrypted, error, verified_at,
+	size_bytes, checksum_sha256, local_path, s3_key, s3_endpoint, s3_bucket, destination, encrypted, error, verified_at,
 	verify_error, deleted_at, created_by`
 
 func (r *BackupRepository) GetSettings(ctx context.Context) (*domain.BackupSettings, error) {
@@ -93,9 +93,9 @@ func (r *BackupRepository) ReleaseLease(ctx context.Context, token uuid.UUID) er
 
 func (r *BackupRepository) CreateRun(ctx context.Context, run *domain.BackupRun) error {
 	return r.db.QueryRowContext(ctx, `INSERT INTO backup_runs
-		(id, kind, status, upload_status, local_path, s3_key, destination, encrypted, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING started_at`,
-		run.ID, run.Kind, run.Status, run.UploadStatus, run.LocalPath, run.S3Key, run.Destination,
+		(id, kind, status, upload_status, local_path, s3_key, s3_endpoint, s3_bucket, destination, encrypted, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING started_at`,
+		run.ID, run.Kind, run.Status, run.UploadStatus, run.LocalPath, run.S3Key, run.S3Endpoint, run.S3Bucket, run.Destination,
 		run.Encrypted, run.CreatedBy).Scan(&run.StartedAt)
 }
 
@@ -103,11 +103,11 @@ func (r *BackupRepository) CreateRun(ctx context.Context, run *domain.BackupRun)
 func (r *BackupRepository) UpdateRun(ctx context.Context, run *domain.BackupRun) error {
 	result, err := r.db.ExecContext(ctx, `UPDATE backup_runs SET status = $2, upload_status = $3,
 		finished_at = $4, duration_ms = $5, size_bytes = $6, checksum_sha256 = $7, local_path = $8,
-		s3_key = $9, destination = $10, encrypted = $11, error = $12, verified_at = $13,
-		verify_error = $14, deleted_at = $15
+		s3_key = $9, s3_endpoint = $10, s3_bucket = $11, destination = $12, encrypted = $13, error = $14,
+		verified_at = $15, verify_error = $16, deleted_at = $17
 		WHERE id = $1`,
 		run.ID, run.Status, run.UploadStatus, run.FinishedAt, run.DurationMS, run.SizeBytes,
-		run.ChecksumSHA256, run.LocalPath, run.S3Key, run.Destination, run.Encrypted, run.Error,
+		run.ChecksumSHA256, run.LocalPath, run.S3Key, run.S3Endpoint, run.S3Bucket, run.Destination, run.Encrypted, run.Error,
 		run.VerifiedAt, run.VerifyError, run.DeletedAt)
 	won, err := affectedOne(result, err)
 	if err == nil && !won {

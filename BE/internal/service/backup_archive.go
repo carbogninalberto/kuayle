@@ -130,7 +130,13 @@ func (s *BackupService) writeBackupArchive(ctx context.Context, run *domain.Back
 	gz := gzip.NewWriter(sink)
 	tw := tar.NewWriter(gz)
 
-	if err := addTarFile(tw, domain.BackupDatabaseFile, dbTemp, dbSize, run.StartedAt); err != nil {
+	dbFile, err := os.Open(dbTemp)
+	if err != nil {
+		return archiveResult{}, err
+	}
+	err = addTarFile(tw, domain.BackupDatabaseFile, dbFile, dbSize, run.StartedAt)
+	dbFile.Close()
+	if err != nil {
 		return archiveResult{}, err
 	}
 	uploads, err := s.addUploads(ctx, tw, run.StartedAt)
@@ -230,6 +236,12 @@ func (s *BackupService) addUploads(ctx context.Context, tw *tar.Writer, at time.
 	}
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
+			// An upload or folder deleted while the walk runs is skipped:
+			// the backup holds what existed when each file was read.
+			if path != root && errors.Is(err, fs.ErrNotExist) {
+				s.logSkippedUpload(root, path)
+				return nil
+			}
 			return err
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -238,15 +250,26 @@ func (s *BackupService) addUploads(ctx context.Context, tw *tar.Writer, at time.
 		if !entry.Type().IsRegular() {
 			return nil
 		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		if err := addTarFile(tw, domain.BackupUploadsDir+filepath.ToSlash(rel), path, info.Size(), info.ModTime()); err != nil {
+		// Open before reading the size, so the size belongs to the file
+		// being archived; a file gone by now is skipped and not counted.
+		file, err := openUploadFile(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			s.logSkippedUpload(root, path)
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil {
+			return err
+		}
+		if err := addTarFile(tw, domain.BackupUploadsDir+filepath.ToSlash(rel), file, info.Size(), info.ModTime()); err != nil {
 			return err
 		}
 		result.Count++
@@ -259,12 +282,21 @@ func (s *BackupService) addUploads(ctx context.Context, tw *tar.Writer, at time.
 	return result, nil
 }
 
-func addTarFile(tw *tar.Writer, name, path string, size int64, modTime time.Time) error {
-	file, err := os.Open(path)
+// openUploadFile opens an upload for archiving; tests replace it to delete
+// files between the walk and the open.
+var openUploadFile = os.Open
+
+func (s *BackupService) logSkippedUpload(root, path string) {
+	rel, err := filepath.Rel(root, path)
 	if err != nil {
-		return err
+		rel = filepath.Base(path)
 	}
-	defer file.Close()
+	s.logger.WithField("upload", filepath.ToSlash(rel)).Debug("backup skipped an upload deleted while archiving")
+}
+
+// addTarFile copies size bytes of file into the archive as name. If the file
+// shrank after the header was written the tar cannot be fixed, so it fails.
+func addTarFile(tw *tar.Writer, name string, file *os.File, size int64, modTime time.Time) error {
 	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: size, ModTime: modTime.UTC(), Typeflag: tar.TypeReg, Format: tar.FormatPAX}); err != nil {
 		return err
 	}

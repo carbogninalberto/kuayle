@@ -290,6 +290,8 @@ type BackupRun struct {
 	ChecksumSHA256 *string    `db:"checksum_sha256"`
 	LocalPath      string     `db:"local_path"`
 	S3Key          string     `db:"s3_key"`
+	S3Endpoint     string     `db:"s3_endpoint"`
+	S3Bucket       string     `db:"s3_bucket"`
 	Destination    string     `db:"destination"`
 	Encrypted      bool       `db:"encrypted"`
 	Error          *string    `db:"error"`

@@ -67,7 +67,7 @@ func TestConversationAttachmentsHTTP(t *testing.T) {
 	tokens := repository.NewPersonalAccessTokenRepository(db)
 	secret := "conversation-attachments-secret-at-least-32"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
-	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db))
+	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db), mw.SSONotEnforced)
 	e := echo.New()
 	registerRoutes(e, &appHandlers{conversation: handler.NewConversationHandler(svc, "https://kuayle.test")}, middleware)
 	server := httptest.NewServer(e)

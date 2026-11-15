@@ -117,6 +117,11 @@ type openCodeProvider struct {
 	metadata Metadata
 }
 
+// openCodeRunConfig is OpenCode's inline configuration for an unattended run:
+// its git snapshots are off, as Kuayle never undoes an edit there and their
+// copy of the worktree spends the workspace volume.
+const openCodeRunConfig = `{"snapshot":false}`
+
 func (p *openCodeProvider) Metadata() Metadata { return p.metadata }
 
 // OpenCode takes its model as --model provider/model and Kuayle's effort as
@@ -130,6 +135,13 @@ func (p *openCodeProvider) Metadata() Metadata { return p.metadata }
 // OpenCode keeps its log in the container's temporary home, which is lost when
 // the run ends, so autonomous runs print warnings and errors to standard error,
 // where the run's failure cause quotes them.
+//
+// Autonomous runs also start with OpenCode's git snapshots off, through
+// OPENCODE_CONFIG_CONTENT, which OpenCode merges over the project's
+// opencode.json; interactive sessions keep them. A snapshot is a git copy of
+// the worktree under OpenCode's XDG data directory, an unattended run never
+// undoes an edit, and on the workspace volume those objects count against the
+// machine for the whole run (KUA-187).
 func (p *openCodeProvider) BuildInvocation(input RunInput) (Invocation, error) {
 	if err := validateInput(p.metadata, input); err != nil {
 		return Invocation{}, err
@@ -155,9 +167,14 @@ func (p *openCodeProvider) BuildInvocation(input RunInput) (Invocation, error) {
 	if input.Mode == ModeAutonomous {
 		argv = append(argv, "--", input.Prompt)
 	}
+	var environment map[string]string
+	if input.Mode == ModeAutonomous {
+		environment = map[string]string{"OPENCODE_CONFIG_CONTENT": openCodeRunConfig}
+	}
 	return Invocation{
 		Image:       p.metadata.DefaultImage,
 		Argv:        argv,
+		Environment: environment,
 		WorkingDir:  workingDir,
 		Interactive: input.Mode == ModeInteractive,
 		SecretNames: append([]string(nil), p.metadata.RequiredSecrets...),

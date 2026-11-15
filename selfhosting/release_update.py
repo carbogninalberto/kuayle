@@ -27,7 +27,7 @@ IMAGES = {'backend': f'{REGISTRY}/kuayle-api',
 CONTROL_PLANE = ('machine-manager', 'machine-gateway')
 # Set to build Dev Machines images from release source instead of pulling them.
 BUILD_FLAG = 'RELEASE_BUILD_DEV_MACHINE_IMAGES'
-# Records the pre-upgrade dump in backup_runs (migration 160) so it appears in
+# Records the pre-upgrade dump in backup_runs (migration 162) so it appears in
 # Settings -> Backups. Values are psql variables, quoted by psql.
 RECORD_BACKUP_SQL = """INSERT INTO backup_runs
     (kind, status, upload_status, started_at, finished_at, duration_ms, size_bytes,

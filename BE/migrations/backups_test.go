@@ -12,7 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Migration 160 adds the backup settings singleton and the run history;
+// Migration 162 adds the backup settings singleton and the run history on top
+// of main's 161 (OIDC SSO), so databases already at 161 still receive it;
 // rolling back removes both.
 func TestBackupsMigration(t *testing.T) {
 	url := os.Getenv("DATABASE_URL")
@@ -32,10 +33,14 @@ func TestBackupsMigration(t *testing.T) {
 	m, err := migrate.New("file://.", target)
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
-	require.NoError(t, m.Migrate(160))
+	require.NoError(t, m.Migrate(161))
 	db, err := sql.Open("pgx", target)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
+	var before bool
+	require.NoError(t, db.QueryRow(`SELECT to_regclass('backup_runs') IS NOT NULL`).Scan(&before))
+	require.False(t, before, "161 does not create the backup tables")
+	require.NoError(t, m.Migrate(162), "a database at 161 upgrades to the backups migration")
 
 	var enabled bool
 	var kind string
@@ -58,6 +63,9 @@ func TestBackupsMigration(t *testing.T) {
 	}
 	_, err = db.Exec(`INSERT INTO backup_runs(kind, status, destination) VALUES('pre_upgrade', 'succeeded', 'updater:/srv/backup')`)
 	require.NoError(t, err, "the updater can record its dump")
+	var endpoint, bucket string
+	require.NoError(t, db.QueryRow(`SELECT s3_endpoint, s3_bucket FROM backup_runs WHERE kind='pre_upgrade'`).Scan(&endpoint, &bucket))
+	require.Empty(t, endpoint+bucket, "runs without a bucket copy record no location")
 
 	require.NoError(t, m.Steps(-1))
 	var exists bool

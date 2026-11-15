@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 )
 
 // AgentSession is the harness session a task's attempts run in. An
@@ -142,7 +143,7 @@ func AgentReviewPrompt(target AgentReviewTarget, focus string) string {
 // and bounded, valid UTF-8 findings text. The text is untrusted: it is stored
 // and rendered as escaped Markdown, never interpreted as instructions.
 func ParseAgentReview(output string) (string, string) {
-	output = strings.ToValidUTF8(strings.ReplaceAll(output, "\x00", ""), "")
+	output = strings.ToValidUTF8(sanitize.StripNUL(output), "")
 	verdict := "unknown"
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	for index, line := range lines {

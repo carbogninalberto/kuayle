@@ -131,6 +131,19 @@ export function buildConnectionTest(form: BackupForm): BackupConnectionTest {
 	return body;
 }
 
+function normalizeEndpoint(endpoint: string): string {
+	return endpoint.trim().replace(/\/+$/, '').toLowerCase();
+}
+
+/**
+ * The API reuses the stored keys only for the saved endpoint, so testing a
+ * different endpoint needs both keys typed. Mirrors the backend rule.
+ */
+export function connectionTestNeedsKeys(form: BackupForm, settings: Pick<BackupSettings, 's3_endpoint'>): boolean {
+	if (form.s3_access_key.trim() && form.s3_secret_key) return false;
+	return normalizeEndpoint(form.s3_endpoint) !== normalizeEndpoint(settings.s3_endpoint);
+}
+
 const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
 
 /** Human-readable size in binary units; empty for an unknown size. */

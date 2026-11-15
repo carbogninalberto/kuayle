@@ -191,7 +191,7 @@ func backupRunResponse(run domain.BackupRun) dto.BackupRunResponse {
 		ID: run.ID, Kind: run.Kind, Status: run.Status, UploadStatus: run.UploadStatus,
 		StartedAt: run.StartedAt, FinishedAt: run.FinishedAt, DurationMS: run.DurationMS,
 		SizeBytes: run.SizeBytes, ChecksumSHA256: run.ChecksumSHA256, FileName: name,
-		S3Key: run.S3Key, Destination: run.Destination, Encrypted: run.Encrypted, Error: run.Error,
+		S3Key: run.S3Key, S3Bucket: run.S3Bucket, Destination: run.Destination, Encrypted: run.Encrypted, Error: run.Error,
 		VerifiedAt: run.VerifiedAt, VerifyError: run.VerifyError, DeletedAt: run.DeletedAt,
 	}
 }

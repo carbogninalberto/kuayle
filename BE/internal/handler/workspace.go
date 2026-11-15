@@ -37,8 +37,14 @@ func (h *WorkspaceHandler) List(c *echo.Context) error {
 	}
 	resp := make([]dto.WorkspaceResponse, 0, len(workspaces))
 	slugs, restricted := c.Get(middleware.TokenWorkspacesKey).([]string)
+	ssoWorkspace := middleware.GetSessionSSOWorkspace(c)
 	for _, ws := range workspaces {
 		if restricted && slugs != nil && !slices.Contains(slugs, ws.Slug) {
+			continue
+		}
+		// An SSO-scoped session never learns about the account's other
+		// workspaces.
+		if ssoWorkspace != uuid.Nil && ws.ID != ssoWorkspace {
 			continue
 		}
 		resp = append(resp, h.toWorkspaceResponse(c, ws))

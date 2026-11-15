@@ -222,6 +222,7 @@ type fakeStore struct {
 	putErr    error
 	puts      int
 	deleteErr error
+	deleted   []string
 }
 
 func newFakeStore() *fakeStore { return &fakeStore{objects: map[string]fakeObject{}} }
@@ -262,6 +263,7 @@ func (s *fakeStore) Get(_ context.Context, key string) (io.ReadCloser, error) {
 func (s *fakeStore) Delete(_ context.Context, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.deleted = append(s.deleted, key)
 	if s.deleteErr != nil {
 		return s.deleteErr
 	}
@@ -451,6 +453,44 @@ func TestBackupScheduledRunWritesVerifiableArchive(t *testing.T) {
 	require.Equal(t, int64(len(validDump())), manifest.Database.Size)
 }
 
+// Uploads deleted while the folder is being archived are skipped instead of
+// failing the backup, and the manifest counts only what was archived.
+func TestBackupSkipsUploadsThatVanishMidWalk(t *testing.T) {
+	h := newBackupHarness(t)
+	require.NoError(t, os.WriteFile(filepath.Join(h.uploads, "b.txt"), []byte("b-bytes"), 0o644))
+	original := openUploadFile
+	t.Cleanup(func() { openUploadFile = original })
+	openUploadFile = func(path string) (*os.File, error) {
+		if filepath.Base(path) == "avatar.jpg" {
+			// The file goes between the walk and the open, and the
+			// workspace folder before the walk reads it.
+			require.NoError(t, os.Remove(path))
+			require.NoError(t, os.RemoveAll(filepath.Join(h.uploads, "workspace")))
+		}
+		return original(path)
+	}
+
+	run, err := h.svc.RunNow(context.Background(), h.admins[0])
+	require.NoError(t, err)
+	h.svc.Wait()
+	stored, _ := h.repo.GetRun(context.Background(), run.ID)
+	require.Equal(t, domain.BackupStatusSucceeded, stored.Status, "a vanished upload does not fail the backup")
+	require.Nil(t, stored.Error)
+
+	entries := readArchiveEntries(t, stored.LocalPath, "")
+	require.NotContains(t, entries, "uploads/avatar.jpg")
+	require.NotContains(t, entries, "uploads/workspace/a/logo.png")
+	require.Equal(t, []byte("b-bytes"), entries["uploads/b.txt"])
+	var manifest domain.BackupManifest
+	require.NoError(t, json.Unmarshal(entries["manifest.json"], &manifest))
+	require.Equal(t, 1, manifest.Uploads.Count)
+	require.EqualValues(t, len("b-bytes"), manifest.Uploads.Bytes)
+
+	verified, err := h.svc.Verify(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Nil(t, verified.VerifyError)
+}
+
 func TestBackupNotDueDoesNotRun(t *testing.T) {
 	h := newBackupHarness(t)
 	h.enableSchedule()
@@ -533,6 +573,7 @@ func TestBackupUploadRetriesWithBackoff(t *testing.T) {
 	h := newBackupHarness(t)
 	h.enableSchedule()
 	h.enableS3(t, "AKIAEXAMPLE", "s3-secret-value")
+	h.repo.settings.S3Endpoint = "https://s3.example.com"
 	h.store.failPuts = 2
 	h.store.putErr = errors.New("503 slow down")
 
@@ -550,6 +591,8 @@ func TestBackupUploadRetriesWithBackoff(t *testing.T) {
 
 	name := filepath.Base(run.LocalPath)
 	require.Equal(t, "kuayle/"+name, run.S3Key)
+	require.Equal(t, "backups", run.S3Bucket, "the run records which bucket holds its copy")
+	require.Equal(t, "https://s3.example.com", run.S3Endpoint)
 	require.Equal(t, []string{"kuayle/" + name, "kuayle/" + name + ".sha256"}, h.store.keys())
 	require.Equal(t, *run.ChecksumSHA256, h.store.objects[run.S3Key].checksum)
 	require.Contains(t, run.Destination, "s3://backups/kuayle")
@@ -628,7 +671,8 @@ func TestBackupRetentionDeletesBucketCopiesAndKeepsRowsWhenDeleteFails(t *testin
 	h.store.objects["kuayle/old.tar.gz"] = fakeObject{body: []byte("old")}
 	h.store.objects["kuayle/old.tar.gz.sha256"] = fakeObject{body: []byte("x")}
 	stale := &domain.BackupRun{ID: uuid.New(), Kind: domain.BackupKindManual, Status: domain.BackupStatusSucceeded,
-		UploadStatus: domain.BackupUploadUploaded, StartedAt: h.now().Add(-72 * time.Hour), LocalPath: path, S3Key: "kuayle/old.tar.gz"}
+		UploadStatus: domain.BackupUploadUploaded, StartedAt: h.now().Add(-72 * time.Hour), LocalPath: path,
+		S3Key: "kuayle/old.tar.gz", S3Bucket: "backups"}
 	h.repo.runs[stale.ID] = stale
 
 	h.store.deleteErr = errors.New("access denied")
@@ -644,6 +688,60 @@ func TestBackupRetentionDeletesBucketCopiesAndKeepsRowsWhenDeleteFails(t *testin
 	require.NoFileExists(t, path)
 	require.NotContains(t, h.store.keys(), "kuayle/old.tar.gz")
 	require.NotContains(t, h.store.keys(), "kuayle/old.tar.gz.sha256")
+}
+
+// A copy uploaded to another bucket or endpoint cannot be deleted through the
+// current settings (S3 reports success for a missing key), so retention keeps
+// the whole run instead of marking it deleted while the old object lingers.
+func TestBackupRetentionKeepsRunsCopiedToAnotherLocation(t *testing.T) {
+	for name, location := range map[string]struct{ endpoint, bucket string }{
+		"other bucket":         {"https://s3.example.com", "old-backups"},
+		"other endpoint":       {"https://old.example.com", "backups"},
+		"location not tracked": {"", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newBackupHarness(t)
+			h.enableSchedule()
+			h.enableS3(t, "AKIAEXAMPLE", "s3-secret-value")
+			h.repo.settings.S3Endpoint = "https://s3.example.com"
+			h.repo.settings.BackupRetention = domain.BackupRetention{Kind: "count", Value: 1}
+			require.NoError(t, os.MkdirAll(h.dir, 0o700))
+			path := filepath.Join(h.dir, "old.tar.gz")
+			require.NoError(t, os.WriteFile(path, []byte("old"), 0o600))
+			moved := &domain.BackupRun{ID: uuid.New(), Kind: domain.BackupKindScheduled, Status: domain.BackupStatusSucceeded,
+				UploadStatus: domain.BackupUploadUploaded, StartedAt: h.now().Add(-72 * time.Hour), LocalPath: path,
+				S3Key: "kuayle/old.tar.gz", S3Endpoint: location.endpoint, S3Bucket: location.bucket}
+			h.repo.runs[moved.ID] = moved
+
+			h.svc.runDue(context.Background())
+			require.Len(t, h.repo.runs, 2, "the scheduled run happened")
+			require.Empty(t, h.store.deleted, "nothing is deleted through the current bucket")
+			require.Nil(t, h.repo.runs[moved.ID].DeletedAt, "the run stays listed")
+			require.FileExists(t, path, "the local copy is kept so the run is not half deleted")
+			require.Contains(t, h.allLogText(), "different bucket or endpoint")
+		})
+	}
+}
+
+func TestBackupRetentionMatchesTheSameLocationLoosely(t *testing.T) {
+	h := newBackupHarness(t)
+	h.enableSchedule()
+	h.enableS3(t, "AKIAEXAMPLE", "s3-secret-value")
+	h.repo.settings.S3Endpoint = "https://S3.Example.com"
+	h.repo.settings.BackupRetention = domain.BackupRetention{Kind: "count", Value: 1}
+	require.NoError(t, os.MkdirAll(h.dir, 0o700))
+	path := filepath.Join(h.dir, "old.tar.gz")
+	require.NoError(t, os.WriteFile(path, []byte("old"), 0o600))
+	h.store.objects["kuayle/old.tar.gz"] = fakeObject{body: []byte("old")}
+	old := &domain.BackupRun{ID: uuid.New(), Kind: domain.BackupKindScheduled, Status: domain.BackupStatusSucceeded,
+		UploadStatus: domain.BackupUploadUploaded, StartedAt: h.now().Add(-72 * time.Hour), LocalPath: path,
+		S3Key: "kuayle/old.tar.gz", S3Endpoint: " https://s3.example.com/ ", S3Bucket: "backups"}
+	h.repo.runs[old.ID] = old
+
+	h.svc.runDue(context.Background())
+	require.NotNil(t, h.repo.runs[old.ID].DeletedAt)
+	require.Equal(t, []string{"kuayle/old.tar.gz", "kuayle/old.tar.gz.sha256"}, h.store.deleted)
+	require.NoFileExists(t, path)
 }
 
 // ---- verify and encryption ----
@@ -664,6 +762,26 @@ func TestBackupVerifyDetectsAFlippedByte(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, verified.VerifyError)
 	require.NotNil(t, verified.VerifiedAt)
+}
+
+func TestBackupVerifyRefusesACopyInAnUnconfiguredBucket(t *testing.T) {
+	h := newBackupHarness(t)
+	h.enableS3(t, "AKIAEXAMPLE", "s3-secret-value")
+	run, err := h.svc.RunNow(context.Background(), h.admins[0])
+	require.NoError(t, err)
+	h.svc.Wait()
+	stored, _ := h.repo.GetRun(context.Background(), run.ID)
+	require.Equal(t, domain.BackupUploadUploaded, stored.UploadStatus)
+	require.NoError(t, os.Remove(stored.LocalPath))
+
+	h.repo.settings.S3Bucket = "new-backups"
+	opened := false
+	h.svc.openS3 = func(BackupS3Destination) (backupObjectStore, error) { opened = true; return h.store, nil }
+	verified, err := h.svc.Verify(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.NotNil(t, verified.VerifyError)
+	require.Equal(t, "the local file is gone and the S3 copy is in a bucket that is no longer configured", *verified.VerifyError)
+	require.False(t, opened, "the configured bucket is not read in place of the run's")
 }
 
 func TestBackupVerifyRejectsNonPgDump(t *testing.T) {
@@ -908,6 +1026,39 @@ func TestBackupTestConnectionUsesStoredSecrets(t *testing.T) {
 	require.Equal(t, "stored-secret", used.SecretKey)
 	require.Equal(t, "unsaved", used.Bucket)
 	require.Empty(t, h.store.keys(), "the write-test object is deleted")
+}
+
+// Stored keys are only sent to the endpoint they were saved for, so a session
+// cannot point a test at another host and receive signed requests.
+func TestBackupTestConnectionKeepsStoredSecretsOnTheSavedEndpoint(t *testing.T) {
+	h := newBackupHarness(t)
+	h.enableS3(t, "stored-access", "stored-secret")
+	h.repo.settings.S3Endpoint = "https://s3.example.com"
+	var used []BackupS3Destination
+	h.svc.openS3 = func(dest BackupS3Destination) (backupObjectStore, error) {
+		used = append(used, dest)
+		return h.store, nil
+	}
+
+	for _, dest := range []BackupS3Destination{
+		{Endpoint: "https://attacker.example.net", Bucket: "backups", Region: "us-east-1"},
+		{Endpoint: "https://attacker.example.net", Bucket: "backups", Region: "us-east-1", AccessKey: "typed-access"},
+		{Endpoint: "", Bucket: "backups", Region: "us-east-1", SecretKey: "typed-secret"},
+	} {
+		err := h.svc.TestConnection(context.Background(), dest)
+		var invalid *BackupValidationError
+		require.ErrorAs(t, err, &invalid, dest.Endpoint)
+		require.Equal(t, "enter the access key and secret to test a different endpoint", invalid.Message)
+	}
+	require.Empty(t, used, "no request is made with the stored keys")
+
+	require.NoError(t, h.svc.TestConnection(context.Background(), BackupS3Destination{Endpoint: " https://S3.example.com/ ", Bucket: "backups", Region: "us-east-1"}))
+	require.Len(t, used, 1)
+	require.Equal(t, "stored-access", used[0].AccessKey, "the saved endpoint still reuses the stored keys")
+
+	require.NoError(t, h.svc.TestConnection(context.Background(), BackupS3Destination{Endpoint: "https://other.example.org", Bucket: "b", Region: "eu", AccessKey: "new-access", SecretKey: "new-secret"}))
+	require.Len(t, used, 2)
+	require.Equal(t, "new-access", used[1].AccessKey, "a different endpoint works with both keys typed")
 }
 
 func TestBackupUploadsFromObjectStorageAreListed(t *testing.T) {

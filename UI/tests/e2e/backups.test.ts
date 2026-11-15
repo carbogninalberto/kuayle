@@ -34,6 +34,7 @@ const run = (over: Record<string, unknown>) => ({
 	checksum_sha256: 'abcdef0123456789'.repeat(4),
 	file_name: 'kuayle.dump',
 	s3_key: 'prod/kuayle.dump',
+	s3_bucket: 'kuayle-backups',
 	destination: 'local:/var/backups/kuayle + s3://kuayle-backups/prod',
 	encrypted: false,
 	error: null,
@@ -44,7 +45,7 @@ const run = (over: Record<string, unknown>) => ({
 });
 
 async function setup(page: Page, isSysadmin: boolean) {
-	const state = { puts: [] as Record<string, unknown>[], runRequests: 0 };
+	const state = { puts: [] as Record<string, unknown>[], runRequests: 0, tests: [] as Record<string, unknown>[] };
 	await page.routeWebSocket('**/api/workspaces/*/ws', () => {});
 	await page.route('https://raw.githubusercontent.com/**', (route) => route.fulfill({ json: [] }));
 	await page.route('**/api/**', async (route) => {
@@ -65,6 +66,10 @@ async function setup(page: Page, isSysadmin: boolean) {
 				return route.fulfill({ json: { ...settings, ...body, has_passphrase: false } });
 			}
 			if (path === '/api/system/backups/settings') return route.fulfill({ json: settings });
+			if (path === '/api/system/backups/test-connection') {
+				state.tests.push(request.postDataJSON());
+				return route.fulfill({ json: { ok: true } });
+			}
 			if (path === '/api/system/backups/runs')
 				return route.fulfill({
 					json: {
@@ -139,4 +144,24 @@ test('a non-sysadmin sees no Backups nav item and a forbidden notice', async ({ 
 	await page.goto('/alpha/settings/backups');
 	await expect(page.getByText('Only instance sysadmins can manage backups.')).toBeVisible();
 	await expect(page.getByLabel('Access key')).toHaveCount(0);
+});
+
+test('testing a different endpoint asks for both keys instead of reusing the stored ones', async ({ page }) => {
+	const state = await setup(page, true);
+	await page.goto('/alpha/settings/backups');
+	const testButton = page.getByRole('button', { name: 'Test connection' });
+	const hint = page.getByText('The saved keys are only used with the saved endpoint.', { exact: false });
+	await expect(testButton).toBeVisible();
+	await expect(hint).toHaveCount(0);
+
+	await page.getByLabel('Endpoint').fill('https://other.example.org');
+	await expect(hint).toBeVisible();
+	await expect(testButton).toHaveAttribute('aria-describedby', 'backup-endpoint-needs-keys');
+
+	await page.getByRole('textbox', { name: 'Access key' }).fill('new-access');
+	await page.getByRole('textbox', { name: 'Secret key' }).fill('new-secret');
+	await expect(hint).toHaveCount(0);
+	await testButton.click();
+	await expect.poll(() => state.tests.length).toBe(1);
+	expect(state.tests[0]).toMatchObject({ s3_endpoint: 'https://other.example.org', s3_access_key: 'new-access', s3_secret_key: 'new-secret' });
 });

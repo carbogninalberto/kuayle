@@ -12,7 +12,11 @@ A backup contains every workspace, so the page and its API
 (`/api/system/backups/*`) are limited to instance **sysadmins**: the user IDs
 listed in `SYSADMINS` (see [Updating](self-hosting.md#updating) for how to find
 your ID). Workspace owners and admins who are not sysadmins see neither the page
-nor the data. Personal access tokens cannot reach these routes.
+nor the data. Personal access tokens cannot reach these routes, and neither can
+a session signed in through a workspace's SSO.
+
+The issue asked for workspace owner/admin; backups contain every workspace, so
+access is limited to instance sysadmins.
 
 ## Configure
 
@@ -21,7 +25,7 @@ nor the data. Personal access tokens cannot reach these routes.
 | Enabled | Runs scheduled backups. **Back up now** works either way. |
 | Schedule | Daily or weekly at `HH:MM` **UTC**, or a 5-field cron expression in UTC (`minute hour day month weekday`; `*`, numbers, `a-b` ranges, lists and `*/n` or `a-b/n` steps; weekday 0–6 with Sunday as 0, 7 also meaning Sunday). |
 | Retention | Keep the last *N* successful backups, or the ones from the last *N* days (1–1000). |
-| S3 destination | Endpoint (empty for AWS), bucket, region, prefix, access key and secret key. **Test connection** writes and deletes a small object under the prefix. |
+| S3 destination | Endpoint (empty for AWS), bucket, region, prefix, access key and secret key. **Test connection** writes and deletes a small object under the prefix. Blank keys reuse the saved ones only for the saved endpoint; to test a different endpoint, enter both keys. |
 | Encryption | Optional client-side encryption with a passphrase of at least 12 characters. **Without the passphrase a backup cannot be restored.** Keep it outside the instance. |
 
 Secrets (S3 keys and the passphrase) are encrypted at rest with a key derived
@@ -59,13 +63,20 @@ The backend image includes `pg_dump` (PostgreSQL 17 client, matching the Compose
   under `<prefix>/`, with the checksum in the `x-amz-meta-sha256` metadata.
   Failed uploads are retried 4 times with exponential backoff (1 s, 2 s, 4 s,
   8 s, plus jitter). A failed upload keeps the local backup; the run shows
-  `upload failed`. A single upload is one `PutObject`, so an archive is limited
-  to the provider's single-request size (5 GiB on AWS).
+  `upload failed`. Archives up to 64 MiB are sent with one `PutObject`; larger
+  ones use a multipart upload (parts of at least 64 MiB, at most 9,000 parts),
+  which is aborted on failure so no parts are left behind. Each run records the
+  endpoint and bucket its copy went to.
 - **Retention.** After a successful run, backups outside the policy are deleted
   locally and from the bucket. Retention never deletes the newest successful
   backup, a backup that is still uploading or running, or the updater's
   pre-upgrade dumps (they live on the host). A backup is marked deleted only
-  once all its copies are gone.
+  once all its copies are gone. A backup whose copy went to a different endpoint
+  or bucket than the current settings is kept whole (local file, copy and
+  history row) and logged as a warning after every run, because deleting it
+  through the new settings would report success while the old object stays.
+  Remove those copies from the previous bucket yourself, or point the settings
+  back at it until retention has cleaned them up.
 - **Failure notifications.** When a scheduled run fails, or its upload fails,
   every sysadmin gets a `backup_failed` inbox notification (in the first
   workspace and team they belong to). Manual runs report in the history only.
@@ -78,7 +89,7 @@ tar holding:
 | Entry | Content |
 | --- | --- |
 | `database.dump` | `pg_dump --format=custom --no-owner` of the whole database. |
-| `uploads/…` | The uploaded files when `STORAGE_TYPE=local` (symbolic links are skipped). |
+| `uploads/…` | The uploaded files when `STORAGE_TYPE=local` (symbolic links are skipped, and so are files deleted while the backup reads the folder; the manifest counts only what was archived). |
 | `uploads-manifest.json` | When `STORAGE_TYPE=s3`: the list of upload objects (`key`, `size`, `etag`). The objects themselves stay in the upload bucket; back that bucket up with your provider's tools. |
 | `manifest.json` | `format_version`, `created_at`, `kind`, `app_version`, `database` (`file`, `size`, `sha256`) and `uploads` (`mode`: `files` or `s3-manifest`, `count`, `bytes`). |
 
@@ -103,7 +114,8 @@ command line. The command needs no database or configuration.
 ## Verify
 
 **Verify** in the history re-reads a backup (the local file, or the bucket copy
-when the local file is gone) and checks that its SHA-256 matches the recorded
+when the local file is gone and the copy is in the endpoint and bucket
+configured now) and checks that its SHA-256 matches the recorded
 one, that it decrypts and decompresses completely, that `manifest.json` is
 present, that `database.dump` starts with the pg_dump custom-format signature
 and matches the size and SHA-256 in the manifest, and that the number of

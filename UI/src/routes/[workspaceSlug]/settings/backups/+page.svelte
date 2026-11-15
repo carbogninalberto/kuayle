@@ -30,6 +30,7 @@
 		MIN_PASSPHRASE_LENGTH,
 		MIN_RETENTION,
 		buildConnectionTest,
+		connectionTestNeedsKeys,
 		buildSettingsPayload,
 		formFromSettings,
 		formatBytes,
@@ -62,6 +63,10 @@
 	let loaded = false;
 	let destroyed = false;
 	let poll: ReturnType<typeof setTimeout> | null = null;
+	// Stored keys only go to the saved endpoint (the API enforces it).
+	const endpointNeedsKeys = $derived(
+		!!form && !!settings && (settings.has_access_key || settings.has_secret_key) && connectionTestNeedsKeys(form, settings)
+	);
 
 	const weekdays = $derived.by(() => {
 		const format = new Intl.DateTimeFormat(getLocale(), { weekday: 'long', timeZone: 'UTC' });
@@ -399,9 +404,21 @@
 							</div>
 						{/if}
 						<div class="flex flex-wrap items-center gap-3 sm:col-span-2">
-							<Button type="button" variant="outline" size="sm" onclick={testConnection} disabled={testing}>
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								onclick={testConnection}
+								disabled={testing}
+								aria-describedby={endpointNeedsKeys ? 'backup-endpoint-needs-keys' : undefined}
+							>
 								{testing ? m['settings.backups.testing']() : m['settings.backups.test_connection']()}
 							</Button>
+							{#if endpointNeedsKeys}
+								<p id="backup-endpoint-needs-keys" class="text-sm text-[var(--color-text-secondary)]">
+									{m['settings.backups.endpoint_needs_keys']()}
+								</p>
+							{/if}
 							{#if connectionResult}
 								<p role="status" class="text-sm break-words {connectionResult.ok ? 'text-[var(--color-success)]' : 'text-destructive'}">
 									{connectionResult.text}

@@ -90,7 +90,7 @@ func TestConversationHTTPStreamingAndReplay(t *testing.T) {
 	tokens := repository.NewPersonalAccessTokenRepository(db)
 	secret := "conversation-http-secret-at-least-32-chars"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
-	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces)
+	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces, mw.SSONotEnforced)
 	middleware.publicRateLimit = mw.RateLimit(0.01, 2)
 	e := echo.New()
 	telegramSvc := service.NewTelegramService(repository.NewTelegramRepository(db), workspaces, service.NewAISettingsService(aiRepo, workspaces, nil, key), key, "https://kuayle.test")

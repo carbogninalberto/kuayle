@@ -31,6 +31,39 @@ type RefreshTokenRepo interface {
 	DeleteExpired(ctx context.Context) error
 }
 
+// SSORepo stores workspace OIDC configuration, flow state and external
+// identities. ProvisionIdentity runs the whole just-in-time sign-in in one
+// transaction.
+type SSORepo interface {
+	GetConfig(ctx context.Context, workspaceID uuid.UUID) (*domain.SSOConfig, error)
+	SaveConfig(ctx context.Context, config *domain.SSOConfig) error
+	DeleteConfig(ctx context.Context, workspaceID uuid.UUID) error
+
+	CreateLoginState(ctx context.Context, state *domain.SSOLoginState) error
+	ConsumeLoginState(ctx context.Context, stateHash string) (*domain.SSOLoginState, error)
+	DeleteExpiredLoginStates(ctx context.Context) error
+
+	GetIdentity(ctx context.Context, workspaceID uuid.UUID, issuer, subject string) (*domain.UserIdentity, error)
+	TouchIdentity(ctx context.Context, id uuid.UUID) error
+	ProvisionIdentity(ctx context.Context, params SSOProvisionParams) (*domain.User, error)
+	LinkIdentity(ctx context.Context, userID, workspaceID uuid.UUID, provider, issuer, subject, email string) (*domain.UserIdentity, error)
+	HasIdentity(ctx context.Context, userID, workspaceID uuid.UUID) (bool, error)
+	UserWorkspaceRoles(ctx context.Context, userID uuid.UUID) ([]domain.SSOWorkspaceRole, error)
+}
+
+// SSOProvisionParams is the input of a just-in-time SSO sign-in. PasswordHash
+// is a random unusable hash for a newly created account.
+type SSOProvisionParams struct {
+	WorkspaceID  uuid.UUID
+	Issuer       string
+	Subject      string
+	Provider     string
+	Email        string
+	Name         string
+	DefaultRole  string
+	PasswordHash string
+}
+
 type PersonalAccessTokenRepo interface {
 	Create(ctx context.Context, token *domain.PersonalAccessToken) error
 	GetByHash(ctx context.Context, hash string) (*domain.PersonalAccessToken, error)

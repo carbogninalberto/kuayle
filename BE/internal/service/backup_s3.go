@@ -95,13 +95,34 @@ type s3BackupStore struct {
 	backend *storage.S3Backend
 }
 
+// Archives above backupMultipartThreshold are uploaded in parts, which lifts
+// the 5 GiB single PUT limit. Variables so tests can use small sizes.
+var (
+	backupMultipartThreshold int64 = 64 << 20
+	backupMinPartSize        int64 = 64 << 20
+)
+
+// backupPartSize picks a part size that keeps an archive of size bytes
+// within 9,000 parts, below S3's limit of 10,000.
+func backupPartSize(size int64) int64 {
+	return max(backupMinPartSize, (size+8999)/9000)
+}
+
 func (s s3BackupStore) PutFile(ctx context.Context, key, localPath, checksum string) error {
 	file, err := os.Open(localPath)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	return s.backend.PutWithMetadata(ctx, key, file, "application/octet-stream", map[string]string{"sha256": checksum})
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	metadata := map[string]string{"sha256": checksum}
+	if info.Size() > backupMultipartThreshold {
+		return s.backend.PutFileMultipart(ctx, key, file, info.Size(), backupPartSize(info.Size()), "application/octet-stream", metadata)
+	}
+	return s.backend.PutWithMetadata(ctx, key, file, "application/octet-stream", metadata)
 }
 
 func (s s3BackupStore) PutBytes(ctx context.Context, key string, body []byte) error {
