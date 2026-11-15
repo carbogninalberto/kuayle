@@ -411,9 +411,15 @@ func (t *AssistantTools) prepareBranchUpdate(ctx context.Context, ws, user uuid.
 		audit.Log("pull_request.update_pull_request_branch_requested", user, map[string]interface{}{"workspace_id": ws, "repository": target.Repository, "pull_request": target.Number})
 		return issue.ID, payload, "update_pull_request_branch", nil
 	}
+	// The user asked to update the task's open pull request; other merged work
+	// of the issue is shown on the card, whose approval confirms it.
+	merged, err := t.work.MergedPullRequest(ctx, ws, issue.ID)
+	if err != nil {
+		return uuid.Nil, nil, "", err
+	}
 	instructions := fmt.Sprintf("Bring pull request #%d up to date with %s: fetch origin, merge origin/%s into the task branch (a merge commit, no rebase or force-push), resolve any conflicts, run the checks, and publish.", target.Number, status.BaseRef, status.BaseRef)
 	audit.Log("pull_request.update_via_task_agent_requested", user, map[string]interface{}{"workspace_id": ws, "repository": target.Repository, "pull_request": target.Number})
-	return issue.ID, domain.FollowUpPayload{Identifier: issue.Identifier, Title: issue.Title, TaskID: followUp.TaskID, Generation: followUp.Generation, Instructions: instructions}, "follow_up_task", nil
+	return issue.ID, domain.FollowUpPayload{Identifier: issue.Identifier, Title: issue.Title, TaskID: followUp.TaskID, Generation: followUp.Generation, Instructions: instructions, MergedPullRequest: merged}, "follow_up_task", nil
 }
 
 // pullRequestAction applies an approved pull request change and records the

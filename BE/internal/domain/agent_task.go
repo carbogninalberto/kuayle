@@ -223,6 +223,9 @@ type AgentTaskRetryRequest struct {
 	// (an approval card); nil lets the service choose. The retry receipt records
 	// it with Model, so a replay with another choice conflicts.
 	RequestedModelServerID *uuid.UUID `json:"-"`
+	// ConfirmMerged starts the new attempt although the issue's work was
+	// already merged; without it that retry is a MergedWorkError (KUA-193).
+	ConfirmMerged bool `json:"confirm_merged,omitempty"`
 
 	TestCommand []string `json:"test_command"`
 }

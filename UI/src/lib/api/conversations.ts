@@ -1,4 +1,4 @@
-import type { AgentLiveChatMessage, AgentTask, TaskActivity } from './agent-tasks';
+import type { AgentLiveChatMessage, AgentTask, MergedPullRequest, TaskActivity } from './agent-tasks';
 import { api } from './client';
 import { uploadWithProgress, type UploadError } from './upload';
 export type { UploadError };
@@ -186,6 +186,8 @@ export interface FollowUpPayload {
 	current_model?: string;
 	harness?: string;
 	model_server_id?: string;
+	/** The issue's merged work the follow-up runs the agent past; approving confirms it. */
+	merged_pull_request?: MergedPullRequest;
 }
 /** A message the assistant asks to send to a task's coding agent; `body` is delivered unchanged. */
 export interface TaskMessagePayload {

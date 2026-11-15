@@ -584,9 +584,15 @@ func (s *AssistantApprovals) followUp(ctx context.Context, ws, conversation uuid
 		model, server := followUpModel(choice, payload)
 		task, err = s.reviews.Retry(ctx, ws, payload.TaskID, domain.AgentTaskRetryRequest{RequestID: approval.RequestID, Generation: payload.Generation, Prompt: chatFollowUpPrompt(task.Prompt, payload.Instructions, review), Model: model, RequestedModelServerID: server,
 			// The person approved these instructions; the assistant drafted them.
-			Note: &domain.NotebookNote{Instruction: &domain.NotebookInstruction{Source: domain.NotebookInstructionFollowUp, Assistant: true, Text: payload.Instructions}}})
+			Note: &domain.NotebookNote{Instruction: &domain.NotebookInstruction{Source: domain.NotebookInstructionFollowUp, Assistant: true, Text: payload.Instructions}},
+			// Approving a card that showed the issue's merged work confirms it.
+			ConfirmMerged: payload.MergedPullRequest != nil})
 	}
 	if err != nil {
+		var merged *domain.MergedWorkError
+		if errors.As(err, &merged) {
+			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, fmt.Sprintf("This issue's work was merged in #%d after the follow-up was proposed; ask again to retry anyway", merged.PullRequest.Number))
+		}
 		if errors.Is(err, repository.ErrConversationNotFound) || errors.Is(err, repository.ErrAgentTaskUnauthorized) {
 			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "Only the task's creator can start a follow-up")
 		}

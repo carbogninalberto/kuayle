@@ -32,7 +32,7 @@ const liveMessagesPerDelivery = 10
 // task is completed or cancelled (or being cancelled). The task row lock
 // orders sequence numbers.
 func (r *AgentTaskRepository) QueueLiveMessage(ctx context.Context, ws, id uuid.UUID, sender, body string) (*domain.AgentLiveMessage, error) {
-	return r.queueLiveMessage(ctx, ws, id, sender, body, nil, "")
+	return r.queueLiveMessage(ctx, ws, id, sender, body, nil, "", false)
 }
 
 // SendLiveMessage queues the creator's message like QueueLiveMessage and, in
@@ -40,12 +40,13 @@ func (r *AgentTaskRepository) QueueLiveMessage(ctx context.Context, ws, id uuid.
 // working attempt, which is then resumed on the same session with the
 // message; domain.AgentLiveSendStart starts an attempt for it when none runs.
 // A mode the task's state does not allow is ErrAgentTaskConflict and queues
-// nothing.
-func (r *AgentTaskRepository) SendLiveMessage(ctx context.Context, ws, id uuid.UUID, body, mode string) (*domain.AgentLiveMessage, error) {
+// nothing. Starting a new iteration on an issue whose work was merged is a
+// domain.MergedWorkError, which also queues nothing, unless confirmMerged.
+func (r *AgentTaskRepository) SendLiveMessage(ctx context.Context, ws, id uuid.UUID, body, mode string, confirmMerged bool) (*domain.AgentLiveMessage, error) {
 	if mode != "" && mode != domain.AgentLiveSendInterrupt && mode != domain.AgentLiveSendStart {
 		return nil, ErrAgentLiveMessageInvalid
 	}
-	return r.queueLiveMessage(ctx, ws, id, domain.AgentLiveSenderUser, body, nil, mode)
+	return r.queueLiveMessage(ctx, ws, id, domain.AgentLiveSenderUser, body, nil, mode, confirmMerged)
 }
 
 // QueueApprovedLiveMessage queues the message of an approved message_task
@@ -57,10 +58,10 @@ func (r *AgentTaskRepository) QueueApprovedLiveMessage(ctx context.Context, ws, 
 	if request == uuid.Nil {
 		return nil, ErrAgentLiveMessageInvalid
 	}
-	return r.queueLiveMessage(ctx, ws, id, domain.AgentLiveSenderOrchestrator, body, &request, "")
+	return r.queueLiveMessage(ctx, ws, id, domain.AgentLiveSenderOrchestrator, body, &request, "", false)
 }
 
-func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.UUID, sender, body string, request *uuid.UUID, mode string) (*domain.AgentLiveMessage, error) {
+func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.UUID, sender, body string, request *uuid.UUID, mode string, confirmMerged bool) (*domain.AgentLiveMessage, error) {
 	actor, err := conversationActor(ctx, ws)
 	if err != nil {
 		return nil, err
@@ -132,7 +133,7 @@ func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.
 			}
 		}
 	case domain.AgentLiveSendStart:
-		if err = startForLiveMessage(ctx, tx, task, actor); err != nil {
+		if err = startForLiveMessage(ctx, tx, task, actor, confirmMerged); err != nil {
 			return nil, err
 		}
 	default:
@@ -252,8 +253,10 @@ func continueInterruptedForLiveMessage(ctx context.Context, tx *sqlx.Tx, task *d
 // blocked or waiting task starts a new iteration on its last agent step, as a
 // retry does, but keeps its prompt and continues the previous session (when
 // the same profile ran it). A task that is working, or paused by a usage
-// limit, is ErrAgentTaskConflict.
-func startForLiveMessage(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, actor uuid.UUID) error {
+// limit, is ErrAgentTaskConflict. That new iteration on an issue whose work
+// was merged is a domain.MergedWorkError unless confirmMerged; resuming a
+// paused step is not a new iteration and never asks.
+func startForLiveMessage(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, actor uuid.UUID, confirmMerged bool) error {
 	if task.WorkflowPausedAt != nil && task.State == "blocked" {
 		resume, err := ComputeWorkflowResume(*task, time.Now())
 		if err != nil {
@@ -279,6 +282,9 @@ func startForLiveMessage(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTas
 	}
 	if pending {
 		return ErrAgentTaskConflict
+	}
+	if err = refuseMergedWork(ctx, tx, task, confirmMerged); err != nil {
+		return err
 	}
 	err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET generation=generation+1,run_id=gen_random_uuid(),live_resume_generation=generation+1,failure_count=0,failure_pending=false,failure_class=NULL,sign_in_required=false,
  usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,usage_limit_resumes=0,resume_native_session=false,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),

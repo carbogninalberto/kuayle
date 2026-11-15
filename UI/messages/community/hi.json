@@ -4215,5 +4215,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "इस इश्यू का काम #{number} में मर्ज हो चुका है। फिर भी दोबारा चलाएँ?",
+	"tasks.merged_work_body": "एजेंट को फिर से चलाने से पहले से मर्ज हुआ काम दोबारा हो सकता है या पलट सकता है।",
+	"tasks.merged_work_link": "पुल रिक्वेस्ट #{number} देखें",
+	"tasks.merged_work_confirm": "फिर भी दोबारा चलाएँ",
+	"assistant.follow_up_merged": "इस इश्यू का काम #{number} में मर्ज हो चुका है। स्वीकृति देने पर एजेंट फिर भी दोबारा चलेगा।"
 }

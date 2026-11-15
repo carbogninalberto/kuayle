@@ -188,6 +188,9 @@ type mergeWorkFake struct {
 	asked  []string
 }
 
+func (f *mergeWorkFake) MergedPullRequest(context.Context, uuid.UUID, uuid.UUID) (*domain.MergedPullRequest, error) {
+	return nil, nil
+}
 func (f *mergeWorkFake) RecentAgentWork(_ context.Context, _ uuid.UUID, state string, limit int) ([]repository.AgentWorkItem, error) {
 	f.asked = append(f.asked, fmt.Sprintf("%s/%d", state, limit))
 	return f.recent, nil

@@ -1028,6 +1028,23 @@ machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB), headless unless an
 environment applies; see [Resource Limits and Quotas](../../TECHNICAL.md#resource-limits-and-quotas)
 for its limits and how its memory is split between the agent and terminal.
 
+**Merged work asks first (KUA-193).** When the task's issue has a merged pull
+request (`github_pull_requests`) or merge request (`forge_merge_requests`)
+linked, a retry or a "send and start now" that would start a new iteration is
+refused with `409 MERGED_WORK`, `error.pull_request` naming the newest merged one
+(`number`, `url`, `repository`), unless the request carries `"confirm_merged":
+true`. The check runs in the retry transaction after replay, state and
+pending-work checks, scoped to the workspace and the caller's issue visibility;
+a refused request records nothing, so the UI asks ("This issue's work was merged
+in #N. Retry anyway?") and sends the same request ID again confirmed. Plain
+live messages, resuming a paused step, continuing after a sign-in and automatic
+CI, review and comment follow-ups never ask. The assistant's `follow_up_task`
+fails with that pull request until the model calls it again with
+`confirm_merged` after the user agreed; the card then shows the merged pull
+request and approving it confirms. A card proposed before the merge fails on
+approval instead. A follow-up proposed by `update_pull_request_branch` shows the
+merged pull request on its card the same way.
+
 ## Issue lifecycle
 
 Delegation captures the issue status and edit timestamp; it does not change the

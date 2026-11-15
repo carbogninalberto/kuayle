@@ -1925,6 +1925,64 @@ test('a requested review and a follow-up wait for approval in the chat', async (
 	expect(state.decisions).toEqual(['approve']);
 });
 
+// KUA-193: a follow-up the user confirmed past merged work says so on its
+// card, with the pull request; approving it is the confirmation.
+test('a follow-up on merged work names the merged pull request on its card', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Follow-up approval is pending.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-22',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_tool-22',
+			name: 'follow_up_task',
+			input: { identifier: 'ENG-1', confirm_merged: true },
+			status: 'completed',
+			output: { approval_id: 'approval-22', status: 'pending_user_approval', identifier: 'ENG-1' },
+			created_at: conversation.created_at
+		}
+	];
+	const payload = {
+		identifier: 'ENG-1',
+		title: 'Dark mode',
+		task_id: 'task-9',
+		generation: 1,
+		instructions: 'Fix the flaky test',
+		merged_pull_request: { number: 12, url: 'https://github.com/acme/app/pull/12', repository: 'acme/app' }
+	};
+	state.approvals = [
+		{
+			id: 'approval-22',
+			conversation_id: 'chat-1',
+			tool_call_id: 'tool-22',
+			action: 'follow_up_task',
+			actor_id: 'user-1',
+			issue_id: 'issue-1',
+			payload,
+			status: 'pending',
+			expires_at: '2026-10-27T10:00:00Z',
+			created_at: conversation.created_at,
+			updated_at: conversation.created_at
+		}
+	] as any;
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Start a follow-up on ENG-1?', { exact: true })).toBeVisible();
+	const merged = page.getByTestId('follow-up-merged');
+	await expect(merged).toContainText("This issue's work was merged in #12. Approving runs the agent again anyway.");
+	await expect(merged.getByRole('link', { name: 'View pull request #12' })).toHaveAttribute(
+		'href',
+		'https://github.com/acme/app/pull/12'
+	);
+	// A link that is not a web address is not offered.
+	payload.merged_pull_request.url = 'javascript:alert(1)';
+	await page.reload();
+	await expect(page.getByTestId('follow-up-merged')).toContainText('merged in #12');
+	await expect(page.getByTestId('follow-up-merged').getByRole('link')).toHaveCount(0);
+});
+
 // Preview and port approvals: the card says which machine and port and who
 // can open the link; once approved, the chat opens the port through the API.
 async function machinePorts(page: Page, ports: () => any[]) {

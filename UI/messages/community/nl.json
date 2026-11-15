@@ -4215,5 +4215,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "Het werk voor dit issue is gemerged in #{number}. Toch opnieuw proberen?",
+	"tasks.merged_work_body": "Als de agent opnieuw draait, kan hij werk dat al gemerged is opnieuw doen of ongedaan maken.",
+	"tasks.merged_work_link": "Pull request #{number} bekijken",
+	"tasks.merged_work_confirm": "Toch opnieuw proberen",
+	"assistant.follow_up_merged": "Het werk voor dit issue is gemerged in #{number}. Bij goedkeuring draait de agent toch opnieuw."
 }

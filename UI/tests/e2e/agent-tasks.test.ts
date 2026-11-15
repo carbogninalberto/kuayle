@@ -40,6 +40,8 @@ async function fixture(page: Page) {
 		appStartError: null as any,
 		creates: [] as any[],
 		retries: [] as any[],
+		// The issue's merged pull request: a retry without confirm_merged is refused (KUA-193).
+		merged: null as null | { number: number; url: string; repository: string },
 		accepts: [] as any[],
 		acceptError: null as any,
 		cancels: 0,
@@ -308,6 +310,17 @@ async function fixture(page: Page) {
 			}
 			if (path.endsWith('/retry')) {
 				state.retries.push(req.postDataJSON());
+				if (state.merged && !req.postDataJSON().confirm_merged)
+					return route.fulfill({
+						status: 409,
+						json: {
+							error: {
+								code: 'MERGED_WORK',
+								message: `This issue's work was merged in #${state.merged.number}. Retry anyway?`,
+								pull_request: state.merged
+							}
+						}
+					});
 				state.task = {
 					...state.task,
 					state: 'queued',
@@ -651,6 +664,46 @@ test('keeps displaying live output while activity arrives continuously', async (
 	} finally {
 		clearInterval(timer);
 	}
+});
+
+test('a retry of merged work asks first, links the pull request and retries the same request confirmed', async ({
+	page
+}) => {
+	const { state } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	await expect(page.getByText('Queued', { exact: true })).toBeVisible();
+	state.task = { ...state.task, state: 'failed', reason: 'Execution failed; runtime cleanup confirmed' };
+	state.merged = { number: 12, url: 'https://github.com/acme/app/pull/12', repository: 'acme/app' };
+	await page.reload();
+	await page.getByRole('button', { name: 'Retry task', exact: true }).click();
+	const composer = page.getByRole('dialog', { name: 'Retry task', exact: true });
+	await composer.getByRole('textbox', { name: 'Task instructions' }).fill('Fix the flaky test');
+	await composer.getByRole('button', { name: 'Retry task', exact: true }).click();
+	const warning = page.getByRole('alertdialog', { name: "This issue's work was merged in #12. Retry anyway?" });
+	await expect(warning).toBeVisible();
+	const link = warning.getByRole('link', { name: 'View pull request #12' });
+	await expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
+	await expect(link).toHaveAttribute('target', '_blank');
+	expect(state.retries).toHaveLength(1);
+	expect(state.retries[0].confirm_merged).toBeUndefined();
+
+	// Cancel changes nothing: the instructions stay and nothing is sent again.
+	await warning.getByRole('button', { name: 'Cancel' }).click();
+	await expect(warning).toHaveCount(0);
+	await expect(composer.getByRole('textbox', { name: 'Task instructions' })).toHaveValue('Fix the flaky test');
+	await expect(composer.getByRole('alert')).toHaveCount(0);
+	expect(state.retries).toHaveLength(1);
+
+	// Retry anyway sends the same request again, confirmed.
+	await composer.getByRole('button', { name: 'Retry task', exact: true }).click();
+	await warning.getByRole('button', { name: 'Retry anyway' }).click();
+	await expect.poll(() => state.retries.length).toBe(3);
+	expect(state.retries[2]).toEqual({ ...state.retries[0], confirm_merged: true });
+	await expect(composer).toHaveCount(0);
+	await expect(
+		page.getByRole('region', { name: 'Coding tasks' }).getByText('Iteration 2', { exact: false })
+	).toBeVisible();
 });
 
 test('validates test command overrides and preserves them across transport retries', async ({ page }) => {

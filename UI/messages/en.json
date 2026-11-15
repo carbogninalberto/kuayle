@@ -4215,5 +4215,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "This issue's work was merged in #{number}. Retry anyway?",
+	"tasks.merged_work_body": "Running the agent again may redo or undo work that is already merged.",
+	"tasks.merged_work_link": "View pull request #{number}",
+	"tasks.merged_work_confirm": "Retry anyway",
+	"assistant.follow_up_merged": "This issue's work was merged in #{number}. Approving runs the agent again anyway."
 }

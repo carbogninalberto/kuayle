@@ -4215,5 +4215,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "งานของ issue นี้ถูก merge แล้วใน #{number} ต้องการลองอีกครั้งหรือไม่",
+	"tasks.merged_work_body": "การรันเอเจนต์อีกครั้งอาจทำงานที่ merge แล้วซ้ำหรือย้อนกลับงานนั้น",
+	"tasks.merged_work_link": "ดู pull request #{number}",
+	"tasks.merged_work_confirm": "ลองอีกครั้งต่อไป",
+	"assistant.follow_up_merged": "งานของ issue นี้ถูก merge แล้วใน #{number} การอนุมัติจะรันเอเจนต์อีกครั้งอยู่ดี"
 }

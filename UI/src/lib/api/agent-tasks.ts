@@ -318,6 +318,13 @@ export interface RunPrompt {
 // iteration), by interrupting the working agent so it reads it now, or by
 // starting an iteration for it when none runs.
 export type LiveSendMode = 'interrupt' | 'start';
+// The merged pull (or merge) request of an issue that a retry, a follow-up
+// or "send and start now" asks about first (409 MERGED_WORK).
+export interface MergedPullRequest {
+	number: number;
+	url: string;
+	repository: string;
+}
 // A live message as the conversation that owns the task shows it.
 export interface AgentLiveChatMessage extends AgentLiveMessage {
 	identifier: string;
@@ -365,8 +372,13 @@ export const agentTasks = {
 	// creator's message for the running agent or the next attempt.
 	liveMessages: (slug: string, id: string) =>
 		api.get<{ messages: AgentLiveMessage[] }>(`${task(slug, id)}/live-messages`),
-	sendLiveMessage: (slug: string, id: string, body: string, mode?: LiveSendMode) =>
-		api.post<AgentLiveMessage>(`${task(slug, id)}/live-messages`, mode ? { body, mode } : { body }),
+	// Starting an iteration (mode "start") on an issue whose work was merged is
+	// refused with 409 MERGED_WORK until it is sent again with confirmMerged.
+	sendLiveMessage: (slug: string, id: string, body: string, mode?: LiveSendMode, confirmMerged = false) =>
+		api.post<AgentLiveMessage>(
+			`${task(slug, id)}/live-messages`,
+			mode ? { body, mode, ...(confirmMerged ? { confirm_merged: true } : {}) } : { body }
+		),
 	// Opens a terminal on the task's machine running Claude Code on the task's
 	// own session, in its worktree; only for its creator, while it is stopped.
 	openInClaudeCode: (slug: string, id: string) =>
@@ -387,10 +399,12 @@ export const agentTasks = {
 		api.post<{ switch: WorkflowSwitch; task: AgentTask }>(`${task(slug, id)}/workflow/switch`, {}),
 	resumeUsageLimit: (slug: string, id: string) => api.post<AgentTask>(`${task(slug, id)}/resume`, {}),
 	cancelUsageLimitResume: (slug: string, id: string) => api.delete<AgentTask>(`${task(slug, id)}/resume`),
+	// A retry on an issue whose work was merged answers 409 MERGED_WORK naming
+	// the pull request; the same request with confirm_merged retries anyway.
 	retry: (
 		slug: string,
 		id: string,
-		input: { request_id: string; generation: number; prompt: string; test_command?: string[] }
+		input: { request_id: string; generation: number; prompt: string; test_command?: string[]; confirm_merged?: boolean }
 	) => api.post<AgentTask>(`${task(slug, id)}/retry`, input),
 	history: (slug: string, id: string, after = 0) =>
 		api.get<{ transitions: TaskTransition[]; next_after?: number }>(`${task(slug, id)}/history?after=${after}`),

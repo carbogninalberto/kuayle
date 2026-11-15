@@ -3,6 +3,7 @@ package response
 import (
 	"net/http"
 
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/labstack/echo/v5"
 )
@@ -56,6 +57,19 @@ func SSORequired(c *echo.Context, workspaceSlug string) error {
 // IdP minted it, or on a durable/account-level action.
 func SSOSessionScoped(c *echo.Context) error {
 	return Error(c, http.StatusForbidden, "SSO_SESSION_SCOPED", "This session is limited to the workspace it signed in through")
+}
+
+// MergedWork refuses to start another agent run on an issue whose work was
+// already merged and names that pull request, so the person can confirm and
+// send the request again (KUA-193). Only session routes return it.
+func MergedWork(c *echo.Context, message string, pullRequest domain.MergedPullRequest) error {
+	type body struct {
+		dto.ErrorBody
+		PullRequest domain.MergedPullRequest `json:"pull_request"`
+	}
+	return c.JSON(http.StatusConflict, struct {
+		Error body `json:"error"`
+	}{body{ErrorBody: dto.ErrorBody{Code: "MERGED_WORK", Message: message}, PullRequest: pullRequest}})
 }
 
 func InternalError(c *echo.Context) error {

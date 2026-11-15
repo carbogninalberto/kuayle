@@ -110,9 +110,11 @@ func (f *AgentTaskFeedback) request(ctx context.Context, followUps []domain.Agen
 		ws := followUp.Task.WorkspaceID
 		// Follow-ups act for the task's creator, under their current permissions.
 		access := domain.WithAccess(ctx, domain.Access{WorkspaceID: ws, UserID: followUp.Task.CreatorID})
+		// The signal is about the task's own pull request, which still awaits
+		// review; nobody is there to confirm past other merged work.
 		task, err := f.tasks.Retry(access, ws, followUp.Task.ID, domain.AgentTaskRetryRequest{
 			RequestID: followUp.Signal.RequestID, Generation: followUp.Task.Generation, Prompt: followUpPrompt(followUp),
-			Note: followUpNote(followUp),
+			Note: followUpNote(followUp), ConfirmMerged: true,
 		})
 		if err != nil {
 			if _, permanent := delegationFailure(err); !permanent {
