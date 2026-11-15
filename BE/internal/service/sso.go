@@ -23,12 +23,18 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/crypto"
 	"github.com/kuayle/kuayle-backend/pkg/forge"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 )
 
 // SSOLoginStateTTL is how long a started OIDC flow may be completed.
 const SSOLoginStateTTL = 10 * time.Minute
+
+// ssoInstanceMissTTL is how long a missing instance workspace is remembered,
+// so a workspace created after startup gets the instance config without a
+// restart.
+const ssoInstanceMissTTL = 30 * time.Second
 
 var (
 	// ErrSSONotConfigured: the workspace has no enabled OIDC configuration.
@@ -130,6 +136,13 @@ type SSOService struct {
 	now           func() time.Time
 	mu            sync.Mutex
 	providers     map[uuid.UUID]cachedSSOProvider
+
+	// The instance workspace ID is looked up once: slugs never change. A
+	// missing workspace is remembered for ssoInstanceMissTTL.
+	instanceMu        sync.Mutex
+	instanceID        uuid.UUID
+	instanceMissUntil time.Time
+	instanceWarned    bool
 }
 
 func NewSSOService(
@@ -177,31 +190,71 @@ func (s *SSOService) workspace(ctx context.Context, slug string) (*domain.Worksp
 	return ws, nil
 }
 
+// instanceWorkspaceID returns the ID of the workspace named by the instance
+// configuration, or uuid.Nil when there is no instance configuration or the
+// workspace does not exist. A missing workspace is not an error: the instance
+// configuration simply does not apply, so a typo cannot break every workspace.
+func (s *SSOService) instanceWorkspaceID(ctx context.Context) (uuid.UUID, error) {
+	if !s.instance.Configured() {
+		return uuid.Nil, nil
+	}
+	s.instanceMu.Lock()
+	defer s.instanceMu.Unlock()
+	if s.instanceID != uuid.Nil {
+		return s.instanceID, nil
+	}
+	if s.now().Before(s.instanceMissUntil) {
+		return uuid.Nil, nil
+	}
+	slug := strings.TrimSpace(s.instance.WorkspaceSlug)
+	ws, err := s.workspaces.GetBySlug(ctx, slug)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if ws == nil {
+		s.instanceMissUntil = s.now().Add(ssoInstanceMissTTL)
+		if !s.instanceWarned {
+			s.instanceWarned = true
+			log.WithField("workspace_slug", slug).Warn("SSO_OIDC_WORKSPACE_SLUG names no existing workspace; the instance SSO configuration does not apply until it is created")
+		}
+		return uuid.Nil, nil
+	}
+	s.instanceID = ws.ID
+	return ws.ID, nil
+}
+
+// CheckInstanceWorkspace looks up the instance SSO workspace at startup and
+// logs when it is missing or cannot be read. It never fails.
+func (s *SSOService) CheckInstanceWorkspace(ctx context.Context) {
+	if _, err := s.instanceWorkspaceID(ctx); err != nil {
+		log.WithField("workspace_slug", strings.TrimSpace(s.instance.WorkspaceSlug)).WithError(err).
+			Warn("Could not look up the instance SSO workspace; it is retried on the next request")
+	}
+}
+
 // resolved merges the instance-level configuration over the workspace one.
 func (s *SSOService) resolved(ctx context.Context, workspaceID uuid.UUID) (*resolvedSSOConfig, error) {
-	stored, err := s.repo.GetConfig(ctx, workspaceID)
+	instanceID, err := s.instanceWorkspaceID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if s.instance.Configured() {
-		instance, err := s.workspace(ctx, s.instance.WorkspaceSlug)
-		if err != nil {
-			return nil, err
-		}
-		if instance != nil && instance.ID == workspaceID {
-			return &resolvedSSOConfig{
-				WorkspaceID:       workspaceID,
-				IssuerURL:         strings.TrimSpace(s.instance.IssuerURL),
-				ClientID:          s.instance.ClientID,
-				ClientSecret:      s.instance.ClientSecret,
-				AllowedDomains:    normalizeDomains(s.instance.AllowedDomains),
-				ProviderName:      strings.TrimSpace(s.instance.WorkspaceSlug),
-				DefaultRole:       normalizedDefaultRole(s.instance.DefaultRole),
-				RequireSSO:        s.instance.RequireSSO,
-				Enabled:           true,
-				ManagedByInstance: true,
-			}, nil
-		}
+	if instanceID != uuid.Nil && instanceID == workspaceID {
+		return &resolvedSSOConfig{
+			WorkspaceID:       workspaceID,
+			IssuerURL:         strings.TrimSpace(s.instance.IssuerURL),
+			ClientID:          s.instance.ClientID,
+			ClientSecret:      s.instance.ClientSecret,
+			AllowedDomains:    normalizeDomains(s.instance.AllowedDomains),
+			ProviderName:      strings.TrimSpace(s.instance.WorkspaceSlug),
+			DefaultRole:       normalizedDefaultRole(s.instance.DefaultRole),
+			RequireSSO:        s.instance.RequireSSO,
+			Enabled:           true,
+			ManagedByInstance: true,
+		}, nil
+	}
+	stored, err := s.repo.GetConfig(ctx, workspaceID)
+	if err != nil {
+		return nil, err
 	}
 	if stored == nil {
 		return nil, nil
@@ -347,6 +400,9 @@ func (s *SSOService) SaveConfig(ctx context.Context, slug string, req dto.SSOCon
 	domains, err := validDomains(req.AllowedDomains)
 	if err != nil {
 		return nil, err
+	}
+	if req.Enabled && len(domains) == 0 && validate.SharedOIDCIssuer(issuerURL) {
+		return nil, ssoInvalidf("Allowed email domains are required for a shared identity provider such as Google or Microsoft /common")
 	}
 
 	// Discovery validates the issuer and must happen before the secret is

@@ -10,9 +10,10 @@
 	import { Password } from '$lib/components/ui/password';
 	import { Switch } from '$lib/components/ui/switch';
 	import * as Select from '$lib/components/ui/select';
+	import * as Alert from '$lib/components/ui/alert';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
-	import { Check, Copy, Loader2, ShieldCheck, Trash2 } from '@lucide/svelte';
+	import { Check, Copy, Loader2, ShieldCheck, Trash2, TriangleAlert } from '@lucide/svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	let config = $state<SSOConfig | null>(null);
@@ -216,6 +217,12 @@
 					autocomplete="off"
 				/>
 				<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.sso.allowed_domains_help']()}</p>
+				{#if domains(allowedDomains).length === 0}
+					<Alert.Root class="border-[var(--color-warning)] bg-[var(--color-bg-secondary)] text-[var(--color-warning)]">
+						<TriangleAlert />
+						<Alert.Description class="text-[var(--color-text-secondary)]">{m['settings.sso.allowed_domains_empty_warning']()}</Alert.Description>
+					</Alert.Root>
+				{/if}
 			</div>
 
 			<div class="space-y-1.5">

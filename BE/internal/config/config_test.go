@@ -635,6 +635,11 @@ func TestLoadValidatesInstanceSSOConfiguration(t *testing.T) {
 			t.Setenv("SSO_OIDC_ISSUER", "http://keycloak:8080")
 			t.Setenv("SSO_OIDC_CLIENT_ID", "kuayle")
 		}, "must use https"},
+		{"shared issuer without allowed domains", func(t *testing.T) {
+			t.Setenv("SSO_OIDC_WORKSPACE_SLUG", "acme")
+			t.Setenv("SSO_OIDC_ISSUER", "https://accounts.google.com")
+			t.Setenv("SSO_OIDC_CLIENT_ID", "kuayle")
+		}, "SSO_OIDC_ALLOWED_DOMAINS"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			setProductionLoadEnv(t)
@@ -650,6 +655,16 @@ func TestLoadValidatesInstanceSSOConfiguration(t *testing.T) {
 		t.Setenv("SSO_OIDC_WORKSPACE_SLUG", "acme")
 		t.Setenv("SSO_OIDC_ISSUER", "http://keycloak:8080")
 		t.Setenv("SSO_OIDC_CLIENT_ID", "kuayle")
+		_, err := Load()
+		require.NoError(t, err)
+	})
+
+	t.Run("shared issuer with allowed domains", func(t *testing.T) {
+		setProductionLoadEnv(t)
+		t.Setenv("SSO_OIDC_WORKSPACE_SLUG", "acme")
+		t.Setenv("SSO_OIDC_ISSUER", "https://login.microsoftonline.com/common/v2.0")
+		t.Setenv("SSO_OIDC_CLIENT_ID", "kuayle")
+		t.Setenv("SSO_OIDC_ALLOWED_DOMAINS", "example.com")
 		_, err := Load()
 		require.NoError(t, err)
 	})

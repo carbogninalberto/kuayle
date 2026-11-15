@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -220,9 +221,14 @@ func (r *ssoFakeRefresh) DeleteExpired(ctx context.Context) error { return nil }
 type ssoFakeWorkspaces struct {
 	workspaces  map[string]*domain.Workspace
 	memberships map[string]string
+	// lookups counts GetBySlug calls per slug.
+	lookups map[string]int
 }
 
 func (w ssoFakeWorkspaces) GetBySlug(ctx context.Context, slug string) (*domain.Workspace, error) {
+	if w.lookups != nil {
+		w.lookups[slug]++
+	}
 	return w.workspaces[slug], nil
 }
 
@@ -390,6 +396,8 @@ type ssoTestRig struct {
 	idp       *fakeIDP
 	workspace *domain.Workspace
 	key       []byte
+	lookups   map[string]int
+	byslug    map[string]*domain.Workspace
 }
 
 func newSSOTestRig(t *testing.T) *ssoTestRig {
@@ -398,7 +406,7 @@ func newSSOTestRig(t *testing.T) *ssoTestRig {
 	users := &ssoFakeUsers{users: map[uuid.UUID]*domain.User{}}
 	refresh := &ssoFakeRefresh{}
 	workspace := &domain.Workspace{ID: uuid.New(), Slug: "acme", Name: "Acme", OwnerID: uuid.New()}
-	workspaces := ssoFakeWorkspaces{workspaces: map[string]*domain.Workspace{"acme": workspace}, memberships: repo.memberships}
+	workspaces := ssoFakeWorkspaces{workspaces: map[string]*domain.Workspace{"acme": workspace}, memberships: repo.memberships, lookups: map[string]int{}}
 	idp := newFakeIDP(t)
 	key := kcrypto.DeriveKey("sso-test-secret")
 	secret, err := kcrypto.Encrypt("client-secret", key)
@@ -410,7 +418,8 @@ func newSSOTestRig(t *testing.T) *ssoTestRig {
 	}
 	auth := NewAuthService(users, refresh, "test-jwt-secret")
 	service := NewSSOService(repo, users, workspaces, auth, key, "https://app.test", true, InstanceSSOConfig{})
-	return &ssoTestRig{service: service, repo: repo, users: users, refresh: refresh, idp: idp, workspace: workspace, key: key}
+	return &ssoTestRig{service: service, repo: repo, users: users, refresh: refresh, idp: idp, workspace: workspace, key: key,
+		lookups: workspaces.lookups, byslug: workspaces.workspaces}
 }
 
 // callback runs Start, registers an authorization code with the fake IdP and
@@ -926,4 +935,127 @@ func TestUserSSORequiredUsesLinkedIdentities(t *testing.T) {
 	_, required, err = rig.service.UserSSORequired(ctx, userID)
 	require.NoError(t, err)
 	require.False(t, required)
+}
+
+func TestSSOInstanceSlugWithoutWorkspaceIsIgnored(t *testing.T) {
+	rig := newSSOTestRig(t)
+	ctx := context.Background()
+	rig.repo.configs[rig.workspace.ID].RequireSSO = true
+	rig.service.instance = InstanceSSOConfig{
+		WorkspaceSlug: "typo", IssuerURL: rig.idp.server.URL, ClientID: "instance-client",
+		ClientSecret: "instance-secret", RequireSSO: true,
+	}
+
+	required, err := rig.service.RequiresSSO(ctx, rig.workspace.ID)
+	require.NoError(t, err)
+	require.True(t, required, "the workspace's own config still applies")
+
+	required, err = rig.service.RequiresSSO(ctx, uuid.New())
+	require.NoError(t, err)
+	require.False(t, required)
+
+	rig.repo.roles = []domain.SSOWorkspaceRole{{WorkspaceID: rig.workspace.ID, Slug: "acme", Role: domain.RoleMember}}
+	_, _, err = rig.service.UserSSORequired(ctx, uuid.New())
+	require.NoError(t, err)
+
+	info, err := rig.service.PublicInfo(ctx, "acme")
+	require.NoError(t, err)
+	require.True(t, info.Enabled)
+
+	// The miss is cached: later requests do not look the slug up again.
+	require.Equal(t, 1, rig.lookups["typo"])
+}
+
+func TestSSOInstanceWorkspaceIDIsCached(t *testing.T) {
+	rig := newSSOTestRig(t)
+	ctx := context.Background()
+	rig.service.instance = InstanceSSOConfig{
+		WorkspaceSlug: "acme", IssuerURL: rig.idp.server.URL, ClientID: "instance-client",
+		ClientSecret: "instance-secret", RequireSSO: true,
+	}
+	for i := 0; i < 3; i++ {
+		required, err := rig.service.RequiresSSO(ctx, rig.workspace.ID)
+		require.NoError(t, err)
+		require.True(t, required)
+	}
+	require.Equal(t, 1, rig.lookups["acme"])
+}
+
+func TestSSOInstanceWorkspaceCreatedLaterIsPickedUp(t *testing.T) {
+	rig := newSSOTestRig(t)
+	ctx := context.Background()
+	now := time.Now()
+	rig.service.now = func() time.Time { return now }
+	rig.service.instance = InstanceSSOConfig{
+		WorkspaceSlug: "later", IssuerURL: rig.idp.server.URL, ClientID: "instance-client",
+		ClientSecret: "instance-secret", RequireSSO: true,
+	}
+	// Startup check: the workspace does not exist yet, and it must not fail.
+	rig.service.CheckInstanceWorkspace(ctx)
+
+	later := &domain.Workspace{ID: uuid.New(), Slug: "later", Name: "Later", OwnerID: uuid.New()}
+	rig.byslug["later"] = later
+	required, err := rig.service.RequiresSSO(ctx, later.ID)
+	require.NoError(t, err)
+	require.False(t, required, "the miss is cached for a short while")
+
+	now = now.Add(31 * time.Second)
+	required, err = rig.service.RequiresSSO(ctx, later.ID)
+	require.NoError(t, err)
+	require.True(t, required, "the instance config applies once the workspace exists")
+}
+
+type failingSSOWorkspaces struct{ ssoFakeWorkspaces }
+
+func (failingSSOWorkspaces) GetBySlug(ctx context.Context, slug string) (*domain.Workspace, error) {
+	return nil, errors.New("database unavailable")
+}
+
+func TestSSOInstanceLookupErrorIsReturnedNotCached(t *testing.T) {
+	rig := newSSOTestRig(t)
+	rig.service.workspaces = failingSSOWorkspaces{}
+	rig.service.instance = InstanceSSOConfig{WorkspaceSlug: "acme", IssuerURL: rig.idp.server.URL, ClientID: "c"}
+	// Startup only logs a lookup failure.
+	rig.service.CheckInstanceWorkspace(context.Background())
+	_, err := rig.service.RequiresSSO(context.Background(), rig.workspace.ID)
+	require.Error(t, err)
+}
+
+func TestSSOSharedIssuerNeedsAllowedDomains(t *testing.T) {
+	rig := newSSOTestRig(t)
+	for _, issuer := range []string{
+		"https://accounts.google.com",
+		"https://login.microsoftonline.com/common/v2.0",
+		"https://login.microsoftonline.com/organizations",
+		"https://login.microsoftonline.com/consumers/v2.0/",
+	} {
+		_, err := rig.service.SaveConfig(context.Background(), "acme", dto.SSOConfigRequest{
+			IssuerURL: issuer, ClientID: "test-client", DefaultRole: domain.RoleMember, Enabled: true,
+		})
+		require.ErrorIs(t, err, ErrSSOInvalidInput, issuer)
+		require.Contains(t, err.Error(), "Allowed email domains", issuer)
+	}
+
+	// With a domain the rule passes; discovery is the next step, made to fail
+	// here so the test never reaches the real provider.
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := rig.service.SaveConfig(cancelled, "acme", dto.SSOConfigRequest{
+		IssuerURL: "https://accounts.google.com", ClientID: "test-client", DefaultRole: domain.RoleMember,
+		Enabled: true, AllowedDomains: []string{"example.com"},
+	})
+	require.ErrorIs(t, err, ErrSSOInvalidInput)
+	require.Contains(t, err.Error(), "discovery")
+
+	// A disabled config may be saved without domains.
+	_, err = rig.service.SaveConfig(cancelled, "acme", dto.SSOConfigRequest{
+		IssuerURL: "https://accounts.google.com", ClientID: "test-client", DefaultRole: domain.RoleMember,
+	})
+	require.NotContains(t, err.Error(), "Allowed email domains")
+
+	// A dedicated issuer (the fake IdP) needs no domain list.
+	_, err = rig.service.SaveConfig(context.Background(), "acme", dto.SSOConfigRequest{
+		IssuerURL: rig.idp.server.URL, ClientID: "test-client", DefaultRole: domain.RoleMember, Enabled: true,
+	})
+	require.NoError(t, err)
 }

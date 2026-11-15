@@ -120,3 +120,18 @@ test('an instance-managed configuration is read-only', async ({ page }) => {
 	await expect(page.getByLabel('Issuer URL')).toBeDisabled();
 	await expect(page.getByRole('button', { name: 'Save configuration' })).toHaveCount(0);
 });
+
+test('an empty allowed-domain list shows a warning', async ({ page }) => {
+	await mockApi(page, 'owner', []);
+	await page.goto('/test/settings/sso');
+
+	const warning = page.getByText('Any account the identity provider signs in can join this workspace.', { exact: false });
+	await expect(page.getByLabel('Allowed email domains')).toHaveValue('example.com');
+	await expect(warning).toHaveCount(0);
+
+	await page.getByLabel('Allowed email domains').fill('');
+	await expect(warning).toBeVisible();
+
+	await page.getByLabel('Allowed email domains').fill('example.org');
+	await expect(warning).toHaveCount(0);
+});

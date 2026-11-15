@@ -107,6 +107,10 @@ func main() {
 			RequireSSO:     cfg.SSOInstanceConfig().RequireSSO,
 		},
 	)
+	// A missing SSO_OIDC_WORKSPACE_SLUG workspace only logs a warning.
+	ssoCheckCtx, cancelSSOCheck := context.WithTimeout(context.Background(), 5*time.Second)
+	ssoSvc.CheckInstanceWorkspace(ssoCheckCtx)
+	cancelSSOCheck()
 	// Password and passkey sign-in consult the per-workspace require-SSO rule.
 	authSvc.SetSSOEnforcer(ssoSvc)
 	workspaceSvc := service.NewWorkspaceService(workspaceRepo, userRepo, hub)

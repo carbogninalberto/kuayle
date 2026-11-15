@@ -1158,7 +1158,11 @@ Instance-level variables: `SSO_OIDC_WORKSPACE_SLUG`, `SSO_OIDC_ISSUER`,
 `SSO_OIDC_CLIENT_ID`, `SSO_OIDC_CLIENT_SECRET`, `SSO_OIDC_ALLOWED_DOMAINS`,
 `SSO_OIDC_DEFAULT_ROLE`, `SSO_OIDC_REQUIRE_SSO` and `OIDC_ALLOW_PRIVATE_NETWORK`.
 They win over the database configuration for that workspace and make the settings
-page read-only. The Keycloak development profile and provider notes are in
+page read-only. `SSOService` caches the instance workspace ID; a slug with no
+workspace means the instance config does not apply (a warning is logged, and
+the miss is retried after 30 s). Shared issuers (Google, Microsoft
+`/common|organizations|consumers`) need allowed domains
+(`validate.SharedOIDCIssuer`), both in `SaveConfig` and at startup. The Keycloak development profile and provider notes are in
 [docs/sso.md](docs/sso.md). SAML 2.0 and SCIM 2.0 are follow-ups.
 
 ## Activity and Logs

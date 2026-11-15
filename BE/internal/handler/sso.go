@@ -204,14 +204,13 @@ func (h *SSOHandler) Callback(c *echo.Context) error {
 		"event": "sso.login", "workspace_slug": slug, "user_id": user.ID, "ip": c.RealIP(),
 	}).Info("user signed in with SSO")
 
+	// redirectAfter was stored through SanitizeRedirectAfter: empty or a
+	// same-origin path.
 	target := "/" + url.PathEscape(slug)
 	if redirectAfter != "" {
 		target = redirectAfter
 	}
-	if strings.HasPrefix(target, "/") {
-		return c.Redirect(http.StatusFound, target)
-	}
-	return c.Redirect(http.StatusFound, "/"+url.PathEscape(slug))
+	return c.Redirect(http.StatusFound, target)
 }
 
 func (h *SSOHandler) redirectLogin(c *echo.Context, code string) error {

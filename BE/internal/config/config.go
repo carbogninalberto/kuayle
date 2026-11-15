@@ -466,6 +466,9 @@ func (c *Config) validateInstanceSSO() error {
 	if issuer.Scheme != "https" && !c.OIDCAllowPrivateNetwork {
 		return fmt.Errorf("SSO_OIDC_ISSUER must use https; set OIDC_ALLOW_PRIVATE_NETWORK for a private http identity provider")
 	}
+	if len(sso.AllowedDomainList()) == 0 && validate.SharedOIDCIssuer(sso.IssuerURL) {
+		return fmt.Errorf("SSO_OIDC_ALLOWED_DOMAINS is required for a shared identity provider such as Google or Microsoft /common")
+	}
 	return nil
 }
 

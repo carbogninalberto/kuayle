@@ -30,16 +30,20 @@ to register at the identity provider.
    - Otherwise the email must be present and `email_verified: true`. A missing
      claim counts as unverified.
    - The email domain must be in the workspace's allowed domains (an empty list
-     allows any domain the provider verified).
+     allows any domain the provider verified; shared providers such as Google
+     and Microsoft `/common` require a list, see below).
    - An existing Kuayle account with that verified email is **never linked
      automatically**: Kuayle refuses with `link_required`. The account owner
      signs in with their password (or passkey) and then links the identity from
      the profile page or the sign-in page. Only that authenticated session may
      bind the IdP subject. Being invited to, or added to, a workspace is not
-     consent to link.
+     consent to link. An existing account that is **not yet a member** of the
+     workspace must be invited or added first; linking itself never grants
+     membership.
    - Otherwise Kuayle creates the account with a random unusable password and
      adds it to the workspace with the configured default role (`member` or
-     `guest`). Linking an existing account never adds membership.
+     `guest`). Just-in-time provisioning only covers emails that have no
+     Kuayle account yet. Linking an existing account never adds membership.
 4. The session carries the workspace that minted it, also across refresh-token
    rotation, and that scope is enforced on every request: an SSO session only
    works in the workspace whose IdP minted it.
@@ -72,13 +76,17 @@ taking over the victim's other workspaces or credentials.
 ## Linking an existing account
 
 An existing account is linked only by a session that already proved the
-account's own credential:
+account's own credential, and only in a workspace it is already a member of:
 
-1. Sign in with the password (or passkey) as usual.
-2. If the workspace offers SSO, the profile page shows **Link SSO sign-in**, or
+1. If the account is not a member of the workspace yet, an owner or admin
+   invites or adds it first. Signing in through the workspace's IdP does not
+   create the membership for an existing account (`link_required`), and
+   starting the link flow without membership is refused (`403 SSO_NOT_MEMBER`).
+2. Sign in with the password (or passkey) as usual.
+3. If the workspace offers SSO, the profile page shows **Link SSO sign-in**, or
    the `link_required` redirect on the sign-in page resumes the flow after the
    password sign-in.
-3. The browser goes to the IdP, then back to the callback. Kuayle binds the
+4. The browser goes to the IdP, then back to the callback. Kuayle binds the
    subject to the signed-in account and signs it in with a scoped session. No
    workspace membership is added.
 
@@ -104,8 +112,14 @@ You need:
 - **PKCE**: authorization code flow with `S256`. Kuayle always sends a PKCE
   challenge; the provider must accept it (public or confidential client).
 - **Scopes**: `openid email profile`.
-- **Allowed email domains**: optional, comma-separated, exact matches. Leave
-  empty to accept any domain the provider verifies.
+- **Allowed email domains**: comma-separated, exact matches. Leave empty to
+  accept any domain the provider verifies; the settings page warns when the
+  list is empty. A **shared** provider signs in accounts of any organisation,
+  so for `https://accounts.google.com` and
+  `https://login.microsoftonline.com/{common,organizations,consumers}` (with or
+  without `/v2.0`) at least one domain is required to save an enabled
+  configuration. A configuration stored before this rule keeps working until it
+  is next saved.
 - **Default role**: `member` or `guest`.
 - **Require SSO**: see below.
 
@@ -120,12 +134,16 @@ client secret.
   flow* on and *Require PKCE* set to `S256`. The issuer is
   `https://<keycloak>/realms/<realm>`.
 - **Microsoft Entra ID**: use the tenant issuer
-  `https://login.microsoftonline.com/<tenant-id>/v2.0`, register a Web
+  `https://login.microsoftonline.com/<tenant-id>/v2.0` (the multi-tenant
+  `/common`, `/organizations` and `/consumers` issuers need allowed
+  domains), register a Web
   redirect URI, and enable ID tokens. `email` is a optional claim in some
   tenants; add it (and `email_verified` where available) or use the account's
   verified UPN.
 - **Google**: issuer `https://accounts.google.com`, a Web application OAuth
-  client, and the callback above. Google sends `email_verified`.
+  client, and the callback above. Google sends `email_verified`. Set the
+  allowed domains to your Google Workspace domains: without them any Google
+  account could join, so saving is refused.
 - **Okta**: issuer `https://<org>.okta.com` (or the authorization server URL),
   a Web application with the callback above, and the `openid email profile`
   scopes.
@@ -196,6 +214,17 @@ OIDC_ALLOW_PRIVATE_NETWORK=false
 required together. The issuer must use HTTPS unless
 `OIDC_ALLOW_PRIVATE_NETWORK=true`. `SSO_OIDC_CLIENT_SECRET` is rejected when it
 is an example placeholder outside `ENVIRONMENT=development`.
+`SSO_OIDC_ALLOWED_DOMAINS` is required when the issuer is a shared provider
+(Google, Microsoft `/common`, `/organizations` or `/consumers`); startup fails
+otherwise.
+
+If `SSO_OIDC_WORKSPACE_SLUG` names a workspace that does not exist, the
+instance configuration does not apply: every workspace keeps its own settings
+and the server logs a warning (with the slug only) at startup and on the first
+lookup. A workspace created later with that slug picks up the instance
+configuration within 30 seconds, without a restart. The workspace ID is cached
+once found, so deleting and recreating the workspace with the same slug needs a
+restart.
 
 ## Local development with Keycloak
 
@@ -255,7 +284,9 @@ development Compose file.
   issuer, audience, expiry or nonce check failed. Check the issuer URL, client
   ID/secret and the provider's clock.
 - **`link_required`**: an account with this verified email already exists.
-  Sign in with the password (or passkey) and use **Link SSO sign-in**.
+  Sign in with the password (or passkey) and use **Link SSO sign-in**. If the
+  account is not a member of this workspace yet, an owner or admin must invite
+  or add it first; linking never grants membership.
 - **`not_member`**: the identity is linked, but the account is no longer a
   member of the workspace, or it tried to link while not a member.
 - **`identity_taken`**: the IdP subject is already linked to another account in
