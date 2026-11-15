@@ -44,7 +44,21 @@ const issues = [
 	issue(6, 'Orphaned child', '00000000-0000-0000-0000-000000000999')
 ];
 
-async function mockTeamPage(page: Page) {
+// ENG-1 has ENG-2 and ENG-3 in the same group; ENG-7 is a separate top-level issue.
+const selectionIssues = [
+	issue(1, 'Parent epic', null),
+	issue(2, 'First child', 1),
+	issue(3, 'Second child', 1),
+	issue(7, 'Other work', null)
+];
+
+async function turnNestingOn(page: Page, trigger = page.getByRole('button', { name: 'Group', exact: true })) {
+	await trigger.click();
+	await page.getByRole('switch', { name: 'Nest sub-issues' }).click();
+	await page.keyboard.press('Escape');
+}
+
+async function mockTeamPage(page: Page, list = issues, deleted: unknown[] = []) {
 	await page.routeWebSocket('**/ws', () => {});
 	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
 		route.fulfill({ json: [] })
@@ -64,12 +78,17 @@ async function mockTeamPage(page: Page) {
 		if (path === `/api/workspaces/test/teams/${teamId}/statuses`) return route.fulfill({ json: statuses });
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		if (path === '/api/workspaces/test/issues')
-			return route.fulfill({ json: { data: issues, total_count: issues.length, page: 1, has_more: false } });
+			return route.fulfill({ json: { data: list, total_count: list.length, page: 1, has_more: false } });
 		if (path === '/api/workspaces/test/projects') return route.fulfill({ json: [project] });
 		if (path === `/api/workspaces/test/projects/${projectId}`)
-			return route.fulfill({ json: { ...project, progress: { total: issues.length, completed: 1, cancelled: 0 } } });
+			return route.fulfill({ json: { ...project, progress: { total: list.length, completed: 1, cancelled: 0 } } });
 		if (path.endsWith('/github/status')) return route.fulfill({ json: { configured: false, repos: [] } });
 		if (path.endsWith('/dev-machine-scope-setting')) return route.fulfill({ json: {} });
+		if (path === '/api/workspaces/test/issues/bulk' && route.request().method() === 'DELETE') {
+			const body = route.request().postDataJSON();
+			deleted.push(body);
+			return route.fulfill({ json: { deleted: (body?.issue_ids ?? []).length } });
+		}
 		return route.fulfill({ json: [] });
 	});
 }
@@ -168,4 +187,113 @@ test('project issue lists nest sub-issues with the same option', async ({ page }
 	await expect(parentToggle).toHaveAttribute('aria-expanded', 'true');
 	await expect(row('ENG-2')).toBeVisible();
 	await expect(page).toHaveURL(new RegExp(`/test/projects/${projectId}$`));
+});
+
+test('a shift-click range from a sub-issue hidden under a collapsed parent selects only rows on screen', async ({
+	page
+}) => {
+	const deleted: unknown[] = [];
+	await mockTeamPage(page, selectionIssues, deleted);
+	await page.goto(`/test/teams/${teamId}`);
+	const row = (identifier: string) => page.getByRole('button', { name: identifier, exact: true });
+	const selectedCount = page.getByText(/^\d+ selected$/);
+	const tickedRows = page.getByRole('checkbox', { checked: true });
+	await expect(row('ENG-7')).toBeVisible();
+	await turnNestingOn(page);
+
+	const parentToggle = page.getByRole('button', { name: 'Sub-issues of ENG-1 (2)' });
+	await parentToggle.click();
+	await expect(row('ENG-2')).toBeVisible();
+
+	await row('ENG-2').getByRole('checkbox').click();
+	await expect(selectedCount).toHaveText('1 selected');
+	await expect(row('ENG-2').getByRole('checkbox')).toBeChecked();
+
+	// Collapsing drops the hidden sub-issue from the selection.
+	await parentToggle.click();
+	await expect(row('ENG-2')).toBeHidden();
+	await expect(selectedCount).toHaveCount(0);
+
+	// The anchor is hidden, so the range starts at its nearest visible ancestor.
+	await row('ENG-7').getByRole('checkbox').click({ modifiers: ['Shift'] });
+	await expect(row('ENG-1').getByRole('checkbox')).toBeChecked();
+	await expect(row('ENG-7').getByRole('checkbox')).toBeChecked();
+	await expect(selectedCount).toHaveText('2 selected');
+	await expect(tickedRows).toHaveCount(2);
+
+	// The range is ENG-7 alone, which is already selected, so it stays selected.
+	await row('ENG-7').getByRole('checkbox').click({ modifiers: ['Shift'] });
+	await expect(row('ENG-7').getByRole('checkbox')).toBeChecked();
+	await expect(selectedCount).toHaveText('2 selected');
+	await expect(tickedRows).toHaveCount(2);
+
+	await page.getByRole('button', { name: 'Delete selected issues' }).click();
+	await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();
+	await expect.poll(() => deleted.length).toBe(1);
+	expect([...(deleted[0] as { issue_ids: string[] }).issue_ids].sort()).toEqual([issueId(1), issueId(7)].sort());
+});
+
+test('Ctrl+A selects only rows on screen and collapsing a parent deselects its sub-issues', async ({ page }) => {
+	await mockTeamPage(page, selectionIssues);
+	await page.goto(`/test/teams/${teamId}`);
+	const row = (identifier: string) => page.getByRole('button', { name: identifier, exact: true });
+	const selectedCount = page.getByText(/^\d+ selected$/);
+	const tickedRows = page.getByRole('checkbox', { checked: true });
+	await expect(row('ENG-7')).toBeVisible();
+	await turnNestingOn(page);
+
+	await page.keyboard.press('Control+a');
+	await expect(selectedCount).toHaveText('2 selected');
+	await expect(tickedRows).toHaveCount(2);
+	await expect(row('ENG-1').getByRole('checkbox')).toBeChecked();
+	await expect(row('ENG-7').getByRole('checkbox')).toBeChecked();
+
+	// Expanding shows unselected children; the visible selection does not change.
+	const parentToggle = page.getByRole('button', { name: 'Sub-issues of ENG-1 (2)' });
+	await parentToggle.click();
+	await expect(row('ENG-2')).toBeVisible();
+	await expect(row('ENG-3')).toBeVisible();
+	await expect(row('ENG-2').getByRole('checkbox')).not.toBeChecked();
+	await expect(row('ENG-3').getByRole('checkbox')).not.toBeChecked();
+	await expect(selectedCount).toHaveText('2 selected');
+
+	await row('ENG-2').getByRole('checkbox').click();
+	await expect(selectedCount).toHaveText('3 selected');
+
+	await parentToggle.click();
+	await expect(row('ENG-2')).toBeHidden();
+	await expect(selectedCount).toHaveText('2 selected');
+	await expect(tickedRows).toHaveCount(2);
+
+	// `x` toggles the row clicked last, ENG-2, which is now hidden: nothing changes.
+	await page.keyboard.press('x');
+	await expect(selectedCount).toHaveText('2 selected');
+
+	await parentToggle.click();
+	await expect(row('ENG-2').getByRole('checkbox')).not.toBeChecked();
+	await expect(selectedCount).toHaveText('2 selected');
+});
+
+test('Remove from project counts only selected rows on screen', async ({ page }) => {
+	await mockTeamPage(page, selectionIssues);
+	await page.goto(`/test/projects/${projectId}`);
+	const scoped = page.getByTestId('scoped-issues');
+	const row = (identifier: string) => scoped.getByRole('button', { name: identifier, exact: true });
+	await expect(row('ENG-7')).toBeVisible();
+
+	await turnNestingOn(page, scoped.getByRole('button', { name: 'Group by', exact: true }));
+
+	const parentToggle = scoped.getByRole('button', { name: 'Sub-issues of ENG-1 (2)' });
+	await parentToggle.click();
+	await row('ENG-2').getByRole('checkbox').click();
+	await row('ENG-7').getByRole('checkbox').click();
+	await expect(scoped.getByRole('button', { name: 'Remove from project (2)' })).toBeVisible();
+
+	// Collapsing removes the hidden ENG-2 from the count.
+	await parentToggle.click();
+	await expect(scoped.getByRole('button', { name: 'Remove from project (1)' })).toBeVisible();
+
+	// Select all on screen: ENG-1 and ENG-7, not the hidden ENG-2 and ENG-3.
+	await page.keyboard.press('Control+a');
+	await expect(scoped.getByRole('button', { name: 'Remove from project (2)' })).toBeVisible();
 });

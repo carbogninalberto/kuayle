@@ -2,7 +2,7 @@
 	import { groupAgentId } from '$lib/features/agents/agent-assignees';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
@@ -83,6 +83,8 @@
 	let layout = $state<ViewLayout>(viewLayoutState.layout);
 	// Sub-issues nest under their parent in the list layout only; the board stays flat.
 	const nestSubIssues = $derived(layout === 'list' && subIssueTreeState.nest);
+	// Selection, Ctrl+A and Shift+click ranges follow what this list shows.
+	onDestroy(issuesState.useNestedList(() => nestSubIssues));
 	let groupByOpen = $state(false);
 	let collapsedGroups = $state<Set<string>>(new Set());
 	let loadedCollapsedScope = '';
@@ -127,15 +129,9 @@
 		}
 	});
 
-	$effect(() => {
+	// Before the first render, so remembered expanded parents never flash collapsed.
+	$effect.pre(() => {
 		subIssueTreeState.useWorkspace(slug);
-	});
-
-	$effect(() => {
-		issuesState.nestedList = nestSubIssues;
-		return () => {
-			issuesState.nestedList = false;
-		};
 	});
 
 	$effect(() => {

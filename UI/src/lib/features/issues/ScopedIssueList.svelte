@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { groupAgentId } from '$lib/features/agents/agent-assignees';
-	import { onMount, untrack } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { listTeams } from '$lib/api/teams';
 	import { listProjects } from '$lib/api/projects';
@@ -88,6 +88,8 @@
 	let groupBy = $state<GroupByField>('status');
 	// Sub-issues nest under their parent in the list layout only; board and Gantt stay flat.
 	const nestSubIssues = $derived(layout === 'list' && !gantt && subIssueTreeState.nest);
+	// Selection, Ctrl+A and Shift+click ranges follow what this list shows.
+	onDestroy(issuesState.useNestedList(() => nestSubIssues));
 	let filters = $state<ViewFilter>({});
 	// Statuses of the scope's team, else of the teams that have issues here, are groups even when empty.
 	let displayGroups = $derived(
@@ -243,14 +245,9 @@
 		const version = refreshVersion;
 		if (version) untrack(() => void loadIssues());
 	});
-	$effect(() => {
+	// Before the first render, so remembered expanded parents never flash collapsed.
+	$effect.pre(() => {
 		subIssueTreeState.useWorkspace(slug);
-	});
-	$effect(() => {
-		issuesState.nestedList = nestSubIssues;
-		return () => {
-			issuesState.nestedList = false;
-		};
 	});
 
 	async function dropOnGroup(identifier: string, groupKey: string) {

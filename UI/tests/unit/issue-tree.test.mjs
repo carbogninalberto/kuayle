@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildIssueTree, visibleTreeIssues } from '../../src/lib/features/issues/issue-tree.ts';
+import {
+	buildIssueTree,
+	descendantIds,
+	hiddenTreeIds,
+	issueRowTrees,
+	rangeSelection,
+	visibleTreeIssues
+} from '../../src/lib/features/issues/issue-tree.ts';
 
 const issue = (id, parent_id = null) => ({ id, parent_id });
 // Compact picture of a tree: "a(b,c(d))".
@@ -60,4 +67,113 @@ test('collapsed parents hide their whole subtree from the visible order', () => 
 test('an empty list builds an empty tree', () => {
 	assert.deepEqual(buildIssueTree([]), []);
 	assert.deepEqual(visibleTreeIssues([], new Set(['a'])), []);
+});
+
+test('issueRowTrees describes every node and reads expansion live', () => {
+	const tree = buildIssueTree([issue('a'), issue('b', 'a'), issue('c', 'b'), issue('d')]);
+	const open = new Set();
+	const calls = [];
+	let reads = 0;
+	const expansion = {
+		isExpanded: (id) => {
+			reads += 1;
+			return open.has(id);
+		},
+		setExpanded: (node, value) => calls.push([node.issue.id, value])
+	};
+
+	const rows = issueRowTrees(tree, expansion);
+	assert.equal(reads, 0, 'building rows must not ask which parents are expanded');
+
+	const about = (id) => {
+		const row = rows.get(id);
+		return { depth: row.depth, childCount: row.childCount, parentId: row.parentId };
+	};
+	assert.deepEqual(about('a'), { depth: 0, childCount: 1, parentId: null });
+	assert.deepEqual(about('b'), { depth: 1, childCount: 1, parentId: 'a' });
+	assert.deepEqual(about('c'), { depth: 2, childCount: 0, parentId: 'b' });
+	assert.deepEqual(about('d'), { depth: 0, childCount: 0, parentId: null });
+
+	// The same object expands and collapses without being rebuilt.
+	const rowA = rows.get('a');
+	assert.equal(rowA.expanded, false);
+	open.add('a');
+	assert.equal(rows.get('a'), rowA);
+	assert.equal(rowA.expanded, true);
+
+	rowA.onexpand(false);
+	assert.deepEqual(calls, [['a', false]]);
+});
+
+test('descendantIds lists the whole subtree but not the node itself', () => {
+	const tree = buildIssueTree([
+		issue('a'),
+		issue('b', 'a'),
+		issue('c', 'b'),
+		issue('e', 'a'),
+		issue('x')
+	]);
+	assert.equal(shape(tree), 'a(b(c),e),x');
+	assert.deepEqual(descendantIds(tree[0]).sort(), ['b', 'c', 'e']);
+	assert.deepEqual(descendantIds(tree[1]), []);
+});
+
+test('hiddenTreeIds is exactly the rows visibleTreeIssues leaves out', () => {
+	const tree = buildIssueTree([
+		issue('a'),
+		issue('b', 'a'),
+		issue('c', 'b'),
+		issue('d'),
+		issue('e', 'd')
+	]);
+	const all = ['a', 'b', 'c', 'd', 'e'];
+	for (const expanded of [new Set(), new Set(['a']), new Set(['b']), new Set(['a', 'b', 'd'])]) {
+		const shown = new Set(ids(visibleTreeIssues(tree, expanded)));
+		assert.deepEqual(
+			[...hiddenTreeIds(tree, expanded)].sort(),
+			all.filter((id) => !shown.has(id))
+		);
+	}
+	assert.deepEqual([...hiddenTreeIds(tree, new Set(['a']))].sort(), ['c', 'e']);
+});
+
+test('rangeSelection spans the visible rows from the anchor to the clicked row', () => {
+	const order = [issue('p'), issue('q'), issue('r'), issue('s')];
+	const parents = new Map([
+		['h1', 'q'],
+		['h2', 'h1'],
+		['loop1', 'loop2'],
+		['loop2', 'loop1']
+	]);
+	const parentOf = (id) => parents.get(id) ?? null;
+
+	// Either direction selects the same rows, in on-screen order.
+	assert.deepEqual(rangeSelection(order, 'q', 's', parentOf), ['q', 'r', 's']);
+	assert.deepEqual(rangeSelection(order, 's', 'q', parentOf), ['q', 'r', 's']);
+	// A hidden anchor starts at its nearest visible ancestor (h2 -> h1 -> q).
+	assert.deepEqual(rangeSelection(order, 'h2', 's', parentOf), ['q', 'r', 's']);
+	// No visible ancestor, or a parent cycle that never reaches one.
+	assert.deepEqual(rangeSelection(order, 'gone', 'r', parentOf), ['r']);
+	assert.deepEqual(rangeSelection(order, 'loop1', 'r', parentOf), ['r']);
+	// A clicked row that is not on screen selects only itself, as does a range of one row.
+	assert.deepEqual(rangeSelection(order, 'p', 'nowhere', parentOf), ['nowhere']);
+	assert.deepEqual(rangeSelection(order, 'r', 'r', parentOf), ['r']);
+});
+
+test('performance guard: nesting and flattening 2,000 issues stays fast', () => {
+	const list = [];
+	for (let p = 0; p < 500; p += 1) {
+		list.push(issue(`f${p}`));
+		for (let c = 1; c <= 3; c += 1) list.push(issue(`f${p}c${c}`, `f${p}`));
+	}
+
+	const started = performance.now();
+	const tree = buildIssueTree(list);
+	issueRowTrees(tree, { isExpanded: () => false, setExpanded() {} });
+	const hidden = hiddenTreeIds(tree, new Set());
+	const elapsed = performance.now() - started;
+
+	assert.equal(tree.length, 500);
+	assert.equal(hidden.size, 1500);
+	assert.ok(elapsed < 1000, `nesting 2,000 issues took ${elapsed} ms`);
 });

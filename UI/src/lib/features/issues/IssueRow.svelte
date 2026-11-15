@@ -75,6 +75,8 @@
 	} = $props();
 
 	const isSelected = $derived(issuesState.selectedIds.has(issue.id));
+	/** Deeper sub-issues keep this indent, so titles stay readable on phones. */
+	const MAX_TREE_INDENT = 4;
 	const issueProject = $derived(issue.project_id ? projects.find((p) => p.id === issue.project_id) : null);
 	const issueCycle = $derived(issue.cycle_id ? cycles.find((c) => c.id === issue.cycle_id) : null);
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
@@ -236,7 +238,11 @@
 					tree.onexpand(false);
 				} else if (tree.parentId) {
 					e.preventDefault();
-					document.querySelector<HTMLElement>(`[data-issue-row="${CSS.escape(tree.parentId)}"]`)?.focus();
+					// The parent row is in the same nested list (IssueTreeRows' container).
+					(e.currentTarget as HTMLElement)
+						.closest('[data-issue-tree]')
+						?.querySelector<HTMLElement>(`[data-issue-row="${CSS.escape(tree.parentId)}"]`)
+						?.focus();
 				}
 			}
 		}}
@@ -263,13 +269,17 @@
 				onclick={handleCheckboxChange}
 				onkeydown={(e) => e.stopPropagation()}
 			>
-				<Checkbox checked={isSelected} aria-label={issue.identifier} />
+				<!-- Controlled: the zone's click handler changes the selection, the box only shows it. -->
+				<Checkbox bind:checked={() => isSelected, () => {}} aria-label={issue.identifier} />
 			</div>
 		{/if}
 
 		{#if tree}
-			<!-- Tree column: indentation by depth, then the chevron (or an equal gap) so titles line up. -->
-			<span class="flex shrink-0 items-center" style:padding-left="{tree.depth * 1.25}rem">
+			<!-- Tree column: indentation by depth (capped), then the chevron or an equal gap so titles line up. -->
+			<span
+				class="flex shrink-0 items-center pl-[calc(var(--tree-indent)*0.75rem)] sm:pl-[calc(var(--tree-indent)*1.25rem)]"
+				style:--tree-indent={Math.min(tree.depth, MAX_TREE_INDENT)}
+			>
 				{#if tree.childCount > 0}
 					<Collapsible.Trigger onclick={(e: MouseEvent) => e.stopPropagation()}>
 						{#snippet child({ props })}
@@ -277,16 +287,14 @@
 								{...props}
 								variant="plain"
 								aria-label={m['issue.sub_issues_toggle']({ identifier: issue.identifier, count: tree.childCount })}
-								title={m['issue.sub_issues_toggle']({ identifier: issue.identifier, count: tree.childCount })}
-								class="flex h-5 w-8 items-center gap-0.5 rounded px-0.5 text-[11px] tabular-nums text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+								class="flex size-8 sm:size-5 items-center justify-center rounded text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
 							>
 								<ChevronRight size={12} class="shrink-0 transition-transform {tree.expanded ? 'rotate-90' : ''}" />
-								<span aria-hidden="true">{tree.childCount}</span>
 							</Button>
 						{/snippet}
 					</Collapsible.Trigger>
 				{:else}
-					<span class="w-8" aria-hidden="true"></span>
+					<span class="w-8 sm:w-5" aria-hidden="true"></span>
 				{/if}
 			</span>
 		{/if}
