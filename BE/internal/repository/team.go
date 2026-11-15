@@ -136,7 +136,7 @@ func (r *TeamRepository) RemoveMember(ctx context.Context, teamID, userID uuid.U
 	if _, err := tx.ExecContext(ctx, `DELETE FROM team_members WHERE team_id=$1 AND user_id=$2`, teamID, userID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM issue_subscribers WHERE user_id=$2 AND issue_id IN (SELECT id FROM issues WHERE team_id=$1)`, teamID, userID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM issue_subscribers WHERE user_id=$2 AND issue_id IN (SELECT id FROM issue_records WHERE team_id=$1)`, teamID, userID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -286,7 +286,7 @@ func (r *TeamRepository) UpdateWithKey(ctx context.Context, team *domain.Team, n
 		if _, err := tx.ExecContext(ctx, `INSERT INTO team_key_aliases(workspace_id,old_key,team_id) VALUES($1,$2,$3)`, team.WorkspaceID, oldKey, team.ID); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE issues SET identifier_text=$1||'-'||number WHERE team_id=$2`, newKey, team.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE issue_records SET identifier_text=$1||'-'||number WHERE team_id=$2`, newKey, team.ID); err != nil {
 			return fmt.Errorf("rewrite issue identifiers: %w", err)
 		}
 	}

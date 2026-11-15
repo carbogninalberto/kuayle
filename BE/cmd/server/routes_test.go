@@ -252,6 +252,7 @@ func TestWikiRoutesRequireWikiPermissions(t *testing.T) {
 		want["DELETE "+base+"/:pageId"] = "perm:wiki:write"
 		want["GET "+base+"/:pageId/versions"] = "perm:wiki:read"
 		want["POST "+base+"/:pageId/rework"] = "perm:wiki:write"
+		want["POST "+base+"/:pageId/restore"] = "perm:wiki:write"
 		want["GET "+base+"/settings"] = "perm:wiki:read"
 		want["PATCH "+base+"/settings"] = "perm:wiki:write"
 		want["GET "+base+"/registry"] = "perm:wiki:read"

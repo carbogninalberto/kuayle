@@ -1582,6 +1582,44 @@ the composite ownership foreign keys and null-dependency checks remain enforced.
 Deleting only a service retains the machine/workspace audit context. Rolling back
 removes the triggers but cannot restore references to parents already deleted.
 
+## Soft delete and undo
+
+Issues and wiki pages are soft-deleted (migrations `000165_issue_soft_delete_undo`
+and `000166_wiki_page_soft_delete`). The tables are `issue_records` and
+`wiki_page_records`; `issues` and `wiki_pages` are simple, automatically
+updatable views over the rows whose `deleted_at` is NULL. Every existing
+SELECT, INSERT, UPDATE, `RETURNING *` and `FOR UPDATE` keeps working through the
+view and never sees a deleted row, so new queries need no filter of their own.
+
+- Name the table only where deleted rows must be seen: restore, purge, issue
+  numbering (`NextNumber`), team key renames, status deletion and membership
+  cleanup. Foreign keys, indexes and triggers belong to the table.
+- A new column goes on the table, and the view must be recreated with it (the
+  view lists its columns explicitly and hides `deleted_at`/`deleted_by`).
+- Trigger functions shared with other tables compare `TG_TABLE_NAME`; for
+  `issue_records` they use the logical name `issues`, which is also what the
+  private-asset reference index stores. Private-team integrity checks read
+  `issue_records`, so a restore cannot bring back a crossing edge.
+- Deleting a wiki page lifts its children to its parent, as before. A deleted
+  registry page gives its day up (`deleted_registry_date`) so the registry can
+  start a new page; restoring it takes the day back only if it is still free.
+- `ISSUE_DELETE_GRACE_PERIOD` (default `720h`) is how long a deleted issue or
+  page can be restored (`POST .../restore`; 410 `GRACE_EXPIRED` after it). An
+  hourly job in the API server hard-deletes older rows in batches of 500, which
+  runs the cascades the hard delete used to run. Notifications and webhooks
+  already sent are not retracted.
+
+Every write to an issue row advances `issues.version` (a `BEFORE UPDATE`
+trigger); label and assignee writes touch the row so they count too. An
+undoable edit (`PATCH /issues/:identifier` or `/issues/bulk` changing status,
+priority, assignees, labels, project, cycle or sort order with status) returns
+`undo: {expected_version, previous}`. `POST /issues/:identifier/undo` and
+`/issues/bulk/undo` lock the rows, refuse with 409 `EDITED_MEANWHILE` if any
+version moved, and otherwise write the previous values in one transaction with
+the usual reference and visibility checks, history and `issue.updated` events.
+The UI offers the Undo in the change's toast for about eight seconds and on
+Cmd/Ctrl+Z outside text fields (`UI/src/lib/features/undo`).
+
 ## Wiki page references
 
 Issue descriptions, comments, wiki pages and assistant messages can reference a

@@ -398,6 +398,7 @@ authentication.
 | GET | `/api/workspaces/:slug/issues/:identifier/relations` | token | issues:read |
 | POST | `/api/workspaces/:slug/issues/:identifier/relations` | token | issue:update |
 | DELETE | `/api/workspaces/:slug/issues/:identifier/relations/:relationId` | token | issue:update |
+| POST | `/api/workspaces/:slug/issues/:identifier/restore` | token | issue:delete_own |
 | GET | `/api/workspaces/:slug/issues/:identifier/sub-issues` | token | issues:read |
 | POST | `/api/workspaces/:slug/issues/:identifier/sub-issues` | token | issue:create |
 | POST | `/api/workspaces/:slug/issues/:identifier/sub-issues/bulk` | token | issue:create |
@@ -405,11 +406,14 @@ authentication.
 | POST | `/api/workspaces/:slug/issues/:identifier/subscribe` | token | account:write |
 | POST | `/api/workspaces/:slug/issues/:identifier/triage/accept` | token | issue:update |
 | POST | `/api/workspaces/:slug/issues/:identifier/triage/decline` | token | issue:update |
+| POST | `/api/workspaces/:slug/issues/:identifier/undo` | token | issue:update |
 | GET | `/api/workspaces/:slug/issues/:identifier/wiki-references` | token | issues:read |
 | POST | `/api/workspaces/:slug/issues/:identifier/wiki-references` | token | issue:update |
 | DELETE | `/api/workspaces/:slug/issues/:identifier/wiki-references/:pageId` | token | issue:update |
 | DELETE | `/api/workspaces/:slug/issues/bulk` | token | issue:delete_own |
 | PATCH | `/api/workspaces/:slug/issues/bulk` | token | issue:update |
+| POST | `/api/workspaces/:slug/issues/bulk/restore` | token | issue:delete_own |
+| POST | `/api/workspaces/:slug/issues/bulk/undo` | token | issue:update |
 | POST | `/api/workspaces/:slug/issues/expand-description` | token | issue:create |
 | GET | `/api/workspaces/:slug/labels` | token | labels:read |
 | POST | `/api/workspaces/:slug/labels` | token | label:manage |
@@ -441,6 +445,7 @@ authentication.
 | POST | `/api/workspaces/:slug/projects/:id/wiki/:pageId/move` | token | wiki:write |
 | GET | `/api/workspaces/:slug/projects/:id/wiki/:pageId/publish` | token | wiki:read |
 | PUT | `/api/workspaces/:slug/projects/:id/wiki/:pageId/publish` | token | wiki:write |
+| POST | `/api/workspaces/:slug/projects/:id/wiki/:pageId/restore` | token | wiki:write |
 | POST | `/api/workspaces/:slug/projects/:id/wiki/:pageId/rework` | token | wiki:write |
 | GET | `/api/workspaces/:slug/projects/:id/wiki/:pageId/versions` | token | wiki:read |
 | GET | `/api/workspaces/:slug/projects/:id/wiki/registry` | token | wiki:read |
@@ -492,6 +497,7 @@ authentication.
 | POST | `/api/workspaces/:slug/teams/:teamId/wiki/:pageId/move` | token | wiki:write |
 | GET | `/api/workspaces/:slug/teams/:teamId/wiki/:pageId/publish` | token | wiki:read |
 | PUT | `/api/workspaces/:slug/teams/:teamId/wiki/:pageId/publish` | token | wiki:write |
+| POST | `/api/workspaces/:slug/teams/:teamId/wiki/:pageId/restore` | token | wiki:write |
 | POST | `/api/workspaces/:slug/teams/:teamId/wiki/:pageId/rework` | token | wiki:write |
 | GET | `/api/workspaces/:slug/teams/:teamId/wiki/:pageId/versions` | token | wiki:read |
 | GET | `/api/workspaces/:slug/teams/:teamId/wiki/registry` | token | wiki:read |

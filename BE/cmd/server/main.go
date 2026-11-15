@@ -126,6 +126,7 @@ func main() {
 	webhookRepo := repository.NewWebhookRepository(db)
 	webhookSvc := service.NewWebhookService(webhookRepo, cfg.JWTSecret)
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, teamStatusRepo, historyRepo, hub, notifSvc, projectRepo)
+	issueSvc.SetDeleteGracePeriod(cfg.IssueDeleteGracePeriod)
 	issueSvc.SetWebhooks(webhookSvc)
 	labelSvc := service.NewLabelService(labelRepo, projectRepo)
 	commentSvc := service.NewCommentService(commentRepo, issueRepo, hub, notifSvc)
@@ -217,7 +218,9 @@ func main() {
 	assistantTools := service.NewAssistantTools(issueRepo, teamRepo, workspaceRepo, issueSvc)
 	assistantToolSettings := repository.NewAssistantToolSettingsRepository(db)
 	assistantTools.SetSettings(assistantToolSettings)
-	wikiSvc := service.NewWikiService(repository.NewWikiRepository(db), hub)
+	wikiRepo := repository.NewWikiRepository(db)
+	wikiSvc := service.NewWikiService(wikiRepo, hub)
+	wikiSvc.SetDeleteGracePeriod(cfg.IssueDeleteGracePeriod)
 	wikiSvc.SetOverviewAI(aiSettingsSvc)
 	wikiSvc.SetIssues(issueRepo)
 	assistantTools.SetWiki(wikiSvc, projectRepo)
@@ -434,6 +437,9 @@ func main() {
 			}
 		}
 	}()
+
+	// Background: purge deleted issues and wiki pages past their grace period every hour
+	go purgeDeletedEvery(context.Background(), time.Hour, cfg.IssueDeleteGracePeriod, issueRepo, wikiRepo)
 
 	// Echo
 	e := echo.New()

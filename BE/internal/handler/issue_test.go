@@ -28,7 +28,8 @@ import (
 // --- Test issue repos ---
 
 type testIssueRepo struct {
-	issues map[string]*domain.Issue
+	issues  map[string]*domain.Issue
+	deleted map[uuid.UUID]*domain.DeletedIssue
 }
 
 func newTestIssueRepo() *testIssueRepo {
@@ -69,6 +70,7 @@ func (r *testIssueRepo) List(_ context.Context, _ uuid.UUID, _ dto.IssueFilterPa
 }
 
 func (r *testIssueRepo) Update(_ context.Context, issue *domain.Issue) error {
+	issue.Version++
 	r.issues[issue.Identifier] = issue
 	return nil
 }
@@ -82,12 +84,7 @@ func (r *testIssueRepo) UpdateUntriaged(ctx context.Context, issue *domain.Issue
 }
 
 func (r *testIssueRepo) Delete(_ context.Context, id uuid.UUID) error {
-	for k, issue := range r.issues {
-		if issue.ID == id {
-			delete(r.issues, k)
-			return nil
-		}
-	}
+	r.softDelete(id)
 	return nil
 }
 

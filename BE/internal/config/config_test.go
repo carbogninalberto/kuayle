@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -592,6 +593,27 @@ func TestLoadMachineGatewayRejectsComposeFallbackDatabasePasswordInProduction(t 
 	if !strings.Contains(err.Error(), "DEV_MACHINE_GATEWAY_DATABASE_URL password") {
 		t.Fatalf("error does not name the gateway database password: %v", err)
 	}
+}
+
+func TestIssueDeleteGracePeriod(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://db/kuayle?sslmode=disable")
+	t.Setenv("REDIS_URL", "redis://redis:6379")
+	t.Setenv("JWT_SECRET", strings.Repeat("s", 40))
+
+	t.Setenv("ISSUE_DELETE_GRACE_PERIOD", "")
+	require.NoError(t, os.Unsetenv("ISSUE_DELETE_GRACE_PERIOD"))
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, 30*24*time.Hour, cfg.IssueDeleteGracePeriod, "deleted issues stay restorable for 30 days by default")
+
+	t.Setenv("ISSUE_DELETE_GRACE_PERIOD", "48h")
+	cfg, err = Load()
+	require.NoError(t, err)
+	assert.Equal(t, 48*time.Hour, cfg.IssueDeleteGracePeriod)
+
+	t.Setenv("ISSUE_DELETE_GRACE_PERIOD", "0s")
+	_, err = Load()
+	require.ErrorContains(t, err, "ISSUE_DELETE_GRACE_PERIOD")
 }
 
 func TestLoadReadsInstanceSSOConfiguration(t *testing.T) {

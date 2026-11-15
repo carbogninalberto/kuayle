@@ -72,8 +72,23 @@ func (r *TeamStatusRepository) Update(ctx context.Context, status *domain.TeamSt
 }
 
 func (r *TeamStatusRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM team_statuses WHERE id = $1 AND `+teamVisible(ctx, "team_statuses.team_id"), id)
-	return err
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Soft-deleted issues still reference their status, but nobody can see or
+	// move them; put them in the team's default status so the delete is not
+	// refused because of an issue in the trash.
+	if _, err := tx.ExecContext(ctx, `UPDATE issue_records i SET status_id = d.id, status = d.slug
+		FROM team_statuses s JOIN team_statuses d ON d.team_id = s.team_id AND d.is_default AND d.id <> s.id
+		WHERE s.id = $1 AND i.status_id = s.id AND i.deleted_at IS NOT NULL AND `+teamVisible(ctx, "s.team_id"), id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM team_statuses WHERE id = $1 AND `+teamVisible(ctx, "team_statuses.team_id"), id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *TeamStatusRepository) NextPosition(ctx context.Context, teamID uuid.UUID) (int, error) {

@@ -111,11 +111,13 @@ func (r *WikiRepository) Backlinks(ctx context.Context, workspaceID uuid.UUID, s
 
 // IssueReferences returns the IDs of the pages attached to a visible issue,
 // oldest first. The IDs alone say nothing about a page; resolve them with
-// ResolveReferences to learn which ones the caller can see.
+// ResolveReferences to learn which ones the caller can see. Deleted pages are
+// left out, and come back if the page is restored.
 func (r *WikiRepository) IssueReferences(ctx context.Context, workspaceID, issueID uuid.UUID) ([]uuid.UUID, error) {
 	ids := []uuid.UUID{}
 	err := r.db.SelectContext(ctx, &ids, `SELECT attached.page_id FROM issue_wiki_references attached
 		WHERE attached.issue_id = $1 AND attached.workspace_id = $2 AND `+issueVisible(ctx, "attached.issue_id")+`
+		AND EXISTS (SELECT 1 FROM wiki_pages live_page WHERE live_page.id = attached.page_id)
 		ORDER BY attached.created_at, attached.page_id`, issueID, workspaceID)
 	return ids, err
 }

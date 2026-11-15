@@ -248,22 +248,6 @@ func (r *WikiRepository) ListRevisions(ctx context.Context, workspaceID uuid.UUI
 	return revisions, err
 }
 
-func (r *WikiRepository) Delete(ctx context.Context, workspaceID uuid.UUID, scope domain.WikiScope, pageID uuid.UUID) error {
-	if !scope.Valid() {
-		return ErrWikiPageNotFound
-	}
-	result, err := r.db.ExecContext(ctx, `DELETE FROM wiki_pages WHERE `+wikiPageInScope(ctx, scope)+` AND wiki_pages.id = $3`, workspaceID, scope.ID, pageID)
-	if err != nil {
-		return err
-	}
-	if affected, err := result.RowsAffected(); err != nil {
-		return err
-	} else if affected == 0 {
-		return ErrWikiPageNotFound
-	}
-	return nil
-}
-
 // wikiSettingsScope returns the settings column and the ON CONFLICT target
 // of a scope kind; both are trusted SQL.
 func wikiSettingsScope(kind domain.WikiScopeKind) (column, conflict string) {

@@ -253,6 +253,15 @@
 			refreshIssue();
 		}
 	}
+	// An undo of an edit made moments ago: reload even inside the window that
+	// otherwise ignores the echo of local edits.
+	function onIssueUndone(e: Event) {
+		const detail = (e as CustomEvent).detail;
+		if (!detail || matchesCurrentIssue(detail)) {
+			refreshIssue();
+			refreshActivity();
+		}
+	}
 	function onIssueDeleted(e: Event) {
 		const detail = (e as CustomEvent).detail;
 		if (matchesCurrentIssue(detail)) {
@@ -282,6 +291,7 @@
 	onMount(() => {
 		window.addEventListener('keydown', issueKeyHandler);
 		window.addEventListener('ws:issue-updated', onIssueUpdated);
+		window.addEventListener('issue:undone', onIssueUndone);
 		window.addEventListener('ws:issue-deleted', onIssueDeleted);
 		window.addEventListener('ws:comment-created', onCommentCreated);
 		window.addEventListener('ws:issue-agents-updated', onAgentsUpdated);
@@ -303,6 +313,7 @@
 			void flushDescriptionSave(pendingDescriptionHtml);
 		}
 		window.removeEventListener('ws:issue-updated', onIssueUpdated);
+		window.removeEventListener('issue:undone', onIssueUndone);
 		window.removeEventListener('ws:issue-deleted', onIssueDeleted);
 		window.removeEventListener('ws:comment-created', onCommentCreated);
 		window.removeEventListener('ws:issue-agents-updated', onAgentsUpdated);

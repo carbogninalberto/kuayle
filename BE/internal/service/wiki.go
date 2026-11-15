@@ -43,6 +43,8 @@ type WikiService struct {
 	overviewAI WikiOverviewAI
 	// issues resolves issue identifiers for attached references; nil until SetIssues.
 	issues WikiIssueLookup
+	// deleteGrace is how long deleted pages stay restorable (see DeleteGracePeriod).
+	deleteGrace time.Duration
 }
 
 // WikiEvents receives realtime events; the hub withholds them from members

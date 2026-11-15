@@ -87,8 +87,8 @@
 
 	async function updateStatus(statusId: string) {
 		try {
+			// The update's toast confirms it and offers Undo.
 			await issuesState.update(slug, issue.identifier, { status_id: statusId });
-			appToast.success('Status updated');
 		} catch (err: any) {
 			appToast.apiError(err, 'Failed to update status');
 		}
@@ -97,7 +97,6 @@
 	async function updatePriority(priority: number) {
 		try {
 			await issuesState.update(slug, issue.identifier, { priority: priority as any });
-			appToast.success('Priority updated');
 		} catch (err: any) {
 			appToast.apiError(err, 'Failed to update priority');
 		}

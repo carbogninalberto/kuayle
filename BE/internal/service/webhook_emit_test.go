@@ -731,3 +731,20 @@ func TestAgentMessageWebhooksPostedCommentIsSentByItsAuthor(t *testing.T) {
 	_, err = quiet.PostComments(context.Background(), 1)
 	require.NoError(t, err)
 }
+
+// Undo and restore (KUA-51) are not exercised by the webhook tests.
+func (r *webhookIssueRepo) ListByIDs(context.Context, uuid.UUID, []uuid.UUID) ([]domain.Issue, error) {
+	return nil, nil
+}
+func (r *webhookIssueRepo) ApplyUndo(context.Context, uuid.UUID, []domain.IssueUndo) ([]domain.Issue, error) {
+	return nil, nil
+}
+func (r *webhookIssueRepo) GetDeletedByIdentifier(context.Context, uuid.UUID, string) (*domain.DeletedIssue, error) {
+	return nil, nil
+}
+func (r *webhookIssueRepo) ListDeletedByIDs(context.Context, uuid.UUID, []uuid.UUID) ([]domain.DeletedIssue, error) {
+	return nil, nil
+}
+func (r *webhookIssueRepo) Restore(context.Context, uuid.UUID, []uuid.UUID, time.Time) ([]domain.Issue, error) {
+	return nil, nil
+}

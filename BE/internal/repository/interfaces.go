@@ -150,6 +150,11 @@ type IssueRepo interface {
 	BulkSetProject(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, projectID *uuid.UUID, actorID uuid.UUID) ([]domain.Issue, error)
 	BulkSetParent(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, parentID *uuid.UUID, actorID uuid.UUID) ([]domain.Issue, error)
 	BeginTx(ctx context.Context) (*sqlx.Tx, error)
+	ListByIDs(ctx context.Context, workspaceID uuid.UUID, ids []uuid.UUID) ([]domain.Issue, error)
+	ApplyUndo(ctx context.Context, workspaceID uuid.UUID, items []domain.IssueUndo) ([]domain.Issue, error)
+	GetDeletedByIdentifier(ctx context.Context, workspaceID uuid.UUID, identifier string) (*domain.DeletedIssue, error)
+	ListDeletedByIDs(ctx context.Context, workspaceID uuid.UUID, ids []uuid.UUID) ([]domain.DeletedIssue, error)
+	Restore(ctx context.Context, workspaceID uuid.UUID, ids []uuid.UUID, deletedSince time.Time) ([]domain.Issue, error)
 }
 
 type AssetRepo interface {

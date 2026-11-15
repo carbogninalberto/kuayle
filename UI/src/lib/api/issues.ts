@@ -4,7 +4,9 @@ import type {
 	CreateIssueRequest,
 	UpdateIssueRequest,
 	Comment,
-	IssueHistory
+	IssueHistory,
+	IssueUndo,
+	BulkIssueUndo
 } from '$lib/types/issue';
 import type { PaginatedResponse } from '$lib/types/common';
 
@@ -67,8 +69,27 @@ export function updateIssue(
 	return api.patch<Issue>(`/api/workspaces/${slug}/issues/${identifier}`, req);
 }
 
-export function deleteIssue(slug: string, identifier: string): Promise<void> {
-	return api.delete<void>(`/api/workspaces/${slug}/issues/${identifier}`);
+export function deleteIssue(slug: string, identifier: string): Promise<{ status: string; restorable_until: string }> {
+	return api.delete<{ status: string; restorable_until: string }>(`/api/workspaces/${slug}/issues/${identifier}`);
+}
+
+/** Puts back the values of an edit if the issue was not edited since (409 EDITED_MEANWHILE otherwise). */
+export function undoIssue(slug: string, identifier: string, undo: IssueUndo): Promise<Issue> {
+	return api.post<Issue>(`/api/workspaces/${slug}/issues/${identifier}/undo`, undo);
+}
+
+/** Undoes a bulk edit as one step: every issue or none. */
+export function bulkUndoIssues(slug: string, undo: BulkIssueUndo): Promise<{ updated: number }> {
+	return api.post<{ updated: number }>(`/api/workspaces/${slug}/issues/bulk/undo`, undo);
+}
+
+/** Brings back a deleted issue within the grace period (410 GRACE_EXPIRED after it). */
+export function restoreIssue(slug: string, identifier: string): Promise<Issue> {
+	return api.post<Issue>(`/api/workspaces/${slug}/issues/${identifier}/restore`, {});
+}
+
+export function bulkRestoreIssues(slug: string, req: { issue_ids: string[] }): Promise<{ restored: number }> {
+	return api.post<{ restored: number }>(`/api/workspaces/${slug}/issues/bulk/restore`, req);
 }
 
 export function listComments(slug: string, identifier: string): Promise<Comment[]> {
@@ -155,6 +176,6 @@ export function bulkUpdateIssues(
 		parent_id?: string;
 		project_id?: string;
 	}
-): Promise<{ updated: number }> {
-	return api.patch<{ updated: number }>(`/api/workspaces/${slug}/issues/bulk`, req);
+): Promise<{ updated: number; undo?: BulkIssueUndo }> {
+	return api.patch<{ updated: number; undo?: BulkIssueUndo }>(`/api/workspaces/${slug}/issues/bulk`, req);
 }
