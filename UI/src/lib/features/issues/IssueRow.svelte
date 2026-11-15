@@ -21,7 +21,9 @@
 	import { issuesState } from './issues.state.svelte';
 	import { formatDate, formatIssueListDate, formatIssueListRelativeTime } from '$lib/utils/format';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-	import { Ban, CalendarDays, CircleUser, Copy, Link, OctagonAlert, RefreshCw } from '@lucide/svelte';
+	import { Ban, CalendarDays, ChevronRight, CircleUser, Copy, Link, OctagonAlert, RefreshCw } from '@lucide/svelte';
+	import * as Collapsible from '$lib/components/ui/collapsible';
+	import type { IssueRowTree } from './issue-tree';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import AgentAvatar from '$lib/features/agents/AgentAvatar.svelte';
@@ -46,7 +48,8 @@
 		accessibleRow = false,
 		onremove,
 		removeLabel,
-		onchanged
+		onchanged,
+		tree
 	}: {
 		issue: Issue;
 		slug?: string;
@@ -67,9 +70,13 @@
 		onremove?: () => void;
 		removeLabel?: string;
 		onchanged?: () => void;
+		/** Set in a list that nests sub-issues: indentation and the expand chevron. */
+		tree?: IssueRowTree;
 	} = $props();
 
 	const isSelected = $derived(issuesState.selectedIds.has(issue.id));
+	/** Deeper sub-issues keep this indent, so titles stay readable on phones. */
+	const MAX_TREE_INDENT = 4;
 	const issueProject = $derived(issue.project_id ? projects.find((p) => p.id === issue.project_id) : null);
 	const issueCycle = $derived(issue.cycle_id ? cycles.find((c) => c.id === issue.cycle_id) : null);
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
@@ -209,13 +216,34 @@
 		role="button"
 		tabindex={0}
 		aria-label={issue.identifier}
+		data-issue-row={issue.id}
 		onfocus={() => {
 			if (accessibleRow) onlastselected?.(issue.id);
 		}}
 		onkeydown={(e: KeyboardEvent) => {
-			if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+			if (e.target !== e.currentTarget) return;
+			if (e.key === 'Enter' || e.key === ' ') {
 				e.preventDefault();
 				onclick(issue);
+				return;
+			}
+			if (!tree) return;
+			// Tree keys: Right expands, Left collapses, then moves to the parent row.
+			if (e.key === 'ArrowRight' && tree.childCount > 0 && !tree.expanded) {
+				e.preventDefault();
+				tree.onexpand(true);
+			} else if (e.key === 'ArrowLeft') {
+				if (tree.childCount > 0 && tree.expanded) {
+					e.preventDefault();
+					tree.onexpand(false);
+				} else if (tree.parentId) {
+					e.preventDefault();
+					// The parent row is in the same nested list (IssueTreeRows' container).
+					(e.currentTarget as HTMLElement)
+						.closest('[data-issue-tree]')
+						?.querySelector<HTMLElement>(`[data-issue-row="${CSS.escape(tree.parentId)}"]`)
+						?.focus();
+				}
 			}
 		}}
 		class="group flex min-h-12 w-full items-center gap-2 rounded-none border-b border-[var(--app-border)] px-3 py-2 text-left transition-colors duration-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] sm:mx-2 sm:min-h-0 sm:w-[calc(100%-1rem)] sm:rounded-md sm:border-b-0 sm:py-1.5 {isSelected
@@ -241,8 +269,34 @@
 				onclick={handleCheckboxChange}
 				onkeydown={(e) => e.stopPropagation()}
 			>
-				<Checkbox checked={isSelected} aria-label={issue.identifier} />
+				<!-- Controlled: the zone's click handler changes the selection, the box only shows it. -->
+				<Checkbox bind:checked={() => isSelected, () => {}} aria-label={issue.identifier} />
 			</div>
+		{/if}
+
+		{#if tree}
+			<!-- Tree column: indentation by depth (capped), then the chevron or an equal gap so titles line up. -->
+			<span
+				class="flex shrink-0 items-center pl-[calc(var(--tree-indent)*0.75rem)] sm:pl-[calc(var(--tree-indent)*1.25rem)]"
+				style:--tree-indent={Math.min(tree.depth, MAX_TREE_INDENT)}
+			>
+				{#if tree.childCount > 0}
+					<Collapsible.Trigger onclick={(e: MouseEvent) => e.stopPropagation()}>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="plain"
+								aria-label={m['issue.sub_issues_toggle']({ identifier: issue.identifier, count: tree.childCount })}
+								class="flex size-8 sm:size-5 items-center justify-center rounded text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+							>
+								<ChevronRight size={12} class="shrink-0 transition-transform {tree.expanded ? 'rotate-90' : ''}" />
+							</Button>
+						{/snippet}
+					</Collapsible.Trigger>
+				{:else}
+					<span class="w-8 sm:w-5" aria-hidden="true"></span>
+				{/if}
+			</span>
 		{/if}
 
 		<!-- Priority -->

@@ -517,6 +517,8 @@ test.describe('KUA-65: bulk actions stay clickable over the issue list', () => {
 			const url = page.url();
 			await page.mouse.click(x, y);
 			await expect(bulkSearch(page)).toBeVisible();
+			// The search takes focus two frames after it appears; Escape must reach it, not the list.
+			await expect(bulkSearch(page)).toBeFocused();
 			await expect(page).toHaveURL(url);
 			await page.keyboard.press('Escape');
 			await expect(bulkSearch(page)).toHaveCount(0);
