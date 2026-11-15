@@ -103,6 +103,9 @@ type Runtime interface {
 	// deletes the finished run's container.
 	RunTool(context.Context, *domain.DevMachine, *domain.AssistantToolRunExecution, string, *AgentObserver) (*AgentExecution, error)
 	RemoveTool(context.Context, *domain.DevMachine, uuid.UUID) error
+	// ScanWorktree reads one task worktree with rg and git in the developer
+	// container. It changes nothing and needs no credentials.
+	ScanWorktree(context.Context, *domain.DevMachine, []domain.DevMachineService, WorktreeScanJob) (*domain.WorktreeScanResult, error)
 	// StartPreview (re)starts one task's preview command in that task's own
 	// preview container, never in the developer container; StopPreview
 	// removes it. Neither affects another task's preview. RemovePreviews

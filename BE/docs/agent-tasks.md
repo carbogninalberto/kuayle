@@ -287,6 +287,36 @@ operation that fails for good marks the run `failed` with a safe reason, and a
 finished run's container is removed. Runs in a conversation emit
 `tool_run.updated` events with the last 4 KiB of output.
 
+### Worktree scans
+
+Migration 157 adds the read-only `scan_worktree` machine operation and
+`dev_machine_worktree_scans`. A scan reads one task checkout — grep with rg,
+glob, a line range of one file, or git status — or lists the worktrees under
+`/workspace/tasks`; it never changes the checkout and needs no credentials. A
+task scan is allowed while the agent works: it does not take
+`lockMachineForCheck`, and `LeaseOperations` lets it lease beside an agent
+attempt, validation, publication, check or tool run while a running scan never
+blocks other work. A task target must be the requester's own task with a ready
+checkout on its running machine; a machine-only target is only for the list
+scan and must be a running machine the requester created.
+
+The scan row and its operation share an ID (idempotency key
+`worktree-scan:<id>`, one attempt). The manager loads the checkout's path,
+branch and base branch and runs one fixed script per kind with the request only
+as positional arguments. Grep and glob run rg in the checkout, which respects
+its ignore files; the glob is applied after rg because rg's `-g` override would
+otherwise include ignored files. Read resolves the path with realpath, refuses
+anything outside the checkout or a non-regular file, and bounds the file to
+4 MB. Every git command uses the publication preamble's throwaway git
+directory, so the checkout's configuration, hooks, fsmonitor and attribute
+programs never run; every checkout scan reports its branch, HEAD commit and
+whether it is dirty, and status adds changed paths, ahead/behind the base
+branch's remote-tracking ref, and the last commit subject. Output, matches,
+files, lines, changed paths and worktrees are bounded (`Truncated`), and the
+result is trimmed to the table's 64 KiB limit. A scan that cannot run is a
+completed scan with a short error, not an operation retry. The table keeps a
+workspace's scans for an hour.
+
 ## Publication
 
 Task attempts never receive a GitHub credential (`push_branch` is false), so the
@@ -406,6 +436,11 @@ checkout and credentials.
   explicitly deny). Without it OpenCode auto-rejected reading the live inbox
   and paths outside the worktree, then ended the session, so the run failed
   without a final message.
+
+Agent, check and machine service containers (`secureHostConfig`) run with
+Docker's bundled init (`HostConfig.Init`, tini) as PID 1: the agent CLIs do not reap the orphaned children they leave, such
+as a `git` child of a tool run, and those zombies count against the container's
+PID limit until the run crashes at it.
 
 ## Native session resume and handoff
 
@@ -2677,6 +2712,9 @@ Code's "You've hit your 5-hour limit · resets 4:10am (UTC)"), the task is pause
 not failed: it becomes `blocked` with `usage_limit_message`,
 `usage_limit_resets_at` and `usage_limit_resume_at`, keeps its worktree and
 session, and resumes on its own after the reset by continuing the same native
-session. The creator's other queued tasks for that agent wait for the reset.
+session. The provider's wording is read from its JSON events and from the plain
+(non-JSON) lines of its output, so a `tool_result` that mentions
+`usage_limit_reached` because the agent is editing code about usage limits is
+not a limit. The creator's other queued tasks for that agent wait for the reset.
 `POST /agent-tasks/:taskId/resume` resumes now and `DELETE` on the same path
 turns the automatic resume off. See TECHNICAL.md, "Usage limits".

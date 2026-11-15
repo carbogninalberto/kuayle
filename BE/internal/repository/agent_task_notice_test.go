@@ -81,15 +81,18 @@ func TestNotificationPreferencesRoundTrip(t *testing.T) {
 	prefs, err := repo.Get(ctx, user)
 	require.NoError(t, err)
 	require.True(t, prefs.BrowserNotifications)
+	require.True(t, prefs.WorkflowEditorPanelOpen)
 	require.Equal(t, "chime", prefs.NotificationSound)
 	require.Empty(t, prefs.NotificationEvents)
 
 	prefs.BrowserNotifications, prefs.NotificationSound = false, "bell"
+	prefs.WorkflowEditorPanelOpen = false
 	prefs.NotificationEvents = domain.NotificationEvents{"comment": false, "assigned": true}
 	require.NoError(t, repo.Upsert(ctx, prefs))
 	stored, err := repo.Get(ctx, user)
 	require.NoError(t, err)
 	require.False(t, stored.BrowserNotifications)
+	require.False(t, stored.WorkflowEditorPanelOpen)
 	require.Equal(t, "bell", stored.NotificationSound)
 	require.Equal(t, domain.NotificationEvents{"comment": false, "assigned": true}, stored.NotificationEvents)
 
