@@ -235,6 +235,10 @@ func main() {
 	assistantApprovals.SetMachines(repository.NewAgentTaskRepository(db), devMachineSvc)
 	assistantApprovals.SetToolSettings(assistantToolSettings)
 	assistantApprovals.SetCustomTools(assistantCustomTools)
+	// Commands on the user's machine or a temporary one (KUA-153).
+	assistantCommands := repository.NewAssistantCommandRepository(db)
+	assistantTools.SetCommands(assistantCommands, devMachineSvc)
+	assistantApprovals.SetCommands(assistantCommands, devMachineSvc)
 	assistantSystem := service.NewAssistantSystem(service.NewSystemUpdater(cfg.SystemUpdaterURL, cfg.SystemUpdaterToken), cfg.IsSysAdmin, buildinfo.Version)
 	assistantTools.SetSystem(assistantSystem)
 	assistantSystem.SetHealthCheck(func(ctx context.Context) error { return db.PingContext(ctx) })

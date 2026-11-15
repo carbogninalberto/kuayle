@@ -460,7 +460,9 @@ behind one approval (see [shipping in one approval](#shipping-in-one-approval)),
 and the read-only research tools `web_search`, `repo_list_files`, `repo_glob`,
 `repo_grep`, `repo_read_file`, `repo_symbols`, `get_task_worktree`,
 `list_machine_worktrees` and `spawn_research_subagents`
-(see [research tools](#research-tools)).
+(see [research tools](#research-tools)), and the command tools
+`start_temporary_machine`, `run_command`, `run_command_write` and
+`get_command_run` (see [commands and temporary machines](#commands-and-temporary-machines)).
 `link_repository`, and the live channel tools `message_task` and
 `get_task_messages` (see [agent messages in chat](#agent-messages-in-chat)).
 The wiki tools address a team wiki by `team_key` or a project wiki by
@@ -950,6 +952,112 @@ offers an Open button per port, which launches it with a one-time ticket as the
 machine page does; a starting preview is polled until its task port exists.
 Migration 94 adds `start_preview` and `expose_port` to the allowed approval
 actions; rolling back deletes those approvals, not the previews or ports.
+
+### Terminal capability matrix
+
+What a user would open a terminal for today, and the assistant tool that does
+it. Keep this table current in the same change as a tool that covers a row; a
+gap names its issue, or "issue to file" until a person files one (agents
+cannot file Kuayle issues).
+
+| Terminal-shaped task | Covered by | Status |
+| --- | --- | --- |
+| Grep, glob, read or list symbols of pushed code | `repo_grep`, `repo_glob`, `repo_read_file`, `repo_list_files`, `repo_symbols` ([research tools](#research-tools)) | covered |
+| Read a task's live worktree and its git state (uncommitted work included) | `source: "task"` scans, `get_task_worktree`, `list_machine_worktrees` (KUA-141) | covered |
+| Run a task's check or tests on its checkout | `run_check`, with an optional `command` ([manual checks](agent-tasks.md#manual-checks)) | covered |
+| Run a workspace-approved script | custom tools `custom_<name>` ([custom tools](#custom-tools)) | covered |
+| Pull request state, checks, comments, replies, threads, branch update, draft state | [pull request tools](#pull-request-tools) | covered |
+| Releases, release notes, the release build, merge-and-release | [release tools](#release-tools), `ship_pull_request` | covered |
+| Check the instance version and upgrade | `get_instance_version`, `upgrade_instance` | covered |
+| Start a task's preview, expose a port | `start_preview`, `expose_port`, `list_ports` ([previews and ports](#previews-and-ports-from-chat)) | covered |
+| Talk to a running coding agent | `message_task`, `get_task_messages` | covered |
+| Compute something, check a snippet (`python3 -c`, `node -e`, `jq`) | `run_command` | covered (KUA-153) |
+| Inspect files on one's own machine (`ls`, `cat`, `du`, `find`) | `run_command` with `machine_id` and `working_directory` | covered (KUA-153) |
+| Call a public endpoint (`curl`) | `run_command`, through the machine's egress proxy | covered (KUA-153) |
+| Write scratch files or generate an artifact | `run_command_write`, in the conversation's folder | covered (KUA-153) |
+| Run tests ad hoc outside a task checkout | `run_command` on the user's machine (read-only workspace, 60 s) | partial: longer runs are a gap, issue to file |
+| Install a language package | `run_command_write` (`pip install --user`, `npm install` in the folder) | partial: system packages (no sudo, no apt on temporary machines) are a gap, issue to file |
+| Run a database migration against a real database | none: command containers never get credentials | gap, issue to file |
+| Read a machine's container or agent logs, `docker ps` | none | gap, issue to file |
+| Commit, branch or push on a checkout | read-only git through `get_task_worktree` and `run_command`; changes through `follow_up_task` | partial: pushing from chat is a gap, issue to file |
+| Keep a process running (a dev server outside a task) | `start_preview` for a task's configured preview only | partial: ad-hoc long-running processes are a gap, issue to file |
+
+### Commands and temporary machines
+
+The command tools run one short shell command on a Dev Machine the user owns.
+Tools that answer without a machine always come first; the system prompt says
+so, and the `start_temporary_machine` description repeats it.
+
+- `start_temporary_machine` (approval tool). It first looks for a machine to
+  reuse, and then nothing starts and no card is shown: this conversation's
+  live temporary machine, else the user's own running, non-temporary machine
+  (not an environment builder, not being deleted; machines of no issue first,
+  then the most recently active). The result names the machine, its size,
+  `reused` and the conversation folder
+  `/workspace/kuayle-assistant/<conversation>`. Otherwise it checks the
+  workspace quota and asks for approval of the preset
+  (`domain.TemporaryMachineResources`: 1 vCPU, 2048 MB, 20 GB, headless). The
+  approval creates the machine through `DevMachineService.StartTemporaryMachine`,
+  with every policy, quota and demo check of a normal machine. A second
+  approval converges on the machine already started.
+- `run_command` and `run_command_write` (approval tools, even on the user's
+  own machine). They take `command` (at most 4000 bytes) and an optional
+  `machine_id`, which must be a running machine the user owns. Without it they
+  use the conversation's temporary machine, else the reuse candidate, else they
+  fail with what the assistant can do instead. `run_command` takes a
+  `working_directory` relative to `/workspace` (default `/workspace`).
+  `run_command_write` always starts in the conversation folder, which it
+  creates. The card shows the exact command, the machine, its size, whether it
+  is reused or temporary, the working directory and the time limit.
+- `get_command_run` (read). Reads a run by `run_id` or `approval_id` and waits
+  up to about a minute while it is queued or running. The result has
+  `machine`, `machine_id`, `cpu_millis`, `memory_mb`, `disk_gb`, `reused`,
+  `temporary`, `expires_at` (temporary only), `working_directory`, `status`,
+  `exit_code`, `output_tail` (the last 12 KiB), `output_truncated` and
+  `duration_ms`. The approved card polls
+  `GET /conversations/:conversationId/approvals/:approvalId/command-run`
+  (session only, requester only) and shows the same fields.
+
+Refusals are tool failures that name the next step. A guest is told to ask a
+workspace member or an admin. A machine the user does not own, or one that is
+not running, is refused with "give one of your machines or start a temporary
+machine". The public demo rule applies (`machine: true` in the action
+policies). Approving re-checks the approver, the machine and its owner in the
+queuing transaction, and the manager re-checks them on every write of the run
+(`commandRunTransaction`).
+
+Execution reuses the custom tool sandbox. A fresh check container runs on the
+machine: developer image, the machine's workspace volume, egress only through
+the machine's proxy, all capabilities dropped, a read-only root, and no
+credentials or environment variables of the machine. Its argv is fixed:
+`sh -c <bootstrap> kuayle-cmd 60`. The command reaches it only as
+`KUAYLE_COMMAND`, and the bootstrap runs it under `timeout -s KILL`. A
+`run_command` mounts `/workspace` read-only; only `/tmp` and `$HOME` (tmpfs) are
+writable. A `run_command_write` mounts it read-write. The manager's own
+deadline is 75 s.
+
+Each run is one `run_command` operation with `MaxAttempts` 1, so a command
+never runs twice. Its container is removed afterwards, whatever the result. It
+holds the machine like a check or a tool run: never beside an agent attempt,
+a check, a tool run or another command (`ErrMachineBusy`). Its output is stored
+up to 64 KiB (a schema CHECK) in `assistant_command_runs` (migration 158), with
+the machine's name and size, so the transcript still names a deleted temporary
+machine.
+
+A temporary machine has no repository (the workspace's default repository and
+environment are ignored), no agents, no environment variables, no Docker
+daemon and no sudo, whatever the workspace policy allows. Kuayle therefore
+never mints a credential for it. It is never chosen for an agent task.
+`dev_machines.temporary_expires_at` is fixed at 30 minutes from creation and
+never extended. `Manager.reconcile` asks for the permanent deletion of every
+expired temporary machine, and the teardown and purge follow as for a user's
+own permanent delete. The quota is `dev_machine_workspace_policies.max_temporary_machines`:
+default 2, 0 to 10, 0 turns the feature off, and the policy API takes it as the
+optional `max_temporary_machines`. Each user has at most one live temporary
+machine. Both limits are counted under the workspace's machine lock in
+`CreateBundle`, and temporary machines also count toward the ordinary machine
+quotas. Rolling back migration 158 drops the runs and the new approvals;
+temporary machines become ordinary machines that their owners delete.
 
 ## Images
 

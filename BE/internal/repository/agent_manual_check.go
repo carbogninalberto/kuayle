@@ -43,8 +43,9 @@ var (
 )
 
 // activeManualCheckSQL reports a queued or running manual check or custom
-// tool run on machine $1; both hold the machine like an agent attempt.
-const activeManualCheckSQL = `SELECT EXISTS(SELECT 1 FROM dev_machine_operations WHERE machine_id=$1 AND action IN ('run_check','run_tool') AND status IN ('pending','leased'))`
+// tool run or assistant command on machine $1; each holds the machine like an
+// agent attempt.
+const activeManualCheckSQL = `SELECT EXISTS(SELECT 1 FROM dev_machine_operations WHERE machine_id=$1 AND action IN ('run_check','run_tool','run_command') AND status IN ('pending','leased'))`
 
 // RunCheck queues a manual check on the task's latest attempt for its
 // creator. A nil command runs the task's check: the command requested for the
@@ -157,7 +158,7 @@ func lockMachineForCheck(ctx context.Context, tx *sqlx.Tx, ws, machine uuid.UUID
 	var busy bool
 	if err = tx.GetContext(ctx, &busy, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=$1 AND (r.status IN ('queued','starting','running','waiting_input')
  OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.run_id=r.id AND t.state IN ('preparing','running','waiting_input','validating','publishing','cancelling'))))
- OR EXISTS(SELECT 1 FROM dev_machine_operations WHERE machine_id=$1 AND action IN ('validate_agent','publish_agent','run_check','run_tool') AND status IN ('pending','leased'))`, machine); err != nil {
+ OR EXISTS(SELECT 1 FROM dev_machine_operations WHERE machine_id=$1 AND action IN ('validate_agent','publish_agent','run_check','run_tool','run_command') AND status IN ('pending','leased'))`, machine); err != nil {
 		return 0, err
 	}
 	if busy {

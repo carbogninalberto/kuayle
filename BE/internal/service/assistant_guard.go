@@ -57,6 +57,11 @@ var assistantActionPolicies = map[string]assistantActionPolicy{
 	"expose_port":          {machine: true},
 	"run_check":            {machine: true},
 	"run_custom_tool":      {machine: true},
+	// Commands and temporary machines (KUA-153): the machine's owner, checked
+	// where the machine is resolved and again when the run is queued.
+	"start_temporary_machine": {machine: true},
+	"run_command":             {machine: true},
+	"run_command_write":       {machine: true},
 	// Destructive wiki actions: members who can write the wiki, checked
 	// (wiki:write and the wiki's visibility) when requested and approved.
 	wikiDeleteAction:          {},

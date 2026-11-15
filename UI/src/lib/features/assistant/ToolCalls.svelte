@@ -42,6 +42,8 @@
 	import ProposedSkillCard, { proposedSkill } from './ProposedSkillCard.svelte';
 	import ProposedToolCard, { proposedTool } from './ProposedToolCard.svelte';
 	import CustomToolRunResult, { toolRunSummary } from './CustomToolRunResult.svelte';
+	import CommandRunResult from './CommandRunResult.svelte';
+	import { commandMachineSize } from './command-machine';
 	import { runStatusLabel } from './ToolRunView.svelte';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
@@ -111,6 +113,19 @@
 	): approval is Extract<ConversationApproval, { action: WikiApprovalAction }> {
 		return (WIKI_APPROVAL_ACTIONS as readonly string[]).includes(approval.action);
 	}
+	// Commands and temporary machines name a machine rather than an issue.
+	function isCommandApproval(
+		approval: ConversationApproval
+	): approval is Extract<
+		ConversationApproval,
+		{ action: 'start_temporary_machine' | 'run_command' | 'run_command_write' }
+	> {
+		return (
+			approval.action === 'start_temporary_machine' ||
+			approval.action === 'run_command' ||
+			approval.action === 'run_command_write'
+		);
+	}
 	function wikiSubject(payload: WikiApprovalPayload): string {
 		return payload.title ? `${payload.scope_name} · ${payload.title}` : payload.scope_name;
 	}
@@ -174,6 +189,36 @@
 					return m['assistant.approval_expired']({ identifier: latest });
 				default:
 					return m['assistant.upgrade_denied']({ latest });
+			}
+		}
+		if (approval.action === 'start_temporary_machine') {
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.temp_machine_approving']();
+				case 'approved':
+					return m['assistant.temp_machine_approved']();
+				case 'failed':
+					return m['assistant.temp_machine_failed']({ error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier: 'start_temporary_machine' });
+				default:
+					return m['assistant.temp_machine_denied']();
+			}
+		}
+		if (approval.action === 'run_command' || approval.action === 'run_command_write') {
+			const identifier = approval.payload.machine,
+				tool = approval.action;
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.custom_run_approving']({ identifier, tool });
+				case 'approved':
+					return m['assistant.custom_run_approved']({ identifier, tool });
+				case 'failed':
+					return m['assistant.custom_run_failed']({ identifier, tool, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier });
+				default:
+					return m['assistant.custom_run_denied']({ identifier, tool });
 			}
 		}
 		const identifier = approval.payload.identifier;
@@ -391,7 +436,9 @@
 			{#if approval}
 				{@const identifier = isWikiApproval(approval)
 					? wikiSubject(approval.payload)
-					: approval.action === 'upgrade_instance' || approval.action === 'create_release'
+					: approval.action === 'upgrade_instance' ||
+						  approval.action === 'create_release' ||
+						  isCommandApproval(approval)
 						? ''
 						: approval.payload.identifier}
 				{#if approval.status === 'pending'}
@@ -747,6 +794,58 @@
 								<p class="flex items-center gap-1 text-xs text-muted-foreground">
 									<Lock size={12} class="shrink-0" />{m['assistant.port_audience_owner']()}
 								</p>
+							{:else if approval.action === 'start_temporary_machine'}
+								{@const size = commandMachineSize(approval.payload)}
+								<Item.Title>{m['assistant.temp_machine_title']()}</Item.Title>
+								<Item.Description class="line-clamp-none"
+									>{m['assistant.temp_machine_description']({
+										...size,
+										minutes: approval.payload.ttl_minutes
+									})}</Item.Description
+								>
+								<p class="flex items-center gap-1 text-xs text-muted-foreground">
+									<Lock size={12} class="shrink-0" />{m['assistant.temp_machine_no_credentials']()}
+								</p>
+								<p class="flex items-center gap-1 text-xs text-muted-foreground">
+									<Server size={12} class="shrink-0" />{m['assistant.temp_machine_quota']({
+										used: approval.payload.quota_used,
+										limit: approval.payload.quota_limit
+									})}
+								</p>
+							{:else if approval.action === 'run_command' || approval.action === 'run_command_write'}
+								{@const size = commandMachineSize(approval.payload)}
+								<Item.Title class="break-all"
+									>{approval.payload.write
+										? m['assistant.command_write_title']({ machine: approval.payload.machine })
+										: m['assistant.command_title']({ machine: approval.payload.machine })}</Item.Title
+								>
+								<!-- The exact command that runs, as sh -c. -->
+								<CodeBlock.Root size="sm"
+									><CodeBlock.Content code={approval.payload.command} wrap class="max-h-48 text-xs" /></CodeBlock.Root
+								>
+								<p class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+									<Server size={12} class="shrink-0" /><span class="break-words"
+										>{m['assistant.command_machine']({ machine: approval.payload.machine, ...size })} · {approval.payload
+											.reused
+											? m['assistant.command_reused']()
+											: approval.payload.temporary
+												? m['assistant.command_temporary']()
+												: m['assistant.command_own_machine']()}</span
+									>
+								</p>
+								<p class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+									<Lock size={12} class="shrink-0" /><span class="break-all"
+										>{approval.payload.write
+											? m['assistant.command_write_note']({
+													directory: approval.payload.working_directory,
+													seconds: approval.payload.timeout_seconds
+												})
+											: m['assistant.command_read_only_note']({
+													directory: approval.payload.working_directory,
+													seconds: approval.payload.timeout_seconds
+												})}</span
+									>
+								</p>
 							{:else}
 								<Item.Title>{m['assistant.approval_title']({ identifier })}</Item.Title>
 								<Item.Description class="line-clamp-none"
@@ -860,6 +959,11 @@
 							{slug}
 							name="custom_{approval.payload.tool_name}"
 							toolId={approval.payload.tool_id}
+							approvalId={approval.id}
+						/>{:else if (approval.action === 'run_command' || approval.action === 'run_command_write') && approval.status === 'approved'}<CommandRunResult
+							{slug}
+							tool={approval.action}
+							conversationId={approval.conversation_id}
 							approvalId={approval.id}
 						/>{/if}
 				{/if}
