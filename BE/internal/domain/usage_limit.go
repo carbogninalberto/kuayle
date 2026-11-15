@@ -91,7 +91,7 @@ var (
 // rate_limit_event with an exact reset time; other agents only say it in text.
 func DetectUsageLimit(stdout, stderr, summary string, now time.Time) (UsageLimit, bool) {
 	limit, found := claudeStreamLimit(stdout)
-	texts := append(jsonMessages(stdout), summary, lastLines(stderr, 20), lastLines(stdout, 20))
+	texts := append(jsonMessages(stdout), summary, lastLines(stderr, 20), lastTextLines(stdout, 20))
 	for _, text := range texts {
 		text = strings.TrimSpace(text)
 		if text == "" || !usageLimitText.MatchString(text) {
@@ -293,4 +293,29 @@ func lastLines(text string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// lastTextLines is lastLines without JSON object lines. Stream-json harnesses
+// print their events as one JSON object per line; a tool_result that merely
+// quotes the wording (an agent editing code about usage limits) is not the
+// provider refusing. The JSON events are read on their own by claudeStreamLimit
+// and jsonMessages.
+func lastTextLines(text string, n int) string {
+	var lines []string
+	for _, line := range strings.Split(text, "\n") {
+		if !isJSONObject(line) {
+			lines = append(lines, line)
+		}
+	}
+	return lastLines(strings.Join(lines, "\n"), n)
+}
+
+// isJSONObject reports whether line is a JSON object.
+func isJSONObject(line string) bool {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "{") {
+		return false
+	}
+	var event map[string]any
+	return json.Unmarshal([]byte(line), &event) == nil
 }
