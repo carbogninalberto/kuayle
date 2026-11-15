@@ -24,7 +24,7 @@ func TestShipFromChatMergesAndReleasesAfterOneApproval(t *testing.T) {
 	require.NoError(t, f.db.Get(&issue, `INSERT INTO issues(workspace_id,team_id,number,identifier_text,title,creator_id,status_id) VALUES($1,$2,1,'ENG-1','Dark mode',$3,(SELECT id FROM team_statuses WHERE team_id=$2 LIMIT 1)) RETURNING id`, f.ws, team, f.user))
 
 	work := prWork{merge: &repository.MergeTarget{TaskID: uuid.New(), IssueID: issue, CreatorID: f.user, Repository: "acme/app", Number: 12, URL: "https://github.com/acme/app/pull/12", Commit: "head1"}}
-	pulls := &prGitHub{method: "squash", status: PullRequestStatus{State: "open", HeadSHA: "head1", BaseRef: "main"}}
+	pulls := &prGitHub{method: "squash", status: PullRequestStatus{State: "open", HeadSHA: "head1", BaseRef: "main", MergeBase: "base1"}}
 	releases := &shipReleases{releaseFake: newReleaseFake()}
 	releases.runs = []gh.WorkflowRun{{ID: 9, Name: "Build & Push", Event: "release", HeadBranch: "v1.3.0", Status: "completed", Conclusion: "success", HTMLURL: "https://github.com/acme/app/actions/runs/9"}}
 	merger := &shipMerger{github: pulls}

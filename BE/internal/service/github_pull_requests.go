@@ -40,6 +40,9 @@ type PullRequestStatus struct {
 	Ahead, Behind  int
 	ChangedFiles   int
 	URL            string
+	// MergeBase is the newest commit the head shares with the base branch,
+	// which is the base's tip when Behind is 0; empty when not compared.
+	MergeBase string
 	// MergeCommit is the commit the merge created on the base branch, once merged.
 	MergeCommit string
 }
@@ -77,6 +80,10 @@ type pullRequestReader interface {
 	UpdatePullRequestBranch(ctx context.Context, ws uuid.UUID, repository string, number int, expectedHead string) (string, error)
 	SetPullRequestDraft(ctx context.Context, ws uuid.UUID, repository string, number int, draft bool) error
 	ResolveMergeMethod(ctx context.Context, ws uuid.UUID, repository string) (string, error)
+	// CommitChecks and CommitDate read any commit: merging compares a head
+	// without checks with its base's tip and its age.
+	CommitChecks(ctx context.Context, ws uuid.UUID, repository, sha string) ([]PullRequestCheck, ChecksCoverage, error)
+	CommitDate(ctx context.Context, ws uuid.UUID, repository, sha string) (time.Time, error)
 }
 
 var _ pullRequestReader = (*GitHubService)(nil)
@@ -115,7 +122,7 @@ func (s *GitHubService) PullRequestStatus(ctx context.Context, ws uuid.UUID, rep
 	status.Ahead, status.Behind = -1, -1
 	if status.State == "open" && status.HeadSHA != "" {
 		if comparison, err := client.CompareCommits(token, owner, name, pull.Base.Ref, status.HeadSHA); err == nil {
-			status.Ahead, status.Behind = comparison.AheadBy, comparison.BehindBy
+			status.Ahead, status.Behind, status.MergeBase = comparison.AheadBy, comparison.BehindBy, comparison.MergeBaseCommit.SHA
 		}
 	}
 	return status, nil
@@ -327,6 +334,20 @@ func (s *GitHubService) SetPullRequestDraft(ctx context.Context, ws uuid.UUID, r
 		return client.ConvertPullRequestToDraft(token, pull.NodeID)
 	}
 	return client.MarkPullRequestReadyForReview(token, pull.NodeID)
+}
+
+// CommitDate is when a commit was committed, as Git records it; for a branch
+// update GitHub made, when GitHub made it.
+func (s *GitHubService) CommitDate(ctx context.Context, ws uuid.UUID, repository, sha string) (time.Time, error) {
+	client, token, owner, name, err := s.pullClient(ctx, ws, repository)
+	if err != nil {
+		return time.Time{}, err
+	}
+	commit, err := client.GetCommit(token, owner, name, sha)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return commit.Commit.Committer.Date, nil
 }
 
 // ErrMergeMethodNotAllowed means the repository's configured method is disabled on GitHub.
