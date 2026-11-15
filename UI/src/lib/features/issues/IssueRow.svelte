@@ -21,7 +21,9 @@
 	import { issuesState } from './issues.state.svelte';
 	import { formatDate, formatIssueListDate, formatIssueListRelativeTime } from '$lib/utils/format';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-	import { Ban, CalendarDays, CircleUser, Copy, Link, OctagonAlert, RefreshCw } from '@lucide/svelte';
+	import { Ban, CalendarDays, ChevronRight, CircleUser, Copy, Link, OctagonAlert, RefreshCw } from '@lucide/svelte';
+	import * as Collapsible from '$lib/components/ui/collapsible';
+	import type { IssueRowTree } from './issue-tree';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import AgentAvatar from '$lib/features/agents/AgentAvatar.svelte';
@@ -46,7 +48,8 @@
 		accessibleRow = false,
 		onremove,
 		removeLabel,
-		onchanged
+		onchanged,
+		tree
 	}: {
 		issue: Issue;
 		slug?: string;
@@ -67,6 +70,8 @@
 		onremove?: () => void;
 		removeLabel?: string;
 		onchanged?: () => void;
+		/** Set in a list that nests sub-issues: indentation and the expand chevron. */
+		tree?: IssueRowTree;
 	} = $props();
 
 	const isSelected = $derived(issuesState.selectedIds.has(issue.id));
@@ -209,13 +214,30 @@
 		role="button"
 		tabindex={0}
 		aria-label={issue.identifier}
+		data-issue-row={issue.id}
 		onfocus={() => {
 			if (accessibleRow) onlastselected?.(issue.id);
 		}}
 		onkeydown={(e: KeyboardEvent) => {
-			if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+			if (e.target !== e.currentTarget) return;
+			if (e.key === 'Enter' || e.key === ' ') {
 				e.preventDefault();
 				onclick(issue);
+				return;
+			}
+			if (!tree) return;
+			// Tree keys: Right expands, Left collapses, then moves to the parent row.
+			if (e.key === 'ArrowRight' && tree.childCount > 0 && !tree.expanded) {
+				e.preventDefault();
+				tree.onexpand(true);
+			} else if (e.key === 'ArrowLeft') {
+				if (tree.childCount > 0 && tree.expanded) {
+					e.preventDefault();
+					tree.onexpand(false);
+				} else if (tree.parentId) {
+					e.preventDefault();
+					document.querySelector<HTMLElement>(`[data-issue-row="${CSS.escape(tree.parentId)}"]`)?.focus();
+				}
 			}
 		}}
 		class="group flex min-h-12 w-full items-center gap-2 rounded-none border-b border-[var(--app-border)] px-3 py-2 text-left transition-colors duration-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] sm:mx-2 sm:min-h-0 sm:w-[calc(100%-1rem)] sm:rounded-md sm:border-b-0 sm:py-1.5 {isSelected
@@ -243,6 +265,30 @@
 			>
 				<Checkbox checked={isSelected} aria-label={issue.identifier} />
 			</div>
+		{/if}
+
+		{#if tree}
+			<!-- Tree column: indentation by depth, then the chevron (or an equal gap) so titles line up. -->
+			<span class="flex shrink-0 items-center" style:padding-left="{tree.depth * 1.25}rem">
+				{#if tree.childCount > 0}
+					<Collapsible.Trigger onclick={(e: MouseEvent) => e.stopPropagation()}>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="plain"
+								aria-label={m['issue.sub_issues_toggle']({ identifier: issue.identifier, count: tree.childCount })}
+								title={m['issue.sub_issues_toggle']({ identifier: issue.identifier, count: tree.childCount })}
+								class="flex h-5 w-8 items-center gap-0.5 rounded px-0.5 text-[11px] tabular-nums text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+							>
+								<ChevronRight size={12} class="shrink-0 transition-transform {tree.expanded ? 'rotate-90' : ''}" />
+								<span aria-hidden="true">{tree.childCount}</span>
+							</Button>
+						{/snippet}
+					</Collapsible.Trigger>
+				{:else}
+					<span class="w-8" aria-hidden="true"></span>
+				{/if}
+			</span>
 		{/if}
 
 		<!-- Priority -->

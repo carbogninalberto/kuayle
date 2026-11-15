@@ -4,6 +4,8 @@ import { preferencesState, type GroupByField } from '$lib/features/preferences/p
 import type { StatusCategory } from '$lib/types/team-status';
 import type { IssueAgentAssignee } from '$lib/api/agents';
 import { assigneeGroup } from '$lib/features/agents/agent-assignees';
+import { buildIssueTree, visibleTreeIssues } from './issue-tree';
+import { subIssueTreeState } from './sub-issue-tree.state.svelte';
 
 export type { GroupByField } from '$lib/features/preferences/preferences.state.svelte';
 
@@ -18,6 +20,8 @@ class IssuesState {
 	filters = $state<Record<string, string>>({});
 	selectedIds = $state<Set<string>>(new Set());
 	groupBy = $state<GroupByField>('status');
+	/** True while the mounted issue list nests sub-issues under their parent; that list sets and clears it. */
+	nestedList = $state(false);
 	private currentSlug = '';
 	private currentPage = 1;
 	private loadRequestId = 0;
@@ -121,8 +125,12 @@ class IssuesState {
 		return preferencesState.getWorkflowSortOrder(this.currentSlug, teamId);
 	}
 
-	/** Flat issue order matching the visual rendering (respects grouping). */
-	private visibleOrder = $derived<Issue[]>(this.groupBy ? this.groupedIssues.flatMap((g) => g.issues) : this.issues);
+	/** Flat issue order matching the visual rendering (respects grouping and nested, collapsed sub-issues). */
+	private visibleOrder = $derived<Issue[]>(
+		(this.groupBy ? this.groupedIssues.map((group) => group.issues) : [this.issues]).flatMap((issues) =>
+			this.nestedList ? visibleTreeIssues(buildIssueTree(issues), subIssueTreeState.expanded) : issues
+		)
+	);
 
 	getAdjacentIdentifier(current: string, direction: 'prev' | 'next'): string | null {
 		const idx = this.issueIdentifiers.indexOf(current);
