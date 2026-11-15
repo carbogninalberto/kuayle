@@ -818,9 +818,22 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		if inspection.Container.Config.Image != provider.ImageRef || inspection.Container.Config.Labels["com.kuayle.agent-run-id"] != run.ID.String() {
 			return nil, fmt.Errorf("existing agent container does not match run")
 		}
-		return r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", secrets, observer)
+		// A container an earlier manager created may have ended while no
+		// manager followed it: the run ended unobserved, not on this manager's
+		// watch.
+		state := inspection.Container.State
+		unobserved := state != nil && !state.Running && !state.Paused && (state.Status == "exited" || state.Status == "dead")
+		execution, err := r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", secrets, observer)
+		if execution != nil && unobserved {
+			execution.ExitedUnobserved = true
+		}
+		return execution, err
 	} else if !errdefs.IsNotFound(inspectErr) {
 		return nil, inspectErr
+	} else if run.ContainerSuffix == "" && run.StartedAt != nil {
+		// The attempt started without a container to follow: it was removed
+		// while no manager followed it. Never re-create it.
+		return nil, ErrAgentContainerGone
 	}
 	hostConfig, err := r.agentHostConfig(ctx, machine, run.ID.String(), docker)
 	if err != nil {
@@ -978,6 +991,23 @@ func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.In
 
 func (r *DockerRuntime) resumeExecution(ctx context.Context, inspection container.InspectResponse, interactive bool, secrets map[string]string, observer *AgentObserver, deliverSecrets bool) (*AgentExecution, error) {
 	containerID := inspection.ID
+	// A nil channel never fires in a select: only an agent attempt followed by
+	// a stopping manager asks to detach.
+	var detach <-chan struct{}
+	if observer != nil {
+		detach = observer.Detach
+	}
+	detached := func() (*AgentExecution, error) {
+		return &AgentExecution{ContainerID: containerID, ExitCode: -1}, ErrAgentDetached
+	}
+	detachRequested := func() bool {
+		select {
+		case <-detach:
+			return true
+		default:
+			return false
+		}
+	}
 	if observer != nil && observer.Authorize != nil {
 		if err := observer.Authorize(); err != nil {
 			return r.agentOutputFailure(containerID, err)
@@ -1080,7 +1110,16 @@ func (r *DockerRuntime) resumeExecution(ctx context.Context, inspection containe
 			inspection.State.ExitCode = int(status.StatusCode)
 			waiting = false
 			result, waitError = nil, nil
+		case <-detach:
+			// Stop following the attempt, never the attempt itself: the next
+			// manager re-adopts the running container.
+			cancelLogs()
+			return detached()
 		case err := <-waitError:
+			if detachRequested() {
+				cancelLogs()
+				return detached()
+			}
 			if ctx.Err() != nil {
 				err = ctx.Err()
 			}
@@ -1090,12 +1129,20 @@ func (r *DockerRuntime) resumeExecution(ctx context.Context, inspection containe
 			logging = false
 			logDone = nil
 			if err != nil {
+				if detachRequested() {
+					cancelLogs()
+					return detached()
+				}
 				if ctx.Err() != nil {
 					err = ctx.Err()
 				}
 				return r.agentOutputFailure(containerID, err)
 			}
 		case <-ctx.Done():
+			if detachRequested() {
+				cancelLogs()
+				return detached()
+			}
 			cancelLogs()
 			return r.agentOutputFailure(containerID, ctx.Err())
 		}

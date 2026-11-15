@@ -887,6 +887,24 @@ found no space (`database or disk is full`, `SQLITE_FULL`, `ENOSPC`,
 `no space left on device`, `disk quota exceeded`) is `platform` with rule
 `disk_full`, not the agent's `harness_error`.
 
+A run that failed with class `platform` and rule `manager_restart` (see
+[Machine manager restarts](#machine-manager-restarts)) is retried
+automatically on the same step. The runtime cleanup runs as for a failure, then
+the step restarts as a new attempt, with a new generation and run ID that
+continue the native session, in the same workflow visit and iteration: the
+retry uses neither the workflow's iteration budget nor the step's visit limit.
+The task shows "Retrying automatically: Kuayle's machine manager restarted
+while the agent worked (retry N of 3)" and the notebook records it. The retried
+attempt's handoff prompt tells the agent that a manager restart interrupted it
+and to continue from the worktree. A step has at most three automatic retries
+(`agent_tasks.platform_retries`, migration 000162), reset when the workflow starts
+another step or a person retries the task; the fourth such failure in a row
+fails the task with class `platform` and a reason saying the manager restarted
+three times in a row and to retry the task. The other platform rules
+(`out_of_memory`, `pid_limit`, `time_limit`, `platform_error`) are not retried
+automatically: the same workload would hit the same limit again, so the task
+fails and says how to fix it.
+
 A native failure caused by a resource limit (an out-of-memory kill of the agent
 container, see [resource limits](../../TECHNICAL.md#resource-limits-and-quotas))
 fails with that explanation as its reason, kept as the final `failed` reason.
@@ -1006,6 +1024,29 @@ Recovery preserves the original start time and an existing waiting-input state.
 An error does not falsely report that the service has stopped; reconciliation
 and durable cancellation retain responsibility for physical cleanup.
 
+### Machine manager restarts
+
+On SIGTERM the manager stops leasing operations and stops following running
+agent containers without stopping them: the container keeps working on the
+host, each follower hands its operation back with `DeferOperation` and error
+code `manager_restart`, and this counts no attempt. Other operations in
+progress (an agent's closing continuation, a check, a publication, lifecycle
+work) get a drain period, `DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS` (default 120
+seconds; 0 stops at once); after it they are cancelled and handed back the same
+way, never failed. A stopping manager starts no new agent container.
+
+The next manager leases the operation at once and re-adopts the run: it finds
+the run's container by name, replays its log from the start (stored lines are
+de-duplicated) and waits for it to exit, then records the result as usual. A
+manager killed without a graceful stop leaves the same handover to the
+two-minute operation lease. An unobserved exit is not a guess: a run whose
+container had already ended by a signal when the manager found it (it ended
+while no manager followed it, after a host or Docker restart, or under an older
+manager that still stopped runs) is classified `platform` / `manager_restart`,
+not `unknown` / `killed`. A started run whose container no longer exists is not
+re-created: it is recorded as failed with `platform` / `manager_restart` right
+away.
+
 The manager encrypts a per-attempt snapshot of the authorized runtime secrets
 before starting execution. Concurrent managers reuse the first committed
 snapshot. Versioned snapshots distinguish credentials from public model/runtime
@@ -1023,8 +1064,11 @@ which credentials its container received.
 Docker logs are followed while the native process runs. Waiting for process exit
 cannot block handling an output-storage failure. Cancellation or a failed output
 observer stops the native process, cancels the Docker HTTP requests, and waits
-for output goroutines to exit. The full provider result is parsed from sanitized
-captured output, and never establishes independent test success.
+for output goroutines to exit; a stopping manager instead detaches from the
+running container without stopping it, for the next manager to re-adopt (see
+[Machine manager restarts](#machine-manager-restarts)). The full provider result
+is parsed from sanitized captured output, and never establishes independent test
+success.
 
 The manager buffers logical lines, redacts known secrets before persistence,
 including multiline fragments and JSON-escaped forms, and sanitizes invalid UTF-8

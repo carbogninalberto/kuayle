@@ -10,6 +10,14 @@ import (
 
 var ErrHostDiskUnknown = errors.New("host disk usage is unknown")
 
+// ErrAgentDetached reports that the runtime stopped following a running agent
+// because the manager is shutting down; the container was left running.
+var ErrAgentDetached = errors.New("agent_detached: the machine manager stopped following the run, which keeps running")
+
+// ErrAgentContainerGone reports that a run which had started has no container
+// any more (removed while no manager followed it). It is never re-created.
+var ErrAgentContainerGone = errors.New("agent_container_gone: the run's container no longer exists")
+
 // ErrRuntimeIncomplete reports that a stopped or paused machine cannot simply
 // be resumed because its workspace volume or a service container was never
 // created or no longer exists. The manager provisions the machine again, which
@@ -28,6 +36,10 @@ type AgentObserver struct {
 	Authorize func() error
 	Started   func(containerID string) error
 	Output    AgentOutput
+	// Detach, when closed, makes the runtime stop following a running agent
+	// attempt without stopping it: it returns ErrAgentDetached and the
+	// container keeps running, for the next machine manager to re-adopt.
+	Detach <-chan struct{}
 }
 
 type AgentExecution struct {
@@ -47,6 +59,9 @@ type AgentExecution struct {
 	// MachineMemory reports that the container shares the machine's memory,
 	// so MemoryLimitBytes is the machine's size (machine_slice.go).
 	MachineMemory bool
+	// ExitedUnobserved reports that the container had already exited when this
+	// manager found it: it ended while no manager followed it.
+	ExitedUnobserved bool
 }
 
 type ResourceUsage struct {

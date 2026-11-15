@@ -146,6 +146,73 @@ func TestClassifyRunFailure(t *testing.T) {
 	}
 }
 
+// A run whose container was stopped or removed while Kuayle's machine manager
+// was restarting is the platform's, never an unknown kill.
+func TestManagerRestartIsAPlatformFailure(t *testing.T) {
+	for name, tc := range map[string]struct {
+		evidence RunFailureEvidence
+		class    FailureClass
+		rule     string
+	}{
+		"exit 143 while no manager followed it": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(143), ManagerRestart: true},
+			FailurePlatform, FailureRuleManagerRestart,
+		},
+		"exit 137 while no manager followed it": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(137), ManagerRestart: true},
+			FailurePlatform, FailureRuleManagerRestart,
+		},
+		"the container was gone when the manager came back": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(-1), ManagerRestart: true},
+			FailurePlatform, FailureRuleManagerRestart,
+		},
+		"the container was gone and no exit code was recorded": {
+			RunFailureEvidence{Status: "failed", ManagerRestart: true},
+			FailurePlatform, FailureRuleManagerRestart,
+		},
+		"the harness exited by itself and printed why": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), Stderr: "boom", ManagerRestart: true},
+			FailureUnknown, "harness_exit_with_output",
+		},
+		"without a manager restart a kill is still unknown": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(137)},
+			FailureUnknown, "killed",
+		},
+		"out-of-memory evidence still wins": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(137), OOMKilled: true, ManagerRestart: true},
+			FailurePlatform, "out_of_memory",
+		},
+		"the time limit still wins": {
+			RunFailureEvidence{Status: "timeout", ExitCode: exitCode(-1), ManagerRestart: true},
+			FailurePlatform, "time_limit",
+		},
+		"a cancel still wins": {
+			RunFailureEvidence{Status: "cancelled", ExitCode: exitCode(-1), ManagerRestart: true},
+			FailurePlatform, "cancelled_by_platform",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failure := ClassifyRunFailure(tc.evidence)
+			require.Equal(t, tc.class, failure.Class)
+			require.Equal(t, tc.rule, failure.Rule)
+			require.NotEmpty(t, failure.Cause)
+		})
+	}
+}
+
+// Only a manager restart is retried automatically: the other platform
+// failures would hit the same workload again.
+func TestRetryablePlatformFailure(t *testing.T) {
+	require.True(t, RetryablePlatformFailure(string(FailurePlatform), FailureRuleManagerRestart))
+	for _, class := range []FailureClass{FailurePlatform, FailureUnknown} {
+		for _, rule := range []string{"pid_limit", "out_of_memory", "time_limit", "platform_error", "killed"} {
+			require.False(t, RetryablePlatformFailure(string(class), rule), "%s/%s", class, rule)
+		}
+	}
+	require.False(t, RetryablePlatformFailure(string(FailureUnknown), FailureRuleManagerRestart))
+	require.Equal(t, 3, MaxPlatformRetries)
+}
+
 // A run stopped by the platform is never counted as the agent's, whatever
 // the harness printed while it was being stopped.
 func TestPlatformStopsAreNeverTheAgents(t *testing.T) {

@@ -35,6 +35,7 @@ type taskLifecycleStore interface {
 	FailForSignInWithClass(context.Context, domain.AgentTask, domain.FailureClass, string) error
 	PauseForUsageLimit(context.Context, domain.AgentTask, domain.UsageLimit, string, string) error
 	ResumeDueUsageLimits(context.Context, string) (int, error)
+	BeginPlatformRetry(context.Context, domain.AgentTask, string) (bool, error)
 	CompleteReview(context.Context, domain.AgentTask) error
 }
 type taskExecutionRuntime interface {
@@ -158,11 +159,11 @@ func (s *AgentTaskService) process(ctx context.Context, task domain.AgentTask) {
 	}
 	if ctx.Err() == nil && !errors.Is(err, repository.ErrAgentTaskConflict) {
 		if recordErr := s.store.RecordStepResult(finalCtx, task, err != nil); recordErr != nil && !errors.Is(recordErr, repository.ErrAgentTaskConflict) {
-			log.WithField("task_id", task.ID).Error("Could not record agent task recovery state")
+			log.WithField("task_id", task.ID).WithError(recordErr).Error("Could not record agent task recovery state")
 		}
 	}
 	if releaseErr := s.store.Release(finalCtx, task); releaseErr != nil && !errors.Is(releaseErr, repository.ErrAgentTaskConflict) {
-		log.WithField("task_id", task.ID).Error("Could not release agent task lease")
+		log.WithField("task_id", task.ID).WithError(releaseErr).Error("Could not release agent task lease")
 	}
 	s.announceAgentStatus(finalCtx, task)
 }
@@ -308,6 +309,11 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 	case domain.DevMachineAgentRunStatusQueued, domain.DevMachineAgentRunStatusStarting:
 		return nil
 	case domain.DevMachineAgentRunStatusFailed, domain.DevMachineAgentRunStatusTimeout:
+		// A platform failure that is not the run's own (the machine manager
+		// restarted) retries the same step and never uses the budget.
+		if run.Status == domain.DevMachineAgentRunStatusFailed && run.FailureClass != nil && run.FailureRule != nil && domain.RetryablePlatformFailure(*run.FailureClass, *run.FailureRule) {
+			return s.retryAfterPlatformFailure(ctx, task, run)
+		}
 		// An agent without a model server needs the user's own sign-in, done
 		// once in their machine's terminal; the task then continues.
 		if run.ErrorMessage != nil && strings.HasPrefix(*run.ErrorMessage, "sign_in_required") {
@@ -1034,7 +1040,11 @@ func withLiveHandoff(prompt string, previous *domain.AgentHandoff, resumed, cont
 		if previous.Status == string(domain.DevMachineAgentRunStatusCancelled) {
 			cause = "a person"
 		}
-		b.WriteString("- The previous attempt was paused by " + cause + ", not by a failure. Continue exactly where it stopped: the worktree is unchanged; do not start over, reset or discard changes.\n")
+		if previous.FailureRule == domain.FailureRuleManagerRestart {
+			b.WriteString("- The previous attempt was interrupted when Kuayle's machine manager restarted, not by a failure of yours. Its work so far is still in this worktree: check it (git status, git diff), then continue exactly where it stopped; do not start over, reset or discard changes.\n")
+		} else {
+			b.WriteString("- The previous attempt was paused by " + cause + ", not by a failure. Continue exactly where it stopped: the worktree is unchanged; do not start over, reset or discard changes.\n")
+		}
 	}
 	fmt.Fprintf(&b, "- Previous native outcome: %s\n", previous.Status)
 	if previous.NotebookProblem != "" {

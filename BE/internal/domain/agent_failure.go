@@ -89,12 +89,35 @@ type RunFailureEvidence struct {
 	// PolicyRefused is set when an authorization or policy check refused the
 	// run while it was working.
 	PolicyRefused bool
+	// ManagerRestart is set when the run's harness ended while no machine
+	// manager followed it (the manager restarted and found the container
+	// already exited), or when its container was gone when the manager
+	// came back.
+	ManagerRestart bool
 }
 
 const (
 	CancelledByPerson = "person"
 	CancelledByPolicy = "policy"
 )
+
+// FailureRuleManagerRestart is the rule of a run interrupted by a restart of
+// Kuayle's machine manager (a deploy or an upgrade).
+const FailureRuleManagerRestart = "manager_restart"
+
+// MaxPlatformRetries is how many times in a row a task step is retried
+// automatically after a retryable platform failure before the task fails.
+const MaxPlatformRetries = 3
+
+// RetryablePlatformFailure reports whether a run that failed with this class
+// and rule is retried automatically, without counting against the workflow's
+// budget. Only a manager restart is: the run did nothing wrong and the same
+// step will very likely succeed. Resource limits (out_of_memory, pid_limit),
+// the time limit and other platform errors are not: the same workload would
+// hit them again, so the task fails and says how to fix it.
+func RetryablePlatformFailure(class, rule string) bool {
+	return class == string(FailurePlatform) && rule == FailureRuleManagerRestart
+}
 
 // RunFailure is a run's failure as stored: the class, the rule that decided
 // it, and the real cause.
@@ -225,6 +248,13 @@ var runFailureRules = []runFailureRule{
 				return fmt.Sprintf("Kuayle stopped the run at its time limit of %d minutes", e.TimeLimitSeconds/60)
 			}
 			return "Kuayle stopped the run at its time limit"
+		}},
+	{FailureRuleManagerRestart, FailurePlatform,
+		func(e RunFailureEvidence) bool {
+			return e.ManagerRestart && e.Status == "failed" && (!exited(e.ExitCode) || exitSignal(e.ExitCode) != "")
+		},
+		func(RunFailureEvidence) string {
+			return "Kuayle's machine manager restarted while the run was working, and the run's container was stopped or removed while no manager followed it"
 		}},
 	{"disk_full", FailurePlatform,
 		func(e RunFailureEvidence) bool {

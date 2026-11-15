@@ -31,12 +31,13 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 		Continued    bool            `db:"continued"`
 		NoFinal      bool            `db:"no_final_message"`
 		Notebook     *string         `db:"notebook_problem"`
+		FailureRule  *string         `db:"failure_rule"`
 	}
 	err := r.db.GetContext(ctx, &row, `SELECT r.id,r.machine_id,r.native_session_id,r.status::text AS status,r.summary,r.changed_files,
  v.status::text AS validation,v.exit_code,v.command_source,v.commands,v.command_results,v.command_argv,
  CASE WHEN p.status='succeeded' THEN r.pull_request_url END AS pull_request,
  r.session_continued_at IS NOT NULL AS continued,
- COALESCE(r.result->>'no_final_message','')='true' AS no_final_message,r.notebook_problem
+ COALESCE(r.result->>'no_final_message','')='true' AS no_final_message,r.notebook_problem,r.failure_rule
  FROM dev_machine_agent_runs r
  LEFT JOIN dev_machine_agent_run_steps v ON v.agent_run_id=r.id AND v.sequence=0 AND v.step_type='validation'
  LEFT JOIN dev_machine_agent_run_steps p ON p.agent_run_id=r.id AND p.sequence=1 AND p.step_type='publication'
@@ -50,6 +51,9 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 	handoff := &domain.AgentHandoff{AttemptID: row.ID, MachineID: row.MachineID, Status: row.Status, ValidationExitCode: row.ExitCode, ContinuedInteractively: row.Continued, NoFinalMessage: row.NoFinal}
 	if row.Notebook != nil && domain.IsNotebookNotUpdated(*row.Notebook) {
 		handoff.NotebookProblem = *row.Notebook
+	}
+	if row.FailureRule != nil {
+		handoff.FailureRule = *row.FailureRule
 	}
 	if row.Session != nil {
 		handoff.NativeSessionID = *row.Session
