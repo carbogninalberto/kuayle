@@ -15,6 +15,7 @@ const (
 	WebhookEventIssueDeleted   = "issue.deleted"
 	WebhookEventIssueTriaged   = "issue.triaged"
 	WebhookEventCommentCreated = "comment.created"
+	WebhookEventCommentUpdated = "comment.updated"
 )
 
 // WebhookEvents lists every event name that is delivered, in display order.
@@ -24,7 +25,11 @@ var WebhookEvents = []string{
 	WebhookEventIssueDeleted,
 	WebhookEventIssueTriaged,
 	WebhookEventCommentCreated,
+	WebhookEventCommentUpdated,
 }
+
+// webhookCommentEvents are the events whose payload is a comment.
+var webhookCommentEvents = []string{WebhookEventCommentCreated, WebhookEventCommentUpdated}
 
 // webhookEmitter is what write paths call after a change is committed. It
 // never blocks on delivery and never returns an error: a failed delivery must
@@ -43,4 +48,7 @@ type webhookEmitter interface {
 	IssueEvents(ctx context.Context, workspaceID uuid.UUID, event string, issues []domain.Issue, actorID uuid.UUID)
 	// CommentCreated sends comment.created for a comment on issue.
 	CommentCreated(ctx context.Context, workspaceID uuid.UUID, issue *domain.Issue, comment *domain.Comment, actorID uuid.UUID)
+	// CommentEvent sends comment.created or comment.updated for a comment
+	// on issue, with the comment as stored after the change.
+	CommentEvent(ctx context.Context, workspaceID uuid.UUID, event string, issue *domain.Issue, comment *domain.Comment, actorID uuid.UUID)
 }

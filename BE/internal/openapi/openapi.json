@@ -401,7 +401,8 @@
 				"properties": {
 					"event": {
 						"enum": [
-							"comment.created"
+							"comment.created",
+							"comment.updated"
 						],
 						"type": "string"
 					},
@@ -940,7 +941,8 @@
 								"issue.updated",
 								"issue.deleted",
 								"issue.triaged",
-								"comment.created"
+								"comment.created",
+								"comment.updated"
 							],
 							"type": "string"
 						},
@@ -2911,6 +2913,74 @@
 				],
 				"type": "object"
 			},
+			"WebhookDelivery": {
+				"properties": {
+					"attempts": {
+						"type": "integer"
+					},
+					"completed_at": {
+						"format": "date-time",
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"created_at": {
+						"format": "date-time",
+						"type": "string"
+					},
+					"event": {
+						"type": "string"
+					},
+					"id": {
+						"type": "string"
+					},
+					"last_error": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"last_status_code": {
+						"type": [
+							"integer",
+							"null"
+						]
+					},
+					"next_attempt_at": {
+						"format": "date-time",
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"status": {
+						"enum": [
+							"pending",
+							"delivered",
+							"failed"
+						],
+						"type": "string"
+					},
+					"updated_at": {
+						"format": "date-time",
+						"type": "string"
+					}
+				},
+				"required": [
+					"id",
+					"event",
+					"status",
+					"attempts",
+					"last_status_code",
+					"last_error",
+					"next_attempt_at",
+					"created_at",
+					"updated_at",
+					"completed_at"
+				],
+				"type": "object"
+			},
 			"WebhookIssue": {
 				"properties": {
 					"assignee_id": {
@@ -3788,7 +3858,7 @@
 		}
 	},
 	"info": {
-		"description": "The public HTTP API of Kuayle, the open-source issue tracker. It covers issues, comments, teams, statuses, cycles, projects, labels, views, wikis, members and webhooks, for use with personal access tokens.\n\n## Authentication\n\nEvery request is authenticated with a personal access token. Create one in the app under Settings, API Tokens: choose its scopes, optionally limit it to some workspaces and give it an expiry date. The token is shown once and stored only as a hash.\n\nSend the token in the Authorization header as \"Bearer kuayle_pat_...\". Use HTTPS; a token grants access until it expires or is revoked.\n\nA token acts as the user who created it and never has more access than that user. Creating, listing and revoking tokens needs a signed-in browser session and is not possible with a token.\n\n```sh\ncurl -H \"Authorization: Bearer $KUAYLE_TOKEN\" \\\n  https://kuayle.example.com/api/workspaces\n```\n\n## Token scopes\n\nEach operation names the scope it needs. A request passes when the token has that scope and the user's workspace role grants the same permission: scopes are a ceiling on the role, not an addition to it. Guests, for example, only read, whatever scopes their token carries.\n\nA request without the needed scope or permission gets 403 FORBIDDEN. Private teams stay invisible to non-members: their issues, projects, cycles and wiki pages answer 404 or are left out of lists.\n\nScopes used by this reference:\n\n- account:read\n- comments:read\n- cycle:manage\n- cycles:read\n- issue:create\n- issue:delete_own\n- issue:update\n- issues:read\n- label:manage\n- labels:read\n- member:invite\n- members:read\n- project:manage\n- projects:read\n- team:manage\n- teams:read\n- view:manage\n- views:read\n- wiki:read\n- wiki:write\n- workspace:manage\n- workspaces:read\n\n## Pagination\n\nThe issue list is paginated with the page and per_page query parameters (per_page defaults to 50 and should not exceed 100). The response wraps the items in data and adds total_count, page, per_page and has_more; request the next page while has_more is true.\n\nThe wiki registry and its overviews use a cursor: pass the next_before value of one response as before in the next request, and stop when next_before is null.\n\nEvery other list returns all items the user can see in one JSON array.\n\n## Errors\n\nErrors use the HTTP status and one JSON shape: an error object with a machine-readable code, a message for people, and for validation errors a details array naming each field.\n\n- 400 BAD_REQUEST: malformed JSON, an invalid ID, or a rule the request breaks; the message says which\n- 400 VALIDATION_ERROR: one or more fields are invalid; see details\n- 401 UNAUTHORIZED: the token is missing, unknown, expired or revoked\n- 403 FORBIDDEN: the token's scopes, workspace limit or the user's role do not allow the request\n- 404 NOT_FOUND: the resource does not exist or the user cannot see it\n- 409 with a specific code such as CONFLICT or WIKI_VERSION_CONFLICT: the request conflicts with the current state\n- 429 RATE_LIMITED: too many requests; wait for the number of seconds in the Retry-After header\n- 500 INTERNAL_ERROR: the server failed; the request can be retried\n\n```json\n{\n  \"error\": {\n    \"code\": \"VALIDATION_ERROR\",\n    \"message\": \"Request validation failed\",\n    \"details\": [{ \"field\": \"Title\", \"message\": \"Title is required\" }]\n  }\n}\n```\n\n## Rate limits\n\nKuayle does not apply a request quota to authenticated API calls. Unauthenticated endpoints are limited per IP address: sign-in endpoints refill 5 requests per second with a burst of 10, and this document refills 10 per second with a burst of 20. A limited request gets 429 RATE_LIMITED with a Retry-After header.\n\nThe operator of an instance can add limits at the reverse proxy, so treat 429 as retryable everywhere: wait for Retry-After, then retry. Keep bulk jobs sequential or at low concurrency; the instance is shared with the people using the app.\n\n## Webhooks and signature verification\n\nA webhook is a URL of yours registered for a workspace with a secret and a list of event names. The URL must be reachable from the instance and must not be a private, loopback or link-local address. The secret is stored encrypted and never returned.\n\nA delivery is an HTTP POST with a JSON body holding event, payload and timestamp (RFC 3339, UTC). The X-Webhook-Event header repeats the event name. The X-Webhook-Signature header is \"sha256=\" followed by the hex HMAC-SHA256 of the raw request body, keyed with the webhook's secret.\n\nTo verify a delivery, compute the same HMAC over the bytes you received, before parsing them, and compare it with the header in constant time. Reject the request when they differ. Deliveries time out after 10 seconds and are not retried, so answer quickly and do slow work afterwards.\n\nDeliveries are sent after the change is saved: one per webhook subscribed to the event, and one per issue for bulk operations (bulk edits and deletes, unfinished issues moved to the next cycle). The issue in an issue event is the stored issue: its ids, identifier, title, description, status, priority, dates and timestamps, including started_at, completed_at, cancelled_at and triaged_at. actor_id is the user whose change caused the event, also for a follow-up Kuayle makes for them, such as closing a parent whose sub-issues are all done. It is null only for system automation: status transitions from forge and GitHub activity.\n\nDelivery is at most once. Each change waits once in a queue held in the instance's memory and is then sent to the subscribed webhooks one after another. A few workers serve the queue, each workspace has one change in flight at a time, in the order they were queued, and each workspace may hold at most 256 waiting changes and 2 MiB of payloads, so a busy workspace or a slow receiver does not crowd out other workspaces. A delivery is dropped, not retried, when its workspace's share or the whole queue is full (for example during a very large bulk edit), when it waited five minutes, or when the instance restarts or is updated before sending it.\n\nA webhook whose deliveries fail three times in a row (a network error, the 10-second timeout or a status other than 2xx) is paused for five minutes: its deliveries in that time are dropped while the workspace's other webhooks keep receiving theirs. The next delivery after the pause is attempted; a success resumes the webhook and a failure pauses it again. Do not rely on order or completeness: compare payload.issue.updated_at (the envelope timestamp has one-second resolution), or fetch the issue again for its current state.\n\nWebhooks are workspace-level and have no user, so they never deliver content of private teams: a workspace that has, or ever had, a private team does not deliver webhooks at all, and a queued delivery is checked again when it is sent. Changes the database makes by itself send no event: deleting a parent detaches its sub-issues, deleting a project or cycle clears it from its issues, deleting a team deletes its issues and renaming a team key changes identifiers. A workspace import sends none either. Kuayle delivers these events:\n\n- issue.created: An issue was created, including sub-issues and duplicates. A workspace import does not send it.\n- issue.updated: An issue changed: a field, its status, assignees, labels, project, parent or cycle, including bulk edits, unfinished issues moved to the next cycle and automation. A bulk operation sends one delivery per issue. Changes the database makes by itself, such as clearing a deleted project, cycle or parent, send none.\n- issue.deleted: An issue was deleted. The payload holds the issue as it was when it was deleted. A bulk delete sends one delivery per issue; issues deleted with their team send none.\n- issue.triaged: An issue was accepted or declined from triage. Declining also moves it to cancelled: that is part of this event, not a separate issue.updated.\n- comment.created: A comment was posted on an issue. The payload holds the comment and the issue's id, identifier and team_id.\n\n```js\nimport { createHmac, timingSafeEqual } from 'node:crypto';\n\n// rawBody: the request body bytes exactly as received, before any JSON parsing.\nexport function isFromKuayle(rawBody, signatureHeader, secret) {\n  const expected = 'sha256=' + createHmac('sha256', secret).update(rawBody).digest('hex');\n  const received = Buffer.from(signatureHeader ?? '');\n  return received.length === expected.length && timingSafeEqual(received, Buffer.from(expected));\n}\n```\n\n## Stability and versions\n\nThis document lists the stable operations. Its version is the Kuayle release it was built from, and each instance serves the document for its own release at /api/openapi.json. Changes to a stable operation ship with a release and are listed in its notes.\n\nRoutes of the app that are not listed here are internal: they serve the web app, the dev machines or integration setup, may change in any release, and most reject tokens.\n",
+		"description": "The public HTTP API of Kuayle, the open-source issue tracker. It covers issues, comments, teams, statuses, cycles, projects, labels, views, wikis, members and webhooks, for use with personal access tokens.\n\n## Authentication\n\nEvery request is authenticated with a personal access token. Create one in the app under Settings, API Tokens: choose its scopes, optionally limit it to some workspaces and give it an expiry date. The token is shown once and stored only as a hash.\n\nSend the token in the Authorization header as \"Bearer kuayle_pat_...\". Use HTTPS; a token grants access until it expires or is revoked.\n\nA token acts as the user who created it and never has more access than that user. Creating, listing and revoking tokens needs a signed-in browser session and is not possible with a token.\n\n```sh\ncurl -H \"Authorization: Bearer $KUAYLE_TOKEN\" \\\n  https://kuayle.example.com/api/workspaces\n```\n\n## Token scopes\n\nEach operation names the scope it needs. A request passes when the token has that scope and the user's workspace role grants the same permission: scopes are a ceiling on the role, not an addition to it. Guests, for example, only read, whatever scopes their token carries.\n\nA request without the needed scope or permission gets 403 FORBIDDEN. Private teams stay invisible to non-members: their issues, projects, cycles and wiki pages answer 404 or are left out of lists.\n\nScopes used by this reference:\n\n- account:read\n- comments:read\n- cycle:manage\n- cycles:read\n- issue:create\n- issue:delete_own\n- issue:update\n- issues:read\n- label:manage\n- labels:read\n- member:invite\n- members:read\n- project:manage\n- projects:read\n- team:manage\n- teams:read\n- view:manage\n- views:read\n- wiki:read\n- wiki:write\n- workspace:manage\n- workspaces:read\n\n## Pagination\n\nThe issue list is paginated with the page and per_page query parameters (per_page defaults to 50 and should not exceed 100). The response wraps the items in data and adds total_count, page, per_page and has_more; request the next page while has_more is true.\n\nThe wiki registry and its overviews use a cursor: pass the next_before value of one response as before in the next request, and stop when next_before is null.\n\nEvery other list returns all items the user can see in one JSON array.\n\n## Errors\n\nErrors use the HTTP status and one JSON shape: an error object with a machine-readable code, a message for people, and for validation errors a details array naming each field.\n\n- 400 BAD_REQUEST: malformed JSON, an invalid ID, or a rule the request breaks; the message says which\n- 400 VALIDATION_ERROR: one or more fields are invalid; see details\n- 401 UNAUTHORIZED: the token is missing, unknown, expired or revoked\n- 403 FORBIDDEN: the token's scopes, workspace limit or the user's role do not allow the request\n- 404 NOT_FOUND: the resource does not exist or the user cannot see it\n- 409 with a specific code such as CONFLICT or WIKI_VERSION_CONFLICT: the request conflicts with the current state\n- 429 RATE_LIMITED: too many requests; wait for the number of seconds in the Retry-After header\n- 500 INTERNAL_ERROR: the server failed; the request can be retried\n\n```json\n{\n  \"error\": {\n    \"code\": \"VALIDATION_ERROR\",\n    \"message\": \"Request validation failed\",\n    \"details\": [{ \"field\": \"Title\", \"message\": \"Title is required\" }]\n  }\n}\n```\n\n## Rate limits\n\nKuayle does not apply a request quota to authenticated API calls. Unauthenticated endpoints are limited per IP address: sign-in endpoints refill 5 requests per second with a burst of 10, and this document refills 10 per second with a burst of 20. A limited request gets 429 RATE_LIMITED with a Retry-After header.\n\nThe operator of an instance can add limits at the reverse proxy, so treat 429 as retryable everywhere: wait for Retry-After, then retry. Keep bulk jobs sequential or at low concurrency; the instance is shared with the people using the app.\n\n## Webhooks and signature verification\n\nA webhook is a URL of yours registered for a workspace with a secret and a list of event names. The URL must be reachable from the instance and must not be a private, loopback or link-local address. The secret is stored encrypted and never returned.\n\nA delivery is an HTTP POST with a JSON body holding event, payload and timestamp (RFC 3339, UTC). The X-Webhook-Event header repeats the event name. The X-Webhook-Signature header is \"sha256=\" followed by the hex HMAC-SHA256 of the raw request body, keyed with the webhook's secret. The X-Webhook-Delivery header is the delivery's id, the same in every attempt.\n\nTo verify a delivery, compute the same HMAC over the bytes you received, before parsing them, and compare it with the header in constant time. Reject the request when they differ. Deliveries time out after 10 seconds, so answer with a 2xx status quickly and do slow work afterwards.\n\nDeliveries are sent after the change is saved: one per webhook subscribed to the event, and one per issue for bulk operations (bulk edits and deletes, unfinished issues moved to the next cycle). The issue in an issue event is the stored issue: its ids, identifier, title, description, status, priority, dates and timestamps, including started_at, completed_at, cancelled_at and triaged_at. actor_id is the user whose change caused the event, also for a follow-up Kuayle makes for them, such as closing a parent whose sub-issues are all done. It is null only for system automation: status transitions from forge and GitHub activity.\n\nDelivery is at least once. Each change is stored when it is saved, one delivery per webhook, and survives restarts and updates of the instance; a delivery interrupted by a restart is sent again. A timeout, a network error or a status other than 2xx fails the attempt, and the delivery is retried with the same body, signature and X-Webhook-Delivery after 30 seconds, 2 minutes, 10 minutes, 30 minutes and 2 hours. After the sixth failed attempt, or once it has waited a day, it is given up. Use X-Webhook-Delivery to ignore a delivery you already handled. Each workspace has one delivery in flight at a time, workspaces take turns, and each workspace may hold at most 1024 pending deliveries and 8 MiB of payloads, and each webhook 256 deliveries, so a busy workspace or a dead receiver does not crowd out others; a delivery beyond these bounds is dropped. The webhook's delivery log (GET .../webhooks/{id}/deliveries) shows recent deliveries with their status, attempts, last status and error, and next attempt.\n\nA webhook whose deliveries fail three times in a row is paused for five minutes: its deliveries wait while the workspace's other webhooks keep receiving theirs. After the pause the earliest due delivery is attempted; a success resumes the webhook and a failure pauses it again. A first attempt goes out in the order the changes were saved, but a retry arrives after later deliveries: do not rely on order. Compare payload.issue.updated_at (the envelope timestamp has one-second resolution), or fetch the issue again for its current state.\n\nWebhooks are workspace-level and have no user, so they never deliver content of private teams: a workspace that has, or ever had, a private team does not deliver webhooks at all, creating or enabling a webhook there is refused with 403 PRIVATE_WORKSPACE_OPERATION_DISABLED, and a stored delivery is checked again when it is sent. Changes the database makes by itself send no event: deleting a parent detaches its sub-issues, deleting a project or cycle clears it from its issues, deleting a team deletes its issues and renaming a team key changes identifiers. A workspace import sends none either. Kuayle delivers these events:\n\n- issue.created: An issue was created, including sub-issues and duplicates. A workspace import does not send it.\n- issue.updated: An issue changed: a field, its status, assignees, labels, project, parent or cycle, including bulk edits, unfinished issues moved to the next cycle and automation. A bulk operation sends one delivery per issue. Changes the database makes by itself, such as clearing a deleted project, cycle or parent, send none.\n- issue.deleted: An issue was deleted. The payload holds the issue as it was when it was deleted. A bulk delete sends one delivery per issue; issues deleted with their team send none.\n- issue.triaged: An issue was accepted or declined from triage. Declining also moves it to cancelled: that is part of this event, not a separate issue.updated.\n- comment.created: A comment was posted on an issue. The payload holds the comment and the issue's id, identifier and team_id.\n- comment.updated: A comment was resolved or reopened. The payload is that of comment.created, with the comment as stored after the change. Resolving a resolved comment or reopening an open one sends nothing. Comments cannot be edited or deleted yet; events for that come with those features.\n\n```js\nimport { createHmac, timingSafeEqual } from 'node:crypto';\n\n// rawBody: the request body bytes exactly as received, before any JSON parsing.\nexport function isFromKuayle(rawBody, signatureHeader, secret) {\n  const expected = 'sha256=' + createHmac('sha256', secret).update(rawBody).digest('hex');\n  const received = Buffer.from(signatureHeader ?? '');\n  return received.length === expected.length && timingSafeEqual(received, Buffer.from(expected));\n}\n```\n\n## Stability and versions\n\nThis document lists the stable operations. Its version is the Kuayle release it was built from, and each instance serves the document for its own release at /api/openapi.json. Changes to a stable operation ship with a release and are listed in its notes.\n\nRoutes of the app that are not listed here are internal: they serve the web app, the dev machines or integration setup, may change in any release, and most reject tokens.\n",
 		"license": {
 			"identifier": "Apache-2.0",
 			"name": "Apache 2.0"
@@ -12233,7 +12303,7 @@
 				"x-kuayle-stability": "stable"
 			},
 			"post": {
-				"description": "The URL must be public: private, loopback and link-local addresses are rejected. The secret is stored encrypted and signs every delivery.\n\nRequired scope: `workspace:manage`.",
+				"description": "The URL must be public: private, loopback and link-local addresses are rejected. The secret is stored encrypted and signs every delivery. A workspace that has or had a private team delivers no webhooks: there it answers 403 PRIVATE_WORKSPACE_OPERATION_DISABLED.\n\nRequired scope: `workspace:manage`.",
 				"operationId": "createWebhook",
 				"parameters": [
 					{
@@ -12369,7 +12439,7 @@
 				"x-kuayle-stability": "stable"
 			},
 			"patch": {
-				"description": "Fields left out are unchanged. events, when sent, must list at least one event, and a changed list may name only issue.created, issue.updated, issue.deleted, issue.triaged and comment.created. The webhook's stored list sent back unchanged is accepted even when it names an event Kuayle no longer delivers.\n\nRequired scope: `workspace:manage`.",
+				"description": "Fields left out are unchanged. events, when sent, must list at least one event, and a changed list may name only issue.created, issue.updated, issue.deleted, issue.triaged, comment.created and comment.updated. The webhook's stored list sent back unchanged is accepted even when it names an event Kuayle no longer delivers. Enabling an inactive webhook is refused the same way as creating one; disabling, editing and deleting still work. A workspace that has or had a private team delivers no webhooks: there it answers 403 PRIVATE_WORKSPACE_OPERATION_DISABLED.\n\nRequired scope: `workspace:manage`.",
 				"operationId": "updateWebhook",
 				"parameters": [
 					{
@@ -12437,6 +12507,78 @@
 					}
 				],
 				"summary": "Update a webhook",
+				"tags": [
+					"Webhooks"
+				],
+				"x-kuayle-scopes": [
+					"workspace:manage"
+				],
+				"x-kuayle-stability": "stable"
+			}
+		},
+		"/api/workspaces/{slug}/webhooks/{id}/deliveries": {
+			"get": {
+				"description": "The 50 most recent deliveries, newest first: pending, delivered or failed, with the attempts made, the last HTTP status and error code, and the next attempt of a pending one. Finished deliveries are kept for seven days. Payloads and the URL are not returned.\n\nRequired scope: `workspace:manage`.",
+				"operationId": "listWebhookDeliveries",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Resource ID.",
+						"in": "path",
+						"name": "id",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"items": {
+										"$ref": "#/components/schemas/WebhookDelivery"
+									},
+									"type": "array"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"workspace:manage"
+						]
+					}
+				],
+				"summary": "List a webhook's recent deliveries",
 				"tags": [
 					"Webhooks"
 				],
@@ -12699,6 +12841,16 @@
 							],
 							"type": "string"
 						}
+					},
+					{
+						"description": "The delivery's id, the same in every attempt: use it to ignore a delivery you already handled.",
+						"in": "header",
+						"name": "X-Webhook-Delivery",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
 					}
 				],
 				"requestBody": {
@@ -12713,11 +12865,74 @@
 				},
 				"responses": {
 					"2XX": {
-						"description": "Any response ends the delivery; it is not retried."
+						"description": "The delivery is done."
+					},
+					"default": {
+						"description": "Any other status, a timeout or a network error fails the attempt; it is retried later with the same body and delivery id."
 					}
 				},
 				"security": [],
 				"summary": "The comment.created delivery sent to your URL"
+			}
+		},
+		"comment.updated": {
+			"post": {
+				"description": "A comment was resolved or reopened. The payload is that of comment.created, with the comment as stored after the change. Resolving a resolved comment or reopening an open one sends nothing. Comments cannot be edited or deleted yet; events for that come with those features. See Webhooks and signature verification.",
+				"operationId": "receiveCommentUpdated",
+				"parameters": [
+					{
+						"description": "\"sha256=\" followed by the hex HMAC-SHA256 of the raw body, keyed with the webhook's secret.",
+						"in": "header",
+						"name": "X-Webhook-Signature",
+						"required": true,
+						"schema": {
+							"pattern": "^sha256=[0-9a-f]{64}$",
+							"type": "string"
+						}
+					},
+					{
+						"description": "The event name, as in the body.",
+						"in": "header",
+						"name": "X-Webhook-Event",
+						"required": true,
+						"schema": {
+							"enum": [
+								"comment.updated"
+							],
+							"type": "string"
+						}
+					},
+					{
+						"description": "The delivery's id, the same in every attempt: use it to ignore a delivery you already handled.",
+						"in": "header",
+						"name": "X-Webhook-Delivery",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CommentEventDelivery"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"2XX": {
+						"description": "The delivery is done."
+					},
+					"default": {
+						"description": "Any other status, a timeout or a network error fails the attempt; it is retried later with the same body and delivery id."
+					}
+				},
+				"security": [],
+				"summary": "The comment.updated delivery sent to your URL"
 			}
 		},
 		"issue.created": {
@@ -12746,6 +12961,16 @@
 							],
 							"type": "string"
 						}
+					},
+					{
+						"description": "The delivery's id, the same in every attempt: use it to ignore a delivery you already handled.",
+						"in": "header",
+						"name": "X-Webhook-Delivery",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
 					}
 				],
 				"requestBody": {
@@ -12760,7 +12985,10 @@
 				},
 				"responses": {
 					"2XX": {
-						"description": "Any response ends the delivery; it is not retried."
+						"description": "The delivery is done."
+					},
+					"default": {
+						"description": "Any other status, a timeout or a network error fails the attempt; it is retried later with the same body and delivery id."
 					}
 				},
 				"security": [],
@@ -12793,6 +13021,16 @@
 							],
 							"type": "string"
 						}
+					},
+					{
+						"description": "The delivery's id, the same in every attempt: use it to ignore a delivery you already handled.",
+						"in": "header",
+						"name": "X-Webhook-Delivery",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
 					}
 				],
 				"requestBody": {
@@ -12807,7 +13045,10 @@
 				},
 				"responses": {
 					"2XX": {
-						"description": "Any response ends the delivery; it is not retried."
+						"description": "The delivery is done."
+					},
+					"default": {
+						"description": "Any other status, a timeout or a network error fails the attempt; it is retried later with the same body and delivery id."
 					}
 				},
 				"security": [],
@@ -12840,6 +13081,16 @@
 							],
 							"type": "string"
 						}
+					},
+					{
+						"description": "The delivery's id, the same in every attempt: use it to ignore a delivery you already handled.",
+						"in": "header",
+						"name": "X-Webhook-Delivery",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
 					}
 				],
 				"requestBody": {
@@ -12854,7 +13105,10 @@
 				},
 				"responses": {
 					"2XX": {
-						"description": "Any response ends the delivery; it is not retried."
+						"description": "The delivery is done."
+					},
+					"default": {
+						"description": "Any other status, a timeout or a network error fails the attempt; it is retried later with the same body and delivery id."
 					}
 				},
 				"security": [],
@@ -12887,6 +13141,16 @@
 							],
 							"type": "string"
 						}
+					},
+					{
+						"description": "The delivery's id, the same in every attempt: use it to ignore a delivery you already handled.",
+						"in": "header",
+						"name": "X-Webhook-Delivery",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
 					}
 				],
 				"requestBody": {
@@ -12901,7 +13165,10 @@
 				},
 				"responses": {
 					"2XX": {
-						"description": "Any response ends the delivery; it is not retried."
+						"description": "The delivery is done."
+					},
+					"default": {
+						"description": "Any other status, a timeout or a network error fails the attempt; it is retried later with the same body and delivery id."
 					}
 				},
 				"security": [],
@@ -12999,19 +13266,20 @@
 			"title": "Webhooks and signature verification",
 			"paragraphs": [
 				"A webhook is a URL of yours registered for a workspace with a secret and a list of event names. The URL must be reachable from the instance and must not be a private, loopback or link-local address. The secret is stored encrypted and never returned.",
-				"A delivery is an HTTP POST with a JSON body holding event, payload and timestamp (RFC 3339, UTC). The X-Webhook-Event header repeats the event name. The X-Webhook-Signature header is \"sha256=\" followed by the hex HMAC-SHA256 of the raw request body, keyed with the webhook's secret.",
-				"To verify a delivery, compute the same HMAC over the bytes you received, before parsing them, and compare it with the header in constant time. Reject the request when they differ. Deliveries time out after 10 seconds and are not retried, so answer quickly and do slow work afterwards.",
+				"A delivery is an HTTP POST with a JSON body holding event, payload and timestamp (RFC 3339, UTC). The X-Webhook-Event header repeats the event name. The X-Webhook-Signature header is \"sha256=\" followed by the hex HMAC-SHA256 of the raw request body, keyed with the webhook's secret. The X-Webhook-Delivery header is the delivery's id, the same in every attempt.",
+				"To verify a delivery, compute the same HMAC over the bytes you received, before parsing them, and compare it with the header in constant time. Reject the request when they differ. Deliveries time out after 10 seconds, so answer with a 2xx status quickly and do slow work afterwards.",
 				"Deliveries are sent after the change is saved: one per webhook subscribed to the event, and one per issue for bulk operations (bulk edits and deletes, unfinished issues moved to the next cycle). The issue in an issue event is the stored issue: its ids, identifier, title, description, status, priority, dates and timestamps, including started_at, completed_at, cancelled_at and triaged_at. actor_id is the user whose change caused the event, also for a follow-up Kuayle makes for them, such as closing a parent whose sub-issues are all done. It is null only for system automation: status transitions from forge and GitHub activity.",
-				"Delivery is at most once. Each change waits once in a queue held in the instance's memory and is then sent to the subscribed webhooks one after another. A few workers serve the queue, each workspace has one change in flight at a time, in the order they were queued, and each workspace may hold at most 256 waiting changes and 2 MiB of payloads, so a busy workspace or a slow receiver does not crowd out other workspaces. A delivery is dropped, not retried, when its workspace's share or the whole queue is full (for example during a very large bulk edit), when it waited five minutes, or when the instance restarts or is updated before sending it.",
-				"A webhook whose deliveries fail three times in a row (a network error, the 10-second timeout or a status other than 2xx) is paused for five minutes: its deliveries in that time are dropped while the workspace's other webhooks keep receiving theirs. The next delivery after the pause is attempted; a success resumes the webhook and a failure pauses it again. Do not rely on order or completeness: compare payload.issue.updated_at (the envelope timestamp has one-second resolution), or fetch the issue again for its current state.",
-				"Webhooks are workspace-level and have no user, so they never deliver content of private teams: a workspace that has, or ever had, a private team does not deliver webhooks at all, and a queued delivery is checked again when it is sent. Changes the database makes by itself send no event: deleting a parent detaches its sub-issues, deleting a project or cycle clears it from its issues, deleting a team deletes its issues and renaming a team key changes identifiers. A workspace import sends none either. Kuayle delivers these events:"
+				"Delivery is at least once. Each change is stored when it is saved, one delivery per webhook, and survives restarts and updates of the instance; a delivery interrupted by a restart is sent again. A timeout, a network error or a status other than 2xx fails the attempt, and the delivery is retried with the same body, signature and X-Webhook-Delivery after 30 seconds, 2 minutes, 10 minutes, 30 minutes and 2 hours. After the sixth failed attempt, or once it has waited a day, it is given up. Use X-Webhook-Delivery to ignore a delivery you already handled. Each workspace has one delivery in flight at a time, workspaces take turns, and each workspace may hold at most 1024 pending deliveries and 8 MiB of payloads, and each webhook 256 deliveries, so a busy workspace or a dead receiver does not crowd out others; a delivery beyond these bounds is dropped. The webhook's delivery log (GET .../webhooks/{id}/deliveries) shows recent deliveries with their status, attempts, last status and error, and next attempt.",
+				"A webhook whose deliveries fail three times in a row is paused for five minutes: its deliveries wait while the workspace's other webhooks keep receiving theirs. After the pause the earliest due delivery is attempted; a success resumes the webhook and a failure pauses it again. A first attempt goes out in the order the changes were saved, but a retry arrives after later deliveries: do not rely on order. Compare payload.issue.updated_at (the envelope timestamp has one-second resolution), or fetch the issue again for its current state.",
+				"Webhooks are workspace-level and have no user, so they never deliver content of private teams: a workspace that has, or ever had, a private team does not deliver webhooks at all, creating or enabling a webhook there is refused with 403 PRIVATE_WORKSPACE_OPERATION_DISABLED, and a stored delivery is checked again when it is sent. Changes the database makes by itself send no event: deleting a parent detaches its sub-issues, deleting a project or cycle clears it from its issues, deleting a team deletes its issues and renaming a team key changes identifiers. A workspace import sends none either. Kuayle delivers these events:"
 			],
 			"list": [
 				"issue.created: An issue was created, including sub-issues and duplicates. A workspace import does not send it.",
 				"issue.updated: An issue changed: a field, its status, assignees, labels, project, parent or cycle, including bulk edits, unfinished issues moved to the next cycle and automation. A bulk operation sends one delivery per issue. Changes the database makes by itself, such as clearing a deleted project, cycle or parent, send none.",
 				"issue.deleted: An issue was deleted. The payload holds the issue as it was when it was deleted. A bulk delete sends one delivery per issue; issues deleted with their team send none.",
 				"issue.triaged: An issue was accepted or declined from triage. Declining also moves it to cancelled: that is part of this event, not a separate issue.updated.",
-				"comment.created: A comment was posted on an issue. The payload holds the comment and the issue's id, identifier and team_id."
+				"comment.created: A comment was posted on an issue. The payload holds the comment and the issue's id, identifier and team_id.",
+				"comment.updated: A comment was resolved or reopened. The payload is that of comment.created, with the comment as stored after the change. Resolving a resolved comment or reopening an open one sends nothing. Comments cannot be edited or deleted yet; events for that come with those features."
 			],
 			"code": {
 				"language": "js",

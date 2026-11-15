@@ -524,6 +524,7 @@ authentication.
 | POST | `/api/workspaces/:slug/webhooks` | token | workspace:manage |
 | DELETE | `/api/workspaces/:slug/webhooks/:id` | token | workspace:manage |
 | PATCH | `/api/workspaces/:slug/webhooks/:id` | token | workspace:manage |
+| GET | `/api/workspaces/:slug/webhooks/:id/deliveries` | token | workspace:manage |
 | GET | `/api/workspaces/:slug/wiki/references` | token | wiki:read |
 | POST | `/api/workspaces/:slug/wiki/references/resolve` | token | wiki:read |
 | PUT | `/api/workspaces/:slug/workflow-defaults` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |

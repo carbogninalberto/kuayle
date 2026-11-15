@@ -381,6 +381,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodGet, "/webhooks", h.webhook.List, "workspace:manage")
 	scoped(ws, http.MethodPost, "/webhooks", h.webhook.Create, "workspace:manage")
 	scoped(ws, http.MethodPatch, "/webhooks/:id", h.webhook.Update, "workspace:manage")
+	scoped(ws, http.MethodGet, "/webhooks/:id/deliveries", h.webhook.ListDeliveries, "workspace:manage")
 	scoped(ws, http.MethodDelete, "/webhooks/:id", h.webhook.Delete, "workspace:manage")
 
 	// AI settings

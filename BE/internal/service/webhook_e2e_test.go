@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -55,7 +56,7 @@ func TestWebhookIssueAndCommentWritesReachReceiverEndToEnd(t *testing.T) {
 	f := newWebhookFixture(t)
 	ws, owner, team := f.workspace()
 	const secret = "end-to-end-receiver-secret"
-	f.receiver(ws, "receiver", secret, true, WebhookEventIssueCreated, WebhookEventIssueUpdated, WebhookEventCommentCreated)
+	f.receiver(ws, "receiver", secret, true, WebhookEventIssueCreated, WebhookEventIssueUpdated, WebhookEventCommentCreated, WebhookEventCommentUpdated)
 	status := uuid.New()
 	_, err := f.db.Exec(`INSERT INTO team_statuses(id,team_id,name,slug,category) VALUES($1,$2,'Todo','todo','unstarted')`, status, team)
 	require.NoError(t, err)
@@ -117,6 +118,27 @@ func TestWebhookIssueAndCommentWritesReachReceiverEndToEnd(t *testing.T) {
 	require.Contains(t, commentPayload.Comment.Body, "Receiver verified")
 	require.NotNil(t, commentPayload.ActorID)
 	require.Equal(t, owner, *commentPayload.ActorID)
+	f.none()
+
+	// KUA-196: resolving the comment is an edit, sent as comment.updated.
+	resolved, err := duringRequest(member, func(ctx context.Context) (*domain.Comment, error) {
+		return comments.Resolve(ctx, comment.ID, owner)
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resolved.ResolvedAt)
+	var updatedComment struct {
+		Comment struct {
+			ID         uuid.UUID  `json:"id"`
+			ResolvedAt *time.Time `json:"resolved_at"`
+		} `json:"comment"`
+		Issue   dto.WebhookIssueRef `json:"issue"`
+		ActorID *uuid.UUID          `json:"actor_id"`
+	}
+	require.NoError(t, json.Unmarshal(signedPayload(t, f.next(), WebhookEventCommentUpdated, secret), &updatedComment))
+	require.Equal(t, comment.ID, updatedComment.Comment.ID)
+	require.NotNil(t, updatedComment.Comment.ResolvedAt)
+	require.Equal(t, created.Identifier, updatedComment.Issue.Identifier)
+	require.Equal(t, owner, *updatedComment.ActorID)
 	f.none()
 
 	// A private team anywhere in the workspace stops all deliveries.

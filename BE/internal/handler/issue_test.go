@@ -329,12 +329,12 @@ func (r *testCommentRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.Comm
 	return nil, nil
 }
 
-func (r *testCommentRepo) Resolve(_ context.Context, id uuid.UUID) error {
-	return nil
+func (r *testCommentRepo) Resolve(_ context.Context, id uuid.UUID) (*domain.Comment, error) {
+	return nil, nil
 }
 
-func (r *testCommentRepo) Reopen(_ context.Context, id uuid.UUID) error {
-	return nil
+func (r *testCommentRepo) Reopen(_ context.Context, id uuid.UUID) (*domain.Comment, error) {
+	return nil, nil
 }
 
 type testNotifRepo struct{}

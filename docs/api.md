@@ -75,16 +75,22 @@ writes real data, so point it at a development instance.
 ## Known limits
 
 - Webhooks deliver `issue.created`, `issue.updated`, `issue.deleted`,
-  `issue.triaged` and `comment.created` at most once: a delivery is not
-  retried, and is dropped when its workspace's share of the in-memory queue
-  (256 changes, 2 MiB) or the whole queue is full, when it waited five
-  minutes, or when the instance restarts first. A webhook that fails three
-  times in a row is paused for five minutes and its deliveries in that time
-  are dropped. Webhooks are disabled for workspaces that have or had a private
-  team. Other changes (projects, cycles, wiki pages), changes the database
-  makes by itself (clearing a deleted parent, project or cycle, deleting a
-  team's issues, rewriting identifiers after a team key rename) and workspace
-  import do not emit events.
+  `issue.triaged`, `comment.created` and `comment.updated` (resolving or
+  reopening a comment) at least once. Each change is stored in the database,
+  one delivery per webhook, and survives restarts; a failure is retried after
+  30 s, 2 min, 10 min, 30 min and 2 h, then given up. A delivery that waited a
+  day, or that does not fit its workspace's share (1024 pending deliveries,
+  8 MiB), its webhook's (256) or the whole store's, is dropped. A webhook that
+  fails three times in a row is paused for five minutes; its deliveries wait.
+  Receivers should deduplicate on `X-Webhook-Delivery` and not rely on order.
+  `GET /webhooks/:id/deliveries` and Settings → Webhooks show recent
+  deliveries. Comments cannot be edited or deleted yet; events for comment
+  edits and deletes come with those features. Webhooks are off for workspaces
+  that have or had a private team: creating or enabling one there answers 403
+  `PRIVATE_WORKSPACE_OPERATION_DISABLED`. Other changes (projects, cycles, wiki
+  pages), changes the database makes by itself (clearing a deleted parent,
+  project or cycle, deleting a team's issues, rewriting identifiers after a
+  team key rename) and workspace import do not emit events.
 - `per_page` above 100 on the issue list is outside the documented contract but
   is not rejected by the server today.
 - Authenticated routes have no application-level rate limit.

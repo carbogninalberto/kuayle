@@ -26,6 +26,7 @@ type receivedDelivery struct {
 	receiver  string
 	event     string
 	signature string
+	delivery  string // X-Webhook-Delivery
 	body      []byte
 }
 
@@ -45,10 +46,20 @@ func newWebhookFixture(t *testing.T) *webhookFixture {
 	db, err := sqlx.Connect("pgx", url)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	svc := NewWebhookService(repository.NewWebhookRepository(db), webhookTestJWTSecret)
-	t.Cleanup(svc.Close)
+	f := &webhookFixture{t: t, db: db, received: make(chan receivedDelivery, 32)}
+	f.svc = f.instance()
+	return f
+}
+
+// instance is another WebhookService on the same database, as a second
+// backend instance would run it.
+func (f *webhookFixture) instance() *WebhookService {
+	f.t.Helper()
+	svc := NewWebhookService(repository.NewWebhookRepository(f.db), webhookTestJWTSecret)
+	f.t.Cleanup(svc.Close)
 	svc.client = newWebhookClient(true) // loopback receivers
-	return &webhookFixture{t: t, db: db, svc: svc, received: make(chan receivedDelivery, 32)}
+	svc.pollInterval = 20 * time.Millisecond
+	return svc
 }
 
 // workspace creates a workspace owned by a new user with one public team.
@@ -73,7 +84,8 @@ func (f *webhookFixture) receiver(ws uuid.UUID, name, secret string, active bool
 	f.t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		f.received <- receivedDelivery{receiver: name, event: r.Header.Get("X-Webhook-Event"), signature: r.Header.Get("X-Webhook-Signature"), body: body}
+		f.received <- receivedDelivery{receiver: name, event: r.Header.Get("X-Webhook-Event"), signature: r.Header.Get("X-Webhook-Signature"),
+			delivery: r.Header.Get("X-Webhook-Delivery"), body: body}
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	f.t.Cleanup(server.Close)
@@ -203,12 +215,12 @@ func TestWebhookPrivacyWorkspaceReceivesNothing(t *testing.T) {
 	f.svc.IssueEvent(ctx, ws, WebhookEventIssueCreated, issue, owner)
 	f.svc.CommentCreated(ctx, ws, issue, &domain.Comment{ID: uuid.New(), IssueID: issue.ID, Body: "secret"}, owner)
 	f.svc.IssueEvent(context.Background(), ws, WebhookEventIssueDeleted, issue, uuid.Nil)
+	f.svc.CommentEvent(ctx, ws, WebhookEventCommentUpdated, issue, &domain.Comment{ID: uuid.New(), IssueID: issue.ID, Body: "secret"}, owner)
 	f.none()
 
-	require.Zero(t, f.svc.queue.dropped.Load(), "the precheck queued nothing")
-	f.svc.queue.mu.Lock()
-	require.Zero(t, f.svc.queue.jobs)
-	f.svc.queue.mu.Unlock()
+	var stored int
+	require.NoError(t, f.db.Get(&stored, `SELECT count(*) FROM webhook_deliveries WHERE workspace_id=$1`, ws))
+	require.Zero(t, stored, "the precheck stores nothing")
 }
 
 func TestWebhookIgnoresUnknownAndMisroutedEvents(t *testing.T) {
@@ -219,10 +231,16 @@ func TestWebhookIgnoresUnknownAndMisroutedEvents(t *testing.T) {
 	issue := &domain.Issue{ID: uuid.New(), TeamID: team, Identifier: "ENG-1"}
 	f.svc.IssueEvent(ctx, ws, "cycle.completed", issue, owner)
 	f.svc.IssueEvent(ctx, ws, WebhookEventCommentCreated, issue, owner)
+	f.svc.IssueEvent(ctx, ws, WebhookEventCommentUpdated, issue, owner)
 	f.svc.IssueEvent(ctx, ws, WebhookEventIssueCreated, nil, owner)
+	f.svc.CommentEvent(ctx, ws, WebhookEventIssueCreated, issue, &domain.Comment{ID: uuid.New()}, owner)
+	f.svc.CommentEvent(ctx, ws, "comment.resolved", issue, &domain.Comment{ID: uuid.New()}, owner)
+	f.svc.CommentEvent(ctx, ws, WebhookEventCommentUpdated, issue, nil, owner)
+	f.svc.CommentEvent(ctx, ws, "comment.deleted", issue, &domain.Comment{ID: uuid.New()}, owner)
 	var nilService *WebhookService
 	nilService.IssueEvent(ctx, ws, WebhookEventIssueCreated, issue, owner)
 	nilService.CommentCreated(ctx, ws, issue, &domain.Comment{}, owner)
+	nilService.CommentEvent(ctx, ws, WebhookEventCommentUpdated, issue, &domain.Comment{}, owner)
 	f.none()
 }
 
@@ -246,7 +264,7 @@ func TestWebhookManagementIsScopedAndValidatesEvents(t *testing.T) {
 
 	_, err = f.svc.Create(inA, wsA, dto.CreateWebhookRequest{URL: "https://example.com/hook", Secret: "long-enough", Events: []string{"issue.created", "project.updated"}})
 	require.ErrorContains(t, err, `unknown webhook event "project.updated"`)
-	require.ErrorContains(t, err, "issue.created, issue.updated, issue.deleted, issue.triaged, comment.created")
+	require.ErrorContains(t, err, "issue.created, issue.updated, issue.deleted, issue.triaged, comment.created, comment.updated")
 	_, err = f.svc.Update(inA, legacy, dto.UpdateWebhookRequest{Events: []string{"cycle.completed"}})
 	require.ErrorContains(t, err, "unknown webhook event")
 
@@ -261,4 +279,82 @@ func TestWebhookManagementIsScopedAndValidatesEvents(t *testing.T) {
 	require.Equal(t, []string{"project.updated"}, []string(updated.Events))
 	_, err = f.svc.Update(inA, legacy, dto.UpdateWebhookRequest{Events: []string{"project.updated", WebhookEventIssueCreated}})
 	require.ErrorContains(t, err, `unknown webhook event "project.updated"`)
+}
+
+// KUA-196: comment.updated carries the same payload as comment.created: the
+// comment, its issue's id, identifier and team, and the actor.
+func TestWebhookCommentUpdatedPayload(t *testing.T) {
+	f := newWebhookFixture(t)
+	ws, owner, team := f.workspace()
+	f.receiver(ws, "hook", "hook-secret", true, WebhookEventCommentUpdated)
+
+	issue := &domain.Issue{ID: uuid.New(), WorkspaceID: ws, TeamID: team, Identifier: "ENG-3", Title: "Not sent"}
+	resolved := time.Date(2026, 11, 15, 9, 0, 0, 0, time.UTC)
+	comment := &domain.Comment{ID: uuid.New(), IssueID: issue.ID, UserID: owner, Body: "Looks good", ResolvedAt: &resolved}
+	ctx := domain.WithAccess(context.Background(), domain.Access{UserID: owner, WorkspaceID: ws})
+	f.svc.CommentEvent(ctx, ws, WebhookEventCommentUpdated, issue, comment, owner)
+
+	got := f.next()
+	require.Equal(t, WebhookEventCommentUpdated, got.event)
+	var envelope deliveryEnvelope
+	require.NoError(t, json.Unmarshal(got.body, &envelope))
+	require.Equal(t, WebhookEventCommentUpdated, envelope.Event)
+	var payload struct {
+		Comment domain.Comment `json:"comment"`
+		Issue   map[string]any `json:"issue"`
+		ActorID *uuid.UUID     `json:"actor_id"`
+	}
+	require.NoError(t, json.Unmarshal(envelope.Payload, &payload))
+	require.Equal(t, comment.ID, payload.Comment.ID)
+	require.Equal(t, "Looks good", payload.Comment.Body)
+	require.NotNil(t, payload.Comment.ResolvedAt)
+	require.Equal(t, map[string]any{"id": issue.ID.String(), "identifier": "ENG-3", "team_id": team.String()}, payload.Issue)
+	require.Equal(t, &owner, payload.ActorID)
+	f.none()
+}
+
+// KUA-198: a workspace that has or had a private team delivers no webhooks,
+// so creating or enabling one is refused there; disabling, editing and
+// deleting still work.
+func TestWebhookCreateAndEnableAreRefusedInAPrivateWorkspace(t *testing.T) {
+	f := newWebhookFixture(t)
+	ws, owner, team := f.workspace()
+	inactive := f.receiver(ws, "inactive", "inactive-secret", false, WebhookEventIssueCreated)
+	active := f.receiver(ws, "active", "active-secret", true, WebhookEventIssueCreated)
+	_, err := f.db.Exec(`UPDATE teams SET is_private=TRUE WHERE id=$1`, team)
+	require.NoError(t, err)
+	ctx := domain.WithAccess(context.Background(), domain.Access{UserID: owner, WorkspaceID: ws})
+
+	_, err = f.svc.Create(ctx, ws, dto.CreateWebhookRequest{URL: "https://example.com/hook", Secret: "long-enough", Events: []string{WebhookEventIssueCreated}})
+	require.ErrorIs(t, err, repository.ErrPrivateWorkspaceOperation)
+	var count int
+	require.NoError(t, f.db.Get(&count, `SELECT count(*) FROM webhooks WHERE workspace_id=$1`, ws))
+	require.Equal(t, 2, count, "nothing was created")
+
+	enable := true
+	_, err = f.svc.Update(ctx, inactive, dto.UpdateWebhookRequest{IsActive: &enable})
+	require.ErrorIs(t, err, repository.ErrPrivateWorkspaceOperation)
+	var isActive bool
+	require.NoError(t, f.db.Get(&isActive, `SELECT is_active FROM webhooks WHERE id=$1`, inactive))
+	require.False(t, isActive)
+
+	_, err = f.svc.Update(ctx, inactive, dto.UpdateWebhookRequest{Events: []string{WebhookEventCommentCreated}})
+	require.NoError(t, err, "an inactive webhook can still be edited")
+	_, err = f.svc.Update(ctx, active, dto.UpdateWebhookRequest{IsActive: &enable})
+	require.NoError(t, err, "resending the active state is not enabling")
+	disable := false
+	updated, err := f.svc.Update(ctx, active, dto.UpdateWebhookRequest{IsActive: &disable})
+	require.NoError(t, err, "a webhook can be disabled")
+	require.False(t, updated.IsActive)
+	require.NoError(t, f.svc.Delete(ctx, active))
+
+	// A workspace without private teams is unchanged.
+	public, publicOwner, _ := f.workspace()
+	inPublic := domain.WithAccess(context.Background(), domain.Access{UserID: publicOwner, WorkspaceID: public})
+	created, err := f.svc.Create(inPublic, public, dto.CreateWebhookRequest{URL: "https://example.com/hook", Secret: "long-enough", Events: []string{WebhookEventIssueCreated}})
+	require.NoError(t, err)
+	_, err = f.svc.Update(inPublic, created.ID, dto.UpdateWebhookRequest{IsActive: &disable})
+	require.NoError(t, err)
+	_, err = f.svc.Update(inPublic, created.ID, dto.UpdateWebhookRequest{IsActive: &enable})
+	require.NoError(t, err)
 }

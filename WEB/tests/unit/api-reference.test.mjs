@@ -73,7 +73,7 @@ test('the guide covers auth, scopes, pagination, errors, rate limits and webhook
 	assert.equal(reference.webhook.eventHeader, 'X-Webhook-Event');
 	assert.deepEqual(
 		reference.webhook.events.map((event) => event.name),
-		['comment.created', 'issue.created', 'issue.deleted', 'issue.triaged', 'issue.updated']
+		['comment.created', 'comment.updated', 'issue.created', 'issue.deleted', 'issue.triaged', 'issue.updated']
 	);
 	assert.ok(reference.webhook.events.every((event) => event.body.some((part) => part.ref)));
 	assert.match(reference.guide.find((section) => section.id === 'webhooks').code.text, /timingSafeEqual/);

@@ -326,7 +326,8 @@ from a fresh transaction. The API orders visibility/import locks before its firs
 Access functions recheck current membership after lock waits under READ COMMITTED
 isolation. The backend pins every database session to READ COMMITTED, even when the
 database or role default is stricter; imports request SERIALIZABLE explicitly. At most
-eight AI/webhook publications run at once, so slow providers cannot exhaust the pool. New migrations adding
+eight AI publications and four webhook deliveries per backend run at once, so slow providers
+and receivers cannot exhaust the pool. New migrations adding
 application tables must install the statement guard before introducing new write paths.
 
 For a real browser regression, start an isolated migrated backend on port 8080 and

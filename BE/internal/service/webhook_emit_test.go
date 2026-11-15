@@ -58,6 +58,13 @@ func (r *webhookRecorder) CommentCreated(_ context.Context, ws uuid.UUID, issue 
 	r.sent = append(r.sent, emittedWebhook{workspace: ws, event: WebhookEventCommentCreated, issue: *issue, comment: &c, actor: actor})
 }
 
+func (r *webhookRecorder) CommentEvent(_ context.Context, ws uuid.UUID, event string, issue *domain.Issue, comment *domain.Comment, actor uuid.UUID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c := *comment
+	r.sent = append(r.sent, emittedWebhook{workspace: ws, event: event, issue: *issue, comment: &c, actor: actor})
+}
+
 func (r *webhookRecorder) events() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -593,6 +600,95 @@ func (r *webhookCommentRepo) Create(_ context.Context, comment *domain.Comment) 
 	}
 	r.stored = append(r.stored, *comment)
 	return nil
+}
+
+func (r *webhookCommentRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.Comment, error) {
+	for _, comment := range r.stored {
+		if comment.ID == id {
+			return &comment, nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
+
+// setResolved changes the stored comment's resolution like the database: it
+// returns the comment only when its state changed.
+func (r *webhookCommentRepo) setResolved(id uuid.UUID, resolved bool) (*domain.Comment, error) {
+	if r.failure != nil {
+		return nil, r.failure
+	}
+	for i := range r.stored {
+		if r.stored[i].ID != id || (r.stored[i].ResolvedAt != nil) == resolved {
+			continue
+		}
+		if resolved {
+			now := time.Now().UTC()
+			r.stored[i].ResolvedAt = &now
+		} else {
+			r.stored[i].ResolvedAt = nil
+		}
+		comment := r.stored[i]
+		return &comment, nil
+	}
+	return nil, nil
+}
+
+func (r *webhookCommentRepo) Resolve(_ context.Context, id uuid.UUID) (*domain.Comment, error) {
+	return r.setResolved(id, true)
+}
+
+func (r *webhookCommentRepo) Reopen(_ context.Context, id uuid.UUID) (*domain.Comment, error) {
+	return r.setResolved(id, false)
+}
+
+// KUA-196: resolving and reopening are the edits a comment has; each change
+// sends comment.updated with the stored comment, and a request that changes
+// nothing sends nothing.
+func TestCommentWebhooksResolveAndReopenSendCommentUpdated(t *testing.T) {
+	f := newIssueWebhookFixture(t)
+	issue := f.issue("ENG-1", nil)
+	comment := domain.Comment{ID: uuid.New(), IssueID: issue.ID, UserID: f.actor, Body: "<p>Fix it</p>"}
+	comments := &webhookCommentRepo{stored: []domain.Comment{comment}}
+	svc := NewCommentService(comments, f.issues, realtime.NewHub(), newTestNotifSvc())
+	sent := &webhookRecorder{}
+	svc.SetWebhooks(sent)
+	reviewer := uuid.New()
+
+	resolved, err := svc.Resolve(context.Background(), comment.ID, reviewer)
+	require.NoError(t, err)
+	require.NotNil(t, resolved.ResolvedAt)
+	require.Equal(t, []string{WebhookEventCommentUpdated}, sent.events())
+	got := sent.sent[0]
+	require.Equal(t, f.ws, got.workspace)
+	require.Equal(t, "ENG-1", got.issue.Identifier)
+	require.Equal(t, comment.ID, got.comment.ID)
+	require.NotNil(t, got.comment.ResolvedAt, "the stored comment, resolved")
+	require.Equal(t, reviewer, got.actor)
+
+	again, err := svc.Resolve(context.Background(), comment.ID, reviewer)
+	require.NoError(t, err)
+	require.Equal(t, resolved.ResolvedAt, again.ResolvedAt, "resolving again keeps the first resolution")
+	require.Len(t, sent.sent, 1, "resolving a resolved comment changes nothing")
+
+	reopened, err := svc.Reopen(context.Background(), comment.ID, f.actor)
+	require.NoError(t, err)
+	require.Nil(t, reopened.ResolvedAt)
+	require.Equal(t, []string{WebhookEventCommentUpdated, WebhookEventCommentUpdated}, sent.events())
+	require.Nil(t, sent.sent[1].comment.ResolvedAt)
+	require.Equal(t, f.actor, sent.sent[1].actor)
+	_, err = svc.Reopen(context.Background(), comment.ID, f.actor)
+	require.NoError(t, err)
+	require.Len(t, sent.sent, 2, "reopening an open comment changes nothing")
+
+	comments.failure = errors.New("refused")
+	_, err = svc.Resolve(context.Background(), comment.ID, reviewer)
+	require.Error(t, err)
+	require.Len(t, sent.sent, 2, "a failed write is not announced")
+
+	comments.failure = nil
+	unwired := NewCommentService(comments, f.issues, realtime.NewHub(), newTestNotifSvc())
+	_, err = unwired.Resolve(context.Background(), comment.ID, reviewer)
+	require.NoError(t, err)
 }
 
 func TestCommentWebhooksCreatedCommentIsSentWithItsIssue(t *testing.T) {

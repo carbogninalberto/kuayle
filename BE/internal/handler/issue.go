@@ -550,12 +550,10 @@ func (h *IssueHandler) ResolveComment(c *echo.Context) error {
 		return response.NotFound(c, "Comment")
 	}
 
-	if err := h.commentSvc.Resolve(c.Request().Context(), commentID); err != nil {
+	comment, err = h.commentSvc.Resolve(c.Request().Context(), commentID, middleware.GetUserID(c))
+	if err != nil || comment == nil {
 		return response.InternalError(c)
 	}
-
-	// Re-fetch to get updated resolved_at
-	comment, _ = h.commentSvc.GetByID(c.Request().Context(), commentID)
 	cr := h.toCommentResponse(c.Request().Context(), *comment)
 	return response.Success(c, http.StatusOK, cr)
 }
@@ -571,12 +569,10 @@ func (h *IssueHandler) ReopenComment(c *echo.Context) error {
 		return response.NotFound(c, "Comment")
 	}
 
-	if err := h.commentSvc.Reopen(c.Request().Context(), commentID); err != nil {
+	comment, err = h.commentSvc.Reopen(c.Request().Context(), commentID, middleware.GetUserID(c))
+	if err != nil || comment == nil {
 		return response.InternalError(c)
 	}
-
-	// Re-fetch to get updated state
-	comment, _ = h.commentSvc.GetByID(c.Request().Context(), commentID)
 	cr := h.toCommentResponse(c.Request().Context(), *comment)
 	return response.Success(c, http.StatusOK, cr)
 }
