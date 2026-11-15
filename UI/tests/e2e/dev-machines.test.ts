@@ -150,7 +150,7 @@ test('lists the tasks on a machine and handles actions without applying stale po
 			}
 			return route.fulfill({ json: response });
 		}
-		if (path === `/api/workspaces/test/dev-machines/${machineId}/environment-status` && request.method() === 'GET') {
+		if ([machineId, secondMachineId].some((id) => path === `/api/workspaces/test/dev-machines/${id}/environment-status`) && request.method() === 'GET') {
 			return route.fulfill({ json: environmentStatus });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/services`) {
