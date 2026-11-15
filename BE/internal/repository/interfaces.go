@@ -176,8 +176,10 @@ type CommentRepo interface {
 	ListByIssue(ctx context.Context, issueID uuid.UUID) ([]domain.Comment, error)
 	ListReplies(ctx context.Context, parentID uuid.UUID) ([]domain.Comment, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Comment, error)
-	Resolve(ctx context.Context, id uuid.UUID) error
-	Reopen(ctx context.Context, id uuid.UUID) error
+	// Resolve and Reopen return the changed comment, or nil when its
+	// resolution was already as asked or it is not visible.
+	Resolve(ctx context.Context, id uuid.UUID) (*domain.Comment, error)
+	Reopen(ctx context.Context, id uuid.UUID) (*domain.Comment, error)
 }
 
 type ProjectRepo interface {

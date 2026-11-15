@@ -532,6 +532,12 @@ func main() {
 	go automationSvc.Run(conversationCtx)
 	go agentAssigneeSvc.Run(conversationCtx)
 	go githubSvc.RunMergeReconciliation(conversationCtx, 2*time.Minute)
+	// Workspace webhook deliveries are stored: workers send the ones left
+	// pending before a restart, and finished ones leave the log after a week.
+	// On shutdown an in-flight delivery is aborted and stays pending.
+	webhookSvc.Start()
+	defer webhookSvc.Close()
+	go webhookSvc.RunCleanup(conversationCtx, time.Hour)
 	// Replay markers of GitHub webhook deliveries expire after a few days.
 	go githubSvc.RunWebhookDeliveryCleanup(conversationCtx, time.Hour)
 	go forgeSvc.RunWebhookDeliveryCleanup(conversationCtx, time.Hour)

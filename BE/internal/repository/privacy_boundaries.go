@@ -75,16 +75,25 @@ func beginPublicWorkspaceOperation(ctx context.Context, db *sqlx.DB, workspaceID
 	if err != nil {
 		return nil, err
 	}
-	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text,63))`, workspaceID); err != nil {
+	if err = lockPublicWorkspace(ctx, tx, workspaceID); err != nil {
 		_ = tx.Rollback()
-		return nil, err
-	}
-	if err = requireVisible(ctx, tx, workspaceVisible(ctx, uuidSQL(workspaceID))+" AND "+publicMetadataAllowed(uuidSQL(workspaceID))); err != nil {
-		_ = tx.Rollback()
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrPrivateWorkspaceOperation
-		}
 		return nil, err
 	}
 	return tx, nil
+}
+
+// lockPublicWorkspace takes the shared publication barrier in tx, held until
+// tx ends, and returns ErrPrivateWorkspaceOperation when the workspace is not
+// visible or has or had a private team.
+func lockPublicWorkspace(ctx context.Context, tx *sqlx.Tx, workspaceID uuid.UUID) error {
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text,63))`, workspaceID); err != nil {
+		return err
+	}
+	if err := requireVisible(ctx, tx, workspaceVisible(ctx, uuidSQL(workspaceID))+" AND "+publicMetadataAllowed(uuidSQL(workspaceID))); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPrivateWorkspaceOperation
+		}
+		return err
+	}
+	return nil
 }

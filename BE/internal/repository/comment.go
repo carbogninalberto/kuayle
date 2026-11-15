@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -42,12 +44,26 @@ func (r *CommentRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 	return &comment, nil
 }
 
-func (r *CommentRepository) Resolve(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE comments SET resolved_at = NOW() WHERE id = $1 AND `+issueVisible(ctx, "comments.issue_id"), id)
-	return err
+// Resolve marks an open comment resolved and returns it, or returns nil when
+// it was already resolved or is not visible.
+func (r *CommentRepository) Resolve(ctx context.Context, id uuid.UUID) (*domain.Comment, error) {
+	return r.setResolution(ctx, `UPDATE comments SET resolved_at = NOW() WHERE id = $1 AND resolved_at IS NULL AND `+issueVisible(ctx, "comments.issue_id")+` RETURNING *`, id)
 }
 
-func (r *CommentRepository) Reopen(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE comments SET resolved_at = NULL WHERE id = $1 AND `+issueVisible(ctx, "comments.issue_id"), id)
-	return err
+// Reopen clears a resolved comment's resolution and returns it, or returns nil
+// when it was open or is not visible.
+func (r *CommentRepository) Reopen(ctx context.Context, id uuid.UUID) (*domain.Comment, error) {
+	return r.setResolution(ctx, `UPDATE comments SET resolved_at = NULL WHERE id = $1 AND resolved_at IS NOT NULL AND `+issueVisible(ctx, "comments.issue_id")+` RETURNING *`, id)
+}
+
+func (r *CommentRepository) setResolution(ctx context.Context, query string, id uuid.UUID) (*domain.Comment, error) {
+	var comment domain.Comment
+	err := r.db.GetContext(ctx, &comment, query, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &comment, nil
 }

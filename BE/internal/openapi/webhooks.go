@@ -14,9 +14,9 @@ type IssueEventDelivery struct {
 	Timestamp string                  `json:"timestamp"`
 }
 
-// CommentEventDelivery documents the body of a comment.created delivery.
+// CommentEventDelivery documents the body of a comment.* delivery.
 type CommentEventDelivery struct {
-	Event     string                    `json:"event" validate:"oneof=comment.created"`
+	Event     string                    `json:"event" validate:"oneof=comment.created comment.updated"`
 	Payload   dto.WebhookCommentPayload `json:"payload"`
 	Timestamp string                    `json:"timestamp"`
 }
@@ -36,6 +36,7 @@ var WebhookEvents = []WebhookEvent{
 	{"issue.deleted", "An issue was deleted. The payload holds the issue as it was when it was deleted. A bulk delete sends one delivery per issue; issues deleted with their team send none.", reflect.TypeFor[IssueEventDelivery]()},
 	{"issue.triaged", "An issue was accepted or declined from triage. Declining also moves it to cancelled: that is part of this event, not a separate issue.updated.", reflect.TypeFor[IssueEventDelivery]()},
 	{"comment.created", "A comment was posted on an issue. The payload holds the comment and the issue's id, identifier and team_id.", reflect.TypeFor[CommentEventDelivery]()},
+	{"comment.updated", "A comment was resolved or reopened. The payload is that of comment.created, with the comment as stored after the change. Resolving a resolved comment or reopening an open one sends nothing. Comments cannot be edited or deleted yet; events for that come with those features.", reflect.TypeFor[CommentEventDelivery]()},
 }
 
 func webhookEventNames() []string {
@@ -58,9 +59,14 @@ func webhookDocs(schemas *schemas) object {
 				{"name": SignatureHeader, "in": "header", "required": true, "schema": object{"type": "string", "pattern": "^sha256=[0-9a-f]{64}$"},
 					"description": "\"sha256=\" followed by the hex HMAC-SHA256 of the raw body, keyed with the webhook's secret."},
 				{"name": EventHeader, "in": "header", "required": true, "schema": object{"type": "string", "enum": []string{event.Name}}, "description": "The event name, as in the body."},
+				{"name": DeliveryHeader, "in": "header", "required": true, "schema": object{"type": "string", "format": "uuid"},
+					"description": "The delivery's id, the same in every attempt: use it to ignore a delivery you already handled."},
 			},
 			"requestBody": object{"required": true, "content": object{"application/json": object{"schema": schemas.of(event.body, response)}}},
-			"responses":   object{"2XX": object{"description": "Any response ends the delivery; it is not retried."}},
+			"responses": object{
+				"2XX":     object{"description": "The delivery is done."},
+				"default": object{"description": "Any other status, a timeout or a network error fails the attempt; it is retried later with the same body and delivery id."},
+			},
 		}}
 	}
 	return out

@@ -105,12 +105,6 @@ func (h *hungReceiver) noArrival(t *testing.T, window time.Duration) {
 	}
 }
 
-func testQueueState(q *webhookQueue) (queued int, scheduled int) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	return q.jobs, len(q.scheduled)
-}
-
 // logEntriesWithMessage returns the captured log entries with this message.
 func logEntriesWithMessage(hook *logtest.Hook, message string) []*logrus.Entry {
 	var entries []*logrus.Entry
@@ -120,96 +114,6 @@ func logEntriesWithMessage(hook *logtest.Hook, message string) []*logrus.Entry {
 		}
 	}
 	return entries
-}
-
-func TestWebhookQueueTakesWorkspacesInTurnsAndBoundsBacklog(t *testing.T) {
-	wsA, wsB, wsC := uuid.New(), uuid.New(), uuid.New()
-	q := newWebhookQueue(webhookLimits{jobs: 4, bytes: 1 << 20, workspaceJobs: 2, workspaceBytes: 1 << 20})
-	job := func(ws uuid.UUID, marker byte) webhookJob {
-		return webhookJob{workspaceID: ws, body: []byte{marker}}
-	}
-	take := func() webhookJob {
-		t.Helper()
-		got, ok := q.take()
-		require.True(t, ok)
-		return got
-	}
-
-	require.True(t, q.enqueue(job(wsA, 'a')), "A1")
-	require.True(t, q.enqueue(job(wsA, 'b')), "A2")
-	require.False(t, q.enqueue(job(wsA, 'c')), "A3: the workspace backlog is full")
-	require.True(t, q.enqueue(job(wsB, 'd')), "B1")
-	require.True(t, q.enqueue(job(wsC, 'e')), "C1")
-	require.False(t, q.enqueue(job(wsC, 'f')), "C2: the queue is full")
-
-	require.Equal(t, job(wsA, 'a').body, take().body, "A first")
-	require.Equal(t, job(wsB, 'd').body, take().body, "then B takes a turn")
-	require.Equal(t, job(wsC, 'e').body, take().body, "then C takes a turn")
-	q.mu.Lock()
-	require.Zero(t, len(q.ready), "A is in flight, so its remaining job is not offered")
-	q.mu.Unlock()
-
-	q.done(wsA)
-	require.Equal(t, job(wsA, 'b').body, take().body, "A continues once its delivery finished")
-	q.done(wsB)
-	q.done(wsC)
-	q.done(wsA)
-
-	queued, scheduled := testQueueState(q)
-	require.Zero(t, queued)
-	require.Zero(t, scheduled)
-	require.Equal(t, int64(2), q.dropped.Load(), "A3 and C2")
-
-	tiny := newWebhookQueue(webhookLimits{jobs: 4, bytes: 10, workspaceJobs: 2, workspaceBytes: 10})
-	require.False(t, tiny.enqueue(webhookJob{workspaceID: wsA, body: []byte("0123456789x")}), "body bytes are bounded")
-	require.Equal(t, int64(1), tiny.dropped.Load())
-}
-
-func TestWebhookQueueOneWorkspaceCannotCrowdOutAnother(t *testing.T) {
-	small := []byte("{}") // 2 bytes
-
-	fill := func(t *testing.T, q *webhookQueue, ws uuid.UUID, body []byte) (jobs int, bytes int) {
-		t.Helper()
-		for q.enqueue(webhookJob{workspaceID: ws, body: body}) {
-			jobs++
-			bytes += len(body)
-			require.Less(t, jobs, 1<<16, "enqueue must refuse a full workspace")
-		}
-		return jobs, bytes
-	}
-
-	t.Run("job bound", func(t *testing.T) {
-		q := newWebhookQueue(defaultWebhookLimits)
-		for range 4 {
-			jobs, _ := fill(t, q, uuid.New(), small)
-			require.Equal(t, webhookWorkspaceJobs, jobs, "each workspace fills its own share")
-		}
-		require.True(t, q.enqueue(webhookJob{workspaceID: uuid.New(), body: small}),
-			"four full workspaces leave a fifth with room")
-	})
-
-	t.Run("byte bound", func(t *testing.T) {
-		q := newWebhookQueue(defaultWebhookLimits)
-		large := make([]byte, 128<<10)
-		jobs, bytes := fill(t, q, uuid.New(), large)
-		require.Equal(t, webhookWorkspaceBytes/len(large), jobs)
-		require.LessOrEqual(t, bytes, webhookWorkspaceBytes)
-		require.True(t, q.enqueue(webhookJob{workspaceID: uuid.New(), body: small}),
-			"a workspace at its byte bound leaves another with room")
-	})
-
-	t.Run("body counted once", func(t *testing.T) {
-		q := newWebhookQueue(defaultWebhookLimits)
-		ws := uuid.New()
-		hooks := make([]domain.Webhook, 3)
-		for i := range hooks {
-			hooks[i] = domain.Webhook{ID: uuid.New()}
-		}
-		require.True(t, q.enqueue(webhookJob{workspaceID: ws, hooks: hooks, body: make([]byte, webhookWorkspaceBytes)}),
-			"three hooks share one body")
-		require.False(t, q.enqueue(webhookJob{workspaceID: ws, body: []byte("x")}),
-			"one more byte exceeds the workspace byte bound")
-	})
 }
 
 func TestWebhookHungReceiverLeavesPublicationSlotsAndOtherWorkspaces(t *testing.T) {
@@ -271,7 +175,7 @@ func TestWebhookDeliveriesNeverExceedTheWorkerCount(t *testing.T) {
 
 func TestWebhookFullQueueDropsWithoutBlocking(t *testing.T) {
 	f := newWebhookFixture(t)
-	f.svc.queue = newWebhookQueue(webhookLimits{jobs: webhookQueueJobs, bytes: webhookQueueBytes, workspaceJobs: 3, workspaceBytes: webhookQueueBytes})
+	f.svc.limits = webhookLimits{jobs: webhookQueueJobs, bytes: webhookQueueBytes, workspaceJobs: webhookWorkspaceJobs, workspaceBytes: webhookWorkspaceBytes, webhookJobs: 3}
 	f.svc.workers = 1
 	hung := newHungReceiver(t)
 	ws, owner, team := f.workspace()
@@ -287,22 +191,15 @@ func TestWebhookFullQueueDropsWithoutBlocking(t *testing.T) {
 	ctx := domain.WithAccess(context.Background(), domain.Access{UserID: owner, WorkspaceID: ws})
 	start := time.Now()
 	f.svc.IssueEvents(ctx, ws, WebhookEventIssueUpdated, issues, owner)
-	require.Less(t, time.Since(start), time.Second, "a full queue drops instead of waiting")
+	require.Less(t, time.Since(start), time.Second, "a full backlog drops instead of waiting")
 
 	hung.waitArrival(t)
+	require.Len(t, f.stored(ws), 3, "the webhook's share is stored")
 
-	dropped := f.svc.queue.dropped.Load()
-	require.GreaterOrEqual(t, dropped, int64(20-1-3), "the worker may already hold one job")
-	require.LessOrEqual(t, dropped, int64(17))
-
-	var full *logrus.Entry
-	for _, entry := range logHook.AllEntries() {
-		if entry.Message == "webhook deliveries dropped: the delivery queue is full" {
-			full = entry
-		}
-	}
-	require.NotNil(t, full, "dropping is logged")
-	formatted, err := full.String()
+	full := logEntriesWithMessage(logHook, "webhook deliveries dropped: the delivery queue is full")
+	require.Len(t, full, 1, "dropping is logged once per call")
+	require.Equal(t, 17, full[0].Data["dropped"])
+	formatted, err := full[0].String()
 	require.NoError(t, err)
 	require.NotContains(t, formatted, hung.server.URL, "the log names no receiver URL")
 }
@@ -350,6 +247,20 @@ func TestWebhookDeliveryErrorsDoNotLogTheReceiverURL(t *testing.T) {
 		require.NoError(t, err)
 		require.NotContains(t, formatted, "secret-token", "logged errors must not carry the receiver URL")
 	}
+	f.eventually(func() bool {
+		for _, row := range f.stored(ws) {
+			if row.LastError == nil {
+				return false
+			}
+		}
+		return true
+	}, "the attempts were not recorded")
+	codes := map[string]string{}
+	for _, row := range f.stored(ws) {
+		codes[*row.LastError] = row.Status
+	}
+	require.Equal(t, map[string]string{"connection_failed": "pending", "invalid_url": "failed"}, codes,
+		"a refused connection is retried, an unusable URL is not; the stored error is a code without the URL")
 }
 
 func TestWebhookProductionClientRefusesLoopbackReceiver(t *testing.T) {
@@ -391,7 +302,6 @@ func TestWebhookClientDoesNotFollowRedirects(t *testing.T) {
 
 func TestWebhookQueuedDeliveryRechecksPrivacyAtSend(t *testing.T) {
 	f := newWebhookFixture(t)
-	f.svc.queue = newWebhookQueue(defaultWebhookLimits)
 	f.svc.workers = 1
 
 	x, ownerX, teamX := f.workspace()
@@ -419,132 +329,61 @@ func TestWebhookQueuedDeliveryRechecksPrivacyAtSend(t *testing.T) {
 
 	hung.close()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		queued, scheduled := testQueueState(f.svc.queue)
-		if queued == 0 && scheduled == 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("deliveries did not drain: queued=%d scheduled=%d", queued, scheduled)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	f.none() // Y's queued delivery was skipped when its worker took it
+	f.eventually(func() bool {
+		rows := f.stored(y)
+		return len(rows) == 1 && rows[0].Status == "failed"
+	}, "Y's stored delivery was not given up")
+	require.Equal(t, "workspace_private", *f.stored(y)[0].LastError)
+	require.Equal(t, "delivered", f.stored(x)[0].Status)
+	f.none() // Y's stored delivery was skipped when its worker took it
 }
 
 func TestWebhookFullWorkspaceBacklogDoesNotDropAnotherWorkspace(t *testing.T) {
 	f := newWebhookFixture(t)
+	f.svc.limits = webhookLimits{jobs: webhookQueueJobs, bytes: webhookQueueBytes, workspaceJobs: 5, workspaceBytes: webhookWorkspaceBytes, webhookJobs: 5}
 
-	hungA, hungB := newHungReceiver(t), newHungReceiver(t)
+	hungA := newHungReceiver(t)
 	wsA, ownerA, teamA := f.workspace()
 	f.hook(wsA, hungA.server.URL, WebhookEventIssueUpdated)
-	wsB, ownerB, teamB := f.workspace()
-	f.hook(wsB, hungB.server.URL, WebhookEventIssueUpdated)
-
 	ctxA := domain.WithAccess(context.Background(), domain.Access{UserID: ownerA, WorkspaceID: wsA})
-	issuesA := make([]domain.Issue, 2*webhookWorkspaceJobs)
+	issuesA := make([]domain.Issue, 20)
 	for i := range issuesA {
 		issuesA[i] = domain.Issue{ID: uuid.New(), WorkspaceID: wsA, TeamID: teamA, Identifier: "ENG-A"}
 	}
 	f.svc.IssueEvents(ctxA, wsA, WebhookEventIssueUpdated, issuesA, ownerA)
-	afterA := f.svc.queue.dropped.Load()
-	require.GreaterOrEqual(t, afterA, int64(webhookWorkspaceJobs-1), "A hit its job bound")
-
-	// 64 KiB bodies fill B's byte share long before its job share.
-	ctxB := domain.WithAccess(context.Background(), domain.Access{UserID: ownerB, WorkspaceID: wsB})
-	description := strings.Repeat("b", 64<<10)
-	issuesB := make([]domain.Issue, 64)
-	for i := range issuesB {
-		issuesB[i] = domain.Issue{ID: uuid.New(), WorkspaceID: wsB, TeamID: teamB, Identifier: "ENG-B", Description: &description}
-	}
-	f.svc.IssueEvents(ctxB, wsB, WebhookEventIssueUpdated, issuesB, ownerB)
-	afterB := f.svc.queue.dropped.Load()
-	require.Greater(t, afterB, afterA, "B hit its byte bound")
-	f.svc.queue.mu.Lock()
-	var bytesB int
-	if backlog := f.svc.queue.backlog[wsB]; backlog != nil {
-		bytesB = backlog.bytes
-	}
-	f.svc.queue.mu.Unlock()
-	require.Greater(t, bytesB, 3*webhookWorkspaceBytes/4, "B's backlog sits near its byte bound")
-
+	require.Len(t, f.stored(wsA), 5, "A hit its bound")
 	hungA.waitArrival(t)
-	hungB.waitArrival(t)
 
 	wsC, ownerC, teamC := f.workspace()
 	f.receiver(wsC, "c", "c-secret", true, WebhookEventIssueUpdated)
-	before := f.svc.queue.dropped.Load()
 	ctxC := domain.WithAccess(context.Background(), domain.Access{UserID: ownerC, WorkspaceID: wsC})
 	f.svc.IssueEvent(ctxC, wsC, WebhookEventIssueUpdated, &domain.Issue{ID: uuid.New(), WorkspaceID: wsC, TeamID: teamC, Identifier: "ENG-C"}, ownerC)
 	require.Equal(t, "c", f.next().receiver, "a full backlog elsewhere does not starve C")
-	require.Equal(t, before, f.svc.queue.dropped.Load(), "C's delivery is not dropped")
+	require.Len(t, f.stored(wsC), 1, "C's delivery is not dropped")
 }
 
-func TestWebhookBreakerPausesAfterThreeFailuresAndRetriesAfterCooldown(t *testing.T) {
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	b := newWebhookBreaker()
-	b.now = func() time.Time { return now }
-	advance := func(d time.Duration) { now = now.Add(d) }
-	id := uuid.New()
-
-	require.False(t, b.record(id, false), "one failure does not pause")
-	require.False(t, b.record(id, false), "two failures do not pause")
-	allowed, skipped := b.allow(id, 1)
-	require.True(t, allowed)
-	require.Zero(t, skipped)
-
-	require.True(t, b.record(id, false), "the third consecutive failure pauses")
-
-	for range 5 {
-		allowed, skipped = b.allow(id, 1)
-		require.False(t, allowed)
-		require.Zero(t, skipped, "nothing to log while the pause is fresh")
+// Workspaces take turns: a workspace with a long backlog does not delay
+// another workspace's delivery until its backlog is sent.
+func TestWebhookWorkspacesTakeTurns(t *testing.T) {
+	f := newWebhookFixture(t)
+	f.svc.workers = 0
+	busy, busyOwner, busyTeam := f.workspace()
+	f.receiver(busy, "busy", "busy-secret", true, WebhookEventIssueUpdated)
+	for i := range 5 {
+		f.emit(busy, busyOwner, busyTeam, f.svc, "ENG-"+string(rune('1'+i)))
 	}
-	allowed, skipped = b.allow(id, 3)
-	require.False(t, allowed)
-	require.Zero(t, skipped)
+	quiet, quietOwner, quietTeam := f.workspace()
+	f.receiver(quiet, "quiet", "quiet-secret", true, WebhookEventIssueUpdated)
+	f.emit(quiet, quietOwner, quietTeam, f.svc, "ENG-9")
 
-	advance(webhookBreakerCooldown - time.Second)
-	allowed, skipped = b.allow(id, 0)
-	require.False(t, allowed, "still paused just before the cooldown ends")
-	require.Zero(t, skipped)
-
-	advance(time.Second)
-	allowed, skipped = b.allow(id, 1)
-	require.True(t, allowed, "half-open: one attempt is allowed")
-	require.Equal(t, 8, skipped, "the deliveries skipped while paused are reported once")
-	allowed, skipped = b.allow(id, 1)
-	require.True(t, allowed)
-	require.Zero(t, skipped)
-
-	require.True(t, b.record(id, false), "a failure while half-open pauses it again at once")
-	advance(webhookBreakerCooldown)
-	allowed, skipped = b.allow(id, 1)
-	require.True(t, allowed)
-	require.Zero(t, skipped)
-	require.False(t, b.record(id, true), "a success closes the circuit")
-	b.mu.Lock()
-	_, exists := b.circuits[id]
-	b.mu.Unlock()
-	require.False(t, exists, "a closed circuit is forgotten")
-
-	require.False(t, b.record(id, false), "two failures after a success do not pause")
-	require.False(t, b.record(id, false))
-	allowed, _ = b.allow(id, 1)
-	require.True(t, allowed)
-
-	// A circuit that failed long ago and never paused is swept.
-	stale := uuid.New()
-	b.mu.Lock()
-	b.circuits[stale] = &webhookCircuit{failures: 1, lastFailure: now.Add(-3 * webhookBreakerCooldown)}
-	b.mu.Unlock()
-	advance(3 * webhookBreakerCooldown)
-	b.record(uuid.New(), false)
-	b.mu.Lock()
-	_, exists = b.circuits[stale]
-	b.mu.Unlock()
-	require.False(t, exists, "the sweep forgets old circuits that are not paused")
+	worker := f.instance()
+	worker.workers = 1
+	worker.Start()
+	var order []string
+	for range 6 {
+		order = append(order, f.next().receiver)
+	}
+	require.Contains(t, order[:2], "quiet", "the quiet workspace takes its turn after at most one of the busy one's: %v", order)
 }
 
 func TestWebhookDeadReceiverIsPausedAndHealthyHookKeepsReceiving(t *testing.T) {
@@ -558,8 +397,6 @@ func TestWebhookDeadReceiverIsPausedAndHealthyHookKeepsReceiving(t *testing.T) {
 
 	f.svc.client = newWebhookClient(true)
 	f.svc.client.Timeout = 200 * time.Millisecond // a hung receiver is a timeout failure
-	fixed := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	f.svc.breaker.now = func() time.Time { return fixed }
 
 	logHook := logtest.NewGlobal()
 	defer logrus.StandardLogger().ReplaceHooks(make(logrus.LevelHooks))
@@ -588,6 +425,18 @@ func TestWebhookDeadReceiverIsPausedAndHealthyHookKeepsReceiving(t *testing.T) {
 	formatted, err := paused[0].String()
 	require.NoError(t, err)
 	require.NotContains(t, formatted, dead.server.URL, "the log names no receiver URL")
+
+	attempts := map[int]int{}
+	for _, row := range f.stored(ws) {
+		if row.WebhookID == deadHook {
+			require.Equal(t, "pending", row.Status, "the paused webhook's deliveries are kept")
+			attempts[row.Attempts]++
+		}
+	}
+	require.Equal(t, map[int]int{1: webhookBreakerFailures, 0: 10 - webhookBreakerFailures}, attempts)
+	var timeouts int
+	require.NoError(t, f.db.Get(&timeouts, `SELECT count(*) FROM webhook_deliveries WHERE webhook_id=$1 AND last_error='timeout'`, deadHook))
+	require.Equal(t, webhookBreakerFailures, timeouts)
 }
 
 func TestWebhookPausedReceiverRecoversAfterCooldown(t *testing.T) {
@@ -610,29 +459,13 @@ func TestWebhookPausedReceiverRecoversAfterCooldown(t *testing.T) {
 	f.backdateHook(flakyHook, time.Minute) // first in ListDeliverable's order
 	f.receiver(ws, "healthy", "healthy-secret", true, WebhookEventIssueUpdated)
 
-	var clockMu sync.Mutex
-	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	advance := func(d time.Duration) {
-		clockMu.Lock()
-		clock = clock.Add(d)
-		clockMu.Unlock()
-	}
-	f.svc.breaker.now = func() time.Time {
-		clockMu.Lock()
-		defer clockMu.Unlock()
-		return clock
-	}
-
-	logHook := logtest.NewGlobal()
-	defer logrus.StandardLogger().ReplaceHooks(make(logrus.LevelHooks))
-
 	ctx := domain.WithAccess(context.Background(), domain.Access{UserID: owner, WorkspaceID: ws})
 	emit := func() {
 		t.Helper()
 		issue := &domain.Issue{ID: uuid.New(), WorkspaceID: ws, TeamID: team, Identifier: "ENG-1"}
 		f.svc.IssueEvent(ctx, ws, WebhookEventIssueUpdated, issue, owner)
 		// The healthy hook comes after the flaky one, so its delivery means
-		// the flaky hook's attempt for this job has finished.
+		// the flaky hook's attempt for this change has finished.
 		require.Equal(t, "healthy", f.next().receiver)
 	}
 
@@ -645,18 +478,29 @@ func TestWebhookPausedReceiverRecoversAfterCooldown(t *testing.T) {
 	emit()
 	require.Equal(t, int64(webhookBreakerFailures), hits.Load(), "a paused hook is not attempted")
 
+	// The cooldown ends: the deliveries kept during the pause go first, in
+	// order, then the new one.
 	failing.Store(false)
-	advance(webhookBreakerCooldown + time.Second)
+	_, err := f.db.Exec(`UPDATE webhook_circuits SET paused_until=now()-interval '1 second' WHERE webhook_id=$1`, flakyHook)
+	require.NoError(t, err)
 	emit()
-	require.Equal(t, int64(webhookBreakerFailures+1), hits.Load(), "the half-open probe is sent and succeeds")
-
-	resumed := logEntriesWithMessage(logHook, "webhook deliveries dropped while the webhook was paused; trying it again")
-	require.Len(t, resumed, 1, "skipped deliveries are logged once")
-	require.Equal(t, 2, resumed[0].Data["dropped"])
-	require.Equal(t, flakyHook, resumed[0].Data["webhook_id"])
+	require.Equal(t, int64(webhookBreakerFailures+3), hits.Load(), "the kept deliveries and the new one are sent")
 
 	emit()
-	require.Equal(t, int64(webhookBreakerFailures+2), hits.Load(), "the closed circuit sends every delivery again")
+	require.Equal(t, int64(webhookBreakerFailures+4), hits.Load(), "the closed circuit sends every delivery again")
+	var flakyRows []storedDelivery
+	for _, row := range f.stored(ws) {
+		if row.WebhookID == flakyHook {
+			flakyRows = append(flakyRows, row)
+		}
+	}
+	require.Len(t, flakyRows, 7)
+	for _, row := range flakyRows[:webhookBreakerFailures] {
+		require.Equal(t, "pending", row.Status, "a failed delivery waits for its retry")
+	}
+	for _, row := range flakyRows[webhookBreakerFailures:] {
+		require.Equal(t, "delivered", row.Status)
+	}
 }
 
 func TestWebhookBulkEditOfHundredIssuesWithThreeHooksIsNotDropped(t *testing.T) {
@@ -681,70 +525,15 @@ func TestWebhookBulkEditOfHundredIssuesWithThreeHooksIsNotDropped(t *testing.T) 
 	for _, name := range names {
 		require.Equal(t, 100, counts[name], "each webhook got every issue")
 	}
-	require.Zero(t, f.svc.queue.dropped.Load(), "an idle queue drops nothing")
-}
-
-func TestWebhookQueuePurgesStaleJobsOfAWorkspaceAtOnce(t *testing.T) {
-	const tooLong = "webhook deliveries dropped: they waited too long for a worker"
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	q := newWebhookQueue(defaultWebhookLimits)
-	q.now = func() time.Time { return now }
-	wsA, wsB, wsC, wsD := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	job := func(ws uuid.UUID, marker byte) webhookJob {
-		return webhookJob{workspaceID: ws, event: string(marker), body: []byte{marker}}
-	}
-
-	logHook := logtest.NewGlobal()
-	defer logrus.StandardLogger().ReplaceHooks(make(logrus.LevelHooks))
-
-	for i := 0; i < 5; i++ {
-		require.True(t, q.enqueue(job(wsA, byte('a'+i))))
-	}
-	now = now.Add(6 * time.Minute)
-	require.True(t, q.enqueue(job(wsA, 'f')), "A's fresh job fits behind its stale ones")
-
-	fresh, ok := q.take()
-	require.True(t, ok)
-	require.Equal(t, []byte{'f'}, fresh.body, "A's stale prefix is purged and its fresh job delivered")
-	require.Equal(t, int64(5), q.dropped.Load())
-	purging := logEntriesWithMessage(logHook, tooLong)
-	require.Len(t, purging, 1, "one aggregated line per purge")
-	require.Equal(t, 5, purging[0].Data["dropped"])
-	queued, scheduled := testQueueState(q)
-	require.Zero(t, queued)
-	require.Equal(t, 1, scheduled, "A's delivery is in flight")
-	q.done(wsA)
-
-	// C's whole backlog goes stale while B's and D's jobs are fresh: the next
-	// take skips C in one go instead of offering its jobs one by one.
-	for i := 0; i < 3; i++ {
-		require.True(t, q.enqueue(job(wsC, byte('h'+i))))
-	}
-	now = now.Add(6 * time.Minute)
-	require.True(t, q.enqueue(job(wsB, 'g')))
-	require.True(t, q.enqueue(job(wsD, 'k')))
-
-	next, ok := q.take()
-	require.True(t, ok)
-	require.Equal(t, []byte{'g'}, next.body, "C is skipped and B's fresh job comes first")
-	require.Equal(t, int64(8), q.dropped.Load(), "C's three stale jobs are dropped")
-	purging = logEntriesWithMessage(logHook, tooLong)
-	require.Len(t, purging, 2)
-	require.Equal(t, 3, purging[1].Data["dropped"])
-	q.done(wsB)
-
-	next, ok = q.take()
-	require.True(t, ok)
-	require.Equal(t, []byte{'k'}, next.body, "D's job follows")
-	q.done(wsD)
-
-	queued, scheduled = testQueueState(q)
-	require.Zero(t, queued)
-	require.Zero(t, scheduled)
-	q.mu.Lock()
-	_, scheduledC := q.scheduled[wsC]
-	q.mu.Unlock()
-	require.False(t, scheduledC, "a purged workspace is no longer scheduled")
+	require.Len(t, f.stored(ws), 300, "nothing was dropped")
+	f.eventually(func() bool {
+		for _, row := range f.stored(ws) {
+			if row.Status != "delivered" {
+				return false
+			}
+		}
+		return true
+	}, "not every delivery was recorded as delivered")
 }
 
 func TestWebhookServiceCloseStopsWorkers(t *testing.T) {
@@ -768,7 +557,13 @@ func TestWebhookServiceCloseStopsWorkers(t *testing.T) {
 		t.Fatal("Close did not abort the in-flight delivery")
 	}
 
-	// A dispatch after Close is harmless.
+	// A dispatch after Close stores the change for the next instance.
 	f.svc.IssueEvent(ctx, ws, WebhookEventIssueUpdated, &domain.Issue{ID: uuid.New(), WorkspaceID: ws, TeamID: team, Identifier: "ENG-2"}, owner)
 	hung.noArrival(t, 300*time.Millisecond)
+	rows := f.stored(ws)
+	require.Len(t, rows, 2)
+	for _, row := range rows {
+		require.Equal(t, "pending", row.Status, "shutdown loses nothing")
+		require.Zero(t, row.Attempts)
+	}
 }

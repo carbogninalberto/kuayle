@@ -68,6 +68,9 @@ type StatusResult struct {
 	Status string `json:"status"`
 }
 
+// webhooksOff documents the 403 of creating or enabling a webhook.
+const webhooksOff = "A workspace that has or had a private team delivers no webhooks: there it answers 403 PRIVATE_WORKSPACE_OPERATION_DISABLED."
+
 // undoConflict documents the 409 of the undo routes.
 const undoConflict = "The issue was edited in the meantime (EDITED_MEANWHILE), or a previous value is no longer available (UNDO_UNAVAILABLE); nothing was undone."
 
@@ -303,14 +306,19 @@ func Operations() []Operation {
 			Summary: "List webhooks", Description: "The signing secret is never returned.",
 			Status: 200, Response: []dto.WebhookResponse{}},
 		{Method: http.MethodPost, Path: ws + "/webhooks", Scope: domain.PermWorkspaceManage, ID: "createWebhook", Tag: "Webhooks",
-			Summary: "Create a webhook", Description: "The URL must be public: private, loopback and link-local addresses are rejected. The secret is stored encrypted and signs every delivery.",
+			Summary: "Create a webhook", Description: "The URL must be public: private, loopback and link-local addresses are rejected. The secret is stored encrypted and signs every delivery. " + webhooksOff,
 			Body: dto.CreateWebhookRequest{}, Status: 201, Response: dto.WebhookResponse{}},
 		{Method: http.MethodPatch, Path: ws + "/webhooks/:id", Scope: domain.PermWorkspaceManage, ID: "updateWebhook", Tag: "Webhooks",
 			Summary: "Update a webhook",
 			Description: "Fields left out are unchanged. events, when sent, must list at least one event, and a changed list may name only " +
-				"issue.created, issue.updated, issue.deleted, issue.triaged and comment.created. The webhook's stored list sent back unchanged is " +
-				"accepted even when it names an event Kuayle no longer delivers.",
+				"issue.created, issue.updated, issue.deleted, issue.triaged, comment.created and comment.updated. The webhook's stored list sent back unchanged is " +
+				"accepted even when it names an event Kuayle no longer delivers. Enabling an inactive webhook is refused the same way as creating one; disabling, editing and deleting still work. " + webhooksOff,
 			Body: dto.UpdateWebhookRequest{}, Status: 200, Response: dto.WebhookResponse{}},
+		{Method: http.MethodGet, Path: ws + "/webhooks/:id/deliveries", Scope: domain.PermWorkspaceManage, ID: "listWebhookDeliveries", Tag: "Webhooks",
+			Summary: "List a webhook's recent deliveries",
+			Description: "The 50 most recent deliveries, newest first: pending, delivered or failed, with the attempts made, the last HTTP status and error code, " +
+				"and the next attempt of a pending one. Finished deliveries are kept for seven days. Payloads and the URL are not returned.",
+			Status: 200, Response: []dto.WebhookDeliveryResponse{}},
 		{Method: http.MethodDelete, Path: ws + "/webhooks/:id", Scope: domain.PermWorkspaceManage, ID: "deleteWebhook", Tag: "Webhooks",
 			Summary: "Delete a webhook", Status: 200, Response: StatusResult{}},
 	}

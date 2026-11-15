@@ -106,3 +106,129 @@ func TestWebhookUpdateValidationPostgres(t *testing.T) {
 		})
 	}
 }
+
+// webhookHandlerFixture is a workspace with an owner, one public team and the
+// real handler, service and SQL.
+type webhookHandlerFixture struct {
+	db                     *sqlx.DB
+	h                      *WebhookHandler
+	owner, workspace, team uuid.UUID
+	ctx                    context.Context
+}
+
+func newWebhookHandlerFixture(t *testing.T) *webhookHandlerFixture {
+	t.Helper()
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	db, err := sqlx.Connect("pgx", url)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	f := &webhookHandlerFixture{db: db, owner: uuid.New(), workspace: uuid.New(), team: uuid.New()}
+	_, err = db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Webhook owner','hash')`, f.owner, f.owner.String()+"@example.test")
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM users WHERE id=$1`, f.owner) })
+	_, err = db.Exec(`INSERT INTO workspaces(id,name,slug,owner_id) VALUES($1,'Webhook handler',$2,$3)`, f.workspace, f.workspace.String(), f.owner)
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM workspaces WHERE id=$1`, f.workspace) })
+	_, err = db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'owner')`, f.workspace, f.owner)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO teams(id,workspace_id,name,key) VALUES($1,$2,'Engineering','ENG')`, f.team, f.workspace)
+	require.NoError(t, err)
+	svc := service.NewWebhookService(repository.NewWebhookRepository(db), "webhook-handler-test-secret-0123456789")
+	t.Cleanup(svc.Close)
+	f.h = NewWebhookHandler(svc)
+	f.ctx = domain.WithAccess(context.Background(), domain.Access{UserID: f.owner, WorkspaceID: f.workspace})
+	return f
+}
+
+func (f *webhookHandlerFixture) call(t *testing.T, method, id, body string, handle func(*echo.Context) error) *httptest.ResponseRecorder {
+	t.Helper()
+	e := echo.New()
+	req := httptest.NewRequest(method, "/", strings.NewReader(body)).WithContext(f.ctx)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Set("workspace", &domain.Workspace{ID: f.workspace})
+	if id != "" {
+		c.SetPathValues(echo.PathValues{{Name: "id", Value: id}})
+	}
+	require.NoError(t, handle(c))
+	return rec
+}
+
+func webhookErrorBody(t *testing.T, rec *httptest.ResponseRecorder) dto.ErrorBody {
+	t.Helper()
+	var body dto.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	return body.Error
+}
+
+// KUA-198: creating or enabling a webhook in a workspace that has or had a
+// private team is refused with a stable code and the reason.
+func TestWebhookCreateAndEnableInPrivateWorkspaceAreRefusedPostgres(t *testing.T) {
+	f := newWebhookHandlerFixture(t)
+	create := `{"url":"https://example.com/kuayle","secret":"long-enough","events":["issue.created"]}`
+	rec := f.call(t, http.MethodPost, "", create, f.h.Create)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var created dto.WebhookResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	rec = f.call(t, http.MethodPatch, created.ID, `{"is_active":false}`, f.h.Update)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	_, err := f.db.Exec(`UPDATE teams SET is_private=TRUE WHERE id=$1`, f.team)
+	require.NoError(t, err)
+
+	for _, refused := range []*httptest.ResponseRecorder{
+		f.call(t, http.MethodPost, "", create, f.h.Create),
+		f.call(t, http.MethodPatch, created.ID, `{"is_active":true}`, f.h.Update),
+	} {
+		require.Equal(t, http.StatusForbidden, refused.Code, refused.Body.String())
+		body := webhookErrorBody(t, refused)
+		require.Equal(t, "PRIVATE_WORKSPACE_OPERATION_DISABLED", body.Code)
+		require.Equal(t, "Webhooks are off because this workspace has a private team", body.Message)
+	}
+	rec = f.call(t, http.MethodPatch, created.ID, `{"events":["comment.created","comment.updated"]}`, f.h.Update)
+	require.Equal(t, http.StatusOK, rec.Code, "editing an inactive webhook still works: %s", rec.Body.String())
+	rec = f.call(t, http.MethodDelete, created.ID, ``, f.h.Delete)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+}
+
+// The delivery log lists a webhook's recent deliveries without their payload,
+// and another workspace's webhook is not found.
+func TestWebhookDeliveriesEndpointPostgres(t *testing.T) {
+	f := newWebhookHandlerFixture(t)
+	other := newWebhookHandlerFixture(t)
+	secret, err := crypto.Encrypt("hook-secret", crypto.DeriveKey("webhook-handler-test-secret-0123456789:webhook"))
+	require.NoError(t, err)
+	hook, foreign := uuid.New(), uuid.New()
+	_, err = f.db.Exec(`INSERT INTO webhooks(id,workspace_id,url,secret,events) VALUES($1,$2,'https://hooks.example.com/a',$3,ARRAY['issue.updated'])`, hook, f.workspace, secret)
+	require.NoError(t, err)
+	_, err = f.db.Exec(`INSERT INTO webhooks(id,workspace_id,url,secret,events) VALUES($1,$2,'https://hooks.example.com/b',$3,ARRAY['issue.updated'])`, foreign, other.workspace, secret)
+	require.NoError(t, err)
+	_, err = f.db.Exec(`INSERT INTO webhook_deliveries(webhook_id,workspace_id,event,body,status,attempts,next_attempt_at,last_status_code,last_error)
+		VALUES($1,$2,'issue.updated','{"secret":"payload"}','pending',2,now()+interval '2 minutes',503,'bad_status')`, hook, f.workspace)
+	require.NoError(t, err)
+	_, err = f.db.Exec(`INSERT INTO webhook_deliveries(webhook_id,workspace_id,event,body,status,next_attempt_at) VALUES($1,$2,'issue.updated','{}','pending',now())`, foreign, other.workspace)
+	require.NoError(t, err)
+
+	rec := f.call(t, http.MethodGet, hook.String(), ``, f.h.ListDeliveries)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NotContains(t, rec.Body.String(), "payload", "the log carries no payload")
+	var log []dto.WebhookDeliveryResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &log))
+	require.Len(t, log, 1)
+	got := log[0]
+	require.Equal(t, "issue.updated", got.Event)
+	require.Equal(t, "pending", got.Status)
+	require.Equal(t, 2, got.Attempts)
+	require.Equal(t, 503, *got.LastStatusCode)
+	require.Equal(t, "bad_status", *got.LastError)
+	require.NotNil(t, got.NextAttemptAt)
+
+	rec = f.call(t, http.MethodGet, foreign.String(), ``, f.h.ListDeliveries)
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	rec = f.call(t, http.MethodGet, "not-a-uuid", ``, f.h.ListDeliveries)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}

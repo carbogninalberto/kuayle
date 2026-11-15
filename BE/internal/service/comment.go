@@ -67,7 +67,8 @@ type CommentService struct {
 	notifSvc    *NotificationService
 	feedback    commentFeedback
 	agents      commentAgents
-	// webhooks delivers comment.created; nil until SetWebhooks wires it.
+	// webhooks delivers comment.created and comment.updated; nil until
+	// SetWebhooks wires it.
 	webhooks webhookEmitter
 }
 
@@ -222,10 +223,33 @@ func (s *CommentService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Com
 	return s.commentRepo.GetByID(ctx, id)
 }
 
-func (s *CommentService) Resolve(ctx context.Context, id uuid.UUID) error {
-	return s.commentRepo.Resolve(ctx, id)
+// Resolve marks the comment resolved for actorID and returns it as stored.
+// Resolving a resolved comment keeps its first resolution and changes nothing.
+func (s *CommentService) Resolve(ctx context.Context, id, actorID uuid.UUID) (*domain.Comment, error) {
+	changed, err := s.commentRepo.Resolve(ctx, id)
+	return s.resolution(ctx, id, changed, err, actorID)
 }
 
-func (s *CommentService) Reopen(ctx context.Context, id uuid.UUID) error {
-	return s.commentRepo.Reopen(ctx, id)
+// Reopen clears the comment's resolution for actorID and returns it as stored.
+func (s *CommentService) Reopen(ctx context.Context, id, actorID uuid.UUID) (*domain.Comment, error) {
+	changed, err := s.commentRepo.Reopen(ctx, id)
+	return s.resolution(ctx, id, changed, err, actorID)
+}
+
+// resolution announces a comment whose resolution changed as comment.updated
+// and returns the stored comment either way. Resolving and reopening are the
+// only edits a comment has.
+func (s *CommentService) resolution(ctx context.Context, id uuid.UUID, changed *domain.Comment, err error, actorID uuid.UUID) (*domain.Comment, error) {
+	if err != nil {
+		return nil, err
+	}
+	if changed == nil {
+		return s.commentRepo.GetByID(ctx, id)
+	}
+	if s.webhooks != nil {
+		if issue, _ := s.issueRepo.GetByID(ctx, changed.IssueID); issue != nil {
+			s.webhooks.CommentEvent(ctx, issue.WorkspaceID, WebhookEventCommentUpdated, issue, changed, actorID)
+		}
+	}
+	return changed, nil
 }

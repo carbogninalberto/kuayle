@@ -12,7 +12,7 @@ import (
 type CreateWebhookRequest struct {
 	URL    string   `json:"url" validate:"required,url"`
 	Secret string   `json:"secret" validate:"required,min=8"`
-	Events []string `json:"events" validate:"required,min=1,dive,oneof=issue.created issue.updated issue.deleted issue.triaged comment.created"`
+	Events []string `json:"events" validate:"required,min=1,dive,oneof=issue.created issue.updated issue.deleted issue.triaged comment.created comment.updated"`
 }
 
 // UpdateWebhookRequest changes the fields it names. Events, when sent, must
@@ -35,6 +35,27 @@ type WebhookResponse struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// WebhookDeliveryResponse is one entry of a webhook's delivery log. It never
+// carries the payload or the webhook's URL.
+type WebhookDeliveryResponse struct {
+	ID       string `json:"id"`
+	Event    string `json:"event"`
+	Status   string `json:"status" validate:"oneof=pending delivered failed"`
+	Attempts int    `json:"attempts"`
+	// LastStatusCode is the receiver's HTTP status in the last attempt, null
+	// when it gave none.
+	LastStatusCode *int `json:"last_status_code"`
+	// LastError is the code of the last failure, null after a success or
+	// before the first attempt.
+	LastError *string `json:"last_error"`
+	// NextAttemptAt is when a pending delivery is tried next; null once it
+	// is delivered or failed.
+	NextAttemptAt *time.Time `json:"next_attempt_at"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	CompletedAt   *time.Time `json:"completed_at"`
+}
+
 // WebhookDelivery is the JSON body Kuayle posts to a webhook URL. The
 // X-Webhook-Signature header signs these exact bytes.
 type WebhookDelivery struct {
@@ -49,8 +70,8 @@ type WebhookDelivery struct {
 // domain.Issue.
 type WebhookIssue domain.Issue
 
-// WebhookComment is the comment object in comment.created payloads; its JSON
-// is that of domain.Comment.
+// WebhookComment is the comment object in comment.created and
+// comment.updated payloads; its JSON is that of domain.Comment.
 type WebhookComment domain.Comment
 
 // WebhookIssuePayload is the payload of issue.created, issue.updated,
@@ -68,8 +89,8 @@ type WebhookIssueRef struct {
 	TeamID     uuid.UUID `json:"team_id"`
 }
 
-// WebhookCommentPayload is the payload of comment.created. ActorID is null
-// when automation posted the comment.
+// WebhookCommentPayload is the payload of comment.created and
+// comment.updated. ActorID is null when automation made the change.
 type WebhookCommentPayload struct {
 	Comment WebhookComment  `json:"comment"`
 	Issue   WebhookIssueRef `json:"issue"`

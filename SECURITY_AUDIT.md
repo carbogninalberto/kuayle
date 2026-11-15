@@ -639,26 +639,31 @@ The root `.gitignore` ignores `.env.*` except `.env.example`.
   the workspace's shared privacy guard until its request ends: a workspace
   that has or had a private team delivers nothing, a queued delivery is
   checked again when it is sent, and a privacy change waits for deliveries in
-  flight. Deliveries do not use the publication slots: four workers drain an
-  in-memory queue that drops instead of blocking the writer. Each change is
-  queued once with its webhooks and its body counted once; a workspace may
-  hold at most a sixteenth of the queue (256 changes and 2 MiB of bodies, of
-  4096 and 32 MiB in all) and has one change in flight at a time, and changes
-  older than five minutes are purged together when the workspace is next
-  scheduled, so a busy or hung workspace cannot crowd out another one. A
-  webhook that fails three times in a row (transport error, timeout or
-  non-2xx) is paused for five minutes, its deliveries dropped and counted in
-  one log line, then tried again; a dead receiver therefore holds a worker
-  and a database connection for at most three request timeouts per pause and
-  stops delaying the workspace's other webhooks. Delivery is at most once:
-  the queue and the pause state live in the process and are lost on restart
-  or deploy. Logs name the webhook, never its URL. Tests:
-  `TestWebhookProductionClientRefusesLoopbackReceiver`,
+  flight. Deliveries do not use the publication slots. Since KUA-197 each
+  change is stored in Postgres (`webhook_deliveries`, migration 167) when it
+  is emitted, one row per webhook, and four workers per instance send due
+  rows: a worker claims the workspace's lane with `FOR UPDATE SKIP LOCKED` and
+  holds it, with the privacy guard, until the outcome is recorded, so each
+  workspace has one delivery in flight across instances and workspaces take
+  turns. A workspace that turned private gives up its stored rows unsent.
+  Bounds are store counts (1024 pending rows and 8 MiB per workspace, 256 per
+  webhook, 16384 rows and 128 MiB in all), so a busy or hung workspace cannot
+  crowd out another one. A failure (transport error, timeout or non-2xx) is
+  retried with backoff up to six attempts; a webhook that fails three times in
+  a row is paused for five minutes in `webhook_circuits`, shared by all
+  instances, and its rows wait. Delivery is at least once: a restart leaves an
+  interrupted row pending. Stored errors are codes and logs name the webhook,
+  never its URL; finished rows drop their payload and are purged after seven
+  days. Creating or enabling a webhook in a private workspace is refused.
+  Tests: `TestWebhookProductionClientRefusesLoopbackReceiver`,
   `TestWebhookClientDoesNotFollowRedirects`,
   `TestWebhookQueuedDeliveryRechecksPrivacyAtSend`,
+  `TestWebhookStoredDeliveriesAreDroppedWhenTheWorkspaceTurnsPrivate`,
   `TestWebhookDeliveriesNeverExceedTheWorkerCount`,
+  `TestWebhookOneDeliveryInFlightPerWorkspaceAcrossInstances`,
   `TestWebhookDeliveryErrorsDoNotLogTheReceiverURL`,
-  `TestWebhookFullWorkspaceBacklogDoesNotDropAnotherWorkspace`,
+  `TestWebhookBacklogBoundsAreCountedInTheStore`,
+  `TestWebhookBreakerIsSharedAcrossInstancesAndKeepsDeliveries`,
   `TestWebhookDeadReceiverIsPausedAndHealthyHookKeepsReceiving`.
 - **KS-08, KS-09, KS-10, KS-11, KS-12, KS-17, KS-18, KS-19, KS-20**
   are unchanged. KS-15 was not re-traced.

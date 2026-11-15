@@ -1351,6 +1351,51 @@ document generated from the route registry and the DTOs, served at
 it, including every Dev Machine route above, are internal. See the
 [API guide](docs/api.md) for the generator and the tests that keep it in sync.
 
+### Outgoing webhooks
+
+Workspace webhooks (Settings → Webhooks, `/api/workspaces/:slug/webhooks`)
+receive `issue.*` and `comment.*` events; the API guide in the OpenAPI document
+is the receiver contract (envelope, `X-Webhook-Signature`, `X-Webhook-Event`,
+`X-Webhook-Delivery`, events). Write paths call `WebhookService` after their
+write commits ([webhook_events.go](BE/internal/service/webhook_events.go)); a
+failed emit is logged and never fails the write. `comment.updated` comes from
+resolving and reopening, the only comment edits; events for editing or
+deleting a comment come with those features.
+
+Delivery is durable (migration 167, KUA-197):
+
+- Emitting lists the workspace's active, subscribed webhooks (none while the
+  workspace has or had a private team) and stores one `webhook_deliveries` row
+  per change and webhook with the exact signed body. Bounds are store counts
+  checked under a per-workspace advisory lock: 1024 pending rows and 8 MiB per
+  workspace, 256 per webhook, 16384 rows and 128 MiB in all. Rows beyond them
+  are dropped and logged.
+- Each instance runs four workers, woken by its own emits and every two
+  seconds. A worker claims the `webhook_lanes` row of the workspace whose turn
+  is oldest among those with a due row (`FOR UPDATE SKIP LOCKED`), so a
+  workspace has one delivery in flight across instances and workspaces take
+  turns. In that transaction it takes the shared privacy guard (a workspace
+  that turned private gives all its pending rows up as `workspace_private`),
+  gives up rows older than a day (`expired`), and sends the earliest due row
+  to a webhook that is not paused. The transaction stays open until the
+  outcome is recorded, so a crash or shutdown leaves the row pending without a
+  counted attempt; `main` starts the workers at boot and closes them on exit.
+- A non-2xx answer, timeout or network error is retried after 30 s, 2 min,
+  10 min, 30 min and 2 h; the sixth failure marks the row `failed`. The
+  `webhook_circuits` row counts consecutive failures per webhook and pauses it
+  for five minutes after three; while paused its rows wait. A success clears
+  it.
+- Finished rows drop their body and stay in the delivery log
+  (`GET .../webhooks/:id/deliveries`, Settings → Webhooks) for seven days; an
+  hourly job purges older ones.
+
+Outbound requests dial only public addresses, follow no redirects and log the
+webhook ID, never its URL. Creating or enabling a webhook in a workspace that
+has or had a private team is refused with 403
+`PRIVATE_WORKSPACE_OPERATION_DISABLED`, like the other privacy refusals, using the same `workspace_privacy`
+predicate as emitting; the settings page explains why from the workspace's
+`privacy_enabled`.
+
 ## MCP server
 
 `POST /mcp` is a stateless Streamable HTTP [MCP server](docs/mcp.md) in
