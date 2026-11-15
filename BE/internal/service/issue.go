@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sort"
@@ -39,6 +40,14 @@ func (s *IssueService) SetWebhooks(w webhookEmitter) { s.webhooks = w }
 func (s *IssueService) emitWebhook(ctx context.Context, workspaceID uuid.UUID, event string, issue *domain.Issue, actorID uuid.UUID) {
 	if s.webhooks != nil && issue != nil {
 		s.webhooks.IssueEvent(ctx, workspaceID, event, issue, actorID)
+	}
+}
+
+// emitWebhooks announces several committed changes of one kind, listing the
+// workspace's webhooks once. It is a no-op until SetWebhooks is called.
+func (s *IssueService) emitWebhooks(ctx context.Context, workspaceID uuid.UUID, event string, issues []domain.Issue, actorID uuid.UUID) {
+	if s.webhooks != nil && len(issues) > 0 {
+		s.webhooks.IssueEvents(ctx, workspaceID, event, issues, actorID)
 	}
 }
 
@@ -370,6 +379,7 @@ func (s *IssueService) ConvertToProject(ctx context.Context, workspaceID, userID
 	}
 
 	projectID := project.ID
+	moved := make([]domain.Issue, 0, len(issuesToMove))
 	for _, item := range issuesToMove {
 		oldProject := ""
 		if item.ProjectID != nil {
@@ -384,8 +394,11 @@ func (s *IssueService) ConvertToProject(ctx context.Context, workspaceID, userID
 		item.ProjectID = &projectID
 		item.ParentID = nil
 		if err := s.issueRepo.Update(ctx, item); err != nil {
+			// Announce the issues already moved; the rest were not written.
+			s.emitWebhooks(ctx, workspaceID, WebhookEventIssueUpdated, moved, userID)
 			return nil, err
 		}
+		moved = append(moved, *item)
 		s.recordLabelChange(ctx, item.ID, userID, labelsBefore)
 		if oldProject != newProject {
 			s.recordHistory(ctx, item.ID, userID, "project", &oldProject, &newProject)
@@ -395,8 +408,8 @@ func (s *IssueService) ConvertToProject(ctx context.Context, workspaceID, userID
 			s.recordHistory(ctx, item.ID, userID, "parent", &oldParent, &newParent)
 		}
 		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: item})
-		s.emitWebhook(ctx, workspaceID, WebhookEventIssueUpdated, item, userID)
 	}
+	s.emitWebhooks(ctx, workspaceID, WebhookEventIssueUpdated, moved, userID)
 	for _, uid := range s.issueNotificationRecipients(ctx, issue, userID, true) {
 		s.notify(ctx, userID, uid, issue, "issue_converted_to_project", fmt.Sprintf("%s was converted to a project", issue.Identifier))
 	}
@@ -796,6 +809,10 @@ func (s *IssueService) Delete(ctx context.Context, workspaceID, actorID uuid.UUI
 	recipients := s.issueNotificationRecipients(ctx, issue, actorID, true)
 
 	if err := s.issueRepo.Delete(ctx, issue.ID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Nothing was deleted: a concurrent request got there first.
+			return fmt.Errorf("issue not found")
+		}
 		return err
 	}
 	if issue.ParentID != nil {
@@ -827,11 +844,10 @@ func (s *IssueService) Triage(ctx context.Context, workspaceID, userID uuid.UUID
 	}
 
 	issue.Triaged = true
+	oldStatus := ""
 	if !accept {
-		old := string(issue.Status)
+		oldStatus = string(issue.Status)
 		issue.Status = domain.IssueStatusCancelled
-		newVal := string(domain.IssueStatusCancelled)
-		s.recordHistory(ctx, issue.ID, userID, "status", &old, &newVal)
 		// Look up the team's cancelled status
 		cancelledStatus, _ := s.teamStatusRepo.GetByTeamAndSlug(ctx, issue.TeamID, string(domain.IssueStatusCancelled))
 		if cancelledStatus != nil {
@@ -839,9 +855,21 @@ func (s *IssueService) Triage(ctx context.Context, workspaceID, userID uuid.UUID
 		}
 	}
 
-	if err := s.issueRepo.Update(ctx, issue); err != nil {
+	// A decision that lost the race writes nothing and announces nothing.
+	if err := s.issueRepo.UpdateUntriaged(ctx, issue); err != nil {
+		if errors.Is(err, repository.ErrIssueAlreadyTriaged) {
+			return nil, fmt.Errorf("issue is already triaged")
+		}
 		return nil, err
 	}
+	if !accept {
+		newVal := string(domain.IssueStatusCancelled)
+		s.recordHistory(ctx, issue.ID, userID, "status", &oldStatus, &newVal)
+	}
+
+	// The decline's move to cancelled is part of issue.triaged, and the cause
+	// is announced before the automation it sets off.
+	s.emitWebhook(ctx, workspaceID, WebhookEventIssueTriaged, issue, userID)
 	if !accept {
 		s.applyStatusAutomation(ctx, workspaceID, userID, issue, map[uuid.UUID]bool{})
 	}
@@ -850,7 +878,6 @@ func (s *IssueService) Triage(ctx context.Context, workspaceID, userID uuid.UUID
 		Type:    "issue.triaged",
 		Payload: issue,
 	})
-	s.emitWebhook(ctx, workspaceID, WebhookEventIssueTriaged, issue, userID)
 	result := "accepted"
 	if !accept {
 		result = "declined"
@@ -997,6 +1024,9 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 	if err != nil {
 		return 0, err
 	}
+	// Announced before the status automation it causes: the change is already
+	// committed, and the automation is its effect.
+	s.emitWebhooks(ctx, workspaceID, WebhookEventIssueUpdated, changed, userID)
 	recipientCounts := make(map[uuid.UUID]int)
 	recipientTeams := make(map[uuid.UUID][]uuid.UUID)
 	for _, id := range issueIDs {
@@ -1016,9 +1046,6 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 		Type:    "issues.bulk_updated",
 		Payload: map[string]interface{}{"count": n},
 	})
-	for i := range changed {
-		s.emitWebhook(ctx, workspaceID, WebhookEventIssueUpdated, &changed[i], userID)
-	}
 	fields := bulkUpdateFields(req)
 	if n > 0 && len(fields) > 0 {
 		for uid, count := range recipientCounts {
@@ -1168,8 +1195,8 @@ func (s *IssueService) bulkUpdateParent(ctx context.Context, workspaceID, userID
 	}
 	for i := range changed {
 		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: &changed[i]})
-		s.emitWebhook(ctx, workspaceID, WebhookEventIssueUpdated, &changed[i], userID)
 	}
+	s.emitWebhooks(ctx, workspaceID, WebhookEventIssueUpdated, changed, userID)
 	return len(changed), nil
 }
 
@@ -1213,8 +1240,8 @@ func (s *IssueService) bulkUpdateProject(ctx context.Context, workspaceID, userI
 
 	for i := range moved {
 		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: &moved[i]})
-		s.emitWebhook(ctx, workspaceID, WebhookEventIssueUpdated, &moved[i], userID)
 	}
+	s.emitWebhooks(ctx, workspaceID, WebhookEventIssueUpdated, moved, userID)
 	s.hub.Broadcast(workspaceID, realtime.Event{
 		Type:    "issues.bulk_updated",
 		Payload: map[string]interface{}{"count": len(moved)},
@@ -1366,8 +1393,6 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID, userID uuid.
 
 	recipientCounts := make(map[uuid.UUID]int)
 	recipientTeams := make(map[uuid.UUID][]uuid.UUID)
-	// The issues as they were before deletion, for the webhook payloads.
-	before := make(map[uuid.UUID]*domain.Issue, len(issueIDs))
 	for _, id := range issueIDs {
 		issue, err := s.issueRepo.GetByID(ctx, id)
 		if err != nil || issue == nil || issue.WorkspaceID != workspaceID {
@@ -1376,7 +1401,6 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID, userID uuid.
 		if !canDeleteAny && issue.CreatorID != userID {
 			return 0, fmt.Errorf("forbidden")
 		}
-		before[issue.ID] = issue
 		for _, uid := range s.issueNotificationRecipients(ctx, issue, userID, true) {
 			recipientCounts[uid]++
 			recipientTeams[uid] = append(recipientTeams[uid], issue.TeamID)
@@ -1393,9 +1417,8 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID, userID uuid.
 		Type:    "issues.bulk_deleted",
 		Payload: map[string]interface{}{"count": n},
 	})
-	for _, id := range deleted {
-		s.emitWebhook(ctx, workspaceID, WebhookEventIssueDeleted, before[id], userID)
-	}
+	// The payload is each row as it was when deleted.
+	s.emitWebhooks(ctx, workspaceID, WebhookEventIssueDeleted, deleted, userID)
 	if n > 0 {
 		for uid, count := range recipientCounts {
 			s.notifyWorkspace(ctx, workspaceID, userID, uid, "issues_deleted", fmt.Sprintf("%d issues deleted", count), false, recipientTeams[uid]...)

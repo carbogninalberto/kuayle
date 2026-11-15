@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,11 +27,23 @@ import (
 const (
 	// webhookRequestTimeout bounds one HTTP request to a receiver.
 	webhookRequestTimeout = 10 * time.Second
-	// webhookDeliveryTimeout bounds a whole delivery: waiting for a
-	// publication slot, taking the privacy guard and the request itself.
-	webhookDeliveryTimeout = time.Minute
+	// webhookDeliveryTimeout bounds one delivery once a worker takes it: the
+	// privacy guard and the request.
+	webhookDeliveryTimeout = 30 * time.Second
 	// webhookListTimeout bounds the lookup of a workspace's webhooks.
 	webhookListTimeout = 10 * time.Second
+	// webhookWorkers bounds concurrent deliveries and so the database
+	// connections they hold for the privacy guard, well below the server
+	// pool of 25. Deliveries do not use the publication slots.
+	webhookWorkers = 4
+	// webhookQueueLimit, webhookWorkspaceBacklog and webhookQueueBytes bound
+	// the deliveries waiting for a worker: in all, per workspace, and their
+	// bodies' bytes. A delivery beyond a bound is dropped, never waited for.
+	webhookQueueLimit       = 1024
+	webhookWorkspaceBacklog = 256
+	webhookQueueBytes       = 32 << 20
+	// webhookMaxQueueWait drops a delivery that waited longer for a worker.
+	webhookMaxQueueWait = 5 * time.Minute
 )
 
 var _ webhookEmitter = (*WebhookService)(nil)
@@ -38,6 +52,11 @@ type WebhookService struct {
 	webhookRepo   *repository.WebhookRepository
 	encryptionKey []byte
 	client        *http.Client
+	// queue holds deliveries for workers started on first use; workers is
+	// their number. Tests may replace both before the first dispatch.
+	queue     *webhookQueue
+	workers   int
+	startOnce sync.Once
 }
 
 func NewWebhookService(webhookRepo *repository.WebhookRepository, jwtSecret string) *WebhookService {
@@ -45,7 +64,24 @@ func NewWebhookService(webhookRepo *repository.WebhookRepository, jwtSecret stri
 		webhookRepo:   webhookRepo,
 		encryptionKey: crypto.DeriveKey(jwtSecret + ":webhook"),
 		client:        newWebhookClient(false),
+		queue:         newWebhookQueue(webhookQueueLimit, webhookWorkspaceBacklog, webhookQueueBytes),
+		workers:       webhookWorkers,
 	}
+}
+
+// start runs the workers once; they live as long as the process.
+func (s *WebhookService) start() {
+	s.startOnce.Do(func() {
+		for range s.workers {
+			go func() {
+				for {
+					job := s.queue.take()
+					s.deliver(job)
+					s.queue.done(job.workspaceID)
+				}
+			}()
+		}
+	})
 }
 
 // newWebhookClient dials only public addresses (checked after DNS resolution,
@@ -120,8 +156,13 @@ func (s *WebhookService) Update(ctx context.Context, id uuid.UUID, req dto.Updat
 		w.URL = *req.URL
 	}
 	if req.Events != nil {
-		if err := validateWebhookEvents(req.Events); err != nil {
-			return nil, err
+		// A changed list may name only delivered events. The stored list sent
+		// back unchanged is accepted even when it names events Kuayle no
+		// longer delivers, so a client can resend what it read.
+		if !slices.Equal(req.Events, []string(w.Events)) {
+			if err := validateWebhookEvents(req.Events); err != nil {
+				return nil, err
+			}
 		}
 		w.Events = pq.StringArray(req.Events)
 	}
@@ -156,11 +197,24 @@ func (s *WebhookService) IssueEvent(ctx context.Context, workspaceID uuid.UUID, 
 	if s == nil || issue == nil {
 		return
 	}
+	s.IssueEvents(ctx, workspaceID, event, []domain.Issue{*issue}, actorID)
+}
+
+// IssueEvents delivers event for several issues of one workspace, listing the
+// workspace's webhooks once. Bulk operations use it.
+func (s *WebhookService) IssueEvents(ctx context.Context, workspaceID uuid.UUID, event string, issues []domain.Issue, actorID uuid.UUID) {
+	if s == nil || len(issues) == 0 {
+		return
+	}
 	if event == WebhookEventCommentCreated || !slices.Contains(WebhookEvents, event) {
 		log.WithField("event", event).Debug("ignoring unknown webhook issue event")
 		return
 	}
-	s.Dispatch(ctx, workspaceID, event, dto.WebhookIssuePayload{Issue: dto.WebhookIssue(*issue), ActorID: actorPayloadID(actorID)})
+	payloads := make([]any, len(issues))
+	for i := range issues {
+		payloads[i] = dto.WebhookIssuePayload{Issue: dto.WebhookIssue(issues[i]), ActorID: actorPayloadID(actorID)}
+	}
+	s.dispatch(ctx, workspaceID, event, payloads)
 }
 
 // CommentCreated delivers comment.created with the comment and a reference to
@@ -179,62 +233,71 @@ func (s *WebhookService) CommentCreated(ctx context.Context, workspaceID uuid.UU
 // Dispatch sends an event payload to all active webhooks subscribed to the event.
 // Payloads are signed with HMAC-SHA256 in the X-Webhook-Signature header.
 //
-// The body is marshalled before Dispatch returns; delivery happens in the
-// background. Deliveries outlive the caller's request and do not run with the
-// caller's access: the subscriber is the workspace, not the actor, and the
-// privacy guard taken per delivery is the boundary.
+// The body is marshalled before Dispatch returns and delivery is queued to the
+// service's bounded workers. Deliveries outlive the caller's request and do not
+// run with the caller's access: the subscriber is the workspace, not the actor,
+// and the privacy guard taken per delivery is the boundary. The workspace's
+// webhooks are listed once per call.
 func (s *WebhookService) Dispatch(ctx context.Context, workspaceID uuid.UUID, event string, payload interface{}) {
 	if s == nil {
 		return
 	}
+	s.dispatch(ctx, workspaceID, event, []any{payload})
+}
+
+// dispatch lists the workspace's deliverable webhooks once, marshals each
+// payload and queues one delivery per payload and webhook. It never blocks on
+// delivery: a delivery the queue cannot hold is dropped and counted.
+func (s *WebhookService) dispatch(ctx context.Context, workspaceID uuid.UUID, event string, payloads []any) {
 	system := domain.PublicContext(context.WithoutCancel(ctx))
 
-	listCtx, cancelList := context.WithTimeout(system, webhookListTimeout)
-	webhooks, err := s.webhookRepo.ListByWorkspace(listCtx, workspaceID)
-	cancelList()
+	listCtx, cancel := context.WithTimeout(system, webhookListTimeout)
+	targets, err := s.webhookRepo.ListDeliverable(listCtx, workspaceID, event)
+	cancel()
 	if err != nil {
-		log.WithError(err).Warn("failed to list webhooks for dispatch")
+		log.WithError(err).WithField("workspace_id", workspaceID).Warn("failed to list webhooks for dispatch")
 		return
-	}
-	targets := webhooks[:0]
-	for _, wh := range webhooks {
-		if wh.IsActive && slices.Contains([]string(wh.Events), event) {
-			targets = append(targets, wh)
-		}
 	}
 	if len(targets) == 0 {
 		return
 	}
+	s.start()
 
-	body, err := json.Marshal(dto.WebhookDelivery{
-		Event:     event,
-		Payload:   payload,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-	})
-	if err != nil {
-		log.WithError(err).Warn("failed to marshal webhook payload")
-		return
+	now := time.Now()
+	timestamp := now.UTC().Format(time.RFC3339)
+	dropped := 0
+	for _, payload := range payloads {
+		body, err := json.Marshal(dto.WebhookDelivery{Event: event, Payload: payload, Timestamp: timestamp})
+		if err != nil {
+			log.WithError(err).Warn("failed to marshal webhook payload")
+			continue
+		}
+		for _, hook := range targets {
+			if !s.queue.enqueue(webhookJob{ctx: system, workspaceID: workspaceID, event: event, hook: hook, body: body, queued: now}) {
+				dropped++
+			}
+		}
 	}
-
-	for _, wh := range targets {
-		go s.deliver(system, workspaceID, event, wh, body)
+	if dropped > 0 {
+		// One line per call, without URLs or secrets.
+		log.WithField("workspace_id", workspaceID).WithField("event", event).WithField("dropped", dropped).
+			WithField("dropped_total", s.queue.dropped.Load()).Warn("webhook deliveries dropped: the delivery queue is full")
 	}
 }
 
-func (s *WebhookService) deliver(system context.Context, workspaceID uuid.UUID, event string, w domain.Webhook, body []byte) {
-	ctx, cancel := context.WithTimeout(system, webhookDeliveryTimeout)
+func (s *WebhookService) deliver(job webhookJob) {
+	logger := log.WithField("webhook_id", job.hook.ID).WithField("event", job.event)
+	if waited := time.Since(job.queued); waited > webhookMaxQueueWait {
+		s.queue.dropped.Add(1)
+		logger.WithField("waited", waited.Round(time.Second).String()).Warn("webhook delivery dropped: it waited too long for a worker")
+		return
+	}
+	ctx, cancel := context.WithTimeout(job.ctx, webhookDeliveryTimeout)
 	defer cancel()
-	logger := log.WithField("webhook_id", w.ID).WithField("event", event)
 
 	// Queued payloads must recheck privacy at delivery, holding the
 	// transition lock until the external request is finished.
-	releaseSlot, err := acquirePublicationSlot(ctx)
-	if err != nil {
-		logger.WithError(err).Warn("webhook delivery dropped: no publication slot")
-		return
-	}
-	defer releaseSlot()
-	guard, err := s.webhookRepo.BeginPublicOperation(ctx, workspaceID)
+	guard, err := s.webhookRepo.BeginPublicOperation(ctx, job.workspaceID)
 	if err != nil {
 		if errors.Is(err, repository.ErrPrivateWorkspaceOperation) {
 			logger.Debug("webhook delivery skipped: workspace has private teams")
@@ -244,30 +307,40 @@ func (s *WebhookService) deliver(system context.Context, workspaceID uuid.UUID, 
 		return
 	}
 	defer func() { _ = guard.Rollback() }()
-	secret, err := crypto.Decrypt(w.Secret, s.encryptionKey)
+	secret, err := crypto.Decrypt(job.hook.Secret, s.encryptionKey)
 	if err != nil {
 		logger.WithError(err).Warn("failed to decrypt webhook secret")
 		return
 	}
 
-	signature := crypto.HMACSha256(body, secret)
+	signature := crypto.HMACSha256(job.body, secret)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.URL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, job.hook.URL, bytes.NewReader(job.body))
 	if err != nil {
-		logger.WithError(err).Warn("failed to create webhook request")
+		logger.WithError(withoutURL(err)).Warn("failed to create webhook request")
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Webhook-Signature", "sha256="+signature)
-	req.Header.Set("X-Webhook-Event", event)
+	req.Header.Set("X-Webhook-Event", job.event)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		logger.WithError(err).Warn("webhook delivery failed")
+		logger.WithError(withoutURL(err)).Warn("webhook delivery failed")
 		return
 	}
 	resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		logger.WithField("status", resp.StatusCode).Warn("webhook receiver rejected delivery")
 	}
+}
+
+// withoutURL drops the receiver URL from a request error: *url.Error prints
+// the whole URL, and receiver URLs often carry a token (Slack, Discord).
+func withoutURL(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return urlErr.Err
+	}
+	return err
 }

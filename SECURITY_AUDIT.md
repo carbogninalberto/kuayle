@@ -60,7 +60,7 @@ In priority order:
 | KS-11 | Low | Deferred | SVG uploads render inline from the API origin | `BE/internal/handler/upload.go:36` |
 | KS-12 | Low | Deferred | Per-email login lockout (proxy-dependent client IPs fixed by KUA-92) | `BE/internal/middleware/loginthrottle.go:51` |
 | KS-13 | Low | Deferred (product decision) | Existing users can be added to workspaces without consent; email enumeration | `BE/internal/service/workspace.go:198` |
-| KS-14 | Low | Deferred (latent) | Outgoing webhook delivery would be SSRF-prone if enabled | `BE/internal/service/webhook.go:112` |
+| KS-14 | Low | Fixed (see November 2026) | Outgoing webhook delivery would be SSRF-prone if enabled | `BE/internal/service/webhook.go` |
 | KS-15 | Low | Deferred | Role downgrades leave Dev Machine side effects available | `BE/internal/service/dev_machine.go:642` |
 | KS-16 | Low | Fixed (see November 2026) | Collector redaction omits the workspace model credential | `BE/internal/service/dev_machine.go:2324` |
 | KS-17 | Low | Deferred (documented limitation) | Browser container compromise reaches unauthenticated IDE/terminal ports | `devmachine/browser/start.sh:30` |
@@ -227,9 +227,10 @@ return 413. Test: `TestGitHubWebhookBoundsUnauthenticatedBody`.
   existing users by email without consent (import can also create notifications
   for them). "User not found" and import's missing-user list reveal which
   emails have accounts.
-- **KS-14 (Low, latent).** `WebhookService.Dispatch` has no callers. If wired,
-  its create-time-only URL check, redirect following and default dialer would
-  allow DNS-rebinding SSRF; reuse `validate.PublicAddressControl`.
+- **KS-14 (Low, latent; fixed, see November 2026).** `WebhookService.Dispatch`
+  had no callers. If wired, its create-time-only URL check, redirect following
+  and default dialer would have allowed DNS-rebinding SSRF; reuse
+  `validate.PublicAddressControl`.
 - **KS-15 (Low).** After demotion, a former admin can run custom providers on
   their own machine (where they already execute code), and a former owner
   demoted to guest can call `POST …/activity` and create orphan terminal-session
@@ -630,7 +631,24 @@ The root `.gitignore` ignores `.env.*` except `.env.example`.
   since KS-31, personal access tokens. In-session password change and "sign
   out everywhere" remain open.
 - **KS-13** remains a product decision and was the delivery path for KS-22.
-- **KS-08, KS-09, KS-10, KS-11, KS-12, KS-14, KS-17, KS-18, KS-19, KS-20**
+- **KS-14** is fixed: KUA-109 wired delivery of issue and comment events with
+  a client that dials only public addresses, checked after DNS resolution by
+  `validate.PublicAddressControl` (a receiver that rebinds to an internal
+  address is refused), never follows redirects and uses no proxy. A delivery
+  runs as a system operation, not as the user who made the change, and holds
+  the workspace's shared privacy guard until its request ends: a workspace
+  that has or had a private team delivers nothing, a queued delivery is
+  checked again when it is sent, and a privacy change waits for deliveries in
+  flight. Deliveries do not use the publication slots: four workers drain a
+  bounded queue that drops instead of blocking the writer, with one delivery
+  per workspace in flight, so a hung receiver holds at most one worker and
+  one database connection. Logs name the webhook, never its URL. Tests:
+  `TestWebhookProductionClientRefusesLoopbackReceiver`,
+  `TestWebhookClientDoesNotFollowRedirects`,
+  `TestWebhookQueuedDeliveryRechecksPrivacyAtSend`,
+  `TestWebhookDeliveriesNeverExceedTheWorkerCount`,
+  `TestWebhookDeliveryErrorsDoNotLogTheReceiverURL`.
+- **KS-08, KS-09, KS-10, KS-11, KS-12, KS-17, KS-18, KS-19, KS-20**
   are unchanged. KS-15 was not re-traced.
 
 ## Open follow-ups from this audit

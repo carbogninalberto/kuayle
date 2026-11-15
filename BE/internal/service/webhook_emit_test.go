@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -25,19 +27,39 @@ type emittedWebhook struct {
 }
 
 // webhookRecorder records what write paths announce, copying the issue and
-// comment at call time as the real emitter snapshots them.
-type webhookRecorder struct{ sent []emittedWebhook }
+// comment at call time as the real emitter snapshots them. Write paths may run
+// on several goroutines, so its methods hold a mutex.
+type webhookRecorder struct {
+	mu      sync.Mutex
+	sent    []emittedWebhook
+	batches int // IssueEvents calls
+}
 
 func (r *webhookRecorder) IssueEvent(_ context.Context, ws uuid.UUID, event string, issue *domain.Issue, actor uuid.UUID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.sent = append(r.sent, emittedWebhook{workspace: ws, event: event, issue: *issue, actor: actor})
 }
 
+func (r *webhookRecorder) IssueEvents(_ context.Context, ws uuid.UUID, event string, issues []domain.Issue, actor uuid.UUID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.batches++
+	for _, issue := range issues {
+		r.sent = append(r.sent, emittedWebhook{workspace: ws, event: event, issue: issue, actor: actor})
+	}
+}
+
 func (r *webhookRecorder) CommentCreated(_ context.Context, ws uuid.UUID, issue *domain.Issue, comment *domain.Comment, actor uuid.UUID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	c := *comment
 	r.sent = append(r.sent, emittedWebhook{workspace: ws, event: WebhookEventCommentCreated, issue: *issue, comment: &c, actor: actor})
 }
 
 func (r *webhookRecorder) events() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	names := make([]string, len(r.sent))
 	for i, sent := range r.sent {
 		names[i] = sent.event
@@ -50,11 +72,13 @@ func (r *webhookRecorder) events() []string {
 // webhookIssueRepo is an in-memory issue store. Reads return copies, as the
 // database does.
 type webhookIssueRepo struct {
-	issues      map[uuid.UUID]domain.Issue
-	updateErr   error
-	bulkChanged []uuid.UUID // issues a bulk update reports as changed
-	bulkWritten int
-	bulkDeleted []uuid.UUID // issues a bulk delete reports as deleted
+	issues       map[uuid.UUID]domain.Issue
+	updateErr    error
+	deleteErr    error
+	triagedFirst bool        // a concurrent request triaged first
+	bulkChanged  []uuid.UUID // issues a bulk update reports as changed
+	bulkWritten  int
+	bulkDeleted  []uuid.UUID // issues a bulk delete reports as deleted
 }
 
 func newWebhookIssueRepo(issues ...domain.Issue) *webhookIssueRepo {
@@ -100,7 +124,21 @@ func (r *webhookIssueRepo) Update(_ context.Context, issue *domain.Issue) error 
 func (r *webhookIssueRepo) UpdateContent(ctx context.Context, issue *domain.Issue, _, _ bool) error {
 	return r.Update(ctx, issue)
 }
+func (r *webhookIssueRepo) UpdateUntriaged(_ context.Context, issue *domain.Issue) error {
+	if r.updateErr != nil {
+		return r.updateErr
+	}
+	stored, ok := r.issues[issue.ID]
+	if r.triagedFirst || (ok && stored.Triaged) {
+		return repository.ErrIssueAlreadyTriaged
+	}
+	r.issues[issue.ID] = *issue
+	return nil
+}
 func (r *webhookIssueRepo) Delete(_ context.Context, id uuid.UUID) error {
+	if r.deleteErr != nil {
+		return r.deleteErr
+	}
 	delete(r.issues, id)
 	return nil
 }
@@ -173,11 +211,15 @@ func (r *webhookIssueRepo) BulkDelete(ctx context.Context, ws uuid.UUID, ids []u
 	deleted, err := r.BulkDeleteReturning(ctx, ws, ids)
 	return len(deleted), err
 }
-func (r *webhookIssueRepo) BulkDeleteReturning(context.Context, uuid.UUID, []uuid.UUID) ([]uuid.UUID, error) {
+func (r *webhookIssueRepo) BulkDeleteReturning(context.Context, uuid.UUID, []uuid.UUID) ([]domain.Issue, error) {
+	deleted := make([]domain.Issue, 0, len(r.bulkDeleted))
 	for _, id := range r.bulkDeleted {
+		if issue, ok := r.issues[id]; ok {
+			deleted = append(deleted, issue)
+		}
 		delete(r.issues, id)
 	}
-	return r.bulkDeleted, nil
+	return deleted, nil
 }
 func (r *webhookIssueRepo) BulkSetProject(context.Context, uuid.UUID, []uuid.UUID, *uuid.UUID, uuid.UUID) ([]domain.Issue, error) {
 	return nil, nil
@@ -348,6 +390,46 @@ func TestIssueWebhooksTriageSendsTriaged(t *testing.T) {
 	require.Len(t, f.sent.sent, 1)
 }
 
+func TestIssueWebhooksDeleteLostToAConcurrentDeleteSendsNothing(t *testing.T) {
+	f := newIssueWebhookFixture(t)
+	f.issue("ENG-1", nil)
+	f.issues.deleteErr = sql.ErrNoRows
+
+	err := f.svc.Delete(context.Background(), f.ws, f.actor, "ENG-1")
+	require.ErrorContains(t, err, "issue not found")
+	require.Empty(t, f.sent.sent, "a delete that removed nothing is not announced")
+}
+
+func TestIssueWebhooksTriageLostToAConcurrentTriageSendsNothing(t *testing.T) {
+	f := newIssueWebhookFixture(t)
+	issue := f.issue("ENG-1", nil)
+	issue.Triaged = false
+	f.issues.issues[issue.ID] = issue
+	f.issues.triagedFirst = true
+
+	_, err := f.svc.Triage(context.Background(), f.ws, f.actor, "ENG-1", false)
+	require.ErrorContains(t, err, "issue is already triaged")
+	require.Empty(t, f.sent.sent, "a lost triage is not announced")
+	require.Equal(t, issue.Status, f.issues.issues[issue.ID].Status, "the stored issue keeps the winner's status")
+}
+
+func TestIssueWebhooksTriageDeclineSendsOnlyTriaged(t *testing.T) {
+	f := newIssueWebhookFixture(t)
+	issue := f.issue("ENG-1", nil)
+	issue.Triaged = false
+	f.issues.issues[issue.ID] = issue
+
+	triaged, err := f.svc.Triage(context.Background(), f.ws, f.actor, "ENG-1", false)
+	require.NoError(t, err)
+
+	require.Equal(t, []string{WebhookEventIssueTriaged}, f.sent.events(), "the move to cancelled is part of the triage, not a separate update")
+	require.Equal(t, issue.ID, f.sent.sent[0].issue.ID)
+	require.Equal(t, domain.IssueStatusCancelled, f.sent.sent[0].issue.Status)
+	require.Equal(t, domain.IssueStatusCancelled, triaged.Status)
+	require.True(t, f.sent.sent[0].issue.Triaged)
+	require.Equal(t, f.actor, f.sent.sent[0].actor)
+}
+
 func TestIssueWebhooksBulkUpdateSendsOneEventPerChangedIssue(t *testing.T) {
 	f := newIssueWebhookFixture(t)
 	first, second, unchanged := f.issue("ENG-1", nil), f.issue("ENG-2", nil), f.issue("ENG-3", nil)
@@ -361,6 +443,7 @@ func TestIssueWebhooksBulkUpdateSendsOneEventPerChangedIssue(t *testing.T) {
 	require.Equal(t, 3, n)
 
 	require.Equal(t, []string{WebhookEventIssueUpdated, WebhookEventIssueUpdated}, f.sent.events())
+	require.Equal(t, 1, f.sent.batches, "one listing for the whole bulk update")
 	got := map[uuid.UUID]domain.Issue{}
 	for _, sent := range f.sent.sent {
 		require.Equal(t, f.actor, sent.actor)
@@ -394,7 +477,8 @@ func TestIssueWebhooksBulkDeleteSendsOneEventPerDeletedIssue(t *testing.T) {
 	require.Equal(t, 2, n)
 
 	require.Equal(t, []string{WebhookEventIssueDeleted, WebhookEventIssueDeleted}, f.sent.events())
-	require.Equal(t, "ENG-1", f.sent.sent[0].issue.Identifier, "the issue as loaded before deletion")
+	require.Equal(t, 1, f.sent.batches, "one listing for the whole bulk delete")
+	require.Equal(t, "ENG-1", f.sent.sent[0].issue.Identifier, "the row as it was when deleted")
 	require.Equal(t, "ENG-2", f.sent.sent[1].issue.Identifier)
 	for _, sent := range f.sent.sent {
 		require.Equal(t, f.actor, sent.actor)
@@ -428,6 +512,7 @@ func TestIssueWebhooksConvertToProjectUpdatesEveryMovedIssue(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, []string{WebhookEventIssueUpdated, WebhookEventIssueUpdated}, f.sent.events(), "the converted issue stays an issue")
+	require.Equal(t, 1, f.sent.batches, "one listing for the whole conversion")
 	got := map[uuid.UUID]domain.Issue{}
 	for _, sent := range f.sent.sent {
 		got[sent.issue.ID] = sent.issue

@@ -203,6 +203,11 @@ func TestWebhookPrivacyWorkspaceReceivesNothing(t *testing.T) {
 	f.svc.CommentCreated(ctx, ws, issue, &domain.Comment{ID: uuid.New(), IssueID: issue.ID, Body: "secret"}, owner)
 	f.svc.IssueEvent(context.Background(), ws, WebhookEventIssueDeleted, issue, uuid.Nil)
 	f.none()
+
+	require.Zero(t, f.svc.queue.dropped.Load(), "the precheck queued nothing")
+	f.svc.queue.mu.Lock()
+	require.Zero(t, f.svc.queue.queued)
+	f.svc.queue.mu.Unlock()
 }
 
 func TestWebhookIgnoresUnknownAndMisroutedEvents(t *testing.T) {
@@ -244,9 +249,15 @@ func TestWebhookManagementIsScopedAndValidatesEvents(t *testing.T) {
 	_, err = f.svc.Update(inA, legacy, dto.UpdateWebhookRequest{Events: []string{"cycle.completed"}})
 	require.ErrorContains(t, err, "unknown webhook event")
 
-	// A stored legacy name keeps the webhook editable.
+	// A stored legacy name keeps the webhook editable, also when a client
+	// sends the stored list back unchanged; a changed list is validated.
 	inactive := false
 	updated, err := f.svc.Update(inA, legacy, dto.UpdateWebhookRequest{IsActive: &inactive})
 	require.NoError(t, err)
 	require.Equal(t, []string{"project.updated"}, []string(updated.Events))
+	updated, err = f.svc.Update(inA, legacy, dto.UpdateWebhookRequest{Events: []string{"project.updated"}, IsActive: &inactive})
+	require.NoError(t, err)
+	require.Equal(t, []string{"project.updated"}, []string(updated.Events))
+	_, err = f.svc.Update(inA, legacy, dto.UpdateWebhookRequest{Events: []string{"project.updated", WebhookEventIssueCreated}})
+	require.ErrorContains(t, err, `unknown webhook event "project.updated"`)
 }

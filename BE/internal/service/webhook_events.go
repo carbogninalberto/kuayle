@@ -37,6 +37,10 @@ type webhookEmitter interface {
 	// issue.triaged. For issue.deleted, issue is the issue as it was just
 	// before deletion.
 	IssueEvent(ctx context.Context, workspaceID uuid.UUID, event string, issue *domain.Issue, actorID uuid.UUID)
+	// IssueEvents sends event for several issues of one workspace, listing
+	// the workspace's webhooks once. Bulk operations use it instead of a
+	// loop of IssueEvent calls.
+	IssueEvents(ctx context.Context, workspaceID uuid.UUID, event string, issues []domain.Issue, actorID uuid.UUID)
 	// CommentCreated sends comment.created for a comment on issue.
 	CommentCreated(ctx context.Context, workspaceID uuid.UUID, issue *domain.Issue, comment *domain.Comment, actorID uuid.UUID)
 }

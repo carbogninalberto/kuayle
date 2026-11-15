@@ -31,10 +31,10 @@ type WebhookEvent struct {
 // WebhookEvents lists the delivered events in display order. A test keeps the
 // names equal to the service's list.
 var WebhookEvents = []WebhookEvent{
-	{"issue.created", "An issue was created, including through the API, imports, templates and automation.", reflect.TypeFor[IssueEventDelivery]()},
-	{"issue.updated", "An issue changed: a field, its status, assignees, labels, project, parent or cycle, including bulk edits and automation. A bulk operation sends one delivery per issue.", reflect.TypeFor[IssueEventDelivery]()},
-	{"issue.deleted", "An issue was deleted. The payload holds the issue as it was just before deletion. A bulk delete sends one delivery per issue.", reflect.TypeFor[IssueEventDelivery]()},
-	{"issue.triaged", "An issue was accepted from triage.", reflect.TypeFor[IssueEventDelivery]()},
+	{"issue.created", "An issue was created, including sub-issues and duplicates. A workspace import does not send it.", reflect.TypeFor[IssueEventDelivery]()},
+	{"issue.updated", "An issue changed: a field, its status, assignees, labels, project, parent or cycle, including bulk edits, unfinished issues moved to the next cycle and automation. A bulk operation sends one delivery per issue. Changes the database makes by itself, such as clearing a deleted project, cycle or parent, send none.", reflect.TypeFor[IssueEventDelivery]()},
+	{"issue.deleted", "An issue was deleted. The payload holds the issue as it was when it was deleted. A bulk delete sends one delivery per issue; issues deleted with their team send none.", reflect.TypeFor[IssueEventDelivery]()},
+	{"issue.triaged", "An issue was accepted or declined from triage. Declining also moves it to cancelled: that is part of this event, not a separate issue.updated.", reflect.TypeFor[IssueEventDelivery]()},
 	{"comment.created", "A comment was posted on an issue. The payload holds the comment and the issue's id, identifier and team_id.", reflect.TypeFor[CommentEventDelivery]()},
 }
 

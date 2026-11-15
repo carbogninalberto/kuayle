@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -83,9 +83,10 @@ func (m *mockCycleRepo) GetNextUpcoming(ctx context.Context, teamID uuid.UUID) (
 	return args.Get(0).(*domain.Cycle), args.Error(1)
 }
 
-func (m *mockCycleRepo) CarryOverIssues(ctx context.Context, fromCycleID, toCycleID uuid.UUID) (int, error) {
+func (m *mockCycleRepo) CarryOverIssues(ctx context.Context, fromCycleID, toCycleID uuid.UUID) ([]domain.Issue, error) {
 	args := m.Called(ctx, fromCycleID, toCycleID)
-	return args.Int(0), args.Error(1)
+	moved, _ := args.Get(0).([]domain.Issue)
+	return moved, args.Error(1)
 }
 
 func (m *mockCycleRepo) VelocityData(ctx context.Context, teamID uuid.UUID, limit int) ([]dto.VelocityPoint, error) {

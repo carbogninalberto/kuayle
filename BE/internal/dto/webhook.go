@@ -7,15 +7,21 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
+// The event names below are those Kuayle delivers (service.WebhookEvents); a
+// test keeps them equal.
 type CreateWebhookRequest struct {
 	URL    string   `json:"url" validate:"required,url"`
 	Secret string   `json:"secret" validate:"required,min=8"`
-	Events []string `json:"events" validate:"required,min=1"`
+	Events []string `json:"events" validate:"required,min=1,dive,oneof=issue.created issue.updated issue.deleted issue.triaged comment.created"`
 }
 
+// UpdateWebhookRequest changes the fields it names. Events documents the
+// delivered names; the service also accepts the webhook's stored list sent
+// back unchanged, so a webhook saved with names Kuayle no longer delivers
+// stays editable.
 type UpdateWebhookRequest struct {
 	URL      *string  `json:"url" validate:"omitempty,url"`
-	Events   []string `json:"events"`
+	Events   []string `json:"events" validate:"omitempty,dive,oneof=issue.created issue.updated issue.deleted issue.triaged comment.created"`
 	IsActive *bool    `json:"is_active"`
 }
 

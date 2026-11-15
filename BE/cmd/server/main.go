@@ -130,6 +130,7 @@ func main() {
 	templateSvc := service.NewIssueTemplateService(templateRepo)
 	viewSvc := service.NewViewService(viewRepo, hub)
 	cycleSvc := service.NewCycleService(cycleRepo, teamRepo, hub, notifSvc)
+	cycleSvc.SetWebhooks(webhookSvc)
 	teamStatusSvc := service.NewTeamStatusService(teamStatusRepo, visibilityRepo)
 	favSvc := service.NewFavoriteService(favRepo)
 	prefsSvc := service.NewPreferencesService(prefsRepo)

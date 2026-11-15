@@ -75,9 +75,13 @@ writes real data, so point it at a development instance.
 ## Known limits
 
 - Webhooks deliver `issue.created`, `issue.updated`, `issue.deleted`,
-  `issue.triaged` and `comment.created` once, without retries, and are disabled
-  for workspaces that have or had a private team. Other changes (projects,
-  cycles, wiki pages) do not emit events.
+  `issue.triaged` and `comment.created` at most once: a delivery is not
+  retried, and is dropped when the bounded delivery queue is full or it waited
+  five minutes. They are disabled for workspaces that have or had a private
+  team. Other changes (projects, cycles, wiki pages), changes the database
+  makes by itself (clearing a deleted parent, project or cycle, deleting a
+  team's issues, rewriting identifiers after a team key rename) and workspace
+  import do not emit events.
 - `per_page` above 100 on the issue list is outside the documented contract but
   is not rejected by the server today.
 - Authenticated routes have no application-level rate limit.

@@ -77,6 +77,10 @@ func (r *testIssueRepo) UpdateContent(ctx context.Context, issue *domain.Issue, 
 	return r.Update(ctx, issue)
 }
 
+func (r *testIssueRepo) UpdateUntriaged(ctx context.Context, issue *domain.Issue) error {
+	return r.Update(ctx, issue)
+}
+
 func (r *testIssueRepo) Delete(_ context.Context, id uuid.UUID) error {
 	for k, issue := range r.issues {
 		if issue.ID == id {
@@ -169,7 +173,7 @@ func (r *testIssueRepo) BulkUpdateChanged(_ context.Context, _ uuid.UUID, _ []uu
 	return 0, nil, nil
 }
 
-func (r *testIssueRepo) BulkDeleteReturning(_ context.Context, _ uuid.UUID, _ []uuid.UUID) ([]uuid.UUID, error) {
+func (r *testIssueRepo) BulkDeleteReturning(_ context.Context, _ uuid.UUID, _ []uuid.UUID) ([]domain.Issue, error) {
 	return nil, nil
 }
 

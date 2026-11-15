@@ -27,13 +27,13 @@ func (r *IssueRepository) Create(ctx context.Context, tx *sqlx.Tx, issue *domain
 	query := `
 		INSERT INTO issues (id, workspace_id, team_id, project_id, cycle_id, number, identifier_text, title, description, status, status_id, priority, creator_id, assignee_id, parent_id, due_date, sort_order, triaged)
 		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18 WHERE ` + issueReferencesVisible(ctx, issue) + `
-		RETURNING created_at, updated_at`
+		RETURNING created_at, updated_at, started_at, completed_at, cancelled_at, triaged_at`
 	return tx.QueryRowContext(ctx, query,
 		issue.ID, issue.WorkspaceID, issue.TeamID, issue.ProjectID, issue.CycleID,
 		issue.Number, issue.Identifier, issue.Title, issue.Description,
 		issue.Status, issue.StatusID, issue.Priority, issue.CreatorID, issue.AssigneeID,
 		issue.ParentID, issue.DueDate, issue.SortOrder, issue.Triaged,
-	).Scan(&issue.CreatedAt, &issue.UpdatedAt)
+	).Scan(&issue.CreatedAt, &issue.UpdatedAt, &issue.StartedAt, &issue.CompletedAt, &issue.CancelledAt, &issue.TriagedAt)
 }
 
 func (r *IssueRepository) NextNumber(ctx context.Context, tx *sqlx.Tx, teamID uuid.UUID) (int, error) {
@@ -407,6 +407,22 @@ func (r *IssueRepository) Update(ctx context.Context, issue *domain.Issue) error
 
 // UpdateContent writes only the content fields explicitly changed by the editor.
 func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue, titleChanged, descriptionChanged bool) error {
+	return r.updateIssue(ctx, issue, titleChanged, descriptionChanged, false)
+}
+
+// UpdateUntriaged is Update for a triage decision: it writes only while the
+// stored issue is still untriaged and returns ErrIssueAlreadyTriaged when a
+// concurrent request triaged it first.
+func (r *IssueRepository) UpdateUntriaged(ctx context.Context, issue *domain.Issue) error {
+	return r.updateIssue(ctx, issue, false, false, true)
+}
+
+// ErrIssueAlreadyTriaged is returned when a triage decision loses the race
+// against another one: the stored issue is already triaged and nothing was
+// written.
+var ErrIssueAlreadyTriaged = errors.New("issue is already triaged")
+
+func (r *IssueRepository) updateIssue(ctx context.Context, issue *domain.Issue, titleChanged, descriptionChanged, untriagedOnly bool) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
@@ -433,6 +449,12 @@ func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue
 	if _, err = tx.ExecContext(ctx, `SELECT set_config('kuayle.history_agent', $1, true)`, agentValue); err != nil {
 		return err
 	}
+	where := `WHERE id = $13 AND ` + teamVisible(ctx, "issues.team_id") + " AND " + issueReferencesVisible(ctx, issue)
+	if untriagedOnly {
+		// A triage decision writes only while the stored issue is untriaged:
+		// a concurrent decline already moved it, and this one must not.
+		where += " AND issues.triaged = FALSE"
+	}
 	query := `
 		UPDATE issues SET
 			title = CASE WHEN $14 THEN $1 ELSE title END,
@@ -440,15 +462,24 @@ func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue
 			assignee_id = $5, project_id = $6, cycle_id = $7, parent_id = $8,
 			due_date = $9, sort_order = $10, triaged = $11,
 			status_id = $12, updated_at = NOW()
-		WHERE id = $13 AND ` + teamVisible(ctx, "issues.team_id") + " AND " + issueReferencesVisible(ctx, issue) + `
-		RETURNING title, description, updated_at`
+		` + where + `
+		RETURNING title, description, updated_at, started_at, completed_at, cancelled_at, triaged_at`
 	err = tx.QueryRowContext(ctx, query,
 		issue.Title, issue.Description, issue.Status, issue.Priority,
 		issue.AssigneeID, issue.ProjectID, issue.CycleID, issue.ParentID,
 		issue.DueDate, issue.SortOrder, issue.Triaged,
 		issue.StatusID, issue.ID, titleChanged, descriptionChanged,
-	).Scan(&issue.Title, &issue.Description, &issue.UpdatedAt)
+	).Scan(&issue.Title, &issue.Description, &issue.UpdatedAt, &issue.StartedAt, &issue.CompletedAt, &issue.CancelledAt, &issue.TriagedAt)
 	if err != nil {
+		if untriagedOnly && errors.Is(err, sql.ErrNoRows) {
+			// Roll back before reading: nothing was written, and the read has
+			// to see the triage that won the race.
+			_ = tx.Rollback()
+			var triaged bool
+			if readErr := r.db.GetContext(ctx, &triaged, `SELECT triaged FROM issues WHERE id = $1 AND `+teamVisible(ctx, "issues.team_id"), issue.ID); readErr == nil && triaged {
+				return ErrIssueAlreadyTriaged
+			}
+		}
 		return err
 	}
 	// The UPDATE above holds the issue row lock until commit, so a concurrent
@@ -462,9 +493,22 @@ func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue
 	return tx.Commit()
 }
 
+// Delete removes the issue and reports sql.ErrNoRows when nothing was deleted:
+// it was already deleted (e.g. by a concurrent request), or it is not visible
+// to the caller.
 func (r *IssueRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM issues WHERE id = $1 AND `+teamVisible(ctx, "issues.team_id"), id)
-	return err
+	result, err := r.db.ExecContext(ctx, `DELETE FROM issues WHERE id = $1 AND `+teamVisible(ctx, "issues.team_id"), id)
+	if err != nil {
+		return err
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if deleted == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labelIDs []uuid.UUID) error {
@@ -713,9 +757,9 @@ func (r *IssueRepository) BulkDelete(ctx context.Context, workspaceID uuid.UUID,
 	return len(deleted), err
 }
 
-// BulkDeleteReturning is BulkDelete that returns the IDs of the issues it
-// deleted.
-func (r *IssueRepository) BulkDeleteReturning(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) ([]uuid.UUID, error) {
+// BulkDeleteReturning is BulkDelete that returns the issues it deleted, as
+// they were when deleted.
+func (r *IssueRepository) BulkDeleteReturning(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) ([]domain.Issue, error) {
 	if len(issueIDs) == 0 {
 		return nil, nil
 	}
@@ -725,8 +769,8 @@ func (r *IssueRepository) BulkDeleteReturning(ctx context.Context, workspaceID u
 		placeholders[i] = fmt.Sprintf("$%d", i+2)
 		args = append(args, id)
 	}
-	query := fmt.Sprintf(`DELETE FROM issues WHERE workspace_id = $1 AND id IN (%s) AND `+teamVisible(ctx, "issues.team_id")+` RETURNING id`, strings.Join(placeholders, ", "))
-	var deleted []uuid.UUID
+	query := fmt.Sprintf(`DELETE FROM issues WHERE workspace_id = $1 AND id IN (%s) AND `+teamVisible(ctx, "issues.team_id")+` RETURNING *`, strings.Join(placeholders, ", "))
+	var deleted []domain.Issue
 	if err := r.db.SelectContext(ctx, &deleted, query, args...); err != nil {
 		return nil, err
 	}

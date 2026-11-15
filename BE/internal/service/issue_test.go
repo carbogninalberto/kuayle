@@ -62,6 +62,11 @@ func (m *mockIssueRepo) UpdateContent(ctx context.Context, issue *domain.Issue, 
 	return args.Error(0)
 }
 
+func (m *mockIssueRepo) UpdateUntriaged(ctx context.Context, issue *domain.Issue) error {
+	args := m.Called(ctx, issue)
+	return args.Error(0)
+}
+
 func (m *mockIssueRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
@@ -123,9 +128,9 @@ func (m *mockIssueRepo) BulkUpdateChanged(ctx context.Context, workspaceID uuid.
 	return args.Int(0), changed, args.Error(2)
 }
 
-func (m *mockIssueRepo) BulkDeleteReturning(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) ([]uuid.UUID, error) {
+func (m *mockIssueRepo) BulkDeleteReturning(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) ([]domain.Issue, error) {
 	args := m.Called(ctx, workspaceID, issueIDs)
-	deleted, _ := args.Get(0).([]uuid.UUID)
+	deleted, _ := args.Get(0).([]domain.Issue)
 	return deleted, args.Error(1)
 }
 

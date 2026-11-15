@@ -124,6 +124,10 @@ type IssueRepo interface {
 	List(ctx context.Context, workspaceID uuid.UUID, params dto.IssueFilterParams) ([]domain.Issue, int, error)
 	Update(ctx context.Context, issue *domain.Issue) error
 	UpdateContent(ctx context.Context, issue *domain.Issue, titleChanged, descriptionChanged bool) error
+	// UpdateUntriaged is Update for a triage decision: it writes only while the
+	// stored issue is still untriaged and returns ErrIssueAlreadyTriaged when a
+	// concurrent request triaged it first.
+	UpdateUntriaged(ctx context.Context, issue *domain.Issue) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	SetLabels(ctx context.Context, issueID uuid.UUID, labelIDs []uuid.UUID) error
 	ValidateLabelScope(ctx context.Context, projectID *uuid.UUID, labelIDs []uuid.UUID) error
@@ -141,8 +145,8 @@ type IssueRepo interface {
 	// BulkUpdateChanged also returns the issues whose written fields changed.
 	BulkUpdateChanged(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID, cycleID *uuid.UUID, cycleSet bool) (int, []domain.Issue, error)
 	BulkDelete(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) (int, error)
-	// BulkDeleteReturning returns the IDs of the deleted issues.
-	BulkDeleteReturning(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) ([]uuid.UUID, error)
+	// BulkDeleteReturning returns the deleted issues, as they were when deleted.
+	BulkDeleteReturning(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) ([]domain.Issue, error)
 	BulkSetProject(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, projectID *uuid.UUID, actorID uuid.UUID) ([]domain.Issue, error)
 	BulkSetParent(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, parentID *uuid.UUID, actorID uuid.UUID) ([]domain.Issue, error)
 	BeginTx(ctx context.Context) (*sqlx.Tx, error)
@@ -218,7 +222,9 @@ type CycleRepo interface {
 	ExistsByName(ctx context.Context, teamID uuid.UUID, name string) (bool, error)
 	HasOverlap(ctx context.Context, teamID uuid.UUID, startDate, endDate time.Time, excludeID *uuid.UUID) (bool, error)
 	GetNextUpcoming(ctx context.Context, teamID uuid.UUID) (*domain.Cycle, error)
-	CarryOverIssues(ctx context.Context, fromCycleID, toCycleID uuid.UUID) (int, error)
+	// CarryOverIssues moves the cycle's unfinished issues to toCycleID and
+	// returns them as they were after the move.
+	CarryOverIssues(ctx context.Context, fromCycleID, toCycleID uuid.UUID) ([]domain.Issue, error)
 	VelocityData(ctx context.Context, teamID uuid.UUID, limit int) ([]dto.VelocityPoint, error)
 }
 

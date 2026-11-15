@@ -24,3 +24,25 @@ func TestDocumentedWebhookEventsMatchDeliveredEvents(t *testing.T) {
 	}
 	require.ElementsMatch(t, service.WebhookEvents, names)
 }
+
+// Creating and updating a webhook document the delivered event names as the
+// only values of events.
+func TestWebhookRequestsDocumentDeliveredEventNames(t *testing.T) {
+	built, err := Build()
+	require.NoError(t, err)
+	var doc struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]struct {
+					Items struct {
+						Enum []string `json:"enum"`
+					} `json:"items"`
+				} `json:"properties"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	require.NoError(t, json.Unmarshal(built, &doc))
+	for _, name := range []string{"CreateWebhookRequest", "UpdateWebhookRequest"} {
+		require.Equal(t, service.WebhookEvents, doc.Components.Schemas[name].Properties["events"].Items.Enum, name)
+	}
+}
