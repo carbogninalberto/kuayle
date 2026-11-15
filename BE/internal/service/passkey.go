@@ -380,6 +380,12 @@ func (s *PasskeyService) FinishLogin(ctx context.Context, handle string, credent
 	if !used {
 		return nil, "", "", rejected(ErrPasskeyUnknownCredential, "passkey was removed or used concurrently during sign-in")
 	}
+	// A passwordless account can still be blocked from passkey sign-in when a
+	// workspace requires SSO; the credential is verified by now, so this can
+	// only reveal a policy, not whether an account exists.
+	if err := s.auth.RejectPasswordSignIn(ctx, user.ID); err != nil {
+		return nil, "", "", err
+	}
 	accessToken, refreshToken, err := s.auth.issueSession(ctx, user.ID, s.now(), &stored.ID)
 	if err != nil {
 		// The session references the passkey; it cannot be stored once the

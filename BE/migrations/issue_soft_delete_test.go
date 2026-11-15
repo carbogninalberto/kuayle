@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Migration 160 turns issues into a view over issue_records that hides
+// Migration 165 turns issues into a view over issue_records that hides
 // soft-deleted rows. Existing rows survive, writes through the view keep
 // working with their triggers, every update advances the version, and a
 // rollback purges only the soft-deleted rows.
@@ -43,12 +43,12 @@ func TestIssueSoftDeleteMigration(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	fixture := insertBaseMigrationFixture(t, db)
-	require.NoError(t, m.Migrate(159))
+	require.NoError(t, m.Migrate(164))
 	var commentID uuid.UUID
 	require.NoError(t, db.QueryRow(`INSERT INTO comments(issue_id,user_id,body) VALUES($1,$2,'kept') RETURNING id`,
 		fixture.issueA, fixture.userA).Scan(&commentID))
 
-	require.NoError(t, m.Migrate(160))
+	require.NoError(t, m.Migrate(165))
 
 	var title string
 	var version int64
@@ -100,7 +100,7 @@ func TestIssueSoftDeleteMigration(t *testing.T) {
 	require.Equal(t, 1, visible)
 
 	// Rolling back purges soft-deleted rows only.
-	require.NoError(t, m.Migrate(159))
+	require.NoError(t, m.Migrate(164))
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM issues WHERE id IN ($1,$2)`, fixture.issueA, inserted).Scan(&visible))
 	require.Equal(t, 1, visible)
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM comments WHERE id=$1`, commentID).Scan(&visible))
@@ -111,7 +111,7 @@ func TestIssueSoftDeleteMigration(t *testing.T) {
 	_, err = db.Exec(`UPDATE issues SET team_id=$1 WHERE id=$2`, fixture.teamB, inserted)
 	require.ErrorContains(t, err, "private-team boundary", "rollback restores the guards")
 
-	require.NoError(t, m.Migrate(160), "the migration re-applies cleanly")
+	require.NoError(t, m.Migrate(165), "the migration re-applies cleanly")
 	require.NoError(t, db.QueryRow(`SELECT version FROM issues WHERE id=$1`, inserted).Scan(&version))
 	require.EqualValues(t, 1, version)
 }

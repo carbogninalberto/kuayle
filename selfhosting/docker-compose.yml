@@ -63,6 +63,7 @@ services:
         condition: service_healthy
     volumes:
       - uploads:/app/uploads
+      - backups:/app/backups
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-kuayle}:${POSTGRES_PASSWORD:-kuayle}@postgres:5432/${POSTGRES_DB:-kuayle}?sslmode=disable
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
@@ -80,7 +81,18 @@ services:
       SMTP_FROM: ${SMTP_FROM:-}
       AI_ALLOW_PRIVATE_NETWORK: ${AI_ALLOW_PRIVATE_NETWORK:-false}
       FORGE_ALLOW_PRIVATE_NETWORK: ${FORGE_ALLOW_PRIVATE_NETWORK:-false}
+      OIDC_ALLOW_PRIVATE_NETWORK: ${OIDC_ALLOW_PRIVATE_NETWORK:-false}
+      SSO_OIDC_WORKSPACE_SLUG: ${SSO_OIDC_WORKSPACE_SLUG:-}
+      SSO_OIDC_ISSUER: ${SSO_OIDC_ISSUER:-}
+      SSO_OIDC_CLIENT_ID: ${SSO_OIDC_CLIENT_ID:-}
+      SSO_OIDC_CLIENT_SECRET: ${SSO_OIDC_CLIENT_SECRET:-}
+      SSO_OIDC_ALLOWED_DOMAINS: ${SSO_OIDC_ALLOWED_DOMAINS:-}
+      SSO_OIDC_DEFAULT_ROLE: ${SSO_OIDC_DEFAULT_ROLE:-member}
+      SSO_OIDC_REQUIRE_SSO: ${SSO_OIDC_REQUIRE_SSO:-false}
       FORGE_WEBHOOK_BASE_URL: ${FORGE_WEBHOOK_BASE_URL:-}
+      BACKUP_DIR: /app/backups
+      BACKUP_TIMEOUT: ${BACKUP_TIMEOUT:-2h}
+      BACKUP_S3_ALLOW_PRIVATE_NETWORK: ${BACKUP_S3_ALLOW_PRIVATE_NETWORK:-false}
       FRONTEND_URL: ${FRONTEND_URL:-https://localhost}
       SYSADMINS: ${SYSADMINS:-}
       PUBLIC_DEMO_MODE: ${PUBLIC_DEMO_MODE:-false}
@@ -237,6 +249,8 @@ services:
       context: ../BE
       dockerfile: Dockerfile.machine-manager
     restart: unless-stopped
+    # At least 60s longer than DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS (90 by default), so cleanups finish after the drain; agent runs and checks keep running across a restart.
+    stop_grace_period: 150s
     depends_on:
       postgres:
         condition: service_healthy
@@ -302,6 +316,7 @@ services:
       DEV_MACHINE_SWAP_PERCENT: ${DEV_MACHINE_SWAP_PERCENT:-50}
       DEV_MACHINE_AGENT_CLI_REFRESH_HOURS: ${DEV_MACHINE_AGENT_CLI_REFRESH_HOURS:-6}
       DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS: ${DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS:-48}
+      DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS: ${DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS:-90}
       DEV_MACHINE_IDE_IMAGE: ${DEV_MACHINE_IDE_IMAGE:-kuayle/dev-machine-ide:0.1.0}
       DEV_MACHINE_HEADLESS_IMAGE: ${DEV_MACHINE_HEADLESS_IMAGE:-kuayle/dev-machine-headless:0.1.0}
       DEV_MACHINE_BROWSER_IMAGE: ${DEV_MACHINE_BROWSER_IMAGE:-kuayle/dev-machine-browser:0.1.0}
@@ -492,6 +507,7 @@ services:
 volumes:
   pgdata:
   uploads:
+  backups:
   caddy_data:
   caddy_config:
   voice_models:

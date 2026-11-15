@@ -1133,6 +1133,9 @@
 					},
 					"message": {
 						"type": "string"
+					},
+					"workspace_slug": {
+						"type": "string"
 					}
 				},
 				"required": [
@@ -2627,6 +2630,9 @@
 					},
 					"name": {
 						"type": "string"
+					},
+					"sso_workspace_slug": {
+						"type": "string"
 					}
 				},
 				"required": [
@@ -2635,7 +2641,8 @@
 					"name",
 					"display_name",
 					"avatar_url",
-					"is_sysadmin"
+					"is_sysadmin",
+					"sso_workspace_slug"
 				],
 				"type": "object"
 			},

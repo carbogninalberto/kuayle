@@ -20,3 +20,17 @@ type Backend interface {
 	// URL returns an accessible URL for the given key.
 	URL(ctx context.Context, key string) (string, error)
 }
+
+// Object is one stored object returned by Lister.
+type Object struct {
+	Key  string
+	Size int64
+	ETag string
+}
+
+// Lister is implemented by backends that can enumerate their objects; the
+// S3 backend does. Backups use it to record which uploads exist when they
+// live in object storage.
+type Lister interface {
+	List(ctx context.Context, prefix string) ([]Object, error)
+}

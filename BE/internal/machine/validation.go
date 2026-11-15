@@ -77,7 +77,7 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 		defer done()
 		return m.store.CreateValidationOutput(writeCtx, *op, &domain.DevMachineLogChunk{WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceID: &step.ID, Stream: stream, Sequence: sequence, SourceKey: source, Content: content, Truncated: truncated})
 	})
-	observer := &AgentObserver{Authorize: func() error { _, err := m.store.GetValidation(runCtx, *op); return err }, Started: func(id string) error { return m.store.StartValidation(runCtx, *op, id) }, Output: output.WriteDocker}
+	observer := &AgentObserver{Authorize: func() error { _, err := m.store.GetValidation(runCtx, *op); return err }, Started: func(id string) error { return m.store.StartValidation(runCtx, *op, id) }, Output: output.WriteDocker, Detach: m.detach}
 	// Every command runs, in order and each in its own container, so the
 	// result shows each one's outcome; the first failure decides the exit code.
 	commands := step.CheckCommands()
@@ -95,6 +95,10 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 	var execution *AgentExecution
 	var execErr error
 	for index, argv := range commands {
+		if m.shuttingDown() {
+			// A stopping manager starts no check container: the next manager runs or re-adopts this command.
+			return errManagerShutdown
+		}
 		// Deterministic notes, so a replay stores the same output; the first
 		// is written once the check runs (output needs a running step).
 		if index > 0 {
@@ -103,6 +107,12 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 			}
 		}
 		execution, execErr = m.runtime.RunValidation(runCtx, machine, run, step, index, checkout, image, observer)
+		if errors.Is(execErr, ErrAgentDetached) || (execErr != nil && errors.Is(context.Cause(ctx), errManagerShutdown)) {
+			// The check keeps running for the next manager, which re-adopts its
+			// container; its deadline counts from step.StartedAt. Its compose
+			// services stay for it: this returns before their cleanup is deferred.
+			return errManagerShutdown
+		}
 		if memoryLimit := m.recordRunMemoryLimit(ctx, machine, run, "validation", execution); memoryLimit != "" && execErr == nil {
 			writeKuayleNote(output, run.ID, memoryLimit)
 		}

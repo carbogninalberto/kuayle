@@ -24,6 +24,7 @@
 	import MachineStatusBadge from '$lib/features/dev-machines/MachineStatusBadge.svelte';
 	import MachineTasksCard from '$lib/features/dev-machines/MachineTasksCard.svelte';
 	import AppPortsCard from '$lib/features/dev-machines/AppPortsCard.svelte';
+	import EnvironmentStatusCard from '$lib/features/dev-machines/EnvironmentStatusCard.svelte';
 	import MachineResizeDialog from '$lib/features/dev-machines/MachineResizeDialog.svelte';
 	import MachineUsageCharts from '$lib/features/dev-machines/MachineUsageCharts.svelte';
 	import RecentList from '$lib/features/dev-machines/RecentList.svelte';
@@ -629,6 +630,7 @@
 							diskLimitLabel={policy?.disk_quota_mode === 'monitored' ? m['machines.monitored_limit']({ disk: machine.disk_gb }) : m['machines.hard_limit']({ disk: machine.disk_gb })}
 							diskNearLimit={diskUsageNearLimit}
 						/>
+						<EnvironmentStatusCard {slug} {machineId} running={machine.status === 'running'} canManage={!machine.created_by_user_id || machine.created_by_user_id === authState.user?.id} />
 						<Card.Root>
 							<Card.Header>
 								<Card.Title class="flex items-center gap-2 text-sm"><SquareTerminal class="size-4 text-muted-foreground" aria-hidden="true" />{m['machines.developer_environment']()}</Card.Title>

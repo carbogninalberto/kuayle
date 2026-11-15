@@ -31,11 +31,11 @@ func NewCLILinkRepository(db *sqlx.DB) *CLILinkRepository {
 
 func (r *CLILinkRepository) Create(ctx context.Context, link *domain.CLIConnectionLink) error {
 	query := `INSERT INTO cli_connection_links
-		(id, user_id, name, code_hash, code_prefix, scopes, workspace_slugs, token_expires_at, expires_at, max_uses)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING uses, created_at`
+		(id, user_id, name, code_hash, code_prefix, scopes, workspace_slugs, token_expires_at, expires_at, max_uses, sso_workspace_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING uses, created_at`
 	return r.db.QueryRowContext(ctx, query,
 		link.ID, link.UserID, link.Name, link.CodeHash, link.CodePrefix,
-		link.Scopes, link.WorkspaceSlugs, link.TokenExpiresAt, link.ExpiresAt, link.MaxUses,
+		link.Scopes, link.WorkspaceSlugs, link.TokenExpiresAt, link.ExpiresAt, link.MaxUses, link.SSOWorkspaceID,
 	).Scan(&link.Uses, &link.CreatedAt)
 }
 
@@ -108,10 +108,10 @@ func (r *CLILinkRepository) Redeem(ctx context.Context, codeHash string, build f
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO personal_access_tokens
-		(id, user_id, name, token_hash, token_prefix, scopes, workspace_slugs, expires_at, connection_link_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		(id, user_id, name, token_hash, token_prefix, scopes, workspace_slugs, expires_at, connection_link_id, sso_workspace_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		token.ID, token.UserID, token.Name, token.TokenHash, token.TokenPrefix,
-		token.Scopes, token.WorkspaceSlugs, token.ExpiresAt, token.ConnectionLinkID); err != nil {
+		token.Scopes, token.WorkspaceSlugs, token.ExpiresAt, token.ConnectionLinkID, token.SSOWorkspaceID); err != nil {
 		return nil, err
 	}
 	return token, tx.Commit()

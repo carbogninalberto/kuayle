@@ -25,7 +25,27 @@ var (
 	ErrInvalidToken         = errors.New("invalid or expired token")
 	ErrWeakPassword         = errors.New("password must contain at least one uppercase letter, one lowercase letter, and one digit")
 	ErrRegistrationDisabled = errors.New("public registration is disabled")
+	// ErrSSORequired: every workspace the account belongs to requires SSO and
+	// the account owns none of them, so password and passkey sign-in is refused.
+	ErrSSORequired = errors.New("this account must sign in with SSO")
 )
+
+// SSORequiredError names a workspace to start the SSO flow from. It unwraps to
+// ErrSSORequired so handlers can map it to 403 SSO_REQUIRED.
+type SSORequiredError struct {
+	WorkspaceSlug string
+}
+
+func (e *SSORequiredError) Error() string { return ErrSSORequired.Error() }
+
+func (e *SSORequiredError) Unwrap() error { return ErrSSORequired }
+
+// SSOEnforcer answers whether an account may sign in with a password or
+// passkey. Implemented by SSOService and attached after construction so the
+// auth service does not depend on the SSO repository.
+type SSOEnforcer interface {
+	UserSSORequired(ctx context.Context, userID uuid.UUID) (workspaceSlug string, required bool, err error)
+}
 
 // InviteRedeemer validates and consumes workspace invite links during
 // registration. Implemented by InviteLinkService.
@@ -57,7 +77,11 @@ type AuthService struct {
 	frontendURL         string
 	logResetLinks       bool
 	async               func(func()) // test hook; nil runs in a goroutine
+	sso                 SSOEnforcer
 }
+
+// SetSSOEnforcer enables the per-workspace require-SSO sign-in check.
+func (s *AuthService) SetSSOEnforcer(enforcer SSOEnforcer) { s.sso = enforcer }
 
 func NewAuthService(userRepo repository.UserRepo, refreshRepo repository.RefreshTokenRepo, jwtSecret string, opts ...AuthServiceOption) *AuthService {
 	s := &AuthService{userRepo: userRepo, refreshRepo: refreshRepo, jwtSecret: jwtSecret}
@@ -141,6 +165,12 @@ func (s *AuthService) Login(ctx context.Context, req dto.LoginRequest) (*domain.
 		return nil, "", "", ErrInvalidCredentials
 	}
 
+	// Only after the password is verified, so the check cannot reveal which
+	// accounts exist.
+	if err := s.RejectPasswordSignIn(ctx, user.ID); err != nil {
+		return nil, "", "", err
+	}
+
 	accessToken, refreshToken, err := s.issueSession(ctx, user.ID, time.Now(), nil)
 	if err != nil {
 		return nil, "", "", err
@@ -170,15 +200,47 @@ func (s *AuthService) RefreshTokens(ctx context.Context, refreshToken string) (s
 	if rt.AuthenticatedAt != nil {
 		authenticatedAt = *rt.AuthenticatedAt
 	}
-	return s.issueSession(ctx, claims.UserID, authenticatedAt, rt.PasskeyCredentialID)
+	return s.issueSessionFor(ctx, claims.UserID, authenticatedAt, rt.PasskeyCredentialID, rt.SSOWorkspaceID)
+}
+
+// RejectPasswordSignIn refuses a verified password or passkey sign-in when
+// every workspace the account belongs to requires SSO and the account owns
+// none of them. Owners keep the break-glass password path.
+func (s *AuthService) RejectPasswordSignIn(ctx context.Context, userID uuid.UUID) error {
+	if s.sso == nil {
+		return nil
+	}
+	slug, required, err := s.sso.UserSSORequired(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if required {
+		return &SSORequiredError{WorkspaceSlug: slug}
+	}
+	return nil
+}
+
+// IssueSSOSession mints a session that records the workspace whose SSO the
+// user signed in through.
+func (s *AuthService) IssueSSOSession(ctx context.Context, userID, workspaceID uuid.UUID) (string, string, error) {
+	return s.issueSessionFor(ctx, userID, time.Now(), nil, &workspaceID)
 }
 
 // issueSession mints the access and refresh tokens of a session and stores the
 // refresh token. Every sign-in path and refresh rotation goes through it.
-// authenticatedAt is when the user proved who they are (zero when unknown) and
-// passkeyID the passkey that did so, if any.
+// authenticatedAt is when the user proved who they are (zero when unknown),
+// passkeyID the passkey that did so, if any, and ssoWorkspaceID the workspace
+// whose SSO minted the session, if any.
 func (s *AuthService) issueSession(ctx context.Context, userID uuid.UUID, authenticatedAt time.Time, passkeyID *uuid.UUID) (string, string, error) {
-	accessToken, err := jwtpkg.GenerateSessionAccessToken(userID, s.jwtSecret, jwtpkg.Session{AuthenticatedAt: authenticatedAt, PasskeyID: passkeyID})
+	return s.issueSessionFor(ctx, userID, authenticatedAt, passkeyID, nil)
+}
+
+func (s *AuthService) issueSessionFor(ctx context.Context, userID uuid.UUID, authenticatedAt time.Time, passkeyID, ssoWorkspaceID *uuid.UUID) (string, string, error) {
+	accessToken, err := jwtpkg.GenerateSessionAccessToken(userID, s.jwtSecret, jwtpkg.Session{
+		AuthenticatedAt: authenticatedAt,
+		PasskeyID:       passkeyID,
+		SSOWorkspaceID:  ssoWorkspaceID,
+	})
 	if err != nil {
 		return "", "", err
 	}
@@ -194,6 +256,7 @@ func (s *AuthService) issueSession(ctx context.Context, userID uuid.UUID, authen
 		TokenHash:           hashToken(refreshToken),
 		ExpiresAt:           expiresAt,
 		PasskeyCredentialID: passkeyID,
+		SSOWorkspaceID:      ssoWorkspaceID,
 	}
 	if !authenticatedAt.IsZero() {
 		rt.AuthenticatedAt = &authenticatedAt

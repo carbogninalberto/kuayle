@@ -65,7 +65,7 @@ func TestTaskWorkflowHTTPReturnsRunsToTheCreatorOnly(t *testing.T) {
 
 	secret := "task-timeline-jwt-secret-with-at-least-32-characters"
 	middleware := testMiddleware(mw.Auth(secret, repository.NewPersonalAccessTokenRepository(db)))
-	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db))
+	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db), mw.SSONotEnforced)
 	middleware.devMachineDemoGuard = mw.DevMachineDemoGuard(func(uuid.UUID) bool { return true })
 	registry := agent.NewRegistry(agent.NewCodexProvider("test"))
 	machineSvc := service.NewDevMachineService(repository.NewDevMachineRepository(db), registry, true, "machines.test.invalid", make([]byte, 32), time.Minute, service.DevMachineImages{})

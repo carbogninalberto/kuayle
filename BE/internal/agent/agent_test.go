@@ -227,6 +227,19 @@ func TestOpenCodeProviderBuildInvocation(t *testing.T) {
 	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--", "fix bug"}, inv.Argv)
 	require.Equal(t, "/workspace", inv.WorkingDir)
 	require.False(t, inv.Interactive)
+	// An unattended run never undoes an edit, so it starts with OpenCode's git
+	// snapshots off; the inline configuration is merged over the project's file.
+	require.Equal(t, map[string]string{"OPENCODE_CONFIG_CONTENT": `{"snapshot":false}`}, inv.Environment)
+}
+
+// The terminal is the user's own session, where undo works: it keeps
+// OpenCode's snapshots.
+func TestOpenCodeInteractiveSessionKeepsSnapshots(t *testing.T) {
+	p := NewOpenCodeProvider("")
+	inv, err := p.BuildInvocation(RunInput{Mode: ModeInteractive, Prompt: "fix bug"})
+	require.NoError(t, err)
+	require.True(t, inv.Interactive)
+	require.NotContains(t, inv.Environment, "OPENCODE_CONFIG_CONTENT")
 	require.Empty(t, inv.Environment)
 }
 

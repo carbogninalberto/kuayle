@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -40,6 +41,10 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "migrate" {
 		runMigrate(os.Args[2:])
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "backup" {
+		runBackupCommand(os.Args[2:])
 		return
 	}
 
@@ -82,6 +87,7 @@ func main() {
 	aiSettingsRepo := repository.NewAISettingsRepository(db)
 	inviteLinkRepo := repository.NewWorkspaceInviteLinkRepository(db)
 	cliLinkRepo := repository.NewCLILinkRepository(db)
+	ssoRepo := repository.NewSSORepository(db)
 
 	// Dev Machine control-plane store
 	devMachineRepo := repository.NewDevMachineRepository(db)
@@ -93,6 +99,25 @@ func main() {
 		service.WithInviteRedeemer(inviteLinkSvc),
 		service.WithPasswordReset(repository.NewPasswordResetRepository(db), resetMailer(cfg), cfg.FrontendURL, cfg.Environment == "development"),
 	)
+	ssoSvc := service.NewSSOService(
+		ssoRepo, userRepo, workspaceRepo, authSvc,
+		crypto.DeriveKey(cfg.JWTSecret+":sso"), cfg.FrontendURL, cfg.OIDCAllowPrivateNetwork,
+		service.InstanceSSOConfig{
+			WorkspaceSlug:  cfg.SSOInstanceConfig().WorkspaceSlug,
+			IssuerURL:      cfg.SSOInstanceConfig().IssuerURL,
+			ClientID:       cfg.SSOInstanceConfig().ClientID,
+			ClientSecret:   cfg.SSOInstanceConfig().ClientSecret,
+			AllowedDomains: cfg.SSOInstanceConfig().AllowedDomainList(),
+			DefaultRole:    cfg.SSOInstanceConfig().DefaultRole,
+			RequireSSO:     cfg.SSOInstanceConfig().RequireSSO,
+		},
+	)
+	// A missing SSO_OIDC_WORKSPACE_SLUG workspace only logs a warning.
+	ssoCheckCtx, cancelSSOCheck := context.WithTimeout(context.Background(), 5*time.Second)
+	ssoSvc.CheckInstanceWorkspace(ssoCheckCtx)
+	cancelSSOCheck()
+	// Password and passkey sign-in consult the per-workspace require-SSO rule.
+	authSvc.SetSSOEnforcer(ssoSvc)
 	workspaceSvc := service.NewWorkspaceService(workspaceRepo, userRepo, hub)
 	teamSvc := service.NewTeamService(teamRepo, teamStatusRepo, hub)
 	notifSvc := service.NewNotificationService(notifRepo)
@@ -109,6 +134,9 @@ func main() {
 	favSvc := service.NewFavoriteService(favRepo)
 	prefsSvc := service.NewPreferencesService(prefsRepo)
 	tokenSvc := service.NewTokenService(patRepo, workspaceRepo)
+	// Tokens and connection links refuse workspaces that require SSO unless
+	// minted through that workspace's SSO sign-in.
+	tokenSvc.SetSSORequirement(ssoSvc)
 	cliLinkSvc := service.NewCLILinkService(cliLinkRepo, tokenSvc, cfg.FrontendURL)
 	aiSettingsSvc := service.NewAISettingsService(aiSettingsRepo, workspaceRepo, issueRepo, crypto.DeriveKey(cfg.JWTSecret+":ai"), service.WithAIPrivateNetworkAccess(cfg.AIAllowPrivateNetwork))
 
@@ -151,6 +179,7 @@ func main() {
 	healthH := handler.NewHealthHandler(db)
 	loginThrottle := mw.NewLoginThrottle(5, 15*time.Minute)
 	authH := handler.NewAuthHandler(authSvc, cfg.Environment != "development", loginThrottle, cfg.IsSysAdmin, cfg.DevMachine.AllowSameSite)
+	authH.SetWorkspaceLookup(workspaceRepo)
 	workspaceH := handler.NewWorkspaceHandler(workspaceSvc)
 	inviteLinkH := handler.NewInviteLinkHandler(inviteLinkSvc, cfg.FrontendURL)
 	passkeySvc, err := service.NewPasskeyService(authSvc, userRepo, repository.NewPasskeyRepository(db), passkeyRelyingParty(cfg))
@@ -158,7 +187,10 @@ func main() {
 		log.Fatalf("failed to set up passkeys: %v", err)
 	}
 	passkeyH := handler.NewPasskeyHandler(passkeySvc, authH)
-	configH := handler.NewConfigHandler(!cfg.DisableRegistration).WithPasskeys(passkeySvc.Enabled())
+	ssoH := handler.NewSSOHandler(ssoSvc, authH, cfg.Environment != "development" || cfg.DevMachine.AllowSameSite)
+	configH := handler.NewConfigHandler(!cfg.DisableRegistration).
+		WithPasskeys(passkeySvc.Enabled()).
+		WithSSOInstance(cfg.SSOInstanceConfig().Configured())
 	teamH := handler.NewTeamHandler(teamSvc)
 	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo, teamStatusRepo, projectRepo, cycleRepo, relationSvc)
 	labelH := handler.NewLabelHandler(labelSvc)
@@ -287,6 +319,20 @@ func main() {
 	workspaceSvc.SetTeamIconStore(store)
 	workspaceSvc.SetLogoStore(store)
 	uploadH := handler.NewUploadHandler(store, assetRepo, issueRepo, cfg.JWTSecret)
+	backupDir, err := filepath.Abs(cfg.BackupDir)
+	if err != nil {
+		log.Fatalf("Invalid BACKUP_DIR: %v", err)
+	}
+	backupSvc := service.NewBackupService(repository.NewBackupRepository(db), notifSvc, service.BackupServiceConfig{
+		Dir:                 backupDir,
+		Timeout:             cfg.BackupTimeout,
+		DatabaseURL:         cfg.DatabaseURL,
+		AllowPrivateNetwork: cfg.BackupS3AllowPrivateNetwork,
+		SecretKey:           crypto.DeriveKey(cfg.JWTSecret + ":backup"),
+		Sysadmins:           cfg.SysadminIDs(),
+		AppVersion:          buildinfo.Version,
+	}, service.BackupUploadsFromBackend(store, cfg.Storage.LocalDir))
+	backupH := handler.NewBackupHandler(backupSvc, cfg.IsSysAdmin, backupDir)
 	wikiPublishSvc := service.NewWikiPublishService(repository.NewWikiRepository(db), sharedLinkRepo, workspaceRepo, cfg.JWTSecret)
 	uploadH.SetWikiPublicPages(wikiPublishSvc.PublicPageReachable)
 	assistantTools.SetWikiPublishing(wikiPublishSvc, workspaceRepo)
@@ -408,6 +454,7 @@ func main() {
 		workspaceTransfer: workspaceTransferH,
 		auth:              authH,
 		passkey:           passkeyH,
+		sso:               ssoH,
 		workspace:         workspaceH,
 		team:              teamH,
 		issue:             issueH,
@@ -441,6 +488,7 @@ func main() {
 		mergeMethods:      handler.NewMergeMethodHandler(githubSvc),
 		analytics:         analyticsH,
 		system:            systemH,
+		backup:            backupH,
 		webhook:           webhookH,
 		sharedLink:        sharedLinkH,
 		upload:            uploadH,
@@ -455,7 +503,7 @@ func main() {
 		authRateLimit:          mw.RateLimit(5, 10),
 		publicRateLimit:        mw.RateLimit(2, 5),
 		publicAssetRateLimit:   mw.RateLimit(10, 20),
-		workspaceMembership:    mw.WorkspaceMembership(workspaceRepo),
+		workspaceMembership:    mw.WorkspaceMembership(workspaceRepo, ssoSvc),
 		devMachineDemoGuard:    mw.DevMachineDemoGuard(cfg.DemoDevMachineAllowed),
 		machineEventsRateLimit: mw.MachineTokenRateLimit(20, 40),
 		machineLogsRateLimit:   mw.MachineTokenRateLimit(50, 100),
@@ -470,6 +518,7 @@ func main() {
 	go agentTaskSvc.Run(conversationCtx)
 	go agentTaskSvc.RunNotifications(conversationCtx)
 	go wikiSvc.RunOverviewSchedules(conversationCtx)
+	go backupSvc.Run(conversationCtx)
 	go agentMessageSvc.Run(conversationCtx, 10*time.Second)
 	go automationSvc.Run(conversationCtx)
 	go agentAssigneeSvc.Run(conversationCtx)

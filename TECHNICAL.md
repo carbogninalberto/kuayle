@@ -332,6 +332,28 @@ Kimi are release binaries with pinned checksums and keep the image's versions;
 custom agents keep their configured image. Failures are logged and retried after
 an hour; machines keep the CLIs they have (`BE/internal/machine/agent_clis.go`).
 
+**Environment status.** Both developer images delete apt's package index
+(`/var/lib/apt/lists`) at the end of their build to stay small, so `apt install`
+finds no package until `apt-get update` runs. The machine dashboard's
+"Environment status" card says so: the machine manager probes the running
+developer container (as UID 1000, 3-second timeout) on its port-scan tick, at
+most once a minute per container, and records `absent` (no `*Packages*` list;
+a failed update leaves `lock` and `partial/`), `present` with the newest list's
+time, or `unknown` when the probe fails, in `dev_machine_environment_checks`.
+The row describes one container: it is deleted when the machine stops, pauses
+or is torn down, a row of an earlier container reads `unknown`, and nothing
+runs in a machine that is not running. It never changes machine status or
+service health. `GET /dev-machines/:machineId/environment-status`
+(`dev_machine:read`) only reads the row. For a running `sudo_enabled` machine,
+its creator may `POST …/environment-status/package-index/refresh`
+(`dev_machine:manage`; 403 `SUDO_DISABLED` without sudo, 409 when not running):
+it queues one `refresh_package_index` operation (never retried; 202) whose
+`sudo -n apt-get update` runs for at most 120 seconds; the exit code and the
+last 40 output lines are recorded on the row, the index is probed again, and
+the UI polls GET until the refresh finishes. A failing refresh (mirrors are
+reached only through the egress proxy) is shown, not hidden
+(`BE/internal/machine/environment.go`).
+
 `TestSudoMachinesGetRootWithoutLeavingTheSandbox`
 (`KUAYLE_SUDO_INTEGRATION=1`, `KUAYLE_TEST_DISK_QUOTA_MODE=monitored` on a
 developer machine, and the `KUAYLE_TEST_{HEADLESS,COLLECTOR,EGRESS}_IMAGE`
@@ -936,7 +958,7 @@ The manager still samples workspace usage, stores resource telemetry, emits `res
 
 #### Monitored mode (hosts without XFS project quotas)
 
-`DEV_MACHINE_DISK_QUOTA_MODE=monitored` is an explicit operator opt-in for hosts whose Docker data root cannot provide project quotas (for example ext4). The manager then skips the startup quota probe and creates workspace volumes without the `size` option, labelled `com.kuayle.workspace-quota-mode=monitored` and with the limit in `com.kuayle.workspace-quota-bytes`. The workspace volume is the only unbounded write surface: root filesystems are read-only, `/tmp` and home directories are size-limited tmpfs, and container logs are capped. Because those tmpfs mounts are small (256 MiB `/tmp`, 512 MiB home, where the images keep Go's caches), check, manual check, custom tool and autonomous agent containers point `TMPDIR`/`TMP`/`TEMP`, `GOTMPDIR`, `GOCACHE`, `GOMODCACHE`, `XDG_CACHE_HOME`, `npm_config_cache`, `PIP_CACHE_DIR` and `YARN_CACHE_FOLDER` at a per-run directory `/workspace/.kuayle/tmp/<container key>` on the workspace volume (`BE/internal/machine/run_tmp.go`). A fixed shell prelude recreates it when the container starts (falling back to the image defaults if it cannot), a check or tool removes it when its command ends, and the manager removes an attempt's directory through the developer container once the attempt ends. Interactive attempts keep the tmpfs defaults.
+`DEV_MACHINE_DISK_QUOTA_MODE=monitored` is an explicit operator opt-in for hosts whose Docker data root cannot provide project quotas (for example ext4). The manager then skips the startup quota probe and creates workspace volumes without the `size` option, labelled `com.kuayle.workspace-quota-mode=monitored` and with the limit in `com.kuayle.workspace-quota-bytes`. The workspace volume is the only unbounded write surface: root filesystems are read-only, `/tmp` and home directories are size-limited tmpfs, and container logs are capped. Because those tmpfs mounts are small (256 MiB `/tmp`, 512 MiB home, where the images keep Go's caches), check, manual check, custom tool and autonomous agent containers point `TMPDIR`/`TMP`/`TEMP`, `GOTMPDIR`, `GOCACHE`, `GOMODCACHE`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `npm_config_cache`, `PIP_CACHE_DIR` and `YARN_CACHE_FOLDER` at a per-run directory `/workspace/.kuayle/tmp/<container key>` on the workspace volume (`BE/internal/machine/run_tmp.go`). A fixed shell prelude recreates it when the container starts (falling back to the image defaults if it cannot), a check or tool removes it when its command ends, and the manager removes an attempt's directory through the developer container once the attempt ends. Interactive attempts keep the tmpfs defaults.
 
 Enforcement becomes detect-and-stop: every 30-second reconciliation measures `/workspace`, warns at 90 % and stops the machine at 100 % (the volume is kept). A host free-space floor protects co-located workloads: when the Docker data-root filesystem (measured with `statfs` on a read-only mount of it in the manager, or through a running collector when no mount is configured) has less free space than `DEV_MACHINE_HOST_DISK_MIN_FREE_GB` or `DEV_MACHINE_HOST_DISK_MIN_FREE_PERCENT`, every running machine is stopped with `resource.host_disk_floor` and new starts fail with `host_disk_low` until a fresh measurement shows space has been recovered. A fast writer can exceed its limit between two checks, so the floor must leave enough headroom for that overshoot. The workspace policy API reports `disk_quota_mode`, and the UI labels limits as monitored and warns administrators. Hard mode remains the default and recommended configuration.
 
@@ -1112,6 +1134,58 @@ Outbound calls dial through `validate.PublicAddressControl` with no redirects.
 plain http) for self-hosted forges on a LAN. Setup, events, token scopes and
 extension points are documented in
 [Forge integrations](BE/docs/forge-integrations.md).
+
+## Single Sign-On (OIDC)
+
+OIDC sign-in is per workspace and free. `workspace_sso_configs` holds the issuer,
+client ID, encrypted client secret, allowed domains, provider name, default role
+(`member` or `guest`) and the `enabled`/`require_sso` flags. The client secret is
+encrypted with `crypto.DeriveKey(JWT_SECRET + ":sso")` and is write-only: API
+responses expose only `has_client_secret`, and no log line includes it.
+
+`SSOService` runs the authorization-code flow with PKCE `S256`, a random state,
+a random nonce and a browser-binding cookie. The server keeps the flow in
+`sso_login_states` keyed by the SHA-256 of the state for ten minutes and consumes
+it once with `DELETE … RETURNING`. Discovery, JWKS and token calls use
+`pkg/forge.NewHTTPClient`; `OIDC_ALLOW_PRIVATE_NETWORK=true` permits a private or
+plain-http issuer. `github.com/coreos/go-oidc/v3` verifies the ID token signature,
+issuer, audience, expiry and nonce; a missing `email_verified` is unverified.
+
+The callback is per workspace (`/api/auth/sso/:slug/callback`) and refuses a state
+minted for another workspace. Identities are unique on
+`(workspace_id, issuer, subject)`, so a configuration in one workspace cannot
+authenticate into another. First sign-in creates the account with a random
+unusable password and adds the workspace membership in one transaction; an
+existing account is linked only by a verified email.
+
+SSO sessions carry the `sso_ws` JWT claim and `refresh_tokens.sso_workspace_id`,
+so refresh rotation keeps the minting workspace. `WorkspaceMembership` answers
+`403 SSO_REQUIRED` when the workspace requires SSO, the session was minted
+elsewhere and the member is not an owner; owners keep the break-glass password
+path. Password and passkey sign-in are refused with `SSO_REQUIRED` only when every
+workspace of the account requires SSO and the account owns none.
+
+PATs and CLI connection links record the minting session's SSO workspace in
+`personal_access_tokens.sso_workspace_id` / `cli_connection_links.sso_workspace_id`
+(migration 000159; a redeemed link copies it to its token).
+`TokenService.ValidateScopesAndWorkspaces` is the one rule for token create and
+CLI link create/redeem: an SSO-scoped session may mint only for exactly its own
+workspace (`SSO_SESSION_SCOPED`), and a workspace that requires SSO is refused
+(`SSO_REQUIRED`) unless the session is SSO-scoped to it; an all-workspaces list
+is refused when any of the user's workspaces requires SSO. `WorkspaceMembership`
+repeats the check per request for PAT callers (`TokenSSOWorkspaceKey`), with no
+owner exemption, so turning require-SSO on stops older tokens.
+
+Instance-level variables: `SSO_OIDC_WORKSPACE_SLUG`, `SSO_OIDC_ISSUER`,
+`SSO_OIDC_CLIENT_ID`, `SSO_OIDC_CLIENT_SECRET`, `SSO_OIDC_ALLOWED_DOMAINS`,
+`SSO_OIDC_DEFAULT_ROLE`, `SSO_OIDC_REQUIRE_SSO` and `OIDC_ALLOW_PRIVATE_NETWORK`.
+They win over the database configuration for that workspace and make the settings
+page read-only. `SSOService` caches the instance workspace ID; a slug with no
+workspace means the instance config does not apply (a warning is logged, and
+the miss is retried after 30 s). Shared issuers (Google, Microsoft
+`/common|organizations|consumers`) need allowed domains
+(`validate.SharedOIDCIssuer`), both in `SaveConfig` and at startup. The Keycloak development profile and provider notes are in
+[docs/sso.md](docs/sso.md). SAML 2.0 and SCIM 2.0 are follow-ups.
 
 ## Activity and Logs
 
@@ -1353,7 +1427,9 @@ Installation requires HTTPS (or `localhost`). Chrome and Edge offer Install in t
 
 Outside `ENVIRONMENT=development`, `config.Load` and `config.LoadMachineGateway` refuse published secret values: anything starting with `CHANGE_ME` (the self-hosting example placeholders) or `local_dev_`, ending in `_do_not_use_prod` (the root Compose development defaults), or written as `<...>`. The check covers `JWT_SECRET`, the passwords inside `DATABASE_URL` and `DEV_MACHINE_GATEWAY_DATABASE_URL`, `SYSTEM_UPDATER_TOKEN`, `VOICE_INTERNAL_TOKEN`, `DEV_MACHINE_ENCRYPTION_KEY`, `SMTP_PASSWORD`, `S3_SECRET_KEY` and the GitHub App client and webhook secrets. Errors name the setting and never the value. The `dev-machines` profile preflight and `selfhosting/update.sh` apply the same rule before provisioning the gateway role or stopping services. The root development Compose stack keeps its literal defaults and publishes its ports on `127.0.0.1` only. `server migrate` does not load the full configuration and is not covered. See [Secrets must be generated](docs/self-hosting.md#secrets-must-be-generated). A database password equal to the Compose fallback (what the Compose files use when `POSTGRES_PASSWORD` is unset) is refused too, and `update.sh` refuses an unset `POSTGRES_PASSWORD`.
 
-The optional [release updater](selfhosting/RELEASE_UPDATER.md) supports detached release checkouts and digest-pinned production Compose deployments. It exports release source without changing the checkout, prepares images before downtime (pulling digest-pinned API, UI and, when active, Dev Machines control-plane/runtime images published by the release workflow; a Dev Machines image missing from GHCR is built locally from the release source), stops application/control-plane writers before a database backup and migrations, and waits for health before removing maintenance mode. Failure after migrations begin leaves writers stopped; it never restarts old binaries against a potentially changed schema.
+The optional [release updater](selfhosting/RELEASE_UPDATER.md) supports detached release checkouts and digest-pinned production Compose deployments. It exports release source without changing the checkout, prepares images before downtime (pulling digest-pinned API, UI and, when active, Dev Machines control-plane/runtime images published by the release workflow; a Dev Machines image missing from GHCR is built locally from the release source), stops application/control-plane writers before a database backup and migrations, and waits for health before removing maintenance mode. Failure after migrations begin leaves writers stopped; it never restarts old binaries against a potentially changed schema. After migrations it records the dump in `backup_runs` (kind `pre_upgrade`).
+
+Instance backups (migration `000162_backups`, `BE/internal/service/backup*.go`) are configured by sysadmins in Settings → Backups. `backup_settings` is a singleton row holding the schedule, retention, AES-GCM encrypted S3 credentials and passphrase (key derived from `JWT_SECRET+":backup"`) and a lease (`lease_token`, `lease_expires_at`) that allows one run at a time across replicas; each replica's scheduler claims `next_run_at` with compare-and-set every minute. `backup_runs` is the history; each run records the S3 endpoint and bucket its copy went to, and retention and Verify act only on copies in the bucket configured now. The S3 endpoint dials public addresses only unless `BACKUP_S3_ALLOW_PRIVATE_NETWORK=true`. See [Backups](docs/backups.md) for the archive and encryption format and the restore procedure.
 
 The optional `searxng` Compose profile runs a pinned SearXNG image for the
 assistant's `web_search` (see [self-hosted web search](docs/self-hosting.md#self-hosted-web-search-optional)).
@@ -1429,6 +1505,7 @@ Required configuration when enabled:
 | `DEV_MACHINE_HOST_DISK_PATH` | In-container path measured for host free space (Compose sets the mount point; falls back to a running collector when empty) |
 | `DEV_MACHINE_HOST_RESERVED_CPU_MILLIS`, `DEV_MACHINE_HOST_RESERVED_MEMORY_MB`, `DEV_MACHINE_CPU_OVERCOMMIT` | Host admission for spawning/starting machines (defaults 1000, 2048, 2): Docker host CPU/memory minus these reserves bounds the sum of live machines' requests; memory is never overcommitted, CPU up to the factor. Machines that do not fit wait in the queue without consuming retries |
 | `DEV_MACHINE_AGENT_CLI_REFRESH_HOURS`, `DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS` | Agent CLI updates (defaults 6 and 48, each 0-720): how often the manager installs the latest npm-distributed agent CLIs into the shared read-only volume, and how long a version must have been published; a refresh interval of 0 turns updates off. See [Sudo in machines](#sudo-in-machines), "Agent CLI updates" |
+| `DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS` | How long a stopping machine manager lets operations other than agent runs and checks finish before it stops them and hands them to the next manager (default 90; 0 hands them over at once). Agent runs and checks are not bounded by it: they keep running and the next manager re-adopts them. Keep it at least 60 seconds below the manager's Compose `stop_grace_period` (150s), so cleanups finish. See [machine manager restarts](BE/docs/agent-tasks.md#machine-manager-restarts) |
 | `DEV_MACHINE_SLICES`, `DEV_MACHINE_SWAP_PERCENT` | Shared machine resources (defaults `auto`, 50): with `auto`, new machines on hosts with Docker's systemd cgroup driver and cgroup v2 share their CPU and memory in one systemd slice, with a swap ceiling of the given percentage of the machine's memory (0-100); `off` keeps per-container shares. See [shared machine resources](#shared-machine-resources) |
 | `DEV_MACHINE_AGENT_GIT_NAME`, `DEV_MACHINE_AGENT_GIT_EMAIL` | Default commit author for agent task publications (default `Kuayle Agent <agent@kuayle.invalid>`). A workspace can override it with a username and verified email in its coding-agent policy (migration 70), so GitHub attributes agent commits to that account. Pull requests are opened by the GitHub App installation. Control characters and angle brackets are rejected |
 | `DEV_MACHINE_DOCKER_GID` | Numeric host group owner of the mounted Docker socket; obtain it on Linux with `stat -c '%g' /var/run/docker.sock` (Docker Desktop commonly uses `0`) |
@@ -1507,8 +1584,8 @@ removes the triggers but cannot restore references to parents already deleted.
 
 ## Soft delete and undo
 
-Issues and wiki pages are soft-deleted (migrations `000160_issue_soft_delete_undo`
-and `000161_wiki_page_soft_delete`). The tables are `issue_records` and
+Issues and wiki pages are soft-deleted (migrations `000165_issue_soft_delete_undo`
+and `000166_wiki_page_soft_delete`). The tables are `issue_records` and
 `wiki_page_records`; `issues` and `wiki_pages` are simple, automatically
 updatable views over the rows whose `deleted_at` is NULL. Every existing
 SELECT, INSERT, UPDATE, `RETURNING *` and `FOR UPDATE` keeps working through the

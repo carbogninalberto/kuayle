@@ -26,6 +26,9 @@ const (
 	// TokenIDKey is the authenticated token's row id, so a token can revoke
 	// itself (logout / failed CLI setup rollback).
 	TokenIDKey = "token_id"
+	// TokenSSOWorkspaceKey holds the uuid.UUID of the workspace whose SSO
+	// session minted the token, or uuid.Nil when none did.
+	TokenSSOWorkspaceKey = "token_sso_workspace_id"
 )
 
 // Context keys describing an interactive session.
@@ -34,7 +37,17 @@ const (
 	SessionAuthTimeKey = "session_auth_time"
 	// SessionPasskeyKey holds the uuid.UUID of the passkey that minted the session.
 	SessionPasskeyKey = "session_passkey_id"
+	// SessionSSOWorkspaceKey holds the uuid.UUID of the workspace whose SSO
+	// minted the session, when it was an SSO sign-in.
+	SessionSSOWorkspaceKey = "session_sso_workspace_id"
 )
+
+// GetSessionSSOWorkspace returns the workspace that minted the session's sign-in,
+// or uuid.Nil for a password, passkey or personal-access-token caller.
+func GetSessionSSOWorkspace(c *echo.Context) uuid.UUID {
+	id, _ := c.Get(SessionSSOWorkspaceKey).(uuid.UUID)
+	return id
+}
 
 // SessionPasskeys tells whether the passkey a session was minted with still
 // belongs to the user. Removing a passkey must end its sessions at once, not
@@ -120,6 +133,11 @@ func AuthWithPasskeys(jwtSecret string, patRepo repository.PersonalAccessTokenRe
 			if claims.AuthTime > 0 {
 				c.Set(SessionAuthTimeKey, time.Unix(claims.AuthTime, 0))
 			}
+			if claims.SSOWorkspaceID != "" {
+				if workspaceID, err := uuid.Parse(claims.SSOWorkspaceID); err == nil {
+					c.Set(SessionSSOWorkspaceKey, workspaceID)
+				}
+			}
 
 			c.Set(string(UserIDKey), claims.UserID)
 			c.SetRequest(c.Request().WithContext(domain.WithAccess(c.Request().Context(), domain.Access{UserID: claims.UserID})))
@@ -145,6 +163,11 @@ func authenticatePAT(c *echo.Context, patRepo repository.PersonalAccessTokenRepo
 	c.Set(TokenScopesKey, []string(token.Scopes))
 	c.Set(TokenWorkspacesKey, []string(token.WorkspaceSlugs))
 	c.Set(TokenIDKey, token.ID)
+	tokenSSOWorkspace := uuid.Nil
+	if token.SSOWorkspaceID != nil {
+		tokenSSOWorkspace = *token.SSOWorkspaceID
+	}
+	c.Set(TokenSSOWorkspaceKey, tokenSSOWorkspace)
 
 	// Best-effort usage tracking; never blocks or fails the request.
 	go func() {

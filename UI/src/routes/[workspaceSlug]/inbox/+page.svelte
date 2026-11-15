@@ -46,7 +46,8 @@
 		ShieldQuestion,
 		Bot,
 		GitPullRequest,
-		Trash2
+		Trash2,
+		DatabaseBackup
 	} from '@lucide/svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
@@ -79,7 +80,8 @@
 		approval_requested: { icon: ShieldQuestion, color: '#fbbf24', bg: 'rgba(245,158,11,0.18)' },
 		agent_task_finished: { icon: Bot, color: '#4ade80', bg: 'rgba(34,197,94,0.18)' },
 		review_needed: { icon: GitPullRequest, color: '#c084fc', bg: 'rgba(168,85,247,0.18)' },
-		issues_deleted: { icon: Trash2, color: '#f87171', bg: 'rgba(239,68,68,0.18)' }
+		issues_deleted: { icon: Trash2, color: '#f87171', bg: 'rgba(239,68,68,0.18)' },
+		backup_failed: { icon: DatabaseBackup, color: '#f87171', bg: 'rgba(239,68,68,0.18)' }
 	};
 
 	function getTypeStyle(type: string) {

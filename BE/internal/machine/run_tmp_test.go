@@ -50,7 +50,7 @@ func TestCheckRunnerUsesAndRemovesItsRunDirectory(t *testing.T) {
 	require.NoError(t, os.Chmod(filepath.Join(local, "go-mod", "pkg"), 0o555))
 
 	probe := `[ ! -e "$GOMODCACHE/pkg/stale" ] || exit 9
-for d in "$TMPDIR" "$GOCACHE" "$GOMODCACHE" "$XDG_CACHE_HOME" "$npm_config_cache" "$PIP_CACHE_DIR" "$YARN_CACHE_FOLDER"; do [ -d "$d" ] || exit 8; done
+for d in "$TMPDIR" "$GOCACHE" "$GOMODCACHE" "$XDG_CACHE_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$npm_config_cache" "$PIP_CACHE_DIR" "$YARN_CACHE_FOLDER"; do [ -d "$d" ] || exit 8; done
 mkdir -p "$GOMODCACHE/m" && touch "$GOMODCACHE/m/f" && chmod 0555 "$GOMODCACHE/m"
 printf '%s|' "$TMPDIR" "$1"; exit 3`
 	out, code := runLocally(t, checkRunner, root, runTmpEnvironment(dir), "sh", "-c", probe, "probe", "$(touch pwned) ; rm x")
@@ -68,9 +68,9 @@ func TestCheckRunnerFallsBackToImageDefaults(t *testing.T) {
 		"nested path traversal": {"KUAYLE_RUN_TMP=" + runTmpRoot + "/../escape", "TMPDIR=" + runTmpRoot + "/../escape/tmp"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			out, code := runLocally(t, checkRunner, root, env, "sh", "-c", `printf '%s' "${TMPDIR-unset}:${GOCACHE-unset}"`)
+			out, code := runLocally(t, checkRunner, root, env, "sh", "-c", `printf '%s' "${TMPDIR-unset}:${GOCACHE-unset}:${XDG_DATA_HOME-unset}:${XDG_STATE_HOME-unset}"`)
 			require.Zero(t, code, out)
-			require.Equal(t, "unset:unset", out)
+			require.Equal(t, "unset:unset:unset:unset", out)
 		})
 	}
 }
@@ -121,11 +121,14 @@ func TestAutonomousAgentContainerUsesARunDirectory(t *testing.T) {
 			if mode == "interactive" {
 				require.Equal(t, []string{"/usr/local/bin/kuayle-agent-runner"}, input.Entrypoint)
 				require.NotContains(t, input.Env, gocache)
+				require.NotContains(t, input.Env, "XDG_DATA_HOME=/workspace/.kuayle/tmp/agent-"+run.ID.String()+"/data")
 				return
 			}
 			require.Equal(t, agentEntrypoint([]string{"/usr/local/bin/kuayle-agent-runner"}), input.Entrypoint)
 			require.Contains(t, input.Env, gocache)
 			require.Contains(t, input.Env, "TMPDIR=/workspace/.kuayle/tmp/agent-"+run.ID.String()+"/tmp")
+			require.Contains(t, input.Env, "XDG_DATA_HOME=/workspace/.kuayle/tmp/agent-"+run.ID.String()+"/data", "OpenCode's database and snapshots stay off the home tmpfs")
+			require.Contains(t, input.Env, "XDG_STATE_HOME=/workspace/.kuayle/tmp/agent-"+run.ID.String()+"/state")
 		})
 	}
 }

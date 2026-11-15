@@ -75,7 +75,7 @@ func TestWikiReferencesHTTP(t *testing.T) {
 	}
 	secret := "wiki-references-http-test-secret"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
-	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces)
+	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces, mw.SSONotEnforced)
 	e := echo.New()
 	registerRoutes(e, handlers, middleware)
 	server := httptest.NewServer(e)

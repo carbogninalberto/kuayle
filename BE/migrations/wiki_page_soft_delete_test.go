@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Migration 161 turns wiki_pages into a view over wiki_page_records that
+// Migration 166 turns wiki_pages into a view over wiki_page_records that
 // hides soft-deleted pages. Pages survive, registry appends keep their
 // ON CONFLICT target, purging a page lifts its children, and a rollback
 // purges only the deleted pages.
@@ -43,7 +43,7 @@ func TestWikiPageSoftDeleteMigration(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	fixture := insertBaseMigrationFixture(t, db)
-	require.NoError(t, m.Migrate(160))
+	require.NoError(t, m.Migrate(165))
 	parent, child, gone := uuid.New(), uuid.New(), uuid.New()
 	for _, page := range []struct {
 		id     uuid.UUID
@@ -54,7 +54,7 @@ func TestWikiPageSoftDeleteMigration(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	require.NoError(t, m.Migrate(161))
+	require.NoError(t, m.Migrate(166))
 
 	var count int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM wiki_pages WHERE workspace_id=$1`, fixture.workspaceA).Scan(&count))
@@ -81,8 +81,8 @@ func TestWikiPageSoftDeleteMigration(t *testing.T) {
 
 	_, err = db.Exec(`UPDATE wiki_page_records SET deleted_at=NOW() WHERE id=$1`, gone)
 	require.NoError(t, err)
-	require.NoError(t, m.Migrate(160))
+	require.NoError(t, m.Migrate(165))
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM wiki_pages WHERE id IN ($1,$2)`, child, gone).Scan(&count))
 	require.Equal(t, 1, count, "rolling back purges deleted pages only")
-	require.NoError(t, m.Migrate(161), "the migration re-applies cleanly")
+	require.NoError(t, m.Migrate(166), "the migration re-applies cleanly")
 }

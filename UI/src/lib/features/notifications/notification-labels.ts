@@ -6,6 +6,7 @@ const TYPE_MESSAGE_KEYS = {
 	agent_task_finished: 'notify.title.agent_task_finished',
 	review_needed: 'notify.title.review_needed',
 	issues_deleted: 'notify.title.issues_deleted',
+	backup_failed: 'inbox.type.backup_failed',
 	status_changed: 'inbox.type.status_changed',
 	assigned: 'inbox.type.assigned',
 	commented: 'inbox.type.commented',

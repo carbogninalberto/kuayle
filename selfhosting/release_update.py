@@ -8,6 +8,7 @@ into the operator's checkout. See selfhosting/RELEASE_UPDATER.md.
 import copy
 import datetime
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -26,6 +27,14 @@ IMAGES = {'backend': f'{REGISTRY}/kuayle-api',
 CONTROL_PLANE = ('machine-manager', 'machine-gateway')
 # Set to build Dev Machines images from release source instead of pulling them.
 BUILD_FLAG = 'RELEASE_BUILD_DEV_MACHINE_IMAGES'
+# Records the pre-upgrade dump in backup_runs (migration 162) so it appears in
+# Settings -> Backups. Values are psql variables, quoted by psql.
+RECORD_BACKUP_SQL = """INSERT INTO backup_runs
+    (kind, status, upload_status, started_at, finished_at, duration_ms, size_bytes,
+     checksum_sha256, local_path, destination)
+VALUES ('pre_upgrade', 'succeeded', 'none', :'started'::timestamptz, :'finished'::timestamptz,
+        :'duration'::bigint, :'size'::bigint, :'sha256', :'path', 'updater:' || :'path');
+"""
 
 
 def published_repository(service):
@@ -125,10 +134,10 @@ class ReleaseUpdater:
         self.env.pop('COMPOSE_PROFILES', None)
         self.build_dev_images = os.environ.get(BUILD_FLAG, '').strip().lower() in ('1', 'true', 'yes')
 
-    def run(self, args, *, capture=False, stdout=None):
+    def run(self, args, *, capture=False, stdout=None, input=None):
         result = subprocess.run(args, cwd=self.directory, env=self.env, check=True,
                                 stdout=subprocess.PIPE if capture else stdout,
-                                text=capture)
+                                text=capture, input=input)
         return result.stdout if capture else ''
 
     def compose(self, *args, config=None, **kwargs):
@@ -237,15 +246,19 @@ class ReleaseUpdater:
             stopped = True  # also recover a partially failed stop
             self.compose('stop', *writers)
             log('Backing up PostgreSQL before migrations...')
+            dump_started = datetime.datetime.now(datetime.timezone.utc)
             with (backup / 'database.dump').open('wb') as dump:
                 self.compose('exec', '-T', 'postgres', 'sh', '-c',
                              'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc', stdout=dump)
+            dump_finished = datetime.datetime.now(datetime.timezone.utc)
             if not (backup / 'database.dump').stat().st_size:
                 raise RuntimeError('Database backup is empty')
             atomic_json(self.config, json.loads(Path(candidate).read_text()))
             migration_attempted = True
             self.compose('run', '--rm', '--no-deps', '-T', '--pull', 'never',
                          'backend', '/app/server', 'migrate', 'up')
+            # The history table exists only after migrations.
+            self.record_backup(backup / 'database.dump', dump_started, dump_finished)
             if dev_active:
                 self.compose('run', '--rm', '--no-deps', '-T', '--pull', 'never', 'machine-gateway-db-provision')
             self.compose('up', '-d', '--no-deps', '--no-build', '--pull', 'never',
@@ -268,6 +281,32 @@ class ReleaseUpdater:
                 self.marker.unlink(missing_ok=True)
             raise
         self.marker.unlink(missing_ok=True)
+
+    def record_backup(self, dump, started, finished):
+        """Add the pre-upgrade dump to the Settings -> Backups history.
+
+        Values reach psql as -v variables quoted with :'name', never formatted
+        into SQL. A failure is only logged: it must not fail the update.
+        """
+        try:
+            digest = hashlib.sha256()
+            with dump.open('rb') as f:
+                for chunk in iter(lambda: f.read(1 << 20), b''):
+                    digest.update(chunk)
+            values = {
+                'path': str(dump),
+                'sha256': digest.hexdigest(),
+                'size': str(dump.stat().st_size),
+                'started': started.isoformat(),
+                'finished': finished.isoformat(),
+                'duration': str(max(0, int((finished - started).total_seconds() * 1000))),
+            }
+            variables = [arg for name, value in values.items() for arg in ('-v', f'{name}={value}')]
+            self.compose('exec', '-T', 'postgres', 'sh', '-c',
+                         'exec psql -X -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"',
+                         'record-backup', *variables, input=RECORD_BACKUP_SQL.encode())
+        except Exception as exc:
+            log(f'Could not record the pre-upgrade backup in the backup history: {exc}')
 
     def update(self):
         repo = self.directory.parent

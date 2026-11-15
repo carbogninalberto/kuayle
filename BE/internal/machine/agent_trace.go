@@ -121,6 +121,7 @@ func runFailureEvidence(status string, timeLimitSeconds int, execution *AgentExe
 		evidence.ExitCode = &code
 		evidence.PidsLimit = execution.PidsLimit
 		evidence.PidsPeak = execution.PidsPeak
+		evidence.ManagerRestart = execution.ExitedUnobserved
 	}
 	if executionErr != nil {
 		message := safeError(executionErr)

@@ -105,3 +105,131 @@ func TestTokenManagementSessionStillReachesService(t *testing.T) {
 		})
 	}
 }
+
+type tokenScopeWorkspaceRepo struct {
+	repository.WorkspaceRepo
+	workspace *domain.Workspace
+}
+
+func (r tokenScopeWorkspaceRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Workspace, error) {
+	if r.workspace != nil && r.workspace.ID == id {
+		return r.workspace, nil
+	}
+	return nil, nil
+}
+
+func (r tokenScopeWorkspaceRepo) GetBySlug(ctx context.Context, slug string) (*domain.Workspace, error) {
+	if r.workspace != nil && r.workspace.Slug == slug {
+		return r.workspace, nil
+	}
+	return nil, nil
+}
+
+func (r tokenScopeWorkspaceRepo) GetMember(ctx context.Context, workspaceID, userID uuid.UUID) (*domain.WorkspaceMember, error) {
+	return &domain.WorkspaceMember{WorkspaceID: workspaceID, UserID: userID, Role: domain.RoleMember}, nil
+}
+
+func TestTokenCreateFromSSOScopedSessionNeedsItsOwnWorkspace(t *testing.T) {
+	workspace := &domain.Workspace{ID: uuid.New(), Slug: "acme"}
+	for _, tc := range []struct {
+		name      string
+		sso       bool
+		slugsJSON string
+		status    int
+	}{
+		{"scoped to own workspace", true, `"workspace_slugs":["acme"]`, http.StatusCreated},
+		{"scoped to another workspace", true, `"workspace_slugs":["other"]`, http.StatusForbidden},
+		{"scoped to two workspaces", true, `"workspace_slugs":["acme","other"]`, http.StatusForbidden},
+		{"scoped with no restriction", true, ``, http.StatusForbidden},
+		{"scoped with empty list", true, `"workspace_slugs":[]`, http.StatusForbidden},
+		{"unscoped session", false, ``, http.StatusCreated},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &tokenManagementRepoSpy{}
+			h := NewTokenHandler(service.NewTokenService(repo, tokenScopeWorkspaceRepo{workspace: workspace}))
+			e := echo.New()
+			body := `{"name":"session token","scopes":["issues:read"]`
+			if tc.slugsJSON != "" {
+				body += "," + tc.slugsJSON
+			}
+			body += "}"
+			req := httptest.NewRequest(http.MethodPost, "/api/tokens", strings.NewReader(body))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			c.Set(string(middleware.UserIDKey), uuid.New())
+			if tc.sso {
+				c.Set(middleware.SessionSSOWorkspaceKey, workspace.ID)
+			}
+			require.NoError(t, h.Create(c))
+			require.Equal(t, tc.status, rec.Code)
+			if tc.status == http.StatusForbidden {
+				require.Contains(t, rec.Body.String(), `"code":"SSO_SESSION_SCOPED"`)
+				require.Zero(t, repo.createCalls)
+			} else {
+				require.Equal(t, 1, repo.createCalls)
+			}
+		})
+	}
+}
+
+func (r tokenScopeWorkspaceRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.Workspace, error) {
+	if r.workspace == nil {
+		return nil, nil
+	}
+	return []domain.Workspace{*r.workspace}, nil
+}
+
+type tokenSSORequirement map[uuid.UUID]bool
+
+func (r tokenSSORequirement) RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (bool, error) {
+	return r[workspaceID], nil
+}
+
+// A password session must not mint a personal access token that reaches a
+// workspace requiring SSO, neither by naming it nor through an all-workspaces
+// token. Owners get no exemption: break-glass is interactive sign-in only.
+func TestTokenCreateFromPasswordSessionCannotReachSSORequiredWorkspace(t *testing.T) {
+	workspace := &domain.Workspace{ID: uuid.New(), Slug: "acme"}
+	for _, tc := range []struct {
+		name       string
+		slugsJSON  string
+		ssoSession bool
+		status     int
+	}{
+		{"password session naming the workspace", `"workspace_slugs":["acme"]`, false, http.StatusForbidden},
+		{"password session asking for all workspaces", ``, false, http.StatusForbidden},
+		{"password session with an empty list", `"workspace_slugs":[]`, false, http.StatusForbidden},
+		{"session SSO-scoped to the workspace", `"workspace_slugs":["acme"]`, true, http.StatusCreated},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &tokenManagementRepoSpy{}
+			svc := service.NewTokenService(repo, tokenScopeWorkspaceRepo{workspace: workspace})
+			svc.SetSSORequirement(tokenSSORequirement{workspace.ID: true})
+			h := NewTokenHandler(svc)
+			e := echo.New()
+			body := `{"name":"session token","scopes":["issues:read"]`
+			if tc.slugsJSON != "" {
+				body += "," + tc.slugsJSON
+			}
+			body += "}"
+			req := httptest.NewRequest(http.MethodPost, "/api/tokens", strings.NewReader(body))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			c.Set(string(middleware.UserIDKey), uuid.New())
+			if tc.ssoSession {
+				c.Set(middleware.SessionSSOWorkspaceKey, workspace.ID)
+			}
+			require.NoError(t, h.Create(c))
+			require.Equal(t, tc.status, rec.Code, rec.Body.String())
+			if tc.status == http.StatusForbidden {
+				require.Contains(t, rec.Body.String(), `"code":"SSO_REQUIRED"`)
+				require.Contains(t, rec.Body.String(), `"workspace_slug":"acme"`)
+				require.Zero(t, repo.createCalls)
+			} else {
+				require.Equal(t, 1, repo.createCalls)
+			}
+		})
+	}
+}

@@ -103,6 +103,14 @@ func TestClassifyRunFailure(t *testing.T) {
 			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), Stderr: "Error: spawn /usr/bin/node EAGAIN\nResource temporarily unavailable"},
 			FailurePlatform, "pid_limit", []string{"PID limit", "spawn /usr/bin/node EAGAIN"},
 		},
+		"OpenCode's SQLite database found the disk full": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), HarnessError: "Unexpected server error", Stderr: "ERROR service=default name=SQLiteError message=database or disk is full\nFailed to execute statement"},
+			FailurePlatform, "disk_full", []string{"ran out of disk space", "database or disk is full"},
+		},
+		"a write found no space left on the device": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), HarnessError: "ENOSPC: no space left on device, write"},
+			FailurePlatform, "disk_full", []string{"ran out of disk space"},
+		},
 		"a person's cancel": {
 			RunFailureEvidence{Status: "cancelled", ExitCode: exitCode(-1), CancelledBy: CancelledByPerson},
 			FailurePerson, "cancelled_by_person", []string{"A person stopped the run"},
@@ -136,6 +144,105 @@ func TestClassifyRunFailure(t *testing.T) {
 			require.True(t, ValidFailureClass(string(failure.Class)))
 		})
 	}
+}
+
+// A run whose container was stopped or removed while Kuayle's machine manager
+// was restarting is the platform's, never an unknown kill.
+func TestManagerRestartIsAPlatformFailure(t *testing.T) {
+	for name, tc := range map[string]struct {
+		evidence RunFailureEvidence
+		class    FailureClass
+		rule     string
+	}{
+		"exit 143 while no manager followed it": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(143), ManagerRestart: true},
+			FailurePlatform, FailureRuleManagerRestart,
+		},
+		"exit 137 while no manager followed it": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(137), ManagerRestart: true},
+			FailurePlatform, FailureRuleManagerRestart,
+		},
+		"the container was gone when the manager came back": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(-1), ManagerRestart: true},
+			FailurePlatform, FailureRuleManagerRestart,
+		},
+		"the container was gone and no exit code was recorded": {
+			RunFailureEvidence{Status: "failed", ManagerRestart: true},
+			FailurePlatform, FailureRuleManagerRestart,
+		},
+		"the harness exited by itself and printed why": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), Stderr: "boom", ManagerRestart: true},
+			FailureUnknown, "harness_exit_with_output",
+		},
+		"without a manager restart a kill is still unknown": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(137)},
+			FailureUnknown, "killed",
+		},
+		"out-of-memory evidence still wins": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(137), OOMKilled: true, ManagerRestart: true},
+			FailurePlatform, "out_of_memory",
+		},
+		"the time limit still wins": {
+			RunFailureEvidence{Status: "timeout", ExitCode: exitCode(-1), ManagerRestart: true},
+			FailurePlatform, "time_limit",
+		},
+		"a cancel still wins": {
+			RunFailureEvidence{Status: "cancelled", ExitCode: exitCode(-1), ManagerRestart: true},
+			FailurePlatform, "cancelled_by_platform",
+		},
+		"exit 139 is the harness's own crash": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(139), ManagerRestart: true},
+			FailureUnknown, "killed",
+		},
+		"exit 134 is the harness's own crash": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(134), ManagerRestart: true},
+			FailureUnknown, "killed",
+		},
+		"a PID-limit crash of a re-adopted container is not a restart": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(139), ManagerRestart: true, PidsLimit: 512, PidsPeak: 0},
+			FailureUnknown, "killed",
+		},
+		"a host crash is not a restart": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(255), ManagerRestart: true},
+			FailureUnknown, "harness_exit_silent",
+		},
+		"a full disk still wins": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(143), ManagerRestart: true, Stderr: "ENOSPC: no space left on device, write"},
+			FailurePlatform, "disk_full",
+		},
+		"a usage limit still wins": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(143), ManagerRestart: true, UsageLimit: "You've hit your limit"},
+			FailureProvider, "usage_limit",
+		},
+		"a restart wins over a platform error": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(143), ManagerRestart: true, ExecutionError: "agent_output_persistence_failed: database is down"},
+			FailurePlatform, FailureRuleManagerRestart,
+		},
+		"a restart wins over a provider error printed while stopping": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(143), ManagerRestart: true, HarnessError: "API Error: 529 overloaded"},
+			FailurePlatform, FailureRuleManagerRestart,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failure := ClassifyRunFailure(tc.evidence)
+			require.Equal(t, tc.class, failure.Class)
+			require.Equal(t, tc.rule, failure.Rule)
+			require.NotEmpty(t, failure.Cause)
+		})
+	}
+}
+
+// Only a manager restart is retried automatically: the other platform
+// failures would hit the same workload again.
+func TestRetryablePlatformFailure(t *testing.T) {
+	require.True(t, RetryablePlatformFailure(string(FailurePlatform), FailureRuleManagerRestart))
+	for _, class := range []FailureClass{FailurePlatform, FailureUnknown} {
+		for _, rule := range []string{"pid_limit", "out_of_memory", "time_limit", "platform_error", "killed"} {
+			require.False(t, RetryablePlatformFailure(string(class), rule), "%s/%s", class, rule)
+		}
+	}
+	require.False(t, RetryablePlatformFailure(string(FailureUnknown), FailureRuleManagerRestart))
+	require.Equal(t, 3, MaxPlatformRetries)
 }
 
 // A run stopped by the platform is never counted as the agent's, whatever
