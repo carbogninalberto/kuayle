@@ -25,6 +25,7 @@ const conditions: Record<WorkflowCondition, () => string> = {
 	approval_denied: m['workflows.condition.approval_denied'],
 	published: m['workflows.condition.published'],
 	publish_failed: m['workflows.condition.publish_failed'],
+	no_changes: m['workflows.condition.no_changes'],
 	merged: m['workflows.condition.merged'],
 	timeout: m['workflows.condition.timeout'],
 	else: m['workflows.condition.else']

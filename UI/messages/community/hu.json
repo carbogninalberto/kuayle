@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Elutasítva",
 	"workflows.condition.published": "Közzétéve",
 	"workflows.condition.publish_failed": "A közzététel sikertelen",
+	"workflows.condition.no_changes": "Nincs változás az alaphoz képest",
 	"workflows.condition.merged": "Merge-elve",
 	"workflows.condition.timeout": "Időtúllépés",
 	"workflows.condition.else": "Egyébként",

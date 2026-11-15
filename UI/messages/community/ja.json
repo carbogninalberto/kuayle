@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "拒否",
 	"workflows.condition.published": "公開済み",
 	"workflows.condition.publish_failed": "公開に失敗",
+	"workflows.condition.no_changes": "ベースに対する変更なし",
 	"workflows.condition.merged": "マージ済み",
 	"workflows.condition.timeout": "タイムアウト",
 	"workflows.condition.else": "それ以外",

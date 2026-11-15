@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Bị từ chối",
 	"workflows.condition.published": "Đã xuất bản",
 	"workflows.condition.publish_failed": "Xuất bản thất bại",
+	"workflows.condition.no_changes": "Không có thay đổi so với nhánh cơ sở",
 	"workflows.condition.merged": "Đã merge",
 	"workflows.condition.timeout": "Hết thời gian",
 	"workflows.condition.else": "Còn lại",

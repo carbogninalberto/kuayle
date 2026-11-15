@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "已拒绝",
 	"workflows.condition.published": "已发布",
 	"workflows.condition.publish_failed": "发布失败",
+	"workflows.condition.no_changes": "相对基准分支无更改",
 	"workflows.condition.merged": "已合并",
 	"workflows.condition.timeout": "超时",
 	"workflows.condition.else": "否则",

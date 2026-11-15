@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "رد شد",
 	"workflows.condition.published": "منتشر شد",
 	"workflows.condition.publish_failed": "انتشار ناموفق بود",
+	"workflows.condition.no_changes": "تغییری نسبت به مبنا وجود ندارد",
 	"workflows.condition.merged": "ادغام شد",
 	"workflows.condition.timeout": "پایان مهلت",
 	"workflows.condition.else": "در غیر این صورت",

@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -366,12 +367,24 @@ type AgentPublication struct {
 }
 
 // AgentPublicationResult is recorded only after the branch was pushed and the
-// pull request exists on GitHub. An empty Commit means nothing to publish.
+// pull request exists on GitHub. An empty Commit means nothing was published:
+// the branch adds no changes to its base.
 type AgentPublicationResult struct {
 	Branch            string
 	Commit            string
 	PullRequestNumber int
 	PullRequestURL    string
+}
+
+// NoChangesReason says why a publication published nothing: the agent's
+// branch adds no changes to its base. The work may already be merged, or the
+// run only produced a summary. It is the publication step's summary and the
+// task's reason. An empty base is named generically.
+func NoChangesReason(base string) string {
+	if strings.TrimSpace(base) == "" {
+		base = "its base branch"
+	}
+	return "The agent made no changes against " + base + "; nothing to publish. The work may already be merged, or the run only produced a summary."
 }
 
 // AgentTaskSignal is a GitHub CI or review event for a task attempt's recorded

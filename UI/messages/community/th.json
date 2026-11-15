@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "ปฏิเสธ",
 	"workflows.condition.published": "เผยแพร่แล้ว",
 	"workflows.condition.publish_failed": "เผยแพร่ไม่สำเร็จ",
+	"workflows.condition.no_changes": "ไม่มีการเปลี่ยนแปลงเทียบกับฐาน",
 	"workflows.condition.merged": "Merge แล้ว",
 	"workflows.condition.timeout": "หมดเวลา",
 	"workflows.condition.else": "มิฉะนั้น",

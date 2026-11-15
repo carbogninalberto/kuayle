@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Reddedildi",
 	"workflows.condition.published": "Yayımlandı",
 	"workflows.condition.publish_failed": "Yayımlama başarısız oldu",
+	"workflows.condition.no_changes": "Taban dalına göre değişiklik yok",
 	"workflows.condition.merged": "Birleştirildi",
 	"workflows.condition.timeout": "Zaman aşımı",
 	"workflows.condition.else": "Aksi halde",

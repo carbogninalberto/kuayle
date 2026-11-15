@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Geweigerd",
 	"workflows.condition.published": "Gepubliceerd",
 	"workflows.condition.publish_failed": "Publiceren mislukt",
+	"workflows.condition.no_changes": "Geen wijzigingen ten opzichte van de basis",
 	"workflows.condition.merged": "Gemerged",
 	"workflows.condition.timeout": "Time-out",
 	"workflows.condition.else": "Anders",

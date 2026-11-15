@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Відхилено",
 	"workflows.condition.published": "Опубліковано",
 	"workflows.condition.publish_failed": "Публікація не вдалася",
+	"workflows.condition.no_changes": "Немає змін відносно базової гілки",
 	"workflows.condition.merged": "Злито",
 	"workflows.condition.timeout": "Час вичерпано",
 	"workflows.condition.else": "Інакше",

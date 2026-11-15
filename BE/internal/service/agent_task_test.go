@@ -595,6 +595,20 @@ func TestTaskPublicationReachesReviewOnlyFromRecordedPullRequest(t *testing.T) {
 	}
 }
 
+// KUA-176: in the Standard flow a publication with no changes against the
+// base blocks the task with the reason the publication recorded, which says
+// why, instead of a generic message.
+func TestStandardPublicationWithNoChangesBlocksWithItsReason(t *testing.T) {
+	reason := "The agent made no changes against main; nothing to publish. The work may already be merged, or the run only produced a summary."
+	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New(), State: "publishing"}
+	store := &taskStoreFake{task: task}
+	runtime := &taskRuntimeFake{publication: &domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusSkipped, Summary: &reason}}
+	service := &AgentTaskService{store: store, runtime: runtime}
+	require.NoError(t, service.step(context.Background(), task))
+	require.Equal(t, "blocked", store.task.State)
+	require.Equal(t, []string{reason}, store.reasons)
+}
+
 func TestSuccessorAttemptsReceiveABoundedRecordedHandoff(t *testing.T) {
 	require.Equal(t, "Implement", withHandoff("Implement", nil, false, false))
 	exit := 1

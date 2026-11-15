@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Rifiutato",
 	"workflows.condition.published": "Pubblicato",
 	"workflows.condition.publish_failed": "Pubblicazione fallita",
+	"workflows.condition.no_changes": "Nessuna modifica rispetto al ramo base",
 	"workflows.condition.merged": "Unito",
 	"workflows.condition.timeout": "Scaduto",
 	"workflows.condition.else": "Altrimenti",

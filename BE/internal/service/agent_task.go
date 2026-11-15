@@ -277,7 +277,8 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			s.notePublished(ctx, task)
 			return nil
 		case domain.DevMachineAgentRunStepStatusSkipped:
-			return s.store.Transition(ctx, task, "blocked", "The iteration produced no changes to publish")
+			// Blocked, so a person can continue the task with new instructions.
+			return s.store.Transition(ctx, task, "blocked", publicationSkippedReason(result))
 		case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
 			return s.store.Transition(ctx, task, "blocked", "Publishing failed; check the repository connection and retry")
 		}
@@ -1315,7 +1316,9 @@ func (s *AgentTaskService) workflowValidated(ctx context.Context, task domain.Ag
 	return nil
 }
 
-// workflowPublished reports the publication's result to the workflow.
+// workflowPublished reports the publication's result to the workflow:
+// published, publish_failed, or no_changes when the branch had nothing to
+// publish.
 func (s *AgentTaskService) workflowPublished(ctx context.Context, task domain.AgentTask, result *domain.DevMachineAgentRunStep) error {
 	if s.workflow == nil {
 		return ErrInvalidOperation
@@ -1328,11 +1331,20 @@ func (s *AgentTaskService) workflowPublished(ctx context.Context, task domain.Ag
 		s.notePublished(ctx, task)
 		return nil
 	case domain.DevMachineAgentRunStepStatusSkipped:
-		return s.workflow.Outcome(ctx, task, domain.WorkflowPublishFailed, "The iteration produced no changes to publish")
+		return s.workflow.Outcome(ctx, task, domain.WorkflowNoChanges, publicationSkippedReason(result))
 	case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
 		return s.workflow.Outcome(ctx, task, domain.WorkflowPublishFailed, "Publishing failed; check the repository connection")
 	}
 	return nil
+}
+
+// publicationSkippedReason is why a publication published nothing, as the
+// step recorded it (the base branch named), or a generic reason.
+func publicationSkippedReason(result *domain.DevMachineAgentRunStep) string {
+	if result.Summary != nil && strings.TrimSpace(*result.Summary) != "" {
+		return *result.Summary
+	}
+	return domain.NoChangesReason("")
 }
 
 // SetWorkflows enables configurable workflows: tasks that pin a workflow

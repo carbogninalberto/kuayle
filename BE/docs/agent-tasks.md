@@ -356,11 +356,15 @@ force-pushed. Then:
    so the floor is no longer an ancestor, the folded commit is a merge of the
    floor and that base commit, so the pull request is neither behind its base nor
    re-adds the base's commits. A branch with no commits ahead of the
-   base is recorded as `skipped` and blocks the task; it is never reviewable.
+   base has nothing to publish (see below).
 2. Copies exactly that branch tip into a new temporary repository outside the
    workspace volume, verifies it is still the recorded commit, and only then reads
    a fresh repository-scoped GitHub App token from stdin. It fetches the base and
-   task branches from GitHub and refuses a push that would add a commit by
+   task branches from GitHub. A commit that adds no changes to the base as GitHub
+   has it (`git diff <base>...<commit>` is empty) is not pushed: the branch can
+   still have commits ahead of the base when its work was already merged (for
+   example squashed) and the base was merged back into it. Otherwise it
+   refuses a push that would add a commit by
    another author or with a co-author trailer, since the checkout's
    remote-tracking refs the commit step relied on are agent-writable. It pushes
    the commit to the fixed `https://github.com/<checkout repository>` URL, without
@@ -381,6 +385,16 @@ force-pushed. Then:
    `pr_opened` GitHub automation moves the issue to In Review; publication does not
    change the issue status itself. The agent's summary is included only as fenced,
    explicitly unverified text. GitHub's URL must belong to the checkout repository.
+
+When the branch has nothing to publish, nothing is pushed and no pull request is
+opened or updated (KUA-176). The step is recorded as `skipped`, never
+reviewable, with the summary "The agent made no changes against `<base>`;
+nothing to publish. The work may already be merged, or the run only produced a
+summary." (the base named from the task's checkout). The Standard flow blocks
+the task with that reason, so a person can continue it with new instructions;
+in a [configurable workflow](#configurable-workflows) it is the publish step's
+`no_changes` outcome, which by default finishes the task. Either way the run
+and its agent summary are kept.
 
 The branch, commit and pull request git refs, the run's `branch`/`pull_request_url`
 and the succeeded step commit together with a `task.publication_updated` event.
@@ -1915,9 +1929,17 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   Edges carry a condition the source node can produce (`agent_finished`,
   `agent_failed`, `checks_passed`, `checks_failed`, `review_approved`,
   `review_changes_requested`, `approval_approved`, `approval_denied`,
-  `published`, `publish_failed`, `merged`, `timeout`, `else`); an agent step
-  whose profile reviews runs on the published pull request as a
+  `published`, `publish_failed`, `no_changes`, `merged`, `timeout`, `else`);
+  an agent step whose profile reviews runs on the published pull request as a
   [review task](#requested-agent-reviews) and leaves on its verdict.
+  A publish step whose branch has [nothing to publish](#publication) ends
+  with `no_changes` ("no changes against the base"), not `publish_failed`.
+  Only a transition naming `no_changes` follows it (to an approval, say), never
+  `else`, which in graphs saved before the outcome existed means a failed
+  publication. Without one the task completes on the publish step (workflow
+  status `done`, no transition recorded) with the reason "Workflow · `<step>`:
+  The agent made no changes against `<base>`; …", starting no iteration and
+  using no budget, so stored graphs need no migration.
   `ValidateWorkflowGraph` requires exactly one start leading to an agent step
   that plans or changes code, a finished planning step leading to an agent
   step that plans or changes code or to an approval (`plan_target`), at least

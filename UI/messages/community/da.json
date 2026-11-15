@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Afvist",
 	"workflows.condition.published": "Udgivet",
 	"workflows.condition.publish_failed": "Udgivelse mislykkedes",
+	"workflows.condition.no_changes": "Ingen ændringer i forhold til basis",
 	"workflows.condition.merged": "Flettet",
 	"workflows.condition.timeout": "Timeout",
 	"workflows.condition.else": "Ellers",

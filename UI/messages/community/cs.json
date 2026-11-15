@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Zamítnuto",
 	"workflows.condition.published": "Publikováno",
 	"workflows.condition.publish_failed": "Publikování selhalo",
+	"workflows.condition.no_changes": "Žádné změny oproti základu",
 	"workflows.condition.merged": "Sloučeno",
 	"workflows.condition.timeout": "Vypršel čas",
 	"workflows.condition.else": "Jinak",

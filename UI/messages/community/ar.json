@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "تم الرفض",
 	"workflows.condition.published": "تم النشر",
 	"workflows.condition.publish_failed": "فشل النشر",
+	"workflows.condition.no_changes": "لا توجد تغييرات مقابل الأساس",
 	"workflows.condition.merged": "تم الدمج",
 	"workflows.condition.timeout": "انتهت المهلة",
 	"workflows.condition.else": "غير ذلك",

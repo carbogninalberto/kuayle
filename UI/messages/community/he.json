@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "נדחה",
 	"workflows.condition.published": "פורסם",
 	"workflows.condition.publish_failed": "הפרסום נכשל",
+	"workflows.condition.no_changes": "אין שינויים לעומת הבסיס",
 	"workflows.condition.merged": "מוזג",
 	"workflows.condition.timeout": "חריגת זמן",
 	"workflows.condition.else": "אחרת",

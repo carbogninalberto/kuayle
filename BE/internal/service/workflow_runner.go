@@ -296,6 +296,16 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 			apply.Entry = repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: reason}
 			return apply, nil
 		}
+		// Nothing was published because nothing changed: the task is
+		// finished, on the step it is at, and says why.
+		if decision.Finish {
+			apply.Moves = append(apply.Moves, repository.WorkflowMove{Decision: decision, Stop: true})
+			if detail != "" {
+				reason = domain.WorkflowReasonPrefix + decision.From.Label + ": " + detail
+			}
+			apply.Entry = repository.WorkflowEntry{Kind: repository.WorkflowEnterComplete, Reason: reason}
+			return apply, nil
+		}
 		if decision.Limit != "" && !ignoreLimit {
 			apply.Moves = append(apply.Moves, repository.WorkflowMove{Decision: decision, Stop: true})
 			if graph.Budget.Policy() == domain.WorkflowOnLimitAsk {

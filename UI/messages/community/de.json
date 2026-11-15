@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Abgelehnt",
 	"workflows.condition.published": "Veröffentlicht",
 	"workflows.condition.publish_failed": "Veröffentlichung fehlgeschlagen",
+	"workflows.condition.no_changes": "Keine Änderungen gegenüber dem Basis-Branch",
 	"workflows.condition.merged": "Gemergt",
 	"workflows.condition.timeout": "Zeitüberschreitung",
 	"workflows.condition.else": "Sonst",

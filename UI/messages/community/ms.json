@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Ditolak",
 	"workflows.condition.published": "Diterbitkan",
 	"workflows.condition.publish_failed": "Penerbitan gagal",
+	"workflows.condition.no_changes": "Tiada perubahan berbanding asas",
 	"workflows.condition.merged": "Digabungkan",
 	"workflows.condition.timeout": "Tamat masa",
 	"workflows.condition.else": "Jika tidak",

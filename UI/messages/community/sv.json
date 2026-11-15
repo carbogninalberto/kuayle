@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Nekad",
 	"workflows.condition.published": "Publicerad",
 	"workflows.condition.publish_failed": "Publiceringen misslyckades",
+	"workflows.condition.no_changes": "Inga ändringar mot basen",
 	"workflows.condition.merged": "Sammanfogad",
 	"workflows.condition.timeout": "Tidsgräns nådd",
 	"workflows.condition.else": "Annars",

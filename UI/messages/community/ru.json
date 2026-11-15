@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Отклонено",
 	"workflows.condition.published": "Опубликовано",
 	"workflows.condition.publish_failed": "Публикация не удалась",
+	"workflows.condition.no_changes": "Нет изменений относительно базовой ветки",
 	"workflows.condition.merged": "Слито",
 	"workflows.condition.timeout": "Тайм-аут",
 	"workflows.condition.else": "Иначе",

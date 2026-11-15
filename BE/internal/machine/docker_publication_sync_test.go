@@ -406,3 +406,40 @@ func TestPushScriptPublishesAForceThatOnlyDropsKuayleCommits(t *testing.T) {
 	require.Equal(t, rebuiltCommit, f.originTip())
 	require.NotContains(t, f.run(f.origin, nil, "rev-list", rebuiltCommit), published, "the push dropped Kuayle's own published commit")
 }
+
+// KUA-176: a task branch that adds nothing to its base is never pushed, so no
+// empty pull request is opened or updated. Here the task's work was
+// squash-merged into main and main was then merged into the task branch on
+// GitHub: the branch still has commits ahead of main, but no changes.
+func TestPushScriptPublishesNothingWhenTheBranchAddsNothingToTheBase(t *testing.T) {
+	f := newScriptFixture(t)
+	published := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+	output, err := f.push(published, "")
+	require.NoError(t, err, output)
+	require.Equal(t, published, f.originTip())
+
+	// The pull request is squash-merged: main gets the same change as a new commit.
+	maintainer := filepath.Join(f.root, "maintainer")
+	f.run(f.root, nil, "clone", "-q", f.origin, maintainer)
+	f.commitFile(maintainer, "feature.txt", fixtureIdentity)
+	f.run(maintainer, nil, "push", "-q", f.origin, "HEAD:main")
+	// Main is merged into the task branch on GitHub.
+	f.run(maintainer, nil, "checkout", "-q", "-b", "task", "refs/remotes/origin/kuayle/rec-1")
+	f.run(maintainer, nil, "merge", "-q", "--no-edit", "main")
+	f.run(maintainer, nil, "push", "-q", f.origin, "HEAD:kuayle/rec-1")
+	merged := f.originTip()
+
+	// A retried task brings the checkout up to that merge and commits nothing new.
+	lease, err := f.sync(published)
+	require.NoError(t, err, lease)
+	require.Empty(t, lease)
+	require.Equal(t, merged, f.head())
+	commit, err := f.commit(published)
+	require.NoError(t, err, commit)
+	require.Equal(t, merged, commit, "the branch still has commits ahead of main")
+
+	output, err = f.push(commit, "")
+	require.NoError(t, err, output)
+	require.Equal(t, "none", output, "nothing is pushed when the branch adds nothing to the base")
+	require.Equal(t, merged, f.originTip())
+}

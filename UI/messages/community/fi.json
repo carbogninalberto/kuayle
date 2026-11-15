@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Hylätty",
 	"workflows.condition.published": "Julkaistu",
 	"workflows.condition.publish_failed": "Julkaisu epäonnistui",
+	"workflows.condition.no_changes": "Ei muutoksia kantahaaraan verrattuna",
 	"workflows.condition.merged": "Yhdistetty",
 	"workflows.condition.timeout": "Aikakatkaisu",
 	"workflows.condition.else": "Muuten",

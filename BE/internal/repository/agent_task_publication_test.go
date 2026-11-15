@@ -165,6 +165,8 @@ func TestPublicationWithoutChangesIsSkippedNotReviewable(t *testing.T) {
 	step, err := repo.EnsurePublication(ctx, *claimed)
 	require.NoError(t, err)
 	require.Equal(t, domain.DevMachineAgentRunStepStatusSkipped, step.Status)
+	require.NotNil(t, step.Summary)
+	require.Equal(t, domain.NoChangesReason("main"), *step.Summary, "the summary names the checkout's base branch")
 	require.ErrorIs(t, repo.Transition(ctx, *claimed, "awaiting_review", "Nothing published"), ErrAgentTaskConflict)
 }
 

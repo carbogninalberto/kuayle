@@ -163,8 +163,9 @@ g rev-parse --verify HEAD
 `
 
 // The push step copies only the recorded commit into a new temporary repository
-// with no hooks or inherited configuration, then pushes it. With the lease of a
-// rewrite the sync accepted, the push is usually a fast-forward, because the
+// with no hooks or inherited configuration, then pushes it. It prints none and
+// pushes nothing when the commit adds no changes to GitHub's base. With the lease
+// of a rewrite the sync accepted, the push is usually a fast-forward, because the
 // commit step rebuilt the changes on the published commit. It is a real force
 // only when the published commit is missing from the checkout, and then every
 // commit it drops must be Kuayle's own. The lease is checked against GitHub's
@@ -201,6 +202,16 @@ remote fetch -q --no-tags --no-recurse-submodules "$url" "+refs/heads/$base:refs
 if remote ls-remote --exit-code --heads "$url" "refs/heads/$branch" >/dev/null; then
   remote fetch -q --no-tags --no-recurse-submodules "$url" "+refs/heads/$branch:refs/kuayle/remote/branch"
 fi
+# A commit that adds nothing to the base as it is on GitHub is not pushed, so
+# no empty pull request is opened or updated (KUA-176): the branch may still
+# have commits ahead of the base when its work was already merged (squashed)
+# and the base was merged back into it. The three-dot diff compares the
+# commit with its merge base with GitHub's base tip. An error (no common
+# history) is not "no changes", so the push goes ahead as before.
+if git --git-dir="$work/repo" diff --quiet --no-ext-diff --no-textconv "refs/kuayle/remote/base...$commit" </dev/null; then
+  echo none
+  exit 0
+fi
 authors=$(git --git-dir="$work/repo" log --format='%ae%n%ce' "$commit" --not --glob='refs/kuayle/remote/*')
 messages=$(git --git-dir="$work/repo" log --format=%B "$commit" --not --glob='refs/kuayle/remote/*')
 if printf '%s\n' "$authors" | grep -vxF -- "$email" | grep -q . || printf '%s\n' "$messages" | grep -qi '^co-authored-by:'; then
@@ -231,7 +242,9 @@ fi
 `
 
 // PublishCheckout commits pending task changes and pushes the task branch. It
-// returns the pushed commit, or "" when the branch has no changes to publish.
+// returns the pushed commit, or "" when the branch has nothing to publish: no
+// commit ahead of the base, or no changes against the base as it is on GitHub
+// (for example work that was already merged). Nothing is pushed then.
 func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, request PublishRequest) (string, error) {
 	developerContainer := developerContainerID(services)
 	if developerContainer == "" {
@@ -261,9 +274,13 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 	if !publishCommitPattern.MatchString(commit) {
 		return "", fmt.Errorf("publication returned an invalid commit")
 	}
-	if _, err = r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishPushScript, "kuayle-publish-push",
-		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit, checkout.BaseBranch, request.AuthorEmail, request.Lease}, request.Token+"\n"); err != nil {
+	pushed, err := r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishPushScript, "kuayle-publish-push",
+		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit, checkout.BaseBranch, request.AuthorEmail, request.Lease}, request.Token+"\n")
+	if err != nil {
 		return "", err
+	}
+	if strings.TrimSpace(pushed) == "none" {
+		return "", nil
 	}
 	return commit, nil
 }

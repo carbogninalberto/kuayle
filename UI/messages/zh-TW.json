@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "已拒絕",
 	"workflows.condition.published": "已發布",
 	"workflows.condition.publish_failed": "發布失敗",
+	"workflows.condition.no_changes": "相對基準分支無變更",
 	"workflows.condition.merged": "已合併",
 	"workflows.condition.timeout": "逾時",
 	"workflows.condition.else": "否則",

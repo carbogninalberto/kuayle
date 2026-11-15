@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "अस्वीकृत",
 	"workflows.condition.published": "प्रकाशित",
 	"workflows.condition.publish_failed": "प्रकाशन विफल",
+	"workflows.condition.no_changes": "आधार की तुलना में कोई बदलाव नहीं",
 	"workflows.condition.merged": "मर्ज हुआ",
 	"workflows.condition.timeout": "टाइमआउट हुआ",
 	"workflows.condition.else": "अन्यथा",

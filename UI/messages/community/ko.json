@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "거부됨",
 	"workflows.condition.published": "게시됨",
 	"workflows.condition.publish_failed": "게시 실패",
+	"workflows.condition.no_changes": "기준 브랜치 대비 변경 없음",
 	"workflows.condition.merged": "병합됨",
 	"workflows.condition.timeout": "시간 초과",
 	"workflows.condition.else": "그 외",

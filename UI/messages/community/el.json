@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Απορρίφθηκε",
 	"workflows.condition.published": "Δημοσιεύτηκε",
 	"workflows.condition.publish_failed": "Η δημοσίευση απέτυχε",
+	"workflows.condition.no_changes": "Καμία αλλαγή σε σχέση με τη βάση",
 	"workflows.condition.merged": "Συγχωνεύτηκε",
 	"workflows.condition.timeout": "Έληξε ο χρόνος",
 	"workflows.condition.else": "Διαφορετικά",

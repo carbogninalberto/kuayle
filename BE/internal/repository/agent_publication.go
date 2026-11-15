@@ -130,7 +130,9 @@ func (r *DevMachineRepository) StartPublication(ctx context.Context, op domain.D
 }
 
 // CompletePublication records GitHub's results with the step outcome. Branch,
-// commit and pull request references commit in the same transaction.
+// commit and pull request references commit in the same transaction. An empty
+// commit means the branch added nothing to its base: the step is skipped, and
+// its summary says so.
 func (r *DevMachineRepository) CompletePublication(ctx context.Context, op domain.DevMachineOperation, result domain.AgentPublicationResult) error {
 	tx, task, step, err := r.taskStepTransaction(ctx, op, publicationPhase)
 	if err != nil {
@@ -141,7 +143,13 @@ func (r *DevMachineRepository) CompletePublication(ctx context.Context, op domai
 		return ErrAgentTaskConflict
 	}
 	if result.Commit == "" {
-		if err = tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status='skipped',completed_at=now(),summary='The iteration produced no changes to publish' WHERE id=$1 RETURNING *`, step.ID); err != nil {
+		// The summary names the base the branch was compared with, from the
+		// task's checkout, never from the operation's result.
+		var base sql.NullString
+		if err = tx.GetContext(ctx, &base, `SELECT c.base_branch FROM dev_machine_agent_runs r JOIN dev_machine_checkouts c ON c.id=r.checkout_id AND c.workspace_id=r.workspace_id WHERE r.id=$1`, step.AgentRunID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err = tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status='skipped',completed_at=now(),summary=$2 WHERE id=$1 RETURNING *`, step.ID, domain.NoChangesReason(base.String)); err != nil {
 			return err
 		}
 	} else {

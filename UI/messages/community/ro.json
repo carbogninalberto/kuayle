@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Refuzat",
 	"workflows.condition.published": "Publicat",
 	"workflows.condition.publish_failed": "Publicarea a eșuat",
+	"workflows.condition.no_changes": "Nicio modificare față de bază",
 	"workflows.condition.merged": "Integrat",
 	"workflows.condition.timeout": "Timp expirat",
 	"workflows.condition.else": "Altfel",

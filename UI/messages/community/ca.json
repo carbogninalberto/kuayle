@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Denegat",
 	"workflows.condition.published": "Publicat",
 	"workflows.condition.publish_failed": "La publicació ha fallat",
+	"workflows.condition.no_changes": "Cap canvi respecte a la base",
 	"workflows.condition.merged": "Fusionat",
 	"workflows.condition.timeout": "Temps esgotat",
 	"workflows.condition.else": "Altrament",

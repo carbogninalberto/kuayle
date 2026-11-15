@@ -306,6 +306,51 @@ func TestStandardGraphPublishesUncheckedWork(t *testing.T) {
 	require.Equal(t, WorkflowElse, decision.Condition)
 }
 
+// KUA-176: a publish step whose branch had no changes against its base
+// follows only a transition naming that outcome; without one the workflow
+// finishes as done, and an "else" transition never catches it.
+func TestPublishWithNoChangesFinishesUnlessRouted(t *testing.T) {
+	implementer, reviewer, profiles := exampleProfiles()
+	g := ReviewLoopWorkflowGraph(implementer, reviewer)
+	publish, _ := g.Node("publish")
+	require.Contains(t, WorkflowConditions(publish, profiles), WorkflowNoChanges)
+	implement, _ := g.Node("implement")
+	require.NotContains(t, WorkflowConditions(implement, profiles), WorkflowNoChanges, "only a publish step produces it")
+
+	cursor := WorkflowCursor{Node: "publish", Visits: map[string]int{"implement": 1, "publish": 1}}
+	d := g.Decide(cursor, WorkflowNoChanges, time.Now(), profiles)
+	require.True(t, d.Finish)
+	require.False(t, d.Stuck)
+	require.Nil(t, d.Edge)
+	require.Contains(t, d.Reason, "no changes against the base")
+
+	// An else transition (here replacing the publish_failed one) is not taken.
+	for i := range g.Edges {
+		if g.Edges[i].ID == "publish-failed" {
+			g.Edges[i].Condition = WorkflowElse
+		}
+	}
+	require.Empty(t, ValidateWorkflowGraph(g, profiles))
+	require.True(t, g.Decide(cursor, WorkflowNoChanges, time.Now(), profiles).Finish)
+	require.Equal(t, "failed", g.Decide(cursor, WorkflowPublishFailed, time.Now(), profiles).To.ID, "else still catches a failed publication")
+
+	// A transition naming the outcome is followed and validates.
+	g.Edges = append(g.Edges, WorkflowEdge{ID: "publish-nothing", Source: "publish", Target: "ship", Condition: WorkflowNoChanges})
+	require.Empty(t, ValidateWorkflowGraph(g, profiles))
+	d = g.Decide(cursor, WorkflowNoChanges, time.Now(), profiles)
+	require.False(t, d.Finish)
+	require.Equal(t, "ship", d.To.ID)
+	require.Equal(t, WorkflowNoChanges, d.Condition)
+
+	// It cannot leave any other kind of step.
+	g.Edges = append(g.Edges, WorkflowEdge{ID: "implement-nothing", Source: "implement", Target: "done", Condition: WorkflowNoChanges})
+	codes := []string{}
+	for _, issue := range ValidateWorkflowGraph(g, profiles) {
+		codes = append(codes, issue.Code)
+	}
+	require.Contains(t, codes, "invalid_condition")
+}
+
 // planThenBuild is start → plan → implement → done, with a planning profile
 // added to the example profiles.
 func planThenBuild(t *testing.T) (WorkflowGraph, map[uuid.UUID]AgentProfile, uuid.UUID) {

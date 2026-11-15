@@ -66,6 +66,11 @@ test('a reviewer step offers verdicts, an implementer step finished/failed', () 
 		'timeout',
 		'else'
 	]);
+	assert.deepEqual(
+		conditionsFor({ id: 'p', type: 'publish' }, profiles),
+		['published', 'publish_failed', 'no_changes', 'else'],
+		'a publish step can end with no changes against the base'
+	);
 	assert.deepEqual(conditionsFor({ id: 's', type: 'start' }, profiles), ['else']);
 	assert.deepEqual(conditionsFor({ id: 'e', type: 'end' }, profiles), []);
 });

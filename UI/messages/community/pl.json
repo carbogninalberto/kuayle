@@ -3624,6 +3624,7 @@
 	"workflows.condition.approval_denied": "Odrzucone",
 	"workflows.condition.published": "Opublikowano",
 	"workflows.condition.publish_failed": "Publikacja nie powiodła się",
+	"workflows.condition.no_changes": "Brak zmian względem bazy",
 	"workflows.condition.merged": "Scalono",
 	"workflows.condition.timeout": "Przekroczono czas",
 	"workflows.condition.else": "W przeciwnym razie",
