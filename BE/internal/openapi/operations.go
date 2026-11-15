@@ -298,7 +298,11 @@ func Operations() []Operation {
 			Summary: "Create a webhook", Description: "The URL must be public: private, loopback and link-local addresses are rejected. The secret is stored encrypted and signs every delivery.",
 			Body: dto.CreateWebhookRequest{}, Status: 201, Response: dto.WebhookResponse{}},
 		{Method: http.MethodPatch, Path: ws + "/webhooks/:id", Scope: domain.PermWorkspaceManage, ID: "updateWebhook", Tag: "Webhooks",
-			Summary: "Update a webhook", Body: dto.UpdateWebhookRequest{}, Status: 200, Response: dto.WebhookResponse{}},
+			Summary: "Update a webhook",
+			Description: "Fields left out are unchanged. events, when sent, must list at least one event, and a changed list may name only " +
+				"issue.created, issue.updated, issue.deleted, issue.triaged and comment.created. The webhook's stored list sent back unchanged is " +
+				"accepted even when it names an event Kuayle no longer delivers.",
+			Body: dto.UpdateWebhookRequest{}, Status: 200, Response: dto.WebhookResponse{}},
 		{Method: http.MethodDelete, Path: ws + "/webhooks/:id", Scope: domain.PermWorkspaceManage, ID: "deleteWebhook", Tag: "Webhooks",
 			Summary: "Delete a webhook", Status: 200, Response: StatusResult{}},
 	}

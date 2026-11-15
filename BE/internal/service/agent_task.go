@@ -77,6 +77,27 @@ type AgentTaskService struct {
 	notices       taskNoticeStore
 	notifications notificationCreator
 	userEvents    userEventPublisher
+	// webhooks delivers the issue status changes tasks make; nil until
+	// SetWebhooks wires it.
+	webhooks webhookEmitter
+}
+
+// SetWebhooks makes issue status changes made by tasks deliver workspace
+// webhooks.
+func (s *AgentTaskService) SetWebhooks(w webhookEmitter) { s.webhooks = w }
+
+// issueChanged announces an issue whose status a task changed. The store
+// returns the issue only after committing a status change.
+func (s *AgentTaskService) issueChanged(ctx context.Context, ws uuid.UUID, issue *domain.Issue, actorID uuid.UUID) {
+	if issue == nil {
+		return
+	}
+	if s.events != nil {
+		s.events.Broadcast(ws, realtime.Event{Type: "issue.updated", Payload: issue})
+	}
+	if s.webhooks != nil {
+		s.webhooks.IssueEvent(ctx, ws, WebhookEventIssueUpdated, issue, actorID)
+	}
 }
 
 type taskRegistry interface {
@@ -436,9 +457,9 @@ func (s *AgentTaskService) recordStart(ctx context.Context, task *domain.AgentTa
 	if err != nil {
 		return err
 	}
-	if issue != nil && s.events != nil {
-		s.events.Broadcast(task.WorkspaceID, realtime.Event{Type: "issue.updated", Payload: issue})
-	}
+	// The issue moves to a started status on behalf of the task's creator, who
+	// is also the actor its history records.
+	s.issueChanged(ctx, task.WorkspaceID, issue, task.CreatorID)
 	task.State = "running"
 	return nil
 }

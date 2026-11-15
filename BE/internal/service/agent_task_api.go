@@ -10,7 +10,6 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
-	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"strings"
 )
@@ -173,9 +172,12 @@ func (s *AgentTaskService) accept(ctx context.Context, ws, id uuid.UUID, generat
 	if err != nil {
 		return nil, err
 	}
-	if issue != nil && s.events != nil {
-		s.events.Broadcast(ws, realtime.Event{Type: "issue.updated", Payload: issue})
+	// The accepting user completes the issue, as its history records.
+	actor := uuid.Nil
+	if access, ok := domain.AccessFromContext(ctx); ok {
+		actor = access.UserID
 	}
+	s.issueChanged(ctx, ws, issue, actor)
 	return task, nil
 }
 

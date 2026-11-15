@@ -32,6 +32,17 @@ type forgeLinker struct {
 	historyRepo    repository.IssueHistoryRepo
 	rules          forgeTransitionRules
 	broadcast      func(uuid.UUID, realtime.Event)
+	// webhooks delivers the status changes the forge makes; may be nil.
+	webhooks webhookEmitter
+}
+
+// issueChanged announces an issue the forge automation changed, to the
+// realtime hub and to workspace webhooks. The system acts, so no user does.
+func (l *forgeLinker) issueChanged(ctx context.Context, workspaceID uuid.UUID, issue *domain.Issue) {
+	l.emit(workspaceID, realtime.Event{Type: "issue.updated", Payload: issue})
+	if l.webhooks != nil {
+		l.webhooks.IssueEvent(ctx, workspaceID, WebhookEventIssueUpdated, issue, uuid.Nil)
+	}
 }
 
 func (l *forgeLinker) emit(workspaceID uuid.UUID, event realtime.Event) {
@@ -142,10 +153,7 @@ func (l *forgeLinker) applyAutoTransition(ctx context.Context, workspaceID uuid.
 
 	_ = l.historyRepo.Create(ctx, issue.ID, uuid.Nil, "status", &oldStatus, &newStatus)
 
-	l.emit(workspaceID, realtime.Event{
-		Type:    "issue.updated",
-		Payload: issue,
-	})
+	l.issueChanged(ctx, workspaceID, issue)
 	l.applyStatusAutomation(ctx, workspaceID, issue, map[uuid.UUID]bool{})
 }
 
@@ -215,7 +223,7 @@ func (l *forgeLinker) moveIssueToCompleted(ctx context.Context, workspaceID uuid
 	}
 	newVal := completedStatus.Slug
 	_ = l.historyRepo.Create(ctx, issue.ID, uuid.Nil, "status", &old, &newVal)
-	l.emit(workspaceID, realtime.Event{Type: "issue.updated", Payload: issue})
+	l.issueChanged(ctx, workspaceID, issue)
 	l.applyStatusAutomation(ctx, workspaceID, issue, visited)
 }
 
@@ -273,8 +281,17 @@ func (s *GitHubService) linker() *forgeLinker {
 		historyRepo:    s.historyRepo,
 		rules:          s.ghRepo,
 		broadcast:      s.broadcastRealtimeEvent,
+		webhooks:       s.webhooks,
 	}
 }
+
+// SetWebhooks makes issue changes from GitHub automation deliver workspace
+// webhooks.
+func (s *GitHubService) SetWebhooks(w webhookEmitter) { s.webhooks = w }
+
+// SetWebhooks makes issue changes from forge automation deliver workspace
+// webhooks.
+func (s *ForgeService) SetWebhooks(w webhookEmitter) { s.outbound = w }
 
 func (s *GitHubService) resolveIssueFromRef(ctx context.Context, workspaceID uuid.UUID, texts ...string) *domain.Issue {
 	return s.linker().resolveIssueFromRef(ctx, workspaceID, texts...)

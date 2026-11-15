@@ -38,6 +38,17 @@ func (r *WebhookRepository) ListByWorkspace(ctx context.Context, workspaceID uui
 	return webhooks, err
 }
 
+// ListDeliverable returns the active webhooks of the workspace that subscribe
+// to event, oldest first. It returns none while the workspace is in privacy
+// mode (it has or had a private team): the cheap precheck before deliveries
+// are queued. BeginPublicOperation stays the boundary when one is sent.
+func (r *WebhookRepository) ListDeliverable(ctx context.Context, workspaceID uuid.UUID, event string) ([]domain.Webhook, error) {
+	var webhooks []domain.Webhook
+	err := r.db.SelectContext(ctx, &webhooks, `SELECT * FROM webhooks WHERE workspace_id = $1 AND is_active AND $2 = ANY(events) AND `+
+		workspaceVisible(ctx, "webhooks.workspace_id")+` AND `+publicMetadataAllowed("webhooks.workspace_id")+` ORDER BY created_at, id`, workspaceID, event)
+	return webhooks, err
+}
+
 func (r *WebhookRepository) Update(ctx context.Context, w *domain.Webhook) error {
 	query := `UPDATE webhooks SET url = $1, events = $2, is_active = $3, updated_at = NOW() WHERE id = $4 AND ` + workspaceVisible(ctx, "webhooks.workspace_id") + ` RETURNING updated_at`
 	return r.db.QueryRowContext(ctx, query, w.URL, w.Events, w.IsActive, w.ID).Scan(&w.UpdatedAt)

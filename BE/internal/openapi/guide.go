@@ -96,8 +96,12 @@ func Guide(ops []Operation) []Section {
 				"A webhook is a URL of yours registered for a workspace with a secret and a list of event names. The URL must be reachable from the instance and must not be a private, loopback or link-local address. The secret is stored encrypted and never returned.",
 				"A delivery is an HTTP POST with a JSON body holding event, payload and timestamp (RFC 3339, UTC). The " + EventHeader + " header repeats the event name. The " + SignatureHeader + " header is \"sha256=\" followed by the hex HMAC-SHA256 of the raw request body, keyed with the webhook's secret.",
 				"To verify a delivery, compute the same HMAC over the bytes you received, before parsing them, and compare it with the header in constant time. Reject the request when they differ. Deliveries time out after 10 seconds and are not retried, so answer quickly and do slow work afterwards.",
-				"Preview: this release registers webhooks and signs deliveries as described, but does not emit issue or comment events yet. Until a release note announces event delivery, read changes through the API.",
+				"Deliveries are sent after the change is saved: one per webhook subscribed to the event, and one per issue for bulk operations (bulk edits and deletes, unfinished issues moved to the next cycle). The issue in an issue event is the stored issue: its ids, identifier, title, description, status, priority, dates and timestamps, including started_at, completed_at, cancelled_at and triaged_at. actor_id is the user whose change caused the event, also for a follow-up Kuayle makes for them, such as closing a parent whose sub-issues are all done. It is null only for system automation: status transitions from forge and GitHub activity.",
+				"Delivery is at most once. Each change waits once in a queue held in the instance's memory and is then sent to the subscribed webhooks one after another. A few workers serve the queue, each workspace has one change in flight at a time, in the order they were queued, and each workspace may hold at most 256 waiting changes and 2 MiB of payloads, so a busy workspace or a slow receiver does not crowd out other workspaces. A delivery is dropped, not retried, when its workspace's share or the whole queue is full (for example during a very large bulk edit), when it waited five minutes, or when the instance restarts or is updated before sending it.",
+				"A webhook whose deliveries fail three times in a row (a network error, the 10-second timeout or a status other than 2xx) is paused for five minutes: its deliveries in that time are dropped while the workspace's other webhooks keep receiving theirs. The next delivery after the pause is attempted; a success resumes the webhook and a failure pauses it again. Do not rely on order or completeness: compare payload.issue.updated_at (the envelope timestamp has one-second resolution), or fetch the issue again for its current state.",
+				"Webhooks are workspace-level and have no user, so they never deliver content of private teams: a workspace that has, or ever had, a private team does not deliver webhooks at all, and a queued delivery is checked again when it is sent. Changes the database makes by itself send no event: deleting a parent detaches its sub-issues, deleting a project or cycle clears it from its issues, deleting a team deletes its issues and renaming a team key changes identifiers. A workspace import sends none either. Kuayle delivers these events:",
 			},
+			List: webhookEventList(),
 			Code: &Code{Language: "js", Text: signatureSample},
 		},
 		{
@@ -143,4 +147,12 @@ func markdown(sections []Section) string {
 		}
 	}
 	return b.String()
+}
+
+func webhookEventList() []string {
+	list := make([]string, len(WebhookEvents))
+	for i, event := range WebhookEvents {
+		list[i] = event.Name + ": " + event.Description
+	}
+	return list
 }

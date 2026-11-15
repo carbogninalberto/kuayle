@@ -26,6 +26,45 @@ type agentMessageStore interface {
 type AgentMessageService struct {
 	store  agentMessageStore
 	events taskEventPublisher
+	// webhooks delivers comment.created for posted comments, loading them
+	// through comments and issues; all nil until SetWebhooks.
+	webhooks webhookEmitter
+	comments agentCommentReader
+	issues   agentIssueReader
+}
+
+type agentCommentReader interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Comment, error)
+}
+
+type agentIssueReader interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Issue, error)
+}
+
+// SetWebhooks makes posted agent comments deliver comment.created webhooks.
+// The comment and its issue are read through comments and issues.
+func (s *AgentMessageService) SetWebhooks(w webhookEmitter, comments agentCommentReader, issues agentIssueReader) {
+	s.webhooks, s.comments, s.issues = w, comments, issues
+}
+
+// commentWebhook announces a committed agent comment to workspace webhooks,
+// reading it as its author, who was just allowed to post it.
+func (s *AgentMessageService) commentWebhook(ctx context.Context, posted *repository.AgentMessageComment) {
+	if s.webhooks == nil || s.comments == nil || s.issues == nil {
+		return
+	}
+	asAuthor := domain.WithAccess(ctx, domain.Access{UserID: posted.AuthorID, WorkspaceID: posted.WorkspaceID})
+	comment, err := s.comments.GetByID(asAuthor, posted.CommentID)
+	if err != nil || comment == nil {
+		log.WithError(err).WithField("comment_id", posted.CommentID).Warn("agent comment webhook skipped: the comment could not be read")
+		return
+	}
+	issue, err := s.issues.GetByID(asAuthor, posted.IssueID)
+	if err != nil || issue == nil || issue.WorkspaceID != posted.WorkspaceID {
+		log.WithError(err).WithField("issue_id", posted.IssueID).Warn("agent comment webhook skipped: the issue could not be read")
+		return
+	}
+	s.webhooks.CommentCreated(ctx, posted.WorkspaceID, issue, comment, comment.UserID)
 }
 
 func NewAgentMessageService(store *repository.AgentMessageRepository, hub *realtime.Hub) *AgentMessageService {
@@ -80,6 +119,7 @@ func (s *AgentMessageService) PostComments(ctx context.Context, limit int) (int,
 				"issue_id": comment.IssueID.String(), "comment_id": comment.CommentID.String(), "identifier": comment.Identifier,
 			}})
 		}
+		s.commentWebhook(ctx, comment)
 	}
 	return posted, nil
 }

@@ -56,7 +56,7 @@ test('every schema link on the page points at a rendered schema', () => {
 	const parts = [
 		...operations.flatMap((operation) => [...(operation.request ?? []), ...operation.response, ...operation.parameters.flatMap((parameter) => parameter.type)]),
 		...reference.schemas.flatMap((schema) => schema.fields.flatMap((field) => field.type)),
-		...reference.webhook.body
+		...reference.webhook.events.flatMap((event) => event.body)
 	];
 	for (const part of parts) {
 		if (part.ref) assert.ok(names.has(part.ref), `unknown schema ${part.ref}`);
@@ -70,7 +70,33 @@ test('the guide covers auth, scopes, pagination, errors, rate limits and webhook
 		['authentication', 'scopes', 'pagination', 'errors', 'rate-limits', 'webhooks', 'stability']
 	);
 	assert.equal(reference.webhook.signatureHeader, 'X-Webhook-Signature');
+	assert.equal(reference.webhook.eventHeader, 'X-Webhook-Event');
+	assert.deepEqual(
+		reference.webhook.events.map((event) => event.name),
+		['comment.created', 'issue.created', 'issue.deleted', 'issue.triaged', 'issue.updated']
+	);
+	assert.ok(reference.webhook.events.every((event) => event.body.some((part) => part.ref)));
 	assert.match(reference.guide.find((section) => section.id === 'webhooks').code.text, /timingSafeEqual/);
+});
+
+test('the webhooks section describes each event once', () => {
+	const section = reference.guide.find((entry) => entry.id === 'webhooks');
+	const events = reference.webhook.events;
+	assert.ok(events.length > 0);
+	// The events block renders each event, so the guide carries no list of its own.
+	assert.equal(section.list, undefined);
+	for (const event of events) {
+		assert.ok(event.description.trim().length > 0, `${event.name} has no description`);
+	}
+	const text = [...section.paragraphs, ...events.map((event) => event.description)].join('\n');
+	for (const event of events) {
+		const occurrences = text.split(event.description).length - 1;
+		assert.equal(occurrences, 1, `${event.name} is described ${occurrences} times`);
+	}
+
+	// Building the page data leaves the document it read untouched.
+	const original = spec['x-kuayle-guide'].find((entry) => entry.id === 'webhooks');
+	assert.ok(Array.isArray(original.list) && original.list.length > 0);
 });
 
 test('types and constraints read naturally', () => {

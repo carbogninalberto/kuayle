@@ -361,7 +361,10 @@ type AgentMessageComment struct {
 	IssueID     uuid.UUID
 	Identifier  string
 	CommentID   uuid.UUID
-	Posted      bool
+	// AuthorID is the user the posted comment is attributed to: the sending
+	// task's creator.
+	AuthorID uuid.UUID
+	Posted   bool
 }
 
 // PostNextComment posts one due comment-channel message on its recipient
@@ -404,7 +407,7 @@ func (r *AgentMessageRepository) PostNextComment(ctx context.Context) (*AgentMes
 		}
 		return result, tx.Commit()
 	}
-	result.CommentID, result.Posted = uuid.New(), true
+	result.CommentID, result.AuthorID, result.Posted = uuid.New(), due.CreatorID, true
 	if _, err = tx.ExecContext(ctx, `INSERT INTO comments(id,issue_id,user_id,body,agent_task_id) VALUES($1,$2,$3,$4,$5)`, result.CommentID, due.ToIssueID, due.CreatorID, agentCommentBody(due.FromIdentifier, due.Body), due.FromTaskID); err != nil {
 		return nil, err
 	}

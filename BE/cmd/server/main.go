@@ -121,14 +121,21 @@ func main() {
 	workspaceSvc := service.NewWorkspaceService(workspaceRepo, userRepo, hub)
 	teamSvc := service.NewTeamService(teamRepo, teamStatusRepo, hub)
 	notifSvc := service.NewNotificationService(notifRepo)
+	// Workspace webhooks receive issue and comment events from every write
+	// path that changes them (KUA-109).
+	webhookRepo := repository.NewWebhookRepository(db)
+	webhookSvc := service.NewWebhookService(webhookRepo, cfg.JWTSecret)
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, teamStatusRepo, historyRepo, hub, notifSvc, projectRepo)
+	issueSvc.SetWebhooks(webhookSvc)
 	labelSvc := service.NewLabelService(labelRepo, projectRepo)
 	commentSvc := service.NewCommentService(commentRepo, issueRepo, hub, notifSvc)
+	commentSvc.SetWebhooks(webhookSvc)
 	projectSvc := service.NewProjectService(projectRepo)
 	relationSvc := service.NewIssueRelationService(relationRepo, issueRepo)
 	templateSvc := service.NewIssueTemplateService(templateRepo)
 	viewSvc := service.NewViewService(viewRepo, hub)
 	cycleSvc := service.NewCycleService(cycleRepo, teamRepo, hub, notifSvc)
+	cycleSvc.SetWebhooks(webhookSvc)
 	teamStatusSvc := service.NewTeamStatusService(teamStatusRepo, visibilityRepo)
 	favSvc := service.NewFavoriteService(favRepo)
 	prefsSvc := service.NewPreferencesService(prefsRepo)
@@ -240,6 +247,7 @@ func main() {
 	conversationSvc.SetTools(assistantTools)
 	conversationH := handler.NewConversationHandler(conversationSvc, cfg.FrontendURL)
 	agentTaskSvc := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), devMachineSvc, hub)
+	agentTaskSvc.SetWebhooks(webhookSvc)
 	// Tasks that pin a configurable workflow follow it (KUA-95).
 	workflowRepo := repository.NewWorkflowRepository(db)
 	agentTaskSvc.SetWorkflows(workflowRepo)
@@ -278,6 +286,7 @@ func main() {
 	conversationSvc.SetApprovals(assistantApprovals)
 	agentTaskH := handler.NewAgentTaskHandler(agentTaskSvc)
 	agentMessageSvc := service.NewAgentMessageService(repository.NewAgentMessageRepository(db), hub)
+	agentMessageSvc.SetWebhooks(webhookSvc, commentRepo, issueRepo)
 	agentMessageH := handler.NewAgentMessageHandler(agentMessageSvc)
 	automationSvc := service.NewAgentAutomationService(repository.NewAgentAutomationRepository(db), conversationSvc.Repo, agentTaskSvc, notifSvc, hub)
 	agentAutomationH := handler.NewAgentAutomationHandler(automationSvc)
@@ -301,8 +310,6 @@ func main() {
 	systemH := handler.NewSystemHandler(cfg.SystemUpdaterURL, cfg.SystemUpdaterToken, cfg.IsSysAdmin)
 	systemH.OnUpdateStarted(func() { hub.BroadcastSystem(realtime.Event{Type: "system.update.started"}) })
 	assistantSystem.OnUpdateStarted(func() { hub.BroadcastSystem(realtime.Event{Type: "system.update.started"}) })
-	webhookRepo := repository.NewWebhookRepository(db)
-	webhookSvc := service.NewWebhookService(webhookRepo, cfg.JWTSecret)
 	webhookH := handler.NewWebhookHandler(webhookSvc)
 	sharedLinkRepo := repository.NewSharedLinkRepository(db)
 	sharedLinkSvc := service.NewSharedLinkService(sharedLinkRepo, workspaceRepo, teamRepo, projectRepo, viewRepo, issueRepo, userRepo, teamStatusRepo, cfg.JWTSecret)
@@ -369,6 +376,7 @@ func main() {
 		globalGitHubApp,
 	)
 	githubSvc.SetTaskReviews(repository.NewAgentTaskRepository(db))
+	githubSvc.SetWebhooks(webhookSvc)
 	devMachineSvc.SetRepositoryManifests(githubSvc)
 	assistantApprovals.SetMerging(repository.NewAgentTaskRepository(db), workspaceRepo, githubSvc)
 	assistantApprovals.SetWiki(wikiSvc, workspaceRepo)
@@ -411,6 +419,7 @@ func main() {
 		forgeRepo, githubRepo, issueRepo, teamRepo, teamStatusRepo, historyRepo,
 		crypto.DeriveKey(cfg.JWTSecret+":forge"), hub, cfg.FrontendURL, cfg.ForgeWebhookBaseURL, cfg.ForgeAllowPrivateNetwork,
 	)
+	forgeSvc.SetWebhooks(webhookSvc)
 	forgeH := handler.NewForgeHandler(forgeSvc)
 
 	// Background: clean up expired refresh tokens every hour
