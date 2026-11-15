@@ -307,39 +307,103 @@ func TestStandardGraphPublishesUncheckedWork(t *testing.T) {
 }
 
 // KUA-176: a publish step whose branch had no changes against its base
-// follows only a transition naming that outcome; without one the workflow
-// finishes as done, and an "else" transition never catches it.
+// follows a transition naming that outcome, or an "else" that leads to a step
+// waiting for a person; otherwise the workflow finishes with nothing new to
+// publish.
 func TestPublishWithNoChangesFinishesUnlessRouted(t *testing.T) {
 	implementer, reviewer, profiles := exampleProfiles()
+	cursor := WorkflowCursor{Node: "publish", Visits: map[string]int{"implement": 1, "publish": 1}}
+	decide := func(g WorkflowGraph, outcome string) WorkflowDecision {
+		return g.Decide(cursor, outcome, time.Now(), profiles)
+	}
+
 	g := ReviewLoopWorkflowGraph(implementer, reviewer)
 	publish, _ := g.Node("publish")
 	require.Contains(t, WorkflowConditions(publish, profiles), WorkflowNoChanges)
 	implement, _ := g.Node("implement")
 	require.NotContains(t, WorkflowConditions(implement, profiles), WorkflowNoChanges, "only a publish step produces it")
 
-	cursor := WorkflowCursor{Node: "publish", Visits: map[string]int{"implement": 1, "publish": 1}}
-	d := g.Decide(cursor, WorkflowNoChanges, time.Now(), profiles)
+	// Without a transition for the outcome the workflow finishes.
+	d := decide(g, WorkflowNoChanges)
 	require.True(t, d.Finish)
 	require.False(t, d.Stuck)
 	require.Nil(t, d.Edge)
 	require.Contains(t, d.Reason, "no changes against the base")
+	require.Contains(t, d.Reason, "nothing new to publish")
+	require.NotContains(t, d.Reason, "without a pull request")
 
-	// An else transition (here replacing the publish_failed one) is not taken.
+	// An "else" transition to the failed end (here replacing the
+	// publish_failed one) is not taken, though it still catches a failed
+	// publication.
+	g = ReviewLoopWorkflowGraph(implementer, reviewer)
 	for i := range g.Edges {
 		if g.Edges[i].ID == "publish-failed" {
 			g.Edges[i].Condition = WorkflowElse
 		}
 	}
 	require.Empty(t, ValidateWorkflowGraph(g, profiles))
-	require.True(t, g.Decide(cursor, WorkflowNoChanges, time.Now(), profiles).Finish)
-	require.Equal(t, "failed", g.Decide(cursor, WorkflowPublishFailed, time.Now(), profiles).To.ID, "else still catches a failed publication")
+	require.True(t, decide(g, WorkflowNoChanges).Finish)
+	require.Equal(t, "failed", decide(g, WorkflowPublishFailed).To.ID, "else still catches a failed publication")
 
-	// A transition naming the outcome is followed and validates.
-	g.Edges = append(g.Edges, WorkflowEdge{ID: "publish-nothing", Source: "publish", Target: "ship", Condition: WorkflowNoChanges})
+	// Nor is an "else" transition to an agent step. (The loop it makes is
+	// unguarded here, so the graph need not validate for the decision.)
+	g = ReviewLoopWorkflowGraph(implementer, reviewer)
+	for i := range g.Edges {
+		if g.Edges[i].ID == "publish-failed" {
+			g.Edges[i] = WorkflowEdge{ID: "publish-else", Source: "publish", Target: "implement", Condition: WorkflowElse}
+		}
+	}
+	require.True(t, decide(g, WorkflowNoChanges).Finish)
+
+	// An "else" transition to an approval catches it: a person decides.
+	g = ReviewLoopWorkflowGraph(implementer, reviewer)
+	for i := range g.Edges {
+		if g.Edges[i].ID == "publish-failed" {
+			g.Edges[i] = WorkflowEdge{ID: "publish-else", Source: "publish", Target: "ship", Condition: WorkflowElse}
+		}
+	}
 	require.Empty(t, ValidateWorkflowGraph(g, profiles))
-	d = g.Decide(cursor, WorkflowNoChanges, time.Now(), profiles)
+	d = decide(g, WorkflowNoChanges)
 	require.False(t, d.Finish)
 	require.Equal(t, "ship", d.To.ID)
+	require.Equal(t, WorkflowElse, d.Condition)
+
+	// A merge waits for a person too.
+	g = ReviewLoopWorkflowGraph(implementer, reviewer)
+	g.Nodes = append(g.Nodes, WorkflowNode{ID: "merge", Type: WorkflowNodeMerge, Label: "Merge"})
+	for i := range g.Edges {
+		if g.Edges[i].ID == "publish-failed" {
+			g.Edges[i] = WorkflowEdge{ID: "publish-else", Source: "publish", Target: "merge", Condition: WorkflowElse}
+		}
+	}
+	g.Edges = append(g.Edges, WorkflowEdge{ID: "merge-done", Source: "merge", Target: "done", Condition: WorkflowMerged})
+	require.Empty(t, ValidateWorkflowGraph(g, profiles))
+	d = decide(g, WorkflowNoChanges)
+	require.False(t, d.Finish)
+	require.Equal(t, "merge", d.To.ID)
+	require.Equal(t, WorkflowElse, d.Condition)
+
+	// A transition naming the outcome is followed and validates.
+	g = ReviewLoopWorkflowGraph(implementer, reviewer)
+	g.Edges = append(g.Edges, WorkflowEdge{ID: "publish-nothing", Source: "publish", Target: "ship", Condition: WorkflowNoChanges})
+	require.Empty(t, ValidateWorkflowGraph(g, profiles))
+	d = decide(g, WorkflowNoChanges)
+	require.False(t, d.Finish)
+	require.Equal(t, "ship", d.To.ID)
+	require.Equal(t, WorkflowNoChanges, d.Condition)
+
+	// It wins over an "else" that would catch the outcome.
+	g = ReviewLoopWorkflowGraph(implementer, reviewer)
+	for i := range g.Edges {
+		if g.Edges[i].ID == "publish-failed" {
+			g.Edges[i] = WorkflowEdge{ID: "publish-else", Source: "publish", Target: "ship", Condition: WorkflowElse}
+		}
+	}
+	g.Edges = append(g.Edges, WorkflowEdge{ID: "publish-nothing", Source: "publish", Target: "done", Condition: WorkflowNoChanges})
+	require.Empty(t, ValidateWorkflowGraph(g, profiles))
+	d = decide(g, WorkflowNoChanges)
+	require.False(t, d.Finish)
+	require.Equal(t, "done", d.To.ID, "the transition naming the outcome wins")
 	require.Equal(t, WorkflowNoChanges, d.Condition)
 
 	// It cannot leave any other kind of step.

@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -27,6 +28,13 @@ var (
 	publishRepositoryPattern = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
 	publishCommitPattern     = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 )
+
+// ErrPublishedWorkRemains is PublishCheckout's answer when the branch has
+// nothing new to publish, but the task branch on GitHub still has changes
+// against its base: work an earlier iteration published that the agent has
+// since removed. Nothing is pushed, so that work stays on the branch and in
+// its pull request (KUA-176).
+var ErrPublishedWorkRemains = errors.New("the task branch on GitHub still holds work the agent removed")
 
 // publishCheckoutScript opens the task checkout without loading anything the
 // agent can configure. Agent runs write the checkout's git directory, so its
@@ -164,7 +172,10 @@ g rev-parse --verify HEAD
 
 // The push step copies only the recorded commit into a new temporary repository
 // with no hooks or inherited configuration, then pushes it. It prints none and
-// pushes nothing when the commit adds no changes to GitHub's base. With the lease
+// pushes nothing when the commit has nothing to publish because GitHub's base
+// already has its work, also when that work was squashed. It prints remains
+// instead when GitHub's task branch still differs from the base, so it holds work
+// an earlier iteration published that the agent has since removed. With the lease
 // of a rewrite the sync accepted, the push is usually a fast-forward, because the
 // commit step rebuilt the changes on the published commit. It is a real force
 // only when the published commit is missing from the checkout, and then every
@@ -202,14 +213,34 @@ remote fetch -q --no-tags --no-recurse-submodules "$url" "+refs/heads/$base:refs
 if remote ls-remote --exit-code --heads "$url" "refs/heads/$branch" >/dev/null; then
   remote fetch -q --no-tags --no-recurse-submodules "$url" "+refs/heads/$branch:refs/kuayle/remote/branch"
 fi
-# A commit that adds nothing to the base as it is on GitHub is not pushed, so
-# no empty pull request is opened or updated (KUA-176): the branch may still
-# have commits ahead of the base when its work was already merged (squashed)
-# and the base was merged back into it. The three-dot diff compares the
-# commit with its merge base with GitHub's base tip. An error (no common
-# history) is not "no changes", so the push goes ahead as before.
-if git --git-dir="$work/repo" diff --quiet --no-ext-diff --no-textconv "refs/kuayle/remote/base...$commit" </dev/null; then
-  echo none
+# unchanged <commit> succeeds when merging the commit into the base as it is on
+# GitHub leaves the base's tree as it is, so the commit has nothing to publish:
+# its work is already in the base, also when it was squashed (a diff from the
+# merge base would still show it), with or without the base merged back. A
+# conflict or any other error counts as a change, so the push goes ahead.
+# Git before 2.38 has no merge-tree --write-tree and exits with a usage error
+# (129); the commit is then compared with its merge base with the base, which
+# misses squashed work.
+unchanged() {
+  status=0
+  tree=$(git --git-dir="$work/repo" merge-tree --write-tree --no-messages refs/kuayle/remote/base "$1" </dev/null 2>/dev/null) || status=$?
+  case $status in
+    0) [ "$tree" = "$(git --git-dir="$work/repo" rev-parse --verify 'refs/kuayle/remote/base^{tree}' </dev/null)" ] ;;
+    129) git --git-dir="$work/repo" diff --quiet --no-ext-diff --no-textconv "refs/kuayle/remote/base...$1" </dev/null 2>/dev/null ;;
+    *) return 1 ;;
+  esac
+}
+if unchanged "$commit"; then
+  # Nothing new to publish. When GitHub's task branch still differs from the
+  # base, it holds work an earlier iteration published (in its pull request,
+  # if one is open) that the agent has since removed. Not pushing leaves that
+  # work published, so the script says so and the task is blocked instead of
+  # ended (KUA-176).
+  if git --git-dir="$work/repo" rev-parse -q --verify refs/kuayle/remote/branch >/dev/null </dev/null && ! unchanged refs/kuayle/remote/branch; then
+    echo remains
+  else
+    echo none
+  fi
   exit 0
 fi
 authors=$(git --git-dir="$work/repo" log --format='%ae%n%ce' "$commit" --not --glob='refs/kuayle/remote/*')
@@ -244,7 +275,11 @@ fi
 // PublishCheckout commits pending task changes and pushes the task branch. It
 // returns the pushed commit, or "" when the branch has nothing to publish: no
 // commit ahead of the base, or no changes against the base as it is on GitHub
-// (for example work that was already merged). Nothing is pushed then.
+// (for example work that was already merged). Nothing is pushed then. It returns
+// ErrPublishedWorkRemains when the commit has nothing new to publish but the task
+// branch on GitHub still has changes against the base, because it holds work an
+// earlier iteration published that the agent has since removed: nothing is pushed
+// then either, so that work stays on the branch and in its pull request.
 func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, request PublishRequest) (string, error) {
 	developerContainer := developerContainerID(services)
 	if developerContainer == "" {
@@ -279,8 +314,18 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(pushed) == "none" {
+	return pushedCommit(pushed, commit)
+}
+
+// pushedCommit reads the push step's stdout: none when the commit had nothing
+// to publish, remains when GitHub's task branch still holds removed work, and
+// nothing when the commit was pushed.
+func pushedCommit(output, commit string) (string, error) {
+	switch strings.TrimSpace(output) {
+	case "none":
 		return "", nil
+	case "remains":
+		return "", ErrPublishedWorkRemains
 	}
 	return commit, nil
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -607,6 +608,48 @@ func TestStandardPublicationWithNoChangesBlocksWithItsReason(t *testing.T) {
 	require.NoError(t, service.step(context.Background(), task))
 	require.Equal(t, "blocked", store.task.State)
 	require.Equal(t, []string{reason}, store.reasons)
+}
+
+// KUA-176: nothing new was published, but GitHub's branch still holds the
+// earlier work the agent removed, so the task blocks with that reason.
+func TestStandardPublicationWithRemovedWorkStillPublishedBlocks(t *testing.T) {
+	reason := domain.PublishedWorkRemainsReason("https://github.com/acme/app/pull/12", "kuayle/rec-1")
+	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New(), State: "publishing"}
+	store := &taskStoreFake{task: task}
+	runtime := &taskRuntimeFake{publication: &domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusSkipped, Summary: &reason}}
+	service := &AgentTaskService{store: store, runtime: runtime}
+	require.NoError(t, service.step(context.Background(), task))
+	require.Equal(t, "blocked", store.task.State)
+	require.Equal(t, []string{reason}, store.reasons)
+}
+
+// KUA-176: a workflow leaves its publish step open instead of finishing: the
+// earlier work is still published, so the task cannot look done.
+func TestWorkflowPublicationWithRemovedWorkStillPublishedBlocks(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{MaxIterations: 16, OnExhausted: domain.WorkflowOnLimitFail})
+	h.agentFinishes("Reverted everything")
+	require.Equal(t, "publishing", h.w.task.State)
+	reason := domain.PublishedWorkRemainsReason("https://github.com/acme/app/pull/12", "kuayle/rec-1")
+	store := &taskStoreFake{task: h.w.task}
+	service := &AgentTaskService{workflow: h.runner, store: store}
+	require.NoError(t, service.workflowPublished(context.Background(), h.w.task, &domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusSkipped, Summary: &reason}))
+	require.Equal(t, "blocked", store.task.State)
+	require.Equal(t, []string{reason}, store.reasons)
+	require.Equal(t, "publish", h.current().NodeID, "the publish step stays open")
+	require.Nil(t, h.current().Outcome)
+	require.Equal(t, domain.WorkflowStatusRunning, *h.w.task.WorkflowStatus)
+	require.Equal(t, "publishing", h.w.task.State, "the workflow's own store is untouched")
+}
+
+func TestPublishedWorkRemainsReasonIsRecognisedAndBounded(t *testing.T) {
+	reason := domain.PublishedWorkRemainsReason("https://github.com/acme/app/pull/12", "kuayle/rec-1")
+	require.True(t, domain.IsPublishedWorkRemainsReason(reason))
+	require.Contains(t, reason, "the open pull request https://github.com/acme/app/pull/12 still contains the earlier work")
+	require.True(t, domain.IsPublishedWorkRemainsReason(domain.PublishedWorkRemainsReason("", "kuayle/rec-1")))
+	require.False(t, domain.IsPublishedWorkRemainsReason(domain.NoChangesReason("main")), "a branch with nothing to publish is a different reason")
+	long := domain.PublishedWorkRemainsReason("", strings.Repeat("é", 500))
+	require.Less(t, len(long), 2048, "the reason stays below a task reason's limit")
+	require.True(t, utf8.ValidString(long), "a shortened name keeps whole runes")
 }
 
 func TestSuccessorAttemptsReceiveABoundedRecordedHandoff(t *testing.T) {

@@ -65,7 +65,15 @@ func (f *scriptFixture) run(dir string, env []string, args ...string) string {
 
 func (f *scriptFixture) commitFile(dir, name string, env []string) string {
 	f.t.Helper()
-	require.NoError(f.t, os.WriteFile(filepath.Join(dir, name), []byte(name+"\n"), 0o644))
+	return f.writeAndCommit(dir, name, name+"\n", 0o644, env)
+}
+
+// writeAndCommit writes a file, stages it and commits it, and returns the new
+// commit. The content is the test's rather than the file name's; the mode only
+// applies when the file is new.
+func (f *scriptFixture) writeAndCommit(dir, name, content string, mode os.FileMode, env []string) string {
+	f.t.Helper()
+	require.NoError(f.t, os.WriteFile(filepath.Join(dir, name), []byte(content), mode))
 	f.run(dir, nil, "add", name)
 	f.run(dir, env, "commit", "-q", "-m", name)
 	return f.run(dir, nil, "rev-parse", "HEAD")
@@ -409,8 +417,9 @@ func TestPushScriptPublishesAForceThatOnlyDropsKuayleCommits(t *testing.T) {
 
 // KUA-176: a task branch that adds nothing to its base is never pushed, so no
 // empty pull request is opened or updated. Here the task's work was
-// squash-merged into main and main was then merged into the task branch on
-// GitHub: the branch still has commits ahead of main, but no changes.
+// squash-merged into main and main was then merged into the task branch locally,
+// in the checkout only: the branch still has commits ahead of main, but adds no
+// changes to it, so there is nothing to push.
 func TestPushScriptPublishesNothingWhenTheBranchAddsNothingToTheBase(t *testing.T) {
 	f := newScriptFixture(t)
 	published := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
@@ -423,13 +432,14 @@ func TestPushScriptPublishesNothingWhenTheBranchAddsNothingToTheBase(t *testing.
 	f.run(f.root, nil, "clone", "-q", f.origin, maintainer)
 	f.commitFile(maintainer, "feature.txt", fixtureIdentity)
 	f.run(maintainer, nil, "push", "-q", f.origin, "HEAD:main")
-	// Main is merged into the task branch on GitHub.
-	f.run(maintainer, nil, "checkout", "-q", "-b", "task", "refs/remotes/origin/kuayle/rec-1")
-	f.run(maintainer, nil, "merge", "-q", "--no-edit", "main")
-	f.run(maintainer, nil, "push", "-q", f.origin, "HEAD:kuayle/rec-1")
-	merged := f.originTip()
+	// A maintainer merges main into the task branch, but only in the checkout:
+	// GitHub's task branch still ends at the published commit.
+	f.run(f.checkout, nil, "fetch", "-q", "origin")
+	f.run(f.checkout, kuayleIdentity, "merge", "-q", "--no-edit", "origin/main")
+	merged := f.head()
+	require.NotEqual(t, published, merged)
 
-	// A retried task brings the checkout up to that merge and commits nothing new.
+	// A retried task syncs and commits nothing new.
 	lease, err := f.sync(published)
 	require.NoError(t, err, lease)
 	require.Empty(t, lease)
@@ -441,5 +451,190 @@ func TestPushScriptPublishesNothingWhenTheBranchAddsNothingToTheBase(t *testing.
 	output, err = f.push(commit, "")
 	require.NoError(t, err, output)
 	require.Equal(t, "none", output, "nothing is pushed when the branch adds nothing to the base")
-	require.Equal(t, merged, f.originTip())
+	require.Equal(t, published, f.originTip(), "the push left GitHub's task branch alone")
+}
+
+// KUA-176: without the base merged back, a squash-merged task branch still has
+// commits ahead of main that a diff from its merge base shows as changes. The
+// commit adds nothing to main as it is on GitHub, so nothing is pushed and no
+// duplicate pull request is opened.
+func TestPushScriptPublishesNothingWhenTheWorkWasSquashMerged(t *testing.T) {
+	f := newScriptFixture(t)
+	published := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+	output, err := f.push(published, "")
+	require.NoError(t, err, output)
+	require.Equal(t, published, f.originTip())
+
+	// The pull request is squash-merged: main gets the same change as a new
+	// commit, without the branch's commits.
+	maintainer := filepath.Join(f.root, "maintainer")
+	f.run(f.root, nil, "clone", "-q", f.origin, maintainer)
+	f.commitFile(maintainer, "feature.txt", fixtureIdentity)
+	f.run(maintainer, nil, "push", "-q", f.origin, "HEAD:main")
+
+	// A retried task finds the branch where it left it and commits nothing new.
+	lease, err := f.sync(published)
+	require.NoError(t, err, lease)
+	require.Empty(t, lease)
+	commit, err := f.commit(published)
+	require.NoError(t, err, commit)
+	require.Equal(t, published, commit, "the retry republishes the same commit")
+
+	output, err = f.push(commit, "")
+	require.NoError(t, err, output)
+	require.Equal(t, "none", output, "the commit's work is already in the base")
+	require.Equal(t, published, f.originTip(), "nothing was pushed")
+}
+
+// KUA-176: the guard must not hide a real change. The agent's commit still adds
+// its file to main as it is on GitHub, even though main moved on since the
+// checkout last saw it.
+func TestPushScriptPushesAChangeWhenTheBaseMovedOn(t *testing.T) {
+	f := newScriptFixture(t)
+	f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+
+	// An unrelated commit lands on main; the checkout has not fetched it.
+	maintainer := filepath.Join(f.root, "maintainer")
+	f.run(f.root, nil, "clone", "-q", f.origin, maintainer)
+	f.commitFile(maintainer, "other.txt", fixtureIdentity)
+	f.run(maintainer, nil, "push", "-q", f.origin, "HEAD:main")
+
+	commit, err := f.commit("")
+	require.NoError(t, err, commit)
+	output, err := f.push(commit, "")
+	require.NoError(t, err, output)
+	require.Empty(t, output, "a pushed commit is not reported as none")
+	require.Equal(t, commit, f.originTip())
+}
+
+// KUA-176: a commit that conflicts with main as it is on GitHub changes it, and
+// the guard must not mistake the conflict for "nothing to publish".
+func TestPushScriptPushesAConflictingChange(t *testing.T) {
+	f := newScriptFixture(t)
+	f.writeAndCommit(f.checkout, "README.md", "agent\n", 0o644, kuayleIdentity)
+
+	// Main changes the same file, so merging the commit into it conflicts.
+	maintainer := filepath.Join(f.root, "maintainer")
+	f.run(f.root, nil, "clone", "-q", f.origin, maintainer)
+	f.writeAndCommit(maintainer, "README.md", "maintainer\n", 0o644, fixtureIdentity)
+	f.run(maintainer, nil, "push", "-q", f.origin, "HEAD:main")
+
+	commit, err := f.commit("")
+	require.NoError(t, err, commit)
+	output, err := f.push(commit, "")
+	require.NoError(t, err, output)
+	require.Empty(t, output, "a pushed commit is not reported as none")
+	require.Equal(t, commit, f.originTip())
+}
+
+// KUA-176: a change to the executable bit alone changes the base's tree, so the
+// commit is published.
+func TestPushScriptPushesAModeOnlyChange(t *testing.T) {
+	f := newScriptFixture(t)
+	require.NoError(t, os.Chmod(filepath.Join(f.checkout, "README.md"), 0o755))
+	f.run(f.checkout, nil, "add", "README.md")
+	f.run(f.checkout, kuayleIdentity, "commit", "-q", "-m", "executable README.md")
+
+	commit, err := f.commit("")
+	require.NoError(t, err, commit)
+	output, err := f.push(commit, "")
+	require.NoError(t, err, output)
+	require.Empty(t, output, "a pushed commit is not reported as none")
+	require.Equal(t, commit, f.originTip())
+}
+
+// KUA-176: git before 2.38 has no merge-tree --write-tree. The commit is then
+// compared with its merge base with the base, which still recognises the work
+// that the squash-merged base brought back into the branch, so it prints none.
+// Without that merge on GitHub, squashed work still looks like a change to the
+// fallback: it is pushed again, or reported as remains.
+func TestPushScriptFallsBackWhenMergeTreeCannotWriteATree(t *testing.T) {
+	f := newScriptFixture(t)
+	published := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+	output, err := f.push(published, "")
+	require.NoError(t, err, output)
+	require.Equal(t, published, f.originTip())
+
+	// The pull request is squash-merged, and main is merged into the task branch
+	// on GitHub: the branch now has the squash commit in its history.
+	maintainer := filepath.Join(f.root, "maintainer")
+	f.run(f.root, nil, "clone", "-q", f.origin, maintainer)
+	f.commitFile(maintainer, "feature.txt", fixtureIdentity)
+	f.run(maintainer, nil, "push", "-q", f.origin, "HEAD:main")
+	f.run(maintainer, nil, "checkout", "-q", "-b", "task", "refs/remotes/origin/kuayle/rec-1")
+	f.run(maintainer, nil, "merge", "-q", "--no-edit", "main")
+	f.run(maintainer, nil, "push", "-q", f.origin, "HEAD:kuayle/rec-1")
+	merged := f.originTip()
+
+	lease, err := f.sync(published)
+	require.NoError(t, err, lease)
+	require.Empty(t, lease)
+	commit, err := f.commit(published)
+	require.NoError(t, err, commit)
+	require.Equal(t, merged, commit)
+
+	// The wrapper now behaves like an older git, which rejects the new
+	// merge-tree mode with a usage error. Only the script calls use it.
+	wrapper := "#!/bin/sh\n" +
+		"for arg do\n" +
+		"  [ \"$arg\" = merge-tree ] && { echo \"usage: git merge-tree\" >&2; exit 129; }\n" +
+		"done\n" +
+		"for arg do\n" +
+		"  shift\n" +
+		"  [ \"$arg\" = https://github.com/acme/app ] && arg=" + f.origin + "\n" +
+		"  set -- \"$@\" \"$arg\"\n" +
+		"done\n" +
+		"exec " + f.realGit + " \"$@\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(f.wrapper, "git"), []byte(wrapper), 0o755))
+
+	output, err = f.push(commit, "")
+	require.NoError(t, err, output)
+	require.Equal(t, "none", output, "the fallback still recognises work that is already in the base")
+	require.Equal(t, merged, f.originTip(), "GitHub's task branch is where the maintainer left it")
+}
+
+// KUA-176: an earlier iteration published work and its pull request is open, and
+// this iteration removed all of it. Not pushing would leave the removed work
+// published, so the push reports that it remains instead of ending the task.
+func TestPushScriptReportsWorkThatRemainsPublishedWhenTheAgentRemovesIt(t *testing.T) {
+	f := newScriptFixture(t)
+	published := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+	output, err := f.push(published, "")
+	require.NoError(t, err, output)
+	require.Equal(t, published, f.originTip(), "the earlier iteration published it")
+
+	// The agent removes everything it published.
+	f.run(f.checkout, nil, "rm", "-q", "feature.txt")
+	commit, err := f.commit(published)
+	require.NoError(t, err, commit)
+	require.NotEqual(t, published, commit, "removing the work is a new commit")
+
+	output, err = f.push(commit, "")
+	require.NoError(t, err, output)
+	require.Equal(t, "remains", output, "GitHub's branch still holds the removed work")
+	require.Equal(t, published, f.originTip(), "nothing was pushed, so the work stays published")
+}
+
+// The push step's stdout is the manager's only input: none and remains mean
+// nothing was pushed, and anything else is the pushed commit.
+func TestPushedCommitReadsThePushStep(t *testing.T) {
+	commit := strings.Repeat("a", 40)
+	for _, test := range []struct {
+		output  string
+		commit  string
+		remains bool
+	}{
+		{"none", "", false},
+		{" none\n", "", false},
+		{"remains\n", "", true},
+		{"", commit, false},
+	} {
+		pushed, err := pushedCommit(test.output, commit)
+		if test.remains {
+			require.ErrorIs(t, err, ErrPublishedWorkRemains, test.output)
+		} else {
+			require.NoError(t, err, test.output)
+		}
+		require.Equal(t, test.commit, pushed, test.output)
+	}
 }

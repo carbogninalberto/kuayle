@@ -366,14 +366,52 @@ type AgentPublication struct {
 	Bot *GitHubBotSettings
 }
 
-// AgentPublicationResult is recorded only after the branch was pushed and the
-// pull request exists on GitHub. An empty Commit means nothing was published:
-// the branch adds no changes to its base.
+// AgentPublicationResult is recorded after a publication attempt reached
+// GitHub. An empty Commit means nothing was published: the branch adds no
+// changes to its base, or it only holds work the agent has since removed
+// (Remains).
 type AgentPublicationResult struct {
 	Branch            string
 	Commit            string
 	PullRequestNumber int
 	PullRequestURL    string
+	// Remains means nothing new was published (Commit is empty), but the task
+	// branch on GitHub still has changes against its base from an earlier
+	// publication. Branch names it and PullRequestURL is its open pull request,
+	// if any.
+	Remains bool
+}
+
+// publishedWorkRemainsPrefix starts the reason of a publication that had
+// nothing new to publish while GitHub's task branch still holds work the
+// agent removed (KUA-176).
+const publishedWorkRemainsPrefix = "The agent removed all its changes, but "
+
+// publishedWorkRemainsLimit is the most bytes a named pull request URL or
+// branch keeps in the reason, well below the 2048-byte limit of a task reason.
+const publishedWorkRemainsLimit = 300
+
+// PublishedWorkRemainsReason is the reason of a publication that had nothing
+// new to publish while GitHub's task branch still holds work the agent
+// removed: it names the open pull request, or the branch on GitHub when no
+// pull request is open, and what a person can do. Long names are shortened so
+// the reason stays far below the 2048-byte limit of a task reason.
+func PublishedWorkRemainsReason(pullRequestURL, branch string) string {
+	const action = " or retry the task with new instructions."
+	if pullRequestURL = truncateUTF8(strings.TrimSpace(pullRequestURL), publishedWorkRemainsLimit); pullRequestURL != "" {
+		return publishedWorkRemainsPrefix + "the open pull request " + pullRequestURL + " still contains the earlier work. Close the pull request," + action
+	}
+	branch = truncateUTF8(strings.TrimSpace(branch), publishedWorkRemainsLimit)
+	if branch == "" {
+		return publishedWorkRemainsPrefix + "the task branch on GitHub still contains the earlier work. Delete the branch," + action
+	}
+	return publishedWorkRemainsPrefix + "the branch " + branch + " on GitHub still contains the earlier work. Delete the branch," + action
+}
+
+// IsPublishedWorkRemainsReason reports whether a publication's summary is that
+// reason.
+func IsPublishedWorkRemainsReason(reason string) bool {
+	return strings.HasPrefix(reason, publishedWorkRemainsPrefix)
 }
 
 // NoChangesReason says why a publication published nothing: the agent's

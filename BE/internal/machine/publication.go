@@ -98,11 +98,28 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token, PublishedCommit: publication.PublishedCommit, Lease: lease,
 		Message: title + "\n\nKuayle agent task " + run.TaskID.String(),
 	})
-	if err != nil {
+	remains := errors.Is(err, ErrPublishedWorkRemains)
+	if err != nil && !remains {
 		return errors.New("publication_failed: " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
 	}
 	result := domain.AgentPublicationResult{}
-	if commit != "" {
+	if remains {
+		// Nothing was pushed, so the earlier work stays on the branch and in
+		// its pull request. Only the open pull request is named, for the reason
+		// that blocks the task: none is created, updated or readied here.
+		pullRequest, prErr := githubAPI.FindOpenPullRequest(token, owner, repository, checkout.WorkingBranch, checkout.BaseBranch)
+		if prErr != nil {
+			return errors.New("pull_request_failed: " + strings.ReplaceAll(safeError(prErr), token, "[redacted]"))
+		}
+		result = domain.AgentPublicationResult{Branch: checkout.WorkingBranch, Remains: true}
+		if pullRequest != nil {
+			safeURL, valid := safeGitHubPullRequestURL(pullRequest.HTMLURL, checkout.RepositoryFullName)
+			if !valid {
+				return &terminalOperationError{code: "pull_request_invalid", message: "GitHub returned an unexpected pull request URL"}
+			}
+			result.PullRequestURL = safeURL
+		}
+	} else if commit != "" {
 		body := publication.Bot.Signature(m.frontendURL) + publicationBody(publication, run)
 		pullRequest, prErr := githubAPI.FindOpenPullRequest(token, owner, repository, checkout.WorkingBranch, checkout.BaseBranch)
 		if prErr == nil && pullRequest == nil {

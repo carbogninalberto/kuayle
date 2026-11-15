@@ -360,10 +360,16 @@ force-pushed. Then:
 2. Copies exactly that branch tip into a new temporary repository outside the
    workspace volume, verifies it is still the recorded commit, and only then reads
    a fresh repository-scoped GitHub App token from stdin. It fetches the base and
-   task branches from GitHub. A commit that adds no changes to the base as GitHub
-   has it (`git diff <base>...<commit>` is empty) is not pushed: the branch can
-   still have commits ahead of the base when its work was already merged (for
-   example squashed) and the base was merged back into it. Otherwise it
+   task branches from GitHub. A commit with nothing to publish is not pushed:
+   merging it into the base as GitHub has it (`git merge-tree --write-tree`)
+   leaves the base's tree unchanged. That covers work already merged, also when
+   it was squashed and whether or not the base was merged back into the branch,
+   which then still has commits ahead of the base. A conflict or any other error
+   counts as a change, so the push goes ahead. Git older than 2.38 has no
+   `merge-tree --write-tree` (usage error, exit 129); the check then falls back
+   to `git diff <base>...<commit>`, which misses squashed work: it is pushed
+   again, or, when only the checkout merged the base back, the task blocks as
+   below. The developer images (Ubuntu 26.04) ship a newer git. Otherwise it
    refuses a push that would add a commit by
    another author or with a co-author trailer, since the checkout's
    remote-tracking refs the commit step relied on are agent-writable. It pushes
@@ -391,10 +397,25 @@ opened or updated (KUA-176). The step is recorded as `skipped`, never
 reviewable, with the summary "The agent made no changes against `<base>`;
 nothing to publish. The work may already be merged, or the run only produced a
 summary." (the base named from the task's checkout). The Standard flow blocks
-the task with that reason, so a person can continue it with new instructions;
+the task with that reason, so a person can retry it with new instructions;
 in a [configurable workflow](#configurable-workflows) it is the publish step's
-`no_changes` outcome, which by default finishes the task. Either way the run
-and its agent summary are kept.
+`no_changes` outcome, which by default completes the task. A completed task
+cannot be retried or given a follow-up (retry accepts only failed, blocked and
+awaiting-review tasks): to continue a proposal-only task that ended this way,
+delegate the issue again. Either way the run and its agent summary are kept.
+
+The same check then runs on GitHub's task branch, when it exists. If that
+branch still has changes against the base, an earlier iteration published work
+there that the agent has since removed, and not pushing leaves that work in the
+branch and its pull request. The push step prints `remains` instead of `none`,
+and the manager names the open pull request it finds for the branch. The step
+is still `skipped`, but the task is blocked, in the Standard flow and in a
+workflow alike, with the reason "The agent removed all its changes, but the
+open pull request `<url>` still contains the earlier work. Close the pull
+request, or retry the task with new instructions." (naming the branch, and
+deleting it, when no pull request is open). In a workflow the publish step
+stays open and the workflow does not move on; a retry continues on the
+implementing step. The revert itself is never pushed.
 
 The branch, commit and pull request git refs, the run's `branch`/`pull_request_url`
 and the succeeded step commit together with a `task.publication_updated` event.
@@ -1934,12 +1955,16 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   [review task](#requested-agent-reviews) and leaves on its verdict.
   A publish step whose branch has [nothing to publish](#publication) ends
   with `no_changes` ("no changes against the base"), not `publish_failed`.
-  Only a transition naming `no_changes` follows it (to an approval, say), never
-  `else`, which in graphs saved before the outcome existed means a failed
-  publication. Without one the task completes on the publish step (workflow
-  status `done`, no transition recorded) with the reason "Workflow · `<step>`:
-  The agent made no changes against `<base>`; …", starting no iteration and
-  using no budget, so stored graphs need no migration.
+  A transition naming `no_changes` follows it. An `else` transition catches it
+  only when it leads to a step that waits for a person (an approval or a
+  merge); an `else` leading to an agent step, a check, a publish step or an end
+  does not, because in graphs saved before the outcome existed it means
+  "publishing failed": try again, or fail. Without a matching transition the
+  task completes on the publish step (workflow status `done`, no transition
+  recorded) with the reason "Workflow · `<step>`: The agent made no changes
+  against `<base>`; …", starting no iteration and using no budget, so stored
+  graphs need no migration. When GitHub's task branch still holds work the
+  agent removed, the task blocks instead (see [publication](#publication)).
   `ValidateWorkflowGraph` requires exactly one start leading to an agent step
   that plans or changes code, a finished planning step leading to an agent
   step that plans or changes code or to an approval (`plan_target`), at least
