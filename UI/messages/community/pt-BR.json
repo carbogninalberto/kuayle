@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Excluir etapa",
 	"workflows.editor.delete_edge": "Excluir transição",
 	"workflows.editor.edge_condition": "Quando",
+	"workflows.editor.else_no_changes_help": "“Nenhuma alteração em relação à base” segue “Caso contrário” apenas quando “Caso contrário” leva a uma aprovação. Caso contrário, a tarefa termina sem nada novo para publicar.",
 	"workflows.editor.transitions": "Transições",
 	"workflows.editor.steps": "Etapas",
 	"workflows.editor.select_named": "Selecionar {name}",

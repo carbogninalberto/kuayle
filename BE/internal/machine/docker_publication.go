@@ -166,7 +166,6 @@ if ! g diff --cached --quiet; then
   g commit --no-verify -q -m "$message"
   rm -f "$gitdir/MERGE_HEAD" "$gitdir/MERGE_MODE" "$gitdir/MERGE_MSG"
 fi
-if [ -z "$(g rev-list -n 1 "refs/remotes/origin/$base..HEAD")" ]; then echo none; exit 0; fi
 g rev-parse --verify HEAD
 `
 
@@ -210,7 +209,11 @@ url="https://github.com/$repository"
 # trusted the checkout's remote-tracking refs to keep base and task-branch
 # commits; here they come from GitHub itself.
 remote fetch -q --no-tags --no-recurse-submodules "$url" "+refs/heads/$base:refs/kuayle/remote/base"
-if remote ls-remote --exit-code --heads "$url" "refs/heads/$branch" >/dev/null; then
+# A branch that cannot be read (a network or HTTP error, a refused credential) is
+# not a branch that does not exist: the publication stops instead of counting it
+# as no branch and reporting that there is nothing to publish.
+heads=$(remote ls-remote --heads "$url" "refs/heads/$branch") || { echo "could not read the task branch on GitHub" >&2; exit 1; }
+if printf '%s\n' "$heads" | cut -f 2 | grep -qxF "refs/heads/$branch"; then
   remote fetch -q --no-tags --no-recurse-submodules "$url" "+refs/heads/$branch:refs/kuayle/remote/branch"
 fi
 # unchanged <commit> succeeds when merging the commit into the base as it is on
@@ -273,13 +276,13 @@ fi
 `
 
 // PublishCheckout commits pending task changes and pushes the task branch. It
-// returns the pushed commit, or "" when the branch has nothing to publish: no
-// commit ahead of the base, or no changes against the base as it is on GitHub
-// (for example work that was already merged). Nothing is pushed then. It returns
-// ErrPublishedWorkRemains when the commit has nothing new to publish but the task
-// branch on GitHub still has changes against the base, because it holds work an
-// earlier iteration published that the agent has since removed: nothing is pushed
-// then either, so that work stays on the branch and in its pull request.
+// returns the pushed commit, or "" when the push step found nothing to publish
+// against the base as it is on GitHub (for example work that was already
+// merged). Nothing is pushed then. It returns ErrPublishedWorkRemains when the
+// commit has nothing new to publish but the task branch on GitHub still has
+// changes against the base, because it holds work an earlier iteration published
+// that the agent has since removed: nothing is pushed then either, so that work
+// stays on the branch and in its pull request.
 func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, request PublishRequest) (string, error) {
 	developerContainer := developerContainerID(services)
 	if developerContainer == "" {
@@ -303,9 +306,6 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 		return "", err
 	}
 	commit := strings.TrimSpace(output)
-	if commit == "none" {
-		return "", nil
-	}
 	if !publishCommitPattern.MatchString(commit) {
 		return "", fmt.Errorf("publication returned an invalid commit")
 	}

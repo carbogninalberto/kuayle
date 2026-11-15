@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Padam langkah",
 	"workflows.editor.delete_edge": "Padam peralihan",
 	"workflows.editor.edge_condition": "Apabila",
+	"workflows.editor.else_no_changes_help": "“Tiada perubahan berbanding asas” mengikut “Jika tidak” hanya apabila “Jika tidak” membawa kepada kelulusan. Jika tidak, tugas tamat tanpa apa-apa baharu untuk diterbitkan.",
 	"workflows.editor.transitions": "Peralihan",
 	"workflows.editor.steps": "Langkah",
 	"workflows.editor.select_named": "Pilih {name}",

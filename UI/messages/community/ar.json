@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "حذف الخطوة",
 	"workflows.editor.delete_edge": "حذف الانتقال",
 	"workflows.editor.edge_condition": "عندما",
+	"workflows.editor.else_no_changes_help": "“لا توجد تغييرات مقابل الأساس” يتبع “غير ذلك” فقط عندما يؤدي “غير ذلك” إلى موافقة. وإلا فإن المهمة تنتهي دون أي شيء جديد للنشر.",
 	"workflows.editor.transitions": "الانتقالات",
 	"workflows.editor.steps": "الخطوات",
 	"workflows.editor.select_named": "اختيار {name}",

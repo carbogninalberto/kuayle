@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "حذف گام",
 	"workflows.editor.delete_edge": "حذف گذار",
 	"workflows.editor.edge_condition": "وقتی",
+	"workflows.editor.else_no_changes_help": "«تغییری نسبت به مبنا وجود ندارد» تنها زمانی از «در غیر این صورت» پیروی می‌کند که «در غیر این صورت» به تأیید منتهی شود. در غیر این صورت، کار بدون هیچ چیز جدیدی برای انتشار پایان می‌یابد.",
 	"workflows.editor.transitions": "گذارها",
 	"workflows.editor.steps": "گام‌ها",
 	"workflows.editor.select_named": "انتخاب {name}",

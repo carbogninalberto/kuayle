@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Lépés törlése",
 	"workflows.editor.delete_edge": "Átmenet törlése",
 	"workflows.editor.edge_condition": "Mikor",
+	"workflows.editor.else_no_changes_help": "„Nincs változás az alaphoz képest“ csak akkor követi az „Egyébként“ ágat, ha az „Egyébként“ jóváhagyáshoz vezet. Ellenkező esetben a feladat új közzétennivaló nélkül fejeződik be.",
 	"workflows.editor.transitions": "Átmenetek",
 	"workflows.editor.steps": "Lépések",
 	"workflows.editor.select_named": "Kiválasztás: {name}",

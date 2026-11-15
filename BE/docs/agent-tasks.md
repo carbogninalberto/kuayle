@@ -355,12 +355,14 @@ force-pushed. Then:
    judged or folded: when the agent merged the base, or rebased onto a newer one
    so the floor is no longer an ancestor, the folded commit is a merge of the
    floor and that base commit, so the pull request is neither behind its base nor
-   re-adds the base's commits. A branch with no commits ahead of the
-   base has nothing to publish (see below).
+   re-adds the base's commits. The commit step always hands its tip to the
+   push step, which decides whether anything is new (see below).
 2. Copies exactly that branch tip into a new temporary repository outside the
    workspace volume, verifies it is still the recorded commit, and only then reads
    a fresh repository-scoped GitHub App token from stdin. It fetches the base and
-   task branches from GitHub. A commit with nothing to publish is not pushed:
+   task branches from GitHub. A failure to read GitHub's task branch
+   (`git ls-remote`) stops the publication instead of counting as no branch. A
+   commit with nothing to publish is not pushed:
    merging it into the base as GitHub has it (`git merge-tree --write-tree`)
    leaves the base's tree unchanged. That covers work already merged, also when
    it was squashed and whether or not the base was merged back into the branch,
@@ -408,12 +410,15 @@ The same check then runs on GitHub's task branch, when it exists. If that
 branch still has changes against the base, an earlier iteration published work
 there that the agent has since removed, and not pushing leaves that work in the
 branch and its pull request. The push step prints `remains` instead of `none`,
-and the manager names the open pull request it finds for the branch. The step
-is still `skipped`, but the task is blocked, in the Standard flow and in a
-workflow alike, with the reason "The agent removed all its changes, but the
+and the manager names the open pull request it finds for the branch. When no
+pull request is open, nothing is in a pull request any more (for example it was
+squash-merged and the old branch now conflicts with the base), so the run counts
+as nothing to publish like above. The step is still `skipped`. When a pull
+request holds the removed work, the task is blocked, in the Standard flow and in
+a workflow alike, with the reason "The agent removed all its changes, but the
 open pull request `<url>` still contains the earlier work. Close the pull
-request, or retry the task with new instructions." (naming the branch, and
-deleting it, when no pull request is open). In a workflow the publish step
+request and cancel the task, or retry it with new instructions." Blocking also
+drops a pause request that had not taken effect. In a workflow the publish step
 stays open and the workflow does not move on; a retry continues on the
 implementing step. The revert itself is never pushed.
 
@@ -1956,15 +1961,16 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   A publish step whose branch has [nothing to publish](#publication) ends
   with `no_changes` ("no changes against the base"), not `publish_failed`.
   A transition naming `no_changes` follows it. An `else` transition catches it
-  only when it leads to a step that waits for a person (an approval or a
-  merge); an `else` leading to an agent step, a check, a publish step or an end
-  does not, because in graphs saved before the outcome existed it means
-  "publishing failed": try again, or fail. Without a matching transition the
-  task completes on the publish step (workflow status `done`, no transition
-  recorded) with the reason "Workflow · `<step>`: The agent made no changes
-  against `<base>`; …", starting no iteration and using no budget, so stored
-  graphs need no migration. When GitHub's task branch still holds work the
-  agent removed, the task blocks instead (see [publication](#publication)).
+  only when it leads to an approval; an `else` leading to an agent step, a
+  check, a publish step, a merge or an end does not. A merge only waits for a
+  pull request, and with nothing published none comes; in graphs saved before
+  the outcome existed `else` means "publishing failed": try again, or fail.
+  Without a matching transition the task completes on the publish step
+  (workflow status `done`, no transition recorded) with the reason
+  "Workflow · `<step>`: The agent made no changes against `<base>`; …",
+  starting no iteration and using no budget, so stored graphs need no
+  migration. When the task's open pull request still holds work the agent
+  removed, the task blocks instead (see [publication](#publication)).
   `ValidateWorkflowGraph` requires exactly one start leading to an agent step
   that plans or changes code, a finished planning step leading to an agent
   step that plans or changes code or to an approval (`plan_target`), at least
@@ -2200,7 +2206,9 @@ is `workflow_pause_request`. While paused the worker does not claim the task
 and every workflow move is refused, so a waiting step does not advance when CI
 finishes or its review ends, nobody decides an approval, and no step starts.
 A reviewer's own review task keeps running; its verdict is read after the
-resume. A pull request merged on GitHub still completes the task.
+resume. A pull request merged on GitHub still completes the task. A task that
+blocks (for example because removed work is still in its pull request) drops a
+pause request that had not taken effect, since it already waits for a person.
 
 "Pause now" on a working agent reuses the usage-limit path: the attempt goes
 through the usual runtime cleanup (`cancelling`), which keeps the machine, the

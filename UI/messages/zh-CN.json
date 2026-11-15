@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "删除步骤",
 	"workflows.editor.delete_edge": "删除转换",
 	"workflows.editor.edge_condition": "条件",
+	"workflows.editor.else_no_changes_help": "“相对基准分支无更改”只有在“否则”通向审批时才会走“否则”分支。否则任务会结束，没有可发布的新内容。",
 	"workflows.editor.transitions": "转换",
 	"workflows.editor.steps": "步骤",
 	"workflows.editor.select_named": "选择 {name}",

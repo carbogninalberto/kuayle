@@ -103,11 +103,13 @@ func (f *scriptFixture) push(commit, lease string) (string, error) {
 
 // freshCheckout replaces the checkout with a clone that only knows the base
 // branch, as when the agent rebuilt its branch from scratch: the commits only
-// GitHub's task branch has, the published one included, are no longer in it.
+// GitHub's task branch has, the published one included, are no longer in it. The
+// clone goes through the git transport rather than the local one, which would
+// copy every object of the origin and keep the published commit readable.
 func (f *scriptFixture) freshCheckout() {
 	f.t.Helper()
 	require.NoError(f.t, os.RemoveAll(f.checkout))
-	f.run(f.root, nil, "clone", "-q", "--single-branch", "--branch", "main", f.origin, f.checkout)
+	f.run(f.root, nil, "clone", "-q", "--no-local", "--single-branch", "--branch", "main", f.origin, f.checkout)
 	f.run(f.checkout, nil, "checkout", "-q", "-b", "kuayle/rec-1")
 }
 
@@ -608,6 +610,68 @@ func TestPushScriptReportsWorkThatRemainsPublishedWhenTheAgentRemovesIt(t *testi
 	commit, err := f.commit(published)
 	require.NoError(t, err, commit)
 	require.NotEqual(t, published, commit, "removing the work is a new commit")
+
+	output, err = f.push(commit, "")
+	require.NoError(t, err, output)
+	require.Equal(t, "remains", output, "GitHub's branch still holds the removed work")
+	require.Equal(t, published, f.originTip(), "nothing was pushed, so the work stays published")
+}
+
+// KUA-176: a failure to read GitHub's task branch (a network error, an HTTP
+// error, a refused credential) is not the same as the branch not existing. It
+// must stop the publication instead of reporting that there is nothing to
+// publish, which would end the task while its open pull request still holds
+// work.
+func TestPushScriptFailsWhenItCannotReadTheTaskBranch(t *testing.T) {
+	f := newScriptFixture(t)
+	published := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+	output, err := f.push(published, "")
+	require.NoError(t, err, output)
+	require.Equal(t, published, f.originTip())
+
+	// The agent removes everything it published.
+	f.run(f.checkout, nil, "rm", "-q", "feature.txt")
+	commit, err := f.commit(published)
+	require.NoError(t, err, commit)
+	require.NotEqual(t, published, commit, "removing the work is a new commit")
+
+	// The wrapper now fails to read the task branch, as a network error would.
+	wrapper := "#!/bin/sh\n" +
+		"for arg do\n" +
+		"  [ \"$arg\" = ls-remote ] && { echo \"fatal: unable to access " + f.origin + ": Could not resolve host\" >&2; exit 128; }\n" +
+		"done\n" +
+		"for arg do\n" +
+		"  shift\n" +
+		"  [ \"$arg\" = https://github.com/acme/app ] && arg=" + f.origin + "\n" +
+		"  set -- \"$@\" \"$arg\"\n" +
+		"done\n" +
+		"exec " + f.realGit + " \"$@\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(f.wrapper, "git"), []byte(wrapper), 0o755))
+
+	output, err = f.push(commit, "")
+	require.Error(t, err, "a branch that cannot be read is not a branch that is missing")
+	require.NotEqual(t, "none", output)
+	require.NotEqual(t, "remains", output)
+	require.NotContains(t, output, "none", "nothing is reported as published when GitHub cannot be read")
+	require.Equal(t, published, f.originTip(), "nothing was pushed")
+}
+
+// KUA-176: the checkout does not know the published commit (the agent rebuilt its
+// branch from the base) and the rebuild adds nothing to the base. The commit
+// step still names HEAD, so the push step checks GitHub's branch and reports the
+// work that remains there; a none from the commit step skipped that check.
+func TestPushScriptReportsRemainingWorkWhenThePublishedCommitIsUnknown(t *testing.T) {
+	f := newScriptFixture(t)
+	published := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+	output, err := f.push(published, "")
+	require.NoError(t, err, output)
+	require.Equal(t, published, f.originTip())
+
+	// The agent rebuilds its branch from the base, which only knows main.
+	f.freshCheckout()
+	commit, err := f.commit(published)
+	require.NoError(t, err, commit)
+	require.Equal(t, f.head(), commit, "the commit step names HEAD even when the published commit is unknown")
 
 	output, err = f.push(commit, "")
 	require.NoError(t, err, output)

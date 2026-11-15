@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Elimina passaggio",
 	"workflows.editor.delete_edge": "Elimina transizione",
 	"workflows.editor.edge_condition": "Quando",
+	"workflows.editor.else_no_changes_help": "«Nessuna modifica rispetto al ramo base» segue «Altrimenti» solo quando «Altrimenti» porta a un'approvazione. In caso contrario l'attività termina senza nulla di nuovo da pubblicare.",
 	"workflows.editor.transitions": "Transizioni",
 	"workflows.editor.steps": "Passaggi",
 	"workflows.editor.select_named": "Seleziona {name}",

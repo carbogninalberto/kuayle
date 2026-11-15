@@ -376,40 +376,38 @@ type AgentPublicationResult struct {
 	PullRequestNumber int
 	PullRequestURL    string
 	// Remains means nothing new was published (Commit is empty), but the task
-	// branch on GitHub still has changes against its base from an earlier
-	// publication. Branch names it and PullRequestURL is its open pull request,
-	// if any.
+	// branch's open pull request, PullRequestURL, still has changes against its
+	// base from an earlier publication. A branch without an open pull request
+	// is reported as nothing to publish.
 	Remains bool
 }
 
 // publishedWorkRemainsPrefix starts the reason of a publication that had
-// nothing new to publish while GitHub's task branch still holds work the
-// agent removed (KUA-176).
+// nothing new to publish while the task's open pull request still holds work
+// the agent removed (KUA-176).
 const publishedWorkRemainsPrefix = "The agent removed all its changes, but "
 
-// publishedWorkRemainsLimit is the most bytes a named pull request URL or
-// branch keeps in the reason, well below the 2048-byte limit of a task reason.
+// publishedWorkRemainsLimit is the most bytes a named pull request URL keeps
+// in the reason, well below the 2048-byte limit of a task reason.
 const publishedWorkRemainsLimit = 300
 
 // PublishedWorkRemainsReason is the reason of a publication that had nothing
-// new to publish while GitHub's task branch still holds work the agent
-// removed: it names the open pull request, or the branch on GitHub when no
-// pull request is open, and what a person can do. Long names are shortened so
-// the reason stays far below the 2048-byte limit of a task reason.
-func PublishedWorkRemainsReason(pullRequestURL, branch string) string {
-	const action = " or retry the task with new instructions."
+// new to publish while the task's open pull request still holds work the agent
+// removed: it names the pull request and what a person can do. A long URL is
+// shortened so the reason stays far below the 2048-byte limit of a task reason.
+func PublishedWorkRemainsReason(pullRequestURL string) string {
+	const action = " Close the pull request and cancel the task, or retry it with new instructions."
 	if pullRequestURL = truncateUTF8(strings.TrimSpace(pullRequestURL), publishedWorkRemainsLimit); pullRequestURL != "" {
-		return publishedWorkRemainsPrefix + "the open pull request " + pullRequestURL + " still contains the earlier work. Close the pull request," + action
+		return publishedWorkRemainsPrefix + "the open pull request " + pullRequestURL + " still contains the earlier work." + action
 	}
-	branch = truncateUTF8(strings.TrimSpace(branch), publishedWorkRemainsLimit)
-	if branch == "" {
-		return publishedWorkRemainsPrefix + "the task branch on GitHub still contains the earlier work. Delete the branch," + action
-	}
-	return publishedWorkRemainsPrefix + "the branch " + branch + " on GitHub still contains the earlier work. Delete the branch," + action
+	return publishedWorkRemainsPrefix + "the task's open pull request still contains the earlier work." + action
 }
 
 // IsPublishedWorkRemainsReason reports whether a publication's summary is that
-// reason.
+// reason. It is text because the manager's result reaches the service only
+// through the persisted step summary; a typed flag would need a new column (a
+// migration) on dev_machine_agent_run_steps. The reason is built and
+// recognised only here.
 func IsPublishedWorkRemainsReason(reason string) bool {
 	return strings.HasPrefix(reason, publishedWorkRemainsPrefix)
 }

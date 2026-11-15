@@ -349,6 +349,14 @@ func (r *AgentTaskRepository) Transition(ctx context.Context, claimed domain.Age
 	if err = fenceAgentTask(ctx, tx, *task, claimed); err != nil {
 		return err
 	}
+	if to == "blocked" && task.WorkflowPauseRequest != nil {
+		// A blocked task already waits for a person, so a pause that had not
+		// taken effect has nothing left to stop. Like a retry it is dropped
+		// without an audit row; the state-change event carries it cleared.
+		if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_pause_request=NULL WHERE id=$1 RETURNING *`, task.ID); err != nil {
+			return err
+		}
+	}
 	if to == "awaiting_review" {
 		var published bool
 		if err = tx.GetContext(ctx, &published, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_run_steps s JOIN dev_machine_operations o ON o.agent_run_id=s.agent_run_id AND o.action='publish_agent'

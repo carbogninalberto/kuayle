@@ -160,12 +160,19 @@ func TestPublishScriptsIgnoreAgentGitConfigurationAndKeepTheCredentialOut(t *tes
 	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, rebuilt, "main", "agent@kuayle.invalid", "")
 	require.NoError(t, err, output)
 
-	// No changes relative to the base branch means nothing to publish.
+	// No changes relative to the base branch means nothing to publish. The commit
+	// step names the worktree's HEAD, and the push step decides that there is
+	// nothing to publish, so no empty task branch is created on GitHub.
 	empty := filepath.Join(root, "tasks", "rec-2")
 	run(root, nil, "--git-dir="+cache, "worktree", "add", "-q", "-b", "kuayle/rec-2", empty, "refs/remotes/origin/main")
-	none, err := script(publishCommitScript, "commit", "REC-2: Nothing", empty, "kuayle/rec-2", "main", "Kuayle Agent", "agent@kuayle.invalid")
-	require.NoError(t, err, none)
-	require.Equal(t, "none", none)
+	head := run(empty, nil, "rev-parse", "HEAD")
+	unchanged, err := script(publishCommitScript, "commit", "REC-2: Nothing", empty, "kuayle/rec-2", "main", "Kuayle Agent", "agent@kuayle.invalid")
+	require.NoError(t, err, unchanged)
+	require.Equal(t, head, unchanged, "the commit step names HEAD even when nothing is ahead of the base")
+	unchanged, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-2", empty, head, "main", "agent@kuayle.invalid", "")
+	require.NoError(t, err, unchanged)
+	require.Equal(t, "none", unchanged)
+	require.Empty(t, run(origin, nil, "for-each-ref", "--format=%(refname)", "refs/heads/kuayle/rec-2"), "an empty task branch is not created on GitHub")
 	wrong, err := script(publishCommitScript, "commit", "REC-2: Nothing", empty, "kuayle/other", "main", "Kuayle Agent", "agent@kuayle.invalid")
 	require.Error(t, err)
 	require.Contains(t, wrong, "not on the task branch")
@@ -336,8 +343,8 @@ func TestPublishScriptsNeverRunProgramsNamedByTheCheckout(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(worktree, "review.txt"))
 	require.NoError(t, err, "the checkout fast-forwarded to the maintainer's commit")
 	require.Equal(t, "review\n", string(content))
-	require.Equal(t, "none", script("commit", publishCommitScript, "REC-2: Nothing", worktree, "kuayle/rec-1", "kuayle/rec-1", "Kuayle Agent", "agent@kuayle.invalid", ""),
-		"nothing ahead of the fetched branch")
+	require.Equal(t, reviewed, script("commit", publishCommitScript, "REC-2: Nothing", worktree, "kuayle/rec-1", "kuayle/rec-1", "Kuayle Agent", "agent@kuayle.invalid", ""),
+		"nothing ahead of the fetched branch: the push step decides")
 
 	write(worktree, "second.txt", "second\n")
 	second := commit(first)

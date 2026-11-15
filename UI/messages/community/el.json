@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Διαγραφή βήματος",
 	"workflows.editor.delete_edge": "Διαγραφή μετάβασης",
 	"workflows.editor.edge_condition": "Όταν",
+	"workflows.editor.else_no_changes_help": "«Καμία αλλαγή σε σχέση με τη βάση» ακολουθεί το «Διαφορετικά» μόνο όταν το «Διαφορετικά» οδηγεί σε έγκριση. Διαφορετικά, η εργασία ολοκληρώνεται χωρίς τίποτα νέο για δημοσίευση.",
 	"workflows.editor.transitions": "Μεταβάσεις",
 	"workflows.editor.steps": "Βήματα",
 	"workflows.editor.select_named": "Επιλογή: {name}",

@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "단계 삭제",
 	"workflows.editor.delete_edge": "전환 삭제",
 	"workflows.editor.edge_condition": "조건",
+	"workflows.editor.else_no_changes_help": "“기준 브랜치 대비 변경 없음”은 “그 외”가 승인으로 이어질 때만 “그 외”를 따릅니다. 그렇지 않으면 작업은 새로 게시할 내용 없이 종료됩니다.",
 	"workflows.editor.transitions": "전환",
 	"workflows.editor.steps": "단계",
 	"workflows.editor.select_named": "{name} 선택",

@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Schritt löschen",
 	"workflows.editor.delete_edge": "Übergang löschen",
 	"workflows.editor.edge_condition": "Wenn",
+	"workflows.editor.else_no_changes_help": "„Keine Änderungen gegenüber dem Basis-Branch“ folgt „Sonst“ nur, wenn „Sonst“ zu einer Freigabe führt. Andernfalls endet die Aufgabe, ohne dass etwas Neues zu veröffentlichen ist.",
 	"workflows.editor.transitions": "Übergänge",
 	"workflows.editor.steps": "Schritte",
 	"workflows.editor.select_named": "{name} auswählen",

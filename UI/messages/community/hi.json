@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "चरण हटाएँ",
 	"workflows.editor.delete_edge": "ट्रांज़िशन हटाएँ",
 	"workflows.editor.edge_condition": "कब",
+	"workflows.editor.else_no_changes_help": "“आधार की तुलना में कोई बदलाव नहीं” केवल तभी “अन्यथा” का अनुसरण करता है जब “अन्यथा” किसी स्वीकृति की ओर ले जाता है। अन्यथा कार्य बिना कुछ नया प्रकाशित किए समाप्त हो जाता है।",
 	"workflows.editor.transitions": "ट्रांज़िशन",
 	"workflows.editor.steps": "चरण",
 	"workflows.editor.select_named": "{name} चुनें",

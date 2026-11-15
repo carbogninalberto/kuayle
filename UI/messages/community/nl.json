@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Stap verwijderen",
 	"workflows.editor.delete_edge": "Overgang verwijderen",
 	"workflows.editor.edge_condition": "Wanneer",
+	"workflows.editor.else_no_changes_help": "“Geen wijzigingen ten opzichte van de basis” volgt “Anders” alleen wanneer “Anders” naar een goedkeuring leidt. Anders eindigt de taak zonder iets nieuws om te publiceren.",
 	"workflows.editor.transitions": "Overgangen",
 	"workflows.editor.steps": "Stappen",
 	"workflows.editor.select_named": "{name} selecteren",

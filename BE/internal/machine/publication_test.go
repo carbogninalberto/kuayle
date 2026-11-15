@@ -224,14 +224,20 @@ func TestPublishAgentNamesTheOpenPullRequestWhenRemovedWorkRemains(t *testing.T)
 	require.Empty(t, github.readied)
 }
 
-func TestPublishAgentWithoutOpenPullRequestNamesTheBranch(t *testing.T) {
+// KUA-176: nothing new is published and no pull request is open, so nothing the
+// task published is in review any more (for example the pull request was
+// squash-merged and closed and the old branch now conflicts with the base). That
+// is the same outcome as a run with nothing to publish, not a task to block.
+func TestPublishAgentWithoutOpenPullRequestHasNothingToPublish(t *testing.T) {
 	machine, store := publicationFixture()
 	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, err: ErrPublishedWorkRemains}
 	github := &publicationGitHubFake{}
 	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
 	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
-	require.Equal(t, &domain.AgentPublicationResult{Branch: "kuayle/rec-1", Remains: true}, store.result)
+	require.Equal(t, &domain.AgentPublicationResult{}, store.result)
 	require.Zero(t, github.creates, "a branch that only holds removed work opens no pull request")
+	require.Zero(t, github.updates, "nothing is described afresh")
+	require.Empty(t, github.readied)
 }
 
 func TestPublishAgentFailsWhenTheRemainingPullRequestCannotBeFound(t *testing.T) {

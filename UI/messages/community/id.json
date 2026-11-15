@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Hapus langkah",
 	"workflows.editor.delete_edge": "Hapus transisi",
 	"workflows.editor.edge_condition": "Ketika",
+	"workflows.editor.else_no_changes_help": "“Tidak ada perubahan terhadap basis” mengikuti “Selain itu” hanya jika “Selain itu” mengarah ke persetujuan. Jika tidak, tugas berakhir tanpa ada yang baru untuk diterbitkan.",
 	"workflows.editor.transitions": "Transisi",
 	"workflows.editor.steps": "Langkah",
 	"workflows.editor.select_named": "Pilih {name}",

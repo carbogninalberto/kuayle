@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Șterge pasul",
 	"workflows.editor.delete_edge": "Șterge tranziția",
 	"workflows.editor.edge_condition": "Când",
+	"workflows.editor.else_no_changes_help": "„Nicio modificare față de bază” urmează „Altfel” doar când „Altfel” duce la o aprobare. În caz contrar, sarcina se încheie fără nimic nou de publicat.",
 	"workflows.editor.transitions": "Tranziții",
 	"workflows.editor.steps": "Pași",
 	"workflows.editor.select_named": "Selectează {name}",

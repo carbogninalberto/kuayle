@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Poista vaihe",
 	"workflows.editor.delete_edge": "Poista siirtymä",
 	"workflows.editor.edge_condition": "Kun",
+	"workflows.editor.else_no_changes_help": "“Ei muutoksia kantahaaraan verrattuna” seuraa valintaa “Muuten” vain, kun “Muuten” johtaa hyväksyntään. Muuten tehtävä päättyy ilman mitään uutta julkaistavaa.",
 	"workflows.editor.transitions": "Siirtymät",
 	"workflows.editor.steps": "Vaiheet",
 	"workflows.editor.select_named": "Valitse: {name}",

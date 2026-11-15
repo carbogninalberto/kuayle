@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Slet trin",
 	"workflows.editor.delete_edge": "Slet overgang",
 	"workflows.editor.edge_condition": "Når",
+	"workflows.editor.else_no_changes_help": "“Ingen ændringer i forhold til basis” følger “Ellers” kun, når “Ellers” fører til en godkendelse. Ellers afsluttes opgaven uden noget nyt at publicere.",
 	"workflows.editor.transitions": "Overgange",
 	"workflows.editor.steps": "Trin",
 	"workflows.editor.select_named": "Vælg {name}",

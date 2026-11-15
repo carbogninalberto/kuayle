@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Видалити крок",
 	"workflows.editor.delete_edge": "Видалити перехід",
 	"workflows.editor.edge_condition": "Коли",
+	"workflows.editor.else_no_changes_help": "«Немає змін відносно базової гілки» йде за «Інакше» лише тоді, коли «Інакше» веде до схвалення. Інакше завдання завершується без чогось нового для публікації.",
 	"workflows.editor.transitions": "Переходи",
 	"workflows.editor.steps": "Кроки",
 	"workflows.editor.select_named": "Вибрати {name}",

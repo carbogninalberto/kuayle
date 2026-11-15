@@ -1338,7 +1338,8 @@ func (s *AgentTaskService) workflowPublished(ctx context.Context, task domain.Ag
 		if domain.IsPublishedWorkRemainsReason(reason) {
 			// The workflow's publish step stays open, so a retry continues on
 			// the implementing step: finishing would leave the earlier work
-			// published while the task looks done.
+			// published while the task looks done. Blocking also drops a pause
+			// request that had not taken effect.
 			return s.store.Transition(ctx, task, "blocked", reason)
 		}
 		return s.workflow.Outcome(ctx, task, domain.WorkflowNoChanges, reason)

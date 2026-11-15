@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Supprimer l'étape",
 	"workflows.editor.delete_edge": "Supprimer la transition",
 	"workflows.editor.edge_condition": "Quand",
+	"workflows.editor.else_no_changes_help": "« Aucune modification par rapport à la base » suit « Sinon » uniquement lorsque « Sinon » mène à une approbation. Sinon, la tâche se termine sans rien de nouveau à publier.",
 	"workflows.editor.transitions": "Transitions",
 	"workflows.editor.steps": "Étapes",
 	"workflows.editor.select_named": "Sélectionner {name}",

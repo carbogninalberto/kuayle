@@ -368,7 +368,8 @@ func TestPublishWithNoChangesFinishesUnlessRouted(t *testing.T) {
 	require.Equal(t, "ship", d.To.ID)
 	require.Equal(t, WorkflowElse, d.Condition)
 
-	// A merge waits for a person too.
+	// Nor is an "else" transition to a merge: it waits for a pull request that
+	// nothing published.
 	g = ReviewLoopWorkflowGraph(implementer, reviewer)
 	g.Nodes = append(g.Nodes, WorkflowNode{ID: "merge", Type: WorkflowNodeMerge, Label: "Merge"})
 	for i := range g.Edges {
@@ -379,9 +380,8 @@ func TestPublishWithNoChangesFinishesUnlessRouted(t *testing.T) {
 	g.Edges = append(g.Edges, WorkflowEdge{ID: "merge-done", Source: "merge", Target: "done", Condition: WorkflowMerged})
 	require.Empty(t, ValidateWorkflowGraph(g, profiles))
 	d = decide(g, WorkflowNoChanges)
-	require.False(t, d.Finish)
-	require.Equal(t, "merge", d.To.ID)
-	require.Equal(t, WorkflowElse, d.Condition)
+	require.True(t, d.Finish)
+	require.Nil(t, d.Edge)
 
 	// A transition naming the outcome is followed and validates.
 	g = ReviewLoopWorkflowGraph(implementer, reviewer)

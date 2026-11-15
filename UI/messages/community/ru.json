@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Удалить шаг",
 	"workflows.editor.delete_edge": "Удалить переход",
 	"workflows.editor.edge_condition": "Когда",
+	"workflows.editor.else_no_changes_help": "«Нет изменений относительно базовой ветки» следует за «Иначе» только когда «Иначе» ведёт к одобрению. В противном случае задача завершается без чего-либо нового для публикации.",
 	"workflows.editor.transitions": "Переходы",
 	"workflows.editor.steps": "Шаги",
 	"workflows.editor.select_named": "Выбрать {name}",

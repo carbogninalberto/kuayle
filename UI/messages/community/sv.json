@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Ta bort steg",
 	"workflows.editor.delete_edge": "Ta bort övergång",
 	"workflows.editor.edge_condition": "När",
+	"workflows.editor.else_no_changes_help": "”Inga ändringar mot basen” följer ”Annars” endast när ”Annars” leder till ett godkännande. Annars avslutas uppgiften utan något nytt att publicera.",
 	"workflows.editor.transitions": "Övergångar",
 	"workflows.editor.steps": "Steg",
 	"workflows.editor.select_named": "Välj {name}",

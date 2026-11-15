@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "ลบขั้นตอน",
 	"workflows.editor.delete_edge": "ลบการเปลี่ยนสถานะ",
 	"workflows.editor.edge_condition": "เมื่อ",
+	"workflows.editor.else_no_changes_help": "“ไม่มีการเปลี่ยนแปลงเทียบกับฐาน” จะตาม “มิฉะนั้น” ก็ต่อเมื่อ “มิฉะนั้น” นำไปสู่การอนุมัติ มิฉะนั้นงานจะสิ้นสุดลงโดยไม่มีสิ่งใหม่ให้เผยแพร่",
 	"workflows.editor.transitions": "การเปลี่ยนสถานะ",
 	"workflows.editor.steps": "ขั้นตอน",
 	"workflows.editor.select_named": "เลือก {name}",

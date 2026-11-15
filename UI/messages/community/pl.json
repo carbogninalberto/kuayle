@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Usuń krok",
 	"workflows.editor.delete_edge": "Usuń przejście",
 	"workflows.editor.edge_condition": "Gdy",
+	"workflows.editor.else_no_changes_help": "„Brak zmian względem bazy” następuje po „W przeciwnym razie” tylko wtedy, gdy „W przeciwnym razie” prowadzi do zatwierdzenia. W przeciwnym razie zadanie kończy się bez niczego nowego do opublikowania.",
 	"workflows.editor.transitions": "Przejścia",
 	"workflows.editor.steps": "Kroki",
 	"workflows.editor.select_named": "Wybierz {name}",

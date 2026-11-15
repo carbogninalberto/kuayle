@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Suprimeix el pas",
 	"workflows.editor.delete_edge": "Suprimeix la transició",
 	"workflows.editor.edge_condition": "Quan",
+	"workflows.editor.else_no_changes_help": "«Cap canvi respecte a la base» segueix «Altrament» només quan «Altrament» porta a una aprovació. En cas contrari, la tasca acaba sense res nou per publicar.",
 	"workflows.editor.transitions": "Transicions",
 	"workflows.editor.steps": "Passos",
 	"workflows.editor.select_named": "Selecciona {name}",

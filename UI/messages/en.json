@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "Delete step",
 	"workflows.editor.delete_edge": "Delete transition",
 	"workflows.editor.edge_condition": "When",
+	"workflows.editor.else_no_changes_help": "“No changes against the base” follows Else only when Else leads to an approval. Otherwise the task finishes with nothing new to publish.",
 	"workflows.editor.transitions": "Transitions",
 	"workflows.editor.steps": "Steps",
 	"workflows.editor.select_named": "Select {name}",

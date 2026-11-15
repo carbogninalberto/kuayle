@@ -3560,6 +3560,7 @@
 	"workflows.editor.delete_node": "刪除步驟",
 	"workflows.editor.delete_edge": "刪除轉換",
 	"workflows.editor.edge_condition": "條件",
+	"workflows.editor.else_no_changes_help": "“相對基準分支無變更”只有在“否則”通往核准時才會走“否則”分支。否則任務會結束，沒有可發佈的新內容。",
 	"workflows.editor.transitions": "轉換",
 	"workflows.editor.steps": "步驟",
 	"workflows.editor.select_named": "選擇 {name}",
