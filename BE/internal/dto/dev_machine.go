@@ -438,3 +438,32 @@ type MergeMethodRequest struct {
 	Repository  string `json:"repository" validate:"required,max=200"`
 	MergeMethod string `json:"merge_method" validate:"omitempty,oneof=merge squash rebase"`
 }
+
+// EnvironmentStatus is what the machine manager last found in the running
+// developer container. It describes that container only and never the
+// machine's health.
+type EnvironmentStatus struct {
+	PackageIndex PackageIndexStatus `json:"package_index"`
+}
+
+// PackageIndexStatus is the apt package index check: absent (expected, the
+// images delete it to stay small), present with the newest list's time, or
+// unknown when the machine is not running or the probe failed.
+// SudoAvailable tells whether the machine may refresh the index itself.
+type PackageIndexStatus struct {
+	State         string               `json:"state"`
+	IndexMtime    *time.Time           `json:"index_mtime"`
+	SudoAvailable bool                 `json:"sudo_available"`
+	CheckedAt     *time.Time           `json:"checked_at"`
+	Refresh       *PackageIndexRefresh `json:"refresh"`
+}
+
+// PackageIndexRefresh is the last "sudo apt-get update" of the container:
+// queued, running, succeeded or failed with its exit code and output tail.
+type PackageIndexRefresh struct {
+	State      string     `json:"state"`
+	ExitCode   *int       `json:"exit_code"`
+	Output     *string    `json:"output"`
+	StartedAt  *time.Time `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
+}

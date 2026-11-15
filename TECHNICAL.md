@@ -332,6 +332,28 @@ Kimi are release binaries with pinned checksums and keep the image's versions;
 custom agents keep their configured image. Failures are logged and retried after
 an hour; machines keep the CLIs they have (`BE/internal/machine/agent_clis.go`).
 
+**Environment status.** Both developer images delete apt's package index
+(`/var/lib/apt/lists`) at the end of their build to stay small, so `apt install`
+finds no package until `apt-get update` runs. The machine dashboard's
+"Environment status" card says so: the machine manager probes the running
+developer container (as UID 1000, 3-second timeout) on its port-scan tick, at
+most once a minute per container, and records `absent` (no `*Packages*` list;
+a failed update leaves `lock` and `partial/`), `present` with the newest list's
+time, or `unknown` when the probe fails, in `dev_machine_environment_checks`.
+The row describes one container: it is deleted when the machine stops, pauses
+or is torn down, a row of an earlier container reads `unknown`, and nothing
+runs in a machine that is not running. It never changes machine status or
+service health. `GET /dev-machines/:machineId/environment-status`
+(`dev_machine:read`) only reads the row. For a running `sudo_enabled` machine,
+its creator may `POST …/environment-status/package-index/refresh`
+(`dev_machine:manage`; 403 `SUDO_DISABLED` without sudo, 409 when not running):
+it queues one `refresh_package_index` operation (never retried; 202) whose
+`sudo -n apt-get update` runs for at most 120 seconds; the exit code and the
+last 40 output lines are recorded on the row, the index is probed again, and
+the UI polls GET until the refresh finishes. A failing refresh (mirrors are
+reached only through the egress proxy) is shown, not hidden
+(`BE/internal/machine/environment.go`).
+
 `TestSudoMachinesGetRootWithoutLeavingTheSandbox`
 (`KUAYLE_SUDO_INTEGRATION=1`, `KUAYLE_TEST_DISK_QUOTA_MODE=monitored` on a
 developer machine, and the `KUAYLE_TEST_{HEADLESS,COLLECTOR,EGRESS}_IMAGE`

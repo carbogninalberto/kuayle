@@ -1,5 +1,16 @@
 import { expect, test } from '@playwright/test';
 
+// The machine page's environment status card reads a cached, healthy check on load.
+const environmentStatus = {
+	package_index: {
+		state: 'present',
+		index_mtime: '2026-07-13T00:00:00Z',
+		sudo_available: true,
+		checked_at: '2026-07-13T00:00:00Z',
+		refresh: null
+	}
+};
+
 function createRequestDelay() {
 	let markStarted!: () => void;
 	let release!: () => void;
@@ -138,6 +149,9 @@ test('lists the tasks on a machine and handles actions without applying stale po
 				return;
 			}
 			return route.fulfill({ json: response });
+		}
+		if ([machineId, secondMachineId].some((id) => path === `/api/workspaces/test/dev-machines/${id}/environment-status`) && request.method() === 'GET') {
+			return route.fulfill({ json: environmentStatus });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/services`) {
 			return route.fulfill({
@@ -909,6 +923,9 @@ test('retries a code-server launch while a paused machine resumes', async ({ pag
 			if (machineGets > 1) Object.assign(machine, { status: 'running', desired_status: 'running' });
 			return route.fulfill({ json: machine });
 		}
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/environment-status` && request.method() === 'GET') {
+			return route.fulfill({ json: environmentStatus });
+		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/services`)
 			return route.fulfill({
 				json: [
@@ -1156,6 +1173,9 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'GET')
 			return route.fulfill({ json: { data: [machine], total_count: 1, page: 1, has_more: false } });
 		if (path === `/api/workspaces/test/dev-machines/${machineId}`) return route.fulfill({ json: machine });
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/environment-status` && request.method() === 'GET') {
+			return route.fulfill({ json: environmentStatus });
+		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/services`)
 			return route.fulfill({
 				json: [
@@ -1981,6 +2001,8 @@ test('bounds machine telemetry during long-running sessions', async ({ page }) =
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		if (path === `/api/workspaces/test/dev-machines/${machineId}` && request.method() === 'GET')
 			return route.fulfill({ json: machine });
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/environment-status` && request.method() === 'GET')
+			return route.fulfill({ json: environmentStatus });
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/services`) return route.fulfill({ json: [] });
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/checkouts`) return route.fulfill({ json: [] });
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/resource-usage`) return route.fulfill({ json: [] });

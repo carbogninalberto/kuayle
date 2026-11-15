@@ -127,6 +127,19 @@ async function fixture(page: Page, options: { creator?: string } = {}) {
 			['checkouts', 'events', 'logs', 'tasks', 'resource-usage', 'services'].some((p) => path === `${machinePath}/${p}`)
 		)
 			return route.fulfill({ json: [] });
+		// The machine page's environment status card reads a cached, healthy check on load.
+		if (path === `${machinePath}/environment-status` && method === 'GET')
+			return route.fulfill({
+				json: {
+					package_index: {
+						state: 'present',
+						index_mtime: time,
+						sudo_available: true,
+						checked_at: time,
+						refresh: null
+					}
+				}
+			});
 		if (path === `${machinePath}/ports` && method === 'GET') {
 			state.lists++;
 			return route.fulfill({ json: { ports: state.ports, listening: state.listening, scanned_at: time } });

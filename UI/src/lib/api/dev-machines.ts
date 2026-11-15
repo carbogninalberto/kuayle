@@ -20,6 +20,7 @@ import type {
 	DevMachineScopeSetting,
 	DevMachineRepositoryDefaults,
 	DevMachineCheckSuggestion,
+	EnvironmentStatus,
 	LaunchMachineServiceResponse,
 	ResourceSample,
 	TerminalSessionLaunchResponse,
@@ -124,6 +125,19 @@ export type ResourceUsageWindow = '1h' | '6h' | '24h';
 export function listResourceUsage(slug: string, machineId: string, window?: ResourceUsageWindow): Promise<ResourceSample[]> {
 	const query = window ? `?window=${window}` : '';
 	return api.get(`${base(slug)}/dev-machines/${machineId}/resource-usage${query}`);
+}
+
+/** The cached environment checks of the running developer container. */
+export function getEnvironmentStatus(slug: string, machineId: string): Promise<EnvironmentStatus> {
+	return api.get(`${base(slug)}/dev-machines/${machineId}/environment-status`);
+}
+
+/**
+ * Queues "sudo apt-get update" in the developer container (machine creator,
+ * sudo machines only). The result arrives on later getEnvironmentStatus reads.
+ */
+export function refreshPackageIndex(slug: string, machineId: string): Promise<EnvironmentStatus> {
+	return api.post(`${base(slug)}/dev-machines/${machineId}/environment-status/package-index/refresh`);
 }
 
 function launchMachineService(

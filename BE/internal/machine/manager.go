@@ -58,6 +58,12 @@ type ManagerStore interface {
 	SetTaskPreview(context.Context, uuid.UUID, string, *string, *domain.DevMachinePort) error
 	StopTaskPreview(context.Context, uuid.UUID) error
 	StopMachinePreviews(context.Context, uuid.UUID) error
+	// Environment checks cache what the developer container's probe found;
+	// they describe one container and are deleted when it stops.
+	GetEnvironmentCheck(context.Context, uuid.UUID) (*domain.DevMachineEnvironmentCheck, error)
+	UpsertPackageIndexProbe(context.Context, uuid.UUID, uuid.UUID, string, string, *time.Time) error
+	SetPackageIndexRefresh(context.Context, uuid.UUID, string, string, *int, *string) error
+	DeleteEnvironmentCheck(context.Context, uuid.UUID) error
 	DeferOperation(context.Context, uuid.UUID, string, string, string, time.Duration) error
 	GetPublication(context.Context, domain.DevMachineOperation) (*domain.AgentPublication, error)
 	StartPublication(context.Context, domain.DevMachineOperation) error
@@ -430,6 +436,13 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 				log.WithFields(fields).WithError(checkoutErr).Error("failed to record checkout failure")
 			}
 		}
+		if !willRetry && operation.Action == domain.DevMachineOpRefreshPackageIndex {
+			// A refresh that ended before recording its own result.
+			exitCode, message := -1, safeError(err)
+			if refreshErr := m.store.SetPackageIndexRefresh(finalCtx, operation.MachineID, "", domain.PackageIndexRefreshFailed, &exitCode, &message); refreshErr != nil {
+				log.WithFields(fields).WithError(refreshErr).Error("failed to record package index refresh failure")
+			}
+		}
 		if !willRetry && operation.Action == domain.DevMachineOpResize {
 			message := resizeFailureMessage(err)
 			if resizeErr := m.store.FinishResize(finalCtx, operation.MachineID, false, &message); resizeErr != nil {
@@ -497,6 +510,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			return &terminalOperationError{code: "check_stale", message: "The machine changed before the check ran"}
 		case domain.DevMachineOpRunTool:
 			return &terminalOperationError{code: "tool_stale", message: "The machine changed before the tool ran"}
+		case domain.DevMachineOpRefreshPackageIndex:
+			return &terminalOperationError{code: "package_index_refresh_stale", message: "The machine changed before the package index refresh ran"}
 		case domain.DevMachineOpRunCommand:
 			return &terminalOperationError{code: "command_stale", message: "The machine changed before the command ran"}
 		case domain.DevMachineOpScanWorktree:
@@ -618,6 +633,7 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 				_ = m.store.UpdateServiceRuntime(ctx, service.ID, *service.ContainerID, "paused", "paused", nil)
 			}
 		}
+		m.environmentEnded(ctx, machine)
 		return m.setStateAndEventForOperation(ctx, machine, operation, domain.DevMachineStatusPaused, "machine.paused", nil, false)
 	case domain.DevMachineOpStop:
 		if machine.Status == domain.DevMachineStatusStopped {
@@ -644,6 +660,7 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		}
 		_ = m.store.RevokeMachineAccess(ctx, machine.ID)
 		m.previewsEnded(ctx, machine)
+		m.environmentEnded(ctx, machine)
 		return m.setStateAndEventForOperation(ctx, machine, operation, domain.DevMachineStatusStopped, "machine.stopped", nil, false)
 	case domain.DevMachineOpTeardown:
 		if machine.Status == domain.DevMachineStatusDestroyed {
@@ -671,11 +688,14 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			return err
 		}
 		m.previewsEnded(ctx, machine)
+		m.environmentEnded(ctx, machine)
 		return m.setStateAndEventForOperation(ctx, machine, operation, domain.DevMachineStatusDestroyed, "machine.destroyed", nil, true)
 	case domain.DevMachineOpValidateAgent, domain.DevMachineOpRunCheck:
 		return m.validateAgent(ctx, machine, operation)
 	case domain.DevMachineOpRunTool:
 		return m.runTool(ctx, machine, operation)
+	case domain.DevMachineOpRefreshPackageIndex:
+		return m.refreshPackageIndex(ctx, machine, services)
 	case domain.DevMachineOpRunCommand:
 		return m.runCommand(ctx, machine, operation)
 	case domain.DevMachineOpScanWorktree:

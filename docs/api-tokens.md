@@ -310,6 +310,8 @@ authentication.
 | POST | `/api/workspaces/:slug/dev-machines/:machineId/activity` | token | dev_machine:read |
 | GET | `/api/workspaces/:slug/dev-machines/:machineId/checkouts` | token | dev_machine:read |
 | POST | `/api/workspaces/:slug/dev-machines/:machineId/checkouts` | token | dev_machine:manage |
+| GET | `/api/workspaces/:slug/dev-machines/:machineId/environment-status` | token | dev_machine:read |
+| POST | `/api/workspaces/:slug/dev-machines/:machineId/environment-status/package-index/refresh` | token | dev_machine:manage |
 | GET | `/api/workspaces/:slug/dev-machines/:machineId/events` | token | dev_machine:read |
 | GET | `/api/workspaces/:slug/dev-machines/:machineId/logs` | token | dev_machine:read |
 | POST | `/api/workspaces/:slug/dev-machines/:machineId/pause` | token | dev_machine:manage |
