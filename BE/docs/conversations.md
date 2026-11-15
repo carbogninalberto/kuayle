@@ -458,7 +458,8 @@ and the release tools `list_releases`, `get_release`, `draft_release_notes`,
 and `ship_pull_request`, which chains merge, tests, release, build and upgrade
 behind one approval (see [shipping in one approval](#shipping-in-one-approval)),
 and the read-only research tools `web_search`, `repo_list_files`, `repo_glob`,
-`repo_grep`, `repo_read_file`, `repo_symbols` and `spawn_research_subagents`
+`repo_grep`, `repo_read_file`, `repo_symbols`, `get_task_worktree`,
+`list_machine_worktrees` and `spawn_research_subagents`
 (see [research tools](#research-tools)).
 `link_repository`, and the live channel tools `message_task` and
 `get_task_messages` (see [agent messages in chat](#agent-messages-in-chat)).
@@ -1292,12 +1293,14 @@ authorization, resume, request checks), `assistant_ship_integration_test.go`
 
 KUA-93 adds read-only research: `web_search`, five repository scan tools
 (`repo_list_files`, `repo_glob`, `repo_grep`, `repo_read_file`, `repo_symbols`)
-and `spawn_research_subagents`. None needs approval or counts toward the change
-limit. They act at once for any current non-guest member (as every tool, via
-`AssistantTools.run`), each has a workspace switch in Settings → Assistant
-(`spawn_research_subagents` is off by default, since it spends the workspace's
-AI provider budget; `web_search` and `repo_*` are on, and `web_search` does
-nothing until a key is set), and
+and `spawn_research_subagents`. KUA-141 adds the live worktree target
+(`source: "task"` on `repo_grep`, `repo_glob` and `repo_read_file`) and the
+read-only `get_task_worktree` and `list_machine_worktrees` tools. None needs
+approval or counts toward the change limit. They act at once for any current
+non-guest member (as every tool, via `AssistantTools.run`), each has a workspace
+switch in Settings → Assistant (`spawn_research_subagents` is off by default,
+since it spends the workspace's AI provider budget; `web_search`, `repo_*` and
+the worktree tools are on, and `web_search` does nothing until a key is set), and
 the system prompt describes only the ones offered to the reply (cite URLs; name
 the exact paths and lines read, and put them in any issue filed after a scan).
 
@@ -1305,6 +1308,7 @@ the exact paths and lines read, and put them in any issue filed after a scan).
 | --- | --- | --- |
 | `web_search` | none (search provider API) | member |
 | `repo_*` (five tools) | contents: read | member through an issue they can see (`identifier`); a repository named directly (`repository`) is for owners and admins |
+| `source: "task"` scans, `get_task_worktree`, `list_machine_worktrees` | none (dev machine, read-only) | the task's creator only; sub-agents cannot use them |
 | `spawn_research_subagents` | none itself; each sub-step is checked as its own tool | member |
 
 **Settings** (migration 114, `assistant_research_settings`; no row means the
@@ -1407,6 +1411,54 @@ call (`truncated`: read on from `end_line + 1`). Symbol kinds are `function`,
 `method`, `type`, `interface`, `class`, `const`, `var`, `table` and `view`,
 from per-language line patterns (Go, JS/TS/Svelte/Vue, Python, Rust,
 Java/Kotlin/C#/Scala, Ruby, SQL). Every list is cut to 16 KB of JSON.
+
+**Live task worktrees.** `repo_grep`, `repo_glob` and `repo_read_file` also
+accept `source` (`github` when absent, or `task`). `source: "task"` reads the
+live checkout of the issue's newest coding task on its dev machine, so it sees
+uncommitted work; it needs `identifier` (not `repository`) and refuses `ref`.
+The task must have been created by the caller: the repository re-checks it, and
+missing or someone else's task looks like `only the task's creator can read its
+machine`. `source: "task"` follows `get_task_worktree`'s workspace switch in
+Settings → Assistant; when that tool is off the scan tools refuse the live
+target too. Scans are read-only and run beside the agent, so they are allowed
+while it works. One requester may keep at most four unfinished scans on a
+machine (created in the last two minutes); the next is refused as busy. The
+manager runs one scan in at most 10 s and the server waits up to 20 s (polling
+every 250 ms); a timeout says the machine may be busy. A list scan prints each
+worktree as it reads it and returns the rows it reached with `truncated: true`
+when its deadline stops it; it skips symlinked entries and counts only tracked
+modifications in each worktree. The result starts with `source: "task"`,
+`machine`, `repository`, `branch`,
+`commit`, `dirty` and `path` (the checkout path), then the kind's fields, within
+the same 16 KB and read caps as the GitHub scans:
+
+```jsonc
+// repo_grep(source "task", pattern, glob?, fixed?, case_insensitive?, limit 1-100 = 50)
+{"source":"task","machine":"dev-1","repository":"acme/app","branch":"kua-141-fix","commit":"<sha>","dirty":true,"path":"/workspace/tasks/ENG-141","matches":[{"path":"BE/main.go","line":5,"text":"\tServe()"}],"truncated":false}
+// repo_glob(source "task", pattern, limit 1-500 = 200)
+{"source":"task","machine":"…","repository":"…","branch":"…","commit":"…","dirty":true,"path":"…","files":["BE/main.go"],"truncated":false}
+// repo_read_file(source "task", path, start_line?, end_line?)
+{"source":"task","machine":"…","repository":"…","branch":"…","commit":"…","dirty":false,"path":"…","file":"BE/main.go","start_line":1,"end_line":400,"total_lines":812,"content":"…","truncated":true}
+```
+
+A status or read result's `branch` and `commit` describe the task's branch ref.
+If the agent switched branches, the working tree read is the agent's while the
+header still names the task ref; `dirty` and `changed` likewise describe that
+working tree. `git status` runs with `--ignore-submodules=all`, so a nested
+repository (gitlink) never runs its own configuration. Changes inside nested
+repositories are not counted in `dirty` or `changed`.
+
+`get_task_worktree(identifier)` reports the task's git state: `machine`,
+`repository`, `branch`, `commit`, `dirty`, `changed` (the
+`git status --porcelain` lines), `ahead`, `behind` and `last_subject`.
+`list_machine_worktrees(machine_id | identifier)` lists the task worktrees under
+`/workspace/tasks` with `path`, `branch`, `commit`, `dirty` and `modified_at`;
+`machine_id` must be one of the caller's own machines, `identifier` uses the
+machine of the caller's newest coding task on that issue. Neither tool changes
+the checkout. `ErrWorktreeUnavailable` (machine not running, checkout not ready
+or gone) says to start the machine or scan the pushed code with
+`source: "github"`. Research sub-agents cannot use `source: "task"` or these
+tools: they read only the pushed code.
 
 **Research sub-tasks.** `spawn_research_subagents(tasks[1-8], max_parallel?)`,
 where each task is `{title (≤120), instructions (≤4000), tools?}` and `tools`

@@ -535,10 +535,13 @@ func (r *DevMachineRepository) LeaseOperations(ctx context.Context, owner string
 		FROM dev_machine_operations o
 		WHERE ((o.status='pending' AND o.available_at <= NOW())
 		   OR (o.status='leased' AND o.lease_expires_at < NOW()))
-		AND (o.action IN ('teardown','cancel_agent','terminate_terminal') OR NOT EXISTS (
+		AND (o.action IN ('teardown','cancel_agent','terminate_terminal') OR o.action='scan_worktree' OR NOT EXISTS (
 			SELECT 1 FROM dev_machine_operations leased
 			WHERE leased.machine_id=o.machine_id AND leased.id<>o.id
 			AND leased.status='leased' AND leased.lease_expires_at >= NOW()
+			-- A read-only scan never changes the checkout, so it runs beside
+			-- any other work and never blocks it.
+			AND leased.action<>'scan_worktree'
 			-- A resize applies beside a long agent run or check, which can
 			-- need the memory, but never beside lifecycle work.
 			AND (o.action<>'resize' OR leased.action IN ('spawn','start','stop','pause','teardown','snapshot_environment','resize'))
