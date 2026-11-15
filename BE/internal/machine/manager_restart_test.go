@@ -292,6 +292,86 @@ func TestProcessLeasedOperationDefersOnManagerShutdown(t *testing.T) {
 	require.Nil(t, store.completedRun)
 }
 
+// checkRestartFixture is a queued check step with everything it needs to run,
+// including a compose file whose cleanup would show up in the fake. The key
+// decrypts the fixture's output snapshot.
+func checkRestartFixture(t *testing.T) (*validationStoreFake, *validationRuntimeFake, *domain.DevMachine, *domain.DevMachineOperation, []byte) {
+	t.Helper()
+	taskID, checkoutID, runID := uuid.New(), uuid.New(), uuid.New()
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New()}
+	key := make([]byte, 32)
+	encrypted, err := cryptoutil.Encrypt(`{}`, key)
+	require.NoError(t, err)
+	store := &validationStoreFake{
+		managerStoreFake: &managerStoreFake{
+			machine:  machine,
+			agentRun: &domain.DevMachineAgentRun{ID: runID, TaskID: &taskID, CheckoutID: &checkoutID, EncryptedOutputSecrets: &encrypted, MaxRuntimeSeconds: 60},
+			checkout: &domain.DevMachineCheckout{ID: checkoutID, MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, ScopeKey: taskID.String(), Status: "ready"},
+			services: []domain.DevMachineService{{ServiceType: "terminal", ImageRef: "developer:fixture"}},
+		},
+		step: domain.DevMachineAgentRunStep{ID: uuid.New(), AgentRunID: runID, Status: "queued", CreatedAt: time.Now(), CommandArgv: []byte(`["test"]`), ComposeFile: "compose.yaml"},
+	}
+	runtime := &validationRuntimeFake{runtimeFake: &runtimeFake{}}
+	operation := &domain.DevMachineOperation{ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, AgentRunID: &runID, Action: domain.DevMachineOpRunCheck}
+	return store, runtime, machine, operation, key
+}
+
+// A check that keeps running when the manager stops is handed to the next
+// manager: its container and compose services stay, nothing is recorded and
+// it is not cancelled.
+func TestCheckIsHandedBackWhenTheManagerStops(t *testing.T) {
+	for _, stepType := range []string{"validation", manualCheckStepType} {
+		t.Run(stepType, func(t *testing.T) {
+			store, runtime, machine, operation, key := checkRestartFixture(t)
+			store.step.StepType = stepType
+			var observed *AgentObserver
+			runtime.onRun = func(observer *AgentObserver) (*AgentExecution, error) {
+				observed = observer
+				return &AgentExecution{ContainerID: "check", ExitCode: -1}, ErrAgentDetached
+			}
+			manager := &Manager{store: store, runtime: runtime, encryptionKey: key, detach: make(chan struct{})}
+			err := manager.validateAgent(context.Background(), machine, operation)
+			require.ErrorIs(t, err, errManagerShutdown)
+			require.NotNil(t, observed)
+			require.NotNil(t, observed.Detach, "the check detaches like an agent attempt")
+			require.Equal(t, (<-chan struct{})(manager.detach), observed.Detach)
+			require.Nil(t, store.exit, "the next manager records the result")
+			require.Zero(t, runtime.checkCleanups, "compose services stay for the next manager")
+			require.Zero(t, runtime.agentCancellations)
+			require.Empty(t, runtime.removedChecks)
+		})
+	}
+}
+
+// A stopping manager starts no check container at all: the next manager runs
+// the command, or re-adopts the one already running.
+func TestStoppingManagerStartsNoCheck(t *testing.T) {
+	store, runtime, machine, operation, key := checkRestartFixture(t)
+	manager := &Manager{store: store, runtime: runtime, encryptionKey: key, detach: make(chan struct{})}
+	manager.beginShutdown()
+	require.ErrorIs(t, manager.validateAgent(context.Background(), machine, operation), errManagerShutdown)
+	require.Zero(t, runtime.calls, "no check container is started")
+}
+
+// A check handed back through a leased operation is deferred, never failed.
+func TestHandedBackCheckIsDeferredNotFailed(t *testing.T) {
+	store, runtime, _, operation, key := checkRestartFixture(t)
+	runtime.onRun = func(*AgentObserver) (*AgentExecution, error) {
+		return &AgentExecution{ContainerID: "check", ExitCode: -1}, ErrAgentDetached
+	}
+	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewCodexProvider("test")), nil, key, nil, "test")
+	manager.operationSlots <- struct{}{}
+	manager.operations.Add(1)
+	manager.processLeasedOperation(context.Background(), *operation)
+	deferred := store.deferredOperations()
+	require.Len(t, deferred, 1)
+	require.Equal(t, operation.ID, deferred[0].ID)
+	require.Equal(t, "manager_restart", deferred[0].Code)
+	require.Empty(t, store.failedOperationCode, "a restart never fails the operation")
+	require.Nil(t, store.exit)
+	require.Zero(t, runtime.checkCleanups)
+}
+
 // A stopping manager lets agent attempts keep running and returns promptly.
 func TestManagerRunDetachesAgentRunsOnShutdown(t *testing.T) {
 	for _, scenario := range []struct {

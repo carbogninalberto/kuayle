@@ -53,12 +53,17 @@ type validationRuntimeFake struct {
 	err     error
 	// stderr, when set, is written by every command as Docker output.
 	stderr bool
+	// onRun, when set, answers a command instead of the fake's own execution.
+	onRun func(*AgentObserver) (*AgentExecution, error)
 }
 
 func (f *validationRuntimeFake) RunValidation(_ context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, _ *domain.DevMachineAgentRunStep, index int, _ *domain.DevMachineCheckout, image string, o *AgentObserver) (*AgentExecution, error) {
 	f.calls++
 	f.indexes = append(f.indexes, index)
 	f.image = image
+	if f.onRun != nil {
+		return f.onRun(o)
+	}
 	exit := f.exit
 	if index < len(f.exits) {
 		exit = f.exits[index]

@@ -898,9 +898,11 @@ while the agent worked (retry N of 3)" and the notebook records it. The retried
 attempt's handoff prompt tells the agent that a manager restart interrupted it
 and to continue from the worktree. A step has at most three automatic retries
 (`agent_tasks.platform_retries`, migration 000162), reset when the workflow starts
-another step or a person retries the task; the fourth such failure in a row
-fails the task with class `platform` and a reason saying the manager restarted
-three times in a row and to retry the task. The other platform rules
+another step or a person retries the task; the fourth such failure during the
+step fails the task with class `platform` and a reason saying the manager
+restarted three times during this step and to retry the task. A person who
+cancels the task while the retry's cleanup runs cancels it: no new attempt
+starts. The other platform rules
 (`out_of_memory`, `pid_limit`, `time_limit`, `platform_error`) are not retried
 automatically: the same workload would hit the same limit again, so the task
 fails and says how to fix it.
@@ -1027,23 +1029,33 @@ and durable cancellation retain responsibility for physical cleanup.
 ### Machine manager restarts
 
 On SIGTERM the manager stops leasing operations and stops following running
-agent containers without stopping them: the container keeps working on the
-host, each follower hands its operation back with `DeferOperation` and error
-code `manager_restart`, and this counts no attempt. Other operations in
-progress (an agent's closing continuation, a check, a publication, lifecycle
-work) get a drain period, `DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS` (default 120
-seconds; 0 stops at once); after it they are cancelled and handed back the same
-way, never failed. A stopping manager starts no new agent container.
+agent attempts and checks (an attempt's independent validation and manual
+checks) without stopping their containers: they keep working on the host, each
+follower hands its operation back with `DeferOperation` and error code
+`manager_restart`, and this counts no attempt. A check keeps its compose
+services, and its time limit still counts from when it started. A stopping
+manager starts no new agent, check or closing-continuation container: a closing
+continuation that has not started is handed over before the attempt is marked
+as asked, so the next manager asks. Other operations in progress (a closing
+continuation already running, a publication, lifecycle work) get a drain
+period, `DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS` (default 90 seconds; 0 stops at
+once); after it they are cancelled and handed back the same way, never failed.
+Compose gives the manager a `stop_grace_period` of 150s, which leaves a minute
+after the drain for those cleanups.
 
-The next manager leases the operation at once and re-adopts the run: it finds
-the run's container by name, replays its log from the start (stored lines are
-de-duplicated) and waits for it to exit, then records the result as usual. A
-manager killed without a graceful stop leaves the same handover to the
+The next manager leases the operation at once and re-adopts the run or check:
+it finds the container by name, replays its log from the start (stored lines
+are de-duplicated) and waits for it to exit, then records the result as usual.
+A manager killed without a graceful stop leaves the same handover to the
 two-minute operation lease. An unobserved exit is not a guess: a run whose
-container had already ended by a signal when the manager found it (it ended
-while no manager followed it, after a host or Docker restart, or under an older
-manager that still stopped runs) is classified `platform` / `manager_restart`,
-not `unknown` / `killed`. A started run whose container no longer exists is not
+container had already ended with exit 137 or 143 (a Docker stop or a clean
+Docker daemon shutdown) while no manager followed it, for example under an
+older manager that still stopped runs, is classified `platform` /
+`manager_restart`, not `unknown` / `killed`. Any other exit keeps its usual
+rule: a crash by another signal (139 SIGSEGV, 134 SIGABRT) is the harness's own
+and stays `unknown` / `killed`, and a host crash, whose containers exit with
+255, is not a manager restart. `disk_full` and `usage_limit` evidence also wins
+over a restart. A started run whose container no longer exists is not
 re-created: it is recorded as failed with `platform` / `manager_restart` right
 away.
 

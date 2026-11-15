@@ -145,9 +145,10 @@ const gatewayAccessLogRetention = 90 * 24 * time.Hour
 const gatewayAccessLogPurgeBatch = 1000
 
 // DefaultShutdownDrain is how long a stopping manager lets operations other
-// than following agents finish (an agent's closing steps, a check, a
-// publication) before it stops them and hands them to the next manager.
-const DefaultShutdownDrain = 2 * time.Minute
+// than following agent runs and checks finish (an agent's closing steps, a
+// publication, lifecycle work) before it stops them and hands them to the
+// next manager.
+const DefaultShutdownDrain = 90 * time.Second
 
 // errManagerShutdown hands an operation to the next manager: it never
 // counts as a failed attempt.
@@ -1512,11 +1513,16 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	limit, _ := runContext.Deadline()
 	// After a restart the context's limit starts over; the attempt's does not.
 	limit = closingDeadline(run, limit)
-	closing := m.settleClosing(ctx,
+	closing, closingErr := m.settleClosing(ctx,
 		closingAttempt{machine: machine, run: run, provider: providerRecord, checkout: checkout, secrets: secrets, deadline: limit},
 		closingState{services: services, collectErr: collectErr, exited: exited, concluded: ended && status != "failed", succeeded: ended && status == "succeeded", unchangedRun: unchangedRun,
 			planTooLong: run.WorktreeReadOnly && first.FinalMessage && first.SummaryTruncated,
 			parseReply:  func(stdout, stderr string) agent.RunResult { return provider.ParseResult(stdout, stderr, 0) }})
+	if closingErr != nil {
+		// The attempt's container has exited; the next manager re-adopts it,
+		// replays its log and asks then, since closing_asked_at was not taken.
+		return closingErr
+	}
 	notebookNotCollected, replies := closing.notebookNotCollected, closing.replies
 	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	m.closeLiveInbox(outboxCtx, machine, run)

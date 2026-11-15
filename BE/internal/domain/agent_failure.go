@@ -92,7 +92,9 @@ type RunFailureEvidence struct {
 	// ManagerRestart is set when the run's harness ended while no machine
 	// manager followed it (the manager restarted and found the container
 	// already exited), or when its container was gone when the manager
-	// came back.
+	// came back. Only a container that exited with 137 or 143 (a Docker
+	// stop or a clean daemon shutdown), or one that was gone, counts as a
+	// restart; a crash is the harness's or the host's, not the restart's.
 	ManagerRestart bool
 }
 
@@ -102,11 +104,13 @@ const (
 )
 
 // FailureRuleManagerRestart is the rule of a run interrupted by a restart of
-// Kuayle's machine manager (a deploy or an upgrade).
+// Kuayle's machine manager (a deploy or an upgrade). Only a container that
+// exited with 137 or 143 when no manager followed it, or one that was gone,
+// counts: a crash (139, 134) or a host crash (255) is not a restart.
 const FailureRuleManagerRestart = "manager_restart"
 
-// MaxPlatformRetries is how many times in a row a task step is retried
-// automatically after a retryable platform failure before the task fails.
+// MaxPlatformRetries is how many times a task step is retried automatically
+// after a retryable platform failure before the task fails.
 const MaxPlatformRetries = 3
 
 // RetryablePlatformFailure reports whether a run that failed with this class
@@ -206,7 +210,10 @@ func exitSignal(code *int) string {
 // what the provider or the harness said, because such a run often also prints
 // an error. A usage limit and a provider error are the exception: they decide
 // before a persistence failure or a missing final message, since the task
-// pauses as the provider's or the cause would quote the wrong thing.
+// pauses as the provider's or the cause would quote the wrong thing. A manager
+// restart comes after disk_full and usage_limit, which say what really
+// happened, and before platform_error and the provider rules, whose errors a
+// run that was stopped may print or cause on its way out.
 var runFailureRules = []runFailureRule{
 	{"cancelled_by_person", FailurePerson,
 		func(e RunFailureEvidence) bool { return e.Status == "cancelled" && e.CancelledBy == CancelledByPerson },
@@ -249,13 +256,6 @@ var runFailureRules = []runFailureRule{
 			}
 			return "Kuayle stopped the run at its time limit"
 		}},
-	{FailureRuleManagerRestart, FailurePlatform,
-		func(e RunFailureEvidence) bool {
-			return e.ManagerRestart && e.Status == "failed" && (!exited(e.ExitCode) || exitSignal(e.ExitCode) != "")
-		},
-		func(RunFailureEvidence) string {
-			return "Kuayle's machine manager restarted while the run was working, and the run's container was stopped or removed while no manager followed it"
-		}},
 	{"disk_full", FailurePlatform,
 		func(e RunFailureEvidence) bool {
 			return diskFullText.MatchString(e.Stderr) || diskFullText.MatchString(e.HarnessError)
@@ -266,6 +266,13 @@ var runFailureRules = []runFailureRule{
 	{"usage_limit", FailureProvider,
 		func(e RunFailureEvidence) bool { return e.UsageLimit != "" },
 		func(e RunFailureEvidence) string { return "The provider's usage limit was reached: " + e.UsageLimit }},
+	{FailureRuleManagerRestart, FailurePlatform,
+		func(e RunFailureEvidence) bool {
+			return e.ManagerRestart && e.Status == "failed" && (!exited(e.ExitCode) || *e.ExitCode == 137 || *e.ExitCode == 143)
+		},
+		func(RunFailureEvidence) string {
+			return "Kuayle's machine manager restarted while the run was working, and the run's container was stopped or removed while no manager followed it"
+		}},
 	{"platform_error", FailurePlatform,
 		func(e RunFailureEvidence) bool { return e.ExecutionError != "" },
 		func(e RunFailureEvidence) string { return platformErrorCause(e.ExecutionError) }},

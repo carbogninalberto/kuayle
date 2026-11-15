@@ -423,6 +423,19 @@ func (r *AgentTaskRepository) RequestCancel(ctx context.Context, ws, id uuid.UUI
 			}
 		}
 	}
+	// A person's cancel during a platform retry wins: the automatic retry is
+	// not a failure, so both flags are cleared and the cleanup ends the task
+	// cancelled instead of starting the step again.
+	if task.State == "cancelling" && task.PlatformRetryPending {
+		if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET platform_retry_pending=false,failure_pending=false,reason='Cancellation requested',next_poll_at=now(),updated_at=now() WHERE id=$1 RETURNING *`, id); err != nil {
+			return err
+		}
+		if task.ConversationID != nil {
+			if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.updated", task); err != nil {
+				return err
+			}
+		}
+	}
 	if task.State == "cancelling" {
 		result, err := tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='pending',attempts=0,available_at=now(),error_code=NULL,error_message=NULL WHERE workspace_id=$1 AND status='failed' AND ((agent_run_id=$2 AND idempotency_key=$3) OR (machine_id=$4 AND idempotency_key=$5))`, task.WorkspaceID, task.RunID, "task-cancel:"+task.ID.String()+":"+task.RunID.String(), task.ReservedMachineID, fmt.Sprintf("task-idle:%s:%d", task.ID, task.Generation))
 		if err != nil {

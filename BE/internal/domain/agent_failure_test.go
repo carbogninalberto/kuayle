@@ -190,6 +190,38 @@ func TestManagerRestartIsAPlatformFailure(t *testing.T) {
 			RunFailureEvidence{Status: "cancelled", ExitCode: exitCode(-1), ManagerRestart: true},
 			FailurePlatform, "cancelled_by_platform",
 		},
+		"exit 139 is the harness's own crash": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(139), ManagerRestart: true},
+			FailureUnknown, "killed",
+		},
+		"exit 134 is the harness's own crash": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(134), ManagerRestart: true},
+			FailureUnknown, "killed",
+		},
+		"a PID-limit crash of a re-adopted container is not a restart": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(139), ManagerRestart: true, PidsLimit: 512, PidsPeak: 0},
+			FailureUnknown, "killed",
+		},
+		"a host crash is not a restart": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(255), ManagerRestart: true},
+			FailureUnknown, "harness_exit_silent",
+		},
+		"a full disk still wins": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(143), ManagerRestart: true, Stderr: "ENOSPC: no space left on device, write"},
+			FailurePlatform, "disk_full",
+		},
+		"a usage limit still wins": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(143), ManagerRestart: true, UsageLimit: "You've hit your limit"},
+			FailureProvider, "usage_limit",
+		},
+		"a restart wins over a platform error": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(143), ManagerRestart: true, ExecutionError: "agent_output_persistence_failed: database is down"},
+			FailurePlatform, FailureRuleManagerRestart,
+		},
+		"a restart wins over a provider error printed while stopping": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(143), ManagerRestart: true, HarnessError: "API Error: 529 overloaded"},
+			FailurePlatform, FailureRuleManagerRestart,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			failure := ClassifyRunFailure(tc.evidence)

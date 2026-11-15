@@ -60,8 +60,8 @@ func TestAgentTaskRetriesAPlatformFailureOnTheSameStep(t *testing.T) {
 	}
 }
 
-// After MaxPlatformRetries automatic retries in a row the task fails, saying
-// why Kuayle stopped retrying.
+// After MaxPlatformRetries automatic retries during this step the task fails,
+// saying why Kuayle stopped retrying.
 func TestAgentTaskFailsAfterThePlatformRetryCap(t *testing.T) {
 	class, rule := string(domain.FailurePlatform), domain.FailureRuleManagerRestart
 	message := "exit status 137"
@@ -76,7 +76,7 @@ func TestAgentTaskFailsAfterThePlatformRetryCap(t *testing.T) {
 	require.Equal(t, 1, store.platformCalls)
 	require.False(t, store.retried)
 	require.Equal(t, domain.FailurePlatform, store.failClass)
-	require.Contains(t, store.failReason, "3 times in a row")
+	require.Contains(t, store.failReason, "3 times during this step")
 	require.Contains(t, store.failReason, "retry the task to continue")
 }
 
