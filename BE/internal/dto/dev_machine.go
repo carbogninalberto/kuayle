@@ -376,6 +376,8 @@ type DevMachinePolicyRequest struct {
 	TaskMachineDiskGB    *int `json:"task_machine_disk_gb,omitempty"`
 	// TaskMachineMaxTasks is optional: omitted, the current limit is kept.
 	TaskMachineMaxTasks *int `json:"task_machine_max_tasks,omitempty"`
+	// MaxTemporaryMachines is optional: omitted, the current quota is kept.
+	MaxTemporaryMachines *int `json:"max_temporary_machines,omitempty"`
 }
 
 type CollectorEventInput struct {

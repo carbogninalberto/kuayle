@@ -24,7 +24,8 @@ func NewCLILinkHandler(linkSvc *service.CLILinkService) *CLILinkHandler {
 }
 
 // Create mints a connection link. Link management is session-only; the
-// handler repeats the check so a direct call cannot bypass the route.
+// handler repeats the check so a direct call cannot bypass the route. An
+// SSO-scoped session may create a link for its own workspace only.
 func (h *CLILinkHandler) Create(c *echo.Context) error {
 	if c.Get(middleware.TokenScopesKey) != nil {
 		return response.Forbidden(c)
@@ -41,8 +42,11 @@ func (h *CLILinkHandler) Create(c *echo.Context) error {
 		return response.ValidationError(c, details)
 	}
 
-	link, linkURL, err := h.linkSvc.Create(c.Request().Context(), middleware.GetUserID(c), req)
+	link, linkURL, err := h.linkSvc.Create(c.Request().Context(), middleware.GetUserID(c), middleware.GetSessionSSOWorkspace(c), req)
 	if err != nil {
+		if resp, ok := tokenSSOErrorResponse(c, err); ok {
+			return resp
+		}
 		switch {
 		case errors.Is(err, service.ErrInvalidTokenScope):
 			return response.ValidationError(c, []dto.ErrorDetail{{Field: "scopes", Message: err.Error()}})
@@ -106,6 +110,9 @@ func (h *CLILinkHandler) Connect(c *echo.Context) error {
 
 	token, plaintext, err := h.linkSvc.Redeem(c.Request().Context(), req.Code, req.ClientName)
 	if err != nil {
+		if resp, ok := tokenSSOErrorResponse(c, err); ok {
+			return resp
+		}
 		switch {
 		case errors.Is(err, repository.ErrCLILinkInvalid):
 			return response.Error(c, http.StatusUnauthorized, "LINK_INVALID", "This connection link is not valid.")

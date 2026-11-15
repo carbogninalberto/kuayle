@@ -36,6 +36,9 @@ type CLIConnectionLink struct {
 	Uses           int            `json:"uses" db:"uses"`
 	RevokedAt      *time.Time     `json:"revoked_at" db:"revoked_at"`
 	CreatedAt      time.Time      `json:"created_at" db:"created_at"`
+	// SSOWorkspaceID is the workspace whose SSO session created the link; it
+	// is copied to the token the link mints (see PersonalAccessToken).
+	SSOWorkspaceID *uuid.UUID `json:"-" db:"sso_workspace_id"`
 }
 
 // GenerateCLILinkCode creates a new connection-link code. The plaintext is

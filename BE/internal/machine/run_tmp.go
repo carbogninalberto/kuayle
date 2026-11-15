@@ -12,7 +12,11 @@ import (
 // images put Go's build and module caches. A Go or npm build fills them and
 // dies with "no space left on device". Each run therefore gets its own
 // directory on the workspace volume for temporary files and caches, created
-// when the container starts and removed when the run ends.
+// when the container starts and removed when the run ends. XDG data and state
+// go there too: OpenCode keeps its SQLite database, session snapshots and logs
+// in ~/.local/share/opencode and ~/.local/state/opencode, which filled the
+// home tmpfs ("database or disk is full", KUA-187). OpenCode does not resume
+// a session across attempts, so a per-attempt directory loses nothing.
 const runTmpRoot = "/workspace/.kuayle/tmp"
 
 // runTmpDir is the run's directory; key is a container key such as
@@ -22,7 +26,7 @@ func runTmpDir(key string) string {
 }
 
 // runTmpVariables are the variables pointed at the run directory.
-var runTmpVariables = []string{"TMPDIR", "TMP", "TEMP", "GOTMPDIR", "GOCACHE", "GOMODCACHE", "XDG_CACHE_HOME", "npm_config_cache", "PIP_CACHE_DIR", "YARN_CACHE_FOLDER"}
+var runTmpVariables = []string{"TMPDIR", "TMP", "TEMP", "GOTMPDIR", "GOCACHE", "GOMODCACHE", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "npm_config_cache", "PIP_CACHE_DIR", "YARN_CACHE_FOLDER"}
 
 // runTmpEnvironment points temporary files and the common tool caches at dir.
 func runTmpEnvironment(dir string) []string {
@@ -30,7 +34,8 @@ func runTmpEnvironment(dir string) []string {
 		"KUAYLE_RUN_TMP=" + dir,
 		"TMPDIR=" + dir + "/tmp", "TMP=" + dir + "/tmp", "TEMP=" + dir + "/tmp", "GOTMPDIR=" + dir + "/tmp",
 		"GOCACHE=" + dir + "/cache/go-build", "GOMODCACHE=" + dir + "/go-mod",
-		"XDG_CACHE_HOME=" + dir + "/cache", "npm_config_cache=" + dir + "/cache/npm",
+		"XDG_CACHE_HOME=" + dir + "/cache", "XDG_DATA_HOME=" + dir + "/data", "XDG_STATE_HOME=" + dir + "/state",
+		"npm_config_cache=" + dir + "/cache/npm",
 		"PIP_CACHE_DIR=" + dir + "/cache/pip", "YARN_CACHE_FOLDER=" + dir + "/cache/yarn",
 	}
 }
@@ -50,10 +55,10 @@ case "$kuayle_tmp" in
 esac
 if [ -n "$kuayle_tmp" ]; then
   [ ! -e "$kuayle_tmp" ] || kuayle_tmp_clean "$kuayle_tmp"
-  mkdir -p "$TMPDIR" "$GOCACHE" "$GOMODCACHE" "$XDG_CACHE_HOME" "$npm_config_cache" "$PIP_CACHE_DIR" "$YARN_CACHE_FOLDER" 2>/dev/null || kuayle_tmp=
+  mkdir -p "$TMPDIR" "$GOCACHE" "$GOMODCACHE" "$XDG_CACHE_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$npm_config_cache" "$PIP_CACHE_DIR" "$YARN_CACHE_FOLDER" 2>/dev/null || kuayle_tmp=
 fi
 if [ -z "$kuayle_tmp" ]; then
-  unset KUAYLE_RUN_TMP ` + "TMPDIR TMP TEMP GOTMPDIR GOCACHE GOMODCACHE XDG_CACHE_HOME npm_config_cache PIP_CACHE_DIR YARN_CACHE_FOLDER" + `
+  unset KUAYLE_RUN_TMP ` + "TMPDIR TMP TEMP GOTMPDIR GOCACHE GOMODCACHE XDG_CACHE_HOME XDG_DATA_HOME XDG_STATE_HOME npm_config_cache PIP_CACHE_DIR YARN_CACHE_FOLDER" + `
 fi
 `
 

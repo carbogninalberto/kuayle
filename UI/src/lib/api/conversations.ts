@@ -243,6 +243,52 @@ export interface RunCustomToolPayload {
 	generation?: number;
 	machine_id?: string;
 }
+// The machine an assistant command runs on: its size, whether it is a
+// temporary machine (deleted at expires_at) and whether the assistant reused
+// one of the user's own machines.
+export interface CommandMachine {
+	machine_id: string;
+	machine: string;
+	cpu_millis: number;
+	memory_mb: number;
+	disk_gb: number;
+	temporary: boolean;
+	reused: boolean;
+	expires_at?: string;
+}
+// run_command and run_command_write are bound to the exact command shown.
+export interface CommandRunPayload extends CommandMachine {
+	command: string;
+	write: boolean;
+	working_directory: string;
+	timeout_seconds: number;
+}
+// start_temporary_machine: the preset, its lifetime and the workspace quota.
+export interface TemporaryMachinePayload {
+	cpu_millis: number;
+	memory_mb: number;
+	disk_gb: number;
+	profile: string;
+	ttl_minutes: number;
+	quota_used: number;
+	quota_limit: number;
+	working_directory: string;
+	credentials: boolean;
+}
+// A command run's result, as the approval card and get_command_run show it.
+export interface CommandRunResult extends Omit<CommandMachine, 'machine_id'> {
+	machine_id: string | null;
+	run_id: string;
+	status: 'queued' | 'running' | 'succeeded' | 'failed';
+	command: string;
+	write: boolean;
+	working_directory: string;
+	exit_code: number | null;
+	output_tail: string;
+	output_truncated: boolean;
+	duration_ms: number | null;
+	error?: string;
+}
 // A pull request change (reply, resolve, branch update, draft state) is bound
 // to the task's pull request and to exactly what the user sees on the card.
 export interface PullRequestActionPayload {
@@ -362,6 +408,9 @@ export type ConversationApproval = ApprovalBase &
 		| { action: 'expose_port'; payload: ExposePortPayload }
 		| { action: 'run_check'; payload: RunCheckPayload }
 		| { action: 'run_custom_tool'; payload: RunCustomToolPayload }
+		| { action: 'start_temporary_machine'; payload: TemporaryMachinePayload }
+		| { action: 'run_command'; payload: CommandRunPayload }
+		| { action: 'run_command_write'; payload: CommandRunPayload }
 		| { action: 'upgrade_instance'; payload: UpgradePayload }
 		| { action: 'reply_to_review_comment'; payload: PullRequestActionPayload }
 		| { action: 'resolve_review_thread'; payload: PullRequestActionPayload }
@@ -462,6 +511,11 @@ export const conversations = {
 		api.post<ConversationApproval>(
 			`${base(slug)}/conversations/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approval)}`,
 			{ decision, ...(decision === 'approve' ? choice : undefined) }
+		),
+	// The command an approved run_command card started; 404 until it is queued.
+	commandRun: (slug: string, id: string, approval: string) =>
+		api.get<CommandRunResult>(
+			`${base(slug)}/conversations/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approval)}/command-run`
 		),
 	retry: (slug: string, id: string, message: string, request_id: string) =>
 		api.post<ConversationMessage>(

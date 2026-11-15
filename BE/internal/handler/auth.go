@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/url"
@@ -19,6 +20,12 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// WorkspaceSlugLookup resolves the workspace that scoped an SSO session, so
+// /auth/me can explain the restriction.
+type WorkspaceSlugLookup interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Workspace, error)
+}
+
 type AuthHandler struct {
 	authService   *service.AuthService
 	secureCookie  bool
@@ -26,7 +33,11 @@ type AuthHandler struct {
 	loginThrottle *middleware.LoginThrottle
 	isSysAdmin    func(uuid.UUID) bool
 	avatarStore   storage.Backend
+	workspaces    WorkspaceSlugLookup
 }
+
+// SetWorkspaceLookup enables the sso_workspace_slug field of /auth/me.
+func (h *AuthHandler) SetWorkspaceLookup(lookup WorkspaceSlugLookup) { h.workspaces = lookup }
 
 func NewAuthHandler(authService *service.AuthService, secureCookie bool, loginThrottle *middleware.LoginThrottle, isSysAdmin func(uuid.UUID) bool, hostCookies ...bool) *AuthHandler {
 	if isSysAdmin == nil {
@@ -100,6 +111,10 @@ func (h *AuthHandler) Login(c *echo.Context) error {
 			h.loginThrottle.RecordFailure(req.Email)
 			log.WithFields(log.Fields{"event": "auth.login_failed", "email": req.Email, "ip": c.RealIP()}).Warn("login failed")
 			return response.Error(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "Invalid email or password")
+		}
+		if errors.Is(err, service.ErrSSORequired) {
+			log.WithFields(log.Fields{"event": "auth.login_sso_required", "email": req.Email, "ip": c.RealIP()}).Info("password sign-in refused: workspace requires SSO")
+			return SSORequiredReply(c, err)
 		}
 		return response.InternalError(c)
 	}
@@ -190,7 +205,13 @@ func (h *AuthHandler) Me(c *echo.Context) error {
 	if err != nil || user == nil {
 		return response.NotFound(c, "User")
 	}
-	return response.Success(c, http.StatusOK, h.userResponse(user))
+	resp := h.userResponse(user)
+	if ssoWorkspace := middleware.GetSessionSSOWorkspace(c); ssoWorkspace != uuid.Nil && h.workspaces != nil {
+		if ws, err := h.workspaces.GetByID(c.Request().Context(), ssoWorkspace); err == nil && ws != nil {
+			resp.SSOWorkspaceSlug = ws.Slug
+		}
+	}
+	return response.Success(c, http.StatusOK, resp)
 }
 
 func (h *AuthHandler) UpdateProfile(c *echo.Context) error {

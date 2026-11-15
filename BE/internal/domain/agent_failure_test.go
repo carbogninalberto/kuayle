@@ -103,6 +103,14 @@ func TestClassifyRunFailure(t *testing.T) {
 			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), Stderr: "Error: spawn /usr/bin/node EAGAIN\nResource temporarily unavailable"},
 			FailurePlatform, "pid_limit", []string{"PID limit", "spawn /usr/bin/node EAGAIN"},
 		},
+		"OpenCode's SQLite database found the disk full": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), HarnessError: "Unexpected server error", Stderr: "ERROR service=default name=SQLiteError message=database or disk is full\nFailed to execute statement"},
+			FailurePlatform, "disk_full", []string{"ran out of disk space", "database or disk is full"},
+		},
+		"a write found no space left on the device": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), HarnessError: "ENOSPC: no space left on device, write"},
+			FailurePlatform, "disk_full", []string{"ran out of disk space"},
+		},
 		"a person's cancel": {
 			RunFailureEvidence{Status: "cancelled", ExitCode: exitCode(-1), CancelledBy: CancelledByPerson},
 			FailurePerson, "cancelled_by_person", []string{"A person stopped the run"},

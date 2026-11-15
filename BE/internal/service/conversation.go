@@ -65,6 +65,20 @@ func (s *ConversationService) SetTools(tools *AssistantTools) {
 func NewConversationService(repo *repository.ConversationRepository, ai *AISettingsService) *ConversationService {
 	return &ConversationService{Repo: repo, ai: ai}
 }
+
+// Rich fences the web chat renders directly. Telegram shares this prompt and
+// shows them as code, so the wording names the web chat.
+const richBlocksPrompt = "In the Kuayle web chat you may add a chart as a ```chart fenced block containing only JSON {\"type\":\"bar|line|area|pie\",\"title\":\"…\",\"unit\":\"…\",\"categories\":[…],\"series\":[{\"name\":\"…\",\"data\":[numbers]}]} (at most 5 series, 100 categories), or a small self-contained interactive widget as a ```html block (inline scripts and styles only; it runs sandboxed with no network, so embed all data). Use them only when a visual clearly helps, put the numbers you got from tools in them, never invent data, and keep text outside the block."
+
+// guidanceMessages are the extra system messages shared by web and Telegram
+// replies: attachment notes first, then the rich-block capability.
+func guidanceMessages(images bool) []chatCompletionMessage {
+	messages := make([]chatCompletionMessage, 0, 2)
+	if images {
+		messages = append(messages, chatCompletionMessage{Role: "system", Content: "Users can attach images; each is named in their message as [image attached: name, WxH, id=...]. When you cannot see an image's content, say so instead of guessing what it shows."})
+	}
+	return append(messages, chatCompletionMessage{Role: "system", Content: richBlocksPrompt})
+}
 func (s *ConversationService) configuration(ctx context.Context, ws uuid.UUID) (*domain.AISettings, error) {
 	settings, err := s.ai.Get(ctx, ws)
 	if err != nil {
@@ -185,6 +199,10 @@ func (s *ConversationService) execute(parent context.Context, a domain.Conversat
 		if research := s.tools.researchPrompt(ctx, a.Conversation.WorkspaceID); research != "" {
 			prompt = strings.TrimSuffix(prompt, "You cannot read repositories or run code yourself.") + research + " You cannot run code yourself."
 		}
+		if commands := s.tools.commandPrompt(ctx, a.Conversation.WorkspaceID); commands != "" {
+			// Code runs only through the command tools, never by the model itself.
+			prompt = strings.TrimSuffix(strings.TrimSuffix(prompt, " You cannot run code yourself."), " You cannot read repositories or run code yourself.") + commands
+		}
 	}
 	messages := []chatCompletionMessage{{Role: "system", Content: prompt}}
 	issue, err := s.Repo.GenerationIssue(ctx, a)
@@ -212,9 +230,7 @@ func (s *ConversationService) execute(parent context.Context, a domain.Conversat
 	if customTools != "" {
 		messages = append(messages, chatCompletionMessage{Role: "system", Content: customTools})
 	}
-	if s.images != nil {
-		messages = append(messages, chatCompletionMessage{Role: "system", Content: "Users can attach images; each is named in their message as [image attached: name, WxH, id=...]. When you cannot see an image's content, say so instead of guessing what it shows."})
-	}
+	messages = append(messages, guidanceMessages(s.images != nil)...)
 	messages = append(messages, s.modelMessages(ctx, history, settings.AssistantVision)...)
 	deltas := make(chan string, 16)
 	done := make(chan error, 1)
@@ -504,6 +520,18 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 		var check domain.RunCheckPayload
 		issueID, check, err = s.tools.prepareRunCheck(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)
 		payload, identifier = check, check.Identifier
+	case "start_temporary_machine":
+		// The user's own machine or the conversation's temporary machine is
+		// returned at once: nothing starts, so nothing needs approval.
+		var machine *domain.TemporaryMachinePayload
+		var existing map[string]any
+		if machine, existing, err = s.tools.prepareTemporaryMachine(ctx, a, arguments); err == nil && existing != nil {
+			return existing, nil, nil
+		}
+		payload = machine
+	case "run_command", "run_command_write":
+		// Commands and temporary machines belong to the user's machine, not to an issue.
+		payload, err = s.tools.prepareCommand(ctx, a, action, arguments)
 	default:
 		err = toolFailure("unknown tool")
 	}

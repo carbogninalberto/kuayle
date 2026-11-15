@@ -425,3 +425,21 @@ func (h *ConversationHandler) Delete(c *echo.Context) error {
 	}
 	return c.NoContent(http.StatusNoContent)
 }
+
+// CommandRun returns the result of the command an approval started, for its
+// approval card; 404 until the approved command is queued.
+func (h *ConversationHandler) CommandRun(c *echo.Context) error {
+	id, err := conversationID(c)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	approval, err := uuid.Parse(c.Param("approvalId"))
+	if err != nil {
+		return conversationError(c, repository.ErrConversationNotFound)
+	}
+	result, err := h.svc.CommandRun(c.Request().Context(), middleware.GetWorkspace(c).ID, id, approval)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
+}

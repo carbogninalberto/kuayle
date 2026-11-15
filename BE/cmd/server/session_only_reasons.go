@@ -26,12 +26,14 @@ const (
 	reasonGitHubSetup     = "GitHub integration state is managed from the settings pages."
 	reasonWebSocket       = "The realtime WebSocket connection carries live assistant events for a browser session."
 	reasonPersonalState   = "Personal state writes follow the signed-in person's UI session."
+	reasonSSOConfig       = "An SSO client secret is write-only and points the workspace at an identity provider; only an interactive owner or admin may change it."
 )
 
 var sessionOnlyReasons = []sessionOnlyReason{
 	{PathPrefix: "/api/tokens", Reason: reasonTokenManagement},
 	{PathPrefix: "/api/cli-links", Reason: reasonTokenManagement},
 	{PathPrefix: "/api/auth/passkey", Reason: reasonSignInSecrets},
+	{Method: "POST", PathPrefix: "/api/auth/sso/:slug/link", Exact: true, Reason: reasonSignInSecrets},
 	{Method: "PATCH", PathPrefix: "/api/auth/me", Exact: true, Reason: reasonSignInSecrets},
 	{Method: "POST", PathPrefix: "/api/auth/me/avatar", Exact: true, Reason: reasonSignInSecrets},
 	{PathPrefix: "/api/system/update", Reason: reasonInstanceUpdate},
@@ -63,4 +65,5 @@ var sessionOnlyReasons = []sessionOnlyReason{
 	{Method: "POST", PathPrefix: "/api/workspaces/:slug/teams/:teamId/icon", Exact: true, Reason: reasonWorkspaceAdmin},
 	{Method: "POST", PathPrefix: "/api/workspaces/:slug/teams/:teamId/leave", Exact: true, Reason: reasonWorkspaceAdmin},
 	{PathPrefix: "/api/workspaces/:slug/issues/:identifier/prompt-assets", Exact: true, Reason: reasonAssistant},
+	{PathPrefix: "/api/workspaces/:slug/sso", Reason: reasonSSOConfig},
 }

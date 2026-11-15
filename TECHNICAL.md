@@ -618,7 +618,7 @@ Resource names and labels are deterministic. Missing resources during teardown c
 
 The production repository currently supplies services to the runtime in egress, collector, developer, then browser order; the Docker runtime starts them in caller-provided order rather than computing dependencies itself. Developer and browser containers publish file-based Docker health checks.
 
-Machines have no lifetime. A booted machine stays up until its user pauses, stops, tears down or deletes it: nothing pauses idle machines, stops them after a maximum runtime, tears them down when they expire, or stops an idle machine to make room for another (a spawn or start that waits for host CPU or memory keeps waiting, see host admission below). Agent tasks do not pause or stop their machine when they finish or are cancelled, so the next task can reuse it (see [Task machines](#resource-limits-and-quotas)). Only the host disk floor still stops running machines, to protect the host. Gateway requests, native terminal WebSockets, API activity touches, checkouts, and agent runs update `last_activity_at`, which orders machines for reuse. Each agent run, validation, check and custom tool run keeps its own time limit (`max_runtime_seconds`, 3600 seconds by default, 10800 seconds (three hours) for task attempts, up to 86400). Migration `000101_dev_machines_persistent` drops `dev_machines.expires_at`, `max_runtime_minutes` and `keep_running` and the workspace policy's `max_runtime_minutes` and `idle_pause_minutes`; existing machines keep running whatever their old expiry, and the machine's own credentials (collector token, browser CDP token, Docker TLS material) no longer expire with it. Docker TLS material is issued for ten years and discarded at teardown; Docker-enabled machines created before migration 101 keep certificates that end a day after their old expiry, so recreate them to use Docker beyond that. Rollback restores the columns with a 480-minute runtime and a lifetime of one day counted from the rollback, after which the previous release tears machines down again.
+Machines have no lifetime. The one exception is an assistant temporary machine (`dev_machines.temporary_expires_at`, migration 159), which reconciliation permanently deletes 30 minutes after it was created; see [commands and temporary machines](BE/docs/conversations.md#commands-and-temporary-machines). A booted machine stays up until its user pauses, stops, tears down or deletes it: nothing pauses idle machines, stops them after a maximum runtime, tears them down when they expire, or stops an idle machine to make room for another (a spawn or start that waits for host CPU or memory keeps waiting, see host admission below). Agent tasks do not pause or stop their machine when they finish or are cancelled, so the next task can reuse it (see [Task machines](#resource-limits-and-quotas)). Only the host disk floor still stops running machines, to protect the host. Gateway requests, native terminal WebSockets, API activity touches, checkouts, and agent runs update `last_activity_at`, which orders machines for reuse. Each agent run, validation, check and custom tool run keeps its own time limit (`max_runtime_seconds`, 3600 seconds by default, 10800 seconds (three hours) for task attempts, up to 86400). Migration `000101_dev_machines_persistent` drops `dev_machines.expires_at`, `max_runtime_minutes` and `keep_running` and the workspace policy's `max_runtime_minutes` and `idle_pause_minutes`; existing machines keep running whatever their old expiry, and the machine's own credentials (collector token, browser CDP token, Docker TLS material) no longer expire with it. Docker TLS material is issued for ten years and discarded at teardown; Docker-enabled machines created before migration 101 keep certificates that end a day after their old expiry, so recreate them to use Docker beyond that. Rollback restores the columns with a 480-minute runtime and a lifetime of one day counted from the rollback, after which the previous release tears machines down again.
 
 Starting a stopped or paused machine is idempotent. When its workspace volume was never recorded (its first spawn failed), the volume no longer exists, or a service container is missing, the start provisions the machine again from its deterministic names and reuses whatever still exists. The developer start scripts accept a workspace volume that already holds Kuayle state (`.kuayle/`, `repos/`, `tasks/`) or the user's work: a repository machine's root checkout is cloned into `.kuayle/root-checkout`, its files are moved into `/workspace` without replacing existing paths, and `.git` is moved last, so an existing `/workspace/.git` means the root is prepared and an interrupted preparation completes on the next start. The working branch is selected only when the root checkout is created; a restart keeps the current branch and local commits.
 
@@ -787,7 +787,7 @@ A `custom` size picks CPU (1, 2, 4, 6, 8, 12 or 16 vCPU) and memory (2, 4, 8, 12
 
 **Task machines.** Machines Kuayle creates itself for agent tasks (issue delegations, the assistant's delegate tool and automations all go through agent tasks) are headless custom machines sized by the workspace policy's `task_machine_cpu_millis`, `task_machine_memory_mb` and `task_machine_disk_gb` (Settings → Dev Machines → Policy → Task machines). The defaults are 4 vCPU, 8 GB and 20 GB; migration 90 gives existing workspaces the same values (task machines were previously `small`, whose 4 GB left an agent such as Claude Code 1.4 GB and was OOM-killed under builds). The same size rules apply, and the task disk must stay within `max_disk_gb`. Changes affect task machines created afterwards; reused task machines keep their size.
 
-**Task machine reuse.** A task first runs on a suitable machine that is already running, sharing it with other tasks when needed. When the creator has such a machine but it already runs as many tasks as its limit allows, the task waits for a free slot on it (still `preparing`, with a reason naming the machine and its task count) instead of creating a machine the host cannot start; only when the creator has no suitable running machine does it create a task machine (named `task-<reservation>`), which then stays running after the task for later tasks. A task whose own task machine was created but never started (queued and not yet spawned) moves to a free slot on another suitable machine when one appears, and that unstarted machine is deleted. `AgentTaskRepository.ReserveMachine` picks, under the workspace advisory lock and `FOR UPDATE SKIP LOCKED`, a machine that is: in the task's workspace and created by the task's creator (the task runs as its creator); `running` with desired `running` and not being deleted; a `standard` or `headless` machine of the task's environment (no environment means headless) and not an Environment Builder; allowed by the enabled workspace policy (a sudo machine only while sudo is allowed, a Docker machine only while Docker is allowed); running no agent session of the user's own and no pending or leased stop, pause, teardown, snapshot, check or custom tool operation; and working on fewer other active tasks than the machine's `max_tasks`, or the policy's `task_machine_max_tasks` when the machine has none (default 10, from 1 to 10; `awaiting_review`, `blocked` and finished tasks do not count). Idle machines (no active agent run, no other active task, no queued validation or publication) come first: one already used by a task of the same issue, then the most recently active one (machines that already cache the repository or carry the task's agent break ties). Otherwise the least loaded busy machine is shared, with the same tie-breaks. Paused and stopped machines are left alone: their user chose that. A task keeps the machine it was given across attempts, retries and restarts (a stopped or paused one is started again for it). Each task works in its own checkout (`/workspace/tasks/<issue>-<task>`, branch `kuayle/<issue>-<task>`, agent sessions under `/workspace/.kuayle/agent-sessions/<task>`), so sharing never mixes work. `CreateAgentRun` re-checks the limit under the workspace and machine locks: a task attempt waits (the task retries) while the user's own agent session runs, a manual check or tool run is queued, or as many other tasks as the limit allows hold an attempt, validation, publication or cleanup there; a user's own agent run still needs a machine without task work. Validations and publications of a finished attempt run beside other tasks' attempts (`lockTaskMachine`), while manual checks and custom tool runs still need a machine without agent work (`lockMachineForCheck`). The manager leases one operation per machine at a time, except that agent tasks' `run_agent`, `checkout_issue`, `validate_agent` and `publish_agent` operations (a run with a `task_id`, a checkout with a task `scope_key`) run beside one another (`LeaseOperations`); the user's own agent runs and checkouts, which share the root workspace and its `/workspace/current` link, and lifecycle, preview, image update and sign-in operations still run alone. Read-only `scan_worktree` operations are the other exception: they lease beside any leased work and never block it. Tasks on one machine share its CPU, memory and disk: their agent containers split the agent memory share below (`agentMemoryBytes`), so ten tasks on a 16 GB headless machine get about 1 GB each instead of 8 GB each, while CPU and PID limits keep the full share. `task_machine_max_tasks` bounds concurrency on one machine, not the number of machines: a new task machine is created only when the creator has no suitable running machine, while a full suitable machine makes the task wait for a slot. Raising the limit (up to 10, for the workspace or for one machine) therefore lets more tasks run on one machine at once. A machine excluded from selection — running the user's own agent session, or with a pending stop, pause, teardown, snapshot, check or tool operation — counts as no suitable machine, so a task may still create a task machine while such a machine exists. The machine's agent is attached under the same policy checks as creating a machine with it. The Environment Builder dialog starts with the task machine CPU and memory.
+**Task machine reuse.** A task first runs on a suitable machine that is already running, sharing it with other tasks when needed. When the creator has such a machine but it already runs as many tasks as its limit allows, the task waits for a free slot on it (still `preparing`, with a reason naming the machine and its task count) instead of creating a machine the host cannot start; only when the creator has no suitable running machine does it create a task machine (named `task-<reservation>`), which then stays running after the task for later tasks. A task whose own task machine was created but never started (queued and not yet spawned) moves to a free slot on another suitable machine when one appears, and that unstarted machine is deleted. `AgentTaskRepository.ReserveMachine` picks, under the workspace advisory lock and `FOR UPDATE SKIP LOCKED`, a machine that is: in the task's workspace and created by the task's creator (the task runs as its creator); `running` with desired `running` and not being deleted; a `standard` or `headless` machine of the task's environment (no environment means headless) and not an Environment Builder or an assistant temporary machine; allowed by the enabled workspace policy (a sudo machine only while sudo is allowed, a Docker machine only while Docker is allowed); running no agent session of the user's own and no pending or leased stop, pause, teardown, snapshot, check or custom tool operation; and working on fewer other active tasks than the machine's `max_tasks`, or the policy's `task_machine_max_tasks` when the machine has none (default 10, from 1 to 10; `awaiting_review`, `blocked` and finished tasks do not count). Idle machines (no active agent run, no other active task, no queued validation or publication) come first: one already used by a task of the same issue, then the most recently active one (machines that already cache the repository or carry the task's agent break ties). Otherwise the least loaded busy machine is shared, with the same tie-breaks. Paused and stopped machines are left alone: their user chose that. A task keeps the machine it was given across attempts, retries and restarts (a stopped or paused one is started again for it). Each task works in its own checkout (`/workspace/tasks/<issue>-<task>`, branch `kuayle/<issue>-<task>`, agent sessions under `/workspace/.kuayle/agent-sessions/<task>`), so sharing never mixes work. `CreateAgentRun` re-checks the limit under the workspace and machine locks: a task attempt waits (the task retries) while the user's own agent session runs, a manual check or tool run is queued, or as many other tasks as the limit allows hold an attempt, validation, publication or cleanup there; a user's own agent run still needs a machine without task work. Validations and publications of a finished attempt run beside other tasks' attempts (`lockTaskMachine`), while manual checks and custom tool runs still need a machine without agent work (`lockMachineForCheck`). The manager leases one operation per machine at a time, except that agent tasks' `run_agent`, `checkout_issue`, `validate_agent` and `publish_agent` operations (a run with a `task_id`, a checkout with a task `scope_key`) run beside one another (`LeaseOperations`); the user's own agent runs and checkouts, which share the root workspace and its `/workspace/current` link, and lifecycle, preview, image update and sign-in operations still run alone. Read-only `scan_worktree` operations are the other exception: they lease beside any leased work and never block it. Tasks on one machine share its CPU, memory and disk: their agent containers split the agent memory share below (`agentMemoryBytes`), so ten tasks on a 16 GB headless machine get about 1 GB each instead of 8 GB each, while CPU and PID limits keep the full share. `task_machine_max_tasks` bounds concurrency on one machine, not the number of machines: a new task machine is created only when the creator has no suitable running machine, while a full suitable machine makes the task wait for a slot. Raising the limit (up to 10, for the workspace or for one machine) therefore lets more tasks run on one machine at once. A machine excluded from selection — running the user's own agent session, or with a pending stop, pause, teardown, snapshot, check or tool operation — counts as no suitable machine, so a task may still create a task machine while such a machine exists. The machine's agent is attached under the same policy checks as creating a machine with it. The Environment Builder dialog starts with the task machine CPU and memory.
 
 The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits (`containerSharePercent` in `BE/internal/machine/docker.go`). On standard machines the IDE (which also serves the terminal) and browser each receive 25%, an agent run 35%, and the collector and egress 5% each. Headless machines (task machines among them) have no IDE or browser, so the agent receives 50% and the terminal container 40%; with a Docker daemon, which takes 40%, the agent and the terminal receive 35% each. Shares are per-container ceilings, not reservations: without Docker the headless shares add up to the machine, and with Docker the agent and terminal ceilings overlap (120%) so the terminal people use by hand is not squeezed below the agent. An 8 GB task machine therefore gives its agent 4 GB (2.8 GB with Docker). PID limits count threads, so the containers agents and people build in (agent runs, validation checks, custom tools, the IDE and the terminal) get at least 1,024 PIDs (`buildMinimumPids`) whatever their share of the machine's limit: with a 512-PID machine their 35% share was 179, which a Claude Code session plus a parallel `go test ./...` exceeds, and the failed thread and process creation then crashed git and the harness with SIGSEGV (exit 139). Other services keep their share, with at least 256 for the browser and 32 otherwise. Validation checks keep the 35% agent share because their compose services share another 30%. When agent tasks share a machine, the memory limit of each agent attempt and validation check container is the agent share divided by the tasks with a running attempt or check there, the new one included (`agentMemoryBytes`, counted from the machine's running agent containers when a container is created and again on resize), with at least 1 GB (`agentMinimumMemoryBytes`) and never more than the undivided share. The limits then add up to about the agent share instead of a multiple of the machine, so a busy machine reclaims cache and slows down rather than the kernel stopping agents with exit code 137; a container keeps the limit it started with until the machine is resized. CPU and PID limits are not divided: CPU is throttled rather than killed, and the 1,024-PID floor applies per container. These CPU and memory shares apply to machines that do not share their resources ([shared machine resources](#shared-machine-resources)); PID shares always apply. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot, and a workspace that allows sudo relaxes its developer containers (see [Sudo in machines](#sudo-in-machines)). Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
 
@@ -958,7 +958,7 @@ The manager still samples workspace usage, stores resource telemetry, emits `res
 
 #### Monitored mode (hosts without XFS project quotas)
 
-`DEV_MACHINE_DISK_QUOTA_MODE=monitored` is an explicit operator opt-in for hosts whose Docker data root cannot provide project quotas (for example ext4). The manager then skips the startup quota probe and creates workspace volumes without the `size` option, labelled `com.kuayle.workspace-quota-mode=monitored` and with the limit in `com.kuayle.workspace-quota-bytes`. The workspace volume is the only unbounded write surface: root filesystems are read-only, `/tmp` and home directories are size-limited tmpfs, and container logs are capped. Because those tmpfs mounts are small (256 MiB `/tmp`, 512 MiB home, where the images keep Go's caches), check, manual check, custom tool and autonomous agent containers point `TMPDIR`/`TMP`/`TEMP`, `GOTMPDIR`, `GOCACHE`, `GOMODCACHE`, `XDG_CACHE_HOME`, `npm_config_cache`, `PIP_CACHE_DIR` and `YARN_CACHE_FOLDER` at a per-run directory `/workspace/.kuayle/tmp/<container key>` on the workspace volume (`BE/internal/machine/run_tmp.go`). A fixed shell prelude recreates it when the container starts (falling back to the image defaults if it cannot), a check or tool removes it when its command ends, and the manager removes an attempt's directory through the developer container once the attempt ends. Interactive attempts keep the tmpfs defaults.
+`DEV_MACHINE_DISK_QUOTA_MODE=monitored` is an explicit operator opt-in for hosts whose Docker data root cannot provide project quotas (for example ext4). The manager then skips the startup quota probe and creates workspace volumes without the `size` option, labelled `com.kuayle.workspace-quota-mode=monitored` and with the limit in `com.kuayle.workspace-quota-bytes`. The workspace volume is the only unbounded write surface: root filesystems are read-only, `/tmp` and home directories are size-limited tmpfs, and container logs are capped. Because those tmpfs mounts are small (256 MiB `/tmp`, 512 MiB home, where the images keep Go's caches), check, manual check, custom tool and autonomous agent containers point `TMPDIR`/`TMP`/`TEMP`, `GOTMPDIR`, `GOCACHE`, `GOMODCACHE`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `npm_config_cache`, `PIP_CACHE_DIR` and `YARN_CACHE_FOLDER` at a per-run directory `/workspace/.kuayle/tmp/<container key>` on the workspace volume (`BE/internal/machine/run_tmp.go`). A fixed shell prelude recreates it when the container starts (falling back to the image defaults if it cannot), a check or tool removes it when its command ends, and the manager removes an attempt's directory through the developer container once the attempt ends. Interactive attempts keep the tmpfs defaults.
 
 Enforcement becomes detect-and-stop: every 30-second reconciliation measures `/workspace`, warns at 90 % and stops the machine at 100 % (the volume is kept). A host free-space floor protects co-located workloads: when the Docker data-root filesystem (measured with `statfs` on a read-only mount of it in the manager, or through a running collector when no mount is configured) has less free space than `DEV_MACHINE_HOST_DISK_MIN_FREE_GB` or `DEV_MACHINE_HOST_DISK_MIN_FREE_PERCENT`, every running machine is stopped with `resource.host_disk_floor` and new starts fail with `host_disk_low` until a fresh measurement shows space has been recovered. A fast writer can exceed its limit between two checks, so the floor must leave enough headroom for that overshoot. The workspace policy API reports `disk_quota_mode`, and the UI labels limits as monitored and warns administrators. Hard mode remains the default and recommended configuration.
 
@@ -1134,6 +1134,58 @@ Outbound calls dial through `validate.PublicAddressControl` with no redirects.
 plain http) for self-hosted forges on a LAN. Setup, events, token scopes and
 extension points are documented in
 [Forge integrations](BE/docs/forge-integrations.md).
+
+## Single Sign-On (OIDC)
+
+OIDC sign-in is per workspace and free. `workspace_sso_configs` holds the issuer,
+client ID, encrypted client secret, allowed domains, provider name, default role
+(`member` or `guest`) and the `enabled`/`require_sso` flags. The client secret is
+encrypted with `crypto.DeriveKey(JWT_SECRET + ":sso")` and is write-only: API
+responses expose only `has_client_secret`, and no log line includes it.
+
+`SSOService` runs the authorization-code flow with PKCE `S256`, a random state,
+a random nonce and a browser-binding cookie. The server keeps the flow in
+`sso_login_states` keyed by the SHA-256 of the state for ten minutes and consumes
+it once with `DELETE … RETURNING`. Discovery, JWKS and token calls use
+`pkg/forge.NewHTTPClient`; `OIDC_ALLOW_PRIVATE_NETWORK=true` permits a private or
+plain-http issuer. `github.com/coreos/go-oidc/v3` verifies the ID token signature,
+issuer, audience, expiry and nonce; a missing `email_verified` is unverified.
+
+The callback is per workspace (`/api/auth/sso/:slug/callback`) and refuses a state
+minted for another workspace. Identities are unique on
+`(workspace_id, issuer, subject)`, so a configuration in one workspace cannot
+authenticate into another. First sign-in creates the account with a random
+unusable password and adds the workspace membership in one transaction; an
+existing account is linked only by a verified email.
+
+SSO sessions carry the `sso_ws` JWT claim and `refresh_tokens.sso_workspace_id`,
+so refresh rotation keeps the minting workspace. `WorkspaceMembership` answers
+`403 SSO_REQUIRED` when the workspace requires SSO, the session was minted
+elsewhere and the member is not an owner; owners keep the break-glass password
+path. Password and passkey sign-in are refused with `SSO_REQUIRED` only when every
+workspace of the account requires SSO and the account owns none.
+
+PATs and CLI connection links record the minting session's SSO workspace in
+`personal_access_tokens.sso_workspace_id` / `cli_connection_links.sso_workspace_id`
+(migration 000159; a redeemed link copies it to its token).
+`TokenService.ValidateScopesAndWorkspaces` is the one rule for token create and
+CLI link create/redeem: an SSO-scoped session may mint only for exactly its own
+workspace (`SSO_SESSION_SCOPED`), and a workspace that requires SSO is refused
+(`SSO_REQUIRED`) unless the session is SSO-scoped to it; an all-workspaces list
+is refused when any of the user's workspaces requires SSO. `WorkspaceMembership`
+repeats the check per request for PAT callers (`TokenSSOWorkspaceKey`), with no
+owner exemption, so turning require-SSO on stops older tokens.
+
+Instance-level variables: `SSO_OIDC_WORKSPACE_SLUG`, `SSO_OIDC_ISSUER`,
+`SSO_OIDC_CLIENT_ID`, `SSO_OIDC_CLIENT_SECRET`, `SSO_OIDC_ALLOWED_DOMAINS`,
+`SSO_OIDC_DEFAULT_ROLE`, `SSO_OIDC_REQUIRE_SSO` and `OIDC_ALLOW_PRIVATE_NETWORK`.
+They win over the database configuration for that workspace and make the settings
+page read-only. `SSOService` caches the instance workspace ID; a slug with no
+workspace means the instance config does not apply (a warning is logged, and
+the miss is retried after 30 s). Shared issuers (Google, Microsoft
+`/common|organizations|consumers`) need allowed domains
+(`validate.SharedOIDCIssuer`), both in `SaveConfig` and at startup. The Keycloak development profile and provider notes are in
+[docs/sso.md](docs/sso.md). SAML 2.0 and SCIM 2.0 are follow-ups.
 
 ## Activity and Logs
 
@@ -1629,6 +1681,26 @@ reviews, activates, restores, deletes and test-runs them with their run
 history; chat shows `propose_tool` drafts and run approvals and results as
 escaped text. See [custom tools](BE/docs/conversations.md#custom-tools) and
 [custom tool runs](BE/docs/agent-tasks.md#custom-tool-runs).
+Command tools (KUA-153, migration 159) run one short shell command after
+approval: `run_command` read-only, `run_command_write` in the conversation's
+folder `/workspace/kuayle-assistant/<conversation>`, read with
+`get_command_run`. A command runs as a `run_command` machine operation (attempted
+once) in a fresh credential-free check container under the manual check's
+machine lock. The command is only in the environment and `/workspace` is
+always read-only: a write run gets only its conversation folder read-write (a
+volume subpath, created by a fixed-argv prep container; Docker API 1.45+, and
+write runs fail on older daemons), so packages go there too (`pip install
+--target ./pkgs`, a venv or `npm install`). It is killed after 60 s, and 64 KiB
+of output is kept. It runs on a running machine the user owns: the given
+`machine_id`, the conversation's temporary machine, or the user's own machine
+(reused). `start_temporary_machine` asks for approval only when there is
+none, then starts a temporary machine (1 vCPU, 2 GB, 20 GB — the global
+`DevMachineMinDiskGB` floor — headless, no repository, agents, Docker or
+sudo), re-checking the approver's role under the workspace machine lock. The manager permanently deletes it 30
+minutes after creation. The workspace allows `max_temporary_machines` of them
+(default 2, 0 turns them off) and one per user. The terminal capability matrix
+and the details are in
+[commands and temporary machines](BE/docs/conversations.md#commands-and-temporary-machines).
 Release tools read a linked repository's releases (`list_releases`,
 `get_release`), draft the next notes from the pull requests merged since the
 latest release in the workspace's editable "Release notes style" skill
@@ -1677,6 +1749,45 @@ needs read access to upload storage: the Compose files mount the `uploads`
 volume read-only and pass the storage settings. See
 [conversation images](BE/docs/conversations.md#images) and
 [task images](BE/docs/agent-tasks.md#issue-images).
+
+### Rich chat blocks
+
+Completed assistant replies in the web chat may contain two extra fences. A
+`chart` fence holds only a JSON series spec (bar, line, area or pie; one to five
+series, at most 100 categories), which `ChatChart` draws on an echarts canvas
+with theme colours from `--chart-1..5` and a rich-text tooltip, so no model
+string becomes HTML. An `html` fence renders as `ChatHtmlWidget`: an iframe with
+`sandbox="allow-scripts"` only (never `allow-same-origin`) and a fixed 360px
+height. Its `srcdoc` document starts with a CSP of `default-src 'none'` that
+allows only inline scripts and styles and data images and fonts, and adds
+`connect-src`, `frame-src`, `child-src`, `worker-src`, `form-action` and
+`base-uri` of `'none'`, `webrtc 'block'` and DNS prefetch off. A prelude script
+before model markup overrides `RTCPeerConnection`, `webkitRTCPeerConnection` and
+`RTCDataChannel`. That only raises the bar: in browsers without the `webrtc` CSP
+directive, WebRTC is reduced rather than proven blocked, a residual risk.
+
+The page itself carries `frame-src 'none'` in `UI/src/app.html`, so a widget
+that tries `location=`, a meta refresh or a link cannot navigate its frame and
+no request leaves. `srcdoc` is never fetched and still loads under `'none'`. A
+second frame load (the widget navigating itself) still tears the frame down as a
+backstop. A future parent CSP must keep allowing inline scripts in `srcdoc`
+frames, because they inherit the parent policy. Verified on Chromium, WebKit and
+Firefox: no request leaves in any of them, but Firefox fires no load event for a
+CSP-blocked navigation, so there the blocked frame simply stays instead of being
+replaced by the code fallback (the front-end skill documents the page-wide
+`frame-src 'none'` constraint for embed authors).
+
+Caps apply per fence (16 KB chart, 64 KB html) and per message (four rich blocks
+and 128 KB total); a malformed, oversized or otherwise refused block stays an
+ordinary escaped code fence, and a rendering failure shows the original fence
+with a short note, never a blank bubble. Rich blocks render only outside
+streaming. The per-message copy path and `stripRichBlocks` use the same
+parse-and-cap decision, so a fence refused by parsing or caps is copied as code;
+a fence that already rendered and then failed at runtime is still left out
+(known). Each Markdown segment renders on its own, so reference-style links and
+footnote definitions across a rich fence do not resolve (known).
+`BE/internal/service/conversation.go` adds the capability to the shared system
+prompt, so the model knows both fences (Telegram shows them as code).
 
 ### Telegram assistant channel
 

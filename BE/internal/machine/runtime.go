@@ -103,6 +103,10 @@ type Runtime interface {
 	// deletes the finished run's container.
 	RunTool(context.Context, *domain.DevMachine, *domain.AssistantToolRunExecution, string, *AgentObserver) (*AgentExecution, error)
 	RemoveTool(context.Context, *domain.DevMachine, uuid.UUID) error
+	// RunCommand runs an approved assistant command in its own check
+	// container; RemoveCommand deletes the run's container.
+	RunCommand(context.Context, *domain.DevMachine, *domain.CommandRun, string, *AgentObserver) (*AgentExecution, error)
+	RemoveCommand(context.Context, *domain.DevMachine, uuid.UUID) error
 	// ScanWorktree reads one task worktree with rg and git in the developer
 	// container. It changes nothing and needs no credentials.
 	ScanWorktree(context.Context, *domain.DevMachine, []domain.DevMachineService, WorktreeScanJob) (*domain.WorktreeScanResult, error)

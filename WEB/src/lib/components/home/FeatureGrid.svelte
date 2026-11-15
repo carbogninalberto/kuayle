@@ -35,7 +35,7 @@
 			{/each}
 		</div>
 		<p class="mt-5 text-sm text-muted-foreground">
-			Not yet: SSO, importers from other trackers, custom fields. See the
+			Not yet: SAML SSO and SCIM, importers from other trackers, custom fields. See the
 			<a href="/roadmap" class="text-brand-300 underline-offset-4 hover:underline">roadmap</a>.
 		</p>
 	</div>

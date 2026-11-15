@@ -58,7 +58,7 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	tokens := repository.NewPersonalAccessTokenRepository(db)
 	secret := "task-http-jwt-secret-with-at-least-32-characters"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
-	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db))
+	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db), mw.SSONotEnforced)
 	var demoDenied atomic.Bool
 	middleware.devMachineDemoGuard = mw.DevMachineDemoGuard(func(uuid.UUID) bool { return !demoDenied.Load() })
 	machines := repository.NewDevMachineRepository(db)

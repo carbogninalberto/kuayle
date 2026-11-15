@@ -64,6 +64,9 @@ type AssistantApprovals struct {
 	wikiWorkspaces assistantWorkspaces
 	// Task messages are unavailable until SetLiveChannel wires them.
 	live approvalLiveTasks
+	// Commands and temporary machines are unavailable until SetCommands wires them.
+	commands          assistantCommandStore
+	temporaryMachines assistantTemporaryMachines
 	// machineAccess is the public demo rule; nil restricts nothing.
 	machineAccess *MachineAccess
 	// Approval requests notify nobody until SetNotifications wires these.
@@ -307,6 +310,10 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 		return s.release(ctx, ws, conversation, approval)
 	case shipAction:
 		return s.ship(ctx, ws, conversation, approval)
+	case "start_temporary_machine":
+		return s.startTemporaryMachine(ctx, ws, conversation, approval)
+	case "run_command", "run_command_write":
+		return s.runCommand(ctx, ws, conversation, approval)
 	case "run_custom_tool":
 		return s.runCustomTool(ctx, ws, conversation, approval)
 	case "reply_to_review_comment", "resolve_review_thread", "update_pull_request_branch", "mark_pull_request_ready":

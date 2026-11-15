@@ -199,7 +199,7 @@ func TestPasskeyHTTP(t *testing.T) {
 	t.Run("the instance announces passkeys", func(t *testing.T) {
 		reply := s.browser(t).do(http.MethodGet, "/api/config", nil)
 		require.Equal(t, http.StatusOK, reply.Status)
-		require.JSONEq(t, `{"registration_enabled":true,"passkeys_enabled":true}`, string(reply.Data))
+		require.JSONEq(t, `{"registration_enabled":true,"passkeys_enabled":true,"sso_enabled_instance":false}`, string(reply.Data))
 	})
 
 	t.Run("register a passkey, sign out, sign in with it alone", func(t *testing.T) {
