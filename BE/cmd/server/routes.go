@@ -93,6 +93,7 @@ type appHandlers struct {
 	mergeMethods      *handler.MergeMethodHandler
 	analytics         *handler.AnalyticsHandler
 	system            *handler.SystemHandler
+	backup            *handler.BackupHandler
 	webhook           *handler.WebhookHandler
 	sharedLink        *handler.SharedLinkHandler
 	upload            *handler.UploadHandler
@@ -200,6 +201,14 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(api, http.MethodDelete, "/cli-links/:id", h.cliLink.Revoke)
 	sessionOnly(api, http.MethodGet, "/system/update-status", h.system.UpdateStatus)
 	sessionOnly(api, http.MethodPost, "/system/update", h.system.StartUpdate, mw.RejectSSOScopedSession())
+	// Backups hold every workspace's data: a session minted by one
+	// workspace's SSO must not read, configure or export them.
+	sessionOnly(api, http.MethodGet, "/system/backups/settings", h.backup.GetSettings, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPut, "/system/backups/settings", h.backup.UpdateSettings, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/system/backups/test-connection", h.backup.TestConnection, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/system/backups/run", h.backup.RunNow, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodGet, "/system/backups/runs", h.backup.ListRuns, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/system/backups/runs/:id/verify", h.backup.Verify, mw.RejectSSOScopedSession())
 
 	// Workspaces (no workspace context needed for list/create)
 	scoped(api, http.MethodGet, "/workspaces", h.workspace.List, "workspaces:read")

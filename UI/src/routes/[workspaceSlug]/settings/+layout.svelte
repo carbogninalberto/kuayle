@@ -28,6 +28,7 @@
 		BotMessageSquare,
 		Workflow,
 		GitBranch,
+		DatabaseBackup,
 		ShieldCheck
 	} from '@lucide/svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
@@ -145,6 +146,9 @@
 			label: m['settings.nav.system'](),
 			items: [
 				{ label: m['settings.nav.version'](), href: `/${slug}/settings/version`, icon: RefreshCw },
+				...(authState.user?.is_sysadmin === true
+					? [{ label: m['settings.nav.backups'](), href: `/${slug}/settings/backups`, icon: DatabaseBackup }]
+					: []),
 				{ label: m['settings.nav.licenses'](), href: `/${slug}/settings/licenses`, icon: ScrollText }
 			]
 		}

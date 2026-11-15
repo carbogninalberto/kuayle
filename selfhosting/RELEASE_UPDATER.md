@@ -109,6 +109,9 @@ cause and retry the update to run idempotent migrations and health checks again.
 Do not delete the upgrade marker to bypass a failed migration. A database restore
 is an operator action requiring matching pre-update configuration and images.
 Keep private backups off-host according to the deployment's backup policy.
+After migrations succeed the updater records its dump in the backup history
+(**Settings → Backups**, kind *pre_upgrade*, with its SHA-256 and size); failing
+to record it is only logged. Restore it with the [backup restore procedure](../docs/backups.md#restore).
 
 ## Published images
 

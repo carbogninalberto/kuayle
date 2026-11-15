@@ -147,6 +147,12 @@ authentication.
 | GET | `/api/public/share/:token/issues` | public |  |
 | GET | `/api/public/system/update-activity` | public |  |
 | GET | `/api/public/wiki/:token` | public |  |
+| POST | `/api/system/backups/run` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
+| GET | `/api/system/backups/runs` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
+| POST | `/api/system/backups/runs/:id/verify` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
+| GET | `/api/system/backups/settings` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
+| PUT | `/api/system/backups/settings` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
+| POST | `/api/system/backups/test-connection` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
 | POST | `/api/system/update` | session only | Updating the instance runs privileged host operations and stays an operator action. |
 | GET | `/api/system/update-status` | session only | Updating the instance runs privileged host operations and stays an operator action. |
 | POST | `/api/telegram/webhook/:workspaceId` | public |  |

@@ -63,6 +63,7 @@ services:
         condition: service_healthy
     volumes:
       - uploads:/app/uploads
+      - backups:/app/backups
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-kuayle}:${POSTGRES_PASSWORD:-kuayle}@postgres:5432/${POSTGRES_DB:-kuayle}?sslmode=disable
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
@@ -89,6 +90,9 @@ services:
       SSO_OIDC_DEFAULT_ROLE: ${SSO_OIDC_DEFAULT_ROLE:-member}
       SSO_OIDC_REQUIRE_SSO: ${SSO_OIDC_REQUIRE_SSO:-false}
       FORGE_WEBHOOK_BASE_URL: ${FORGE_WEBHOOK_BASE_URL:-}
+      BACKUP_DIR: /app/backups
+      BACKUP_TIMEOUT: ${BACKUP_TIMEOUT:-2h}
+      BACKUP_S3_ALLOW_PRIVATE_NETWORK: ${BACKUP_S3_ALLOW_PRIVATE_NETWORK:-false}
       FRONTEND_URL: ${FRONTEND_URL:-https://localhost}
       SYSADMINS: ${SYSADMINS:-}
       PUBLIC_DEMO_MODE: ${PUBLIC_DEMO_MODE:-false}
@@ -503,6 +507,7 @@ services:
 volumes:
   pgdata:
   uploads:
+  backups:
   caddy_data:
   caddy_config:
   voice_models:

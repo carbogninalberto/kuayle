@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -66,6 +68,14 @@ type Config struct {
 	// URL is workspace-admin supplied, so enabling it trusts every workspace
 	// admin with internal access.
 	ForgeAllowPrivateNetwork bool `envconfig:"FORGE_ALLOW_PRIVATE_NETWORK" default:"false"`
+
+	// Instance backups (Settings -> Backups, sysadmins only). BACKUP_DIR is
+	// where archives are written; BACKUP_TIMEOUT bounds one run.
+	// BACKUP_S3_ALLOW_PRIVATE_NETWORK lets the sysadmin-configured S3 endpoint
+	// target private or loopback addresses, such as a MinIO on the same host.
+	BackupDir                   string        `envconfig:"BACKUP_DIR" default:"./backups"`
+	BackupTimeout               time.Duration `envconfig:"BACKUP_TIMEOUT" default:"2h"`
+	BackupS3AllowPrivateNetwork bool          `envconfig:"BACKUP_S3_ALLOW_PRIVATE_NETWORK" default:"false"`
 
 	// OIDCAllowPrivateNetwork lets a workspace's OIDC issuer target a private
 	// or loopback address (for example the Keycloak development container).
@@ -648,6 +658,19 @@ func (c *Config) IsSysAdmin(userID uuid.UUID) bool {
 	}
 	_, ok := c.sysadminIDs[userID]
 	return ok
+}
+
+// SysadminIDs returns the configured sysadmins in a stable order.
+func (c *Config) SysadminIDs() []uuid.UUID {
+	if c == nil {
+		return nil
+	}
+	ids := make([]uuid.UUID, 0, len(c.sysadminIDs))
+	for id := range c.sysadminIDs {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i].String() < ids[j].String() })
+	return ids
 }
 
 // DemoDevMachineAllowed returns true when the demo-mode restriction is

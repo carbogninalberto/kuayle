@@ -97,6 +97,10 @@ The updater sidecar is internal-only and runs the same `selfhosting/update.sh` f
 
 For a deployment pinned to published release images or a detached Git checkout, use the opt-in [release updater](../selfhosting/RELEASE_UPDATER.md) instead. It targets an explicit production Compose project, backs up PostgreSQL and updates application and active Dev Machines components together.
 
+## Backups
+
+Sysadmins schedule database and upload backups from **Settings → Backups**, with optional copies to an S3-compatible bucket and client-side encryption. Archives go to the `backups` volume (`/app/backups`). See [Backups](backups.md) for configuration, the archive format, verification and the restore procedure.
+
 ## Storage options
 
 By default, uploads use a local Docker volume (`STORAGE_TYPE=local`). The alternative S3 backend accepts a configurable endpoint and path-style requests:
