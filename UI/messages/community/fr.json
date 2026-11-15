@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "machine temporaire, supprimée à son expiration",
 	"assistant.command_own_machine": "votre propre machine",
 	"assistant.command_read_only_note": "S'exécute dans {directory} avec /workspace en lecture seule et sans identifiants ; arrêtée après {seconds} secondes.",
-	"assistant.command_write_note": "S'exécute dans {directory} et peut écrire dans /workspace, sans identifiants ; arrêtée après {seconds} secondes.",
+	"assistant.command_write_folder_note": "S'exécute dans {directory} ; seul le dossier de cette conversation est accessible en écriture, le reste de /workspace reste en lecture seule. Sans identifiants ; arrêtée après {seconds} secondes.",
 	"assistant_custom_tools.heading": "Outils personnalisés",
 	"assistant_custom_tools.new": "Nouvel outil",
 	"assistant_custom_tools.hint": "Scripts que l'assistant peut exécuter sur les machines de dev, dans un conteneur sans identifiants. Les arguments arrivent sous forme de variables d'environnement ou de fichier JSON, jamais dans le script.",

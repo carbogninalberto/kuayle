@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "màquina temporal, s'elimina quan caduca",
 	"assistant.command_own_machine": "la vostra màquina",
 	"assistant.command_read_only_note": "S'executa a {directory} amb /workspace de només lectura i sense credencials; s'atura després de {seconds} segons.",
-	"assistant.command_write_note": "S'executa a {directory} i pot escriure a /workspace, sense credencials; s'atura després de {seconds} segons.",
+	"assistant.command_write_folder_note": "S'executa a {directory}; només la carpeta d'aquesta conversa és editable, la resta de /workspace és només de lectura. Sense credencials; s'atura després de {seconds} segons.",
 	"assistant_custom_tools.heading": "Eines personalitzades",
 	"assistant_custom_tools.new": "Eina nova",
 	"assistant_custom_tools.hint": "Scripts que l'assistent pot executar a les màquines de desenvolupament, en un contenidor sense credencials. Els arguments arriben com a variables d'entorn o com a fitxer JSON, mai dins de l'script.",

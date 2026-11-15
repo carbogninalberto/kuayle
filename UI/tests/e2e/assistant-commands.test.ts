@@ -164,6 +164,6 @@ test('a write command on the user own machine says it is reused and writable', a
 	await expect(page.getByText('Run a command that can write files on laptop-box?', { exact: true })).toBeVisible();
 	await expect(page.getByText('laptop-box: 4 vCPU, 8 GB memory, 40 GB disk · your own machine, reused')).toBeVisible();
 	await expect(
-		page.getByText('Runs in /workspace/kuayle-assistant/chat-1 and can write to /workspace, with no credentials; stopped after 60 seconds.')
+		page.getByText('Runs in /workspace/kuayle-assistant/chat-1; only this conversation folder is writable, the rest of /workspace stays read-only. No credentials; stopped after 60 seconds.')
 	).toBeVisible();
 });

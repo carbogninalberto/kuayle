@@ -275,6 +275,39 @@ func TestAssistantCommandApprovalRechecksTheMachine(t *testing.T) {
 	require.Zero(t, runs)
 }
 
+// Approving a temporary machine re-checks the approver's role: one demoted to
+// guest, or removed from the workspace, between the claim and the start gets
+// no machine. (Such a user can no longer read the conversation, so the claim
+// cannot be finished as them; a guest who approves later is refused when the
+// approval is claimed.)
+func TestTemporaryMachineApprovalRechecksTheRole(t *testing.T) {
+	for name, demote := range map[string]string{
+		"guest":   `UPDATE workspace_members SET role='guest' WHERE workspace_id=$1 AND user_id=$2`,
+		"removed": `DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newCommandToolsFixture(t)
+			a := f.attempt(t, "compute 2**100 in python")
+			require.Contains(t, f.call(t, &a, "start_temporary_machine", `{}`), "pending_user_approval")
+			card := f.approvals(t, a)[0]
+			require.Equal(t, "start_temporary_machine", card.Action)
+			claimed, changed, err := f.repo.ClaimApproval(f.ctx, f.ws, a.Conversation.ID, card.ID, true)
+			require.NoError(t, err)
+			require.True(t, changed)
+			require.Equal(t, "approving", claimed.Status)
+
+			_, err = f.db.Exec(demote, f.ws, f.user)
+			require.NoError(t, err)
+			_, err = f.service.approvals.execute(f.ctx, f.ws, a.Conversation.ID, card.ID, claimed, ModelChoice{})
+			require.ErrorIs(t, err, repository.ErrConversationNotFound, "the refusal cannot be recorded for a user without access")
+			require.Zero(t, f.temporary.started, "no machine is started")
+			var machines int
+			require.NoError(t, f.db.Get(&machines, `SELECT count(*) FROM dev_machines WHERE workspace_id=$1 AND temporary_expires_at IS NOT NULL`, f.ws))
+			require.Zero(t, machines)
+		})
+	}
+}
+
 func TestAssistantTemporaryMachineQuotaIsExplained(t *testing.T) {
 	f := newCommandToolsFixture(t)
 	a := f.attempt(t, "start a machine")

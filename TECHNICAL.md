@@ -1612,13 +1612,17 @@ approval: `run_command` read-only, `run_command_write` in the conversation's
 folder `/workspace/kuayle-assistant/<conversation>`, read with
 `get_command_run`. A command runs as a `run_command` machine operation (attempted
 once) in a fresh credential-free check container under the manual check's
-machine lock. The command is only in the environment, `/workspace` is
-read-only unless the run may write, it is killed after 60 s, and 64 KiB of
-output is kept. It runs on a running machine the user owns: the given
+machine lock. The command is only in the environment and `/workspace` is
+always read-only: a write run gets only its conversation folder read-write (a
+volume subpath, created by a fixed-argv prep container; Docker API 1.45+, and
+write runs fail on older daemons), so packages go there too (`pip install
+--target ./pkgs`, a venv or `npm install`). It is killed after 60 s, and 64 KiB
+of output is kept. It runs on a running machine the user owns: the given
 `machine_id`, the conversation's temporary machine, or the user's own machine
 (reused). `start_temporary_machine` asks for approval only when there is
-none, then starts a temporary machine (1 vCPU, 2 GB, 20 GB, headless, no
-repository, agents, Docker or sudo). The manager permanently deletes it 30
+none, then starts a temporary machine (1 vCPU, 2 GB, 20 GB — the global
+`DevMachineMinDiskGB` floor — headless, no repository, agents, Docker or
+sudo), re-checking the approver's role under the workspace machine lock. The manager permanently deletes it 30
 minutes after creation. The workspace allows `max_temporary_machines` of them
 (default 2, 0 turns them off) and one per user. The terminal capability matrix
 and the details are in

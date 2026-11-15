@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "臨時機器，到期後刪除",
 	"assistant.command_own_machine": "你自己的機器",
 	"assistant.command_read_only_note": "在 {directory} 中執行，/workspace 為唯讀且沒有憑證；{seconds} 秒後停止。",
-	"assistant.command_write_note": "在 {directory} 中執行，可寫入 /workspace，沒有憑證；{seconds} 秒後停止。",
+	"assistant.command_write_folder_note": "在 {directory} 中執行；只有此對話的資料夾可寫入，/workspace 的其餘部分維持唯讀。沒有憑證；{seconds} 秒後停止。",
 	"assistant_custom_tools.heading": "自訂工具",
 	"assistant_custom_tools.new": "新增工具",
 	"assistant_custom_tools.hint": "助理可以在開發機器上、無憑證的容器中執行的腳本。參數透過環境變數或 JSON 檔案傳入，絕不會嵌入腳本。",

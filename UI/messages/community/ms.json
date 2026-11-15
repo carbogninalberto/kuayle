@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "mesin sementara, dipadam apabila tamat tempoh",
 	"assistant.command_own_machine": "mesin anda sendiri",
 	"assistant.command_read_only_note": "Berjalan dalam {directory} dengan /workspace baca sahaja dan tanpa bukti kelayakan; dihentikan selepas {seconds} saat.",
-	"assistant.command_write_note": "Berjalan dalam {directory} dan boleh menulis ke /workspace, tanpa bukti kelayakan; dihentikan selepas {seconds} saat.",
+	"assistant.command_write_folder_note": "Berjalan dalam {directory}; hanya folder perbualan ini boleh ditulis, selebihnya /workspace kekal baca sahaja. Tanpa bukti kelayakan; dihentikan selepas {seconds} saat.",
 	"assistant_custom_tools.heading": "Alat tersuai",
 	"assistant_custom_tools.new": "Alat baharu",
 	"assistant_custom_tools.hint": "Skrip yang boleh dijalankan pembantu pada mesin dev, dalam kontena tanpa bukti kelayakan. Argumen diterima sebagai pemboleh ubah persekitaran atau fail JSON, tidak pernah di dalam skrip.",

@@ -30,6 +30,13 @@ const (
 // noCommandMachine is what the assistant can do when no machine is available.
 const noCommandMachine = "No machine is available to run commands. Call start_temporary_machine to propose a small temporary machine (1 vCPU, 2 GB, 30 min, no credentials), or give machine_id of one of your running machines."
 
+// guestCommandRefusal and roleCommandRefusal refuse a guest, and a role
+// without Dev Machine access, with the next step.
+const (
+	guestCommandRefusal = "Guests cannot run commands; ask a workspace member to run it, or ask an admin to change your role"
+	roleCommandRefusal  = "Your role cannot use Dev Machines; ask a workspace member to run it, or ask an admin to change your role"
+)
+
 // notMachineOwner refuses a machine the user does not own or that is not
 // running, with the next step.
 const notMachineOwner = "only the machine's owner can run commands on it, and it must be running; give machine_id of one of your running machines or call start_temporary_machine"
@@ -42,6 +49,7 @@ type assistantCommandStore interface {
 	ConversationMachine(ctx context.Context, ws, user, conversation uuid.UUID) (*domain.DevMachine, error)
 	ReusableMachine(ctx context.Context, ws, user uuid.UUID) (*domain.DevMachine, error)
 	TemporaryMachineQuota(ctx context.Context, ws uuid.UUID) (int, int, error)
+	CheckRunner(ctx context.Context, ws, user uuid.UUID) error
 }
 
 // assistantTemporaryMachines starts temporary machines with the Dev Machine
@@ -70,7 +78,7 @@ func (s *AssistantApprovals) SetCommands(commands assistantCommandStore, machine
 var assistantCommandToolCatalog = []assistantTool{
 	{name: "start_temporary_machine", commands: true, approval: true, description: "Get a machine to run commands on, only when no other tool can answer. If the user has a running machine of their own it is reused at once, in a folder of this conversation, without approval. Otherwise ask the user to approve starting a small temporary machine for this conversation (1 vCPU, 2 GB memory, 20 GB disk, no repository and no credentials, internet only through the workspace's proxy), which is permanently deleted 30 minutes after it starts. Say which machine is used, its size and whether it was reused.", parameters: `{"type":"object","properties":{},"additionalProperties":false}`},
 	{name: "run_command", commands: true, approval: true, description: "Ask the user to approve running one short shell command (sh -c, at most 60 seconds, output capped) read-only on a machine: /workspace is mounted read-only and only /tmp and $HOME are writable, so it can compute, check a snippet (python3 -c, node -e), inspect files or call a public URL, but changes nothing. Without machine_id it uses this conversation's temporary machine or the user's own running machine. working_directory is relative to /workspace (default /workspace). It runs in a container without credentials. Use it only when no other tool can answer; the command runs only after approval, so never claim a result before get_command_run returns it.", parameters: `{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":4000},"machine_id":{"type":"string","maxLength":36},"working_directory":{"type":"string","maxLength":500}},"required":["command"],"additionalProperties":false}`},
-	{name: "run_command_write", commands: true, approval: true, description: "Ask the user to approve running one short shell command (sh -c, at most 60 seconds, output capped) that may write files: it starts in this conversation's folder /workspace/kuayle-assistant/<conversation> and /workspace is writable. Use run_command instead unless the command must create or change files, and only when the user asked for it. It runs in a container without credentials, only after approval.", parameters: `{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":4000},"machine_id":{"type":"string","maxLength":36}},"required":["command"],"additionalProperties":false}`},
+	{name: "run_command_write", commands: true, approval: true, description: "Ask the user to approve running one short shell command (sh -c, at most 60 seconds, output capped) that may write files: it starts in this conversation's folder /workspace/kuayle-assistant/<conversation>, and only that folder is writable (the rest of /workspace stays read-only; for packages use pip install --target ./pkgs with PYTHONPATH=./pkgs, a venv, or npm install there). Use run_command instead unless the command must create or change files, and only when the user asked for it. It runs in a container without credentials, only after approval.", parameters: `{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":4000},"machine_id":{"type":"string","maxLength":36}},"required":["command"],"additionalProperties":false}`},
 	{name: "get_command_run", commands: true, description: "Read a command run by run_id, or the run an approval started by approval_id: status, exit code, the end of its output, and the machine it ran on with its size, whether it was reused and when a temporary machine is deleted. It waits up to about a minute for a running command. Use it after the user approved run_command or run_command_write.", parameters: `{"type":"object","properties":{"run_id":{"type":"string","maxLength":36},"approval_id":{"type":"string","maxLength":36}},"additionalProperties":false}`},
 }
 
@@ -102,10 +110,10 @@ func (t *AssistantTools) commandUser(ctx context.Context, ws, user uuid.UUID) er
 		return toolFailure("%s", noWorkspaceAccess)
 	}
 	if member.Role == domain.RoleGuest {
-		return toolFailure("Guests cannot run commands; ask a workspace member to run it, or ask an admin to change your role.")
+		return toolFailure("%s.", guestCommandRefusal)
 	}
 	if !domain.HasPermission(member.Role, domain.PermDevMachineManage) {
-		return toolFailure("Your role cannot use Dev Machines; ask a workspace member to run it, or ask an admin to change your role.")
+		return toolFailure("%s.", roleCommandRefusal)
 	}
 	return nil
 }
@@ -331,8 +339,12 @@ func commandApprovalFailure(err error) string {
 		return upperFirst(notMachineOwner)
 	case errors.Is(err, repository.ErrMachineBusy):
 		return "The machine is busy with an agent, a check or another command; try again when it is free"
-	case errors.Is(err, repository.ErrConversationNotFound), errors.Is(err, repository.ErrCommandRunForbidden):
-		return "Guests cannot run commands; ask a workspace member to run it, or ask an admin to change your role"
+	case errors.Is(err, repository.ErrConversationNotFound):
+		return upperFirst(noWorkspaceAccess)
+	case errors.Is(err, repository.ErrCommandRunGuest):
+		return guestCommandRefusal
+	case errors.Is(err, repository.ErrCommandRunForbidden):
+		return roleCommandRefusal
 	case errors.Is(err, repository.ErrConversationInvalid):
 		return "This approval cannot be executed"
 	case errors.Is(err, ErrTemporaryMachinesOff):
@@ -373,6 +385,14 @@ func (s *AssistantApprovals) runCommand(ctx context.Context, ws, conversation uu
 func (s *AssistantApprovals) startTemporaryMachine(ctx context.Context, ws, conversation uuid.UUID, approval *domain.ConversationApproval) (*domain.ConversationApproval, error) {
 	if s.commands == nil || s.temporaryMachines == nil {
 		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "This approval cannot be executed")
+	}
+	// The approver may have lost their role since the card was shown; the
+	// repository checks it again under the workspace lock that creates it.
+	if err := s.commands.CheckRunner(ctx, ws, approval.ActorID); err != nil {
+		if message := commandApprovalFailure(err); message != "" {
+			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, message)
+		}
+		return nil, err
 	}
 	if _, err := s.commands.ConversationMachine(ctx, ws, approval.ActorID, conversation); err == nil {
 		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "")

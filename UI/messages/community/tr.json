@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "geçici makine, süresi dolunca silinir",
 	"assistant.command_own_machine": "kendi makineniz",
 	"assistant.command_read_only_note": "{directory} içinde /workspace salt okunur ve kimlik bilgisi olmadan çalışır; {seconds} saniye sonra durdurulur.",
-	"assistant.command_write_note": "{directory} içinde çalışır ve /workspace dizinine yazabilir, kimlik bilgisi olmadan; {seconds} saniye sonra durdurulur.",
+	"assistant.command_write_folder_note": "{directory} içinde çalışır; yalnızca bu konuşmanın klasörüne yazılabilir, /workspace dizininin geri kalanı salt okunur kalır. Kimlik bilgisi olmadan; {seconds} saniye sonra durdurulur.",
 	"assistant_custom_tools.heading": "Özel araçlar",
 	"assistant_custom_tools.new": "Yeni araç",
 	"assistant_custom_tools.hint": "Asistanın geliştirme makinelerinde, kimlik bilgisi olmayan bir kapsayıcıda çalıştırabileceği betikler. Argümanlar ortam değişkenleri veya bir JSON dosyası olarak gelir, asla betiğin içinde olmaz.",

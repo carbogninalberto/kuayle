@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "máquina temporal, se elimina al caducar",
 	"assistant.command_own_machine": "tu propia máquina",
 	"assistant.command_read_only_note": "Se ejecuta en {directory} con /workspace de solo lectura y sin credenciales; se detiene tras {seconds} segundos.",
-	"assistant.command_write_note": "Se ejecuta en {directory} y puede escribir en /workspace, sin credenciales; se detiene tras {seconds} segundos.",
+	"assistant.command_write_folder_note": "Se ejecuta en {directory}; solo la carpeta de esta conversación admite escritura, el resto de /workspace es de solo lectura. Sin credenciales; se detiene tras {seconds} segundos.",
 	"assistant_custom_tools.heading": "Herramientas personalizadas",
 	"assistant_custom_tools.new": "Nueva herramienta",
 	"assistant_custom_tools.hint": "Scripts que el asistente puede ejecutar en máquinas de desarrollo, en un contenedor sin credenciales. Los argumentos llegan como variables de entorno o como un archivo JSON, nunca dentro del script.",

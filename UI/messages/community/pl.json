@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "tymczasowa maszyna, usuwana po wygaśnięciu",
 	"assistant.command_own_machine": "twoja własna maszyna",
 	"assistant.command_read_only_note": "Działa w {directory} z /workspace tylko do odczytu i bez danych uwierzytelniających; zatrzymywane po {seconds} s.",
-	"assistant.command_write_note": "Działa w {directory} i może zapisywać w /workspace, bez danych uwierzytelniających; zatrzymywane po {seconds} s.",
+	"assistant.command_write_folder_note": "Działa w {directory}; zapisywać można tylko w folderze tej rozmowy, reszta /workspace jest tylko do odczytu. Bez danych uwierzytelniających; zatrzymywane po {seconds} s.",
 	"assistant_custom_tools.heading": "Własne narzędzia",
 	"assistant_custom_tools.new": "Nowe narzędzie",
 	"assistant_custom_tools.hint": "Skrypty, które asystent może uruchamiać na maszynach deweloperskich, w kontenerze bez danych uwierzytelniających. Argumenty trafiają jako zmienne środowiskowe lub plik JSON, nigdy do wnętrza skryptu.",

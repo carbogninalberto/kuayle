@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "מכונה זמנית, נמחקת כשתוקפה פג",
 	"assistant.command_own_machine": "המכונה שלך",
 	"assistant.command_read_only_note": "רץ ב-{directory} כאשר /workspace לקריאה בלבד וללא פרטי גישה; נעצר לאחר {seconds} שניות.",
-	"assistant.command_write_note": "רץ ב-{directory} ויכול לכתוב ל-/workspace, ללא פרטי גישה; נעצר לאחר {seconds} שניות.",
+	"assistant.command_write_folder_note": "רץ ב-{directory}; רק התיקייה של שיחה זו ניתנת לכתיבה, ושאר /workspace נשאר לקריאה בלבד. ללא פרטי גישה; נעצר לאחר {seconds} שניות.",
 	"assistant_custom_tools.heading": "כלים מותאמים",
 	"assistant_custom_tools.new": "כלי חדש",
 	"assistant_custom_tools.hint": "סקריפטים שהעוזר יכול להריץ במכונות פיתוח, בקונטיינר ללא פרטי גישה. הארגומנטים מגיעים כמשתני סביבה או כקובץ JSON, ואף פעם לא בתוך הסקריפט.",

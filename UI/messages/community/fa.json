@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "دستگاه موقت، پس از انقضا حذف می‌شود",
 	"assistant.command_own_machine": "دستگاه خودتان",
 	"assistant.command_read_only_note": "در {directory} با /workspace فقط‌خواندنی و بدون اعتبارنامه اجرا می‌شود؛ پس از {seconds} ثانیه متوقف می‌شود.",
-	"assistant.command_write_note": "در {directory} اجرا می‌شود و می‌تواند در /workspace بنویسد، بدون اعتبارنامه؛ پس از {seconds} ثانیه متوقف می‌شود.",
+	"assistant.command_write_folder_note": "در {directory} اجرا می‌شود؛ فقط پوشهٔ این گفتگو قابل نوشتن است و بقیهٔ /workspace فقط‌خواندنی می‌ماند. بدون اعتبارنامه؛ پس از {seconds} ثانیه متوقف می‌شود.",
 	"assistant_custom_tools.heading": "ابزارهای سفارشی",
 	"assistant_custom_tools.new": "ابزار جدید",
 	"assistant_custom_tools.hint": "اسکریپت‌هایی که دستیار می‌تواند روی دستگاه‌های توسعه در کانتینر بدون اعتبارنامه اجرا کند. آرگومان‌ها به‌صورت متغیر محیطی یا فایل JSON می‌رسند، هرگز درون اسکریپت نیستند.",

@@ -974,9 +974,9 @@ cannot file Kuayle issues).
 | Compute something, check a snippet (`python3 -c`, `node -e`, `jq`) | `run_command` | covered (KUA-153) |
 | Inspect files on one's own machine (`ls`, `cat`, `du`, `find`) | `run_command` with `machine_id` and `working_directory` | covered (KUA-153) |
 | Call a public endpoint (`curl`) | `run_command`, through the machine's egress proxy | covered (KUA-153) |
-| Write scratch files or generate an artifact | `run_command_write`, in the conversation's folder | covered (KUA-153) |
+| Write scratch files or generate an artifact | `run_command_write`: only the conversation's folder is writable, the rest of `/workspace` stays read-only | covered (KUA-153) |
 | Run tests ad hoc outside a task checkout | `run_command` on the user's machine (read-only workspace, 60 s) | partial: longer runs are a gap, issue to file |
-| Install a language package | `run_command_write` (`pip install --user`, `npm install` in the folder) | partial: system packages (no sudo, no apt on temporary machines) are a gap, issue to file |
+| Install a language package | `run_command_write` in the conversation folder: `pip install --target ./pkgs` then `PYTHONPATH=./pkgs`, a venv (`python3 -m venv .venv`), or `npm install`; not `pip install --user`, since `$HOME` is a tmpfs lost after each run | partial: system packages (no sudo, no apt on temporary machines) are a gap, issue to file |
 | Run a database migration against a real database | none: command containers never get credentials | gap, issue to file |
 | Read a machine's container or agent logs, `docker ps` | none | gap, issue to file |
 | Commit, branch or push on a checkout | read-only git through `get_task_worktree` and `run_command`; changes through `follow_up_task` | partial: pushing from chat is a gap, issue to file |
@@ -996,7 +996,9 @@ so, and the `start_temporary_machine` description repeats it.
   `reused` and the conversation folder
   `/workspace/kuayle-assistant/<conversation>`. Otherwise it checks the
   workspace quota and asks for approval of the preset
-  (`domain.TemporaryMachineResources`: 1 vCPU, 2048 MB, 20 GB, headless). The
+  (`domain.TemporaryMachineResources`: 1 vCPU, 2048 MB, 20 GB, headless; 20 GB
+  is the global `DevMachineMinDiskGB` floor of every machine, not a size chosen
+  for commands). The
   approval creates the machine through `DevMachineService.StartTemporaryMachine`,
   with every policy, quota and demo check of a normal machine. A second
   approval converges on the machine already started.
@@ -1007,7 +1009,7 @@ so, and the `start_temporary_machine` description repeats it.
   fail with what the assistant can do instead. `run_command` takes a
   `working_directory` relative to `/workspace` (default `/workspace`).
   `run_command_write` always starts in the conversation folder, which it
-  creates. The card shows the exact command, the machine, its size, whether it
+  creates, and can write only there. The card shows the exact command, the machine, its size, whether it
   is reused or temporary, the working directory and the time limit.
 - `get_command_run` (read). Reads a run by `run_id` or `approval_id` and waits
   up to about a minute while it is queued or running. The result has
@@ -1018,12 +1020,17 @@ so, and the `start_temporary_machine` description repeats it.
   `GET /conversations/:conversationId/approvals/:approvalId/command-run`
   (session only, requester only) and shows the same fields.
 
-Refusals are tool failures that name the next step. A guest is told to ask a
-workspace member or an admin. A machine the user does not own, or one that is
+Refusals are tool failures that name the next step, each with its own message:
+a user who left the workspace is told they no longer have access; a guest, and
+a role without Dev Machine access, are told to ask a workspace member to run
+it or an admin to change their role. A machine the user does not own, or one that is
 not running, is refused with "give one of your machines or start a temporary
 machine". The public demo rule applies (`machine: true` in the action
 policies). Approving re-checks the approver, the machine and its owner in the
-queuing transaction, and the manager re-checks them on every write of the run
+queuing transaction. Approving a temporary machine re-checks the approver's
+role too, before starting it and again in `CreateBundle`'s transaction under
+the workspace machine lock (`checkTemporaryMachineQuota`), so a user demoted
+after the card was shown gets no machine; and the manager re-checks them on every write of the run
 (`commandRunTransaction`).
 
 Execution reuses the custom tool sandbox. A fresh check container runs on the
@@ -1031,10 +1038,17 @@ machine: developer image, the machine's workspace volume, egress only through
 the machine's proxy, all capabilities dropped, a read-only root, and no
 credentials or environment variables of the machine. Its argv is fixed:
 `sh -c <bootstrap> kuayle-cmd 60`. The command reaches it only as
-`KUAYLE_COMMAND`, and the bootstrap runs it under `timeout -s KILL`. A
-`run_command` mounts `/workspace` read-only; only `/tmp` and `$HOME` (tmpfs) are
-writable. A `run_command_write` mounts it read-write. The manager's own
-deadline is 75 s.
+`KUAYLE_COMMAND`, and the bootstrap runs it under `timeout -s KILL`. `/workspace`
+is always mounted read-only. A `run_command` can write only `/tmp` and `$HOME`
+(tmpfs, gone after the run). A `run_command_write` also mounts the conversation
+folder read-write, as a subpath of the workspace volume
+(`VolumeOptions.Subpath`, Docker API 1.45+), so on a reused machine the user's
+checkouts and task worktrees cannot change. A short prep container
+(`…-cmd-<run>-prep`: fixed argv, no network, never the command) creates the
+folder first and refuses one that is, or sits in, a symbolic link. On an older
+daemon a write run fails with "This machine's Docker is too old to confine
+writes to the conversation folder"; it never falls back to a writable
+`/workspace`. The manager's own deadline is 75 s.
 
 Each run is one `run_command` operation with `MaxAttempts` 1, so a command
 never runs twice. Its container is removed afterwards, whatever the result. It

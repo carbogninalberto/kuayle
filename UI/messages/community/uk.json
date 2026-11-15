@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "тимчасова машина, видаляється після закінчення терміну",
 	"assistant.command_own_machine": "ваша власна машина",
 	"assistant.command_read_only_note": "Виконується в {directory}, /workspace лише для читання, без облікових даних; зупиняється через {seconds} с.",
-	"assistant.command_write_note": "Виконується в {directory} і може записувати в /workspace, без облікових даних; зупиняється через {seconds} с.",
+	"assistant.command_write_folder_note": "Виконується в {directory}; записувати можна лише в папку цієї розмови, решта /workspace лише для читання. Без облікових даних; зупиняється через {seconds} с.",
 	"assistant_custom_tools.heading": "Власні інструменти",
 	"assistant_custom_tools.new": "Новий інструмент",
 	"assistant_custom_tools.hint": "Скрипти, які асистент може запускати на машинах розробки, у контейнері без облікових даних. Аргументи надходять як змінні середовища або JSON-файл, ніколи не всередині скрипта.",

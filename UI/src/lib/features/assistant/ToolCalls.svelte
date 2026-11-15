@@ -836,7 +836,7 @@
 								<p class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
 									<Lock size={12} class="shrink-0" /><span class="break-all"
 										>{approval.payload.write
-											? m['assistant.command_write_note']({
+											? m['assistant.command_write_folder_note']({
 													directory: approval.payload.working_directory,
 													seconds: approval.payload.timeout_seconds
 												})

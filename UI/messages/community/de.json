@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "temporäre Maschine, wird nach Ablauf gelöscht",
 	"assistant.command_own_machine": "deine eigene Maschine",
 	"assistant.command_read_only_note": "Läuft in {directory} mit schreibgeschütztem /workspace und ohne Zugangsdaten; wird nach {seconds} Sekunden beendet.",
-	"assistant.command_write_note": "Läuft in {directory} und kann in /workspace schreiben, ohne Zugangsdaten; wird nach {seconds} Sekunden beendet.",
+	"assistant.command_write_folder_note": "Läuft in {directory}; nur der Ordner dieser Unterhaltung ist beschreibbar, der Rest von /workspace bleibt schreibgeschützt. Ohne Zugangsdaten; wird nach {seconds} Sekunden beendet.",
 	"assistant_custom_tools.heading": "Eigene Tools",
 	"assistant_custom_tools.new": "Neues Tool",
 	"assistant_custom_tools.hint": "Skripte, die der Assistent auf Dev-Maschinen in einem Container ohne Zugangsdaten ausführen kann. Argumente kommen als Umgebungsvariablen oder JSON-Datei an, nie im Skript selbst.",

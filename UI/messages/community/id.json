@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "mesin sementara, dihapus saat kedaluwarsa",
 	"assistant.command_own_machine": "mesin Anda sendiri",
 	"assistant.command_read_only_note": "Berjalan di {directory} dengan /workspace hanya-baca dan tanpa kredensial; dihentikan setelah {seconds} detik.",
-	"assistant.command_write_note": "Berjalan di {directory} dan dapat menulis ke /workspace, tanpa kredensial; dihentikan setelah {seconds} detik.",
+	"assistant.command_write_folder_note": "Berjalan di {directory}; hanya folder percakapan ini yang dapat ditulis, sisa /workspace tetap hanya-baca. Tanpa kredensial; dihentikan setelah {seconds} detik.",
 	"assistant_custom_tools.heading": "Tool kustom",
 	"assistant_custom_tools.new": "Tool baru",
 	"assistant_custom_tools.hint": "Skrip yang dapat dijalankan asisten di mesin dev, dalam container tanpa kredensial. Argumen dikirim sebagai variabel lingkungan atau file JSON, tidak pernah di dalam skrip.",

@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "väliaikainen kone, poistetaan vanhetessaan",
 	"assistant.command_own_machine": "oma koneesi",
 	"assistant.command_read_only_note": "Ajetaan hakemistossa {directory}, /workspace vain luku -tilassa ja ilman tunnistetietoja; pysäytetään {seconds} sekunnin jälkeen.",
-	"assistant.command_write_note": "Ajetaan hakemistossa {directory} ja voi kirjoittaa kohteeseen /workspace, ilman tunnistetietoja; pysäytetään {seconds} sekunnin jälkeen.",
+	"assistant.command_write_folder_note": "Ajetaan hakemistossa {directory}; vain tämän keskustelun kansioon voi kirjoittaa, muu /workspace on vain luku -tilassa. Ilman tunnistetietoja; pysäytetään {seconds} sekunnin jälkeen.",
 	"assistant_custom_tools.heading": "Omat työkalut",
 	"assistant_custom_tools.new": "Uusi työkalu",
 	"assistant_custom_tools.hint": "Skriptit, joita avustaja voi ajaa kehityskoneilla kontissa ilman tunnistetietoja. Argumentit tulevat ympäristömuuttujina tai JSON-tiedostona, eivät koskaan skriptin sisällä.",

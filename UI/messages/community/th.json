@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "เครื่องชั่วคราว ถูกลบเมื่อหมดอายุ",
 	"assistant.command_own_machine": "เครื่องของคุณเอง",
 	"assistant.command_read_only_note": "รันใน {directory} โดย /workspace เป็นแบบอ่านอย่างเดียวและไม่มีข้อมูลรับรอง หยุดหลังจาก {seconds} วินาที",
-	"assistant.command_write_note": "รันใน {directory} และเขียนไปยัง /workspace ได้ โดยไม่มีข้อมูลรับรอง หยุดหลังจาก {seconds} วินาที",
+	"assistant.command_write_folder_note": "รันใน {directory} เขียนได้เฉพาะโฟลเดอร์ของการสนทนานี้ ส่วนที่เหลือของ /workspace เป็นแบบอ่านอย่างเดียว ไม่มีข้อมูลรับรอง หยุดหลังจาก {seconds} วินาที",
 	"assistant_custom_tools.heading": "เครื่องมือที่กำหนดเอง",
 	"assistant_custom_tools.new": "เครื่องมือใหม่",
 	"assistant_custom_tools.hint": "สคริปต์ที่ผู้ช่วยรันบนเครื่องพัฒนาได้ ในคอนเทนเนอร์ที่ไม่มีข้อมูลรับรอง อาร์กิวเมนต์ส่งมาเป็นตัวแปรสภาพแวดล้อมหรือไฟล์ JSON ไม่ใช่ภายในสคริปต์",

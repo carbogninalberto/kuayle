@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "ideiglenes gép, lejáratkor törlődik",
 	"assistant.command_own_machine": "a saját géped",
 	"assistant.command_read_only_note": "A(z) {directory} könyvtárban fut, csak olvasható /workspace-szel és hitelesítő adatok nélkül; {seconds} másodperc után leáll.",
-	"assistant.command_write_note": "A(z) {directory} könyvtárban fut, és írhat a /workspace-be, hitelesítő adatok nélkül; {seconds} másodperc után leáll.",
+	"assistant.command_write_folder_note": "A(z) {directory} könyvtárban fut; csak ennek a beszélgetésnek a mappája írható, a /workspace többi része csak olvasható. Hitelesítő adatok nélkül; {seconds} másodperc után leáll.",
 	"assistant_custom_tools.heading": "Egyéni eszközök",
 	"assistant_custom_tools.new": "Új eszköz",
 	"assistant_custom_tools.hint": "Szkriptek, amelyeket az asszisztens fejlesztői gépeken futtathat, hitelesítő adatok nélküli konténerben. Az argumentumok környezeti változóként vagy JSON-fájlban érkeznek, soha nem a szkriptben.",

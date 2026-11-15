@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "midlertidig maskine, slettes når den udløber",
 	"assistant.command_own_machine": "din egen maskine",
 	"assistant.command_read_only_note": "Kører i {directory} med /workspace skrivebeskyttet og uden legitimationsoplysninger; stoppes efter {seconds} sekunder.",
-	"assistant.command_write_note": "Kører i {directory} og kan skrive til /workspace, uden legitimationsoplysninger; stoppes efter {seconds} sekunder.",
+	"assistant.command_write_folder_note": "Kører i {directory}; kun denne samtales mappe er skrivbar, resten af /workspace er skrivebeskyttet. Uden legitimationsoplysninger; stoppes efter {seconds} sekunder.",
 	"assistant_custom_tools.heading": "Egne værktøjer",
 	"assistant_custom_tools.new": "Nyt værktøj",
 	"assistant_custom_tools.hint": "Scripts, assistenten kan køre på udviklermaskiner i en container uden legitimationsoplysninger. Argumenter kommer som miljøvariabler eller en JSON-fil, aldrig inde i scriptet.",

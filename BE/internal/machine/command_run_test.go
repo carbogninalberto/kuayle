@@ -146,41 +146,72 @@ func TestCommandRunHidesInfrastructureErrors(t *testing.T) {
 	require.Len(t, runtime.removed, 1, "a command never runs twice, so its container goes")
 }
 
-// The command is only in the container's environment; a read-only run mounts
-// /workspace read-only, a write run read-write.
-func TestCommandContainerGetsTheCommandOnlyAsData(t *testing.T) {
-	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture", DockerNetworkName: ptr("network"), WorkspaceVolumeName: ptr("workspace"), CPUMillis: 1000, MemoryMB: 2048, PidsLimit: 256}
-	for _, write := range []bool{false, true} {
-		run := &domain.CommandRun{ID: uuid.New(), Command: hostileInput, Write: write, WorkingDirectory: "/workspace/kuayle-assistant/" + uuid.NewString()}
-		var input struct {
-			container.Config
-			HostConfig container.HostConfig
+// commandDockerFake answers the Docker API calls of RunCommand and records
+// every container it is asked to create, by name.
+type commandDockerFake struct {
+	api     string
+	created map[string]commandCreateInput
+	order   []string
+}
+
+type commandCreateInput struct {
+	container.Config
+	HostConfig container.HostConfig
+}
+
+func (f *commandDockerFake) run(t *testing.T, machine *domain.DevMachine, run *domain.CommandRun) error {
+	t.Helper()
+	f.created = map[string]commandCreateInput{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/_ping"):
+			w.Header().Set("Api-Version", f.api)
+			_, _ = w.Write([]byte("OK"))
+		case strings.Contains(r.URL.Path, "/images/"):
+			_, _ = w.Write([]byte(`{"Id":"image","Config":{}}`))
+		case strings.HasSuffix(r.URL.Path, "/json"):
+			http.NotFound(w, r)
+		case strings.HasSuffix(r.URL.Path, "/containers/create"):
+			var input commandCreateInput
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&input))
+			name := r.URL.Query().Get("name")
+			f.created[name], f.order = input, append(f.order, name)
+			_, _ = w.Write([]byte(`{"Id":"` + name + `"}`))
+		case strings.HasSuffix(r.URL.Path, "/start"):
+			w.WriteHeader(204)
+		case strings.HasSuffix(r.URL.Path, "/wait"):
+			_, _ = w.Write([]byte(`{"StatusCode":0}`))
+		case strings.HasSuffix(r.URL.Path, "/logs"):
+			w.WriteHeader(200)
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(204)
+		default:
+			http.NotFound(w, r)
 		}
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch {
-			case strings.Contains(r.URL.Path, "/images/"):
-				_, _ = w.Write([]byte(`{"Id":"image","Config":{}}`))
-			case strings.HasSuffix(r.URL.Path, "/json"):
-				http.NotFound(w, r)
-			case strings.HasSuffix(r.URL.Path, "/containers/create"):
-				require.NoError(t, json.NewDecoder(r.Body).Decode(&input))
-				_, _ = w.Write([]byte(`{"Id":"command"}`))
-			case strings.HasSuffix(r.URL.Path, "/start"):
-				w.WriteHeader(204)
-			case strings.HasSuffix(r.URL.Path, "/wait"):
-				_, _ = w.Write([]byte(`{"StatusCode":0}`))
-			case strings.HasSuffix(r.URL.Path, "/logs"):
-				w.WriteHeader(200)
-			default:
-				http.NotFound(w, r)
-			}
-		}))
-		docker, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.52"))
-		require.NoError(t, err)
-		_, err = (&DockerRuntime{client: docker}).RunCommand(context.Background(), machine, run, "developer:fixture", &AgentObserver{})
-		docker.Close()
-		server.Close()
-		require.NoError(t, err)
+	}))
+	defer server.Close()
+	docker, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.44"))
+	require.NoError(t, err)
+	defer docker.Close()
+	_, err = (&DockerRuntime{client: docker}).RunCommand(context.Background(), machine, run, "developer:fixture", &AgentObserver{})
+	return err
+}
+
+func commandFixtureMachine() *domain.DevMachine {
+	return &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture", DockerNetworkName: ptr("network"), WorkspaceVolumeName: ptr("workspace"), CPUMillis: 1000, MemoryMB: 2048, PidsLimit: 256}
+}
+
+// The command is only in the container's environment, and /workspace is
+// always read-only: a write run can change only its conversation's folder,
+// mounted read-write from a subpath of the workspace volume.
+func TestCommandContainerGetsTheCommandOnlyAsData(t *testing.T) {
+	machine := commandFixtureMachine()
+	for _, write := range []bool{false, true} {
+		folder := domain.CommandFolder(uuid.New())
+		run := &domain.CommandRun{ID: uuid.New(), Command: hostileInput, Write: write, WorkingDirectory: folder}
+		docker := &commandDockerFake{api: "1.52"}
+		require.NoError(t, docker.run(t, machine, run))
+		input := docker.created[commandContainerName(machine, run.ID)]
 		require.Equal(t, []string{"sh"}, input.Entrypoint)
 		require.Equal(t, []string{"-c", commandBootstrap, "kuayle-cmd", "60"}, input.Cmd)
 		for _, arg := range append(input.Entrypoint, input.Cmd...) {
@@ -194,17 +225,74 @@ func TestCommandContainerGetsTheCommandOnlyAsData(t *testing.T) {
 		require.Equal(t, run.ID.String(), input.Labels["com.kuayle.command-run-id"])
 		require.True(t, input.HostConfig.ReadonlyRootfs)
 		require.Contains(t, input.HostConfig.CapDrop, "ALL")
-		require.Len(t, input.HostConfig.Mounts, 1, "only the workspace volume")
 		require.Equal(t, "/workspace", input.HostConfig.Mounts[0].Target)
-		require.Equal(t, !write, input.HostConfig.Mounts[0].ReadOnly, "read-only unless the run may write")
+		require.True(t, input.HostConfig.Mounts[0].ReadOnly, "/workspace is never writable")
+		if !write {
+			require.Len(t, input.HostConfig.Mounts, 1, "only the workspace volume")
+			require.Equal(t, []string{commandContainerName(machine, run.ID)}, docker.order, "a read-only run needs no prep")
+			continue
+		}
+		require.Len(t, input.HostConfig.Mounts, 2)
+		writable := input.HostConfig.Mounts[1]
+		require.Equal(t, "workspace", writable.Source)
+		require.Equal(t, folder, writable.Target)
+		require.False(t, writable.ReadOnly)
+		require.NotNil(t, writable.VolumeOptions)
+		require.Equal(t, strings.TrimPrefix(folder, "/workspace/"), writable.VolumeOptions.Subpath)
+		require.True(t, writable.VolumeOptions.NoCopy)
+
+		// The folder is created first, by a container that never sees the
+		// command and has no network.
+		require.Equal(t, []string{commandPrepName(machine, run.ID), commandContainerName(machine, run.ID)}, docker.order)
+		prep := docker.created[commandPrepName(machine, run.ID)]
+		require.Equal(t, []string{"sh"}, prep.Entrypoint)
+		require.Equal(t, commandPrepArgv(folder), prep.Cmd)
+		require.Equal(t, "1000:1000", prep.User)
+		for _, arg := range append(prep.Cmd, prep.Env...) {
+			require.NotContains(t, arg, "touch pwned")
+			require.NotContains(t, arg, "KUAYLE_COMMAND")
+		}
+		require.True(t, prep.NetworkDisabled)
+		require.Equal(t, "none", string(prep.HostConfig.NetworkMode))
+		require.Equal(t, "true", prep.Labels["com.kuayle.command-prep"])
+		require.Equal(t, run.ID.String(), prep.Labels["com.kuayle.command-run-id"], "RemoveCommand finds it")
 	}
 
 	_, err := (&DockerRuntime{}).RunCommand(context.Background(), machine, &domain.CommandRun{ID: uuid.New(), Command: "ls", WorkingDirectory: "/workspace/../etc"}, "developer:fixture", &AgentObserver{})
 	require.ErrorContains(t, err, "invalid command run")
+	_, err = (&DockerRuntime{}).RunCommand(context.Background(), machine, &domain.CommandRun{ID: uuid.New(), Command: "ls", Write: true, WorkingDirectory: "/workspace"}, "developer:fixture", &AgentObserver{})
+	require.ErrorContains(t, err, "invalid command run", "a write run is only ever in a conversation folder")
 }
 
-// The container's real bootstrap, run by the local shell: a write run creates
-// and enters its folder; a read-only run never creates one.
+// A daemon that cannot mount a subpath refuses write runs for good, rather
+// than making all of /workspace writable; read-only runs still run.
+func TestCommandWriteRunIsRefusedOnOldDocker(t *testing.T) {
+	machine := commandFixtureMachine()
+	docker := &commandDockerFake{api: "1.44"}
+	err := docker.run(t, machine, &domain.CommandRun{ID: uuid.New(), Command: "touch x", Write: true, WorkingDirectory: domain.CommandFolder(uuid.New())})
+	var terminal *terminalOperationError
+	require.ErrorAs(t, err, &terminal)
+	require.Equal(t, "This machine's Docker is too old to confine writes to the conversation folder", commandRunFailure(err))
+	require.Empty(t, docker.created, "nothing is created")
+
+	require.NoError(t, docker.run(t, machine, &domain.CommandRun{ID: uuid.New(), Command: "ls", WorkingDirectory: "/workspace"}))
+	require.Len(t, docker.created, 1)
+}
+
+func TestCommandWriteFolderIsOneConversationFolder(t *testing.T) {
+	conversation := uuid.New()
+	subpath, ok := commandWriteFolder(domain.CommandFolder(conversation))
+	require.True(t, ok)
+	require.Equal(t, "kuayle-assistant/"+conversation.String(), subpath)
+	for _, directory := range []string{"/workspace", domain.CommandFolderRoot, domain.CommandFolderRoot + "/", domain.CommandFolderRoot + "/a/b", domain.CommandFolderRoot + "/../x", domain.CommandFolderRoot + "/.hidden", "/workspace/repo"} {
+		_, ok := commandWriteFolder(directory)
+		require.False(t, ok, directory)
+	}
+}
+
+// The containers' real scripts, run by the local shell: the prep creates the
+// folder and refuses a symbolic link; the bootstrap enters the folder and
+// never creates one.
 func TestCommandBootstrapEntersTheWorkingDirectory(t *testing.T) {
 	root := t.TempDir()
 	folder := filepath.Join(root, "kuayle-assistant", "conversation")
@@ -216,14 +304,21 @@ func TestCommandBootstrapEntersTheWorkingDirectory(t *testing.T) {
 		out, err := cmd.CombinedOutput()
 		return string(out), err
 	}
+	prep := func(dir string) error {
+		return exec.Command("sh", commandPrepArgv(dir)...).Run()
+	}
 
-	out, err := runIn(&domain.CommandRun{Command: "pwd"})
-	require.Error(t, err, "a read-only run does not create its directory")
-	require.Contains(t, out, "does not exist")
-	_, statErr := os.Stat(folder)
-	require.True(t, os.IsNotExist(statErr))
+	for _, write := range []bool{false, true} {
+		out, err := runIn(&domain.CommandRun{Command: "pwd", Write: write})
+		require.Error(t, err, "the bootstrap does not create its directory")
+		require.Contains(t, out, "does not exist")
+		_, statErr := os.Stat(folder)
+		require.True(t, os.IsNotExist(statErr))
+	}
 
-	out, err = runIn(&domain.CommandRun{Command: `echo hi > out.txt; pwd; [ -z "${KUAYLE_COMMAND:-}" ] && echo clean`, Write: true})
+	require.NoError(t, prep(folder))
+	require.NoError(t, prep(folder), "preparing again is harmless")
+	out, err := runIn(&domain.CommandRun{Command: `echo hi > out.txt; pwd; [ -z "${KUAYLE_COMMAND:-}" ] && echo clean`, Write: true})
 	require.NoError(t, err, out)
 	require.Equal(t, folder+"\nclean\n", out, "the command is not left in its environment")
 	written, err := os.ReadFile(filepath.Join(folder, "out.txt"))
@@ -234,6 +329,11 @@ func TestCommandBootstrapEntersTheWorkingDirectory(t *testing.T) {
 	var exitErr *exec.ExitError
 	require.ErrorAs(t, err, &exitErr, out)
 	require.Equal(t, 7, exitErr.ExitCode(), "the command's exit status is the container's")
+
+	link := filepath.Join(root, "kuayle-assistant", "linked")
+	require.NoError(t, os.Symlink(root, link))
+	require.Error(t, prep(link), "a folder that is a link to elsewhere is refused")
+	require.Error(t, prep(filepath.Join(link, "inside")), "so is one inside such a link")
 }
 
 // Expired temporary machines are permanently deleted by reconciliation.

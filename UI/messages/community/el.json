@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "προσωρινό μηχάνημα, διαγράφεται όταν λήξει",
 	"assistant.command_own_machine": "το δικό σας μηχάνημα",
 	"assistant.command_read_only_note": "Εκτελείται στο {directory} με το /workspace μόνο για ανάγνωση και χωρίς διαπιστευτήρια· διακόπτεται μετά από {seconds} δευτερόλεπτα.",
-	"assistant.command_write_note": "Εκτελείται στο {directory} και μπορεί να γράψει στο /workspace, χωρίς διαπιστευτήρια· διακόπτεται μετά από {seconds} δευτερόλεπτα.",
+	"assistant.command_write_folder_note": "Εκτελείται στο {directory}· μόνο ο φάκελος αυτής της συνομιλίας είναι εγγράψιμος, το υπόλοιπο /workspace μένει μόνο για ανάγνωση. Χωρίς διαπιστευτήρια· διακόπτεται μετά από {seconds} δευτερόλεπτα.",
 	"assistant_custom_tools.heading": "Προσαρμοσμένα εργαλεία",
 	"assistant_custom_tools.new": "Νέο εργαλείο",
 	"assistant_custom_tools.hint": "Scripts που μπορεί να εκτελεί ο βοηθός σε μηχανήματα ανάπτυξης, σε κοντέινερ χωρίς διαπιστευτήρια. Τα ορίσματα φτάνουν ως μεταβλητές περιβάλλοντος ή αρχείο JSON, ποτέ μέσα στο script.",

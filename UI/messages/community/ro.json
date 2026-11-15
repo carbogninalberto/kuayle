@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "mașină temporară, ștearsă când expiră",
 	"assistant.command_own_machine": "propria ta mașină",
 	"assistant.command_read_only_note": "Rulează în {directory} cu /workspace doar în citire și fără credențiale; se oprește după {seconds} secunde.",
-	"assistant.command_write_note": "Rulează în {directory} și poate scrie în /workspace, fără credențiale; se oprește după {seconds} secunde.",
+	"assistant.command_write_folder_note": "Rulează în {directory}; doar dosarul acestei conversații poate fi scris, restul /workspace rămâne doar pentru citire. Fără credențiale; se oprește după {seconds} secunde.",
 	"assistant_custom_tools.heading": "Instrumente personalizate",
 	"assistant_custom_tools.new": "Instrument nou",
 	"assistant_custom_tools.hint": "Scripturi pe care asistentul le poate rula pe mașinile de dezvoltare, într-un container fără credențiale. Argumentele sosesc ca variabile de mediu sau ca fișier JSON, niciodată în interiorul scriptului.",

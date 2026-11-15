@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "临时机器，到期后删除",
 	"assistant.command_own_machine": "你自己的机器",
 	"assistant.command_read_only_note": "在 {directory} 中运行，/workspace 为只读且没有凭据；{seconds} 秒后停止。",
-	"assistant.command_write_note": "在 {directory} 中运行，可写入 /workspace，没有凭据；{seconds} 秒后停止。",
+	"assistant.command_write_folder_note": "在 {directory} 中运行；只有此对话的文件夹可写，/workspace 的其余部分保持只读。没有凭据；{seconds} 秒后停止。",
 	"assistant_custom_tools.heading": "自定义工具",
 	"assistant_custom_tools.new": "新建工具",
 	"assistant_custom_tools.hint": "助手可以在开发机器上、无凭据的容器中运行的脚本。参数通过环境变量或 JSON 文件传入，绝不会嵌入脚本。",

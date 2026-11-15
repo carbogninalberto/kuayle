@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "अस्थायी मशीन, समय समाप्त होने पर हटाई जाती है",
 	"assistant.command_own_machine": "आपकी अपनी मशीन",
 	"assistant.command_read_only_note": "{directory} में /workspace केवल-पढ़ने के लिए और बिना क्रेडेंशियल के चलता है; {seconds} सेकंड के बाद रोक दिया जाता है।",
-	"assistant.command_write_note": "{directory} में चलता है और /workspace में लिख सकता है, बिना क्रेडेंशियल के; {seconds} सेकंड के बाद रोक दिया जाता है।",
+	"assistant.command_write_folder_note": "{directory} में चलता है; केवल इस बातचीत का फ़ोल्डर लिखने योग्य है, बाकी /workspace केवल-पढ़ने योग्य रहता है। बिना क्रेडेंशियल के; {seconds} सेकंड के बाद रोक दिया जाता है।",
 	"assistant_custom_tools.heading": "कस्टम टूल",
 	"assistant_custom_tools.new": "नया टूल",
 	"assistant_custom_tools.hint": "ऐसी स्क्रिप्ट जिन्हें असिस्टेंट डेव मशीन पर, बिना क्रेडेंशियल वाले कंटेनर में चला सकता है। आर्ग्युमेंट एनवायरनमेंट वेरिएबल या JSON फ़ाइल के रूप में आते हैं, स्क्रिप्ट के अंदर कभी नहीं।",

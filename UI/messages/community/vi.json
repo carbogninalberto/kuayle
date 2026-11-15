@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "máy tạm thời, bị xóa khi hết hạn",
 	"assistant.command_own_machine": "máy của riêng bạn",
 	"assistant.command_read_only_note": "Chạy trong {directory} với /workspace chỉ đọc và không có thông tin xác thực; dừng sau {seconds} giây.",
-	"assistant.command_write_note": "Chạy trong {directory} và có thể ghi vào /workspace, không có thông tin xác thực; dừng sau {seconds} giây.",
+	"assistant.command_write_folder_note": "Chạy trong {directory}; chỉ thư mục của cuộc trò chuyện này có thể ghi, phần còn lại của /workspace chỉ đọc. Không có thông tin xác thực; dừng sau {seconds} giây.",
 	"assistant_custom_tools.heading": "Công cụ tùy chỉnh",
 	"assistant_custom_tools.new": "Công cụ mới",
 	"assistant_custom_tools.hint": "Các script mà trợ lý có thể chạy trên máy dev, trong container không có thông tin xác thực. Đối số được truyền qua biến môi trường hoặc tệp JSON, không bao giờ nằm trong script.",

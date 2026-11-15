@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "tijdelijke machine, verwijderd wanneer die verloopt",
 	"assistant.command_own_machine": "je eigen machine",
 	"assistant.command_read_only_note": "Draait in {directory} met /workspace alleen-lezen en zonder inloggegevens; gestopt na {seconds} seconden.",
-	"assistant.command_write_note": "Draait in {directory} en kan schrijven naar /workspace, zonder inloggegevens; gestopt na {seconds} seconden.",
+	"assistant.command_write_folder_note": "Draait in {directory}; alleen de map van dit gesprek is beschrijfbaar, de rest van /workspace blijft alleen-lezen. Zonder inloggegevens; gestopt na {seconds} seconden.",
 	"assistant_custom_tools.heading": "Eigen tools",
 	"assistant_custom_tools.new": "Nieuwe tool",
 	"assistant_custom_tools.hint": "Scripts die de assistent op dev-machines kan uitvoeren, in een container zonder inloggegevens. Argumenten komen binnen als omgevingsvariabelen of een JSON-bestand, nooit binnen in het script.",

@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "一時マシン、期限切れで削除",
 	"assistant.command_own_machine": "自分のマシン",
 	"assistant.command_read_only_note": "{directory} で実行され、/workspace は読み取り専用、認証情報はありません。{seconds} 秒後に停止します。",
-	"assistant.command_write_note": "{directory} で実行され、/workspace に書き込めます。認証情報はありません。{seconds} 秒後に停止します。",
+	"assistant.command_write_folder_note": "{directory} で実行されます。書き込めるのはこの会話のフォルダーだけで、/workspace のほかの部分は読み取り専用です。認証情報はありません。{seconds} 秒後に停止します。",
 	"assistant_custom_tools.heading": "カスタムツール",
 	"assistant_custom_tools.new": "新規ツール",
 	"assistant_custom_tools.hint": "アシスタントが開発マシン上の、認証情報のないコンテナで実行できるスクリプトです。引数は環境変数またはJSONファイルで渡され、スクリプト内には含まれません。",

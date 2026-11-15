@@ -179,6 +179,49 @@ func TestTemporaryMachinesAreCountedAndReuseFindsTheUsersMachine(t *testing.T) {
 	require.NotContains(t, machineIDs(expired), mine)
 }
 
+// The role is re-checked under the transaction that creates a temporary
+// machine: a guest, or a user who left the workspace, gets none, each with its
+// own error.
+func TestTemporaryMachineBundleRechecksTheOwnersRole(t *testing.T) {
+	f := newSkillFixture(t)
+	machineFor(t, f, f.admin) // enables Dev Machines in the workspace
+	machines := NewDevMachineRepository(f.db)
+	commands := NewAssistantCommandRepository(f.db)
+	create := func(owner uuid.UUID) error {
+		id := uuid.New()
+		routingKey := strings.ReplaceAll(id.String(), "-", "")[:16]
+		expires := time.Now().Add(30 * time.Minute)
+		return machines.CreateBundle(t.Context(), &domain.DevMachine{
+			ID: id, WorkspaceID: f.ws, CreatedByUserID: &owner, RoutingKey: routingKey, Name: "tmp-" + routingKey[:8],
+			Status: domain.DevMachineStatusQueued, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, RepoProvider: "github",
+			MachineSize: "custom", Profile: domain.DevMachineProfileHeadless, CPUMillis: 1000, MemoryMB: 2048, DiskGB: 20, PidsLimit: 512,
+			ServicesConfig: []byte(`{}`), Labels: []byte(`{}`), TemporaryExpiresAt: &expires,
+		}, nil, nil, nil, nil, nil, &domain.DevMachineOperation{
+			ID: uuid.New(), MachineID: id, WorkspaceID: f.ws, Action: domain.DevMachineOpSpawn,
+			Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "spawn:1", RequestedByUserID: &owner, MaxAttempts: 5,
+		})
+	}
+	temporaryMachines := func(owner uuid.UUID) int {
+		var n int
+		require.NoError(t, f.db.Get(&n, `SELECT count(*) FROM dev_machines WHERE workspace_id=$1 AND created_by_user_id=$2 AND temporary_expires_at IS NOT NULL`, f.ws, owner))
+		return n
+	}
+
+	_, err := f.db.Exec(`UPDATE workspace_members SET role='guest' WHERE workspace_id=$1 AND user_id=$2`, f.ws, f.member)
+	require.NoError(t, err)
+	require.ErrorIs(t, create(f.member), ErrCommandRunGuest)
+	require.ErrorIs(t, commands.CheckRunner(t.Context(), f.ws, f.member), ErrCommandRunGuest)
+	require.Zero(t, temporaryMachines(f.member))
+
+	require.ErrorIs(t, create(f.outsider), ErrConversationNotFound, "a non-member gets none")
+	require.ErrorIs(t, commands.CheckRunner(t.Context(), f.ws, f.outsider), ErrConversationNotFound)
+	require.Zero(t, temporaryMachines(f.outsider))
+
+	require.NoError(t, commands.CheckRunner(t.Context(), f.ws, f.admin))
+	require.NoError(t, create(f.admin))
+	require.Equal(t, 1, temporaryMachines(f.admin))
+}
+
 func machineIDs(machines []domain.DevMachine) []uuid.UUID {
 	ids := make([]uuid.UUID, 0, len(machines))
 	for _, machine := range machines {

@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "جهاز مؤقت، يُحذف عند انتهاء صلاحيته",
 	"assistant.command_own_machine": "جهازك الخاص",
 	"assistant.command_read_only_note": "يعمل في {directory} مع /workspace للقراءة فقط وبدون بيانات اعتماد؛ يتوقف بعد {seconds} ثانية.",
-	"assistant.command_write_note": "يعمل في {directory} ويمكنه الكتابة في /workspace، بدون بيانات اعتماد؛ يتوقف بعد {seconds} ثانية.",
+	"assistant.command_write_folder_note": "يعمل في {directory}؛ مجلد هذه المحادثة فقط قابل للكتابة، ويبقى باقي /workspace للقراءة فقط. بدون بيانات اعتماد؛ يتوقف بعد {seconds} ثانية.",
 	"assistant_custom_tools.heading": "أدوات مخصصة",
 	"assistant_custom_tools.new": "أداة جديدة",
 	"assistant_custom_tools.hint": "سكربتات يمكن للمساعد تشغيلها على أجهزة التطوير، في حاوية بلا بيانات اعتماد. تصل المعاملات كمتغيرات بيئة أو كملف JSON، وليس داخل السكربت أبداً.",

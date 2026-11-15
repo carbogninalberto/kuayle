@@ -2919,7 +2919,7 @@
 	"assistant.command_temporary": "dočasný stroj, smazán po vypršení",
 	"assistant.command_own_machine": "váš vlastní stroj",
 	"assistant.command_read_only_note": "Běží v {directory} s /workspace jen pro čtení a bez přihlašovacích údajů; zastaví se po {seconds} sekundách.",
-	"assistant.command_write_note": "Běží v {directory} a může zapisovat do /workspace, bez přihlašovacích údajů; zastaví se po {seconds} sekundách.",
+	"assistant.command_write_folder_note": "Běží v {directory}; zapisovat lze jen do složky této konverzace, zbytek /workspace zůstává jen pro čtení. Bez přihlašovacích údajů; zastaví se po {seconds} sekundách.",
 	"assistant_custom_tools.heading": "Vlastní nástroje",
 	"assistant_custom_tools.new": "Nový nástroj",
 	"assistant_custom_tools.hint": "Skripty, které asistent může spouštět na vývojových strojích v kontejneru bez přihlašovacích údajů. Argumenty přicházejí jako proměnné prostředí nebo soubor JSON, nikdy uvnitř skriptu.",

@@ -29,6 +29,8 @@ var (
 	ErrCommandMachineUnavailable = errors.New("the command needs a running machine of yours")
 	// ErrCommandRunForbidden means the requester's role cannot run commands.
 	ErrCommandRunForbidden = errors.New("your role cannot run commands on Dev Machines")
+	// ErrCommandRunGuest means the requester is a guest of the workspace.
+	ErrCommandRunGuest = errors.New("guests cannot run commands on Dev Machines")
 	// ErrCommandRunNotFound means no run is readable by the requester.
 	ErrCommandRunNotFound = errors.New("command run not found")
 	// ErrTemporaryMachinesOff means the workspace policy allows no temporary
@@ -64,15 +66,20 @@ const commandRunColumns = `r.id,r.workspace_id,r.machine_id,r.machine_name,r.cpu
  (SELECT m.temporary_expires_at FROM dev_machines m WHERE m.id=r.machine_id) AS expires_at`
 
 // lockCommandRunner holds the requester's membership until commit and checks
-// that their role may use Dev Machines.
+// that their role may use Dev Machines: ErrConversationNotFound for a
+// non-member, ErrCommandRunGuest for a guest and ErrCommandRunForbidden for
+// another role without Dev Machine access.
 func lockCommandRunner(ctx context.Context, tx *sqlx.Tx, ws, actor uuid.UUID) error {
 	var role string
 	err := tx.GetContext(ctx, &role, `SELECT role FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR SHARE`, ws, actor)
-	if errors.Is(err, sql.ErrNoRows) || role == domain.RoleGuest {
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrConversationNotFound
 	}
 	if err != nil {
 		return err
+	}
+	if role == domain.RoleGuest {
+		return ErrCommandRunGuest
 	}
 	if !domain.HasPermission(role, domain.PermDevMachineManage) {
 		return ErrCommandRunForbidden
@@ -198,6 +205,20 @@ func (r *AssistantCommandRepository) machine(ctx context.Context, match string, 
 	return machine, err
 }
 
+// CheckRunner returns nil when the user is a member whose role may run
+// commands, else lockCommandRunner's refusal.
+func (r *AssistantCommandRepository) CheckRunner(ctx context.Context, ws, user uuid.UUID) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err = lockCommandRunner(ctx, tx, ws, user); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // TemporaryMachineQuota returns how many temporary machines are live in the
 // workspace and how many its policy allows.
 func (r *AssistantCommandRepository) TemporaryMachineQuota(ctx context.Context, ws uuid.UUID) (int, int, error) {
@@ -217,10 +238,17 @@ func (r *AssistantCommandRepository) TemporaryMachineQuota(ctx context.Context, 
 // asked to be deleted.
 const liveTemporaryMachine = `m.temporary_expires_at IS NOT NULL AND m.delete_requested_at IS NULL AND ` + `(m.status NOT IN ('destroyed','failed','expired','stopped') OR m.desired_status='running')`
 
-// checkTemporaryMachineQuota refuses a temporary machine beyond the
-// workspace's quota or a second one for the user. The caller holds the
-// workspace's machine lock.
+// checkTemporaryMachineQuota refuses a temporary machine for a user who may
+// not run commands (re-checked under this transaction, so a role lost after
+// the approval card was shown still refuses it), beyond the workspace's quota
+// or a second one for the user. The caller holds the workspace's machine lock.
 func checkTemporaryMachineQuota(ctx context.Context, tx *sqlx.Tx, ws uuid.UUID, user *uuid.UUID) error {
+	if user == nil {
+		return ErrConversationNotFound
+	}
+	if err := lockCommandRunner(ctx, tx, ws, *user); err != nil {
+		return err
+	}
 	var limit, used, mine int
 	if err := tx.QueryRowContext(ctx, `SELECT max_temporary_machines FROM dev_machine_workspace_policies WHERE workspace_id=$1`, ws).Scan(&limit); err != nil {
 		return err
