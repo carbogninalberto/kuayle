@@ -64,7 +64,7 @@ var shipStepLabels = map[string]string{
 const instanceSourceRepository = "carbogninalberto/kuayle"
 
 var assistantShipToolCatalog = []assistantTool{
-	{name: shipAction, agentWork: true, releases: true, approval: true, description: "Ask the user to approve shipping an issue's pull request with one approval that lists every step: merge it (as merge_pull_request, at the head GitHub reports now), wait for the merge commit's checks on the default branch, publish a release at the merge commit with the given tag and notes (as create_release, with its test gate and secret scan), wait for the release build and, only when the user asked to upgrade, upgrade this instance to that release (as upgrade_instance). Each step keeps its own tool's permission checks: only workspace owners and admins can ship, and upgrading needs an instance administrator. The chain stops at the first failing step and reports which step failed, why and the next step; nothing after it runs. Before calling it, read get_pull_request_checks, then draft the notes with draft_release_notes in the workspace's style and add a bullet for this pull request, which is not merged yet. The card shows the notes for editing and each step's progress. Only call this when the user asked to merge and release in one go; nothing happens until the user approves.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"tag":{"type":"string","minLength":1,"maxLength":100},"notes":{"type":"string","minLength":1,"maxLength":14000},"name":{"type":"string","maxLength":200},"upgrade":{"type":"boolean"}},"required":["identifier","tag","notes"],"additionalProperties":false}`},
+	{name: shipAction, agentWork: true, releases: true, approval: true, description: "Ask the user to approve shipping an issue's pull request with one approval that lists every step: merge it (as merge_pull_request, at the head GitHub reports now, once that head's running checks pass), wait for the merge commit's checks on the default branch, publish a release at the merge commit with the given tag and notes (as create_release, with its test gate and secret scan), wait for the release build and, only when the user asked to upgrade, upgrade this instance to that release (as upgrade_instance). Each step keeps its own tool's permission checks: only workspace owners and admins can ship, and upgrading needs an instance administrator. The chain stops at the first failing step and reports which step failed, why and the next step; nothing after it runs. Before calling it, read get_pull_request_checks, then draft the notes with draft_release_notes in the workspace's style and add a bullet for this pull request, which is not merged yet. The card shows the notes for editing and each step's progress. Only call this when the user asked to merge and release in one go; nothing happens until the user approves.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"tag":{"type":"string","minLength":1,"maxLength":100},"notes":{"type":"string","minLength":1,"maxLength":14000},"name":{"type":"string","maxLength":200},"upgrade":{"type":"boolean"}},"required":["identifier","tag","notes"],"additionalProperties":false}`},
 }
 
 // shipSteps lists the chain's steps in order, all pending.
@@ -458,8 +458,9 @@ func (s *AssistantApprovals) guardShipStep(ctx context.Context, ws, actor uuid.U
 }
 
 // shipMergeStep merges as merge_pull_request does and records the merge
-// commit. A pull request already merged at the approved commit, by an earlier
-// run of the chain, counts as merged.
+// commit. While only the head's checks are still running it waits for them,
+// as the tests step does, instead of failing. A pull request already merged at
+// the approved commit, by an earlier run of the chain, counts as merged.
 func (s *AssistantApprovals) shipMergeStep(ctx context.Context, chain *shipChain) (string, string, error) {
 	merge := chain.payload.Merge
 	status, err := s.pulls.PullRequestStatus(ctx, chain.ws, merge.Repository, merge.PullRequest)
@@ -467,9 +468,21 @@ func (s *AssistantApprovals) shipMergeStep(ctx context.Context, chain *shipChain
 		return "", "", err
 	}
 	if status.State != "merged" {
-		_, failure, err := s.applyMerge(ctx, chain.ws, chain.approval.ActorID, chain.approval.IssueID, merge)
-		if err != nil || failure != "" {
-			return "", failure, err
+		deadline := s.ships.now().Add(s.ships.timing.tests)
+		for {
+			_, hold, err := s.mergeApproved(ctx, chain.ws, chain.approval.ActorID, chain.approval.IssueID, merge)
+			if err != nil {
+				return "", "", err
+			}
+			if hold.reason == "" {
+				break
+			}
+			if !hold.pending || !s.ships.now().Before(deadline) {
+				return "", hold.reason, nil
+			}
+			if err := s.ships.sleep(ctx, s.ships.timing.poll); err != nil {
+				return "", "", err
+			}
 		}
 		if status, err = s.pulls.PullRequestStatus(ctx, chain.ws, merge.Repository, merge.PullRequest); err != nil {
 			return "", "", err

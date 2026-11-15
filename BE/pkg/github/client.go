@@ -264,9 +264,10 @@ type CommitRef struct {
 }
 
 type CommitData struct {
-	Message string       `json:"message"`
-	Author  CommitAuthor `json:"author"`
-	Tree    CommitRef    `json:"tree"`
+	Message   string       `json:"message"`
+	Author    CommitAuthor `json:"author"`
+	Committer CommitAuthor `json:"committer"`
+	Tree      CommitRef    `json:"tree"`
 }
 
 type CommitAuthor struct {
@@ -557,14 +558,16 @@ func (c *Client) CompareCommitsPage(token, owner, repo, base, head string, page 
 
 // Comparison is the first page of commits between two refs. Status is "ahead"
 // only when head descends from base; "diverged" or "behind" mean rewritten
-// history. TotalCommits can exceed len(Commits).
+// history. TotalCommits can exceed len(Commits). MergeBaseCommit is the newest
+// commit both share: base's tip when BehindBy is 0.
 type Comparison struct {
-	Status       string        `json:"status"`
-	AheadBy      int           `json:"ahead_by"`
-	BehindBy     int           `json:"behind_by"`
-	TotalCommits int           `json:"total_commits"`
-	Commits      []Commit      `json:"commits"`
-	Files        []CompareFile `json:"files"`
+	Status          string        `json:"status"`
+	AheadBy         int           `json:"ahead_by"`
+	BehindBy        int           `json:"behind_by"`
+	TotalCommits    int           `json:"total_commits"`
+	MergeBaseCommit Commit        `json:"merge_base_commit"`
+	Commits         []Commit      `json:"commits"`
+	Files           []CompareFile `json:"files"`
 }
 
 // ErrMergeRefused carries GitHub's reason for refusing a merge, such as branch

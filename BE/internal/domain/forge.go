@@ -108,8 +108,20 @@ type ForgeNewMergeRequest struct {
 // ForgePublisher opens and merges merge/pull requests. It is the extension
 // point for agent publishing on non-GitHub forges (and for Bitbucket); nothing
 // implements it yet.
+//
+// Merging follows the GitHub rule (KUA-194, BE/docs/agent-tasks.md "Merging
+// only up-to-date heads"): CI usually tests the source branch, so a merge
+// request merges only when its source branch contains the target branch's
+// current tip and the pipeline of that head passed. A source branch behind
+// its target is brought up to date with UpdateMergeRequestBranch and not
+// merged until CI has run on the new head; one that conflicts is sent back.
 type ForgePublisher interface {
 	OpenMergeRequest(ctx context.Context, conn *ForgeConnection, repo *ForgeRepo, in ForgeNewMergeRequest) (*ForgeMergeRequest, error)
+	// UpdateMergeRequestBranch brings the source branch up to date with the
+	// target branch (GitLab's rebase, Gitea and Forgejo's pull request update),
+	// refusing when the head is no longer expectedHead where the forge can
+	// check it.
+	UpdateMergeRequestBranch(ctx context.Context, conn *ForgeConnection, repo *ForgeRepo, number int, expectedHead string) error
 	MergeMergeRequest(ctx context.Context, conn *ForgeConnection, repo *ForgeRepo, number int) error
 }
 

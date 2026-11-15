@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -43,9 +44,9 @@ func TestCompareCommitsAndGetCommitReadAuthorsParentsAndTrees(t *testing.T) {
 	c := &Client{httpClient: &http.Client{Transport: commentTransport(func(r *http.Request) (*http.Response, error) {
 		switch r.URL.Path {
 		case "/repos/owner/repo/compare/aaa...bbb":
-			return commentResponse(200, `{"status":"ahead","total_commits":1,"commits":[{"sha":"bbb","commit":{"message":"Merge branch 'main'\n\nbody","author":{"name":"Maint"},"tree":{"sha":"t1"}},"author":{"login":"maintainer"},"parents":[{"sha":"aaa"},{"sha":"mmm"}]}]}`), nil
+			return commentResponse(200, `{"status":"ahead","total_commits":1,"merge_base_commit":{"sha":"aaa"},"commits":[{"sha":"bbb","commit":{"message":"Merge branch 'main'\n\nbody","author":{"name":"Maint"},"tree":{"sha":"t1"}},"author":{"login":"maintainer"},"parents":[{"sha":"aaa"},{"sha":"mmm"}]}]}`), nil
 		case "/repos/owner/repo/commits/aaa":
-			return commentResponse(200, `{"sha":"aaa","commit":{"tree":{"sha":"t1"}}}`), nil
+			return commentResponse(200, `{"sha":"aaa","commit":{"tree":{"sha":"t1"},"committer":{"name":"GitHub","date":"2026-11-15T10:00:00Z"}}}`), nil
 		}
 		return commentResponse(404, `{}`), nil
 	})}}
@@ -56,7 +57,9 @@ func TestCompareCommitsAndGetCommitReadAuthorsParentsAndTrees(t *testing.T) {
 	require.Len(t, commits[0].Parents, 2)
 	require.Equal(t, "maintainer", commits[0].Author.Login)
 	require.Equal(t, "t1", commits[0].Commit.Tree.SHA)
+	require.Equal(t, "aaa", comparison.MergeBaseCommit.SHA, "with nothing behind, the merge base is the base tip")
 	commit, err := c.GetCommit("secret", "owner", "repo", "aaa")
 	require.NoError(t, err)
 	require.Equal(t, "t1", commit.Commit.Tree.SHA)
+	require.Equal(t, time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC), commit.Commit.Committer.Date)
 }

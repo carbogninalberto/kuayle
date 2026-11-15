@@ -1243,7 +1243,10 @@ Development (`repository_merge_methods`, `GET/PUT /dev-machine-merge-methods`,
 admins only), otherwise the first method GitHub says the repository allows
 (squash, merge, rebase). The method is pinned in the approval; a configured method
 the repository disallows, a draft and a closed pull request are refused with
-their next step before asking.
+their next step before asking. Approving merges only a head that contains its
+base branch and whose checks passed: a branch behind its base is brought up to
+date instead of merged, and one that conflicts is refused with the next step
+([merging only up-to-date heads](agent-tasks.md#merging-only-up-to-date-heads)).
 
 ### Release tools
 
@@ -1367,7 +1370,8 @@ release card test in `UI/tests/e2e/assistant.test.ts`.
 approval for the whole chain, and the card lists every step before anything runs:
 
 1. **merge**: as `merge_pull_request`, at the head GitHub reported when the card
-   was offered, with the repository's merge method;
+   was offered, with the repository's merge method, after waiting (at most an
+   hour) while that head's checks are still running or not registered yet;
 2. **tests**: wait until every check of the merge commit on the default branch
    passed (the same reading as `create_release`'s gate; at most an hour);
 3. **release**: as `create_release` at the merge commit, with the tag and the

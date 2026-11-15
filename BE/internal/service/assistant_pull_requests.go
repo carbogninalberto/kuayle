@@ -521,6 +521,9 @@ func mergeRefusalMessage(reason, commit string) string {
 	switch {
 	case strings.Contains(lower, "head branch was modified"):
 		return "GitHub refused the merge because the pull request head moved after it was approved (" + shortSHA(commit) + "); ask again to review the new commit"
+	case baseMovedRefusal(reason):
+		// Checked before "review": GitHub's message says "Review and try again".
+		return truncateRunes("GitHub refused the merge: "+reason, 300) + " The base branch moved while GitHub was merging, so nothing was merged. Next step: ask to merge again; Kuayle brings the branch up to date first if it is behind"
 	case strings.Contains(lower, "draft"):
 		return "GitHub refused the merge: the pull request is a draft. Mark it ready for review (mark_pull_request_ready), then ask to merge again"
 	case strings.Contains(lower, "status check") || strings.Contains(lower, "checks"):
