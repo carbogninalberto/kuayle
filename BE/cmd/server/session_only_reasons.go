@@ -17,6 +17,7 @@ const (
 	reasonTokenManagement = "A token cannot mint, inspect or revoke tokens; those actions require the interactive sign-in."
 	reasonSignInSecrets   = "Sign-in credentials (passkeys, profile, avatar) stay interactive so a leaked token cannot add or read a way to sign in."
 	reasonInstanceUpdate  = "Updating the instance runs privileged host operations and stays an operator action."
+	reasonInstanceBackup  = "Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action."
 	reasonWorkspaceAdmin  = "Workspace creation, import and invite acceptance bind the signed-in account and stay interactive."
 	reasonAssistant       = "Assistant conversations, skills, tools and research run with the signed-in user's context and secrets."
 	reasonAgentRuntime    = "Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user."
@@ -35,6 +36,7 @@ var sessionOnlyReasons = []sessionOnlyReason{
 	{Method: "PATCH", PathPrefix: "/api/auth/me", Exact: true, Reason: reasonSignInSecrets},
 	{Method: "POST", PathPrefix: "/api/auth/me/avatar", Exact: true, Reason: reasonSignInSecrets},
 	{PathPrefix: "/api/system/update", Reason: reasonInstanceUpdate},
+	{PathPrefix: "/api/system/backups", Reason: reasonInstanceBackup},
 	{Method: "POST", PathPrefix: "/api/workspaces", Exact: true, Reason: reasonWorkspaceAdmin},
 	{Method: "POST", PathPrefix: "/api/workspaces/import", Reason: reasonWorkspaceAdmin},
 	{Method: "POST", PathPrefix: "/api/invite/", Reason: reasonWorkspaceAdmin},

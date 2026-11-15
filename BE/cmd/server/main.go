@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -40,6 +41,10 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "migrate" {
 		runMigrate(os.Args[2:])
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "backup" {
+		runBackupCommand(os.Args[2:])
 		return
 	}
 
@@ -284,6 +289,20 @@ func main() {
 	workspaceSvc.SetTeamIconStore(store)
 	workspaceSvc.SetLogoStore(store)
 	uploadH := handler.NewUploadHandler(store, assetRepo, issueRepo, cfg.JWTSecret)
+	backupDir, err := filepath.Abs(cfg.BackupDir)
+	if err != nil {
+		log.Fatalf("Invalid BACKUP_DIR: %v", err)
+	}
+	backupSvc := service.NewBackupService(repository.NewBackupRepository(db), notifSvc, service.BackupServiceConfig{
+		Dir:                 backupDir,
+		Timeout:             cfg.BackupTimeout,
+		DatabaseURL:         cfg.DatabaseURL,
+		AllowPrivateNetwork: cfg.BackupS3AllowPrivateNetwork,
+		SecretKey:           crypto.DeriveKey(cfg.JWTSecret + ":backup"),
+		Sysadmins:           cfg.SysadminIDs(),
+		AppVersion:          buildinfo.Version,
+	}, service.BackupUploadsFromBackend(store, cfg.Storage.LocalDir))
+	backupH := handler.NewBackupHandler(backupSvc, cfg.IsSysAdmin, backupDir)
 	wikiPublishSvc := service.NewWikiPublishService(repository.NewWikiRepository(db), sharedLinkRepo, workspaceRepo, cfg.JWTSecret)
 	uploadH.SetWikiPublicPages(wikiPublishSvc.PublicPageReachable)
 	assistantTools.SetWikiPublishing(wikiPublishSvc, workspaceRepo)
@@ -435,6 +454,7 @@ func main() {
 		mergeMethods:      handler.NewMergeMethodHandler(githubSvc),
 		analytics:         analyticsH,
 		system:            systemH,
+		backup:            backupH,
 		webhook:           webhookH,
 		sharedLink:        sharedLinkH,
 		upload:            uploadH,
@@ -464,6 +484,7 @@ func main() {
 	go agentTaskSvc.Run(conversationCtx)
 	go agentTaskSvc.RunNotifications(conversationCtx)
 	go wikiSvc.RunOverviewSchedules(conversationCtx)
+	go backupSvc.Run(conversationCtx)
 	go agentMessageSvc.Run(conversationCtx, 10*time.Second)
 	go automationSvc.Run(conversationCtx)
 	go agentAssigneeSvc.Run(conversationCtx)

@@ -10,6 +10,8 @@
 - [Forge integrations](forge-integrations.md): GitLab, Gitea and Forgejo
   connections, webhook setup, token scopes and network safety.
 - [Dev Machines](dev-machines.md): architecture, modes and machine sizes.
+- [Backups](backups.md): scheduled backups from Settings, S3 copies, client-side
+  encryption, the archive format, Verify and the restore procedure.
 
 ## Users
 

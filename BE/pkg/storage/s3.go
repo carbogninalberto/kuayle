@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,6 +23,9 @@ type S3Config struct {
 	Public     bool
 	PresignTTL time.Duration
 	CDNBaseURL string
+	// HTTPClient, when set, carries every request; callers use it to
+	// restrict where a user-configured endpoint may connect.
+	HTTPClient aws.HTTPClient
 }
 
 // S3Backend stores files in an S3-compatible object store.
@@ -38,10 +42,14 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 
 	creds := credentials.NewStaticCredentialsProvider(cfg.AccessKey, cfg.SecretKey, "")
 
-	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(),
+	options := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(cfg.Region),
 		awsconfig.WithCredentialsProvider(creds),
-	)
+	}
+	if cfg.HTTPClient != nil {
+		options = append(options, awsconfig.WithHTTPClient(cfg.HTTPClient))
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), options...)
 	if err != nil {
 		return nil, fmt.Errorf("loading aws config: %w", err)
 	}
@@ -72,6 +80,47 @@ func (b *S3Backend) Put(ctx context.Context, key string, r io.Reader, contentTyp
 		return 0, fmt.Errorf("s3 put: %w", err)
 	}
 	return cr.n, nil
+}
+
+// PutWithMetadata stores the content read from r under key with user
+// metadata (sent as x-amz-meta-* headers). Pass a seekable reader such as an
+// *os.File so the request can be signed over plain HTTP endpoints too.
+func (b *S3Backend) PutWithMetadata(ctx context.Context, key string, r io.Reader, contentType string, metadata map[string]string) error {
+	_, err := b.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(b.cfg.Bucket),
+		Key:         aws.String(key),
+		Body:        r,
+		ContentType: aws.String(contentType),
+		Metadata:    metadata,
+	})
+	if err != nil {
+		return fmt.Errorf("s3 put: %w", err)
+	}
+	return nil
+}
+
+// List returns every object whose key starts with prefix, following
+// pagination. It implements Lister.
+func (b *S3Backend) List(ctx context.Context, prefix string) ([]Object, error) {
+	var objects []Object
+	paginator := s3.NewListObjectsV2Paginator(b.client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(b.cfg.Bucket),
+		Prefix: aws.String(prefix),
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("s3 list: %w", err)
+		}
+		for _, item := range page.Contents {
+			objects = append(objects, Object{
+				Key:  aws.ToString(item.Key),
+				Size: aws.ToInt64(item.Size),
+				ETag: strings.Trim(aws.ToString(item.ETag), `"`),
+			})
+		}
+	}
+	return objects, nil
 }
 
 func (b *S3Backend) Get(ctx context.Context, key string) (io.ReadCloser, error) {

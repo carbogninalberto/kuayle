@@ -177,7 +177,8 @@ test('every stored notification type has a label, shared by the inbox and the br
 		'issue_updated',
 		'due_date_changed',
 		'label_added',
-		'cycle_changed'
+		'cycle_changed',
+		'backup_failed'
 	]) {
 		assert.equal(notificationTypeMessageKey(type), `inbox.type.${type}`);
 	}

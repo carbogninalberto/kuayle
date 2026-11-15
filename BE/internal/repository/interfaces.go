@@ -328,3 +328,23 @@ type CLILinkRepo interface {
 	Revoke(ctx context.Context, id, userID uuid.UUID) error
 	Redeem(ctx context.Context, codeHash string, build func(link *domain.CLIConnectionLink) (*domain.PersonalAccessToken, error)) (*domain.PersonalAccessToken, error)
 }
+
+// BackupRepo stores the instance backup settings, lease and run history.
+type BackupRepo interface {
+	GetSettings(ctx context.Context) (*domain.BackupSettings, error)
+	UpdateSettings(ctx context.Context, settings *domain.BackupSettings) error
+	ClaimSchedule(ctx context.Context, expected *time.Time, next time.Time) (bool, error)
+	AcquireLease(ctx context.Context, token uuid.UUID, ttl time.Duration) (bool, error)
+	RenewLease(ctx context.Context, token uuid.UUID, ttl time.Duration) (bool, error)
+	ReleaseLease(ctx context.Context, token uuid.UUID) error
+	CreateRun(ctx context.Context, run *domain.BackupRun) error
+	UpdateRun(ctx context.Context, run *domain.BackupRun) error
+	ListRuns(ctx context.Context, limit, offset int) ([]domain.BackupRun, error)
+	ListRetainable(ctx context.Context) ([]domain.BackupRun, error)
+	GetRun(ctx context.Context, id uuid.UUID) (*domain.BackupRun, error)
+	MarkDeleted(ctx context.Context, id uuid.UUID, at time.Time) error
+	MarkStaleRunning(ctx context.Context, before time.Time) (int64, error)
+	NotificationTarget(ctx context.Context, userID uuid.UUID) (workspaceID, teamID uuid.UUID, ok bool, err error)
+}
+
+var _ BackupRepo = (*BackupRepository)(nil)

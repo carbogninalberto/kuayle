@@ -9,12 +9,14 @@ RUN CGO_ENABLED=0 go build -ldflags "-X github.com/kuayle/kuayle-backend/interna
 
 FROM alpine:3.23
 ARG SECURITY_REFRESH=initial
-RUN apk upgrade --no-cache && apk add --no-cache ca-certificates && \
+# postgresql17-client provides pg_dump for Settings -> Backups; keep its major
+# version equal to the postgres image in selfhosting/docker-compose.yml.
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates postgresql17-client && \
     addgroup -S appgroup && adduser -S appuser -G appgroup
 WORKDIR /app
 COPY --from=builder /app/server .
 COPY --from=builder /app/migrations ./migrations
-RUN mkdir -p /app/uploads && chown -R appuser:appgroup /app
+RUN mkdir -p /app/uploads /app/backups && chmod 700 /app/backups && chown -R appuser:appgroup /app
 USER appuser
 EXPOSE 8080
 CMD ["./server"]

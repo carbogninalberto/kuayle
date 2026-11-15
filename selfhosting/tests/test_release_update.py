@@ -127,6 +127,54 @@ class ActivationTests(unittest.TestCase):
         self.assertTrue(self.updater.marker.exists())
         self.assertFalse(any(x[0] == 'start' for x in self.calls))
 
+    def record_calls(self):
+        return [x for x in self.calls if x[0] == 'exec' and 'record-backup' in x]
+
+    def test_pre_upgrade_backup_is_recorded_after_migrations(self):
+        inputs = []
+        original = self.updater.compose
+        def compose(*args, **kwargs):
+            if 'input' in kwargs:
+                inputs.append(kwargs['input'])
+            return original(*args, **kwargs)
+        self.updater.compose = compose
+        self.updater.activate(self.candidate, self.backup, False, ['backend'])
+        migrate = next(i for i, x in enumerate(self.calls) if 'migrate' in x)
+        record = next(i for i, x in enumerate(self.calls) if x[0] == 'exec' and 'record-backup' in x)
+        health = next(i for i, x in enumerate(self.calls) if x[0] == 'up')
+        self.assertLess(migrate, record)
+        self.assertLess(record, health)
+        args = self.calls[record]
+        variables = dict(args[i + 1].split('=', 1) for i, a in enumerate(args) if a == '-v' and '=' in args[i + 1])
+        dump = self.backup / 'database.dump'
+        self.assertEqual(variables['path'], str(dump))
+        self.assertEqual(variables['size'], str(len(b'database backup')))
+        import hashlib
+        self.assertEqual(variables['sha256'], hashlib.sha256(b'database backup').hexdigest())
+        # Values travel as psql variables, never inside the SQL text.
+        self.assertEqual(inputs, [m.RECORD_BACKUP_SQL.encode()])
+        self.assertNotIn(str(dump), m.RECORD_BACKUP_SQL)
+        self.assertIn(":'sha256'", m.RECORD_BACKUP_SQL)
+
+    def test_failing_to_record_the_backup_does_not_fail_the_update(self):
+        self.fail = lambda args: 'record-backup' in args
+        with patch.object(m, 'log') as logged:
+            self.updater.activate(self.candidate, self.backup, False, ['backend'])
+        self.assertTrue(any('backup history' in str(c) for c in logged.call_args_list))
+        self.assertEqual(sum(x[0] == 'up' and '--wait' in x for x in self.calls), 1)
+        self.assertFalse(self.updater.marker.exists())
+
+    def test_backup_is_not_recorded_when_the_dump_or_migration_fails(self):
+        self.fail = lambda args: args[0] == 'exec'
+        with self.assertRaises(RuntimeError):
+            self.updater.activate(self.candidate, self.backup, False, ['backend'])
+        self.assertEqual(self.record_calls(), [])
+        self.calls.clear()
+        self.fail = lambda args: 'migrate' in args
+        with self.assertRaises(RuntimeError):
+            self.updater.activate(self.candidate, self.backup, False, ['backend'])
+        self.assertEqual(self.record_calls(), [])
+
     def test_disabled_profile_is_never_started(self):
         self.updater.activate(self.candidate, self.backup, False, ['backend'])
         self.assertFalse(any('machine-gateway' in x or 'machine-manager' in x or 'machine-gateway-db-provision' in x for x in self.calls))

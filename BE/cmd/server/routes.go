@@ -92,6 +92,7 @@ type appHandlers struct {
 	mergeMethods      *handler.MergeMethodHandler
 	analytics         *handler.AnalyticsHandler
 	system            *handler.SystemHandler
+	backup            *handler.BackupHandler
 	webhook           *handler.WebhookHandler
 	sharedLink        *handler.SharedLinkHandler
 	upload            *handler.UploadHandler
@@ -188,6 +189,12 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(api, http.MethodDelete, "/cli-links/:id", h.cliLink.Revoke)
 	sessionOnly(api, http.MethodGet, "/system/update-status", h.system.UpdateStatus)
 	sessionOnly(api, http.MethodPost, "/system/update", h.system.StartUpdate)
+	sessionOnly(api, http.MethodGet, "/system/backups/settings", h.backup.GetSettings)
+	sessionOnly(api, http.MethodPut, "/system/backups/settings", h.backup.UpdateSettings)
+	sessionOnly(api, http.MethodPost, "/system/backups/test-connection", h.backup.TestConnection)
+	sessionOnly(api, http.MethodPost, "/system/backups/run", h.backup.RunNow)
+	sessionOnly(api, http.MethodGet, "/system/backups/runs", h.backup.ListRuns)
+	sessionOnly(api, http.MethodPost, "/system/backups/runs/:id/verify", h.backup.Verify)
 
 	// Workspaces (no workspace context needed for list/create)
 	scoped(api, http.MethodGet, "/workspaces", h.workspace.List, "workspaces:read")
