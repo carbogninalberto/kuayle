@@ -529,6 +529,7 @@
 	"issue.show_less": "Afișează mai puțin",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Subproblemă a",
+	"issue.sub_issues_deselected": "Subprobleme ascunse deselectate: {n}",
 	"issue.sub_issues_toggle": "Subprobleme ale {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Prompt AI copiat",
 	"issue.toast.branch_copied": "Branch copiat",

@@ -2,7 +2,16 @@
 	import type { Snippet } from 'svelte';
 	import * as Collapsible from '$lib/components/ui/collapsible';
 	import type { Issue } from '$lib/types/issue';
-	import { buildIssueTree, descendantIds, issueRowTrees, type IssueRowTree, type IssueTreeNode } from './issue-tree';
+	import { m } from '$lib/features/i18n/messages';
+	import { appToast } from '$lib/features/toast/toast';
+	import {
+		buildIssueTree,
+		descendantIds,
+		issueRowTrees,
+		selectedRowsHiddenByCollapse,
+		type IssueRowTree,
+		type IssueTreeNode
+	} from './issue-tree';
 	import { issuesState } from './issues.state.svelte';
 	import { subIssueTreeState } from './sub-issue-tree.state.svelte';
 
@@ -25,9 +34,17 @@
 		issueRowTrees(nodes, {
 			isExpanded: (id) => subIssueTreeState.expanded.has(id),
 			setExpanded: (node, open) => {
+				// Counted before collapsing: afterwards the hidden rows no longer read as selected.
+				const deselected = open
+					? 0
+					: selectedRowsHiddenByCollapse(node, subIssueTreeState.expanded, issuesState.selectedIds);
 				subIssueTreeState.setExpanded(node.issue.id, open);
-				// Bulk actions never include rows the user cannot see.
-				if (!open) issuesState.deselect(descendantIds(node));
+				if (open) return;
+				// Bulk actions never include rows the user cannot see; say so when that shrinks the selection.
+				issuesState.deselect(descendantIds(node));
+				if (deselected > 0) {
+					appToast.info(m['issue.sub_issues_deselected']({ n: deselected, s: deselected === 1 ? '' : 's' }));
+				}
 			}
 		})
 	);

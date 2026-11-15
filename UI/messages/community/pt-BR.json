@@ -529,6 +529,7 @@
 	"issue.show_less": "Mostrar menos",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Subtarefa de",
+	"issue.sub_issues_deselected": "Subtarefas ocultas desmarcadas: {n}",
 	"issue.sub_issues_toggle": "Subtarefas de {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Prompt de IA copiado",
 	"issue.toast.branch_copied": "Branch copiada",

@@ -529,6 +529,7 @@
 	"issue.show_less": "Показати менше",
 	"issue.status": "Статус",
 	"issue.sub_issue_of": "Підзавдання для",
+	"issue.sub_issues_deselected": "Знято виділення з прихованих підзавдань: {n}",
 	"issue.sub_issues_toggle": "Підзавдання {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "AI-промпт скопійовано",
 	"issue.toast.branch_copied": "Гілку скопійовано",

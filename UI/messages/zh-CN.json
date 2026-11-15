@@ -529,6 +529,7 @@
 	"issue.show_less": "收起",
 	"issue.status": "状态",
 	"issue.sub_issue_of": "子任务属于",
+	"issue.sub_issues_deselected": "已取消选择 {n} 个隐藏的子议题",
 	"issue.sub_issues_toggle": "{identifier} 的子议题（{count}）",
 	"issue.toast.ai_prompt_copied": "AI 提示词已复制",
 	"issue.toast.branch_copied": "分支已复制",

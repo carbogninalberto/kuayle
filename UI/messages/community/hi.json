@@ -529,6 +529,7 @@
 	"issue.show_less": "कम दिखाएँ",
 	"issue.status": "स्टेटस",
 	"issue.sub_issue_of": "इसका सब-इश्यू",
+	"issue.sub_issues_deselected": "छिपे हुए सब-इश्यू अचयनित किए गए: {n}",
 	"issue.sub_issues_toggle": "{identifier} के सब-इश्यू ({count})",
 	"issue.toast.ai_prompt_copied": "AI प्रॉम्प्ट कॉपी किया गया",
 	"issue.toast.branch_copied": "ब्रांच कॉपी की गई",

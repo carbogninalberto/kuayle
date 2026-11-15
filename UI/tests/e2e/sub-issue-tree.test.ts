@@ -264,6 +264,7 @@ test('Ctrl+A selects only rows on screen and collapsing a parent deselects its s
 	await expect(row('ENG-2')).toBeHidden();
 	await expect(selectedCount).toHaveText('2 selected');
 	await expect(tickedRows).toHaveCount(2);
+	await expect(page.getByText(/hidden sub-issues? deselected$/)).toHaveText('1 hidden sub-issue deselected');
 
 	// `x` toggles the row clicked last, ENG-2, which is now hidden: nothing changes.
 	await page.keyboard.press('x');
@@ -272,6 +273,38 @@ test('Ctrl+A selects only rows on screen and collapsing a parent deselects its s
 	await parentToggle.click();
 	await expect(row('ENG-2').getByRole('checkbox')).not.toBeChecked();
 	await expect(selectedCount).toHaveText('2 selected');
+});
+
+test('collapsing a parent says how many selected sub-issues it deselected, and only then', async ({ page }) => {
+	await mockTeamPage(page, selectionIssues);
+	await page.goto(`/test/teams/${teamId}`);
+	const row = (identifier: string) => page.getByRole('button', { name: identifier, exact: true });
+	const selectedCount = page.getByText(/^\d+ selected$/);
+	const deselected = page.getByText(/hidden sub-issues? deselected$/);
+	await expect(row('ENG-7')).toBeVisible();
+	await turnNestingOn(page);
+	const parentToggle = page.getByRole('button', { name: 'Sub-issues of ENG-1 (2)' });
+
+	// Only the parent and another row are selected: the collapse hides nothing selected.
+	await parentToggle.click();
+	await row('ENG-1').getByRole('checkbox').click();
+	await row('ENG-7').getByRole('checkbox').click();
+	await expect(selectedCount).toHaveText('2 selected');
+	await parentToggle.click();
+	await expect(row('ENG-2')).toBeHidden();
+	await expect(selectedCount).toHaveText('2 selected');
+
+	// With both sub-issues selected, the collapse deselects them and says so.
+	await parentToggle.click();
+	await row('ENG-2').getByRole('checkbox').click();
+	await row('ENG-3').getByRole('checkbox').click();
+	await expect(selectedCount).toHaveText('4 selected');
+	await parentToggle.click();
+	await expect(row('ENG-2')).toBeHidden();
+	await expect(selectedCount).toHaveText('2 selected');
+	await expect(deselected).toHaveText('2 hidden sub-issues deselected');
+	// A toast stays up for seconds, so a toast from the first collapse would still be listed here.
+	await expect(deselected).toHaveCount(1);
 });
 
 test('Remove from project counts only selected rows on screen', async ({ page }) => {

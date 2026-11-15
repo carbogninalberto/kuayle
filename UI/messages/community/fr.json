@@ -529,6 +529,7 @@
 	"issue.show_less": "Afficher moins",
 	"issue.status": "Statut",
 	"issue.sub_issue_of": "Sous-ticket de",
+	"issue.sub_issues_deselected": "Sous-tickets masqués désélectionnés : {n}",
 	"issue.sub_issues_toggle": "Sous-tickets de {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Prompt IA copié",
 	"issue.toast.branch_copied": "Branche copiée",

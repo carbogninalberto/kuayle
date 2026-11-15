@@ -529,6 +529,7 @@
 	"issue.show_less": "Weniger anzeigen",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Sub-Issue von",
+	"issue.sub_issues_deselected": "Ausgeblendete Sub-Issues abgewählt: {n}",
 	"issue.sub_issues_toggle": "Sub-Issues von {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "KI-Prompt kopiert",
 	"issue.toast.branch_copied": "Branch kopiert",
