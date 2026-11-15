@@ -157,6 +157,12 @@ type Runtime interface {
 	// nobody else pushed: it returns that tip as the lease for a guarded force
 	// push and leaves the checkout alone.
 	SyncCheckout(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, token, published string) (lease string, err error)
+	// PublishCheckout commits and pushes the checkout's task branch. It returns
+	// the pushed commit, or "" when the push step found nothing to publish
+	// against the base as it is on GitHub. It returns ErrPublishedWorkRemains
+	// instead when the branch has nothing new to publish but GitHub's task
+	// branch still holds work an earlier publication put there, which the agent
+	// has since removed: nothing is pushed then.
 	PublishCheckout(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, PublishRequest) (string, error)
 	Spawn(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) (string, string, map[string]string, error)
 	Start(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) error

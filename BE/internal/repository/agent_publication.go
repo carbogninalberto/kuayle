@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -130,7 +131,10 @@ func (r *DevMachineRepository) StartPublication(ctx context.Context, op domain.D
 }
 
 // CompletePublication records GitHub's results with the step outcome. Branch,
-// commit and pull request references commit in the same transaction.
+// commit and pull request references commit in the same transaction. An empty
+// commit means the branch added nothing to its base: the step is skipped, and
+// its summary says so, or says that the task's open pull request still holds
+// work the agent removed (result.Remains).
 func (r *DevMachineRepository) CompletePublication(ctx context.Context, op domain.DevMachineOperation, result domain.AgentPublicationResult) error {
 	tx, task, step, err := r.taskStepTransaction(ctx, op, publicationPhase)
 	if err != nil {
@@ -141,7 +145,21 @@ func (r *DevMachineRepository) CompletePublication(ctx context.Context, op domai
 		return ErrAgentTaskConflict
 	}
 	if result.Commit == "" {
-		if err = tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status='skipped',completed_at=now(),summary='The iteration produced no changes to publish' WHERE id=$1 RETURNING *`, step.ID); err != nil {
+		// The summary names the base the branch was compared with, from the
+		// task's checkout, never from the operation's result.
+		var checkout struct {
+			BaseBranch sql.NullString `db:"base_branch"`
+		}
+		if err = tx.GetContext(ctx, &checkout, `SELECT c.base_branch FROM dev_machine_agent_runs r JOIN dev_machine_checkouts c ON c.id=r.checkout_id AND c.workspace_id=r.workspace_id WHERE r.id=$1`, step.AgentRunID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		summary := domain.NoChangesReason(checkout.BaseBranch.String)
+		// Remains without an open pull request is nothing to publish: no pull
+		// request holds the removed work any more.
+		if result.Remains && strings.TrimSpace(result.PullRequestURL) != "" {
+			summary = domain.PublishedWorkRemainsReason(result.PullRequestURL)
+		}
+		if err = tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status='skipped',completed_at=now(),summary=$2 WHERE id=$1 RETURNING *`, step.ID, summary); err != nil {
 			return err
 		}
 	} else {

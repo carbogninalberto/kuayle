@@ -958,6 +958,9 @@
 						</div>
 					{:else if selectedEdge}
 						{@const edge = selectedEdge}
+						{@const elseFromPublish =
+							edge.condition === 'else' &&
+							graph.nodes.find((n) => n.id === edge.source)?.type === 'publish'}
 						<div class="space-y-4" data-testid="workflow-edge-inspector">
 							<div class="flex items-center gap-2 text-sm font-medium">
 								<span class="truncate">{nodeName(edge.source)}</span>
@@ -973,11 +976,17 @@
 										(value: string) => change(updateEdge(graph, edge.id, { condition: value as WorkflowCondition }))
 									}
 									disabled={!editable}
+									aria-describedby={elseFromPublish ? 'edge-condition-help' : undefined}
 									options={[
 										edge.condition,
 										...sourceConditions(edge.source, edge.id).filter((c) => c !== edge.condition)
 									].map((c) => ({ value: c, label: conditionLabel(c) }))}
 								/>
+								{#if elseFromPublish}
+									<p id="edge-condition-help" class="text-xs text-muted-foreground">
+										{m['workflows.editor.else_no_changes_help']()}
+									</p>
+								{/if}
 							</div>
 							{#if editable}<div class="border-t pt-3">
 									<Button

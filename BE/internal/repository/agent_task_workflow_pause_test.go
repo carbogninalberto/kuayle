@@ -357,6 +357,32 @@ func TestWorkflowPauseAfterThisStepParksBeforeTheNextStep(t *testing.T) {
 	require.NotNil(t, f.claim())
 }
 
+// A task that blocks drops a pause request that had not taken effect: the
+// blocked task already waits for a person, so nothing is left to stop.
+func TestABlockedPublicationDropsAPendingPause(t *testing.T) {
+	f := newPauseFixture(t)
+	before := f.current()
+	f.exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now(),exit_code=0 WHERE id=$1`, before.RunID)
+	claimed := f.claim()
+	require.NotNil(t, claimed)
+	_, err := f.repo.ApplyWorkflow(f.ctx, *claimed, f.toPublish(*claimed))
+	require.NoError(t, err)
+	require.Equal(t, "publishing", f.current().State)
+
+	_, err = f.repo.PauseWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowPauseAfterStep)
+	require.NoError(t, err)
+	claimed = f.claim()
+	require.NotNil(t, claimed)
+	require.NotNil(t, claimed.WorkflowPauseRequest)
+	require.NoError(t, f.repo.Transition(f.ctx, *claimed, "blocked", domain.PublishedWorkRemainsReason("https://github.com/acme/app/pull/12")))
+	blocked := f.current()
+	require.Equal(t, "blocked", blocked.State)
+	require.Nil(t, blocked.WorkflowPauseRequest)
+	require.Nil(t, blocked.WorkflowPausedAt)
+	_, err = f.repo.ResumeWorkflow(f.ctx, f.ws, f.task.ID)
+	require.ErrorIs(t, err, ErrAgentTaskConflict, "nothing left to resume or withdraw")
+}
+
 // A pause and the step that finishes at the same moment never both win: the
 // step is applied and the pause waits for the next one, or the pause stops
 // the attempt and the step is refused.

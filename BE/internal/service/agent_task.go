@@ -278,7 +278,10 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			s.notePublished(ctx, task)
 			return nil
 		case domain.DevMachineAgentRunStepStatusSkipped:
-			return s.store.Transition(ctx, task, "blocked", "The iteration produced no changes to publish")
+			// Blocked, so a person can continue the task with new instructions.
+			// The summary says either that the branch added nothing to its base,
+			// or that GitHub's branch still holds work the agent removed.
+			return s.store.Transition(ctx, task, "blocked", publicationSkippedReason(result))
 		case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
 			return s.store.Transition(ctx, task, "blocked", "Publishing failed; check the repository connection and retry")
 		}
@@ -1325,7 +1328,10 @@ func (s *AgentTaskService) workflowValidated(ctx context.Context, task domain.Ag
 	return nil
 }
 
-// workflowPublished reports the publication's result to the workflow.
+// workflowPublished reports the publication's result to the workflow:
+// published, publish_failed, or no_changes when the branch had nothing to
+// publish. A branch that still holds work the agent removed blocks the task
+// instead: the workflow does not move.
 func (s *AgentTaskService) workflowPublished(ctx context.Context, task domain.AgentTask, result *domain.DevMachineAgentRunStep) error {
 	if s.workflow == nil {
 		return ErrInvalidOperation
@@ -1338,11 +1344,28 @@ func (s *AgentTaskService) workflowPublished(ctx context.Context, task domain.Ag
 		s.notePublished(ctx, task)
 		return nil
 	case domain.DevMachineAgentRunStepStatusSkipped:
-		return s.workflow.Outcome(ctx, task, domain.WorkflowPublishFailed, "The iteration produced no changes to publish")
+		reason := publicationSkippedReason(result)
+		if domain.IsPublishedWorkRemainsReason(reason) {
+			// The workflow's publish step stays open, so a retry continues on
+			// the implementing step: finishing would leave the earlier work
+			// published while the task looks done. Blocking also drops a pause
+			// request that had not taken effect.
+			return s.store.Transition(ctx, task, "blocked", reason)
+		}
+		return s.workflow.Outcome(ctx, task, domain.WorkflowNoChanges, reason)
 	case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
 		return s.workflow.Outcome(ctx, task, domain.WorkflowPublishFailed, "Publishing failed; check the repository connection")
 	}
 	return nil
+}
+
+// publicationSkippedReason is why a publication published nothing, as the
+// step recorded it (the base branch named), or a generic reason.
+func publicationSkippedReason(result *domain.DevMachineAgentRunStep) string {
+	if result.Summary != nil && strings.TrimSpace(*result.Summary) != "" {
+		return *result.Summary
+	}
+	return domain.NoChangesReason("")
 }
 
 // SetWorkflows enables configurable workflows: tasks that pin a workflow

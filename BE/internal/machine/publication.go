@@ -98,11 +98,30 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token, PublishedCommit: publication.PublishedCommit, Lease: lease,
 		Message: title + "\n\nKuayle agent task " + run.TaskID.String(),
 	})
-	if err != nil {
+	remains := errors.Is(err, ErrPublishedWorkRemains)
+	if err != nil && !remains {
 		return errors.New("publication_failed: " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
 	}
 	result := domain.AgentPublicationResult{}
-	if commit != "" {
+	if remains {
+		// Nothing was pushed, so the earlier work stays on the branch and in its
+		// pull request. An open pull request is named, for the reason that
+		// blocks the task: none is created, updated or readied here. Without
+		// one, nothing is in a pull request any more (the pull request was
+		// squash-merged and closed, and the old branch now conflicts with the
+		// base), so this records what a run with nothing to publish records.
+		pullRequest, prErr := githubAPI.FindOpenPullRequest(token, owner, repository, checkout.WorkingBranch, checkout.BaseBranch)
+		if prErr != nil {
+			return errors.New("pull_request_failed: " + strings.ReplaceAll(safeError(prErr), token, "[redacted]"))
+		}
+		if pullRequest != nil {
+			safeURL, valid := safeGitHubPullRequestURL(pullRequest.HTMLURL, checkout.RepositoryFullName)
+			if !valid {
+				return &terminalOperationError{code: "pull_request_invalid", message: "GitHub returned an unexpected pull request URL"}
+			}
+			result = domain.AgentPublicationResult{Branch: checkout.WorkingBranch, Remains: true, PullRequestURL: safeURL}
+		}
+	} else if commit != "" {
 		body := publication.Bot.Signature(m.frontendURL) + publicationBody(publication, run)
 		pullRequest, prErr := githubAPI.FindOpenPullRequest(token, owner, repository, checkout.WorkingBranch, checkout.BaseBranch)
 		if prErr == nil && pullRequest == nil {

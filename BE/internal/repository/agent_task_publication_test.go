@@ -165,7 +165,51 @@ func TestPublicationWithoutChangesIsSkippedNotReviewable(t *testing.T) {
 	step, err := repo.EnsurePublication(ctx, *claimed)
 	require.NoError(t, err)
 	require.Equal(t, domain.DevMachineAgentRunStepStatusSkipped, step.Status)
+	require.NotNil(t, step.Summary)
+	require.Equal(t, domain.NoChangesReason("main"), *step.Summary, "the summary names the checkout's base branch")
 	require.ErrorIs(t, repo.Transition(ctx, *claimed, "awaiting_review", "Nothing published"), ErrAgentTaskConflict)
+}
+
+// KUA-176: an earlier publication put work on the branch that the agent has
+// since removed. Nothing is pushed, so the step is skipped with a reason that
+// names the open pull request, never the publication result's branch.
+func TestPublicationWithRemovedWorkStillPublishedIsSkippedWithItsReason(t *testing.T) {
+	db, repo, ctx, task, claimed := publishingTask(t)
+	_, err := repo.EnsurePublication(ctx, *claimed)
+	require.NoError(t, err)
+	store := NewDevMachineRepository(db)
+	op := leasePublication(t, store, ctx)
+	require.NoError(t, store.StartPublication(ctx, op))
+	require.NoError(t, store.CompletePublication(ctx, op, domain.AgentPublicationResult{Remains: true, Branch: "attacker/branch", PullRequestURL: "https://github.com/acme/app/pull/12"}))
+	require.NoError(t, store.CompleteOperation(ctx, op.ID, *op.LeaseOwner))
+	step, err := repo.EnsurePublication(ctx, *claimed)
+	require.NoError(t, err)
+	require.Equal(t, domain.DevMachineAgentRunStepStatusSkipped, step.Status)
+	require.NotNil(t, step.Summary)
+	require.Equal(t, domain.PublishedWorkRemainsReason("https://github.com/acme/app/pull/12"), *step.Summary)
+	require.NotContains(t, *step.Summary, "attacker/branch")
+	var refs int
+	require.NoError(t, db.Get(&refs, `SELECT count(*) FROM dev_machine_git_refs WHERE agent_run_id=$1`, task.RunID))
+	require.Zero(t, refs, "nothing was pushed, so nothing is recorded as published")
+	require.ErrorIs(t, repo.Transition(ctx, *claimed, "awaiting_review", "Nothing new published"), ErrAgentTaskConflict)
+}
+
+// A publication that would report removed work without an open pull request
+// has nothing to report: without a pull request, the branch is simply stale.
+func TestPublicationThatRemainsWithoutAPullRequestHasNothingToPublish(t *testing.T) {
+	db, repo, ctx, _, claimed := publishingTask(t)
+	_, err := repo.EnsurePublication(ctx, *claimed)
+	require.NoError(t, err)
+	store := NewDevMachineRepository(db)
+	op := leasePublication(t, store, ctx)
+	require.NoError(t, store.StartPublication(ctx, op))
+	require.NoError(t, store.CompletePublication(ctx, op, domain.AgentPublicationResult{Remains: true, Branch: "kuayle/rec-1"}))
+	require.NoError(t, store.CompleteOperation(ctx, op.ID, *op.LeaseOwner))
+	step, err := repo.EnsurePublication(ctx, *claimed)
+	require.NoError(t, err)
+	require.Equal(t, domain.DevMachineAgentRunStepStatusSkipped, step.Status)
+	require.NotNil(t, step.Summary)
+	require.Equal(t, domain.NoChangesReason("main"), *step.Summary)
 }
 
 func TestExhaustedPublicationFailsInsteadOfWaiting(t *testing.T) {
