@@ -10,13 +10,18 @@
 // whether the tab shows what the event is about, so the winner knows when the
 // user already looks at it in another tab. The election and
 // the storage helpers are pure; the browser objects are injected.
+//
+// A tab on a slow machine can miss that window entirely, so the winner passes
+// a final exclusive gate before announcing: a Web Lock held for the event's
+// memory span. A late winner in another tab then finds the lock taken, while a
+// closed tab releases it.
 
 import type { NotificationEventPayload } from './notification-policy.ts';
 
 export const COORDINATION_CHANNEL = 'kuayle-notifications';
 export const COORDINATION_WINDOW_MS = 150;
 /** How long a finished event is remembered, for copies that arrive late. */
-const EVENT_MEMORY_MS = 60_000;
+export const EVENT_MEMORY_MS = 60_000;
 const SOUND_STORAGE_PREFIX = 'kuayle-notification-sound:';
 
 export interface TabClaim {
@@ -72,6 +77,15 @@ export function anyTabShowsSubject(claims: readonly TabClaim[]): boolean {
 	return claims.some((claim) => claim.visible && !!claim.subjectOnScreen);
 }
 
+/** A gate that fails leaves the elected tab announcing, as without a gate. */
+async function holdsClaim(claimEvent: (eventId: string) => Promise<boolean>, eventId: string): Promise<boolean> {
+	try {
+		return (await claimEvent(eventId)) === true;
+	} catch {
+		return true;
+	}
+}
+
 export interface CoordinationResult {
 	/** This tab announces the event; no other tab does. */
 	act: boolean;
@@ -102,6 +116,12 @@ export interface NotificationCoordinatorOptions {
 	windowMs?: number;
 	wait?: (ms: number) => Promise<void>;
 	now?: () => number;
+	/**
+	 * The exclusive right to announce an event: true in the one tab that holds
+	 * it, false when another tab does. Settles the case where claim windows
+	 * close before the other tabs' claims arrive.
+	 */
+	claimEvent?: (eventId: string) => Promise<boolean>;
 }
 
 interface EventState {
@@ -178,7 +198,11 @@ export function createNotificationCoordinator(options: NotificationCoordinatorOp
 		}
 	}
 
-	async function elect(eventId: string, subject: string | null | undefined, state: EventState): Promise<CoordinationResult> {
+	async function elect(
+		eventId: string,
+		subject: string | null | undefined,
+		state: EventState
+	): Promise<CoordinationResult> {
 		const visibleNow = isVisible();
 		const own: TabClaim = {
 			tabId,
@@ -195,6 +219,9 @@ export function createNotificationCoordinator(options: NotificationCoordinatorOp
 		const subjectOnScreen = anyTabShowsSubject(claims);
 		if (state.done || electWinner(claims) !== tabId) return { act: false, visible, subjectOnScreen };
 		state.done = true;
+		if (options.claimEvent && !(await holdsClaim(options.claimEvent, eventId))) {
+			return { act: false, visible, subjectOnScreen };
+		}
 		post({ kind: 'done', eventId, tabId });
 		return { act: true, visible, subjectOnScreen };
 	}
@@ -245,6 +272,55 @@ export function newTabId(): string {
 		return globalThis.crypto.randomUUID();
 	} catch {
 		return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+	}
+}
+
+/** The slice of the Web Locks API this file uses. */
+export interface ExclusiveLockManager {
+	request(
+		name: string,
+		options: { ifAvailable: true },
+		callback: (lock: unknown) => Promise<void> | void
+	): Promise<unknown>;
+}
+
+/**
+ * An event claim backed by a Web Lock: the tab that takes the lock announces
+ * the event, and a late winner in another tab finds it taken. The lock is held
+ * for the event's memory span, and a closed tab releases it automatically.
+ * Null where the browser has no Web Locks, leaving the election alone.
+ */
+export function webLockEventClaimer(
+	locks: ExclusiveLockManager | null | undefined,
+	holdMs = EVENT_MEMORY_MS
+): ((eventId: string) => Promise<boolean>) | null {
+	if (!locks) return null;
+	return (eventId) =>
+		new Promise<boolean>((resolve) => {
+			try {
+				void locks
+					.request(`kuayle-notification:${eventId}`, { ifAvailable: true }, (lock) => {
+						if (!lock) {
+							resolve(false);
+							return;
+						}
+						resolve(true);
+						return new Promise<void>((release) => setTimeout(release, holdMs));
+					})
+					// A gate that cannot run leaves the winner acting, as without a gate.
+					.catch(() => resolve(true));
+			} catch {
+				resolve(true);
+			}
+		});
+}
+
+/** navigator.locks, or null where it is missing or reading it throws. */
+export function browserLocks(): ExclusiveLockManager | null {
+	try {
+		return (globalThis as { navigator?: { locks?: ExclusiveLockManager } }).navigator?.locks ?? null;
+	} catch {
+		return null;
 	}
 }
 
