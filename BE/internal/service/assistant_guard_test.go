@@ -426,7 +426,8 @@ func TestPreflightUsesTheRealMergePolicy(t *testing.T) {
 	access := &accessFake{gap: newGitHubAccessGap([]domain.GitHubPermissionNeed{{Name: "contents", Level: "write"}}, "https://github.com/settings/apps/x/permissions")}
 	gap := preflightGitHub(context.Background(), access, uuid.New(), "merge_pull_request")
 	require.Equal(t, access.gap, gap)
-	require.Equal(t, map[string]string{"pull_requests": "write", "contents": "write"}, access.asked)
+	// Merging reads the head's checks and may update the branch first.
+	require.Equal(t, map[string]string{"pull_requests": "write", "contents": "write", "checks": "read", "statuses": "read"}, access.asked)
 }
 
 func auditEvents(t *testing.T, run func()) []*logrus.Entry {

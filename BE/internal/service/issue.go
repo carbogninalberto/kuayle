@@ -117,6 +117,22 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		}
 	}
 
+	// The new issue's status: status_id when it is one of the team's, else
+	// the status the caller names, else the team's backlog.
+	var chosenStatus *domain.TeamStatus
+	if req.StatusID != nil {
+		if sid, err := uuid.Parse(*req.StatusID); err == nil {
+			if ts, _ := s.teamStatusRepo.GetByID(ctx, sid); ts != nil && ts.TeamID == teamID {
+				chosenStatus = ts
+			}
+		}
+	}
+	if chosenStatus == nil && strings.TrimSpace(req.Status) != "" {
+		if chosenStatus, err = s.statusByName(ctx, teamID, req.Status); err != nil {
+			return nil, err
+		}
+	}
+
 	tx, err := s.issueRepo.BeginTx(ctx)
 	if err != nil {
 		return nil, err
@@ -140,11 +156,6 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 	}
 	identifier := fmt.Sprintf("%s-%d", teamKey, number)
 
-	status := domain.IssueStatusBacklog
-	if req.Status != "" {
-		status = domain.IssueStatus(req.Status)
-	}
-
 	priority := domain.IssuePriority(0)
 	if req.Priority != nil {
 		priority = domain.IssuePriority(*req.Priority)
@@ -165,7 +176,7 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		Identifier:  identifier,
 		Title:       req.Title,
 		Description: req.Description,
-		Status:      status,
+		Status:      domain.IssueStatusBacklog,
 		Priority:    priority,
 		CreatorID:   creatorID,
 		SortOrder:   -float64(number) * 1000,
@@ -198,24 +209,11 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		}
 	}
 
-	// Resolve status_id
-	if req.StatusID != nil {
-		sid, err := uuid.Parse(*req.StatusID)
-		if err == nil {
-			// Validate that the status belongs to the same team
-			ts, _ := s.teamStatusRepo.GetByID(ctx, sid)
-			if ts != nil && ts.TeamID == teamID {
-				issue.StatusID = &sid
-				issue.Status = domain.IssueStatus(ts.Slug)
-			}
-		}
-	}
-	if issue.StatusID == nil {
-		// Look up the matching team_status by slug
-		ts, err := s.teamStatusRepo.GetByTeamAndSlug(ctx, teamID, string(status))
-		if err == nil && ts != nil {
-			issue.StatusID = &ts.ID
-		}
+	if chosenStatus != nil {
+		issue.StatusID = &chosenStatus.ID
+		issue.Status = domain.IssueStatus(chosenStatus.Slug)
+	} else if ts, err := s.teamStatusRepo.GetByTeamAndSlug(ctx, teamID, string(issue.Status)); err == nil && ts != nil {
+		issue.StatusID = &ts.ID
 	}
 
 	if err := s.issueRepo.Create(ctx, tx, issue); err != nil {
@@ -503,6 +501,17 @@ func (s *IssueService) update(ctx context.Context, workspaceID, userID uuid.UUID
 	// The values before the edit, for its undo.
 	before := *issue
 
+	// A status name becomes the ID of that team status, so the status and
+	// its legacy slug are written together; status_id wins when both are sent.
+	if req.StatusID == nil && req.Status != nil && strings.TrimSpace(*req.Status) != "" {
+		status, err := s.statusByName(ctx, issue.TeamID, *req.Status)
+		if err != nil {
+			return nil, err
+		}
+		id := status.ID.String()
+		req.StatusID = &id
+	}
+
 	// Validate all changed references before recording any history or changing
 	// junction rows. The repository repeats this check in the final SQL write.
 	if validator, ok := s.issueRepo.(interface {
@@ -614,17 +623,6 @@ func (s *IssueService) update(ctx context.Context, workspaceID, userID uuid.UUID
 					statusChanged = false
 				}
 			}
-		}
-	} else if req.Status != nil && *req.Status != string(issue.Status) {
-		old := string(issue.Status)
-		issue.Status = domain.IssueStatus(*req.Status)
-		statusChanged = true
-		s.recordHistory(ctx, issue.ID, userID, "status", &old, req.Status)
-		changes.addField("status")
-		// Also update status_id to match the new legacy status slug
-		ts, err := s.teamStatusRepo.GetByTeamAndSlug(ctx, issue.TeamID, *req.Status)
-		if err == nil && ts != nil {
-			issue.StatusID = &ts.ID
 		}
 	}
 	if req.Priority != nil && domain.IssuePriority(*req.Priority) != issue.Priority {
@@ -1468,6 +1466,40 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID, userID uuid.
 	}
 
 	return n, nil
+}
+
+// statusByName returns the team status a caller names: the one whose name
+// matches, ignoring case and surrounding spaces, or else the one with that
+// slug, which keeps legacy values such as "in_progress" working. A name is
+// never resolved through its category, which several statuses can share.
+func (s *IssueService) statusByName(ctx context.Context, teamID uuid.UUID, name string) (*domain.TeamStatus, error) {
+	statuses, err := s.teamStatusRepo.ListByTeam(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	name = strings.TrimSpace(name)
+	var named []*domain.TeamStatus
+	for i := range statuses {
+		if strings.EqualFold(strings.TrimSpace(statuses[i].Name), name) {
+			named = append(named, &statuses[i])
+		}
+	}
+	switch {
+	case len(named) == 1:
+		return named[0], nil
+	case len(named) > 1:
+		return nil, fmt.Errorf("status %q names more than one of this team's statuses; use status_id", truncateRunes(name, 100))
+	}
+	for i := range statuses {
+		if strings.EqualFold(statuses[i].Slug, name) {
+			return &statuses[i], nil
+		}
+	}
+	names := make([]string, len(statuses))
+	for i, status := range statuses {
+		names[i] = status.Name
+	}
+	return nil, fmt.Errorf("status %q is not one of this team's statuses: %s", truncateRunes(name, 100), strings.Join(names, ", "))
 }
 
 func (s *IssueService) recordHistory(ctx context.Context, issueID, userID uuid.UUID, field string, oldValue, newValue *string) {

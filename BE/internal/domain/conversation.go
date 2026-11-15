@@ -262,6 +262,9 @@ type FollowUpPayload struct {
 	// ModelServerID is the task's model server (nil: the workspace default), so
 	// the card opens on the server that runs CurrentModel.
 	ModelServerID *uuid.UUID `json:"model_server_id,omitempty"`
+	// MergedPullRequest is the issue's merged work the follow-up runs the agent
+	// past, shown on the card; approving the card confirms it (KUA-193).
+	MergedPullRequest *MergedPullRequest `json:"merged_pull_request,omitempty"`
 }
 
 // AppPortAudienceOwner means only the machine's owner, signed in to Kuayle,

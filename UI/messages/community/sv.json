@@ -529,6 +529,7 @@
 	"issue.show_less": "Visa mindre",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Underärende till",
+	"issue.sub_issues_deselected": "Dolda underärenden avmarkerade: {n}",
 	"issue.sub_issues_toggle": "Underärenden till {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "AI-prompten kopierades",
 	"issue.toast.branch_copied": "Branchen kopierades",
@@ -4226,5 +4227,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "Arbetet med det här ärendet sammanfogades i #{number}. Försöka igen ändå?",
+	"tasks.merged_work_body": "Om agenten körs igen kan den göra om eller ångra arbete som redan är sammanfogat.",
+	"tasks.merged_work_link": "Visa pull request #{number}",
+	"tasks.merged_work_confirm": "Försök igen ändå",
+	"assistant.follow_up_merged": "Arbetet med det här ärendet sammanfogades i #{number}. Ett godkännande kör agenten igen ändå."
 }

@@ -529,6 +529,7 @@
 	"issue.show_less": "Näytä vähemmän",
 	"issue.status": "Tila",
 	"issue.sub_issue_of": "Aliissue kohteelle",
+	"issue.sub_issues_deselected": "Piilotettujen aliissueiden valinta poistettu: {n}",
 	"issue.sub_issues_toggle": "Aliissuet kohteelle {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Tekoälyprompt kopioitu",
 	"issue.toast.branch_copied": "Haara kopioitu",
@@ -4226,5 +4227,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "Tämän issuen työ yhdistettiin pull requestissa #{number}. Yritetäänkö silti uudelleen?",
+	"tasks.merged_work_body": "Agentin ajaminen uudelleen voi tehdä jo yhdistetyn työn uudestaan tai kumota sen.",
+	"tasks.merged_work_link": "Näytä pull request #{number}",
+	"tasks.merged_work_confirm": "Yritä silti uudelleen",
+	"assistant.follow_up_merged": "Tämän issuen työ yhdistettiin pull requestissa #{number}. Hyväksyminen ajaa agentin silti uudelleen."
 }

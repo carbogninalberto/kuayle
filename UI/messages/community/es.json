@@ -529,6 +529,7 @@
 	"issue.show_less": "Mostrar menos",
 	"issue.status": "Estado",
 	"issue.sub_issue_of": "Subincidencia de",
+	"issue.sub_issues_deselected": "Subincidencias ocultas deseleccionadas: {n}",
 	"issue.sub_issues_toggle": "Subincidencias de {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Prompt de IA copiado",
 	"issue.toast.branch_copied": "Rama copiada",
@@ -4226,5 +4227,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "El trabajo de esta incidencia se fusionó en #{number}. ¿Reintentar de todos modos?",
+	"tasks.merged_work_body": "Volver a ejecutar el agente puede rehacer o deshacer trabajo que ya está fusionado.",
+	"tasks.merged_work_link": "Ver la pull request #{number}",
+	"tasks.merged_work_confirm": "Reintentar de todos modos",
+	"assistant.follow_up_merged": "El trabajo de esta incidencia se fusionó en #{number}. Al aprobar, el agente se vuelve a ejecutar de todos modos."
 }

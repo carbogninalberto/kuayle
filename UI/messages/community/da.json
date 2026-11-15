@@ -529,6 +529,7 @@
 	"issue.show_less": "Vis mindre",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Underissue af",
+	"issue.sub_issues_deselected": "Skjulte underissues fravalgt: {n}",
 	"issue.sub_issues_toggle": "Underissues af {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "AI-prompt kopieret",
 	"issue.toast.branch_copied": "Branch kopieret",
@@ -4226,5 +4227,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "Arbejdet på denne issue blev flettet i #{number}. Prøv igen alligevel?",
+	"tasks.merged_work_body": "Hvis agenten kører igen, kan den gentage eller fortryde arbejde, der allerede er flettet.",
+	"tasks.merged_work_link": "Vis pull request #{number}",
+	"tasks.merged_work_confirm": "Prøv igen alligevel",
+	"assistant.follow_up_merged": "Arbejdet på denne issue blev flettet i #{number}. Godkendelse kører agenten igen alligevel."
 }

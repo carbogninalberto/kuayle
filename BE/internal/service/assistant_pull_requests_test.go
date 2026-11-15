@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -62,6 +63,10 @@ type prGitHub struct {
 	replied                           string
 	statusCalls                       int
 	coverage                          ChecksCoverage
+	// commitChecks and committed answer CommitChecks and CommitDate by
+	// SHA; a commit not listed has no checks and is long committed.
+	commitChecks map[string][]PullRequestCheck
+	committed    map[string]time.Time
 }
 
 func (f *prGitHub) PullRequestStatus(context.Context, uuid.UUID, string, int) (*PullRequestStatus, error) {
@@ -94,11 +99,22 @@ func (f *prGitHub) SetPullRequestDraft(_ context.Context, _ uuid.UUID, _ string,
 func (f *prGitHub) ResolveMergeMethod(context.Context, uuid.UUID, string) (string, error) {
 	return f.method, f.methodErr
 }
+func (f *prGitHub) CommitChecks(_ context.Context, _ uuid.UUID, _ string, sha string) ([]PullRequestCheck, ChecksCoverage, error) {
+	return f.commitChecks[sha], ChecksCoverage{}, f.readErr
+}
+func (f *prGitHub) CommitDate(_ context.Context, _ uuid.UUID, _ string, sha string) (time.Time, error) {
+	return f.committed[sha], f.readErr
+}
 
 type prWork struct {
 	assistantAgentWork
 	followUp *repository.FollowUpTarget
 	merge    *repository.MergeTarget
+	merged   *domain.MergedPullRequest
+}
+
+func (f prWork) MergedPullRequest(context.Context, uuid.UUID, uuid.UUID) (*domain.MergedPullRequest, error) {
+	return f.merged, nil
 }
 
 func (f prWork) FollowUpTarget(context.Context, uuid.UUID, uuid.UUID) (*repository.FollowUpTarget, error) {
@@ -130,7 +146,7 @@ type prFixture struct {
 func newPRFixture() *prFixture {
 	f := &prFixture{ws: uuid.New(), creator: uuid.New(), admin: uuid.New(), other: uuid.New(), guest: uuid.New(), task: uuid.New()}
 	f.issue = &domain.Issue{ID: uuid.New(), Identifier: "ENG-1", Title: "Dark mode"}
-	f.github = &prGitHub{method: "squash", status: PullRequestStatus{State: "open", HeadSHA: "head1", BaseRef: "main", Behind: 0, ChangedFiles: 3}}
+	f.github = &prGitHub{method: "squash", status: PullRequestStatus{State: "open", HeadSHA: "head1", BaseRef: "main", MergeBase: "base1", Behind: 0, ChangedFiles: 3}}
 	f.targets = &prTargets{target: &repository.PullRequestTarget{TaskID: f.task, IssueID: f.issue.ID, CreatorID: f.creator, State: "awaiting_review", Repository: "acme/app", Number: 12, URL: "https://github.com/acme/app/pull/12", Commit: "pub1"}}
 	members := prMembers{f.creator: domain.RoleMember, f.admin: domain.RoleAdmin, f.other: domain.RoleMember, f.guest: domain.RoleGuest}
 	f.tools = NewAssistantTools(prIssues{issue: f.issue}, nil, members, nil)
@@ -573,6 +589,7 @@ func TestMergeRefusalsNameTheNextStep(t *testing.T) {
 		"Required status check \"unit\" is failing":                 "get_pull_request_checks",
 		"At least 1 approving review is required":                   "list_pull_request_comments",
 		"Merge commits are not allowed on this repository":          "development settings",
+		"Base branch was modified. Review and try the merge again.": "base branch moved while GitHub was merging",
 		"Something else": "GitHub refused the merge: Something else",
 	} {
 		require.Contains(t, mergeRefusalMessage(reason, "abc1234def"), want, reason)

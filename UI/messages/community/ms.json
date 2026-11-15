@@ -529,6 +529,7 @@
 	"issue.show_less": "Tunjukkan kurang",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Sub-isu bagi",
+	"issue.sub_issues_deselected": "Sub-isu tersembunyi dinyahpilih: {n}",
 	"issue.sub_issues_toggle": "Sub-isu bagi {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Gesaan AI disalin",
 	"issue.toast.branch_copied": "Cabang disalin",
@@ -4226,5 +4227,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "Kerja isu ini telah digabungkan dalam #{number}. Cuba semula juga?",
+	"tasks.merged_work_body": "Menjalankan ejen sekali lagi mungkin mengulang atau membatalkan kerja yang sudah digabungkan.",
+	"tasks.merged_work_link": "Lihat pull request #{number}",
+	"tasks.merged_work_confirm": "Cuba semula juga",
+	"assistant.follow_up_merged": "Kerja isu ini telah digabungkan dalam #{number}. Meluluskan akan tetap menjalankan ejen sekali lagi."
 }

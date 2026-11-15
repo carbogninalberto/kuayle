@@ -24,7 +24,10 @@ func NewAgentTaskHandler(svc *service.AgentTaskService) *AgentTaskHandler {
 	return &AgentTaskHandler{svc}
 }
 func agentTaskError(c *echo.Context, err error) error {
+	var merged *domain.MergedWorkError
 	switch {
+	case errors.As(err, &merged):
+		return response.MergedWork(c, merged.Error(), merged.PullRequest)
 	case errors.Is(err, repository.ErrConversationNotFound), errors.Is(err, repository.ErrAgentTaskUnauthorized):
 		return response.NotFound(c, "Agent task")
 	case errors.Is(err, repository.ErrAgentTaskConflict), errors.Is(err, repository.ErrConversationConflict):
@@ -557,6 +560,15 @@ func (h *AgentTaskHandler) LiveMessages(c *echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]any{"messages": messages})
 }
 
+type liveMessageRequest struct {
+	Body string `json:"body"`
+	// Mode is empty, "interrupt" (stop the working agent and resume its
+	// session with the message) or "start" (start an attempt for it).
+	Mode string `json:"mode"`
+	// ConfirmMerged starts that attempt although the issue's work was merged.
+	ConfirmMerged bool `json:"confirm_merged"`
+}
+
 // SendLiveMessage queues the creator's message for the task's agent: the
 // running attempt reads it from its inbox, otherwise the next attempt's
 // prompt carries it. With a mode it also interrupts the working agent, or
@@ -566,16 +578,11 @@ func (h *AgentTaskHandler) SendLiveMessage(c *echo.Context) error {
 	if err != nil {
 		return agentTaskError(c, err)
 	}
-	var input struct {
-		Body string `json:"body"`
-		// Mode is empty, "interrupt" (stop the working agent and resume its
-		// session with the message) or "start" (start an attempt for it).
-		Mode string `json:"mode"`
-	}
+	var input liveMessageRequest
 	if err = bindTask(c, &input); err != nil {
 		return agentTaskError(c, err)
 	}
-	message, err := h.svc.SendLiveMessage(c.Request().Context(), middleware.GetWorkspace(c).ID, id, input.Body, input.Mode)
+	message, err := h.svc.SendLiveMessage(c.Request().Context(), middleware.GetWorkspace(c).ID, id, input.Body, input.Mode, input.ConfirmMerged)
 	if err != nil {
 		return agentTaskError(c, err)
 	}

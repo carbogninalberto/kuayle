@@ -175,6 +175,22 @@ export function hiddenTreeIds<I extends TreeIssue>(
 }
 
 /**
+ * How many selected rows collapsing `node` takes off screen: its sub-issues shown below it that
+ * are in `selected`. Sub-issues already hidden under a collapsed row are not counted, and neither
+ * is anything when `node` is collapsed already. The collapse deselects these rows.
+ */
+export function selectedRowsHiddenByCollapse<I extends TreeIssue>(
+	node: IssueTreeNode<I>,
+	expanded: { has(id: string): boolean },
+	selected: { has(id: string): boolean }
+): number {
+	if (!expanded.has(node.issue.id)) return 0;
+	let count = 0;
+	for (const issue of visibleTreeIssues(node.children, expanded)) if (selected.has(issue.id)) count += 1;
+	return count;
+}
+
+/**
  * Ids a shift-click selects: the rows of `order` (top to bottom, as on screen) from the anchor
  * `fromId` to the clicked `toId`. An anchor that is not in `order`, because it is hidden under a
  * collapsed parent, starts the range at its nearest ancestor that is, found through `parentOf`.

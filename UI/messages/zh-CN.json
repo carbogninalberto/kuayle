@@ -529,6 +529,7 @@
 	"issue.show_less": "收起",
 	"issue.status": "状态",
 	"issue.sub_issue_of": "子任务属于",
+	"issue.sub_issues_deselected": "已取消选择 {n} 个隐藏的子议题",
 	"issue.sub_issues_toggle": "{identifier} 的子议题（{count}）",
 	"issue.toast.ai_prompt_copied": "AI 提示词已复制",
 	"issue.toast.branch_copied": "分支已复制",
@@ -4226,5 +4227,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "此议题的工作已在 #{number} 中合并。仍要重试吗？",
+	"tasks.merged_work_body": "再次运行代理可能会重做或撤销已合并的工作。",
+	"tasks.merged_work_link": "查看拉取请求 #{number}",
+	"tasks.merged_work_confirm": "仍要重试",
+	"assistant.follow_up_merged": "此议题的工作已在 #{number} 中合并。批准后仍会再次运行代理。"
 }

@@ -529,6 +529,7 @@
 	"issue.show_less": "Weniger anzeigen",
 	"issue.status": "Status",
 	"issue.sub_issue_of": "Sub-Issue von",
+	"issue.sub_issues_deselected": "Ausgeblendete Sub-Issues abgewählt: {n}",
 	"issue.sub_issues_toggle": "Sub-Issues von {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "KI-Prompt kopiert",
 	"issue.toast.branch_copied": "Branch kopiert",
@@ -4226,5 +4227,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "Die Arbeit an diesem Issue wurde in #{number} gemergt. Trotzdem wiederholen?",
+	"tasks.merged_work_body": "Läuft der Agent erneut, kann er bereits gemergte Arbeit wiederholen oder rückgängig machen.",
+	"tasks.merged_work_link": "Pull Request #{number} ansehen",
+	"tasks.merged_work_confirm": "Trotzdem wiederholen",
+	"assistant.follow_up_merged": "Die Arbeit an diesem Issue wurde in #{number} gemergt. Mit der Genehmigung läuft der Agent trotzdem erneut."
 }

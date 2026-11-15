@@ -5,11 +5,13 @@
 	import * as InputGroup from '$lib/components/ui/input-group/index.js';
 	import { Kbd, KbdGroup } from '$lib/components/ui/kbd/index.js';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
-	import { agentTasks, type AgentTask, type LiveSendMode } from '$lib/api/agent-tasks';
+	import { agentTasks, type AgentTask, type LiveSendMode, type MergedPullRequest } from '$lib/api/agent-tasks';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { getErrorMessage } from '$lib/features/toast/toast';
 	import type { ConversationState } from './conversation-state.svelte';
 	import { answerTo, sendOptions } from './agent-conversation';
+	import MergedWorkDialog from './MergedWorkDialog.svelte';
+	import { mergedWork } from './merged-work';
 	import { m } from '$lib/features/i18n/messages';
 
 	// The composer of an agent's view: it writes straight to that task's
@@ -23,6 +25,8 @@
 	// question picked in the timeline is quoted above the text and sent with
 	// the answer. Nothing else here explains itself; what happened to a
 	// message is shown on the message. The server decides who may send.
+	// Starting an iteration on an issue whose work was merged asks first,
+	// naming the pull request, then sends the same message confirmed.
 	let { chat, task }: { chat: ConversationState; task: AgentTask } = $props();
 	const options = $derived(sendOptions(task, authState.user?.id));
 	let text = $state(''),
@@ -38,6 +42,7 @@
 	const body = $derived(text.trim() && question ? answerTo(question.body, text.trim()) : text.trim());
 	const tooLong = $derived([...body].length > 4000);
 	let confirming = $state(false);
+	let merged = $state<MergedPullRequest | null>(null);
 	const mod = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
 	const ready = $derived(!!body && !tooLong && !sending);
 	const nowLabel = $derived(
@@ -51,7 +56,7 @@
 		if (options.now === 'start' && options.confirm) confirming = true;
 		else void send(options.now);
 	}
-	async function send(mode?: LiveSendMode) {
+	async function send(mode?: LiveSendMode, confirmMerged = false) {
 		confirming = false;
 		if (!ready) return;
 		const sent = body,
@@ -60,7 +65,7 @@
 		sending = mode ?? 'plain';
 		error = '';
 		try {
-			await agentTasks.sendLiveMessage(chat.slug, task.id, sent, mode);
+			await agentTasks.sendLiveMessage(chat.slug, task.id, sent, mode, confirmMerged);
 			if (disposed) return;
 			if (text.trim() === typed) text = '';
 			if (answered && chat.agentQuestion?.id === answered.id) chat.agentQuestion = null;
@@ -68,12 +73,16 @@
 			chat.taskLiveCursor = { ...chat.taskLiveCursor, [task.id]: -Date.now() };
 			if (mode) chat.acceptTask(await agentTasks.get(chat.slug, task.id), false, chat.liveTasks[task.id] ?? null);
 		} catch (e) {
-			if (!disposed) error = getErrorMessage(e, m['tasks.live_send_error']());
+			if (disposed) return;
+			const refused = mode === 'start' ? mergedWork(e) : null;
+			if (refused) merged = refused;
+			else error = getErrorMessage(e, m['tasks.live_send_error']());
 		} finally {
 			if (!disposed) {
 				sending = '';
 				await tick();
-				textarea?.focus();
+				// The question about merged work keeps the focus.
+				if (!merged) textarea?.focus();
 			}
 		}
 	}
@@ -169,6 +178,7 @@
 				</InputGroup.Addon>
 			</InputGroup.Root>
 		</form>
+		<MergedWorkDialog bind:pullRequest={merged} onconfirm={() => void send('start', true)} />
 		<AlertDialog.Root bind:open={confirming}>
 			<AlertDialog.Content>
 				<AlertDialog.Header>

@@ -598,14 +598,7 @@
 						]
 					},
 					"status": {
-						"enum": [
-							"backlog",
-							"todo",
-							"in_progress",
-							"in_review",
-							"done",
-							"cancelled"
-						],
+						"maxLength": 100,
 						"type": "string"
 					},
 					"status_id": {
@@ -786,14 +779,7 @@
 						]
 					},
 					"status": {
-						"enum": [
-							"backlog",
-							"todo",
-							"in_progress",
-							"in_review",
-							"done",
-							"cancelled"
-						],
+						"maxLength": 100,
 						"type": "string"
 					},
 					"status_id": {
@@ -2325,14 +2311,7 @@
 						]
 					},
 					"status": {
-						"enum": [
-							"backlog",
-							"todo",
-							"in_progress",
-							"in_review",
-							"done",
-							"cancelled"
-						],
+						"maxLength": 100,
 						"type": [
 							"string",
 							"null"

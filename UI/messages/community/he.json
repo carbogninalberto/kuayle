@@ -529,6 +529,7 @@
 	"issue.show_less": "הצגת פחות",
 	"issue.status": "סטטוס",
 	"issue.sub_issue_of": "תת-משימה של",
+	"issue.sub_issues_deselected": "בוטלה בחירת תתי-משימות מוסתרות: {n}",
 	"issue.sub_issues_toggle": "תתי-משימות של {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "הפרומפט ל-AI הועתק",
 	"issue.toast.branch_copied": "הענף הועתק",
@@ -4226,5 +4227,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "העבודה על המשימה הזו מוזגה ב-#{number}. לנסות שוב בכל זאת?",
+	"tasks.merged_work_body": "הרצה חוזרת של הסוכן עלולה לבצע מחדש או לבטל עבודה שכבר מוזגה.",
+	"tasks.merged_work_link": "הצגת ה-pull request #{number}",
+	"tasks.merged_work_confirm": "לנסות שוב בכל זאת",
+	"assistant.follow_up_merged": "העבודה על המשימה הזו מוזגה ב-#{number}. אישור מריץ את הסוכן שוב בכל זאת."
 }

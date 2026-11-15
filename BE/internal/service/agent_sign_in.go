@@ -87,11 +87,13 @@ func (s *AgentTaskService) creatorSavedToken(ctx context.Context, ws uuid.UUID, 
 
 func (s *AgentTaskService) retryAfterSignIn(ctx context.Context, ws, id, requestID uuid.UUID, task *domain.AgentTask) (*domain.AgentTask, error) {
 	// The new attempt keeps the task's own instructions and test override.
+	// It finishes the attempt the sign-in interrupted rather than retrying
+	// the work, so merged work does not ask again.
 	var command []string
 	if task.TestCommand != nil {
 		_ = json.Unmarshal(*task.TestCommand, &command)
 	}
-	return s.Retry(ctx, ws, id, domain.AgentTaskRetryRequest{RequestID: requestID, Generation: task.Generation, Prompt: task.Prompt, TestCommand: command})
+	return s.Retry(ctx, ws, id, domain.AgentTaskRetryRequest{RequestID: requestID, Generation: task.Generation, Prompt: task.Prompt, TestCommand: command, ConfirmMerged: true})
 }
 
 // signInAgents are the agents with their own sign-in, in display order.

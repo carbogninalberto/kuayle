@@ -529,6 +529,7 @@
 	"issue.show_less": "Daha az göster",
 	"issue.status": "Durum",
 	"issue.sub_issue_of": "Şunun alt issue'su",
+	"issue.sub_issues_deselected": "Gizli alt issue seçimi kaldırıldı: {n}",
 	"issue.sub_issues_toggle": "{identifier} alt issue'ları ({count})",
 	"issue.toast.ai_prompt_copied": "AI istemi kopyalandı",
 	"issue.toast.branch_copied": "Branch kopyalandı",
@@ -4226,5 +4227,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "Bu issue'nun işi #{number} içinde birleştirildi. Yine de tekrar denensin mi?",
+	"tasks.merged_work_body": "Ajanı yeniden çalıştırmak, zaten birleştirilmiş işi yeniden yapabilir veya geri alabilir.",
+	"tasks.merged_work_link": "Pull request #{number} görüntüle",
+	"tasks.merged_work_confirm": "Yine de tekrar dene",
+	"assistant.follow_up_merged": "Bu issue'nun işi #{number} içinde birleştirildi. Onaylamak ajanı yine de yeniden çalıştırır."
 }

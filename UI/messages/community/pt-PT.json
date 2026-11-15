@@ -529,6 +529,7 @@
 	"issue.show_less": "Mostrar menos",
 	"issue.status": "Estado",
 	"issue.sub_issue_of": "Subtarefa de",
+	"issue.sub_issues_deselected": "Subtarefas ocultas desmarcadas: {n}",
 	"issue.sub_issues_toggle": "Subtarefas de {identifier} ({count})",
 	"issue.toast.ai_prompt_copied": "Prompt de IA copiado",
 	"issue.toast.branch_copied": "Branch copiado",
@@ -4226,5 +4227,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "O trabalho desta issue foi integrado em #{number}. Repetir mesmo assim?",
+	"tasks.merged_work_body": "Executar o agente de novo pode refazer ou desfazer trabalho já integrado.",
+	"tasks.merged_work_link": "Ver o pull request #{number}",
+	"tasks.merged_work_confirm": "Repetir mesmo assim",
+	"assistant.follow_up_merged": "O trabalho desta issue foi integrado em #{number}. Ao aprovar, o agente volta a ser executado mesmo assim."
 }
