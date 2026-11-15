@@ -76,8 +76,11 @@ writes real data, so point it at a development instance.
 
 - Webhooks deliver `issue.created`, `issue.updated`, `issue.deleted`,
   `issue.triaged` and `comment.created` at most once: a delivery is not
-  retried, and is dropped when the bounded delivery queue is full or it waited
-  five minutes. They are disabled for workspaces that have or had a private
+  retried, and is dropped when its workspace's share of the in-memory queue
+  (256 changes, 2 MiB) or the whole queue is full, when it waited five
+  minutes, or when the instance restarts first. A webhook that fails three
+  times in a row is paused for five minutes and its deliveries in that time
+  are dropped. Webhooks are disabled for workspaces that have or had a private
   team. Other changes (projects, cycles, wiki pages), changes the database
   makes by itself (clearing a deleted parent, project or cycle, deleting a
   team's issues, rewriting identifiers after a team key rename) and workspace

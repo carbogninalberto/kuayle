@@ -46,6 +46,7 @@ func newWebhookFixture(t *testing.T) *webhookFixture {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	svc := NewWebhookService(repository.NewWebhookRepository(db), webhookTestJWTSecret)
+	t.Cleanup(svc.Close)
 	svc.client = newWebhookClient(true) // loopback receivers
 	return &webhookFixture{t: t, db: db, svc: svc, received: make(chan receivedDelivery, 32)}
 }
@@ -206,7 +207,7 @@ func TestWebhookPrivacyWorkspaceReceivesNothing(t *testing.T) {
 
 	require.Zero(t, f.svc.queue.dropped.Load(), "the precheck queued nothing")
 	f.svc.queue.mu.Lock()
-	require.Zero(t, f.svc.queue.queued)
+	require.Zero(t, f.svc.queue.jobs)
 	f.svc.queue.mu.Unlock()
 }
 

@@ -198,10 +198,17 @@ export function buildApiReference(spec: Json): ApiReference {
 		.map(([name, item]) => ({ name, operation: item.post as Json }));
 	const headers: Json[] = events[0]?.operation.parameters ?? [];
 
+	// The events block shows each event with its description and body, so the guide's plain list would repeat them.
+	const guide: GuideSection[] = (spec['x-kuayle-guide'] ?? []).map((section: GuideSection) => {
+		if (events.length === 0 || section.id !== 'webhooks' || !section.list) return section;
+		const { list: _repeated, ...withoutList } = section;
+		return withoutList;
+	});
+
 	return {
 		title: spec.info?.title ?? 'API',
 		summary: spec.info?.summary ?? '',
-		guide: spec['x-kuayle-guide'] ?? [],
+		guide,
 		groups: [...groups.values()].filter((group) => group.operations.length > 0),
 		schemas,
 		operationCount,

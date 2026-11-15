@@ -639,15 +639,27 @@ The root `.gitignore` ignores `.env.*` except `.env.example`.
   the workspace's shared privacy guard until its request ends: a workspace
   that has or had a private team delivers nothing, a queued delivery is
   checked again when it is sent, and a privacy change waits for deliveries in
-  flight. Deliveries do not use the publication slots: four workers drain a
-  bounded queue that drops instead of blocking the writer, with one delivery
-  per workspace in flight, so a hung receiver holds at most one worker and
-  one database connection. Logs name the webhook, never its URL. Tests:
+  flight. Deliveries do not use the publication slots: four workers drain an
+  in-memory queue that drops instead of blocking the writer. Each change is
+  queued once with its webhooks and its body counted once; a workspace may
+  hold at most a sixteenth of the queue (256 changes and 2 MiB of bodies, of
+  4096 and 32 MiB in all) and has one change in flight at a time, and changes
+  older than five minutes are purged together when the workspace is next
+  scheduled, so a busy or hung workspace cannot crowd out another one. A
+  webhook that fails three times in a row (transport error, timeout or
+  non-2xx) is paused for five minutes, its deliveries dropped and counted in
+  one log line, then tried again; a dead receiver therefore holds a worker
+  and a database connection for at most three request timeouts per pause and
+  stops delaying the workspace's other webhooks. Delivery is at most once:
+  the queue and the pause state live in the process and are lost on restart
+  or deploy. Logs name the webhook, never its URL. Tests:
   `TestWebhookProductionClientRefusesLoopbackReceiver`,
   `TestWebhookClientDoesNotFollowRedirects`,
   `TestWebhookQueuedDeliveryRechecksPrivacyAtSend`,
   `TestWebhookDeliveriesNeverExceedTheWorkerCount`,
-  `TestWebhookDeliveryErrorsDoNotLogTheReceiverURL`.
+  `TestWebhookDeliveryErrorsDoNotLogTheReceiverURL`,
+  `TestWebhookFullWorkspaceBacklogDoesNotDropAnotherWorkspace`,
+  `TestWebhookDeadReceiverIsPausedAndHealthyHookKeepsReceiving`.
 - **KS-08, KS-09, KS-10, KS-11, KS-12, KS-17, KS-18, KS-19, KS-20**
   are unchanged. KS-15 was not re-traced.
 

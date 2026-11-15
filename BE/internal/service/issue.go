@@ -764,9 +764,17 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		if err := s.issueRepo.SetAssignees(ctx, issue.ID, uids); err != nil {
 			log.WithError(err).Warn("failed to set assignees")
 		}
-		if len(uids) > 0 {
+		// SetAssignees writes assignee_id and updated_at in its own transaction,
+		// after UpdateContent copied the row, so reload the stored issue for the
+		// broadcast, the webhook and the response.
+		switch reloaded, err := s.issueRepo.GetByID(ctx, issue.ID); {
+		case err == nil && reloaded != nil:
+			issue.UpdatedAt = reloaded.UpdatedAt
+			issue.AssigneeID = reloaded.AssigneeID
+		case len(uids) > 0:
+			// The reload failed: fall back to the requested first assignee.
 			issue.AssigneeID = &uids[0]
-		} else {
+		default:
 			issue.AssigneeID = nil
 		}
 		oldUIDs := keysFromUUIDSet(oldAssigneeSet)

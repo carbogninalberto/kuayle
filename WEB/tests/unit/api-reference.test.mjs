@@ -79,6 +79,26 @@ test('the guide covers auth, scopes, pagination, errors, rate limits and webhook
 	assert.match(reference.guide.find((section) => section.id === 'webhooks').code.text, /timingSafeEqual/);
 });
 
+test('the webhooks section describes each event once', () => {
+	const section = reference.guide.find((entry) => entry.id === 'webhooks');
+	const events = reference.webhook.events;
+	assert.ok(events.length > 0);
+	// The events block renders each event, so the guide carries no list of its own.
+	assert.equal(section.list, undefined);
+	for (const event of events) {
+		assert.ok(event.description.trim().length > 0, `${event.name} has no description`);
+	}
+	const text = [...section.paragraphs, ...events.map((event) => event.description)].join('\n');
+	for (const event of events) {
+		const occurrences = text.split(event.description).length - 1;
+		assert.equal(occurrences, 1, `${event.name} is described ${occurrences} times`);
+	}
+
+	// Building the page data leaves the document it read untouched.
+	const original = spec['x-kuayle-guide'].find((entry) => entry.id === 'webhooks');
+	assert.ok(Array.isArray(original.list) && original.list.length > 0);
+});
+
 test('types and constraints read naturally', () => {
 	const text = (schema) => describeType(schema).map((part) => part.text).join('');
 	assert.equal(text({ type: ['string', 'null'], format: 'uuid' }), 'string (uuid) or null');

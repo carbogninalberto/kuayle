@@ -163,6 +163,33 @@ func TestIssueWebhooksCarryLifecycleTimestampsPostgres(t *testing.T) {
 	require.Empty(t, eventFrom(sent, WebhookEventIssueUpdated, declined), "the decline's move to cancelled rides on issue.triaged")
 }
 
+// SetAssignees writes assignee_id and updated_at in its own transaction after
+// the content write, so the announced issue carries the stored updated_at.
+func TestIssueWebhooksUpdateWithAssigneesCarriesStoredUpdatedAtPostgres(t *testing.T) {
+	f := newBulkProjectFixture(t)
+	sent := &webhookRecorder{}
+	f.svc.SetWebhooks(sent)
+	issue := f.issue(t, f.team, f.status, nil)
+	var identifier string
+	require.NoError(t, f.db.Get(&identifier, `SELECT identifier_text FROM issues WHERE id=$1`, issue))
+
+	title := "Renamed"
+	updated, err := f.svc.Update(f.ctx, f.workspace, f.user, identifier, dto.UpdateIssueRequest{
+		Title: &title, AssigneeIDs: []string{f.user.String()}})
+	require.NoError(t, err)
+
+	require.Len(t, sent.sent, 1)
+	got := sent.sent[0]
+	require.Equal(t, WebhookEventIssueUpdated, got.event)
+	require.Equal(t, issue, got.issue.ID)
+	require.NotNil(t, got.issue.AssigneeID)
+	require.Equal(t, f.user, *got.issue.AssigneeID, "the member assignee is stored")
+	var stored time.Time
+	require.NoError(t, f.db.Get(&stored, `SELECT updated_at FROM issues WHERE id=$1`, issue))
+	require.Equal(t, microsecond(stored), microsecond(got.issue.UpdatedAt), "the announced issue carries the stored updated_at")
+	require.Equal(t, microsecond(stored), microsecond(updated.UpdatedAt), "the returned issue carries the stored updated_at")
+}
+
 // Completing a cycle with carry-over announces the moved issues once, with the
 // next cycle, after the move is committed.
 func TestCycleWebhooksCarryOverSendsMovedIssuesPostgres(t *testing.T) {

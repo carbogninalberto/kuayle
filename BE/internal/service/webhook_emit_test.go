@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -152,7 +153,23 @@ func (r *webhookIssueRepo) GetLabels(context.Context, uuid.UUID) ([]domain.Label
 func (r *webhookIssueRepo) GetLabelsForIssues(context.Context, []uuid.UUID) (map[uuid.UUID][]domain.Label, error) {
 	return map[uuid.UUID][]domain.Label{}, nil
 }
-func (r *webhookIssueRepo) SetAssignees(context.Context, uuid.UUID, []uuid.UUID) error { return nil }
+func (r *webhookIssueRepo) SetAssignees(_ context.Context, issueID uuid.UUID, userIDs []uuid.UUID) error {
+	// Like the database: the first assignee becomes assignee_id (NULL when the
+	// list is empty) and the write bumps updated_at again.
+	issue, ok := r.issues[issueID]
+	if !ok {
+		return nil
+	}
+	if len(userIDs) > 0 {
+		first := userIDs[0]
+		issue.AssigneeID = &first
+	} else {
+		issue.AssigneeID = nil
+	}
+	issue.UpdatedAt = issue.UpdatedAt.Add(time.Second)
+	r.issues[issueID] = issue
+	return nil
+}
 func (r *webhookIssueRepo) GetAssignees(context.Context, uuid.UUID) ([]uuid.UUID, error) {
 	return nil, nil
 }
@@ -333,6 +350,29 @@ func TestIssueWebhooksUpdateSendsTheUpdatedIssue(t *testing.T) {
 	require.Equal(t, f.ws, sent.workspace)
 	require.Equal(t, f.actor, sent.actor)
 	require.Equal(t, "Renamed", sent.issue.Title)
+}
+
+// SetAssignees writes assignee_id and bumps updated_at in its own transaction,
+// so the announced issue must carry the stored values, not the older copy.
+func TestIssueWebhooksUpdateWithAssigneesSendsTheStoredUpdatedAt(t *testing.T) {
+	f := newIssueWebhookFixture(t)
+	issue := f.issue("ENG-1", nil)
+	issue.UpdatedAt = time.Date(2026, 4, 1, 9, 0, 0, 0, time.UTC)
+	f.issues.issues[issue.ID] = issue
+	// The actor's own assignment sends no notification.
+	assignee := f.actor
+
+	updated, err := f.svc.Update(context.Background(), f.ws, f.actor, "ENG-1", dto.UpdateIssueRequest{AssigneeIDs: []string{assignee.String()}})
+	require.NoError(t, err)
+
+	stored := f.issues.issues[issue.ID]
+	require.True(t, stored.UpdatedAt.After(issue.UpdatedAt), "the assignee write bumps updated_at")
+	require.Equal(t, &assignee, updated.AssigneeID)
+	require.Equal(t, stored.UpdatedAt, updated.UpdatedAt, "the returned issue carries the stored updated_at")
+	require.Len(t, f.sent.sent, 1)
+	require.Equal(t, WebhookEventIssueUpdated, f.sent.sent[0].event)
+	require.Equal(t, &assignee, f.sent.sent[0].issue.AssigneeID)
+	require.Equal(t, stored.UpdatedAt, f.sent.sent[0].issue.UpdatedAt, "the webhook carries the stored updated_at")
 }
 
 func TestIssueWebhooksFailedOrEmptyUpdateSendsNothing(t *testing.T) {

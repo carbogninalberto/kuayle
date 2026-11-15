@@ -7,21 +7,22 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
-// The event names below are those Kuayle delivers (service.WebhookEvents); a
-// test keeps them equal.
+// CreateWebhookRequest accepts only the event names Kuayle delivers
+// (service.WebhookEvents); a test keeps them equal.
 type CreateWebhookRequest struct {
 	URL    string   `json:"url" validate:"required,url"`
 	Secret string   `json:"secret" validate:"required,min=8"`
 	Events []string `json:"events" validate:"required,min=1,dive,oneof=issue.created issue.updated issue.deleted issue.triaged comment.created"`
 }
 
-// UpdateWebhookRequest changes the fields it names. Events documents the
-// delivered names; the service also accepts the webhook's stored list sent
-// back unchanged, so a webhook saved with names Kuayle no longer delivers
-// stays editable.
+// UpdateWebhookRequest changes the fields it names. Events, when sent, must
+// list at least one event; the service, not a oneof rule, checks the names,
+// because the webhook's stored list sent back unchanged is accepted even when
+// it names an event Kuayle no longer delivers while a changed list may name
+// only delivered events.
 type UpdateWebhookRequest struct {
 	URL      *string  `json:"url" validate:"omitempty,url"`
-	Events   []string `json:"events" validate:"omitempty,dive,oneof=issue.created issue.updated issue.deleted issue.triaged comment.created"`
+	Events   []string `json:"events" validate:"omitempty,min=1"`
 	IsActive *bool    `json:"is_active"`
 }
 

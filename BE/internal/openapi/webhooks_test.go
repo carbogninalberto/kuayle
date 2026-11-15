@@ -25,8 +25,9 @@ func TestDocumentedWebhookEventsMatchDeliveredEvents(t *testing.T) {
 	require.ElementsMatch(t, service.WebhookEvents, names)
 }
 
-// Creating and updating a webhook document the delivered event names as the
-// only values of events.
+// Creating a webhook documents the delivered event names as the only values of
+// events. Updating leaves the names to the service, because the stored list
+// sent back unchanged is accepted, so its events need only be non-empty.
 func TestWebhookRequestsDocumentDeliveredEventNames(t *testing.T) {
 	built, err := Build()
 	require.NoError(t, err)
@@ -34,7 +35,8 @@ func TestWebhookRequestsDocumentDeliveredEventNames(t *testing.T) {
 		Components struct {
 			Schemas map[string]struct {
 				Properties map[string]struct {
-					Items struct {
+					MinItems *int `json:"minItems"`
+					Items    struct {
 						Enum []string `json:"enum"`
 					} `json:"items"`
 				} `json:"properties"`
@@ -42,7 +44,10 @@ func TestWebhookRequestsDocumentDeliveredEventNames(t *testing.T) {
 		} `json:"components"`
 	}
 	require.NoError(t, json.Unmarshal(built, &doc))
-	for _, name := range []string{"CreateWebhookRequest", "UpdateWebhookRequest"} {
-		require.Equal(t, service.WebhookEvents, doc.Components.Schemas[name].Properties["events"].Items.Enum, name)
-	}
+	create := doc.Components.Schemas["CreateWebhookRequest"].Properties["events"]
+	require.Equal(t, service.WebhookEvents, create.Items.Enum, "CreateWebhookRequest")
+	update := doc.Components.Schemas["UpdateWebhookRequest"].Properties["events"]
+	require.NotNil(t, update.MinItems, "UpdateWebhookRequest events minItems")
+	require.Equal(t, 1, *update.MinItems, "UpdateWebhookRequest")
+	require.Empty(t, update.Items.Enum, "UpdateWebhookRequest events must not be an enum")
 }

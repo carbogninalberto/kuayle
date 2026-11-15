@@ -211,15 +211,18 @@ func (s *CycleService) Complete(ctx context.Context, id uuid.UUID, req dto.Compl
 	}
 	carriedOver = len(moved)
 
-	if err := s.cycleRepo.Update(ctx, cycle); err != nil {
-		return nil, 0, err
-	}
+	// The move is already committed, so it is announced even if completing the
+	// cycle fails afterwards.
 	if s.webhooks != nil && len(moved) > 0 {
 		actor := uuid.Nil
 		if access, ok := domain.AccessFromContext(ctx); ok {
 			actor = access.UserID
 		}
 		s.webhooks.IssueEvents(ctx, moved[0].WorkspaceID, WebhookEventIssueUpdated, moved, actor)
+	}
+
+	if err := s.cycleRepo.Update(ctx, cycle); err != nil {
+		return nil, 0, err
 	}
 
 	// Broadcast and notify on cycle completion

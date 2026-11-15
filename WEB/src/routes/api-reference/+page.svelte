@@ -104,12 +104,7 @@
 						</ul>
 					{/if}
 					{#if section.id === 'webhooks' && reference.webhook}
-						<p class="mt-3 text-sm text-muted-foreground">
-							Headers:
-							<code class="font-mono text-brand-200">{reference.webhook.signatureHeader}</code> and
-							<code class="font-mono text-brand-200">{reference.webhook.eventHeader}</code>. Events:
-						</p>
-						<ul class="mt-2 list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
+						<ul class="mt-4 list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
 							{#each reference.webhook.events as event (event.name)}
 								<li>
 									<code class="font-mono text-brand-200">{event.name}</code>: {event.description} Body:
