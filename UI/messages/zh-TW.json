@@ -4062,5 +4062,9 @@
 	"settings.profile.sso_linking": "Starting…",
 	"settings.profile.sso_link_failed": "Could not start linking single sign-on.",
 	"settings.profile.sso_linked_title": "SSO-scoped session",
-	"settings.profile.sso_linked_desc": "This session signed in through {workspace} SSO. It can only access that workspace and cannot change credentials."
+	"settings.profile.sso_linked_desc": "This session signed in through {workspace} SSO. It can only access that workspace and cannot change credentials.",
+	"sso.access.required_title": "Single sign-on required",
+	"sso.access.continue": "Continue with SSO",
+	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
+	"sso.access.back": "Back to {workspace}"
 }

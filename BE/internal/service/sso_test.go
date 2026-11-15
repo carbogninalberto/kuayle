@@ -650,6 +650,24 @@ func TestSSOLinkFlow(t *testing.T) {
 		require.Equal(t, user.ID, identity.UserID)
 	})
 
+	t.Run("account that already linked this identity signs in again", func(t *testing.T) {
+		rig, user := newLinkedRig(t)
+		rig.repo.identities[identityKey(rig.workspace.ID, rig.idp.issuer(), "user-1")] = &domain.UserIdentity{
+			ID: uuid.New(), UserID: user.ID, WorkspaceID: rig.workspace.ID,
+			Provider: domain.ProviderOIDC, Issuer: rig.idp.issuer(), Subject: "user-1", Email: user.Email,
+		}
+		authURL, bind, err := rig.service.StartLink(ctx, "acme", user.ID, "/acme/inbox")
+		require.NoError(t, err)
+		code := rig.idp.authorize(t, authURL, nil)
+		signedIn, access, refresh, redirect, err := rig.service.CallbackRedirect(ctx, "acme", stateFromAuthURL(t, authURL), code, bind)
+		require.NoError(t, err)
+		require.Equal(t, user.ID, signedIn.ID)
+		require.NotEmpty(t, access)
+		require.NotEmpty(t, refresh)
+		require.Equal(t, "/acme/inbox", redirect)
+		require.Len(t, rig.repo.identities, 1)
+	})
+
 	t.Run("non-member cannot start a link", func(t *testing.T) {
 		rig, _ := newLinkedRig(t)
 		_, _, err := rig.service.StartLink(ctx, "acme", uuid.New(), "")

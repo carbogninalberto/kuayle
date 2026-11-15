@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
 	normalizeWorkspaceSlug,
+	ssoAccessAction,
 	ssoErrorKey,
 	ssoLinkWorkspace,
 	ssoRequiredSlug,
@@ -59,4 +60,17 @@ test('an SSO_REQUIRED API error names the workspace to start from', () => {
 	assert.equal(ssoRequiredSlug({ status: 401, error: { code: 'SSO_REQUIRED', workspace_slug: 'acme' } }), null);
 	assert.equal(ssoRequiredSlug({ status: 403, error: { code: 'FORBIDDEN' } }), null);
 	assert.equal(ssoRequiredSlug(null), null);
+});
+
+test('a workspace denial becomes the notice to show, or no notice at all', () => {
+	assert.deepEqual(
+		ssoAccessAction({ status: 403, error: { code: 'SSO_REQUIRED', workspace_slug: 'Acme' } }),
+		{ kind: 'sso_required', slug: 'acme' }
+	);
+	assert.deepEqual(ssoAccessAction({ status: 403, error: { code: 'SSO_SESSION_SCOPED' } }), {
+		kind: 'session_scoped'
+	});
+	assert.equal(ssoAccessAction({ status: 403, error: { code: 'FORBIDDEN' } }), null);
+	assert.equal(ssoAccessAction({ status: 404, error: { code: 'NOT_FOUND' } }), null);
+	assert.equal(ssoAccessAction(null), null);
 });

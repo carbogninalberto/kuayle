@@ -81,7 +81,9 @@ account's own credential:
    subject to the signed-in account and signs it in with a scoped session. No
    workspace membership is added.
 
-An existing account is never linked by a public SSO callback, even when the IdP
+Members of a workspace that requires SSO who open it with a password session see
+a notice with **Continue with SSO** that starts this link flow in place. An
+existing account is never linked by a public SSO callback, even when the IdP
 asserts a verified email and even when the account is already a member.
 
 

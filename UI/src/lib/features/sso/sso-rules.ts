@@ -79,3 +79,17 @@ export function ssoSessionScoped(error: unknown): boolean {
 	const body = error as { status?: number; error?: { code?: string } };
 	return body.status === 403 && body.error?.code === 'SSO_SESSION_SCOPED';
 }
+
+export type SSOAccessAction =
+	| { kind: 'sso_required'; slug: string }
+	| { kind: 'session_scoped' };
+
+/**
+ * The in-app notice a workspace denial needs, or null when the caller should
+ * keep its usual lost-access handling.
+ */
+export function ssoAccessAction(error: unknown): SSOAccessAction | null {
+	const slug = ssoRequiredSlug(error);
+	if (slug) return { kind: 'sso_required', slug };
+	return ssoSessionScoped(error) ? { kind: 'session_scoped' } : null;
+}
