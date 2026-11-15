@@ -1145,7 +1145,7 @@ workspace of the account requires SSO and the account owns none.
 
 PATs and CLI connection links record the minting session's SSO workspace in
 `personal_access_tokens.sso_workspace_id` / `cli_connection_links.sso_workspace_id`
-(migration 000158; a redeemed link copies it to its token).
+(migration 000159; a redeemed link copies it to its token).
 `TokenService.ValidateScopesAndWorkspaces` is the one rule for token create and
 CLI link create/redeem: an SSO-scoped session may mint only for exactly its own
 workspace (`SSO_SESSION_SCOPED`), and a workspace that requires SSO is refused

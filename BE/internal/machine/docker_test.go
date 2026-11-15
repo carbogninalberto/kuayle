@@ -322,6 +322,17 @@ func TestInteractiveToolingTmpfsAllowsExecutables(t *testing.T) {
 	require.Contains(t, strings.Split(ideConfig.Tmpfs["/home/kuayle"], ","), "exec")
 	require.Contains(t, strings.Split(collectorConfig.Tmpfs["/home/kuayle"], ","), "noexec")
 	require.True(t, strings.Contains(terminalConfig.Tmpfs["/run/kuayle-secrets"], "noexec"))
+
+	// KUA-175: an agent CLI is PID 1 and does not reap the orphaned git
+	// children it leaves behind; they become zombies counted by PidsLimit
+	// until the run crashes at the limit. Docker's bundled init reaps them.
+	for name, config := range map[string]*container.HostConfig{
+		"agent": agentConfig, "ide": ideConfig, "terminal": terminalConfig,
+		"collector": collectorConfig, "check": runtime.secureHostConfig(machine, "check", "network", "volume", false),
+	} {
+		require.NotNil(t, config.Init, "%s runs without an init process", name)
+		require.True(t, *config.Init, "%s runs without an init process", name)
+	}
 }
 
 func TestHeadlessTerminalUsesDeveloperContainerSecurityAndResources(t *testing.T) {

@@ -33,7 +33,9 @@ test('a link_required callback signs in with the password and then starts the li
 
 	await page.goto('/login?sso_error=link_required&workspace=test');
 	await expect(
-		page.getByText('An account with this email already exists. Sign in with your password to link SSO.')
+		page.getByText(
+			'An account with this email already exists. Sign in with your password and link SSO from your profile; if you are not a member of this workspace yet, ask an admin to invite you first.'
+		)
 	).toBeVisible();
 
 	await page.getByLabel('Email').fill('person@example.com');

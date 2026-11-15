@@ -262,8 +262,12 @@ client (PKCE `S256`, secret `kuayle-dev-client-secret`) and a verified test user
    `demo` / `demo`. The first sign-in creates the user `demo@example.com` and
    adds it to the workspace as a member.
 
-5. Turn on **Require SSO** and confirm that a member's password sign-in is
-   rejected with `SSO_REQUIRED` while the owner's password sign-in still works.
+5. Turn on **Require SSO** and confirm that the owner's password sign-in still
+   works (break-glass) and that a member who has signed in with SSO before (a
+   linked identity) is refused password sign-in with `SSO_REQUIRED`. A member
+   without a linked identity can still sign in with a password so they can link,
+   but every request into the workspace answers `403 SSO_REQUIRED`, and so does
+   creating a personal access token for it from that password session.
 
 If the backend runs in the Compose `app` profile, the `extra_hosts` entry maps
 `keycloak.localhost` to the host so discovery and token exchange use the same

@@ -7,12 +7,14 @@ import { m } from '$lib/features/i18n/messages';
 import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
 import { buildBrowserNotification, showBrowserNotification } from './browser-notifications.ts';
 import {
+	browserLocks,
 	browserStorage,
 	createNotificationCoordinator,
 	createSharedThrottleStore,
 	newTabId,
 	notificationEventId,
 	openCoordinationChannel,
+	webLockEventClaimer,
 	type NotificationCoordinator
 } from './notification-coordinator.ts';
 import { notificationTypeMessageKey } from './notification-labels.ts';
@@ -25,7 +27,9 @@ import { readPermission } from './permissions.ts';
  * One player per tab for the audio context; its throttle is shared by every
  * tab, because a different tab may announce the next event.
  */
-export const notificationSound = createNotificationSound({ throttleStore: createSharedThrottleStore(browserStorage()) });
+export const notificationSound = createNotificationSound({
+	throttleStore: createSharedThrottleStore(browserStorage())
+});
 
 let coordinator: NotificationCoordinator | undefined;
 
@@ -36,7 +40,9 @@ function tabCoordinator(): NotificationCoordinator {
 		channel: openCoordinationChannel(),
 		isVisible: () => document.visibilityState === 'visible',
 		isAudible: () => notificationSound.canStart(),
-		showsSubject: (subject) => onScreenSubjects.has(subject)
+		showsSubject: (subject) => onScreenSubjects.has(subject),
+		// A slow tab can miss the claim window: a Web Lock settles the winner.
+		claimEvent: webLockEventClaimer(browserLocks()) ?? undefined
 	});
 	return coordinator;
 }
