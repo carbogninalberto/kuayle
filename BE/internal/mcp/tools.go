@@ -82,12 +82,10 @@ var (
 	identifier   = prop{Name: "identifier", Type: "string", Desc: "Issue identifier, for example KUA-12.", Required: true}
 	teamID       = prop{Name: "team_id", Type: "string", Desc: "Team ID (list_teams).", Required: true}
 
-	statuses = []string{"backlog", "todo", "in_progress", "in_review", "done", "cancelled"}
-
 	// issueFields are the fields create_issue and update_issue share.
 	issueFields = []prop{
 		{Name: "description", Type: "string", Desc: "Markdown or HTML."},
-		{Name: "status", Type: "string", Desc: "Status category. Prefer status_id for a team's own statuses.", Enum: statuses},
+		{Name: "status", Type: "string", Desc: "Name of one of the team's statuses (list_statuses), for example In Progress; case is ignored. Its slug, such as in_progress, also works. An unknown name is refused. status_id wins when both are given."},
 		{Name: "status_id", Type: "string", Desc: "ID of one of the team's statuses (list_statuses)."},
 		{Name: "priority", Type: "integer", Desc: "0 none, 1 urgent, 2 high, 3 medium, 4 low."},
 		{Name: "assignee_ids", Type: "array", Desc: "User IDs (list_members); replaces the current assignees."},
