@@ -68,6 +68,9 @@ const (
 	// DevMachineOpUpdateImages recreates an idle running machine's containers
 	// whose image is not the installed release's.
 	DevMachineOpUpdateImages DevMachineOperationAction = "update_images"
+	// DevMachineOpRefreshPackageIndex runs "sudo apt-get update" once in a
+	// running sudo machine's developer container, on the owner's request.
+	DevMachineOpRefreshPackageIndex DevMachineOperationAction = "refresh_package_index"
 )
 
 type DevMachineOperationStatus string
@@ -580,6 +583,42 @@ type DevMachineAccessLog struct {
 // (one every reconcile, 30 seconds); teardown removes them.
 const DevMachineResourceRetention = 24 * time.Hour
 
+// Package index states of an environment check: the developer container's
+// apt lists were deleted (the images do so to stay small; expected), are
+// present, or could not be read.
+const (
+	PackageIndexAbsent  = "absent"
+	PackageIndexPresent = "present"
+	PackageIndexUnknown = "unknown"
+)
+
+// Package index refresh states.
+const (
+	PackageIndexRefreshIdle      = "idle"
+	PackageIndexRefreshQueued    = "queued"
+	PackageIndexRefreshRunning   = "running"
+	PackageIndexRefreshSucceeded = "succeeded"
+	PackageIndexRefreshFailed    = "failed"
+)
+
+// DevMachineEnvironmentCheck is what the machine manager last found in one
+// developer container. It describes that container only: it is deleted when
+// the machine stops, pauses or is torn down, and it is stale once the
+// developer container changes. It never affects machine or service health.
+type DevMachineEnvironmentCheck struct {
+	MachineID         uuid.UUID  `db:"machine_id"`
+	WorkspaceID       uuid.UUID  `db:"workspace_id"`
+	ContainerID       string     `db:"container_id"`
+	PackageIndexState string     `db:"package_index_state"`
+	PackageIndexMtime *time.Time `db:"package_index_mtime"`
+	CheckedAt         time.Time  `db:"checked_at"`
+	RefreshState      string     `db:"refresh_state"`
+	RefreshExitCode   *int       `db:"refresh_exit_code"`
+	RefreshOutput     *string    `db:"refresh_output"`
+	RefreshStartedAt  *time.Time `db:"refresh_started_at"`
+	RefreshFinishedAt *time.Time `db:"refresh_finished_at"`
+}
+
 type DevMachineResourceSample struct {
 	ID             int64     `json:"id" db:"id"`
 	WorkspaceID    uuid.UUID `json:"workspace_id" db:"workspace_id"`
@@ -793,7 +832,7 @@ func ValidOperationForStatus(action DevMachineOperationAction, status DevMachine
 		return status != DevMachineStatusDestroyed && status != DevMachineStatusTearingDown
 	case DevMachineOpReconcile:
 		return status != DevMachineStatusDestroyed
-	case DevMachineOpRunAgent, DevMachineOpCancelAgent, DevMachineOpCheckoutIssue:
+	case DevMachineOpRunAgent, DevMachineOpCancelAgent, DevMachineOpCheckoutIssue, DevMachineOpRefreshPackageIndex:
 		return status == DevMachineStatusRunning
 	case DevMachineOpSnapshotEnvironment:
 		return status == DevMachineStatusPaused || status == DevMachineStatusStopped

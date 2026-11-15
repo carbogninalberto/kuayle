@@ -27,6 +27,7 @@ type managerStoreFake struct {
 	prunedSamples             []prunedSamples
 	wipedSampleMachines       []uuid.UUID
 	appPorts                  portFakeState
+	envCheck                  environmentFakeState
 	signIns                   map[string]string
 	envVars                   []domain.DevMachineEnvVar
 	onAuthorizeAgentRun       func() error
@@ -490,6 +491,7 @@ func (f *runtimeFake) HostResources(context.Context) (HostResources, error) {
 
 type runtimeFake struct {
 	Runtime
+	environment        environmentRuntimeFake
 	syncErr            error
 	syncs              int
 	syncPublished      string

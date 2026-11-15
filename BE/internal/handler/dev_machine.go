@@ -499,6 +499,36 @@ func (h *DevMachineHandler) ResourceUsage(c *echo.Context) error {
 	return response.Success(c, http.StatusOK, samples)
 }
 
+// EnvironmentStatus returns the cached environment check of the machine's
+// running developer container; it never runs anything in the container.
+func (h *DevMachineHandler) EnvironmentStatus(c *echo.Context) error {
+	workspace := middleware.GetWorkspace(c)
+	machineID, err := uuid.Parse(c.Param("machineId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
+	}
+	status, err := h.service.EnvironmentStatus(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c))
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, status)
+}
+
+// RefreshPackageIndex queues "sudo apt-get update" in the machine's developer
+// container; the result is read back with EnvironmentStatus.
+func (h *DevMachineHandler) RefreshPackageIndex(c *echo.Context) error {
+	workspace := middleware.GetWorkspace(c)
+	machineID, err := uuid.Parse(c.Param("machineId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
+	}
+	status, err := h.service.RefreshPackageIndex(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c))
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusAccepted, status)
+}
+
 func (h *DevMachineHandler) LaunchService(c *echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	machineID, err := uuid.Parse(c.Param("machineId"))
@@ -833,6 +863,10 @@ func machineError(c *echo.Context, err error) error {
 		return response.NotFound(c, "Terminal Session")
 	case errors.Is(err, service.ErrDevMachinesDisabled), errors.Is(err, service.ErrProviderNotAllowed), errors.Is(err, service.ErrRepositoryNotAllowed):
 		return response.Error(c, http.StatusForbidden, "FORBIDDEN", err.Error())
+	case errors.Is(err, service.ErrSudoDisabled):
+		return response.Error(c, http.StatusForbidden, "SUDO_DISABLED", sudoDisabledMessage)
+	case errors.Is(err, service.ErrMachineNotRunning):
+		return response.Error(c, http.StatusConflict, "MACHINE_NOT_RUNNING", "The machine is not running")
 	case errors.Is(err, service.ErrMachineAuthentication):
 		return response.Unauthorized(c)
 	case errors.Is(err, service.ErrMachineQuota):
@@ -977,3 +1011,7 @@ func (h *DevMachineHandler) LaunchPort(c *echo.Context) error {
 	}
 	return response.Success(c, status, launch)
 }
+
+// sudoDisabledMessage tells the owner of a machine without sudo how to refresh
+// its package index.
+const sudoDisabledMessage = "Sudo is not enabled for this machine. Enable sudo in Settings → Dev Machines for new machines, or run `sudo apt-get update` in a terminal you opened yourself."
