@@ -177,10 +177,13 @@ as skipped when not selected; dynamic matrix names exist only for selected image
 A manual release dispatch keeps `release-source` in the catalog but omits it from
 the required jobs, because that run deliberately builds an existing tag.
 
-At implementation time main had no enforced protection rules. If checks are made
-required, require the four stable contexts **Tests CI Result**, **Security CI
-Result**, **Build CI Result**, and **Readiness CI Result**, rather than dynamic
-matrix entries. No protection settings are changed by this implementation.
+Main's ruleset ("main: up-to-date and green", KUA-194) requires the four stable
+contexts **Tests CI Result**, **Security CI Result**, **Build CI Result**, and
+**Readiness CI Result**, never dynamic matrix entries, on a branch that is up to
+date with main; it also blocks deletion and force-pushes. Only repository admins
+and deploy keys bypass it. The release workflow's version-bump commit is pushed
+straight to main, so `release-source` checks out with the write deploy key in the
+`RELEASE_BUMP_DEPLOY_KEY` secret; without that secret the push is refused.
 Do not introduce workflow-level path filters that leave required checks pending.
 See GitHub's [workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
 for job conditions, diff limits and skipped workflow behavior.

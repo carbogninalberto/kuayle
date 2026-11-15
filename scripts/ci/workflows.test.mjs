@@ -41,6 +41,8 @@ test('release runtime checks consume refreshed source while PR checks survive sk
   const build = workflow.split('  build:\n')[1].split('  dev-machine-images:\n')[0];
   const runtime = workflow.split('  dev-machine-images:\n')[1].split('  result:\n')[0];
   assert.ok(source.indexOf('run: node scripts/ci/upgrade-agent-clis.mjs') < source.indexOf('- name: Commit version bump'));
+  // main's ruleset lets only deploy keys push the bump without a pull request.
+  assert.match(source, /ssh-key: \$\{\{ secrets\.RELEASE_BUMP_DEPLOY_KEY \}\}/);
   assert.match(source, /source_sha: \$\{\{ steps.source.outputs.sha \}\}/);
   assert.match(source, /git add devmachine\/common\/install-agent-clis.sh devmachine\/\{agent,ide,headless\}\/Dockerfile/);
   // Automatic releases and manual republishes share one validated source/tag context.
