@@ -20,12 +20,14 @@ func TestCommandWorkingDirectoryStaysInTheWorkspace(t *testing.T) {
 		"tasks/eng-1":            "/workspace/tasks/eng-1",
 		"/workspace/tasks/eng-1": "/workspace/tasks/eng-1",
 		"tasks//eng-1/":          "/workspace/tasks/eng-1",
+		"a.b":                    "/workspace/a.b",
+		"/workspace/.config":     "/workspace/.config",
 	} {
 		got, ok := CommandWorkingDirectory(input)
 		require.True(t, ok, input)
 		require.Equal(t, want, got, input)
 	}
-	for _, input := range []string{"../etc", "tasks/../../etc", "/etc", "/workspacex", "tasks/\nx", "/workspace/.."} {
+	for _, input := range []string{"../etc", "tasks/../../etc", "/etc", "/workspacex", "tasks/\nx", "/workspace/..", "a..b", "/workspace/x..y/z", "..hidden"} {
 		_, ok := CommandWorkingDirectory(input)
 		require.False(t, ok, input)
 	}

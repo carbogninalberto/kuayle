@@ -71,10 +71,10 @@ func CommandWorkingDirectory(relative string) (string, bool) {
 	} else if strings.HasPrefix(relative, "/") {
 		return "", false
 	}
-	for _, part := range strings.Split(relative, "/") {
-		if part == ".." {
-			return "", false
-		}
+	// Mirrors the CHECK (working_directory NOT LIKE '%..%') of
+	// assistant_command_runs: any ".." anywhere, not only a whole segment.
+	if strings.Contains(relative, "..") {
+		return "", false
 	}
 	return path.Clean("/workspace/" + relative), true
 }

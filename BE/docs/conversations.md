@@ -975,12 +975,12 @@ cannot file Kuayle issues).
 | Inspect files on one's own machine (`ls`, `cat`, `du`, `find`) | `run_command` with `machine_id` and `working_directory` | covered (KUA-153) |
 | Call a public endpoint (`curl`) | `run_command`, through the machine's egress proxy | covered (KUA-153) |
 | Write scratch files or generate an artifact | `run_command_write`: only the conversation's folder is writable, the rest of `/workspace` stays read-only | covered (KUA-153) |
-| Run tests ad hoc outside a task checkout | `run_command` on the user's machine (read-only workspace, 60 s) | partial: longer runs are a gap, issue to file |
-| Install a language package | `run_command_write` in the conversation folder: `pip install --target ./pkgs` then `PYTHONPATH=./pkgs`, a venv (`python3 -m venv .venv`), or `npm install`; not `pip install --user`, since `$HOME` is a tmpfs lost after each run | partial: system packages (no sudo, no apt on temporary machines) are a gap, issue to file |
-| Run a database migration against a real database | none: command containers never get credentials | gap, issue to file |
-| Read a machine's container or agent logs, `docker ps` | none | gap, issue to file |
-| Commit, branch or push on a checkout | read-only git through `get_task_worktree` and `run_command`; changes through `follow_up_task` | partial: pushing from chat is a gap, issue to file |
-| Keep a process running (a dev server outside a task) | `start_preview` for a task's configured preview only | partial: ad-hoc long-running processes are a gap, issue to file |
+| Run tests ad hoc outside a task checkout | `run_command` on the user's machine (read-only workspace, 60 s) | partial: longer runs are a gap, KUA-179 |
+| Install a language package | `run_command_write` in the conversation folder: `pip install --target ./pkgs` then `PYTHONPATH=./pkgs`, a venv (`python3 -m venv .venv`), or `npm install`; not `pip install --user`, since `$HOME` is a tmpfs lost after each run | partial: system packages (no sudo, no apt on temporary machines) are a gap, KUA-180 |
+| Run a database migration against a real database | none: command containers never get credentials | gap, KUA-181 |
+| Read a machine's container or agent logs, `docker ps` | none | gap, KUA-182 |
+| Commit, branch or push on a checkout | read-only git through `get_task_worktree` and `run_command`; changes through `follow_up_task` | partial: pushing from chat is a gap, KUA-183 |
+| Keep a process running (a dev server outside a task) | `start_preview` for a task's configured preview only | partial: ad-hoc long-running processes are a gap, KUA-184 |
 
 ### Commands and temporary machines
 
