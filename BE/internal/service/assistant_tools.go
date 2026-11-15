@@ -116,6 +116,10 @@ type AssistantTools struct {
 	// publish_wiki_page and share_wiki_page need SetWikiPublishing.
 	wikiPublish    assistantWikiPublisher
 	wikiWorkspaces assistantWorkspaces
+	// The command tools are unavailable until SetCommands wires them.
+	commands          assistantCommandStore
+	temporaryMachines assistantTemporaryMachines
+	commandWait       time.Duration
 	// machineAccess is the public demo rule; nil restricts nothing.
 	machineAccess *MachineAccess
 }
@@ -213,6 +217,8 @@ type assistantTool struct {
 	wiki bool
 	// publish tools also need SetWikiPublishing.
 	publish bool
+	// commands tools need SetCommands.
+	commands bool
 }
 
 var assistantToolCatalog = []assistantTool{
@@ -251,6 +257,7 @@ func assistantTools() []assistantTool {
 		assistantScanToolCatalog,
 		assistantWorktreeToolCatalog,
 		assistantWikiToolCatalog,
+		assistantCommandToolCatalog,
 	} {
 		tools = append(tools, catalog...)
 	}
@@ -290,6 +297,7 @@ func (t *AssistantTools) available(tool assistantTool) bool {
 		(!tool.releases || (t.releases != nil && t.releaseRepos != nil && t.releaseStyles != nil)) &&
 		(!tool.scan || (t.checkouts != nil && t.scanRepos != nil)) &&
 		(!tool.worktree || (t.worktreeScans != nil && t.checkouts != nil && t.scanRepos != nil)) &&
+		(!tool.commands || (t.commands != nil && t.temporaryMachines != nil)) &&
 		(!tool.webSearch || (t.research != nil && len(t.searchProvider) > 0)) &&
 		(!tool.subagents || (t.subagents && t.research != nil && (t.checkouts != nil && t.scanRepos != nil || len(t.searchProvider) > 0)))
 }
@@ -357,6 +365,8 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 	switch name {
 	case "list_wiki_pages", "get_wiki_page", "list_wiki_page_versions", "create_wiki_page", "update_wiki_page", "append_wiki_registry", "manage_wiki_registry", "move_wiki_page", "publish_wiki_page":
 		return t.runWikiTool(ctx, ws, user, name, arguments)
+	case "get_command_run":
+		return t.getCommandRun(ctx, ws, user, arguments)
 	case "list_teams":
 		if err := decodeToolInput(arguments, &struct{}{}); err != nil {
 			return nil, nil, err

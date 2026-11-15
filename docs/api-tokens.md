@@ -272,6 +272,7 @@ authentication.
 | GET | `/api/workspaces/:slug/conversations/:conversationId` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
 | PATCH | `/api/workspaces/:slug/conversations/:conversationId` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
 | POST | `/api/workspaces/:slug/conversations/:conversationId/approvals/:approvalId` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
+| GET | `/api/workspaces/:slug/conversations/:conversationId/approvals/:approvalId/command-run` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
 | POST | `/api/workspaces/:slug/conversations/:conversationId/attachments` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
 | DELETE | `/api/workspaces/:slug/conversations/:conversationId/attachments/:attachmentId` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
 | GET | `/api/workspaces/:slug/conversations/:conversationId/attachments/:attachmentId` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |

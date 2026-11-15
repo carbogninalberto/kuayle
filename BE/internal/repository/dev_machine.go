@@ -194,6 +194,12 @@ func (r *DevMachineRepository) CreateBundle(
 	if err := newMachineQuotaError(workspaceCount, maxWorkspace, userCount, maxUser); err != nil {
 		return err
 	}
+	if machine.TemporaryExpiresAt != nil {
+		// Counted under the same workspace lock as the machine quotas.
+		if err := checkTemporaryMachineQuota(ctx, tx, machine.WorkspaceID, machine.CreatedByUserID); err != nil {
+			return err
+		}
+	}
 	if machine.ProjectID != nil {
 		var exists bool
 		if err := tx.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM projects WHERE id=$1 AND workspace_id=$2)`, machine.ProjectID, machine.WorkspaceID); err != nil {
@@ -221,8 +227,9 @@ func (r *DevMachineRepository) CreateBundle(
 		status, desired_status, generation, repo_url, repo_provider, repo_owner, repo_name,
 		base_branch, working_branch, machine_size, profile, cpu_millis, memory_mb, disk_gb, pids_limit,
 		services_config, labels, environment_id,
-		repository_affinity_id, environment_builder, last_activity_at, sudo_enabled
-	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+		repository_affinity_id, environment_builder, last_activity_at, sudo_enabled,
+		temporary_conversation_id, temporary_expires_at
+	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)
 	RETURNING created_at, updated_at`
 	if err := tx.QueryRowContext(ctx, machineQuery,
 		machine.ID, machine.WorkspaceID, machine.ProjectID, machine.IssueID, machine.CreatedByUserID,
@@ -231,7 +238,7 @@ func (r *DevMachineRepository) CreateBundle(
 		machine.WorkingBranch, machine.MachineSize, machine.Profile, machine.CPUMillis, machine.MemoryMB, machine.DiskGB,
 		machine.PidsLimit, machine.ServicesConfig, machine.Labels,
 		machine.EnvironmentID, machine.RepositoryAffinityID, machine.EnvironmentBuilder, machine.LastActivityAt,
-		machine.SudoEnabled,
+		machine.SudoEnabled, machine.TemporaryConversationID, machine.TemporaryExpiresAt,
 	).Scan(&machine.CreatedAt, &machine.UpdatedAt); err != nil {
 		var postgresError *pgconn.PgError
 		if errors.As(err, &postgresError) && postgresError.Code == "23505" && postgresError.ConstraintName == "idx_dev_machines_workspace_name" {
@@ -711,8 +718,8 @@ func (r *DevMachineRepository) UpsertPolicy(ctx context.Context, policy *domain.
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_workspace_policies
 		(workspace_id, enabled, max_concurrent_machines, max_machines_per_user, max_daily_agent_runs,
 		 max_disk_gb, allowed_providers, allowed_repositories, allow_custom_providers, allow_unattended_automations, agent_git_name, agent_git_email, allow_docker, allow_sudo,
-		 task_machine_cpu_millis, task_machine_memory_mb, task_machine_disk_gb, task_machine_max_tasks)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+		 task_machine_cpu_millis, task_machine_memory_mb, task_machine_disk_gb, task_machine_max_tasks, max_temporary_machines)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 		ON CONFLICT (workspace_id) DO UPDATE SET enabled=EXCLUDED.enabled,
 		max_concurrent_machines=EXCLUDED.max_concurrent_machines, max_machines_per_user=EXCLUDED.max_machines_per_user,
 		max_daily_agent_runs=EXCLUDED.max_daily_agent_runs,
@@ -722,11 +729,11 @@ func (r *DevMachineRepository) UpsertPolicy(ctx context.Context, policy *domain.
 		agent_git_name=EXCLUDED.agent_git_name, agent_git_email=EXCLUDED.agent_git_email, allow_docker=EXCLUDED.allow_docker,
 		allow_sudo=EXCLUDED.allow_sudo,
 		task_machine_cpu_millis=EXCLUDED.task_machine_cpu_millis, task_machine_memory_mb=EXCLUDED.task_machine_memory_mb,
-		task_machine_disk_gb=EXCLUDED.task_machine_disk_gb, task_machine_max_tasks=EXCLUDED.task_machine_max_tasks
+		task_machine_disk_gb=EXCLUDED.task_machine_disk_gb, task_machine_max_tasks=EXCLUDED.task_machine_max_tasks, max_temporary_machines=EXCLUDED.max_temporary_machines
 		RETURNING created_at, updated_at`, policy.WorkspaceID, policy.Enabled, policy.MaxConcurrentMachines,
 		policy.MaxMachinesPerUser, policy.MaxDailyAgentRuns, policy.MaxDiskGB,
 		policy.AllowedProviders, policy.AllowedRepositories, policy.AllowCustomProviders, policy.AllowUnattendedAutomations, policy.AgentGitName, policy.AgentGitEmail, policy.AllowDocker,
-		policy.AllowSudo, policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB, policy.TaskMachineMaxTasks,
+		policy.AllowSudo, policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB, policy.TaskMachineMaxTasks, policy.MaxTemporaryMachines,
 	).Scan(&policy.CreatedAt, &policy.UpdatedAt)
 }
 

@@ -199,6 +199,10 @@ func (s *ConversationService) execute(parent context.Context, a domain.Conversat
 		if research := s.tools.researchPrompt(ctx, a.Conversation.WorkspaceID); research != "" {
 			prompt = strings.TrimSuffix(prompt, "You cannot read repositories or run code yourself.") + research + " You cannot run code yourself."
 		}
+		if commands := s.tools.commandPrompt(ctx, a.Conversation.WorkspaceID); commands != "" {
+			// Code runs only through the command tools, never by the model itself.
+			prompt = strings.TrimSuffix(strings.TrimSuffix(prompt, " You cannot run code yourself."), " You cannot read repositories or run code yourself.") + commands
+		}
 	}
 	messages := []chatCompletionMessage{{Role: "system", Content: prompt}}
 	issue, err := s.Repo.GenerationIssue(ctx, a)
@@ -516,6 +520,18 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 		var check domain.RunCheckPayload
 		issueID, check, err = s.tools.prepareRunCheck(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)
 		payload, identifier = check, check.Identifier
+	case "start_temporary_machine":
+		// The user's own machine or the conversation's temporary machine is
+		// returned at once: nothing starts, so nothing needs approval.
+		var machine *domain.TemporaryMachinePayload
+		var existing map[string]any
+		if machine, existing, err = s.tools.prepareTemporaryMachine(ctx, a, arguments); err == nil && existing != nil {
+			return existing, nil, nil
+		}
+		payload = machine
+	case "run_command", "run_command_write":
+		// Commands and temporary machines belong to the user's machine, not to an issue.
+		payload, err = s.tools.prepareCommand(ctx, a, action, arguments)
 	default:
 		err = toolFailure("unknown tool")
 	}

@@ -790,6 +790,10 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: the check is starting.", true
 		case "run_custom_tool":
 			return "Approved: the tool is running. Its result appears in the chat in Kuayle.", true
+		case "run_command", "run_command_write":
+			return "Approved: the command is running. Its result appears in the chat in Kuayle.", true
+		case "start_temporary_machine":
+			return "Approved: the temporary machine is starting. It is deleted after 30 minutes.", true
 		case "reply_to_review_comment":
 			return "Approved: the reply was posted on the pull request.", true
 		case "resolve_review_thread":
@@ -831,6 +835,10 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			message = "The check could not start."
 		case "run_custom_tool":
 			message = "The tool could not start."
+		case "run_command", "run_command_write":
+			message = "The command could not start."
+		case "start_temporary_machine":
+			message = "The temporary machine could not start."
 		case "upgrade_instance":
 			message = "The upgrade could not start."
 		case "create_release":

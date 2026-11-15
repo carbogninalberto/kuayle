@@ -471,6 +471,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/messages/:messageId/retry", h.conversation.Retry)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/cancel", h.conversation.Cancel)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/approvals/:approvalId", h.conversation.ResolveApproval)
+	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId/approvals/:approvalId/command-run", h.conversation.CommandRun)
 
 	// Voice: members read whether the microphone is available; the owner
 	// chooses the model; a conversation's reader transcribes into its composer.

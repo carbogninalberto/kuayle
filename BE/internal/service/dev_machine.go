@@ -157,9 +157,18 @@ func NewDevMachineService(store repository.DevMachineStore, agents *agent.Regist
 }
 
 func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid.UUID, req dto.CreateDevMachineRequest) (*domain.DevMachine, *domain.DevMachineOperation, error) {
-	return s.create(ctx, workspaceID, userID, req, uuid.New())
+	return s.create(ctx, workspaceID, userID, req, uuid.New(), nil)
 }
-func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid.UUID, req dto.CreateDevMachineRequest, machineID uuid.UUID) (*domain.DevMachine, *domain.DevMachineOperation, error) {
+
+// temporaryMachine marks a machine the assistant starts for one conversation:
+// it never takes the workspace's default repository or environment, never gets
+// Docker or sudo, and is permanently deleted at expiresAt.
+type temporaryMachine struct {
+	conversation uuid.UUID
+	expiresAt    time.Time
+}
+
+func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid.UUID, req dto.CreateDevMachineRequest, machineID uuid.UUID, temporary *temporaryMachine) (*domain.DevMachine, *domain.DevMachineOperation, error) {
 	if err := s.RequireMachineUse(userID); err != nil {
 		return nil, nil, err
 	}
@@ -248,6 +257,10 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 	if err != nil {
 		return nil, nil, err
 	}
+	if temporary != nil {
+		// Workspace defaults could bring a repository and its credentials.
+		defaults = &domain.DevMachineScopeSetting{}
+	}
 
 	var environmentID *uuid.UUID
 	if req.EnvironmentID != nil {
@@ -321,7 +334,10 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 		MachineSize: req.Size, Profile: profile, CPUMillis: cpuMillis, MemoryMB: memoryMB, DiskGB: diskGB, PidsLimit: 512,
 		ServicesConfig: servicesConfig, Labels: json.RawMessage(`{}`), EnvironmentID: environmentID,
 		EnvironmentBuilder: req.EnvironmentBuilder, LastActivityAt: &now,
-		SudoEnabled: policy.AllowSudo,
+		SudoEnabled: policy.AllowSudo && temporary == nil,
+	}
+	if temporary != nil {
+		machine.TemporaryConversationID, machine.TemporaryExpiresAt = &temporary.conversation, &temporary.expiresAt
 	}
 	if repositoryModel != nil {
 		machine.RepositoryAffinityID = &repositoryModel.ID
@@ -335,7 +351,7 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 		return nil, nil, err
 	}
 	services := s.buildServices(machine)
-	if policy.AllowDocker {
+	if policy.AllowDocker && temporary == nil {
 		services = append(services, newService(machine.WorkspaceID, machine.ID, dockerServiceType, dockerServiceType,
 			"kuayle-"+machine.RoutingKey+"-docker", s.images.Docker, machine.RoutingKey+"-docker", dockerDaemonPort))
 	}
@@ -359,7 +375,7 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 	if err != nil {
 		return nil, nil, err
 	}
-	if policy.AllowDocker {
+	if policy.AllowDocker && temporary == nil {
 		dockerSecrets, err := s.dockerEnvVars(machine)
 		if err != nil {
 			return nil, nil, err
@@ -2198,6 +2214,7 @@ func (s *DevMachineService) GetPolicy(ctx context.Context, workspaceID uuid.UUID
 		TaskMachineMemoryMB:  domain.DefaultTaskMachineResources.MemoryMB,
 		TaskMachineDiskGB:    domain.DefaultTaskMachineResources.DiskGB,
 		TaskMachineMaxTasks:  domain.DefaultTaskMachineMaxTasks,
+		MaxTemporaryMachines: domain.DefaultMaxTemporaryMachines,
 		AllowedProviders:     json.RawMessage(`["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`),
 		AllowedRepositories:  json.RawMessage(`[]`),
 	}, nil
@@ -2243,8 +2260,10 @@ func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.U
 	// current values for older clients.
 	taskMachine := domain.DefaultTaskMachineResources
 	policy.TaskMachineMaxTasks = domain.DefaultTaskMachineMaxTasks
+	policy.MaxTemporaryMachines = domain.DefaultMaxTemporaryMachines
 	if current != nil {
 		policy.AllowDocker, policy.AllowSudo = current.AllowDocker, current.AllowSudo
+		policy.MaxTemporaryMachines = current.MaxTemporaryMachines
 		taskMachine = current.TaskMachine()
 		if current.TaskMachineMaxTasks > 0 {
 			policy.TaskMachineMaxTasks = current.TaskMachineMaxTasks
@@ -2255,6 +2274,12 @@ func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.U
 			return nil, fmt.Errorf("%w: task_machine_max_tasks must be from 1 to %d", ErrInvalidMachineInput, domain.MaxTaskMachineMaxTasks)
 		}
 		policy.TaskMachineMaxTasks = *req.TaskMachineMaxTasks
+	}
+	if req.MaxTemporaryMachines != nil {
+		if *req.MaxTemporaryMachines < 0 || *req.MaxTemporaryMachines > domain.MaxTemporaryMachinesLimit {
+			return nil, fmt.Errorf("%w: max_temporary_machines must be from 0 to %d", ErrInvalidMachineInput, domain.MaxTemporaryMachinesLimit)
+		}
+		policy.MaxTemporaryMachines = *req.MaxTemporaryMachines
 	}
 	if req.AllowDocker != nil {
 		policy.AllowDocker = *req.AllowDocker

@@ -41,6 +41,7 @@ type managerStoreFake struct {
 	runtimeMachines           []domain.DevMachine
 	permanentDeleteMachines   []domain.DevMachine
 	permanentDeleteRequests   int
+	expiredTemporaryMachines  []domain.DevMachine
 	purgedMachineIDs          []uuid.UUID
 	desired                   []domain.DevMachineStatus
 	actions                   []domain.DevMachineOperationAction
@@ -2054,4 +2055,8 @@ func (f *runtimeFake) SyncCheckout(_ context.Context, _ *domain.DevMachine, _ []
 	f.syncs++
 	f.syncPublished = published
 	return f.lease, f.syncErr
+}
+
+func (f *managerStoreFake) ListExpiredTemporaryMachines(context.Context, time.Time, int) ([]domain.DevMachine, error) {
+	return f.expiredTemporaryMachines, nil
 }

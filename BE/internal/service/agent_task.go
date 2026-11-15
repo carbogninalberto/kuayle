@@ -635,7 +635,7 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 		if policyErr != nil {
 			return false, policyErr
 		}
-		machine, _, err = s.create(ctx, task.WorkspaceID, task.CreatorID, taskMachineRequest(*task, profile, policy.TaskMachine()), task.ReservedMachineID)
+		machine, _, err = s.create(ctx, task.WorkspaceID, task.CreatorID, taskMachineRequest(*task, profile, policy.TaskMachine()), task.ReservedMachineID, nil)
 		if err != nil {
 			return false, err
 		}

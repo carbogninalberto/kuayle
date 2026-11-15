@@ -38,6 +38,16 @@ type ManagerStore interface {
 	AppendToolRunOutput(context.Context, domain.DevMachineOperation, string, bool) error
 	CompleteToolRun(context.Context, domain.DevMachineOperation, int) error
 	FailToolRun(context.Context, domain.DevMachineOperation, string) error
+	// Assistant command runs (run_command) re-check the run's authority on
+	// every call, like tool runs.
+	GetCommandRun(context.Context, domain.DevMachineOperation) (*domain.CommandRun, error)
+	StartCommandRun(context.Context, domain.DevMachineOperation) error
+	AppendCommandRunOutput(context.Context, domain.DevMachineOperation, string, bool) error
+	CompleteCommandRun(context.Context, domain.DevMachineOperation, int) error
+	FailCommandRun(context.Context, domain.DevMachineOperation, string) error
+	// ListExpiredTemporaryMachines lists temporary machines past their
+	// expiry that are not being deleted yet.
+	ListExpiredTemporaryMachines(context.Context, time.Time, int) ([]domain.DevMachine, error)
 	MachinePorts(context.Context, uuid.UUID) ([]domain.DevMachinePort, error)
 	CreatePort(context.Context, *domain.DevMachinePort) error
 	DeleteAgentPort(context.Context, uuid.UUID, int) (bool, error)
@@ -403,6 +413,11 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 				log.WithFields(fields).WithError(toolErr).Error("failed to record tool run failure")
 			}
 		}
+		if !willRetry && operation.Action == domain.DevMachineOpRunCommand {
+			if commandErr := m.store.FailCommandRun(finalCtx, operation, commandRunFailure(err)); commandErr != nil {
+				log.WithFields(fields).WithError(commandErr).Error("failed to record command run failure")
+			}
+		}
 		if !willRetry && operation.Action == domain.DevMachineOpScanWorktree {
 			message := worktreeScanFailure(err)
 			if scanErr := m.store.CompleteWorktreeScan(finalCtx, operation.ID, nil, &message); scanErr != nil {
@@ -482,6 +497,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			return &terminalOperationError{code: "check_stale", message: "The machine changed before the check ran"}
 		case domain.DevMachineOpRunTool:
 			return &terminalOperationError{code: "tool_stale", message: "The machine changed before the tool ran"}
+		case domain.DevMachineOpRunCommand:
+			return &terminalOperationError{code: "command_stale", message: "The machine changed before the command ran"}
 		case domain.DevMachineOpScanWorktree:
 			return m.completeStaleWorktreeScan(ctx, operation)
 		case domain.DevMachineOpPublishAgent:
@@ -659,6 +676,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		return m.validateAgent(ctx, machine, operation)
 	case domain.DevMachineOpRunTool:
 		return m.runTool(ctx, machine, operation)
+	case domain.DevMachineOpRunCommand:
+		return m.runCommand(ctx, machine, operation)
 	case domain.DevMachineOpScanWorktree:
 		return m.runWorktreeScan(ctx, machine, operation)
 	case domain.DevMachineOpPublishAgent:
@@ -1621,6 +1640,7 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		}
 	}
 
+	m.expireTemporaryMachines(ctx, now)
 	deleteRequestedMachines, err := m.store.ListPermanentDeleteRequests(ctx, 100)
 	if err != nil {
 		return err

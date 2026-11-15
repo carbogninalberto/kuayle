@@ -643,14 +643,14 @@ func machineSelectionSQL() string {
   AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased') AND o.action IN ('validate_agent','publish_agent')) AS idle) state
  WHERE m.workspace_id=$1 AND m.created_by_user_id=$2
  AND m.status='running' AND m.desired_status='running'
- AND m.delete_requested_at IS NULL AND NOT m.environment_builder
+ AND m.delete_requested_at IS NULL AND NOT m.environment_builder AND m.temporary_expires_at IS NULL
  AND m.profile IN ('standard','headless')
  AND m.environment_id IS NOT DISTINCT FROM $4::uuid
  AND (policy.allow_sudo OR NOT m.sudo_enabled)
  AND (policy.allow_docker OR NOT EXISTS(SELECT 1 FROM dev_machine_services s WHERE s.machine_id=m.id AND s.service_type='docker'))
  AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.task_id IS NULL AND r.status IN ('queued','starting','running','waiting_input'))
  AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased')
-  AND o.action IN ('stop','pause','teardown','snapshot_environment','run_check','run_tool'))`
+  AND o.action IN ('stop','pause','teardown','snapshot_environment','run_check','run_tool','run_command'))`
 }
 
 // machineSelectionOrder ranks an idle machine first, then the least loaded one,
