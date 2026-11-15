@@ -74,9 +74,10 @@ writes real data, so point it at a development instance.
 
 ## Known limits
 
-- Webhooks: endpoints can be registered and the delivery format and signature
-  are implemented (`WebhookService.Dispatch`), but no issue or comment event
-  calls it yet. The document marks deliveries as preview and says so.
+- Webhooks deliver `issue.created`, `issue.updated`, `issue.deleted`,
+  `issue.triaged` and `comment.created` once, without retries, and are disabled
+  for workspaces that have or had a private team. Other changes (projects,
+  cycles, wiki pages) do not emit events.
 - `per_page` above 100 on the issue list is outside the documented contract but
   is not rejected by the server today.
 - Authenticated routes have no application-level rate limit.

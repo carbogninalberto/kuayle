@@ -206,22 +206,7 @@ func Build() ([]byte, error) {
 		"security": []object{{"personalAccessToken": []string{}}},
 		"tags":     tags,
 		"paths":    paths,
-		"webhooks": object{
-			"delivery": object{"post": object{
-				"operationId": "receiveWebhookDelivery",
-				"summary":     "A webhook delivery sent to your URL",
-				"description": "Preview: the format and signature are implemented, but this release does not emit issue or comment events yet. See Webhooks and signature verification.",
-				"security":    []object{},
-				"parameters": []object{
-					{"name": SignatureHeader, "in": "header", "required": true, "schema": object{"type": "string", "pattern": "^sha256=[0-9a-f]{64}$"},
-						"description": "\"sha256=\" followed by the hex HMAC-SHA256 of the raw body, keyed with the webhook's secret."},
-					{"name": EventHeader, "in": "header", "required": true, "schema": object{"type": "string"}, "description": "The event name, as in the body."},
-				},
-				"requestBody":        object{"required": true, "content": object{"application/json": object{"schema": schemas.of(reflect.TypeFor[dto.WebhookDelivery](), response)}}},
-				"responses":          object{"2XX": object{"description": "Any response ends the delivery; it is not retried."}},
-				"x-kuayle-stability": "preview",
-			}},
-		},
+		"webhooks": webhookDocs(schemas),
 		"components": object{
 			"securitySchemes": object{"personalAccessToken": object{
 				"type": "http", "scheme": "bearer", "bearerFormat": "kuayle_pat_<40 characters>",

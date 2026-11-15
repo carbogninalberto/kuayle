@@ -117,6 +117,18 @@ func (m *mockIssueRepo) BulkDelete(ctx context.Context, workspaceID uuid.UUID, i
 	return args.Int(0), args.Error(1)
 }
 
+func (m *mockIssueRepo) BulkUpdateChanged(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID, cycleID *uuid.UUID, cycleSet bool) (int, []domain.Issue, error) {
+	args := m.Called(ctx, workspaceID, issueIDs, status, priority, assigneeID, statusID, cycleID, cycleSet)
+	changed, _ := args.Get(1).([]domain.Issue)
+	return args.Int(0), changed, args.Error(2)
+}
+
+func (m *mockIssueRepo) BulkDeleteReturning(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) ([]uuid.UUID, error) {
+	args := m.Called(ctx, workspaceID, issueIDs)
+	deleted, _ := args.Get(0).([]uuid.UUID)
+	return deleted, args.Error(1)
+}
+
 func (m *mockIssueRepo) SetAssignees(ctx context.Context, issueID uuid.UUID, userIDs []uuid.UUID) error {
 	args := m.Called(ctx, issueID, userIDs)
 	return args.Error(0)
@@ -680,7 +692,7 @@ func TestIssueService_BulkUpdate_SetsCycle(t *testing.T) {
 	cycleIDString := cycleID.String()
 	issue := &domain.Issue{ID: issueID, WorkspaceID: wsID}
 
-	issueRepo.On("BulkUpdate", ctx, wsID, []uuid.UUID{issueID}, (*string)(nil), (*int)(nil), (*uuid.UUID)(nil), (*uuid.UUID)(nil), &cycleID, true).Return(1, nil)
+	issueRepo.On("BulkUpdateChanged", ctx, wsID, []uuid.UUID{issueID}, (*string)(nil), (*int)(nil), (*uuid.UUID)(nil), (*uuid.UUID)(nil), &cycleID, true).Return(1, []domain.Issue{*issue}, nil)
 	issueRepo.On("GetByID", ctx, issueID).Return(issue, nil)
 	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
 
@@ -709,7 +721,7 @@ func TestIssueService_BulkUpdate_ClearsCycle(t *testing.T) {
 	cycleIDString := ""
 	issue := &domain.Issue{ID: issueID, WorkspaceID: wsID}
 
-	issueRepo.On("BulkUpdate", ctx, wsID, []uuid.UUID{issueID}, (*string)(nil), (*int)(nil), (*uuid.UUID)(nil), (*uuid.UUID)(nil), (*uuid.UUID)(nil), true).Return(1, nil)
+	issueRepo.On("BulkUpdateChanged", ctx, wsID, []uuid.UUID{issueID}, (*string)(nil), (*int)(nil), (*uuid.UUID)(nil), (*uuid.UUID)(nil), (*uuid.UUID)(nil), true).Return(1, []domain.Issue{*issue}, nil)
 	issueRepo.On("GetByID", ctx, issueID).Return(issue, nil)
 	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
 

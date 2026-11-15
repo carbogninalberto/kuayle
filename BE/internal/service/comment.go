@@ -67,7 +67,12 @@ type CommentService struct {
 	notifSvc    *NotificationService
 	feedback    commentFeedback
 	agents      commentAgents
+	// webhooks delivers comment.created; nil until SetWebhooks wires it.
+	webhooks webhookEmitter
 }
+
+// SetWebhooks makes stored comments deliver workspace webhooks.
+func (s *CommentService) SetWebhooks(w webhookEmitter) { s.webhooks = w }
 
 // commentAgents delivers a comment to the agents it @mentions.
 type commentAgents interface {
@@ -128,6 +133,9 @@ func (s *CommentService) Create(ctx context.Context, issueID, userID uuid.UUID, 
 				"identifier": issue.Identifier,
 			},
 		})
+		if s.webhooks != nil {
+			s.webhooks.CommentCreated(ctx, issue.WorkspaceID, issue, comment, userID)
+		}
 
 		// Only people commenting in a signed-in session steer coding agents;
 		// tokens, the assistant and agents acting for a user never do, which

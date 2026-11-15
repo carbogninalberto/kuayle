@@ -83,6 +83,9 @@ type GitHubService struct {
 	// repositoryPermission asks GitHub which permission a user has on a linked
 	// repository (admin, write, read or none); replaced in tests.
 	repositoryPermission func(ctx context.Context, inst *domain.GitHubInstallation, repo *domain.GitHubRepoModel, login string) (string, error)
+	// webhooks delivers issue changes GitHub automation makes; nil until
+	// SetWebhooks.
+	webhooks webhookEmitter
 }
 
 type mergedPullRequestCompleter interface {

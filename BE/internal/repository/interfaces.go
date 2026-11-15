@@ -138,7 +138,11 @@ type IssueRepo interface {
 	WouldCreateCycle(ctx context.Context, issueID, parentID uuid.UUID) (bool, error)
 	CycleIsActive(ctx context.Context, cycleID uuid.UUID) (bool, error)
 	BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID, cycleID *uuid.UUID, cycleSet bool) (int, error)
+	// BulkUpdateChanged also returns the issues whose written fields changed.
+	BulkUpdateChanged(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID, cycleID *uuid.UUID, cycleSet bool) (int, []domain.Issue, error)
 	BulkDelete(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) (int, error)
+	// BulkDeleteReturning returns the IDs of the deleted issues.
+	BulkDeleteReturning(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) ([]uuid.UUID, error)
 	BulkSetProject(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, projectID *uuid.UUID, actorID uuid.UUID) ([]domain.Issue, error)
 	BulkSetParent(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, parentID *uuid.UUID, actorID uuid.UUID) ([]domain.Issue, error)
 	BeginTx(ctx context.Context) (*sqlx.Tx, error)

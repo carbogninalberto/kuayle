@@ -613,17 +613,29 @@ func (r *IssueRepository) CycleIsActive(ctx context.Context, cycleID uuid.UUID) 
 }
 
 func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID, cycleID *uuid.UUID, cycleSet bool) (int, error) {
+	n, _, err := r.BulkUpdateChanged(ctx, workspaceID, issueIDs, status, priority, assigneeID, statusID, cycleID, cycleSet)
+	return n, err
+}
+
+// BulkUpdateChanged is BulkUpdate that also returns, in their state after the
+// write, the issues whose written fields took a different value. The count is
+// every row written, as BulkUpdate reports it. The old values come from rows
+// locked in ID order before the write, so they are current.
+func (r *IssueRepository) BulkUpdateChanged(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID, cycleID *uuid.UUID, cycleSet bool) (int, []domain.Issue, error) {
 	setClauses := []string{"updated_at = NOW()"}
+	changedChecks := []string{}
 	args := []interface{}{workspaceID}
 	argIdx := 2
 
 	if status != nil {
 		setClauses = append(setClauses, fmt.Sprintf("status = $%d", argIdx))
+		changedChecks = append(changedChecks, "issues.status IS DISTINCT FROM bulk_old.status")
 		args = append(args, *status)
 		argIdx++
 	}
 	if priority != nil {
 		setClauses = append(setClauses, fmt.Sprintf("priority = $%d", argIdx))
+		changedChecks = append(changedChecks, "issues.priority IS DISTINCT FROM bulk_old.priority")
 		args = append(args, *priority)
 		argIdx++
 	}
@@ -631,18 +643,21 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 	referenceChecks := []string{}
 	if assigneeID != nil {
 		setClauses = append(setClauses, fmt.Sprintf("assignee_id = $%d", argIdx))
+		changedChecks = append(changedChecks, "issues.assignee_id IS DISTINCT FROM bulk_old.assignee_id")
 		referenceChecks = append(referenceChecks, optionalWorkspaceMember("issues.workspace_id", fmt.Sprintf("CAST($%d AS uuid)", argIdx)))
 		args = append(args, *assigneeID)
 		argIdx++
 	}
 	if statusID != nil {
 		setClauses = append(setClauses, fmt.Sprintf("status_id = $%d", argIdx))
+		changedChecks = append(changedChecks, "issues.status_id IS DISTINCT FROM bulk_old.status_id")
 		referenceChecks = append(referenceChecks, fmt.Sprintf("EXISTS (SELECT 1 FROM team_statuses bulk_status JOIN teams bulk_status_team ON bulk_status_team.id = bulk_status.team_id WHERE bulk_status.id = $%d AND bulk_status_team.workspace_id = issues.workspace_id)", argIdx))
 		args = append(args, *statusID)
 		argIdx++
 	}
 	if cycleSet {
 		setClauses = append(setClauses, fmt.Sprintf("cycle_id = $%d", argIdx))
+		changedChecks = append(changedChecks, "issues.cycle_id IS DISTINCT FROM bulk_old.cycle_id")
 		var cycleArg interface{}
 		if cycleID != nil {
 			cycleArg = *cycleID
@@ -652,8 +667,8 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 		argIdx++
 	}
 
-	if len(setClauses) == 1 {
-		return 0, nil
+	if len(setClauses) == 1 || len(issueIDs) == 0 {
+		return 0, nil, nil
 	}
 
 	// Build IN clause for issue IDs
@@ -663,27 +678,46 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 		args = append(args, id)
 		argIdx++
 	}
+	ids := strings.Join(idPlaceholders, ", ")
 
 	query := fmt.Sprintf(
-		`UPDATE issues SET %s WHERE workspace_id = $1 AND id IN (%s) AND `+teamVisible(ctx, "issues.team_id"),
-		strings.Join(setClauses, ", "),
-		strings.Join(idPlaceholders, ", "),
+		`UPDATE issues SET %s
+		FROM (SELECT id, status, priority, assignee_id, status_id, cycle_id FROM issues
+			WHERE workspace_id = $1 AND id IN (%s) AND `+teamVisible(ctx, "issues.team_id")+` ORDER BY id FOR UPDATE) bulk_old
+		WHERE issues.id = bulk_old.id AND issues.workspace_id = $1 AND issues.id IN (%s) AND `+teamVisible(ctx, "issues.team_id"),
+		strings.Join(setClauses, ", "), ids, ids,
 	)
 	for _, check := range referenceChecks {
 		query += " AND " + check
 	}
+	query += " RETURNING issues.*, (" + strings.Join(changedChecks, " OR ") + ") AS bulk_changed"
 
-	result, err := r.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return 0, err
+	var rows []struct {
+		domain.Issue
+		Changed bool `db:"bulk_changed"`
 	}
-	n, _ := result.RowsAffected()
-	return int(n), nil
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return 0, nil, err
+	}
+	changed := make([]domain.Issue, 0, len(rows))
+	for _, row := range rows {
+		if row.Changed {
+			changed = append(changed, row.Issue)
+		}
+	}
+	return len(rows), changed, nil
 }
 
 func (r *IssueRepository) BulkDelete(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) (int, error) {
+	deleted, err := r.BulkDeleteReturning(ctx, workspaceID, issueIDs)
+	return len(deleted), err
+}
+
+// BulkDeleteReturning is BulkDelete that returns the IDs of the issues it
+// deleted.
+func (r *IssueRepository) BulkDeleteReturning(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) ([]uuid.UUID, error) {
 	if len(issueIDs) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 	args := []interface{}{workspaceID}
 	placeholders := make([]string, len(issueIDs))
@@ -691,13 +725,12 @@ func (r *IssueRepository) BulkDelete(ctx context.Context, workspaceID uuid.UUID,
 		placeholders[i] = fmt.Sprintf("$%d", i+2)
 		args = append(args, id)
 	}
-	query := fmt.Sprintf(`DELETE FROM issues WHERE workspace_id = $1 AND id IN (%s) AND `+teamVisible(ctx, "issues.team_id"), strings.Join(placeholders, ", "))
-	result, err := r.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return 0, err
+	query := fmt.Sprintf(`DELETE FROM issues WHERE workspace_id = $1 AND id IN (%s) AND `+teamVisible(ctx, "issues.team_id")+` RETURNING id`, strings.Join(placeholders, ", "))
+	var deleted []uuid.UUID
+	if err := r.db.SelectContext(ctx, &deleted, query, args...); err != nil {
+		return nil, err
 	}
-	n, _ := result.RowsAffected()
-	return int(n), nil
+	return deleted, nil
 }
 
 func (r *IssueRepository) SetAssignees(ctx context.Context, issueID uuid.UUID, userIDs []uuid.UUID) error {

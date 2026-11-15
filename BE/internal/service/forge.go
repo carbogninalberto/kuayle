@@ -64,6 +64,8 @@ type ForgeService struct {
 	allowPrivate   bool
 	webhooks       map[domain.ForgeProvider]domain.ForgeWebhook
 	commenters     map[domain.ForgeProvider]domain.ForgeCommenter
+	// outbound delivers issue events to workspace webhooks; nil until SetWebhooks.
+	outbound webhookEmitter
 }
 
 func NewForgeService(
@@ -110,6 +112,7 @@ func (s *ForgeService) linker() *forgeLinker {
 		historyRepo:    s.historyRepo,
 		rules:          s.rules,
 		broadcast:      s.broadcast,
+		webhooks:       s.outbound,
 	}
 }
 

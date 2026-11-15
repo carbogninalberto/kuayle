@@ -96,8 +96,10 @@ func Guide(ops []Operation) []Section {
 				"A webhook is a URL of yours registered for a workspace with a secret and a list of event names. The URL must be reachable from the instance and must not be a private, loopback or link-local address. The secret is stored encrypted and never returned.",
 				"A delivery is an HTTP POST with a JSON body holding event, payload and timestamp (RFC 3339, UTC). The " + EventHeader + " header repeats the event name. The " + SignatureHeader + " header is \"sha256=\" followed by the hex HMAC-SHA256 of the raw request body, keyed with the webhook's secret.",
 				"To verify a delivery, compute the same HMAC over the bytes you received, before parsing them, and compare it with the header in constant time. Reject the request when they differ. Deliveries time out after 10 seconds and are not retried, so answer quickly and do slow work afterwards.",
-				"Preview: this release registers webhooks and signs deliveries as described, but does not emit issue or comment events yet. Until a release note announces event delivery, read changes through the API.",
+				"Deliveries are sent after the change is saved, one per webhook subscribed to the event, and one per issue for bulk operations. The issue in an issue event is the stored issue: its ids, identifier, title, description, status, priority, dates and timestamps. actor_id is the user who made the change, or null when automation made it (forge links, status automation). Deliveries run concurrently, so their order is not guaranteed: order them by the body's timestamp, or fetch the issue again for its current state.",
+				"Webhooks are workspace-level and have no user, so they never deliver content of private teams: a workspace that has, or ever had, a private team does not deliver webhooks at all. A delivery that cannot be completed within a minute, for example during a burst of bulk edits, is dropped. Kuayle delivers these events:",
 			},
+			List: webhookEventList(),
 			Code: &Code{Language: "js", Text: signatureSample},
 		},
 		{
@@ -143,4 +145,12 @@ func markdown(sections []Section) string {
 		}
 	}
 	return b.String()
+}
+
+func webhookEventList() []string {
+	list := make([]string, len(WebhookEvents))
+	for i, event := range WebhookEvents {
+		list[i] = event.Name + ": " + event.Description
+	}
+	return list
 }

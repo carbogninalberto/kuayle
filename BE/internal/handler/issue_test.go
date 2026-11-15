@@ -165,6 +165,14 @@ func (r *testIssueRepo) BulkDelete(_ context.Context, _ uuid.UUID, _ []uuid.UUID
 	return 0, nil
 }
 
+func (r *testIssueRepo) BulkUpdateChanged(_ context.Context, _ uuid.UUID, _ []uuid.UUID, _ *string, _ *int, _ *uuid.UUID, _ *uuid.UUID, _ *uuid.UUID, _ bool) (int, []domain.Issue, error) {
+	return 0, nil, nil
+}
+
+func (r *testIssueRepo) BulkDeleteReturning(_ context.Context, _ uuid.UUID, _ []uuid.UUID) ([]uuid.UUID, error) {
+	return nil, nil
+}
+
 func (r *testIssueRepo) SetAssignees(_ context.Context, _ uuid.UUID, _ []uuid.UUID) error {
 	return nil
 }

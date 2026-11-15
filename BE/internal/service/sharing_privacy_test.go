@@ -138,6 +138,7 @@ func TestSharingPrivacyPostgres(t *testing.T) {
 	require.NoError(t, err)
 	hookRepo := repository.NewWebhookRepository(db)
 	hooks := NewWebhookService(hookRepo, "external-privacy-test")
+	hooks.client = newWebhookClient(true) // loopback receiver fixture
 	hooks.Dispatch(ownerCtx, ws, "issue.updated", map[string]string{"title": "PUBLIC title"})
 	select {
 	case body := <-requests:
