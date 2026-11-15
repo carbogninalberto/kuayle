@@ -43,6 +43,8 @@
 	import { createRelation } from '$lib/api/issue-relations';
 	import { onMount } from 'svelte';
 	import { showIssueDeletedToast, showIssuesDeletedToast } from './issue-deleted-toast';
+	import { showUndoToast } from '$lib/features/undo/undo.svelte';
+	import type { BulkIssueUndo } from '$lib/types/issue';
 	import IssuePickerDialog from './IssuePickerDialog.svelte';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
@@ -506,20 +508,38 @@
 		});
 	}
 
+	/** Reports a bulk change; with an undo, the toast offers to undo it as one step. */
+	function announce(message: string, undo?: BulkIssueUndo) {
+		if (undo && undo.items.length > 0) {
+			showUndoToast(message, async () => {
+				await issuesState.undoBulk(slug, undo);
+				onchanged?.();
+			});
+		} else {
+			appToast.success(message);
+		}
+	}
+
+	/** One bulk undo for edits saved issue by issue. */
+	function combinedUndo(updated: Issue[]): BulkIssueUndo {
+		return { items: updated.flatMap((issue) => (issue.undo ? [{ id: issue.id, ...issue.undo }] : [])) };
+	}
+
 	async function bulkSetAssignees(assigneeIds = selectedAssigneeIds) {
 		const selectedIssues = issuesState.issues.filter((issue) => issuesState.selectedIds.has(issue.id));
 		if (selectedIssues.length === 0) return;
 
 		try {
-			await Promise.all(
-				selectedIssues.map((issue) => issuesState.update(slug, issue.identifier, { assignee_ids: assigneeIds }))
+			const updated = await Promise.all(
+				selectedIssues.map((issue) => issuesState.update(slug, issue.identifier, { assignee_ids: assigneeIds }, { undo: false }))
 			);
 			issuesState.clearSelection();
 			onchanged?.();
-			appToast.success(
+			announce(
 				assigneeIds.length === 0
 					? m['bulkActions.toast.cleared_assignees']({ n: selectedIssues.length, s: _s(selectedIssues.length) })
-					: m['bulkActions.toast.assigned']({ n: selectedIssues.length, s: _s(selectedIssues.length) })
+					: m['bulkActions.toast.assigned']({ n: selectedIssues.length, s: _s(selectedIssues.length) }),
+				combinedUndo(updated)
 			);
 			closeActions();
 		} catch (err: any) {
@@ -589,9 +609,9 @@
 	async function bulkSetStatus(statusId: string) {
 		const count = issuesState.selectionCount;
 		try {
-			await issuesState.bulkUpdate(slug, { status_id: statusId } as any);
+			const result = await issuesState.bulkUpdate(slug, { status_id: statusId } as any);
 			onchanged?.();
-			appToast.success(m['bulkActions.toast.updated']({ n: count, s: _s(count) }));
+			announce(m['bulkActions.toast.updated']({ n: count, s: _s(count) }), result?.undo);
 			closeActions();
 		} catch {
 			appToast.error('Bulk update failed');
@@ -601,9 +621,9 @@
 	async function bulkSetPriority(priority: IssuePriority) {
 		const count = issuesState.selectionCount;
 		try {
-			await issuesState.bulkUpdate(slug, { priority });
+			const result = await issuesState.bulkUpdate(slug, { priority });
 			onchanged?.();
-			appToast.success(m['bulkActions.toast.updated']({ n: count, s: _s(count) }));
+			announce(m['bulkActions.toast.updated']({ n: count, s: _s(count) }), result?.undo);
 			closeActions();
 		} catch {
 			appToast.error('Bulk update failed');
@@ -615,17 +635,18 @@
 		if (selectedIssues.length === 0) return;
 
 		try {
-			await Promise.all(
+			const updated = await Promise.all(
 				selectedIssues.map((issue) => {
 					const labelIds = new Set((issue.labels ?? []).map((label) => label.id));
 					labelIds.add(labelId);
-					return issuesState.update(slug, issue.identifier, { label_ids: Array.from(labelIds) });
+					return issuesState.update(slug, issue.identifier, { label_ids: Array.from(labelIds) }, { undo: false });
 				})
 			);
 			issuesState.clearSelection();
 			onchanged?.();
-			appToast.success(
-				successMessage ?? m['bulkActions.toast.updated']({ n: selectedIssues.length, s: _s(selectedIssues.length) })
+			announce(
+				successMessage ?? m['bulkActions.toast.updated']({ n: selectedIssues.length, s: _s(selectedIssues.length) }),
+				combinedUndo(updated)
 			);
 			closeActions();
 		} catch (err: any) {
@@ -668,12 +689,13 @@
 	async function bulkSetCycle(cycleId: string | null) {
 		const count = issuesState.selectionCount;
 		try {
-			await issuesState.bulkUpdate(slug, { cycle_id: cycleId ?? '' });
+			const result = await issuesState.bulkUpdate(slug, { cycle_id: cycleId ?? '' });
 			onchanged?.();
-			appToast.success(
+			announce(
 				cycleId
 					? m['bulkActions.toast.cycle_assigned']({ n: count, s: _s(count) })
-					: m['bulkActions.toast.cycle_removed']({ n: count, s: _s(count) })
+					: m['bulkActions.toast.cycle_removed']({ n: count, s: _s(count) }),
+				result?.undo
 			);
 			closeActions();
 		} catch (err: any) {
@@ -684,12 +706,14 @@
 	async function bulkSetProject(projectId: string | null) {
 		try {
 			// Issues already in the project are not moved: report what the server changed.
-			const count = (await issuesState.bulkUpdate(slug, { project_id: projectId ?? '' }))?.updated ?? 0;
+			const result = await issuesState.bulkUpdate(slug, { project_id: projectId ?? '' });
+			const count = result?.updated ?? 0;
 			onchanged?.();
-			appToast.success(
+			announce(
 				projectId
 					? m['bulkActions.toast.project_assigned']({ n: count, s: _s(count) })
-					: m['bulkActions.toast.project_removed']({ n: count, s: _s(count) })
+					: m['bulkActions.toast.project_removed']({ n: count, s: _s(count) }),
+				result?.undo
 			);
 			closeActions();
 		} catch (err: any) {
@@ -732,10 +756,14 @@
 			issuesState.totalCount -= ids.length;
 			issuesState.clearSelection();
 			onchanged?.();
+			const restore = async () => {
+				await issuesState.restore(slug, selectedIssues.map((issue) => issue.identifier), ids);
+				onchanged?.();
+			};
 			if (selectedIssues.length === 1) {
-				showIssueDeletedToast(selectedIssues[0]);
+				showIssueDeletedToast(selectedIssues[0], restore);
 			} else {
-				showIssuesDeletedToast(ids.length);
+				showIssuesDeletedToast(ids.length, restore);
 			}
 		} catch (err: any) {
 			appToast.apiError(err, m['bulkActions.toast.failed_delete']());

@@ -194,7 +194,10 @@
 		if (readOnly || !canDelete) return;
 		try {
 			await issuesState.remove(slug, issue.identifier);
-			showIssueDeletedToast(issue);
+			showIssueDeletedToast(issue, async () => {
+				await issuesState.restore(slug, [issue.identifier], [issue.id]);
+				onchanged?.();
+			});
 			onchanged?.();
 		} catch (err: any) {
 			appToast.apiError(err, 'Failed to delete issue');
@@ -516,7 +519,7 @@
 	<AlertDialog.Content>
 		<AlertDialog.Header>
 			<AlertDialog.Title>{m['common.context_menu.delete_issue_confirm']({ id: issue.identifier })}</AlertDialog.Title>
-			<AlertDialog.Description>This action cannot be undone.</AlertDialog.Description>
+			<AlertDialog.Description>{m['common.context_menu.delete_issue_desc']()}</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel variant="outline">{m['common.cancel']()}</AlertDialog.Cancel>

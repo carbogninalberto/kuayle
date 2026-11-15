@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -327,12 +328,13 @@ func (h *IssueHandler) Update(c *echo.Context) error {
 	userID := middleware.GetUserID(c)
 	identifier := c.Param("identifier")
 
-	issue, err := h.issueSvc.Update(c.Request().Context(), ws.ID, userID, identifier, req)
+	issue, undo, err := h.issueSvc.UpdateWithUndo(c.Request().Context(), ws.ID, userID, identifier, req)
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 
 	resp := toIssueResponse(*issue)
+	resp.Undo = undo
 	h.enrichIssueResponse(c.Request().Context(), &resp, *issue)
 	h.enrichIssueSubscription(c.Request().Context(), &resp, issue.ID, userID)
 	return response.Success(c, http.StatusOK, resp)
@@ -379,7 +381,7 @@ func (h *IssueHandler) Delete(c *echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 
-	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
+	return response.Success(c, http.StatusOK, dto.DeleteIssueResponse{Status: "deleted", RestorableUntil: time.Now().Add(h.issueSvc.DeleteGracePeriod()).UTC()})
 }
 
 func (h *IssueHandler) BulkUpdate(c *echo.Context) error {
@@ -398,12 +400,12 @@ func (h *IssueHandler) BulkUpdate(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
 
-	updated, err := h.issueSvc.BulkUpdate(c.Request().Context(), ws.ID, userID, req)
+	updated, undo, err := h.issueSvc.BulkUpdateWithUndo(c.Request().Context(), ws.ID, userID, req)
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 
-	return response.Success(c, http.StatusOK, map[string]int{"updated": updated})
+	return response.Success(c, http.StatusOK, dto.BulkUpdateIssueResponse{Updated: updated, Undo: undo})
 }
 
 func (h *IssueHandler) BulkDelete(c *echo.Context) error {
@@ -432,7 +434,7 @@ func (h *IssueHandler) BulkDelete(c *echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 
-	return response.Success(c, http.StatusOK, map[string]int{"deleted": deleted})
+	return response.Success(c, http.StatusOK, dto.BulkDeleteIssueResponse{Deleted: deleted, RestorableUntil: time.Now().Add(h.issueSvc.DeleteGracePeriod()).UTC()})
 }
 
 func (h *IssueHandler) ListComments(c *echo.Context) error {
@@ -1031,6 +1033,7 @@ func toIssueResponse(issue domain.Issue) dto.IssueResponse {
 		SortOrder:   issue.SortOrder,
 		CreatedAt:   issue.CreatedAt,
 		UpdatedAt:   issue.UpdatedAt,
+		Version:     issue.Version,
 	}
 	if issue.ProjectID != nil {
 		s := issue.ProjectID.String()

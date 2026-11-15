@@ -242,7 +242,7 @@ func (r *WorkspaceRepository) RemoveMember(ctx context.Context, workspaceID, use
 	}
 	for _, query := range []string{
 		`DELETE FROM team_members WHERE user_id=$2 AND team_id IN (SELECT id FROM teams WHERE workspace_id=$1)`,
-		`DELETE FROM issue_subscribers WHERE user_id=$2 AND issue_id IN (SELECT id FROM issues WHERE workspace_id=$1)`,
+		`DELETE FROM issue_subscribers WHERE user_id=$2 AND issue_id IN (SELECT id FROM issue_records WHERE workspace_id=$1)`,
 		`DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2`,
 	} {
 		if _, err := tx.ExecContext(ctx, query, workspaceID, userID); err != nil {

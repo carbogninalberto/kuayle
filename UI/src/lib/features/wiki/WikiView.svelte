@@ -14,6 +14,7 @@
 	import {
 		createWikiPage,
 		deleteWikiPage,
+		restoreWikiPage,
 		getWikiPage,
 		getWikiSettings,
 		listWikiPages,
@@ -31,6 +32,7 @@
 	import type { Issue } from '$lib/types/issue';
 	import { presenceState } from '$lib/features/presence/presence.state.svelte';
 	import { appToast } from '$lib/features/toast/toast';
+	import { showUndoToast } from '$lib/features/undo/undo.svelte';
 	import { m } from '$lib/features/i18n/messages';
 	import {
 		BookOpen,
@@ -282,7 +284,10 @@
 		try {
 			await deleteWikiPage(slug, scope, target.id);
 			pages = pages.filter((p) => p.id !== target.id);
-			appToast.success(m['wiki.toast.deleted']());
+			showUndoToast(m['wiki.toast.deleted'](), async () => {
+				await restoreWikiPage(slug, scope, target.id);
+				await loadList(false);
+			});
 			void loadList(false);
 			if (current?.id === target.id) {
 				current = null;

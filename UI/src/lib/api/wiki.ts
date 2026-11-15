@@ -43,8 +43,13 @@ export function updateWikiPage(
 	return api.patch<WikiPage>(`${wikiPath(slug, scope)}/${pageId}`, data);
 }
 
-export function deleteWikiPage(slug: string, scope: WikiScope, pageId: string): Promise<void> {
-	return api.delete<void>(`${wikiPath(slug, scope)}/${pageId}`);
+export function deleteWikiPage(slug: string, scope: WikiScope, pageId: string): Promise<{ status: string; restorable_until: string }> {
+	return api.delete<{ status: string; restorable_until: string }>(`${wikiPath(slug, scope)}/${pageId}`);
+}
+
+/** Brings back a deleted page within the grace period (410 GRACE_EXPIRED after it). */
+export function restoreWikiPage(slug: string, scope: WikiScope, pageId: string): Promise<WikiPage> {
+	return api.post<WikiPage>(`${wikiPath(slug, scope)}/${pageId}/restore`, {});
 }
 
 /** Recorded changes of a page, newest first. */

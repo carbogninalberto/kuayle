@@ -26,6 +26,8 @@ type IssueService struct {
 	historyRepo    repository.IssueHistoryRepo
 	hub            *realtime.Hub
 	notifSvc       *NotificationService
+	// deleteGrace is how long deleted issues stay restorable (see DeleteGracePeriod).
+	deleteGrace time.Duration
 }
 
 const issueUpdateNotificationWindow = 5 * time.Minute
@@ -453,10 +455,24 @@ func (s *IssueService) List(ctx context.Context, workspaceID uuid.UUID, params d
 }
 
 func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID, identifier string, req dto.UpdateIssueRequest) (*domain.Issue, error) {
+	return s.update(ctx, workspaceID, userID, identifier, req, nil)
+}
+
+// UpdateWithUndo is Update that also returns how to undo the edit, or nil
+// when it cannot be undone (see updateUndo).
+func (s *IssueService) UpdateWithUndo(ctx context.Context, workspaceID, userID uuid.UUID, identifier string, req dto.UpdateIssueRequest) (*domain.Issue, *dto.IssueUndo, error) {
+	var undo *dto.IssueUndo
+	issue, err := s.update(ctx, workspaceID, userID, identifier, req, &undo)
+	return issue, undo, err
+}
+
+func (s *IssueService) update(ctx context.Context, workspaceID, userID uuid.UUID, identifier string, req dto.UpdateIssueRequest, undoOut **dto.IssueUndo) (*domain.Issue, error) {
 	issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
 	if err != nil || issue == nil {
 		return nil, fmt.Errorf("issue not found")
 	}
+	// The values before the edit, for its undo.
+	before := *issue
 
 	// Validate all changed references before recording any history or changing
 	// junction rows. The repository repeats this check in the final SQL write.
@@ -699,6 +715,13 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 	if movedProject || req.LabelIDs != nil {
 		labelsBefore = s.labelSnapshot(ctx, issue.ID)
 	}
+	var assigneesBefore []uuid.UUID
+	if undoOut != nil && req.AssigneeIDs != nil {
+		assigneesBefore, _ = s.issueRepo.GetAssignees(ctx, issue.ID)
+		if len(assigneesBefore) == 0 && before.AssigneeID != nil {
+			assigneesBefore = []uuid.UUID{*before.AssigneeID}
+		}
+	}
 	if err := s.issueRepo.UpdateContent(repository.WithIssueHistoryActor(ctx, userID), issue, changes.fieldSet["title"], changes.fieldSet["description"]); err != nil {
 		return nil, err
 	}
@@ -752,6 +775,16 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		}
 	}
 
+	if undoOut != nil && (req.LabelIDs != nil || req.AssigneeIDs != nil) {
+		// Label and assignee writes advance the version after UpdateContent.
+		if current, err := s.issueRepo.GetByID(ctx, issue.ID); err == nil && current != nil {
+			issue.Version = current.Version
+		}
+	}
+	if undoOut != nil {
+		*undoOut = updateUndo(&before, issue, req, changes, labelsBefore, assigneesBefore)
+	}
+
 	s.hub.Broadcast(workspaceID, realtime.Event{
 		Type:    "issue.updated",
 		Payload: issue,
@@ -773,7 +806,8 @@ func (s *IssueService) Delete(ctx context.Context, workspaceID, actorID uuid.UUI
 	}
 	recipients := s.issueNotificationRecipients(ctx, issue, actorID, true)
 
-	if err := s.issueRepo.Delete(ctx, issue.ID); err != nil {
+	// A soft delete: RestoreIssue brings the issue back within the grace period.
+	if err := s.issueRepo.Delete(repository.WithIssueHistoryActor(ctx, actorID), issue.ID); err != nil {
 		return err
 	}
 	if issue.ParentID != nil {
@@ -1349,7 +1383,7 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID, userID uuid.
 		}
 	}
 
-	n, err := s.issueRepo.BulkDelete(ctx, workspaceID, issueIDs)
+	n, err := s.issueRepo.BulkDelete(repository.WithIssueHistoryActor(ctx, userID), workspaceID, issueIDs)
 	if err != nil {
 		return 0, err
 	}

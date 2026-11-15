@@ -408,7 +408,7 @@ func TestIssueService_Delete(t *testing.T) {
 	}
 
 	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-1").Return(issue, nil)
-	issueRepo.On("Delete", ctx, issueID).Return(nil)
+	issueRepo.On("Delete", repository.WithIssueHistoryActor(ctx, uuid.Nil), issueID).Return(nil)
 	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
 
 	err := svc.Delete(ctx, wsID, uuid.Nil, "ENG-1")
@@ -770,4 +770,34 @@ func TestIssueService_GetHistory(t *testing.T) {
 
 func (m *mockIssueRepo) ValidateLabelScope(ctx context.Context, projectID *uuid.UUID, labelIDs []uuid.UUID) error {
 	return nil
+}
+
+func (m *mockIssueRepo) ListByIDs(ctx context.Context, workspaceID uuid.UUID, ids []uuid.UUID) ([]domain.Issue, error) {
+	args := m.Called(ctx, workspaceID, ids)
+	issues, _ := args.Get(0).([]domain.Issue)
+	return issues, args.Error(1)
+}
+
+func (m *mockIssueRepo) ApplyUndo(ctx context.Context, workspaceID uuid.UUID, items []domain.IssueUndo) ([]domain.Issue, error) {
+	args := m.Called(ctx, workspaceID, items)
+	issues, _ := args.Get(0).([]domain.Issue)
+	return issues, args.Error(1)
+}
+
+func (m *mockIssueRepo) GetDeletedByIdentifier(ctx context.Context, workspaceID uuid.UUID, identifier string) (*domain.DeletedIssue, error) {
+	args := m.Called(ctx, workspaceID, identifier)
+	issue, _ := args.Get(0).(*domain.DeletedIssue)
+	return issue, args.Error(1)
+}
+
+func (m *mockIssueRepo) ListDeletedByIDs(ctx context.Context, workspaceID uuid.UUID, ids []uuid.UUID) ([]domain.DeletedIssue, error) {
+	args := m.Called(ctx, workspaceID, ids)
+	issues, _ := args.Get(0).([]domain.DeletedIssue)
+	return issues, args.Error(1)
+}
+
+func (m *mockIssueRepo) Restore(ctx context.Context, workspaceID uuid.UUID, ids []uuid.UUID, deletedSince time.Time) ([]domain.Issue, error) {
+	args := m.Called(ctx, workspaceID, ids, deletedSince)
+	issues, _ := args.Get(0).([]domain.Issue)
+	return issues, args.Error(1)
 }

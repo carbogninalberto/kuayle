@@ -28,6 +28,9 @@ description: Implement Kuayle Go API behavior, authorization, persistence and mi
   access changes inspect [privacy concurrency tests](../../../BE/internal/repository/privacy_concurrency_test.go).
   Assert persisted results, rollback behavior and forbidden side effects where
   relevant; test stale authorization when changing locking or isolation.
+- `issues` and `wiki_pages` are views hiding soft-deleted rows; alter the
+  `issue_records`/`wiki_page_records` tables and recreate the view, and name the
+  table only to see deleted rows (see [Soft delete and undo](../../../TECHNICAL.md#soft-delete-and-undo)).
 - Add the next numbered up/down migration under [migrations](../../../BE/migrations).
   Do not rewrite an already shipped migration. Inspect existing migration tests
   and verify upgrades on a disposable database with representative existing data.

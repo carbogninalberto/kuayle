@@ -46,6 +46,35 @@ export interface Issue {
 	is_subscribed?: boolean;
 	created_at: string;
 	updated_at: string;
+	/** Advances on every edit; an undo sends it back as expected_version. */
+	version?: number;
+	/** Present on an edit response that can be undone (see undoIssue). */
+	undo?: IssueUndo;
+}
+
+/** The values an undo puts back. For ids, an empty string means "none". */
+export interface IssueUndoPrevious {
+	status_id?: string;
+	priority?: number;
+	assignee_id?: string;
+	assignee_ids?: string[];
+	label_ids?: string[];
+	project_id?: string;
+	cycle_id?: string;
+	sort_order?: number;
+}
+
+export interface IssueUndo {
+	expected_version: number;
+	previous: IssueUndoPrevious;
+}
+
+export interface BulkIssueUndoItem extends IssueUndo {
+	id: string;
+}
+
+export interface BulkIssueUndo {
+	items: BulkIssueUndoItem[];
 }
 
 export interface IssueRelationCounts {

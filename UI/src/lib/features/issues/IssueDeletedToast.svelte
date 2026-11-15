@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { Check, Trash2 } from '@lucide/svelte';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { m } from '$lib/features/i18n/messages';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 
 	let {
@@ -8,7 +10,8 @@
 		status,
 		statusCategory,
 		statusColor,
-		count = 1
+		count = 1,
+		onUndo
 	}: {
 		identifier?: string;
 		title?: string;
@@ -16,12 +19,14 @@
 		statusCategory?: string;
 		statusColor?: string | null;
 		count?: number;
+		/** Restores the deleted issues; shown as an Undo button. */
+		onUndo?: () => void;
 	} = $props();
 
 	const isSingleIssue = $derived(Boolean(identifier && title && count === 1));
 </script>
 
-<div class="issue-deleted-toast">
+<div class="issue-deleted-toast" class:has-undo={Boolean(onUndo)}>
 	<div class="deleted-icon" aria-hidden="true">
 		<Check size={14} strokeWidth={3} />
 	</div>
@@ -43,6 +48,10 @@
 			{/if}
 		</div>
 	</div>
+
+	{#if onUndo}
+		<Button size="sm" variant="outline" type="button" class="undo" onclick={onUndo}>{m['common.toast.undo']()}</Button>
+	{/if}
 </div>
 
 <style>
@@ -61,6 +70,14 @@
 		background: var(--color-bg-secondary);
 		color: var(--color-text-primary);
 		box-shadow: 0 16px 40px rgb(0 0 0 / 24%);
+	}
+
+	.issue-deleted-toast.has-undo {
+		grid-template-columns: 22px minmax(0, 1fr) auto;
+	}
+
+	.issue-deleted-toast :global(.undo) {
+		align-self: center;
 	}
 
 	.deleted-icon {

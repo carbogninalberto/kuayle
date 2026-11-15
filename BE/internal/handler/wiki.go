@@ -122,7 +122,22 @@ func (h *WikiHandler) Delete(kind domain.WikiScopeKind) echo.HandlerFunc {
 		if err := h.wikiSvc.Delete(c.Request().Context(), middleware.GetWorkspace(c).ID, scope, pageID, middleware.GetUserID(c)); err != nil {
 			return wikiErrorResponse(c, err)
 		}
-		return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
+		return response.Success(c, http.StatusOK, dto.DeleteWikiPageResponse{Status: "deleted", RestorableUntil: time.Now().Add(h.wikiSvc.DeleteGracePeriod()).UTC()})
+	}
+}
+
+// Restore brings back a deleted page within the grace period.
+func (h *WikiHandler) Restore(kind domain.WikiScopeKind) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		scope, pageID, ok := wikiPageFromRoute(c, kind)
+		if !ok {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid wiki page ID")
+		}
+		page, err := h.wikiSvc.Restore(c.Request().Context(), middleware.GetWorkspace(c).ID, scope, pageID)
+		if err != nil {
+			return wikiErrorResponse(c, err)
+		}
+		return response.Success(c, http.StatusOK, toWikiPage(*page))
 	}
 }
 
@@ -398,6 +413,8 @@ func wikiErrorResponse(c *echo.Context, err error) error {
 		return response.ValidationError(c, []dto.ErrorDetail{{Field: invalid.Field, Message: invalid.Message}})
 	case errors.Is(err, service.ErrWikiNotFound):
 		return response.NotFound(c, "Wiki page")
+	case errors.Is(err, service.ErrWikiRestoreExpired):
+		return response.Error(c, http.StatusGone, "GRACE_EXPIRED", "This page is past its restore period and cannot be restored.")
 	case errors.Is(err, service.ErrWikiRegistryDisabled):
 		return response.Error(c, http.StatusConflict, "WIKI_REGISTRY_DISABLED", "The registry of this wiki is turned off.")
 	case errors.Is(err, service.ErrWikiConflict):

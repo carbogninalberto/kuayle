@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -44,6 +45,10 @@ type Config struct {
 	SMTP           mail.Config
 	Sysadmins      string `envconfig:"SYSADMINS"`
 	PublicDemoMode bool   `envconfig:"PUBLIC_DEMO_MODE"`
+
+	// IssueDeleteGracePeriod is how long a deleted issue can be restored
+	// before the hourly purge removes it for good.
+	IssueDeleteGracePeriod time.Duration `envconfig:"ISSUE_DELETE_GRACE_PERIOD" default:"720h"`
 
 	// DisableRegistration gates public registration behind a valid invite-link
 	// token. Defaults to false, preserving open registration.
@@ -353,6 +358,9 @@ func Load() (*Config, error) {
 	}
 	if err := cfg.rejectPlaceholderSecrets(); err != nil {
 		return nil, err
+	}
+	if cfg.IssueDeleteGracePeriod <= 0 {
+		return nil, fmt.Errorf("ISSUE_DELETE_GRACE_PERIOD must be a positive duration such as 720h")
 	}
 	if strings.TrimSpace(cfg.WebSearchSearXNGURL) != "" {
 		parsed, err := validate.OperatorBaseURL(cfg.WebSearchSearXNGURL)

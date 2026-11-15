@@ -43,7 +43,8 @@ func (r *IssueRepository) NextNumber(ctx context.Context, tx *sqlx.Tx, teamID uu
 	if err != nil {
 		return 0, err
 	}
-	err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(number), 0) + 1 FROM issues WHERE team_id = $1`, teamID).Scan(&num)
+	// Deleted issues keep their numbers (and identifiers) until purged.
+	err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(number), 0) + 1 FROM issue_records WHERE team_id = $1`, teamID).Scan(&num)
 	return num, err
 }
 
@@ -412,25 +413,7 @@ func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue
 		return err
 	}
 	defer tx.Rollback()
-	actor, _ := ctx.Value(issueHistoryActorKey{}).(uuid.UUID)
-	if actor == uuid.Nil {
-		if access, ok := domain.AccessFromContext(ctx); ok {
-			actor = access.UserID
-		}
-	}
-	actorValue := ""
-	if actor != uuid.Nil {
-		actorValue = actor.String()
-	}
-	// Transaction-local: an actor must never leak to the next pooled request.
-	if _, err = tx.ExecContext(ctx, `SELECT set_config('kuayle.history_actor', $1, true)`, actorValue); err != nil {
-		return err
-	}
-	agentValue := ""
-	if agent := domain.ActingAgent(ctx); agent != nil {
-		agentValue = *agent
-	}
-	if _, err = tx.ExecContext(ctx, `SELECT set_config('kuayle.history_agent', $1, true)`, agentValue); err != nil {
+	if err = setHistoryActor(ctx, tx); err != nil {
 		return err
 	}
 	query := `
@@ -441,13 +424,13 @@ func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue
 			due_date = $9, sort_order = $10, triaged = $11,
 			status_id = $12, updated_at = NOW()
 		WHERE id = $13 AND ` + teamVisible(ctx, "issues.team_id") + " AND " + issueReferencesVisible(ctx, issue) + `
-		RETURNING title, description, updated_at`
+		RETURNING title, description, updated_at, version`
 	err = tx.QueryRowContext(ctx, query,
 		issue.Title, issue.Description, issue.Status, issue.Priority,
 		issue.AssigneeID, issue.ProjectID, issue.CycleID, issue.ParentID,
 		issue.DueDate, issue.SortOrder, issue.Triaged,
 		issue.StatusID, issue.ID, titleChanged, descriptionChanged,
-	).Scan(&issue.Title, &issue.Description, &issue.UpdatedAt)
+	).Scan(&issue.Title, &issue.Description, &issue.UpdatedAt, &issue.Version)
 	if err != nil {
 		return err
 	}
@@ -462,8 +445,11 @@ func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue
 	return tx.Commit()
 }
 
+// Delete soft-deletes the issue: it disappears from the issues view and can be
+// restored until PurgeDeletedIssues removes it after the grace period.
 func (r *IssueRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM issues WHERE id = $1 AND `+teamVisible(ctx, "issues.team_id"), id)
+	_, err := r.db.ExecContext(ctx, `UPDATE issue_records SET deleted_at = NOW(), deleted_by = $2
+		WHERE id = $1 AND deleted_at IS NULL AND `+teamVisible(ctx, "issue_records.team_id"), id, nullableUUID(issueActor(ctx)))
 	return err
 }
 
@@ -480,8 +466,9 @@ func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labe
 	}
 	// Serializes with a concurrent project move: the move's UPDATE takes the
 	// same row lock (its statement trigger takes the shared barrier first),
-	// and the scope check below then sees the committed project.
-	if _, err := tx.ExecContext(ctx, `SELECT 1 FROM issues WHERE id = $1 FOR UPDATE`, issueID); err != nil {
+	// and the scope check below then sees the committed project. Touching the
+	// row also advances its version, so undo notices label edits.
+	if _, err := tx.ExecContext(ctx, `UPDATE issues SET updated_at = NOW() WHERE id = $1`, issueID); err != nil {
 		return err
 	}
 
@@ -691,7 +678,9 @@ func (r *IssueRepository) BulkDelete(ctx context.Context, workspaceID uuid.UUID,
 		placeholders[i] = fmt.Sprintf("$%d", i+2)
 		args = append(args, id)
 	}
-	query := fmt.Sprintf(`DELETE FROM issues WHERE workspace_id = $1 AND id IN (%s) AND `+teamVisible(ctx, "issues.team_id"), strings.Join(placeholders, ", "))
+	args = append(args, nullableUUID(issueActor(ctx)))
+	query := fmt.Sprintf(`UPDATE issue_records SET deleted_at = NOW(), deleted_by = $%d
+		WHERE workspace_id = $1 AND id IN (%s) AND deleted_at IS NULL AND `+teamVisible(ctx, "issue_records.team_id"), len(args), strings.Join(placeholders, ", "))
 	result, err := r.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, err

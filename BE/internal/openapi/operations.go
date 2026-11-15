@@ -68,15 +68,11 @@ type StatusResult struct {
 	Status string `json:"status"`
 }
 
-// BulkUpdateResult counts the issues a bulk update changed.
-type BulkUpdateResult struct {
-	Updated int `json:"updated"`
-}
+// undoConflict documents the 409 of the undo routes.
+const undoConflict = "The issue was edited in the meantime (EDITED_MEANWHILE), or a previous value is no longer available (UNDO_UNAVAILABLE); nothing was undone."
 
-// BulkDeleteResult counts the issues a bulk delete removed.
-type BulkDeleteResult struct {
-	Deleted int `json:"deleted"`
-}
+// restoreDescription documents the restore routes.
+const restoreDescription = "Members restore only issues they created; owners and admins restore any. A deleted issue can be restored until its grace period ends (ISSUE_DELETE_GRACE_PERIOD, 30 days by default); after that the response is 410 GRACE_EXPIRED, and once purged the issue is not found."
 
 // CompleteCycleResult is the body of a completed cycle.
 type CompleteCycleResult struct {
@@ -198,18 +194,30 @@ func Operations() []Operation {
 			Summary: "Create an issue", Description: "Creates an issue in a team. The description is Markdown or editor HTML and is sanitized. In a team with triage enabled the issue waits in triage.",
 			Body: dto.CreateIssueRequest{}, Status: 201, Response: dto.IssueResponse{}},
 		{Method: http.MethodPatch, Path: ws + "/issues/bulk", Scope: domain.PermIssueUpdate, ID: "bulkUpdateIssues", Tag: "Issues",
-			Summary: "Update several issues", Body: dto.BulkUpdateIssueRequest{}, Status: 200, Response: BulkUpdateResult{}},
+			Summary: "Update several issues", Description: "The response carries an undo for POST /issues/bulk/undo when the change can be undone (all fields but parent_id).",
+			Body: dto.BulkUpdateIssueRequest{}, Status: 200, Response: dto.BulkUpdateIssueResponse{}},
 		{Method: http.MethodDelete, Path: ws + "/issues/bulk", Scope: domain.PermIssueDeleteOwn, ID: "bulkDeleteIssues", Tag: "Issues",
 			Summary: "Delete several issues", Description: "Members delete only issues they created; owners and admins delete any.",
-			Body: dto.BulkDeleteIssueRequest{}, Status: 200, Response: BulkDeleteResult{}},
+			Body: dto.BulkDeleteIssueRequest{}, Status: 200, Response: dto.BulkDeleteIssueResponse{}},
+		{Method: http.MethodPost, Path: ws + "/issues/bulk/undo", Scope: domain.PermIssueUpdate, ID: "bulkUndoIssues", Tag: "Issues",
+			Summary: "Undo a bulk update", Description: "Sends back the undo of a bulk update response. Applies to every issue or none: if any issue changed since (its version differs), nothing is undone.",
+			Body: dto.BulkIssueUndo{}, Status: 200, Response: dto.BulkUndoIssueResponse{}, Conflict: undoConflict},
+		{Method: http.MethodPost, Path: ws + "/issues/bulk/restore", Scope: domain.PermIssueDeleteOwn, ID: "bulkRestoreIssues", Tag: "Issues",
+			Summary: "Restore several deleted issues", Description: restoreDescription,
+			Body: dto.BulkRestoreIssueRequest{}, Status: 200, Response: dto.BulkRestoreIssueResponse{}},
 		{Method: http.MethodGet, Path: ws + "/issues/:identifier", Scope: domain.PermIssuesRead, ID: "getIssue", Tag: "Issues",
 			Summary: "Get an issue", Status: 200, Response: dto.IssueResponse{}},
 		{Method: http.MethodPatch, Path: ws + "/issues/:identifier", Scope: domain.PermIssueUpdate, ID: "updateIssue", Tag: "Issues",
 			Summary: "Update an issue", Description: "Changes the fields that are present.",
 			Body: dto.UpdateIssueRequest{}, Status: 200, Response: dto.IssueResponse{}},
 		{Method: http.MethodDelete, Path: ws + "/issues/:identifier", Scope: domain.PermIssueDeleteOwn, ID: "deleteIssue", Tag: "Issues",
-			Summary: "Delete an issue", Description: "Members delete only issues they created; owners and admins delete any.",
-			Status: 200, Response: StatusResult{}},
+			Summary: "Delete an issue", Description: "Members delete only issues they created; owners and admins delete any. The issue can be restored until restorable_until.",
+			Status: 200, Response: dto.DeleteIssueResponse{}},
+		{Method: http.MethodPost, Path: ws + "/issues/:identifier/undo", Scope: domain.PermIssueUpdate, ID: "undoIssueUpdate", Tag: "Issues",
+			Summary: "Undo an issue update", Description: "Sends back the undo of an update response to put the previous values back. If the issue changed since (its version differs), nothing is undone.",
+			Body: dto.IssueUndo{}, Status: 200, Response: dto.IssueResponse{}, Conflict: undoConflict},
+		{Method: http.MethodPost, Path: ws + "/issues/:identifier/restore", Scope: domain.PermIssueDeleteOwn, ID: "restoreIssue", Tag: "Issues",
+			Summary: "Restore a deleted issue", Description: restoreDescription, Status: 200, Response: dto.IssueResponse{}},
 		{Method: http.MethodPost, Path: ws + "/issues/:identifier/duplicate", Scope: domain.PermIssueCreate, ID: "duplicateIssue", Tag: "Issues",
 			Summary: "Duplicate an issue", Body: dto.DuplicateIssueRequest{}, Status: 201, Response: dto.IssueResponse{}},
 		{Method: http.MethodPost, Path: ws + "/issues/:identifier/convert-to-project", Scope: domain.PermProjectManage, ID: "convertIssueToProject", Tag: "Issues",
@@ -354,7 +362,11 @@ func wikiOperations() []Operation {
 				Summary: "Update a page of a " + scope.noun + " wiki", Description: "Send the version you read; a stale version is rejected so concurrent edits are not lost.",
 				Body: dto.UpdateWikiPageRequest{}, Status: 200, Response: dto.WikiPageResponse{}, Conflict: versionConflict},
 			Operation{Method: http.MethodDelete, Path: scope.base + "/:pageId", Scope: write, ID: "delete" + scope.id + "WikiPage", Tag: "Wiki",
-				Summary: "Delete a page of a " + scope.noun + " wiki", Status: 200, Response: StatusResult{}},
+				Summary: "Delete a page of a " + scope.noun + " wiki", Description: "Its child pages move up to its parent. The page can be restored until restorable_until.",
+				Status: 200, Response: dto.DeleteWikiPageResponse{}},
+			Operation{Method: http.MethodPost, Path: scope.base + "/:pageId/restore", Scope: write, ID: "restore" + scope.id + "WikiPage", Tag: "Wiki",
+				Summary: "Restore a deleted page of a " + scope.noun + " wiki", Description: "Within the grace period (ISSUE_DELETE_GRACE_PERIOD, 30 days by default) the page comes back under its parent, or at the top level if the parent is gone; after it the response is 410 GRACE_EXPIRED.",
+				Status: 200, Response: dto.WikiPageResponse{}},
 			Operation{Method: http.MethodGet, Path: scope.base + "/:pageId/versions", Scope: read, ID: "list" + scope.id + "WikiPageVersions", Tag: "Wiki",
 				Summary: "List the earlier versions of a " + scope.noun + " wiki page", Status: 200, Response: []dto.WikiRevisionResponse{}},
 			Operation{Method: http.MethodPost, Path: scope.base + "/:pageId/move", Scope: write, ID: "move" + scope.id + "WikiPage", Tag: "Wiki",

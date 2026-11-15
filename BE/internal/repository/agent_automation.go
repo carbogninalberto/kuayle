@@ -88,7 +88,8 @@ func (r *AgentAutomationRepository) Claim(ctx context.Context, limit int) ([]dom
 	for _, a := range automations {
 		var active int
 		if err = tx.GetContext(ctx, &active, `SELECT count(*) FROM agent_automation_runs r LEFT JOIN agent_tasks t ON t.id=r.task_id
- WHERE r.automation_id=$1 AND (r.status IN ('pending_approval','starting') OR (r.status='started' AND t.state NOT IN ('completed','cancelled','failed')))`, a.ID); err != nil {
+ WHERE r.automation_id=$1 AND (r.status IN ('pending_approval','starting') OR (r.status='started' AND t.state NOT IN ('completed','cancelled','failed')))
+ AND (r.issue_id IS NULL OR EXISTS (SELECT 1 FROM issues live_issue WHERE live_issue.id=r.issue_id))`, a.ID); err != nil {
 			return nil, err
 		}
 		if active >= a.MaxActive {

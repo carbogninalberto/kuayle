@@ -1,9 +1,11 @@
-import type { Issue, IssueStatus, IssuePriority, CreateIssueRequest, UpdateIssueRequest } from '$lib/types/issue';
+import type { Issue, IssueStatus, IssuePriority, CreateIssueRequest, UpdateIssueRequest, IssueUndo, BulkIssueUndo } from '$lib/types/issue';
 import * as issueApi from '$lib/api/issues';
 import { preferencesState, type GroupByField } from '$lib/features/preferences/preferences.state.svelte';
 import type { StatusCategory } from '$lib/types/team-status';
 import type { IssueAgentAssignee } from '$lib/api/agents';
 import { assigneeGroup } from '$lib/features/agents/agent-assignees';
+import { showUndoToast } from '$lib/features/undo/undo.svelte';
+import { m } from '$lib/features/i18n/messages';
 
 export type { GroupByField } from '$lib/features/preferences/preferences.state.svelte';
 
@@ -277,7 +279,12 @@ class IssuesState {
 		return issue;
 	}
 
-	async update(slug: string, identifier: string, req: UpdateIssueRequest): Promise<Issue> {
+	/**
+	 * Saves an edit. When the server returns an undo for it, a toast offers Undo
+	 * for about eight seconds, unless `options.undo` is false (the caller then
+	 * offers one Undo for several edits; see undoBulk).
+	 */
+	async update(slug: string, identifier: string, req: UpdateIssueRequest, options: { undo?: boolean } = {}): Promise<Issue> {
 		const requestId = this.loadRequestId;
 		// Optimistic update
 		const idx = this.issues.findIndex((i) => i.identifier === identifier);
@@ -289,6 +296,10 @@ class IssuesState {
 
 		try {
 			const updated = await issueApi.updateIssue(slug, identifier, req);
+			const undo = updated.undo;
+			if (undo && options.undo !== false) {
+				showUndoToast(m['common.toast.issue_updated'](), () => this.undo(slug, identifier, undo));
+			}
 			if (requestId !== this.loadRequestId || slug !== this.currentSlug) return updated;
 			if (idx >= 0) {
 				this.issues[idx] = updated;
@@ -304,6 +315,35 @@ class IssuesState {
 			}
 			throw err;
 		}
+	}
+
+	/** Puts back what an edit changed; the server refuses if the issue changed since. */
+	async undo(slug: string, identifier: string, undo: IssueUndo): Promise<Issue> {
+		const restored = await issueApi.undoIssue(slug, identifier, undo);
+		this.replaceIssue(restored);
+		return restored;
+	}
+
+	/** Undoes several edits (a bulk edit) as one step, then reloads the list. */
+	async undoBulk(slug: string, undo: BulkIssueUndo) {
+		const result = await issueApi.bulkUndoIssues(slug, undo);
+		if (slug === this.currentSlug) await this.load(slug, this.filters, false);
+		notifyUndone();
+		return result;
+	}
+
+	/** Brings back deleted issues within the grace period, then reloads the list. */
+	async restore(slug: string, identifiers: string[], ids: string[]) {
+		if (ids.length === 1 && identifiers.length === 1) await issueApi.restoreIssue(slug, identifiers[0]);
+		else await issueApi.bulkRestoreIssues(slug, { issue_ids: ids });
+		if (slug === this.currentSlug) await this.load(slug, this.filters, false);
+	}
+
+	private replaceIssue(issue: Issue) {
+		const idx = this.issues.findIndex((i) => i.id === issue.id);
+		if (idx >= 0) this.issues[idx] = issue;
+		if (this.selectedIssue?.id === issue.id) this.selectedIssue = issue;
+		notifyUndone(issue);
 	}
 
 	async remove(slug: string, identifier: string) {
@@ -377,6 +417,11 @@ class IssuesState {
 	select(issue: Issue | null) {
 		this.selectedIssue = issue;
 	}
+}
+
+/** Tells open issue views to reload after an undo; their realtime refresh skips edits made in the last moments. */
+function notifyUndone(issue?: Issue) {
+	if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('issue:undone', { detail: issue ?? null }));
 }
 
 export const issuesState = new IssuesState();

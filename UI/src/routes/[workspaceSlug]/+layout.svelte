@@ -32,6 +32,7 @@
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import { showIssueCreatedToast } from '$lib/features/issues/issue-created-toast';
+	import { handleUndoShortcut } from '$lib/features/undo/undo.svelte';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
 	import { handleNotificationCreated } from '$lib/features/notifications/notifier';
 	import { countsAsUnread } from '$lib/features/notifications/notification-policy';
@@ -254,11 +255,14 @@
 
 	onMount(() => {
 		document.addEventListener('keydown', shortcutEngine.handler);
+		// Cmd/Ctrl+Z runs the Undo offered by the latest change's toast.
+		document.addEventListener('keydown', handleUndoShortcut);
 		window.addEventListener('app:refresh', handleAppRefresh);
 		const restored = (event: PageTransitionEvent) => { if (event.persisted) window.dispatchEvent(new CustomEvent('app:refresh', {detail: {slug}})); };
 		window.addEventListener('pageshow', restored);
 		return () => {
 			document.removeEventListener('keydown', shortcutEngine.handler);
+			document.removeEventListener('keydown', handleUndoShortcut);
 			window.removeEventListener('app:refresh', handleAppRefresh);
 			window.removeEventListener('pageshow', restored);
 		};
@@ -485,6 +489,7 @@
 	function handleWSMessage(msg: { type: string; payload: any }) {
 		switch (msg.type) {
 			case 'issue.created':
+			case 'issue.restored':
 			case 'issue.updated':
 			case 'issue.triaged':
 			case 'issues.bulk_updated':

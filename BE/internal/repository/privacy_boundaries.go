@@ -29,7 +29,10 @@ func issueReferencesVisible(ctx context.Context, issue *domain.Issue) string {
 		checks = append(checks, "EXISTS (SELECT 1 FROM projects reference_project WHERE reference_project.id = "+uuidSQL(*issue.ProjectID)+" AND reference_project.workspace_id = "+workspace+" AND "+projectVisible(ctx, "reference_project.workspace_id", "reference_project.team_id")+" AND "+compatibleTeams(team, "reference_project.team_id")+")")
 	}
 	if issue.ParentID != nil {
-		checks = append(checks, "EXISTS (SELECT 1 FROM issues reference_parent WHERE reference_parent.id = "+uuidSQL(*issue.ParentID)+" AND reference_parent.workspace_id = "+workspace+" AND "+teamVisible(ctx, "reference_parent.team_id")+" AND "+compatibleTeams(team, "reference_parent.team_id")+")")
+		// issue_records: a parent in the trash keeps its children (they come back
+		// together), and they stay editable meanwhile. New parents are checked
+		// against live issues by the service before any write.
+		checks = append(checks, "EXISTS (SELECT 1 FROM issue_records reference_parent WHERE reference_parent.id = "+uuidSQL(*issue.ParentID)+" AND reference_parent.workspace_id = "+workspace+" AND "+teamVisible(ctx, "reference_parent.team_id")+" AND "+compatibleTeams(team, "reference_parent.team_id")+")")
 	}
 	if issue.CycleID != nil {
 		checks = append(checks, "EXISTS (SELECT 1 FROM cycles reference_cycle JOIN teams reference_cycle_team ON reference_cycle_team.id = reference_cycle.team_id WHERE reference_cycle.id = "+uuidSQL(*issue.CycleID)+" AND reference_cycle_team.workspace_id = "+workspace+" AND "+teamVisible(ctx, "reference_cycle.team_id")+" AND "+compatibleTeams(team, "reference_cycle.team_id")+")")

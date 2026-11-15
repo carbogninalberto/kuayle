@@ -92,6 +92,11 @@ type IssueResponse struct {
 	IsSubscribed    bool                          `json:"is_subscribed"`
 	CreatedAt       time.Time                     `json:"created_at"`
 	UpdatedAt       time.Time                     `json:"updated_at"`
+	// Version advances on every edit; undo sends it back as expected_version.
+	Version int64 `json:"version"`
+	// Undo is present on an edit response when POST /issues/{identifier}/undo
+	// can put the previous values back.
+	Undo *IssueUndo `json:"undo,omitempty"`
 }
 
 type IssueRelationCountsResponse struct {

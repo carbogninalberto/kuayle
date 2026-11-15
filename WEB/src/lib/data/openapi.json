@@ -88,6 +88,22 @@
 				],
 				"type": "object"
 			},
+			"BulkDeleteIssue": {
+				"properties": {
+					"deleted": {
+						"type": "integer"
+					},
+					"restorable_until": {
+						"format": "date-time",
+						"type": "string"
+					}
+				},
+				"required": [
+					"deleted",
+					"restorable_until"
+				],
+				"type": "object"
+			},
 			"BulkDeleteIssueRequest": {
 				"properties": {
 					"issue_ids": {
@@ -104,14 +120,128 @@
 				],
 				"type": "object"
 			},
-			"BulkDeleteResult": {
+			"BulkIssueUndo": {
 				"properties": {
-					"deleted": {
+					"items": {
+						"items": {
+							"$ref": "#/components/schemas/BulkIssueUndoItem"
+						},
+						"maxItems": 5000,
+						"minItems": 1,
+						"type": "array"
+					}
+				},
+				"required": [
+					"items"
+				],
+				"type": "object"
+			},
+			"BulkIssueUndoInput": {
+				"properties": {
+					"items": {
+						"items": {
+							"$ref": "#/components/schemas/BulkIssueUndoItemInput"
+						},
+						"maxItems": 5000,
+						"minItems": 1,
+						"type": "array"
+					}
+				},
+				"required": [
+					"items"
+				],
+				"type": "object"
+			},
+			"BulkIssueUndoItem": {
+				"properties": {
+					"expected_version": {
+						"minimum": 1,
+						"type": "integer"
+					},
+					"id": {
+						"format": "uuid",
+						"type": "string"
+					},
+					"previous": {
+						"$ref": "#/components/schemas/IssueUndoPrevious"
+					}
+				},
+				"required": [
+					"id",
+					"expected_version",
+					"previous"
+				],
+				"type": "object"
+			},
+			"BulkIssueUndoItemInput": {
+				"properties": {
+					"expected_version": {
+						"minimum": 1,
+						"type": "integer"
+					},
+					"id": {
+						"format": "uuid",
+						"type": "string"
+					},
+					"previous": {
+						"$ref": "#/components/schemas/IssueUndoPreviousInput"
+					}
+				},
+				"required": [
+					"id"
+				],
+				"type": "object"
+			},
+			"BulkRestoreIssue": {
+				"properties": {
+					"restored": {
 						"type": "integer"
 					}
 				},
 				"required": [
-					"deleted"
+					"restored"
+				],
+				"type": "object"
+			},
+			"BulkRestoreIssueRequest": {
+				"properties": {
+					"issue_ids": {
+						"items": {
+							"format": "uuid",
+							"type": "string"
+						},
+						"maxItems": 5000,
+						"minItems": 1,
+						"type": "array"
+					}
+				},
+				"required": [
+					"issue_ids"
+				],
+				"type": "object"
+			},
+			"BulkUndoIssue": {
+				"properties": {
+					"updated": {
+						"type": "integer"
+					}
+				},
+				"required": [
+					"updated"
+				],
+				"type": "object"
+			},
+			"BulkUpdateIssue": {
+				"properties": {
+					"undo": {
+						"$ref": "#/components/schemas/BulkIssueUndo"
+					},
+					"updated": {
+						"type": "integer"
+					}
+				},
+				"required": [
+					"updated"
 				],
 				"type": "object"
 			},
@@ -189,17 +319,6 @@
 				},
 				"required": [
 					"issue_ids"
-				],
-				"type": "object"
-			},
-			"BulkUpdateResult": {
-				"properties": {
-					"updated": {
-						"type": "integer"
-					}
-				},
-				"required": [
-					"updated"
 				],
 				"type": "object"
 			},
@@ -950,6 +1069,38 @@
 				],
 				"type": "object"
 			},
+			"DeleteIssue": {
+				"properties": {
+					"restorable_until": {
+						"format": "date-time",
+						"type": "string"
+					},
+					"status": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"status",
+					"restorable_until"
+				],
+				"type": "object"
+			},
+			"DeleteWikiPage": {
+				"properties": {
+					"restorable_until": {
+						"format": "date-time",
+						"type": "string"
+					},
+					"status": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"status",
+					"restorable_until"
+				],
+				"type": "object"
+			},
 			"DuplicateIssueRequest": {
 				"properties": {
 					"include_sub_issues": {
@@ -1140,9 +1291,15 @@
 					"title": {
 						"type": "string"
 					},
+					"undo": {
+						"$ref": "#/components/schemas/IssueUndo"
+					},
 					"updated_at": {
 						"format": "date-time",
 						"type": "string"
+					},
+					"version": {
+						"type": "integer"
 					}
 				},
 				"required": [
@@ -1162,7 +1319,8 @@
 					"sort_order",
 					"is_subscribed",
 					"created_at",
-					"updated_at"
+					"updated_at",
+					"version"
 				],
 				"type": "object"
 			},
@@ -1453,6 +1611,144 @@
 					"identifier",
 					"title"
 				],
+				"type": "object"
+			},
+			"IssueUndo": {
+				"properties": {
+					"expected_version": {
+						"minimum": 1,
+						"type": "integer"
+					},
+					"previous": {
+						"$ref": "#/components/schemas/IssueUndoPrevious"
+					}
+				},
+				"required": [
+					"expected_version",
+					"previous"
+				],
+				"type": "object"
+			},
+			"IssueUndoInput": {
+				"properties": {
+					"expected_version": {
+						"minimum": 1,
+						"type": "integer"
+					},
+					"previous": {
+						"$ref": "#/components/schemas/IssueUndoPreviousInput"
+					}
+				},
+				"type": "object"
+			},
+			"IssueUndoPrevious": {
+				"properties": {
+					"assignee_id": {
+						"format": "uuid",
+						"type": "string"
+					},
+					"assignee_ids": {
+						"items": {
+							"format": "uuid",
+							"type": "string"
+						},
+						"type": "array"
+					},
+					"cycle_id": {
+						"format": "uuid",
+						"type": "string"
+					},
+					"label_ids": {
+						"items": {
+							"format": "uuid",
+							"type": "string"
+						},
+						"type": "array"
+					},
+					"priority": {
+						"maximum": 4,
+						"minimum": 0,
+						"type": "integer"
+					},
+					"project_id": {
+						"format": "uuid",
+						"type": "string"
+					},
+					"sort_order": {
+						"type": "number"
+					},
+					"status_id": {
+						"format": "uuid",
+						"type": "string"
+					}
+				},
+				"type": "object"
+			},
+			"IssueUndoPreviousInput": {
+				"properties": {
+					"assignee_id": {
+						"format": "uuid",
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"assignee_ids": {
+						"items": {
+							"format": "uuid",
+							"type": "string"
+						},
+						"type": [
+							"array",
+							"null"
+						]
+					},
+					"cycle_id": {
+						"format": "uuid",
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"label_ids": {
+						"items": {
+							"format": "uuid",
+							"type": "string"
+						},
+						"type": [
+							"array",
+							"null"
+						]
+					},
+					"priority": {
+						"maximum": 4,
+						"minimum": 0,
+						"type": [
+							"integer",
+							"null"
+						]
+					},
+					"project_id": {
+						"format": "uuid",
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"sort_order": {
+						"type": [
+							"number",
+							"null"
+						]
+					},
+					"status_id": {
+						"format": "uuid",
+						"type": [
+							"string",
+							"null"
+						]
+					}
+				},
 				"type": "object"
 			},
 			"Label": {
@@ -3753,7 +4049,7 @@
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/BulkDeleteResult"
+									"$ref": "#/components/schemas/BulkDeleteIssue"
 								}
 							}
 						},
@@ -3792,7 +4088,7 @@
 				"x-kuayle-stability": "stable"
 			},
 			"patch": {
-				"description": "Required scope: `issue:update`.",
+				"description": "The response carries an undo for POST /issues/bulk/undo when the change can be undone (all fields but parent_id).\n\nRequired scope: `issue:update`.",
 				"operationId": "bulkUpdateIssues",
 				"parameters": [
 					{
@@ -3820,7 +4116,7 @@
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/BulkUpdateResult"
+									"$ref": "#/components/schemas/BulkUpdateIssue"
 								}
 							}
 						},
@@ -3859,9 +4155,157 @@
 				"x-kuayle-stability": "stable"
 			}
 		},
+		"/api/workspaces/{slug}/issues/bulk/restore": {
+			"post": {
+				"description": "Members restore only issues they created; owners and admins restore any. A deleted issue can be restored until its grace period ends (ISSUE_DELETE_GRACE_PERIOD, 30 days by default); after that the response is 410 GRACE_EXPIRED, and once purged the issue is not found.\n\nRequired scope: `issue:delete_own`.",
+				"operationId": "bulkRestoreIssues",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/BulkRestoreIssueRequest"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/BulkRestoreIssue"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"issue:delete_own"
+						]
+					}
+				],
+				"summary": "Restore several deleted issues",
+				"tags": [
+					"Issues"
+				],
+				"x-kuayle-scopes": [
+					"issue:delete_own"
+				],
+				"x-kuayle-stability": "stable"
+			}
+		},
+		"/api/workspaces/{slug}/issues/bulk/undo": {
+			"post": {
+				"description": "Sends back the undo of a bulk update response. Applies to every issue or none: if any issue changed since (its version differs), nothing is undone.\n\nRequired scope: `issue:update`.",
+				"operationId": "bulkUndoIssues",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/BulkIssueUndoInput"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/BulkUndoIssue"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"409": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Error"
+								}
+							}
+						},
+						"description": "The issue was edited in the meantime (EDITED_MEANWHILE), or a previous value is no longer available (UNDO_UNAVAILABLE); nothing was undone."
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"issue:update"
+						]
+					}
+				],
+				"summary": "Undo a bulk update",
+				"tags": [
+					"Issues"
+				],
+				"x-kuayle-scopes": [
+					"issue:update"
+				],
+				"x-kuayle-stability": "stable"
+			}
+		},
 		"/api/workspaces/{slug}/issues/{identifier}": {
 			"delete": {
-				"description": "Members delete only issues they created; owners and admins delete any.\n\nRequired scope: `issue:delete_own`.",
+				"description": "Members delete only issues they created; owners and admins delete any. The issue can be restored until restorable_until.\n\nRequired scope: `issue:delete_own`.",
 				"operationId": "deleteIssue",
 				"parameters": [
 					{
@@ -3888,7 +4332,7 @@
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/StatusResult"
+									"$ref": "#/components/schemas/DeleteIssue"
 								}
 							}
 						},
@@ -4814,6 +5258,74 @@
 				"x-kuayle-stability": "stable"
 			}
 		},
+		"/api/workspaces/{slug}/issues/{identifier}/restore": {
+			"post": {
+				"description": "Members restore only issues they created; owners and admins restore any. A deleted issue can be restored until its grace period ends (ISSUE_DELETE_GRACE_PERIOD, 30 days by default); after that the response is 410 GRACE_EXPIRED, and once purged the issue is not found.\n\nRequired scope: `issue:delete_own`.",
+				"operationId": "restoreIssue",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Issue identifier: the team key and issue number, for example ENG-42.",
+						"in": "path",
+						"name": "identifier",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Issue"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"issue:delete_own"
+						]
+					}
+				],
+				"summary": "Restore a deleted issue",
+				"tags": [
+					"Issues"
+				],
+				"x-kuayle-scopes": [
+					"issue:delete_own"
+				],
+				"x-kuayle-stability": "stable"
+			}
+		},
 		"/api/workspaces/{slug}/issues/{identifier}/sub-issues": {
 			"get": {
 				"description": "Required scope: `issues:read`.",
@@ -5169,6 +5681,94 @@
 					}
 				],
 				"summary": "Decline an issue in triage",
+				"tags": [
+					"Issues"
+				],
+				"x-kuayle-scopes": [
+					"issue:update"
+				],
+				"x-kuayle-stability": "stable"
+			}
+		},
+		"/api/workspaces/{slug}/issues/{identifier}/undo": {
+			"post": {
+				"description": "Sends back the undo of an update response to put the previous values back. If the issue changed since (its version differs), nothing is undone.\n\nRequired scope: `issue:update`.",
+				"operationId": "undoIssueUpdate",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Issue identifier: the team key and issue number, for example ENG-42.",
+						"in": "path",
+						"name": "identifier",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/IssueUndoInput"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Issue"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"409": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Error"
+								}
+							}
+						},
+						"description": "The issue was edited in the meantime (EDITED_MEANWHILE), or a previous value is no longer available (UNDO_UNAVAILABLE); nothing was undone."
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"issue:update"
+						]
+					}
+				],
+				"summary": "Undo an issue update",
 				"tags": [
 					"Issues"
 				],
@@ -6977,7 +7577,7 @@
 		},
 		"/api/workspaces/{slug}/projects/{id}/wiki/{pageId}": {
 			"delete": {
-				"description": "Required scope: `wiki:write`.",
+				"description": "Its child pages move up to its parent. The page can be restored until restorable_until.\n\nRequired scope: `wiki:write`.",
 				"operationId": "deleteProjectWikiPage",
 				"parameters": [
 					{
@@ -7015,7 +7615,7 @@
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/StatusResult"
+									"$ref": "#/components/schemas/DeleteWikiPage"
 								}
 							}
 						},
@@ -7566,6 +8166,85 @@
 					}
 				],
 				"summary": "Publish or unpublish a project wiki page",
+				"tags": [
+					"Wiki"
+				],
+				"x-kuayle-scopes": [
+					"wiki:write"
+				],
+				"x-kuayle-stability": "stable"
+			}
+		},
+		"/api/workspaces/{slug}/projects/{id}/wiki/{pageId}/restore": {
+			"post": {
+				"description": "Within the grace period (ISSUE_DELETE_GRACE_PERIOD, 30 days by default) the page comes back under its parent, or at the top level if the parent is gone; after it the response is 410 GRACE_EXPIRED.\n\nRequired scope: `wiki:write`.",
+				"operationId": "restoreProjectWikiPage",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Resource ID.",
+						"in": "path",
+						"name": "id",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					},
+					{
+						"description": "Wiki page ID.",
+						"in": "path",
+						"name": "pageId",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/WikiPage"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"wiki:write"
+						]
+					}
+				],
+				"summary": "Restore a deleted page of a project wiki",
 				"tags": [
 					"Wiki"
 				],
@@ -10073,7 +10752,7 @@
 		},
 		"/api/workspaces/{slug}/teams/{teamId}/wiki/{pageId}": {
 			"delete": {
-				"description": "Required scope: `wiki:write`.",
+				"description": "Its child pages move up to its parent. The page can be restored until restorable_until.\n\nRequired scope: `wiki:write`.",
 				"operationId": "deleteTeamWikiPage",
 				"parameters": [
 					{
@@ -10111,7 +10790,7 @@
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/StatusResult"
+									"$ref": "#/components/schemas/DeleteWikiPage"
 								}
 							}
 						},
@@ -10662,6 +11341,85 @@
 					}
 				],
 				"summary": "Publish or unpublish a team wiki page",
+				"tags": [
+					"Wiki"
+				],
+				"x-kuayle-scopes": [
+					"wiki:write"
+				],
+				"x-kuayle-stability": "stable"
+			}
+		},
+		"/api/workspaces/{slug}/teams/{teamId}/wiki/{pageId}/restore": {
+			"post": {
+				"description": "Within the grace period (ISSUE_DELETE_GRACE_PERIOD, 30 days by default) the page comes back under its parent, or at the top level if the parent is gone; after it the response is 410 GRACE_EXPIRED.\n\nRequired scope: `wiki:write`.",
+				"operationId": "restoreTeamWikiPage",
+				"parameters": [
+					{
+						"description": "Workspace slug, as in the app's URLs.",
+						"in": "path",
+						"name": "slug",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"description": "Team ID.",
+						"in": "path",
+						"name": "teamId",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					},
+					{
+						"description": "Wiki page ID.",
+						"in": "path",
+						"name": "pageId",
+						"required": true,
+						"schema": {
+							"format": "uuid",
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/WikiPage"
+								}
+							}
+						},
+						"description": "Success."
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"429": {
+						"$ref": "#/components/responses/TooManyRequests"
+					}
+				},
+				"security": [
+					{
+						"personalAccessToken": [
+							"wiki:write"
+						]
+					}
+				],
+				"summary": "Restore a deleted page of a team wiki",
 				"tags": [
 					"Wiki"
 				],

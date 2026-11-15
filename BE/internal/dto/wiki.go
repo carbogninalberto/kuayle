@@ -177,3 +177,9 @@ type WikiPublicationResponse struct {
 	Children bool    `json:"children"`
 	URL      *string `json:"url"`
 }
+
+type DeleteWikiPageResponse struct {
+	Status string `json:"status"`
+	// RestorableUntil is when the deleted page is purged for good.
+	RestorableUntil time.Time `json:"restorable_until"`
+}
