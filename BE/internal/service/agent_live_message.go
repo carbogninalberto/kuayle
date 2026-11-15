@@ -25,12 +25,13 @@ func (s *AgentTaskService) QueueLiveMessage(ctx context.Context, ws, id uuid.UUI
 // stopped and its session resumed with the message) or
 // domain.AgentLiveSendStart (an attempt is started for it when none runs). A
 // harness that cannot be handed a message while it works is interrupted
-// whatever the mode.
-func (s *AgentTaskService) SendLiveMessage(ctx context.Context, ws, id uuid.UUID, body, mode string) (*domain.AgentLiveMessage, error) {
+// whatever the mode. Starting a new iteration on an issue whose work was
+// merged needs confirmMerged (domain.MergedWorkError otherwise).
+func (s *AgentTaskService) SendLiveMessage(ctx context.Context, ws, id uuid.UUID, body, mode string, confirmMerged bool) (*domain.AgentLiveMessage, error) {
 	if err := s.requireMachineUse(ctx); err != nil {
 		return nil, err
 	}
-	return s.Repo.SendLiveMessage(ctx, ws, id, body, mode)
+	return s.Repo.SendLiveMessage(ctx, ws, id, body, mode, confirmMerged)
 }
 
 // LiveMessages lists the newest messages of a task's live channel in both

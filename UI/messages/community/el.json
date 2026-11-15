@@ -4216,5 +4216,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "Η εργασία αυτού του ζητήματος συγχωνεύτηκε στο #{number}. Επανάληψη παρ' όλα αυτά;",
+	"tasks.merged_work_body": "Η εκ νέου εκτέλεση του πράκτορα μπορεί να επαναλάβει ή να αναιρέσει εργασία που έχει ήδη συγχωνευτεί.",
+	"tasks.merged_work_link": "Προβολή του pull request #{number}",
+	"tasks.merged_work_confirm": "Επανάληψη παρ' όλα αυτά",
+	"assistant.follow_up_merged": "Η εργασία αυτού του ζητήματος συγχωνεύτηκε στο #{number}. Με την έγκριση ο πράκτορας εκτελείται ξανά παρ' όλα αυτά."
 }

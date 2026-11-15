@@ -13,12 +13,20 @@
 	import { agentModelCatalog } from '$lib/api/dev-machines';
 	import type { CatalogModel, ThinkingLevel } from '$lib/types/dev-machine';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { agentTasks, type AgentTask, type TaskOptions, type TaskInput } from '$lib/api/agent-tasks';
+	import {
+		agentTasks,
+		type AgentTask,
+		type MergedPullRequest,
+		type TaskOptions,
+		type TaskInput
+	} from '$lib/api/agent-tasks';
 	import { workflows as workflowsApi, type WorkflowList } from '$lib/api/workflows';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { m } from '$lib/features/i18n/messages';
+	import MergedWorkDialog from './MergedWorkDialog.svelte';
+	import { mergedWork } from './merged-work';
 	let {
 		slug,
 		conversation,
@@ -45,6 +53,9 @@
 		saving = $state(false),
 		error = $state('');
 	let pending: { key: string; id: string } | null = null;
+	// The issue's merged pull request a retry was refused for: asked about
+	// before the same request is sent again, confirmed (KUA-193).
+	let merged = $state<MergedPullRequest | null>(null);
 	// The workflow a new task follows: the issue's default, Standard or a
 	// custom one. Guests cannot list workflows (nor start tasks), so the
 	// chooser stays hidden whenever the list does not load.
@@ -148,7 +159,7 @@
 			disposed = true;
 		};
 	});
-	async function submit(event?: SubmitEvent) {
+	async function submit(event?: SubmitEvent, confirmMerged = false) {
 		event?.preventDefault();
 		if (saving || !prompt.trim() || new TextEncoder().encode(prompt).length > 32768 || (!task && !provider)) return;
 		error = '';
@@ -182,7 +193,8 @@
 						request_id: pending.id,
 						generation: task.generation,
 						prompt: input.prompt,
-						test_command: command
+						test_command: command,
+						...(confirmMerged ? { confirm_merged: true } : {})
 					})
 				: await agentTasks.create(slug, conversation, { ...input, request_id: pending.id } satisfies TaskInput);
 			try {
@@ -193,8 +205,10 @@
 				onclose();
 			}
 		} catch (e) {
-			if (!disposed)
-				error = (e as { status?: number }).status === 409 ? m['tasks.conflict']() : m['tasks.action_error']();
+			if (disposed) return;
+			const refused = task ? mergedWork(e) : null;
+			if (refused) merged = refused;
+			else error = (e as { status?: number }).status === 409 ? m['tasks.conflict']() : m['tasks.action_error']();
 		} finally {
 			if (!disposed) saving = false;
 		}
@@ -386,5 +400,7 @@
 				></Dialog.Footer
 			>
 		</form>
+		<!-- Nested in the dialog so it opens above it as its child layer. -->
+		<MergedWorkDialog bind:pullRequest={merged} onconfirm={() => void submit(undefined, true)} />
 	</Dialog.Content>
 </Dialog.Root>

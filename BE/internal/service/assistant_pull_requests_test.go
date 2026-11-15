@@ -110,6 +110,11 @@ type prWork struct {
 	assistantAgentWork
 	followUp *repository.FollowUpTarget
 	merge    *repository.MergeTarget
+	merged   *domain.MergedPullRequest
+}
+
+func (f prWork) MergedPullRequest(context.Context, uuid.UUID, uuid.UUID) (*domain.MergedPullRequest, error) {
+	return f.merged, nil
 }
 
 func (f prWork) FollowUpTarget(context.Context, uuid.UUID, uuid.UUID) (*repository.FollowUpTarget, error) {

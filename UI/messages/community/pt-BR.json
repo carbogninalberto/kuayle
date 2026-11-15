@@ -4216,5 +4216,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "O trabalho desta issue foi mesclado em #{number}. Tentar novamente mesmo assim?",
+	"tasks.merged_work_body": "Executar o agente de novo pode refazer ou desfazer trabalho que já foi mesclado.",
+	"tasks.merged_work_link": "Ver o pull request #{number}",
+	"tasks.merged_work_confirm": "Tentar novamente mesmo assim",
+	"assistant.follow_up_merged": "O trabalho desta issue foi mesclado em #{number}. Ao aprovar, o agente é executado de novo mesmo assim."
 }

@@ -4216,5 +4216,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "کار این مسئله در #{number} ادغام شده است. با این حال دوباره تلاش شود؟",
+	"tasks.merged_work_body": "اجرای دوباره عامل ممکن است کاری را که قبلاً ادغام شده تکرار یا لغو کند.",
+	"tasks.merged_work_link": "مشاهده pull request #{number}",
+	"tasks.merged_work_confirm": "با این حال دوباره تلاش کن",
+	"assistant.follow_up_merged": "کار این مسئله در #{number} ادغام شده است. با تأیید، عامل با این حال دوباره اجرا می‌شود."
 }

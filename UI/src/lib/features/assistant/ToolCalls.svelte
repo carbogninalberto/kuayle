@@ -37,6 +37,7 @@
 	import ReleaseApprovalCard from './ReleaseApprovalCard.svelte';
 	import { releaseNotesInvalid } from './ReleaseNotesField.svelte';
 	import MergeHeadChange from './MergeHeadChange.svelte';
+	import { safePullRequestUrl } from './merged-work';
 	import ShipApprovalCard from './ShipApprovalCard.svelte';
 	import ShipSteps from './ShipSteps.svelte';
 	import ProposedSkillCard, { proposedSkill } from './ProposedSkillCard.svelte';
@@ -677,6 +678,26 @@
 										class="max-h-48 text-xs"
 									/></CodeBlock.Root
 								>
+								{#if approval.payload.merged_pull_request}
+									{@const merged = approval.payload.merged_pull_request}
+									{@const href = safePullRequestUrl(merged.url)}
+									<!-- The issue's work was merged (KUA-193): approving runs the agent again anyway. -->
+									<Alert.Root
+										class="border-[var(--status-warning)]/40 text-[var(--status-warning)]"
+										data-testid="follow-up-merged"
+									>
+										<Alert.Description class="space-y-1">
+											<p>{m['assistant.follow_up_merged']({ number: merged.number })}</p>
+											{#if href}<a
+													class="inline-flex items-center gap-1 underline underline-offset-2"
+													{href}
+													target="_blank"
+													rel="noopener noreferrer"
+													><ExternalLink size={12} />{m['tasks.merged_work_link']({ number: merged.number })}</a
+												>{/if}
+										</Alert.Description>
+									</Alert.Root>
+								{/if}
 							{:else if approval.action === 'message_task'}
 								<Item.Title>{m['assistant.message_task_title']({ identifier })}</Item.Title>
 								<Item.Description class="line-clamp-none"

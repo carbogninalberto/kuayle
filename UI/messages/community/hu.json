@@ -4216,5 +4216,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "A feladat munkája a(z) #{number} számú pull requestben már merge-elve lett. Mégis újrapróbálod?",
+	"tasks.merged_work_body": "Az ágens újrafuttatása megismételheti vagy visszacsinálhatja a már merge-elt munkát.",
+	"tasks.merged_work_link": "A(z) #{number} pull request megtekintése",
+	"tasks.merged_work_confirm": "Újrapróbálás mégis",
+	"assistant.follow_up_merged": "A feladat munkája a(z) #{number} számú pull requestben már merge-elve lett. A jóváhagyással az ágens mégis újra lefut."
 }

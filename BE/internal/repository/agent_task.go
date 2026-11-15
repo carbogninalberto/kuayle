@@ -1133,6 +1133,11 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 	if pending {
 		return nil, ErrAgentTaskConflict
 	}
+	// Only a retry that would start asks about merged work; nothing is
+	// recorded, so the same request can be sent again confirmed.
+	if err = refuseMergedWork(ctx, tx, task, req.ConfirmMerged); err != nil {
+		return nil, err
+	}
 	requested, command, err := resolveAgentTaskCommand(ctx, tx, ws, task.IssueID, req.TestCommand)
 	if err != nil {
 		return nil, err

@@ -170,6 +170,9 @@ async function fixture(page: Page) {
 		sends: [] as { body: string; mode?: string }[],
 		// The next send is refused with this.
 		refuse: null as null | { status: number; json: any },
+		// The issue's merged pull request: starting an iteration without confirm_merged is refused (KUA-193).
+		merged: null as null | { number: number; url: string; repository: string },
+		refused: [] as any[],
 		// What a send with a mode does to the task, as the server would.
 		onSend: null as null | ((mode: string | undefined) => void),
 		sockets: [] as WebSocketRoute[],
@@ -209,6 +212,19 @@ async function fixture(page: Page) {
 					const refused = state.refuse;
 					state.refuse = null;
 					return route.fulfill(refused);
+				}
+				if (state.merged && input.mode === 'start' && !input.confirm_merged) {
+					state.refused.push(input);
+					return route.fulfill({
+						status: 409,
+						json: {
+							error: {
+								code: 'MERGED_WORK',
+								message: `This issue's work was merged in #${state.merged.number}. Retry anyway?`,
+								pull_request: state.merged
+							}
+						}
+					});
 				}
 				state.sends.push(input);
 				const seq = state.liveMessages.filter((item) => item.direction === 'to_agent').length + 1;
@@ -644,6 +660,42 @@ test('with no step running a message waits after the last step, or starts an ite
 	await expect(pending).toHaveCount(0);
 	await expect(start).toHaveCount(0);
 	await expect(composerButton(page, 'Interrupt and send')).toBeVisible();
+});
+
+test('starting an iteration on merged work asks first and sends the same message confirmed', async ({ page }) => {
+	const { state } = await fixture(page);
+	state.task = baseTask({ state: 'failed', reason: 'Native coding iteration failed; stopping execution before retry' });
+	state.workflow = {
+		...workflow(),
+		status: 'failed',
+		runs: [workflow().runs[0], run('run-impl', 3, 'claude-code', 'failed', { completed_at: at(8) })]
+	};
+	state.merged = { number: 12, url: 'https://github.com/acme/app/pull/12', repository: 'acme/app' };
+	await page.goto(agentUrl);
+	const start = composerButton(page, 'Send and start now');
+	await composer(page).fill('Try the other fixture');
+	await start.click();
+	const warning = page.getByRole('alertdialog', { name: "This issue's work was merged in #12. Retry anyway?" });
+	await expect(warning).toBeVisible();
+	await expect(warning.getByRole('link', { name: 'View pull request #12' })).toHaveAttribute(
+		'href',
+		'https://github.com/acme/app/pull/12'
+	);
+	expect(state.refused).toEqual([{ body: 'Try the other fixture', mode: 'start' }]);
+	expect(state.sends).toEqual([]);
+	// Cancel keeps the message and sends nothing.
+	await warning.getByRole('button', { name: 'Cancel' }).click();
+	await expect(warning).toHaveCount(0);
+	await expect(composer(page)).toHaveValue('Try the other fixture');
+	await expect(page.getByTestId('agent-composer').getByRole('alert')).toHaveCount(0);
+	expect(state.sends).toEqual([]);
+	// Retry anyway sends the same message again, confirmed.
+	await start.click();
+	await warning.getByRole('button', { name: 'Retry anyway' }).click();
+	await expect
+		.poll(() => state.sends)
+		.toEqual([{ body: 'Try the other fixture', mode: 'start', confirm_merged: true }]);
+	await expect(composer(page)).toHaveValue('');
 });
 
 test('a finished task and another person\'s task have no composer', async ({ page }) => {

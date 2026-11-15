@@ -15,7 +15,7 @@ import (
 // review-loop workflow whose implementing agent is running.
 
 func (f *pauseFixture) send(body, mode string) (*domain.AgentLiveMessage, error) {
-	return f.repo.SendLiveMessage(f.ctx, f.ws, f.task.ID, body, mode)
+	return f.repo.SendLiveMessage(f.ctx, f.ws, f.task.ID, body, mode, false)
 }
 
 func (f *pauseFixture) liveMessages() []domain.AgentLiveMessage {
@@ -653,7 +653,7 @@ func TestOnlyTheCreatorTalksToTheAgent(t *testing.T) {
 	refused := func(ctx context.Context, ws uuid.UUID, who string) {
 		t.Helper()
 		for _, mode := range modes {
-			_, err := f.repo.SendLiveMessage(ctx, ws, f.task.ID, "Steer someone else's agent", mode)
+			_, err := f.repo.SendLiveMessage(ctx, ws, f.task.ID, "Steer someone else's agent", mode, false)
 			require.ErrorIs(t, err, ErrConversationNotFound, "%s, mode %q", who, mode)
 		}
 		_, err := f.repo.LiveMessages(ctx, ws, f.task.ID, 10)
@@ -667,7 +667,7 @@ func TestOnlyTheCreatorTalksToTheAgent(t *testing.T) {
 	refused(foreign, elsewhere, "another workspace")
 	refused(foreign, f.ws, "another workspace naming this one")
 
-	_, err := f.repo.SendLiveMessage(f.ctx, f.ws, f.task.ID, "x", "now")
+	_, err := f.repo.SendLiveMessage(f.ctx, f.ws, f.task.ID, "x", "now", false)
 	require.ErrorIs(t, err, ErrAgentLiveMessageInvalid, "an unknown mode is refused")
 
 	// The creator loses access: demoted to a guest, or left outside a team

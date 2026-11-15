@@ -4216,5 +4216,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "Công việc của issue này đã được merge trong #{number}. Vẫn thử lại?",
+	"tasks.merged_work_body": "Chạy lại tác tử có thể làm lại hoặc hoàn tác công việc đã được merge.",
+	"tasks.merged_work_link": "Xem pull request #{number}",
+	"tasks.merged_work_confirm": "Vẫn thử lại",
+	"assistant.follow_up_merged": "Công việc của issue này đã được merge trong #{number}. Phê duyệt sẽ vẫn chạy lại tác tử."
 }

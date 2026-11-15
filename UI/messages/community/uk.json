@@ -4216,5 +4216,10 @@
 	"sso.access.required_title": "Single sign-on required",
 	"sso.access.continue": "Continue with SSO",
 	"sso.access.scoped_desc": "You signed in through single sign-on for {workspace}. This session can only open that workspace. Sign out and sign in with your password to use another workspace.",
-	"sso.access.back": "Back to {workspace}"
+	"sso.access.back": "Back to {workspace}",
+	"tasks.merged_work_title": "Роботу за цим завданням уже злито в #{number}. Усе одно повторити?",
+	"tasks.merged_work_body": "Повторний запуск агента може переробити або скасувати вже злиту роботу.",
+	"tasks.merged_work_link": "Відкрити pull request #{number}",
+	"tasks.merged_work_confirm": "Усе одно повторити",
+	"assistant.follow_up_merged": "Роботу за цим завданням уже злито в #{number}. Після схвалення агент усе одно запуститься знову."
 }
