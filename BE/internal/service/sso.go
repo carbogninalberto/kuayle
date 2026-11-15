@@ -281,13 +281,21 @@ func (s *SSOService) resolved(ctx context.Context, workspaceID uuid.UUID) (*reso
 }
 
 // RequiresSSO reports whether a workspace blocks non-SSO sessions. It is used
-// by the workspace membership middleware.
+// by the workspace membership middleware, so it reads only the stored flags and
+// avoids decrypting the client secret on every authenticated request.
 func (s *SSOService) RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (bool, error) {
-	config, err := s.resolved(ctx, workspaceID)
+	instanceID, err := s.instanceWorkspaceID(ctx)
 	if err != nil {
 		return false, err
 	}
-	return config != nil && config.Enabled && config.RequireSSO, nil
+	if instanceID != uuid.Nil && instanceID == workspaceID {
+		return s.instance.RequireSSO, nil
+	}
+	stored, err := s.repo.GetConfig(ctx, workspaceID)
+	if err != nil {
+		return false, err
+	}
+	return stored != nil && stored.Enabled && stored.RequireSSO, nil
 }
 
 // UserSSORequired reports whether every workspace the user belongs to requires
@@ -344,7 +352,7 @@ func (s *SSOService) GetConfig(ctx context.Context, slug string) (*dto.SSOConfig
 		DefaultRole:       domain.RoleMember,
 		AllowedDomains:    []string{},
 		RedirectURI:       s.redirectURI(ws.Slug),
-		ManagedByInstance: s.instance.Configured() && s.instance.WorkspaceSlug == ws.Slug,
+		ManagedByInstance: s.instance.Configured() && strings.TrimSpace(s.instance.WorkspaceSlug) == ws.Slug,
 	}
 	if config == nil {
 		response.Enabled = false
@@ -369,7 +377,7 @@ func (s *SSOService) SaveConfig(ctx context.Context, slug string, req dto.SSOCon
 	if err != nil {
 		return nil, err
 	}
-	if s.instance.Configured() && s.instance.WorkspaceSlug == ws.Slug {
+	if s.instance.Configured() && strings.TrimSpace(s.instance.WorkspaceSlug) == ws.Slug {
 		return nil, ErrSSOInstanceManaged
 	}
 	if req.RequireSSO && !req.Enabled {
@@ -450,7 +458,7 @@ func (s *SSOService) DeleteConfig(ctx context.Context, slug string) error {
 	if err != nil {
 		return err
 	}
-	if s.instance.Configured() && s.instance.WorkspaceSlug == ws.Slug {
+	if s.instance.Configured() && strings.TrimSpace(s.instance.WorkspaceSlug) == ws.Slug {
 		return ErrSSOInstanceManaged
 	}
 	if err := s.repo.DeleteConfig(ctx, ws.ID); err != nil {

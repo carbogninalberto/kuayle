@@ -814,6 +814,31 @@ func TestSSOIdentityInAnotherWorkspaceDoesNotAuthenticate(t *testing.T) {
 	require.NotNil(t, user)
 }
 
+// RequiresSSO runs on every authenticated workspace request, so it must read
+// only the stored flags and never decrypt the client secret.
+func TestSSORequiresSSODoesNotDecryptClientSecret(t *testing.T) {
+	rig := newSSOTestRig(t)
+	ctx := context.Background()
+	config := rig.repo.configs[rig.workspace.ID]
+	config.Enabled = true
+	config.RequireSSO = true
+	config.ClientSecretEncrypted = "not-a-ciphertext"
+
+	// Reading the full configuration still fails on the invalid ciphertext; the
+	// middleware check must not depend on it.
+	_, err := rig.service.resolved(ctx, rig.workspace.ID)
+	require.Error(t, err)
+
+	required, err := rig.service.RequiresSSO(ctx, rig.workspace.ID)
+	require.NoError(t, err)
+	require.True(t, required)
+
+	config.Enabled = false
+	required, err = rig.service.RequiresSSO(ctx, rig.workspace.ID)
+	require.NoError(t, err)
+	require.False(t, required)
+}
+
 func TestSSOInstanceConfigWinsAndIsReadOnly(t *testing.T) {
 	rig := newSSOTestRig(t)
 	rig.service.instance = InstanceSSOConfig{

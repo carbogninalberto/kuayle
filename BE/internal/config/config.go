@@ -142,9 +142,9 @@ func (c *Config) SSOInstanceConfig() SSOInstanceEnv {
 		role = domainRoleMember
 	}
 	return SSOInstanceEnv{
-		WorkspaceSlug:  c.SSOInstanceWorkspaceSlug,
-		IssuerURL:      c.SSOInstanceIssuerURL,
-		ClientID:       c.SSOInstanceClientID,
+		WorkspaceSlug:  strings.TrimSpace(c.SSOInstanceWorkspaceSlug),
+		IssuerURL:      strings.TrimSpace(c.SSOInstanceIssuerURL),
+		ClientID:       strings.TrimSpace(c.SSOInstanceClientID),
 		ClientSecret:   c.SSOInstanceClientSecret,
 		AllowedDomains: c.SSOInstanceAllowedDomains,
 		DefaultRole:    role,

@@ -615,6 +615,20 @@ func TestLoadReadsInstanceSSOConfiguration(t *testing.T) {
 	require.True(t, cfg.SSOInstanceConfig().RequireSSO)
 }
 
+func TestSSOInstanceConfigTrimsWorkspaceSlugIssuerAndClientID(t *testing.T) {
+	cfg := &Config{
+		SSOInstanceWorkspaceSlug: "  acme\t",
+		SSOInstanceIssuerURL:     "\n https://idp.example.com ",
+		SSOInstanceClientID:      " kuayle ",
+	}
+
+	sso := cfg.SSOInstanceConfig()
+
+	require.Equal(t, "acme", sso.WorkspaceSlug)
+	require.Equal(t, "https://idp.example.com", sso.IssuerURL)
+	require.Equal(t, "kuayle", sso.ClientID)
+}
+
 func TestLoadValidatesInstanceSSOConfiguration(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
