@@ -1790,6 +1790,8 @@ type devMachineStoreFake struct {
 	environments                map[uuid.UUID]*domain.DevMachineEnvironment
 	machine                     *domain.DevMachine
 	machines                    []domain.DevMachine
+	maxTasksUpdates             []*int
+	updateMaxTasksErr           error
 	service                     *domain.DevMachineService
 	services                    []domain.DevMachineService
 	envVars                     []domain.DevMachineEnvVar
@@ -1871,6 +1873,19 @@ func (f *devMachineStoreFake) GetMachineForUser(_ context.Context, workspaceID, 
 	if err != nil || machine == nil || machine.CreatedByUserID == nil || *machine.CreatedByUserID != userID {
 		return nil, err
 	}
+	return machine, nil
+}
+
+func (f *devMachineStoreFake) UpdateMachineMaxTasks(_ context.Context, workspaceID, machineID uuid.UUID, maxTasks *int) (*domain.DevMachine, error) {
+	if f.updateMaxTasksErr != nil {
+		return nil, f.updateMaxTasksErr
+	}
+	machine, err := f.GetMachine(context.Background(), workspaceID, machineID)
+	if err != nil || machine == nil {
+		return nil, err
+	}
+	f.maxTasksUpdates = append(f.maxTasksUpdates, maxTasks)
+	machine.MaxTasks = maxTasks
 	return machine, nil
 }
 

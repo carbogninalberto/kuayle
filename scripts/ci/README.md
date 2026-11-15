@@ -47,8 +47,10 @@ differently per architecture: any `Dockerfile*`, `BE/go.mod`/`go.sum`,
 `UI/package.json`/`package-lock.json`, `devmachine/` (except `devmachine/security/`),
 `.trivyignore.yaml`, `.dockerignore` or `selfhosting/image_smoke_test.py`; those, and
 broad-coverage changes, add arm64. The planner exposes this as `architectures`.
-Pushes to main, releases and manual runs always build and scan both, so arm64
-is still verified before anything is published.
+Automatic releases and pushes default to amd64. Manual `workflow_dispatch` runs
+of Build & Push and Release Readiness accept `include_arm64: true` to select both
+architectures. Application images use QEMU only for that opt-in multi-platform
+build; dev-machine and readiness ARM64 jobs run natively on `ubuntu-24.04-arm`.
 
 Mixed changes take the union. Unknown dev-machine shared files select all runtime
 images. New paths must be classified by actual consumers before narrowing their
@@ -74,21 +76,94 @@ Go test files and README files do not enter the built application.
   Those images are inputs to a distinct integration environment, not redundant
   substitutes for architecture scans.
 
-Pushes to main, security tag/schedule runs, releases and manual readiness runs
-keep their existing full job/image coverage. On a release, `release-source`
-commits the version bump and refreshed agent CLIs; `build` (application images)
-and the unbounded `dev-machine-publish` matrix then both start from that commit
-in parallel. `dev-machine-images` is intentionally omitted: `dev-machine-publish`
-runs the same native build, smoke tests and scan for every image once, then
-pushes that scanned image as `kuayle-<service>:<tag>-<arch>`;
-`dev-machine-manifests` waits for both and combines the architectures into
-`:<tag>` and `:latest`. Each planner dev image's
-`package` is that GHCR repository and must stay `kuayle-` plus its self-hosting
-Compose service name, which the release updater pulls (a workflow test checks it). Release publishing/version updates
-remain release-only; publishing does not depend on the change-detection job. The new self-hosting and CI-validation jobs also run with
-full Tests coverage on main. PR execution uses read-only contents permission,
-no persisted checkout credentials, and no `pull_request_target` or secrets handoff.
-Only the release jobs (`release-source`, `build`, `dev-machine-publish`, `dev-machine-manifests`) retain write permissions.
+Pushes to main, security tag/schedule runs and releases keep their existing
+full job/image coverage. On a release, `release-source` commits the version bump
+and refreshed agent CLIs; `release-context` validates the tag and selects the
+source and architecture set; the `build` application-image matrix (all-in-one,
+API and web in parallel) and the unbounded `dev-machine-publish` matrix then both
+start from that commit in parallel. Application images push only `:<tag>`.
+`promote-latest` waits for every application-image leg and
+`dev-machine-publish` to succeed, rechecks the current latest release, and copies
+the exact `:<tag>` index to `:latest` after verifying the digest is unchanged.
+Automatic releases are amd64-only, so `dev-machine-publish` runs the amd64
+native build, smoke tests and scan for every
+image once, then pushes that scanned image as `kuayle-<service>:<tag>-amd64`;
+`dev-machine-manifests` waits for `build` and combines the built architectures
+into `:<tag>` and, when the release is still current, `:latest`. With
+`include_arm64: true`, the same flow also runs the native arm64 jobs and produces
+a two-architecture manifest. Each planner dev image's `package` is that GHCR
+repository and must stay `kuayle-` plus its self-hosting Compose service name,
+which the release updater pulls (a workflow test checks it). Release
+publishing/version updates remain release-only; both `release-source` and image
+publishing require change detection to succeed. The new self-hosting and
+CI-validation jobs also run with full Tests coverage on main. PR execution uses
+read-only contents permission, no persisted checkout credentials, and no
+`pull_request_target` or secrets handoff. Only the release jobs
+(`release-source`, `build`, `promote-latest`, `dev-machine-publish`,
+`dev-machine-manifests`) retain write permissions; `release-context` is
+read-only. Release and manual dispatch runs use a per-tag workflow queue, with
+additional per-job queues for `release-source`, builds, dev publishes and latest
+writers. GitHub keeps one running and one pending job per queue, so a third
+overlapping release can cancel the pending one; re-run that workflow. Latest
+writers serialize per image across tags and recheck the current release, so an
+older tag cannot overwrite a newer `:latest`. If overlapping release bumps
+finish out of order, main's UI version can move backwards even though the images
+are tagged correctly; avoid overlapping backports or re-run the newer release.
+PR runs cancel superseded work. The application-image, readiness and
+dev-machine scan matrices have no workflow-level fan-out cap; GitHub queues any
+jobs beyond the account's runner concurrency.
+
+## Manual release rebuilds and ARM64 images
+
+Automatic `release.published` runs publish amd64-only application images and
+Dev Machines images. To publish both architectures for an existing release, run
+Build & Push manually from `main`:
+
+```sh
+gh workflow run build.yml --ref main \
+  -f release_tag=v0.2.32 \
+  -f include_arm64=true
+```
+
+`release_tag` must be an existing, published, non-draft server release tag.
+The dispatch must run from `main`; that check is an accident guard, not a
+security boundary, because anyone with write access can change the workflow.
+Use a protected GitHub environment for the release jobs if a stronger boundary
+is required.
+`include_arm64` defaults to `false`; with `true`, application images are built
+for `linux/amd64,linux/arm64` (QEMU is installed only for that step) and
+Dev Machines images add the native arm64 jobs. The run locates the release's
+`bump(version): <tag>` commit on `main` and builds that source, the same source
+the automatic release used. It does **not** run `release-source`: no new version
+bump, release-manifest rewrite or agent CLI refresh is committed. The selected
+commit already contains those release-time changes.
+
+Manual republishing is tag-safe but mutable:
+
+- `:<tag>` is overwritten with the newly built digests. The `:<tag>-amd64` and,
+  when selected, `:<tag>-arm64` Dev Machines tags are overwritten too. Builds
+  pull current base images, so the result is not bit-for-bit identical to the
+  original run even for the same source commit.
+- `:latest` is updated only when `release_tag` is the repository's current latest
+  published release; `promote-latest` and `dev-machine-manifests` recheck that
+  immediately before promoting. Republishing an older release leaves `:latest`
+  alone. Manual runs from any ref other than `main` fail before publishing.
+- A manual run with `include_arm64=false` republishes amd64 only and replaces the
+  tag manifest with a single-architecture amd64 image, even if that tag
+  previously had arm64. Set `include_arm64=true` to keep or add ARM64.
+- Releases predating the `bump(version): <tag>` convention, whose bump commit is
+  no longer on `main`, or whose release-source found nothing to change (and so
+  created no bump commit) cannot be rebuilt; the workflow fails before
+  publishing. A partial matrix failure can still leave some per-architecture tags
+  updated; inspect the workflow result and registry digests before deploying.
+- The selected bump commit already carries the release's agent CLI pins and
+  generated release files. There is no new release-source commit, so use a new
+  release when those need refreshing.
+
+AMD64-only releases are not directly runnable on ARM64 hosts: pulling the
+all-in-one, API and web images fails with no matching manifest, and the updater
+falls back to building missing Dev Machines images locally when it can. Run the
+manual workflow with `include_arm64=true` before deploying that tag on ARM64.
 
 ## Result gates and branch protection
 
@@ -99,6 +174,8 @@ an intentional omission is permitted. The full job catalog must match the gate's
 dependencies; unknown jobs cannot silently skip. Workflow contract tests also
 check catalog/needs completeness and planner selectors. Existing fixed job names remain visible
 as skipped when not selected; dynamic matrix names exist only for selected images.
+A manual release dispatch keeps `release-source` in the catalog but omits it from
+the required jobs, because that run deliberately builds an existing tag.
 
 At implementation time main had no enforced protection rules. If checks are made
 required, require the four stable contexts **Tests CI Result**, **Security CI
@@ -122,7 +199,10 @@ git diff --check
 The Node tests create disposable Git histories without changing git identity and
 cover docs/harness, BE/UI/WEB, dependencies, shared inputs, workflows, mixed edits,
 renames/deletions, earlier commits, base advancement, >300 files, CLI output,
-unreachable comparison SHAs, cross-package scope contracts and failed gates.
+unreachable comparison SHAs, cross-package scope contracts, failed gates, the
+amd64 default, the `include_arm64` opt-in, the automatic/manual release result
+gates and the mocked release-context scenarios (main guard, draft/missing tags,
+bot-authored bump commit, version mismatch and invalid metadata tags).
 Workflow contract tests inspect our simple job-block/inline-needs conventions;
 actionlint supplies full YAML/expression validation.
 Actionlint validates workflow syntax/expressions; it does not run shell or Python

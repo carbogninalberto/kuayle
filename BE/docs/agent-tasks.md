@@ -287,6 +287,36 @@ operation that fails for good marks the run `failed` with a safe reason, and a
 finished run's container is removed. Runs in a conversation emit
 `tool_run.updated` events with the last 4 KiB of output.
 
+### Worktree scans
+
+Migration 157 adds the read-only `scan_worktree` machine operation and
+`dev_machine_worktree_scans`. A scan reads one task checkout — grep with rg,
+glob, a line range of one file, or git status — or lists the worktrees under
+`/workspace/tasks`; it never changes the checkout and needs no credentials. A
+task scan is allowed while the agent works: it does not take
+`lockMachineForCheck`, and `LeaseOperations` lets it lease beside an agent
+attempt, validation, publication, check or tool run while a running scan never
+blocks other work. A task target must be the requester's own task with a ready
+checkout on its running machine; a machine-only target is only for the list
+scan and must be a running machine the requester created.
+
+The scan row and its operation share an ID (idempotency key
+`worktree-scan:<id>`, one attempt). The manager loads the checkout's path,
+branch and base branch and runs one fixed script per kind with the request only
+as positional arguments. Grep and glob run rg in the checkout, which respects
+its ignore files; the glob is applied after rg because rg's `-g` override would
+otherwise include ignored files. Read resolves the path with realpath, refuses
+anything outside the checkout or a non-regular file, and bounds the file to
+4 MB. Every git command uses the publication preamble's throwaway git
+directory, so the checkout's configuration, hooks, fsmonitor and attribute
+programs never run; every checkout scan reports its branch, HEAD commit and
+whether it is dirty, and status adds changed paths, ahead/behind the base
+branch's remote-tracking ref, and the last commit subject. Output, matches,
+files, lines, changed paths and worktrees are bounded (`Truncated`), and the
+result is trimmed to the table's 64 KiB limit. A scan that cannot run is a
+completed scan with a short error, not an operation retry. The table keeps a
+workspace's scans for an hour.
+
 ## Publication
 
 Task attempts never receive a GitHub credential (`push_branch` is false), so the
@@ -299,7 +329,19 @@ queues one `publication` step (sequence 1) and a `publish_agent` operation in th
 fenced task transaction, using the same machine locks as validation. The manager
 re-verifies the same phase authority (task still `publishing`, current run,
 creator, machine generation, enabled policy, live operation lease) on every read
-and write, checks that the checkout is the task's own ready checkout, then:
+and write, and checks that the checkout is the task's own ready checkout. It
+first fetches the task branch from GitHub with a credential used only in a fresh
+repository and fast-forwards the checkout to commits others pushed (a maintainer
+merging the base branch into the pull request). When the histories diverged
+because the agent rebased its own branch, GitHub's tip is exactly the commit
+Kuayle recorded as published (`PublishedCommit`) and nobody else pushed: the
+checkout is left alone, and the push is guarded by `--force-with-lease` against
+that tip. The commit step normally rebuilds the agent's changes on the published
+commit, so the guarded push is a fast-forward; it really forces only when the
+published commit is missing from the checkout, and then the push is refused
+unless every commit it drops is Kuayle's own. Any other divergence is refused
+with a reason saying someone else pushed to the branch, and nothing is
+force-pushed. Then:
 
 1. Commits pending changes in the developer container **without any credential**,
    as `DEV_MACHINE_AGENT_GIT_NAME <DEV_MACHINE_AGENT_GIT_EMAIL>` (default
@@ -321,10 +363,14 @@ and write, checks that the checkout is the task's own ready checkout, then:
    task branches from GitHub and refuses a push that would add a commit by
    another author or with a co-author trailer, since the checkout's
    remote-tracking refs the commit step relied on are agent-writable. It pushes
-   the commit to the fixed `https://github.com/<checkout repository>` URL without
-   force. The agent-writable checkout's configuration (hooks, URL rewrites,
-   credential helpers) is never loaded, and the token is never written to the
-   workspace volume.
+   the commit to the fixed `https://github.com/<checkout repository>` URL, without
+   force unless the sync returned a lease. The lease makes the push the
+   `--force-with-lease` one described above, and a force is refused when it would
+   drop a commit on the branch that is not authored and committed by the
+   configured identity. The author check still covers every commit the push
+   adds, including a rewrite's. The agent-writable checkout's configuration
+   (hooks, URL rewrites, credential helpers) is never loaded, and the token is
+   never written to the workspace volume.
 3. Reuses an open pull request from the task branch into the base branch, or opens
    one with the GitHub App, as a draft when the attempt's check was skipped. A
    reused pull request gets this attempt's description, so a later passing check
@@ -861,10 +907,23 @@ machine: same workspace and environment (so the same profile), not an
 Environment Builder or being deleted, still allowed by the enabled policy (sudo
 and Docker machines only while those stay allowed), without the user's own
 agent session or a queued lifecycle, snapshot, check or custom tool operation,
-and working on fewer other active tasks than the policy's
-`task_machine_max_tasks` (default 10, from 1 to 10). An idle machine comes first (one already
+and working on fewer other active tasks than the machine's own `max_tasks`, or
+the policy's `task_machine_max_tasks` when it has none (default 10, from 1 to
+10; the override is migration 156 and can change while the machine runs). An
+idle machine comes first (one already
 used for the same issue, then the most recently active); otherwise the task
-shares the least loaded busy machine. Paused and stopped machines are not
+shares the least loaded busy machine. When every suitable machine of the
+creator already runs `task_machine_max_tasks` tasks, the task waits for a free
+slot on one of them instead of creating a task machine the host cannot start: it
+stays `preparing` with "Waiting for a free task slot on <name> (<tasks> of
+<limit> in use)..." and does not count a failure. A task whose own task machine
+was created but never started moves to a free slot when one appears, and that
+unstarted machine is deleted. The limit bounds concurrency on a machine, not
+the number of machines, so raising it (up to 10) lets more tasks run there at
+once. A machine excluded from selection (running the user's own agent session,
+or with a pending stop, pause, teardown, snapshot, check or custom tool
+operation) counts as no suitable machine, so a task creates a task machine
+while such a machine exists. Paused and stopped machines are not
 chosen, since their user paused or stopped them. The full rule is in
 [task machine reuse](../../TECHNICAL.md#resource-limits-and-quotas). Each task
 has its own checkout, branch and session directory; attempt creation re-checks
@@ -2626,8 +2685,15 @@ task's published commit changed.
 
 Publication first fetches the task branch from GitHub with a credential used
 only in a fresh repository, and fast-forwards the checkout to commits others
-pushed. It never force-pushes; diverged histories fail the publication with the
-reason. An agent review is stale when its commit is no longer the recorded head
+pushed. A divergence is published only when GitHub's tip is exactly the commit
+Kuayle recorded as published, which is the agent's own rewrite: the push is
+then guarded by `--force-with-lease` against that tip. That push is a
+fast-forward in the common case, since the commit step rebuilds on the published
+commit; it forces only when the published commit is missing from the checkout,
+and then it is refused unless every commit it drops is Kuayle's own. Any other
+divergence fails the publication with a reason saying someone else pushed to the
+branch.
+An agent review is stale when its commit is no longer the recorded head
 or the task has published a newer commit:
 `get_agent_work` withholds its findings and tells the assistant to offer
 `request_agent_review` for the new head. Re-running a review still pins the

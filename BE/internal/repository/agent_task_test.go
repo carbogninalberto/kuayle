@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -204,15 +205,20 @@ func TestAgentTasksReserveMachinesAndFenceActualDispatch(t *testing.T) {
 	_, err = db.Exec(`UPDATE dev_machine_workspace_policies SET task_machine_max_tasks=1 WHERE workspace_id=$1`, ws)
 	require.NoError(t, err)
 	chosen := make(chan uuid.UUID, 2)
+	waited := make(chan struct{}, 2)
 	var wg sync.WaitGroup
 	for _, task := range tasks {
 		wg.Go(func() {
-			id, _, e := repo.ReserveMachine(ctx, task, uuid.New(), &fixture.environmentID)
+			reservation, e := repo.ReserveMachine(ctx, task, uuid.New(), &fixture.environmentID)
+			if errors.Is(e, ErrMachineSlotWait) {
+				waited <- struct{}{}
+				return
+			}
 			if e != nil {
 				t.Error(e)
 				return
 			}
-			chosen <- id
+			chosen <- reservation.MachineID
 		})
 	}
 	wg.Wait()
@@ -224,6 +230,7 @@ func TestAgentTasksReserveMachinesAndFenceActualDispatch(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, reused)
+	require.Len(t, waited, 1, "the other task waits for the machine's only task slot")
 	var task domain.AgentTask
 	require.NoError(t, db.Get(&task, `SELECT * FROM agent_tasks WHERE machine_id=$1`, machine))
 	dispatch := domain.WithTaskExecution(ctx, task)
@@ -392,15 +399,15 @@ func TestReservationReusesAnIdleMachineWithADifferentAgent(t *testing.T) {
 	// Reserved before the machine became reusable: a placeholder that was never created.
 	_, err = db.Exec(`UPDATE dev_machines SET status='paused' WHERE id=$1`, machine)
 	require.NoError(t, err)
-	placeholder, _, err := repo.ReserveMachine(ctx, *claimed, uuid.New(), &fixture.environmentID)
+	placeholder, err := repo.ReserveMachine(ctx, *claimed, uuid.New(), &fixture.environmentID)
 	require.NoError(t, err)
-	require.Equal(t, claimed.ReservedMachineID, placeholder)
-	claimed.MachineID = &placeholder
+	require.Equal(t, claimed.ReservedMachineID, placeholder.MachineID)
+	claimed.MachineID = &placeholder.MachineID
 	_, err = db.Exec(`UPDATE dev_machines SET status='running' WHERE id=$1`, machine)
 	require.NoError(t, err)
-	id, _, err := repo.ReserveMachine(ctx, *claimed, uuid.New(), &fixture.environmentID)
+	reservation, err := repo.ReserveMachine(ctx, *claimed, uuid.New(), &fixture.environmentID)
 	require.NoError(t, err)
-	require.Equal(t, machine, id, "an idle machine is reused even when it lacks this task's agent")
+	require.Equal(t, machine, reservation.MachineID, "an idle machine is reused even when it lacks this task's agent")
 
 	require.NoError(t, repo.NoteWaiting(ctx, *claimed, "Waiting for a free dev machine"))
 	var reason string
@@ -454,9 +461,9 @@ func TestReservationReusesTheCreatorsRunningIdleMachine(t *testing.T) {
 		_, err := db.Exec(`UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, claimed.ID)
 		require.NoError(t, err)
 		claimed.MachineID = nil
-		id, _, err := repo.ReserveMachine(ctx, *claimed, repository, &fixture.environmentID)
+		reservation, err := repo.ReserveMachine(ctx, *claimed, repository, &fixture.environmentID)
 		require.NoError(t, err)
-		return id
+		return reservation.MachineID
 	}
 	running := func(activity string) uuid.UUID {
 		t.Helper()
@@ -549,10 +556,10 @@ func TestReservationReusesTheCreatorsRunningIdleMachine(t *testing.T) {
 	_, err = db.Exec(`UPDATE agent_tasks SET machine_id=$2,reserved_machine_id=$2 WHERE id=$1`, claimed.ID, paused)
 	require.NoError(t, err)
 	claimed.MachineID, claimed.ReservedMachineID = &paused, paused
-	fresh, _, err := repo.ReserveMachine(ctx, *claimed, repository, &fixture.environmentID)
+	fresh, err := repo.ReserveMachine(ctx, *claimed, repository, &fixture.environmentID)
 	require.NoError(t, err)
-	require.NotEqual(t, paused, fresh)
+	require.NotEqual(t, paused, fresh.MachineID)
 	var reserved uuid.UUID
 	require.NoError(t, db.Get(&reserved, `SELECT reserved_machine_id FROM agent_tasks WHERE id=$1`, claimed.ID))
-	require.Equal(t, fresh, reserved, "a new machine will be created under a new reservation")
+	require.Equal(t, fresh.MachineID, reserved, "a new machine will be created under a new reservation")
 }

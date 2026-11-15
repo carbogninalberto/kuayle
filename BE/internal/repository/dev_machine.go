@@ -25,6 +25,7 @@ type DevMachineStore interface {
 	GetMachine(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachine, error)
 	GetMachineForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachine, error)
 	GetMachineInternal(context.Context, uuid.UUID) (*domain.DevMachine, error)
+	UpdateMachineMaxTasks(context.Context, uuid.UUID, uuid.UUID, *int) (*domain.DevMachine, error)
 	ListMachinesForUser(context.Context, uuid.UUID, uuid.UUID, string, *uuid.UUID, int, int) ([]domain.DevMachine, int, error)
 	CountActiveMachines(context.Context, uuid.UUID, *uuid.UUID) (int, error)
 	GetOperationByIdempotency(context.Context, uuid.UUID, uuid.UUID, string) (*domain.DevMachineOperation, error)
@@ -323,6 +324,22 @@ func (r *DevMachineRepository) GetMachineForUser(ctx context.Context, workspaceI
 	return &machine, err
 }
 
+// UpdateMachineMaxTasks sets or clears how many active agent tasks may share
+// the machine. It touches nothing else, and no operation or restart follows:
+// only future task placement reads the limit.
+func (r *DevMachineRepository) UpdateMachineMaxTasks(ctx context.Context, workspaceID, machineID uuid.UUID, maxTasks *int) (*domain.DevMachine, error) {
+	var machine domain.DevMachine
+	err := r.db.GetContext(ctx, &machine, `UPDATE dev_machines SET max_tasks=$3, updated_at=now()
+		WHERE workspace_id=$1 AND id=$2 RETURNING *`, workspaceID, machineID, maxTasks)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &machine, nil
+}
+
 func (r *DevMachineRepository) GetMachineInternal(ctx context.Context, machineID uuid.UUID) (*domain.DevMachine, error) {
 	var machine domain.DevMachine
 	err := r.db.GetContext(ctx, &machine, `SELECT * FROM dev_machines WHERE id=$1`, machineID)
@@ -518,10 +535,13 @@ func (r *DevMachineRepository) LeaseOperations(ctx context.Context, owner string
 		FROM dev_machine_operations o
 		WHERE ((o.status='pending' AND o.available_at <= NOW())
 		   OR (o.status='leased' AND o.lease_expires_at < NOW()))
-		AND (o.action IN ('teardown','cancel_agent','terminate_terminal') OR NOT EXISTS (
+		AND (o.action IN ('teardown','cancel_agent','terminate_terminal') OR o.action='scan_worktree' OR NOT EXISTS (
 			SELECT 1 FROM dev_machine_operations leased
 			WHERE leased.machine_id=o.machine_id AND leased.id<>o.id
 			AND leased.status='leased' AND leased.lease_expires_at >= NOW()
+			-- A read-only scan never changes the checkout, so it runs beside
+			-- any other work and never blocks it.
+			AND leased.action<>'scan_worktree'
 			-- A resize applies beside a long agent run or check, which can
 			-- need the memory, but never beside lifecycle work.
 			AND (o.action<>'resize' OR leased.action IN ('spawn','start','stop','pause','teardown','snapshot_environment','resize'))
@@ -1153,15 +1173,18 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 		}
 	} else {
 		// Attempts of different tasks share the machine, each in its own
-		// worktree, while fewer tasks than the workspace limit work there
-		// (attempt, validation, publication or cleanup). The machine lock
-		// above serializes this count. A task waits for the user's own
-		// session and never runs two attempts at once.
+		// worktree, while fewer tasks than the machine's limit (its max_tasks,
+		// or the workspace's when it has none) work there (attempt,
+		// validation, publication or cleanup). The machine lock above
+		// serializes this count. A task waits for the user's own session and
+		// never runs two attempts at once.
 		if err := tx.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE machine_id=$1 AND task_id IS NULL AND status IN ('queued','starting','running','waiting_input'))
 		OR EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE task_id=$2 AND id<>$3 AND status IN ('queued','starting','running','waiting_input'))
 		OR (SELECT count(DISTINCT r.task_id) FROM dev_machine_agent_runs r WHERE r.machine_id=$1 AND r.task_id<>$2
 			AND (r.status IN ('queued','starting','running','waiting_input') OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.run_id=r.id AND t.state IN ('preparing','running','waiting_input','validating','publishing','cancelling') AND `+taskHoldsMachine("t")+`)))
-			>= COALESCE((SELECT task_machine_max_tasks FROM dev_machine_workspace_policies WHERE workspace_id=$4), $5)`,
+			>= (SELECT COALESCE(m.max_tasks, p.task_machine_max_tasks, $5) FROM dev_machines m
+				LEFT JOIN dev_machine_workspace_policies p ON p.workspace_id=m.workspace_id
+				WHERE m.id=$1 AND m.workspace_id=$4)`,
 			run.MachineID, *run.TaskID, run.ID, run.WorkspaceID, domain.DefaultTaskMachineMaxTasks); err != nil {
 			return err
 		}

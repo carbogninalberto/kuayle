@@ -25,6 +25,7 @@
 		search = '',
 		projects = [],
 		projectFilter = 'all',
+		loading = false,
 		indicators = {},
 		onrenamed
 	}: {
@@ -34,6 +35,8 @@
 		search?: string;
 		projects?: Project[];
 		projectFilter?: ProjectFilter;
+		// No list has loaded yet: show that Recents is loading, not that it is empty.
+		loading?: boolean;
 		// A conversation's agent work at a glance: running, waiting on you, failed.
 		indicators?: Record<string, TaskIndicator | undefined>;
 		onrenamed?: (conversation: Conversation) => void;
@@ -474,7 +477,11 @@
 		</Collapsible.Root>
 	{/each}
 	{#each ungrouped as item (item.id)}{@render row(item)}{/each}
-	{#if !visible.length}<p class="px-2 py-1 text-xs text-muted-foreground">{m['assistant.recents_empty']()}</p>{/if}
+	{#if loading}
+		<p role="status" class="px-2 py-1 text-xs text-muted-foreground">{m['assistant.recents_loading']()}</p>
+	{:else if !visible.length}
+		<p class="px-2 py-1 text-xs text-muted-foreground">{m['assistant.recents_empty']()}</p>
+	{/if}
 </nav>
 </Collapsible.Content>
 </Collapsible.Root>

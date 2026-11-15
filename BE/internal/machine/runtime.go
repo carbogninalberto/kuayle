@@ -103,6 +103,9 @@ type Runtime interface {
 	// deletes the finished run's container.
 	RunTool(context.Context, *domain.DevMachine, *domain.AssistantToolRunExecution, string, *AgentObserver) (*AgentExecution, error)
 	RemoveTool(context.Context, *domain.DevMachine, uuid.UUID) error
+	// ScanWorktree reads one task worktree with rg and git in the developer
+	// container. It changes nothing and needs no credentials.
+	ScanWorktree(context.Context, *domain.DevMachine, []domain.DevMachineService, WorktreeScanJob) (*domain.WorktreeScanResult, error)
 	// StartPreview (re)starts one task's preview command in that task's own
 	// preview container, never in the developer container; StopPreview
 	// removes it. Neither affects another task's preview. RemovePreviews
@@ -125,7 +128,11 @@ type Runtime interface {
 	PurgeTaskSession(context.Context, *domain.DevMachine, string, uuid.UUID) error
 	// SyncCheckout fast-forwards the checkout to commits others pushed to the task
 	// branch on GitHub, and fails if it cannot without rewriting either side.
-	SyncCheckout(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, string) error
+	// When the checkout rewrote the commits Kuayle published (the agent rebased
+	// its own branch) and GitHub's tip is still the recorded published commit,
+	// nobody else pushed: it returns that tip as the lease for a guarded force
+	// push and leaves the checkout alone.
+	SyncCheckout(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, token, published string) (lease string, err error)
 	PublishCheckout(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, PublishRequest) (string, error)
 	Spawn(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) (string, string, map[string]string, error)
 	Start(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) error

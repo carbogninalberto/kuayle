@@ -109,6 +109,7 @@ func TestPublishAgentOpensOnePullRequestWithManagerHeldCredential(t *testing.T) 
 	require.Equal(t, 1, store.started)
 	require.Equal(t, "fixture-installation-token", runtime.request.Token)
 	require.Equal(t, "carbninai", runtime.request.AuthorName)
+	require.Empty(t, runtime.request.Lease, "a fast-forward pushes without a lease")
 	require.NotContains(t, runtime.request.Message, "fixture-installation-token")
 	require.True(t, strings.HasPrefix(runtime.request.Message, "REC-1: Dark mode"))
 	require.Equal(t, "REC-1: Dark mode", github.title, "the issue identifier links the PR for existing GitHub automation")
@@ -296,6 +297,23 @@ func TestPublishAgentSyncsTheCheckoutFirstAndStopsWhenItCannotFastForward(t *tes
 	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
 	require.Equal(t, 1, base.syncs)
 	require.Equal(t, 1, runtime.calls)
+	require.Empty(t, runtime.request.Lease)
+}
+
+// The sync sees Kuayle's recorded published commit, so it can tell the agent's
+// own rewrite from someone else's push, and its lease guards the push.
+func TestPublishAgentLeasesTheCommitItPublishedWhenTheAgentRewroteIt(t *testing.T) {
+	machine, store := publicationFixture()
+	store.publication.PublishedCommit = "1111111111111111111111111111111111111111"
+	lease := "2222222222222222222222222222222222222222"
+	base := &runtimeFake{lease: lease}
+	runtime := &publicationRuntimeFake{runtimeFake: base, commit: "0123456789abcdef0123456789abcdef01234567"}
+	github := &publicationGitHubFake{created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
+	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.Equal(t, "1111111111111111111111111111111111111111", base.syncPublished)
+	require.Equal(t, lease, runtime.request.Lease)
+	require.Equal(t, "1111111111111111111111111111111111111111", runtime.request.PublishedCommit)
 }
 
 // GitHub shows the description as the bot's first comment, so it starts with

@@ -28,7 +28,7 @@
 	import MachineUsageCharts from '$lib/features/dev-machines/MachineUsageCharts.svelte';
 	import RecentList from '$lib/features/dev-machines/RecentList.svelte';
 	import { canResizeMachine, pendingResize } from '$lib/features/dev-machines/machine-resize';
-	import { formatMachineResource, memoryGb } from '$lib/features/dev-machines/machine-size';
+	import { formatMachineResource, memoryGb, DEFAULT_TASK_MACHINE_MAX_TASKS } from '$lib/features/dev-machines/machine-size';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { appendRecentTelemetry, DEV_MACHINE_EVENT_RETENTION, DEV_MACHINE_LOG_RETENTION } from '$lib/features/dev-machines/telemetry-retention';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
@@ -671,7 +671,16 @@
 							</RecentList>
 						</section>
 
-						<MachineTasksCard {slug} {tasks} failed={tasksFailed} />
+						<MachineTasksCard
+							{slug}
+							{machineId}
+							{tasks}
+							failed={tasksFailed}
+							maxTasks={machine.max_tasks ?? null}
+							workspaceLimit={policy?.task_machine_max_tasks ?? DEFAULT_TASK_MACHINE_MAX_TASKS}
+							canEdit={canManageMachine && !machine.delete_requested_at}
+							onchanged={(updated) => (machine = updated)}
+						/>
 					</Tabs.Content>
 
 					<Tabs.Content value="apps" class="space-y-5">

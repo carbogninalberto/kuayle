@@ -183,13 +183,13 @@ test('keeps the disk fixed under hard quotas and explains a rejected resize', as
 			status: 'stopped',
 			desired_status: 'stopped',
 			resize_error:
-				'The host does not have room for the new size (host memory: 24576 MB requested of 18432 MB available to machines); choose a smaller size or stop another machine'
+				'The host does not have room for the new size (host memory: this machine needs 24576 MB and running machines already use 8192 MB of the 18432 MB available to machines); choose a smaller size or stop another machine'
 		}),
 		'hard'
 	);
 	await page.goto(`/test/machines/${machineId}`);
 	await expect(page.getByTestId('machine-resize-error')).toContainText('The last resize was not applied');
-	await expect(page.getByTestId('machine-resize-error')).toContainText('host memory: 24576 MB requested');
+	await expect(page.getByTestId('machine-resize-error')).toContainText('host memory: this machine needs 24576 MB');
 	await page.getByRole('button', { name: 'Resize' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Resize machine' });
 	await expect(dialog.getByText('This server enforces hard disk quotas')).toBeVisible();

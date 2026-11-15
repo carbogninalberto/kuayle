@@ -20,6 +20,7 @@
 		projects,
 		projectFilter,
 		projectOptions,
+		loading = false,
 		indicators,
 		onproject,
 		onrenamed,
@@ -32,6 +33,7 @@
 		projects: Project[];
 		projectFilter: ProjectFilter;
 		projectOptions: { value: string; label: string }[];
+		loading?: boolean;
 		indicators: Record<string, TaskIndicator | undefined>;
 		onproject: (value: string) => void;
 		onrenamed: (conversation: Conversation) => void;
@@ -44,8 +46,6 @@
 		{ href: `/${slug}/settings/agents`, label: m['settings.nav.agents'](), icon: Bot },
 		{ href: `/${slug}/machines`, label: m['machines.title'](), icon: Server }
 	]);
-	const itemClass =
-		'flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50';
 </script>
 
 <!-- relative: visually hidden (absolute) labels inside the list are clipped by
@@ -54,6 +54,13 @@
 	<div class="flex h-12 shrink-0 items-center gap-1 px-3">
 		<BotMessageSquare size={16} class="shrink-0 text-muted-foreground" aria-hidden="true" />
 		<p class="min-w-0 flex-1 truncate text-sm font-semibold">{m['assistant.title']()}</p>
+		<Button
+			variant="ghost"
+			size="icon-sm"
+			href="/{slug}/assistant"
+			aria-label={m['assistant.new']()}
+			title={m['assistant.new']()}><SquarePen /></Button
+		>
 		<Button
 			variant="ghost"
 			size="icon-sm"
@@ -66,14 +73,10 @@
 		>
 	</div>
 	<div class="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-		<nav class="flex flex-col gap-0.5 pb-2" aria-label={m['assistant.places']()}>
-			<a href="/{slug}/assistant" class="{itemClass} text-foreground"
-				><SquarePen size={15} class="shrink-0" aria-hidden="true" /><span class="truncate">{m['assistant.new']()}</span
-				></a
-			>
+		<nav class="flex items-center gap-0.5 pb-2" aria-label={m['assistant.places']()}>
 			{#each places as place (place.href)}
-				<a href={place.href} class={itemClass}
-					><place.icon size={15} class="shrink-0" aria-hidden="true" /><span class="truncate">{place.label}</span></a
+				<Button variant="ghost" size="icon-sm" href={place.href} aria-label={place.label} title={place.label}
+					><place.icon /></Button
 				>
 			{/each}
 		</nav>
@@ -118,6 +121,7 @@
 			{search}
 			{projects}
 			{projectFilter}
+			{loading}
 			{indicators}
 			{onrenamed}
 		/>

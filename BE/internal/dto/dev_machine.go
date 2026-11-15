@@ -86,11 +86,22 @@ type UpdateDevMachineRequest struct {
 	CPUMillis *int `json:"cpu_millis,omitempty"`
 	MemoryMB  *int `json:"memory_mb,omitempty"`
 	DiskGB    *int `json:"disk_gb,omitempty"`
+	// MaxTasks overrides how many active agent tasks may share this machine;
+	// ClearMaxTasks restores the workspace policy's limit. Both apply whatever
+	// the machine status, since they only affect where later tasks are placed.
+	MaxTasks      *int `json:"max_tasks,omitempty"`
+	ClearMaxTasks bool `json:"clear_max_tasks,omitempty"`
 }
 
 // Resizes reports whether the request changes the machine size.
 func (r UpdateDevMachineRequest) Resizes() bool {
 	return r.CPUMillis != nil || r.MemoryMB != nil || r.DiskGB != nil
+}
+
+// ChangesTaskLimit reports whether the request sets or clears the machine's
+// own agent task limit.
+func (r UpdateDevMachineRequest) ChangesTaskLimit() bool {
+	return r.MaxTasks != nil || r.ClearMaxTasks
 }
 
 type BulkDeleteDevMachinesRequest struct {
