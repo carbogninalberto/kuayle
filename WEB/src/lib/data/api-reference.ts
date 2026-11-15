@@ -67,7 +67,11 @@ export interface ApiReference {
 	groups: ApiGroup[];
 	schemas: ApiSchema[];
 	operationCount: number;
-	webhook: { signatureHeader: string; eventHeader: string; body: TypePart[] } | null;
+	webhook: {
+		signatureHeader: string;
+		eventHeader: string;
+		events: { name: string; description: string; body: TypePart[] }[];
+	} | null;
 }
 
 type Json = Record<string, any>;
@@ -188,8 +192,11 @@ export function buildApiReference(spec: Json): ApiReference {
 			}))
 		}));
 
-	const delivery: Json | undefined = spec.webhooks?.delivery?.post;
-	const headers: Json[] = delivery?.parameters ?? [];
+	const events = Object.entries<Json>(spec.webhooks ?? {})
+		.filter(([, item]) => item?.post)
+		.sort(([a], [b]) => a.localeCompare(b))
+		.map(([name, item]) => ({ name, operation: item.post as Json }));
+	const headers: Json[] = events[0]?.operation.parameters ?? [];
 
 	return {
 		title: spec.info?.title ?? 'API',
@@ -198,11 +205,15 @@ export function buildApiReference(spec: Json): ApiReference {
 		groups: [...groups.values()].filter((group) => group.operations.length > 0),
 		schemas,
 		operationCount,
-		webhook: delivery
+		webhook: events.length
 			? {
 					signatureHeader: headers[0]?.name ?? '',
 					eventHeader: headers[1]?.name ?? '',
-					body: describeType(delivery.requestBody?.content?.['application/json']?.schema)
+					events: events.map(({ name, operation }) => ({
+						name,
+						description: operation.description ?? '',
+						body: describeType(operation.requestBody?.content?.['application/json']?.schema)
+					}))
 				}
 			: null
 	};

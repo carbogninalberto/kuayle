@@ -56,7 +56,7 @@ test('every schema link on the page points at a rendered schema', () => {
 	const parts = [
 		...operations.flatMap((operation) => [...(operation.request ?? []), ...operation.response, ...operation.parameters.flatMap((parameter) => parameter.type)]),
 		...reference.schemas.flatMap((schema) => schema.fields.flatMap((field) => field.type)),
-		...reference.webhook.body
+		...reference.webhook.events.flatMap((event) => event.body)
 	];
 	for (const part of parts) {
 		if (part.ref) assert.ok(names.has(part.ref), `unknown schema ${part.ref}`);
@@ -70,6 +70,12 @@ test('the guide covers auth, scopes, pagination, errors, rate limits and webhook
 		['authentication', 'scopes', 'pagination', 'errors', 'rate-limits', 'webhooks', 'stability']
 	);
 	assert.equal(reference.webhook.signatureHeader, 'X-Webhook-Signature');
+	assert.equal(reference.webhook.eventHeader, 'X-Webhook-Event');
+	assert.deepEqual(
+		reference.webhook.events.map((event) => event.name),
+		['comment.created', 'issue.created', 'issue.deleted', 'issue.triaged', 'issue.updated']
+	);
+	assert.ok(reference.webhook.events.every((event) => event.body.some((part) => part.ref)));
 	assert.match(reference.guide.find((section) => section.id === 'webhooks').code.text, /timingSafeEqual/);
 });
 
