@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 )
 
 // The task notebook is one structured record per task, kept by Kuayle
@@ -506,7 +507,7 @@ func newest[T any](values []T, limit int) []T {
 
 // cleanNotebookText bounds text Kuayle records and drops what is not text.
 func cleanNotebookText(value string, limit int) string {
-	value = strings.TrimSpace(strings.ToValidUTF8(strings.ReplaceAll(value, "\x00", ""), "�"))
+	value = strings.TrimSpace(strings.ToValidUTF8(sanitize.StripNUL(value), "�"))
 	if len(value) > limit {
 		value = truncateUTF8(value, limit-len("\n[truncated]")) + "\n[truncated]"
 	}

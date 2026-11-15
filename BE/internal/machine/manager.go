@@ -1320,14 +1320,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 						return fmt.Errorf("agent_session_persistence_failed: %w", err)
 					}
 				}
-				payload := parsed.Payload
-				if len(payload) == 0 {
-					payload, _ = json.Marshal(map[string]any{"message": parsed.Message})
-				}
-				eventType := parsed.Type
-				if len(eventType) == 0 || len(eventType) > 128 {
-					eventType = "provider.event"
-				}
+				eventType, payload := agentEventRecord(parsed)
 				events = append(events, domain.DevMachineEvent{WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, Source: "agent", EventType: eventType, Payload: payload})
 			}
 		}
