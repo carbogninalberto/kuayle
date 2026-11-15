@@ -75,6 +75,7 @@ func toPreferencesResponse(prefs *domain.UserPreferences) dto.UserPreferencesRes
 		RecentDueDates:            []string(prefs.RecentDueDates),
 		IssuesGroupBy:             prefs.IssuesGroupBy,
 		BrowserNotifications:      prefs.BrowserNotifications,
+		WorkflowEditorPanelOpen:   prefs.WorkflowEditorPanelOpen,
 		NotificationSound:         prefs.NotificationSound,
 		NotificationEvents:        map[string]bool(prefs.NotificationEvents.Complete()),
 	}
