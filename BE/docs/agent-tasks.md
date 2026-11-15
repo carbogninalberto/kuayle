@@ -450,7 +450,11 @@ An autonomous attempt's home and `/tmp` are small tmpfs mounts (512 MiB and
 removed by the manager once the attempt ends. OpenCode keeps its SQLite
 database, session snapshots and logs there (`opencode/` under each); on the
 home tmpfs they filled it and runs failed with `database or disk is full`
-(KUA-187). OpenCode does not resume a session across attempts, so a
+(KUA-187). Autonomous runs also give OpenCode `OPENCODE_CONFIG_CONTENT`
+(`{"snapshot":false}`, merged over the project's `opencode.json`), because a
+snapshot is a git copy of the worktree in that directory, an unattended run
+never undoes an edit, and those copies spend the workspace volume. OpenCode
+does not resume a session across attempts, so a
 per-attempt directory loses nothing. Claude Code and Codex keep their state
 in `~/.claude` and `~/.codex`, whose transcripts are linked to the task's
 session directory (below). Interactive attempts keep the tmpfs defaults.

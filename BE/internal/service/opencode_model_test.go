@@ -104,7 +104,8 @@ func TestOpenCodeRunCarriesItsModelAndEffortAndNoModelServer(t *testing.T) {
 	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--model", openCodeModel, "--variant", "high", "--"}, argv[:len(argv)-1])
 	require.Contains(t, argv[len(argv)-1], "Implement it")
 	require.Nil(t, run.ModelServerID, "OpenCode never runs on the workspace's model server")
-	require.JSONEq(t, `{}`, string(run.CommandEnvironment))
+	require.JSONEq(t, `{"OPENCODE_CONFIG_CONTENT":"{\"snapshot\":false}"}`, string(run.CommandEnvironment),
+		"an unattended OpenCode run starts with its git snapshots off")
 	require.Equal(t, openCodeModel, run.Model)
 	require.Equal(t, "high", run.Thinking)
 
