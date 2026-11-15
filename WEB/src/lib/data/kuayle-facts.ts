@@ -23,8 +23,8 @@ export const KUAYLE = {
 		text: 'No licence fee and no paid tier. Nothing is gated behind a key; you pay for your own server.'
 	},
 	sso: {
-		mark: 'no',
-		text: 'Email and password sign-in, passkeys (WebAuthn) and invite links. No SSO (SAML/OIDC), SCIM or magic links yet.'
+		mark: 'partial',
+		text: 'OIDC single sign-on is free in every workspace (Google Workspace, Microsoft Entra ID, Okta, Keycloak, Authentik), with just-in-time provisioning, verified-email account linking and per-workspace require-SSO with owner break-glass. SAML 2.0 and SCIM 2.0 are not available yet.'
 	},
 	ai: {
 		mark: 'yes',

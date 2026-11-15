@@ -3,6 +3,8 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
+	import { logout } from '$lib/api/auth';
+	import { sso } from '$lib/api/sso';
 	import { getCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
 	import { getWorkspace } from '$lib/api/workspaces';
 	import { listTeams, createTeam, deleteTeam, leaveTeam } from '$lib/api/teams';
@@ -44,6 +46,8 @@
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import TerminalDock from '$lib/features/dev-machines/TerminalDock.svelte';
 	import { setTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
+	import SSOAccessNotice from '$lib/features/sso/SSOAccessNotice.svelte';
+	import { ssoAccessAction, ssoSessionScoped, type SSOAccessAction } from '$lib/features/sso/sso-rules';
 
 	let { children } = $props();
 	let workspace = $state<Workspace | null>(null);
@@ -65,6 +69,8 @@
 	let authReady = $state(false);
 	const currentWorkspace = getCurrentWorkspace();
 	let membershipLoadId = 0;
+	let ssoAccess = $state<SSOAccessAction | null>(null);
+	let ssoAccessBusy = $state(false);
 
 	async function loadMembership(workspaceSlug: string) {
 		const loadId = ++membershipLoadId;
@@ -143,8 +149,22 @@
 			if (ws && workspaceSlug === slug) {
 				if (workspace && workspace.privacy_enabled !== ws.privacy_enabled) invalidateContent();
 				workspace = ws;
+				ssoAccess = null;
 			}
 		} catch (error) {
+			// An SSO denial is actionable in place: the member can link the IdP
+			// or is told the session is scoped, instead of being bounced home.
+			const action = ssoAccessAction(error);
+			if (action) {
+				if (workspaceSlug === slug && !currentWorkspace.membership) {
+					workspace = null;
+					applyTeams([]);
+					applyProjects([]);
+					invalidateContent();
+					ssoAccess = action;
+				}
+				return;
+			}
 			// Only an authoritative denial means access is gone. Transient server or
 			// network failures keep privileged UI closed until a later refresh succeeds.
 			const status = (error as { status?: number } | null)?.status;
@@ -156,6 +176,39 @@
 				invalidateContent();
 				void goto('/');
 			}
+		}
+	}
+
+	async function continueWithSSO() {
+		const action = ssoAccess;
+		if (!action || action.kind !== 'sso_required' || ssoAccessBusy) return;
+		ssoAccessBusy = true;
+		try {
+			const { auth_url } = await sso.startLink(action.slug, `/${action.slug}/inbox`);
+			window.location.href = auth_url;
+		} catch (error) {
+			if (ssoSessionScoped(error)) {
+				ssoAccess = { kind: 'session_scoped' };
+				return;
+			}
+			appToast.apiError(error, m['login.sso.link_start_failed']());
+		} finally {
+			ssoAccessBusy = false;
+		}
+	}
+
+	function backToSSOWorkspace() {
+		const workspaceSlug = authState.user?.sso_workspace_slug;
+		if (workspaceSlug) void goto(`/${workspaceSlug}/inbox`);
+	}
+
+	async function signOutFromSSO() {
+		try {
+			await logout();
+			authState.clear();
+			await goto('/login');
+		} catch (error) {
+			appToast.apiError(error, m['login.error_generic']());
 		}
 	}
 	function refreshNavigation(workspaceSlug: string, resources: string[]) {
@@ -202,6 +255,8 @@
 	$effect(() => {
 		if (authReady && slug && slug !== loadedSlug) {
 			loadedSlug = slug;
+			ssoAccess = null;
+			ssoAccessBusy = false;
 			teamsReady = false; projectsReady = false;
 			invalidateContent();
 			showCreateTeam = false;
@@ -709,6 +764,15 @@
 	<ShortcutHelp
 		bind:open={showShortcutHelp}
 		shortcuts={shortcutDefs}
+	/>
+{:else if ssoAccess}
+	<SSOAccessNotice
+		action={ssoAccess}
+		scopedWorkspaceSlug={authState.user?.sso_workspace_slug ?? null}
+		busy={ssoAccessBusy}
+		oncontinue={continueWithSSO}
+		onback={backToSSOWorkspace}
+		onsignout={signOutFromSSO}
 	/>
 {:else}
 	<div class="flex h-screen items-center justify-center">

@@ -27,6 +27,8 @@ type Claims struct {
 	AuthTime int64 `json:"auth_time,omitempty"`
 	// PasskeyID is the stored passkey that minted the session, if any.
 	PasskeyID string `json:"pkc,omitempty"`
+	// SSOWorkspaceID is the workspace whose SSO minted the session, if any.
+	SSOWorkspaceID string `json:"sso_ws,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -34,6 +36,7 @@ type Claims struct {
 type Session struct {
 	AuthenticatedAt time.Time
 	PasskeyID       *uuid.UUID
+	SSOWorkspaceID  *uuid.UUID
 }
 
 func GenerateAccessToken(userID uuid.UUID, secret string) (string, error) {
@@ -56,6 +59,9 @@ func GenerateSessionAccessToken(userID uuid.UUID, secret string, session Session
 	}
 	if session.PasskeyID != nil {
 		claims.PasskeyID = session.PasskeyID.String()
+	}
+	if session.SSOWorkspaceID != nil {
+		claims.SSOWorkspaceID = session.SSOWorkspaceID.String()
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(secret))

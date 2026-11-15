@@ -83,7 +83,7 @@ export const alternativePages: AlternativePageContent[] = [
 		stayIf: [
 			'You want someone else to run, patch and back up the tracker.',
 			'You rely on Linear’s importers, initiatives or agent platform today.',
-			'You need SAML SSO now (on Linear Enterprise) and Kuayle does not offer SSO yet.',
+			'You need SAML SSO now (on Linear Enterprise); Kuayle offers OIDC SSO free but not SAML yet.',
 			'Per-seat cost is fine and product maturity matters more than control of the code.'
 		],
 		switchIf: [
@@ -112,7 +112,7 @@ export const alternativePages: AlternativePageContent[] = [
 			},
 			{
 				question: 'Does Kuayle have SSO and an MCP server like Linear?',
-				answer: 'An MCP server, yes: every Kuayle instance serves one at /mcp, where agents sign in with a scoped personal access token (OAuth sign-in is not available yet). SSO, not yet: Kuayle uses email and password sign-in with invite links. If SSO is a hard requirement now, Linear covers it.'
+				answer: 'An MCP server, yes: every Kuayle instance serves one at /mcp, where agents sign in with a scoped personal access token (OAuth sign-in is not available yet). SSO, partly: Kuayle offers OIDC single sign-on free in every workspace, but not SAML or SCIM yet. If SAML is a hard requirement now, Linear covers it.'
 			},
 			{
 				question: 'How does Kuayle feel compared with Linear?',
@@ -172,7 +172,7 @@ export const alternativePages: AlternativePageContent[] = [
 		stayIf: [
 			'You depend on custom fields, complex workflows, Marketplace apps or Jira Service Management.',
 			'Moving to Jira Cloud is acceptable for your data and compliance rules.',
-			'You need SSO today; Kuayle does not offer SSO yet.',
+			'You need SAML SSO today; Kuayle offers OIDC SSO free but not SAML yet.',
 			'Non-engineering teams share the same instance and rely on its breadth.'
 		],
 		switchIf: [
@@ -257,7 +257,7 @@ export const alternativePages: AlternativePageContent[] = [
 		stayIf: [
 			'You use Plane’s importers, pages or AI.',
 			'You are on the free tier with 12 users or fewer and need nothing paid.',
-			'You need SSO now; Kuayle does not offer SSO yet.'
+			'You need SAML SSO now; Kuayle offers OIDC SSO free but not SAML yet.'
 		],
 		switchIf: [
 			'You want every feature in one open source edition with no licence key.',
@@ -325,7 +325,7 @@ export const alternativePages: AlternativePageContent[] = [
 		stayIf: [
 			'Marketing, operations and other non-engineering teams plan in the same tool.',
 			'You use Asana goals, portfolios, timelines or AI Studio.',
-			'You need SSO now; Kuayle does not offer SSO yet.'
+			'You need SAML SSO now; Kuayle offers OIDC SSO free but not SAML yet.'
 		],
 		switchIf: [
 			'Your engineering team needs issues linked to GitHub branches, commits and pull requests.',
@@ -377,7 +377,7 @@ export const alternativePages: AlternativePageContent[] = [
 		stayIf: [
 			'You want docs, chat, whiteboards and tasks in one product.',
 			'You rely on ClickUp’s many views, automations or AI.',
-			'You need SSO now; Kuayle does not offer SSO yet.'
+			'You need SAML SSO now; Kuayle offers OIDC SSO free but not SAML yet.'
 		],
 		switchIf: [
 			'Your engineering team wants a fast, focused tracker rather than an all-in-one platform.',
@@ -429,7 +429,7 @@ export const alternativePages: AlternativePageContent[] = [
 		stayIf: [
 			'You use YouTrack’s custom fields, workflows, time tracking or helpdesk.',
 			'You have 10 users or fewer and the free tier covers you.',
-			'You need SSO now; Kuayle does not offer SSO yet.'
+			'You need SAML SSO now; Kuayle offers OIDC SSO free but not SAML yet.'
 		],
 		switchIf: [
 			'You want an open source tracker you can audit and change.',

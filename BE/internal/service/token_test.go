@@ -59,7 +59,7 @@ func TestTokenService_Create(t *testing.T) {
 	workspaceRepo.On("GetMember", ctx, workspaceID, userID).Return(&domain.WorkspaceMember{WorkspaceID: workspaceID, UserID: userID, Role: domain.RoleMember}, nil)
 	tokenRepo.On("Create", ctx, mock.AnythingOfType("*domain.PersonalAccessToken")).Return(nil)
 
-	token, plaintext, err := svc.Create(ctx, userID, dto.CreateTokenRequest{
+	token, plaintext, err := svc.Create(ctx, userID, uuid.Nil, dto.CreateTokenRequest{
 		Name:           "ci",
 		Scopes:         []string{"issues:read", "issue:create"},
 		WorkspaceSlugs: []string{"acme"},
@@ -86,7 +86,7 @@ func TestTokenService_Create_EmptyWorkspaceSlugsMeansAll(t *testing.T) {
 		return token.WorkspaceSlugs == nil
 	})).Return(nil)
 
-	_, _, err := svc.Create(ctx, uuid.New(), dto.CreateTokenRequest{
+	_, _, err := svc.Create(ctx, uuid.New(), uuid.Nil, dto.CreateTokenRequest{
 		Name:           "ci",
 		Scopes:         []string{"issues:read"},
 		WorkspaceSlugs: []string{},
@@ -100,7 +100,7 @@ func TestTokenService_Create_InvalidScope(t *testing.T) {
 	tokenRepo := new(mockPersonalAccessTokenRepo)
 	svc := NewTokenService(tokenRepo, new(mockWorkspaceRepo))
 
-	_, _, err := svc.Create(context.Background(), uuid.New(), dto.CreateTokenRequest{
+	_, _, err := svc.Create(context.Background(), uuid.New(), uuid.Nil, dto.CreateTokenRequest{
 		Name:   "ci",
 		Scopes: []string{"issues:read", "root:everything"},
 	})
@@ -117,7 +117,7 @@ func TestTokenService_Create_UnknownWorkspace(t *testing.T) {
 
 	workspaceRepo.On("GetBySlug", ctx, "ghost").Return(nil, nil)
 
-	_, _, err := svc.Create(ctx, uuid.New(), dto.CreateTokenRequest{
+	_, _, err := svc.Create(ctx, uuid.New(), uuid.Nil, dto.CreateTokenRequest{
 		Name:           "ci",
 		Scopes:         []string{"issues:read"},
 		WorkspaceSlugs: []string{"ghost"},
@@ -138,7 +138,7 @@ func TestTokenService_Create_NotWorkspaceMember(t *testing.T) {
 	workspaceRepo.On("GetBySlug", ctx, "acme").Return(&domain.Workspace{ID: workspaceID, Slug: "acme"}, nil)
 	workspaceRepo.On("GetMember", ctx, workspaceID, userID).Return(nil, nil)
 
-	_, _, err := svc.Create(ctx, userID, dto.CreateTokenRequest{
+	_, _, err := svc.Create(ctx, userID, uuid.Nil, dto.CreateTokenRequest{
 		Name:           "ci",
 		Scopes:         []string{"issues:read"},
 		WorkspaceSlugs: []string{"acme"},
@@ -153,7 +153,7 @@ func TestTokenService_Create_PastExpiry(t *testing.T) {
 	svc := NewTokenService(tokenRepo, new(mockWorkspaceRepo))
 	past := time.Now().Add(-time.Hour)
 
-	_, _, err := svc.Create(context.Background(), uuid.New(), dto.CreateTokenRequest{
+	_, _, err := svc.Create(context.Background(), uuid.New(), uuid.Nil, dto.CreateTokenRequest{
 		Name:      "ci",
 		Scopes:    []string{"issues:read"},
 		ExpiresAt: &past,

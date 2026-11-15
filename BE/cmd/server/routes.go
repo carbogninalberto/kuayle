@@ -59,6 +59,7 @@ type appHandlers struct {
 	health            *handler.HealthHandler
 	auth              *handler.AuthHandler
 	passkey           *handler.PasskeyHandler
+	sso               *handler.SSOHandler
 	workspace         *handler.WorkspaceHandler
 	team              *handler.TeamHandler
 	issue             *handler.IssueHandler
@@ -133,6 +134,14 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// Passkey sign-in is anonymous: the assertion is the credential.
 	public(auth, http.MethodPost, "/passkey/login/begin", h.passkey.BeginLogin)
 	public(auth, http.MethodPost, "/passkey/login/complete", h.passkey.FinishLogin)
+	// OIDC sign-in is anonymous too: the IdP assertion and the server-side
+	// state are the credentials. The per-workspace paths keep workspace A's
+	// state and ID token from ever authenticating into workspace B.
+	if h.sso != nil {
+		public(auth, http.MethodGet, "/sso/:slug", h.sso.Public)
+		public(auth, http.MethodGet, "/sso/:slug/start", h.sso.Start)
+		public(auth, http.MethodGet, "/sso/:slug/callback", h.sso.Callback)
+	}
 
 	// Public share routes (no auth, rate limited)
 	pub := e.Group("/api/public", m.publicRateLimit)
@@ -163,16 +172,19 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// User
 	scoped(api, http.MethodGet, "/auth/me", h.auth.Me, "account:read")
-	sessionOnly(api, http.MethodPatch, "/auth/me", h.auth.UpdateProfile)
-	sessionOnly(api, http.MethodPost, "/auth/me/avatar", h.auth.UploadAvatar)
+	sessionOnly(api, http.MethodPatch, "/auth/me", h.auth.UpdateProfile, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/auth/me/avatar", h.auth.UploadAvatar, mw.RejectSSOScopedSession())
 	scoped(api, http.MethodGet, "/users/:userId/avatar/:file", h.auth.GetAvatar, "account:read")
 	// Passkey management is for interactive sessions only; a token can neither
 	// add a way to sign in nor inspect the existing ones.
-	sessionOnly(api, http.MethodPost, "/auth/passkey/register/begin", h.passkey.BeginRegistration, m.authRateLimit)
-	sessionOnly(api, http.MethodPost, "/auth/passkey/register/complete", h.passkey.FinishRegistration, m.authRateLimit)
+	sessionOnly(api, http.MethodPost, "/auth/passkey/register/begin", h.passkey.BeginRegistration, mw.RejectSSOScopedSession(), m.authRateLimit)
+	sessionOnly(api, http.MethodPost, "/auth/passkey/register/complete", h.passkey.FinishRegistration, mw.RejectSSOScopedSession(), m.authRateLimit)
+	// Linking a subject to the signed-in account needs that account's own
+	// session; it is not a public sign-in and not available to a token.
+	sessionOnly(api, http.MethodPost, "/auth/sso/:slug/link", h.sso.StartLink, mw.RejectSSOScopedSession(), m.authRateLimit)
 	sessionOnly(api, http.MethodGet, "/auth/passkey/credentials", h.passkey.List)
 	sessionOnly(api, http.MethodPatch, "/auth/passkey/credentials/:id", h.passkey.Rename)
-	sessionOnly(api, http.MethodDelete, "/auth/passkey/credentials/:id", h.passkey.Delete)
+	sessionOnly(api, http.MethodDelete, "/auth/passkey/credentials/:id", h.passkey.Delete, mw.RejectSSOScopedSession())
 	scoped(api, http.MethodGet, "/preferences", h.prefs.Get, "account:read", mw.RequireUnrestrictedTokenWorkspaces())
 	scoped(api, http.MethodPatch, "/preferences", h.prefs.Update, "account:write", mw.RequireUnrestrictedTokenWorkspaces())
 
@@ -187,15 +199,15 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(api, http.MethodPost, "/cli-links", h.cliLink.Create)
 	sessionOnly(api, http.MethodDelete, "/cli-links/:id", h.cliLink.Revoke)
 	sessionOnly(api, http.MethodGet, "/system/update-status", h.system.UpdateStatus)
-	sessionOnly(api, http.MethodPost, "/system/update", h.system.StartUpdate)
+	sessionOnly(api, http.MethodPost, "/system/update", h.system.StartUpdate, mw.RejectSSOScopedSession())
 
 	// Workspaces (no workspace context needed for list/create)
 	scoped(api, http.MethodGet, "/workspaces", h.workspace.List, "workspaces:read")
-	sessionOnly(api, http.MethodPost, "/workspaces", h.workspace.Create)
+	sessionOnly(api, http.MethodPost, "/workspaces", h.workspace.Create, mw.RejectSSOScopedSession())
 
-	sessionOnly(api, http.MethodPost, "/workspaces/import/preview", h.workspaceTransfer.Preview)
-	sessionOnly(api, http.MethodPost, "/workspaces/import", h.workspaceTransfer.Import)
-	sessionOnly(api, http.MethodPost, "/invite/:token/accept", h.inviteLink.Accept)
+	sessionOnly(api, http.MethodPost, "/workspaces/import/preview", h.workspaceTransfer.Preview, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/workspaces/import", h.workspaceTransfer.Import, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/invite/:token/accept", h.inviteLink.Accept, mw.RejectSSOScopedSession())
 
 	// Workspace-scoped routes
 	ws := api.Group("/workspaces/:slug", m.workspaceMembership)
@@ -211,6 +223,14 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodGet, "/members", h.workspace.ListMembers, "members:read")
 	scoped(ws, http.MethodPatch, "/members/:userId", h.workspace.UpdateMemberRole, "member:invite")
 	scoped(ws, http.MethodDelete, "/members/:userId", h.workspace.RemoveMember, "member:invite")
+
+	// SSO configuration is interactive-only: a leaked personal access token
+	// must never be able to point a workspace at an identity provider.
+	if h.sso != nil {
+		sessionOnly(ws, http.MethodGet, "/sso", h.sso.Get, mw.RequireWorkspaceAdmin())
+		sessionOnly(ws, http.MethodPut, "/sso", h.sso.Save, mw.RequireWorkspaceAdmin())
+		sessionOnly(ws, http.MethodDelete, "/sso", h.sso.Delete, mw.RequireWorkspaceAdmin())
+	}
 
 	// Teams
 	scoped(ws, http.MethodGet, "/teams", h.team.List, "teams:read")

@@ -32,9 +32,11 @@ func NewCLILinkService(linkRepo repository.CLILinkRepo, tokenSvc *TokenService, 
 }
 
 // Create validates the request, stores only the code hash and returns the
-// link that carries the plaintext code in its fragment.
-func (s *CLILinkService) Create(ctx context.Context, userID uuid.UUID, req dto.CreateCLILinkRequest) (*domain.CLIConnectionLink, string, error) {
-	workspaceSlugs, err := s.tokenSvc.ValidateScopesAndWorkspaces(ctx, userID, req.Scopes, req.WorkspaceSlugs)
+// link that carries the plaintext code in its fragment. ssoWorkspaceID is the
+// workspace whose SSO sign-in minted the caller session (uuid.Nil for none);
+// the link records it and passes it on to the token it mints.
+func (s *CLILinkService) Create(ctx context.Context, userID, ssoWorkspaceID uuid.UUID, req dto.CreateCLILinkRequest) (*domain.CLIConnectionLink, string, error) {
+	workspaceSlugs, err := s.tokenSvc.ValidateScopesAndWorkspaces(ctx, userID, ssoWorkspaceID, req.Scopes, req.WorkspaceSlugs)
 	if err != nil {
 		return nil, "", err
 	}
@@ -72,6 +74,9 @@ func (s *CLILinkService) Create(ctx context.Context, userID uuid.UUID, req dto.C
 		TokenExpiresAt: req.TokenExpiresAt,
 		ExpiresAt:      time.Now().Add(time.Duration(ttl) * time.Minute),
 		MaxUses:        maxUses,
+	}
+	if ssoWorkspaceID != uuid.Nil {
+		link.SSOWorkspaceID = &ssoWorkspaceID
 	}
 	if err := s.linkRepo.Create(ctx, link); err != nil {
 		return nil, "", err
@@ -162,6 +167,7 @@ func (s *CLILinkService) Redeem(ctx context.Context, code, clientName string) (*
 		token.WorkspaceSlugs = current.WorkspaceSlugs
 		token.ExpiresAt = current.TokenExpiresAt
 		token.ConnectionLinkID = &current.ID
+		token.SSOWorkspaceID = current.SSOWorkspaceID
 		return token, nil
 	})
 	if err != nil {
@@ -170,11 +176,15 @@ func (s *CLILinkService) Redeem(ctx context.Context, code, clientName string) (*
 	return token, plaintext, nil
 }
 
+// validateMembership re-applies the token rules at redemption: membership may
+// have been lost, or a workspace may have turned require-SSO on since the link
+// was created. An all-workspaces link is checked too.
 func (s *CLILinkService) validateMembership(ctx context.Context, link *domain.CLIConnectionLink) error {
-	if len(link.WorkspaceSlugs) == 0 {
-		return nil
+	ssoWorkspaceID := uuid.Nil
+	if link.SSOWorkspaceID != nil {
+		ssoWorkspaceID = *link.SSOWorkspaceID
 	}
-	_, err := s.tokenSvc.ValidateScopesAndWorkspaces(ctx, link.UserID, nil, []string(link.WorkspaceSlugs))
+	_, err := s.tokenSvc.ValidateScopesAndWorkspaces(ctx, link.UserID, ssoWorkspaceID, nil, []string(link.WorkspaceSlugs))
 	if err != nil {
 		if errors.Is(err, ErrInvalidTokenWorkspace) {
 			return ErrCLILinkWorkspace

@@ -57,6 +57,7 @@ func allRegisteredRoutes(t *testing.T) []registeredRoute {
 // the complete API surface rather than only the always-on handlers.
 func matrixHandlers() *appHandlers {
 	return &appHandlers{
+		sso:             &handler.SSOHandler{},
 		telegram:        &handler.TelegramHandler{},
 		agentAutomation: &handler.AgentAutomationHandler{},
 		agentMessage:    &handler.AgentMessageHandler{},
