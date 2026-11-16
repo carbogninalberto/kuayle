@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "Mergen voltooit de taak: laat deze overgang naar een einde leiden dat als klaar eindigt.",
 	"workflows.issue.plan_target": "Een plan is voor de volgende agent: leid een voltooide planstap naar een agentstap die plant of code wijzigt, of naar een goedkeuring.",
 	"workflows.task.title": "Workflow",
+	"workflows.minimap": "Minikaart van de workflow",
 	"workflows.task.heading": "{name} · versie {version}",
 	"workflows.task.standard_note": "Deze taak volgt de Standaard-workflow.",
 	"workflows.task.status_running": "Bezig",

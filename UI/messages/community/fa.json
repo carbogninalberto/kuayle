@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "ادغام وظیفه را تکمیل می‌کند: این گذار را به پایانی ببرید که به‌صورت انجام‌شده تمام می‌شود.",
 	"workflows.issue.plan_target": "برنامه برای عامل بعدی است: گام برنامه‌ریزیِ پایان‌یافته را به گام عاملی که برنامه‌ریزی می‌کند یا کد را تغییر می‌دهد، یا به یک تأیید برسانید.",
 	"workflows.task.title": "گردش‌کار",
+	"workflows.minimap": "نقشهٔ کوچک گردش‌کار",
 	"workflows.task.heading": "{name} · نسخه {version}",
 	"workflows.task.standard_note": "این وظیفه از گردش‌کار استاندارد پیروی می‌کند.",
 	"workflows.task.status_running": "در حال اجرا",

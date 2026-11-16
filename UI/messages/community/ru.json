@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "Слияние завершает задачу: направьте этот переход в конец, завершающийся как «Готово».",
 	"workflows.issue.plan_target": "План предназначен следующему агенту: завершённый шаг планирования ведёт к шагу агента, который планирует или меняет код, либо к согласованию.",
 	"workflows.task.title": "Процесс",
+	"workflows.minimap": "Мини-карта процесса",
 	"workflows.task.heading": "{name} · версия {version}",
 	"workflows.task.standard_note": "Эта задача идёт по Стандартному процессу.",
 	"workflows.task.status_running": "Выполняется",

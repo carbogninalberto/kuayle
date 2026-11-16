@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "合并会完成任务：请将此转换连接到以“完成”结束的终点。",
 	"workflows.issue.plan_target": "计划是写给下一个智能体的：计划步骤完成后应通向制定计划或修改代码的智能体步骤，或通向审批。",
 	"workflows.task.title": "工作流",
+	"workflows.minimap": "工作流小地图",
 	"workflows.task.heading": "{name} · 版本 {version}",
 	"workflows.task.standard_note": "此任务遵循 Standard 工作流。",
 	"workflows.task.status_running": "运行中",

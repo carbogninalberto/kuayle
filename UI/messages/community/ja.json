@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "マージによりタスクが完了します。この遷移を、完了として終わる終了につなげてください。",
 	"workflows.issue.plan_target": "計画は次のエージェントのためのものです。完了した計画ステップは、計画する、またはコードを変更するエージェントステップか、承認につなげてください。",
 	"workflows.task.title": "ワークフロー",
+	"workflows.minimap": "ワークフローのミニマップ",
 	"workflows.task.heading": "{name} · バージョン {version}",
 	"workflows.task.standard_note": "このタスクは標準ワークフローに従います。",
 	"workflows.task.status_running": "実行中",

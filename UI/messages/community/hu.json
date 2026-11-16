@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "A merge befejezi a taszkot: vezesd ezt az átmenetet egy késznek záró véghez.",
 	"workflows.issue.plan_target": "A terv a következő ügynöknek szól: a befejezett tervezési lépés olyan ügynöklépéshez vezessen, amely tervez vagy kódot módosít, vagy jóváhagyáshoz.",
 	"workflows.task.title": "Munkafolyamat",
+	"workflows.minimap": "Munkafolyamat minitérkép",
 	"workflows.task.heading": "{name} · {version}. verzió",
 	"workflows.task.standard_note": "Ez a taszk a Standard munkafolyamatot követi.",
 	"workflows.task.status_running": "Fut",

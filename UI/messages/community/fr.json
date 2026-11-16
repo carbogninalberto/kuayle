@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "La fusion termine la tâche : menez cette transition vers une fin qui se termine en réussite.",
 	"workflows.issue.plan_target": "Un plan est destiné à l'agent suivant : une étape de planification terminée mène à une étape d'agent qui planifie ou modifie le code, ou à une approbation.",
 	"workflows.task.title": "Workflow",
+	"workflows.minimap": "Mini-carte du workflow",
 	"workflows.task.heading": "{name} · version {version}",
 	"workflows.task.standard_note": "Cette tâche suit le workflow Standard.",
 	"workflows.task.status_running": "En cours",

@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "Sloučení úlohu dokončí: veďte tento přechod na konec, který končí jako hotovo.",
 	"workflows.issue.plan_target": "Plán je pro dalšího agenta: dokončený plánovací krok veďte ke kroku agenta, který plánuje nebo mění kód, nebo ke schválení.",
 	"workflows.task.title": "Workflow",
+	"workflows.minimap": "Minimapa workflow",
 	"workflows.task.heading": "{name} · verze {version}",
 	"workflows.task.standard_note": "Tato úloha se řídí Standardním workflow.",
 	"workflows.task.status_running": "Běží",

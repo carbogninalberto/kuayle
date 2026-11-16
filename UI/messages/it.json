@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "Il merge completa il task: collega questa transizione a una fine che termina come completata.",
 	"workflows.issue.plan_target": "Un piano è per l'agente successivo: un passaggio di pianificazione concluso porta a un passaggio agente che pianifica o modifica il codice, oppure a un'approvazione.",
 	"workflows.task.title": "Workflow",
+	"workflows.minimap": "Minimappa del workflow",
 	"workflows.task.heading": "{name} · versione {version}",
 	"workflows.task.standard_note": "Questo task segue il workflow Standard.",
 	"workflows.task.status_running": "In esecuzione",

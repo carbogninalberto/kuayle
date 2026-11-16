@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "Yhdistäminen päättää tehtävän: johda tämä siirtymä loppuun, joka päättyy tilaan valmis.",
 	"workflows.issue.plan_target": "Suunnitelma on seuraavalle agentille: johda valmis suunnitteluvaihe agenttivaiheeseen, joka suunnittelee tai muuttaa koodia, tai hyväksyntään.",
 	"workflows.task.title": "Työnkulku",
+	"workflows.minimap": "Työnkulun pienoiskartta",
 	"workflows.task.heading": "{name} · versio {version}",
 	"workflows.task.standard_note": "Tämä tehtävä noudattaa Standard-työnkulkua.",
 	"workflows.task.status_running": "Käynnissä",

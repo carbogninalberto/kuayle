@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "Merge hoàn thành tác vụ: hãy dẫn chuyển tiếp này tới một điểm kết thúc là xong.",
 	"workflows.issue.plan_target": "Kế hoạch dành cho tác nhân tiếp theo: hãy dẫn bước lập kế hoạch đã xong đến một bước tác nhân lập kế hoạch hoặc thay đổi mã, hoặc đến một bước phê duyệt.",
 	"workflows.task.title": "Quy trình",
+	"workflows.minimap": "Bản đồ thu nhỏ quy trình",
 	"workflows.task.heading": "{name} · phiên bản {version}",
 	"workflows.task.standard_note": "Tác vụ này theo quy trình Standard.",
 	"workflows.task.status_running": "Đang chạy",

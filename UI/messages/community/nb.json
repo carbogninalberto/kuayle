@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "Fletting fullfører oppgaven: la denne overgangen føre til en slutt som avsluttes som ferdig.",
 	"workflows.issue.plan_target": "En plan er til neste agent: før et fullført planleggingssteg til et agentsteg som planlegger eller endrer kode, eller til en godkjenning.",
 	"workflows.task.title": "Arbeidsflyt",
+	"workflows.minimap": "Minikart over arbeidsflyt",
 	"workflows.task.heading": "{name} · versjon {version}",
 	"workflows.task.standard_note": "Denne oppgaven følger Standard-arbeidsflyten.",
 	"workflows.task.status_running": "Kjører",

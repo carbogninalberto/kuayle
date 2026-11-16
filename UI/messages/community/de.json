@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "Das Mergen schließt die Aufgabe ab: Führe diesen Übergang zu einem Ende, das als erledigt endet.",
 	"workflows.issue.plan_target": "Ein Plan ist für den nächsten Agenten: Führe einen abgeschlossenen Planungsschritt zu einem Agent-Schritt, der plant oder Code ändert, oder zu einer Freigabe.",
 	"workflows.task.title": "Workflow",
+	"workflows.minimap": "Workflow-Minikarte",
 	"workflows.task.heading": "{name} · Version {version}",
 	"workflows.task.standard_note": "Diese Aufgabe folgt dem Standard-Workflow.",
 	"workflows.task.status_running": "Läuft",

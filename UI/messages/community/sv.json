@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "Sammanfogning slutför uppgiften: led den här övergången till ett slut som avslutas som klart.",
 	"workflows.issue.plan_target": "En plan är till nästa agent: led ett slutfört planeringssteg till ett agentsteg som planerar eller ändrar kod, eller till ett godkännande.",
 	"workflows.task.title": "Arbetsflöde",
+	"workflows.minimap": "Minikarta över arbetsflödet",
 	"workflows.task.heading": "{name} · version {version}",
 	"workflows.task.standard_note": "Den här uppgiften följer Standard-arbetsflödet.",
 	"workflows.task.status_running": "Körs",

@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "Fusionar completa la tarea: lleva esta transición a un fin que termine como hecho.",
 	"workflows.issue.plan_target": "Un plan es para el siguiente agente: un paso de planificación terminado lleva a un paso de agente que planifica o cambia el código, o a una aprobación.",
 	"workflows.task.title": "Workflow",
+	"workflows.minimap": "Minimapa del workflow",
 	"workflows.task.heading": "{name} · versión {version}",
 	"workflows.task.standard_note": "Esta tarea sigue el workflow Estándar.",
 	"workflows.task.status_running": "En ejecución",

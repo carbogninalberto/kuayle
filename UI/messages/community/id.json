@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "Merge menyelesaikan tugas: arahkan transisi ini ke akhir yang berakhir sebagai selesai.",
 	"workflows.issue.plan_target": "Rencana ditujukan untuk agen berikutnya: arahkan langkah perencanaan yang selesai ke langkah agen yang merencanakan atau mengubah kode, atau ke persetujuan.",
 	"workflows.task.title": "Workflow",
+	"workflows.minimap": "Peta mini workflow",
 	"workflows.task.heading": "{name} · versi {version}",
 	"workflows.task.standard_note": "Tugas ini mengikuti workflow Standar.",
 	"workflows.task.status_running": "Berjalan",

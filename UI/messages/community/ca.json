@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "La fusió completa la tasca: porta aquesta transició a un final que acabi com a fet.",
 	"workflows.issue.plan_target": "Un pla és per al següent agent: un pas de planificació acabat porta a un pas d'agent que planifica o modifica el codi, o a una aprovació.",
 	"workflows.task.title": "Flux de treball",
+	"workflows.minimap": "Minimapa del flux de treball",
 	"workflows.task.heading": "{name} · versió {version}",
 	"workflows.task.standard_note": "Aquesta tasca segueix el flux de treball Estàndard.",
 	"workflows.task.status_running": "En execució",

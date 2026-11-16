@@ -3787,6 +3787,7 @@
 	"workflows.issue.merge_target": "Злиття завершує задачу: спрямуйте цей перехід до кінця, що завершується як «Готово».",
 	"workflows.issue.plan_target": "План призначений наступному агентові: завершений крок планування веде до кроку агента, який планує або змінює код, або до погодження.",
 	"workflows.task.title": "Робочий процес",
+	"workflows.minimap": "Мінікарта робочого процесу",
 	"workflows.task.heading": "{name} · версія {version}",
 	"workflows.task.standard_note": "Ця задача виконується за Стандартним робочим процесом.",
 	"workflows.task.status_running": "Виконується",
