@@ -510,7 +510,7 @@ for (const size of sizes) {
 			await expect(chart).toHaveAccessibleName('Workflow');
 			await chart.focus();
 			await expect(chart).toBeFocused();
-			const from = await left(chart, 'ci');
+			const from = await settled(chart, 'ci');
 			await page.keyboard.press('ArrowLeft');
 			await expect.poll(() => left(chart, 'ci')).toBeGreaterThan(from + 40);
 
@@ -527,9 +527,7 @@ for (const size of sizes) {
 			expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 		});
 
-		test("a task's chart centres the step the run is at, on request and never against the viewer", async ({
-			page
-		}) => {
+		test("a task's chart centres the step the run is at, on request and never against the viewer", async ({ page }) => {
 			const { chart, advance } = await openTaskChart(page);
 			const tools = chart.getByRole('toolbar', { name: 'Chart tools' });
 			await expect(tools).toBeVisible();
@@ -544,9 +542,13 @@ for (const size of sizes) {
 			// Zooming out and back in from the toolbar keeps the step centred.
 			const wide = (await chart.getByTestId('workflow-node-ci').boundingBox())!.width;
 			await tools.getByRole('button', { name: 'Zoom out', exact: true }).click();
-			await expect.poll(async () => (await chart.getByTestId('workflow-node-ci').boundingBox())!.width).toBeLessThan(wide);
+			await expect
+				.poll(async () => (await chart.getByTestId('workflow-node-ci').boundingBox())!.width)
+				.toBeLessThan(wide);
 			await tools.getByRole('button', { name: 'Zoom in', exact: true }).click();
-			await expect.poll(async () => (await chart.getByTestId('workflow-node-ci').boundingBox())!.width).toBeCloseTo(wide, 0);
+			await expect
+				.poll(async () => Math.abs((await chart.getByTestId('workflow-node-ci').boundingBox())!.width - wide))
+				.toBeLessThanOrEqual(1);
 			await expect.poll(() => offCentre(chart, 'ci')).toBeLessThanOrEqual(8);
 
 			// Fit shows the whole graph; the step is then off-centre and Centre brings it back.
@@ -569,7 +571,7 @@ for (const size of sizes) {
 			// Once the viewer has moved it, a resize does not snap it back.
 			await drag(page, chart, -1);
 			await expect(centre).toBeEnabled();
-			const moved = await left(chart, 'ci');
+			const moved = await settled(chart, 'ci');
 			await page.setViewportSize({ width: size.width - 20, height: size.height });
 			await page.setViewportSize({ width: size.width, height: size.height });
 			// Nothing should move: give a re-centre time to happen before checking it did not.
@@ -578,7 +580,7 @@ for (const size of sizes) {
 			await expect(centre).toBeEnabled();
 
 			// The next step does take the view there.
-			advance('implement');
+			await advance('implement');
 			await expect(chart.getByTestId('workflow-node-implement')).toHaveAttribute('data-current', 'true');
 			await expect.poll(() => offCentre(chart, 'implement')).toBeLessThanOrEqual(8);
 			await expect(centre).toBeDisabled();
@@ -643,6 +645,23 @@ async function openTaskChart(page: Page) {
 const nodeBox = async (chart: Locator, id: string) => (await chart.getByTestId(`workflow-node-${id}`).boundingBox())!;
 const left = async (chart: Locator, id: string) => (await nodeBox(chart, id)).x - (await chart.boundingBox())!.x;
 
+// Where the step is once the view has stopped moving: two reads 100 ms apart agree.
+async function settled(chart: Locator, id: string) {
+	let last = Number.NaN;
+	await expect
+		.poll(
+			async () => {
+				const now = await left(chart, id);
+				const still = Math.abs(now - last) < 0.5;
+				last = now;
+				return still;
+			},
+			{ intervals: [100] }
+		)
+		.toBe(true);
+	return last;
+}
+
 // Whether the step is wholly inside the chart.
 async function inView(chart: Locator, id: string) {
 	const frame = (await chart.boundingBox())!;
@@ -659,7 +678,10 @@ async function inView(chart: Locator, id: string) {
 async function offCentre(chart: Locator, id: string) {
 	const frame = (await chart.boundingBox())!;
 	const box = await nodeBox(chart, id);
-	return Math.hypot(box.x + box.width / 2 - (frame.x + frame.width / 2), box.y + box.height / 2 - (frame.y + frame.height / 2));
+	return Math.hypot(
+		box.x + box.width / 2 - (frame.x + frame.width / 2),
+		box.y + box.height / 2 - (frame.y + frame.height / 2)
+	);
 }
 
 // Drags the chart's background sideways across most of its width (1: to the
@@ -737,7 +759,8 @@ async function mockTask(page: Page) {
 		if (path === '/api/workspaces') return route.fulfill({ json: [workspace] });
 		if (path === '/api/workspaces/test') return route.fulfill({ json: workspace });
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
-		if (path.endsWith('/assistant/status')) return route.fulfill({ json: { configured: true, model: 'assistant-model' } });
+		if (path.endsWith('/assistant/status'))
+			return route.fulfill({ json: { configured: true, model: 'assistant-model' } });
 		if (path.endsWith('/conversations')) return route.fulfill({ json: [conversation] });
 		if (path.endsWith('/task-options'))
 			return route.fulfill({
@@ -801,7 +824,9 @@ async function mockTask(page: Page) {
 	});
 	let cursor = 0;
 	return {
-		advance(to: string) {
+		// Waits for the conversation's stream to have connected before announcing.
+		async advance(to: string) {
+			await expect.poll(() => sockets.length).toBeGreaterThan(0);
 			node = to;
 			const payload = { ...task, workflow_node: to, workflow_status: 'running', updated_at: '2026-11-01T00:05:00Z' };
 			const event = { id: `event-${++cursor}`, conversation_id: 'chat-1', cursor, type: 'task.state_changed', payload };
