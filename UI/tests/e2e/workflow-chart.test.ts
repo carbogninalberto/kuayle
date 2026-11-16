@@ -1,9 +1,10 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
 
 // The workflow chart runs left to right: in Settings → Workflows (a new
 // workflow from each template, one saved top to bottom, and "Tidy up" after
-// moving steps) and on a task, where it scrolls sideways on a narrow screen.
-// Both show a minimap where there is room for one.
+// moving steps) and on a task, where it pans, zooms, fits, centres the step
+// the run is at and expands full-screen. Both show a minimap where there is
+// room for one.
 
 const time = '2026-11-01T00:00:00Z';
 const sizes = [
@@ -490,90 +491,194 @@ for (const size of sizes) {
 			}).toPass();
 		});
 
-		test("a task's workflow runs left to right and scrolls sideways when it does not fit", async ({ page }) => {
-			await mockTask(page);
-			await page.goto('/test/assistant?conversation=chat-1');
-			const agents = page.getByRole('button', { name: 'Agents', exact: true }).first();
-			await expect(agents).toBeVisible();
-			const view = page.getByTestId('task-workflow');
-			if (!(await view.isVisible())) await agents.click();
-			await expect(view).toBeVisible();
+		test("a task's workflow runs left to right and pans when it does not fit", async ({ page }) => {
+			const { chart } = await openTaskChart(page);
 
 			// The task's version was saved top to bottom; the view arranges it.
-			const chart = view.getByTestId('task-workflow-chart');
 			await expectLeftToRight(chart, vertical(templates.review_loop), loopsOf.review_loop);
-			const widths = await chart.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
-			expect(widths.scroll).toBeGreaterThan(widths.client);
 
 			// It opens on the step the task is at, and the page itself never scrolls sideways.
-			const frame = (await chart.boundingBox())!;
-			const inView = async (id: string) => {
-				const box = (await chart.getByTestId(`workflow-node-${id}`).boundingBox())!;
-				return box.x >= frame.x && box.x + box.width <= frame.x + frame.width;
-			};
 			await expect(chart.getByTestId('workflow-node-ci')).toHaveAttribute('data-current', 'true');
-			await expect.poll(() => inView('ci')).toBe(true);
-
-			// A minimap shows the whole run where there is room: the current
-			// step marked, the steps it never entered faded.
-			const minimap = view.getByTestId('task-workflow-minimap');
-			const shown = view.getByTestId('task-workflow-minimap-view');
-			if (size.name === 'phone') await expect(minimap).toBeHidden();
-			else {
-				await expect(minimap).toBeVisible();
-				await expect(minimap.getByRole('img', { name: 'Workflow minimap' })).toBeVisible();
-				await expect(minimap.locator('[data-testid^="minimap-node-"]')).toHaveCount(
-					templates.review_loop.nodes.length
-				);
-				await expect(minimap.getByTestId('minimap-node-ci')).toHaveAttribute('data-current', 'true');
-				await expect(minimap.getByTestId('minimap-node-review')).toHaveAttribute('data-visited', 'true');
-				await expect(minimap.getByTestId('minimap-node-done')).not.toHaveAttribute('data-visited');
-				await expect(minimap.getByTestId('minimap-node-done')).toHaveAttribute('opacity', '0.35');
-				// It never covers the step the chart opened on.
-				const ci = (await chart.getByTestId('workflow-node-ci').boundingBox())!;
-				const map = (await minimap.boundingBox())!;
-				expect(touching(ci, map)).toBe(false);
-			}
-			expect(await inView('start')).toBe(false);
+			await expect.poll(() => inView(chart, 'ci')).toBe(true);
+			expect(await inView(chart, 'start')).toBe(false);
 			expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+			// The side panel's short chart draws no minimap: it would cover it.
+			await expect(chart.locator('.svelte-flow__minimap')).toHaveCount(0);
 
-			// The scroll area is reached and scrolled with the keyboard.
+			// It is reached with the keyboard, and its arrow keys pan it.
 			await expect(chart).toHaveRole('group');
 			await expect(chart).toHaveAccessibleName('Workflow');
 			await chart.focus();
 			await expect(chart).toBeFocused();
-			const from = await chart.evaluate((el) => el.scrollLeft);
-			await page.keyboard.press('ArrowRight');
-			await expect.poll(() => chart.evaluate((el) => el.scrollLeft)).toBeGreaterThan(from);
+			const from = await left(chart, 'ci');
+			await page.keyboard.press('ArrowLeft');
+			await expect.poll(() => left(chart, 'ci')).toBeGreaterThan(from + 40);
 
-			// Scrolling sideways reaches both ends.
-			// (The arrow key scrolls smoothly and may still be moving: each end is
-			// asked for until the chart rests there.)
-			// The minimap's outline of the shown part follows the scroll.
+			// Dragging pans it too, as far as the first step.
 			await expect(async () => {
-				await chart.evaluate((el) => el.scrollTo({ left: el.scrollWidth, behavior: 'instant' }));
-				expect(await inView('done')).toBe(true);
+				await drag(page, chart, 1);
+				expect(await inView(chart, 'start')).toBe(true);
 			}).toPass();
-			const outline = async () => Number(await shown.getAttribute('x'));
-			const atEnd = size.name === 'phone' ? 0 : await outline();
-			await expect(async () => {
-				await chart.evaluate((el) => el.scrollTo({ left: 0, behavior: 'instant' }));
-				expect(await inView('start')).toBe(true);
-			}).toPass();
-			if (size.name !== 'phone') await expect.poll(outline).toBeLessThan(atEnd);
 
-			// The minimap adds no stop to the tab order: Tab leaves the chart for what follows it.
+			// F fits the whole graph back in.
 			await chart.focus();
-			await page.keyboard.press('Tab');
-			await expect(chart).not.toBeFocused();
-			await expect(minimap.locator(':focus')).toHaveCount(0);
-			await expect(minimap.locator('[tabindex], a, button, input')).toHaveCount(0);
+			await page.keyboard.press('f');
+			await expect.poll(async () => (await inView(chart, 'start')) && (await inView(chart, 'done'))).toBe(true);
+			expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+		});
+
+		test("a task's chart centres the step the run is at, on request and never against the viewer", async ({
+			page
+		}) => {
+			const { chart, advance } = await openTaskChart(page);
+			const tools = chart.getByRole('toolbar', { name: 'Chart tools' });
+			await expect(tools).toBeVisible();
+			for (const name of ['Zoom out', 'Zoom in', 'Fit to view', 'Centre on current step', 'Expand chart'])
+				await expect(tools.getByRole('button', { name, exact: true })).toBeVisible();
+			const centre = tools.getByRole('button', { name: 'Centre on current step', exact: true });
+
+			// It opens centred on the current step, so there is nothing to centre.
+			await expect.poll(() => offCentre(chart, 'ci')).toBeLessThanOrEqual(8);
+			await expect(centre).toBeDisabled();
+
+			// Zooming out and back in from the toolbar keeps the step centred.
+			const wide = (await chart.getByTestId('workflow-node-ci').boundingBox())!.width;
+			await tools.getByRole('button', { name: 'Zoom out', exact: true }).click();
+			await expect.poll(async () => (await chart.getByTestId('workflow-node-ci').boundingBox())!.width).toBeLessThan(wide);
+			await tools.getByRole('button', { name: 'Zoom in', exact: true }).click();
+			await expect.poll(async () => (await chart.getByTestId('workflow-node-ci').boundingBox())!.width).toBeCloseTo(wide, 0);
+			await expect.poll(() => offCentre(chart, 'ci')).toBeLessThanOrEqual(8);
+
+			// Fit shows the whole graph; the step is then off-centre and Centre brings it back.
+			await tools.getByRole('button', { name: 'Fit to view', exact: true }).click();
+			await expect(centre).toBeEnabled();
+			await expect.poll(async () => (await inView(chart, 'start')) && (await inView(chart, 'done'))).toBe(true);
+			await centre.click();
+			await expect.poll(() => offCentre(chart, 'ci')).toBeLessThanOrEqual(8);
+			await expect(centre).toBeDisabled();
+
+			// Its keyboard shortcut: C centres again after the viewer panned away.
+			await expect(chart).toHaveAttribute('aria-keyshortcuts', /\bC\b/);
+			await drag(page, chart, 1);
+			await expect(centre).toBeEnabled();
+			await chart.focus();
+			await page.keyboard.press('c');
+			await expect.poll(() => offCentre(chart, 'ci')).toBeLessThanOrEqual(8);
+			await expect(centre).toBeDisabled();
+
+			// Once the viewer has moved it, a resize does not snap it back.
+			await drag(page, chart, -1);
+			await expect(centre).toBeEnabled();
+			const moved = await left(chart, 'ci');
+			await page.setViewportSize({ width: size.width - 20, height: size.height });
+			await page.setViewportSize({ width: size.width, height: size.height });
+			// Nothing should move: give a re-centre time to happen before checking it did not.
+			await page.waitForTimeout(500);
+			expect(Math.abs((await left(chart, 'ci')) - moved)).toBeLessThanOrEqual(2);
+			await expect(centre).toBeEnabled();
+
+			// The next step does take the view there.
+			advance('implement');
+			await expect(chart.getByTestId('workflow-node-implement')).toHaveAttribute('data-current', 'true');
+			await expect.poll(() => offCentre(chart, 'implement')).toBeLessThanOrEqual(8);
+			await expect(centre).toBeDisabled();
+		});
+
+		test("a task's chart expands full-screen with its tools and closes back to Expand", async ({ page }) => {
+			const { chart } = await openTaskChart(page);
+			const expand = chart
+				.getByRole('toolbar', { name: 'Chart tools' })
+				.getByRole('button', { name: 'Expand chart', exact: true });
+			await expand.click();
+
+			const dialog = page.getByRole('dialog', { name: 'Review loop workflow' });
+			await expect(dialog).toBeVisible();
+			const big = dialog.getByTestId('task-workflow-chart-expanded');
+			await expect(big).toHaveRole('group');
+			await expect(big).toHaveAccessibleName('Workflow');
+			const dialogBox = (await dialog.boundingBox())!;
+			expect(dialogBox.width).toBeGreaterThanOrEqual(size.width - 1);
+			expect(dialogBox.height).toBeGreaterThanOrEqual(size.height - 1);
+
+			// The same chart and tools, opened on the current step.
+			const tools = big.getByRole('toolbar', { name: 'Chart tools' });
+			const centre = tools.getByRole('button', { name: 'Centre on current step', exact: true });
+			await expect(big.getByTestId('workflow-node-ci')).toHaveAttribute('data-current', 'true');
+			await expect.poll(() => offCentre(big, 'ci')).toBeLessThanOrEqual(8);
+			await expect(centre).toBeDisabled();
+			await expect(tools.getByRole('button', { name: 'Expand chart' })).toHaveCount(0);
+			// A minimap where there is room for one.
+			const minimap = big.getByRole('img', { name: 'Workflow minimap' });
+			if (size.name === 'phone') await expect(minimap).toBeHidden();
+			else await expect(minimap).toBeVisible();
+
+			await tools.getByRole('button', { name: 'Fit to view', exact: true }).click();
+			await expect.poll(async () => (await inView(big, 'start')) && (await inView(big, 'done'))).toBe(true);
+			await expect(centre).toBeEnabled();
+			await centre.click();
+			await expect.poll(() => offCentre(big, 'ci')).toBeLessThanOrEqual(8);
+
+			// Esc closes it and focus goes back to Expand.
+			await page.keyboard.press('Escape');
+			await expect(dialog).toBeHidden();
+			await expect(expand).toBeFocused();
 		});
 	});
 }
 
-// An issue conversation whose coding task follows a workflow and waits on CI.
+// Opens the issue conversation's agent panel on the task's running chart.
+async function openTaskChart(page: Page) {
+	const { advance } = await mockTask(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	const agents = page.getByRole('button', { name: 'Agents', exact: true }).first();
+	await expect(agents).toBeVisible();
+	const view = page.getByTestId('task-workflow');
+	if (!(await view.isVisible())) await agents.click();
+	await expect(view).toBeVisible();
+	const chart = view.getByTestId('task-workflow-chart');
+	await expect(chart.getByTestId('workflow-node-ci')).toBeVisible();
+	return { view, chart, advance };
+}
+
+const nodeBox = async (chart: Locator, id: string) => (await chart.getByTestId(`workflow-node-${id}`).boundingBox())!;
+const left = async (chart: Locator, id: string) => (await nodeBox(chart, id)).x - (await chart.boundingBox())!.x;
+
+// Whether the step is wholly inside the chart.
+async function inView(chart: Locator, id: string) {
+	const frame = (await chart.boundingBox())!;
+	const box = await nodeBox(chart, id);
+	return (
+		box.x >= frame.x &&
+		box.x + box.width <= frame.x + frame.width &&
+		box.y >= frame.y &&
+		box.y + box.height <= frame.y + frame.height
+	);
+}
+
+// How far the step's centre is from the chart's.
+async function offCentre(chart: Locator, id: string) {
+	const frame = (await chart.boundingBox())!;
+	const box = await nodeBox(chart, id);
+	return Math.hypot(box.x + box.width / 2 - (frame.x + frame.width / 2), box.y + box.height / 2 - (frame.y + frame.height / 2));
+}
+
+// Drags the chart's background sideways across most of its width (1: to the
+// right, showing what is left of the view; -1: to the left).
+async function drag(page: Page, chart: Locator, direction: 1 | -1) {
+	const frame = (await chart.boundingBox())!;
+	const y = frame.y + frame.height - 12;
+	const [from, to] = [frame.x + 24, frame.x + frame.width - 24];
+	await page.mouse.move(direction === 1 ? from : to, y);
+	await page.mouse.down();
+	await page.mouse.move(direction === 1 ? to : from, y, { steps: 8 });
+	await page.mouse.up();
+}
+
+// An issue conversation whose coding task follows a workflow and waits on CI;
+// advance() moves the run to another step, as the server would announce it.
 async function mockTask(page: Page) {
+	let node = 'ci';
+	const sockets: WebSocketRoute[] = [];
 	const conversation = {
 		id: 'chat-1',
 		workspace_id: 'workspace-1',
@@ -622,7 +727,7 @@ async function mockTask(page: Page) {
 		entered_at: time
 	});
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
-	await page.routeWebSocket('**/conversations/chat-1/stream*', () => {});
+	await page.routeWebSocket('**/conversations/chat-1/stream*', (socket) => void sockets.push(socket));
 	await page.route('https://raw.githubusercontent.com/**', (route) => route.fulfill({ json: [] }));
 	await page.route('**/api/**', async (route) => {
 		const path = new URL(route.request().url()).pathname;
@@ -641,7 +746,7 @@ async function mockTask(page: Page) {
 					model_servers: []
 				}
 			});
-		if (path.endsWith('/tasks')) return route.fulfill({ json: { tasks: [task] } });
+		if (path.endsWith('/tasks')) return route.fulfill({ json: { tasks: [{ ...task, workflow_node: node }] } });
 		if (path.endsWith('/conversations/chat-1'))
 			return route.fulfill({
 				json: {
@@ -661,7 +766,7 @@ async function mockTask(page: Page) {
 					version: 1,
 					builtin: false,
 					graph: vertical(templates.review_loop),
-					node: 'ci',
+					node,
 					status: 'waiting',
 					visits: { start: 1, implement: 1, publish: 1, review: 1, ci: 1 },
 					iterations: 1,
@@ -689,9 +794,18 @@ async function mockTask(page: Page) {
 			if (path.endsWith('/publication')) return route.fulfill({ json: { step: null } });
 			if (path.endsWith('/validation')) return route.fulfill({ json: null });
 			if (path.endsWith('/signals')) return route.fulfill({ json: [] });
-			return route.fulfill({ json: task });
+			return route.fulfill({ json: { ...task, workflow_node: node } });
 		}
 		if (path === '/api/workspaces/test/agent-messages') return route.fulfill({ json: { messages: [] } });
 		return route.fulfill({ json: [] });
 	});
+	let cursor = 0;
+	return {
+		advance(to: string) {
+			node = to;
+			const payload = { ...task, workflow_node: to, workflow_status: 'running', updated_at: '2026-11-01T00:05:00Z' };
+			const event = { id: `event-${++cursor}`, conversation_id: 'chat-1', cursor, type: 'task.state_changed', payload };
+			sockets.at(-1)!.send(JSON.stringify(event));
+		}
+	};
 }

@@ -11,14 +11,15 @@ import {
 	extent,
 	layering,
 	leftToRight,
-	minimapWindow,
 	nodeWidth,
+	NODE_HEIGHT,
 	opening,
 	polyline,
 	roundedPath,
 	routes,
 	samePositions,
-	scrollTo,
+	centreOn,
+	isCentred,
 	tidy,
 	conditionsFor,
 	connect,
@@ -649,39 +650,33 @@ test('a routed transition turns at right angles with rounded corners', () => {
 	]);
 });
 
-test('the task chart scrolls to its current step only once it has a width', () => {
+test('the task chart centres a step in its view at the zoom it shows, once it has a size', () => {
 	const chart = tidy(templates.review_loop);
-	const view = { width: 260, zoom: 0.8, padding: 24 };
-	assert.equal(scrollTo(chart, 'ci', { ...view, width: 0 }), undefined, 'hidden: nothing to centre yet');
 	const ci = chart.nodes.find((n) => n.id === 'ci');
-	assert.equal(scrollTo(chart, 'ci', view), 24 + (ci.position.x + 120) * 0.8 - 130);
-	assert.equal(scrollTo(chart, 'start', view), 0, 'never before the chart');
-	assert.equal(scrollTo(chart, 'missing', view), undefined);
+	const size = { width: 600, height: 300 };
+	const mid = { x: ci.position.x + nodeWidth(ci.type) / 2, y: ci.position.y + NODE_HEIGHT / 2 };
+	assert.deepEqual(centreOn(chart, 'ci', size, 1), { x: 300 - mid.x, y: 150 - mid.y, zoom: 1 });
+	const zoomed = centreOn(chart, 'ci', size, 0.8);
+	assert.equal(zoomed.zoom, 0.8);
+	assert.equal(zoomed.x + mid.x * 0.8, 300, 'the step mid-view across');
+	assert.equal(zoomed.y + mid.y * 0.8, 150, 'and down');
+	assert.equal(centreOn(chart, 'missing', size, 1), undefined, 'no such step: nothing to centre');
+	assert.equal(centreOn(chart, 'ci', { width: 0, height: 300 }, 1), undefined, 'hidden: nothing to centre yet');
+	assert.equal(centreOn(chart, 'ci', { width: 600, height: 0 }, 1), undefined);
 });
 
-test('the task chart minimap outlines the part of the graph its scroll area shows', () => {
+test('the task chart knows whether its view is centred on a step, at any zoom, within a few pixels', () => {
 	const chart = tidy(templates.review_loop);
-	const box = extent(chart);
-	const view = { scrollLeft: 0, width: 260, zoom: 1, padding: 24 };
-	const start = minimapWindow(chart, view);
-	assert.equal(start.x, box.x, 'unscrolled: from the left edge of the graph');
-	assert.equal(start.width, 260 - 24, 'the padding before the graph shows nothing of it');
-	assert.equal(start.y, box.y);
-	assert.equal(start.height, box.height, 'the whole height: the chart only scrolls sideways');
-
-	const end = minimapWindow(chart, { ...view, scrollLeft: box.width + 2 * 24 - 260 });
-	assert.equal(end.x + end.width, box.x + box.width, 'scrolled to the end: up to the right edge');
-	assert.equal(end.width, 260 - 24);
-
-	const middle = minimapWindow(chart, { ...view, scrollLeft: 300 });
-	assert.equal(middle.x, box.x + 276);
-	assert.equal(middle.width, 260);
-
-	assert.deepEqual(minimapWindow(chart, { ...view, width: box.width + 400 }), box, 'a wider view shows all of it');
-
-	const zoomed = minimapWindow(chart, { ...view, scrollLeft: 300, zoom: 0.8 });
-	assert.equal(zoomed.x, box.x + (300 - 24) / 0.8, 'a smaller zoom: the scroll covers more of the graph');
-	assert.equal(zoomed.width, 260 / 0.8);
+	const size = { width: 600, height: 300 };
+	const at = centreOn(chart, 'ci', size, 0.8);
+	assert.equal(isCentred(chart, 'ci', at, size), true);
+	assert.equal(isCentred(chart, 'ci', { ...at, x: at.x + 4, y: at.y - 4 }, size), true, 'within the tolerance');
+	assert.equal(isCentred(chart, 'ci', { ...at, x: at.x + 5 }, size), false, 'just beyond it across');
+	assert.equal(isCentred(chart, 'ci', { ...at, y: at.y - 5 }, size), false, 'and down');
+	assert.equal(isCentred(chart, 'ci', at, { width: 640, height: 300 }), false, 'a wider view moves its middle');
+	assert.equal(isCentred(chart, 'start', at, size), false, 'centred on another step');
+	assert.equal(isCentred(chart, 'missing', at, size), false);
+	assert.equal(isCentred(chart, 'ci', at, { width: 0, height: 0 }), false, 'hidden');
 });
 
 test('a read-only view arranges a workflow stored top to bottom and keeps one already left to right', () => {
