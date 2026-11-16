@@ -10,8 +10,9 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
 	import WorkflowCanvas, { CHART_PADDING } from './WorkflowCanvas.svelte';
+	import ChartMinimap from './ChartMinimap.svelte';
 	import { statusLabel } from './labels';
-	import { leftToRight, pendingDecision, runOverlay, scrollTo } from './workflow-graph';
+	import { leftToRight, minimapWindow, pendingDecision, runOverlay, scrollTo } from './workflow-graph';
 
 	// A task's workflow run: the graph with the current step highlighted and
 	// the decisions a person can make (an approval, or a reached limit). The
@@ -48,6 +49,9 @@
 	const zoom = $derived(compact ? 0.8 : 1);
 	let scroller = $state<HTMLDivElement>();
 	let width = $state(0);
+	// The minimap outlines the part of the chart the scroll area shows.
+	let scrollLeft = $state(0);
+	const shown = $derived(chart ? minimapWindow(chart, { scrollLeft, width, zoom, padding: CHART_PADDING }) : null);
 	let shownNode = '';
 	$effect(() => {
 		if (!scroller || !chart || !run || run.node === shownNode) return;
@@ -132,11 +136,13 @@
 			</div>
 		{/if}
 
-		{#if overlay && chart}<!-- A scroll area must be reachable from the keyboard to be scrolled with it. -->
+		{#if overlay && chart}<div class="@container">
+			<!-- A scroll area must be reachable from the keyboard to be scrolled with it. -->
 			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 			<div
 				bind:this={scroller}
 				bind:clientWidth={width}
+				onscroll={() => (scrollLeft = scroller?.scrollLeft ?? 0)}
 				class="flex overflow-x-auto overscroll-x-contain rounded-lg border bg-muted/20 outline-none focus-visible:ring-2 focus-visible:ring-ring"
 				role="group"
 				aria-label={m['workflows.task.title']()}
@@ -149,9 +155,21 @@
 					run={overlay}
 					label={m['workflows.task.title']()}
 					class="mx-auto"
+					minimap={false}
 					{zoom}
 				/>
-			</div>{/if}
+			</div>
+			<!-- Under the chart rather than over it, so it never covers a step (a
+			     narrow panel shows little more than one); none on a phone or a
+			     panel too narrow for it. -->
+			{#if shown}<ChartMinimap
+					graph={chart}
+					run={overlay}
+					view={shown}
+					label={m['workflows.minimap']()}
+					class="mt-1.5 ml-auto w-fit max-sm:hidden @max-[240px]:hidden"
+				/>{/if}
+		</div>{/if}
 	{:else}
 		<p class="text-xs text-muted-foreground">{m['assistant.loading']()}</p>
 	{/if}

@@ -3782,6 +3782,7 @@
 	"workflows.issue.merge_target": "การ merge ทำให้งานเสร็จสมบูรณ์ ให้การเปลี่ยนสถานะนี้ไปที่จุดจบที่จบเป็นเสร็จแล้ว",
 	"workflows.issue.plan_target": "แผนมีไว้สำหรับเอเจนต์ถัดไป: ให้ขั้นตอนวางแผนที่เสร็จแล้วนำไปสู่ขั้นตอนเอเจนต์ที่วางแผนหรือแก้ไขโค้ด หรือไปสู่การอนุมัติ",
 	"workflows.task.title": "เวิร์กโฟลว์",
+	"workflows.minimap": "แผนที่ย่อของเวิร์กโฟลว์",
 	"workflows.task.heading": "{name} · เวอร์ชัน {version}",
 	"workflows.task.standard_note": "งานนี้ใช้เวิร์กโฟลว์มาตรฐาน",
 	"workflows.task.status_running": "กำลังทำงาน",

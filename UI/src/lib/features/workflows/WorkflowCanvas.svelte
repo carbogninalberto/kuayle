@@ -11,10 +11,12 @@
 		Background,
 		BackgroundVariant,
 		Controls,
+		MiniMap,
 		MarkerType,
 		type Connection,
 		type Edge,
 		type EdgeTypes,
+		type Node,
 		type NodeTypes
 	} from '@xyflow/svelte';
 	import type { AgentProfile, WorkflowGraph, WorkflowIssue } from '$lib/api/workflows';
@@ -22,6 +24,7 @@
 	import WorkflowNodeCard, { type WorkflowFlowNode } from './WorkflowNodeCard.svelte';
 	import FlowBridge, { type FlowApi } from './FlowBridge.svelte';
 	import RouteEdge from './RouteEdge.svelte';
+	import { nodeAccent } from './node-style';
 	import type { WorkflowNodeType } from '$lib/api/workflows';
 	import { conditionLabel, issueLabel, profileTitle, warningLabels } from './labels';
 	import {
@@ -50,6 +53,7 @@
 		label,
 		class: className = 'h-[520px]',
 		controls = true,
+		minimap = true,
 		zoom,
 		api = $bindable(),
 		onselect,
@@ -77,6 +81,11 @@
 		class?: string;
 		/** Svelte Flow's own zoom controls; the editor has its own toolbar. */
 		controls?: boolean;
+		/**
+		 * A minimap of the graph on the free canvas. A fixed-zoom chart draws none:
+		 * its view is the page's scroll, so its page draws its own (ChartMinimap).
+		 */
+		minimap?: boolean;
 		/**
 		 * Draws the whole graph at this zoom in a canvas of exactly its size, with
 		 * no panning or zooming of its own: the page around it scrolls instead.
@@ -213,6 +222,13 @@
 				: undefined
 	);
 
+	// The minimap's steps: each in its type's accent; on a task's run the
+	// current one outlined and the ones it never entered faded.
+	const flowNode = (n: Node) => (n as WorkflowFlowNode).data;
+	const minimapColor = (n: Node) => nodeAccent(flowNode(n).node);
+	const minimapStroke = (n: Node) => (flowNode(n).current ? 'var(--primary)' : 'transparent');
+	const minimapClass = (n: Node) => (run && !flowNode(n).current && !flowNode(n).visited ? 'workflow-minimap-idle' : '');
+
 	function connected(connection: Connection) {
 		onconnect?.(connection.source, connection.target);
 		redraw++;
@@ -220,7 +236,9 @@
 </script>
 
 <div
-	class="workflow-canvas min-h-0 overflow-hidden {zoom ? 'shrink-0' : 'w-full rounded-lg border bg-muted/20'} {className}"
+	class="workflow-canvas min-h-0 overflow-hidden {zoom
+		? 'shrink-0'
+		: 'workflow-canvas-free w-full rounded-lg border bg-muted/20'} {className}"
 	style:width={zoom && box ? `${Math.ceil(box.width * zoom) + 2 * PADDING}px` : undefined}
 	style:height={zoom && box ? `${Math.ceil(box.height * zoom) + 2 * PADDING}px` : undefined}
 	role="region"
@@ -262,6 +280,19 @@
 	>
 		{#if !zoom}<Background variant={BackgroundVariant.Dots} gap={18} size={1.2} />{/if}
 		{#if controls && !zoom}<Controls showLock={false} />{/if}
+		{#if minimap && !zoom}<MiniMap
+				position="bottom-right"
+				width={160}
+				height={100}
+				pannable
+				zoomable
+				nodeColor={minimapColor}
+				nodeStrokeColor={minimapStroke}
+				nodeStrokeWidth={6}
+				nodeClass={minimapClass}
+				maskStrokeWidth={1}
+				ariaLabel={m['workflows.minimap']()}
+			/>{/if}
 		<FlowBridge bind:api />
 	</SvelteFlow>{/if}
 </div>
@@ -281,6 +312,11 @@
 		--xy-controls-button-border-color: var(--border);
 		--xy-node-border-radius: 0.5rem;
 		--xy-handle-background-color: var(--muted-foreground);
+		--xy-minimap-background-color: var(--background);
+		--xy-minimap-mask-background-color: color-mix(in oklab, var(--muted-foreground) 18%, transparent);
+		--xy-minimap-mask-stroke-color: var(--ring);
+		--xy-minimap-node-background-color: var(--muted-foreground);
+		--xy-minimap-node-stroke-color: transparent;
 	}
 	.workflow-canvas :global(.svelte-flow__node-workflow) {
 		background: transparent;
@@ -324,6 +360,24 @@
 	.workflow-canvas :global(.workflow-loop-handle) {
 		opacity: 0;
 		pointer-events: none;
+	}
+	/* The minimap gets out of the way on a narrow canvas (a phone, or a desktop
+	   canvas squeezed by the side panel). */
+	.workflow-canvas-free {
+		container-type: inline-size;
+	}
+	@container (max-width: 639px) {
+		.workflow-canvas-free :global(.svelte-flow__minimap) {
+			display: none;
+		}
+	}
+	.workflow-canvas :global(.svelte-flow__minimap) {
+		overflow: hidden;
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+	}
+	.workflow-canvas :global(.workflow-minimap-idle) {
+		opacity: 0.35;
 	}
 	.workflow-canvas :global(.svelte-flow__controls) {
 		overflow: hidden;

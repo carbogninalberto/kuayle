@@ -261,7 +261,7 @@ export function pendingDecision(
 // and loops arc above it.
 const GAP = 140;
 const LANE = 120;
-const NODE_HEIGHT = 50;
+export const NODE_HEIGHT = 50;
 const LOOP_BASE = 28;
 const LOOP_STEP = 20;
 /** The smallest zoom at which a step's name still reads. */
@@ -640,6 +640,22 @@ export function scrollTo(
 	const node = graph.nodes.find((n) => n.id === id);
 	if (!node || view.width <= 0) return undefined;
 	return Math.max(0, view.padding + (centre(node).x - extent(graph).x) * view.zoom - view.width / 2);
+}
+
+/**
+ * The part of a sideways-scrolling chart drawn at the zoom (with the padding
+ * around it) that its scroll area shows, in graph coordinates and within the
+ * graph's box: what the task chart's minimap outlines.
+ */
+export function minimapWindow(
+	graph: WorkflowGraph,
+	view: { scrollLeft: number; width: number; zoom: number; padding: number }
+): { x: number; y: number; width: number; height: number } {
+	const box = extent(graph);
+	const at = (left: number) => box.x + (left - view.padding) / view.zoom;
+	const left = Math.min(Math.max(box.x, at(view.scrollLeft)), box.x + box.width);
+	const right = Math.max(left, Math.min(box.x + box.width, at(view.scrollLeft + view.width)));
+	return { x: left, y: box.y, width: right - left, height: box.height };
 }
 
 /**

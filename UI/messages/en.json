@@ -3782,6 +3782,7 @@
 	"workflows.issue.merge_target": "Merging completes the task: lead this transition to an end that finishes as done.",
 	"workflows.issue.plan_target": "A plan is for the next agent: lead a finished planning step to an agent step that plans or changes code, or to an approval.",
 	"workflows.task.title": "Workflow",
+	"workflows.minimap": "Workflow minimap",
 	"workflows.task.heading": "{name} · version {version}",
 	"workflows.task.standard_note": "This task follows the Standard workflow.",
 	"workflows.task.status_running": "Running",

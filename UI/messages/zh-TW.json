@@ -3782,6 +3782,7 @@
 	"workflows.issue.merge_target": "合併會完成任務：請將此轉換連到以「完成」結束的終點。",
 	"workflows.issue.plan_target": "計畫是寫給下一個代理的：計畫步驟完成後應通往制定計畫或修改程式碼的代理步驟，或通往核准。",
 	"workflows.task.title": "工作流程",
+	"workflows.minimap": "工作流程小地圖",
 	"workflows.task.heading": "{name} · 版本 {version}",
 	"workflows.task.standard_note": "此任務遵循 Standard 工作流程。",
 	"workflows.task.status_running": "執行中",

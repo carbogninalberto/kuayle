@@ -3,6 +3,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 // The workflow chart runs left to right: in Settings → Workflows (a new
 // workflow from each template, one saved top to bottom, and "Tidy up" after
 // moving steps) and on a task, where it scrolls sideways on a narrow screen.
+// Both show a minimap where there is room for one.
 
 const time = '2026-11-01T00:00:00Z';
 const sizes = [
@@ -400,6 +401,46 @@ for (const size of sizes) {
 			expect(sent.nodes.map((n) => n.position)).toEqual(templates.full_cycle.nodes.map((n) => n.position));
 		});
 
+		test('the editor shows a minimap of the whole workflow where there is room, outside the tab order', async ({
+			page
+		}) => {
+			const stored = withSkip();
+			await mockSettings(page, { legacy: stored });
+			await page.goto('/test/settings/workflows/legacy');
+			const editor = page.getByTestId('workflow-editor');
+			await expect(editor.getByTestId('workflow-node-start')).toBeVisible();
+			const minimap = editor.getByTestId('svelte-flow__minimap');
+			if (size.name === 'phone') {
+				// A narrow canvas has no room for it.
+				await expect(minimap).toBeHidden();
+				return;
+			}
+			await expect(minimap).toBeVisible();
+			await expect(minimap.getByRole('img', { name: 'Workflow minimap' })).toBeVisible();
+			// Every step, in its type's accent.
+			await expect(minimap.locator('.svelte-flow__minimap-node')).toHaveCount(stored.nodes.length);
+			const fills = await minimap
+				.locator('.svelte-flow__minimap-node')
+				.evaluateAll((rects) => new Set(rects.map((r) => getComputedStyle(r).fill)).size);
+			expect(fills).toBeGreaterThan(2);
+			// It sits inside the canvas and takes no focus.
+			const canvas = (await editor.getByRole('region', { name: 'Workflow canvas' }).boundingBox())!;
+			const box = (await minimap.boundingBox())!;
+			expect(box.x + box.width).toBeLessThanOrEqual(canvas.x + canvas.width);
+			expect(box.y + box.height).toBeLessThanOrEqual(canvas.y + canvas.height);
+			await expect(minimap.locator('[tabindex], a, button, input')).toHaveCount(0);
+
+			// Dragging it pans the canvas.
+			const start = (await editor.getByTestId('workflow-node-start').boundingBox())!;
+			await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+			await page.mouse.down();
+			await page.mouse.move(box.x + box.width / 2 + 30, box.y + box.height / 2, { steps: 5 });
+			await page.mouse.up();
+			await expect
+				.poll(async () => (await editor.getByTestId('workflow-node-start').boundingBox())!.x)
+				.toBeLessThan(start.x - 10);
+		});
+
 		test('tidying up puts moved steps back in line, and the arrangement is saved', async ({ page }) => {
 			const moved: Record<string, { x: number; y: number }> = {
 				publish: { x: 700, y: 260 },
@@ -472,6 +513,27 @@ for (const size of sizes) {
 			};
 			await expect(chart.getByTestId('workflow-node-ci')).toHaveAttribute('data-current', 'true');
 			await expect.poll(() => inView('ci')).toBe(true);
+
+			// A minimap shows the whole run where there is room: the current
+			// step marked, the steps it never entered faded.
+			const minimap = view.getByTestId('task-workflow-minimap');
+			const shown = view.getByTestId('task-workflow-minimap-view');
+			if (size.name === 'phone') await expect(minimap).toBeHidden();
+			else {
+				await expect(minimap).toBeVisible();
+				await expect(minimap.getByRole('img', { name: 'Workflow minimap' })).toBeVisible();
+				await expect(minimap.locator('[data-testid^="minimap-node-"]')).toHaveCount(
+					templates.review_loop.nodes.length
+				);
+				await expect(minimap.getByTestId('minimap-node-ci')).toHaveAttribute('data-current', 'true');
+				await expect(minimap.getByTestId('minimap-node-review')).toHaveAttribute('data-visited', 'true');
+				await expect(minimap.getByTestId('minimap-node-done')).not.toHaveAttribute('data-visited');
+				await expect(minimap.getByTestId('minimap-node-done')).toHaveAttribute('opacity', '0.35');
+				// It never covers the step the chart opened on.
+				const ci = (await chart.getByTestId('workflow-node-ci').boundingBox())!;
+				const map = (await minimap.boundingBox())!;
+				expect(touching(ci, map)).toBe(false);
+			}
 			expect(await inView('start')).toBe(false);
 			expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
@@ -487,14 +549,25 @@ for (const size of sizes) {
 			// Scrolling sideways reaches both ends.
 			// (The arrow key scrolls smoothly and may still be moving: each end is
 			// asked for until the chart rests there.)
+			// The minimap's outline of the shown part follows the scroll.
 			await expect(async () => {
 				await chart.evaluate((el) => el.scrollTo({ left: el.scrollWidth, behavior: 'instant' }));
 				expect(await inView('done')).toBe(true);
 			}).toPass();
+			const outline = async () => Number(await shown.getAttribute('x'));
+			const atEnd = size.name === 'phone' ? 0 : await outline();
 			await expect(async () => {
 				await chart.evaluate((el) => el.scrollTo({ left: 0, behavior: 'instant' }));
 				expect(await inView('start')).toBe(true);
 			}).toPass();
+			if (size.name !== 'phone') await expect.poll(outline).toBeLessThan(atEnd);
+
+			// The minimap adds no stop to the tab order: Tab leaves the chart for what follows it.
+			await chart.focus();
+			await page.keyboard.press('Tab');
+			await expect(chart).not.toBeFocused();
+			await expect(minimap.locator(':focus')).toHaveCount(0);
+			await expect(minimap.locator('[tabindex], a, button, input')).toHaveCount(0);
 		});
 	});
 }

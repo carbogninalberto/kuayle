@@ -3782,6 +3782,7 @@
 	"workflows.issue.merge_target": "मर्ज टास्क पूरा करता है: इस ट्रांज़िशन को ऐसे अंत तक ले जाएँ जो पूर्ण के रूप में समाप्त होता हो।",
 	"workflows.issue.plan_target": "योजना अगले एजेंट के लिए होती है: पूरा हुआ योजना चरण ऐसे एजेंट चरण तक ले जाएँ जो योजना बनाता है या कोड बदलता है, या किसी स्वीकृति तक।",
 	"workflows.task.title": "वर्कफ़्लो",
+	"workflows.minimap": "वर्कफ़्लो मिनीमैप",
 	"workflows.task.heading": "{name} · संस्करण {version}",
 	"workflows.task.standard_note": "यह टास्क स्टैंडर्ड वर्कफ़्लो का पालन करता है।",
 	"workflows.task.status_running": "चल रहा है",

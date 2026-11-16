@@ -49,6 +49,22 @@ export function nodeTone(node: Pick<WorkflowNode, 'type' | 'outcome'>): string {
 	return node.type === 'end' && node.outcome === 'failed' ? failedTone : tones[node.type];
 }
 
+// The same hues as a CSS colour, for drawings that cannot take Tailwind
+// classes (the minimaps' SVG rects).
+const accents: Record<WorkflowNodeType, string> = {
+	start: 'var(--muted-foreground)',
+	agent: 'var(--color-violet-500)',
+	check: 'var(--color-sky-500)',
+	approval: 'var(--color-amber-500)',
+	publish: 'var(--color-emerald-500)',
+	merge: 'var(--color-teal-500)',
+	end: 'var(--color-emerald-500)'
+};
+
+export function nodeAccent(node: Pick<WorkflowNode, 'type' | 'outcome'>): string {
+	return node.type === 'end' && node.outcome === 'failed' ? 'var(--destructive)' : accents[node.type];
+}
+
 const hints: Partial<Record<WorkflowNodeType, () => string>> = {
 	agent: m['workflows.editor.hint.agent'],
 	check: m['workflows.editor.hint.check'],

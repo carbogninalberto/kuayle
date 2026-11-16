@@ -11,6 +11,7 @@ import {
 	extent,
 	layering,
 	leftToRight,
+	minimapWindow,
 	nodeWidth,
 	opening,
 	polyline,
@@ -656,6 +657,31 @@ test('the task chart scrolls to its current step only once it has a width', () =
 	assert.equal(scrollTo(chart, 'ci', view), 24 + (ci.position.x + 120) * 0.8 - 130);
 	assert.equal(scrollTo(chart, 'start', view), 0, 'never before the chart');
 	assert.equal(scrollTo(chart, 'missing', view), undefined);
+});
+
+test('the task chart minimap outlines the part of the graph its scroll area shows', () => {
+	const chart = tidy(templates.review_loop);
+	const box = extent(chart);
+	const view = { scrollLeft: 0, width: 260, zoom: 1, padding: 24 };
+	const start = minimapWindow(chart, view);
+	assert.equal(start.x, box.x, 'unscrolled: from the left edge of the graph');
+	assert.equal(start.width, 260 - 24, 'the padding before the graph shows nothing of it');
+	assert.equal(start.y, box.y);
+	assert.equal(start.height, box.height, 'the whole height: the chart only scrolls sideways');
+
+	const end = minimapWindow(chart, { ...view, scrollLeft: box.width + 2 * 24 - 260 });
+	assert.equal(end.x + end.width, box.x + box.width, 'scrolled to the end: up to the right edge');
+	assert.equal(end.width, 260 - 24);
+
+	const middle = minimapWindow(chart, { ...view, scrollLeft: 300 });
+	assert.equal(middle.x, box.x + 276);
+	assert.equal(middle.width, 260);
+
+	assert.deepEqual(minimapWindow(chart, { ...view, width: box.width + 400 }), box, 'a wider view shows all of it');
+
+	const zoomed = minimapWindow(chart, { ...view, scrollLeft: 300, zoom: 0.8 });
+	assert.equal(zoomed.x, box.x + (300 - 24) / 0.8, 'a smaller zoom: the scroll covers more of the graph');
+	assert.equal(zoomed.width, 260 / 0.8);
 });
 
 test('a read-only view arranges a workflow stored top to bottom and keeps one already left to right', () => {

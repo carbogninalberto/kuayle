@@ -3782,6 +3782,7 @@
 	"workflows.issue.merge_target": "Birleştirme görevi tamamlar: bu geçişi bitti olarak biten bir bitişe yönlendirin.",
 	"workflows.issue.plan_target": "Plan bir sonraki ajan içindir: tamamlanan planlama adımını planlayan veya kodu değiştiren bir ajan adımına ya da bir onaya yönlendirin.",
 	"workflows.task.title": "İş akışı",
+	"workflows.minimap": "İş akışı mini haritası",
 	"workflows.task.heading": "{name} · sürüm {version}",
 	"workflows.task.standard_note": "Bu görev Standart iş akışını izliyor.",
 	"workflows.task.status_running": "Çalışıyor",
