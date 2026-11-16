@@ -63,6 +63,7 @@
 			'ws:issue-updated',
 			'ws:issue-wiki-references',
 			'ws:comment-created',
+			'ws:comment-changed',
 			'ws:reconnected',
 			// What a workspace with a private team gets instead of the events above.
 			'app:refresh'

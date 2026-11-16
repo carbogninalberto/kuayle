@@ -180,6 +180,15 @@ type CommentRepo interface {
 	// resolution was already as asked or it is not visible.
 	Resolve(ctx context.Context, id uuid.UUID) (*domain.Comment, error)
 	Reopen(ctx context.Context, id uuid.UUID) (*domain.Comment, error)
+	// Update changes the body of authorID's comment on issueID; nil when
+	// nothing changed or no such live comment is visible.
+	Update(ctx context.Context, issueID, id, authorID uuid.UUID, body string) (*domain.Comment, error)
+	// SoftDelete deletes a live comment on issueID and returns it as it was
+	// before deletion, or nil when no such live comment is visible.
+	SoftDelete(ctx context.Context, issueID, id, actorID uuid.UUID) (*domain.Comment, error)
+	// Restore brings back a comment on issueID deleted at or after
+	// deletedSince (ErrRestoreExpired otherwise).
+	Restore(ctx context.Context, issueID, id uuid.UUID, deletedSince time.Time) (*domain.Comment, error)
 }
 
 type ProjectRepo interface {

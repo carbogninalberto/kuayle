@@ -245,6 +245,15 @@ func Operations() []Operation {
 		{Method: http.MethodPost, Path: ws + "/issues/:identifier/comments", Scope: domain.PermIssueCreate, ID: "createIssueComment", Tag: "Comments",
 			Summary: "Add a comment to an issue", Description: "The body is Markdown or editor HTML and is sanitized. Set parent_id to reply to a comment.",
 			Body: dto.CreateCommentRequest{}, Status: 201, Response: dto.CommentResponse{}},
+		{Method: http.MethodPatch, Path: ws + "/issues/:identifier/comments/:commentId", Scope: domain.PermIssueCreate, ID: "updateIssueComment", Tag: "Comments",
+			Summary: "Edit a comment", Description: "Only the comment's author can edit it; anyone else, admins included, gets 403. The body is Markdown or editor HTML and is sanitized. A changed body sets edited_at and sends comment.updated.",
+			Body: dto.UpdateCommentRequest{}, Status: 200, Response: dto.CommentResponse{}},
+		{Method: http.MethodDelete, Path: ws + "/issues/:identifier/comments/:commentId", Scope: domain.PermIssueDelete, ID: "deleteIssueComment", Tag: "Comments",
+			Summary: "Delete a comment", Description: "Workspace admins and owners only. The comment and its replies are hidden and stay restorable until restorable_until, the same grace period as deleted issues. Sends comment.deleted.",
+			Status: 200, Response: dto.DeleteCommentResponse{}},
+		{Method: http.MethodPost, Path: ws + "/issues/:identifier/comments/:commentId/restore", Scope: domain.PermIssueDelete, ID: "restoreIssueComment", Tag: "Comments",
+			Summary: "Restore a deleted comment", Description: "Workspace admins and owners only. Brings back a comment deleted within the grace period, with its replies; past it the response is 410 GRACE_EXPIRED. Sends no webhook.",
+			Status: 200, Response: dto.CommentResponse{}},
 		{Method: http.MethodPost, Path: ws + "/issues/:identifier/comments/:commentId/resolve", Scope: domain.PermIssueUpdate, ID: "resolveIssueComment", Tag: "Comments",
 			Summary: "Resolve a comment thread", Status: 200, Response: dto.CommentResponse{}},
 		{Method: http.MethodPost, Path: ws + "/issues/:identifier/comments/:commentId/reopen", Scope: domain.PermIssueUpdate, ID: "reopenIssueComment", Tag: "Comments",
@@ -311,7 +320,7 @@ func Operations() []Operation {
 		{Method: http.MethodPatch, Path: ws + "/webhooks/:id", Scope: domain.PermWorkspaceManage, ID: "updateWebhook", Tag: "Webhooks",
 			Summary: "Update a webhook",
 			Description: "Fields left out are unchanged. events, when sent, must list at least one event, and a changed list may name only " +
-				"issue.created, issue.updated, issue.deleted, issue.triaged, comment.created and comment.updated. The webhook's stored list sent back unchanged is " +
+				"issue.created, issue.updated, issue.deleted, issue.triaged, comment.created, comment.updated and comment.deleted. The webhook's stored list sent back unchanged is " +
 				"accepted even when it names an event Kuayle no longer delivers. Enabling an inactive webhook is refused the same way as creating one; disabling, editing and deleting still work. " + webhooksOff,
 			Body: dto.UpdateWebhookRequest{}, Status: 200, Response: dto.WebhookResponse{}},
 		{Method: http.MethodGet, Path: ws + "/webhooks/:id/deliveries", Scope: domain.PermWorkspaceManage, ID: "listWebhookDeliveries", Tag: "Webhooks",

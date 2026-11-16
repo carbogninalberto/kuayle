@@ -12,7 +12,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
 	import type { Project } from '$lib/types/project';
-	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue, signIssuePromptAssets, createSubIssue, bulkCreateSubIssues, expandIssueDescription, subscribeToIssue, unsubscribeFromIssue } from '$lib/api/issues';
+	import { listComments, createComment, resolveComment, reopenComment, updateComment, deleteComment, restoreComment, getIssueHistory, getIssue, signIssuePromptAssets, createSubIssue, bulkCreateSubIssues, expandIssueDescription, subscribeToIssue, unsubscribeFromIssue } from '$lib/api/issues';
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
 	import ProjectChip from '$lib/components/shared/ProjectChip.svelte';
@@ -58,6 +58,9 @@
 	import IssuePickerDialog from './IssuePickerDialog.svelte';
 	import AddRelationDialog from './AddRelationDialog.svelte';
 	import { showIssueCreatedToast } from './issue-created-toast';
+	import CommentActionsMenu from './CommentActionsMenu.svelte';
+	import { canEditComment, commentBodyIsEmpty, deleteCommentWithUndo } from './comment-actions';
+	import { showUndoToast } from '$lib/features/undo/undo.svelte';
 	import type { Team } from '$lib/types/team';
 	import { listTeams } from '$lib/api/teams';
 	import { getIssueCopyPrompt } from '$lib/api/ai-settings';
@@ -169,6 +172,10 @@
 	const currentWorkspace = getCurrentWorkspace();
 	const canUpdateIssue = $derived(
 		hasPermission((currentWorkspace?.membership?.workspace.current_user_role ?? 'guest') as Role, 'issue:update')
+	);
+	// Admins and owners delete any comment; only its author edits one.
+	const canDeleteComments = $derived(
+		hasPermission((currentWorkspace?.membership?.workspace.current_user_role ?? 'guest') as Role, 'issue:delete')
 	);
 	function onWikiDragOver(event: DragEvent) {
 		if (!canUpdateIssue || !isWikiPageDrag(event.dataTransfer)) return;
@@ -294,6 +301,7 @@
 		window.addEventListener('issue:undone', onIssueUndone);
 		window.addEventListener('ws:issue-deleted', onIssueDeleted);
 		window.addEventListener('ws:comment-created', onCommentCreated);
+		window.addEventListener('ws:comment-changed', onCommentCreated);
 		window.addEventListener('ws:issue-agents-updated', onAgentsUpdated);
 		window.addEventListener('ws:presence.join', onPresenceJoin);
 		window.addEventListener('ws:presence.leave', onPresenceLeave);
@@ -316,6 +324,7 @@
 		window.removeEventListener('issue:undone', onIssueUndone);
 		window.removeEventListener('ws:issue-deleted', onIssueDeleted);
 		window.removeEventListener('ws:comment-created', onCommentCreated);
+		window.removeEventListener('ws:comment-changed', onCommentCreated);
 		window.removeEventListener('ws:issue-agents-updated', onAgentsUpdated);
 		window.removeEventListener('ws:presence.join', onPresenceJoin);
 		window.removeEventListener('ws:presence.leave', onPresenceLeave);
@@ -566,6 +575,44 @@
 		}
 	}
 
+	// The comment being edited in place, with the body typed so far.
+	let editingComment = $state<{ id: string; body: string } | null>(null);
+	let savingEdit = $state(false);
+
+	function startEdit(comment: Comment) {
+		editingComment = { id: comment.id, body: comment.body ?? '' };
+	}
+
+	async function saveEdit() {
+		const editing = editingComment;
+		if (!editing || savingEdit || commentBodyIsEmpty(editing.body)) return;
+		savingEdit = true;
+		try {
+			lastLocalUpdate = Date.now();
+			await updateComment(slug, issue.identifier, editing.id, editing.body);
+			if (editingComment?.id === editing.id) editingComment = null;
+			refreshActivity();
+		} catch (err: any) {
+			appToast.apiError(err, m['issue.toast.failed_edit_comment']());
+		} finally {
+			savingEdit = false;
+		}
+	}
+
+	function handleDeleteComment(commentId: string) {
+		const identifier = issue.identifier;
+		if (editingComment?.id === commentId) editingComment = null;
+		lastLocalUpdate = Date.now();
+		void deleteCommentWithUndo({
+			message: m['issue.toast.comment_deleted'](),
+			remove: () => deleteComment(slug, identifier, commentId),
+			restore: () => restoreComment(slug, identifier, commentId),
+			refresh: refreshActivity,
+			offerUndo: showUndoToast,
+			onError: (err) => appToast.apiError(err, m['issue.toast.failed_delete_comment']())
+		});
+	}
+
 	async function refreshIssue() {
 		try {
 			const fresh = await getIssue(slug, issue.identifier);
@@ -811,6 +858,36 @@
 	let issueCount = $derived(issuesState.issues.length);
 	let currentIndex = $derived(issuesState.issues.findIndex(i => i.identifier === issue.identifier));
 </script>
+
+<!-- A comment's body, or its in-place editor while its author edits it. -->
+{#snippet commentBody(c: Comment)}
+	{#if editingComment?.id === c.id}
+		<div class="mt-2.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-primary)] px-3 py-2" data-testid="comment-editor">
+			<RichEditor
+				content={c.body ?? ''}
+				workspaceSlug={slug}
+				minimal={true}
+				borderless={true}
+				bubbleMenu={true}
+				uploadUrl={imageUploadUrl}
+				{members}
+				agents={mentionAgents}
+				issues={issuesState.issues}
+				onupdate={(html) => { if (editingComment?.id === c.id) editingComment = { id: c.id, body: html }; }}
+				onsubmit={() => saveEdit()}
+				onmentionstart={() => void agentIdentities.ensure(slug)}
+			/>
+			<div class="mt-2 flex justify-end gap-1.5">
+				<Button variant="ghost" size="sm" onclick={() => (editingComment = null)}>{m['common.cancel']()}</Button>
+				<Button size="sm" onclick={() => saveEdit()} disabled={savingEdit || commentBodyIsEmpty(editingComment.body)}>{m['common.save']()}</Button>
+			</div>
+		</div>
+	{:else}
+		<div class="prose prose-invert prose-sm max-w-none mt-2.5 text-[13px] text-[var(--color-text-primary)] [&>p:first-child]:mt-0 [&>p:last-child]:mb-0" use:mentionInteractivity={{ slug, members, issues: issuesState.issues }}>
+			{@html sanitizeHtml(c.body ?? '')}
+		</div>
+	{/if}
+{/snippet}
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
@@ -1229,6 +1306,7 @@
 									<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{comment.user?.name ?? 'User'}</span>
 									{#if comment.agent_task_id}<Badge variant="outline" class="h-5 gap-1 px-1.5 text-[10px]"><Bot size={10} aria-hidden="true" />{m['agent_messages.agent_comment']()}</Badge>{/if}
 									<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(comment.created_at, getLocale())}</span>
+									{#if comment.edited_at}<span class="text-[11px] text-[var(--color-text-tertiary)]" title={new Date(comment.edited_at).toLocaleString(getLocale())}>{m['issue.edited']()}</span>{/if}
 									{#if comment.resolved_at}
 										<span class="text-[11px] font-medium text-green-400">{m['issue.resolved']()}</span>
 									{/if}
@@ -1241,7 +1319,13 @@
 											{/each}
 										</span>
 									{/if}
-									<div class="ml-auto opacity-0 group-hover/comment:opacity-100 transition-opacity">
+									<div class="ml-auto flex items-center gap-0.5 opacity-0 group-hover/comment:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100 transition-opacity">
+										<CommentActionsMenu
+											canEdit={canEditComment(comment, authState.user?.id)}
+											canDelete={canDeleteComments}
+											onedit={() => startEdit(comment)}
+											ondelete={() => handleDeleteComment(comment.id)}
+										/>
 										{#if comment.resolved_at}
 											<Button variant="plain" onclick={() => handleReopen(comment.id)} class="flex items-center gap-1 rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors" title={m['issue.reopen_thread']()}>
 												{m['issue.reopen_thread']()}
@@ -1253,9 +1337,7 @@
 										{/if}
 									</div>
 								</div>
-								<div class="prose prose-invert prose-sm max-w-none mt-2.5 text-[13px] text-[var(--color-text-primary)] [&>p:first-child]:mt-0 [&>p:last-child]:mb-0" use:mentionInteractivity={{ slug, members, issues: issuesState.issues }}>
-									{@html sanitizeHtml(comment.body ?? '')}
-								</div>
+								{@render commentBody(comment)}
 							</div>
 
 							<!-- Replies -->
@@ -1271,10 +1353,17 @@
 											/>
 											<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{reply.user?.name ?? 'User'}</span>
 											<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(reply.created_at, getLocale())}</span>
+											{#if reply.edited_at}<span class="text-[11px] text-[var(--color-text-tertiary)]" title={new Date(reply.edited_at).toLocaleString(getLocale())}>{m['issue.edited']()}</span>{/if}
+											<div class="ml-auto opacity-0 group-hover/reply:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100 transition-opacity">
+												<CommentActionsMenu
+													canEdit={canEditComment(reply, authState.user?.id)}
+													canDelete={canDeleteComments}
+													onedit={() => startEdit(reply)}
+													ondelete={() => handleDeleteComment(reply.id)}
+												/>
+											</div>
 										</div>
-										<div class="prose prose-invert prose-sm max-w-none mt-2.5 text-[13px] text-[var(--color-text-primary)] [&>p:first-child]:mt-0 [&>p:last-child]:mb-0" use:mentionInteractivity={{ slug, members, issues: issuesState.issues }}>
-											{@html sanitizeHtml(reply.body ?? '')}
-										</div>
+										{@render commentBody(reply)}
 									</div>
 								{/each}
 							{/if}

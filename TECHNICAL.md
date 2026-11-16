@@ -1359,8 +1359,9 @@ is the receiver contract (envelope, `X-Webhook-Signature`, `X-Webhook-Event`,
 `X-Webhook-Delivery`, events). Write paths call `WebhookService` after their
 write commits ([webhook_events.go](BE/internal/service/webhook_events.go)); a
 failed emit is logged and never fails the write. `comment.updated` comes from
-resolving and reopening, the only comment edits; events for editing or
-deleting a comment come with those features.
+resolving, reopening and an author's edit that changes the body;
+`comment.deleted` carries the comment as it was before deletion. Restoring a
+deleted comment, like restoring an issue, sends no event.
 
 Delivery is durable (migration 167, KUA-197):
 
@@ -1648,8 +1649,19 @@ view and never sees a deleted row, so new queries need no filter of their own.
 - Deleting a wiki page lifts its children to its parent, as before. A deleted
   registry page gives its day up (`deleted_registry_date`) so the registry can
   start a new page; restoring it takes the day back only if it is still free.
-- `ISSUE_DELETE_GRACE_PERIOD` (default `720h`) is how long a deleted issue or
-  page can be restored (`POST .../restore`; 410 `GRACE_EXPIRED` after it). An
+- Comments are soft-deleted differently (migration
+  `000168_comment_soft_delete`): `comments` keeps its name, because trigger
+  functions shared with other tables compare `TG_TABLE_NAME = 'comments'`, and
+  gains `deleted_at`, `deleted_by` and `edited_at`. Every reader of comments
+  must filter explicitly: `liveComment(alias)` in
+  [comment.go](BE/internal/repository/comment.go) hides deleted comments and
+  the replies of a deleted comment (backlinks and workspace export use it too).
+  Only admins and owners delete (`DELETE .../comments/:commentId`, scope
+  `issue:delete`) and restore; only the author edits (`PATCH`, scope
+  `issue:create`). Every comment route checks the comment belongs to the
+  issue in the path.
+- `ISSUE_DELETE_GRACE_PERIOD` (default `720h`) is how long a deleted issue,
+  page or comment can be restored (`POST .../restore`; 410 `GRACE_EXPIRED` after it). An
   hourly job in the API server hard-deletes older rows in batches of 500, which
   runs the cascades the hard delete used to run. Notifications and webhooks
   already sent are not retracted.

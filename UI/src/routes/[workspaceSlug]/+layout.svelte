@@ -589,6 +589,12 @@
 				window.dispatchEvent(new CustomEvent('ws:comment-created', { detail: msg.payload }));
 				break;
 			}
+			// A comment was edited, deleted or restored.
+			case 'comment.updated':
+			case 'comment.deleted': {
+				window.dispatchEvent(new CustomEvent('ws:comment-changed', { detail: msg.payload }));
+				break;
+			}
 			case 'view.created':
 			case 'view.updated':
 			case 'view.deleted': {

@@ -386,8 +386,11 @@ authentication.
 | PUT | `/api/workspaces/:slug/issues/:identifier/agents` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | GET | `/api/workspaces/:slug/issues/:identifier/comments` | token | comments:read |
 | POST | `/api/workspaces/:slug/issues/:identifier/comments` | token | issue:create |
+| DELETE | `/api/workspaces/:slug/issues/:identifier/comments/:commentId` | token | issue:delete |
+| PATCH | `/api/workspaces/:slug/issues/:identifier/comments/:commentId` | token | issue:create |
 | POST | `/api/workspaces/:slug/issues/:identifier/comments/:commentId/reopen` | token | issue:update |
 | POST | `/api/workspaces/:slug/issues/:identifier/comments/:commentId/resolve` | token | issue:update |
+| POST | `/api/workspaces/:slug/issues/:identifier/comments/:commentId/restore` | token | issue:delete |
 | POST | `/api/workspaces/:slug/issues/:identifier/convert-to-project` | token | project:manage |
 | POST | `/api/workspaces/:slug/issues/:identifier/duplicate` | token | issue:create |
 | POST | `/api/workspaces/:slug/issues/:identifier/expand-description` | token | issue:update |

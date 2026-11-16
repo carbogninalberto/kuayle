@@ -130,6 +130,7 @@ func main() {
 	issueSvc.SetWebhooks(webhookSvc)
 	labelSvc := service.NewLabelService(labelRepo, projectRepo)
 	commentSvc := service.NewCommentService(commentRepo, issueRepo, hub, notifSvc)
+	commentSvc.SetDeleteGracePeriod(cfg.IssueDeleteGracePeriod)
 	commentSvc.SetWebhooks(webhookSvc)
 	projectSvc := service.NewProjectService(projectRepo)
 	relationSvc := service.NewIssueRelationService(relationRepo, issueRepo)
@@ -439,7 +440,7 @@ func main() {
 	}()
 
 	// Background: purge deleted issues and wiki pages past their grace period every hour
-	go purgeDeletedEvery(context.Background(), time.Hour, cfg.IssueDeleteGracePeriod, issueRepo, wikiRepo)
+	go purgeDeletedEvery(context.Background(), time.Hour, cfg.IssueDeleteGracePeriod, issueRepo, wikiRepo, commentRepo)
 
 	// Echo
 	e := echo.New()

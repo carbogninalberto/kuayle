@@ -236,7 +236,8 @@ func TestWebhookIgnoresUnknownAndMisroutedEvents(t *testing.T) {
 	f.svc.CommentEvent(ctx, ws, WebhookEventIssueCreated, issue, &domain.Comment{ID: uuid.New()}, owner)
 	f.svc.CommentEvent(ctx, ws, "comment.resolved", issue, &domain.Comment{ID: uuid.New()}, owner)
 	f.svc.CommentEvent(ctx, ws, WebhookEventCommentUpdated, issue, nil, owner)
-	f.svc.CommentEvent(ctx, ws, "comment.deleted", issue, &domain.Comment{ID: uuid.New()}, owner)
+	f.svc.IssueEvent(ctx, ws, WebhookEventCommentDeleted, issue, owner)
+	f.svc.CommentEvent(ctx, ws, "comment.archived", issue, &domain.Comment{ID: uuid.New()}, owner)
 	var nilService *WebhookService
 	nilService.IssueEvent(ctx, ws, WebhookEventIssueCreated, issue, owner)
 	nilService.CommentCreated(ctx, ws, issue, &domain.Comment{}, owner)

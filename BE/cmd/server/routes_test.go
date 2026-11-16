@@ -427,3 +427,25 @@ func TestForgeConfigurationRequiresWorkspaceManage(t *testing.T) {
 		})
 	}
 }
+
+// KUA-200: authors edit their comments with the scope that posts them; only
+// admins and owners (issue:delete) delete and restore any comment.
+func TestCommentEditAndDeleteRoutePermissions(t *testing.T) {
+	e := echo.New()
+	registerRoutes(e, &appHandlers{}, testMiddleware(noopMiddleware()))
+	want := map[string]string{
+		"PATCH /api/workspaces/:slug/issues/:identifier/comments/:commentId":        "perm:issue:create",
+		"DELETE /api/workspaces/:slug/issues/:identifier/comments/:commentId":       "perm:issue:delete",
+		"POST /api/workspaces/:slug/issues/:identifier/comments/:commentId/restore": "perm:issue:delete",
+	}
+	for _, route := range e.Router().Routes() {
+		key := route.Method + " " + route.Path
+		if perm, ok := want[key]; ok {
+			require.Equal(t, perm, route.Name, key)
+			delete(want, key)
+		}
+	}
+	require.Empty(t, want, "comment routes are registered")
+	require.False(t, domain.HasPermission(domain.RoleMember, domain.PermIssueDelete), "members cannot delete comments")
+	require.True(t, domain.HasPermission(domain.RoleAdmin, domain.PermIssueDelete))
+}

@@ -16,7 +16,7 @@ type IssueEventDelivery struct {
 
 // CommentEventDelivery documents the body of a comment.* delivery.
 type CommentEventDelivery struct {
-	Event     string                    `json:"event" validate:"oneof=comment.created comment.updated"`
+	Event     string                    `json:"event" validate:"oneof=comment.created comment.updated comment.deleted"`
 	Payload   dto.WebhookCommentPayload `json:"payload"`
 	Timestamp string                    `json:"timestamp"`
 }
@@ -36,7 +36,8 @@ var WebhookEvents = []WebhookEvent{
 	{"issue.deleted", "An issue was deleted. The payload holds the issue as it was when it was deleted. A bulk delete sends one delivery per issue; issues deleted with their team send none.", reflect.TypeFor[IssueEventDelivery]()},
 	{"issue.triaged", "An issue was accepted or declined from triage. Declining also moves it to cancelled: that is part of this event, not a separate issue.updated.", reflect.TypeFor[IssueEventDelivery]()},
 	{"comment.created", "A comment was posted on an issue. The payload holds the comment and the issue's id, identifier and team_id.", reflect.TypeFor[CommentEventDelivery]()},
-	{"comment.updated", "A comment was resolved or reopened. The payload is that of comment.created, with the comment as stored after the change. Resolving a resolved comment or reopening an open one sends nothing. Comments cannot be edited or deleted yet; events for that come with those features.", reflect.TypeFor[CommentEventDelivery]()},
+	{"comment.updated", "A comment was resolved, reopened or edited by its author. The payload is that of comment.created, with the comment as stored after the change; an edit sets edited_at. Resolving a resolved comment, reopening an open one or saving an unchanged body sends nothing.", reflect.TypeFor[CommentEventDelivery]()},
+	{"comment.deleted", "A comment was deleted by a workspace admin or owner. The payload is that of comment.created, with the comment as it was when it was deleted; its replies are hidden with it and send no deliveries of their own. Restoring the comment within the grace period sends no event.", reflect.TypeFor[CommentEventDelivery]()},
 }
 
 func webhookEventNames() []string {

@@ -100,6 +100,27 @@ export function createComment(slug: string, identifier: string, body: string, pa
 	return api.post<Comment>(`/api/workspaces/${slug}/issues/${identifier}/comments`, { body, parent_id: parentId });
 }
 
+/** Edits the body of the caller's own comment (403 for anyone else). */
+export function updateComment(slug: string, identifier: string, commentId: string, body: string): Promise<Comment> {
+	return api.patch<Comment>(`/api/workspaces/${slug}/issues/${identifier}/comments/${commentId}`, { body });
+}
+
+/** Soft-deletes a comment and its replies; admins and owners only. */
+export function deleteComment(
+	slug: string,
+	identifier: string,
+	commentId: string
+): Promise<{ status: string; restorable_until: string }> {
+	return api.delete<{ status: string; restorable_until: string }>(
+		`/api/workspaces/${slug}/issues/${identifier}/comments/${commentId}`
+	);
+}
+
+/** Brings back a deleted comment within the grace period (410 GRACE_EXPIRED after it). */
+export function restoreComment(slug: string, identifier: string, commentId: string): Promise<Comment> {
+	return api.post<Comment>(`/api/workspaces/${slug}/issues/${identifier}/comments/${commentId}/restore`, {});
+}
+
 export function resolveComment(slug: string, identifier: string, commentId: string): Promise<void> {
 	return api.post<void>(`/api/workspaces/${slug}/issues/${identifier}/comments/${commentId}/resolve`);
 }

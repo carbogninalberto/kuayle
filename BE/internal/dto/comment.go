@@ -24,4 +24,12 @@ type CommentResponse struct {
 	Replies     []CommentResponse `json:"replies,omitempty"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
+	// EditedAt is when the author last changed the body; absent if never.
+	EditedAt *time.Time `json:"edited_at,omitempty"`
+}
+
+type DeleteCommentResponse struct {
+	Status string `json:"status"`
+	// RestorableUntil is when the deleted comment is purged for good.
+	RestorableUntil time.Time `json:"restorable_until"`
 }
