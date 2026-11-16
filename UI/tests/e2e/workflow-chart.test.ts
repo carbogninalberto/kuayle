@@ -543,8 +543,9 @@ for (const size of sizes) {
 			const wide = (await chart.getByTestId('workflow-node-ci').boundingBox())!.width;
 			await tools.getByRole('button', { name: 'Zoom out', exact: true }).click();
 			await expect
-				.poll(async () => (await chart.getByTestId('workflow-node-ci').boundingBox())!.width)
-				.toBeLessThan(wide);
+				.poll(async () => Math.abs((await chart.getByTestId('workflow-node-ci').boundingBox())!.width - wide / 1.2))
+				.toBeLessThanOrEqual(1);
+			// Zoom in scales from wherever the view is, so it waits for zoom out to finish.
 			await tools.getByRole('button', { name: 'Zoom in', exact: true }).click();
 			await expect
 				.poll(async () => Math.abs((await chart.getByTestId('workflow-node-ci').boundingBox())!.width - wide))
