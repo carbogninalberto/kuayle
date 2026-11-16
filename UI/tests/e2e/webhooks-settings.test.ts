@@ -97,10 +97,9 @@ test('a public workspace offers the comment events and shows a webhook delivery 
 
 	await page.getByRole('button', { name: 'New Webhook' }).click();
 	const create = page.getByRole('dialog');
-	for (const event of ['comment.created', 'comment.updated']) {
+	for (const event of ['comment.created', 'comment.updated', 'comment.deleted']) {
 		await expect(create.getByRole('button', { name: event })).toBeVisible();
 	}
-	await expect(create.getByRole('button', { name: 'comment.deleted' })).toHaveCount(0);
 	await create.getByRole('button', { name: 'Cancel' }).click();
 
 	await page.getByRole('button', { name: 'Deliveries' }).first().click();

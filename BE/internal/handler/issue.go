@@ -480,6 +480,7 @@ func (h *IssueHandler) toCommentResponse(ctx context.Context, comment domain.Com
 		ResolvedAt: comment.ResolvedAt,
 		CreatedAt:  comment.CreatedAt,
 		UpdatedAt:  comment.UpdatedAt,
+		EditedAt:   comment.EditedAt,
 	}
 	if comment.ParentID != nil {
 		s := comment.ParentID.String()

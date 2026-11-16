@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -303,8 +304,52 @@ func (r *testTeamStatusRepo) NextPosition(_ context.Context, _ uuid.UUID) (int, 
 	return 0, nil
 }
 
+// testCommentRepo keeps live comments in comments and soft-deleted ones in
+// deleted, as the database hides deleted comments from readers.
 type testCommentRepo struct {
 	comments []domain.Comment
+	deleted  []domain.Comment
+}
+
+func (r *testCommentRepo) Update(_ context.Context, issueID, id, authorID uuid.UUID, body string) (*domain.Comment, error) {
+	for i := range r.comments {
+		c := &r.comments[i]
+		if c.ID == id && c.IssueID == issueID && c.UserID == authorID && c.Body != body {
+			now := time.Now()
+			c.Body, c.EditedAt = body, &now
+			changed := *c
+			return &changed, nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *testCommentRepo) SoftDelete(_ context.Context, issueID, id, actorID uuid.UUID) (*domain.Comment, error) {
+	for i, c := range r.comments {
+		if c.ID == id && c.IssueID == issueID {
+			now := time.Now()
+			c.DeletedAt, c.DeletedBy = &now, &actorID
+			r.comments = append(r.comments[:i], r.comments[i+1:]...)
+			r.deleted = append(r.deleted, c)
+			return &c, nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *testCommentRepo) Restore(_ context.Context, issueID, id uuid.UUID, deletedSince time.Time) (*domain.Comment, error) {
+	for i, c := range r.deleted {
+		if c.ID == id && c.IssueID == issueID {
+			if c.DeletedAt.Before(deletedSince) {
+				return nil, repository.ErrRestoreExpired
+			}
+			c.DeletedAt, c.DeletedBy = nil, nil
+			r.deleted = append(r.deleted[:i], r.deleted[i+1:]...)
+			r.comments = append(r.comments, c)
+			return &c, nil
+		}
+	}
+	return nil, sql.ErrNoRows
 }
 
 func (r *testCommentRepo) Create(_ context.Context, comment *domain.Comment) error {

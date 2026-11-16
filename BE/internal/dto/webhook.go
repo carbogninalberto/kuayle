@@ -12,7 +12,7 @@ import (
 type CreateWebhookRequest struct {
 	URL    string   `json:"url" validate:"required,url"`
 	Secret string   `json:"secret" validate:"required,min=8"`
-	Events []string `json:"events" validate:"required,min=1,dive,oneof=issue.created issue.updated issue.deleted issue.triaged comment.created comment.updated"`
+	Events []string `json:"events" validate:"required,min=1,dive,oneof=issue.created issue.updated issue.deleted issue.triaged comment.created comment.updated comment.deleted"`
 }
 
 // UpdateWebhookRequest changes the fields it names. Events, when sent, must
@@ -70,8 +70,8 @@ type WebhookDelivery struct {
 // domain.Issue.
 type WebhookIssue domain.Issue
 
-// WebhookComment is the comment object in comment.created and
-// comment.updated payloads; its JSON is that of domain.Comment.
+// WebhookComment is the comment object in comment.created, comment.updated
+// and comment.deleted payloads; its JSON is that of domain.Comment.
 type WebhookComment domain.Comment
 
 // WebhookIssuePayload is the payload of issue.created, issue.updated,
@@ -89,8 +89,9 @@ type WebhookIssueRef struct {
 	TeamID     uuid.UUID `json:"team_id"`
 }
 
-// WebhookCommentPayload is the payload of comment.created and
-// comment.updated. ActorID is null when automation made the change.
+// WebhookCommentPayload is the payload of comment.created, comment.updated
+// and comment.deleted. ActorID is null when automation made the change. For
+// comment.deleted, Comment is the comment as it was before deletion.
 type WebhookCommentPayload struct {
 	Comment WebhookComment  `json:"comment"`
 	Issue   WebhookIssueRef `json:"issue"`

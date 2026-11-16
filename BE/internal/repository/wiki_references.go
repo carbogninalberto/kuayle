@@ -85,7 +85,7 @@ func (r *WikiRepository) Backlinks(ctx context.Context, workspaceID uuid.UUID, s
 		err = r.db.SelectContext(ctx, &links.Issues, `WITH referencing AS MATERIALIZED (
 			SELECT mention.issue_id FROM wiki_page_mentions mention WHERE mention.page_id = $2 AND mention.issue_id IS NOT NULL
 			UNION SELECT backlink_comment.issue_id FROM wiki_page_mentions mention
-				JOIN comments backlink_comment ON backlink_comment.id = mention.comment_id WHERE mention.page_id = $2
+				JOIN comments backlink_comment ON backlink_comment.id = mention.comment_id WHERE mention.page_id = $2 AND `+liveComment("backlink_comment")+`
 			UNION SELECT attached.issue_id FROM issue_wiki_references attached WHERE attached.page_id = $2
 		)
 		SELECT backlink_issue.id, backlink_issue.identifier_text, backlink_issue.title

@@ -7,7 +7,8 @@ export const WEBHOOK_EVENTS = [
 	'issue.deleted',
 	'issue.triaged',
 	'comment.created',
-	'comment.updated'
+	'comment.updated',
+	'comment.deleted'
 ] as const;
 
 export type DeliveryState = 'pending' | 'retrying' | 'delivered' | 'failed';

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -67,9 +68,12 @@ type CommentService struct {
 	notifSvc    *NotificationService
 	feedback    commentFeedback
 	agents      commentAgents
-	// webhooks delivers comment.created and comment.updated; nil until
-	// SetWebhooks wires it.
+	// webhooks delivers comment.created, comment.updated and
+	// comment.deleted; nil until SetWebhooks wires it.
 	webhooks webhookEmitter
+	// deleteGrace is how long deleted comments stay restorable; zero means
+	// DefaultIssueDeleteGracePeriod.
+	deleteGrace time.Duration
 }
 
 // SetWebhooks makes stored comments deliver workspace webhooks.
@@ -237,8 +241,7 @@ func (s *CommentService) Reopen(ctx context.Context, id, actorID uuid.UUID) (*do
 }
 
 // resolution announces a comment whose resolution changed as comment.updated
-// and returns the stored comment either way. Resolving and reopening are the
-// only edits a comment has.
+// and returns the stored comment either way.
 func (s *CommentService) resolution(ctx context.Context, id uuid.UUID, changed *domain.Comment, err error, actorID uuid.UUID) (*domain.Comment, error) {
 	if err != nil {
 		return nil, err

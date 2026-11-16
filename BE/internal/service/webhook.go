@@ -429,8 +429,8 @@ func (s *WebhookService) CommentCreated(ctx context.Context, workspaceID uuid.UU
 	s.CommentEvent(ctx, workspaceID, WebhookEventCommentCreated, issue, comment, actorID)
 }
 
-// CommentEvent delivers comment.created or comment.updated with the comment
-// and a reference to its issue.
+// CommentEvent delivers comment.created, comment.updated or comment.deleted
+// with the comment and a reference to its issue.
 func (s *WebhookService) CommentEvent(ctx context.Context, workspaceID uuid.UUID, event string, issue *domain.Issue, comment *domain.Comment, actorID uuid.UUID) {
 	if s == nil || issue == nil || comment == nil {
 		return
