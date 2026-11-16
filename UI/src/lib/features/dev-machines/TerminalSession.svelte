@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getErrorMessage } from '$lib/features/toast/toast';
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { onDestroy, tick } from 'svelte';
 	import { LoaderCircle, RefreshCw } from '@lucide/svelte';
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
@@ -329,12 +329,12 @@
 
 	let initialInputSent = false;
 
-	function sendFrame(frame: Uint8Array) {
+	function sendFrame(frame: Uint8Array<ArrayBuffer>) {
 		const activeSocket = socketConnection?.socket;
 		if (activeSocket) sendSocketFrame(activeSocket, frame);
 	}
 
-	function sendSocketFrame(activeSocket: WebSocket, frame: Uint8Array) {
+	function sendSocketFrame(activeSocket: WebSocket, frame: Uint8Array<ArrayBuffer>) {
 		if (activeSocket.readyState === WebSocket.OPEN) activeSocket.send(frame);
 	}
 

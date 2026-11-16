@@ -115,7 +115,7 @@
 	};
 	// The step's section in the task's agent view.
 	const href = (anchor: string) => {
-		const url = new URL(page.url);
+		const url = new URL(page.url.href);
 		url.searchParams.set('agent', task.id);
 		url.searchParams.delete('task');
 		return `${url.pathname}${url.search}#${anchor}`;

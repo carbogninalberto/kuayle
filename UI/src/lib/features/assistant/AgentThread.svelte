@@ -189,7 +189,7 @@
 	});
 
 	const reviewHref = (id: string) => {
-		const url = new URL(page.url);
+		const url = new URL(page.url.href);
 		url.searchParams.set('agent', id);
 		url.hash = '';
 		return `${url.pathname}${url.search}`;

@@ -45,7 +45,7 @@
 				// The address used a retired team key (ENG-12 after ENG became PLT):
 				// show the current identifier in the URL.
 				if (i.identifier !== identifier) {
-					void goto(`/${requestSlug}/issue/${i.identifier}`, { replaceState: true });
+					void goto(`/${requestSlug}/issue/${i.identifier}`, { replace: true });
 				}
 				// Load team issues for prev/next navigation if not already loaded
 				if (issuesState.issues.length === 0 && i.team_id) {
@@ -66,7 +66,7 @@
 		if (adj) {
 			// Replace history so browser back returns to the view the
 			// issue was opened from instead of the previous issue.
-			goto(`/${slug}/issue/${adj}`, { replaceState: true });
+			goto(`/${slug}/issue/${adj}`, { replace: true });
 		}
 	}
 

@@ -52,10 +52,10 @@
 	// The open profile is in the address (?profile=<id>), so it can be linked.
 	function openEditor(profile: AgentProfile | 'new' | null) {
 		editing = profile;
-		const url = new URL(page.url);
+		const url = new URL(page.url.href);
 		if (profile) url.searchParams.set('profile', profile === 'new' ? 'new' : profile.id);
 		else url.searchParams.delete('profile');
-		void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+		void goto(url, { replace: true, reset: false });
 	}
 
 	// Refusals the server explains with a code get a translated message.

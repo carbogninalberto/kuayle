@@ -167,11 +167,11 @@
 	});
 
 	function open(id: string | null) {
-		const url = new URL(page.url);
+		const url = new URL(page.url.href);
 		url.searchParams.set('tab', 'custom-tools');
 		if (id) url.searchParams.set('tool', id);
 		else url.searchParams.delete('tool');
-		return goto(url.pathname + url.search, { noScroll: true, keepFocus: !id });
+		return goto(url.pathname + url.search, { reset: false });
 	}
 
 	// After a write, refresh the list and the open tool.

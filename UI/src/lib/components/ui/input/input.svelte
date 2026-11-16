@@ -6,6 +6,9 @@
 
 	// Kuayle extension: `plain` keeps the Input element and bindings without default styling,
 	// so crafted inline editors and fields retain their own classes.
+	// Kuayle extension: a file input binds `files` only. Binding `value` would write the
+	// browser's "C:\fakepath\…" back after a change handler clears the input, which throws
+	// InvalidStateError; SvelteKit 3 turns that rendering error into the error page.
 	type Props = WithElementRef<
 		Omit<HTMLInputAttributes, "type"> &
 			({ type: "file"; files?: FileList } | { type?: InputType; files?: undefined })
@@ -33,7 +36,6 @@
 		)}
 		type="file"
 		bind:files
-		bind:value
 		{...restProps}
 	/>
 {:else}
