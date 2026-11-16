@@ -628,34 +628,31 @@ export function extent(graph: WorkflowGraph): { x: number; y: number; width: num
 }
 
 /**
- * Where a sideways-scrolling chart drawn at the zoom (with the padding
- * around it) scrolls to show the step mid-view; nothing while the view has
- * no width yet (it is hidden).
+ * The viewport that shows the step mid-view at the zoom; nothing for a
+ * missing step or while the view has no size yet (it is hidden).
  */
-export function scrollTo(
+export function centreOn(
 	graph: WorkflowGraph,
 	id: string,
-	view: { width: number; zoom: number; padding: number }
-): number | undefined {
+	size: { width: number; height: number },
+	zoom: number
+): { x: number; y: number; zoom: number } | undefined {
 	const node = graph.nodes.find((n) => n.id === id);
-	if (!node || view.width <= 0) return undefined;
-	return Math.max(0, view.padding + (centre(node).x - extent(graph).x) * view.zoom - view.width / 2);
+	if (!node || size.width <= 0 || size.height <= 0) return undefined;
+	const at = centre(node);
+	return { x: size.width / 2 - at.x * zoom, y: size.height / 2 - at.y * zoom, zoom };
 }
 
-/**
- * The part of a sideways-scrolling chart drawn at the zoom (with the padding
- * around it) that its scroll area shows, in graph coordinates and within the
- * graph's box: what the task chart's minimap outlines.
- */
-export function minimapWindow(
+/** Whether the viewport shows the step mid-view (at whatever zoom), within a few pixels. */
+export function isCentred(
 	graph: WorkflowGraph,
-	view: { scrollLeft: number; width: number; zoom: number; padding: number }
-): { x: number; y: number; width: number; height: number } {
-	const box = extent(graph);
-	const at = (left: number) => box.x + (left - view.padding) / view.zoom;
-	const left = Math.min(Math.max(box.x, at(view.scrollLeft)), box.x + box.width);
-	const right = Math.max(left, Math.min(box.x + box.width, at(view.scrollLeft + view.width)));
-	return { x: left, y: box.y, width: right - left, height: box.height };
+	id: string,
+	viewport: { x: number; y: number; zoom: number },
+	size: { width: number; height: number },
+	tolerance = 4
+): boolean {
+	const target = centreOn(graph, id, size, viewport.zoom);
+	return !!target && Math.abs(viewport.x - target.x) <= tolerance && Math.abs(viewport.y - target.y) <= tolerance;
 }
 
 /**

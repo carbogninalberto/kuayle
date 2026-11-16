@@ -3,16 +3,16 @@
 	import { ExternalLink, RefreshCw } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
+	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import type { AgentTask } from '$lib/api/agent-tasks';
 	import { workflows, type WorkflowDecision } from '$lib/api/workflows';
 	import type { ConversationState } from '$lib/features/assistant/conversation-state.svelte';
 	import { useTaskRun } from '$lib/features/assistant/task-run.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
-	import WorkflowCanvas, { CHART_PADDING } from './WorkflowCanvas.svelte';
-	import ChartMinimap from './ChartMinimap.svelte';
+	import RunChart from './RunChart.svelte';
 	import { statusLabel } from './labels';
-	import { leftToRight, minimapWindow, pendingDecision, runOverlay, scrollTo } from './workflow-graph';
+	import { leftToRight, pendingDecision, runOverlay } from './workflow-graph';
 
 	// A task's workflow run: the graph with the current step highlighted and
 	// the decisions a person can make (an approval, or a reached limit). The
@@ -43,24 +43,11 @@
 	const nodeLabel = (id: string | null | undefined) =>
 		(id && run?.graph.nodes.find((n) => n.id === id)?.label) || id || '';
 
-	// The chart runs left to right at a readable size and scrolls sideways when
-	// the panel is narrower; it opens on the step the task is at.
+	// The chart runs left to right at a readable size, opens on the step the
+	// task is at and pans when the panel is narrower; Expand shows it full-screen.
 	const chart = $derived(run ? leftToRight(run.graph) : null);
-	const zoom = $derived(compact ? 0.8 : 1);
-	let scroller = $state<HTMLDivElement>();
-	let width = $state(0);
-	// The minimap outlines the part of the chart the scroll area shows.
-	let scrollLeft = $state(0);
-	const shown = $derived(chart ? minimapWindow(chart, { scrollLeft, width, zoom, padding: CHART_PADDING }) : null);
-	let shownNode = '';
-	$effect(() => {
-		if (!scroller || !chart || !run || run.node === shownNode) return;
-		// Hidden (no width) there is nothing to centre: wait until it shows.
-		const left = scrollTo(chart, run.node, { width, zoom, padding: CHART_PADDING });
-		if (left === undefined) return;
-		scroller.scrollLeft = left;
-		shownNode = run.node;
-	});
+	const name = $derived(run ? (run.builtin ? m['workflows.standard']() : run.name) : '');
+	let expanded = $state(false);
 
 	async function decide(choice: WorkflowDecision) {
 		if (!decision || deciding) return;
@@ -88,7 +75,7 @@
 			<div class="min-w-0">
 				<h3 id="task-workflow-{taskId}" class="truncate text-sm font-medium">
 					{m['workflows.task.heading']({
-						name: run.builtin ? m['workflows.standard']() : run.name,
+						name,
 						version: run.version
 					})}
 				</h3>
@@ -104,7 +91,7 @@
 				variant="ghost"
 				size="sm"
 				href="/{slug}/settings/workflows/{encodeURIComponent(run.workflow_id)}"
-				aria-label={m['workflows.open_named']({ name: run.builtin ? m['workflows.standard']() : run.name })}
+				aria-label={m['workflows.open_named']({ name })}
 				><ExternalLink />{m['workflows.task.view']()}</Button
 			>
 		</div>
@@ -136,40 +123,37 @@
 			</div>
 		{/if}
 
-		{#if overlay && chart}<div class="@container">
-			<!-- A scroll area must be reachable from the keyboard to be scrolled with it. -->
-			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-			<div
-				bind:this={scroller}
-				bind:clientWidth={width}
-				onscroll={() => (scrollLeft = scroller?.scrollLeft ?? 0)}
-				class="flex overflow-x-auto overscroll-x-contain rounded-lg border bg-muted/20 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-				role="group"
-				aria-label={m['workflows.task.title']()}
-				tabindex="0"
-				data-testid="task-workflow-chart"
-			>
-				<WorkflowCanvas
-					graph={chart}
-					profiles={run.profiles}
-					run={overlay}
-					label={m['workflows.task.title']()}
-					class="mx-auto"
-					minimap={false}
-					{zoom}
-				/>
-			</div>
-			<!-- Under the chart rather than over it, so it never covers a step (a
-			     narrow panel shows little more than one); none on a phone or a
-			     panel too narrow for it. -->
-			{#if shown}<ChartMinimap
-					graph={chart}
-					run={overlay}
-					view={shown}
-					label={m['workflows.minimap']()}
-					class="mt-1.5 ml-auto w-fit max-sm:hidden @max-[240px]:hidden"
-				/>{/if}
-		</div>{/if}
+		{#if overlay && chart}
+			<!-- No minimap in the side panel's short chart: it would cover most of it. -->
+			<RunChart
+				graph={chart}
+				profiles={run.profiles}
+				run={overlay}
+				label={m['workflows.task.title']()}
+				zoom={compact ? 0.8 : 1}
+				minimap={!compact}
+				class={compact ? 'h-64' : 'h-80'}
+				testid="task-workflow-chart"
+				onexpand={() => (expanded = true)}
+			/>
+			<!-- Closing (Esc or the close button) returns focus to Expand. -->
+			<Dialog.Root bind:open={expanded}>
+				<Dialog.Content
+					class="top-0 left-0 flex h-dvh w-screen max-w-none translate-x-0 flex-col rounded-none sm:max-w-none"
+				>
+					<Dialog.Title class="pr-10">{m['workflows.task.expanded_title']({ name })}</Dialog.Title>
+					<RunChart
+						graph={chart}
+						profiles={run.profiles}
+						run={overlay}
+						label={m['workflows.task.title']()}
+						zoom={1}
+						class="min-h-0 flex-1"
+						testid="task-workflow-chart-expanded"
+					/>
+				</Dialog.Content>
+			</Dialog.Root>
+		{/if}
 	{:else}
 		<p class="text-xs text-muted-foreground">{m['assistant.loading']()}</p>
 	{/if}

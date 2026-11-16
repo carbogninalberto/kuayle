@@ -17,7 +17,8 @@
 		type Edge,
 		type EdgeTypes,
 		type Node,
-		type NodeTypes
+		type NodeTypes,
+		type Viewport
 	} from '@xyflow/svelte';
 	import type { AgentProfile, WorkflowGraph, WorkflowIssue } from '$lib/api/workflows';
 	import { m } from '$lib/features/i18n/messages';
@@ -28,6 +29,7 @@
 	import type { WorkflowNodeType } from '$lib/api/workflows';
 	import { conditionLabel, issueLabel, profileTitle, warningLabels } from './labels';
 	import {
+		centreOn,
 		extent,
 		nodeWidth,
 		opening,
@@ -55,6 +57,8 @@
 		controls = true,
 		minimap = true,
 		zoom,
+		navigable,
+		view = $bindable(),
 		api = $bindable(),
 		onselect,
 		onaddnext,
@@ -81,16 +85,22 @@
 		class?: string;
 		/** Svelte Flow's own zoom controls; the editor has its own toolbar. */
 		controls?: boolean;
-		/**
-		 * A minimap of the graph on the free canvas. A fixed-zoom chart draws none:
-		 * its view is the page's scroll, so its page draws its own (ChartMinimap).
-		 */
+		/** A minimap of the graph on the free and navigable canvases; a fixed-zoom chart draws none. */
 		minimap?: boolean;
 		/**
 		 * Draws the whole graph at this zoom in a canvas of exactly its size, with
 		 * no panning or zooming of its own: the page around it scrolls instead.
 		 */
 		zoom?: number;
+		/**
+		 * A read-only chart its viewer pans (dragging) and zooms (pinching, or
+		 * through the api), opening at this zoom on the run's current step. The
+		 * wheel stays the page's, and Svelte Flow's own controls are not drawn:
+		 * the caller draws its own tools.
+		 */
+		navigable?: number;
+		/** What a navigable canvas shows: its viewport and its size, once it has one. */
+		view?: Viewport & { width: number; height: number };
 		/** Svelte Flow's API, for the editor's menus and toolbar. */
 		api?: FlowApi;
 		onselect?: (selection: Selection) => void;
@@ -218,9 +228,16 @@
 		zoom && box
 			? { x: PADDING - box.x * zoom, y: PADDING - box.y * zoom, zoom }
 			: width > 0 && height > 0
-				? opening(graph, { width, height })
+				? ((navigable && run && centreOn(graph, run.current, { width, height }, navigable)) ??
+					opening(graph, { width, height }))
 				: undefined
 	);
+	// A navigable canvas reports where it is once it starts, after every move
+	// and on every resize.
+	let moved = $state.raw<Viewport>();
+	$effect(() => {
+		if (navigable) view = moved && width > 0 && height > 0 ? { ...moved, width, height } : undefined;
+	});
 
 	// The minimap's steps: each in its type's accent; on a task's run the
 	// current one outlined and the ones it never entered faded.
@@ -253,10 +270,10 @@
 		{edgeTypes}
 		initialViewport={untrack(() => viewport)}
 		panOnDrag={!zoom}
-		zoomOnScroll={!zoom}
+		zoomOnScroll={!zoom && !navigable}
 		zoomOnPinch={!zoom}
-		zoomOnDoubleClick={!zoom}
-		preventScrolling={!zoom}
+		zoomOnDoubleClick={!zoom && !navigable}
+		preventScrolling={!zoom && !navigable}
 		minZoom={0.1}
 		maxZoom={1.5}
 		nodesDraggable={editable}
@@ -264,6 +281,8 @@
 		elementsSelectable
 		deleteKey={editable ? ['Backspace', 'Delete'] : null}
 		proOptions={{ hideAttribution: true }}
+		oninit={navigable ? () => (moved = api?.viewport()) : undefined}
+		onmoveend={navigable ? (_, at) => (moved = at) : undefined}
 		onnodeclick={({ node }) => onselect?.({ kind: 'node', id: node.id })}
 		onedgeclick={({ edge }) => onselect?.({ kind: 'edge', id: edge.id })}
 		onpaneclick={() => onselect?.(null)}
@@ -279,7 +298,7 @@
 			)}
 	>
 		{#if !zoom}<Background variant={BackgroundVariant.Dots} gap={18} size={1.2} />{/if}
-		{#if controls && !zoom}<Controls showLock={false} />{/if}
+		{#if controls && !zoom && !navigable}<Controls showLock={false} />{/if}
 		{#if minimap && !zoom}<MiniMap
 				position="bottom-right"
 				width={160}
