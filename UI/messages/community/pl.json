@@ -3782,6 +3782,7 @@
 	"workflows.issue.merge_target": "Scalenie kończy zadanie: poprowadź to przejście do końca, który kończy się jako gotowe.",
 	"workflows.issue.plan_target": "Plan jest dla następnego agenta: zakończony krok planowania poprowadź do kroku agenta, który planuje lub zmienia kod, albo do zatwierdzenia.",
 	"workflows.task.title": "Workflow",
+	"workflows.minimap": "Minimapa workflow",
 	"workflows.task.heading": "{name} · wersja {version}",
 	"workflows.task.standard_note": "To zadanie podąża za workflow Standardowym.",
 	"workflows.task.status_running": "W toku",

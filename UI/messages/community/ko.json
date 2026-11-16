@@ -3782,6 +3782,7 @@
 	"workflows.issue.merge_target": "병합하면 작업이 완료됩니다. 이 전환을 완료로 끝나는 종료로 연결하세요.",
 	"workflows.issue.plan_target": "계획은 다음 에이전트를 위한 것입니다. 완료된 계획 단계는 계획하거나 코드를 변경하는 에이전트 단계 또는 승인으로 이어지게 하세요.",
 	"workflows.task.title": "워크플로",
+	"workflows.minimap": "워크플로 미니맵",
 	"workflows.task.heading": "{name} · 버전 {version}",
 	"workflows.task.standard_note": "이 작업은 표준 워크플로를 따릅니다.",
 	"workflows.task.status_running": "실행 중",

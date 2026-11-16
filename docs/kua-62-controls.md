@@ -39,6 +39,7 @@ Re-apply or re-check these after any `shadcn-svelte add` overwrite:
 - IssueVersionHistory renders sanitized, stored rich-text HTML. Its task-list inputs are disabled previews of versioned content, not editable form controls. The sanitizer expression is intentionally unchanged.
 - TerminalSession delegates its terminal input, selection and keyboard emulation to xterm. Its surrounding actions use Button; replacing its hidden input would break terminal emulation.
 - The workflow editor's canvas (`features/workflows/WorkflowCanvas.svelte`) delegates node dragging, connection handles, pan/zoom controls and selection to Svelte Flow (`@xyflow/svelte`); shadcn-svelte has no graph canvas. Every canvas action also has a keyboard path built on primitives outside the canvas: the palette, the step and transition lists, the add-transition form and the inspectors.
+- The workflow minimaps are pictures (`role="img"`, never focusable): the editor's free canvas uses Svelte Flow's MiniMap (dragging it pans, a pointer convenience over the canvas's own keyboard paths); a task's fixed-zoom running chart draws plain SVG (`features/workflows/ChartMinimap.svelte`) under its scroll area, outlining the scrolled-to part, because there Svelte Flow's viewport is the whole graph. Both hide on narrow panels.
 - Browser date/color/file capabilities remain behind styled Input or Calendar compositions where appropriate. Semantic content links, labels, layout containers and drag handles remain HTML.
 
 ## Baseline locations and replacements

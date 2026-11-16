@@ -3782,6 +3782,7 @@
 	"workflows.issue.merge_target": "Fletning fuldfører opgaven: før denne overgang til en slut, der afsluttes som færdig.",
 	"workflows.issue.plan_target": "En plan er til den næste agent: før et afsluttet planlægningstrin til et agenttrin, der planlægger eller ændrer kode, eller til en godkendelse.",
 	"workflows.task.title": "Workflow",
+	"workflows.minimap": "Minikort over workflow",
 	"workflows.task.heading": "{name} · version {version}",
 	"workflows.task.standard_note": "Denne opgave følger Standard-workflowet.",
 	"workflows.task.status_running": "Kører",

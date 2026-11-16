@@ -3782,6 +3782,7 @@
 	"workflows.issue.merge_target": "الدمج يكمل المهمة: وجّه هذا الانتقال إلى نهاية تنتهي بـ تم.",
 	"workflows.issue.plan_target": "الخطة موجّهة إلى الوكيل التالي: اجعل خطوة التخطيط المكتملة تؤدي إلى خطوة وكيل يخطّط أو يعدّل الكود، أو إلى موافقة.",
 	"workflows.task.title": "سير العمل",
+	"workflows.minimap": "خريطة مصغّرة لسير العمل",
 	"workflows.task.heading": "{name} · الإصدار {version}",
 	"workflows.task.standard_note": "تتبع هذه المهمة سير العمل القياسي.",
 	"workflows.task.status_running": "قيد التشغيل",

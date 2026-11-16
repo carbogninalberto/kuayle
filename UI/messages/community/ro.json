@@ -3782,6 +3782,7 @@
 	"workflows.issue.merge_target": "Merge-ul finalizează sarcina: duce această tranziție la un sfârșit care se încheie ca finalizat.",
 	"workflows.issue.plan_target": "Un plan este pentru următorul agent: un pas de planificare încheiat duce la un pas de agent care planifică sau modifică codul, ori la o aprobare.",
 	"workflows.task.title": "Flux de lucru",
+	"workflows.minimap": "Minihartă a fluxului de lucru",
 	"workflows.task.heading": "{name} · versiunea {version}",
 	"workflows.task.standard_note": "Această sarcină urmează fluxul de lucru Standard.",
 	"workflows.task.status_running": "Rulează",

@@ -3782,6 +3782,7 @@
 	"workflows.issue.merge_target": "מיזוג משלים את המשימה: הובילו את המעבר הזה לסיום שמסתיים כהושלם.",
 	"workflows.issue.plan_target": "תוכנית מיועדת לסוכן הבא: שלב תכנון שהסתיים מוביל לשלב סוכן שמתכנן או משנה קוד, או לאישור.",
 	"workflows.task.title": "תהליך עבודה",
+	"workflows.minimap": "מפה מוקטנת של תהליך העבודה",
 	"workflows.task.heading": "{name} · גרסה {version}",
 	"workflows.task.standard_note": "המשימה הזו עוקבת אחר תהליך העבודה הרגיל.",
 	"workflows.task.status_running": "רץ",
