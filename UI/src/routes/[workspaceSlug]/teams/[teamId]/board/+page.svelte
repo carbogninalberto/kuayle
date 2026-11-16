@@ -9,7 +9,7 @@
 	// Board view is now integrated into the team page via ViewSwitcher.
 	// Redirect to team page — the user can toggle to board layout there.
 	onMount(() => {
-		goto(`/${slug}/teams/${teamId}`, { replaceState: true });
+		goto(`/${slug}/teams/${teamId}`, { replace: true });
 	});
 </script>
 

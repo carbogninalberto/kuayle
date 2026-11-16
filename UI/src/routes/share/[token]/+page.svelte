@@ -2,7 +2,7 @@
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { getShareMeta, listShareIssues } from '$lib/api/public';
 	import type { PublicShareMeta, PublicIssue, PublicStatus } from '$lib/types/shared-link';
@@ -77,7 +77,7 @@
 			.sort((a, b) => a.position - b.position);
 	});
 
-	const token = $derived($page.params.token ?? '');
+	const token = $derived(page.params.token ?? '');
 
 	onMount(async () => {
 		try {

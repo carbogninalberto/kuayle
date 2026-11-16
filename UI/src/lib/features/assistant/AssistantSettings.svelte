@@ -32,9 +32,9 @@
 	const linkedTabs = ['skills', 'custom-tools', 'research'];
 	const tab = $derived(linkedTabs.find((value) => value === page.url.searchParams.get('tab')) ?? 'tools');
 	function selectTab(value: string) {
-		const url = new URL(page.url);
+		const url = new URL(page.url.href);
 		url.search = linkedTabs.includes(value) ? `?tab=${value}` : '';
-		void goto(url.pathname + url.search, { replaceState: true, noScroll: true, keepFocus: true });
+		void goto(url.pathname + url.search, { replace: true, reset: false });
 	}
 	const enabledCount = $derived(capabilities?.tools.filter((tool) => tool.enabled).length ?? 0);
 

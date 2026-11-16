@@ -99,6 +99,8 @@ async function fixture(page: Page, role: 'admin' | 'member') {
 		if (path === '/api/workspaces/test') return route.fulfill({ json: workspace });
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		if (path === '/api/workspaces/test/teams') return route.fulfill({ json: teams });
+		if (path === '/api/workspaces/test/assistant-capabilities')
+			return route.fulfill({ json: { tools: [], can_manage: role === 'admin' } });
 		if (!path.startsWith(base)) return route.fulfill({ json: [] });
 		if (method !== 'GET') {
 			state.writes.push({ method, path: path.slice(base.length), body: request.postData() ? request.postDataJSON() : null });

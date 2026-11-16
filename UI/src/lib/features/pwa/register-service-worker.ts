@@ -1,4 +1,4 @@
-import { dev } from '$app/environment';
+import { dev } from '$app/env';
 import { appToast } from '$lib/features/toast/toast';
 import { m } from '$lib/features/i18n/messages';
 import { shouldRegisterServiceWorker } from './service-worker-policy';
@@ -44,7 +44,8 @@ export function registerServiceWorker(): void {
 	};
 
 	container
-		.register('/service-worker.js', { scope: '/' })
+		// SvelteKit 3 bundles the worker as an ES module (it imports /_app/env.js).
+		.register('/service-worker.js', { scope: '/', type: 'module' })
 		.then((registration) => {
 			// Long-lived tabs look for a new deployment once an hour.
 			setInterval(() => void registration.update().catch(() => undefined), 60 * 60 * 1000);

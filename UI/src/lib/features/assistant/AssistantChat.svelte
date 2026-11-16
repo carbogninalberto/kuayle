@@ -306,13 +306,13 @@
 		conversationId ? `/${slug}/assistant?conversation=${encodeURIComponent(conversationId)}` : `/${slug}/assistant`
 	);
 	function openAgent(task: AgentTask) {
-		const url = new URL(page.url);
+		const url = new URL(page.url.href);
 		url.searchParams.set('agent', task.id);
 		url.searchParams.delete('task');
-		void goto(`${url.pathname}${url.search}`, { keepFocus: true, noScroll: true });
+		void goto(`${url.pathname}${url.search}`, { reset: false });
 	}
 	function closeAgent() {
-		void goto(assistantHref, { keepFocus: true, noScroll: true });
+		void goto(assistantHref, { reset: false });
 	}
 	// An agent's view has its own composer, which writes to that agent
 	// (AgentComposer); the page's composer belongs to the assistant's chat.

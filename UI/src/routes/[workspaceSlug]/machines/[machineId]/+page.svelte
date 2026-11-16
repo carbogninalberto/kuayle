@@ -312,7 +312,7 @@
 				checkoutId,
 				checkoutLabel: checkout ? `${checkout.repository_full_name} - ${checkout.working_branch}` : undefined
 			});
-			const url = new URL(page.url);
+			const url = new URL(page.url.href);
 			url.searchParams.delete('terminal');
 			url.searchParams.delete('checkout_id');
 			replaceState(url, page.state);

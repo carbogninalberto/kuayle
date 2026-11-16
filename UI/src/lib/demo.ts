@@ -1,4 +1,4 @@
-import { env } from '$env/dynamic/public';
+import { PUBLIC_DEMO_MODE, PUBLIC_DEMO_USERS } from '$app/env/public';
 
 export type DemoUser = {
 	label: string;
@@ -29,5 +29,5 @@ function parseDemoUsers(value: string | undefined): DemoUser[] {
 	}
 }
 
-export const demoMode = enabledValues.has((env.PUBLIC_DEMO_MODE ?? '').toLowerCase());
-export const demoUsers = parseDemoUsers(env.PUBLIC_DEMO_USERS);
+export const demoMode = enabledValues.has((PUBLIC_DEMO_MODE ?? '').toLowerCase());
+export const demoUsers = parseDemoUsers(PUBLIC_DEMO_USERS);

@@ -74,6 +74,13 @@ async function fixture(page: Page) {
 		if (path.endsWith('/assistant/status'))
 			return route.fulfill({ json: { configured: true, provider: 'openai_compatible', model: 'configured-model' } });
 		if (path === '/api/workspaces/test/agent-tasks') return route.fulfill({ json: state.queue });
+		if (path === '/api/workspaces/test/issues')
+			return route.fulfill({ json: { data: [], total_count: 0, page: 1, per_page: 50, has_more: false } });
+		if (path.endsWith('/task-options')) return route.fulfill({ json: { providers: [], model_servers: [] } });
+		if (path === '/api/workspaces/test/agent-model-catalog')
+			return route.fulfill({
+				json: { harness: url.searchParams.get('harness') ?? '', source: '', stale: false, unavailable: true, models: [] }
+			});
 		if (path === '/api/workspaces/test/agent-tasks/task-9')
 			return route.fulfill({
 				json: {

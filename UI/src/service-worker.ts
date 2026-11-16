@@ -8,7 +8,8 @@
 // API data, sockets, authenticated responses and page HTML are never cached
 // (see service-worker-policy.ts). A new version waits until the user chooses
 // to reload, or until every Kuayle tab has closed.
-import { build, files, version } from '$service-worker';
+import { version } from '$app/env';
+import { assets, immutable } from '$app/manifest';
 import {
 	OFFLINE_PAGE,
 	SHELL_CACHE_PREFIX,
@@ -19,7 +20,13 @@ import { notificationTargetUrl, openNotificationTarget, requestClientNavigation 
 
 const worker = self as unknown as ServiceWorkerGlobalScope;
 const CACHE = `${SHELL_CACHE_PREFIX}${version}`;
-const ASSETS = precacheList(build, files);
+// Manifest paths are relative to the base path, where this worker is served;
+// the policy compares root-relative pathnames.
+const pathname = (path: string) => new URL(path, worker.location.href).pathname;
+const ASSETS = precacheList(
+	immutable.map((file) => pathname(file.path)),
+	assets.map((file) => pathname(file.path))
+);
 const SHELL = new Set(ASSETS);
 
 worker.addEventListener('install', (event) => {

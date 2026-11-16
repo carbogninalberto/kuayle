@@ -122,6 +122,8 @@ async function settings(page: Page, role: 'admin' | 'member') {
 		const method = request.method();
 		const handled = await common(route, path);
 		if (handled !== null) return handled;
+		if (path === '/api/workspaces/test/assistant-capabilities')
+			return route.fulfill({ json: { tools: [], can_manage: role === 'admin' } });
 		if (path === '/api/workspaces/test/dev-machines')
 			return route.fulfill({
 				json: {

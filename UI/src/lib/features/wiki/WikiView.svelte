@@ -201,10 +201,10 @@
 	});
 
 	function openPage(id: string, replaceState = false) {
-		const url = new URL(page.url);
+		const url = new URL(page.url.href);
 		url.searchParams.set('page', id);
 		url.searchParams.delete('view');
-		return goto(url, { replaceState, noScroll: true, keepFocus: true });
+		return goto(url, { replace: replaceState, reset: false });
 	}
 
 	function summaryOf(saved: WikiPage): WikiPageSummary {
@@ -291,9 +291,9 @@
 			void loadList(false);
 			if (current?.id === target.id) {
 				current = null;
-				const url = new URL(page.url);
+				const url = new URL(page.url.href);
 				url.searchParams.delete('page');
-				await goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+				await goto(url, { replace: true, reset: false });
 			}
 		} catch (error) {
 			appToast.apiError(error, m['wiki.toast.delete_failed']());
