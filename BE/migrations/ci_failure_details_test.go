@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Migration 169 (KUA-206) adds the commit and the pending details read to
+// Migration 170 (KUA-206) adds the commit and the pending details read to
 // existing CI signals without touching what they recorded, and its rollback
 // keeps the stored summaries.
 func TestCIFailureDetailsMigrationKeepsExistingSignals(t *testing.T) {
@@ -38,7 +38,7 @@ func TestCIFailureDetailsMigrationKeepsExistingSignals(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 	fixture := insertBaseMigrationFixture(t, db)
-	require.NoError(t, m.Migrate(168))
+	require.NoError(t, m.Migrate(169))
 	var issue, team, conversation, task, run uuid.UUID
 	require.NoError(t, db.QueryRow(`SELECT id,team_id FROM issues WHERE workspace_id=$1 LIMIT 1`, fixture.workspaceA).Scan(&issue, &team))
 	require.NoError(t, db.QueryRow(`INSERT INTO conversations(workspace_id,creator_id,title,issue_id,team_id) VALUES($1,$2,'Signals',$3,$4) RETURNING id`, fixture.workspaceA, fixture.userA, issue, team).Scan(&conversation))
@@ -46,7 +46,7 @@ func TestCIFailureDetailsMigrationKeepsExistingSignals(t *testing.T) {
 	_, err = db.Exec(`INSERT INTO agent_task_signals(task_id,run_id,kind,external_id,outcome,name,action,failure_class,failure_evidence,request_id) VALUES($1,$2,'ci','77','failure','GitHub Actions','follow_up','test_failure','nothing received',gen_random_uuid())`, task, run)
 	require.NoError(t, err)
 
-	require.NoError(t, m.Migrate(169))
+	require.NoError(t, m.Migrate(170))
 	var headSHA, class string
 	var pending bool
 	require.NoError(t, db.QueryRow(`SELECT head_sha,failure_details_pending,failure_class FROM agent_task_signals WHERE task_id=$1`, task).Scan(&headSHA, &pending, &class))
@@ -62,5 +62,5 @@ func TestCIFailureDetailsMigrationKeepsExistingSignals(t *testing.T) {
 	var summary string
 	require.NoError(t, db.QueryRow(`SELECT summary FROM agent_task_signals WHERE task_id=$1`, task).Scan(&summary))
 	require.Equal(t, `"E2E" concluded failure`, summary, "the rollback keeps stored summaries")
-	require.NoError(t, m.Migrate(169))
+	require.NoError(t, m.Migrate(170))
 }

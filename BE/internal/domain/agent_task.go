@@ -451,7 +451,7 @@ type AgentTaskSignal struct {
 	// the action "infrastructure" and starts no follow-up.
 	FailureClass    *string `json:"failure_class,omitempty" db:"failure_class"`
 	FailureEvidence string  `json:"failure_evidence,omitempty" db:"failure_evidence"`
-	// HeadSHA is the commit a CI suite ran on (empty before migration 169).
+	// HeadSHA is the commit a CI suite ran on (empty before migration 170).
 	HeadSHA string `json:"-" db:"head_sha"`
 	// FailureDetailsPending is set while Kuayle still reads a failed suite's
 	// checks from GitHub after the webhook; its follow-up and the workflow's

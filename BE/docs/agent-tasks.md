@@ -645,7 +645,7 @@ credential and must reproduce failures with the configured test command. The
 new attempt then revalidates and republishes to the same pull request.
 
 What GitHub reported about the failed checks reaches the agent, the notebook
-and the person (KUA-206, migration 169), not only "suite failed". The checks
+and the person (KUA-206, migration 170), not only "suite failed". The checks
 the webhook read become the signal's `summary` (at most 2,500 bytes,
 `domain.CIFailureSummary`): for each failed check (at most ten) its name,
 conclusion and failed step, its own output, its annotations as
