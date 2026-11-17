@@ -459,7 +459,7 @@ description to Kuayle's facts. Nothing under `.kuayle/` is committed, and an
 attempt's start removes an earlier attempt's file and screenshots.
 
 `publicationBody` renders the nearest issue, project, team or workspace
-`pull_request_template` development setting (migration 169), or the default:
+`pull_request_template` development setting (migration 172), or the default:
 
 ```markdown
 ## Description
