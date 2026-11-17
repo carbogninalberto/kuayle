@@ -114,13 +114,19 @@ func TestCIFailureDetailsAreReadOnceInTheBackgroundAndRecorded(t *testing.T) {
 	require.Contains(t, recorder.recorded[0], "Error: expect(locator).toHaveAttribute(expected) failed")
 
 	// Nothing readable is still recorded, so the signal stops waiting.
+	// The first read records before it lets go of the commit, so a new read
+	// may be skipped as a duplicate for a moment; ask again until one runs.
 	svc.ciDetails = func(context.Context, uuid.UUID, string, string) ([]domain.CIFailedCheck, bool) { return nil, false }
-	svc.ensureCIFailureDetails(ws, "acme/app", "abc123")
-	select {
-	case <-recorder.done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("an empty read was never recorded")
+	recorded := false
+	for until := time.Now().Add(10 * time.Second); !recorded && time.Now().Before(until); {
+		svc.ensureCIFailureDetails(ws, "acme/app", "abc123")
+		select {
+		case <-recorder.done:
+			recorded = true
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
+	require.True(t, recorded, "an empty read was never recorded")
 	require.Equal(t, "acme/app@abc123: ", recorder.recorded[1])
 }
 
