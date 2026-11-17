@@ -42,7 +42,7 @@
 	const canonical = $derived(url(path));
 	const crumbs: Crumb[] = $derived([
 		{ label: 'Home', href: '/' },
-		{ label: 'Alternatives', href: '/alternatives' },
+		{ label: 'Compare', href: '/alternatives' },
 		{ label: `${name} alternative`, href: path }
 	]);
 

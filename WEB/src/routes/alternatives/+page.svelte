@@ -11,7 +11,7 @@
 
 	const hub = HUBS.alternatives;
 	const meta = metaForStandalone('alternatives')!;
-	const crumbs = breadcrumbsFrom('alternatives', 'Alternatives');
+	const crumbs = breadcrumbsFrom('alternatives', 'Compare');
 	const jsonLd = webPageLd(meta.title, meta.description, url('/alternatives'), crumbs);
 </script>
 
