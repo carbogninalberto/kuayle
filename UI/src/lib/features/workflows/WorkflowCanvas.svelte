@@ -143,9 +143,19 @@
 	$effect(() => {
 		void redraw;
 		const placed = placeIssues(issues);
+		// A step keeps the size Svelte Flow measured for it: without one it is
+		// new to Svelte Flow, which hides it, its transitions and its minimap
+		// entry until it is measured again. A step whose type changed is
+		// measured again, as its size and handles may differ.
+		const drawn = new Map(untrack(() => nodes).map((n) => [n.id, n]));
+		const measured = (node: WorkflowGraph['nodes'][number]) => {
+			const before = drawn.get(node.id);
+			return before?.data.node.type === node.type ? before.measured : undefined;
+		};
 		nodes = graph.nodes.map((node) => ({
 			id: node.id,
 			type: 'workflow',
+			measured: measured(node),
 			position: node.position,
 			selected: selection?.kind === 'node' && selection.id === node.id,
 			deletable: editable && node.type !== 'start',
