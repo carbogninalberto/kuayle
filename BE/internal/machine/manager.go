@@ -110,12 +110,16 @@ type ManagerStore interface {
 	RevokeMachineAccess(context.Context, uuid.UUID) error
 	ListTimedOutAgentRuns(context.Context, int) ([]domain.DevMachineAgentRun, error)
 	ListRuntimeMachines(context.Context, int, int) ([]domain.DevMachine, error)
+	// ListSamplingMachines lists the running machines whose usage is sampled.
+	ListSamplingMachines(ctx context.Context, limit, offset int) ([]domain.DevMachine, error)
 	SetDesiredAndEnqueue(context.Context, uuid.UUID, uuid.UUID, domain.DevMachineStatus, *domain.DevMachineOperation) error
 	RequestPermanentDelete(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID) (*domain.DevMachineOperation, error)
 	ListPermanentDeleteRequests(context.Context, int) ([]domain.DevMachine, error)
 	PurgePermanentDeleteRequest(context.Context, uuid.UUID, uuid.UUID) error
 	CreateResourceSample(context.Context, *domain.DevMachineResourceSample) error
-	PruneResourceSamples(ctx context.Context, machineID uuid.UUID, before time.Time) error
+	// PruneExpiredResourceSamples deletes up to limit samples older than before
+	// for every machine and returns how many it deleted.
+	PruneExpiredResourceSamples(ctx context.Context, before time.Time, limit int) (int, error)
 	DeleteResourceSamples(ctx context.Context, machineID uuid.UUID) error
 	UpdateVolumeUsage(context.Context, uuid.UUID, int64) error
 	CreateGitRef(context.Context, *domain.DevMachineGitRef) error
@@ -187,7 +191,12 @@ type Manager struct {
 	githubKey     []byte
 	owner         string
 	pollInterval  time.Duration
-	diskQuota     DiskQuotaConfig
+	// sampleInterval, pruneInterval and sampleRetryDelay pace resource sampling
+	// (resource_sampler.go); tests shorten them.
+	sampleInterval   time.Duration
+	pruneInterval    time.Duration
+	sampleRetryDelay time.Duration
+	diskQuota        DiskQuotaConfig
 
 	agentGitIdentity GitIdentity
 	frontendURL      string
@@ -240,6 +249,18 @@ type Manager struct {
 	agentCLIVersions map[string]string
 	agentCLIRunning  atomic.Bool
 	reconciling      atomic.Bool
+
+	// Resource sampling: one in-flight sample per machine, and the counters
+	// behind the resource_sample* metrics.
+	samplingMu                 sync.Mutex
+	sampling                   map[uuid.UUID]struct{}
+	sampleListing              atomic.Bool
+	pruningSamples             atomic.Bool
+	sampleSlots                chan struct{}
+	resourceSamplesRecorded    atomic.Uint64
+	resourceSamplesMissed      atomic.Uint64
+	resourceSampleStatsFailed  atomic.Uint64
+	resourceSampleInsertFailed atomic.Uint64
 }
 
 type terminalOperationError struct {
@@ -264,6 +285,8 @@ func NewManager(store ManagerStore, runtime Runtime, agents *agent.Registry, git
 	return &Manager{
 		store: store, runtime: runtime, agents: agents, github: github, encryptionKey: encryptionKey,
 		githubKey: githubKey, owner: owner, pollInterval: time.Second, operationSlots: make(chan struct{}, 8),
+		sampleInterval: domain.DevMachineResourceSampleInterval, pruneInterval: resourceSamplePruneInterval,
+		sampleRetryDelay:  resourceSampleRetryDelay,
 		activeRuns:        make(map[uuid.UUID]map[uuid.UUID]context.CancelFunc),
 		diskQuotaWarnings: make(map[uuid.UUID]int64),
 		diskQuota:         diskQuota,
@@ -327,9 +350,16 @@ func (m *Manager) Run(ctx context.Context) error {
 	operationTicker := time.NewTicker(m.pollInterval)
 	reconcileTicker := time.NewTicker(30 * time.Second)
 	portTicker := time.NewTicker(portScanInterval)
+	sampleTicker := time.NewTicker(m.sampleInterval)
+	pruneTicker := time.NewTicker(m.pruneInterval)
 	defer operationTicker.Stop()
 	defer reconcileTicker.Stop()
 	defer portTicker.Stop()
+	defer sampleTicker.Stop()
+	defer pruneTicker.Stop()
+	// Sample and prune once at start, so a restart does not leave a gap.
+	m.scheduleResourceSampling(ctx)
+	m.scheduleResourcePrune(ctx)
 	if watcher, ok := m.runtime.(resourceLimitWatcher); ok {
 		m.operations.Add(1)
 		go func() {
@@ -352,6 +382,10 @@ func (m *Manager) Run(ctx context.Context) error {
 			return nil
 		case <-portTicker.C:
 			m.schedulePortScan(ctx)
+		case <-sampleTicker.C:
+			m.scheduleResourceSampling(ctx)
+		case <-pruneTicker.C:
+			m.scheduleResourcePrune(ctx)
 		case <-operationTicker.C:
 			if err := m.processBatch(ctx, work); err != nil {
 				log.WithError(err).Error("dev machine operation batch failed")
@@ -387,13 +421,17 @@ func (m *Manager) Ready(ctx context.Context) error {
 
 func (m *Manager) Metrics() map[string]uint64 {
 	return map[string]uint64{
-		"operations_completed_total": m.operationsCompleted.Load(),
-		"operations_failed_total":    m.operationsFailed.Load(),
-		"agent_runs_completed_total": m.agentRunsCompleted.Load(),
-		"last_reconcile_unix":        uint64(max(m.lastReconcileUnix.Load(), 0)),
-		"host_disk_free_bytes":       uint64(max(m.hostDiskFreeBytes.Load(), 0)),
-		"host_disk_total_bytes":      uint64(max(m.hostDiskTotalBytes.Load(), 0)),
-		"host_disk_floor_breached":   boolMetric(m.hostDiskBreached.Load()),
+		"operations_completed_total":           m.operationsCompleted.Load(),
+		"operations_failed_total":              m.operationsFailed.Load(),
+		"agent_runs_completed_total":           m.agentRunsCompleted.Load(),
+		"last_reconcile_unix":                  uint64(max(m.lastReconcileUnix.Load(), 0)),
+		"resource_samples_recorded_total":      m.resourceSamplesRecorded.Load(),
+		"resource_samples_missed_total":        m.resourceSamplesMissed.Load(),
+		"resource_sample_stats_failed_total":   m.resourceSampleStatsFailed.Load(),
+		"resource_sample_inserts_failed_total": m.resourceSampleInsertFailed.Load(),
+		"host_disk_free_bytes":                 uint64(max(m.hostDiskFreeBytes.Load(), 0)),
+		"host_disk_total_bytes":                uint64(max(m.hostDiskTotalBytes.Load(), 0)),
+		"host_disk_floor_breached":             boolMetric(m.hostDiskBreached.Load()),
 	}
 }
 
@@ -1975,36 +2013,6 @@ func (m *Manager) reconcileMachine(ctx context.Context, machine *domain.DevMachi
 		return
 	}
 	m.queueImageUpdate(ctx, machine, services, now)
-	usage, err := m.runtime.Stats(ctx, machine, services)
-	if err != nil {
-		log.WithField("machine_id", machine.ID).WithError(err).Warn("resource sampling failed")
-		return
-	}
-	_ = m.store.CreateResourceSample(ctx, &domain.DevMachineResourceSample{
-		WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, CPUPercent: usage.CPUPercent, MemoryBytes: usage.MemoryBytes,
-		DiskBytes: usage.DiskBytes, Pids: usage.Pids, NetworkRxBytes: usage.NetworkRxBytes,
-		NetworkTxBytes: usage.NetworkTxBytes,
-	})
-	if err := m.store.PruneResourceSamples(ctx, machine.ID, now.Add(-domain.DevMachineResourceRetention)); err != nil {
-		log.WithField("machine_id", machine.ID).WithError(err).Warn("resource sample pruning failed")
-	}
-	_ = m.store.UpdateVolumeUsage(ctx, machine.ID, usage.DiskBytes)
-	limit := int64(machine.DiskGB) * 1024 * 1024 * 1024
-	if usage.DiskBytes >= limit*9/10 && usage.DiskBytes < limit && m.claimDiskQuotaWarning(machine.ID, machine.Generation) {
-		_ = m.createEvent(ctx, machine, nil, "collector", "resource.disk_quota_warning", map[string]any{
-			"used_bytes": usage.DiskBytes, "limit_bytes": limit, "percent": usage.DiskBytes * 100 / limit,
-		})
-	}
-	if usage.DiskBytes >= limit {
-		operation := &domain.DevMachineOperation{
-			ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID,
-			Action: domain.DevMachineOpStop, Status: domain.DevMachineOpStatusPending,
-			Generation: machine.Generation + 1, IdempotencyKey: fmt.Sprintf("disk-quota:%d", machine.Generation), MaxAttempts: 3,
-		}
-		_ = m.store.SetDesiredAndEnqueue(ctx, machine.WorkspaceID, machine.ID, domain.DevMachineStatusStopped, operation)
-		_ = m.store.RecordResourceLimit(ctx, machine.ID, domain.DevMachineResourceLimitDisk, domain.DiskLimitMessage(machine.DiskGB))
-		_ = m.createEvent(ctx, machine, nil, "collector", "resource.disk_quota_exceeded", map[string]any{"used_bytes": usage.DiskBytes, "limit_bytes": limit})
-	}
 }
 
 func (m *Manager) reconcileHostDiskFloor(ctx context.Context) bool {
