@@ -44,12 +44,6 @@ type UserTarget struct {
 	UserID *uuid.UUID `json:"user_id"`
 }
 
-// LabelTarget maps a source label to an existing Kuayle label. A nil LabelID
-// means the importer creates the label.
-type LabelTarget struct {
-	LabelID *uuid.UUID `json:"label_id"`
-}
-
 // Mapping is the admin-configured translation from source values to Kuayle
 // entities. Keys are source identifiers or, for users and statuses, the
 // lower-cased source email / name.
@@ -58,7 +52,6 @@ type Mapping struct {
 	Statuses   map[string]StatusTarget  `json:"statuses"`
 	Users      map[string]UserTarget    `json:"users"`
 	Priorities map[string]int           `json:"priorities"`
-	Labels     map[string]LabelTarget   `json:"labels"`
 	EpicMode   string                   `json:"epic_mode"`
 	SprintMode string                   `json:"sprint_mode"`
 }
@@ -69,7 +62,6 @@ func NewMapping() Mapping {
 		Statuses:   map[string]StatusTarget{},
 		Users:      map[string]UserTarget{},
 		Priorities: map[string]int{},
-		Labels:     map[string]LabelTarget{},
 		EpicMode:   EpicModeProject,
 		SprintMode: SprintModeCycle,
 	}
@@ -158,10 +150,17 @@ func (m Mapping) ResolveUser(user *SourceUser, members []Member, importerID uuid
 	return importerID, "*Originally by " + attributionName(user) + "*"
 }
 
-// ResolveStatus returns the mapped team status for a source status, or false
-// when the source value has no mapping (which the preview reports).
-func (m Mapping) ResolveStatus(projectID, status string) (StatusTarget, bool) {
-	if target, ok := m.Statuses[strings.ToLower(strings.TrimSpace(status))]; ok {
+// statusKey is the per-team key for a source status name. Two projects mapped
+// to different teams can map the same source status to different team statuses.
+func statusKey(teamID uuid.UUID, status string) string {
+	return teamID.String() + ":" + strings.ToLower(strings.TrimSpace(status))
+}
+
+// ResolveStatus returns the mapped status for a source status in the given
+// team, or false when the source value has no mapping for that team. A target
+// that points at another team is never returned.
+func (m Mapping) ResolveStatus(teamID uuid.UUID, status string) (StatusTarget, bool) {
+	if target, ok := m.Statuses[statusKey(teamID, status)]; ok && target.TeamID == teamID {
 		return target, true
 	}
 	return StatusTarget{}, false
@@ -184,16 +183,32 @@ func ExternalKey(source, site, extType, externalID string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// CommentHash summarizes one comment's body and source update time, so an
+// edited comment makes its issue's ContentHash change and be re-synced.
+func CommentHash(c SourceComment) string {
+	raw, _ := json.Marshal(struct {
+		Body      string
+		UpdatedAt time.Time
+	}{c.Body, c.UpdatedAt})
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
 // ContentHash summarizes the fields a re-run would update. Equal hashes mean
 // the issue is unchanged and can be skipped; a changed hash means update.
 func ContentHash(issue SourceIssue) string {
+	commentHashes := make([]string, 0, len(issue.Comments))
+	for _, comment := range issue.Comments {
+		commentHashes = append(commentHashes, CommentHash(comment))
+	}
 	payload := struct {
 		Title, Description, Status, Priority string
 		Project, Parent, Epic                string
 		Sprints, Labels                      []string
 		Assignee                             string
 		CreatedAt, UpdatedAt                 time.Time
-		CommentCount, AttachmentCount        int
+		Comments                             []string
+		AttachmentCount                      int
 	}{
 		Title:           issue.Title,
 		Description:     issue.Description,
@@ -207,7 +222,7 @@ func ContentHash(issue SourceIssue) string {
 		Assignee:        "",
 		CreatedAt:       issue.CreatedAt,
 		UpdatedAt:       issue.UpdatedAt,
-		CommentCount:    len(issue.Comments),
+		Comments:        commentHashes,
 		AttachmentCount: len(issue.Attachments),
 	}
 	if issue.Assignee != nil {
@@ -243,6 +258,10 @@ func (m Mapping) Validate(ctx ValidationContext) error {
 		}
 	}
 	for key, target := range m.Statuses {
+		prefix := strings.SplitN(key, ":", 2)[0]
+		if prefix != target.TeamID.String() {
+			return fmt.Errorf("status %q: key does not belong to the target team", key)
+		}
 		statuses := ctx.TeamStatuses[target.TeamID]
 		found := false
 		for _, status := range statuses {
@@ -265,6 +284,11 @@ func (m Mapping) Validate(ctx ValidationContext) error {
 			return fmt.Errorf("user %q: member is not in this workspace", key)
 		}
 	}
+	for key, value := range m.Priorities {
+		if value < int(domain.PriorityNone) || value > int(domain.PriorityLow) {
+			return fmt.Errorf("priority %q: value %d is not a Kuayle priority", key, value)
+		}
+	}
 	if m.EpicMode != "" && m.EpicMode != EpicModeProject && m.EpicMode != EpicModeParent {
 		return fmt.Errorf("epic mode %q is not supported", m.EpicMode)
 	}
@@ -284,9 +308,25 @@ func (m Mapping) UnmappedFor(preview *SourcePreview) []string {
 			seen[text] = true
 		}
 	}
-	for _, status := range preview.Statuses {
-		if _, ok := m.ResolveStatus("", status); !ok {
+	// A status must be mapped for every team an issue can land in. If no
+	// project is mapped yet, report every status so the preview stays useful.
+	teams := map[uuid.UUID]bool{}
+	for _, target := range m.Projects {
+		if target.TeamID != uuid.Nil {
+			teams[target.TeamID] = true
+		}
+	}
+	if len(teams) == 0 {
+		for _, status := range preview.Statuses {
 			add("status: %s", status)
+		}
+	} else {
+		for teamID := range teams {
+			for _, status := range preview.Statuses {
+				if _, ok := m.ResolveStatus(teamID, status); !ok {
+					add("status: %s", status)
+				}
+			}
 		}
 	}
 	for _, priority := range preview.Priorities {

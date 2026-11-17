@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -154,14 +155,38 @@ func (h *ImportJobHandler) Cancel(c *echo.Context) error {
 	return h.Get(c)
 }
 
+// parseItemPage reads the item-report page size and offset from query strings.
+// The caller asks for limit+1 rows so it can tell whether another page exists.
+func parseItemPage(limitRaw, offsetRaw string) (limit, offset int) {
+	limit = 200
+	if n, err := strconv.Atoi(limitRaw); err == nil {
+		limit = n
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if n, err := strconv.Atoi(offsetRaw); err == nil && n >= 0 {
+		offset = n
+	}
+	return limit, offset
+}
+
 func (h *ImportJobHandler) ListItems(c *echo.Context) error {
 	ws, _, err := importContext(c)
 	if err != nil {
 		return err
 	}
-	items, err := h.svc.ListItems(c.Request().Context(), ws.ID, importID(c), 200, 0)
+	limit, offset := parseItemPage(c.QueryParam("limit"), c.QueryParam("offset"))
+	items, err := h.svc.ListItems(c.Request().Context(), ws.ID, importID(c), limit+1, offset)
 	if err != nil {
 		return importHTTPError(c, err)
+	}
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
 	}
 	out := make([]dto.ImportItemResponse, 0, len(items))
 	for _, item := range items {
@@ -170,7 +195,7 @@ func (h *ImportJobHandler) ListItems(c *echo.Context) error {
 			Outcome: item.Outcome, Reason: item.Reason, CreatedAt: item.CreatedAt,
 		})
 	}
-	return response.Success(c, http.StatusOK, dto.ImportItemsResponse{Items: out})
+	return response.Success(c, http.StatusOK, dto.ImportItemsResponse{Items: out, HasMore: hasMore})
 }
 
 func (h *ImportJobHandler) Options(c *echo.Context) error {

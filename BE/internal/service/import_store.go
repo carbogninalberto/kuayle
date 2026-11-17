@@ -37,6 +37,7 @@ type importStore interface {
 	SetLabels(ctx context.Context, workspaceID, issueID uuid.UUID, labelIDs []uuid.UUID) error
 	SetAssignees(ctx context.Context, workspaceID, issueID uuid.UUID, userIDs []uuid.UUID) error
 	CreateComment(ctx context.Context, workspaceID uuid.UUID, comment *domain.Comment, createdAt, updatedAt time.Time) error
+	UpdateComment(ctx context.Context, workspaceID, issueID, commentID, authorID uuid.UUID, body string) (*domain.Comment, error)
 	CreateRelation(ctx context.Context, workspaceID, issueID, relatedID uuid.UUID, relationType domain.IssueRelationType) (uuid.UUID, error)
 	StoreAttachment(ctx context.Context, workspaceID, teamID, uploaderID uuid.UUID, filename string, content io.Reader, size int64, contentType string) (*domain.Asset, string, error)
 	AssetURL(ctx context.Context, workspaceID, assetID uuid.UUID) (filename, url string, err error)
@@ -204,6 +205,7 @@ func (s *sqlImportStore) CreateIssue(ctx context.Context, workspaceID, teamID uu
 	issue.TeamID = teamID
 	issue.Number = number
 	issue.Identifier = fmt.Sprintf("%s-%d", key, number)
+	issue.SortOrder = -float64(number) * 1000
 	if err := s.issues.Create(ctx, tx, issue); err != nil {
 		return err
 	}
@@ -259,6 +261,13 @@ func (s *sqlImportStore) CreateComment(ctx context.Context, workspaceID uuid.UUI
 		return s.imports.SetCommentTimestamps(ctx, nil, workspaceID, comment.ID, createdAt, updatedAt)
 	}
 	return nil
+}
+
+// UpdateComment syncs an edited source comment onto the imported Kuayle
+// comment. The repository applies access visibility from ctx; a nil result
+// means the comment is no longer editable (deleted or edited in Kuayle).
+func (s *sqlImportStore) UpdateComment(ctx context.Context, _ uuid.UUID, issueID, commentID, authorID uuid.UUID, body string) (*domain.Comment, error) {
+	return s.comments.Update(ctx, issueID, commentID, authorID, body)
 }
 
 func (s *sqlImportStore) CreateRelation(ctx context.Context, workspaceID, issueID, relatedID uuid.UUID, relationType domain.IssueRelationType) (uuid.UUID, error) {

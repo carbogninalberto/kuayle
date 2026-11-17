@@ -47,7 +47,6 @@ export interface ImportMapping {
     statuses: Record<string, StatusTarget>;
     users: Record<string, UserTarget>;
     priorities: Record<string, number>;
-    labels: Record<string, { label_id: string | null }>;
     epic_mode: 'project' | 'parent';
     sprint_mode: 'cycle' | 'ignore';
 }
@@ -102,7 +101,7 @@ export const imports = {
         api.post(`${path(slug)}/${encodeURIComponent(id)}/start`),
     cancel: (slug: string, id: string): Promise<ImportJob> =>
         api.post(`${path(slug)}/${encodeURIComponent(id)}/cancel`),
-    items: (slug: string, id: string): Promise<{ items: ImportItem[] }> =>
-        api.get(`${path(slug)}/${encodeURIComponent(id)}/items`),
+    items: (slug: string, id: string, offset = 0): Promise<{ items: ImportItem[]; has_more: boolean }> =>
+        api.get(`${path(slug)}/${encodeURIComponent(id)}/items?offset=${offset}`),
     options: (slug: string): Promise<ImportOptions> => api.get(`${path(slug)}/options`)
 };

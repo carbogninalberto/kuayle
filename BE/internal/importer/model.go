@@ -94,8 +94,9 @@ type SourcePreview struct {
 	UnmappedFields []string
 }
 
-// EmitFunc receives one issue at a time so a large project never has to be
-// held in memory all at once.
+// EmitFunc receives one issue at a time while fetching. The write phase
+// collects the emitted issues before writing any of them, because parents,
+// epics and relations need the whole set to be known first.
 type EmitFunc func(SourceIssue) error
 
 // Source is implemented by each tracker adapter.

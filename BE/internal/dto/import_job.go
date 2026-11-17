@@ -55,7 +55,8 @@ type ImportItemResponse struct {
 }
 
 type ImportItemsResponse struct {
-	Items []ImportItemResponse `json:"items"`
+	Items   []ImportItemResponse `json:"items"`
+	HasMore bool                 `json:"has_more"`
 }
 
 type ImportPreviewResponse struct {

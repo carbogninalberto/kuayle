@@ -142,8 +142,31 @@ func (f *fakeImportRepo) RequestCancel(_ context.Context, ws, id uuid.UUID) erro
 	if job == nil || job.WorkspaceID != ws {
 		return repository.ErrImportJobNotFound
 	}
-	f.cancel = true
+	switch job.Status {
+	case domain.ImportStatusDraft, domain.ImportStatusPreviewed:
+		job.Status = domain.ImportStatusCancelled
+		job.CredentialsEnc = nil
+	case domain.ImportStatusQueued, domain.ImportStatusRunning:
+		f.cancel = true
+	default:
+		return repository.ErrImportNotEditable
+	}
 	return nil
+}
+func (f *fakeImportRepo) ExpireIdle(_ context.Context, before time.Time) (int64, error) {
+	var n int64
+	for _, job := range f.jobs {
+		if job.Status != domain.ImportStatusDraft && job.Status != domain.ImportStatusPreviewed {
+			continue
+		}
+		updated, ok := f.updatedAt[job.ID]
+		if !ok || updated.Before(before) {
+			job.Status = domain.ImportStatusCancelled
+			job.CredentialsEnc = nil
+			n++
+		}
+	}
+	return n, nil
 }
 func (f *fakeImportRepo) IsCancelRequested(_ context.Context, _ uuid.UUID) (bool, error) {
 	return f.cancel, nil
@@ -207,6 +230,8 @@ type importFakeStore struct {
 	failCreate   int
 	number       int
 	cycleErrName string
+	teams        []domain.Team
+	teamStatuses map[uuid.UUID][]domain.TeamStatus
 	assigneeSets []struct {
 		issueID uuid.UUID
 		userIDs []uuid.UUID
@@ -222,9 +247,15 @@ func newImportFakeStore(ws, teamID, statusID, importerID uuid.UUID) *importFakeS
 }
 
 func (f *importFakeStore) Teams(context.Context, uuid.UUID) ([]domain.Team, error) {
+	if len(f.teams) > 0 {
+		return f.teams, nil
+	}
 	return []domain.Team{{ID: f.teamID, WorkspaceID: f.ws}}, nil
 }
-func (f *importFakeStore) Statuses(context.Context, uuid.UUID, uuid.UUID) ([]domain.TeamStatus, error) {
+func (f *importFakeStore) Statuses(_ context.Context, _ uuid.UUID, teamID uuid.UUID) ([]domain.TeamStatus, error) {
+	if list, ok := f.teamStatuses[teamID]; ok {
+		return list, nil
+	}
 	return []domain.TeamStatus{{ID: f.statusID, TeamID: f.teamID, Category: domain.StatusCategoryUnstarted, IsDefault: true}}, nil
 }
 func (f *importFakeStore) Members(context.Context, uuid.UUID) ([]importer.Member, error) {
@@ -262,6 +293,7 @@ func (f *importFakeStore) CreateIssue(_ context.Context, ws, teamID uuid.UUID, i
 	issue.TeamID = teamID
 	issue.Identifier = fmt.Sprintf("TEAM-%d", f.number)
 	issue.Number = f.number
+	issue.SortOrder = -float64(f.number) * 1000
 	if ref != nil {
 		ref.KuayleID = issue.ID
 		if f.repo != nil {
@@ -307,6 +339,20 @@ func (f *importFakeStore) CreateComment(_ context.Context, _ uuid.UUID, comment 
 	copyComment := *comment
 	f.comments = append(f.comments, &copyComment)
 	return nil
+}
+func (f *importFakeStore) UpdateComment(_ context.Context, _, issueID, commentID, authorID uuid.UUID, body string) (*domain.Comment, error) {
+	for _, comment := range f.comments {
+		if comment.ID == commentID && comment.IssueID == issueID {
+			if comment.Body == body {
+				return nil, nil
+			}
+			comment.Body = body
+			comment.UserID = authorID
+			copyComment := *comment
+			return &copyComment, nil
+		}
+	}
+	return nil, nil
 }
 func (f *importFakeStore) CreateRelation(_ context.Context, _ uuid.UUID, issueID, relatedID uuid.UUID, typ domain.IssueRelationType) (uuid.UUID, error) {
 	id := uuid.New()
@@ -383,7 +429,7 @@ func newHarness(t *testing.T) *importHarness {
 	source := &fakeSource{attachErr: map[string]error{}}
 	mapping := importer.NewMapping()
 	mapping.Projects["10"] = importer.ProjectTarget{TeamID: team}
-	mapping.Statuses["to do"] = importer.StatusTarget{TeamID: team, StatusID: status}
+	mapping.Statuses[team.String()+":to do"] = importer.StatusTarget{TeamID: team, StatusID: status}
 	mapping.Priorities["high"] = 2
 	rawMapping, _ := json.Marshal(mapping)
 	creds, _ := json.Marshal(map[string]string{"base_url": "https://example.atlassian.net", "token": " secret "})
@@ -486,6 +532,16 @@ func TestCreateDerivesSourceSiteFromCredentials(t *testing.T) {
 	}
 }
 
+func TestDecodeMappingIgnoresLegacyLabels(t *testing.T) {
+	mapping, err := decodeMapping(json.RawMessage(`{"labels":{"bug":{"label_id":null}},"priorities":{"high":2}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mapping.Priorities["high"] != 2 {
+		t.Fatalf("priorities were not decoded: %+v", mapping.Priorities)
+	}
+}
+
 func TestPreviewWritesNothing(t *testing.T) {
 	h := newHarness(t)
 	h.source.issues = sampleIssues(h.admin)
@@ -524,6 +580,9 @@ func TestFirstRunCreatesEverythingAndWipesCredentials(t *testing.T) {
 		if h.store.issues[id].Number != i+1 {
 			t.Fatalf("issue numbering is not sequential: %+v", h.store.issues[id])
 		}
+		if h.store.issues[id].SortOrder != -float64(i+1)*1000 {
+			t.Fatalf("issue sort order was not set from the number: %+v", h.store.issues[id])
+		}
 	}
 	assertFinish(t, h.repo, domain.ImportStatusCompleted)
 	if h.repo.wipes == 0 {
@@ -558,6 +617,54 @@ func TestRerunSkipsThenUpdatesChanged(t *testing.T) {
 	}
 	if len(h.store.issues) != before {
 		t.Fatal("update created a duplicate")
+	}
+}
+
+func TestStatusesResolvePerTargetTeam(t *testing.T) {
+	h := newHarness(t)
+	teamA := h.store.teamID
+	teamB := uuid.New()
+	statusA := h.store.statusID
+	statusB, defaultB := uuid.New(), uuid.New()
+
+	h.store.teams = []domain.Team{{ID: teamA, WorkspaceID: h.ws}, {ID: teamB, WorkspaceID: h.ws}}
+	h.store.teamStatuses = map[uuid.UUID][]domain.TeamStatus{
+		teamA: {{ID: statusA, TeamID: teamA, Category: domain.StatusCategoryStarted}},
+		teamB: {
+			{ID: statusB, TeamID: teamB, Category: domain.StatusCategoryStarted},
+			{ID: defaultB, TeamID: teamB, Category: domain.StatusCategoryUnstarted, IsDefault: true},
+		},
+	}
+
+	mapping := importer.NewMapping()
+	mapping.Projects["10"] = importer.ProjectTarget{TeamID: teamA}
+	mapping.Projects["20"] = importer.ProjectTarget{TeamID: teamB}
+	mapping.Statuses[teamA.String()+":in progress"] = importer.StatusTarget{TeamID: teamA, StatusID: statusA}
+	mapping.Statuses[teamB.String()+":in progress"] = importer.StatusTarget{TeamID: teamB, StatusID: statusB}
+	raw, _ := json.Marshal(mapping)
+	if err := h.svc.UpdateMapping(context.Background(), h.ws, h.job.ID, raw); err != nil {
+		t.Fatal(err)
+	}
+
+	h.source.issues = []importer.SourceIssue{
+		{ExternalID: "a", Title: "A", Status: "In Progress", ProjectExternalID: "10"},
+		{ExternalID: "b", Title: "B", Status: "In Progress", ProjectExternalID: "20"},
+		{ExternalID: "c", Title: "C", Status: "Done", ProjectExternalID: "20"},
+	}
+	h.previewAndStart(t)
+	h.svc.process(context.Background(), h.job)
+
+	gotA := h.issueByExternalID(t, "a")
+	gotB := h.issueByExternalID(t, "b")
+	gotC := h.issueByExternalID(t, "c")
+	if gotA.StatusID == nil || *gotA.StatusID != statusA {
+		t.Fatalf("team A issue got status %v, want %s", gotA.StatusID, statusA)
+	}
+	if gotB.StatusID == nil || *gotB.StatusID != statusB {
+		t.Fatalf("team B issue got status %v, want %s (not team A's %s)", gotB.StatusID, statusB, statusA)
+	}
+	if gotC.StatusID == nil || *gotC.StatusID != defaultB {
+		t.Fatalf("unmapped status should use team B's default %s, got %v", defaultB, gotC.StatusID)
 	}
 }
 
@@ -699,6 +806,108 @@ func TestRefErrorsFailTheItemWithoutCreatingIssues(t *testing.T) {
 	}
 }
 
+func TestRerunUpdatesEditedComment(t *testing.T) {
+	h := newHarness(t)
+	created := time.Unix(1000, 0)
+	h.source.issues = []importer.SourceIssue{
+		{
+			ExternalID: "A", Title: "Issue", Status: "To Do", ProjectExternalID: "10",
+			Comments: []importer.SourceComment{
+				{ExternalID: "c1", Author: importer.SourceUser{ExternalID: "u1", Email: "importer@example.com"}, Body: "first", CreatedAt: created, UpdatedAt: created},
+				{ExternalID: "c2", Author: importer.SourceUser{ExternalID: "u1", Email: "importer@example.com"}, Body: "second", CreatedAt: created, UpdatedAt: created},
+			},
+		},
+	}
+	h.previewAndStart(t)
+	h.svc.process(context.Background(), h.job)
+
+	before := len(h.store.comments)
+	if before != 2 {
+		t.Fatalf("expected 2 comments, got %d", before)
+	}
+	secondBody := h.store.comments[1].Body
+
+	h.source.issues[0].Comments[0].Body = "first edited"
+	h.source.issues[0].Comments[0].UpdatedAt = created.Add(time.Hour)
+	h.svc.process(context.Background(), h.job)
+
+	if len(h.store.comments) != before {
+		t.Fatalf("re-run duplicated comments: %d", len(h.store.comments))
+	}
+	foundEdited := false
+	for _, comment := range h.store.comments {
+		if strings.Contains(comment.Body, "first edited") {
+			foundEdited = true
+		}
+		if comment.Body != secondBody && strings.Contains(comment.Body, "second") {
+			t.Fatalf("unchanged comment was modified: %q", comment.Body)
+		}
+	}
+	if !foundEdited {
+		t.Fatalf("edited comment was not updated: %+v", h.store.comments)
+	}
+}
+
+func TestImportedIssueIsSanitizedHTMLAndTriaged(t *testing.T) {
+	h := newHarness(t)
+	h.source.issues = []importer.SourceIssue{
+		{
+			ExternalID: "A", ExternalKey: "PROJ-1",
+			Title:       "Hello\nWorld &amp; <b>friends</b>",
+			Description: "**bold** <script>alert(1)</script> text",
+			Status:      "To Do", ProjectExternalID: "10",
+			Comments: []importer.SourceComment{{
+				ExternalID: "c1",
+				Author:     importer.SourceUser{ExternalID: "u9", DisplayName: "Ghost"},
+				Body:       "**comment** <script>bad()</script>",
+			}},
+		},
+	}
+	h.previewAndStart(t)
+	h.svc.process(context.Background(), h.job)
+
+	issue := h.issueByExternalID(t, "A")
+	if issue.Title != "Hello World & <b>friends</b>" {
+		t.Fatalf("title was not passed through PlainText: %q", issue.Title)
+	}
+	if issue.Description == nil || !strings.Contains(*issue.Description, "<strong>bold</strong>") {
+		t.Fatalf("description is not sanitized HTML: %v", issue.Description)
+	}
+	if issue.Description != nil && strings.Contains(*issue.Description, "<script>") {
+		t.Fatalf("description contains an unsanitized script tag: %q", *issue.Description)
+	}
+	if !issue.Triaged {
+		t.Fatal("issue on a team without triage must be stored as triaged")
+	}
+
+	h2 := newHarness(t)
+	h2.store.teams = []domain.Team{{ID: h2.store.teamID, WorkspaceID: h2.ws, TriageEnabled: true}}
+	h2.source.issues = []importer.SourceIssue{
+		{ExternalID: "A", Title: "A", Status: "To Do", ProjectExternalID: "10"},
+	}
+	h2.previewAndStart(t)
+	h2.svc.process(context.Background(), h2.job)
+	if h2.issueByExternalID(t, "A").Triaged {
+		t.Fatal("issue on a team with triage enabled must be left untriaged")
+	}
+
+	found := false
+	for _, comment := range h.store.comments {
+		if strings.Contains(comment.Body, "<strong>comment</strong>") {
+			found = true
+			if strings.Contains(comment.Body, "<script>") {
+				t.Fatalf("comment contains an unsanitized script tag: %q", comment.Body)
+			}
+			if !strings.Contains(comment.Body, "<em>Originally by Ghost</em>") {
+				t.Fatalf("author attribution was not sanitized: %q", comment.Body)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("comment body was not sanitized: %+v", h.store.comments)
+	}
+}
+
 func TestAttachmentLinkSurvivesUpdate(t *testing.T) {
 	h := newHarness(t)
 	h.source.issues = sampleIssues(h.admin)
@@ -720,7 +929,7 @@ func TestAttachmentLinkSurvivesUpdate(t *testing.T) {
 	if after.Description == nil || !strings.Contains(*after.Description, "spec.pdf") {
 		t.Fatalf("update dropped the attachment link: %v", after.Description)
 	}
-	if strings.Count(*after.Description, "**Attachments**") != 1 {
+	if strings.Count(*after.Description, "<strong>Attachments</strong>") != 1 {
 		t.Fatalf("expected a single attachments block: %q", *after.Description)
 	}
 	if h.store.assetCount != 1 {
@@ -865,6 +1074,79 @@ func TestOversizedAttachmentIsSkippedWithoutFailing(t *testing.T) {
 type jiraTooLarge struct{}
 
 func (jiraTooLarge) Error() string { return "attachment exceeds the size limit" }
+
+func TestCancelDraftWipesCredentials(t *testing.T) {
+	h := newHarness(t)
+	if h.repo.jobs[h.job.ID].CredentialsEnc == nil {
+		t.Fatal("test setup: draft should hold credentials")
+	}
+	if err := h.svc.Cancel(context.Background(), h.ws, h.job.ID); err != nil {
+		t.Fatal(err)
+	}
+	job := h.repo.jobs[h.job.ID]
+	if job.Status != domain.ImportStatusCancelled {
+		t.Fatalf("draft was not cancelled: %s", job.Status)
+	}
+	if job.CredentialsEnc != nil {
+		t.Fatal("cancelling a draft did not wipe its credentials")
+	}
+}
+
+func TestRunExpiresIdleDraftCredentials(t *testing.T) {
+	h := newHarness(t)
+	now := time.Unix(1000, 0)
+	h.svc.now = func() time.Time { return now }
+
+	enc := "encrypted"
+	old := h.repo.jobs[h.job.ID]
+	old.Status = domain.ImportStatusDraft
+	old.CredentialsEnc = &enc
+	h.repo.updatedAt[old.ID] = now.Add(-25 * time.Hour)
+
+	recent, err := h.svc.Create(context.Background(), h.ws, h.admin, ImportCreateInput{
+		Source:      domain.ImportSourceJira,
+		Credentials: json.RawMessage(`{"base_url":"https://example.atlassian.net","token":"t"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.repo.updatedAt[recent.ID] = now.Add(-time.Hour)
+
+	h.svc.recoverStale(context.Background())
+
+	if got := h.repo.jobs[old.ID]; got.Status != domain.ImportStatusCancelled || got.CredentialsEnc != nil {
+		t.Fatalf("idle draft was not expired and wiped: %+v", got)
+	}
+	if got := h.repo.jobs[recent.ID]; got.Status != domain.ImportStatusDraft || got.CredentialsEnc == nil {
+		t.Fatalf("recent draft should be untouched: %+v", got)
+	}
+}
+
+func TestCancelDuringFetchStopsBeforeWrites(t *testing.T) {
+	h := newHarness(t)
+	issues := make([]importer.SourceIssue, 100)
+	for i := range issues {
+		issues[i] = importer.SourceIssue{ExternalID: fmt.Sprint(i), Title: "x", Status: "To Do", ProjectExternalID: "10"}
+	}
+	h.source.issues = issues
+	emitted := 0
+	h.source.onEmit = func() {
+		emitted++
+		if emitted == 30 {
+			h.repo.cancel = true
+		}
+	}
+	h.previewAndStart(t)
+	h.svc.process(context.Background(), h.job)
+
+	assertFinish(t, h.repo, domain.ImportStatusCancelled)
+	if len(h.store.issues) != 0 {
+		t.Fatalf("cancel during fetch wrote %d issues", len(h.store.issues))
+	}
+	if h.source.fetchCall != 1 {
+		t.Fatalf("fetch was not attempted, call=%d", h.source.fetchCall)
+	}
+}
 
 func TestCancellationWipesCredentials(t *testing.T) {
 	h := newHarness(t)

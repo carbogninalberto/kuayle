@@ -13,6 +13,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/importer"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 )
 
 // importRun holds the mutable state of one job execution. Keeping it off the
@@ -24,6 +25,7 @@ type importRun struct {
 	source        importer.Source
 	mapping       importer.Mapping
 	members       []importer.Member
+	teams         map[uuid.UUID]domain.Team
 	importerID    uuid.UUID
 	statuses      map[uuid.UUID][]domain.TeamStatus
 	refs          map[string]*domain.ImportExternalRef
@@ -107,8 +109,17 @@ func (s *ImportService) process(ctx context.Context, job *domain.ImportJob) {
 		finish(domain.ImportStatusFailed, err.Error())
 		return
 	}
+	teams, err := s.store.Teams(workCtx, job.WorkspaceID)
+	if err != nil {
+		finish(domain.ImportStatusFailed, err.Error())
+		return
+	}
+	teamMap := make(map[uuid.UUID]domain.Team, len(teams))
+	for _, team := range teams {
+		teamMap[team.ID] = team
+	}
 	run := &importRun{
-		svc: s, ctx: workCtx, job: job, source: source, mapping: mapping, members: members,
+		svc: s, ctx: workCtx, job: job, source: source, mapping: mapping, members: members, teams: teamMap,
 		importerID: *job.CreatedBy, statuses: map[uuid.UUID][]domain.TeamStatus{}, refs: map[string]*domain.ImportExternalRef{},
 	}
 	if err := run.execute(); err != nil {
@@ -130,8 +141,21 @@ func (s *ImportService) process(ctx context.Context, job *domain.ImportJob) {
 
 func (r *importRun) execute() error {
 	var issues []importer.SourceIssue
+	emitted := 0
 	if err := r.source.Fetch(r.ctx, func(issue importer.SourceIssue) error {
 		issues = append(issues, issue)
+		emitted++
+		// A cancel during a long fetch must stop before the write phase.
+		// %w keeps ErrImportCancelled detectable through Fetch's return.
+		if emitted%25 == 0 {
+			cancelled, err := r.svc.repo.IsCancelRequested(r.ctx, r.job.ID)
+			if err != nil {
+				return err
+			}
+			if cancelled {
+				return ErrImportCancelled
+			}
+		}
 		r.heartbeat(false)
 		return nil
 	}); err != nil {
@@ -318,14 +342,17 @@ func (r *importRun) writeIssue(item preparedIssue) (uuid.UUID, string, []importe
 		return uuid.Nil, "", nil, importer.ErrNoProjectMapping
 	}
 	statusID := uuid.Nil
-	status, mapped := r.mapping.ResolveStatus(issue.ProjectExternalID, issue.Status)
-	if mapped {
-		statusID = status.StatusID
-	} else if fallback, found := r.statusForTeam(target.TeamID); found {
-		statusID = fallback.ID
-		status.TeamID = target.TeamID
+	status, mapped := r.mapping.ResolveStatus(target.TeamID, issue.Status)
+	// A mapping whose target belongs to another team must never leak here;
+	// fall back to this team's default status instead.
+	if !mapped || status.TeamID != target.TeamID {
+		if fallback, found := r.statusForTeam(target.TeamID); found {
+			statusID = fallback.ID
+		} else {
+			return uuid.Nil, "", nil, fmt.Errorf("no status available for team %s", target.TeamID)
+		}
 	} else {
-		return uuid.Nil, "", nil, fmt.Errorf("no status available for team %s", target.TeamID)
+		statusID = status.StatusID
 	}
 	priority, _ := r.mapping.ResolvePriority(issue.Priority)
 	creatorID, attribution := r.mapping.ResolveUser(issue.Reporter, r.members, r.importerID)
@@ -341,6 +368,10 @@ func (r *importRun) writeIssue(item preparedIssue) (uuid.UUID, string, []importe
 	if err := r.storeAttachments(item, target.TeamID, &description); err != nil {
 		return uuid.Nil, "", nil, err
 	}
+	// Sanitize after the attribution, attachment and reference lines are added
+	// so the whole stored body is safe editor HTML, not raw Jira wiki text.
+	clean := sanitize.SanitizeEditorContent(description)
+	title := sanitize.PlainText(issue.Title)
 	category := r.categoryForStatusID(target.TeamID, statusID)
 
 	existing, err := r.ref(refKey(domain.ImportExternalIssue, issue.ExternalID))
@@ -367,8 +398,8 @@ func (r *importRun) writeIssue(item preparedIssue) (uuid.UUID, string, []importe
 		if err != nil || stored == nil {
 			return uuid.Nil, "", nil, fmt.Errorf("could not load imported issue: %v", err)
 		}
-		stored.Title = issue.Title
-		stored.Description = &description
+		stored.Title = title
+		stored.Description = &clean
 		stored.Status = issueStatus(category)
 		stored.StatusID = &statusID
 		stored.Priority = priority
@@ -388,9 +419,9 @@ func (r *importRun) writeIssue(item preparedIssue) (uuid.UUID, string, []importe
 		r.delta.Updated++
 	} else {
 		created := &domain.Issue{
-			Title: issue.Title, Description: &description, Status: issueStatus(category),
+			Title: title, Description: &clean, Status: issueStatus(category),
 			StatusID: &statusID, Priority: priority, CreatorID: creatorID, AssigneeID: assignee,
-			ProjectID: projectID, CycleID: item.cycleID,
+			ProjectID: projectID, CycleID: item.cycleID, Triaged: !r.teams[target.TeamID].TriageEnabled,
 		}
 		ref := r.newRef(domain.ImportExternalIssue, issue.ExternalID, key, uuid.Nil, item.hash, issue.URL)
 		if err := r.svc.store.CreateIssue(r.ctx, r.job.WorkspaceID, target.TeamID, created, issue.CreatedAt, issue.UpdatedAt, ref); err != nil {
@@ -493,20 +524,39 @@ func (r *importRun) writeComments(issue importer.SourceIssue, issueID uuid.UUID)
 			r.item(domain.ImportExternalComment, comment.ExternalID, key, domain.ImportOutcomeFailed, err.Error())
 			continue
 		}
-		if existing != nil {
-			continue
-		}
 		authorID, prefix := r.mapping.ResolveUser(&comment.Author, r.members, r.importerID)
 		body := comment.Body
 		if prefix != "" {
 			body = prefix + "\n\n" + body
 		}
+		body = sanitize.SanitizeEditorContent(body)
+		hash := importer.CommentHash(comment)
+
+		if existing != nil {
+			if existing.ContentHash != nil && *existing.ContentHash == hash {
+				continue
+			}
+			// The source comment changed: update the imported body in place.
+			updated, err := r.svc.store.UpdateComment(r.ctx, r.job.WorkspaceID, issueID, existing.KuayleID, authorID, body)
+			if err != nil {
+				r.item(domain.ImportExternalComment, comment.ExternalID, key, domain.ImportOutcomeFailed, err.Error())
+				continue
+			}
+			if updated == nil {
+				r.item(domain.ImportExternalComment, comment.ExternalID, key, domain.ImportOutcomeSkipped, "comment was deleted or edited in Kuayle")
+			}
+			if err := r.updateRef(existing, hash, ""); err != nil {
+				r.item(domain.ImportExternalComment, comment.ExternalID, key, domain.ImportOutcomeFailed, err.Error())
+			}
+			continue
+		}
+
 		created := &domain.Comment{IssueID: issueID, UserID: authorID, Body: body}
 		if err := r.svc.store.CreateComment(r.ctx, r.job.WorkspaceID, created, comment.CreatedAt, comment.UpdatedAt); err != nil {
 			r.item(domain.ImportExternalComment, comment.ExternalID, key, domain.ImportOutcomeFailed, err.Error())
 			continue
 		}
-		if err := r.upsertRef(domain.ImportExternalComment, comment.ExternalID, key, created.ID, "", ""); err != nil {
+		if err := r.upsertRef(domain.ImportExternalComment, comment.ExternalID, key, created.ID, hash, ""); err != nil {
 			r.item(domain.ImportExternalComment, comment.ExternalID, key, domain.ImportOutcomeFailed, err.Error())
 		}
 	}
@@ -522,7 +572,7 @@ func (r *importRun) writeComments(issue importer.SourceIssue, issueID uuid.UUID)
 	if existing != nil {
 		return
 	}
-	history := &domain.Comment{IssueID: issueID, UserID: r.importerID, Body: issue.HistoryMarkdown}
+	history := &domain.Comment{IssueID: issueID, UserID: r.importerID, Body: sanitize.SanitizeEditorContent(issue.HistoryMarkdown)}
 	if err := r.svc.store.CreateComment(r.ctx, r.job.WorkspaceID, history, issue.UpdatedAt, issue.UpdatedAt); err != nil {
 		r.item(domain.ImportExternalComment, "history:"+issue.ExternalID, key, domain.ImportOutcomeFailed, err.Error())
 		return

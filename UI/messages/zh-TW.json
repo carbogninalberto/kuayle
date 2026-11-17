@@ -4274,6 +4274,7 @@
 	"settings.import.status": "Source status",
 	"settings.import.user": "Source user",
 	"settings.import.priority": "Source priority",
+	"settings.import.load_more": "載入更多",
 	"settings.import.labels": "Source label",
 	"settings.import.epic_mode": "Epics become",
 	"settings.import.epic_project": "Projects",

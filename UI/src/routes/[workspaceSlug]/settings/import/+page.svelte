@@ -41,6 +41,7 @@
 	let options = $state<ImportOptions | null>(null);
 	let preview = $state<ImportPreview | null>(null);
 	let items = $state<ImportItem[]>([]);
+	let hasMore = $state(false);
 	let pollTimer: ReturnType<typeof setTimeout> | null = null;
 	let destroyed = false;
 
@@ -61,6 +62,12 @@
 		job && job.total > 0 ? Math.min(100, Math.round((job.processed / job.total) * 100)) : 0
 	);
 	const teamOptions = $derived((options?.teams ?? []).map((team) => ({ value: team.id, label: team.name })));
+	const mappedTeams = $derived(
+		[...new Set(Object.values(projectTeams).filter(Boolean))].map((id) => ({
+			id,
+			name: options?.teams.find((team) => team.id === id)?.name ?? id
+		}))
+	);
 	const memberOptions = $derived(
 		(options?.members ?? []).map((member) => ({ value: member.user_id, label: member.display_name || member.email }))
 	);
@@ -104,9 +111,12 @@
 		if (updated.mapping) applyMapping(updated.mapping);
 	}
 
-	async function loadItems(id: string) {
+	async function loadItems(id: string, append = false) {
 		try {
-			items = (await imports.items(slug, id)).items;
+			const offset = append ? items.length : 0;
+			const result = await imports.items(slug, id, offset);
+			hasMore = result.has_more;
+			items = append ? [...items, ...result.items] : result.items;
 		} catch (err) {
 			appToast.apiError(err, m['settings.import.failed_load']());
 		}
@@ -159,6 +169,7 @@
 		selectedId = id;
 		preview = null;
 		items = [];
+		hasMore = false;
 		try {
 			const found = await imports.get(slug, id);
 			applyJob(found);
@@ -183,6 +194,7 @@
 			selectedId = created.id;
 			preview = null;
 			items = [];
+			hasMore = false;
 			applyMapping(created.mapping);
 			appToast.success(m['settings.import.connect']());
 		} catch (err) {
@@ -339,7 +351,7 @@
 								<span class="text-sm text-[var(--color-text-secondary)]">{job.status}</span>
 								<Badge variant={job.status === 'failed' ? 'destructive' : 'secondary'}>{job.processed}/{job.total}</Badge>
 							</div>
-							{#if job.status === 'queued' || job.status === 'running'}
+							{#if ['draft', 'previewed', 'queued', 'running'].includes(job.status)}
 								<Button variant="outline" size="sm" onclick={cancel} disabled={busy}>{m['settings.import.cancel']()}</Button>
 							{/if}
 						</div>
@@ -389,16 +401,21 @@
 									</div>
 								{/each}
 
-								{#each preview.statuses as sourceStatus}
-									<div class={rowClass}>
-										<span class="text-sm">{m['settings.import.status']()}: {sourceStatus}</span>
-										<div class="w-full sm:w-64">
-											<SelectField bind:value={statusTargets[sourceStatus.toLowerCase()]} options={statusOptions(Object.values(projectTeams).find(Boolean) ?? '')} placeholder={m['settings.import.unassigned']()} />
+							{#each mappedTeams as team (team.id)}
+								<div class="space-y-2">
+									<p class={hintClass}>{m['settings.import.status']()} · {team.name}</p>
+									{#each preview.statuses as sourceStatus}
+										<div class={rowClass}>
+											<span class="text-sm">{m['settings.import.status']()}: {sourceStatus}</span>
+											<div class="w-full sm:w-64">
+												<SelectField bind:value={statusTargets[`${team.id}:${sourceStatus.toLowerCase()}`]} options={statusOptions(team.id)} placeholder={m['settings.import.unassigned']()} />
+											</div>
 										</div>
-									</div>
-								{/each}
+									{/each}
+								</div>
+							{/each}
 
-								{#each preview.users as sourceUser}
+							{#each preview.users as sourceUser}
 									<div class={rowClass}>
 										<span class="text-sm">{m['settings.import.user']()}: {sourceUser.display_name || sourceUser.email}</span>
 										<div class="w-full sm:w-64">
@@ -483,6 +500,13 @@
 										{/each}
 									</Table.Body>
 								</Table.Root>
+								{#if hasMore}
+									<div class="flex justify-end pt-2">
+										<Button variant="outline" size="sm" onclick={() => job && loadItems(job.id, true)} disabled={busy}>
+											{m['settings.import.load_more']()}
+										</Button>
+									</div>
+								{/if}
 							{/if}
 						</div>
 					{/if}

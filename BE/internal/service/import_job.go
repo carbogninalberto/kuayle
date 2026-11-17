@@ -283,9 +283,6 @@ func decodeMapping(raw json.RawMessage) (importer.Mapping, error) {
 	if mapping.Priorities == nil {
 		mapping.Priorities = map[string]int{}
 	}
-	if mapping.Labels == nil {
-		mapping.Labels = map[string]importer.LabelTarget{}
-	}
 	return mapping, nil
 }
 
@@ -301,21 +298,38 @@ func mergeUnique(a, b []string) []string {
 	return out
 }
 
+const (
+	// staleAfter is how long a running job may go without a heartbeat before
+	// recovery marks it failed.
+	staleAfter = 10 * time.Minute
+	// idleAfter is how long a draft or previewed job may sit untouched before
+	// its credentials expire.
+	idleAfter    = 24 * time.Hour
+	recoverEvery = time.Minute
+)
+
+// recoverStale fails interrupted jobs and expires credentials on idle drafts.
+// It runs at startup and once a minute from Run; keeping it separate makes the
+// sweep testable without starting the polling loop.
+func (s *ImportService) recoverStale(ctx context.Context) {
+	if n, err := s.repo.FailStaleRunning(ctx, s.now().Add(-staleAfter)); err != nil {
+		s.logger.WithError(err).Warn("could not recover stale imports")
+	} else if n > 0 {
+		s.logger.WithField("count", n).Warn("marked interrupted imports as failed")
+	}
+	if n, err := s.repo.ExpireIdle(ctx, s.now().Add(-idleAfter)); err != nil {
+		s.logger.WithError(err).Warn("could not expire idle imports")
+	} else if n > 0 {
+		s.logger.WithField("count", n).Warn("expired credentials on idle imports")
+	}
+}
+
 // Run polls for queued imports until ctx ends. Like the backup worker, it
 // recovers interrupted jobs first and never dies on a transient error. A job
 // is stale only when its heartbeat is older than ten minutes; recovery runs
 // once a minute as well as at startup.
 func (s *ImportService) Run(ctx context.Context) {
-	const staleAfter = 10 * time.Minute
-	const recoverEvery = time.Minute
-	recover := func() {
-		if n, err := s.repo.FailStaleRunning(ctx, s.now().Add(-staleAfter)); err != nil {
-			s.logger.WithError(err).Warn("could not recover stale imports")
-		} else if n > 0 {
-			s.logger.WithField("count", n).Warn("marked interrupted imports as failed")
-		}
-	}
-	recover()
+	s.recoverStale(ctx)
 	lastRecover := s.now()
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
@@ -337,7 +351,7 @@ func (s *ImportService) Run(ctx context.Context) {
 		case <-ticker.C:
 		}
 		if s.now().Sub(lastRecover) >= recoverEvery {
-			recover()
+			s.recoverStale(ctx)
 			lastRecover = s.now()
 		}
 	}

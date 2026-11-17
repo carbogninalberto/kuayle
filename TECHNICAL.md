@@ -1708,6 +1708,22 @@ refs on every run, so updates and a re-run after a failed issue create keep the
 links to already-stored assets. Ref lookup or write errors fail the affected
 item rather than being silently treated as "not found".
 
+Status mappings are keyed `<team_uuid>:<source status>`: two projects mapped to
+different teams can map the same source status to different team statuses, and
+the worker falls back to that team's default status when a status is unmapped
+or its target belongs to another team. Priorities must be a Kuayle value (0..4).
+There is no labels mapping — source labels and components are matched or
+created by name. Imported titles go through `sanitize.PlainText` and
+descriptions, comments and the history summary through
+`sanitize.SanitizeEditorContent`, so stored content is safe editor HTML. An
+imported issue is created already triaged unless its team has triage enabled,
+and gets a `SortOrder` derived from its Kuayle number like any in-app issue.
+On a re-run a comment whose source body or update time changed is updated in
+place; unchanged comments are left untouched. If the Kuayle comment was deleted
+or edited so it can no longer be updated, the re-run records that as a skipped
+item instead of duplicating it. A cancel requested mid-fetch stops the job
+before any Kuayle entity is written (checked every 25 emitted issues).
+
 Assignees and authors resolve differently: a missing, unmatched or explicitly
 unassigned source user leaves an issue with no assignee, while an unmatched
 author (reporter or comment author) is attributed to the importer with the
@@ -1726,14 +1742,22 @@ another replica's recovery pass.
 Credentials are encrypted with `crypto.Encrypt` under a key derived from
 `JWT_SECRET` (`:import`) and written to `credentials_enc`. They are cleared in
 the same statement that sets a terminal status, again in a worker `defer` on
-every exit path, and again whenever stale running jobs are recovered.
-Responses never contain them. All import routes are session-only and require
+every exit path, and again whenever stale running jobs are recovered. Draft and
+previewed jobs can be cancelled too: cancelling them ends the job immediately
+and clears their credentials. `Run` also expires draft/previewed jobs idle for
+more than 24 hours, cancelling them and wiping credentials in one statement;
+the item report stays readable. Responses never contain credentials. All import
+routes are session-only and require
 the workspace owner/admin role; personal access tokens and SSO-scoped sessions
 are rejected by middleware. Outbound requests dial only public addresses
 unless `IMPORT_ALLOW_PRIVATE_NETWORK` is enabled for a LAN Jira Server/DC, and
 redirects are not followed. Attachments use the shared `domain.MaxUploadSize`
 (10 MiB) and the upload handler's type validation; oversized files are skipped
 and reported.
+
+The item report is paged: `GET .../items?limit=&offset=` returns at most `limit`
+items (default 200, clamped to 1..500) and a `has_more` flag; the UI appends
+further pages with "Load more".
 
 The UI for this step lives in `UI/src/routes/[workspaceSlug]/settings/import`:
 the prerendered `WEB/` app is the marketing site, while admin settings pages

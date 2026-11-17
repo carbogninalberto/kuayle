@@ -221,14 +221,25 @@ func (r *ImportJobRepository) WipeCredentials(ctx context.Context, jobID uuid.UU
 }
 
 func (r *ImportJobRepository) RequestCancel(ctx context.Context, workspaceID, id uuid.UUID) error {
-	res, err := r.db.ExecContext(ctx, `UPDATE import_jobs SET cancel_requested = true, updated_at = now()
+	// A draft or previewed job has no worker, so cancelling it ends the job
+	// right away and wipes the credentials it still holds.
+	res, err := r.db.ExecContext(ctx, `UPDATE import_jobs SET status = $1,
+		finished_at = now(), updated_at = now(), credentials_enc = NULL, cancel_requested = true
+		WHERE id = $2 AND workspace_id = $3 AND status IN ($4, $5)`,
+		domain.ImportStatusCancelled, id, workspaceID, domain.ImportStatusDraft, domain.ImportStatusPreviewed)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		return nil
+	}
+	res, err = r.db.ExecContext(ctx, `UPDATE import_jobs SET cancel_requested = true, updated_at = now()
 		WHERE id = $1 AND workspace_id = $2 AND status IN ($3, $4)`,
 		id, workspaceID, domain.ImportStatusQueued, domain.ImportStatusRunning)
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrImportNotEditable
 	}
 	return nil
@@ -256,6 +267,21 @@ func (r *ImportJobRepository) FailStaleRunning(ctx context.Context, before time.
 		error = 'import interrupted by a server restart', finished_at = now(),
 		updated_at = now(), credentials_enc = NULL
 		WHERE status = $2 AND updated_at < $3`, domain.ImportStatusFailed, domain.ImportStatusRunning, before)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// ExpireIdle cancels draft and previewed jobs left untouched for too long and
+// wipes their credentials in the same update. A terminal job keeps its report
+// for the user to read, but never keeps a usable secret.
+func (r *ImportJobRepository) ExpireIdle(ctx context.Context, before time.Time) (int64, error) {
+	res, err := r.db.ExecContext(ctx, `UPDATE import_jobs SET status = $1,
+		error = 'credentials expired after the job was idle for 24 hours',
+		finished_at = now(), updated_at = now(), credentials_enc = NULL
+		WHERE status IN ($2, $3) AND updated_at < $4`,
+		domain.ImportStatusCancelled, domain.ImportStatusDraft, domain.ImportStatusPreviewed, before)
 	if err != nil {
 		return 0, err
 	}
