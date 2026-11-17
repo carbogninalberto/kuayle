@@ -24,8 +24,12 @@ import (
 
 type managerStoreFake struct {
 	ManagerStore
+	// sampleMu guards the sample fields: the sampler writes them from one goroutine per machine.
+	sampleMu                  sync.Mutex
 	resourceSamples           []domain.DevMachineResourceSample
-	prunedSamples             []prunedSamples
+	expiredPrunes             []expiredPrune
+	sampleInsertFailures      int
+	sampleInserts             int
 	wipedSampleMachines       []uuid.UUID
 	appPorts                  portFakeState
 	envCheck                  environmentFakeState
@@ -327,6 +331,20 @@ func (f *managerStoreFake) ListRuntimeMachines(context.Context, int, int) ([]dom
 	return f.runtimeMachines, nil
 }
 
+// ListSamplingMachines returns the running machines among runtimeMachines.
+func (f *managerStoreFake) ListSamplingMachines(_ context.Context, limit, offset int) ([]domain.DevMachine, error) {
+	var running []domain.DevMachine
+	for _, machine := range f.runtimeMachines {
+		if machine.Status == domain.DevMachineStatusRunning {
+			running = append(running, machine)
+		}
+	}
+	if offset >= len(running) {
+		return nil, nil
+	}
+	return running[offset:min(offset+limit, len(running))], nil
+}
+
 func (f *managerStoreFake) SetDesiredAndEnqueue(_ context.Context, _ uuid.UUID, _ uuid.UUID, desired domain.DevMachineStatus, operation *domain.DevMachineOperation) error {
 	f.desired = append(f.desired, desired)
 	f.actions = append(f.actions, operation.Action)
@@ -378,18 +396,41 @@ func (f *managerStoreFake) PurgePermanentDeleteRequest(_ context.Context, _ uuid
 	return nil
 }
 
-type prunedSamples struct {
-	machineID uuid.UUID
-	before    time.Time
+type expiredPrune struct {
+	before time.Time
+	limit  int
 }
 
 func (f *managerStoreFake) CreateResourceSample(_ context.Context, sample *domain.DevMachineResourceSample) error {
+	f.sampleMu.Lock()
+	defer f.sampleMu.Unlock()
+	f.sampleInserts++
+	if f.sampleInsertFailures > 0 {
+		f.sampleInsertFailures--
+		return errors.New("insert failed")
+	}
 	f.resourceSamples = append(f.resourceSamples, *sample)
 	return nil
 }
-func (f *managerStoreFake) PruneResourceSamples(_ context.Context, machineID uuid.UUID, before time.Time) error {
-	f.prunedSamples = append(f.prunedSamples, prunedSamples{machineID: machineID, before: before})
-	return nil
+
+// samplesOf returns the recorded samples of one machine.
+func (f *managerStoreFake) samplesOf(machineID uuid.UUID) []domain.DevMachineResourceSample {
+	f.sampleMu.Lock()
+	defer f.sampleMu.Unlock()
+	var samples []domain.DevMachineResourceSample
+	for _, sample := range f.resourceSamples {
+		if sample.MachineID == machineID {
+			samples = append(samples, sample)
+		}
+	}
+	return samples
+}
+
+func (f *managerStoreFake) PruneExpiredResourceSamples(_ context.Context, before time.Time, limit int) (int, error) {
+	f.sampleMu.Lock()
+	defer f.sampleMu.Unlock()
+	f.expiredPrunes = append(f.expiredPrunes, expiredPrune{before: before, limit: limit})
+	return 0, nil
 }
 func (f *managerStoreFake) DeleteResourceSamples(_ context.Context, machineID uuid.UUID) error {
 	f.wipedSampleMachines = append(f.wipedSampleMachines, machineID)
@@ -554,16 +595,24 @@ type runtimeFake struct {
 	onSpawn                                     func()
 	agentExecution                              *AgentExecution
 	stats                                       map[uuid.UUID]ResourceUsage
-	hostDiskUsage                               HostDiskUsage
-	hostDiskUsageErr                            error
-	hostDiskUsageCalls                          int
-	spawnSecrets                                map[string]map[string]string
-	agentSecrets                                map[string]string
-	terminalSignIn                              string
-	returnedSignIn                              string
-	startErr                                    error
-	terminalSignIns                             map[string]string
-	terminalSignInSyncs                         int
+	// statsMu guards the stats fields below: the sampler calls Stats from one goroutine per machine.
+	// inspectBlock holds Inspect (and so a reconcile pass) until it is closed.
+	inspectBlock        chan struct{}
+	inspectEntered      chan struct{}
+	statsMu             sync.Mutex
+	statsCalls          map[uuid.UUID]int
+	statsBlock          map[uuid.UUID]chan struct{}
+	statsFailures       map[uuid.UUID]int
+	hostDiskUsage       HostDiskUsage
+	hostDiskUsageErr    error
+	hostDiskUsageCalls  int
+	spawnSecrets        map[string]map[string]string
+	agentSecrets        map[string]string
+	terminalSignIn      string
+	returnedSignIn      string
+	startErr            error
+	terminalSignIns     map[string]string
+	terminalSignInSyncs int
 	// previewRemovals records, per RemovePreviews call, what had run before.
 	previewRemovals   []string
 	removePreviewsErr error
@@ -668,14 +717,52 @@ func (f *runtimeFake) TerminateTerminal(_ context.Context, _ *domain.DevMachine,
 	f.terminatedSession = session
 	return f.terminateTerminalErr
 }
-func (f *runtimeFake) Inspect(context.Context, *domain.DevMachine, []domain.DevMachineService) (RuntimeInspection, error) {
+func (f *runtimeFake) Inspect(ctx context.Context, _ *domain.DevMachine, _ []domain.DevMachineService) (RuntimeInspection, error) {
+	if f.inspectBlock != nil {
+		if f.inspectEntered != nil {
+			f.inspectEntered <- struct{}{}
+		}
+		select {
+		case <-f.inspectBlock:
+		case <-ctx.Done():
+			return RuntimeInspection{}, ctx.Err()
+		}
+	}
 	return RuntimeInspection{NetworkExists: true, VolumeExists: true, GatewayAttached: true}, nil
 }
-func (f *runtimeFake) Stats(_ context.Context, machine *domain.DevMachine, _ []domain.DevMachineService) (ResourceUsage, error) {
+func (f *runtimeFake) Stats(ctx context.Context, machine *domain.DevMachine, _ []domain.DevMachineService) (ResourceUsage, error) {
+	f.statsMu.Lock()
+	if f.statsCalls == nil {
+		f.statsCalls = map[uuid.UUID]int{}
+	}
+	f.statsCalls[machine.ID]++
+	block := f.statsBlock[machine.ID]
+	fail := f.statsFailures[machine.ID] > 0
+	if fail {
+		f.statsFailures[machine.ID]--
+	}
+	f.statsMu.Unlock()
+	if block != nil {
+		select {
+		case <-block:
+		case <-ctx.Done():
+			return ResourceUsage{}, ctx.Err()
+		}
+	}
+	if fail {
+		return ResourceUsage{}, errors.New("stats failed")
+	}
 	if usage, ok := f.stats[machine.ID]; ok {
 		return usage, nil
 	}
 	return ResourceUsage{}, nil
+}
+
+// statsCallsOf is how many times Stats ran for the machine.
+func (f *runtimeFake) statsCallsOf(machineID uuid.UUID) int {
+	f.statsMu.Lock()
+	defer f.statsMu.Unlock()
+	return f.statsCalls[machineID]
 }
 func (f *runtimeFake) HostDiskUsage(context.Context) (HostDiskUsage, error) {
 	f.hostDiskUsageCalls++
@@ -813,7 +900,7 @@ func TestReconcileStopsARescuedExpiredMachine(t *testing.T) {
 	require.Equal(t, []domain.DevMachineStatus{domain.DevMachineStatusStopped}, store.states)
 }
 
-func TestReconcileEmitsDiskQuotaWarningOncePerGenerationAndStillStopsAtLimit(t *testing.T) {
+func TestSamplingEmitsDiskQuotaWarningOncePerGenerationAndStillStopsAtLimit(t *testing.T) {
 	machine := domain.DevMachine{
 		ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusRunning,
 		DesiredStatus: domain.DevMachineStatusRunning, Generation: 2, DiskGB: 10,
@@ -824,13 +911,13 @@ func TestReconcileEmitsDiskQuotaWarningOncePerGenerationAndStillStopsAtLimit(t *
 	const gib = int64(1024 * 1024 * 1024)
 
 	runtime.stats[machine.ID] = ResourceUsage{DiskBytes: 8 * gib}
-	require.NoError(t, manager.reconcile(context.Background()))
+	sampleAndWait(manager)
 	require.Empty(t, store.events)
 	require.Empty(t, store.actions)
 
 	runtime.stats[machine.ID] = ResourceUsage{DiskBytes: 9 * gib}
-	require.NoError(t, manager.reconcile(context.Background()))
-	require.NoError(t, manager.reconcile(context.Background()))
+	sampleAndWait(manager)
+	sampleAndWait(manager)
 	require.Len(t, store.events, 1)
 	require.Equal(t, "resource.disk_quota_warning", store.events[0].EventType)
 	require.JSONEq(t, `{"used_bytes":9663676416,"limit_bytes":10737418240,"percent":90}`, string(store.events[0].Payload))
@@ -838,12 +925,12 @@ func TestReconcileEmitsDiskQuotaWarningOncePerGenerationAndStillStopsAtLimit(t *
 
 	machine.Generation = 3
 	store.runtimeMachines[0].Generation = 3
-	require.NoError(t, manager.reconcile(context.Background()))
+	sampleAndWait(manager)
 	require.Len(t, store.events, 2)
 	require.Equal(t, "resource.disk_quota_warning", store.events[1].EventType)
 
 	runtime.stats[machine.ID] = ResourceUsage{DiskBytes: 10 * gib}
-	require.NoError(t, manager.reconcile(context.Background()))
+	sampleAndWait(manager)
 	require.Equal(t, []domain.DevMachineStatus{domain.DevMachineStatusStopped}, store.desired)
 	require.Equal(t, []domain.DevMachineOperationAction{domain.DevMachineOpStop}, store.actions)
 	require.Equal(t, "resource.disk_quota_exceeded", store.events[2].EventType)

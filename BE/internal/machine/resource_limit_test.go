@@ -91,7 +91,7 @@ func TestDiskLimitStopIsRecordedOnTheMachine(t *testing.T) {
 	store := &managerStoreFake{machine: machine, runtimeMachines: []domain.DevMachine{*machine}}
 	runtime := &runtimeFake{stats: map[uuid.UUID]ResourceUsage{machine.ID: {DiskBytes: 21 << 30}}}
 	manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test")
-	require.NoError(t, manager.reconcile(context.Background()))
+	sampleAndWait(manager)
 	require.Equal(t, []string{"disk: " + domain.DiskLimitMessage(20)}, store.resourceLimits)
 }
 

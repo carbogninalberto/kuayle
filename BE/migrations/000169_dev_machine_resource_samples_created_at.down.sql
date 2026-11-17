@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_dev_machine_resource_samples_created_at;

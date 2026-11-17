@@ -933,22 +933,38 @@ probes the helper at startup and logs why new machines keep container shares
 when it is unavailable (for example on Docker Desktop or with user-namespace
 remapping).
 
-**Usage history.** Every reconcile (30 seconds) the manager records the summed
+**Usage history.** A sampler beside reconcile (`BE/internal/machine/resource_sampler.go`)
+records, every 30 seconds (`domain.DevMachineResourceSampleInterval`), the summed
 CPU, memory, process and network usage of all of a running machine's containers
 (its services and the agent runs, checks, check services and custom tools beside
 them; CPU is 100% per core, measured between a container's one-shot Docker
-samples of successive reconciles, so a container's first sample reads zero) plus
-its workspace and Docker disk usage in `dev_machine_resource_samples`.
-Reconciliation runs beside operation leasing, never blocking it, and each
-machine's pass is bounded to two minutes (Docker exec reads stop with their
-context), so one stuck Docker call cannot stop sampling or recovery. It keeps 24 hours per machine
-(`domain.DevMachineResourceRetention`, pruned as samples are written) and
-deletes a machine's history when its runtime is torn down; deleting the machine
-cascades. `GET .../resource-usage?window=1h|6h|24h` returns the window oldest
-first, averaged into 30-second, 1-minute or 4-minute buckets (`date_bin`;
-network counters keep the bucket's highest value), for the machine page's CPU,
-memory and disk charts; without `window` it returns the latest 120 samples,
-newest first.
+samples of successive calls, so a container's first sample reads zero) plus
+its workspace and Docker disk usage in `dev_machine_resource_samples`. The sampler
+is the only caller of `Runtime.Stats`; reconcile no longer samples, so a slow or
+stuck reconcile pass never stops it. Each tick lists the `running` machines
+(including ones with a queued operation, so a resize leaves no hole) and samples
+each in its own goroutine: at most 8 at once, each bounded to 20 seconds, and a
+machine whose previous sample is still running is skipped, so one hung Docker
+call delays no other machine. A failed stats call or insert is logged with the
+machine id, counted (`resource_sample_stats_failed_total`,
+`resource_sample_inserts_failed_total`, `resource_samples_missed_total`,
+`resource_samples_recorded_total` in the manager metrics) and retried once after
+5 seconds, so a failing sample leaves a gap of about a minute at most. The volume
+size update and the disk-quota warning and stop follow each measured sample.
+
+The history is a rolling 24-hour window (`domain.DevMachineResourceRetention`):
+every 5 minutes (and at start) the manager deletes the samples older than that
+for every machine, stopped or torn down included, in batches of 5000 rows
+(`PruneExpiredResourceSamples`, served by the `created_at` index of migration
+000169). Teardown deletes a machine's history at once; deleting the machine
+cascades. `GET .../resource-usage?window=1h|6h|24h` returns every bucket of the
+window, oldest first (`generate_series` joined to the `date_bin` averages, so
+network counters keep the bucket's highest value). A bucket is at least two
+sampling intervals wide (1h and 6h: 1 minute; 24h: 4 minutes), so one late sample
+does not look like a gap. A bucket with no samples is returned explicitly with
+`sample_count` 0 and null values; the machine page's CPU, memory and disk charts
+break the line there and span exactly the returned buckets. Without `window` the
+endpoint returns the latest 120 samples, newest first.
 
 ### Disk Limitation
 
