@@ -5,6 +5,18 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vite';
 import { paraglideVitePlugin } from '@inlang/paraglide-js';
 
+// Playwright sets this for both its build and preview. It lets the test build
+// stay quiet without changing production builds or the dev server.
+const browserTests = process.env.KUAYLE_BROWSER_TESTS === '1';
+
+/** Only dependency notices from these libraries are hidden in browser-test builds. */
+function isDependencyNotice(location: unknown): boolean {
+	return (
+		typeof location === 'string' &&
+		(location.includes('/node_modules/@xyflow/') || location.includes('/node_modules/layerchart/'))
+	);
+}
+
 export default defineConfig({
 	envDir: '..',
 	plugins: [
@@ -16,6 +28,14 @@ export default defineConfig({
 		}),
 		sveltekit({
 			preprocess: vitePreprocess(),
+			// Test builds hide only Svelte notices from the two noisy dependencies;
+			// warnings from our own src/ files are still handed to the default handler.
+			onwarn: browserTests
+				? (warning, defaultHandler) => {
+						if (isDependencyNotice(warning.filename)) return;
+						defaultHandler(warning);
+					}
+				: undefined,
 			// SvelteKit 3 no longer provides `$lib`; keep the existing imports working.
 			alias: { $lib: 'src/lib' },
 			adapter: adapter({
@@ -35,7 +55,9 @@ export default defineConfig({
 			'/api': {
 				target: 'http://localhost:8080',
 				changeOrigin: true,
-				ws: true
+				// No backend runs during browser tests; without this the preview
+				// forwards websocket upgrades to :8080 and logs ECONNREFUSED on retries.
+				ws: !browserTests
 			},
 			// Exact path only: a plain key is a prefix match and would also catch
 			// a workspace whose slug starts with "mcp".
@@ -51,5 +73,6 @@ export default defineConfig({
 				changeOrigin: true
 			}
 		}
-	}
+	},
+	build: browserTests ? { chunkSizeWarningLimit: 100_000 } : undefined
 });
