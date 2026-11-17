@@ -13,7 +13,22 @@ const browserTests = process.env.KUAYLE_BROWSER_TESTS === '1';
 function isDependencyNotice(location: unknown): boolean {
 	return (
 		typeof location === 'string' &&
-		(location.includes('/node_modules/@xyflow/') || location.includes('/node_modules/layerchart/'))
+		/(?:^|\/)node_modules\/(?:@xyflow\/|layerchart\/)/.test(location)
+	);
+}
+
+/** A Rolldown warning is a dependency notice only when one of its locations is in those libraries. */
+function isDependencyWarning(warning: {
+	id?: string;
+	exporter?: string;
+	ids?: string[];
+	loc?: { file?: string };
+}): boolean {
+	return (
+		isDependencyNotice(warning.id) ||
+		isDependencyNotice(warning.exporter) ||
+		(warning.ids?.some(isDependencyNotice) ?? false) ||
+		isDependencyNotice(warning.loc?.file)
 	);
 }
 
@@ -28,14 +43,8 @@ export default defineConfig({
 		}),
 		sveltekit({
 			preprocess: vitePreprocess(),
-			// Test builds hide only Svelte notices from the two noisy dependencies;
-			// warnings from our own src/ files are still handed to the default handler.
-			onwarn: browserTests
-				? (warning, defaultHandler) => {
-						if (isDependencyNotice(warning.filename)) return;
-						defaultHandler(warning);
-					}
-				: undefined,
+			// Svelte notices from node_modules are already suppressed by vite-plugin-svelte;
+			// the dependency notices are bundler warnings filtered below.
 			// SvelteKit 3 no longer provides `$lib`; keep the existing imports working.
 			alias: { $lib: 'src/lib' },
 			adapter: adapter({
@@ -74,5 +83,18 @@ export default defineConfig({
 			}
 		}
 	},
-	build: browserTests ? { chunkSizeWarningLimit: 100_000 } : undefined
+	build: browserTests
+		? {
+				chunkSizeWarningLimit: 100_000,
+				// Vite 8 passes build.rolldownOptions.onwarn to Rolldown. Filter only
+				// warnings tied to the noisy dependencies; every other warning,
+				// including those from our own src/, still reaches the default handler.
+				rolldownOptions: {
+					onwarn(warning, defaultHandler) {
+						if (isDependencyWarning(warning)) return;
+						defaultHandler(warning);
+					}
+				}
+			}
+		: undefined
 });

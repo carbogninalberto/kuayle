@@ -184,3 +184,23 @@ test('the shortcut engine resolves definitions through a getter on every keydown
 
 	assert.deepEqual(calls, ['first', 'second', 'inbox']);
 });
+
+test('navigation handlers use the current workspace slug after an in-app switch', () => {
+	const destinations = [];
+	let slug = 'test';
+	// Mirrors $derived in [workspaceSlug]/+layout.svelte: the defs change with the
+	// slug and each handler closes over the slug at the time the defs were built.
+	const shortcutDefs = () => [
+		{ keys: ['g', 'i'], handler: () => destinations.push(`/${slug}/inbox`), label: 'Inbox', category: 'Navigation' }
+	];
+	const { handler } = createShortcutEngine(shortcutDefs);
+
+	handler(keydown('g'));
+	handler(keydown('i'));
+	assert.deepEqual(destinations, ['/test/inbox']);
+
+	slug = 'other';
+	handler(keydown('g'));
+	handler(keydown('i'));
+	assert.deepEqual(destinations, ['/test/inbox', '/other/inbox']);
+});

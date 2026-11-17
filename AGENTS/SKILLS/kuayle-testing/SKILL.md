@@ -23,7 +23,7 @@ with `npm ci` in each package. Commands below run in the stated directory.
 | Harness / root | `node --test AGENTS/TOOLS/check-harness.test.mjs` and `node AGENTS/TOOLS/check-harness.mjs` | Node only; fixtures and instruction integrity. Also inspect command accuracy and realistic task routing. |
 | UI types / UI | `npm run check` | Compiles Paraglide declarations, syncs SvelteKit, runs svelte-check. |
 | UI logic / UI | `npm run test:unit` | Node test runner over `tests/unit/*.test.mjs`; no Vitest/Jest setup. |
-| UI browser / UI | `npx playwright install chromium`, then `npm run test:e2e` | Config builds UI and starts its own preview on port 4174; leave it free. It sets `KUAYLE_BROWSER_TESTS=1`, which disables WebSocket proxying and silences dependency build notices; tests needing a live connection still use `routeWebSocket`. Follow existing API/WebSocket mocks. |
+| UI browser / UI | `npx playwright install chromium`, then `npm run test:e2e` | Config builds UI and starts its own preview on port 4174; leave it free. It sets `KUAYLE_BROWSER_TESTS=1`, which disables WebSocket proxying and, in the test build only, filters dependency notices in the bundler `onwarn` plus the chunk-size hint; warnings from our own `src/` still print. Tests needing a live connection still use `routeWebSocket`. Follow existing API/WebSocket mocks. |
 | UI build / UI | `npm run build` | Static application output in `build/`; also exercised by browser tests. |
 | Backend / BE | `go test ./... -race -count=1`, `go vet ./...`, `go build ./...` | Unit checks work without services, but integration tests may skip. See database requirements below. |
 | WEB / WEB | `npm run check`, `npm run validate` | Types, production build, SEO/internal-link validation. Output in `build/`. |
