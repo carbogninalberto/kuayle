@@ -42,11 +42,18 @@ test('the comparison section is labelled Compare in navigation, footer and bread
 	const nav = page.getByRole('navigation', { name: 'Main' });
 	await expect(nav.getByRole('button', { name: 'Compare' })).toBeVisible();
 
-	const breadcrumb = page.getByRole('navigation', { name: 'Breadcrumb' });
-	await expect(breadcrumb.getByRole('link', { name: 'Compare' })).toHaveAttribute('href', '/alternatives');
+	const hubBreadcrumb = page.getByRole('navigation', { name: 'Breadcrumb' });
+	await expect(hubBreadcrumb.getByText('Compare', { exact: true })).toHaveAttribute(
+		'aria-current',
+		'page'
+	);
 
 	const footer = page.getByRole('navigation', { name: 'Compare' });
 	await expect(footer.getByRole('link', { name: 'Compare all 28 tools' })).toHaveAttribute('href', '/compare');
+
+	await page.goto('/linear-alternative');
+	const breadcrumb = page.getByRole('navigation', { name: 'Breadcrumb' });
+	await expect(breadcrumb.getByRole('link', { name: 'Compare' })).toHaveAttribute('href', '/alternatives');
 });
 
 test('pricing calculator recomputes list-price costs for the chosen team size', async ({ page }) => {
