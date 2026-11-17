@@ -677,7 +677,7 @@ says CI is unknown.
 
 A failed CI suite on a task's pull request carries what GitHub reported about
 its failed checks ([CI and review feedback](BE/docs/agent-tasks.md#ci-and-review-feedback),
-migration 169): the checks' names, failed steps, annotations and an excerpt of
+migration 170): the checks' names, failed steps, annotations and an excerpt of
 the failed step's job log (failure lines and its end, without timestamps,
 colours, other steps or the post-job clean-up), stored as the signal's bounded
 summary. The webhook keeps what it reads within its eight seconds; when that
@@ -1790,7 +1790,7 @@ changes, with a bounded per-round context. Every merge Kuayle makes goes
 through one [merge gate](BE/docs/agent-tasks.md#merging-only-up-to-date-heads):
 a head that contains its base and whose checks passed. A branch behind its base
 is brought up to date and the approved merge waits (`waiting_checks`, migration
-169), polled every minute by `RunMergeWaits`, and merges the verified update once
+171), polled every minute by `RunMergeWaits`, and merges the verified update once
 its checks pass, or ends with the reason (KUA-207). Comments by workspace members on an
 issue whose task awaits review queue a bounded follow-up attempt
 ([agent tasks](BE/docs/agent-tasks.md#kuayle-issue-comments)). See [conversation architecture and API](BE/docs/conversations.md)

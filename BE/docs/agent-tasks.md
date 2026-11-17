@@ -803,7 +803,7 @@ rounds and a deadline. After Kuayle's own update-branch:
   merge or a lost permission end it with the reason. A branch behind again is
   updated again, at most three updates in all (`maxMergeUpdates`); the wait
   ends after two hours (`mergeWaitTimeout`) with what it waited for.
-- An assistant approval waits as `waiting_checks` (migration 169: unresolved,
+- An assistant approval waits as `waiting_checks` (migration 171: unresolved,
   with `next_check_at`); see [conversations](conversations.md#pull-request-tools).
   The ship chain keeps its merge step waiting within its tests timeout and saves
   the wait in its payload, so a resumed chain merges the same head.
@@ -842,7 +842,7 @@ uses the merge mechanism above.
   the same way, and a conflicting one goes back as `review_changes_requested`
   with that instruction; the reviewer's visit limit and the budget stop a loop.
 - **Approving** records the merge on the step that carries it out
-  (`agent_task_workflow_steps.merge`, migration 169) with the approver and the
+  (`agent_task_workflow_steps.merge`, migration 171) with the approver and the
   commit the task published: on the approval itself when it leads to `done`, or
   on the merge step it leads to. The worker merges as the approver
   (re-checked as the task's creator or an owner/admin who can see it, like a

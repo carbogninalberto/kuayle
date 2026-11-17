@@ -1269,7 +1269,7 @@ next step ([merging only up-to-date heads](agent-tasks.md#merging-only-up-to-dat
 
 A branch behind its base is brought up to date with GitHub's update-branch, and
 the approval then **waits** instead of failing (KUA-207): it moves from
-`approving` to `waiting_checks` (migration 169), still unresolved, with the
+`approving` to `waiting_checks` (migration 171), still unresolved, with the
 wait in its payload (`wait`: the approved commit, the verified new head, the
 update rounds, the deadline and what it waits for) and `next_check_at`.
 `AssistantApprovals.RunMergeWaits` (wired in `cmd/server/main.go`, every 15
@@ -1286,7 +1286,7 @@ approver gets an `approval_finished` notification (inbox row on the issue, live
 event that opens the conversation; it follows the approval notification
 preference). Approving a waiting merge again changes nothing; it cannot be
 denied. Restarts lose nothing: the wait is in the row. Telegram answers a waiting
-merge as approved and merging once the checks pass. Rolling migration 169 back
+merge as approved and merging once the checks pass. Rolling migration 171 back
 ends waiting merges as `failed` with a reason; nothing they did is undone on
 GitHub.
 

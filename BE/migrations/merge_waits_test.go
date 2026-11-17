@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Migration 169 lets an approved merge wait for the checks of the branch
+// Migration 171 lets an approved merge wait for the checks of the branch
 // Kuayle brought up to date (KUA-207): waiting_checks is unresolved and always
 // has its next check; workflow steps keep the merge they carry out (KUA-209).
 // Rolling back ends a waiting merge as failed with a reason.
@@ -39,7 +39,7 @@ func TestMergeWaitsAreUnresolvedAndRollBackAsFailed(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 	fixture := insertBaseMigrationFixture(t, db)
-	require.NoError(t, m.Migrate(168))
+	require.NoError(t, m.Migrate(170))
 
 	var conversation, message, reply uuid.UUID
 	require.NoError(t, db.QueryRow(`INSERT INTO conversations(workspace_id,creator_id,title) VALUES($1,$2,'Merge') RETURNING id`, fixture.workspaceA, fixture.userA).Scan(&conversation))
@@ -53,9 +53,9 @@ func TestMergeWaitsAreUnresolvedAndRollBackAsFailed(t *testing.T) {
 	}
 	before := approval()
 	_, err = db.Exec(`UPDATE conversation_approvals SET status='waiting_checks' WHERE id=$1`, before)
-	require.Error(t, err, "before 169 there is no waiting merge")
+	require.Error(t, err, "before 171 there is no waiting merge")
 
-	require.NoError(t, m.Migrate(169))
+	require.NoError(t, m.Migrate(171))
 	waiting := approval()
 	_, err = db.Exec(`UPDATE conversation_approvals SET status='waiting_checks' WHERE id=$1`, waiting)
 	require.Error(t, err, "a waiting merge always has its next check")
