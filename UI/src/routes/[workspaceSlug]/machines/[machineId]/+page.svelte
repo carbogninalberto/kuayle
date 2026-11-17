@@ -12,13 +12,13 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import {
 		getDevMachine, launchMachineServiceWithResume, listMachineServices, listMachineEvents, listMachineLogs,
-		listMachineTasks, listResourceUsage, pauseDevMachine, startDevMachine, stopDevMachine, teardownDevMachine,
+		listMachineTasks, listResourceHistory, pauseDevMachine, startDevMachine, stopDevMachine, teardownDevMachine,
 		checkoutIssue, deleteDevMachine, getDevMachinePolicy, listMachineCheckouts, snapshotDevMachineEnvironment
 	} from '$lib/api/dev-machines';
 	import type { ResourceUsageWindow } from '$lib/api/dev-machines';
 	import { getWorkspace } from '$lib/api/workspaces';
 	import type { AgentQueueItem } from '$lib/api/agent-tasks';
-	import type { DevMachine, DevMachineCheckout, DevMachineEvent, DevMachineLogChunk, DevMachinePolicy, DevMachineService, ResourceSample } from '$lib/types/dev-machine';
+	import type { DevMachine, DevMachineCheckout, DevMachineEvent, DevMachineLogChunk, DevMachinePolicy, DevMachineService, ResourceBucket } from '$lib/types/dev-machine';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import ErrorState from '$lib/components/shared/ErrorState.svelte';
 	import MachineStatusBadge from '$lib/features/dev-machines/MachineStatusBadge.svelte';
@@ -58,7 +58,7 @@
 	let tasks = $state<AgentQueueItem[]>([]);
 	let tasksFailed = $state(false);
 	// Resource history of the selected window, oldest first; refreshed every 30 s, not on every poll.
-	let usage = $state<ResourceSample[]>([]);
+	let usage = $state<ResourceBucket[]>([]);
 	let usageLoaded = $state(false);
 	let usageWindow = $state<ResourceUsageWindow>('1h');
 	type MachineTab = 'overview' | 'work' | 'apps' | 'activity';
@@ -85,12 +85,12 @@
 	// Treat desired_status != status as pending ("transitioning")
 	const isPending = $derived(machine ? machine.desired_status !== machine.status : false);
 
-	const latestUsage = $derived(usage.at(-1));
+	const latestUsage = $derived(usage.findLast((bucket) => bucket.disk_bytes !== null));
 	const diskUsageNearLimit = $derived(
 		machine !== null &&
 			latestUsage !== undefined &&
 			machine.disk_gb > 0 &&
-			latestUsage.disk_bytes >= machine.disk_gb * 1024 ** 3 * 0.9
+			(latestUsage.disk_bytes ?? 0) >= machine.disk_gb * 1024 ** 3 * 0.9
 	);
 	const canAdminDevMachines = $derived(workspaceRole === 'owner' || workspaceRole === 'admin');
 	// Resizing, like the other machine changes, is for the machine's creator.
@@ -160,7 +160,7 @@
 		let current = true;
 		const refreshUsage = async () => {
 			try {
-				const samples = await listResourceUsage(targetSlug, targetMachineId, window);
+				const samples = await listResourceHistory(targetSlug, targetMachineId, window);
 				if (current) usage = samples ?? [];
 			} catch {
 				// Keep the last good history on a failed background refresh.
@@ -169,7 +169,7 @@
 			}
 		};
 		void refreshUsage();
-		// Samples arrive every 30 seconds; a 10 second refresh shows each soon.
+		// Samples arrive about every 30 seconds; a 10 second refresh shows each soon.
 		const usageTimer = setInterval(() => void refreshUsage(), 10_000);
 		return () => {
 			current = false;

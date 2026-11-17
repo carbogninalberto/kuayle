@@ -5,12 +5,13 @@
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
 	import type { ResourceUsageWindow } from '$lib/api/dev-machines';
-	import type { DevMachine, ResourceSample } from '$lib/types/dev-machine';
+	import type { DevMachine, ResourceBucket } from '$lib/types/dev-machine';
 	import { getLocale, m } from '$lib/features/i18n/messages';
 
-	// CPU, memory and disk history of one machine: oldest first, one sample per
-	// time bucket of the selected window. Each chart's ceiling is the machine's
-	// limit, so a full chart means the machine is at its size.
+	// CPU, memory and disk history of one machine: every time bucket of the
+	// selected window, oldest first. A bucket without samples has null values and
+	// is drawn as a break in the line, never as zero. Each chart's ceiling is the
+	// machine's limit, so a full chart means the machine is at its size.
 	let {
 		machine,
 		samples,
@@ -20,7 +21,7 @@
 		diskNearLimit = false
 	}: {
 		machine: DevMachine;
-		samples: ResourceSample[];
+		samples: ResourceBucket[];
 		window?: ResourceUsageWindow;
 		loaded?: boolean;
 		diskLimitLabel: string;
@@ -29,22 +30,28 @@
 
 	const GIB = 1024 ** 3;
 	const windows: ResourceUsageWindow[] = ['1h', '6h', '24h'];
-	const windowMs: Record<ResourceUsageWindow, number> = { '1h': 3_600_000, '6h': 21_600_000, '24h': 86_400_000 };
-	// The x axis spans the whole window up to now (renewed with each refresh),
-	// so a new machine's first samples start at the right edge instead of
-	// stretching across the chart.
+	// The x axis spans exactly the returned buckets: the server returns the whole
+	// window, so a machine that started recently shows its missing past as empty
+	// buckets rather than stretching a few samples across the chart.
 	const xDomain = $derived.by(() => {
-		void samples;
-		const end = new Date();
-		return [new Date(end.getTime() - windowMs[window]), end];
+		const first = samples.at(0);
+		const last = samples.at(-1);
+		return first && last ? [new Date(first.created_at), new Date(last.created_at)] : undefined;
 	});
-	const latest = $derived(samples.at(-1));
+	// The newest bucket that holds samples is the current usage.
+	const latest = $derived(samples.findLast((bucket) => bucket.sample_count > 0));
 	const cpuLimit = $derived(machine.cpu_millis / 1000);
 	const memoryLimit = $derived(machine.memory_mb / 1024);
 
 	const round = (value: number) => Math.round(value * 100) / 100;
-	const points = (value: (sample: ResourceSample) => number) =>
-		samples.map((sample) => ({ date: new Date(sample.created_at), value: round(value(sample)) }));
+	// An empty bucket has an undefined value: the chart breaks the area and its
+	// line there instead of drawing zero.
+	const points = (value: (bucket: ResourceBucket) => number | null) =>
+		samples.map((bucket) => {
+			const amount = bucket.sample_count > 0 ? value(bucket) : null;
+			return { date: new Date(bucket.created_at), value: amount === null ? undefined : round(amount) };
+		});
+	const hasValue = (point: { value: number | undefined }) => point.value !== undefined;
 
 	const number = (value: number, digits = 1) =>
 		value.toLocaleString(getLocale(), { maximumFractionDigits: digits, minimumFractionDigits: digits });
@@ -57,7 +64,7 @@
 			unit: m['machines.cpu_unit'](),
 			title: m['machines.chart_cpu'](),
 			color: 'var(--chart-2)',
-			data: points((sample) => sample.cpu_percent / 100),
+			data: points((bucket) => (bucket.cpu_percent === null ? null : bucket.cpu_percent / 100)),
 			limit: cpuLimit,
 			current: m['machines.usage_amount']({
 				used: number((latest?.cpu_percent ?? 0) / 100),
@@ -72,7 +79,7 @@
 			unit: m['machines.gb_unit'](),
 			title: m['machines.chart_memory'](),
 			color: 'var(--chart-3)',
-			data: points((sample) => sample.memory_bytes / GIB),
+			data: points((bucket) => (bucket.memory_bytes === null ? null : bucket.memory_bytes / GIB)),
 			limit: memoryLimit,
 			current: m['machines.usage_amount']({
 				used: number((latest?.memory_bytes ?? 0) / GIB),
@@ -87,7 +94,7 @@
 			unit: m['machines.gb_unit'](),
 			title: m['machines.workspace_disk'](),
 			color: 'var(--chart-4)',
-			data: points((sample) => sample.disk_bytes / GIB),
+			data: points((bucket) => (bucket.disk_bytes === null ? null : bucket.disk_bytes / GIB)),
 			limit: machine.disk_gb,
 			current: m['machines.usage_amount']({
 				used: number((latest?.disk_bytes ?? 0) / GIB),
@@ -142,7 +149,7 @@
 				{#if chart.warning}<p class="mt-0.5 text-xs font-medium text-[var(--color-warning)]">
 						{m['machines.disk_near_limit']()}
 					</p>{/if}
-				{#if chart.data.length < 2}
+				{#if chart.data.filter(hasValue).length < 2}
 					<p
 						class="flex h-40 items-center justify-center sm:h-52 text-center text-xs text-muted-foreground"
 						data-testid="machine-usage-empty"

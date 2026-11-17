@@ -116,7 +116,7 @@ async function mockMachineApi(page: Page, initial: Machine, mode: 'hard' | 'moni
 			return route.fulfill({
 				json: [
 					{
-						id: 1,
+						sample_count: 1,
 						cpu_percent: 80,
 						memory_bytes: 1.3 * 1024 ** 3,
 						disk_bytes: 5 * 1024 ** 3,
