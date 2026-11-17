@@ -55,6 +55,10 @@ func (w *workflowWorld) recordMerge(merge repository.WorkflowMerge) (*domain.Age
 	w.task.WorkflowWakeAt, w.task.Reason = merge.Wake, merge.Reason
 	if merge.NeedsPerson {
 		w.notices++
+		if w.task.WorkflowHeldSince == nil {
+			at := w.now
+			w.task.WorkflowHeldSince = &at
+		}
 	}
 	w.notes = append(w.notes, merge.Notes...)
 	copy := w.task
