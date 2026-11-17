@@ -23,6 +23,7 @@ advances. Product checks and images continue to verify the recorded PR head.
 | `UI/` runtime, translations, assets and dependencies | Frontend type/unit/browser checks and npm audit; web and all-in-one readiness on both architectures. WEB fetches the release manifest from main at runtime, so a PR manifest edit does not select WEB. |
 | `UI/tests/`, `UI/playwright*.ts` | Frontend checks and audit; no production container checks. |
 | `WEB/` source (including Markdown content), assets and dependencies | Marketing type/build/SEO/responsive checks. WEB is not the UI application image. |
+| `BE/scripts/install-codex-login.sh` | API and all-in-one readiness on amd64 and arm64. |
 | Root `Dockerfile` | All-in-one readiness. |
 | `UI/Dockerfile`, `UI/Caddyfile` | Web-image readiness. |
 | `BE/Dockerfile*` | The corresponding API, gateway, manager or updater image. Docker lifecycle uses separate runtime images and is not selected for these Dockerfile-only edits. |

@@ -59,6 +59,11 @@ export function planForPaths(paths, event = 'pull_request', includeArm64 = false
   for (const path of pr ? paths : []) {
     if (path === 'AGENTS.md' || path.startsWith('AGENTS/')) continue;
     if (isDocumentation(path)) continue;
+    if (path === 'BE/scripts/install-codex-login.sh') {
+      arm = true;
+      add(release, ['all-in-one', 'api']);
+      continue;
+    }
     if (platformSensitive(path)) arm = true;
     if (path.startsWith('.github/workflows/') || path.startsWith('.github/actions/') || path.startsWith('scripts/ci/')) { all(); continue; }
     // Other .github files (funding, issue and PR templates, CODEOWNERS) never reach a job.
