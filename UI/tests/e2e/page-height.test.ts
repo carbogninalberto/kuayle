@@ -151,7 +151,7 @@ const members = Array.from({ length: 60 }, (_, index) => ({
 	role: index === 0 ? 'owner' : 'member',
 	created_at: createdAt
 }));
-const views = Array.from({ length: 40 }, (_, index) => ({
+const views = Array.from({ length: 80 }, (_, index) => ({
 	id: index === 0 ? viewId : id(41, index),
 	workspace_id: workspace.id,
 	creator_id: userId,
@@ -189,7 +189,7 @@ const conversationFor = (n: number) => ({
 	created_at: createdAt,
 	updated_at: createdAt
 });
-const conversations = Array.from({ length: 41 }, (_, index) => conversationFor(index + 1));
+const conversations = Array.from({ length: 60 }, (_, index) => conversationFor(index + 1));
 
 const queue = Array.from({ length: 15 }, (_, index) => ({
 	id: `task-${index}`,
@@ -201,7 +201,7 @@ const queue = Array.from({ length: 15 }, (_, index) => ({
 	updated_at: createdAt
 }));
 
-const codingTasks = Array.from({ length: 15 }, (_, index) => ({
+const codingTasks = Array.from({ length: 40 }, (_, index) => ({
 	id: `task-${index}`,
 	workspace_id: workspace.id,
 	conversation_id: 'chat-1',
@@ -602,8 +602,9 @@ async function expectNoPageScroll(page: Page, options: { expectOverflow: boolean
 				}`;
 			const isScroller = (element: Element) => {
 				const style = getComputedStyle(element);
-				// A list capped with max-height is a deliberate widget, not a page region.
-				if (style.maxHeight !== 'none') return false;
+				// A short list capped with max-height (the events list on settings/preferences) is a
+				// deliberate widget, not a page region. A capped element taller than half the window is.
+				if (style.maxHeight !== 'none' && element.clientHeight < window.innerHeight / 2) return false;
 				const overflowY = style.overflowY;
 				return (
 					(overflowY === 'auto' || overflowY === 'scroll') &&
@@ -648,12 +649,67 @@ async function expectNoPageScroll(page: Page, options: { expectOverflow: boolean
 			if (element.scrollHeight > element.clientHeight + 1) element.scrollTop = element.scrollHeight;
 		}
 	});
+	await wheelOverMain(page);
+	expect(await page.evaluate(() => window.scrollY), 'window.scrollY after wheel').toBe(0);
+	expect(await page.evaluate(() => document.documentElement.scrollTop), 'document scrollTop after wheel').toBe(0);
+}
+
+/**
+ * Wheel over the middle of main and wait until the browser has handled the gesture:
+ * the page saw the wheel event and has painted twice since, which is when a scroll
+ * chained to the document would have moved it.
+ */
+async function wheelOverMain(page: Page) {
+	await page.evaluate(() => {
+		const counter = window as unknown as { __wheelEvents: number };
+		counter.__wheelEvents = 0;
+		window.addEventListener('wheel', () => (counter.__wheelEvents += 1), { capture: true, passive: true });
+	});
 	const box = await page.locator('main').first().boundingBox();
 	await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
 	await page.mouse.wheel(0, 5000);
-	await page.waitForTimeout(200);
-	expect(await page.evaluate(() => window.scrollY), 'window.scrollY after wheel').toBe(0);
-	expect(await page.evaluate(() => document.documentElement.scrollTop), 'document scrollTop after wheel').toBe(0);
+	await expect
+		.poll(() => page.evaluate(() => (window as unknown as { __wheelEvents: number }).__wheelEvents), {
+			message: 'the page receives the wheel gesture'
+		})
+		.toBeGreaterThan(0);
+	await page.evaluate(
+		() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+	);
+}
+
+/** Resolves once the document and the shell region report the same layout on two reads in a row. */
+async function waitForLayoutToSettle(page: Page) {
+	let previous = '';
+	await expect
+		.poll(
+			async () => {
+				const current = await page.evaluate(() => {
+					const shell = document.querySelector('[data-testid="shell-scroll"]');
+					return [
+						document.documentElement.scrollHeight,
+						shell?.scrollHeight,
+						document.querySelectorAll('main *').length
+					].join('/');
+				});
+				const settled = current === previous;
+				previous = current;
+				return settled;
+			},
+			{ message: 'layout settles', intervals: [100, 150, 250, 500] }
+		)
+		.toBe(true);
+}
+
+/** A side panel body wider than its column shows a horizontal scrollbar next to the vertical one. */
+async function expectNoPanelHorizontalScroll(page: Page) {
+	const region = page.getByTestId('side-panel').locator('[role=region]').first();
+	await expect(region).toBeVisible();
+	await expect
+		.poll(() => region.evaluate((element) => element.scrollWidth - element.clientWidth), {
+			message: 'side panel horizontal overflow'
+		})
+		.toBeLessThanOrEqual(1);
 }
 
 type Route = {
@@ -662,45 +718,68 @@ type Route = {
 	/** Text that proves the page rendered its data instead of an error or an empty state. */
 	ready?: string | RegExp;
 	/**
-	 * The mocked data is taller than a 900px window, so a region must scroll. 'wide':
+	 * The mocked data is taller than even a 1600px window, so a region must scroll. 'wide':
 	 * only where the conversation list is a column, not a drawer.
 	 */
 	long?: boolean | 'wide';
+	/** The route opens a side panel whose body must not scroll sideways. */
+	panel?: boolean;
 	/** Runs after the route has loaded, e.g. to open a side panel through the UI. */
 	afterLoad?: (page: Page) => Promise<void>;
 };
 
-const panelButtons = (page: Page) => page.getByRole('group', { name: 'Side panels' }).getByRole('button');
+// On a wide screen the panel starts as 'auto': Details until the conversation's issue has
+// loaded, then Agents. The buttons flip under the test, so both helpers retry until the state
+// holds instead of trusting one read of aria-pressed.
+const panelGroup = (page: Page) => page.getByRole('group', { name: 'Side panels' });
 const openPanel = (name: string) => async (page: Page) => {
-	const button = page.getByRole('group', { name: 'Side panels' }).getByRole('button', { name, exact: true });
+	const button = panelGroup(page).getByRole('button', { name, exact: true });
 	await expect(button).toBeVisible();
-	if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
-	await expect(button).toHaveAttribute('aria-pressed', 'true');
+	await expect
+		.poll(
+			async () => {
+				if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
+				return button.getAttribute('aria-pressed');
+			},
+			{ message: `${name} panel opens` }
+		)
+		.toBe('true');
 };
 const closePanels = async (page: Page) => {
-	const buttons = panelButtons(page);
-	await expect(buttons.first()).toBeVisible();
-	for (const button of await buttons.all()) {
-		if ((await button.getAttribute('aria-pressed')) === 'true') await button.click();
-	}
-	await expect(page.getByTestId('side-panel')).toHaveCount(0);
+	await expect(panelGroup(page).getByRole('button').first()).toBeVisible();
+	await expect
+		.poll(
+			async () => {
+				const open = panelGroup(page).getByRole('button', { pressed: true });
+				if (await open.count()) await open.first().click();
+				return page.getByTestId('side-panel').count();
+			},
+			{ message: 'side panels close' }
+		)
+		.toBe(0);
 };
 
+const wikiParagraph = '1. Long description paragraph';
 const teamPath = `/test/teams/${teamId}`;
 const routes: Route[] = [
 	{ name: 'team issues', path: teamPath, ready: 'Heavy page issue 2', long: true },
 	{ name: 'team board', path: `${teamPath}/board`, ready: 'Heavy page issue 2', long: true },
 	{ name: 'team cycles', path: `${teamPath}/cycles`, ready: 'Cycle 2' },
-	{ name: 'team cycle', path: `${teamPath}/cycles/${cycleId}`, long: true },
+	{ name: 'team cycle', path: `${teamPath}/cycles/${cycleId}`, ready: 'Heavy page issue 2', long: true },
 	{ name: 'team projects', path: `${teamPath}/projects`, ready: 'Project 2', long: true },
-	{ name: 'team triage', path: `${teamPath}/triage`, long: true },
+	{ name: 'team triage', path: `${teamPath}/triage`, ready: 'Heavy page issue 2', long: true },
 	{ name: 'team views', path: `${teamPath}/views`, ready: 'View 2', long: true },
-	{ name: 'team wiki', path: `${teamPath}/wiki`, long: true },
-	{ name: 'team wiki page', path: `${teamPath}/wiki/read/${wikiPageId}`, long: true },
+	{ name: 'team wiki', path: `${teamPath}/wiki`, ready: 'Wiki page 2', long: true },
+	{ name: 'team wiki page', path: `${teamPath}/wiki/read/${wikiPageId}`, ready: wikiParagraph, long: true },
 	{ name: 'projects', path: '/test/projects', ready: 'Project 2', long: true },
-	{ name: 'project', path: `/test/projects/${projectId}`, long: true },
-	{ name: 'project wiki', path: `/test/projects/${projectId}/wiki`, long: true },
-	{ name: 'project wiki page', path: `/test/projects/${projectId}/wiki/read/${wikiPageId}`, long: true },
+	{ name: 'project', path: `/test/projects/${projectId}`, ready: 'Heavy page issue 3', long: true },
+	{ name: 'project wiki', path: `/test/projects/${projectId}/wiki`, ready: 'Wiki page 2', long: true },
+	{
+		name: 'project wiki page',
+		path: `/test/projects/${projectId}/wiki/read/${wikiPageId}`,
+		ready: wikiParagraph,
+		long: true
+	},
 	{ name: 'view', path: `/test/views/${viewId}`, ready: 'Heavy page issue 2', long: true },
 	{ name: 'my issues', path: '/test/my-issues', ready: 'Heavy page issue 2', long: true },
 	{ name: 'my views', path: '/test/my-views', ready: 'View 2', long: true },
@@ -712,7 +791,8 @@ const routes: Route[] = [
 		name: 'assistant conversation with the details panel',
 		path: '/test/assistant?conversation=chat-2',
 		long: 'wide',
-		afterLoad: openPanel('Details')
+		afterLoad: openPanel('Details'),
+		panel: true
 	},
 	{
 		name: 'assistant conversation without a side panel',
@@ -725,6 +805,7 @@ const routes: Route[] = [
 		path: '/test/assistant?conversation=chat-1',
 		long: 'wide',
 		afterLoad: openPanel('Agents'),
+		panel: true,
 		ready: 'Coding tasks'
 	},
 	{
@@ -733,7 +814,7 @@ const routes: Route[] = [
 		long: 'wide',
 		afterLoad: closePanels
 	},
-	{ name: 'machines', path: '/test/machines', long: true },
+	{ name: 'machines', path: '/test/machines', ready: 'task-machine-2', long: true },
 	{ name: 'machine', path: `/test/machines/${machineId}` },
 	{ name: 'settings', path: '/test/settings' },
 	...[
@@ -785,9 +866,11 @@ const cases = viewports.flatMap((viewport) =>
 
 // Out-of-flow content is what lifted the shell in KUA-201: an absolutely positioned
 // element (a visually hidden label, a chart tooltip, a popover anchor) inside a
-// scrolling region has the viewport as its containing block, so its box past the
-// bottom of the window grows the document even though the region clips normally.
-// The shell is the containing block and clips it.
+// scrolling region has the initial containing block (the viewport-sized box of the
+// root) as its containing block when no ancestor is positioned, so overflow-hidden
+// on a non-positioned ancestor does not clip it and its box past the bottom of the
+// window grows the document. The shell is positioned (relative), so it is the
+// containing block and clips it.
 for (const { theme, viewport } of cases) {
 	test(`out-of-flow content cannot lift the shell at ${viewport.width}x${viewport.height} in ${theme}`, async ({
 		page
@@ -813,10 +896,7 @@ for (const { theme, viewport } of cases) {
 		await expect
 			.poll(() => page.evaluate(() => document.documentElement.scrollHeight))
 			.toBeLessThanOrEqual(viewportHeight + 1);
-		const box = await page.locator('main').first().boundingBox();
-		await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
-		await page.mouse.wheel(0, 5000);
-		await page.waitForTimeout(200);
+		await wheelOverMain(page);
 		expect(await page.evaluate(() => window.scrollY)).toBe(0);
 	});
 }
@@ -836,11 +916,12 @@ for (const { theme, viewport } of cases) {
 			await route.afterLoad?.(page);
 			if (route.ready) await expect(page.getByText(route.ready).locator('visible=true').first()).toBeVisible();
 			await page.waitForLoadState('networkidle');
-			await page.waitForTimeout(300);
-			// A 1600px window is taller than any mocked page, so only the shorter ones must overflow.
+			await waitForLayoutToSettle(page);
+			// The fixtures are taller than the tallest window, so every long route must scroll in a region.
 			await expectNoPageScroll(page, {
-				expectOverflow: !!route.long && viewport.height <= 900 && (route.long !== 'wide' || viewport.width >= 640)
+				expectOverflow: !!route.long && (route.long !== 'wide' || viewport.width >= 640)
 			});
+			if (route.panel) await expectNoPanelHorizontalScroll(page);
 			expect(pageErrors).toEqual([]);
 		});
 	}
@@ -853,6 +934,6 @@ test('the workflow editor never scrolls the document in a short window', async (
 	await page.goto(`/test/settings/workflows/${workflowId}`);
 	await expect(page.getByTestId('shell-scroll')).toBeVisible();
 	await page.waitForLoadState('networkidle');
-	await page.waitForTimeout(300);
+	await waitForLayoutToSettle(page);
 	await expectNoPageScroll(page, { expectOverflow: false });
 });
