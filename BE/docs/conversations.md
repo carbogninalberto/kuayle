@@ -920,6 +920,26 @@ unless the task was pinned to a server. Harness and model on an approval other
 than these three, or on a denial, are ignored. Only the approval's bound actor
 can resolve it, and the effect re-checks their access as for any approval.
 
+### Workflow choice for delegations started from chat
+
+`delegate_issue` may name a `workflow` (`"standard"`, or a non-archived workflow
+of the workspace by ID or name; empty keeps the issue's default), stored in the
+approval payload as `workflow_id` and `workflow` (its name). The approval card
+shows a workflow picker (`WorkflowChoice`, the task composer's rules, listing
+the workspace's workflows from `GET /workflows`) and `POST .../approvals/:id`
+accepts an optional `workflow_id` next to `decision`: absent keeps the
+proposal, `""` selects the issue's default, `"standard"` the built-in workflow,
+otherwise a workflow ID. It is a separate field, not part of the model choice.
+With a custom workflow the card hides the harness, model and server pickers,
+because its first agent step decides them. The service checks the choice like
+the assistant's own (the workflow of this workspace, not archived, no guest;
+`AssistantApprovals.SetWorkflows` wires the list) before claiming the approval;
+a refusal is `422 INVALID_APPROVAL_EDIT` with its reason, the approval stays
+pending and nothing starts. The checked choice is stored in the payload with the
+claim, so a repeated approval with another workflow resumes the first one and
+converges on the same task (the request ID is fixed), and the card then shows
+the workflow that ran. A `workflow_id` on any other action is refused.
+
 ### Previews and ports from chat
 
 The machine tools act on the issue's newest implementing task and its machine,

@@ -273,6 +273,7 @@ func main() {
 	assistantTools.SetLiveChannel(repository.NewAgentTaskRepository(db))
 	assistantApprovals := service.NewAssistantApprovals(conversationSvc.Repo, agentTaskSvc)
 	assistantApprovals.SetMachineAccess(machineAccess)
+	assistantApprovals.SetWorkflows(workflowRepo)
 	assistantApprovals.SetNotifications(notifSvc, hub)
 	assistantApprovals.SetLiveChannel(repository.NewAgentTaskRepository(db))
 	assistantTools.SetMachines(repository.NewAgentTaskRepository(db), devMachineSvc)
