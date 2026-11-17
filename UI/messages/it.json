@@ -3409,7 +3409,7 @@
 	"machines.tab_apps": "App e servizi",
 	"machines.view_all": "Mostra tutto ({count})",
 	"machines.usage_title": "Uso delle risorse",
-	"machines.usage_desc": "Campionato ogni 30 secondi mentre la macchina è in esecuzione. Lo storico è conservato per 24 ore ed eliminato quando la macchina viene smantellata.",
+	"machines.usage_desc": "Campionato circa ogni 30 secondi mentre la macchina è in esecuzione e mediato per intervallo di tempo. Sono conservate solo le ultime 24 ore; i vuoti indicano che nessun campione è stato registrato. Lo storico viene eliminato quando la macchina viene smantellata.",
 	"machines.usage_window": "Intervallo di tempo",
 	"machines.usage_empty": "Ancora nessun campione in questo periodo.",
 	"machines.usage_loading": "Caricamento utilizzo…",

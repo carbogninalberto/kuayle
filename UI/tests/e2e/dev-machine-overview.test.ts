@@ -47,7 +47,7 @@ const checkouts = Array.from({ length: 9 }, (_, index) => ({
 function samples(count: number) {
 	const end = Date.now();
 	return Array.from({ length: count }, (_, index) => ({
-		id: index + 1,
+		sample_count: 2,
 		cpu_percent: 200 + (index / count) * 1000,
 		memory_bytes: Math.round((2 + (index / count) * 7) * GIB),
 		disk_bytes: Math.round((10 + index / 10) * GIB),
@@ -56,6 +56,14 @@ function samples(count: number) {
 		network_tx_bytes: 0,
 		created_at: new Date(end - (count - index) * 60_000).toISOString()
 	}));
+}
+
+// What the server returns for a bucket in which no sample was recorded.
+function emptyBucket(bucket: ReturnType<typeof samples>[number]) {
+	return {
+		created_at: bucket.created_at, sample_count: 0, cpu_percent: null, memory_bytes: null,
+		disk_bytes: null, pids: null, network_rx_bytes: null, network_tx_bytes: null
+	};
 }
 
 async function mockMachine(page: Page, options: { samples: unknown[]; theme?: 'dark' | 'light'; windows?: string[] }) {
@@ -127,6 +135,41 @@ test('shows the machine summary and charts its resource history for the chosen w
 	await usage.getByRole('radio', { name: '24h' }).click();
 	await expect.poll(() => windows).toEqual(['1h', '24h']);
 	await expect(usage.getByRole('radio', { name: '24h' })).toHaveAttribute('aria-checked', 'true');
+});
+
+test('draws empty buckets as gaps and reports the newest bucket that has samples', async ({ page }) => {
+	const full = samples(60);
+	// Samples exist for 0-19 and 30-49; 20-29 is a gap and 50-59 is the machine's silent tail.
+	const gapped = full.map((bucket, index) => ((index >= 20 && index < 30) || index >= 50 ? emptyBucket(bucket) : bucket));
+
+	await mockMachine(page, { samples: full });
+	await page.goto(`/test/machines/${machineId}`);
+	await expect(page.getByTestId('machine-usage-cpu').locator('svg').first()).toBeVisible();
+	await expect(page.getByTestId('machine-usage-cpu')).toContainText('11.8 vCPU');
+	const unbroken = await page.getByTestId('machine-usage-cpu').locator('svg path[d*="M"]').evaluateAll((paths) =>
+		paths.map((path) => (path.getAttribute('d') ?? '').split('M').length - 1)
+	);
+
+	await page.unrouteAll();
+	await mockMachine(page, { samples: gapped });
+	await page.goto(`/test/machines/${machineId}`);
+	const cpu = page.getByTestId('machine-usage-cpu');
+	await expect(cpu.locator('svg').first()).toBeVisible();
+	// The current value is the newest bucket with samples (index 49), not the empty tail.
+	await expect(cpu).toContainText('10.2 vCPU');
+	await expect(page.getByTestId('machine-usage-empty')).toHaveCount(0);
+	const broken = await cpu.locator('svg path[d*="M"]').evaluateAll((paths) =>
+		paths.map((path) => (path.getAttribute('d') ?? '').split('M').length - 1)
+	);
+	expect(Math.max(...broken), 'the gap splits the area into separate segments').toBeGreaterThan(Math.max(...unbroken));
+});
+
+test('shows the empty state when every bucket of the window is empty', async ({ page }) => {
+	await mockMachine(page, { samples: samples(60).map(emptyBucket) });
+	await page.goto(`/test/machines/${machineId}`);
+	await expect(page.getByTestId('machine-usage-empty')).toHaveCount(3);
+	await expect(page.getByTestId('machine-usage-empty').first()).toHaveText('No samples in this period yet.');
+	await expect(page.getByTestId('machine-usage-cpu')).toContainText('0.0 vCPU');
 });
 
 test('explains an empty history', async ({ page }) => {

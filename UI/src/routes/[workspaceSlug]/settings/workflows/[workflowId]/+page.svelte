@@ -48,7 +48,7 @@
 		<ErrorState message={m['workflows.failed_load']()} onretry={() => load(workflowId)} />
 	</div>
 {:else}
-	<div class="h-full min-h-[36rem]">
+	<div class="h-full min-h-0">
 		{#key detail.id}
 			<WorkflowEditor
 				{slug}

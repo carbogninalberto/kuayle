@@ -3409,7 +3409,7 @@
 	"machines.tab_apps": "应用和服务",
 	"machines.view_all": "查看全部（{count}）",
 	"machines.usage_title": "资源使用情况",
-	"machines.usage_desc": "机器运行时每 30 秒采样一次。历史记录保留 24 小时，并在机器拆除时删除。",
+	"machines.usage_desc": "机器运行时约每 30 秒采样一次，并按时间区间取平均值。仅保留最近 24 小时；空缺表示未记录到样本。机器拆除时历史记录会被删除。",
 	"machines.usage_window": "时间范围",
 	"machines.usage_empty": "此时间段内尚无样本。",
 	"machines.usage_loading": "正在加载使用情况…",

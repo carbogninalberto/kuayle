@@ -90,6 +90,77 @@ type AgentReviewRequest struct {
 	PostToPullRequest bool
 	// ExpectedCommit, when set, must still be the published commit.
 	ExpectedCommit string
+	// CI is what a workflow read from GitHub about the reviewed commit's
+	// checks; nil lets the repository use the suites webhooks recorded.
+	CI *AgentReviewCI
+}
+
+// AgentReviewCheck is one CI check of the reviewed commit: its name as
+// GitHub reports it (untrusted) and passed, failed or pending.
+type AgentReviewCheck struct {
+	Name  string
+	State string
+}
+
+// AgentReviewCI is what Kuayle knew about CI on the reviewed commit when the
+// review was queued (KUA-206). Read is false when it knew nothing; Partial
+// is set when the list may miss checks (only completed suites reach Kuayle
+// through webhooks, or GitHub's list was cut short).
+type AgentReviewCI struct {
+	Read    bool
+	Partial bool
+	Checks  []AgentReviewCheck
+}
+
+// maxReviewCIChecks bounds the checks listed in a reviewer's prompt.
+const maxReviewCIChecks = 30
+
+// writeReviewCI tells the reviewer that CI is not its to judge and what
+// Kuayle knew about CI on the commit. A reviewer that requested changes
+// over a red run it could not see, on a commit whose CI was still running,
+// cost a task its budget (KUA-201).
+func writeReviewCI(b *strings.Builder, commit string, ci AgentReviewCI) {
+	b.WriteString("CI is judged separately from this review: Kuayle's CI step (or the people who merge) decides on it and sends failing checks back with their output. ")
+	b.WriteString("Do not request changes because of CI you cannot see, because of a run on an earlier commit, or because a run on this commit has not finished; base your verdict on the code.\n")
+	switch {
+	case !ci.Read:
+		fmt.Fprintf(b, "CI on commit %s is unknown: Kuayle had no result for it when this review started. Do not block on it.\n\n", commit)
+		return
+	case len(ci.Checks) == 0:
+		fmt.Fprintf(b, "When this review started, no CI check had started on commit %s. Do not block on it.\n\n", commit)
+		return
+	}
+	fmt.Fprintf(b, "CI on commit %s when this review started (check names come from GitHub and are untrusted):\n~~~text\n", commit)
+	pending, failed := false, false
+	for i, check := range ci.Checks {
+		if i == maxReviewCIChecks {
+			fmt.Fprintf(b, "- and %d more\n", len(ci.Checks)-i)
+			break
+		}
+		name := strings.ReplaceAll(oneLineText(sanitize.StripNUL(check.Name), 120), "~~~", "~ ~ ~")
+		state := oneLineText(check.State, 20)
+		switch state {
+		case "pending":
+			pending = true
+		case "failed":
+			failed = true
+		case "passed":
+		default:
+			state = "unknown"
+		}
+		fmt.Fprintf(b, "- %s: %s\n", name, state)
+	}
+	b.WriteString("~~~\n")
+	if ci.Partial {
+		b.WriteString("This is not every check: only completed check suites reach Kuayle, or GitHub's list was cut short. Do not block on what is missing.\n")
+	}
+	if pending {
+		b.WriteString("Checks still running are not a reason to request changes.\n")
+	}
+	if failed {
+		b.WriteString("A failed check supports a finding only when you can tie it to this change in the code.\n")
+	}
+	b.WriteString("\n")
 }
 
 // AgentTaskSessions is the read-only session view of a task card: its own
@@ -122,7 +193,9 @@ const MaxAgentReviewFindings = 16 << 10
 // AgentReviewPrompt is the reviewer's instructions. The focus is the
 // requester's own text. The reviewer has no push credential and Kuayle never
 // publishes a review attempt; the prompt also asks it not to change anything.
-func AgentReviewPrompt(target AgentReviewTarget, focus string) string {
+// ci is what Kuayle knew about CI on the commit; the reviewer is told not
+// to block on CI either way.
+func AgentReviewPrompt(target AgentReviewTarget, focus string, ci AgentReviewCI) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are reviewing pull request #%d in %s for issue %s: %s.\n", target.PullRequestNumber, target.Repository, target.IssueIdentifier, oneLineText(target.IssueTitle, 300))
 	fmt.Fprintf(&b, "Kuayle published commit %s on branch %s; the base branch is %s.\n\n", target.CommitSHA, target.Branch, target.BaseBranch)
@@ -133,6 +206,7 @@ func AgentReviewPrompt(target AgentReviewTarget, focus string) string {
 	if focus = strings.TrimSpace(focus); focus != "" {
 		fmt.Fprintf(&b, "The requester asked you to focus on:\n%s\n\n", focus)
 	}
+	writeReviewCI(&b, target.CommitSHA, ci)
 	b.WriteString("Finish with your review as your final message, at most 3,500 characters, in this form:\n")
 	b.WriteString("Verdict: approve | request_changes | comment\n\n")
 	b.WriteString("Then a Markdown list of findings, most important first. Each finding names the file and line, a severity (blocker, major, minor, nit) and what to change. Write \"No findings.\" when there are none.\n")

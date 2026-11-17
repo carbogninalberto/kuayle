@@ -1,4 +1,4 @@
-import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
+import { test, expect, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
 
 async function fixture(page: Page) {
 	const time = '2026-10-26T10:00:00Z';
@@ -2274,6 +2274,16 @@ const runningTask = (over: any = {}) => ({
 	...over
 });
 
+// Opens a fold of the transcript and waits until it has finished opening.
+// While it grows, a transcript read at its end keeps the end in view, so the
+// rows above move: a click on one of them meanwhile can miss it.
+async function unfold(trigger: Locator) {
+	await trigger.click();
+	await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+	const fold = trigger.page().locator(`[id="${await trigger.getAttribute('aria-controls')}"]`);
+	await fold.evaluate((el) => Promise.allSettled(el.getAnimations().map((animation) => animation.finished)));
+}
+
 test('the top bar opens the agent thread as a readable session, linked by the URL', async ({ page }, testInfo) => {
 	const { state, emit } = await fixture(page);
 	state.task = runningTask();
@@ -2302,17 +2312,17 @@ test('the top bar opens the agent thread as a readable session, linked by the UR
 	// Consecutive calls fold into one row; each opens to its command and result.
 	const group = session.getByRole('button', { name: /Ran 2 commands/ });
 	await expect(group).toContainText('1 failed');
-	await group.click();
+	await unfold(group);
 	const chip = session.getByRole('button', { name: /Read skills index and tools/ });
 	await expect(chip).toContainText('3s');
-	await chip.click();
+	await unfold(chip);
 	await expect(session.getByText('cat AGENTS/SKILLS.md')).toBeVisible();
 	await expect(session.getByText('<img src=x onerror="window.pwned=1">', { exact: false })).toBeVisible();
 	await expect(session.locator('img')).toHaveCount(0);
 	expect(await page.evaluate(() => (window as any).pwned)).toBeUndefined();
 	const failed = session.getByRole('button', { name: /Bash: npm test/ });
 	await expect(failed).toHaveAccessibleName(/^Failed: /);
-	await failed.click();
+	await unfold(failed);
 	await expect(session.getByText('1 failing')).toBeVisible();
 	await page.screenshot({ path: testInfo.outputPath('agent-view-desktop.png'), fullPage: true });
 
@@ -2592,16 +2602,16 @@ test('an OpenCode run reads as a session: Markdown messages and one chip per too
 	await expect(session.getByText('Finished in 9s')).toBeVisible();
 	// No native JSON in the readable view; what is not understood stays inspectable.
 	await expect(session.getByText('step_finish', { exact: false })).toHaveCount(0);
-	await session.getByRole('button', { name: '1 other events' }).click();
+	await unfold(session.getByRole('button', { name: '1 other events' }));
 	await expect(session.getByText('session_compacted', { exact: true })).toBeVisible();
 
 	// The calls fold into one row; each chip opens to its input and result.
 	const group = session.getByRole('button', { name: /Used 3 tools/ });
 	await expect(group).toContainText('1 failed');
-	await group.click();
+	await unfold(group);
 	const chip = session.getByRole('button', { name: /Run the unit tests/ });
 	await expect(chip).toContainText('3s');
-	await chip.click();
+	await unfold(chip);
 	await expect(session.getByText('npm test', { exact: true })).toBeVisible();
 	await expect(session.getByText('12 passing', { exact: false })).toBeVisible();
 	await expect(session.locator('img')).toHaveCount(0);
@@ -2609,7 +2619,7 @@ test('an OpenCode run reads as a session: Markdown messages and one chip per too
 	await expect(session.getByRole('button', { name: /edit: src\/search\.ts/ })).toBeVisible();
 	const failed = session.getByRole('button', { name: /git push/ });
 	await expect(failed).toHaveAccessibleName(/^Failed: /);
-	await failed.click();
+	await unfold(failed);
 	await expect(session.getByText('The user rejected permission to use this specific tool call.')).toBeVisible();
 
 	const raw = session.getByRole('button', { name: 'Raw', exact: true });

@@ -56,6 +56,12 @@ type GitHubService struct {
 	// ciChecks reads the failed checks of a suite for classification, and
 	// whether GitHub cut the list short; replaced in tests.
 	ciChecks func(ctx context.Context, ws uuid.UUID, repository, headSHA string) ([]domain.CIFailedCheck, bool)
+	// ciDetails reads them again with more job logs and more time, outside
+	// the webhook, for the failure's summary; replaced in tests.
+	ciDetails func(ctx context.Context, ws uuid.UUID, repository, headSHA string) ([]domain.CIFailedCheck, bool)
+	// ciDetailReads tracks those reads; nil (a service built without
+	// NewGitHubService) reads nothing in the background.
+	ciDetailReads *ciDetailReads
 	// pullRequestMerged asks GitHub whether a pull request merged; replaced in tests.
 	pullRequestMerged func(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (bool, error)
 	// mergePullRequest merges through the GitHub App; replaced in tests.
@@ -136,6 +142,7 @@ func NewGitHubService(
 		frontendURL:    frontendURL,
 		webhookURL:     webhookURL,
 		globalApp:      globalApp,
+		ciDetailReads:  newCIDetailReads(),
 	}
 	s.installationAccess = func(ctx context.Context, code string, installationID int64) (bool, error) {
 		return gh.UserControlsInstallation(ctx, s.githubHTTPClient, globalApp.ClientID, globalApp.ClientSecret, code, installationID)
@@ -1211,6 +1218,8 @@ func (s *GitHubService) processCheckSuiteEvent(ctx context.Context, payload []by
 	}
 	outcome := normalizedOutcome(event.CheckSuite.Conclusion)
 	var failure *domain.CIFailure
+	var details ciFailureDetails
+	pending := false
 	for i, pr := range event.CheckSuite.PullRequests {
 		if i >= 10 || pr.Number <= 0 {
 			break
@@ -1228,13 +1237,19 @@ func (s *GitHubService) processCheckSuiteEvent(ctx context.Context, payload []by
 			// A task that is not awaiting review still records the suite
 			// (as not_reviewable); only the read classification needs is skipped.
 			if failure == nil && reviewable {
-				failure = s.ciFailure(ctx, inst.WorkspaceID, repo.FullName, event.CheckSuite.HeadSHA, outcome)
+				failure, details = s.ciFailure(ctx, inst.WorkspaceID, repo.FullName, event.CheckSuite.HeadSHA, outcome)
 			}
 		}
+		// What the read found is the failure's summary for the agent; when it
+		// could not read every failed check, the rest is read after the
+		// webhook (KUA-206).
 		in := domain.AgentTaskSignalInput{
 			Kind: "ci", ExternalID: strconv.FormatInt(event.CheckSuite.ID, 10), Outcome: outcome,
 			Name: truncateRunes(event.CheckSuite.App.Name, 200), HeadSHA: event.CheckSuite.HeadSHA,
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d/checks", repo.FullName, pr.Number), Failure: failure,
+		}
+		if failure != nil {
+			in.Summary, in.DetailsPending = details.Summary, !details.Complete
 		}
 		writeCtx, cancel := finalSignalContext(ctx)
 		err = s.taskSignals.Record(writeCtx, inst.WorkspaceID, repo.FullName, pr.Number, in)
@@ -1242,6 +1257,10 @@ func (s *GitHubService) processCheckSuiteEvent(ctx context.Context, payload []by
 		if err != nil {
 			return fmt.Errorf("recording check suite: %w", err)
 		}
+		pending = pending || in.DetailsPending
+	}
+	if pending {
+		s.ensureCIFailureDetails(inst.WorkspaceID, repo.FullName, event.CheckSuite.HeadSHA)
 	}
 	return nil
 }
