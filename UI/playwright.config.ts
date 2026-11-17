@@ -5,7 +5,11 @@ export default defineConfig({
 	forbidOnly: !!process.env.CI,
 	retries: 0,
 	workers: process.env.CI ? 2 : undefined,
-	reporter: process.env.CI ? [['dot'], ['github'], ['html', { open: 'never' }]] : 'list',
+	// On GitHub Actions the github reporter also turns each failure into an annotation on its
+	// spec line; it stays out of local runs, CI=1 included.
+	reporter: process.env.CI
+		? [['dot'], ...(process.env.GITHUB_ACTIONS ? [['github'] as ['github']] : []), ['html', { open: 'never' }]]
+		: 'list',
 	webServer: {
 		// PLAYWRIGHT_PORT lets parallel worktrees run browser tests side by side.
 		command: `npm run build && npm run preview -- --port ${process.env.PLAYWRIGHT_PORT ?? 4174}`,

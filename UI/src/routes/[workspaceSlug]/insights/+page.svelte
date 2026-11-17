@@ -201,14 +201,14 @@
 	});
 </script>
 
-<div class="flex h-full flex-col bg-[var(--color-bg)]">
+<div class="flex h-full min-h-0 flex-col bg-[var(--color-bg)]">
 	<header class="flex h-[49px] shrink-0 items-center gap-2 border-b border-[var(--app-border)] px-4 sm:px-6">
 		<SidebarToggle />
 		<BarChart3 size={16} class="text-[var(--color-text-secondary)]" />
 		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">{m['insights.title']()}</h1>
 	</header>
 
-	<Tabs.Root value={activeTab} onValueChange={(value) => { if (value === 'overview' || value === 'explore') activeTab = value; }}>
+	<Tabs.Root class="min-h-0 flex-1" value={activeTab} onValueChange={(value) => { if (value === 'overview' || value === 'explore') activeTab = value; }}>
 		<div class="shrink-0 border-b border-[var(--app-border)] bg-[var(--color-bg-secondary)]/35">
 			<div class="mx-auto flex w-full max-w-[1440px] flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
 				<div class="flex min-w-0 items-center gap-3">
@@ -258,7 +258,7 @@
 			</div>
 		</div>
 
-		<main class="flex-1 overflow-y-auto">
+		<main class="min-h-0 flex-1 overflow-y-auto">
 			<div class="mx-auto w-full max-w-[1440px] space-y-8 px-4 py-6 sm:px-6">
 				{#if activeTab === 'overview'}
 					<section>

@@ -683,7 +683,7 @@
 		<div class="grid gap-4 px-5 py-4 sm:grid-cols-2">
 			<div>
 				<p class="mb-2 text-xs text-[var(--color-text-tertiary)]">{m['prefs.assignees']()}</p>
-				<div class="max-h-44 space-y-1 overflow-y-auto rounded-md border border-[var(--app-border)] p-1">
+				<div class="max-h-44 space-y-1 overflow-y-auto rounded-md border border-[var(--app-border)] p-1" data-testid="default-assignee-options">
 					{#each members as member (member.user_id)}
 						<Button variant="plain" type="button"
 							onclick={() => toggleDefaultAssignee(member.user_id)}
@@ -701,7 +701,7 @@
 
 			<div>
 				<p class="mb-2 text-xs text-[var(--color-text-tertiary)]">{m['prefs.labels']()}</p>
-				<div class="max-h-44 space-y-1 overflow-y-auto rounded-md border border-[var(--app-border)] p-1">
+				<div class="max-h-44 space-y-1 overflow-y-auto rounded-md border border-[var(--app-border)] p-1" data-testid="default-label-options">
 					{#each labels as label (label.id)}
 						<Button variant="plain" type="button"
 							onclick={() => toggleDefaultLabel(label.id)}
