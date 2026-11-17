@@ -693,16 +693,24 @@ func (t *AssistantTools) SetWorkflows(workflows assistantWorkflows) { t.workflow
 // case-insensitive name, to a non-archived workflow of the workspace.
 // Empty keeps the issue's default; "standard" is the built-in workflow.
 func (t *AssistantTools) delegationWorkflow(ctx context.Context, ws uuid.UUID, chosen string) (string, string, error) {
+	return resolveDelegationWorkflow(ctx, t.workflows, ws, chosen)
+}
+
+// resolveDelegationWorkflow is the one check of a delegation's workflow, made
+// when the assistant proposes it and again when the approver changes it on the
+// card. A choice that is not allowed is a user-safe tool failure; a failure to
+// list the workflows is returned as it is.
+func resolveDelegationWorkflow(ctx context.Context, workflows assistantWorkflows, ws uuid.UUID, chosen string) (string, string, error) {
 	chosen = strings.TrimSpace(chosen)
 	switch {
 	case chosen == "":
 		return "", "", nil
 	case strings.EqualFold(chosen, domain.StandardWorkflowID):
 		return domain.StandardWorkflowID, "Standard", nil
-	case t.workflows == nil:
+	case workflows == nil:
 		return "", "", toolFailure("custom workflows are not available; omit workflow to use the issue's default")
 	}
-	list, err := t.workflows.Workflows(ctx, ws)
+	list, err := workflows.Workflows(ctx, ws)
 	if err != nil {
 		return "", "", err
 	}

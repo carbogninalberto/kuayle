@@ -897,6 +897,279 @@ test('the approval card runs the model on the model server the user picked', asy
 	expect(bodies).toEqual([{ decision: 'approve', model: 'gpt-5', model_server_id: 'server-b' }]);
 });
 
+// KUA-204: the approver chooses the workflow a delegation's task follows; a
+// custom workflow's first agent step decides the harness and model.
+const workflowList = {
+	workflows: [
+		{ id: 'standard', name: 'Standard', builtin: true, archived: false },
+		{ id: 'workflow-loop', name: 'Review loop', builtin: false, archived: false },
+		{ id: 'workflow-old', name: 'Old flow', builtin: false, archived: true }
+	],
+	defaults: [],
+	can_manage: true
+};
+
+async function pendingDelegation(page: Page, payload: Record<string, unknown> = {}) {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Approval is pending.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-9',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_9',
+			name: 'delegate_issue',
+			input: { identifier: 'ENG-1' },
+			status: 'completed',
+			output: { approval_id: 'approval-1', status: 'pending_user_approval', identifier: 'ENG-1' },
+			created_at: conversation.created_at
+		}
+	];
+	state.approvals = [
+		{
+			id: 'approval-1',
+			conversation_id: 'chat-1',
+			tool_call_id: 'tool-9',
+			action: 'delegate_issue',
+			actor_id: 'user-1',
+			issue_id: 'issue-1',
+			payload: { identifier: 'ENG-1', title: 'Dark mode', instructions: 'Implement dark mode', ...payload },
+			status: 'pending',
+			expires_at: '2026-10-27T10:00:00Z',
+			created_at: conversation.created_at,
+			updated_at: conversation.created_at
+		}
+	];
+	const server = (id: string, name: string, is_default: boolean) => ({
+		id,
+		name,
+		models: ['gpt-5'],
+		default_model: 'gpt-5',
+		fast_model: '',
+		thinking: 'high',
+		is_default,
+		harnesses: ['codex'],
+		thinking_levels: ['off', 'low', 'high', 'max'],
+		updated_at: conversation.created_at
+	});
+	await page.route('**/api/workspaces/test/conversations/chat-1/task-options', (route) =>
+		route.fulfill({
+			json: {
+				providers: [{ id: 'codex', display_name: 'Codex' }],
+				default_provider: 'codex',
+				model_servers: [server('server-a', 'Gateway A', true), server('server-b', 'Gateway B', false)]
+			}
+		})
+	);
+	await page.route('**/api/workspaces/test/workflows', (route) => route.fulfill({ json: workflowList }));
+	return state;
+}
+
+test('the approval card runs the workflow the approver picked, without a model choice', async ({ page }) => {
+	const state = await pendingDelegation(page);
+	const bodies: unknown[] = [];
+	await page.route('**/conversations/chat-1/approvals/approval-1', (route) => {
+		bodies.push(route.request().postDataJSON());
+		const resolved = {
+			...state.approvals[0],
+			payload: { ...state.approvals[0].payload, workflow_id: 'workflow-loop', workflow: 'Review loop' },
+			status: 'approved',
+			task_id: 'task-9',
+			resolved_at: '2026-10-26T10:05:00Z',
+			updated_at: '2026-10-26T10:05:00Z'
+		};
+		state.approvals = [resolved];
+		return route.fulfill({ json: resolved });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	const workflow = page.getByTestId('task-workflow');
+	await expect(workflow).toHaveText('Issue default');
+	await expect(page.getByRole('button', { name: 'Model server' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Model', exact: true })).toBeVisible();
+	await expect(page.getByText("A custom workflow's first agent step decides", { exact: false })).toHaveCount(0);
+	await workflow.click();
+	// Standard and the workspace's non-archived custom workflows, nothing else.
+	await expect(page.getByRole('option')).toHaveText(['Issue default', 'Standard', 'Review loop']);
+	await page.getByRole('option', { name: 'Review loop' }).click();
+	await expect(workflow).toHaveText('Review loop');
+	await expect(page.getByText("A custom workflow's first agent step decides", { exact: false })).toBeVisible();
+	// The workflow decides the agent, so its pickers are gone.
+	await expect(page.getByRole('button', { name: 'Model server' })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Model', exact: true })).toHaveCount(0);
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
+	expect(bodies).toEqual([{ decision: 'approve', workflow_id: 'workflow-loop' }]);
+	// The approved card shows the workflow that ran.
+	await expect(page.getByText('Workflow: Review loop', { exact: true })).toBeVisible();
+	await expect(page.getByTestId('task-workflow')).toHaveCount(0);
+});
+
+test('a model picked before choosing a custom workflow is not sent with it', async ({ page }) => {
+	const state = await pendingDelegation(page);
+	const bodies: unknown[] = [];
+	await page.route('**/conversations/chat-1/approvals/approval-1', (route) => {
+		bodies.push(route.request().postDataJSON());
+		return route.fulfill({ json: { ...state.approvals[0], status: 'approved', task_id: 'task-9' } });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByRole('button', { name: 'Model server' }).click();
+	await page.getByRole('menuitemradio', { name: 'Gateway B' }).click();
+	await page.getByTestId('task-workflow').click();
+	await page.getByRole('option', { name: 'Review loop' }).click();
+	await expect(page.getByRole('button', { name: 'Model server' })).toHaveCount(0);
+	// Back to Standard: the model picker starts again from the proposal.
+	await page.getByTestId('task-workflow').click();
+	await page.getByRole('option', { name: 'Standard' }).click();
+	await expect(page.getByRole('button', { name: 'Model server' })).toHaveText('Gateway A');
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
+	expect(bodies).toEqual([{ decision: 'approve', workflow_id: 'standard' }]);
+});
+
+test('an untouched card keeps the workflow the assistant proposed and its model picker', async ({ page }) => {
+	const state = await pendingDelegation(page, { workflow_id: 'standard', workflow: 'Standard' });
+	const bodies: unknown[] = [];
+	await page.route('**/conversations/chat-1/approvals/approval-1', (route) => {
+		bodies.push(route.request().postDataJSON());
+		return route.fulfill({ json: { ...state.approvals[0], status: 'approved', task_id: 'task-9' } });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByTestId('task-workflow')).toHaveText('Standard');
+	await expect(page.getByRole('button', { name: 'Model server' })).toBeVisible();
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
+	expect(bodies).toEqual([{ decision: 'approve' }]);
+});
+
+test('going back to the issue default is sent as an empty workflow', async ({ page }) => {
+	const state = await pendingDelegation(page, { workflow_id: 'workflow-loop', workflow: 'Review loop' });
+	const bodies: unknown[] = [];
+	await page.route('**/conversations/chat-1/approvals/approval-1', (route) => {
+		bodies.push(route.request().postDataJSON());
+		return route.fulfill({ json: { ...state.approvals[0], status: 'approved', task_id: 'task-9' } });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByTestId('task-workflow')).toHaveText('Review loop');
+	await expect(page.getByRole('button', { name: 'Model server' })).toHaveCount(0);
+	await page.getByTestId('task-workflow').click();
+	await page.getByRole('option', { name: 'Issue default' }).click();
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
+	expect(bodies).toEqual([{ decision: 'approve', workflow_id: '' }]);
+});
+
+test('a workflow the server refuses is explained and the card stays pending', async ({ page }) => {
+	const state = await pendingDelegation(page);
+	const bodies: unknown[] = [];
+	await page.route('**/conversations/chat-1/approvals/approval-1', (route) => {
+		bodies.push(route.request().postDataJSON());
+		if (bodies.length === 1)
+			return route.fulfill({
+				status: 422,
+				json: {
+					error: {
+						code: 'INVALID_APPROVAL_EDIT',
+						message: 'Workflow not found: name a workflow of this workspace that is not archived, or "standard"'
+					}
+				}
+			});
+		return route.fulfill({ json: { ...state.approvals[0], status: 'approved', task_id: 'task-9' } });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('task-workflow').click();
+	await page.getByRole('option', { name: 'Review loop' }).click();
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByRole('alert').getByText('Workflow not found', { exact: false })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeEnabled();
+	await expect(page.getByTestId('task-workflow')).toHaveText('Review loop');
+	// The approver picks another workflow and approves.
+	await page.getByTestId('task-workflow').click();
+	await page.getByRole('option', { name: 'Standard' }).click();
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
+	expect(bodies).toEqual([
+		{ decision: 'approve', workflow_id: 'workflow-loop' },
+		{ decision: 'approve', workflow_id: 'standard' }
+	]);
+});
+
+test('only a delegation offers a workflow; reviews and follow-ups keep their cards', async ({ page }) => {
+	const state = await pendingDelegation(page);
+	const base = {
+		conversation_id: 'chat-1',
+		actor_id: 'user-1',
+		issue_id: 'issue-1',
+		status: 'pending',
+		expires_at: '2026-10-27T10:00:00Z',
+		created_at: conversation.created_at,
+		updated_at: conversation.created_at
+	};
+	const call = (id: string, sequence: number, name: string, approval: string) => ({
+		...state.tools[0],
+		id,
+		sequence,
+		call_id: `call_${id}`,
+		name,
+		output: { approval_id: approval, status: 'pending_user_approval', identifier: 'ENG-1' }
+	});
+	state.tools = [
+		state.tools[0],
+		call('tool-20', 1, 'request_agent_review', 'approval-20'),
+		call('tool-21', 2, 'follow_up_task', 'approval-21')
+	];
+	state.approvals = [
+		...state.approvals,
+		{
+			...base,
+			id: 'approval-20',
+			tool_call_id: 'tool-20',
+			action: 'request_agent_review',
+			payload: {
+				identifier: 'ENG-1',
+				title: 'Dark mode',
+				task_id: 'task-9',
+				harness: 'claude-code',
+				post_to_pull_request: false,
+				pull_request: 12,
+				pull_request_url: 'https://github.com/acme/app/pull/12',
+				commit: '0123456789abcdef0123456789abcdef01234567'
+			}
+		},
+		{
+			...base,
+			id: 'approval-21',
+			tool_call_id: 'tool-21',
+			action: 'follow_up_task',
+			payload: {
+				identifier: 'ENG-1',
+				title: 'Dark mode',
+				task_id: 'task-9',
+				generation: 1,
+				instructions: 'Fix the review findings'
+			}
+		}
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Review ENG-1 with Claude Code?', { exact: true })).toBeVisible();
+	await expect(page.getByText('Start a follow-up on ENG-1?', { exact: true })).toBeVisible();
+	await expect(page.getByTestId('task-workflow')).toHaveCount(1);
+	await expect(page.locator('#approval-workflow-approval-1')).toBeVisible();
+});
+
+test('a guest who cannot list workflows keeps the card without a workflow picker', async ({ page }) => {
+	await pendingDelegation(page);
+	await page.route('**/api/workspaces/test/workflows', (route) =>
+		route.fulfill({ status: 403, json: { error: { code: 'FORBIDDEN' } } })
+	);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Model server' })).toBeVisible();
+	await expect(page.getByTestId('task-workflow')).toHaveCount(0);
+});
+
+
 test('a long conversation list scrolls inside the sidebar, never the page', async ({ page }) => {
 	const state = await fixture(page);
 	const many = Array.from({ length: 40 }, (_, i) => ({
