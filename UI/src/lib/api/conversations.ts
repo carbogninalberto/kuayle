@@ -371,6 +371,13 @@ export interface GitHubAccessGap {
 // What the approver set on the card: a model choice, or a release's (or a chain's) edited notes.
 export interface ApprovalEdit extends ApprovalModelChoice {
 	notes?: string;
+	/**
+	 * The workflow a delegation's task follows, when the approver changed the
+	 * assistant's proposal: "" is the issue's default, "standard" the built-in
+	 * workflow, otherwise a workflow ID. Not part of the model choice, and absent
+	 * while the proposal stands.
+	 */
+	workflow_id?: string;
 }
 /** A wiki change the assistant asks to make; it names the wiki and page, never an issue. */
 export interface WikiApprovalPayload {

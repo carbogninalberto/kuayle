@@ -41,6 +41,9 @@ type AssistantApprovals struct {
 	machines     assistantMachinePorts
 	// Checks are unavailable until SetChecks wires them.
 	checks approvalChecks
+	// Custom workflows cannot be chosen on a delegation until SetWorkflows
+	// wires them; "standard" and the issue's default always can.
+	workflows assistantWorkflows
 	// Custom tool runs are unavailable until SetCustomTools wires them.
 	customTools assistantCustomTools
 	// Tool switches are ignored until SetToolSettings wires them.
@@ -170,10 +173,18 @@ func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id u
 	return s.ResolveWithModel(ctx, ws, conversation, id, approve, ModelChoice{})
 }
 
-// ApprovalEdit is what the approver changed on the card before approving:
-// only a release's notes can be edited.
+// SetWorkflows lets the approver of a delegation choose its workflow, checked
+// like the assistant's own choice (KUA-204).
+func (s *AssistantApprovals) SetWorkflows(workflows assistantWorkflows) { s.workflows = workflows }
+
+// ApprovalEdit is what the approver changed on the card before approving: a
+// release's notes, or the workflow a delegation's task follows.
 type ApprovalEdit struct {
 	Notes *string
+	// WorkflowID is the approver's choice of workflow for a delegation: nil keeps
+	// the assistant's proposal, "" the issue's default, "standard" the built-in
+	// workflow, anything else a workflow of the workspace by ID or name.
+	WorkflowID *string
 }
 
 // ResolveEdited is Resolve with the approver's edit of a release's notes.
@@ -199,10 +210,10 @@ func (s *AssistantApprovals) ResolveDecision(ctx context.Context, ws, conversati
 		return nil, repository.ErrConversationInvalid
 	}
 	var edit func(*domain.ConversationApproval) (json.RawMessage, error)
-	if approve && change != nil && change.Notes != nil {
-		notes := *change.Notes
-		edit = func(approval *domain.ConversationApproval) (json.RawMessage, error) {
-			return editReleaseApproval(approval, notes)
+	if approve && change != nil {
+		var err error
+		if edit, err = s.approvalEdit(ctx, ws, change); err != nil {
+			return nil, err
 		}
 	}
 	approval, changed, err := s.conversations.ClaimApprovalEdited(ctx, ws, conversation, id, approve, edit)
@@ -227,6 +238,79 @@ func (s *AssistantApprovals) ResolveDecision(ctx context.Context, ws, conversati
 	finished, err := s.execute(ctx, ws, conversation, id, approval, choice)
 	auditApprovalOutcome(ws, approval, finished, *transitioned, err)
 	return finished, err
+}
+
+// approvalEdit is the edit stored with the claim for what the approver changed
+// on the card. A workflow is checked here, before the claim and outside its
+// transaction, so a refused choice leaves the approval pending and starts
+// nothing; the claim then stores the checked choice only when this call moves
+// the approval out of pending, so a repeated approval with another workflow
+// replays the choice that was approved.
+func (s *AssistantApprovals) approvalEdit(ctx context.Context, ws uuid.UUID, change *ApprovalEdit) (func(*domain.ConversationApproval) (json.RawMessage, error), error) {
+	var workflowID, workflow string
+	if change.WorkflowID != nil {
+		var err error
+		if workflowID, workflow, err = s.checkWorkflowChoice(ctx, ws, *change.WorkflowID); err != nil {
+			return nil, err
+		}
+	}
+	if change.Notes == nil && change.WorkflowID == nil {
+		return nil, nil
+	}
+	return func(approval *domain.ConversationApproval) (json.RawMessage, error) {
+		payload := approval.Payload
+		if change.Notes != nil {
+			edited, err := editReleaseApproval(approval, *change.Notes)
+			if err != nil {
+				return nil, err
+			}
+			payload = edited
+		}
+		if change.WorkflowID != nil {
+			return editDelegationWorkflow(approval.Action, payload, workflowID, workflow)
+		}
+		return payload, nil
+	}, nil
+}
+
+// checkWorkflowChoice applies the assistant's own rule to the approver's
+// workflow: a workflow of this workspace that is not archived, or "standard",
+// and never for a guest. A refusal is an *ApprovalEditError.
+func (s *AssistantApprovals) checkWorkflowChoice(ctx context.Context, ws uuid.UUID, chosen string) (string, string, error) {
+	access, ok := domain.AccessFromContext(ctx)
+	if !ok || access.UserID == uuid.Nil || access.WorkspaceID != ws {
+		return "", "", repository.ErrConversationNotFound
+	}
+	if s.members != nil {
+		member, err := s.members.GetMember(ctx, ws, access.UserID)
+		if err != nil {
+			return "", "", err
+		}
+		if member == nil || member.Role == domain.RoleGuest {
+			return "", "", &ApprovalEditError{Message: upperFirst(noWorkspaceAccess)}
+		}
+	}
+	id, name, err := resolveDelegationWorkflow(ctx, s.workflows, ws, chosen)
+	var refusal *errAssistantTool
+	if errors.As(err, &refusal) {
+		return "", "", &ApprovalEditError{Message: upperFirst(refusal.message)}
+	}
+	return id, name, err
+}
+
+// editDelegationWorkflow returns a delegation's payload with the workflow the
+// approver chose, so the card shows the workflow that ran. Other approvals have
+// no workflow.
+func editDelegationWorkflow(action string, original json.RawMessage, id, name string) (json.RawMessage, error) {
+	if action != "delegate_issue" {
+		return nil, &ApprovalEditError{Message: "Only a delegation's workflow can be chosen before approving"}
+	}
+	var payload domain.DelegationPayload
+	if err := json.Unmarshal(original, &payload); err != nil {
+		return nil, err
+	}
+	payload.WorkflowID, payload.Workflow = id, name
+	return keepGitHubAccess(original, payload)
 }
 
 // auditApprovalOutcome records how an approved action ended, once: an error
