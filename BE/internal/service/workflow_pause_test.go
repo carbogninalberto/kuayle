@@ -167,6 +167,32 @@ func TestWorkflowPausedWhileWaitingForCIAdvancesOnlyAfterResume(t *testing.T) {
 	require.Equal(t, "completed", h.w.task.State)
 }
 
+// A pause inside a person's wait is already covered by the hold, so resuming
+// must not move the budget start a second time. The paused time still counts
+// on the step's own timeout (KUA-171).
+func TestWorkflowPauseInsideAPersonWaitIsNotCountedTwice(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{MaxMinutes: 60})
+	h.agentFinishes("done")
+	h.published()
+	h.review("approve", "ok")
+	h.ci("success", "")
+	require.Equal(t, "ship", h.current().NodeID)
+	require.NotNil(t, h.w.task.WorkflowHeldSince)
+	budgetFrom := h.w.task.WorkflowBudgetFrom
+
+	_, err := h.pause(domain.WorkflowPauseNow)
+	require.NoError(t, err)
+	h.w.now = h.w.now.Add(3 * time.Hour)
+	resume, err := repository.ComputeWorkflowResume(h.w.task, h.w.now)
+	require.NoError(t, err)
+	require.Equal(t, budgetFrom, resume.BudgetFrom, "the hold already moved the budget start")
+	require.Equal(t, 3*time.Hour, resume.Paused, "the step's timeout still excludes the pause")
+
+	require.NoError(t, h.resume())
+	require.Equal(t, budgetFrom, h.w.task.WorkflowBudgetFrom)
+	require.Equal(t, 3*60*60, h.current().PausedSeconds)
+}
+
 func TestWorkflowPausedTimeCountsAgainstNoBudgetOrTimeout(t *testing.T) {
 	// Without a pause the hour is used up while CI runs.
 	control := newWorkflowHarness(t, domain.WorkflowBudget{MaxMinutes: 60})

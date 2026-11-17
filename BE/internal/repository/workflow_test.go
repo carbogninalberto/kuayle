@@ -849,3 +849,92 @@ func TestHandoffKnowsWhenAnotherProfileRanThePreviousStep(t *testing.T) {
 	require.NotNil(t, handoff)
 	require.True(t, handoff.OtherProfile)
 }
+
+func workflowTaskForClockTest(t *testing.T, db *sqlx.DB, repo *AgentTaskRepository, ctx context.Context, legacy domain.AgentTask, fixture environmentRaceFixture, maxMinutes int) domain.AgentTask {
+	t.Helper()
+	ws := legacy.WorkspaceID
+	_, err := db.Exec(`UPDATE agent_tasks SET state='completed' WHERE id=$1`, legacy.ID)
+	require.NoError(t, err)
+	workflows := NewWorkflowRepository(db)
+	implementer, reviewer := builtinIDs(t, workflows, ws)
+	graph := domain.ReviewLoopWorkflowGraph(implementer, reviewer)
+	graph.Budget.MaxMinutes = maxMinutes
+	raw, err := json.Marshal(graph)
+	require.NoError(t, err)
+	created, err := workflows.CreateWorkflow(ctx, ws, fixture.userID, "Review loop", "", raw, "created")
+	require.NoError(t, err)
+	chosen := created.ID.String()
+	version, err := workflows.ResolveWorkflow(ctx, ws, legacy.IssueID, &chosen)
+	require.NoError(t, err)
+	task, err := repo.Create(ctx, ws, *legacy.ConversationID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Add dark mode", Provider: "claude-code", Workflow: version})
+	require.NoError(t, err)
+	return *task
+}
+
+// KUA-153: a task blocked longer than its budget has no running clock until it
+// first leaves queued for real work (preparing).
+func TestWorkflowClockStartsAtFirstRealWork(t *testing.T) {
+	db, repo, ctx, legacy, fixture := taskRecoveryFixture(t)
+	task := workflowTaskForClockTest(t, db, repo, ctx, legacy, fixture, 60)
+	require.Nil(t, task.WorkflowStartedAt, "a queued task has no clock")
+
+	// Simulate a long block behind another issue: creation is long ago, but
+	// the task is still queued and the clock has not started.
+	_, err := db.Exec(`UPDATE agent_tasks SET created_at=now()-interval '2 days' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	var created *time.Time
+	require.NoError(t, db.Get(&created, `SELECT created_at FROM agent_tasks WHERE id=$1`, task.ID))
+	require.True(t, created.Before(time.Now().Add(-48*time.Hour)))
+	require.NoError(t, db.Get(&created, `SELECT workflow_started_at FROM agent_tasks WHERE id=$1`, task.ID))
+	require.Nil(t, created, "queued time does not start the budget")
+
+	prepareTaskStart(t, db, repo, ctx, task, fixture)
+	var started *time.Time
+	require.NoError(t, db.Get(&started, `SELECT workflow_started_at FROM agent_tasks WHERE id=$1`, task.ID))
+	require.NotNil(t, started)
+	require.WithinDuration(t, time.Now(), *started, time.Minute, "the clock starts at preparing, not at creation")
+
+	current, err := repo.Get(ctx, task.WorkspaceID, task.ID)
+	require.NoError(t, err)
+	deadline := current.Cursor().StartedAt
+	graph, err := domain.ParseWorkflowGraph(currentVersionGraph(t, db, *current))
+	require.NoError(t, err)
+	require.NotNil(t, graph.BudgetDeadline(current.Cursor()))
+	require.True(t, graph.BudgetDeadline(current.Cursor()).After(time.Now()), "a full budget remains after the block")
+	require.False(t, deadline.IsZero())
+}
+
+func currentVersionGraph(t *testing.T, db *sqlx.DB, task domain.AgentTask) []byte {
+	t.Helper()
+	var raw []byte
+	require.NoError(t, db.Get(&raw, `SELECT graph FROM workflow_versions WHERE id=$1`, *task.WorkflowVersionID))
+	return raw
+}
+
+// KUA-171: waiting_input stops the clock; leaving it adds the time waited to
+// the budget start, so a person's question does not use up the budget.
+func TestWorkflowWaitingInputStopsTheClock(t *testing.T) {
+	db, repo, ctx, legacy, fixture := taskRecoveryFixture(t)
+	task := workflowTaskForClockTest(t, db, repo, ctx, legacy, fixture, 60)
+	prepareTaskStart(t, db, repo, ctx, task, fixture)
+
+	require.NoError(t, db.Get(&task, `UPDATE agent_tasks SET state='running' WHERE id=$1 RETURNING *`, task.ID))
+	require.NoError(t, db.Get(&task, `UPDATE agent_tasks SET lease_token=gen_random_uuid(),lease_expires_at=now()+interval '5 minutes' WHERE id=$1 RETURNING *`, task.ID))
+	require.NoError(t, repo.Transition(ctx, task, "waiting_input", "Waiting for your input"))
+	var held *time.Time
+	require.NoError(t, db.Get(&held, `SELECT workflow_held_since FROM agent_tasks WHERE id=$1`, task.ID))
+	require.NotNil(t, held, "waiting_input holds the clock")
+
+	_, err := db.Exec(`UPDATE agent_tasks SET workflow_held_since=now()-interval '2 hours' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	var started *time.Time
+	require.NoError(t, db.Get(&started, `SELECT workflow_started_at FROM agent_tasks WHERE id=$1`, task.ID))
+	require.NoError(t, db.Get(&task, `SELECT * FROM agent_tasks WHERE id=$1`, task.ID))
+	require.NoError(t, repo.Transition(ctx, task, "running", "Input received"))
+	var budgetFrom *time.Time
+	require.NoError(t, db.Get(&budgetFrom, `SELECT workflow_budget_from FROM agent_tasks WHERE id=$1`, task.ID))
+	require.NotNil(t, budgetFrom)
+	require.WithinDuration(t, started.Add(2*time.Hour), *budgetFrom, time.Minute)
+	require.NoError(t, db.Get(&held, `SELECT workflow_held_since FROM agent_tasks WHERE id=$1`, task.ID))
+	require.Nil(t, held, "the hold ends with the wait")
+}

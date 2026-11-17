@@ -210,6 +210,40 @@ func TestBudgetLimitsIterationsAndTime(t *testing.T) {
 	require.Empty(t, g.Decide(*cursor, WorkflowReviewApproved, now.Add(29*time.Minute), profiles).Limit)
 }
 
+func TestPersonWaitsStopTheTimeBudget(t *testing.T) {
+	start := time.Date(2026, 11, 13, 0, 12, 0, 0, time.UTC)
+	g := WorkflowGraph{Budget: WorkflowBudget{MaxMinutes: 60}}
+	base := WorkflowCursor{Node: "ship", Visits: map[string]int{}, StartedAt: start}
+
+	// A nil start (a task still queued behind a blocker) has no deadline.
+	require.Nil(t, g.BudgetDeadline(WorkflowCursor{Node: "ship"}))
+
+	// At a person's wait the deadline disappears, so waiting overnight cannot
+	// use up the budget.
+	held := base
+	held.HeldSince = start.Add(20 * time.Minute)
+	require.Nil(t, g.BudgetDeadline(held))
+
+	// Releasing moves the budget start forward by the time held, whether the
+	// budget came from StartedAt or from an earlier extension (BudgetFrom).
+	released := held.Released(start.Add(20*time.Minute + 16*time.Hour))
+	require.True(t, released.HeldSince.IsZero())
+	require.Equal(t, start.Add(16*time.Hour), released.BudgetFrom)
+	require.Equal(t, start.Add(16*time.Hour+time.Hour), *g.BudgetDeadline(released))
+
+	extended := held
+	extended.BudgetFrom = start.Add(time.Hour)
+	released = extended.Released(extended.HeldSince.Add(2 * time.Hour))
+	require.Equal(t, start.Add(time.Hour+2*time.Hour), released.BudgetFrom)
+
+	// A cursor that is not held is unchanged, and a wait in the future never
+	// moves the budget backwards.
+	require.Equal(t, base, base.Released(start.Add(time.Hour)))
+	future := base
+	future.HeldSince = start.Add(time.Hour)
+	require.Equal(t, start, future.Released(start).BudgetFrom, "a future hold moves the budget no earlier than the start")
+}
+
 func TestDecideUsesElseAndReportsStuck(t *testing.T) {
 	g := WorkflowGraph{Nodes: []WorkflowNode{{ID: "c", Type: WorkflowNodeCheck, Label: "Tests", Check: WorkflowCheckTests}, {ID: "e", Type: WorkflowNodeEnd, Label: "End", Outcome: WorkflowEndDone}},
 		Edges: []WorkflowEdge{{ID: "x", Source: "c", Target: "e", Condition: WorkflowElse}}}
