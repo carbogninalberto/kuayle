@@ -115,6 +115,14 @@ func ComputeWorkflowResume(task domain.AgentTask, now time.Time) (WorkflowResume
 		return WorkflowResume{}, ErrAgentTaskConflict
 	}
 	resume := WorkflowResume{Restart: task.State == "blocked", Paused: max(now.Sub(*task.WorkflowPausedAt), 0)}
+	if task.WorkflowHeldSince != nil {
+		// A hold can only start and end inside a person wait (a paused task
+		// applies no moves), so the hold already covers the paused time. Move
+		// the budget only when the hold ends; still count the paused time on
+		// the step's own timeout (KUA-171).
+		resume.BudgetFrom = task.WorkflowBudgetFrom
+		return resume, nil
+	}
 	from := task.WorkflowBudgetFrom
 	if from == nil {
 		from = task.WorkflowStartedAt

@@ -269,7 +269,10 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 		return nil, err
 	}
 	now := w.now()
-	cursor := task.Cursor()
+	// Leaving a person's wait adds the held time to the budget before the
+	// limits are checked: a decision to leave an approval uses working time
+	// only (KUA-171).
+	cursor := task.Cursor().Released(now)
 	apply := &repository.WorkflowApply{Sequence: task.WorkflowSequence, Version: task.WorkflowVersionID, Outcome: outcome, Detail: detail}
 	vars, err := w.variables(ctx, task, *graph, profiles, cursor.Node, outcome, detail)
 	if err != nil {
@@ -924,13 +927,14 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 func (w *WorkflowRunner) continuePast(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, node domain.WorkflowNode, step domain.WorkflowStep) (*repository.WorkflowApply, error) {
 	if step.FinishedAt == nil {
 		return &repository.WorkflowApply{Sequence: task.WorkflowSequence, Version: task.WorkflowVersionID, Hold: true, ExtendBudget: true,
-			Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: domain.WorkflowReasonPrefix + "continued past the time budget by a person; " + node.Label + " waits again", WakeAt: ptr(w.now())}}, nil
+			Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, NeedsPerson: node.Type == domain.WorkflowNodeApproval || node.Type == domain.WorkflowNodeMerge,
+				Reason: domain.WorkflowReasonPrefix + "continued past the time budget by a person; " + node.Label + " waits again", WakeAt: ptr(w.now())}}, nil
 	}
 	outcome := ""
 	if step.Outcome != nil {
 		outcome = *step.Outcome
 	}
-	probe := graph.Decide(task.Cursor(), outcome, w.now(), profiles)
+	probe := graph.Decide(task.Cursor().Released(w.now()), outcome, w.now(), profiles)
 	// The limit's reason was added to the step's detail when it stopped.
 	detail := strings.TrimSuffix(strings.TrimSuffix(step.Detail, probe.Reason), "\n")
 	switch probe.Limit {
