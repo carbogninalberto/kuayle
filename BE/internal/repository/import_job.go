@@ -240,13 +240,22 @@ func (r *ImportJobRepository) IsCancelRequested(ctx context.Context, jobID uuid.
 	return requested, err
 }
 
-// FailStaleRunning recovers jobs left running by a crashed instance. Their
+// Heartbeat refreshes a running job's updated_at so stale recovery does not
+// fail a job that is still making progress.
+func (r *ImportJobRepository) Heartbeat(ctx context.Context, jobID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE import_jobs SET updated_at = now()
+		WHERE id = $1 AND status = $2`, jobID, domain.ImportStatusRunning)
+	return err
+}
+
+// FailStaleRunning recovers jobs left running by a crashed instance, using the
+// last heartbeat (updated_at) rather than the time the job started. Their
 // credentials are cleared in the same update.
 func (r *ImportJobRepository) FailStaleRunning(ctx context.Context, before time.Time) (int64, error) {
 	res, err := r.db.ExecContext(ctx, `UPDATE import_jobs SET status = $1,
 		error = 'import interrupted by a server restart', finished_at = now(),
 		updated_at = now(), credentials_enc = NULL
-		WHERE status = $2 AND started_at < $3`, domain.ImportStatusFailed, domain.ImportStatusRunning, before)
+		WHERE status = $2 AND updated_at < $3`, domain.ImportStatusFailed, domain.ImportStatusRunning, before)
 	if err != nil {
 		return 0, err
 	}

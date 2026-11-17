@@ -153,6 +153,7 @@ type transformConfig struct {
 	SprintField string
 	EpicField   string
 	Site        string
+	BaseURL     string
 }
 
 var jiraTimeLayouts = []string{
@@ -193,13 +194,16 @@ func transformIssue(raw json.RawMessage, comments []jiraComment, changelog jiraC
 		ExternalID:  issue.ID,
 		ExternalKey: issue.Key,
 		Title:       f.Summary,
-		Description: referenceLine(issue) + description,
+		Description: referenceLine(issue, cfg.BaseURL) + description,
 		CreatedAt:   parseJiraTime(f.Created),
 		UpdatedAt:   parseJiraTime(f.Updated),
 		Assignee:    f.Assignee.source(),
 		Reporter:    f.Reporter.source(),
 		SprintIDs:   []string{},
 		Labels:      []string{},
+	}
+	if cfg.BaseURL != "" && issue.Key != "" {
+		source.URL = strings.TrimRight(cfg.BaseURL, "/") + "/browse/" + issue.Key
 	}
 	if f.Status != nil {
 		source.Status = f.Status.Name
@@ -292,12 +296,12 @@ func (u *jiraUser) sourceOrEmpty() *importer.SourceUser {
 	return u.source()
 }
 
-func referenceLine(issue jiraIssue) string {
-	url := issue.Self
-	if url == "" {
+func referenceLine(issue jiraIssue, baseURL string) string {
+	if baseURL == "" || issue.Key == "" {
 		return "> Imported from Jira " + issue.Key + "\n\n"
 	}
-	return fmt.Sprintf("> Imported from Jira [%s](%s)\n\n", issue.Key, url)
+	browseURL := strings.TrimRight(baseURL, "/") + "/browse/" + issue.Key
+	return fmt.Sprintf("> Imported from Jira [%s](%s)\n\n", issue.Key, browseURL)
 }
 
 func relationType(name string, inward bool) domain.IssueRelationType {

@@ -30,7 +30,7 @@ type importStore interface {
 	EnsureLabel(ctx context.Context, workspaceID uuid.UUID, projectID *uuid.UUID, name string) (uuid.UUID, error)
 	EnsureCycle(ctx context.Context, workspaceID, teamID uuid.UUID, name string) (uuid.UUID, error)
 	EnsureProject(ctx context.Context, workspaceID, teamID uuid.UUID, name string) (uuid.UUID, error)
-	CreateIssue(ctx context.Context, workspaceID, teamID uuid.UUID, issue *domain.Issue, createdAt, updatedAt time.Time) error
+	CreateIssue(ctx context.Context, workspaceID, teamID uuid.UUID, issue *domain.Issue, createdAt, updatedAt time.Time, ref *domain.ImportExternalRef) error
 	GetIssue(ctx context.Context, workspaceID, issueID uuid.UUID) (*domain.Issue, error)
 	UpdateIssue(ctx context.Context, workspaceID uuid.UUID, issue *domain.Issue, updatedAt time.Time) error
 	SetParent(ctx context.Context, workspaceID, issueID, parentID, actorID uuid.UUID) error
@@ -39,6 +39,7 @@ type importStore interface {
 	CreateComment(ctx context.Context, workspaceID uuid.UUID, comment *domain.Comment, createdAt, updatedAt time.Time) error
 	CreateRelation(ctx context.Context, workspaceID, issueID, relatedID uuid.UUID, relationType domain.IssueRelationType) (uuid.UUID, error)
 	StoreAttachment(ctx context.Context, workspaceID, teamID, uploaderID uuid.UUID, filename string, content io.Reader, size int64, contentType string) (*domain.Asset, string, error)
+	AssetURL(ctx context.Context, workspaceID, assetID uuid.UUID) (filename, url string, err error)
 }
 
 type sqlImportStore struct {
@@ -179,7 +180,7 @@ func (s *sqlImportStore) EnsureProject(ctx context.Context, workspaceID, teamID 
 	return project.ID, nil
 }
 
-func (s *sqlImportStore) CreateIssue(ctx context.Context, workspaceID, teamID uuid.UUID, issue *domain.Issue, createdAt, updatedAt time.Time) error {
+func (s *sqlImportStore) CreateIssue(ctx context.Context, workspaceID, teamID uuid.UUID, issue *domain.Issue, createdAt, updatedAt time.Time, ref *domain.ImportExternalRef) error {
 	tx, err := s.issues.BeginTx(ctx)
 	if err != nil {
 		return err
@@ -208,6 +209,14 @@ func (s *sqlImportStore) CreateIssue(ctx context.Context, workspaceID, teamID uu
 	}
 	if !createdAt.IsZero() {
 		if err := s.imports.SetIssueTimestamps(ctx, tx, workspaceID, issue.ID, createdAt, updatedAt); err != nil {
+			return err
+		}
+	}
+	// Write the external ref in the same transaction as the issue so a
+	// committed issue always has its idempotency mapping.
+	if ref != nil {
+		ref.KuayleID = issue.ID
+		if err := s.imports.UpsertRef(ctx, tx, ref); err != nil {
 			return err
 		}
 	}
@@ -300,4 +309,22 @@ func (s *sqlImportStore) StoreAttachment(ctx context.Context, workspaceID, teamI
 		url = ""
 	}
 	return asset, url, nil
+}
+
+// AssetURL rebuilds a stored attachment's link from its asset id. Existing
+// refs carry only the Kuayle asset id, so re-runs read the filename and URL
+// back from the asset and its storage key.
+func (s *sqlImportStore) AssetURL(ctx context.Context, workspaceID, assetID uuid.UUID) (string, string, error) {
+	asset, err := s.assets.GetByID(ctx, assetID)
+	if err != nil {
+		return "", "", err
+	}
+	if asset == nil || asset.WorkspaceID != workspaceID {
+		return "", "", fmt.Errorf("attachment %s is not visible in this workspace", assetID)
+	}
+	url, err := s.storage.URL(ctx, asset.StorageKey)
+	if err != nil {
+		return asset.Filename, "", nil
+	}
+	return asset.Filename, url, nil
 }

@@ -425,6 +425,7 @@ type ImportRepo interface {
 	WipeCredentials(ctx context.Context, jobID uuid.UUID) error
 	RequestCancel(ctx context.Context, workspaceID, id uuid.UUID) error
 	IsCancelRequested(ctx context.Context, jobID uuid.UUID) (bool, error)
+	Heartbeat(ctx context.Context, jobID uuid.UUID) error
 	FailStaleRunning(ctx context.Context, before time.Time) (int64, error)
 	GetRef(ctx context.Context, workspaceID uuid.UUID, source, site, extType, extID string) (*domain.ImportExternalRef, error)
 	UpsertRef(ctx context.Context, tx *sqlx.Tx, ref *domain.ImportExternalRef) error

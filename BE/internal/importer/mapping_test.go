@@ -56,6 +56,34 @@ func TestResolveUserPlaceholderChoice(t *testing.T) {
 	}
 }
 
+func TestResolveAssigneeNeverFallsBackToImporter(t *testing.T) {
+	m := NewMapping()
+	member := uuid.New()
+	members := []Member{{UserID: member, Email: "Jane.Doe@Example.com"}}
+
+	if got := m.ResolveAssignee(nil, members); got != nil {
+		t.Fatalf("nil assignee must be unassigned, got %s", got)
+	}
+	if got := m.ResolveAssignee(&SourceUser{Email: "ghost@example.com"}, members); got != nil {
+		t.Fatalf("unmatched assignee must be unassigned, got %s", got)
+	}
+	m.Users["someone@example.com"] = UserTarget{}
+	if got := m.ResolveAssignee(&SourceUser{Email: "Someone@Example.com"}, members); got != nil {
+		t.Fatalf("explicit unassigned choice must be honoured, got %s", got)
+	}
+	if got := m.ResolveAssignee(&SourceUser{Email: "jane.doe@EXAMPLE.com"}, members); got == nil || *got != member {
+		t.Fatalf("case-insensitive email match expected %s, got %v", member, got)
+	}
+	if got := m.ResolveAssignee(&SourceUser{ExternalID: "ext-1", Email: "jane.doe@example.com"}, members); got == nil || *got != member {
+		t.Fatalf("explicit external-id mapping expected %s, got %v", member, got)
+	}
+	target := uuid.New()
+	m.Users["ext-2"] = UserTarget{UserID: &target}
+	if got := m.ResolveAssignee(&SourceUser{ExternalID: "ext-2"}, members); got == nil || *got != target {
+		t.Fatalf("explicit user mapping expected %s, got %v", target, got)
+	}
+}
+
 func TestUnmappedStatusAndPriorityAreReported(t *testing.T) {
 	m := NewMapping()
 	preview := &SourcePreview{Statuses: []string{"In Progress", "Done"}, Priorities: []string{"Highest"}}

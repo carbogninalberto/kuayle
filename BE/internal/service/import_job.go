@@ -12,6 +12,7 @@ import (
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/importer"
+	"github.com/kuayle/kuayle-backend/internal/importer/jira"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/crypto"
 )
@@ -33,7 +34,6 @@ func (e *ImportValidationError) Error() string { return e.Message }
 
 type ImportCreateInput struct {
 	Source      string
-	SourceSite  string
 	Config      json.RawMessage
 	Credentials json.RawMessage
 }
@@ -85,6 +85,17 @@ func (s *ImportService) Create(ctx context.Context, workspaceID, creator uuid.UU
 	if len(input.Credentials) == 0 {
 		return nil, &ImportValidationError{Message: "credentials are required"}
 	}
+	var creds jiraImportCredentials
+	if err := json.Unmarshal(input.Credentials, &creds); err != nil {
+		return nil, &ImportValidationError{Message: "invalid credentials"}
+	}
+	// source_site is part of the idempotency key and must be derived from the
+	// credentials' base URL, never from the client: Jira issue ids are only
+	// unique within one site.
+	site, err := jira.SiteFromBaseURL(creds.BaseURL)
+	if err != nil {
+		return nil, &ImportValidationError{Message: "invalid Jira base URL"}
+	}
 	encrypted, err := crypto.Encrypt(string(input.Credentials), s.key)
 	if err != nil {
 		return nil, err
@@ -93,7 +104,7 @@ func (s *ImportService) Create(ctx context.Context, workspaceID, creator uuid.UU
 		WorkspaceID:    workspaceID,
 		CreatedBy:      &creator,
 		Source:         input.Source,
-		SourceSite:     input.SourceSite,
+		SourceSite:     site,
 		Config:         input.Config,
 		Mapping:        json.RawMessage(`{}`),
 		CredentialsEnc: &encrypted,
@@ -291,13 +302,21 @@ func mergeUnique(a, b []string) []string {
 }
 
 // Run polls for queued imports until ctx ends. Like the backup worker, it
-// recovers interrupted jobs first and never dies on a transient error.
+// recovers interrupted jobs first and never dies on a transient error. A job
+// is stale only when its heartbeat is older than ten minutes; recovery runs
+// once a minute as well as at startup.
 func (s *ImportService) Run(ctx context.Context) {
-	if n, err := s.repo.FailStaleRunning(ctx, s.now().Add(-30*time.Minute)); err != nil {
-		s.logger.WithError(err).Warn("could not recover stale imports")
-	} else if n > 0 {
-		s.logger.WithField("count", n).Warn("marked interrupted imports as failed")
+	const staleAfter = 10 * time.Minute
+	const recoverEvery = time.Minute
+	recover := func() {
+		if n, err := s.repo.FailStaleRunning(ctx, s.now().Add(-staleAfter)); err != nil {
+			s.logger.WithError(err).Warn("could not recover stale imports")
+		} else if n > 0 {
+			s.logger.WithField("count", n).Warn("marked interrupted imports as failed")
+		}
 	}
+	recover()
+	lastRecover := s.now()
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 	for {
@@ -316,6 +335,10 @@ func (s *ImportService) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		}
+		if s.now().Sub(lastRecover) >= recoverEvery {
+			recover()
+			lastRecover = s.now()
 		}
 	}
 }

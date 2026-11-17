@@ -1692,17 +1692,41 @@ Migration `000173_imports` adds three tables:
 
 `ImportService` creates a draft job, previews it without writing anything
 outside `import_jobs`, validates and stores the mapping, then queues the job.
-`ImportService.Run` is a polling worker like the backup scheduler: it recovers
-interrupted jobs, claims queued jobs with `FOR UPDATE SKIP LOCKED`, and writes
-labels, sprint cycles, epic projects, issues, sub-issues, comments (including a
-history summary), attachments and relations. Each issue is created in a short
-transaction; comments and attachments have their own refs so re-runs never
-duplicate them. Skipped or failed items are reported and do not fail the job.
+The `source_site` part of the idempotency key is derived on the server from the
+lower-cased host of the credentials' `base_url` (the same value
+`jira.Client.Site()` returns); no client-supplied site is trusted, so importing
+two Jira Cloud sites into one workspace cannot collide. `ImportService.Run` is
+a polling worker like the backup scheduler: it recovers interrupted jobs,
+claims queued jobs with `FOR UPDATE SKIP LOCKED`, and writes labels, sprint
+cycles, epic projects, issues, sub-issues, comments (including a history
+summary), attachments and relations. Each issue is created in a short
+transaction together with its external ref; comments and attachments have
+their own refs so re-runs never duplicate them. Container resolution errors
+(an unmapped project, a failing label/cycle/project) are reported as per-item
+failures instead of aborting the job. Attachment links are rebuilt from their
+refs on every run, so updates and a re-run after a failed issue create keep the
+links to already-stored assets. Ref lookup or write errors fail the affected
+item rather than being silently treated as "not found".
+
+Assignees and authors resolve differently: a missing, unmatched or explicitly
+unassigned source user leaves an issue with no assignee, while an unmatched
+author (reporter or comment author) is attributed to the importer with the
+original name in the text. The importer fallback is for authors only.
+
+`total`, `processed`, `created`, `updated`, `skipped` and `failed` count
+issues only; comment, attachment and relation outcomes appear exclusively in
+the per-item error report. Skipped or failed items do not fail the job.
+
+Running jobs send a heartbeat (`updated_at`) during a long fetch, while
+writing and before each attachment download. Stale recovery looks at a
+heartbeat older than ten minutes rather than the start time, and runs both at
+startup and once a minute, so a live job on a busy instance is never failed by
+another replica's recovery pass.
 
 Credentials are encrypted with `crypto.Encrypt` under a key derived from
 `JWT_SECRET` (`:import`) and written to `credentials_enc`. They are cleared in
 the same statement that sets a terminal status, again in a worker `defer` on
-every exit path, and again when stale running jobs are recovered at startup.
+every exit path, and again whenever stale running jobs are recovered.
 Responses never contain them. All import routes are session-only and require
 the workspace owner/admin role; personal access tokens and SSO-scoped sessions
 are rejected by middleware. Outbound requests dial only public addresses

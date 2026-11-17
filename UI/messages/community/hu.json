@@ -4260,6 +4260,7 @@
 	"settings.import.cloud": "Jira Cloud",
 	"settings.import.server": "Jira Server / DC",
 	"settings.import.base_url": "Base URL",
+	"settings.import.site_url": "Site URL",
 	"settings.import.email": "Email",
 	"settings.import.token": "API token",
 	"settings.import.jql": "JQL filter (optional)",

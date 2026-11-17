@@ -282,6 +282,87 @@ func TestRetryAfterAndNoTokenInErrors(t *testing.T) {
 	}
 }
 
+func TestForeignAttachmentIsRefusedWithoutSendingCredentials(t *testing.T) {
+	var foreignRequests atomic.Int32
+	var foreignAuth string
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		foreignRequests.Add(1)
+		foreignAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer foreign.Close()
+
+	jira := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer jira.Close()
+
+	_, err := testClient(t, jira, true).OpenAttachment(context.Background(), importer.SourceAttachment{
+		ExternalID: "a1", Filename: "spec.pdf", Size: 5, URL: foreign.URL + "/attachment",
+	})
+	if !errors.Is(err, ErrAttachmentHostMismatch) {
+		t.Fatalf("expected ErrAttachmentHostMismatch, got %v", err)
+	}
+	if foreignRequests.Load() != 0 || foreignAuth != "" {
+		t.Fatalf("foreign host was contacted with credentials: requests=%d auth=%q", foreignRequests.Load(), foreignAuth)
+	}
+}
+
+func TestReferenceLineUsesBrowseURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/rest/api/3/field":
+			writeFixture(t, w, "fields.json")
+		case r.URL.Path == "/rest/api/3/search/jql":
+			body, _ := io.ReadAll(r.Body)
+			var req map[string]any
+			_ = json.Unmarshal(body, &req)
+			if req["nextPageToken"] == "page2" {
+				writeFixture(t, w, "cloud_search_page2.json")
+			} else {
+				writeFixture(t, w, "cloud_search_page1.json")
+			}
+		case strings.HasSuffix(r.URL.Path, "/comment"):
+			_, _ = w.Write([]byte(`{"comments":[],"total":0}`))
+		case strings.HasSuffix(r.URL.Path, "/changelog"):
+			_, _ = w.Write([]byte(`{"values":[],"total":0}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	var got []importer.SourceIssue
+	if err := testClient(t, srv, true).Fetch(context.Background(), func(issue importer.SourceIssue) error {
+		got = append(got, issue)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := srv.URL + "/browse/PROJ-1"
+	if got[0].URL != want {
+		t.Fatalf("source URL = %q, want %q", got[0].URL, want)
+	}
+	if !strings.Contains(got[0].Description, "]("+want+")") {
+		t.Fatalf("reference line does not link the browse URL: %q", got[0].Description)
+	}
+}
+
+func TestSiteFromBaseURL(t *testing.T) {
+	site, err := SiteFromBaseURL("https://MySite.ATLASSIAN.net/rest")
+	if err != nil || site != "mysite.atlassian.net" {
+		t.Fatalf("expected lower-cased host, got %q, %v", site, err)
+	}
+	for _, bad := range []string{"", "not-a-url", "https://", "://missing-scheme"} {
+		if _, err := SiteFromBaseURL(bad); err == nil {
+			t.Fatalf("expected an error for %q", bad)
+		}
+	}
+	client := testClient(t, httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})), true)
+	if client.Site() != strings.ToLower(strings.TrimPrefix(client.baseURL, "http://")) {
+		t.Fatalf("client site and base URL host disagree: %q vs %q", client.Site(), client.baseURL)
+	}
+}
+
 func TestOversizedAttachmentIsFlagged(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("oversized attachment must not be downloaded")

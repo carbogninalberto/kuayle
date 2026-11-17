@@ -176,9 +176,8 @@
 			const cloud = mode === 'cloud';
 			const created = await imports.create(slug, {
 				source: 'jira',
-				source_site: cloud ? 'cloud' : baseUrl,
 				config: { cloud, jql },
-				credentials: cloud ? { base_url: 'https://atlassian.net', email, token } : { base_url: baseUrl, bearer_token: token }
+				credentials: cloud ? { base_url: baseUrl, email, token } : { base_url: baseUrl, bearer_token: token }
 			});
 			jobs = [created, ...jobs];
 			selectedId = created.id;
@@ -258,6 +257,8 @@
 		{ value: 'cloud' as const, label: m['settings.import.cloud']() },
 		{ value: 'server' as const, label: m['settings.import.server']() }
 	];
+	const baseUrlLabel = $derived(mode === 'cloud' ? m['settings.import.site_url']() : m['settings.import.base_url']());
+	const baseUrlPlaceholder = $derived(mode === 'cloud' ? 'https://your-site.atlassian.net' : 'https://jira.example.com');
 	const unassignedOption = [{ value: '', label: m['settings.import.unassigned']() }];
 
 	onMount(load);
@@ -296,8 +297,8 @@
 						<SelectField id="import-mode" bind:value={mode} options={modeOptions} />
 					</div>
 					<div class="space-y-1.5">
-						<Label for="import-base-url">{m['settings.import.base_url']()}</Label>
-						<Input id="import-base-url" bind:value={baseUrl} disabled={mode === 'cloud'} placeholder="https://jira.example.com" />
+						<Label for="import-base-url">{baseUrlLabel}</Label>
+						<Input id="import-base-url" bind:value={baseUrl} placeholder={baseUrlPlaceholder} />
 					</div>
 					<div class="space-y-1.5">
 						<Label for="import-email">{m['settings.import.email']()}</Label>

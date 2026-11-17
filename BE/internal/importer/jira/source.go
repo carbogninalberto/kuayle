@@ -277,7 +277,7 @@ func (c *Client) Preview(ctx context.Context) (*importer.SourcePreview, error) {
 // Fetch streams each fully enriched issue to emit.
 func (c *Client) Fetch(ctx context.Context, emit importer.EmitFunc) error {
 	c.discoverFields(ctx)
-	cfg := transformConfig{SprintField: c.sprintField, EpicField: c.epicField, Site: c.site}
+	cfg := transformConfig{SprintField: c.sprintField, EpicField: c.epicField, Site: c.site, BaseURL: c.baseURL}
 	return c.search(ctx, func(raw json.RawMessage) error {
 		var probe jiraIssue
 		if err := json.Unmarshal(raw, &probe); err != nil {

@@ -21,12 +21,16 @@ import (
 // ---- fakes ---------------------------------------------------------------
 
 type fakeImportRepo struct {
-	jobs       map[uuid.UUID]*domain.ImportJob
-	items      []domain.ImportJobItem
-	refs       map[string]*domain.ImportExternalRef
-	counters   map[uuid.UUID]repository.ImportCounterDelta
-	cancel     bool
-	finishCall []struct {
+	jobs         map[uuid.UUID]*domain.ImportJob
+	items        []domain.ImportJobItem
+	refs         map[string]*domain.ImportExternalRef
+	counters     map[uuid.UUID]repository.ImportCounterDelta
+	heartbeats   map[uuid.UUID]int
+	updatedAt    map[uuid.UUID]time.Time
+	cancel       bool
+	getRefErr    error
+	upsertRefErr error
+	finishCall   []struct {
 		status string
 		err    *string
 	}
@@ -36,7 +40,8 @@ type fakeImportRepo struct {
 func newFakeImportRepo() *fakeImportRepo {
 	return &fakeImportRepo{
 		jobs: map[uuid.UUID]*domain.ImportJob{}, refs: map[string]*domain.ImportExternalRef{},
-		counters: map[uuid.UUID]repository.ImportCounterDelta{},
+		counters: map[uuid.UUID]repository.ImportCounterDelta{}, heartbeats: map[uuid.UUID]int{},
+		updatedAt: map[uuid.UUID]time.Time{},
 	}
 }
 
@@ -143,13 +148,35 @@ func (f *fakeImportRepo) RequestCancel(_ context.Context, ws, id uuid.UUID) erro
 func (f *fakeImportRepo) IsCancelRequested(_ context.Context, _ uuid.UUID) (bool, error) {
 	return f.cancel, nil
 }
-func (f *fakeImportRepo) FailStaleRunning(_ context.Context, _ time.Time) (int64, error) {
-	return 0, nil
+func (f *fakeImportRepo) Heartbeat(_ context.Context, jobID uuid.UUID) error {
+	f.heartbeats[jobID]++
+	f.updatedAt[jobID] = time.Now()
+	return nil
+}
+func (f *fakeImportRepo) FailStaleRunning(_ context.Context, before time.Time) (int64, error) {
+	var n int64
+	for _, job := range f.jobs {
+		if job.Status != domain.ImportStatusRunning {
+			continue
+		}
+		updated, ok := f.updatedAt[job.ID]
+		if !ok || updated.Before(before) {
+			job.Status = domain.ImportStatusFailed
+			n++
+		}
+	}
+	return n, nil
 }
 func (f *fakeImportRepo) GetRef(_ context.Context, ws uuid.UUID, source, site, typ, id string) (*domain.ImportExternalRef, error) {
+	if f.getRefErr != nil {
+		return nil, f.getRefErr
+	}
 	return f.refs[refMapKey(ws, source, site, typ, id)], nil
 }
 func (f *fakeImportRepo) UpsertRef(_ context.Context, _ *sqlx.Tx, ref *domain.ImportExternalRef) error {
+	if f.upsertRefErr != nil {
+		return f.upsertRefErr
+	}
 	f.refs[refMapKey(ref.WorkspaceID, ref.Source, ref.SourceSite, ref.ExternalType, ref.ExternalID)] = ref
 	return nil
 }
@@ -161,28 +188,36 @@ func (f *fakeImportRepo) SetCommentTimestamps(context.Context, *sqlx.Tx, uuid.UU
 }
 
 type importFakeStore struct {
-	ws         uuid.UUID
-	teamID     uuid.UUID
-	statusID   uuid.UUID
-	importerID uuid.UUID
-	members    []importer.Member
-	issues     map[uuid.UUID]*domain.Issue
-	issueOrder []uuid.UUID
-	comments   []*domain.Comment
-	relations  []*domain.IssueRelation
-	parents    map[uuid.UUID]uuid.UUID
-	labels     []string
-	cycles     []string
-	projects   []string
-	assetCount int
-	number     int
+	ws           uuid.UUID
+	teamID       uuid.UUID
+	statusID     uuid.UUID
+	importerID   uuid.UUID
+	members      []importer.Member
+	issues       map[uuid.UUID]*domain.Issue
+	issueOrder   []uuid.UUID
+	comments     []*domain.Comment
+	relations    []*domain.IssueRelation
+	parents      map[uuid.UUID]uuid.UUID
+	labels       []string
+	cycles       []string
+	projects     []string
+	assetCount   int
+	assets       map[uuid.UUID]*domain.Asset
+	repo         *fakeImportRepo
+	failCreate   int
+	number       int
+	cycleErrName string
+	assigneeSets []struct {
+		issueID uuid.UUID
+		userIDs []uuid.UUID
+	}
 }
 
 func newImportFakeStore(ws, teamID, statusID, importerID uuid.UUID) *importFakeStore {
 	return &importFakeStore{
 		ws: ws, teamID: teamID, statusID: statusID, importerID: importerID,
 		members: []importer.Member{{UserID: importerID, Email: "importer@example.com"}},
-		issues:  map[uuid.UUID]*domain.Issue{}, parents: map[uuid.UUID]uuid.UUID{}, number: 0,
+		issues:  map[uuid.UUID]*domain.Issue{}, parents: map[uuid.UUID]uuid.UUID{}, assets: map[uuid.UUID]*domain.Asset{}, number: 0,
 	}
 }
 
@@ -199,21 +234,42 @@ func (f *importFakeStore) EnsureLabel(_ context.Context, _ uuid.UUID, _ *uuid.UU
 	f.labels = append(f.labels, name)
 	return uuid.New(), nil
 }
-func (f *importFakeStore) EnsureCycle(_ context.Context, _, _ uuid.UUID, name string) (uuid.UUID, error) {
+func (f *importFakeStore) EnsureCycle(_ context.Context, _, teamID uuid.UUID, name string) (uuid.UUID, error) {
+	if teamID == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("cannot create cycle without a team")
+	}
+	if name == f.cycleErrName {
+		return uuid.Nil, fmt.Errorf("cannot create cycle %s", name)
+	}
 	f.cycles = append(f.cycles, name)
 	return uuid.New(), nil
 }
-func (f *importFakeStore) EnsureProject(_ context.Context, _, _ uuid.UUID, name string) (uuid.UUID, error) {
+func (f *importFakeStore) EnsureProject(_ context.Context, _, teamID uuid.UUID, name string) (uuid.UUID, error) {
+	if teamID == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("cannot create project without a team")
+	}
 	f.projects = append(f.projects, name)
 	return uuid.New(), nil
 }
-func (f *importFakeStore) CreateIssue(_ context.Context, ws, teamID uuid.UUID, issue *domain.Issue, _, _ time.Time) error {
+func (f *importFakeStore) CreateIssue(_ context.Context, ws, teamID uuid.UUID, issue *domain.Issue, _, _ time.Time, ref *domain.ImportExternalRef) error {
+	if f.failCreate > 0 {
+		f.failCreate--
+		return errors.New("simulated create failure")
+	}
 	f.number++
 	issue.ID = uuid.New()
 	issue.WorkspaceID = ws
 	issue.TeamID = teamID
 	issue.Identifier = fmt.Sprintf("TEAM-%d", f.number)
 	issue.Number = f.number
+	if ref != nil {
+		ref.KuayleID = issue.ID
+		if f.repo != nil {
+			if err := f.repo.UpsertRef(context.Background(), nil, ref); err != nil {
+				return err
+			}
+		}
+	}
 	copyIssue := *issue
 	f.issues[issue.ID] = &copyIssue
 	f.issueOrder = append(f.issueOrder, issue.ID)
@@ -239,7 +295,11 @@ func (f *importFakeStore) SetParent(_ context.Context, _, issueID, parentID, _ u
 func (f *importFakeStore) SetLabels(context.Context, uuid.UUID, uuid.UUID, []uuid.UUID) error {
 	return nil
 }
-func (f *importFakeStore) SetAssignees(context.Context, uuid.UUID, uuid.UUID, []uuid.UUID) error {
+func (f *importFakeStore) SetAssignees(_ context.Context, _, issueID uuid.UUID, userIDs []uuid.UUID) error {
+	f.assigneeSets = append(f.assigneeSets, struct {
+		issueID uuid.UUID
+		userIDs []uuid.UUID
+	}{issueID, userIDs})
 	return nil
 }
 func (f *importFakeStore) CreateComment(_ context.Context, _ uuid.UUID, comment *domain.Comment, _, _ time.Time) error {
@@ -255,7 +315,17 @@ func (f *importFakeStore) CreateRelation(_ context.Context, _ uuid.UUID, issueID
 }
 func (f *importFakeStore) StoreAttachment(_ context.Context, _, _, _ uuid.UUID, filename string, _ io.Reader, _ int64, _ string) (*domain.Asset, string, error) {
 	f.assetCount++
-	return &domain.Asset{ID: uuid.New(), Filename: filename}, "https://example.com/asset/" + filename, nil
+	asset := &domain.Asset{ID: uuid.New(), Filename: filename}
+	f.assets[asset.ID] = asset
+	return asset, "https://example.com/asset/" + asset.ID.String(), nil
+}
+
+func (f *importFakeStore) AssetURL(_ context.Context, _ uuid.UUID, assetID uuid.UUID) (string, string, error) {
+	asset := f.assets[assetID]
+	if asset == nil {
+		return "", "", fmt.Errorf("asset %s not found", assetID)
+	}
+	return asset.Filename, "https://example.com/asset/" + assetID.String(), nil
 }
 
 type fakeSource struct {
@@ -264,6 +334,7 @@ type fakeSource struct {
 	previewCall int
 	fetchCall   int
 	attachErr   map[string]error
+	onEmit      func()
 }
 
 func (f *fakeSource) Preview(context.Context) (*importer.SourcePreview, error) {
@@ -276,6 +347,9 @@ func (f *fakeSource) Preview(context.Context) (*importer.SourcePreview, error) {
 func (f *fakeSource) Fetch(_ context.Context, emit importer.EmitFunc) error {
 	f.fetchCall++
 	for _, issue := range f.issues {
+		if f.onEmit != nil {
+			f.onEmit()
+		}
 		if err := emit(issue); err != nil {
 			return err
 		}
@@ -305,6 +379,7 @@ func newHarness(t *testing.T) *importHarness {
 	t.Helper()
 	ws, admin, team, status := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	repo, store := newFakeImportRepo(), newImportFakeStore(ws, team, status, admin)
+	store.repo = repo
 	source := &fakeSource{attachErr: map[string]error{}}
 	mapping := importer.NewMapping()
 	mapping.Projects["10"] = importer.ProjectTarget{TeamID: team}
@@ -315,7 +390,7 @@ func newHarness(t *testing.T) *importHarness {
 	factory := func(context.Context, json.RawMessage, json.RawMessage) (importer.Source, error) { return source, nil }
 	svc := NewImportService(repo, store, factory, cryptoKeyForTest(), 1024)
 	job, err := svc.Create(context.Background(), ws, admin, ImportCreateInput{
-		Source: domain.ImportSourceJira, SourceSite: "cloud", Config: json.RawMessage(`{"jql":""}`),
+		Source: domain.ImportSourceJira, Config: json.RawMessage(`{"jql":""}`),
 		Credentials: creds,
 	})
 	if err != nil {
@@ -368,6 +443,48 @@ func sampleIssues(admin uuid.UUID) []importer.SourceIssue {
 }
 
 // ---- tests ---------------------------------------------------------------
+
+func TestCreateDerivesSourceSiteFromCredentials(t *testing.T) {
+	ws, admin := uuid.New(), uuid.New()
+	repo := newFakeImportRepo()
+	store := newImportFakeStore(ws, uuid.New(), uuid.New(), admin)
+	svc := NewImportService(repo, store, func(context.Context, json.RawMessage, json.RawMessage) (importer.Source, error) {
+		return &fakeSource{}, nil
+	}, cryptoKeyForTest(), 1024)
+
+	create := func(baseURL string) (*domain.ImportJob, error) {
+		creds, _ := json.Marshal(map[string]string{"base_url": baseURL, "email": "a@example.com", "token": "t"})
+		return svc.Create(context.Background(), ws, admin, ImportCreateInput{
+			Source: domain.ImportSourceJira, Config: json.RawMessage(`{}`), Credentials: creds,
+		})
+	}
+	first, err := create("https://ALPHA.atlassian.net")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := create("https://beta.atlassian.net")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.SourceSite != "alpha.atlassian.net" {
+		t.Fatalf("expected lower-cased host, got %q", first.SourceSite)
+	}
+	if second.SourceSite != "beta.atlassian.net" {
+		t.Fatalf("expected lower-cased host, got %q", second.SourceSite)
+	}
+	if first.SourceSite == second.SourceSite {
+		t.Fatal("two Cloud sites must not share an idempotency site key")
+	}
+
+	creds, _ := json.Marshal(map[string]string{"base_url": "not-a-url", "token": "t"})
+	_, err = svc.Create(context.Background(), ws, admin, ImportCreateInput{
+		Source: domain.ImportSourceJira, Config: json.RawMessage(`{}`), Credentials: creds,
+	})
+	var validation *ImportValidationError
+	if !errors.As(err, &validation) {
+		t.Fatalf("malformed base URL must be a validation error, got %v", err)
+	}
+}
 
 func TestPreviewWritesNothing(t *testing.T) {
 	h := newHarness(t)
@@ -430,8 +547,8 @@ func TestRerunSkipsThenUpdatesChanged(t *testing.T) {
 	if secondCounters.Created != firstCounters.Created {
 		t.Fatal("re-run created issues instead of skipping")
 	}
-	if secondCounters.Skipped <= firstCounters.Skipped {
-		t.Fatal("re-run did not report skipped items")
+	if secondCounters.Skipped != 2 {
+		t.Fatalf("re-run should skip two issues, got %d", secondCounters.Skipped)
 	}
 
 	h.source.issues[0].Title = "Changed title"
@@ -441,6 +558,229 @@ func TestRerunSkipsThenUpdatesChanged(t *testing.T) {
 	}
 	if len(h.store.issues) != before {
 		t.Fatal("update created a duplicate")
+	}
+}
+
+func TestUnmappedProjectWithSprintsFailsOnlyThatIssue(t *testing.T) {
+	h := newHarness(t)
+	h.source.issues = []importer.SourceIssue{
+		{ExternalID: "ok", Title: "Mapped", Status: "To Do", ProjectExternalID: "10"},
+		{ExternalID: "unmapped", Title: "Unmapped", Status: "To Do", ProjectExternalID: "999", SprintIDs: []string{"Sprint X"}, Labels: []string{"x"}, EpicExternalID: "EPIC-1"},
+	}
+	h.previewAndStart(t)
+	h.svc.process(context.Background(), h.job)
+
+	if len(h.store.issues) != 1 {
+		t.Fatalf("expected only the mapped issue to be created, got %d", len(h.store.issues))
+	}
+	found := false
+	for _, item := range h.repo.items {
+		if item.ExternalID == "unmapped" && item.Outcome == domain.ImportOutcomeFailed {
+			found = true
+			if !strings.Contains(item.Reason, "no project mapping") {
+				t.Fatalf("unexpected failure reason: %q", item.Reason)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("unmapped issue was not reported as a failed item")
+	}
+	assertFinish(t, h.repo, domain.ImportStatusCompleted)
+}
+
+func TestFailingCycleFailsOnlyThatIssue(t *testing.T) {
+	h := newHarness(t)
+	h.store.cycleErrName = "Bad Sprint"
+	h.source.issues = []importer.SourceIssue{
+		{ExternalID: "good", Title: "Good", Status: "To Do", ProjectExternalID: "10", SprintIDs: []string{"Good Sprint"}},
+		{ExternalID: "bad", Title: "Bad", Status: "To Do", ProjectExternalID: "10", SprintIDs: []string{"Bad Sprint"}},
+	}
+	h.previewAndStart(t)
+	h.svc.process(context.Background(), h.job)
+
+	if len(h.store.issues) != 1 {
+		t.Fatalf("expected only the issue with a valid cycle to be created, got %d", len(h.store.issues))
+	}
+	found := false
+	for _, item := range h.repo.items {
+		if item.ExternalID == "bad" && item.Outcome == domain.ImportOutcomeFailed && strings.Contains(item.Reason, "Bad Sprint") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("cycle error was not reported per item: %+v", h.repo.items)
+	}
+	assertFinish(t, h.repo, domain.ImportStatusCompleted)
+}
+
+func (h *importHarness) issueByExternalID(t *testing.T, extID string) *domain.Issue {
+	t.Helper()
+	ref := h.repo.refs[refMapKey(h.ws, domain.ImportSourceJira, h.job.SourceSite, domain.ImportExternalIssue, extID)]
+	if ref == nil {
+		t.Fatalf("no import ref for issue %s", extID)
+	}
+	issue := h.store.issues[ref.KuayleID]
+	if issue == nil {
+		t.Fatalf("no stored issue for %s", extID)
+	}
+	return issue
+}
+
+func TestHeartbeatAdvancesDuringLongFetch(t *testing.T) {
+	h := newHarness(t)
+	clock := time.Unix(1000, 0)
+	h.svc.now = func() time.Time { return clock }
+	h.source.issues = sampleIssues(h.admin)
+	h.source.onEmit = func() { clock = clock.Add(31 * time.Second) }
+	h.previewAndStart(t)
+	h.svc.process(context.Background(), h.job)
+
+	if h.repo.heartbeats[h.job.ID] == 0 {
+		t.Fatal("long fetch never sent a heartbeat")
+	}
+	if h.repo.updatedAt[h.job.ID].IsZero() {
+		t.Fatal("heartbeat did not advance the job's updated_at")
+	}
+}
+
+func TestStaleRecoveryUsesHeartbeatNotStartTime(t *testing.T) {
+	h := newHarness(t)
+	h.previewAndStart(t)
+	job := h.repo.jobs[h.job.ID]
+	job.Status = domain.ImportStatusRunning
+	job.StartedAt = &[]time.Time{time.Now().Add(-time.Hour)}[0]
+	recent := time.Now()
+	h.repo.updatedAt[h.job.ID] = recent
+
+	n, err := h.repo.FailStaleRunning(context.Background(), recent.Add(-time.Minute))
+	if err != nil || n != 0 {
+		t.Fatalf("a job with a recent heartbeat must stay running, n=%d err=%v", n, err)
+	}
+	if h.repo.jobs[h.job.ID].Status != domain.ImportStatusRunning {
+		t.Fatal("a live job was marked stale because of its old started_at")
+	}
+	n, err = h.repo.FailStaleRunning(context.Background(), recent.Add(time.Minute))
+	if err != nil || n != 1 {
+		t.Fatalf("an old heartbeat must make the job stale, n=%d err=%v", n, err)
+	}
+}
+
+func TestRefErrorsFailTheItemWithoutCreatingIssues(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(*importHarness)
+	}{
+		{"get ref", func(h *importHarness) { h.repo.getRefErr = errors.New("ref store unavailable") }},
+		{"upsert ref", func(h *importHarness) { h.repo.upsertRefErr = errors.New("ref store unavailable") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.source.issues = []importer.SourceIssue{
+				{ExternalID: "only", Title: "Only", Status: "To Do", ProjectExternalID: "10"},
+			}
+			tc.set(h)
+			h.previewAndStart(t)
+			h.svc.process(context.Background(), h.job)
+
+			if len(h.store.issues) != 0 {
+				t.Fatalf("issue was created despite a ref error: %d", len(h.store.issues))
+			}
+			found := false
+			for _, item := range h.repo.items {
+				if item.ExternalID == "only" && item.Outcome == domain.ImportOutcomeFailed {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("ref error was not reported as a failed item: %+v", h.repo.items)
+			}
+			assertFinish(t, h.repo, domain.ImportStatusCompleted)
+		})
+	}
+}
+
+func TestAttachmentLinkSurvivesUpdate(t *testing.T) {
+	h := newHarness(t)
+	h.source.issues = sampleIssues(h.admin)
+	h.previewAndStart(t)
+	h.svc.process(context.Background(), h.job)
+
+	first := h.issueByExternalID(t, "A")
+	if first.Description == nil || !strings.Contains(*first.Description, "spec.pdf") {
+		t.Fatalf("first run did not link the attachment: %v", first.Description)
+	}
+	if h.store.assetCount != 1 {
+		t.Fatalf("expected one stored asset, got %d", h.store.assetCount)
+	}
+
+	h.source.issues[0].Title = "Changed title"
+	h.svc.process(context.Background(), h.job)
+
+	after := h.issueByExternalID(t, "A")
+	if after.Description == nil || !strings.Contains(*after.Description, "spec.pdf") {
+		t.Fatalf("update dropped the attachment link: %v", after.Description)
+	}
+	if strings.Count(*after.Description, "**Attachments**") != 1 {
+		t.Fatalf("expected a single attachments block: %q", *after.Description)
+	}
+	if h.store.assetCount != 1 {
+		t.Fatalf("re-run stored a duplicate asset: %d", h.store.assetCount)
+	}
+}
+
+func TestFailedCreateRelinksExistingAttachmentOnNextRun(t *testing.T) {
+	h := newHarness(t)
+	h.source.issues = sampleIssues(h.admin)
+	h.store.failCreate = 1
+	h.previewAndStart(t)
+	h.svc.process(context.Background(), h.job)
+
+	if h.store.assetCount != 1 {
+		t.Fatalf("attachment should have been stored before the failed create, got %d", h.store.assetCount)
+	}
+	if len(h.store.issues) != 1 {
+		t.Fatalf("only the second issue should have been created, got %d", len(h.store.issues))
+	}
+	assertFinish(t, h.repo, domain.ImportStatusCompleted)
+
+	h.svc.process(context.Background(), h.job)
+
+	if len(h.store.issues) != 2 {
+		t.Fatalf("re-run should create the previously failed issue, got %d", len(h.store.issues))
+	}
+	after := h.issueByExternalID(t, "A")
+	if after.Description == nil || !strings.Contains(*after.Description, "spec.pdf") {
+		t.Fatalf("created issue did not link the existing asset: %v", after.Description)
+	}
+	if h.store.assetCount != 1 {
+		t.Fatalf("re-run stored a duplicate asset: %d", h.store.assetCount)
+	}
+}
+
+func TestUnmatchedAndNilAssigneesAreNotAssignedToImporter(t *testing.T) {
+	h := newHarness(t)
+	h.source.issues = []importer.SourceIssue{
+		{ExternalID: "nil-assignee", Title: "Nil", Status: "To Do", ProjectExternalID: "10"},
+		{ExternalID: "unmatched", Title: "Unmatched", Status: "To Do", ProjectExternalID: "10",
+			Assignee: &importer.SourceUser{ExternalID: "ghost", Email: "ghost@example.com", DisplayName: "Ghost"}},
+	}
+	h.previewAndStart(t)
+	h.svc.process(context.Background(), h.job)
+
+	if len(h.store.issues) != 2 {
+		t.Fatalf("expected 2 issues, got %d", len(h.store.issues))
+	}
+	for _, issue := range h.store.issues {
+		if issue.AssigneeID != nil {
+			t.Fatalf("issue %s has an assignee %s; unmatched/nil source assignees must be left unassigned", issue.Identifier, *issue.AssigneeID)
+		}
+	}
+	for _, set := range h.store.assigneeSets {
+		for _, id := range set.userIDs {
+			if id == h.admin {
+				t.Fatal("the importer must never be recorded as an assignee")
+			}
+		}
 	}
 }
 
@@ -483,6 +823,9 @@ func TestOversizedAttachmentIsSkippedWithoutFailing(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("oversized attachment not reported as skipped")
+	}
+	if h.repo.counters[h.job.ID].Skipped != 0 {
+		t.Fatalf("skipped attachment must not count as a skipped issue, got %d", h.repo.counters[h.job.ID].Skipped)
 	}
 }
 

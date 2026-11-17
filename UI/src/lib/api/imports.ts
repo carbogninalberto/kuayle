@@ -79,7 +79,6 @@ export interface ImportOptions {
 
 export interface CreateImportBody {
     source: 'jira';
-    source_site: string;
     config: { cloud: boolean; jql?: string };
     credentials: {
         base_url: string;

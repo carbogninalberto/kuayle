@@ -69,7 +69,7 @@ func (h *ImportJobHandler) Create(c *echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request")
 	}
 	job, err := h.svc.Create(c.Request().Context(), ws.ID, userID, service.ImportCreateInput{
-		Source: req.Source, SourceSite: req.SourceSite, Config: req.Config, Credentials: req.Credentials,
+		Source: req.Source, Config: req.Config, Credentials: req.Credentials,
 	})
 	if err != nil {
 		return importHTTPError(c, err)

@@ -98,9 +98,44 @@ func attributionName(user *SourceUser) string {
 	return "Unknown"
 }
 
+// ResolveAssignee returns the Kuayle user that should be assigned an imported
+// issue, or nil when the issue should have no assignee. Unlike ResolveUser it
+// never falls back to the importer: a missing, unmatched or explicitly
+// unassigned source user leaves the issue unassigned. Assignees and authors
+// resolve differently on purpose.
+func (m Mapping) ResolveAssignee(user *SourceUser, members []Member) *uuid.UUID {
+	if user == nil {
+		return nil
+	}
+	email := strings.ToLower(strings.TrimSpace(user.Email))
+	byID, hasID := m.Users[user.ExternalID]
+	byEmail, hasEmail := m.Users[email]
+	if hasID && byID.UserID != nil {
+		return byID.UserID
+	}
+	if hasEmail && byEmail.UserID != nil {
+		return byEmail.UserID
+	}
+	// An explicit unassigned/placeholder choice wins over an automatic email
+	// match, so honour it rather than assigning a member with the same email.
+	if (hasID && byID.UserID == nil) || (hasEmail && byEmail.UserID == nil) {
+		return nil
+	}
+	if email != "" && email != UnassignedChoice {
+		for _, member := range members {
+			if strings.EqualFold(strings.TrimSpace(member.Email), email) {
+				id := member.UserID
+				return &id
+			}
+		}
+	}
+	return nil
+}
+
 // ResolveUser returns the Kuayle user that should author an imported item and
 // an attribution prefix to add to its text when the original author could not
-// be matched. Order: explicit mapping, case-insensitive email match against
+// be matched. It is for authors (reporter, comment author) only; assignees use
+// ResolveAssignee. Order: explicit mapping, case-insensitive email match against
 // workspace members, then the importer. The placeholder choice is treated as
 // unmatched.
 func (m Mapping) ResolveUser(user *SourceUser, members []Member, importerID uuid.UUID) (uuid.UUID, string) {

@@ -11,7 +11,6 @@ import (
 // credentials. Credentials are write-only and never echoed in a response.
 type CreateImportRequest struct {
 	Source      string          `json:"source"`
-	SourceSite  string          `json:"source_site"`
 	Config      json.RawMessage `json:"config"`
 	Credentials json.RawMessage `json:"credentials"`
 }

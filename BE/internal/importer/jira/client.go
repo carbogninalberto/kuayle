@@ -23,8 +23,9 @@ import (
 )
 
 var (
-	ErrAttachmentTooLarge = errors.New("attachment exceeds the size limit")
-	ErrInvalidBaseURL     = errors.New("invalid Jira base URL")
+	ErrAttachmentTooLarge     = errors.New("attachment exceeds the size limit")
+	ErrInvalidBaseURL         = errors.New("invalid Jira base URL")
+	ErrAttachmentHostMismatch = errors.New("attachment URL is outside the configured Jira host")
 )
 
 // Config configures one Jira source. Cloud uses an email + API token with
@@ -59,10 +60,32 @@ type Client struct {
 	epicField   string
 }
 
-func NewClient(cfg Config) (*Client, error) {
-	parsed, err := url.Parse(strings.TrimSpace(cfg.BaseURL))
+// parseBaseURL validates a Jira base URL and returns its parsed form. It is
+// shared by NewClient and SiteFromBaseURL so the site key cannot drift from
+// the host the client actually talks to.
+func parseBaseURL(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return nil, ErrInvalidBaseURL
+	}
+	return parsed, nil
+}
+
+// SiteFromBaseURL returns the lower-cased host of a Jira base URL. It is the
+// same value Client.Site() returns and is used server-side as part of the
+// workspace-scoped idempotency key, so two Cloud sites never collide.
+func SiteFromBaseURL(raw string) (string, error) {
+	parsed, err := parseBaseURL(raw)
+	if err != nil {
+		return "", err
+	}
+	return strings.ToLower(parsed.Host), nil
+}
+
+func NewClient(cfg Config) (*Client, error) {
+	parsed, err := parseBaseURL(cfg.BaseURL)
+	if err != nil {
+		return nil, err
 	}
 	if parsed.Scheme != "https" && !cfg.AllowPrivateNetwork {
 		return nil, fmt.Errorf("%w: https is required unless private networks are allowed", ErrInvalidBaseURL)
@@ -125,8 +148,9 @@ func (c *Client) auth(req *http.Request) {
 	req.SetBasicAuth(c.email, c.token)
 }
 
-// do sends a request and retries 429/503 with Retry-After and backoff. It
-// never logs or returns response bodies, which may contain source data.
+// do sends a request and retries 429/503 with Retry-After and backoff. The
+// caller decides whether to attach credentials with auth before calling it.
+// It never logs or returns response bodies, which may contain source data.
 func (c *Client) do(ctx context.Context, req *http.Request) (*http.Response, error) {
 	const attempts = 4
 	backoff := 500 * time.Millisecond
@@ -139,7 +163,6 @@ func (c *Client) do(ctx context.Context, req *http.Request) (*http.Response, err
 			}
 			clone.Body = body
 		}
-		c.auth(clone)
 		resp, err := c.http.Do(clone)
 		if err != nil {
 			return nil, err
@@ -180,6 +203,7 @@ func (c *Client) getJSON(ctx context.Context, fullURL string, target any) error 
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
+	c.auth(req)
 	resp, err := c.do(ctx, req)
 	if err != nil {
 		return err
@@ -200,6 +224,7 @@ func (c *Client) postJSON(ctx context.Context, fullURL string, body any, target 
 	req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(payload)), nil }
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	c.auth(req)
 	resp, err := c.do(ctx, req)
 	if err != nil {
 		return err
@@ -215,10 +240,25 @@ func (c *Client) OpenAttachment(ctx context.Context, attachment importer.SourceA
 	if c.maxAttach > 0 && attachment.Size > c.maxAttach {
 		return nil, fmt.Errorf("%w: %s", ErrAttachmentTooLarge, attachment.Filename)
 	}
+	parsed, err := url.Parse(attachment.URL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return nil, fmt.Errorf("%w: invalid attachment URL", ErrAttachmentHostMismatch)
+	}
+	base, err := url.Parse(c.baseURL)
+	if err != nil {
+		return nil, err
+	}
+	// Credentials must never leave the configured Jira host. Jira content URLs
+	// are served from the same scheme and host as the REST API, so a foreign
+	// host is refused rather than fetched without auth.
+	if !strings.EqualFold(parsed.Scheme, base.Scheme) || !strings.EqualFold(parsed.Host, base.Host) {
+		return nil, fmt.Errorf("%w: %s", ErrAttachmentHostMismatch, attachment.Filename)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, attachment.URL, nil)
 	if err != nil {
 		return nil, err
 	}
+	c.auth(req)
 	resp, err := c.do(ctx, req)
 	if err != nil {
 		return nil, err
