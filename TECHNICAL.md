@@ -741,6 +741,14 @@ versions validated on save, defaults per workspace, team and project, and a
 runner that drives each task's pinned version node by node under the worker's
 lease. Tasks without a pinned version run the built-in Standard workflow,
 which is the existing fixed flow.
+A workflow's ship approval (an approval leading to `done` or a merge step)
+marks a draft pull request ready and brings a branch behind its base up to
+date when it is entered, and approving it merges the pull request through the
+merge gate below (on the approval, or at the merge step after it); the task is
+done only after the merge. Agent reviews also start on an up-to-date branch,
+and a conflicting branch goes back to the step that changes code
+([merging from a workflow](BE/docs/agent-tasks.md#merging-from-a-workflow),
+KUA-209).
 Each profile has a [behaviour](BE/docs/agent-tasks.md#behaviours) (migration
 143): it plans, changes code or reviews, and its role is a free-text label. A
 planning step must leave the worktree unchanged and end with a plan, which is
@@ -1746,7 +1754,12 @@ delegation, an agent review of a published pull request, a follow-up on a task
 or a merge, start or stop a task's preview and expose or list its machine's app
 ports (start and expose need approval), with the user's own permissions; it
 cannot change Dev Machine lifecycles. One reply runs up to 10 minutes, 400 tool calls and 10 issue
-changes, with a bounded per-round context. Comments by workspace members on an
+changes, with a bounded per-round context. Every merge Kuayle makes goes
+through one [merge gate](BE/docs/agent-tasks.md#merging-only-up-to-date-heads):
+a head that contains its base and whose checks passed. A branch behind its base
+is brought up to date and the approved merge waits (`waiting_checks`, migration
+169), polled every minute by `RunMergeWaits`, and merges the verified update once
+its checks pass, or ends with the reason (KUA-207). Comments by workspace members on an
 issue whose task awaits review queue a bounded follow-up attempt
 ([agent tasks](BE/docs/agent-tasks.md#kuayle-issue-comments)). See [conversation architecture and API](BE/docs/conversations.md)
 for scope, authorization, bounds, UI component sources, recovery and checks.

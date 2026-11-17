@@ -208,6 +208,19 @@ func TestTelegramApprovalButtonsResolveThroughTheSharedBackend(t *testing.T) {
 	recorder.mu.Unlock()
 }
 
+// A merge that waits for its updated branch's checks is answered as waiting,
+// not as failed, and a merge is never described as a started agent (KUA-207).
+func TestTelegramApprovalAnswerDescribesWaitingMerges(t *testing.T) {
+	answer, final := telegramApprovalAnswer(&domain.ConversationApproval{Action: "merge_pull_request", Status: domain.ApprovalWaitingChecks}, nil)
+	require.True(t, final)
+	require.Contains(t, answer, "merges it once the checks on the new head pass")
+	answer, _ = telegramApprovalAnswer(&domain.ConversationApproval{Action: "merge_pull_request", Status: "approved"}, nil)
+	require.Equal(t, "Approved: the pull request was merged.", answer)
+	reason := "1 check(s) failed on head2: Tests"
+	answer, _ = telegramApprovalAnswer(&domain.ConversationApproval{Action: "merge_pull_request", Status: "failed", Error: &reason}, nil)
+	require.Equal(t, "The pull request was not merged. "+reason, answer)
+}
+
 // Telegram answers an accepted approval as acceptance, never as a started agent.
 func TestTelegramApprovalAnswerDescribesAcceptance(t *testing.T) {
 	answer, final := telegramApprovalAnswer(&domain.ConversationApproval{Action: "accept_agent_work", Status: "approved"}, nil)

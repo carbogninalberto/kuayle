@@ -707,23 +707,24 @@ blocking the others.
 
 ### Merging only up-to-date heads
 
-Kuayle itself merges only through an approved `merge_pull_request` and the merge
-step of `ship_pull_request`, both in `AssistantApprovals.mergeApproved`
-(`BE/internal/service/assistant_approvals.go`); a workflow's `merge` step only
-waits for the merge. CI checks the pull request head, not a merge with its base,
-so a head without the base's newest commits was never tested with them: two pull
-requests that each added migration 162 merged green one after the other and
-broke `main` (KUA-194). Before every merge Kuayle reads the pull request from
-GitHub again (`mergeGate` in `assistant_merge_gate.go`):
+Kuayle itself merges only what a person approved, through one mechanism
+(`mergeGate.merge` in `BE/internal/service/assistant_merge_gate.go`): an approved
+`merge_pull_request`, the merge step of `ship_pull_request` (both through
+`AssistantApprovals.mergeApproved`), and a workflow's ship approval or the merge
+step right after it ([merging from a workflow](#merging-from-a-workflow)). CI
+checks the pull request head, not a merge with its base, so a head without the
+base's newest commits was never tested with them: two pull requests that each
+added migration 162 merged green one after the other and broke `main`
+(KUA-194). Before every merge Kuayle reads the pull request from GitHub again:
 
-- The head must still be the approved commit.
+- The head must still be the approved commit, or a branch update Kuayle made
+  and verified (below).
 - **Behind its base** (`behind_by` > 0 in GitHub's comparison): Kuayle calls
-  GitHub's update-branch pinned to the approved head (`expected_head_sha`), as
+  GitHub's update-branch pinned to the head it merges (`expected_head_sha`), as
   the approver, audits it (`pull_request.branch_updated_before_merge`) and records
-  the new head as for any moved head, then does not merge. The approval fails
-  with the new head and the next step: wait for the checks on that head and ask
-  again; the new card shows the base merge as its `head_change`. A comparison
-  GitHub does not answer is not merged either.
+  the new head as for any moved head, then does not merge yet: the approved
+  merge **waits** for the checks of the new head and merges it once they pass
+  (KUA-207, below). A comparison GitHub does not answer is not merged at once.
 - **Conflicts with its base** (`mergeable_state` `dirty`, `mergeable` false, or
   update-branch refused for a conflict): nothing changes or merges. The failure
   says "the branch conflicts with `<base>`; needs a rebase" and names
@@ -742,10 +743,37 @@ GitHub again (`mergeGate` in `assistant_merge_gate.go`):
   strict branch protection, runs these checks again instead of failing, for at
   most three merges; a branch now behind is updated as above.
 
-The ship chain waits, polling up to its tests timeout, while the head's checks
-are running or have not appeared yet; any other hold fails its merge step and
-nothing is released. A repository whose CI runs on pull requests but not on its
-base branch is held only for the two-minute window.
+**Waiting for the updated branch (KUA-207).** An approved merge is tracked as a
+`domain.MergeWait`: the approved commit, the head Kuayle merges, its update
+rounds and a deadline. After Kuayle's own update-branch:
+
+- The new head is accepted only when it is exactly that update
+  (`mergeGate.verifyUpdate`): its parents are the previous head and one commit
+  that is on the base branch, and the files and changed lines the pull request
+  adds on top of that commit (GitHub's `B...head` comparison) equal those the
+  approved head adds on top of its merge base with it (`B...approved`). Hunk
+  positions and context lines may differ, because base commits moved them; a
+  file without a patch (binary or large) must keep its blob. So an update merge
+  that also reverts a base commit or adds an edit is refused, as is a cut-short
+  comparison. While GitHub has not created the new head yet the wait keeps the
+  old head and verifies the new one when it appears; any other head ends the
+  merge with "the pull request head moved".
+- Every pass applies all of the gates again. Running or not yet registered
+  checks, an unknown distance from the base and a partly readable check list
+  keep it waiting; failing checks, a conflict, a closed pull request, a refused
+  merge or a lost permission end it with the reason. A branch behind again is
+  updated again, at most three updates in all (`maxMergeUpdates`); the wait
+  ends after two hours (`mergeWaitTimeout`) with what it waited for.
+- An assistant approval waits as `waiting_checks` (migration 169: unresolved,
+  with `next_check_at`); see [conversations](conversations.md#pull-request-tools).
+  The ship chain keeps its merge step waiting within its tests timeout and saves
+  the wait in its payload, so a resumed chain merges the same head.
+
+Without an update of its own, the ship chain still waits, polling up to its
+tests timeout, while the head's checks are running or have not appeared yet;
+any other hold fails its merge step and nothing is released. A repository whose
+CI runs on pull requests but not on its base branch is held only for the
+two-minute window.
 Reading the checks adds checks and commit statuses read to `merge_pull_request`'s
 GitHub permissions. Pull requests merged on GitHub are outside this check:
 GitHub's "Require branches to be up to date before merging" protection enforces
@@ -753,6 +781,47 @@ the same rule there, and `BE/migrations/versions_test.go` catches duplicate
 migration versions once a head contains both. Kuayle merges on no other forge;
 `domain.ForgePublisher` documents the rule and an `UpdateMergeRequestBranch`
 capability for a future implementation.
+
+### Merging from a workflow
+
+A workflow merges its task's pull request when a person approves its **ship
+approval** (KUA-209): an approval whose approved transition (or its `else`
+without one) leads straight to a `done` end or to a `merge` step
+(`WorkflowGraph.ShipApproval`). The runner (`BE/internal/service/workflow_merge.go`)
+uses the merge mechanism above.
+
+- **Entering the ship approval** Kuayle marks a draft pull request ready for
+  review (audited `pull_request.marked_ready_by_workflow`) and brings a branch
+  behind its base up to date (`pull_request.branch_updated_by_workflow`); the
+  step's reason says so. A branch that conflicts with its base leaves the
+  approval at once with `branch_conflict`, an outcome no transition names: the
+  work goes back to the first step that changes code (`WorkflowGraph.SendBack`),
+  as an iteration counted and limited like any other, with Kuayle's instruction
+  to merge the base and resolve the conflicts ahead of the step's prompt
+  (publication never force-pushes, so the base is merged rather than rebased).
+- **Before each agent review** a branch behind its base is brought up to date
+  the same way, and a conflicting one goes back as `review_changes_requested`
+  with that instruction; the reviewer's visit limit and the budget stop a loop.
+- **Approving** records the merge on the step that carries it out
+  (`agent_task_workflow_steps.merge`, migration 169) with the approver and the
+  commit the task published: on the approval itself when it leads to `done`, or
+  on the merge step it leads to. The worker merges as the approver
+  (re-checked as the task's creator or an owner/admin who can see it, like a
+  decision) once every gate passes. The head it merges is the published commit
+  or a chain of Kuayle's verified updates of it; anything else pushed to the
+  branch was not approved and is refused. A branch Kuayle updates waits for the
+  new head's checks, polled every minute, as above. Kuayle's merge completes the
+  task, so the workflow reaches done only through it.
+- **A merge that cannot happen** (failing checks, a conflict, a head someone
+  else pushed, a refusal by GitHub, the two-hour wait running out) keeps the task
+  on that step with the reason as its reason and in the step's merge, and tells
+  the creator a person is needed again; approving again retries, denying
+  follows the denied transition. While a merge runs nobody decides the step
+  (`can_decide` is false) and its timeout does not fire.
+
+A merge step reached any other way waits for a person to merge (ship from chat
+or merge on GitHub), as before; graphs with a merge step after the approval
+merge once, at that step.
 
 ## Accepting without merge
 
@@ -2085,9 +2154,13 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   from choices; running tasks keep their pinned version.
 - **Graph**: nodes `start`, `agent` (profile and iteration prompt template),
   `check` (`tests`: the independent check; `ci`: the pull request's CI),
-  `approval`, `publish`, `merge` (waits until the pull request merges, through
-  the [ship](conversations.md) chain or GitHub; the merge completes the task,
-  so its `merged` or `else` transition must lead to a `done` end) and `end`
+  `approval` (an approval leading to `done` or a merge step is the ship approval,
+  which merges the pull request when approved: see
+  [merging from a workflow](#merging-from-a-workflow)), `publish`, `merge` (after
+  an approved ship approval it merges; otherwise it waits until the pull request
+  merges, through the [ship](conversations.md) chain or GitHub; the merge
+  completes the task, so its `merged` or `else` transition must lead to a `done`
+  end) and `end`
   (`done` or `failed`). A `ci` check fails at once on a failed check suite
   the webhook reports, and passes only when GitHub lists at least one check
   run or status for the published commit and all of them completed

@@ -135,6 +135,9 @@ type ConversationApproval struct {
 	ResolvedAt     *time.Time      `json:"resolved_at,omitempty" db:"resolved_at"`
 	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at" db:"updated_at"`
+	// NextCheckAt is when a waiting merge (ApprovalWaitingChecks) reads the
+	// pull request again.
+	NextCheckAt *time.Time `json:"next_check_at,omitempty" db:"next_check_at"`
 }
 
 // DelegationPayload is the immutable request an approval authorizes.
@@ -176,6 +179,42 @@ type MergePayload struct {
 	// the first the repository allows; approvals created before it merged by squash.
 	MergeMethod string                 `json:"merge_method,omitempty"`
 	HeadChange  *PullRequestHeadChange `json:"head_change,omitempty"`
+	// Wait is set while the approved merge waits for the checks of the head
+	// Kuayle's branch update created (approval status waiting_checks).
+	Wait *MergeWait `json:"wait,omitempty"`
+}
+
+// ApprovalWaitingChecks is the status of an approved merge that brought the
+// branch up to date with its base and waits for the new head's checks before
+// it merges. It is not final: the merge ends approved or failed.
+const ApprovalWaitingChecks = "waiting_checks"
+
+// MergeWait is an approved merge that waits after Kuayle brought the branch up
+// to date with its base (GitHub's update-branch): Kuayle merges Head once its
+// checks passed. Head is the approved commit or a merge of the base into it
+// that Kuayle made and verified (its parents are the previous head and a
+// commit of the base branch, and it changes nothing else); anything else on
+// the branch ends the wait. Updating is set while GitHub accepted an update of
+// Head whose new head Kuayle has not seen yet. Updates counts the branch
+// updates Kuayle made; Deadline ends the wait.
+type MergeWait struct {
+	Approved string    `json:"approved"`
+	Head     string    `json:"head"`
+	Base     string    `json:"base,omitempty"`
+	Updating bool      `json:"updating,omitempty"`
+	Updates  int       `json:"updates"`
+	Since    time.Time `json:"since"`
+	Deadline time.Time `json:"deadline"`
+	// Waiting says what the merge waits for now (checks running on the head).
+	Waiting string `json:"waiting,omitempty"`
+	// ActorID is the person whose approval the merge carries out; set on a
+	// workflow step (an assistant approval's actor is the approval's).
+	ActorID *uuid.UUID `json:"actor_id,omitempty"`
+	// Method is the merge method, resolved when the merge was approved.
+	Method string `json:"method,omitempty"`
+	// Failure is why a workflow step's merge ended without merging, kept so
+	// the step shows it while it waits for a person again.
+	Failure string `json:"failure,omitempty"`
 }
 
 // PullRequestHeadChange describes what others added to a task's pull request

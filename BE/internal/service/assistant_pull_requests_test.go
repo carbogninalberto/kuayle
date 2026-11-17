@@ -67,6 +67,20 @@ type prGitHub struct {
 	// SHA; a commit not listed has no checks and is long committed.
 	commitChecks map[string][]PullRequestCheck
 	committed    map[string]time.Time
+	// checksHead is the head PullRequestChecks reports (default head1).
+	checksHead string
+	// updateHead is the head UpdatePullRequestBranch reports (default
+	// head2); onUpdate lets a test move the pull request as GitHub would.
+	updateHead string
+	onUpdate   func()
+	// parents, onBase and changes answer the update check
+	// (updateMergeReader): a commit's parents, whether a commit is on the
+	// base branch, and the files of a "base...head" comparison. An entry in
+	// cutShort marks a comparison GitHub cut short.
+	parents  map[string][]string
+	onBase   map[string]bool
+	changes  map[string][]gh.CompareFile
+	cutShort map[string]bool
 }
 
 func (f *prGitHub) PullRequestStatus(context.Context, uuid.UUID, string, int) (*PullRequestStatus, error) {
@@ -75,7 +89,21 @@ func (f *prGitHub) PullRequestStatus(context.Context, uuid.UUID, string, int) (*
 	return &status, f.readErr
 }
 func (f *prGitHub) PullRequestChecks(context.Context, uuid.UUID, string, int) (string, []PullRequestCheck, ChecksCoverage, error) {
-	return "head1", f.checks, f.coverage, f.readErr
+	head := f.checksHead
+	if head == "" {
+		head = "head1"
+	}
+	return head, f.checks, f.coverage, f.readErr
+}
+func (f *prGitHub) CommitParents(_ context.Context, _ uuid.UUID, _ string, sha string) ([]string, error) {
+	return f.parents[sha], f.readErr
+}
+func (f *prGitHub) OnBranch(_ context.Context, _ uuid.UUID, _, _ string, sha string) (bool, error) {
+	return f.onBase[sha], f.readErr
+}
+func (f *prGitHub) BranchChanges(_ context.Context, _ uuid.UUID, _, base, head string) ([]gh.CompareFile, bool, error) {
+	key := base + "..." + head
+	return f.changes[key], !f.cutShort[key], f.readErr
 }
 func (f *prGitHub) PullRequestComments(context.Context, uuid.UUID, string, int) (*PullRequestCommentList, error) {
 	return &PullRequestCommentList{Comments: append([]PullRequestComment(nil), f.comments...), ThreadsUnavailable: f.threadsUnavailable, Truncated: f.listTruncated}, f.readErr
@@ -90,10 +118,22 @@ func (f *prGitHub) ResolveReviewThread(_ context.Context, _ uuid.UUID, _ string,
 }
 func (f *prGitHub) UpdatePullRequestBranch(_ context.Context, _ uuid.UUID, _ string, _ int, head string) (string, error) {
 	f.calls = append(f.calls, "update:"+head)
-	return "head2", f.writeErr
+	if f.writeErr != nil {
+		return "", f.writeErr
+	}
+	if f.onUpdate != nil {
+		f.onUpdate()
+	}
+	if f.updateHead != "" {
+		return f.updateHead, nil
+	}
+	return "head2", nil
 }
 func (f *prGitHub) SetPullRequestDraft(_ context.Context, _ uuid.UUID, _ string, _ int, draft bool) error {
 	f.calls = append(f.calls, map[bool]string{true: "draft", false: "ready"}[draft])
+	if f.writeErr == nil {
+		f.status.Draft = draft
+	}
 	return f.writeErr
 }
 func (f *prGitHub) ResolveMergeMethod(context.Context, uuid.UUID, string) (string, error) {

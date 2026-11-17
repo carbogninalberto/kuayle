@@ -31,7 +31,7 @@ export function notificationUrl(slug: string, payload: NotificationEventPayload)
 	const conversation = payload.conversation_id
 		? `${base}/assistant?conversation=${encodeURIComponent(payload.conversation_id)}`
 		: null;
-	if (conversation && payload.type === 'approval_requested') return conversation;
+	if (conversation && (payload.type === 'approval_requested' || payload.type === 'approval_finished')) return conversation;
 	if (issue && payload.type !== 'issues_deleted') return `${base}/issue/${encodeURIComponent(issue)}`;
 	if (conversation) return conversation;
 	return `${base}/inbox`;

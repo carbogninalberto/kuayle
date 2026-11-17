@@ -3,6 +3,7 @@
 
 const TYPE_MESSAGE_KEYS = {
 	approval_requested: 'notify.title.approval_requested',
+	approval_finished: 'notify.title.approval_finished',
 	agent_task_finished: 'notify.title.agent_task_finished',
 	review_needed: 'notify.title.review_needed',
 	issues_deleted: 'notify.title.issues_deleted',

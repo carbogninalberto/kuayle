@@ -1,4 +1,5 @@
 import { api } from './client';
+import type { MergeWait } from './conversations';
 
 // Configurable workflows (KUA-95): agent profiles, workflows (immutable
 // versions of a state machine graph), defaults and a task's workflow run.
@@ -184,6 +185,11 @@ export interface WorkflowStep {
 	finished_at?: string | null;
 	/** Seconds the step spent paused by a person. */
 	paused_seconds?: number;
+	/**
+	 * The approved merge a ship approval or the merge step after it carries out
+	 * (KUA-209); `failure` says why it ended without merging.
+	 */
+	merge?: (MergeWait & { actor_id?: string; method?: string; failure?: string }) | null;
 }
 
 /**

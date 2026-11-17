@@ -143,6 +143,23 @@ export interface MergePayload {
 	/** merge, squash or rebase; approvals created before it was recorded merge by squash. */
 	merge_method?: string;
 	head_change?: PullRequestHeadChange;
+	/** Set while the approved merge waits for the checks of the head Kuayle's branch update created. */
+	wait?: MergeWait;
+}
+/**
+ * An approved merge that waits after Kuayle brought the branch up to date with
+ * its base (status `waiting_checks`): Kuayle merges `head` once its checks pass.
+ */
+export interface MergeWait {
+	approved: string;
+	head: string;
+	base?: string;
+	updating?: boolean;
+	updates: number;
+	since: string;
+	deadline: string;
+	/** What the merge waits for now, in the server's words. */
+	waiting?: string;
 }
 /** What others added to the pull request after Kuayle published it. */
 export interface PullRequestHeadChange {
@@ -434,10 +451,12 @@ interface ApprovalBase {
 	tool_call_id: string;
 	actor_id: string;
 	issue_id: string;
-	status: 'pending' | 'approving' | 'approved' | 'denied' | 'expired' | 'failed';
+	/** `waiting_checks`: an approved merge waits for its updated branch's checks; not final. */
+	status: 'pending' | 'approving' | 'waiting_checks' | 'approved' | 'denied' | 'expired' | 'failed';
 	task_id?: string;
 	error?: string;
 	expires_at: string;
+	next_check_at?: string;
 	resolved_at?: string;
 	created_at: string;
 	updated_at: string;

@@ -873,6 +873,12 @@ func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID, su
 			return nil, err
 		}
 		out.CanDecide = task.WorkflowPausedAt == nil && workflowDecider(out.Status, access.UserID, task.CreatorID, role)
+		// An approved merge in progress decides the step; nobody else does.
+		for _, step := range out.Steps {
+			if step.Sequence == task.WorkflowSequence && mergeActive(step) {
+				out.CanDecide = false
+			}
+		}
 	}
 	return out, nil
 }

@@ -336,6 +336,58 @@ func (s *GitHubService) SetPullRequestDraft(ctx context.Context, ws uuid.UUID, r
 	return client.MarkPullRequestReadyForReview(token, pull.NodeID)
 }
 
+var _ updateMergeReader = (*GitHubService)(nil)
+
+// CommitParents lists a commit's parents, first parent first.
+func (s *GitHubService) CommitParents(ctx context.Context, ws uuid.UUID, repository, sha string) ([]string, error) {
+	client, token, owner, name, err := s.pullClient(ctx, ws, repository)
+	if err != nil {
+		return nil, err
+	}
+	commit, err := client.GetCommit(token, owner, name, sha)
+	if err != nil {
+		return nil, err
+	}
+	parents := make([]string, len(commit.Parents))
+	for i, parent := range commit.Parents {
+		parents[i] = parent.SHA
+	}
+	return parents, nil
+}
+
+// maxBranchChangePages bounds BranchChanges; GitHub lists at most 300 files.
+const maxBranchChangePages = 3
+
+// BranchChanges lists the files head changes on top of its merge base with
+// base (GitHub's base...head comparison), with their patches. complete is
+// false when GitHub cut the list short.
+func (s *GitHubService) BranchChanges(ctx context.Context, ws uuid.UUID, repository, base, head string) ([]gh.CompareFile, bool, error) {
+	client, token, owner, name, err := s.pullClient(ctx, ws, repository)
+	if err != nil {
+		return nil, false, err
+	}
+	var files []gh.CompareFile
+	seen := map[string]bool{}
+	for page := 1; page <= maxBranchChangePages; page++ {
+		comparison, err := client.CompareCommitsPage(token, owner, name, base, head, page)
+		if err != nil {
+			return nil, false, err
+		}
+		added := 0
+		for _, file := range comparison.Files {
+			if !seen[file.Filename] {
+				seen[file.Filename] = true
+				files = append(files, file)
+				added++
+			}
+		}
+		if len(comparison.Files) < 100 || added == 0 {
+			return files, len(files) < 300, nil
+		}
+	}
+	return files, false, nil
+}
+
 // CommitDate is when a commit was committed, as Git records it; for a branch
 // update GitHub made, when GitHub made it.
 func (s *GitHubService) CommitDate(ctx context.Context, ws uuid.UUID, repository, sha string) (time.Time, error) {
