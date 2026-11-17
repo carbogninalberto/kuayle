@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Ingen standard-repository",
 	"settings.dev_machines.no_envs": "Ingen lagrede miljøer ennå.",
 	"settings.dev_machines.per_user": "Maskiner per bruker",
+	"settings.dev_machines.max_temporary": "Assistentens midlertidige maskiner",
+	"settings.dev_machines.max_temporary_desc": "Små maskiner som assistenten kan starte for å kjøre kommandoer, én per person, slettes etter 30 minutter. 0 slår dem av.",
 	"settings.dev_machines.providers": "Leverandører",
 	"settings.dev_machines.providers_desc": "Bare valgte leverandører kan knyttes til nye maskiner.",
 	"settings.dev_machines.repo": "Utviklings-repository",

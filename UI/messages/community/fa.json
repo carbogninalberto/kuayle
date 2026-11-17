@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "بدون مخزن پیش‌فرض",
 	"settings.dev_machines.no_envs": "هنوز محیط ذخیره‌شده‌ای نیست.",
 	"settings.dev_machines.per_user": "دستگاه به ازای هر کاربر",
+	"settings.dev_machines.max_temporary": "ماشین‌های موقت دستیار",
+	"settings.dev_machines.max_temporary_desc": "ماشین‌های کوچکی که دستیار می‌تواند برای اجرای دستورها راه اندازی کند، یک برای هر نفر، پس از ۳۰ دقیقه حذف می‌شوند. 0 آنها را خاموش می کند.",
 	"settings.dev_machines.providers": "ارائه‌دهندگان",
 	"settings.dev_machines.providers_desc": "فقط ارائه‌دهندگان انتخاب‌شده را می‌توان به دستگاه‌های جدید متصل کرد.",
 	"settings.dev_machines.repo": "مخزن توسعه",

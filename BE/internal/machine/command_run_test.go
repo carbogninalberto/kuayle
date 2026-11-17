@@ -150,6 +150,7 @@ func TestCommandRunHidesInfrastructureErrors(t *testing.T) {
 // every container it is asked to create, by name.
 type commandDockerFake struct {
 	api     string
+	shared  bool
 	created map[string]commandCreateInput
 	order   []string
 }
@@ -193,12 +194,44 @@ func (f *commandDockerFake) run(t *testing.T, machine *domain.DevMachine, run *d
 	docker, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.44"))
 	require.NoError(t, err)
 	defer docker.Close()
-	_, err = (&DockerRuntime{client: docker}).RunCommand(context.Background(), machine, run, "developer:fixture", &AgentObserver{})
+	runtime := &DockerRuntime{client: docker}
+	if f.shared {
+		runtime.slices = &machineSlicesFake{}
+		runtime.machineScopes = map[uuid.UUID]bool{machine.ID: true}
+	}
+	_, err = runtime.RunCommand(context.Background(), machine, run, "developer:fixture", &AgentObserver{})
 	return err
 }
 
 func commandFixtureMachine() *domain.DevMachine {
 	return &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture", DockerNetworkName: ptr("network"), WorkspaceVolumeName: ptr("workspace"), CPUMillis: 1000, MemoryMB: 2048, PidsLimit: 256}
+}
+
+// A write run's prep container is scoped to the machine slice like the command
+// container, so on a shared machine it uses the machine's memory and CPUs, not
+// a small per-container share. Without slices it keeps its bounded share.
+func TestCommandPrepContainerSharesTheMachineSlice(t *testing.T) {
+	machine := commandFixtureMachine()
+	machine.RoutingKey = "0123456789abcdef0123"
+	folder := domain.CommandFolder(uuid.New())
+	run := &domain.CommandRun{ID: uuid.New(), Command: "echo hi", Write: true, WorkingDirectory: folder}
+	docker := &commandDockerFake{api: "1.52", shared: true}
+	require.NoError(t, docker.run(t, machine, run))
+
+	slice := "kuayle-0123456789abcdef0123.slice"
+	for _, name := range []string{commandPrepName(machine, run.ID), commandContainerName(machine, run.ID)} {
+		input := docker.created[name]
+		require.Equal(t, slice, input.HostConfig.CgroupParent, name)
+		require.Equal(t, int64(machine.MemoryMB)<<20, input.HostConfig.Resources.Memory, name)
+		require.Equal(t, int64(machine.CPUMillis)*1_000_000, input.HostConfig.Resources.NanoCPUs, name)
+		require.Equal(t, int64(-1), input.HostConfig.Resources.MemorySwap, name)
+		require.Equal(t, resourceScopeMachine, input.Labels[resourceScopeLabel], name)
+	}
+
+	plainRun := &domain.CommandRun{ID: uuid.New(), Command: "echo hi", Write: true, WorkingDirectory: folder}
+	plain := &commandDockerFake{api: "1.52"}
+	require.NoError(t, plain.run(t, machine, plainRun))
+	require.Empty(t, plain.created[commandPrepName(machine, plainRun.ID)].HostConfig.CgroupParent, "without slices the prep container keeps its own limit")
 }
 
 // The command is only in the container's environment, and /workspace is

@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "No default repository",
 	"settings.dev_machines.no_envs": "No saved environments yet.",
 	"settings.dev_machines.per_user": "Machines per user",
+	"settings.dev_machines.max_temporary": "Assistant temporary machines",
+	"settings.dev_machines.max_temporary_desc": "Small machines the assistant may start to run commands, one per person, deleted after 30 minutes. 0 turns them off.",
 	"settings.dev_machines.providers": "Providers",
 	"settings.dev_machines.providers_desc": "Only selected providers can be attached to new machines.",
 	"settings.dev_machines.repo": "Development repository",

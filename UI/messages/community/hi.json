@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "कोई डिफ़ॉल्ट रिपॉज़िटरी नहीं",
 	"settings.dev_machines.no_envs": "अभी कोई सहेजा गया एनवायरनमेंट नहीं।",
 	"settings.dev_machines.per_user": "प्रति यूज़र मशीनें",
+	"settings.dev_machines.max_temporary": "सहायक की अस्थायी मशीनें",
+	"settings.dev_machines.max_temporary_desc": "छोटी मशीनें जो सहायक कमांड चलाने के लिए शुरू कर सकता है, प्रति व्यक्ति एक, 30 मिनट बाद हटा दी जाती हैं। 0 उन्हें बंद कर देता है।",
 	"settings.dev_machines.providers": "प्रोवाइडर",
 	"settings.dev_machines.providers_desc": "नई मशीनों से केवल चुने गए प्रोवाइडर जोड़े जा सकते हैं।",
 	"settings.dev_machines.repo": "डेवलपमेंट रिपॉज़िटरी",

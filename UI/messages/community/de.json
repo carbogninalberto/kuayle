@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Kein Standard-Repository",
 	"settings.dev_machines.no_envs": "Noch keine gespeicherten Umgebungen.",
 	"settings.dev_machines.per_user": "Maschinen pro Benutzer",
+	"settings.dev_machines.max_temporary": "Temporäre Assistenten-Maschinen",
+	"settings.dev_machines.max_temporary_desc": "Kleine Maschinen, die der Assistent zum Ausführen von Befehlen starten kann, eine pro Person, die nach 30 Minuten gelöscht werden. 0 deaktiviert sie.",
 	"settings.dev_machines.providers": "Anbieter",
 	"settings.dev_machines.providers_desc": "Nur ausgewählte Anbieter können neuen Maschinen zugeordnet werden.",
 	"settings.dev_machines.repo": "Entwicklungs-Repository",

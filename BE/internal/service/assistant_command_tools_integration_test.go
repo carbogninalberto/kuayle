@@ -223,6 +223,87 @@ func TestAssistantReusesTheUsersOwnMachine(t *testing.T) {
 	require.ErrorIs(t, err, repository.ErrConversationNotFound)
 }
 
+// A live temporary machine started in another conversation is reused by the
+// same user's other conversations, in each conversation's own folder, and a
+// temporary machine that cannot run commands is refused before a card appears.
+func TestAssistantReusesTheUsersTemporaryMachineFromAnotherConversation(t *testing.T) {
+	f := newCommandToolsFixture(t)
+
+	// Conversation A starts and approves the user's temporary machine.
+	a := f.attempt(t, "start a machine")
+	require.Contains(t, f.call(t, &a, "start_temporary_machine", `{}`), "pending_user_approval")
+	card := f.approvals(t, a)[0]
+	approved, err := f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, card.ID, true)
+	require.NoError(t, err)
+	require.Equal(t, "approved", approved.Status)
+	require.Equal(t, 1, f.temporary.started)
+	var tmpID uuid.UUID
+	require.NoError(t, f.db.Get(&tmpID, `SELECT id FROM dev_machines WHERE workspace_id=$1 AND temporary_expires_at IS NOT NULL`, f.ws))
+
+	// Conversation B reuses it at once, with no card and no second machine.
+	b := f.attempt(t, "work in another conversation")
+	require.NotEqual(t, a.Conversation.ID, b.Conversation.ID)
+	content := f.call(t, &b, "start_temporary_machine", `{}`)
+	require.NotContains(t, content, "pending_user_approval")
+	require.Contains(t, content, `"reused":true`)
+	require.Contains(t, content, `"temporary":true`)
+	require.Contains(t, content, `"machine":"tmp-1a2b3c4d"`)
+	require.Contains(t, content, domain.CommandFolder(b.Conversation.ID))
+	require.Empty(t, f.approvals(t, b))
+	require.Equal(t, 1, f.temporary.started, "no second machine is started")
+
+	// A write command on it runs in B's folder, not A's.
+	content = f.call(t, &b, "run_command_write", `{"command":"echo hi > note.txt"}`)
+	require.Contains(t, content, "pending_user_approval")
+	runCard := f.approvals(t, b)[0]
+	var payload domain.CommandRunPayload
+	require.NoError(t, json.Unmarshal(runCard.Payload, &payload))
+	require.Equal(t, tmpID, payload.MachineID)
+	require.True(t, payload.Reused)
+	require.True(t, payload.Temporary)
+	require.Equal(t, domain.CommandFolder(b.Conversation.ID), payload.WorkingDirectory)
+	approved, err = f.service.ResolveApproval(f.ctx, f.ws, b.Conversation.ID, runCard.ID, true)
+	require.NoError(t, err)
+	require.Equal(t, "approved", approved.Status)
+	run, err := f.commands.RunForApproval(f.ctx, f.ws, runCard.ID, f.user)
+	require.NoError(t, err)
+	require.Equal(t, tmpID, *run.MachineID)
+	require.True(t, run.Reused)
+	require.True(t, run.Temporary)
+
+	// A read command without machine_id picks the same machine.
+	content = f.call(t, &b, "run_command", `{"command":"pwd"}`)
+	require.Contains(t, content, "pending_user_approval")
+	readCard := f.approvals(t, b)[1]
+	require.NoError(t, json.Unmarshal(readCard.Payload, &payload))
+	require.Equal(t, tmpID, payload.MachineID)
+	require.True(t, payload.Reused)
+	require.True(t, payload.Temporary)
+
+	// Another member gets no machine: it is only reusable by its owner.
+	other := uuid.New()
+	_, err = f.db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Other','hash')`, other, other.String()+"@test.invalid")
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = f.db.Exec(`DELETE FROM users WHERE id=$1`, other) })
+	_, err = f.db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'member')`, f.ws, other)
+	require.NoError(t, err)
+	otherCtx := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: f.ws, UserID: other})
+	otherConversation, err := f.repo.Create(otherCtx, f.ws, "Other")
+	require.NoError(t, err)
+	_, err = f.service.tools.prepareCommand(otherCtx, domain.ConversationAttempt{Conversation: *otherConversation}, "run_command", `{"command":"pwd"}`)
+	require.ErrorContains(t, err, "No machine is available to run commands")
+
+	// A temporary machine that counts toward the quota but cannot run commands
+	// is refused before the card, because approving it would fail.
+	_, err = f.db.Exec(`UPDATE dev_machines SET status='failed' WHERE id=$1`, tmpID)
+	require.NoError(t, err)
+	c := f.attempt(t, "another conversation after the machine failed")
+	content = f.call(t, &c, "start_temporary_machine", `{}`)
+	require.Contains(t, content, "You already have a temporary machine")
+	require.NotContains(t, content, "pending_user_approval")
+	require.Empty(t, f.approvals(t, c))
+}
+
 // A guest, and anyone naming a machine they do not own, is refused with the
 // next step.
 func TestAssistantCommandsRefuseGuestsAndOtherUsersMachines(t *testing.T) {

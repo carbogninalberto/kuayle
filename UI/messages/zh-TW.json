@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "無預設儲存庫",
 	"settings.dev_machines.no_envs": "尚無已儲存的環境。",
 	"settings.dev_machines.per_user": "每使用者機器數",
+	"settings.dev_machines.max_temporary": "助理臨時機器",
+	"settings.dev_machines.max_temporary_desc": "助理可啟動用於執行指令的小型機器，每人一部，30 分鐘後刪除。0 表示關閉。",
 	"settings.dev_machines.providers": "提供者",
 	"settings.dev_machines.providers_desc": "只有選定的提供者可以附加到新機器。",
 	"settings.dev_machines.repo": "開發儲存庫",

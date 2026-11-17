@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "لا يوجد مستودع افتراضي",
 	"settings.dev_machines.no_envs": "لا توجد بيئات محفوظة بعد.",
 	"settings.dev_machines.per_user": "الأجهزة لكل مستخدم",
+	"settings.dev_machines.max_temporary": "آلات المساعد المؤقتة",
+	"settings.dev_machines.max_temporary_desc": "آلات صغيرة يمكن للمساعد بدؤها لتشغيل الأوامر، واحدة لكل شخص، تُحذف بعد 30 دقيقة. 0 يوقفها.",
 	"settings.dev_machines.providers": "المزودون",
 	"settings.dev_machines.providers_desc": "لا يمكن إرفاق إلا المزودين المحددين بالأجهزة الجديدة.",
 	"settings.dev_machines.repo": "مستودع التطوير",

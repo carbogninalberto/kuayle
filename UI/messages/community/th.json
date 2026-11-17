@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "ไม่มีรีโพสิทอรีเริ่มต้น",
 	"settings.dev_machines.no_envs": "ยังไม่มีสภาพแวดล้อมที่บันทึกไว้",
 	"settings.dev_machines.per_user": "เครื่องต่อผู้ใช้",
+	"settings.dev_machines.max_temporary": "เครื่องจักรชั่วคราวของผู้ช่วย",
+	"settings.dev_machines.max_temporary_desc": "เครื่องจักรขนาดเล็กที่ผู้ช่วยสามารถเริ่มได้เพื่อรันคำสั่ง หนึ่งเครื่องต่อคน ลบหลัง 30 นาที 0 ปิดใช้งาน",
 	"settings.dev_machines.providers": "ผู้ให้บริการ",
 	"settings.dev_machines.providers_desc": "เฉพาะผู้ให้บริการที่เลือกเท่านั้นที่แนบกับเครื่องใหม่ได้",
 	"settings.dev_machines.repo": "รีโพสิทอรีสำหรับพัฒนา",

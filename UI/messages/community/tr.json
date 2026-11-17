@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Varsayılan depo yok",
 	"settings.dev_machines.no_envs": "Henüz kayıtlı ortam yok.",
 	"settings.dev_machines.per_user": "Kullanıcı başına makine",
+	"settings.dev_machines.max_temporary": "Asistan geçici makineleri",
+	"settings.dev_machines.max_temporary_desc": "Asistanın komut çalıştırmak için başlatabileceği küçük makineler, kişi başına bir, 30 dakika sonra silinir. 0 kapatır.",
 	"settings.dev_machines.providers": "Sağlayıcılar",
 	"settings.dev_machines.providers_desc": "Yeni makinelere yalnızca seçili sağlayıcılar bağlanabilir.",
 	"settings.dev_machines.repo": "Geliştirme deposu",

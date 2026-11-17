@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Sin repositorio predeterminado",
 	"settings.dev_machines.no_envs": "Aún no hay entornos guardados.",
 	"settings.dev_machines.per_user": "Máquinas por usuario",
+	"settings.dev_machines.max_temporary": "Máquinas temporales del asistente",
+	"settings.dev_machines.max_temporary_desc": "Máquinas pequeñas que el asistente puede iniciar para ejecutar comandos, una por persona, eliminadas después de 30 minutos. 0 las desactiva.",
 	"settings.dev_machines.providers": "Proveedores",
 	"settings.dev_machines.providers_desc": "Solo los proveedores seleccionados se pueden asociar a máquinas nuevas.",
 	"settings.dev_machines.repo": "Repositorio de desarrollo",

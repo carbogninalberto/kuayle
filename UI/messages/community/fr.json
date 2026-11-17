@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Aucun dépôt par défaut",
 	"settings.dev_machines.no_envs": "Aucun environnement enregistré pour l'instant.",
 	"settings.dev_machines.per_user": "Machines par utilisateur",
+	"settings.dev_machines.max_temporary": "Machines temporaires de l'assistant",
+	"settings.dev_machines.max_temporary_desc": "Petites machines que l'assistant peut démarrer pour exécuter des commandes, une par personne, supprimées après 30 minutes. 0 les désactive.",
 	"settings.dev_machines.providers": "Fournisseurs",
 	"settings.dev_machines.providers_desc": "Seuls les fournisseurs sélectionnés peuvent être associés aux nouvelles machines.",
 	"settings.dev_machines.repo": "Dépôt de développement",

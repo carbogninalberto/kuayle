@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Нет репозитория по умолчанию",
 	"settings.dev_machines.no_envs": "Сохранённых сред пока нет.",
 	"settings.dev_machines.per_user": "Машин на пользователя",
+	"settings.dev_machines.max_temporary": "Временные машины ассистента",
+	"settings.dev_machines.max_temporary_desc": "Небольшие машины, которые ассистент может запустить для выполнения команд, по одной на человека, удаляются через 30 минут. 0 отключает их.",
 	"settings.dev_machines.providers": "Провайдеры",
 	"settings.dev_machines.providers_desc": "К новым машинам можно подключить только выбранных провайдеров.",
 	"settings.dev_machines.repo": "Репозиторий разработки",
