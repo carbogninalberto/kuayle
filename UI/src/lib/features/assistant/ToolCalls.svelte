@@ -31,6 +31,14 @@
 	import { WIKI_APPROVAL_ACTIONS } from '$lib/api/conversations';
 	import { getLocale, m } from '$lib/features/i18n/messages';
 	import ApprovalModelPicker from './ApprovalModelPicker.svelte';
+	import WorkflowChoice from './WorkflowChoice.svelte';
+	import {
+		DEFAULT_WORKFLOW,
+		customWorkflows,
+		isCustomChoice,
+		workflowEdit
+	} from './workflow-choice';
+	import { workflows as workflowsApi, type WorkflowList } from '$lib/api/workflows';
 	import AgentSubagent from './AgentSubagent.svelte';
 	import AppPortLinks from './AppPortLinks.svelte';
 	import UpgradeProgress from './UpgradeProgress.svelte';
@@ -68,6 +76,48 @@
 		onresolve?: (approval: ConversationApproval, decision: 'approve' | 'deny', choice?: ApprovalEdit) => Promise<void>;
 	} = $props();
 	let choices = $state<Record<string, ApprovalModelChoice>>({});
+	// The workspace's workflows, for the workflow an approver chooses on a
+	// delegation. Guests cannot list them, so the picker stays hidden then.
+	let workflowList = $state<WorkflowList | null>(null),
+		// The workflow picked on a pending delegation, by approval id.
+		workflowChoices = $state<Record<string, string>>({});
+	let workflowsRequested = false;
+	const pendingDelegation = $derived(
+		part !== 'steps' &&
+			Object.values(approvals).some((a) => a.action === 'delegate_issue' && a.status === 'pending')
+	);
+	$effect(() => {
+		if (!pendingDelegation || workflowsRequested) return;
+		workflowsRequested = true;
+		let current = true;
+		workflowsApi
+			.list(slug)
+			.then((list) => {
+				if (current) workflowList = list;
+			})
+			.catch(() => {
+				/* The delegation still starts on the proposed workflow. */
+			});
+		return () => (current = false);
+	});
+	// The workflow a pending delegation card shows: the pick, else the proposal.
+	function workflowOf(approval: ConversationApproval): string {
+		if (approval.action !== 'delegate_issue') return DEFAULT_WORKFLOW;
+		return workflowChoices[approval.id] ?? (approval.payload.workflow_id || DEFAULT_WORKFLOW);
+	}
+	// Whether a pending delegation offers the workflow choice: the list loaded,
+	// and there is more than Standard to pick or the assistant proposed one.
+	function offersWorkflow(approval: ConversationApproval): boolean {
+		if (approval.action !== 'delegate_issue' || !workflowList) return false;
+		return customWorkflows(workflowList).length > 0 || !!approval.payload.workflow_id;
+	}
+	// A custom workflow's first agent step decides the harness and model, so the
+	// model picker's choice goes away with it; the picker starts again from the
+	// proposal when another workflow is picked.
+	function chooseWorkflow(approval: ConversationApproval, choice: string) {
+		workflowChoices[approval.id] = choice;
+		if (isCustomChoice(choice)) delete choices[approval.id];
+	}
 	let deciding = $state<string | null>(null),
 		decisionError = $state<string | null>(null),
 		// The server's reason for refusing an edit, such as a secret in the notes.
@@ -80,8 +130,12 @@
 		if (approval.action === 'ship_pull_request') return approval.payload.release.notes;
 		return undefined;
 	}
-	// The edit sent with an approval: only release notes, when changed.
+	// The edit sent with an approval: release notes, or a delegation's workflow,
+	// when changed.
 	function editOf(approval: ConversationApproval): ApprovalEdit | undefined {
+		if (approval.action === 'delegate_issue') {
+			return offersWorkflow(approval) ? workflowEdit(workflowOf(approval), approval.payload.workflow_id) : undefined;
+		}
 		const draft = draftNotes(approval);
 		const notes = releaseNotes[approval.id];
 		return draft !== undefined && notes !== undefined && notes !== draft ? { notes } : undefined;
@@ -96,8 +150,10 @@
 		decisionError = null;
 		decisionReason = null;
 		try {
-			// A model choice for coding agents, or a release's edited notes.
-			const choice = decision === 'approve' ? { ...choices[approval.id], ...editOf(approval) } : undefined;
+			// A model choice for coding agents, a delegation's workflow, or a
+			// release's edited notes. A custom workflow decides its own agent.
+			const model = approval.action === 'delegate_issue' && isCustomChoice(workflowOf(approval)) ? {} : choices[approval.id];
+			const choice = decision === 'approve' ? { ...model, ...editOf(approval) } : undefined;
 			await onresolve(approval, decision, choice);
 		} catch (error) {
 			const failure = error as { status?: number; error?: { message?: string } };
@@ -883,7 +939,17 @@
 											})}</span
 										>
 									</p>{/if}
-								{#if approval.payload.workflow}<p class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+								{#if offersWorkflow(approval) && workflowList}
+									<WorkflowChoice
+										list={workflowList}
+										id="approval-workflow-{approval.id}"
+										bind:value={() => workflowOf(approval), (choice) => chooseWorkflow(approval, choice)}
+										disabled={deciding !== null}
+										extra={approval.payload.workflow_id
+											? { id: approval.payload.workflow_id, name: approval.payload.workflow ?? '' }
+											: undefined}
+									/>
+								{:else if approval.payload.workflow}<p class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
 										<Workflow size={12} class="shrink-0" /><span class="truncate"
 											>{m['workflows.choose_label']()}: {approval.payload.workflow}</span
 										>
@@ -899,7 +965,7 @@
 									/></CodeBlock.Root
 								>
 							{/if}
-							{#if approval.action === 'delegate_issue' || approval.action === 'request_agent_review' || approval.action === 'follow_up_task'}
+							{#if (approval.action === 'delegate_issue' && !isCustomChoice(workflowOf(approval))) || approval.action === 'request_agent_review' || approval.action === 'follow_up_task'}
 								<ApprovalModelPicker
 									{slug}
 									issueId={approval.issue_id}
@@ -952,6 +1018,13 @@
 						>
 						<Trace.Title class="whitespace-normal break-words">{outcome(approval)}</Trace.Title>
 					</Trace.Line>
+					{#if approval.action === 'delegate_issue' && approval.status === 'approved' && approval.payload.workflow}<p
+							class="flex min-w-0 items-center gap-1 pl-6 text-xs text-muted-foreground"
+						>
+							<Workflow size={12} class="shrink-0" /><span class="truncate"
+								>{m['workflows.choose_label']()}: {approval.payload.workflow}</span
+							>
+						</p>{/if}
 					{#if approval.action === 'delegate_issue' && approval.status === 'approved' && approval.task_id}<AgentSubagent
 							{slug}
 							taskId={approval.task_id}

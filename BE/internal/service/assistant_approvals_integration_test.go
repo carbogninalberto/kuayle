@@ -25,6 +25,7 @@ type approvalTaskFake struct {
 	createErr  error
 	mu         sync.Mutex
 	creates    int
+	requests   []domain.AgentTaskRequest // every Create call, in order
 }
 
 func (f *approvalTaskFake) Options(context.Context, uuid.UUID, uuid.UUID) (*AgentTaskOptions, error) {
@@ -43,6 +44,7 @@ func (f *approvalTaskFake) Options(context.Context, uuid.UUID, uuid.UUID) (*Agen
 func (f *approvalTaskFake) Create(ctx context.Context, ws, conversation uuid.UUID, input domain.AgentTaskRequest) (*domain.AgentTask, error) {
 	f.mu.Lock()
 	f.creates++
+	f.requests = append(f.requests, input)
 	err := f.createErr
 	f.mu.Unlock()
 	if err != nil {

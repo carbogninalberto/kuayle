@@ -21,11 +21,11 @@
 		type TaskInput
 	} from '$lib/api/agent-tasks';
 	import { workflows as workflowsApi, type WorkflowList } from '$lib/api/workflows';
-	import SelectField from '$lib/components/shared/SelectField.svelte';
-	import { Label } from '$lib/components/ui/label/index.js';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { m } from '$lib/features/i18n/messages';
 	import MergedWorkDialog from './MergedWorkDialog.svelte';
+	import WorkflowChoice from './WorkflowChoice.svelte';
+	import { DEFAULT_WORKFLOW, customWorkflows as customWorkflowsOf, isCustomChoice } from './workflow-choice';
 	import { mergedWork } from './merged-work';
 	let {
 		slug,
@@ -59,19 +59,11 @@
 	// The workflow a new task follows: the issue's default, Standard or a
 	// custom one. Guests cannot list workflows (nor start tasks), so the
 	// chooser stays hidden whenever the list does not load.
-	const DEFAULT_WORKFLOW = 'default';
 	let workflowList = $state<WorkflowList | null>(null),
 		workflowChoice = $state(DEFAULT_WORKFLOW);
-	const customWorkflows = $derived((workflowList?.workflows ?? []).filter((w) => !w.builtin && !w.archived));
-	const customChosen = $derived(workflowChoice !== DEFAULT_WORKFLOW && workflowChoice !== 'standard');
-	// A custom workflow's first agent step decides the harness and model; a
-	// default may also name one.
-	const defaultMayBeCustom = $derived((workflowList?.defaults ?? []).some((d) => d.workflow_id));
-	const workflowOptions = $derived([
-		{ value: DEFAULT_WORKFLOW, label: m['workflows.choose_default']() },
-		{ value: 'standard', label: m['workflows.standard']() },
-		...customWorkflows.map((w) => ({ value: w.id, label: w.name }))
-	]);
+	const customWorkflows = $derived(customWorkflowsOf(workflowList));
+	// A custom workflow's first agent step decides the harness and model.
+	const customChosen = $derived(isCustomChoice(workflowChoice));
 	let disposed = false;
 	// Codex and Claude Code use a compatible model server when there is one;
 	// otherwise, like the other agents, their own sign-in.
@@ -129,7 +121,8 @@
 				.then((list) => {
 					if (disposed) return;
 					workflowList = list;
-					if (!workflowOptions.some((o) => o.value === workflowChoice)) workflowChoice = DEFAULT_WORKFLOW;
+					if (isCustomChoice(workflowChoice) && !customWorkflows.some((w) => w.id === workflowChoice))
+						workflowChoice = DEFAULT_WORKFLOW;
 				})
 				.catch(() => {
 					/* The task still starts with the issue's default workflow. */
@@ -230,25 +223,7 @@
 		>
 		<form onsubmit={submit} class="min-w-0 space-y-4">
 			{#if !task && workflowList && customWorkflows.length > 0}
-				<div class="space-y-1.5">
-					<Label for="task-workflow" class="text-xs font-medium text-muted-foreground"
-						>{m['workflows.choose_label']()}</Label
-					>
-					<SelectField
-						id="task-workflow"
-						bind:value={workflowChoice}
-						options={workflowOptions}
-						disabled={saving}
-						aria-describedby={customChosen || defaultMayBeCustom ? 'task-workflow-note' : undefined}
-						data-testid="task-workflow"
-					/>
-					{#if customChosen || (workflowChoice === DEFAULT_WORKFLOW && defaultMayBeCustom)}<p
-							id="task-workflow-note"
-							class="text-xs text-muted-foreground"
-						>
-							{m['workflows.composer_note']()}
-						</p>{/if}
-				</div>
+				<WorkflowChoice list={workflowList} id="task-workflow" bind:value={workflowChoice} disabled={saving} />
 			{/if}
 			{#if !task && !customChosen}
 				<div class="space-y-1.5">
