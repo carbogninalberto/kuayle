@@ -593,6 +593,7 @@ func TestWorkflowRunnerTimeBudgetBoundsWaitingSteps(t *testing.T) {
 		require.Equal(t, "awaiting_review", h.w.task.State)
 		require.Equal(t, domain.WorkflowStatusWaiting, *h.w.task.WorkflowStatus)
 		require.Equal(t, waiting, h.w.task.WorkflowSequence)
+		require.Nil(t, h.w.task.WorkflowHeldSince, "CI is not a person wait: the clock still runs")
 		require.True(t, h.tick())
 		require.False(t, h.w.task.WorkflowWakeAt.After(h.w.now.Add(time.Hour)), "the extended budget bounds the wait")
 		h.ci("success", "")
@@ -658,6 +659,45 @@ func TestWorkflowRunnerReadyToShipOvernightDoesNotFailOnTime(t *testing.T) {
 		require.NotNil(t, h.w.task.WorkflowBudgetFrom)
 		require.Equal(t, h.w.now, *h.w.task.WorkflowBudgetFrom, "the 16h wait moved the budget start")
 		require.Equal(t, domain.WorkflowStatusRunning, *h.w.task.WorkflowStatus, "no limit was hit")
+	})
+
+	t.Run("continued past the time budget at Ready to ship", func(t *testing.T) {
+		h := newWorkflowHarness(t, domain.WorkflowBudget{MaxMinutes: 60, OnExhausted: domain.WorkflowOnLimitAsk})
+		h.agentFinishes("done")
+		h.published()
+		h.review("approve", "ok")
+		h.ci("success", "")
+		require.Equal(t, "ship", h.current().NodeID)
+		require.Equal(t, "awaiting_review", h.w.task.State)
+
+		// A task that stopped on time at this approval before the migration
+		// had no hold, but did have a budget deadline that has now passed.
+		h.w.task.WorkflowHeldSince = nil
+		due := h.w.now.Add(-time.Minute)
+		h.w.task.WorkflowWakeAt = &due
+		h.w.now = h.w.now.Add(time.Hour)
+		require.True(t, h.tick(), "the approval is evaluated past the budget")
+		require.Equal(t, "blocked", h.w.task.State)
+		require.Equal(t, domain.WorkflowStatusPaused, *h.w.task.WorkflowStatus)
+		require.Nil(t, h.current().FinishedAt, "the step is held, not left")
+
+		h.decide(WorkflowDecisionContinue)
+		require.Equal(t, "awaiting_review", h.w.task.State)
+		require.Equal(t, domain.WorkflowStatusWaiting, *h.w.task.WorkflowStatus)
+		require.NotNil(t, h.w.task.WorkflowHeldSince, "the continued person wait holds the clock")
+		require.Equal(t, h.w.now, *h.w.task.WorkflowHeldSince)
+		require.NotNil(t, h.w.task.WorkflowBudgetFrom)
+		require.Equal(t, h.w.now, *h.w.task.WorkflowBudgetFrom, "the new budget starts now")
+		require.True(t, h.tick(), "the entered approval is evaluated once")
+		require.Nil(t, h.w.task.WorkflowWakeAt, "nothing wakes the task for the budget while held")
+
+		h.w.now = h.w.now.Add(16 * time.Hour)
+		require.False(t, h.tick(), "the worker is not woken by the budget across the night")
+		require.Equal(t, "awaiting_review", h.w.task.State)
+		require.NotContains(t, h.w.task.Reason, "is used up", "the wait did not fail on time again")
+
+		h.decide(WorkflowDecisionApprove)
+		require.Equal(t, "completed", h.w.task.State)
 	})
 }
 

@@ -2369,8 +2369,11 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   budget it grants another iteration budget of the same size and restarts the
   time budget at the decision (`workflow_budget_extensions`,
   `workflow_budget_from`), so later transitions do not pause again at once;
-  a held wait waits again. The step's saved detail (failing checks, review
-  comments) is passed on as it would have been. Cost budgets are a follow-up:
+  a held wait waits again. Continuing past the time budget at an approval or
+  merge step keeps the clock held from the decision until the person acts, so
+  the next budget counts only the working time after it. The step's saved
+  detail (failing checks, review comments) is passed on as it would have been.
+  Cost budgets are a follow-up:
   runs do not record cost.
 - **Defaults** (`workflow_defaults`): per workspace, team and project; the
   most specific wins. A task may choose any active workflow (`workflow_id` on

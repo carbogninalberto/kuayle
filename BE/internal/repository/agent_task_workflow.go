@@ -131,7 +131,9 @@ func workflowEvent(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) erro
 
 // transitionWorkflowTask changes the task's state for a workflow node, or
 // only its reason when it already is in that state (one waiting node after
-// another).
+// another). ValidWorkflowTaskTransition forbids entering or leaving
+// waiting_input, so the waiting_input clock hold lives in transitionAgentTask;
+// a workflow node's own person-wait hold comes from ComputeWorkflowApply.
 func transitionWorkflowTask(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, to, reason string, actor *uuid.UUID) error {
 	if len(reason) > 2048 {
 		reason = reason[:2048]
@@ -437,7 +439,8 @@ func ComputeWorkflowApply(task domain.AgentTask, apply WorkflowApply, now time.T
 	// Waiting on a person (an approval or a merge) stops the time budget: the
 	// clock is held from now (or kept held if it already was). Every other
 	// move ends a hold and adds the time waited to the budget start (KUA-171).
-	if apply.Entry.Kind == WorkflowEnterWait && apply.Entry.NeedsPerson {
+	personWait := apply.Entry.Kind == WorkflowEnterWait && apply.Entry.NeedsPerson
+	if personWait {
 		if result.Cursor.HeldSince.IsZero() {
 			result.Cursor.HeldSince = now
 		}
@@ -445,10 +448,15 @@ func ComputeWorkflowApply(task domain.AgentTask, apply WorkflowApply, now time.T
 		result.Cursor = result.Cursor.Released(now)
 	}
 	if apply.ExtendBudget {
-		// A granted budget starts again now, whatever the hold did.
+		// A granted budget starts again now; a person wait stays held from
+		// now, so the next budget counts only the working time after it ends.
 		result.Cursor.Extensions++
 		result.Cursor.BudgetFrom = now
-		result.Cursor.HeldSince = time.Time{}
+		if personWait {
+			result.Cursor.HeldSince = now
+		} else {
+			result.Cursor.HeldSince = time.Time{}
+		}
 	}
 	switch apply.Entry.Kind {
 	case WorkflowEnterWait, WorkflowEnterReview:

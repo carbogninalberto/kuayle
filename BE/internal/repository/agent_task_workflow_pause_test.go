@@ -720,3 +720,48 @@ func TestWorkflowResumeDoesNotDoubleCountAPauseInsideAHold(t *testing.T) {
 	require.NotNil(t, resume.BudgetFrom)
 	require.Equal(t, start.Add(3*time.Hour), *resume.BudgetFrom)
 }
+
+// A pause first moves the budget start; a later person's input wait then adds
+// to that shifted start, so the two excluded periods compose (KUA-171).
+func TestWorkflowPauseThenWaitingInputAddsBothToTheBudget(t *testing.T) {
+	f := newPauseFixture(t)
+	started := *f.current().WorkflowStartedAt
+
+	pausing, err := f.repo.PauseWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowPauseNow)
+	require.NoError(t, err)
+	require.NotNil(t, pausing.WorkflowPausedAt)
+	f.cleanup()
+	require.Equal(t, "blocked", f.current().State)
+
+	// An hour of pause moves the budget start, with no hold.
+	f.exec(`UPDATE agent_tasks SET workflow_paused_at=now()-interval '1 hour' WHERE id=$1`, f.task.ID)
+	resumed, err := f.repo.ResumeWorkflow(f.ctx, f.ws, f.task.ID)
+	require.NoError(t, err)
+	require.Nil(t, resumed.WorkflowHeldSince)
+	require.NotNil(t, resumed.WorkflowBudgetFrom)
+	require.WithinDuration(t, started.Add(time.Hour), *resumed.WorkflowBudgetFrom, 5*time.Second, "the pause moved the budget start")
+
+	// The resumed attempt runs the same step again.
+	claimed := f.claim()
+	require.NotNil(t, claimed)
+	f.exec(`UPDATE agent_tasks SET lease_expires_at=now()+interval '10 minutes' WHERE id=$1`, f.task.ID)
+	require.NoError(t, f.repo.Transition(f.ctx, *claimed, "preparing", "Preparing"))
+	require.NoError(t, f.repo.Transition(f.ctx, *claimed, "running", "Running"))
+
+	// A person asks for input: the clock is held on top of the paused budget.
+	require.NoError(t, f.repo.Transition(f.ctx, *claimed, "waiting_input", "Waiting for your input"))
+	var held *time.Time
+	require.NoError(t, f.db.Get(&held, `SELECT workflow_held_since FROM agent_tasks WHERE id=$1`, f.task.ID))
+	require.NotNil(t, held, "waiting_input holds the clock")
+
+	// Two hours waiting for input add to the already-shifted budget start.
+	f.exec(`UPDATE agent_tasks SET workflow_held_since=now()-interval '2 hours' WHERE id=$1`, f.task.ID)
+	require.NoError(t, f.db.Get(&claimed, `SELECT * FROM agent_tasks WHERE id=$1`, f.task.ID))
+	require.NoError(t, f.repo.Transition(f.ctx, *claimed, "running", "Input received"))
+	var budgetFrom *time.Time
+	require.NoError(t, f.db.Get(&budgetFrom, `SELECT workflow_budget_from FROM agent_tasks WHERE id=$1`, f.task.ID))
+	require.NotNil(t, budgetFrom)
+	require.WithinDuration(t, started.Add(3*time.Hour), *budgetFrom, 5*time.Second, "the pause and the wait both move the budget start")
+	require.NoError(t, f.db.Get(&held, `SELECT workflow_held_since FROM agent_tasks WHERE id=$1`, f.task.ID))
+	require.Nil(t, held, "the hold ends with the wait")
+}

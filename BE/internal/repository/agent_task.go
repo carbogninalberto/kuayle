@@ -344,7 +344,9 @@ func transitionAgentTask(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTas
 			}
 		}
 		// A person's input stops the clock; leaving that state adds the time
-		// waited to the budget start (KUA-171).
+		// waited to the budget start (KUA-171). Workflow moves cannot enter
+		// waiting_input (see transitionWorkflowTask), so this is the only
+		// place that holds and releases that wait.
 		if to == "waiting_input" {
 			if err := tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_held_since=COALESCE(workflow_held_since,now()) WHERE id=$1 RETURNING *`, task.ID); err != nil {
 				return err

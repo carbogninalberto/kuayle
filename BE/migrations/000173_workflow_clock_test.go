@@ -61,6 +61,24 @@ func TestWorkflowClockMigrationBackfillsLiveTasks(t *testing.T) {
 	_, err = db.Exec(`INSERT INTO agent_task_workflow_steps(task_id,sequence,node_id,node_type,visit,reason,entered_at) VALUES($1,2,'ship','approval',1,'Waiting for approval',$2)`, waiting, entered)
 	require.NoError(t, err)
 
+	// A workflow task waiting for a person's input holds the clock from when
+	// it entered waiting_input. A Standard task waiting for input is not held.
+	workflow, version := uuid.New(), uuid.New()
+	_, err = db.Exec(`INSERT INTO workflows(id,workspace_id,name) VALUES($1,$2,'Clock flow')`, workflow, fixture.workspaceA)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO workflow_versions(id,workflow_id,workspace_id,version,graph) VALUES($1,$2,$3,1,'{}'::jsonb)`, version, workflow, fixture.workspaceA)
+	require.NoError(t, err)
+	inputNode, inputStatus := "implement", "waiting"
+	var waitingInput uuid.UUID
+	require.NoError(t, db.QueryRow(`INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,state,kind,workflow_version_id,workflow_node,workflow_status,workflow_sequence) VALUES($1,$2,$3,$4,$5,$6,'Implement','codex','waiting_input','implement',$7,$8,$9,2) RETURNING id`,
+		fixture.workspaceA, conversation, fixture.userA, issue, team, uuid.New(), version, inputNode, inputStatus).Scan(&waitingInput))
+	inputAt := time.Now().Add(-3 * time.Hour)
+	_, err = db.Exec(`INSERT INTO agent_task_transitions(task_id,from_state,to_state,reason,created_at) VALUES($1,'running','waiting_input','Needs input',$2)`, waitingInput, inputAt)
+	require.NoError(t, err)
+	var standardInput uuid.UUID
+	require.NoError(t, db.QueryRow(`INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,state) VALUES($1,$2,$3,$4,$5,$6,'Implement','codex','waiting_input') RETURNING id`,
+		fixture.workspaceA, conversation, fixture.userA, issue, team, uuid.New()).Scan(&standardInput))
+
 	require.NoError(t, m.Migrate(173))
 
 	var column bool
@@ -77,6 +95,13 @@ func TestWorkflowClockMigrationBackfillsLiveTasks(t *testing.T) {
 	require.NoError(t, db.QueryRow(`SELECT workflow_held_since FROM agent_tasks WHERE id=$1`, waiting).Scan(&held))
 	require.NotNil(t, held)
 	require.WithinDuration(t, entered, *held, time.Second, "the approval hold starts when its step was entered")
+
+	var inputHeld *time.Time
+	require.NoError(t, db.QueryRow(`SELECT workflow_held_since FROM agent_tasks WHERE id=$1`, waitingInput).Scan(&inputHeld))
+	require.NotNil(t, inputHeld, "a workflow task waiting for input is held")
+	require.WithinDuration(t, inputAt, *inputHeld, time.Second, "the hold starts when it entered waiting_input")
+	require.NoError(t, db.QueryRow(`SELECT workflow_held_since FROM agent_tasks WHERE id=$1`, standardInput).Scan(&inputHeld))
+	require.Nil(t, inputHeld, "a Standard task waiting for input is not held")
 
 	require.NoError(t, m.Steps(-1))
 	require.NoError(t, db.QueryRow(`SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='agent_tasks' AND column_name='workflow_held_since')`).Scan(&column))

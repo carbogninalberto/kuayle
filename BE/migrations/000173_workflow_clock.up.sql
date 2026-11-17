@@ -23,3 +23,13 @@ UPDATE agent_tasks t SET workflow_held_since=s.entered_at
    AND s.node_type IN ('approval','merge')
    AND t.state='awaiting_review'
    AND t.workflow_status='waiting';
+
+-- A workflow task waiting for a person's input right now is held from the
+-- time it entered waiting_input.
+UPDATE agent_tasks t SET workflow_held_since=COALESCE(
+    (SELECT max(x.created_at) FROM agent_task_transitions x WHERE x.task_id=t.id AND x.to_state='waiting_input'),
+    t.updated_at)
+ WHERE t.state='waiting_input'
+   AND t.workflow_version_id IS NOT NULL
+   AND t.kind<>'review'
+   AND t.workflow_held_since IS NULL;
