@@ -63,6 +63,12 @@ const (
 	// check command is configured, which is never a pass, so only an "else"
 	// edge follows it.
 	WorkflowChecksSkipped = "checks_skipped"
+	// WorkflowBranchConflict is a ship approval's outcome without a condition
+	// of its own: entering it, Kuayle found the pull request conflicting with
+	// its base, so no transition of the graph follows it. The work goes back to
+	// the step that changes code (WorkflowGraph.SendBack), as an iteration
+	// limited like any other (KUA-209).
+	WorkflowBranchConflict = "branch_conflict"
 )
 
 // Check kinds.
@@ -750,8 +756,16 @@ func (g WorkflowGraph) Decide(cursor WorkflowCursor, outcome string, now time.Ti
 		because += " (else)"
 	}
 	decision.Reason = fmt.Sprintf("%s → %s: %s", from.Label, to.Label, because)
+	g.limit(&decision, cursor, because, now, profiles)
+	return decision
+}
+
+// limit marks a decision whose target would exceed its visit limit or the
+// budget. Reaching an end is never limited.
+func (g WorkflowGraph) limit(decision *WorkflowDecision, cursor WorkflowCursor, because string, now time.Time, profiles map[uuid.UUID]AgentProfile) {
+	to := decision.To
 	if to.Type == WorkflowNodeEnd {
-		return decision
+		return
 	}
 	switch {
 	case to.MaxVisits > 0 && cursor.Visits[to.ID] >= to.MaxVisits:
@@ -764,7 +778,102 @@ func (g WorkflowGraph) Decide(cursor WorkflowCursor, outcome string, now time.Ti
 		decision.Limit = WorkflowLimitTime
 		decision.Reason = fmt.Sprintf("The workflow's time budget of %d minutes is used up before %s", g.Budget.MaxMinutes, to.Label)
 	}
+}
+
+// Ways a ship approval's merge is carried out (ShipApproval).
+const (
+	// ShipMergesOnApproval: approving merges the pull request before the
+	// workflow leaves the approval for its done end.
+	ShipMergesOnApproval = "approval"
+	// ShipMergesAtMergeStep: approving leads to a merge step, which merges.
+	ShipMergesAtMergeStep = "merge_step"
+)
+
+// ShipApproval reports whether an approval node is the workflow's ship
+// approval, the person's go-ahead to merge: its approved transition (or its
+// "else" without one) leads straight to an end that finishes as done or to a
+// merge step. Kuayle then merges the task's pull request when it is approved,
+// on the approval itself or at that merge step, and marks a draft pull
+// request ready for review when the approval is entered (KUA-209). It returns
+// "" for any other node.
+func (g WorkflowGraph) ShipApproval(node WorkflowNode) string {
+	if node.Type != WorkflowNodeApproval {
+		return ""
+	}
+	var chosen *WorkflowEdge
+	for i := range g.Edges {
+		edge := g.Edges[i]
+		if edge.Source != node.ID {
+			continue
+		}
+		if edge.Condition == WorkflowApprovalApproved {
+			chosen = &edge
+			break
+		}
+		if edge.Condition == WorkflowElse && chosen == nil {
+			chosen = &edge
+		}
+	}
+	if chosen == nil {
+		return ""
+	}
+	to, _ := g.Node(chosen.Target)
+	switch {
+	case to.Type == WorkflowNodeEnd && to.Outcome == WorkflowEndDone:
+		return ShipMergesOnApproval
+	case to.Type == WorkflowNodeMerge:
+		return ShipMergesAtMergeStep
+	}
+	return ""
+}
+
+// SendBack is the decision that sends the work from the cursor's node back to
+// the workflow's first step that changes code (the first agent step reached
+// from the start whose profile neither plans nor reviews), because of an
+// outcome no transition names, such as WorkflowBranchConflict. It is limited
+// like any transition; without such a step it is stuck.
+func (g WorkflowGraph) SendBack(cursor WorkflowCursor, outcome string, now time.Time, profiles map[uuid.UUID]AgentProfile) WorkflowDecision {
+	from, _ := g.Node(cursor.Node)
+	decision := WorkflowDecision{From: from, Outcome: outcome}
+	to, ok := g.firstCodeStep(profiles)
+	if !ok {
+		decision.Stuck = true
+		decision.Reason = fmt.Sprintf("%s ended with %s and the workflow has no step that changes code to send it back to", from.Label, WorkflowOutcomeText(outcome))
+		return decision
+	}
+	because := WorkflowOutcomeText(outcome)
+	decision.To, decision.Condition = to, outcome
+	decision.Reason = fmt.Sprintf("%s → %s: %s", from.Label, to.Label, because)
+	g.limit(&decision, cursor, because, now, profiles)
 	return decision
+}
+
+// firstCodeStep is the first agent step that changes code, in the order the
+// transitions reach the nodes from the start.
+func (g WorkflowGraph) firstCodeStep(profiles map[uuid.UUID]AgentProfile) (WorkflowNode, bool) {
+	start, ok := g.Start()
+	if !ok {
+		return WorkflowNode{}, false
+	}
+	seen := map[string]bool{start.ID: true}
+	queue := []string{start.ID}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		node, _ := g.Node(current)
+		if node.Type == WorkflowNodeAgent && node.ProfileID != nil {
+			if profile, ok := profiles[*node.ProfileID]; ok && !profile.Plans() && !profile.Reviews() {
+				return node, true
+			}
+		}
+		for _, edge := range g.Edges {
+			if edge.Source == current && !seen[edge.Target] {
+				seen[edge.Target] = true
+				queue = append(queue, edge.Target)
+			}
+		}
+	}
+	return WorkflowNode{}, false
 }
 
 // WorkflowReasonPrefix starts every task reason a workflow writes. A reason
@@ -798,6 +907,8 @@ func WorkflowOutcomeText(outcome string) string {
 		return "checks failed"
 	case WorkflowChecksSkipped:
 		return "no check is configured"
+	case WorkflowBranchConflict:
+		return "the pull request conflicts with its base"
 	case WorkflowReviewApproved:
 		return "review approved"
 	case WorkflowReviewChangesRequested:
@@ -833,6 +944,9 @@ type WorkflowVariables struct {
 	FailingChecks   string
 	Diff            string
 	Plan            string
+	// Rebase is Kuayle's own instruction when the pull request conflicts with
+	// its base (KUA-209); the runner puts it ahead of the step's prompt.
+	Rebase string
 }
 
 // workflowFenceBytes bounds each untrusted variable in a rendered prompt.
@@ -1113,6 +1227,21 @@ type WorkflowStep struct {
 	// PausedSeconds is how long the step was paused by a person; its timeout
 	// does not count that time.
 	PausedSeconds int `json:"paused_seconds" db:"paused_seconds"`
+	// Merge is the approved merge a ship approval or the merge step after it
+	// carries out (a MergeWait), while it waits or after it failed.
+	Merge *json.RawMessage `json:"merge,omitempty" db:"merge"`
+}
+
+// MergeWait reads the step's merge, or nil.
+func (s WorkflowStep) MergeWait() *MergeWait {
+	if s.Merge == nil || len(*s.Merge) == 0 || string(*s.Merge) == "null" {
+		return nil
+	}
+	var wait MergeWait
+	if json.Unmarshal(*s.Merge, &wait) != nil {
+		return nil
+	}
+	return &wait
 }
 
 // How a person pauses a running workflow: at once, which stops the agent

@@ -778,8 +778,12 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: shipping started. Kuayle merges, waits for the tests and releases; follow each step in the chat in Kuayle.", true
 		}
 		return "The decision could not be saved. Try again.", false
+	case domain.ApprovalWaitingChecks:
+		return "Approved: Kuayle brought the branch up to date and merges it once the checks on the new head pass. The result appears in the chat in Kuayle.", true
 	case "approved":
 		switch approval.Action {
+		case "merge_pull_request":
+			return "Approved: the pull request was merged.", true
 		case "request_agent_review":
 			return "Approved: the agent review is starting.", true
 		case "follow_up_task":
@@ -821,6 +825,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 	case "failed":
 		message := "The coding agent could not start."
 		switch approval.Action {
+		case "merge_pull_request":
+			message = "The pull request was not merged."
 		case "reply_to_review_comment", "resolve_review_thread", "update_pull_request_branch", "mark_pull_request_ready":
 			message = "The pull request was not changed."
 		case "accept_agent_work":

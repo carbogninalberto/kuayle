@@ -41,6 +41,10 @@ type workflowTaskStore interface {
 	WorkflowDecisionTask(context.Context, uuid.UUID, uuid.UUID) (*domain.AgentTask, error)
 	DecideWorkflow(context.Context, uuid.UUID, uuid.UUID, repository.WorkflowApply) (*domain.AgentTask, error)
 	ParkWorkflow(context.Context, domain.AgentTask) error
+	// The task's pull request and the merges ship approvals carry out (KUA-209).
+	WorkflowPullRequest(context.Context, domain.AgentTask) (*domain.AgentReviewTarget, error)
+	RecordWorkflowMerge(context.Context, domain.AgentTask, repository.WorkflowMerge) (*domain.AgentTask, error)
+	DecideWorkflowMerge(context.Context, uuid.UUID, uuid.UUID, repository.WorkflowMerge) (*domain.AgentTask, error)
 }
 
 type workflowDefinitionStore interface {
@@ -66,6 +70,11 @@ type WorkflowRunner struct {
 	// checks confirms a CI check node's commit with GitHub; without it a CI
 	// node can only fail (from a reported failure) or time out.
 	checks workflowCIChecks
+	// pulls and merger let ship approvals merge the task's pull request and
+	// bring branches up to date (SetPullRequests, KUA-209); without them an
+	// approval leads on without merging, as before.
+	pulls  pullRequestReader
+	merger approvalMerger
 	now    func() time.Time
 
 	mu     sync.Mutex
@@ -291,6 +300,11 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 	}
 	for range len(graph.Nodes)*2 + 2 {
 		decision := graph.Decide(cursor, outcome, now, profiles)
+		if outcome == domain.WorkflowBranchConflict {
+			// No transition names a conflict: the work goes back to the step
+			// that changes code (KUA-209).
+			decision = graph.SendBack(cursor, outcome, now, profiles)
+		}
 		// So the workflow may only plan again, ask a person or end; any
 		// other step (also through an "else" transition) fails it instead.
 		if failedPlan && !decision.Stuck && !afterFailedPlan(decision.To, profiles) {
@@ -347,6 +361,12 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 		cursor.Node = decision.To.ID
 		cursor.Visits[decision.To.ID]++
 		outcome = immediate
+		if rebase := branchConflict(decision.To, immediate, why, profiles); rebase != "" {
+			// The pull request conflicts with its base: the next agent is told
+			// to merge the base, and the notebook records why.
+			vars.Rebase = rebase
+			apply.Notes = append(apply.Notes, domain.NotebookNote{Event: "Kuayle sent the work back at " + decision.To.Label + ": the pull request conflicts with its base"})
+		}
 	}
 	return nil, fmt.Errorf("workflow %s: too many immediate transitions", task.ID)
 }
@@ -401,6 +421,11 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 			if !published {
 				return repository.WorkflowEntry{}, domain.WorkflowAgentFailed, to.Label + ": there is no published pull request to review", nil
 			}
+			// The review sees the branch with its base's newest commits; one
+			// that conflicts goes back as changes requested (KUA-209).
+			if _, conflict := w.prepareBranch(ctx, task, false); conflict != "" {
+				return repository.WorkflowEntry{}, domain.WorkflowReviewChangesRequested, conflict, nil
+			}
 			// A review's focus is short, so the plan is not added to it
 			// unless the step's prompt asks for it.
 			reviewVars := vars
@@ -429,9 +454,12 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 		if vars.Plan != "" {
 			limit = workflowStepBytes
 		}
-		rendered := domain.RenderWorkflowPromptWithin(to.Prompt, vars, limit-len(heading))
+		rendered := domain.RenderWorkflowPromptWithin(to.Prompt, vars, limit-len(heading)-len(vars.Rebase))
 		if rendered == "" {
 			rendered = "Continue the task on the existing branch."
+		}
+		if vars.Rebase != "" {
+			rendered = vars.Rebase + "\n\n" + rendered
 		}
 		section := heading + rendered
 		if room := limit - len(section); len(base) > room {
@@ -473,7 +501,19 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 		if question == "" {
 			question = to.Label
 		}
-		return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: reason + "; waiting for approval: " + oneLine(question, 300), WakeAt: wake(), NeedsPerson: true}, "", "", nil
+		suffix := ""
+		if graph.ShipApproval(to) != "" {
+			// The go-ahead to merge: the pull request is made ready to merge
+			// first, or sent back when it conflicts (KUA-209).
+			done, conflict := w.prepareBranch(ctx, task, true)
+			if conflict != "" {
+				return repository.WorkflowEntry{}, domain.WorkflowBranchConflict, conflict, nil
+			}
+			if len(done) > 0 {
+				suffix = " (Kuayle " + strings.Join(done, " and ") + ")"
+			}
+		}
+		return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: reason + "; waiting for approval: " + oneLine(question, 300) + suffix, WakeAt: wake(), NeedsPerson: true}, "", "", nil
 	case domain.WorkflowNodeMerge:
 		return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: reason + "; waiting for the pull request to be merged (ship it from chat or merge it on GitHub)", WakeAt: wake(), NeedsPerson: true}, "", "", nil
 	}
@@ -592,6 +632,16 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 	node, ok := graph.Node(step.NodeID)
 	if !ok || task.WorkflowStatus == nil || *task.WorkflowStatus != domain.WorkflowStatusWaiting || step.FinishedAt != nil {
 		return w.tasks.SetWorkflowWake(ctx, task, nil)
+	}
+	// A person approved the merge this step carries out: the merge, not the
+	// step's timeout, decides while it runs (KUA-209).
+	if wait := step.MergeWait(); wait != nil && wait.Failure == "" && (node.Type == domain.WorkflowNodeApproval || node.Type == domain.WorkflowNodeMerge) {
+		handled, err := w.driveMerge(ctx, task, node, *step, wait)
+		if err != nil || handled {
+			return err
+		}
+		// The merge ended without merging; the step waits for a person again,
+		// with its timeout and the time budget as before.
 	}
 	now := w.now()
 	var deadline *time.Time
@@ -805,8 +855,38 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 		default:
 			return nil, ErrWorkflowDecision
 		}
+		step, err := w.tasks.CurrentWorkflowStep(ctx, *task)
+		if err != nil {
+			return nil, err
+		}
+		if mergeActive(*step) {
+			// Approved and merging: the merge's result decides now.
+			return nil, ErrWorkflowDecision
+		}
+		// Approving the ship approval merges the pull request (KUA-209): on
+		// the approval itself, or at the merge step it leads to.
+		var merge *domain.MergeWait
+		if outcome == domain.WorkflowApprovalApproved && w.pulls != nil && w.merger != nil {
+			switch graph.ShipApproval(node) {
+			case domain.ShipMergesOnApproval:
+				merged, started, err := w.startMerge(ctx, ws, *task, node)
+				if err != nil || started {
+					return merged, err
+				}
+			case domain.ShipMergesAtMergeStep:
+				if merge, _, err = w.approvedMerge(ctx, *task); err != nil {
+					return nil, err
+				}
+			}
+		}
 		if apply, err = w.plan(ctx, *task, outcome, "", false); err != nil {
 			return nil, err
+		}
+		if last := len(apply.Moves) - 1; merge != nil && last >= 0 && !apply.Moves[last].Stop && apply.Moves[last].Decision.To.Type == domain.WorkflowNodeMerge && apply.Entry.Kind == repository.WorkflowEnterWait {
+			// Kuayle merges now; a person is needed again only if it cannot.
+			apply.Entry.Merge, apply.Entry.NeedsPerson = merge, false
+			apply.Entry.WakeAt = ptr(w.now())
+			apply.Entry.Reason = domain.WorkflowReasonPrefix + apply.Moves[last].Decision.Reason + "; Kuayle merges the pull request once every check passes"
 		}
 	case domain.WorkflowStatusPaused:
 		step, err := w.tasks.CurrentWorkflowStep(ctx, *task)

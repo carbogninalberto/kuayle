@@ -62,6 +62,24 @@ type WorkflowEntry struct {
 	// task's creator is told that a review is needed. Not for a wait nobody
 	// has to act on: CI, an agent review, a wait a person just continued.
 	NeedsPerson bool
+	// Wait: the approved merge the entered node carries out (a merge step
+	// right after a person approved the ship approval), stored on its step.
+	Merge *domain.MergeWait
+}
+
+// WorkflowMerge records an approved merge on the step a task waits on (its
+// ship approval, or the merge step after it): the merge's progress, the
+// task's reason, when the worker evaluates the step again and whether the
+// task's creator is told a person is needed again (the merge failed).
+type WorkflowMerge struct {
+	Sequence    int
+	Merge       *domain.MergeWait
+	Reason      string
+	Wake        *time.Time
+	NeedsPerson bool
+	// Actor is the person whose approval started the merge; nil for the runner.
+	Actor *uuid.UUID
+	Notes []domain.NotebookNote
 }
 
 // WorkflowApply closes the task's current step with Outcome and applies the
@@ -263,6 +281,96 @@ func (r *AgentTaskRepository) DecideWorkflow(ctx context.Context, ws, id uuid.UU
 	return task, tx.Commit()
 }
 
+// RecordWorkflowMerge stores the runner's progress on the approved merge of
+// the step the task waits on, fenced by the worker lease.
+func (r *AgentTaskRepository) RecordWorkflowMerge(ctx context.Context, claimed domain.AgentTask, merge WorkflowMerge) (*domain.AgentTask, error) {
+	tx, task, err := r.transaction(ctx, claimed.ID, true)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if err = fenceAgentTask(ctx, tx, *task, claimed); err != nil {
+		return nil, err
+	}
+	merge.Actor = nil
+	if err = recordWorkflowMergeTx(ctx, tx, task, merge); err != nil {
+		return nil, err
+	}
+	return task, tx.Commit()
+}
+
+// DecideWorkflowMerge records a person's approval of a ship approval as a
+// merge to carry out, for the task's creator or an owner/admin who can see
+// the issue (as DecideWorkflow). The expected sequence fences it.
+func (r *AgentTaskRepository) DecideWorkflowMerge(ctx context.Context, ws, id uuid.UUID, merge WorkflowMerge) (*domain.AgentTask, error) {
+	actor, err := conversationActor(ctx, ws)
+	if err != nil {
+		return nil, err
+	}
+	tx, task, err := r.decisionTransaction(ctx, ws, id)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	merge.Actor = &actor
+	if err = recordWorkflowMergeTx(ctx, tx, task, merge); err != nil {
+		return nil, err
+	}
+	if err = workflowAudit(ctx, tx, ws, &actor, "task_workflow", id, "decision", map[string]any{"sequence": merge.Sequence, "outcome": domain.WorkflowApprovalApproved, "merge": true}); err != nil {
+		return nil, err
+	}
+	return task, tx.Commit()
+}
+
+// recordWorkflowMergeTx writes a merge on the open step the task waits on.
+// The task must still wait there in awaiting_review, not paused.
+func recordWorkflowMergeTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, merge WorkflowMerge) error {
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "workflow-runner:"+task.ID.String()); err != nil {
+		return err
+	}
+	if !task.RunsWorkflow() || task.WorkflowSequence != merge.Sequence || task.WorkflowStatus == nil || *task.WorkflowStatus != domain.WorkflowStatusWaiting ||
+		task.State != "awaiting_review" || task.WorkflowPausedAt != nil || merge.Merge == nil {
+		return ErrAgentTaskConflict
+	}
+	data, err := json.Marshal(merge.Merge)
+	if err != nil {
+		return err
+	}
+	updated, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET merge=$3,decided_by=COALESCE($4,decided_by) WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL`, task.ID, merge.Sequence, data, merge.Actor)
+	if err != nil {
+		return err
+	}
+	if rows, err := updated.RowsAffected(); err != nil || rows != 1 {
+		if err == nil {
+			err = ErrAgentTaskConflict
+		}
+		return err
+	}
+	if err = noteNotebook(ctx, tx, task.ID, merge.Actor, merge.Notes...); err != nil {
+		return err
+	}
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_wake_at=$2 WHERE id=$1 RETURNING *`, task.ID, merge.Wake); err != nil {
+		return err
+	}
+	// The same state: only the reason changes, which the task's conversation shows.
+	if err = transitionWorkflowTask(ctx, tx, task, "awaiting_review", merge.Reason, merge.Actor); err != nil {
+		return err
+	}
+	if merge.NeedsPerson {
+		if err = markWorkflowReviewNotice(ctx, tx, *task, true, nil); err != nil {
+			return err
+		}
+	}
+	return workflowEvent(ctx, tx, *task)
+}
+
+// WorkflowPullRequest is the pull request the task's current attempt
+// published, with the commit it published and its base branch, or
+// ErrNoReviewTarget.
+func (r *AgentTaskRepository) WorkflowPullRequest(ctx context.Context, task domain.AgentTask) (*domain.AgentReviewTarget, error) {
+	return reviewTarget(ctx, r.db, task)
+}
+
 // WorkflowResult is what applying moves does to a task's workflow: its new
 // cursor, status and wake time, and the steps to record. It is computed
 // without I/O so the runner's tests apply moves exactly as the database does.
@@ -457,6 +565,17 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET generation=$3 WHERE task_id=$1 AND sequence=$2`, task.ID, result.FinalSequence, task.Generation)
+	case WorkflowEnterWait:
+		if apply.Entry.Merge != nil && len(result.Steps) > 0 {
+			var data []byte
+			if data, err = json.Marshal(apply.Entry.Merge); err != nil {
+				return err
+			}
+			if _, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET merge=$3 WHERE task_id=$1 AND sequence=$2`, task.ID, result.FinalSequence, data); err != nil {
+				return err
+			}
+		}
+		err = transitionWorkflowTask(ctx, tx, task, WorkflowEntryState(apply.Entry.Kind), reason, apply.Actor)
 	case WorkflowEnterReview:
 		var review *domain.AgentTask
 		if review, err = workflowReview(ctx, tx, task, apply.Entry, result.FinalSequence); err != nil {

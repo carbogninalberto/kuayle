@@ -36,6 +36,10 @@ type workflowWorld struct {
 	entries  []repository.WorkflowEntry
 	// notes are what applied moves added to the task's notebook.
 	notes []domain.NotebookNote
+	// decider is the person deciding approvals; notices counts the times
+	// the task's creator was told a person is needed again.
+	decider uuid.UUID
+	notices int
 }
 
 func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowApply) (*domain.AgentTask, error) {
@@ -114,6 +118,15 @@ func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowAp
 		review := uuid.New()
 		w.reviews[review] = &repository.WorkflowReview{State: "queued"}
 		w.steps[result.FinalSequence].ReviewTaskID = &review
+	case repository.WorkflowEnterWait:
+		if entry.Merge != nil {
+			data, err := json.Marshal(entry.Merge)
+			if err != nil {
+				return nil, err
+			}
+			raw := json.RawMessage(data)
+			w.steps[result.FinalSequence].Merge = &raw
+		}
 	}
 	if entry.Kind == repository.WorkflowEnterFail && apply.FailureClass != "" {
 		class := string(apply.FailureClass)
@@ -218,6 +231,10 @@ type workflowHarness struct {
 	runner   *WorkflowRunner
 	policy   workflowPolicy
 	reviewer uuid.UUID
+	// pulls and merger are the task's pull request on GitHub, once
+	// withGitHub gives the runner one.
+	pulls  *prGitHub
+	merger approvalMerger
 }
 
 // newWorkflowHarness starts a task on the example workflow as delegation
@@ -262,6 +279,9 @@ func (h *workflowHarness) restart() {
 	h.runner.now = func() time.Time { return h.w.now }
 	if !h.w.noGitHub {
 		h.runner.SetCIChecks(store)
+	}
+	if h.pulls != nil {
+		h.runner.SetPullRequests(h.pulls, h.merger)
 	}
 }
 

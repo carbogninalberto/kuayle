@@ -1264,9 +1264,31 @@ admins only), otherwise the first method GitHub says the repository allows
 (squash, merge, rebase). The method is pinned in the approval; a configured method
 the repository disallows, a draft and a closed pull request are refused with
 their next step before asking. Approving merges only a head that contains its
-base branch and whose checks passed: a branch behind its base is brought up to
-date instead of merged, and one that conflicts is refused with the next step
-([merging only up-to-date heads](agent-tasks.md#merging-only-up-to-date-heads)).
+base branch and whose checks passed, and one that conflicts is refused with the
+next step ([merging only up-to-date heads](agent-tasks.md#merging-only-up-to-date-heads)).
+
+A branch behind its base is brought up to date with GitHub's update-branch, and
+the approval then **waits** instead of failing (KUA-207): it moves from
+`approving` to `waiting_checks` (migration 171), still unresolved, with the
+wait in its payload (`wait`: the approved commit, the verified new head, the
+update rounds, the deadline and what it waits for) and `next_check_at`.
+`AssistantApprovals.RunMergeWaits` (wired in `cmd/server/main.go`, every 15
+seconds) claims due waits with `FOR UPDATE SKIP LOCKED`, pushing `next_check_at`
+five minutes ahead as a lease, takes the approval's effect lock and continues each
+as its actor: the role, GitHub permission and tool-switch checks of approving,
+the task and published commit, then one pass of the merge mechanism. Running
+checks reschedule it a minute later (an unreachable GitHub five minutes later);
+the pull request merging at the head, failing checks, a head someone else
+pushed, a fourth fall behind the base or two hours without green checks resolve
+it as `approved` (with the task) or `failed` with the reason. The resolution is
+an `approval.resolved` event, which turns the card in the conversation, and the
+approver gets an `approval_finished` notification (inbox row on the issue, live
+event that opens the conversation; it follows the approval notification
+preference). Approving a waiting merge again changes nothing; it cannot be
+denied. Restarts lose nothing: the wait is in the row. Telegram answers a waiting
+merge as approved and merging once the checks pass. Rolling migration 171 back
+ends waiting merges as `failed` with a reason; nothing they did is undone on
+GitHub.
 
 ### Release tools
 

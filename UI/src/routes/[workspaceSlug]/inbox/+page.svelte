@@ -78,6 +78,7 @@
 		label_added: { icon: Tag, color: '#f472b6', bg: 'rgba(236,72,153,0.18)' },
 		cycle_changed: { icon: RefreshCw, color: '#2dd4bf', bg: 'rgba(20,184,166,0.18)' },
 		approval_requested: { icon: ShieldQuestion, color: '#fbbf24', bg: 'rgba(245,158,11,0.18)' },
+		approval_finished: { icon: GitPullRequest, color: '#4ade80', bg: 'rgba(34,197,94,0.18)' },
 		agent_task_finished: { icon: Bot, color: '#4ade80', bg: 'rgba(34,197,94,0.18)' },
 		review_needed: { icon: GitPullRequest, color: '#c084fc', bg: 'rgba(168,85,247,0.18)' },
 		issues_deleted: { icon: Trash2, color: '#f87171', bg: 'rgba(239,68,68,0.18)' },

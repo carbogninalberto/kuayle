@@ -392,6 +392,10 @@ func main() {
 	// CI check nodes of configurable workflows confirm the commit's full
 	// check list with GitHub before they pass (KUA-95).
 	agentTaskSvc.Workflow().SetCIChecks(githubSvc)
+	// Ship approvals merge the task's pull request, through the merge gate
+	// the assistant's approvals use, and branches are brought up to date
+	// before reviews and the ship approval (KUA-209).
+	agentTaskSvc.Workflow().SetPullRequests(githubSvc, githubSvc)
 	// Repository scans read temporary checkouts on this server, removed when
 	// they expire and on shutdown.
 	repositoryCheckouts := service.NewRepositoryCheckouts(githubSvc)
@@ -551,6 +555,9 @@ func main() {
 	defer repositoryCheckouts.Close()
 	// Chains approved before a restart continue from their last recorded step.
 	go assistantApprovals.ResumeShips(conversationCtx)
+	// Approved merges whose branch Kuayle brought up to date merge once the
+	// new head's checks pass (KUA-207); each wait is read at most once a minute.
+	go assistantApprovals.RunMergeWaits(conversationCtx, 15*time.Second)
 
 	// Start
 	addr := fmt.Sprintf(":%d", cfg.Port)

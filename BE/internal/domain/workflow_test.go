@@ -619,3 +619,60 @@ func TestBuiltinWorkflowGraphsRunLeftToRight(t *testing.T) {
 		})
 	}
 }
+
+// KUA-209: the ship approval is the person's go-ahead to merge: its approved
+// transition leads to a done end (it merges) or to a merge step (that merges).
+func TestShipApprovalIsTheApprovalBeforeDoneOrTheMerge(t *testing.T) {
+	implementer, reviewer, _ := exampleProfiles()
+	loop := ReviewLoopWorkflowGraph(implementer, reviewer)
+	ship, _ := loop.Node("ship")
+	require.Equal(t, ShipMergesOnApproval, loop.ShipApproval(ship))
+	full := FullCycleWorkflowGraph(implementer, reviewer)
+	ship, _ = full.Node("ship")
+	require.Equal(t, ShipMergesAtMergeStep, full.ShipApproval(ship))
+	ci, _ := full.Node("ci")
+	require.Empty(t, full.ShipApproval(ci), "only approvals")
+
+	// An approval that leads to more work (a plan's go-ahead) is not one.
+	plan := WorkflowGraph{
+		Nodes: []WorkflowNode{{ID: "ok", Type: WorkflowNodeApproval, Label: "Plan ok?"}, {ID: "implement", Type: WorkflowNodeAgent, Label: "Implement", ProfileID: &implementer}, {ID: "failed", Type: WorkflowNodeEnd, Outcome: WorkflowEndFailed}},
+		Edges: []WorkflowEdge{{ID: "a", Source: "ok", Target: "implement", Condition: WorkflowApprovalApproved}, {ID: "b", Source: "ok", Target: "failed", Condition: WorkflowElse}},
+	}
+	ok, _ := plan.Node("ok")
+	require.Empty(t, plan.ShipApproval(ok))
+	// Without an approved transition, its "else" decides.
+	plan.Edges = []WorkflowEdge{{ID: "b", Source: "ok", Target: "done", Condition: WorkflowElse}}
+	plan.Nodes = append(plan.Nodes, WorkflowNode{ID: "done", Type: WorkflowNodeEnd, Outcome: WorkflowEndDone})
+	require.Equal(t, ShipMergesOnApproval, plan.ShipApproval(ok))
+}
+
+// KUA-209: a conflict sends the work back to the first step that changes
+// code, limited like any transition.
+func TestSendBackGoesToTheFirstStepThatChangesCodeWithinItsLimits(t *testing.T) {
+	implementer, reviewer, profiles := exampleProfiles()
+	planner := uuid.New()
+	profiles[planner] = AgentProfile{ID: planner, Name: "Planner", Behaviour: AgentBehaviourPlans}
+	g := ReviewLoopWorkflowGraph(implementer, reviewer)
+	// A planning step ahead of the implementer is not where code is fixed.
+	g.Nodes = append(g.Nodes, WorkflowNode{ID: "plan", Type: WorkflowNodeAgent, Label: "Plan", ProfileID: &planner})
+	for i := range g.Edges {
+		if g.Edges[i].ID == "start-implement" {
+			g.Edges[i].Target = "plan"
+		}
+	}
+	g.Edges = append(g.Edges, WorkflowEdge{ID: "plan-implement", Source: "plan", Target: "implement", Condition: WorkflowAgentFinished})
+	now := time.Now()
+	decision := g.SendBack(WorkflowCursor{Node: "ship", Visits: map[string]int{"implement": 1}, Iterations: 2}, WorkflowBranchConflict, now, profiles)
+	require.False(t, decision.Stuck)
+	require.Empty(t, decision.Limit)
+	require.Equal(t, "implement", decision.To.ID)
+	require.Nil(t, decision.Edge, "no transition of the graph names a conflict")
+	require.Equal(t, "Ready to ship → Implementer: the pull request conflicts with its base", decision.Reason)
+
+	g.Budget = WorkflowBudget{MaxIterations: 2}
+	limited := g.SendBack(WorkflowCursor{Node: "ship", Visits: map[string]int{"implement": 2}, Iterations: 2}, WorkflowBranchConflict, now, profiles)
+	require.Equal(t, WorkflowLimitIterations, limited.Limit, "a send-back is an iteration like any other")
+
+	g.Nodes = g.Nodes[:0]
+	require.True(t, g.SendBack(WorkflowCursor{Node: "ship"}, WorkflowBranchConflict, now, profiles).Stuck)
+}

@@ -6,13 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
-	gh "github.com/kuayle/kuayle-backend/pkg/github"
 )
 
 type approvalTasks interface {
@@ -508,70 +508,83 @@ func (s *AssistantApprovals) merge(ctx context.Context, ws, conversation uuid.UU
 	if s.merger == nil || json.Unmarshal(approval.Payload, &payload) != nil {
 		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "This approval cannot be executed")
 	}
-	task, message, err := s.applyMerge(ctx, ws, approval.ActorID, approval.IssueID, payload)
+	task, hold, wait, err := s.mergeApproved(ctx, ws, approval.ActorID, approval.IssueID, payload)
 	if err != nil {
 		// A transient failure leaves the claim in place; approving again resumes it.
 		return nil, err
 	}
-	return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, task, message)
+	if hold.updated {
+		// Kuayle brought the branch up to date: the approved merge waits for
+		// the new head's checks and merges then (KUA-207, RunMergeWaits).
+		return s.waitForMerge(ctx, ws, conversation, approval, payload, wait, hold.reason)
+	}
+	return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, task, hold.reason)
+}
+
+// waitForMerge moves an approved merge to waiting_checks with its wait.
+func (s *AssistantApprovals) waitForMerge(ctx context.Context, ws, conversation uuid.UUID, approval *domain.ConversationApproval, payload domain.MergePayload, wait *domain.MergeWait, waiting string) (*domain.ConversationApproval, error) {
+	wait.Waiting = truncateRunes(waiting, 600)
+	payload.Wait = wait
+	data, err := keepGitHubAccess(approval.Payload, payload)
+	if err != nil {
+		return nil, err
+	}
+	auditAssistantAction("action_waiting", approval.ActorID, ws, approval.Action, map[string]interface{}{"approval_id": approval.ID.String(), "target": approvalTarget(approval), "head": wait.Head, "updates": wait.Updates})
+	return s.conversations.WaitApproval(ctx, ws, conversation, approval.ID, data, s.clock().Add(mergeWaitPoll))
+}
+
+// clock is the approvals' time, which the ship chain's waits advance in tests.
+func (s *AssistantApprovals) clock() time.Time {
+	if s.ships != nil {
+		return s.ships.now()
+	}
+	return time.Now()
+}
+
+// gate is the merge mechanism on the approvals' GitHub reader and clock.
+func (s *AssistantApprovals) gate() mergeGate {
+	return mergeGate{pulls: s.pulls, now: s.clock}
 }
 
 // applyMerge merges the pull request the actor approved, at the commit they
 // saw, after the merge role check. It returns the merged task, or the reason
 // it did not merge; an error is a failure to reach GitHub or the database.
 func (s *AssistantApprovals) applyMerge(ctx context.Context, ws, actor, issue uuid.UUID, payload domain.MergePayload) (*uuid.UUID, string, error) {
-	task, hold, err := s.mergeApproved(ctx, ws, actor, issue, payload)
+	task, hold, _, err := s.mergeApproved(ctx, ws, actor, issue, payload)
 	return task, hold.reason, err
 }
 
 // mergeApproved is applyMerge with the reason it held the merge, which says
-// whether the head's checks are only still running.
-func (s *AssistantApprovals) mergeApproved(ctx context.Context, ws, actor, issue uuid.UUID, payload domain.MergePayload) (*uuid.UUID, mergeHold, error) {
+// whether the head's checks are only still running or Kuayle just brought the
+// branch up to date, and the merge's wait: payload.Wait, or a new one for the
+// approved commit, as this pass left it.
+func (s *AssistantApprovals) mergeApproved(ctx context.Context, ws, actor, issue uuid.UUID, payload domain.MergePayload) (*uuid.UUID, mergeHold, *domain.MergeWait, error) {
+	wait := payload.Wait
+	if wait == nil {
+		wait = newMergeWait(payload.Commit, payload.MergeMethod, s.clock())
+	}
 	if s.merger == nil || s.targets == nil {
-		return nil, mergeHold{reason: "This approval cannot be executed"}, nil
+		return nil, mergeHold{reason: "This approval cannot be executed"}, wait, nil
 	}
 	task, message, err := s.checkMergeApproval(ctx, ws, actor, issue, payload)
 	if err != nil || message != "" {
-		return nil, mergeHold{reason: message}, err
+		return nil, mergeHold{reason: message}, wait, err
 	}
-	method := payload.MergeMethod
-	if method == "" {
-		method = "squash"
+	hold, err := s.gate().merge(ctx, ws, actor, payload.Repository, payload.PullRequest, wait, s.merger)
+	if err != nil {
+		return nil, mergeHold{}, wait, err
 	}
-	for attempt := 1; ; attempt++ {
-		// Without the pull request reader nothing but GitHub's own rules
-		// stands between the approved commit and the merge.
-		if s.pulls != nil {
-			hold, err := s.mergeGate(ctx, ws, actor, payload.Repository, payload.PullRequest, payload.Commit)
-			if err != nil || hold.reason != "" {
-				return nil, hold, err
-			}
-		}
-		// The merge is pinned to the commit the user saw, so a push that lands
-		// after the checks above is refused by GitHub.
-		err = s.merger.MergeTaskPullRequest(ctx, ws, payload.Repository, payload.PullRequest, payload.Commit, method)
-		if err == nil {
-			return task, mergeHold{}, nil
-		}
-		var refused *gh.ErrMergeRefused
-		if errors.As(err, &refused) {
-			// The base moved under the merge: check again, which updates a
-			// branch that is now behind, rather than failing.
-			if baseMovedRefusal(refused.Reason) && s.pulls != nil && attempt < mergeAttempts {
-				continue
-			}
-			return nil, mergeHold{reason: mergeRefusalMessage(refused.Reason, payload.Commit)}, nil
-		}
-		if message, disabled := disabledAbilityMessage(err); disabled {
-			return nil, mergeHold{reason: message}, nil
-		}
-		return nil, mergeHold{}, err
+	if hold.merged {
+		return task, mergeHold{}, wait, nil
 	}
+	return nil, hold, wait, nil
 }
 
 // checkMergeApproval checks that the task still awaits review at the
 // published commit the user saw, that the actor may merge it and that the
-// head is still the approved commit. It returns the task, or why not.
+// head is still the approved commit, or the head of the merge's wait. While
+// GitHub creates a head Kuayle asked for, the gate verifies the new head. It
+// returns the task, or why not.
 func (s *AssistantApprovals) checkMergeApproval(ctx context.Context, ws, actor, issue uuid.UUID, payload domain.MergePayload) (*uuid.UUID, string, error) {
 	target, err := s.targets.MergeTarget(ctx, ws, nil, &payload.TaskID)
 	if errors.Is(err, repository.ErrNoMergeTarget) {
@@ -601,7 +614,11 @@ func (s *AssistantApprovals) checkMergeApproval(ctx context.Context, ws, actor, 
 		if err != nil {
 			return nil, "", err
 		}
-		if head != payload.Commit {
+		expected, updating := payload.Commit, false
+		if payload.Wait != nil {
+			expected, updating = payload.Wait.Head, payload.Wait.Updating
+		}
+		if head != expected && !updating {
 			return nil, headMovedRefusal(head), nil
 		}
 	}

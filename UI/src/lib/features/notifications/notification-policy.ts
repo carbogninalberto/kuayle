@@ -53,7 +53,7 @@ export function countsAsUnread(payload: unknown): boolean {
  * every event that is announced wherever the user is.
  */
 export function notificationSubject(payload: NotificationEventPayload): string | null {
-	if (payload.type !== 'approval_requested' || !payload.conversation_id) return null;
+	if ((payload.type !== 'approval_requested' && payload.type !== 'approval_finished') || !payload.conversation_id) return null;
 	return `conversation:${payload.conversation_id}`;
 }
 
@@ -71,6 +71,8 @@ export interface NotificationDecision {
 
 const TYPE_EVENT_KEYS: Record<string, NotificationEventKey> = {
 	approval_requested: 'approval_requested',
+	// An approved merge that waited for its checks ended (KUA-207).
+	approval_finished: 'approval_requested',
 	agent_task_finished: 'task_finished',
 	review_needed: 'review_needed',
 	assigned: 'assigned',
