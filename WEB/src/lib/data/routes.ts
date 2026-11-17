@@ -117,7 +117,7 @@ export const HUBS: Record<string, Hub> = {
 	},
 	alternatives: {
 		slug: 'alternatives',
-		label: 'Alternatives',
+		label: 'Compare',
 		href: '/alternatives',
 		children: [
 			...alternativePages.map((page) => {

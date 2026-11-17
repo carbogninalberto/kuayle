@@ -37,7 +37,7 @@
 			: { title: '', description: '', canonical: url('/') }
 	);
 
-	const crumbs = $derived(breadcrumbsFrom('alternatives', 'Alternatives', content?.heading, slug));
+	const crumbs = $derived(breadcrumbsFrom('alternatives', 'Compare', content?.heading, slug));
 </script>
 
 {#if content}
@@ -49,7 +49,7 @@
 		footnotes={content.footnotes}
 		breadcrumbs={crumbs}
 		hubLinks={parent.children}
-		hubTitle="Alternatives"
+		hubTitle="Compare"
 		currentSlug={slug}
 	>
 		{#if MATRIX[slug]}

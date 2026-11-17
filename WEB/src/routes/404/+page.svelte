@@ -18,7 +18,7 @@
 	<p class="mt-4 text-lg text-muted-foreground">The link may be old or mistyped. These pages are a good place to start.</p>
 	<div class="mt-8 flex flex-wrap justify-center gap-3">
 		<Button href="/" class="bg-brand-400 text-white hover:bg-brand-500">Home <ArrowRight /></Button>
-		<Button href="/compare" variant="outline">Comparisons</Button>
+		<Button href="/compare" variant="outline">Compare</Button>
 		<Button href="/self-hosting" variant="outline">Self-hosting guide</Button>
 	</div>
 </main>

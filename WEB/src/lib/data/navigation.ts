@@ -37,7 +37,7 @@ export const NAV_GROUPS: NavGroup[] = [
 		footer: { label: 'All features', href: '/features' }
 	},
 	{
-		label: 'Alternatives',
+		label: 'Compare',
 		href: '/alternatives',
 		links: alternativeLinks,
 		footer: { label: 'Compare all 28 tools', href: '/compare' }
@@ -73,11 +73,11 @@ export const FOOTER_COLUMNS: { title: string; links: NavLink[] }[] = [
 		]
 	},
 	{
-		title: 'Alternatives',
+		title: 'Compare',
 		links: [
 			...alternativeLinks.map(({ label, href }) => ({ label: `${label} alternative`, href })),
 			{ label: 'Jira Data Center end of life', href: '/jira-data-center-end-of-life' },
-			{ label: 'Comparison matrix', href: '/compare' }
+			{ label: 'Compare all 28 tools', href: '/compare' }
 		]
 	},
 	{

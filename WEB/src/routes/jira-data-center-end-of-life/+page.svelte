@@ -19,7 +19,7 @@
 	const modifiedAt = contentModifiedAt(path);
 	const crumbs: Crumb[] = [
 		{ label: 'Home', href: '/' },
-		{ label: 'Alternatives', href: '/alternatives' },
+		{ label: 'Compare', href: '/alternatives' },
 		{ label: 'Jira Data Center end of life', href: path }
 	];
 
