@@ -670,6 +670,22 @@ its follow-ups, and its state follows the task's transitions in the same
 transaction. Agent reviews of a published pull request run only when requested
 from chat, as separate review tasks that never validate, publish or receive a
 push credential; see [requested agent reviews](BE/docs/agent-tasks.md#requested-agent-reviews).
+A reviewer is told that CI is judged separately and not to request changes over
+CI it cannot see or a run on the commit that has not finished; its prompt lists
+each check's state on the reviewed commit when Kuayle knows it, and otherwise
+says CI is unknown.
+
+A failed CI suite on a task's pull request carries what GitHub reported about
+its failed checks ([CI and review feedback](BE/docs/agent-tasks.md#ci-and-review-feedback),
+migration 169): the checks' names, failed steps, annotations and an excerpt of
+the failed step's job log (failure lines and its end, without timestamps,
+colours, other steps or the post-job clean-up), stored as the signal's bounded
+summary. The webhook keeps what it reads within its eight seconds; when that
+missed a failed check's log, a background read (60 seconds, outside the webhook
+and the task worker) completes it, and the follow-up and the workflow's CI step
+wait for it for at most three minutes. The follow-up prompt, the notebook
+finding and the CI step's detail (the next agent's `{{failing_checks}}`) carry
+the summary fenced as untrusted CI output, with the suite's link.
 
 Agent profiles are also members ([agents as issue assignees](BE/docs/agent-tasks.md#agents-as-issue-assignees),
 migration 142): an issue can be assigned to an agent beside people, and an agent

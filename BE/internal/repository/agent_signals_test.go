@@ -616,3 +616,117 @@ func TestARedeliveryCorrectsTheClassOfAnAlreadyQueuedFollowUp(t *testing.T) {
 	require.Equal(t, domain.CIFailureRunner, *signal.FailureClass)
 	require.Contains(t, signal.FailureEvidence, "Could not resolve")
 }
+
+// A failed suite whose checks Kuayle is still reading holds its follow-up
+// back until the details are recorded (KUA-206), so the agent gets the
+// failing checks; a read that never finishes delays it only for a bound.
+func TestCIFollowUpsWaitForTheFailedChecksDetails(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	background := context.Background()
+	in := classifiedCI("details", "failure", publishedCommit, domain.CIFailureTest, "nothing received says the failure is not the change's")
+	in.Summary, in.DetailsPending = `"UI browser tests" concluded failure`, true
+	followUps, err := repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, in)
+	require.NoError(t, err)
+	require.Empty(t, followUps, "held until the details are read")
+	again, err := repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, in)
+	require.NoError(t, err)
+	require.Empty(t, again, "a redelivery does not release it either")
+	_, err = db.Exec(`UPDATE agent_task_signals SET updated_at=now()-interval '1 minute' WHERE task_id=$1`, task.ID)
+	require.NoError(t, err)
+	pending, err := repo.PendingFollowUps(background, 10)
+	require.NoError(t, err)
+	require.Empty(t, pending, "recovery does not release it while the read may still finish")
+
+	// Another repository's commit with the same SHA is not this signal's.
+	released, err := repo.RecordCIDetails(background, task.WorkspaceID, "other/repo", publishedCommit, "wrong")
+	require.NoError(t, err)
+	require.Empty(t, released)
+	released, err = repo.RecordCIDetails(background, task.WorkspaceID, "Fixture/Repo", publishedCommit, "\"UI browser tests\" concluded failure in step \"Run npx playwright test\"\nError: expect(locator) failed")
+	require.NoError(t, err)
+	require.Len(t, released, 1)
+	require.Equal(t, task.ID, released[0].Task.ID)
+	require.Contains(t, released[0].Signal.Summary, "Error: expect(locator) failed")
+	require.False(t, released[0].Signal.FailureDetailsPending)
+	require.Equal(t, publishedCommit, released[0].Signal.HeadSHA)
+	released, err = repo.RecordCIDetails(background, task.WorkspaceID, "fixture/repo", publishedCommit, "later")
+	require.NoError(t, err)
+	require.Empty(t, released, "details are recorded once")
+
+	// A read that found less (cut short, or nothing) keeps what the webhook
+	// stored and still stops the wait. (The third CI failure is past the
+	// two CI fixes, so it releases no follow-up.)
+	for _, found := range []string{"cut", ""} {
+		id := "unreadable-" + found
+		in = classifiedCI(id, "failure", publishedCommit, domain.CIFailureTest, "evidence")
+		in.Summary, in.DetailsPending = "what the webhook read", true
+		_, err = repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, in)
+		require.NoError(t, err)
+		_, err = repo.RecordCIDetails(background, task.WorkspaceID, "fixture/repo", publishedCommit, found)
+		require.NoError(t, err)
+		var stored domain.AgentTaskSignal
+		require.NoError(t, db.Get(&stored, `SELECT * FROM agent_task_signals WHERE task_id=$1 AND external_id=$2`, task.ID, id))
+		require.Equal(t, "what the webhook read", stored.Summary)
+		require.False(t, stored.FailureDetailsPending)
+	}
+
+	// A read that never reports back releases the follow-up after the bound.
+	_, err = db.Exec(`DELETE FROM agent_task_signals WHERE task_id=$1`, task.ID)
+	require.NoError(t, err)
+	in = classifiedCI("lost", "failure", publishedCommit, domain.CIFailureTest, "evidence")
+	in.Summary, in.DetailsPending = "partial", true
+	_, err = repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, in)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE agent_task_signals SET created_at=now()-interval '10 minutes',updated_at=now()-interval '1 minute' WHERE task_id=$1`, task.ID)
+	require.NoError(t, err)
+	pending, err = repo.PendingFollowUps(background, 10)
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	require.Equal(t, "partial", pending[0].Signal.Summary)
+
+	// A suite that passes when it is run again keeps no failure summary (a
+	// follow-up's first decision stands, so this is a runner failure's).
+	rerun := classifiedCI("rerun", "failure", publishedCommit, domain.CIFailureRunner, "Could not resolve 'archive.ubuntu.com'")
+	rerun.Summary, rerun.DetailsPending = `"Docker" concluded failure`, true
+	_, err = repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, rerun)
+	require.NoError(t, err)
+	_, err = repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, ci("rerun", "success", publishedCommit))
+	require.NoError(t, err)
+	signals, err := repo.Signals(ctx, task.WorkspaceID, task.ID)
+	require.NoError(t, err)
+	byID := map[string]domain.AgentTaskSignal{}
+	for _, signal := range signals {
+		byID[signal.ExternalID] = signal
+	}
+	require.Equal(t, "success", byID["rerun"].Outcome)
+	require.Empty(t, byID["rerun"].Summary)
+	require.False(t, byID["rerun"].FailureDetailsPending)
+}
+
+// A workflow waiting on CI is woken when the failed checks' details arrive.
+func TestRecordedCIDetailsWakeTheWaitingWorkflow(t *testing.T) {
+	db, repo, _, task := reviewableTask(t)
+	background := context.Background()
+	workflow, version := uuid.New(), uuid.New()
+	_, err := db.Exec(`INSERT INTO workflows(id,workspace_id,name) VALUES($1,$2,'CI details')`, workflow, task.WorkspaceID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO workflow_versions(id,workflow_id,workspace_id,version,graph) VALUES($1,$2,$3,1,'{}')`, version, workflow, task.WorkspaceID)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE agent_tasks SET workflow_version_id=$2,workflow_node='ci',workflow_status='waiting' WHERE id=$1`, task.ID, version)
+	require.NoError(t, err)
+	in := classifiedCI("wf", "failure", publishedCommit, domain.CIFailureTest, "evidence")
+	in.DetailsPending = true
+	followUps, err := repo.RecordSignal(background, task.WorkspaceID, "fixture/repo", 12, in)
+	require.NoError(t, err)
+	require.Empty(t, followUps, "a workflow decides what CI does")
+	_, err = db.Exec(`UPDATE agent_tasks SET workflow_wake_at=NULL WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	released, err := repo.RecordCIDetails(background, task.WorkspaceID, "fixture/repo", publishedCommit, "details")
+	require.NoError(t, err)
+	require.Empty(t, released, "still no Standard follow-up")
+	var woken bool
+	require.NoError(t, db.Get(&woken, `SELECT workflow_wake_at IS NOT NULL FROM agent_tasks WHERE id=$1`, task.ID))
+	require.True(t, woken, "the CI step reads the details now")
+	var summary string
+	require.NoError(t, db.Get(&summary, `SELECT summary FROM agent_task_signals WHERE task_id=$1`, task.ID))
+	require.Equal(t, "details", summary)
+}

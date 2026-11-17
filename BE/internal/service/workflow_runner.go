@@ -82,7 +82,20 @@ func newWorkflowRunner(tasks workflowTaskStore, definitions workflowDefinitionSt
 const (
 	ciPoll     = time.Minute
 	ciIdlePoll = 5 * time.Minute
+	// ciDetailsPoll is how often a CI node looks again while Kuayle reads a
+	// failed suite's checks; recording them wakes it sooner.
+	ciDetailsPoll = 15 * time.Second
+	// reviewCITimeout bounds the read of the published commit's checks for
+	// a reviewer step.
+	reviewCITimeout = 5 * time.Second
 )
+
+// ciFailureDetailsReader starts reading a failed suite's checks in the
+// background unless a read is running (GitHubService.ensureCIFailureDetails);
+// it never blocks the worker.
+type ciFailureDetailsReader interface {
+	ensureCIFailureDetails(ws uuid.UUID, repository, headSHA string)
+}
 
 // SetCIChecks lets CI check nodes confirm a commit's checks with GitHub.
 func (w *WorkflowRunner) SetCIChecks(checks workflowCIChecks) { w.checks = checks }
@@ -395,8 +408,14 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 				reviewVars.Plan = ""
 			}
 			focus := strings.TrimSpace(strings.TrimSpace(profile.Instructions) + "\n\n" + domain.RenderWorkflowPrompt(to.Prompt, reviewVars))
+			// CI is the CI step's; the reviewer is told what it is on the
+			// commit it reviews so it does not block on a run it cannot see.
+			ci, err := w.reviewCI(ctx, task)
+			if err != nil {
+				return repository.WorkflowEntry{}, "", "", err
+			}
 			return repository.WorkflowEntry{Kind: repository.WorkflowEnterReview, Reason: reason + "; " + profile.Name + " reviews the pull request",
-				Review: &domain.AgentReviewRequest{Provider: profile.Harness, Model: profile.Model, Thinking: profile.Effort, Focus: truncateUTF8Bytes(focus, 4000)}, WakeAt: wake()}, "", "", nil
+				Review: &domain.AgentReviewRequest{Provider: profile.Harness, Model: profile.Model, Thinking: profile.Effort, Focus: truncateUTF8Bytes(focus, 4000), CI: ci}, WakeAt: wake()}, "", "", nil
 		}
 		scope, err := w.tasks.ScopeInstructions(ctx, task)
 		if err != nil {
@@ -459,6 +478,34 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 		return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: reason + "; waiting for the pull request to be merged (ship it from chat or merge it on GitHub)", WakeAt: wake(), NeedsPerson: true}, "", "", nil
 	}
 	return repository.WorkflowEntry{}, "", "", ErrInvalidOperation
+}
+
+// reviewCI reads each check of the published commit from GitHub for a
+// reviewer step, within reviewCITimeout. It is nil when GitHub cannot be
+// read: the repository then uses the suites webhooks reported, or tells the
+// reviewer CI is unknown.
+func (w *WorkflowRunner) reviewCI(ctx context.Context, task domain.AgentTask) (*domain.AgentReviewCI, error) {
+	if w.checks == nil {
+		return nil, nil
+	}
+	ci, err := w.tasks.WorkflowCI(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+	if ci.Repository == "" || ci.CommitSHA == "" {
+		return nil, nil
+	}
+	readCtx, cancel := context.WithTimeout(ctx, reviewCITimeout)
+	defer cancel()
+	checks, coverage, err := w.checks.CommitChecks(readCtx, task.WorkspaceID, ci.Repository, ci.CommitSHA)
+	if err != nil {
+		return nil, ctx.Err()
+	}
+	out := &domain.AgentReviewCI{Read: true, Partial: coverage.incomplete()}
+	for _, check := range checks {
+		out.Checks = append(out.Checks, domain.AgentReviewCheck{Name: check.Name, State: check.State})
+	}
+	return out, nil
 }
 
 // workflowInstructions are the trusted instructions of an agent step: the
@@ -620,38 +667,61 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 }
 
 // ciOutcome decides a CI check node. A failure reported by a webhook fails
-// it at once. Passing needs more than completed suites, because GitHub only
-// reports suites once they complete and a fast one (lint) finishes before a
-// slow one (tests) has reported anything: CI passes only when GitHub lists
-// at least one check for the published commit, none failed, none is still
-// running and the whole list could be read. Otherwise the node keeps waiting
-// (waiting says why) and polls again.
+// it at once, with what GitHub reported about the failed checks; while
+// Kuayle still reads them after the webhook, the node waits for that read,
+// at most domain.CIFailureDetailsWait. Passing needs more than completed
+// suites, because GitHub only reports suites once they complete and a fast
+// one (lint) finishes before a slow one (tests) has reported anything: CI
+// passes only when GitHub lists at least one check for the published
+// commit, none failed, none is still running and the whole list could be
+// read. Otherwise the node keeps waiting (waiting says why) and polls again.
 func (w *WorkflowRunner) ciOutcome(ctx context.Context, task domain.AgentTask, ci *repository.WorkflowCI, now time.Time) (outcome, detail, waiting string, wake *time.Time, err error) {
 	if len(ci.Failed) > 0 {
-		var lines, names []string
+		for _, signal := range ci.Failed {
+			if !signal.CIDetailsAwaited(now) {
+				continue
+			}
+			// A read lost to a restart starts again; one running is left alone.
+			if reader, ok := w.checks.(ciFailureDetailsReader); ok {
+				head := signal.HeadSHA
+				if head == "" {
+					head = ci.CommitSHA
+				}
+				reader.ensureCIFailureDetails(task.WorkspaceID, ci.Repository, head)
+			}
+			poll := now.Add(ciDetailsPoll)
+			if until := signal.CreatedAt.Add(domain.CIFailureDetailsWait); until.Before(poll) {
+				poll = until
+			}
+			return "", "", "reading the failed checks from GitHub", &poll, nil
+		}
+		var names []string
 		everyRunner := true
 		for _, signal := range ci.Failed {
-			lines = append(lines, ciFailureLine(fmt.Sprintf("CI check suite %q concluded %q", signal.Name, signal.Outcome), signal.URL, signal.Summary))
 			if signal.FailureClass == nil || *signal.FailureClass != domain.CIFailureRunner {
 				everyRunner = false
 			}
-			label := strings.TrimSpace(signal.Summary)
-			if label == "" {
-				label = strings.TrimSpace(signal.FailureEvidence)
-			}
+			label := strings.TrimSpace(signal.FailureEvidence)
 			if label == "" {
 				label = signal.Name
 			}
 			names = append(names, oneLine(label, 200))
 		}
-		detail = strings.Join(lines, "\n\n")
 		// The result is still "checks failed"; the one line only tells the
 		// next agent and the person that every failed suite was the runner's
 		// or the network's and may need a re-run.
+		note := ""
 		if everyRunner {
-			detail += "\n\nCI failed on the runner; it may need to be run again: " + strings.Join(names, "; ")
+			note = "\n\nCI failed on the runner; it may need to be run again: " + strings.Join(names, "; ")
 		}
-		return domain.WorkflowChecksFailed, detail, "", nil, nil
+		// The detail is also the notebook's finding, so every suite's fenced
+		// summary is shortened to fit one.
+		budget := (domain.NotebookFindingBytes - len(note) - 2*(len(ci.Failed)-1)) / len(ci.Failed)
+		lines := make([]string, 0, len(ci.Failed))
+		for _, signal := range ci.Failed {
+			lines = append(lines, ciSuiteDetail(fmt.Sprintf("CI check suite %q concluded %q", signal.Name, signal.Outcome), signal.URL, signal.Outcome, signal.Summary, budget))
+		}
+		return domain.WorkflowChecksFailed, strings.Join(lines, "\n\n") + note, "", nil, nil
 	}
 	idle := now.Add(ciIdlePoll)
 	if w.checks == nil || ci.Repository == "" || ci.CommitSHA == "" {
@@ -665,19 +735,25 @@ func (w *WorkflowRunner) ciOutcome(ctx context.Context, task domain.AgentTask, c
 		}
 		return "", "", "GitHub's checks could not be read", &idle, nil
 	}
-	var failed []string
+	var failed []PullRequestCheck
 	pending := 0
 	for _, check := range checks {
 		switch check.State {
 		case "failed":
-			failed = append(failed, ciFailureLine(fmt.Sprintf("CI check %q failed", check.Name), check.URL, check.Summary))
+			failed = append(failed, check)
 		case "pending":
 			pending++
 		}
 	}
 	switch {
 	case len(failed) > 0:
-		return domain.WorkflowChecksFailed, strings.Join(failed, "\n\n"), "", nil, nil
+		// No webhook reported these, so only the check's own output is known.
+		budget := (domain.NotebookFindingBytes - 2*(len(failed)-1)) / len(failed)
+		lines := make([]string, 0, len(failed))
+		for _, check := range failed {
+			lines = append(lines, ciSuiteDetail(fmt.Sprintf("CI check %q failed", check.Name), check.URL, "failure", check.Summary, budget))
+		}
+		return domain.WorkflowChecksFailed, strings.Join(lines, "\n\n"), "", nil, nil
 	case coverage.incomplete():
 		return "", "", "not every check of the commit could be read", &idle, nil
 	case pending > 0:
@@ -687,16 +763,6 @@ func (w *WorkflowRunner) ciOutcome(ctx context.Context, task domain.AgentTask, c
 		return "", "", "no CI check has started on the commit", &idle, nil
 	}
 	return domain.WorkflowChecksPassed, fmt.Sprintf("All %d CI checks passed", len(checks)), "", nil, nil
-}
-
-func ciFailureLine(line, url, summary string) string {
-	if url != "" {
-		line += " (" + url + ")"
-	}
-	if summary = strings.TrimSpace(summary); summary != "" {
-		line += ":\n" + summary
-	}
-	return line
 }
 
 // Workflow decisions a person can make.

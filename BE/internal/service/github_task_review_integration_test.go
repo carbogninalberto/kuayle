@@ -94,6 +94,15 @@ type signalRecorder struct {
 	candidate      bool
 	reviewable     bool
 	candidateCalls int
+	// details receives what a background read of a failed suite recorded.
+	details chan string
+}
+
+func (r *signalRecorder) RecordCIDetails(_ context.Context, _ uuid.UUID, repository, headSHA, summary string) error {
+	if r.details != nil {
+		r.details <- repository + "@" + headSHA + ": " + summary
+	}
+	return nil
 }
 
 func (r *signalRecorder) Record(_ context.Context, _ uuid.UUID, repository string, number int, in domain.AgentTaskSignalInput) error {
@@ -127,7 +136,7 @@ func TestCheckSuiteAndReviewWebhooksRecordTaskSignals(t *testing.T) {
 	require.NoError(t, repo.CreateInstallation(ctx, inst))
 	linked := &domain.GitHubRepoModel{ID: uuid.New(), WorkspaceID: ws, InstallationID: inst.ID, GitHubRepoID: time.Now().UnixNano(), FullName: "acme/app", DefaultBranch: "main", IsActive: true}
 	require.NoError(t, repo.CreateRepo(ctx, linked))
-	recorder := &signalRecorder{candidate: true, reviewable: true}
+	recorder := &signalRecorder{candidate: true, reviewable: true, details: make(chan string, 1)}
 	svc := NewGitHubService(repo, repository.NewIssueRepository(db), nil, nil, nil, nil, nil, "https://kuayle.test", "", nil)
 	svc.SetTaskSignals(recorder)
 	svc.repositoryPermission = func(context.Context, *domain.GitHubInstallation, *domain.GitHubRepoModel, string) (string, error) {
@@ -160,8 +169,13 @@ func TestCheckSuiteAndReviewWebhooksRecordTaskSignals(t *testing.T) {
 	send("check_suite", suite("completed", "FAILURE"))
 	require.Len(t, recorder.inputs, 1)
 	first := recorder.inputs[0]
-	require.Equal(t, domain.AgentTaskSignalInput{Kind: "ci", ExternalID: "77", Outcome: "failure", Name: "GitHub Actions", HeadSHA: "abc123", URL: "https://github.com/acme/app/pull/12/checks", Failure: first.Failure}, first)
+	require.Equal(t, domain.AgentTaskSignalInput{Kind: "ci", ExternalID: "77", Outcome: "failure", Name: "GitHub Actions", HeadSHA: "abc123", URL: "https://github.com/acme/app/pull/12/checks", Summary: first.Summary, Failure: first.Failure}, first)
 	require.NotNil(t, first.Failure, "a failed suite is classified when it is recorded")
+	// What the webhook read is kept for the agent (KUA-206): the check, its
+	// failed step and its annotation; the log was read, so nothing is pending.
+	require.Contains(t, first.Summary, `"Docker Runtime Integration" concluded failure in step "Build, smoke test and scan native architecture image"`)
+	require.Contains(t, first.Summary, "buildx failed with")
+	require.False(t, first.DetailsPending)
 	require.Equal(t, domain.CIFailureBuild, first.Failure.Class, "the test-step veto keeps the failed step the change's")
 	require.Equal(t, "build_step", first.Failure.Rule)
 	require.Equal(t, 1, ciReads)
@@ -196,10 +210,31 @@ func TestCheckSuiteAndReviewWebhooksRecordTaskSignals(t *testing.T) {
 	require.True(t, recorder.inputs[3].Trusted)
 	require.Equal(t, "changes_requested", recorder.inputs[3].Outcome)
 	require.Equal(t, "Rename it", recorder.inputs[3].Summary)
+	// A failed check whose log the webhook did not read is recorded with
+	// what it has, and read again outside the webhook.
+	svc.ciChecks = func(context.Context, uuid.UUID, string, string) ([]domain.CIFailedCheck, bool) {
+		return []domain.CIFailedCheck{{Name: "UI browser tests", Conclusion: "failure", FailedStep: "Run npx playwright test"}}, false
+	}
+	svc.ciDetails = func(context.Context, uuid.UUID, string, string) ([]domain.CIFailedCheck, bool) {
+		return []domain.CIFailedCheck{{Name: "UI browser tests", Conclusion: "failure", FailedStep: "Run npx playwright test", LogTail: failingPlaywrightLog}}, false
+	}
+	slow := suite("completed", "failure")
+	slow["check_suite"].(map[string]any)["id"] = 78
+	send("check_suite", slow)
+	require.Len(t, recorder.inputs, 5)
+	require.True(t, recorder.inputs[4].DetailsPending)
+	require.Contains(t, recorder.inputs[4].Summary, "UI browser tests")
+	select {
+	case recorded := <-recorder.details:
+		require.Contains(t, recorded, "acme/app@abc123: ")
+		require.Contains(t, recorded, "Error: expect(locator).toHaveAttribute(expected) failed")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the failed suite's details were never read")
+	}
 	_, err = db.Exec(`UPDATE github_repos SET is_active=false WHERE id=$1`, linked.ID)
 	require.NoError(t, err)
 	send("check_suite", suite("completed", "failure"))
-	require.Len(t, recorder.inputs, 4, "inactive repositories are ignored")
+	require.Len(t, recorder.inputs, 5, "inactive repositories are ignored")
 }
 
 // A merge whose webhook never arrived is still completed by asking GitHub.

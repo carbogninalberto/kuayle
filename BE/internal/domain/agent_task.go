@@ -433,7 +433,8 @@ func NoChangesReason(base string) string {
 }
 
 // AgentTaskSignal is a GitHub CI or review event for a task attempt's recorded
-// pull request. Summary text comes from GitHub and is untrusted.
+// pull request. Summary text comes from GitHub and is untrusted: a review's
+// body, or a failed CI suite's failure summary (CIFailureSummary).
 type AgentTaskSignal struct {
 	ID         uuid.UUID `json:"id" db:"id"`
 	TaskID     uuid.UUID `json:"task_id" db:"task_id"`
@@ -448,12 +449,18 @@ type AgentTaskSignal struct {
 	// FailureClass classifies a failed CI signal (a CIFailure class) and
 	// FailureEvidence is what decided it; a runner or network failure has
 	// the action "infrastructure" and starts no follow-up.
-	FailureClass       *string   `json:"failure_class,omitempty" db:"failure_class"`
-	FailureEvidence    string    `json:"failure_evidence,omitempty" db:"failure_evidence"`
-	RequestID          uuid.UUID `json:"-" db:"request_id"`
-	FollowUpGeneration *int64    `json:"follow_up_generation,omitempty" db:"follow_up_generation"`
-	CreatedAt          time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at" db:"updated_at"`
+	FailureClass    *string `json:"failure_class,omitempty" db:"failure_class"`
+	FailureEvidence string  `json:"failure_evidence,omitempty" db:"failure_evidence"`
+	// HeadSHA is the commit a CI suite ran on (empty before migration 169).
+	HeadSHA string `json:"-" db:"head_sha"`
+	// FailureDetailsPending is set while Kuayle still reads a failed suite's
+	// checks from GitHub after the webhook; its follow-up and the workflow's
+	// CI step wait for it, at most CIFailureDetailsWait.
+	FailureDetailsPending bool      `json:"-" db:"failure_details_pending"`
+	RequestID             uuid.UUID `json:"-" db:"request_id"`
+	FollowUpGeneration    *int64    `json:"follow_up_generation,omitempty" db:"follow_up_generation"`
+	CreatedAt             time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // AgentTaskSignalInput is one normalized GitHub event for a pull request.
@@ -466,6 +473,16 @@ type AgentTaskSignalInput struct {
 	Trusted bool
 	// Failure classifies a failed CI signal; nil for other signals.
 	Failure *CIFailure
+	// DetailsPending says the webhook could not read every failed check of
+	// a failed suite; Summary has what it read, and a later read records
+	// the rest (KUA-206).
+	DetailsPending bool
+}
+
+// CIDetailsAwaited reports whether a CI signal still waits for its failed
+// checks' details: a read is pending and has not taken CIFailureDetailsWait.
+func (s AgentTaskSignal) CIDetailsAwaited(now time.Time) bool {
+	return s.Kind == "ci" && s.FailureDetailsPending && now.Before(s.CreatedAt.Add(CIFailureDetailsWait))
 }
 
 // AgentTaskFollowUp is a follow-up attempt the caller must request.

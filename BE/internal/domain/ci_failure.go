@@ -32,6 +32,10 @@ type CIFailedCheck struct {
 	// with one call. A build that failed for the runner often leaves only an
 	// annotation; the real reason is in the job log.
 	Annotations []string
+	// AnnotationDetails are the same annotations as a person reads them: the
+	// file and line, the title and the message, failures first. Only the
+	// failure summary uses them (KUA-206); classification reads Annotations.
+	AnnotationDetails []string
 	// LogTail is the end of the Actions job's log, where the runner and the
 	// network report what actually went wrong.
 	LogTail string

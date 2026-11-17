@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -97,20 +98,43 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 		class := in.Failure.Class
 		failureClass, failureEvidence = &class, in.Failure.Evidence
 	}
+	// A failed suite's summary and whether Kuayle still reads its checks
+	// (KUA-206). What a finished read stored is kept when a redelivery read
+	// less; a suite that passes on a re-run keeps no failure summary.
+	headSHA, detailsPending := "", false
+	if in.Kind == "ci" {
+		headSHA = in.HeadSHA
+		detailsPending = in.DetailsPending && failedCIOutcomes[in.Outcome]
+		if existing && failedCIOutcomes[in.Outcome] && !signal.FailureDetailsPending && signal.Summary != "" && (detailsPending || in.Summary == "") {
+			in.Summary, detailsPending = signal.Summary, false
+		}
+	}
+	now := time.Now()
 	if existing && signal.Action == "follow_up" {
 		// The first delivery's decision stands: no second follow-up. But a
 		// redelivery may now know the class (the first read of GitHub timed
-		// out), so what a person sees is corrected without queueing work.
-		if failureClass != nil && (signal.FailureClass == nil || *signal.FailureClass != *failureClass) {
-			if err = tx.GetContext(ctx, signal, `UPDATE agent_task_signals SET failure_class=$2,failure_evidence=$3,updated_at=now() WHERE id=$1 RETURNING *`, signal.ID, failureClass, failureEvidence); err != nil {
+		// out), or the failed checks' details, so what a person sees is
+		// corrected without queueing work.
+		classChanged := failureClass != nil && (signal.FailureClass == nil || *signal.FailureClass != *failureClass)
+		detailsRead := in.Kind == "ci" && signal.FailureDetailsPending && !detailsPending && in.Summary != ""
+		if classChanged || detailsRead {
+			if !classChanged {
+				failureClass, failureEvidence = signal.FailureClass, signal.FailureEvidence
+			}
+			summary, pending := signal.Summary, signal.FailureDetailsPending
+			if detailsRead {
+				summary, pending = in.Summary, false
+			}
+			if err = tx.GetContext(ctx, signal, `UPDATE agent_task_signals SET failure_class=$2,failure_evidence=$3,summary=$4,failure_details_pending=$5,updated_at=now() WHERE id=$1 RETURNING *`, signal.ID, failureClass, failureEvidence, summary, pending); err != nil {
 				return nil, err
 			}
 			if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.signal_recorded", signal); err != nil {
 				return nil, err
 			}
 		}
-		// Resume a follow-up that was recorded but not queued.
-		if signal.FollowUpGeneration == nil {
+		// Resume a follow-up that was recorded but not queued, unless it
+		// still waits for its failed checks' details (RecordCIDetails).
+		if signal.FollowUpGeneration == nil && !signal.CIDetailsAwaited(now) {
 			return &domain.AgentTaskFollowUp{Signal: *signal, Task: *task}, tx.Commit()
 		}
 		return nil, tx.Commit()
@@ -152,10 +176,10 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 		}
 	}
 	if existing {
-		err = tx.GetContext(ctx, signal, `UPDATE agent_task_signals SET outcome=$2,name=$3,summary=$4,url=$5,action=$6,failure_class=$7,failure_evidence=$8,updated_at=now() WHERE id=$1 RETURNING *`, signal.ID, in.Outcome, in.Name, in.Summary, in.URL, action, failureClass, failureEvidence)
+		err = tx.GetContext(ctx, signal, `UPDATE agent_task_signals SET outcome=$2,name=$3,summary=$4,url=$5,action=$6,failure_class=$7,failure_evidence=$8,head_sha=$9,failure_details_pending=$10,updated_at=now() WHERE id=$1 RETURNING *`, signal.ID, in.Outcome, in.Name, in.Summary, in.URL, action, failureClass, failureEvidence, headSHA, detailsPending)
 	} else {
 		requestID := uuid.NewSHA1(signalNamespace, []byte(task.ID.String()+"/"+task.RunID.String()+"/"+in.Kind+"/"+in.ExternalID))
-		err = tx.GetContext(ctx, signal, `INSERT INTO agent_task_signals(task_id,run_id,kind,external_id,outcome,name,summary,url,action,failure_class,failure_evidence,request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`, task.ID, task.RunID, in.Kind, in.ExternalID, in.Outcome, in.Name, in.Summary, in.URL, action, failureClass, failureEvidence, requestID)
+		err = tx.GetContext(ctx, signal, `INSERT INTO agent_task_signals(task_id,run_id,kind,external_id,outcome,name,summary,url,action,failure_class,failure_evidence,request_id,head_sha,failure_details_pending) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`, task.ID, task.RunID, in.Kind, in.ExternalID, in.Outcome, in.Name, in.Summary, in.URL, action, failureClass, failureEvidence, requestID, headSHA, detailsPending)
 	}
 	if err != nil {
 		return nil, err
@@ -173,7 +197,75 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
-	if action == "follow_up" {
+	// A failed suite whose checks are still being read is requested by
+	// RecordCIDetails, so the agent gets the failing checks.
+	if action == "follow_up" && !signal.CIDetailsAwaited(now) {
+		return &domain.AgentTaskFollowUp{Signal: *signal, Task: *task}, nil
+	}
+	return nil, nil
+}
+
+// RecordCIDetails stores what a read of GitHub after the webhook found about
+// a failed suite (KUA-206) on every CI signal of that commit in the
+// repository that still waits for it, and ends the wait. Of the webhook's
+// summary and this one the one that says more is kept: an empty or cut-short
+// read never replaces a fuller summary. It wakes the workflows waiting on
+// CI and returns the follow-ups those signals held back.
+func (r *AgentTaskRepository) RecordCIDetails(ctx context.Context, ws uuid.UUID, repository, headSHA, summary string) ([]domain.AgentTaskFollowUp, error) {
+	var waiting []struct {
+		ID     uuid.UUID `db:"id"`
+		TaskID uuid.UUID `db:"task_id"`
+	}
+	if err := r.db.SelectContext(ctx, &waiting, `SELECT s.id,s.task_id FROM agent_task_signals s JOIN agent_tasks t ON t.id=s.task_id
+ WHERE t.workspace_id=$1 AND s.kind='ci' AND s.failure_details_pending AND s.head_sha=$3 AND s.head_sha<>''
+ AND EXISTS(SELECT 1 FROM dev_machine_git_refs g WHERE g.agent_run_id=s.run_id AND g.workspace_id=t.workspace_id AND g.ref_type='pull_request' AND LOWER(g.repository_full_name)=LOWER($2))
+ ORDER BY s.created_at LIMIT 20`, ws, repository, headSHA); err != nil {
+		return nil, err
+	}
+	followUps := []domain.AgentTaskFollowUp{}
+	for _, row := range waiting {
+		followUp, err := r.recordCIDetails(ctx, row.TaskID, row.ID, summary)
+		if err != nil {
+			return followUps, err
+		}
+		if followUp != nil {
+			followUps = append(followUps, *followUp)
+		}
+	}
+	return followUps, nil
+}
+
+func (r *AgentTaskRepository) recordCIDetails(ctx context.Context, taskID, signalID uuid.UUID, summary string) (*domain.AgentTaskFollowUp, error) {
+	tx, task, err := r.transaction(ctx, taskID, false)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	signal := &domain.AgentTaskSignal{}
+	err = tx.GetContext(ctx, signal, `UPDATE agent_task_signals SET summary=CASE WHEN octet_length($2)>=octet_length(summary) AND $2<>'' THEN $2 ELSE summary END,failure_details_pending=false,updated_at=now()
+ WHERE id=$1 AND task_id=$3 AND failure_details_pending RETURNING *`, signalID, summary, task.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, tx.Commit()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if task.ConversationID != nil {
+		if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.signal_recorded", signal); err != nil {
+			return nil, err
+		}
+	}
+	// The workflow's CI step waits for the details; it reads them now.
+	if task.RunsWorkflow() && signal.RunID == task.RunID {
+		if _, err = tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_wake_at=now() WHERE id=$1 AND state='awaiting_review' AND workflow_status='waiting'`, task.ID); err != nil {
+			return nil, err
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	// A replaced attempt's follow-up is obsolete; PendingFollowUps records it.
+	if signal.Action == "follow_up" && signal.FollowUpGeneration == nil && signal.RunID == task.RunID {
 		return &domain.AgentTaskFollowUp{Signal: *signal, Task: *task}, nil
 	}
 	return nil, nil
@@ -306,9 +398,12 @@ func (r *AgentTaskRepository) Signals(ctx context.Context, ws, id uuid.UUID) ([]
 // PendingFollowUps returns follow-ups that were recorded but not queued, for
 // example after a transient failure. GitHub does not redeliver failed webhooks
 // automatically, so a background loop resumes them with the same request ID.
+// A failed suite whose checks are still being read waits for them at most
+// domain.CIFailureDetailsWait, then goes on with what the webhook read.
 func (r *AgentTaskRepository) PendingFollowUps(ctx context.Context, limit int) ([]domain.AgentTaskFollowUp, error) {
 	signals := []domain.AgentTaskSignal{}
-	if err := r.db.SelectContext(ctx, &signals, `SELECT * FROM agent_task_signals WHERE action='follow_up' AND follow_up_generation IS NULL AND updated_at<now()-interval '30 seconds' ORDER BY updated_at LIMIT $1`, limit); err != nil {
+	if err := r.db.SelectContext(ctx, &signals, `SELECT * FROM agent_task_signals WHERE action='follow_up' AND follow_up_generation IS NULL AND updated_at<now()-interval '30 seconds'
+ AND NOT (failure_details_pending AND created_at>now()-make_interval(secs => $2)) ORDER BY updated_at LIMIT $1`, limit, domain.CIFailureDetailsWait.Seconds()); err != nil {
 		return nil, err
 	}
 	followUps := make([]domain.AgentTaskFollowUp, 0, len(signals))

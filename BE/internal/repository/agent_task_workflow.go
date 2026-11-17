@@ -577,6 +577,38 @@ func defaultModelServer(ctx context.Context, q sqlx.QueryerContext, ws uuid.UUID
 	return &server.ID, nil
 }
 
+// recordedReviewCI is what webhooks reported about CI on the reviewed
+// commit of the task's current attempt. GitHub only reports completed check
+// suites, so the list is partial; with none it is unknown.
+func recordedReviewCI(ctx context.Context, q sqlx.QueryerContext, reviewed domain.AgentTask, commit string) (domain.AgentReviewCI, error) {
+	var suites []struct {
+		Name    string `db:"name"`
+		Outcome string `db:"outcome"`
+	}
+	if err := sqlx.SelectContext(ctx, q, &suites, `SELECT name,outcome FROM agent_task_signals WHERE task_id=$1 AND run_id=$2 AND kind='ci' AND head_sha=$3 AND head_sha<>'' ORDER BY created_at,id LIMIT 30`, reviewed.ID, reviewed.RunID, commit); err != nil {
+		return domain.AgentReviewCI{}, err
+	}
+	if len(suites) == 0 {
+		return domain.AgentReviewCI{}, nil
+	}
+	ci := domain.AgentReviewCI{Read: true, Partial: true}
+	for _, suite := range suites {
+		state := "unknown"
+		switch {
+		case passedCIOutcomes[suite.Outcome]:
+			state = "passed"
+		case failedCIOutcomes[suite.Outcome]:
+			state = "failed"
+		}
+		name := suite.Name
+		if name == "" {
+			name = "CI"
+		}
+		ci.Checks = append(ci.Checks, domain.AgentReviewCheck{Name: name + " (check suite)", State: state})
+	}
+	return ci, nil
+}
+
 // insertReviewTask creates a review task of the reviewed task's published
 // work and its review record, in the caller's transaction.
 func insertReviewTask(ctx context.Context, tx *sqlx.Tx, reviewed domain.AgentTask, conversation, creator uuid.UUID, input domain.AgentReviewRequest, published *domain.AgentReviewTarget) (*domain.AgentTask, *domain.AgentReview, error) {
@@ -590,7 +622,18 @@ func insertReviewTask(ctx context.Context, tx *sqlx.Tx, reviewed domain.AgentTas
 	if err := tx.GetContext(ctx, &attempt, `SELECT COALESCE(max(attempt),0)+1 FROM agent_reviews WHERE reviewed_task_id=$1 AND commit_sha=$2 AND provider=$3`, reviewed.ID, published.CommitSHA, input.Provider); err != nil {
 		return nil, nil, err
 	}
-	prompt := domain.AgentReviewPrompt(*published, input.Focus)
+	// The reviewer is told what Kuayle knows about CI on the commit: what a
+	// workflow just read from GitHub, or else the suites webhooks reported.
+	ci := domain.AgentReviewCI{}
+	if input.CI != nil {
+		ci = *input.CI
+	} else {
+		var err error
+		if ci, err = recordedReviewCI(ctx, tx, reviewed, published.CommitSHA); err != nil {
+			return nil, nil, err
+		}
+	}
+	prompt := domain.AgentReviewPrompt(*published, input.Focus, ci)
 	var task domain.AgentTask
 	err := tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,model_server_id,reason,issue_status_id,issue_updated_at,kind,review_of_task_id)
  SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Waiting for a machine to review the pull request',i.status_id,i.updated_at,'review',$12 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`,
