@@ -784,6 +784,39 @@ func TestUnmatchedAndNilAssigneesAreNotAssignedToImporter(t *testing.T) {
 	}
 }
 
+func TestRerunClearsAssigneeWhenSourceBecomesUnmatched(t *testing.T) {
+	h := newHarness(t)
+	matched := uuid.New()
+	h.store.members = append(h.store.members, importer.Member{UserID: matched, Email: "assignee@example.com"})
+	h.source.issues = []importer.SourceIssue{
+		{
+			ExternalID: "A", Title: "Issue", Status: "To Do", ProjectExternalID: "10",
+			Assignee: &importer.SourceUser{ExternalID: "u1", Email: "assignee@example.com"},
+		},
+	}
+	h.previewAndStart(t)
+	h.svc.process(context.Background(), h.job)
+
+	first := h.issueByExternalID(t, "A")
+	if first.AssigneeID == nil || *first.AssigneeID != matched {
+		t.Fatalf("first run should assign %s, got %v", matched, first.AssigneeID)
+	}
+
+	// A later source revision has an assignee that no workspace member matches.
+	// The changed email also changes the content hash, so the re-run updates.
+	h.source.issues[0].Assignee = &importer.SourceUser{ExternalID: "ghost", Email: "ghost@example.com"}
+	h.svc.process(context.Background(), h.job)
+
+	after := h.issueByExternalID(t, "A")
+	if after.AssigneeID != nil {
+		t.Fatalf("previously matched assignee was not cleared: %s", *after.AssigneeID)
+	}
+	last := h.store.assigneeSets[len(h.store.assigneeSets)-1]
+	if len(last.userIDs) != 0 {
+		t.Fatalf("update did not clear assignees: %v", last.userIDs)
+	}
+}
+
 func TestUnmatchedCommentAuthorIsAttributedToImporter(t *testing.T) {
 	h := newHarness(t)
 	h.source.issues = sampleIssues(h.admin)
