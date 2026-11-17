@@ -80,9 +80,10 @@ func TestPullRequestCommentWebhookPostgres(t *testing.T) {
 	require.NoError(t, repo.CreateRepo(ctx, linked))
 	var mu sync.Mutex
 	comments := []map[string]any{}
-	posts, requests := 0, 0
+	posts, patches, requests := 0, 0, 0
 	failStatus := 0
 	postArrived, releasePost := make(chan struct{}), make(chan struct{})
+	issueURL := "https://kuayle.test/" + ws.String() + "/issue/BOT-60"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -102,20 +103,43 @@ func TestPullRequestCommentWebhookPostgres(t *testing.T) {
 			assert.NoError(t, json.NewEncoder(w).Encode(comments))
 			return
 		}
-		posts++
-		if posts == 1 {
-			close(postArrived)
-			mu.Unlock()
-			<-releasePost
-			mu.Lock()
-		}
 		var payload map[string]string
 		assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
-		assert.Contains(t, payload["body"], "[BOT-60](https://kuayle.test/"+ws.String()+"/issue/BOT-60)")
-		assert.NotContains(t, payload["body"], "PRIVATE")
-		comments = append(comments, map[string]any{"body": payload["body"], "user": map[string]any{"type": "Bot"}, "performed_via_github_app": map[string]any{"id": 42}})
-		w.WriteHeader(201)
-		fmt.Fprint(w, `{"id":1}`)
+		// The Linear-style linkback block: markers for idempotency, a clickable
+		// summary with identifier and title, the flattened description, and the
+		// review link. The issue's own title and description are expected; the
+		// fixture names make the failure-response leak check below explicit.
+		assert.Contains(t, payload["body"], "<!-- kuayle:pr-issue:"+ws.String()+" -->")
+		assert.Contains(t, payload["body"], "<!-- kuayle:issue-linkback:start -->")
+		assert.Contains(t, payload["body"], "<summary><a href=\""+issueURL+"\" rel=\"nofollow noreferrer noopener\" target=\"_blank\">BOT-60 ")
+		assert.Contains(t, payload["body"], "<p>PRIVATE DESCRIPTION</p>")
+		assert.Contains(t, payload["body"], "<p><a href=\""+issueURL+"\" rel=\"nofollow noreferrer noopener\" target=\"_blank\">Review in Kuayle</a></p>")
+		assert.Contains(t, payload["body"], "<!-- kuayle:issue-linkback:end -->")
+		assert.NotContains(t, payload["body"], "PRIVATE API CONTENT")
+		switch r.Method {
+		case http.MethodPost:
+			posts++
+			if posts == 1 {
+				close(postArrived)
+				mu.Unlock()
+				<-releasePost
+				mu.Lock()
+			}
+			comments = append(comments, map[string]any{"id": 1, "body": payload["body"], "user": map[string]any{"type": "Bot"}, "performed_via_github_app": map[string]any{"id": 42}})
+			w.WriteHeader(201)
+			fmt.Fprint(w, `{"id":1}`)
+		case http.MethodPatch:
+			// A redelivery after the issue changed updates the existing comment
+			// in place instead of posting a duplicate.
+			patches++
+			if assert.Len(t, comments, 1) {
+				comments[0]["body"] = payload["body"]
+			}
+			w.WriteHeader(200)
+			fmt.Fprint(w, `{"id":1}`)
+		default:
+			t.Errorf("unexpected GitHub comment request method %s", r.Method)
+		}
 	}))
 	t.Cleanup(server.Close)
 	target, err := url.Parse(server.URL)
@@ -234,6 +258,7 @@ func TestPullRequestCommentWebhookPostgres(t *testing.T) {
 	mu.Unlock()
 	require.NoError(t, svc.HandleWebhookEvent(ctx, "pull_request", payload))
 	require.Equal(t, 1, posts)
+	require.Equal(t, 0, patches)
 	// A queued API privacy transition must wait before the global graph barrier,
 	// permitting unrelated writes (including edits to this issue) during I/O.
 	privacyResult := make(chan error, 1)
