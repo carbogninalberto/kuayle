@@ -756,8 +756,8 @@ func TestWorkflowPauseThenWaitingInputAddsBothToTheBudget(t *testing.T) {
 
 	// Two hours waiting for input add to the already-shifted budget start.
 	f.exec(`UPDATE agent_tasks SET workflow_held_since=now()-interval '2 hours' WHERE id=$1`, f.task.ID)
-	require.NoError(t, f.db.Get(&claimed, `SELECT * FROM agent_tasks WHERE id=$1`, f.task.ID))
-	require.NoError(t, f.repo.Transition(f.ctx, *claimed, "running", "Input received"))
+	resumedTask := f.current()
+	require.NoError(t, f.repo.Transition(f.ctx, resumedTask, "running", "Input received"))
 	var budgetFrom *time.Time
 	require.NoError(t, f.db.Get(&budgetFrom, `SELECT workflow_budget_from FROM agent_tasks WHERE id=$1`, f.task.ID))
 	require.NotNil(t, budgetFrom)
