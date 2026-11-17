@@ -601,7 +601,7 @@ func (s *ForgeService) commentOnMergeRequest(ctx context.Context, conn *domain.F
 		log.WithFields(log.Fields{"workspace_id": conn.WorkspaceID, "repo_id": repo.ID}).WithError(err).Warn("Could not resolve workspace slug; the merge request comment is skipped")
 		return
 	}
-	body, err := issueCommentBody(s.frontendURL, slug, issue.Identifier)
+	body, err := issueCommentBody(s.frontendURL, slug, issue)
 	if err != nil {
 		log.WithFields(log.Fields{"workspace_id": conn.WorkspaceID, "repo_id": repo.ID}).WithError(err).Warn("Could not build the merge request comment")
 		return
@@ -610,7 +610,7 @@ func (s *ForgeService) commentOnMergeRequest(ctx context.Context, conn *domain.F
 	c.AccessToken = &token
 	commentCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	if err := commenter.CommentOnMergeRequest(commentCtx, &c, repo, mr.Number, body); err != nil {
+	if err := commenter.CommentOnMergeRequest(commentCtx, &c, repo, mr.Number, pullRequestIssueMarker(conn.WorkspaceID)+"\n\n"+body); err != nil {
 		log.WithFields(log.Fields{"workspace_id": conn.WorkspaceID, "repo_id": repo.ID, "mr_number": mr.Number}).WithError(err).Warn("Forge merge request comment failed; redeliver the opened event after recovery")
 	}
 }

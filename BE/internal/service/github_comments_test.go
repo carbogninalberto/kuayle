@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -75,14 +76,155 @@ func TestPullRequestIssueResolution(t *testing.T) {
 	})
 }
 
+const issueLinkbackTestLink = "https://kuayle.test/base/acme/issue/KUA-60"
+
+func issueLinkbackTestIssue() *domain.Issue {
+	return &domain.Issue{Identifier: "KUA-60", Title: "Fix the flux capacitor", Description: strPtr("<p>Short <strong>summary</strong>.</p><p>Second</p>")}
+}
+
+func issueLinkbackDescription(t *testing.T, body string) string {
+	t.Helper()
+	start := strings.Index(body, "<p>") + len("<p>")
+	end := strings.Index(body, "</p>")
+	require.Greater(t, end, start)
+	return body[start:end]
+}
+
 func TestIssueCommentBody(t *testing.T) {
-	body, err := issueCommentBody("https://kuayle.test/base/", "acme", "KUA-60")
-	require.NoError(t, err)
-	require.Equal(t, "Linked Kuayle issue: [KUA-60](https://kuayle.test/base/acme/issue/KUA-60)", body)
+	t.Run("exact body", func(t *testing.T) {
+		body, err := issueCommentBody("https://kuayle.test/base/", "acme", issueLinkbackTestIssue())
+		require.NoError(t, err)
+		require.Equal(t, "<!-- kuayle:issue-linkback:start -->\n"+
+			"<details>\n"+
+			"<summary><a href=\""+issueLinkbackTestLink+"\" rel=\"nofollow noreferrer noopener\" target=\"_blank\">KUA-60 Fix the flux capacitor</a></summary>\n"+
+			"<p>Short summary. Second</p>\n"+
+			"</details>\n"+
+			"<p><a href=\""+issueLinkbackTestLink+"\" rel=\"nofollow noreferrer noopener\" target=\"_blank\">Review in Kuayle</a></p>\n"+
+			"<!-- kuayle:issue-linkback:end -->", body)
+		require.NotContains(t, body, "\n\n")
+	})
+	t.Run("missing description", func(t *testing.T) {
+		for _, description := range []*string{nil, strPtr(""), strPtr("   ")} {
+			issue := issueLinkbackTestIssue()
+			issue.Description = description
+			body, err := issueCommentBody("https://kuayle.test/base/", "acme", issue)
+			require.NoError(t, err)
+			require.Equal(t, "No description provided.", issueLinkbackDescription(t, body))
+		}
+	})
+	t.Run("description truncation", func(t *testing.T) {
+		issue := issueLinkbackTestIssue()
+		issue.Description = strPtr(strings.Repeat("é", 300))
+		body, err := issueCommentBody("https://kuayle.test/base/", "acme", issue)
+		require.NoError(t, err)
+		description := issueLinkbackDescription(t, body)
+		require.True(t, utf8.ValidString(description))
+		runes := []rune(strings.TrimSuffix(description, "…"))
+		require.Len(t, runes, 280)
+		require.True(t, strings.HasSuffix(description, "…"))
+	})
+	t.Run("description at limit is not truncated", func(t *testing.T) {
+		issue := issueLinkbackTestIssue()
+		issue.Description = strPtr(strings.Repeat("é", 280))
+		body, err := issueCommentBody("https://kuayle.test/base/", "acme", issue)
+		require.NoError(t, err)
+		require.Equal(t, strings.Repeat("é", 280), issueLinkbackDescription(t, body))
+	})
+	t.Run("title truncation", func(t *testing.T) {
+		issue := issueLinkbackTestIssue()
+		issue.Title = strings.Repeat("t", 250)
+		body, err := issueCommentBody("https://kuayle.test/base/", "acme", issue)
+		require.NoError(t, err)
+		summary := body[strings.Index(body, "\">KUA-60")+len("\">KUA-60")+1 : strings.Index(body, "</a></summary>")]
+		require.True(t, utf8.ValidString(summary))
+		runes := []rune(strings.TrimSuffix(summary, "…"))
+		require.Len(t, runes, 200)
+		require.True(t, strings.HasSuffix(summary, "…"))
+	})
+	t.Run("title at limit is not truncated", func(t *testing.T) {
+		issue := issueLinkbackTestIssue()
+		issue.Title = strings.Repeat("t", 200)
+		body, err := issueCommentBody("https://kuayle.test/base/", "acme", issue)
+		require.NoError(t, err)
+		require.Contains(t, body, ">KUA-60 "+strings.Repeat("t", 200)+"</a></summary>")
+	})
+}
+
+func TestIssueCommentBodySanitizesUntrustedContent(t *testing.T) {
+	for name, mutate := range map[string]func(*domain.Issue){
+		"html injection in title": func(i *domain.Issue) { i.Title = `Fix </summary></details><img src=x onerror=alert(1)> now` },
+		"html injection in description": func(i *domain.Issue) {
+			i.Description = strPtr(`Hello </summary></details><img src=x onerror=alert(1)> <details><p>world`)
+		},
+		"quotes in title": func(i *domain.Issue) { i.Title = `He said "hi" <script>` },
+		"mentions":        func(i *domain.Issue) { i.Description = strPtr("Ping @octocat please") },
+		"code fences":     func(i *domain.Issue) { i.Description = strPtr("```js\ncode()\n```\n~~~\nalso fenced\n~~~") },
+		"comment markers": func(i *domain.Issue) { i.Description = strPtr("a --> b <!-- c --> d") },
+		"blank lines":     func(i *domain.Issue) { i.Description = strPtr("first\n\nsecond\n\n\nthird") },
+		"markdown":        func(i *domain.Issue) { i.Description = strPtr("# Head\n- item\n**bold** [x](https://e)") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			issue := issueLinkbackTestIssue()
+			mutate(issue)
+			body, err := issueCommentBody("https://kuayle.test/base/", "acme", issue)
+			require.NoError(t, err)
+			require.Equal(t, 1, strings.Count(body, "<details>"))
+			require.Equal(t, 1, strings.Count(body, "</details>"))
+			require.Equal(t, 1, strings.Count(body, "<summary>"))
+			require.Equal(t, 1, strings.Count(body, "</summary>"))
+			require.Equal(t, 2, strings.Count(body, "<p>"))
+			require.NotContains(t, body, "<img")
+			require.NotContains(t, body, "<script")
+			require.NotContains(t, body, "\n\n")
+			require.NotContains(t, body, "`")
+			// The only raw "-->" occurrences are the two template markers.
+			require.Equal(t, 2, strings.Count(body, "-->"))
+			require.Equal(t, 2, strings.Count(body, "<!-- kuayle:issue-linkback:"))
+			require.True(t, utf8.ValidString(body))
+		})
+	}
+	t.Run("mentions are broken", func(t *testing.T) {
+		issue := issueLinkbackTestIssue()
+		issue.Description = strPtr("Ping @octocat please")
+		body, err := issueCommentBody("https://kuayle.test/base/", "acme", issue)
+		require.NoError(t, err)
+		require.Contains(t, body, "@\u200boctocat")
+		require.NotContains(t, body, "@octocat")
+	})
+	t.Run("escaped output", func(t *testing.T) {
+		issue := issueLinkbackTestIssue()
+		issue.Title = `He said "hi" & <that>`
+		body, err := issueCommentBody("https://kuayle.test/base/", "acme", issue)
+		require.NoError(t, err)
+		require.Contains(t, body, "He said &#34;hi&#34; &amp; &lt;that&gt;")
+	})
+	t.Run("markdown stays one line", func(t *testing.T) {
+		issue := issueLinkbackTestIssue()
+		issue.Description = strPtr("# Head\n- item\n**bold** [x](https://e)")
+		body, err := issueCommentBody("https://kuayle.test/base/", "acme", issue)
+		require.NoError(t, err)
+		require.Equal(t, "# Head - item **bold** [x](https://e)", issueLinkbackDescription(t, body))
+	})
+	t.Run("code fences are neutralised", func(t *testing.T) {
+		issue := issueLinkbackTestIssue()
+		issue.Description = strPtr("```js\ncode()\n```")
+		body, err := issueCommentBody("https://kuayle.test/base/", "acme", issue)
+		require.NoError(t, err)
+		require.Equal(t, "&#96;&#96;&#96;js code() &#96;&#96;&#96;", issueLinkbackDescription(t, body))
+	})
+}
+
+func TestIssueCommentBodyRejectsInvalidInput(t *testing.T) {
 	for _, base := range []string{"", "javascript:alert(1)", "https://user:secret@kuayle.test", "https://kuayle.test?secret=x", "https://kuayle.test/#fragment"} {
-		_, err := issueCommentBody(base, "acme", "KUA-60")
+		_, err := issueCommentBody(base, "acme", issueLinkbackTestIssue())
 		require.Error(t, err)
 	}
-	_, err = issueCommentBody("https://kuayle.test", "acme", "KUA-60](https://evil)")
+	_, err := issueCommentBody("https://kuayle.test", "", issueLinkbackTestIssue())
+	require.Error(t, err)
+	issue := issueLinkbackTestIssue()
+	issue.Identifier = "KUA-60](https://evil)"
+	_, err = issueCommentBody("https://kuayle.test", "acme", issue)
+	require.Error(t, err)
+	_, err = issueCommentBody("https://kuayle.test", "acme", nil)
 	require.Error(t, err)
 }
