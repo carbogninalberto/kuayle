@@ -43,7 +43,7 @@ func (h *DevMachineHandler) SaveAgentSignInToken(c *echo.Context) error {
 	return response.Success(c, http.StatusOK, signIn)
 }
 
-// DeleteAgentSignIn removes the user's token (?kind=token), terminal sign-in
+// DeleteAgentSignIn removes the user's token (?kind=token), saved credentials
 // (?kind=credentials) or both for an agent.
 func (h *DevMachineHandler) DeleteAgentSignIn(c *echo.Context) error {
 	if middleware.GetWorkspaceRole(c) == domain.RoleGuest {

@@ -116,6 +116,9 @@ func TestRegisteredRoutesRejectPATOutsideBoundaries(t *testing.T) {
 		{"POST", "/api/workspaces/acme/dev-machines/example/terminal-sessions/example/close", []string{"dev_machine:read"}, false},
 		{"POST", "/api/workspaces/acme/dev-machines/example/activity", []string{"dev_machine:read"}, false},
 		{"GET", "/api/workspaces/acme/agent-sign-ins", []string{"dev_machine:read"}, false},
+		{"POST", "/api/workspaces/acme/agent-sign-ins/codex/device/start", []string{"dev_machine:admin"}, false},
+		{"POST", "/api/workspaces/acme/agent-sign-ins/codex/device/poll", []string{"dev_machine:admin"}, false},
+		{"POST", "/api/workspaces/acme/agent-sign-ins/codex/device/cancel", []string{"dev_machine:admin"}, false},
 		{"PUT", "/api/workspaces/acme/agent-sign-ins/claude-code/token", []string{"dev_machine:admin"}, false},
 		{"DELETE", "/api/workspaces/acme/agent-sign-ins/claude-code", []string{"dev_machine:admin"}, false},
 	} {

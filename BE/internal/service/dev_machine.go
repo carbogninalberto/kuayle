@@ -127,7 +127,8 @@ type DevMachineService struct {
 	manifests RepositoryManifestReader
 	// access is the public demo rule; nil restricts nothing. See
 	// SetMachineAccess.
-	access *MachineAccess
+	access       *MachineAccess
+	codexDevices *codexDeviceLogins
 }
 
 // SetMachineAccess applies the public demo rule to every use of a machine
@@ -151,8 +152,9 @@ func NewDevMachineService(store repository.DevMachineStore, agents *agent.Regist
 		store: store, agents: agents, enabled: enabled, domain: strings.TrimSuffix(strings.ToLower(domain), "."),
 		frontendOrigin: frontendOrigin, encryptionKey: encryptionKey, ticketTTL: ticketTTL, images: images,
 		// Set here, not on first use: catalog requests read it concurrently.
-		modelClient: newAIProviderClient(false),
-		openCodeGo:  newOpenCodeGoCatalog(),
+		modelClient:  newAIProviderClient(false),
+		openCodeGo:   newOpenCodeGoCatalog(),
+		codexDevices: newCodexDeviceLogins(),
 	}
 }
 
