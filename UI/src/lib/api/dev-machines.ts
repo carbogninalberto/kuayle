@@ -22,7 +22,7 @@ import type {
 	DevMachineCheckSuggestion,
 	EnvironmentStatus,
 	LaunchMachineServiceResponse,
-	ResourceSample,
+	ResourceBucket,
 	TerminalSessionLaunchResponse,
 	ModelServer,
 	ModelServerInput,
@@ -118,13 +118,12 @@ export function listMachineLogs(slug: string, machineId: string, afterId = 0): P
 export type ResourceUsageWindow = '1h' | '6h' | '24h';
 
 /**
- * Without a window: the latest 120 samples, newest first. With a window: the
- * samples of that period averaged into time buckets, oldest first (each
- * created_at is its bucket's start).
+ * Every time bucket of the window, oldest first (each created_at is the start
+ * of its bucket). A bucket without samples has sample_count 0 and null
+ * values, so the caller can show the gap.
  */
-export function listResourceUsage(slug: string, machineId: string, window?: ResourceUsageWindow): Promise<ResourceSample[]> {
-	const query = window ? `?window=${window}` : '';
-	return api.get(`${base(slug)}/dev-machines/${machineId}/resource-usage${query}`);
+export function listResourceHistory(slug: string, machineId: string, window: ResourceUsageWindow): Promise<ResourceBucket[]> {
+	return api.get(`${base(slug)}/dev-machines/${machineId}/resource-usage?window=${window}`);
 }
 
 /** The cached environment checks of the running developer container. */

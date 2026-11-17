@@ -584,9 +584,15 @@ type DevMachineAccessLog struct {
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
 }
 
-// DevMachineResourceRetention is how long a machine's usage samples are kept
-// (one every reconcile, 30 seconds); teardown removes them.
+// DevMachineResourceRetention is how long a machine's usage samples are kept:
+// a rolling window, pruned for every machine whether or not it still runs.
+// Teardown removes a machine's samples at once.
 const DevMachineResourceRetention = 24 * time.Hour
+
+// DevMachineResourceSampleInterval is how often the machine manager samples
+// CPU, memory and workspace disk of every running machine, independently of
+// the reconcile pass. History buckets are sized from it.
+const DevMachineResourceSampleInterval = 30 * time.Second
 
 // Package index states of an environment check: the developer container's
 // apt lists were deleted (the images do so to stay small; expected), are
@@ -635,6 +641,21 @@ type DevMachineResourceSample struct {
 	NetworkRxBytes int64     `json:"network_rx_bytes" db:"network_rx_bytes"`
 	NetworkTxBytes int64     `json:"network_tx_bytes" db:"network_tx_bytes"`
 	CreatedAt      time.Time `json:"created_at" db:"created_at"`
+}
+
+// DevMachineResourceBucket is one bucket of a usage history window. Values are
+// averages of the samples in the bucket (network counters keep the highest);
+// they are nil, with SampleCount 0, when no sample was recorded in the bucket,
+// so a client can show a real gap. CreatedAt is the bucket start.
+type DevMachineResourceBucket struct {
+	CreatedAt      time.Time `json:"created_at" db:"created_at"`
+	SampleCount    int       `json:"sample_count" db:"sample_count"`
+	CPUPercent     *float64  `json:"cpu_percent" db:"cpu_percent"`
+	MemoryBytes    *int64    `json:"memory_bytes" db:"memory_bytes"`
+	DiskBytes      *int64    `json:"disk_bytes" db:"disk_bytes"`
+	Pids           *int      `json:"pids" db:"pids"`
+	NetworkRxBytes *int64    `json:"network_rx_bytes" db:"network_rx_bytes"`
+	NetworkTxBytes *int64    `json:"network_tx_bytes" db:"network_tx_bytes"`
 }
 
 type DevMachineWorkspacePolicy struct {

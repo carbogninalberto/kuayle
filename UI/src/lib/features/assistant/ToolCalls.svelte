@@ -12,6 +12,7 @@
 		Server,
 		BookOpenText,
 		Eye,
+		Hourglass,
 		Workflow
 	} from '@lucide/svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
@@ -414,6 +415,9 @@
 				return merge
 					? m['assistant.merge_approving']({ identifier })
 					: m['assistant.approval_approving']({ identifier });
+			case 'waiting_checks':
+				// Approved: Kuayle updated the branch and merges once its checks pass (KUA-207).
+				return m['assistant.merge_waiting']({ identifier });
 			case 'approved':
 				return merge ? m['assistant.merge_approved']({ identifier }) : m['assistant.approval_approved']({ identifier });
 			case 'failed':
@@ -1002,7 +1006,7 @@
 					</Item.Root>
 				{:else}
 					<Trace.Line
-						status={approval.status === 'approving'
+						status={approval.status === 'approving' || approval.status === 'waiting_checks'
 							? 'running'
 							: approval.status === 'failed'
 								? 'error'
@@ -1013,11 +1017,18 @@
 						<Trace.Icon
 							>{#if approval.status === 'approving'}<LoaderCircle
 									class="animate-spin"
+								/>{:else if approval.status === 'waiting_checks'}<Hourglass
 								/>{:else if approval.status === 'approved'}<CircleCheck
 								/>{:else if approval.status === 'failed'}<CircleAlert />{:else}<CircleX />{/if}</Trace.Icon
 						>
 						<Trace.Title class="whitespace-normal break-words">{outcome(approval)}</Trace.Title>
 					</Trace.Line>
+					{#if approval.action === 'merge_pull_request' && approval.status === 'waiting_checks' && approval.payload.wait?.waiting}<p
+							data-testid="merge-waiting"
+							class="pl-6 text-xs break-words text-muted-foreground"
+						>
+							{approval.payload.wait.waiting}
+						</p>{/if}
 					{#if approval.action === 'delegate_issue' && approval.status === 'approved' && approval.payload.workflow}<p
 							class="flex min-w-0 items-center gap-1 pl-6 text-xs text-muted-foreground"
 						>

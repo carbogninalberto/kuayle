@@ -1757,6 +1757,102 @@ test('asks for approval before merging the reviewed pull request', async ({ page
 	expect(state.decisions).toEqual(['approve']);
 });
 
+// KUA-207: approving a branch behind its base updates it and waits for the new
+// head's checks; the card shows that wait, never a failure, until it merges.
+test('an approved merge waiting for the updated branch shows it waits, then that it merged', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Merge approval is pending.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-11',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_11',
+			name: 'merge_pull_request',
+			input: { identifier: 'ENG-1' },
+			status: 'completed',
+			output: { approval_id: 'approval-3', status: 'pending_user_approval', identifier: 'ENG-1' },
+			created_at: conversation.created_at
+		}
+	];
+	const pending = {
+		id: 'approval-3',
+		conversation_id: 'chat-1',
+		tool_call_id: 'tool-11',
+		action: 'merge_pull_request',
+		actor_id: 'user-1',
+		issue_id: 'issue-1',
+		payload: {
+			identifier: 'ENG-1',
+			title: 'Dark mode',
+			task_id: 'task-9',
+			repository: 'acme/app',
+			pull_request: 276,
+			pull_request_url: 'https://github.com/acme/app/pull/276',
+			commit: '0123456789abcdef0123456789abcdef01234567'
+		},
+		status: 'pending',
+		expires_at: '2026-10-27T10:00:00Z',
+		created_at: conversation.created_at,
+		updated_at: conversation.created_at
+	};
+	const waiting = {
+		...pending,
+		status: 'waiting_checks',
+		next_check_at: '2026-10-26T10:06:00Z',
+		updated_at: '2026-10-26T10:05:00Z',
+		payload: {
+			...pending.payload,
+			wait: {
+				approved: pending.payload.commit,
+				head: 'fedcba9876543210fedcba9876543210fedcba98',
+				base: 'main',
+				updates: 1,
+				since: '2026-10-26T10:05:00Z',
+				deadline: '2026-10-26T12:05:00Z',
+				waiting:
+					'Pull request #276 was 1 commit(s) behind main, and its CI never ran with the latest main. Kuayle brought the branch up to date with GitHub’s update-branch (new head fedcba98); Kuayle merges it once the checks on the new head pass'
+			}
+		}
+	};
+	state.approvals = [pending] as any;
+	await page.route('**/conversations/chat-1/approvals/approval-3', (route) => {
+		state.decisions.push(route.request().postDataJSON().decision);
+		state.approvals = [waiting] as any;
+		return route.fulfill({ json: waiting });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(
+		page.getByText(
+			'Approved: Kuayle brought the branch of ENG-1 up to date and merges it once the checks on the new head pass',
+			{ exact: true }
+		)
+	).toBeVisible();
+	await expect(page.getByTestId('merge-waiting')).toContainText('new head fedcba98');
+	await expect(page.getByText(/Could not merge/)).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
+	expect(state.decisions).toEqual(['approve']);
+
+	// The poller merges the updated head; the result arrives as the approval's resolution.
+	await expect.poll(() => state.sockets.length).toBeGreaterThan(0);
+	const merged = {
+		...waiting,
+		status: 'approved',
+		task_id: 'task-9',
+		next_check_at: undefined,
+		resolved_at: '2026-10-26T10:20:00Z',
+		updated_at: '2026-10-26T10:20:00Z'
+	};
+	state.sockets.at(-1)!.send(
+		JSON.stringify({ id: 'e1', cursor: 1, conversation_id: 'chat-1', type: 'approval.resolved', payload: merged })
+	);
+	await expect(page.getByText('Merged the pull request for ENG-1', { exact: true })).toBeVisible();
+	await expect(page.getByTestId('merge-waiting')).toHaveCount(0);
+});
+
 const pullRequestPayload = {
 	identifier: 'ENG-1',
 	title: 'Dark mode',

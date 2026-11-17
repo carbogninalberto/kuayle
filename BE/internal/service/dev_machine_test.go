@@ -1813,6 +1813,8 @@ type devMachineStoreFake struct {
 	resourceSamples             []domain.DevMachineResourceSample
 	historyMachineID            uuid.UUID
 	historySince                time.Time
+	historyUntil                time.Time
+	historyBuckets              []domain.DevMachineResourceBucket
 	historyBucket               time.Duration
 	terminalSessions            []domain.DevMachineTerminalSession
 	terminalCloseOperation      *domain.DevMachineOperation
@@ -2262,9 +2264,9 @@ func (f *devMachineStoreFake) ListResourceSamples(context.Context, uuid.UUID, uu
 	return f.resourceSamples, nil
 }
 
-func (f *devMachineStoreFake) ListResourceHistory(_ context.Context, _ uuid.UUID, machineID uuid.UUID, since time.Time, bucket time.Duration) ([]domain.DevMachineResourceSample, error) {
-	f.historyMachineID, f.historySince, f.historyBucket = machineID, since, bucket
-	return f.resourceSamples, nil
+func (f *devMachineStoreFake) ListResourceHistory(_ context.Context, _ uuid.UUID, machineID uuid.UUID, since, until time.Time, bucket time.Duration) ([]domain.DevMachineResourceBucket, error) {
+	f.historyMachineID, f.historySince, f.historyUntil, f.historyBucket = machineID, since, until, bucket
+	return f.historyBuckets, nil
 }
 
 func (f *devMachineStoreFake) CreateTerminalSession(_ context.Context, session *domain.DevMachineTerminalSession) error {

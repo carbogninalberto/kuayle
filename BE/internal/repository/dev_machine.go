@@ -65,7 +65,7 @@ type DevMachineStore interface {
 	ListLogs(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID, int64, int) ([]domain.DevMachineLogChunk, error)
 	CreateAccessTicket(context.Context, *domain.DevMachineAccessTicket) error
 	ListResourceSamples(context.Context, uuid.UUID, uuid.UUID, int) ([]domain.DevMachineResourceSample, error)
-	ListResourceHistory(ctx context.Context, workspaceID, machineID uuid.UUID, since time.Time, bucket time.Duration) ([]domain.DevMachineResourceSample, error)
+	ListResourceHistory(ctx context.Context, workspaceID, machineID uuid.UUID, since, until time.Time, bucket time.Duration) ([]domain.DevMachineResourceBucket, error)
 	CreateGitRef(context.Context, *domain.DevMachineGitRef) error
 	MachineNameExistsForUser(context.Context, uuid.UUID, uuid.UUID, string) (bool, error)
 	RequestResizeForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, domain.DevMachineResize, *domain.DevMachineOperation) (*domain.DevMachine, error)
@@ -668,6 +668,16 @@ func (r *DevMachineRepository) ListRuntimeMachines(ctx context.Context, limit, o
 		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=dev_machines.id
 			AND o.status IN ('pending','leased'))
 		ORDER BY updated_at, id LIMIT $1 OFFSET $2`, limit, offset)
+	return machines, err
+}
+
+// ListSamplingMachines lists the running machines whose usage the manager
+// samples. Unlike ListRuntimeMachines it keeps machines with a pending or
+// leased operation, so the history has no hole while a machine resizes.
+func (r *DevMachineRepository) ListSamplingMachines(ctx context.Context, limit, offset int) ([]domain.DevMachine, error) {
+	var machines []domain.DevMachine
+	err := r.db.SelectContext(ctx, &machines, `SELECT * FROM dev_machines WHERE status='running'
+		ORDER BY id LIMIT $1 OFFSET $2`, limit, offset)
 	return machines, err
 }
 
@@ -1665,10 +1675,21 @@ func (r *DevMachineRepository) CreateResourceSample(ctx context.Context, sample 
 	).Scan(&sample.ID, &sample.CreatedAt)
 }
 
-// PruneResourceSamples removes a machine's samples older than before.
-func (r *DevMachineRepository) PruneResourceSamples(ctx context.Context, machineID uuid.UUID, before time.Time) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM dev_machine_resource_samples WHERE machine_id=$1 AND created_at<$2`, machineID, before.UTC())
-	return err
+// PruneExpiredResourceSamples removes up to limit samples older than before,
+// oldest first, for every machine (running or not), and returns how many it
+// removed. Callers repeat it while it returns limit.
+func (r *DevMachineRepository) PruneExpiredResourceSamples(ctx context.Context, before time.Time, limit int) (int, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	result, err := r.db.ExecContext(ctx, `WITH expired AS (
+		SELECT id FROM dev_machine_resource_samples WHERE created_at<$1 ORDER BY created_at,id LIMIT $2
+	) DELETE FROM dev_machine_resource_samples samples USING expired WHERE samples.id=expired.id`, before.UTC(), limit)
+	if err != nil {
+		return 0, err
+	}
+	count, err := result.RowsAffected()
+	return int(count), err
 }
 
 // DeleteResourceSamples removes a machine's usage history at teardown.
@@ -1717,21 +1738,36 @@ func (r *DevMachineRepository) ListResourceSamples(ctx context.Context, workspac
 	return samples, err
 }
 
-// ListResourceHistory averages the machine's samples since since into
-// buckets of bucket length, oldest first; created_at is the bucket start and
-// id the newest sample in it. Network counters are cumulative, so they keep
-// the bucket's highest value.
-func (r *DevMachineRepository) ListResourceHistory(ctx context.Context, workspaceID, machineID uuid.UUID, since time.Time, bucket time.Duration) ([]domain.DevMachineResourceSample, error) {
-	var samples []domain.DevMachineResourceSample
-	err := r.db.SelectContext(ctx, &samples, `SELECT MAX(s.id) AS id, s.workspace_id, s.machine_id,
-			AVG(s.cpu_percent) AS cpu_percent, AVG(s.memory_bytes)::BIGINT AS memory_bytes,
-			AVG(s.disk_bytes)::BIGINT AS disk_bytes, AVG(s.pids)::INT AS pids,
-			MAX(s.network_rx_bytes) AS network_rx_bytes, MAX(s.network_tx_bytes) AS network_tx_bytes,
-			date_bin(make_interval(secs => $4), s.created_at, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS created_at
-		FROM dev_machine_resource_samples s
-		WHERE s.workspace_id=$1 AND s.machine_id=$2 AND s.created_at>=$3
-		GROUP BY s.workspace_id, s.machine_id, 10 ORDER BY 10`, workspaceID, machineID, since.UTC(), bucket.Seconds())
-	return samples, err
+// ListResourceHistory returns every bucket of bucket length from the one
+// containing since to the one containing until, oldest first, so a client sees
+// real gaps. created_at is the bucket start. A bucket without samples has
+// sample_count 0 and nil values; otherwise the values are averages, except the
+// network counters, which are cumulative and keep the bucket's highest value.
+// Nothing is returned when the machine is not in the workspace.
+func (r *DevMachineRepository) ListResourceHistory(ctx context.Context, workspaceID, machineID uuid.UUID, since, until time.Time, bucket time.Duration) ([]domain.DevMachineResourceBucket, error) {
+	buckets := []domain.DevMachineResourceBucket{}
+	err := r.db.SelectContext(ctx, &buckets, `WITH params AS (
+			SELECT make_interval(secs => $5::float8) AS width, TIMESTAMPTZ '2000-01-01 00:00:00+00' AS origin
+		), slots AS (
+			SELECT generate_series(date_bin(p.width, $3::timestamptz, p.origin),
+				date_bin(p.width, $4::timestamptz, p.origin), p.width) AS slot
+			FROM params p
+			WHERE EXISTS (SELECT 1 FROM dev_machines WHERE id=$2 AND workspace_id=$1)
+		), sampled AS (
+			SELECT date_bin(p.width, s.created_at, p.origin) AS slot, COUNT(*) AS sample_count,
+				AVG(s.cpu_percent) AS cpu_percent, AVG(s.memory_bytes)::BIGINT AS memory_bytes,
+				AVG(s.disk_bytes)::BIGINT AS disk_bytes, AVG(s.pids)::INT AS pids,
+				MAX(s.network_rx_bytes) AS network_rx_bytes, MAX(s.network_tx_bytes) AS network_tx_bytes
+			FROM dev_machine_resource_samples s, params p
+			WHERE s.workspace_id=$1 AND s.machine_id=$2 AND s.created_at>=$3 AND s.created_at<=$4
+			GROUP BY 1
+		)
+		SELECT slots.slot AS created_at, COALESCE(sampled.sample_count, 0) AS sample_count,
+			sampled.cpu_percent, sampled.memory_bytes, sampled.disk_bytes, sampled.pids,
+			sampled.network_rx_bytes, sampled.network_tx_bytes
+		FROM slots LEFT JOIN sampled ON sampled.slot=slots.slot ORDER BY slots.slot`,
+		workspaceID, machineID, since.UTC(), until.UTC(), bucket.Seconds())
+	return buckets, err
 }
 
 func (r *DevMachineRepository) MachineNameExistsForUser(ctx context.Context, workspaceID, userID uuid.UUID, name string) (bool, error) {

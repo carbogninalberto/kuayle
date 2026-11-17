@@ -670,6 +670,22 @@ its follow-ups, and its state follows the task's transitions in the same
 transaction. Agent reviews of a published pull request run only when requested
 from chat, as separate review tasks that never validate, publish or receive a
 push credential; see [requested agent reviews](BE/docs/agent-tasks.md#requested-agent-reviews).
+A reviewer is told that CI is judged separately and not to request changes over
+CI it cannot see or a run on the commit that has not finished; its prompt lists
+each check's state on the reviewed commit when Kuayle knows it, and otherwise
+says CI is unknown.
+
+A failed CI suite on a task's pull request carries what GitHub reported about
+its failed checks ([CI and review feedback](BE/docs/agent-tasks.md#ci-and-review-feedback),
+migration 170): the checks' names, failed steps, annotations and an excerpt of
+the failed step's job log (failure lines and its end, without timestamps,
+colours, other steps or the post-job clean-up), stored as the signal's bounded
+summary. The webhook keeps what it reads within its eight seconds; when that
+missed a failed check's log, a background read (60 seconds, outside the webhook
+and the task worker) completes it, and the follow-up and the workflow's CI step
+wait for it for at most three minutes. The follow-up prompt, the notebook
+finding and the CI step's detail (the next agent's `{{failing_checks}}`) carry
+the summary fenced as untrusted CI output, with the suite's link.
 
 Agent profiles are also members ([agents as issue assignees](BE/docs/agent-tasks.md#agents-as-issue-assignees),
 migration 142): an issue can be assigned to an agent beside people, and an agent
@@ -741,6 +757,14 @@ versions validated on save, defaults per workspace, team and project, and a
 runner that drives each task's pinned version node by node under the worker's
 lease. Tasks without a pinned version run the built-in Standard workflow,
 which is the existing fixed flow.
+A workflow's ship approval (an approval leading to `done` or a merge step)
+marks a draft pull request ready and brings a branch behind its base up to
+date when it is entered, and approving it merges the pull request through the
+merge gate below (on the approval, or at the merge step after it); the task is
+done only after the merge. Agent reviews also start on an up-to-date branch,
+and a conflicting branch goes back to the step that changes code
+([merging from a workflow](BE/docs/agent-tasks.md#merging-from-a-workflow),
+KUA-209).
 Each profile has a [behaviour](BE/docs/agent-tasks.md#behaviours) (migration
 143): it plans, changes code or reviews, and its role is a free-text label. A
 planning step must leave the worktree unchanged and end with a plan, which is
@@ -933,22 +957,38 @@ probes the helper at startup and logs why new machines keep container shares
 when it is unavailable (for example on Docker Desktop or with user-namespace
 remapping).
 
-**Usage history.** Every reconcile (30 seconds) the manager records the summed
+**Usage history.** A sampler beside reconcile (`BE/internal/machine/resource_sampler.go`)
+records, every 30 seconds (`domain.DevMachineResourceSampleInterval`), the summed
 CPU, memory, process and network usage of all of a running machine's containers
 (its services and the agent runs, checks, check services and custom tools beside
 them; CPU is 100% per core, measured between a container's one-shot Docker
-samples of successive reconciles, so a container's first sample reads zero) plus
-its workspace and Docker disk usage in `dev_machine_resource_samples`.
-Reconciliation runs beside operation leasing, never blocking it, and each
-machine's pass is bounded to two minutes (Docker exec reads stop with their
-context), so one stuck Docker call cannot stop sampling or recovery. It keeps 24 hours per machine
-(`domain.DevMachineResourceRetention`, pruned as samples are written) and
-deletes a machine's history when its runtime is torn down; deleting the machine
-cascades. `GET .../resource-usage?window=1h|6h|24h` returns the window oldest
-first, averaged into 30-second, 1-minute or 4-minute buckets (`date_bin`;
-network counters keep the bucket's highest value), for the machine page's CPU,
-memory and disk charts; without `window` it returns the latest 120 samples,
-newest first.
+samples of successive calls, so a container's first sample reads zero) plus
+its workspace and Docker disk usage in `dev_machine_resource_samples`. The sampler
+is the only caller of `Runtime.Stats`; reconcile no longer samples, so a slow or
+stuck reconcile pass never stops it. Each tick lists the `running` machines
+(including ones with a queued operation, so a resize leaves no hole) and samples
+each in its own goroutine: at most 8 at once, each bounded to 20 seconds, and a
+machine whose previous sample is still running is skipped, so one hung Docker
+call delays no other machine. A failed stats call or insert is logged with the
+machine id, counted (`resource_sample_stats_failed_total`,
+`resource_sample_inserts_failed_total`, `resource_samples_missed_total`,
+`resource_samples_recorded_total` in the manager metrics) and retried once after
+5 seconds, so a failing sample leaves a gap of about a minute at most. The volume
+size update and the disk-quota warning and stop follow each measured sample.
+
+The history is a rolling 24-hour window (`domain.DevMachineResourceRetention`):
+every 5 minutes (and at start) the manager deletes the samples older than that
+for every machine, stopped or torn down included, in batches of 5000 rows
+(`PruneExpiredResourceSamples`, served by the `created_at` index of migration
+000169). Teardown deletes a machine's history at once; deleting the machine
+cascades. `GET .../resource-usage?window=1h|6h|24h` returns every bucket of the
+window, oldest first (`generate_series` joined to the `date_bin` averages, so
+network counters keep the bucket's highest value). A bucket is at least two
+sampling intervals wide (1h and 6h: 1 minute; 24h: 4 minutes), so one late sample
+does not look like a gap. A bucket with no samples is returned explicitly with
+`sample_count` 0 and null values; the machine page's CPU, memory and disk charts
+break the line there and span exactly the returned buckets. Without `window` the
+endpoint returns the latest 120 samples, newest first.
 
 ### Disk Limitation
 
@@ -1748,7 +1788,12 @@ delegation, an agent review of a published pull request, a follow-up on a task
 or a merge, start or stop a task's preview and expose or list its machine's app
 ports (start and expose need approval), with the user's own permissions; it
 cannot change Dev Machine lifecycles. One reply runs up to 10 minutes, 400 tool calls and 10 issue
-changes, with a bounded per-round context. Comments by workspace members on an
+changes, with a bounded per-round context. Every merge Kuayle makes goes
+through one [merge gate](BE/docs/agent-tasks.md#merging-only-up-to-date-heads):
+a head that contains its base and whose checks passed. A branch behind its base
+is brought up to date and the approved merge waits (`waiting_checks`, migration
+171), polled every minute by `RunMergeWaits`, and merges the verified update once
+its checks pass, or ends with the reason (KUA-207). Comments by workspace members on an
 issue whose task awaits review queue a bounded follow-up attempt
 ([agent tasks](BE/docs/agent-tasks.md#kuayle-issue-comments)). See [conversation architecture and API](BE/docs/conversations.md)
 for scope, authorization, bounds, UI component sources, recovery and checks.

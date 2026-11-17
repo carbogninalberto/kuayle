@@ -201,6 +201,22 @@ export interface ResourceSample {
 }
 
 /**
+ * One bucket of a usage history window. created_at is the bucket start. A
+ * bucket in which no sample was recorded has sample_count 0 and null values:
+ * a real gap, not zero usage.
+ */
+export interface ResourceBucket {
+	created_at: string;
+	sample_count: number;
+	cpu_percent: number | null;
+	memory_bytes: number | null;
+	disk_bytes: number | null;
+	pids: number | null;
+	network_rx_bytes: number | null;
+	network_tx_bytes: number | null;
+}
+
+/**
  * The apt package index of the running developer container: absent is
  * expected (the images delete it to stay small), unknown when the machine is
  * not running or the probe failed. Never a failure of the machine.

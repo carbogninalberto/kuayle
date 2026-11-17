@@ -521,9 +521,13 @@
 		</Tooltip.Provider>
 	</header>
 
+	<!-- The editor is exactly as tall as its page and owns any scrolling (KUA-201). Side by
+	     side, the canvas takes the height that is left and pans, and the inspector scrolls.
+	     Stacked, the canvas keeps 22rem above the inspector at its full height, and this body
+	     scrolls under the header: one scroller, never the inspector inside the body. -->
 	<div
 		class={cn(
-			'grid min-h-0 flex-1',
+			'grid min-h-0 flex-1 overflow-y-auto',
 			panelOpen
 				? 'grid-rows-[minmax(22rem,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_22rem] lg:grid-rows-1'
 				: 'grid-rows-1 grid-cols-1'
@@ -749,7 +753,7 @@
 		<aside
 			id="workflow-inspector-panel"
 			data-testid="workflow-inspector-panel"
-			class="flex min-h-0 flex-col border-t bg-background lg:border-t-0 lg:border-l"
+			class="flex flex-col border-t bg-background lg:min-h-0 lg:border-t-0 lg:border-l"
 			aria-label={m['workflows.editor.inspector']()}
 		>
 			<Tabs.Root bind:value={tab} class="flex min-h-0 flex-1 flex-col gap-0">

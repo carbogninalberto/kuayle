@@ -639,7 +639,7 @@
 </script>
 
 {#if workspace}
-	<div class="flex h-dvh bg-[var(--color-bg)]">
+	<div class="relative flex h-dvh min-h-0 overflow-hidden bg-[var(--color-bg)]">
 		{#if !isSettings}
 			<div class="hidden md:contents">
 				<Sidebar
@@ -706,7 +706,7 @@
 					</div>
 				</div>
 			{/if}
-			<div class="min-h-0 flex-1 overflow-auto">
+			<div class="min-h-0 flex-1 overflow-auto" data-testid="shell-scroll">
 				{#key accessEpoch}
 				{#if inaccessibleRoute}<p class="p-6 text-sm text-[var(--color-text-secondary)]">{m['privacy.unavailable']()}</p>{:else}{@render children()}{/if}
 			{/key}

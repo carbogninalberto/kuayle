@@ -70,6 +70,15 @@ hover and keyboard focus, before declaring a migration done.
   Tailwind tokens. [UI theme CSS](../../../UI/src/app.css) bridges app variables
   and shadcn tokens across themes; [WEB CSS](../../../WEB/src/app.css) owns the site
   palette. Check the affected theme variants; do not hardcode replacement colors.
+- On workspace routes the app shell (`UI/src/routes/[workspaceSlug]/+layout.svelte`)
+  is one viewport tall and clips: neither the document nor the shell's own region
+  scrolls. A page fills that region exactly (`h-full min-h-0`, no minimum height
+  that outgrows a short window) and scrolls inside (`min-h-0 flex-1 overflow-y-auto`).
+  Side-by-side columns may each scroll; a scroller never sits inside another, except
+  a small capped widget listed by test id in the spec. An absolutely positioned
+  element needs a `relative` ancestor inside the page, or the shell clips it.
+  [page-height.test.ts](../../../UI/tests/e2e/page-height.test.ts) loads every route
+  with heavy data; add new routes there.
 - Keep requests in [UI API modules](../../../UI/src/lib/api) using the shared
   [client](../../../UI/src/lib/api/client.ts). Inspect feature `.svelte.ts` state,
   refresh/realtime handling and API types before changing contracts.

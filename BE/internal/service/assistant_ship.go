@@ -467,17 +467,38 @@ func (s *AssistantApprovals) shipMergeStep(ctx context.Context, chain *shipChain
 	if err != nil {
 		return "", "", err
 	}
+	merged := merge.Commit
+	if merge.Wait != nil {
+		merged = merge.Wait.Head
+	}
 	if status.State != "merged" {
 		deadline := s.ships.now().Add(s.ships.timing.tests)
 		for {
-			_, hold, err := s.mergeApproved(ctx, chain.ws, chain.approval.ActorID, chain.approval.IssueID, merge)
+			var before domain.MergeWait
+			if merge.Wait != nil {
+				before = *merge.Wait
+			}
+			_, hold, wait, err := s.mergeApproved(ctx, chain.ws, chain.approval.ActorID, chain.approval.IssueID, merge)
 			if err != nil {
 				return "", "", err
 			}
 			if hold.reason == "" {
+				merged = wait.Head
 				break
 			}
-			if !hold.pending || !s.ships.now().Before(deadline) {
+			// A branch Kuayle brought up to date merges once the new head's
+			// checks pass, as merge_pull_request's wait does (KUA-207). The
+			// wait is saved whenever its head changes, so a resumed chain
+			// merges the same head.
+			if hold.updated || (merge.Wait != nil && (wait.Head != before.Head || wait.Updating != before.Updating)) {
+				wait.Waiting = truncateRunes(hold.reason, 600)
+				merge.Wait = wait
+				chain.payload.Merge = merge
+				if err := chain.save(chain.payload); err != nil {
+					return "", "", err
+				}
+			}
+			if !hold.waits(wait) || !s.ships.now().Before(deadline) {
 				return "", hold.reason, nil
 			}
 			if err := s.ships.sleep(ctx, s.ships.timing.poll); err != nil {
@@ -488,8 +509,8 @@ func (s *AssistantApprovals) shipMergeStep(ctx context.Context, chain *shipChain
 			return "", "", err
 		}
 	}
-	if status.State != "merged" || status.HeadSHA != merge.Commit {
-		return "", fmt.Sprintf("Pull request #%d was merged at %s, not at the approved %s", merge.PullRequest, shortSHA(status.HeadSHA), shortSHA(merge.Commit)), nil
+	if status.State != "merged" || status.HeadSHA != merged {
+		return "", fmt.Sprintf("Pull request #%d was merged at %s, not at the approved %s", merge.PullRequest, shortSHA(status.HeadSHA), shortSHA(merged)), nil
 	}
 	if status.MergeCommit == "" {
 		return "", "", errors.New("GitHub has not reported the merge commit yet")

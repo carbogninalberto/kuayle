@@ -295,6 +295,95 @@ func TestMergeApprovalMergesOnlyTheReviewedCommitAfterApproval(t *testing.T) {
 	require.ErrorContains(t, err, "no pull request of this issue is awaiting review")
 }
 
+// KUA-207 (incident on PR #276): approving the merge of a branch one commit
+// behind its base brings it up to date and leaves the approval waiting, not
+// failed. The poller merges the updated head once its checks pass, as the
+// approver, and tells them.
+func TestMergeApprovalWaitsForTheUpdatedBranchAndMergesIt(t *testing.T) {
+	f := newToolFixture(t)
+	a, delegation, _ := requestDelegation(t, f)
+	started, err := f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, delegation.ID, true)
+	require.NoError(t, err)
+	work := &mergeWorkFake{target: &repository.MergeTarget{TaskID: *started.TaskID, IssueID: delegation.IssueID, CreatorID: f.user, Repository: "acme/app", Number: 276, URL: "https://github.com/acme/app/pull/276", Commit: "abc"}}
+	merger := &mergerFake{}
+	pulls := &prGitHub{method: "squash", status: PullRequestStatus{State: "open", HeadSHA: "abc", BaseRef: "main", MergeBase: "base1", Behind: 1, MergeableState: "behind"}, checksHead: "abc"}
+	verifiedUpdate(pulls, "abc", "def", "base2")
+	update := pulls.onUpdate
+	pulls.onUpdate = func() {
+		update()
+		pulls.checks = []PullRequestCheck{{Name: "Tests", State: "pending"}}
+	}
+	notifications, events := &notificationsFake{}, &userEventsFake{}
+	f.service.tools.SetAgentWork(work)
+	f.service.approvals.SetMerging(work, repository.NewWorkspaceRepository(f.db), merger)
+	f.service.approvals.SetPullRequests(pulls, &prTargets{})
+	f.service.approvals.SetNotifications(notifications, events)
+	b := f.attempt(t, "Merge it")
+	provider, _ := scriptedProvider(t, toolCallStream("merge_pull_request", `{"identifier":"eng-1"}`), finalAnswer)
+	require.NoError(t, f.service.converse(f.ctx, b, provider.URL, "key", []chatCompletionMessage{{Role: "user", Content: "Merge it"}}, func(string) error { return nil }))
+	h, err := f.repo.History(f.ctx, f.ws, b.Conversation.ID, 0)
+	require.NoError(t, err)
+	require.Len(t, h.Approvals, 1)
+	approval := h.Approvals[0]
+
+	waiting, err := f.service.ResolveApproval(f.ctx, f.ws, b.Conversation.ID, approval.ID, true)
+	require.NoError(t, err)
+	require.Equal(t, domain.ApprovalWaitingChecks, waiting.Status, "the approved merge waits, it does not fail")
+	require.Nil(t, waiting.Error)
+	require.Nil(t, waiting.ResolvedAt)
+	require.NotNil(t, waiting.NextCheckAt)
+	var payload domain.MergePayload
+	require.NoError(t, json.Unmarshal(waiting.Payload, &payload))
+	require.Equal(t, "abc", payload.Wait.Approved)
+	require.Equal(t, "def", payload.Wait.Head)
+	require.Equal(t, 1, payload.Wait.Updates)
+	require.Contains(t, payload.Wait.Waiting, "merges it once the checks on the new head pass")
+	require.Empty(t, merger.merged)
+
+	again, err := f.service.ResolveApproval(f.ctx, f.ws, b.Conversation.ID, approval.ID, true)
+	require.NoError(t, err)
+	require.Equal(t, domain.ApprovalWaitingChecks, again.Status, "approving again changes nothing")
+	_, err = f.service.ResolveApproval(f.ctx, f.ws, b.Conversation.ID, approval.ID, false)
+	require.ErrorIs(t, err, repository.ErrConversationConflict, "an approved merge cannot be denied")
+
+	due := func() {
+		t.Helper()
+		_, err := f.db.Exec(`UPDATE conversation_approvals SET next_check_at=now()-interval '1 second' WHERE id=$1`, approval.ID)
+		require.NoError(t, err)
+	}
+	ctx := context.Background()
+	require.Zero(t, f.service.approvals.ContinueMergeWaits(ctx), "a wait is read again only when due")
+	due()
+	require.Equal(t, 1, f.service.approvals.ContinueMergeWaits(ctx))
+	require.Zero(t, f.service.approvals.ContinueMergeWaits(ctx), "the next check is a minute away, never at once")
+	state, data, err := f.repo.ApprovalState(ctx, approval.ID)
+	require.NoError(t, err)
+	require.Equal(t, domain.ApprovalWaitingChecks, state)
+	require.NoError(t, json.Unmarshal(data, &payload))
+	require.Contains(t, payload.Wait.Waiting, "still running on def")
+	require.Empty(t, merger.merged)
+
+	pulls.checks = passingChecks
+	due()
+	require.Equal(t, 1, f.service.approvals.ContinueMergeWaits(ctx))
+	require.Equal(t, []string{"acme/app#276@def"}, merger.merged, "the verified update is what merges")
+	h, err = f.repo.History(f.ctx, f.ws, b.Conversation.ID, 0)
+	require.NoError(t, err)
+	require.Equal(t, "approved", h.Approvals[0].Status)
+	require.Equal(t, *started.TaskID, *h.Approvals[0].TaskID)
+	require.Nil(t, h.Approvals[0].NextCheckAt)
+	require.Len(t, notifications.created, 2, "the request, then the result")
+	finished := notifications.created[1]
+	require.Equal(t, notificationApprovalFinished, finished.kind)
+	require.Equal(t, "Merged pull request #276 of ENG-1", finished.title)
+	require.Equal(t, approval.ConversationID.String(), events.events[1].payload["conversation_id"])
+	require.Equal(t, "approved", events.events[1].payload["status"])
+	var resolved int
+	require.NoError(t, f.db.Get(&resolved, `SELECT count(*) FROM conversation_events WHERE conversation_id=$1 AND type='approval.resolved'`, b.Conversation.ID))
+	require.Equal(t, 1, resolved, "the card in the conversation shows the result")
+	require.Zero(t, f.service.approvals.ContinueMergeWaits(ctx))
+}
+
 type acceptorFake struct {
 	err      error
 	accepted []string

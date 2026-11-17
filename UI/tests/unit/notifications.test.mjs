@@ -134,6 +134,21 @@ test('an approval asked by the conversation on screen is quiet', () => {
 	assert.equal(decide({ payload: { type: 'assigned', conversation_id: 'c1' }, subjectOnScreen: true }).playSound, true);
 });
 
+// KUA-207: a merge that waited for its checks reports its result through the
+// approval notifications: same preference, same conversation, its own label.
+test('a finished approval is announced like an approval and opens its conversation', () => {
+	const payload = { type: 'approval_finished', approval_id: 'a1', conversation_id: 'c1', issue_id: 'i1', issue_identifier: 'KUA-7' };
+	assert.equal(eventKeyForType('approval_finished'), 'approval_requested');
+	assert.equal(notificationSubject(payload), 'conversation:c1');
+	assert.equal(notificationTypeMessageKey('approval_finished'), 'notify.title.approval_finished');
+	assert.equal(notificationUrl('acme', payload), '/acme/assistant?conversation=c1');
+	assert.deepEqual(decide({ payload, subjectOnScreen: true }), {
+		showBrowser: false,
+		playSound: false,
+		eventKey: 'approval_requested'
+	});
+});
+
 test('only an approval asked in a conversation has an on-screen subject', () => {
 	assert.equal(notificationSubject({ type: 'approval_requested', conversation_id: 'c1' }), 'conversation:c1');
 	assert.equal(
