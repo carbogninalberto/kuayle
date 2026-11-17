@@ -296,6 +296,12 @@ for sudo and holds none of the developer container's secrets (see
 [App ports](#app-ports)), and only when the task's creator asks, never when a
 task reaches review.
 
+Assistant command runs (`run_command`, `run_command_write`) use that same
+locked container configuration, so a machine's sudo setting never applies to
+them. Packages installed with sudo in the terminal stay in that container and
+do not reach command runs; bake them into a Development Environment instead
+(see [system packages](BE/docs/conversations.md#system-packages)).
+
 **Upgrading CLIs without sudo.** Both developer images point npm's global
 config at `/etc/npmrc` (`NPM_CONFIG_GLOBALCONFIG`), which sets
 `prefix=/workspace/.kuayle/npm-global` and lets Claude Code's install script
@@ -1846,6 +1852,9 @@ minutes after creation. The workspace allows `max_temporary_machines` of them
 (default 2, 0 turns them off) and one per user. The terminal capability matrix
 and the details are in
 [commands and temporary machines](BE/docs/conversations.md#commands-and-temporary-machines).
+Commands never install system packages (KUA-180); those come from the
+machine's Development Environment image, see
+[system packages](BE/docs/conversations.md#system-packages).
 Release tools read a linked repository's releases (`list_releases`,
 `get_release`), draft the next notes from the pull requests merged since the
 latest release in the workspace's editable "Release notes style" skill
