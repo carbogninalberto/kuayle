@@ -1,7 +1,7 @@
 // Comment types aligned with kuayle API.
 // 与 kuayle API 对齐的评论类型。
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use super::issue::IssueUser;
@@ -33,9 +33,9 @@ pub struct CommentResponse {
     /// null if not resolved, timestamp if resolved.
     /// 未解决时为 null，已解决时为时间戳。
     #[serde(default)]
-    pub resolved_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub resolved_at: Option<Timestamp>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 impl CommentResponse {

@@ -1,7 +1,7 @@
 // Member types aligned with kuayle API.
 // 与 kuayle API 对齐的成员类型。
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// A kuayle workspace member, returned by `GET /api/workspaces/:slug/members`.
@@ -30,7 +30,7 @@ pub struct MemberResponse {
     pub role: Option<String>,
 
     #[serde(default)]
-    pub created_at: Option<DateTime<Utc>>,
+    pub created_at: Option<Timestamp>,
 }
 
 /// Request body for adding a member to a workspace.

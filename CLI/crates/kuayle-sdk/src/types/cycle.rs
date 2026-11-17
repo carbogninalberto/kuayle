@@ -1,7 +1,7 @@
 // Cycle types aligned with kuayle API.
 // 与 kuayle API 对齐的周期类型。
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use super::common::ProgressInfo;
@@ -73,13 +73,13 @@ pub struct CycleResponse {
     pub end_date: Option<String>,
 
     #[serde(default)]
-    pub completed_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<Timestamp>,
 
     #[serde(default)]
     pub progress: Option<ProgressInfo>,
 
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 /// Request body for creating a cycle.

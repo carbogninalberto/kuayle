@@ -1,7 +1,7 @@
 // Workspace types aligned with kuayle API.
 // 与 kuayle API 对齐的工作区类型。
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use super::user::UserSummary;
@@ -41,8 +41,8 @@ pub struct WorkspaceResponse {
     pub owner: UserSummary,
     pub share_link_min_role: String,
     pub current_user_role: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 #[cfg(test)]

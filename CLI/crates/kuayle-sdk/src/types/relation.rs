@@ -1,7 +1,7 @@
 // Relation types aligned with kuayle API.
 // 与 kuayle API 对齐的关系类型。
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// A relation between two issues (e.g. blocks, related, duplicates).
@@ -13,7 +13,7 @@ pub struct RelationResponse {
     pub related_issue_id: String,
     #[serde(rename = "type")]
     pub relation_type: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// Request body for creating a relation.
