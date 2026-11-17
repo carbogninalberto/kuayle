@@ -5,7 +5,7 @@ export default defineConfig({
 	forbidOnly: !!process.env.CI,
 	retries: 0,
 	workers: process.env.CI ? 2 : undefined,
-	reporter: process.env.CI ? [['dot'], ['html', { open: 'never' }]] : 'list',
+	reporter: process.env.CI ? [['dot'], ['github'], ['html', { open: 'never' }]] : 'list',
 	webServer: {
 		// PLAYWRIGHT_PORT lets parallel worktrees run browser tests side by side.
 		command: `npm run build && npm run preview -- --port ${process.env.PLAYWRIGHT_PORT ?? 4174}`,
