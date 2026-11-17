@@ -56,6 +56,7 @@ type appHandlers struct {
 	config            *handler.ConfigHandler
 	inviteLink        *handler.InviteLinkHandler
 	workspaceTransfer *handler.WorkspaceTransferHandler
+	importJob         *handler.ImportJobHandler
 	health            *handler.HealthHandler
 	auth              *handler.AuthHandler
 	passkey           *handler.PasskeyHandler
@@ -232,6 +233,19 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodGet, "/members", h.workspace.ListMembers, "members:read")
 	scoped(ws, http.MethodPatch, "/members/:userId", h.workspace.UpdateMemberRole, "member:invite")
 	scoped(ws, http.MethodDelete, "/members/:userId", h.workspace.RemoveMember, "member:invite")
+
+	// Foreign imports are interactive and admin-only. A personal access token
+	// must never be able to read or use stored tracker credentials, and an SSO
+	// session scoped to another workspace must not import here.
+	sessionOnly(ws, http.MethodGet, "/imports", h.importJob.List, mw.RequireWorkspaceAdmin(), mw.RejectSSOScopedSession())
+	sessionOnly(ws, http.MethodPost, "/imports", h.importJob.Create, mw.RequireWorkspaceAdmin(), mw.RejectSSOScopedSession())
+	sessionOnly(ws, http.MethodGet, "/imports/:id", h.importJob.Get, mw.RequireWorkspaceAdmin(), mw.RejectSSOScopedSession())
+	sessionOnly(ws, http.MethodPut, "/imports/:id/mapping", h.importJob.UpdateMapping, mw.RequireWorkspaceAdmin(), mw.RejectSSOScopedSession())
+	sessionOnly(ws, http.MethodPost, "/imports/:id/preview", h.importJob.Preview, mw.RequireWorkspaceAdmin(), mw.RejectSSOScopedSession())
+	sessionOnly(ws, http.MethodPost, "/imports/:id/start", h.importJob.Start, mw.RequireWorkspaceAdmin(), mw.RejectSSOScopedSession())
+	sessionOnly(ws, http.MethodPost, "/imports/:id/cancel", h.importJob.Cancel, mw.RequireWorkspaceAdmin(), mw.RejectSSOScopedSession())
+	sessionOnly(ws, http.MethodGet, "/imports/:id/items", h.importJob.ListItems, mw.RequireWorkspaceAdmin(), mw.RejectSSOScopedSession())
+	sessionOnly(ws, http.MethodGet, "/imports/:id/options", h.importJob.Options, mw.RequireWorkspaceAdmin(), mw.RejectSSOScopedSession())
 
 	// SSO configuration is interactive-only: a leaked personal access token
 	// must never be able to point a workspace at an identity provider.

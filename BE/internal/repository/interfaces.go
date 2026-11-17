@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -405,5 +406,32 @@ type BackupRepo interface {
 	MarkStaleRunning(ctx context.Context, before time.Time) (int64, error)
 	NotificationTarget(ctx context.Context, userID uuid.UUID) (workspaceID, teamID uuid.UUID, ok bool, err error)
 }
+
+// ImportRepo stores import jobs, their per-item report and the stable
+// external-id map. User-facing methods are workspace scoped; worker methods
+// operate on a job that has already been claimed.
+type ImportRepo interface {
+	Create(ctx context.Context, job *domain.ImportJob) error
+	Get(ctx context.Context, workspaceID, id uuid.UUID) (*domain.ImportJob, error)
+	List(ctx context.Context, workspaceID uuid.UUID, limit, offset int) ([]domain.ImportJob, error)
+	UpdateMapping(ctx context.Context, workspaceID, id uuid.UUID, mapping json.RawMessage) error
+	SetPreview(ctx context.Context, workspaceID, id uuid.UUID, preview json.RawMessage) error
+	Start(ctx context.Context, workspaceID, id uuid.UUID, total int) error
+	ClaimNext(ctx context.Context) (*domain.ImportJob, error)
+	IncrementCounters(ctx context.Context, jobID uuid.UUID, delta ImportCounterDelta) error
+	AddItem(ctx context.Context, item *domain.ImportJobItem) error
+	ListItems(ctx context.Context, workspaceID, jobID uuid.UUID, limit, offset int) ([]domain.ImportJobItem, error)
+	Finish(ctx context.Context, jobID uuid.UUID, status string, jobError *string) error
+	WipeCredentials(ctx context.Context, jobID uuid.UUID) error
+	RequestCancel(ctx context.Context, workspaceID, id uuid.UUID) error
+	IsCancelRequested(ctx context.Context, jobID uuid.UUID) (bool, error)
+	FailStaleRunning(ctx context.Context, before time.Time) (int64, error)
+	GetRef(ctx context.Context, workspaceID uuid.UUID, source, site, extType, extID string) (*domain.ImportExternalRef, error)
+	UpsertRef(ctx context.Context, tx *sqlx.Tx, ref *domain.ImportExternalRef) error
+	SetIssueTimestamps(ctx context.Context, tx *sqlx.Tx, workspaceID, issueID uuid.UUID, createdAt, updatedAt time.Time) error
+	SetCommentTimestamps(ctx context.Context, tx *sqlx.Tx, workspaceID, commentID uuid.UUID, createdAt, updatedAt time.Time) error
+}
+
+var _ ImportRepo = (*ImportJobRepository)(nil)
 
 var _ BackupRepo = (*BackupRepository)(nil)

@@ -27,7 +27,7 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/storage"
 )
 
-const maxUploadSize = 10 * 1024 * 1024
+const maxUploadSize = domain.MaxUploadSize
 
 type UploadHandler struct {
 	store       storage.Backend
@@ -183,22 +183,7 @@ func (h *UploadHandler) PublicAsset(c *echo.Context) error {
 }
 
 func allowedUploadType(detectedType, ext string) (string, bool) {
-	if detectedType == "text/plain" {
-		switch ext {
-		case ".csv":
-			detectedType = "text/csv"
-		case ".md", ".markdown":
-			detectedType = "text/markdown"
-		}
-	}
-	extensions, ok := domain.AssetContentTypeExtensions[detectedType]
-	if !ok {
-		return "", false
-	}
-	if ext != "" && !extensions[ext] {
-		return "", false
-	}
-	return detectedType, true
+	return domain.AllowedUploadType(detectedType, ext)
 }
 
 func (h *UploadHandler) setAssetDisposition(c *echo.Context, asset *domain.Asset) {

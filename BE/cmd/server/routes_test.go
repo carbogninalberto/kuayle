@@ -104,6 +104,15 @@ func TestRegisteredRoutesRejectPATOutsideBoundaries(t *testing.T) {
 		{"POST", "/api/invite/example/accept", []string{"member:invite"}, false},
 		{"POST", "/api/workspaces/import", []string{"workspace:transfer"}, false},
 		{"POST", "/api/workspaces/import/preview", []string{"workspace:transfer"}, false},
+		{"GET", "/api/workspaces/acme/imports", []string{"workspaces:read"}, false},
+		{"POST", "/api/workspaces/acme/imports", []string{"workspaces:read"}, false},
+		{"GET", "/api/workspaces/acme/imports/id", []string{"workspaces:read"}, false},
+		{"PUT", "/api/workspaces/acme/imports/id/mapping", []string{"workspaces:read"}, false},
+		{"POST", "/api/workspaces/acme/imports/id/preview", []string{"workspaces:read"}, false},
+		{"POST", "/api/workspaces/acme/imports/id/start", []string{"workspaces:read"}, false},
+		{"POST", "/api/workspaces/acme/imports/id/cancel", []string{"workspaces:read"}, false},
+		{"GET", "/api/workspaces/acme/imports/id/items", []string{"workspaces:read"}, false},
+		{"GET", "/api/workspaces/acme/imports/id/options", []string{"workspaces:read"}, false},
 		{"GET", "/api/workspaces/acme/export", []string{"workspaces:read"}, false},
 		{"POST", "/api/workspaces/acme/invite-links", []string{"members:read"}, false},
 		{"GET", "/api/workspaces/acme/invite-links", []string{"members:read"}, false},
@@ -163,6 +172,39 @@ func TestCycleWritesRejectGuestSessions(t *testing.T) {
 			e.ServeHTTP(recorder, httptest.NewRequest(target.method, "/api/workspaces/example"+target.path, nil))
 			require.Equal(t, http.StatusForbidden, recorder.Code)
 		})
+	}
+}
+
+// Foreign imports handle tracker credentials and write into existing teams,
+// so only owner/admin interactive sessions may reach any import route.
+func TestImportRoutesRequireWorkspaceAdmin(t *testing.T) {
+	targets := []struct{ method, path string }{
+		{http.MethodGet, "/imports"},
+		{http.MethodPost, "/imports"},
+		{http.MethodGet, "/imports/id"},
+		{http.MethodPut, "/imports/id/mapping"},
+		{http.MethodPost, "/imports/id/preview"},
+		{http.MethodPost, "/imports/id/start"},
+		{http.MethodPost, "/imports/id/cancel"},
+		{http.MethodGet, "/imports/id/items"},
+		{http.MethodGet, "/imports/id/options"},
+	}
+	for _, role := range []string{domain.RoleMember, domain.RoleGuest} {
+		for _, target := range targets {
+			t.Run(role+" "+target.method+target.path, func(t *testing.T) {
+				e := echo.New()
+				auth := func(next echo.HandlerFunc) echo.HandlerFunc {
+					return func(c *echo.Context) error {
+						c.Set("workspace_role", role)
+						return next(c)
+					}
+				}
+				registerRoutes(e, &appHandlers{}, testMiddleware(auth))
+				rec := httptest.NewRecorder()
+				e.ServeHTTP(rec, httptest.NewRequest(target.method, "/api/workspaces/acme"+target.path, nil))
+				require.Equal(t, http.StatusForbidden, rec.Code)
+			})
+		}
 	}
 }
 

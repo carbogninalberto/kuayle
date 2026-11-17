@@ -6,6 +6,31 @@ import (
 	"github.com/google/uuid"
 )
 
+// MaxUploadSize is the shared 10 MiB limit for assets, used by both the upload
+// handler and the import worker so they enforce the same rule.
+const MaxUploadSize = 10 * 1024 * 1024
+
+// AllowedUploadType resolves a detected MIME type and extension to a stored
+// content type, or rejects it when the type/extension pair is not accepted.
+func AllowedUploadType(detectedType, ext string) (string, bool) {
+	if detectedType == "text/plain" {
+		switch ext {
+		case ".csv":
+			detectedType = "text/csv"
+		case ".md", ".markdown":
+			detectedType = "text/markdown"
+		}
+	}
+	extensions, ok := AssetContentTypeExtensions[detectedType]
+	if !ok {
+		return "", false
+	}
+	if ext != "" && !extensions[ext] {
+		return "", false
+	}
+	return detectedType, true
+}
+
 type Asset struct {
 	ID          uuid.UUID  `json:"id" db:"id"`
 	WorkspaceID uuid.UUID  `json:"workspace_id" db:"workspace_id"`

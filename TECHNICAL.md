@@ -1670,6 +1670,52 @@ the composite ownership foreign keys and null-dependency checks remain enforced.
 Deleting only a service retains the machine/workspace audit context. Rolling back
 removes the triggers but cannot restore references to parents already deleted.
 
+## Foreign imports (KUA-100, Jira deliverable)
+
+Workspace admins can import issues from an external tracker into an existing
+workspace. This is distinct from workspace transfer, which builds a *new*
+workspace from a `.kuayle.zip`. Only Jira ships in this deliverable; Linear,
+GitHub Issues and CSV are future sources and share the framework.
+
+Migration `000173_imports` adds three tables:
+
+- `import_jobs` stores the source, site, opaque config/mapping/preview JSON,
+  encrypted credentials, progress counters and status (`draft`, `previewed`,
+  `queued`, `running`, `completed`, `failed`, `cancelled`).
+- `import_job_items` is the per-item report: one row per skipped or failed
+  source item with its external id and reason.
+- `import_external_refs` maps `(workspace, source, site, external type, external
+  id)` to the Kuayle entity and a content hash. The unique key is what makes a
+  re-run update or skip instead of duplicating; the original Jira key and URL
+  are kept here and as a reference line in the issue description, while Kuayle
+  numbering remains its own (`IssueRepo.NextNumber`).
+
+`ImportService` creates a draft job, previews it without writing anything
+outside `import_jobs`, validates and stores the mapping, then queues the job.
+`ImportService.Run` is a polling worker like the backup scheduler: it recovers
+interrupted jobs, claims queued jobs with `FOR UPDATE SKIP LOCKED`, and writes
+labels, sprint cycles, epic projects, issues, sub-issues, comments (including a
+history summary), attachments and relations. Each issue is created in a short
+transaction; comments and attachments have their own refs so re-runs never
+duplicate them. Skipped or failed items are reported and do not fail the job.
+
+Credentials are encrypted with `crypto.Encrypt` under a key derived from
+`JWT_SECRET` (`:import`) and written to `credentials_enc`. They are cleared in
+the same statement that sets a terminal status, again in a worker `defer` on
+every exit path, and again when stale running jobs are recovered at startup.
+Responses never contain them. All import routes are session-only and require
+the workspace owner/admin role; personal access tokens and SSO-scoped sessions
+are rejected by middleware. Outbound requests dial only public addresses
+unless `IMPORT_ALLOW_PRIVATE_NETWORK` is enabled for a LAN Jira Server/DC, and
+redirects are not followed. Attachments use the shared `domain.MaxUploadSize`
+(10 MiB) and the upload handler's type validation; oversized files are skipped
+and reported.
+
+The UI for this step lives in `UI/src/routes/[workspaceSlug]/settings/import`:
+the prerendered `WEB/` app is the marketing site, while admin settings pages
+belong to the SvelteKit application. The mapping, progress and error-report
+screens use the installed shadcn-svelte primitives.
+
 ## Soft delete and undo
 
 Issues and wiki pages are soft-deleted (migrations `000165_issue_soft_delete_undo`

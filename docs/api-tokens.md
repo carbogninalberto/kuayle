@@ -368,6 +368,15 @@ authentication.
 | GET | `/api/workspaces/:slug/github/setup` | token | workspace:manage |
 | GET | `/api/workspaces/:slug/github/setup/callback` | token | workspace:manage |
 | GET | `/api/workspaces/:slug/github/status` | session only | GitHub integration state is managed from the settings pages. |
+| GET | `/api/workspaces/:slug/imports` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
+| POST | `/api/workspaces/:slug/imports` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
+| GET | `/api/workspaces/:slug/imports/:id` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
+| POST | `/api/workspaces/:slug/imports/:id/cancel` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
+| GET | `/api/workspaces/:slug/imports/:id/items` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
+| PUT | `/api/workspaces/:slug/imports/:id/mapping` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
+| GET | `/api/workspaces/:slug/imports/:id/options` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
+| POST | `/api/workspaces/:slug/imports/:id/preview` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
+| POST | `/api/workspaces/:slug/imports/:id/start` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
 | POST | `/api/workspaces/:slug/invite` | token | member:invite |
 | GET | `/api/workspaces/:slug/invite-links` | token | member:invite |
 | POST | `/api/workspaces/:slug/invite-links` | token | member:invite |
