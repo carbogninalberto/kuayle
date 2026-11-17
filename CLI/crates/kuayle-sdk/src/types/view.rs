@@ -1,7 +1,7 @@
 // View types aligned with kuayle API.
 // 与 kuayle API 对齐的视图类型。
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -37,8 +37,8 @@ pub struct ViewResponse {
     #[serde(default)]
     pub team_id: Option<String>,
 
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 /// Request body for creating a view.

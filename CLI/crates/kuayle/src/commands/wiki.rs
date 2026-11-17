@@ -105,7 +105,7 @@ fn print_page(page: &WikiPage, is_json: bool) {
     }
     println!(
         "Updated:  {}{}",
-        s.updated_at.format("%Y-%m-%d %H:%M UTC"),
+        s.updated_at.strftime("%Y-%m-%d %H:%M UTC"),
         s.updated_by_name
             .as_ref()
             .map(|n| format!(" by {n}"))
@@ -136,7 +136,7 @@ pub async fn handle(action: &WikiAction, cli: &Cli) {
                         p.id.clone(),
                         p.title.clone(),
                         p.version.to_string(),
-                        p.updated_at.format("%Y-%m-%d").to_string(),
+                        p.updated_at.strftime("%Y-%m-%d").to_string(),
                     ]
                 },
             );
@@ -303,7 +303,7 @@ pub async fn handle(action: &WikiAction, cli: &Cli) {
                 |r| {
                     vec![
                         r.version.to_string(),
-                        r.updated_at.format("%Y-%m-%d %H:%M").to_string(),
+                        r.updated_at.strftime("%Y-%m-%d %H:%M").to_string(),
                         r.edited_by_name.clone().unwrap_or_else(|| "-".into()),
                         r.new_title.clone(),
                     ]

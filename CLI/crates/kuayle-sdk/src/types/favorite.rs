@@ -1,7 +1,7 @@
 // Favorite types aligned with kuayle API.
 // 与 kuayle API 对齐的收藏类型。
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// A kuayle favorite, returned by `GET /api/favorites`.
@@ -25,7 +25,7 @@ pub struct FavoriteResponse {
     pub favoritable_id: String,
 
     #[serde(default)]
-    pub created_at: Option<DateTime<Utc>>,
+    pub created_at: Option<Timestamp>,
 }
 
 /// Request body for creating a favorite.

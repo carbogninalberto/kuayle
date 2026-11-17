@@ -1,6 +1,6 @@
 // Wiki and registry types, mirroring BE/internal/dto/wiki.go and wiki_tree.go.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// A page as listed: everything but the content.
@@ -15,8 +15,8 @@ pub struct WikiPageSummary {
     pub updated_by_name: Option<String>,
     /// The UTC day (YYYY-MM-DD) a registry page logs; None for documents.
     pub registry_date: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 /// A full page. `content` is sanitized editor HTML.
@@ -69,8 +69,8 @@ pub struct WikiRevision {
     pub new_content: String,
     pub edited_by: Option<String>,
     pub edited_by_name: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 /// One page's place in the wiki tree.
@@ -105,7 +105,7 @@ pub struct RegistryDay {
     pub title: String,
     pub content: String,
     pub version: i64,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -122,7 +122,7 @@ pub struct RegistryOverview {
     pub period_start: String,
     pub period_end: String,
     pub content: String,
-    pub generated_at: DateTime<Utc>,
+    pub generated_at: Timestamp,
     pub generated_by_name: Option<String>,
     pub trigger: String,
 }
@@ -147,8 +147,8 @@ pub struct WikiSettings {
     pub registry_enabled: bool,
     pub overview_schedule: serde_json::Value,
     pub overview_timezone: String,
-    pub overview_next_run_at: Option<DateTime<Utc>>,
-    pub overview_last_run_at: Option<DateTime<Utc>>,
+    pub overview_next_run_at: Option<Timestamp>,
+    pub overview_last_run_at: Option<Timestamp>,
     pub overview_last_error: Option<String>,
 }
 

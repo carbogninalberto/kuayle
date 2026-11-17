@@ -1,7 +1,7 @@
 // Label types aligned with kuayle `/api/workspaces/:slug/labels`.
 // 与 kuayle `/api/workspaces/:slug/labels` 对齐的标签类型。
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// A kuayle label, workspace-scoped with optional parent hierarchy.
@@ -26,8 +26,8 @@ pub struct LabelResponse {
     pub color: Option<String>,
     pub description: Option<String>,
     pub parent_id: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 /// Request body for creating a label.
