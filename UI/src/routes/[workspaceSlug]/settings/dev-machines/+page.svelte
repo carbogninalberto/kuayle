@@ -5,6 +5,8 @@
 	import PreviewSettingField from '$lib/features/dev-machines/PreviewSettingField.svelte';
 	import { previewSettingPayload } from '$lib/features/dev-machines/preview-setting';
 	import AgentDefaultsField from '$lib/features/dev-machines/AgentDefaultsField.svelte';
+	import PullRequestTemplateField from '$lib/features/dev-machines/PullRequestTemplateField.svelte';
+	import { pullRequestTemplatePayload, pullRequestTemplateValue } from '$lib/features/dev-machines/pull-request-template';
 	import AutomationsCard from '$lib/features/dev-machines/AutomationsCard.svelte';
 	import MergeMethodsCard from '$lib/features/dev-machines/MergeMethodsCard.svelte';
 	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
@@ -89,6 +91,7 @@
 	let defaultTestCommand = $state('');
 	let defaultAgentProvider = $state('inherit');
 	let defaultAgentInstructions = $state('');
+	let defaultPullRequestTemplate = $state('');
 	let defaultComposeFile = $state('');
 	let defaultPreviewCommand = $state('');
 	let defaultPreviewPort = $state('');
@@ -163,7 +166,7 @@
 			environments = availableEnvironments ?? [];
 			defaultRepositoryId = scope.github_repo_id ?? 'none';
 			defaultEnvironmentId = scope.environment_id ?? 'standard';
-			defaultTestCommand = formatTestCommand(scope.test_command); defaultAgentProvider = scope.agent_provider ?? 'inherit'; defaultAgentInstructions = scope.agent_instructions ?? ''; defaultComposeFile = scope.compose_file ?? ''; defaultPreviewCommand = scope.preview_command ? JSON.stringify(scope.preview_command) : ''; defaultPreviewPort = scope.preview_port ? String(scope.preview_port) : '';
+			defaultTestCommand = formatTestCommand(scope.test_command); defaultAgentProvider = scope.agent_provider ?? 'inherit'; defaultAgentInstructions = scope.agent_instructions ?? ''; defaultPullRequestTemplate = pullRequestTemplateValue(scope.pull_request_template, false); defaultComposeFile = scope.compose_file ?? ''; defaultPreviewCommand = scope.preview_command ? JSON.stringify(scope.preview_command) : ''; defaultPreviewPort = scope.preview_port ? String(scope.preview_port) : '';
 		} catch (error) {
 			failed = true;
 			appToast.apiError(error, m['settings.dev_machines.failed_load']());
@@ -184,6 +187,7 @@
 		);
 		try {
 			const command = parseTestCommand(defaultTestCommand);
+			const template = pullRequestTemplatePayload(defaultPullRequestTemplate, false);
 			policy = await updateDevMachinePolicy(slug, {
 				enabled: policy.enabled,
 				max_concurrent_machines: policy.max_concurrent_machines,
@@ -204,7 +208,7 @@
 				task_machine_max_tasks: taskMachineMaxTasks
 			});
 			const repository = linkedRepositories.find((item) => item.id === defaultRepositoryId);
-			if (defaultRepositoryId === 'none' && defaultEnvironmentId === 'standard' && command === undefined && defaultAgentProvider === 'inherit' && !defaultAgentInstructions.trim() && !defaultComposeFile.trim() && !defaultPreviewCommand.trim()) {
+			if (defaultRepositoryId === 'none' && defaultEnvironmentId === 'standard' && command === undefined && defaultAgentProvider === 'inherit' && !defaultAgentInstructions.trim() && !template.pull_request_template && !defaultComposeFile.trim() && !defaultPreviewCommand.trim()) {
 				await deleteDevMachineScopeSetting(slug, 'workspace');
 			} else {
 				await updateDevMachineScopeSetting(slug, {
@@ -212,7 +216,7 @@
 					github_repo_id: repository?.id,
 					base_branch: repository?.default_branch,
 					environment_id: defaultEnvironmentId === 'standard' ? undefined : defaultEnvironmentId,
-					test_command: command, agent_provider: defaultAgentProvider === 'inherit' ? undefined : defaultAgentProvider, agent_instructions: defaultAgentInstructions.trim() || undefined, compose_file: defaultComposeFile.trim() || undefined, ...previewSettingPayload(defaultPreviewCommand, defaultPreviewPort)
+					test_command: command, agent_provider: defaultAgentProvider === 'inherit' ? undefined : defaultAgentProvider, agent_instructions: defaultAgentInstructions.trim() || undefined, compose_file: defaultComposeFile.trim() || undefined, ...previewSettingPayload(defaultPreviewCommand, defaultPreviewPort), ...template
 				});
 			}
 			appToast.success(m['settings.dev_machines.saved']());
@@ -338,7 +342,7 @@
 			<div class="grid gap-4 sm:grid-cols-2">
 				<div class="space-y-1"><Label>{m['settings.dev_machines.repo']()}</Label><Select.Root type="single" value={defaultRepositoryId} onValueChange={(value) => value && (defaultRepositoryId = value)}><Select.Trigger class="w-full">{linkedRepositories.find((item) => item.id === defaultRepositoryId)?.full_name ?? m['settings.dev_machines.no_default_repo']()}</Select.Trigger><Select.Content><Select.Item value="none" label={m['settings.dev_machines.no_default_repo']()}>{m['settings.dev_machines.no_default_repo']()}</Select.Item>{#each linkedRepositories as repository}<Select.Item value={repository.id} label={repository.full_name}>{repository.full_name}</Select.Item>{/each}</Select.Content></Select.Root></div>
 				<div class="space-y-1"><Label>{m['settings.dev_machines.env']()}</Label><Select.Root type="single" value={defaultEnvironmentId} onValueChange={(value) => value && (defaultEnvironmentId = value)}><Select.Trigger class="w-full">{readyEnvironments.find((item) => item.id === defaultEnvironmentId)?.name ?? m['settings.dev_machines.default_env']()}</Select.Trigger><Select.Content><Select.Item value="standard" label={m['settings.dev_machines.default_env']()}>{m['settings.dev_machines.default_env']()}</Select.Item>{#each readyEnvironments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}</Select.Content></Select.Root></div>
-				<div class="sm:col-span-2"><TestCommandField bind:value={defaultTestCommand} disabled={saving || !canAdmin} suggest={defaultRepositoryId === 'none' ? null : () => getDevMachineCheckSuggestion(slug, { repositoryId: defaultRepositoryId })} /></div><div class="sm:col-span-2"><ComposeFileField bind:value={defaultComposeFile} disabled={saving || !canAdmin} /></div><PreviewSettingField bind:command={defaultPreviewCommand} bind:port={defaultPreviewPort} disabled={saving || !canAdmin} /><AgentDefaultsField bind:provider={defaultAgentProvider} bind:instructions={defaultAgentInstructions} disabled={saving || !canAdmin} />
+				<div class="sm:col-span-2"><TestCommandField bind:value={defaultTestCommand} disabled={saving || !canAdmin} suggest={defaultRepositoryId === 'none' ? null : () => getDevMachineCheckSuggestion(slug, { repositoryId: defaultRepositoryId })} /></div><div class="sm:col-span-2"><ComposeFileField bind:value={defaultComposeFile} disabled={saving || !canAdmin} /></div><PreviewSettingField bind:command={defaultPreviewCommand} bind:port={defaultPreviewPort} disabled={saving || !canAdmin} /><AgentDefaultsField bind:provider={defaultAgentProvider} bind:instructions={defaultAgentInstructions} disabled={saving || !canAdmin} /><PullRequestTemplateField bind:value={defaultPullRequestTemplate} disabled={saving || !canAdmin} />
 			</div>
 		</section>
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">

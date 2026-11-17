@@ -2,9 +2,7 @@ package machine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -122,20 +120,21 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 			result = domain.AgentPublicationResult{Branch: checkout.WorkingBranch, Remains: true, PullRequestURL: safeURL}
 		}
 	} else if commit != "" {
-		body := publication.Bot.Signature(m.frontendURL) + publicationBody(publication, run)
+		// The bot's signature stays: it is the bot's name and picture, and
+		// GitHub shows the description as the bot's first comment.
+		content := m.pullRequestFiles(ctx, githubAPI, token, run, services, checkout, publication)
+		body := publication.Bot.Signature(m.frontendURL) + publicationBody(publication, content, m.frontendURL)
 		pullRequest, prErr := githubAPI.FindOpenPullRequest(token, owner, repository, checkout.WorkingBranch, checkout.BaseBranch)
 		if prErr == nil && pullRequest == nil {
 			// Without an independent check the change opens as a draft, so it
 			// cannot be merged before someone has looked at it.
 			pullRequest, prErr = githubAPI.CreatePullRequest(token, owner, repository, title, checkout.WorkingBranch, checkout.BaseBranch, body, !publicationValidated(publication))
 		} else if prErr == nil {
-			// A reused pull request describes this attempt, so an earlier
-			// not-validated warning does not outlive a passing check.
+			// A reused pull request describes this attempt.
 			prErr = githubAPI.UpdatePullRequestBody(token, owner, repository, pullRequest.Number, body)
 			// A draft opened by an unchecked attempt becomes mergeable once a
 			// later attempt passes. The reverse is not done: a ready pull
-			// request stays ready, and its description now carries the
-			// not-validated warning.
+			// request stays ready.
 			if prErr == nil && pullRequest.Draft && publicationValidated(publication) {
 				prErr = githubAPI.MarkPullRequestReadyForReview(token, pullRequest.NodeID)
 			}
@@ -152,79 +151,10 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	return m.store.CompletePublication(ctx, *op, result)
 }
 
-// publicationBody describes the change for human review from facts Kuayle
-// recorded: the issue, the changed files and commits, and the independent
-// check. Agent output is never included, except the agent's summary of the
-// tests it chose, fenced as unverified.
-func publicationBody(publication *domain.AgentPublication, run *domain.DevMachineAgentRun) string {
-	var body strings.Builder
-	if !publicationValidated(publication) {
-		body.WriteString("> [!WARNING]\n> **Not validated:** no check command is configured, so Kuayle did not test this change. Review it carefully, and add a check command in the development settings so future tasks are tested.\n\n")
-	}
-	fmt.Fprintf(&body, "Implements %s: %s\n", publication.IssueIdentifier, markdownLine(publication.IssueTitle))
-	var files, commits []string
-	_ = json.Unmarshal(run.ChangedFiles, &files)
-	_ = json.Unmarshal(run.Commits, &commits)
-	if len(files) > 0 {
-		body.WriteString("\n### Changes\n")
-		for i, file := range files {
-			if i == 50 {
-				fmt.Fprintf(&body, "- and %d more files\n", len(files)-50)
-				break
-			}
-			fmt.Fprintf(&body, "- `%s`\n", strings.ReplaceAll(markdownLine(file), "`", "'"))
-		}
-	}
-	if len(commits) > 0 {
-		short := make([]string, 0, len(commits))
-		for _, commit := range commits {
-			if len(commit) >= 7 {
-				short = append(short, "`"+commit[:7]+"`")
-			}
-		}
-		fmt.Fprintf(&body, "\nCommits: %s\n", strings.Join(short, ", "))
-	}
-	body.WriteString("\n### Verification\n")
-	if publicationValidated(publication) && publication.CheckSource == domain.CheckSourceAgent {
-		body.WriteString("No check command is configured, so Kuayle re-ran the tests the agent chose (in `.kuayle/validation.json`) independently on this branch in a clean container without credentials or databases:\n")
-		for _, command := range publication.CheckCommands {
-			fmt.Fprintf(&body, "- `%s` (agent-chosen): %s (exit code %d)\n", strings.ReplaceAll(markdownLine(strings.Join(command.Argv, " ")), "`", "'"), map[bool]string{true: "passed", false: "failed"}[command.ExitCode == 0], command.ExitCode)
-		}
-		if summary := strings.TrimSpace(publication.AgentSummary); summary != "" {
-			// The agent's own account: fenced, unable to mention anyone or
-			// close the fence.
-			summary = strings.ReplaceAll(strings.ReplaceAll(truncateText(summary, 2000*4), "~~~", "~ ~ ~"), "@", "@\u200b")
-			fmt.Fprintf(&body, "\nThe agent's summary of what it tested (unverified):\n~~~text\n%s\n~~~\n", summary)
-		}
-	} else if publicationValidated(publication) {
-		fmt.Fprintf(&body, "Kuayle ran `%s` independently on this branch in a clean container without credentials: passed (exit code %d).\n", strings.ReplaceAll(markdownLine(strings.Join(publication.CheckArgv, " ")), "`", "'"), *publication.CheckExitCode)
-	} else {
-		body.WriteString("No independent check is configured for this project.\n")
-	}
-	body.WriteString("\n### Review notes\n")
-	agentName := map[string]string{"codex": "Codex", "claude-code": "Claude Code", "opencode": "OpenCode"}[run.ProviderID]
-	if agentName == "" {
-		agentName = markdownLine(run.ProviderID)
-	}
-	if run.Model != "" {
-		agentName += " (" + markdownLine(run.Model) + ")"
-	}
-	fmt.Fprintf(&body, "- Written by %s through a Kuayle agent task; human review is required before merging.\n", agentName)
-	fmt.Fprintf(&body, "- Review feedback on this pull request is sent back to the same task.\n- Kuayle agent task: %s\n", run.TaskID)
-	return body.String()
-}
-
 // publicationValidated reports whether a configured check passed on this
 // attempt. Only a succeeded validation step records the check's argv.
 func publicationValidated(publication *domain.AgentPublication) bool {
 	return len(publication.CheckArgv) > 0 && publication.CheckExitCode != nil
-}
-
-// markdownLine keeps recorded values on one line and stops them from
-// mentioning users or teams.
-func markdownLine(value string) string {
-	value = strings.Join(strings.Fields(value), " ")
-	return strings.ReplaceAll(truncateText(value, 300), "@", "@\u200b")
 }
 
 func truncateText(value string, limit int) string {

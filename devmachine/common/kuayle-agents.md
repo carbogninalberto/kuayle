@@ -1,6 +1,6 @@
 ---
 name: kuayle-agents
-description: Use when you need to declare the tests Kuayle re-runs for your change (.kuayle/validation.json), to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, to log what you did in the project's or team's wiki registry, to propose a lesson about the repository for later agents, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox). Every such message needs a reply that names it ("reply_to").
+description: Use when you need to declare the tests Kuayle re-runs for your change (.kuayle/validation.json), to describe your change and attach screenshots for the pull request (.kuayle/pull_request.json, .kuayle/screenshots/), to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, to log what you did in the project's or team's wiki registry, to propose a lesson about the repository for later agents, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox). Every such message needs a reply that names it ("reply_to").
 ---
 
 # Declare the tests Kuayle re-runs
@@ -30,11 +30,53 @@ mv "$dir/.validation.json" "$dir/validation.json"
   install dependencies in the command if needed, and prefer tests that need
   no database.
 - If the project configures its own check command, that check runs instead.
-- When the tests pass, the pull request opens ready for review and lists each
-  command, with your summary shown as unverified. When one fails, the task fails
+- When the tests pass, the pull request opens ready for review, and its
+  Verification section says Kuayle re-ran them. Your summary is shown there
+  when your pull request file gives no verification. When one fails, the task fails
   with that command and exit code, and your next attempt is told which one.
 - A file that breaks these rules is ignored as a whole, and the change opens as
-  a draft marked not validated. Nothing under `.kuayle/` is committed.
+  a draft. Nothing under `.kuayle/` is committed.
+
+# Describe the pull request
+
+Before you finish an implementation task, write the pull request's description
+to `.kuayle/pull_request.json` at the root of your worktree. Kuayle renders it
+with the project's template (Description, Changes, Verification, Screenshots,
+Notes by default) and never commits it:
+
+```sh
+dir="$(git rev-parse --show-toplevel)/.kuayle"
+mkdir -p "$dir/screenshots"
+cat > "$dir/.pull_request.json" <<'JSON'
+{"description":"The theme toggle ignored the system setting, so \"System\" fell back to light. It now follows prefers-color-scheme and updates live.",
+ "changes":["Read the system theme on load","Update the theme when the system setting changes","Add unit tests for the theme store"],
+ "verification":["npm run test:unit: 42 passed","npm run check: no errors"],
+ "screenshots":[{"file":"settings-dark.png","caption":"Settings, dark theme"}]}
+JSON
+mv "$dir/.pull_request.json" "$dir/pull_request.json"
+```
+
+- `description`: the problem and the core idea of your fix, in two or three
+  sentences (at most 1,500 characters). Kuayle adds the issue reference.
+- `changes`: one short, human-readable line per change (at most 15 of 300
+  characters). Do not list every file.
+- `verification`: what you ran yourself and the result. Kuayle adds one line
+  when its own check passed.
+- `notes`: only what a reviewer must know (at most 1,000 characters); leave it
+  out otherwise. Sections you leave empty are dropped.
+- `screenshots`: when you changed something people see, save up to 6 PNG, JPEG
+  or WebP files of at most 2 MB each directly in `.kuayle/screenshots/` (for
+  example with the project's own Playwright setup) and list them by file name
+  with an optional caption. Kuayle checks they are real images and publishes them on a
+  separate `kuayle/screenshots/<task>` branch of the repository, never on your
+  pull request branch; only people who can read the repository can see them.
+  Never capture secrets, tokens or personal data.
+- Write plain markdown. HTML, images, headings and code fences are shown as
+  text, `@` mentions and closing keywords such as "fixes #12" are neutralized,
+  and other issues' identifiers do not link.
+- A file with a value of the wrong type is ignored as a whole; the description
+  then only names the issue and Kuayle's check. Each attempt writes its own:
+  the next attempt's start removes the file and the screenshots.
 
 # Finishing: Kuayle commits and pushes
 

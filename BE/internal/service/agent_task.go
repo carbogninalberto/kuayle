@@ -1243,6 +1243,7 @@ func withContract(prompt string, task domain.AgentTask, related []domain.Related
 		prompt = withQA(prompt, task)
 		prompt = withValidationFile(prompt)
 		prompt = withPublication(prompt)
+		prompt = withPullRequestFile(prompt)
 	}
 	prompt = withOutbox(prompt, related)
 	prompt = withLiveChannel(prompt)
@@ -1275,6 +1276,18 @@ func withPublication(prompt string) string {
 		return prompt
 	}
 	return prompt + "\n\n" + publicationLine
+}
+
+// pullRequestFileLine asks an implementing attempt to describe its change and
+// leave screenshots for the pull request (KUA-210). Kuayle renders the file
+// with the configured template and sanitizes it; nothing of it is committed.
+var pullRequestFileLine = fmt.Sprintf("Pull request description: before you finish, write `%s` at this worktree's root as {\"description\":\"the problem and the core idea of your fix, in two or three sentences\",\"changes\":[\"one short line per change\"],\"verification\":[\"what you ran yourself and its result\"],\"notes\":\"only what a reviewer must know; leave it out otherwise\",\"screenshots\":[{\"file\":\"settings-dark.png\",\"caption\":\"Settings, dark theme\"}]}. Kuayle renders it with the project's pull request template and never commits it. If you changed something people see, save up to %d PNG, JPEG or WebP screenshots (2 MB each) of the changed screens in `%s/` and list them; otherwise leave screenshots out. Write plain markdown: no HTML, @mentions or issue-closing keywords. See the kuayle-agents skill.", domain.AgentPullRequestFile, domain.AgentScreenshotMaxCount, domain.AgentScreenshotsDir)
+
+func withPullRequestFile(prompt string) string {
+	if strings.Contains(prompt, pullRequestFileLine) || len(prompt)+len(pullRequestFileLine) > 32000 {
+		return prompt
+	}
+	return prompt + "\n\n" + pullRequestFileLine
 }
 
 func previewCommand(task domain.AgentTask) []string {

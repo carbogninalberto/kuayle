@@ -373,6 +373,11 @@ type AgentPublication struct {
 	PublishedCommit string
 	// The workspace's GitHub bot identity, for the description's signature.
 	Bot *GitHubBotSettings
+	// WorkspaceSlug links the issue in the description.
+	WorkspaceSlug string
+	// PullRequestTemplate is the nearest issue, project, team or workspace
+	// development setting's template; empty uses DefaultPullRequestTemplate.
+	PullRequestTemplate string
 }
 
 // AgentPublicationResult is recorded after a publication attempt reached

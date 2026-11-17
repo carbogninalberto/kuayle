@@ -411,6 +411,8 @@ export interface DevMachineScopeSetting {
 	compose_file?: string | null;
 	preview_command?: string[] | null;
 	preview_port?: number | null;
+	/** Agent pull request descriptions; null inherits (see pull-request-template.ts). */
+	pull_request_template?: string | null;
 	id?: string;
 	workspace_id: string;
 	team_id?: string;

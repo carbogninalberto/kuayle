@@ -934,6 +934,14 @@ func (s *DevMachineService) UpdateScopeSetting(ctx context.Context, workspaceID 
 			setting.AgentInstructions = &instructions
 		}
 	}
+	if request.PullRequestTemplate != nil {
+		if template := strings.TrimSpace(*request.PullRequestTemplate); template != "" {
+			if err := domain.ValidatePullRequestTemplate(template); err != nil {
+				return nil, fmt.Errorf("%w: %v; use only {{description}}, {{changes}}, {{verification}}, {{screenshots}}, {{notes}} and {{issue}}", ErrInvalidMachineInput, err)
+			}
+			setting.PullRequestTemplate = &template
+		}
+	}
 	if request.ComposeFile != nil {
 		if file := strings.TrimSpace(*request.ComposeFile); file != "" {
 			if domain.ValidateComposePath(file) != nil {

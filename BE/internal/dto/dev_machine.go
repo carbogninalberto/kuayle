@@ -74,6 +74,10 @@ type DevMachineScopeSettingRequest struct {
 
 	PreviewCommand []string `json:"preview_command" validate:"omitempty,max=64,dive,max=8192"`
 	PreviewPort    *int     `json:"preview_port,omitempty"`
+
+	// PullRequestTemplate is checked by domain.ValidatePullRequestTemplate;
+	// omitted or blank inherits.
+	PullRequestTemplate *string `json:"pull_request_template,omitempty"`
 }
 
 type CheckoutIssueRequest struct {

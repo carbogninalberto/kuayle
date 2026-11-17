@@ -76,7 +76,8 @@ test('keeps project and team development settings scoped during rapid navigation
 				project_id: scopeType === 'project' ? scopeId : undefined,
 				github_repo_id: useBeta ? repoBId : repoAId,
 				environment_id: useBeta ? environmentBId : environmentAId,
-				test_command: useBeta ? ['npm','test'] : ['go','test','./...']
+				test_command: useBeta ? ['npm','test'] : ['go','test','./...'],
+				pull_request_template: useBeta ? '## Beta\n{{description}}' : undefined
 			} });
 			delay?.markCompleted();
 			return;
@@ -140,7 +141,7 @@ test('keeps project and team development settings scoped during rapid navigation
 	await expect(page.getByText('Use a relative .yml or .yaml path inside the repository.')).toHaveCount(0);
 	await teamSave.click();
 	await expect.poll(() => savedSettings.length).toBe(1);
-	expect(savedSettings[0]).toMatchObject({ scope_type: 'team', scope_id: teamBId, github_repo_id: repoBId, environment_id: environmentBId, test_command: ['npm','test'], agent_provider: 'claude-code', agent_instructions: 'Use pnpm.', compose_file: 'deploy/compose.yaml', preview_command: ['npm', 'run', 'dev'], preview_port: 5173 });
+	expect(savedSettings[0]).toMatchObject({ scope_type: 'team', scope_id: teamBId, github_repo_id: repoBId, environment_id: environmentBId, test_command: ['npm','test'], agent_provider: 'claude-code', agent_instructions: 'Use pnpm.', compose_file: 'deploy/compose.yaml', preview_command: ['npm', 'run', 'dev'], preview_port: 5173, pull_request_template: '## Beta\n{{description}}' });
 
 	const projectADelay = createRequestDelay();
 	const projectBDelay = createRequestDelay();

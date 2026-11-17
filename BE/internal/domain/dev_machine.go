@@ -806,6 +806,10 @@ type DevMachineScopeSetting struct {
 
 	PreviewCommand *json.RawMessage `json:"preview_command" db:"preview_command"`
 	PreviewPort    *int             `json:"preview_port" db:"preview_port"`
+
+	// PullRequestTemplate renders agent pull request descriptions; nil
+	// inherits, and DefaultPullRequestTemplate applies when no scope sets one.
+	PullRequestTemplate *string `json:"pull_request_template" db:"pull_request_template"`
 }
 
 // DevMachineResize is a requested machine size.
