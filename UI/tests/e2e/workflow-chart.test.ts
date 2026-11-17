@@ -442,6 +442,39 @@ for (const size of sizes) {
 				.toBeLessThan(start.x - 10);
 		});
 
+		test('the chart stays drawn while the editor checks the workflow and as steps are selected', async ({
+			page
+		}) => {
+			// Counts the times a step already on screen is hidden again (with it go
+			// its transitions and its minimap entry).
+			await page.addInitScript(() => {
+				const seen = window as unknown as { stepsHidden: number };
+				seen.stepsHidden = 0;
+				new MutationObserver((records) => {
+					for (const { target, oldValue } of records)
+						if (
+							target instanceof HTMLElement &&
+							target.classList.contains('svelte-flow__node') &&
+							/visibility:\s*visible/.test(oldValue ?? '') &&
+							target.style.visibility === 'hidden'
+						)
+							seen.stepsHidden++;
+				}).observe(document, { subtree: true, attributes: true, attributeFilter: ['style'], attributeOldValue: true });
+			});
+			await mockSettings(page, { legacy: withSkip() });
+			const checked = page.waitForResponse('**/api/workspaces/test/workflows/validate');
+			await page.goto('/test/settings/workflows/legacy');
+			const editor = page.getByTestId('workflow-editor');
+			await expect(editor.getByTestId('workflow-node-start')).toBeVisible();
+			// The editor checks the workflow once it opens...
+			await checked;
+			await expect(editor.getByText('Checking…')).toHaveCount(0);
+			// ...and a click selects a step.
+			await editor.getByTestId('workflow-node-implement').click();
+			await expect(editor.getByTestId('workflow-node-inspector')).toBeVisible();
+			expect(await page.evaluate(() => (window as unknown as { stepsHidden: number }).stepsHidden)).toBe(0);
+		});
+
 		test('tidying up puts moved steps back in line, and the arrangement is saved', async ({ page }) => {
 			const moved: Record<string, { x: number; y: number }> = {
 				publish: { x: 700, y: 260 },
@@ -542,10 +575,12 @@ for (const size of sizes) {
 			// Zooming out and back in from the toolbar keeps the step centred.
 			const wide = (await chart.getByTestId('workflow-node-ci').boundingBox())!.width;
 			await tools.getByRole('button', { name: 'Zoom out', exact: true }).click();
+			// Zoom in scales from wherever the view is, so it waits for zoom out to
+			// finish. The animation ends exactly on the new zoom; a pixel short of it
+			// is still moving (and leaves zoom in more than a pixel off).
 			await expect
 				.poll(async () => Math.abs((await chart.getByTestId('workflow-node-ci').boundingBox())!.width - wide / 1.2))
-				.toBeLessThanOrEqual(1);
-			// Zoom in scales from wherever the view is, so it waits for zoom out to finish.
+				.toBeLessThanOrEqual(0.1);
 			await tools.getByRole('button', { name: 'Zoom in', exact: true }).click();
 			await expect
 				.poll(async () => Math.abs((await chart.getByTestId('workflow-node-ci').boundingBox())!.width - wide))
@@ -599,6 +634,8 @@ for (const size of sizes) {
 			const big = dialog.getByTestId('task-workflow-chart-expanded');
 			await expect(big).toHaveRole('group');
 			await expect(big).toHaveAccessibleName('Workflow');
+			// It zooms in as it opens: measure it once it has.
+			await animationsEnd(dialog);
 			const dialogBox = (await dialog.boundingBox())!;
 			expect(dialogBox.width).toBeGreaterThanOrEqual(size.width - 1);
 			expect(dialogBox.height).toBeGreaterThanOrEqual(size.height - 1);
@@ -661,6 +698,12 @@ async function settled(chart: Locator, id: string) {
 		)
 		.toBe(true);
 	return last;
+}
+
+// Waits for the element's own CSS animations (a dialog zooming in as it
+// opens) to end, so that it is measured where it comes to rest.
+async function animationsEnd(element: Locator) {
+	await element.evaluate((el) => Promise.allSettled(el.getAnimations().map((animation) => animation.finished)));
 }
 
 // Whether the step is wholly inside the chart.
