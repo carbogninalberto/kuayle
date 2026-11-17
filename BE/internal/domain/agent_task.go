@@ -106,6 +106,10 @@ type AgentTask struct {
 	// WorkflowExtensions counts the budgets people granted by continuing.
 	WorkflowExtensions int        `json:"workflow_budget_extensions,omitempty" db:"workflow_budget_extensions"`
 	WorkflowBudgetFrom *time.Time `json:"workflow_budget_from,omitempty" db:"workflow_budget_from"`
+	// WorkflowHeldSince is set while the task waits on a person (an approval
+	// or merge node, or waiting_input). The time budget is stopped until the
+	// wait ends, when it is added to the budget start (KUA-171).
+	WorkflowHeldSince *time.Time `json:"-" db:"workflow_held_since"`
 	// WorkflowPausedAt is set while a person's pause holds the workflow: the
 	// worker leaves the task alone until it is resumed. WorkflowPauseRequest
 	// is a pause that has not taken effect yet (WorkflowPauseNow while Kuayle
@@ -142,6 +146,9 @@ func (t AgentTask) Cursor() WorkflowCursor {
 	}
 	if t.WorkflowBudgetFrom != nil {
 		cursor.BudgetFrom = *t.WorkflowBudgetFrom
+	}
+	if t.WorkflowHeldSince != nil {
+		cursor.HeldSince = *t.WorkflowHeldSince
 	}
 	return cursor
 }

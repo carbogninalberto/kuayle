@@ -696,3 +696,27 @@ func TestWorkflowPausesListAMoveToANewerVersion(t *testing.T) {
 	_, err = f.repo.WorkflowPauses(foreign, f.ws, f.task.ID)
 	require.ErrorIs(t, err, ErrConversationNotFound)
 }
+
+// A pause inside a person's wait is covered by the hold, so resuming moves
+// only the step's timeout, never the budget a second time (KUA-171).
+func TestWorkflowResumeDoesNotDoubleCountAPauseInsideAHold(t *testing.T) {
+	start := time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)
+	versionID, node, status := uuid.New(), "ship", domain.WorkflowStatusWaiting
+	paused, held := start.Add(30*time.Minute), start.Add(20*time.Minute)
+	task := domain.AgentTask{
+		ID: uuid.New(), Kind: domain.AgentTaskKindImplement, State: "awaiting_review", Generation: 1,
+		WorkflowVersionID: &versionID, WorkflowNode: &node, WorkflowStatus: &status,
+		WorkflowStartedAt: &start, WorkflowHeldSince: &held, WorkflowPausedAt: &paused,
+	}
+	resume, err := ComputeWorkflowResume(task, paused.Add(3*time.Hour))
+	require.NoError(t, err)
+	require.Nil(t, resume.BudgetFrom, "the hold still owns the budget start")
+	require.Equal(t, 3*time.Hour, resume.Paused, "the step's timeout still excludes the pause")
+
+	// Without a hold the same pause moves the budget start.
+	task.WorkflowHeldSince = nil
+	resume, err = ComputeWorkflowResume(task, paused.Add(3*time.Hour))
+	require.NoError(t, err)
+	require.NotNil(t, resume.BudgetFrom)
+	require.Equal(t, start.Add(3*time.Hour), *resume.BudgetFrom)
+}

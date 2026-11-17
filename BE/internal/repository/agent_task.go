@@ -335,6 +335,26 @@ func transitionAgentTask(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTas
 	if err := tx.GetContext(ctx, task, `UPDATE agent_tasks SET state=$2,reason=$3,updated_at=now() WHERE id=$1 RETURNING *`, task.ID, to, reason); err != nil {
 		return err
 	}
+	if task.RunsWorkflow() {
+		// The time budget starts at the first real work, not at creation: a
+		// task blocked behind a blocker stays queued and never runs the clock.
+		if to == "preparing" && task.WorkflowStartedAt == nil {
+			if err := tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_started_at=now() WHERE id=$1 AND workflow_started_at IS NULL RETURNING *`, task.ID); err != nil {
+				return err
+			}
+		}
+		// A person's input stops the clock; leaving that state adds the time
+		// waited to the budget start (KUA-171).
+		if to == "waiting_input" {
+			if err := tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_held_since=COALESCE(workflow_held_since,now()) WHERE id=$1 RETURNING *`, task.ID); err != nil {
+				return err
+			}
+		} else if from == "waiting_input" && task.WorkflowHeldSince != nil {
+			if err := tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_budget_from=CASE WHEN COALESCE(workflow_budget_from,workflow_started_at) IS NULL THEN workflow_budget_from ELSE COALESCE(workflow_budget_from,workflow_started_at)+(now()-workflow_held_since) END,workflow_held_since=NULL WHERE id=$1 AND workflow_held_since IS NOT NULL RETURNING *`, task.ID); err != nil {
+				return err
+			}
+		}
+	}
 	return recordAgentTaskTransition(ctx, tx, *task, from, actor)
 }
 func (r *AgentTaskRepository) Transition(ctx context.Context, claimed domain.AgentTask, to, reason string) error {
