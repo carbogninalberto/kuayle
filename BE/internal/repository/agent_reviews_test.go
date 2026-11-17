@@ -394,3 +394,34 @@ func TestReviewsOnTheDefaultServerFollowADefaultSwitch(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, switched.ID, legacy.ID)
 }
+
+// A requested review is told what CI reported for the commit it reviews, and
+// otherwise that CI is unknown; either way it must not block on CI
+// (KUA-206). Suites of another commit are not this commit's CI.
+func TestReviewPromptsCarryTheReviewedCommitsCI(t *testing.T) {
+	_, repo, ctx, task := reviewableTask(t)
+	ws := task.WorkspaceID
+	unknown, _, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, reviewRequest("claude-code"))
+	require.NoError(t, err)
+	require.Contains(t, unknown.Prompt, "CI on commit "+publishedCommit+" is unknown")
+	require.Contains(t, unknown.Prompt, "Do not request changes because of CI you cannot see")
+
+	_, err = repo.RecordSignal(context.Background(), ws, "fixture/repo", 12, ci("old", "failure", "ffffffffffffffffffffffffffffffffffffffff"))
+	require.NoError(t, err)
+	_, err = repo.RecordSignal(context.Background(), ws, "fixture/repo", 12, ci("suite", "success", publishedCommit))
+	require.NoError(t, err)
+	read, _, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, reviewRequest("codex"))
+	require.NoError(t, err)
+	require.Contains(t, read.Prompt, "CI on commit "+publishedCommit+" when this review started")
+	require.Contains(t, read.Prompt, "- Tests (check suite): passed\n")
+	require.NotContains(t, read.Prompt, "failed\n", "a suite of another commit is not this commit's")
+	require.Contains(t, read.Prompt, "not every check")
+
+	// The workflow's own reading of GitHub, per check, comes first.
+	request := reviewRequest("opencode")
+	request.CI = &domain.AgentReviewCI{Read: true, Checks: []domain.AgentReviewCheck{{Name: "UI browser tests", State: "pending"}}}
+	live, _, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, request)
+	require.NoError(t, err)
+	require.Contains(t, live.Prompt, "- UI browser tests: pending\n")
+	require.NotContains(t, live.Prompt, "check suite")
+}

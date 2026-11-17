@@ -16,6 +16,15 @@ type feedbackStoreFake struct {
 	followUps []domain.AgentTaskFollowUp
 	finished  map[uuid.UUID]*int64
 	comments  []string
+	// ciDetails are the follow-ups recorded CI details release; detailsFor
+	// names the commits they were recorded for.
+	ciDetails  []domain.AgentTaskFollowUp
+	detailsFor []string
+}
+
+func (f *feedbackStoreFake) RecordCIDetails(_ context.Context, _ uuid.UUID, repository, headSHA, _ string) ([]domain.AgentTaskFollowUp, error) {
+	f.detailsFor = append(f.detailsFor, repository+"@"+headSHA)
+	return f.ciDetails, nil
 }
 
 func (f *feedbackStoreFake) RecordCommentSignal(_ context.Context, _, _, _, _ uuid.UUID, summary string) (*domain.AgentTaskFollowUp, error) {
