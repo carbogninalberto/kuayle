@@ -70,8 +70,8 @@
 	}
 </script>
 
-<div class="h-full">
-	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
+<div class="flex h-full min-h-0 flex-col">
+	<div class="flex h-[49px] shrink-0 items-center justify-between border-b border-[var(--app-border)] px-6">
 		<div class="flex items-center gap-3">
 			<SidebarToggle />
 			<nav class="flex items-center gap-1.5 text-sm">
@@ -89,7 +89,7 @@
 			description={m['views.no_personal_views_desc']()}
 		/>
 	{:else}
-		<div class="divide-y divide-[var(--app-border)]">
+		<div class="min-h-0 flex-1 divide-y divide-[var(--app-border)] overflow-y-auto">
 			{#each views as view}
 				<div class="flex items-center gap-4 px-6 py-3 hover:bg-[var(--color-bg-hover)]">
 					<a href="/{slug}/views/{view.id}" class="flex min-w-0 flex-1 items-center gap-3">

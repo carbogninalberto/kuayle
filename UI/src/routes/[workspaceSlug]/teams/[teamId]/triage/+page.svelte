@@ -98,9 +98,9 @@
 	});
 </script>
 
-<div class="flex h-full">
+<div class="flex h-full min-h-0">
 	<!-- Issue list -->
-	<div class="flex w-80 shrink-0 flex-col border-r border-[var(--app-border)]">
+	<div class="flex min-h-0 w-80 shrink-0 flex-col border-r border-[var(--app-border)]">
 		<div class="flex h-[49px] items-center gap-3 border-b border-[var(--app-border)] px-4">
 			<SidebarToggle />
 			<nav class="flex items-center gap-1.5 text-sm">
@@ -119,7 +119,7 @@
 			<Badge variant="outline" class="text-[10px]">{issues.length}</Badge>
 		</div>
 
-		<div class="flex-1 overflow-y-auto">
+		<div class="min-h-0 flex-1 overflow-y-auto">
 			{#if !loading && issues.length === 0}
 				<EmptyState
 					title="All triaged"
@@ -143,7 +143,7 @@
 	</div>
 
 	<!-- Detail panel -->
-	<div class="flex-1">
+	<div class="min-w-0 flex-1 overflow-y-auto">
 		{#if selectedIssue}
 			<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 				<div class="flex items-center gap-2">
