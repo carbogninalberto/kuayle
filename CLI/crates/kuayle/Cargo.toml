@@ -24,7 +24,6 @@ serde_json = "1"
 toml = "0.8"
 dirs = "6"
 keyring = "4"
-chrono = { version = "0.4", features = ["serde"] }
 url = "2"
 futures-util = "0.3"
 bitflags = "2"

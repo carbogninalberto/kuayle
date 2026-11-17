@@ -1,7 +1,7 @@
 // Team types aligned with kuayle API.
 // 与 kuayle API 对齐的团队类型。
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// A kuayle team, returned by `GET /api/teams`.
@@ -51,8 +51,8 @@ pub struct TeamResponse {
     #[serde(default)]
     pub issue_copy_prompt: Option<String>,
 
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 /// Request body for creating a team.

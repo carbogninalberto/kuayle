@@ -1,7 +1,7 @@
 // Asset types aligned with kuayle API.
 // 与 kuayle API 对齐的附件/资源类型。
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// A kuayle asset (uploaded file), returned by `GET /api/assets`.
@@ -33,7 +33,7 @@ pub struct AssetResponse {
     pub url: Option<String>,
 
     #[serde(default)]
-    pub created_at: Option<DateTime<Utc>>,
+    pub created_at: Option<Timestamp>,
 }
 
 /// Multipart upload is handled at the resource layer via reqwest.

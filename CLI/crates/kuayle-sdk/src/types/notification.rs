@@ -1,7 +1,7 @@
 // Notification types aligned with kuayle API.
 // 与 kuayle API 对齐的通知类型。
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// A kuayle notification, returned by `GET /api/notifications`.
@@ -36,16 +36,16 @@ pub struct NotificationResponse {
     pub body: Option<String>,
 
     #[serde(default)]
-    pub read_at: Option<DateTime<Utc>>,
+    pub read_at: Option<Timestamp>,
 
     #[serde(default)]
-    pub snoozed_until: Option<DateTime<Utc>>,
+    pub snoozed_until: Option<Timestamp>,
 
     #[serde(default)]
-    pub archived_at: Option<DateTime<Utc>>,
+    pub archived_at: Option<Timestamp>,
 
     #[serde(default)]
-    pub created_at: Option<DateTime<Utc>>,
+    pub created_at: Option<Timestamp>,
 }
 
 /// Request body for marking notifications as read.

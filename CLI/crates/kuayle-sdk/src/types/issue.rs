@@ -4,7 +4,7 @@
 // Includes embedded/linked types: labels, status_info, creator, assignee, assignees.
 // 包含内嵌/关联类型：labels、status_info、creator、assignee、assignees。
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use super::label::LabelResponse;
@@ -63,8 +63,8 @@ pub struct IssueResponse {
     pub assignees: Vec<IssueUser>,
     #[serde(default)]
     pub is_subscribed: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 /// Request body for creating an issue.
@@ -260,6 +260,30 @@ mod tests {
         assert_eq!(issue.status_info.as_ref().unwrap().name, "Backlog");
         assert!(issue.creator.is_some());
         assert_eq!(issue.creator.as_ref().unwrap().name, "Alice Chen");
+    }
+
+    #[test]
+    fn timestamp_serde_round_trips_rfc3339() {
+        #[derive(Debug, Deserialize, Serialize)]
+        struct Timestamped {
+            created_at: Timestamp,
+        }
+
+        // "Z" form, as produced by the API for UTC timestamps.
+        let utc: Timestamped =
+            serde_json::from_str(r#"{"created_at":"2026-11-17T10:49:39.536992Z"}"#).unwrap();
+        assert_eq!(
+            serde_json::to_value(&utc).unwrap(),
+            serde_json::json!({"created_at": "2026-11-17T10:49:39.536992Z"})
+        );
+
+        // Offset form: accepted on input, normalized to UTC on output.
+        let offset: Timestamped =
+            serde_json::from_str(r#"{"created_at":"2026-11-17T12:49:39+02:00"}"#).unwrap();
+        assert_eq!(
+            serde_json::to_value(&offset).unwrap(),
+            serde_json::json!({"created_at": "2026-11-17T10:49:39Z"})
+        );
     }
 
     #[test]
