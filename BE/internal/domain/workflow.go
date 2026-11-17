@@ -650,6 +650,27 @@ type WorkflowCursor struct {
 	// size, and the time budget starts again at BudgetFrom (zero: StartedAt).
 	Extensions int       `json:"extensions"`
 	BudgetFrom time.Time `json:"budget_from"`
+	// HeldSince is set while the task waits on a person (an approval or merge
+	// node, or waiting_input). No time budget runs until the wait is released.
+	HeldSince time.Time `json:"held_since"`
+}
+
+// Released ends a person wait: the time held is added to the budget start, so
+// only working time counts against the budget (KUA-171). A cursor that is not
+// held is unchanged.
+func (c WorkflowCursor) Released(now time.Time) WorkflowCursor {
+	if c.HeldSince.IsZero() {
+		return c
+	}
+	from := c.BudgetFrom
+	if from.IsZero() {
+		from = c.StartedAt
+	}
+	if !from.IsZero() {
+		c.BudgetFrom = from.Add(max(now.Sub(c.HeldSince), 0))
+	}
+	c.HeldSince = time.Time{}
+	return c
 }
 
 // IterationAllowance is how many iterations the cursor may start (0: no limit).
@@ -657,8 +678,12 @@ func (b WorkflowBudget) IterationAllowance(c WorkflowCursor) int {
 	return b.MaxIterations * (1 + c.Extensions)
 }
 
-// BudgetDeadline is when the cursor's time budget runs out, or nil.
+// BudgetDeadline is when the cursor's time budget runs out, or nil. While the
+// task waits on a person there is no deadline: the clock is stopped.
 func (g WorkflowGraph) BudgetDeadline(c WorkflowCursor) *time.Time {
+	if !c.HeldSince.IsZero() {
+		return nil
+	}
 	from := c.BudgetFrom
 	if from.IsZero() {
 		from = c.StartedAt

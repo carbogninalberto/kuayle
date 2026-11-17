@@ -131,7 +131,9 @@ func workflowEvent(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) erro
 
 // transitionWorkflowTask changes the task's state for a workflow node, or
 // only its reason when it already is in that state (one waiting node after
-// another).
+// another). ValidWorkflowTaskTransition forbids entering or leaving
+// waiting_input, so the waiting_input clock hold lives in transitionAgentTask;
+// a workflow node's own person-wait hold comes from ComputeWorkflowApply.
 func transitionWorkflowTask(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, to, reason string, actor *uuid.UUID) error {
 	if len(reason) > 2048 {
 		reason = reason[:2048]
@@ -173,7 +175,10 @@ func startWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, ver
 		return ErrConversationInvalid
 	}
 	visits, _ := json.Marshal(map[string]int{start.ID: 1, decision.To.ID: 1})
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_version_id=$2,workflow_node=$3,workflow_visits=$4,workflow_iterations=1,workflow_started_at=now(),workflow_status='running',workflow_sequence=2 WHERE id=$1 RETURNING *`,
+	// The time budget starts when the task first leaves queued for real work
+	// (preparing), not at creation: a task blocked on its blocker never runs
+	// the clock (KUA-171). transitionAgentTask sets workflow_started_at then.
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_version_id=$2,workflow_node=$3,workflow_visits=$4,workflow_iterations=1,workflow_status='running',workflow_sequence=2 WHERE id=$1 RETURNING *`,
 		task.ID, version.ID, decision.To.ID, visits); err != nil {
 		return err
 	}
@@ -360,6 +365,11 @@ func recordWorkflowMergeTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentT
 		if err = markWorkflowReviewNotice(ctx, tx, *task, true, nil); err != nil {
 			return err
 		}
+		// The merge failed and waits for a person again: stop the budget clock
+		// until someone acts. A merge Kuayle is still running records no hold.
+		if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_held_since=COALESCE(workflow_held_since,now()) WHERE id=$1 RETURNING *`, task.ID); err != nil {
+			return err
+		}
 	}
 	return workflowEvent(ctx, tx, *task)
 }
@@ -426,9 +436,27 @@ func ComputeWorkflowApply(task domain.AgentTask, apply WorkflowApply, now time.T
 	if apply.Iteration && apply.Entry.Kind == WorkflowEnterIteration {
 		result.Cursor.Iterations++
 	}
+	// Waiting on a person (an approval or a merge) stops the time budget: the
+	// clock is held from now (or kept held if it already was). Every other
+	// move ends a hold and adds the time waited to the budget start (KUA-171).
+	personWait := apply.Entry.Kind == WorkflowEnterWait && apply.Entry.NeedsPerson
+	if personWait {
+		if result.Cursor.HeldSince.IsZero() {
+			result.Cursor.HeldSince = now
+		}
+	} else {
+		result.Cursor = result.Cursor.Released(now)
+	}
 	if apply.ExtendBudget {
+		// A granted budget starts again now; a person wait stays held from
+		// now, so the next budget counts only the working time after it ends.
 		result.Cursor.Extensions++
 		result.Cursor.BudgetFrom = now
+		if personWait {
+			result.Cursor.HeldSince = now
+		} else {
+			result.Cursor.HeldSince = time.Time{}
+		}
 	}
 	switch apply.Entry.Kind {
 	case WorkflowEnterWait, WorkflowEnterReview:
@@ -554,8 +582,8 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 	if err != nil {
 		return err
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_node=$2,workflow_visits=$3,workflow_iterations=$4,workflow_sequence=$5,workflow_status=$6,workflow_wake_at=$7,workflow_budget_extensions=$8,workflow_budget_from=$9 WHERE id=$1 RETURNING *`,
-		task.ID, result.Cursor.Node, visits, result.Cursor.Iterations, result.Sequence, result.Status, result.Wake, result.Cursor.Extensions, nullTime(result.Cursor.BudgetFrom)); err != nil {
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_node=$2,workflow_visits=$3,workflow_iterations=$4,workflow_sequence=$5,workflow_status=$6,workflow_wake_at=$7,workflow_budget_extensions=$8,workflow_budget_from=$9,workflow_held_since=$10 WHERE id=$1 RETURNING *`,
+		task.ID, result.Cursor.Node, visits, result.Cursor.Iterations, result.Sequence, result.Status, result.Wake, result.Cursor.Extensions, nullTime(result.Cursor.BudgetFrom), nullTime(result.Cursor.HeldSince)); err != nil {
 		return err
 	}
 	reason := apply.Entry.Reason
@@ -1115,6 +1143,9 @@ func retryWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, act
 	// a person continuing does: another budget of the same size, and the time
 	// budget starts again now.
 	now := time.Now()
+	// A retry leaves any wait, including a person's, so the held time is added
+	// to the budget before deciding whether this retry needs a new one.
+	cursor = cursor.Released(now)
 	exhausted := (graph.Budget.MaxIterations > 0 && cursor.Iterations >= graph.Budget.IterationAllowance(cursor)) ||
 		(graph.BudgetDeadline(cursor) != nil && !now.Before(*graph.BudgetDeadline(cursor)))
 	if exhausted {
@@ -1128,7 +1159,7 @@ func retryWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, act
 		task.ID, sequence, step.NodeID, step.NodeType, cursor.Visits[step.NodeID], cursor.Node, task.Generation, actor); err != nil {
 		return err
 	}
-	return tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_node=$2,workflow_visits=$3,workflow_iterations=$4,workflow_sequence=$5,workflow_status='running',workflow_wake_at=NULL,workflow_budget_extensions=$6,workflow_budget_from=$7 WHERE id=$1 RETURNING *`,
+	return tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_node=$2,workflow_visits=$3,workflow_iterations=$4,workflow_sequence=$5,workflow_status='running',workflow_wake_at=NULL,workflow_budget_extensions=$6,workflow_budget_from=$7,workflow_held_since=NULL WHERE id=$1 RETURNING *`,
 		task.ID, step.NodeID, visits, cursor.Iterations, sequence, cursor.Extensions, nullTime(cursor.BudgetFrom))
 }
 
