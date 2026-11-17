@@ -2072,17 +2072,27 @@ func (s *DevMachineService) ListResourceSamples(ctx context.Context, workspaceID
 	return nonNilSlice(items), err
 }
 
-// resourceHistoryWindows are the chart windows: their span and the bucket
-// samples (one per 30 seconds) are averaged into, a few hundred points each.
-var resourceHistoryWindows = map[string][2]time.Duration{
-	"1h":  {time.Hour, 30 * time.Second},
-	"6h":  {6 * time.Hour, time.Minute},
-	"24h": {24 * time.Hour, 4 * time.Minute},
+// resourceHistoryWindows are the chart windows and their span.
+var resourceHistoryWindows = map[string]time.Duration{
+	"1h":  time.Hour,
+	"6h":  6 * time.Hour,
+	"24h": 24 * time.Hour,
+}
+
+// resourceHistoryTargetBuckets is how many buckets a window is cut into at most.
+const resourceHistoryTargetBuckets = 360
+
+// resourceHistoryBucket sizes a window's buckets from the sampling interval:
+// never narrower than two samples, so one late sample does not draw a false
+// gap, and at most resourceHistoryTargetBuckets per window.
+func resourceHistoryBucket(span time.Duration) time.Duration {
+	return max(2*domain.DevMachineResourceSampleInterval, span/resourceHistoryTargetBuckets)
 }
 
 // ListResourceHistory returns the machine's usage over window (1h, 6h or
-// 24h), oldest first, averaged per bucket.
-func (s *DevMachineService) ListResourceHistory(ctx context.Context, workspaceID, machineID, userID uuid.UUID, window string) ([]domain.DevMachineResourceSample, error) {
+// 24h), oldest first, one bucket for every slice of the window. A bucket
+// without samples is returned empty, so the caller can show the gap.
+func (s *DevMachineService) ListResourceHistory(ctx context.Context, workspaceID, machineID, userID uuid.UUID, window string) ([]domain.DevMachineResourceBucket, error) {
 	span, ok := resourceHistoryWindows[window]
 	if !ok {
 		return nil, fmt.Errorf("%w: window must be 1h, 6h or 24h", ErrInvalidMachineInput)
@@ -2090,7 +2100,8 @@ func (s *DevMachineService) ListResourceHistory(ctx context.Context, workspaceID
 	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
 		return nil, err
 	}
-	items, err := s.store.ListResourceHistory(ctx, workspaceID, machineID, time.Now().UTC().Add(-span[0]), span[1])
+	now := time.Now().UTC()
+	items, err := s.store.ListResourceHistory(ctx, workspaceID, machineID, now.Add(-span), now, resourceHistoryBucket(span))
 	return nonNilSlice(items), err
 }
 

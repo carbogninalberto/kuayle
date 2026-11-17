@@ -129,7 +129,7 @@ async function mockDevMachineApi(page: Page, mode: DiskQuotaMode, usagePercent: 
 			return route.fulfill({
 				json: [
 					{
-						id: 1,
+						sample_count: 1,
 						cpu_percent: 12.5,
 						memory_bytes: 1024 ** 3,
 						disk_bytes: diskBytes,

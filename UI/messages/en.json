@@ -3408,7 +3408,7 @@
 	"machines.tab_apps": "Apps & services",
 	"machines.view_all": "View all ({count})",
 	"machines.usage_title": "Resource usage",
-	"machines.usage_desc": "Sampled every 30 seconds while the machine runs. History is kept for 24 hours and deleted when the machine is torn down.",
+	"machines.usage_desc": "Sampled about every 30 seconds while the machine runs and averaged per time bucket. Only the last 24 hours are kept; gaps mean no sample was recorded. History is deleted when the machine is torn down.",
 	"machines.usage_window": "Time range",
 	"machines.usage_empty": "No samples in this period yet.",
 	"machines.usage_loading": "Loading usage…",
