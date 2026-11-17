@@ -73,7 +73,7 @@ jobs:
         run: npm ci
 
       - name: Run npm audit
-        run: npm audit --audit-level=high
+        run: node ../scripts/ci/npm-audit.mjs
 
       # Frontend Checks builds before its PR browser suite.
       - name: Build check

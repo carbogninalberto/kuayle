@@ -2355,16 +2355,26 @@ flow in code, and `StandardWorkflowGraph` only draws it.
 - **Budget**: `max_iterations`, `max_minutes` and `on_exhausted` (`fail` or
   `ask`). A visit limit or the budget either fails the task or pauses the
   workflow for a person to continue or stop. Limits are checked at every
-  transition, and the time budget also wakes a waiting step (reviewer, CI,
-  approval, merge) when it runs out: the task then stays on that open step
-  (`Hold`) and fails or pauses. An iteration that is running is not
-  interrupted; its run's own time limit bounds it and the budget applies when
-  it ends. Continuing passes a visit limit once; past a budget it grants
-  another iteration budget of the same size and restarts the time budget at
-  the decision (`workflow_budget_extensions`, `workflow_budget_from`), so
-  later transitions do not pause again at once; a held wait waits again. The
-  step's saved detail (failing checks, review comments) is passed on as it
-  would have been. Cost budgets are a follow-up: runs do not record cost.
+  transition, and the time budget also wakes an automated waiting step (a
+  reviewer or CI) when it runs out: the task then stays on that open step
+  (`Hold`) and fails or pauses. The time budget counts **working time only**:
+  its clock starts when the task first leaves `queued` for real work
+  (`preparing`), so a task blocked behind a blocker never runs it, and it is
+  stopped at a person's wait — an approval, a merge, or `waiting_input` —
+  recorded in `workflow_held_since`. When that wait ends, the time held is
+  added to the budget start (`workflow_budget_from`); while it is held there
+  is no deadline and nothing wakes the task for the budget. An iteration that
+  is running is not interrupted; its run's own time limit bounds it and the
+  budget applies when it ends. Continuing passes a visit limit once; past a
+  budget it grants another iteration budget of the same size and restarts the
+  time budget at the decision (`workflow_budget_extensions`,
+  `workflow_budget_from`), so later transitions do not pause again at once;
+  a held wait waits again. Continuing past the time budget at an approval or
+  merge step keeps the clock held from the decision until the person acts, so
+  the next budget counts only the working time after it. The step's saved
+  detail (failing checks, review comments) is passed on as it would have been.
+  Cost budgets are a follow-up:
+  runs do not record cost.
 - **Defaults** (`workflow_defaults`): per workspace, team and project; the
   most specific wins. A task may choose any active workflow (`workflow_id` on
   task creation, `"standard"` for Standard); the assistant's `delegate_issue`
@@ -2607,8 +2617,11 @@ working-time budget.
 
 The time spent paused is added to the start of the workflow's time budget
 (`workflow_budget_from`) and to the open step's `paused_seconds`, which its
-timeout leaves out. Visit counts and iterations do not change. Cancelling a
-paused task cancels it; retrying it ends the pause and starts a new visit.
+timeout leaves out. Visit counts and iterations do not change. A pause inside
+a person's wait is already excluded by that hold (`workflow_held_since`), so
+resuming does not move the budget a second time; the step's timeout still
+leaves the paused time out. Cancelling a paused task cancels it; retrying it
+ends the pause and starts a new visit.
 
 Every request, pause, resume and withdrawal is a `workflow_audit_events` row
 (entity `task_workflow`; actions `pause_requested`, `paused`, `resumed`,
