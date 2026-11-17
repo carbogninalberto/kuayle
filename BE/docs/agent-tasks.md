@@ -72,9 +72,8 @@ with the attempt's effective command snapshot, inside the fenced task transactio
 It uses the same workspace/machine advisory locks as native run creation and
 requires a running machine, enabled policy and no active native run. An empty
 snapshot records a `skipped` step; it is never a pass. The task still moves to
-`publishing`, and the change is opened as a **draft** pull request whose
-description starts with a "Not validated" warning; the task then awaits review
-with a reason that says no check is configured.
+`publishing`, and the change is opened as a **draft** pull request; the task
+then awaits review with a reason that says no check is configured.
 
 The manager runs the argv as positional arguments of a fixed `sh` runner that
 only prepares the run's temporary directory (no interpolation, harness bootstrap or provider
@@ -136,7 +135,7 @@ Precedence: a check command configured in the development settings (issue,
 project, team or workspace, or requested for the task) is an admin override.
 When one exists it alone runs and the declaration is ignored. Otherwise the
 declared commands run. Without either, the step is skipped and the change opens
-as the not-validated draft described above; a rejected file's reason is in the
+as the unchecked draft described above; a rejected file's reason is in the
 skipped step's summary. The step records `command_source` (`configured` or
 `agent`), `commands` (agent source only; `command_argv` keeps the first
 command), `command_results` (one exit code per command) and `agent_summary`.
@@ -147,8 +146,9 @@ so retries replay what already ran and Docker reports each exit code. All
 commands run even after a failure; the first non-zero exit code is the step's.
 `CompleteValidation` refuses results that do not match the commands. A
 passing check opens the pull request ready for review. Its Verification section
-lists each command with pass/fail, exit code and "agent-chosen", and the
-agent's summary fenced as unverified text (no mentions, no fence breaking). A
+says Kuayle re-ran the agent's commands and they passed, after the agent's own
+verification (or its summary when the pull request file has none), sanitized as
+described in [Pull request description](#pull-request-description-kua-210). A
 failure fails the task with "Kuayle re-ran the agent's tests and they failed:
 <cmd> exit N". The check output stays on the task, and the next attempt's
 handoff names the failed command and its exit code. Rollback is refused while an
@@ -385,14 +385,15 @@ force-pushed. Then:
    never written to the workspace volume.
 3. Reuses an open pull request from the task branch into the base branch, or opens
    one with the GitHub App, as a draft when the attempt's check was skipped. A
-   reused pull request gets this attempt's description, so a later passing check
-   replaces the "Not validated" warning and a draft is marked ready for review
-   (GraphQL `markPullRequestReadyForReview`). A ready pull request is never turned
-   back into a draft by a later unchecked attempt; its description carries the
-   warning instead. The title carries the issue identifier so the existing
+   reused pull request gets this attempt's description, and a draft is marked
+   ready for review once a later check passes (GraphQL
+   `markPullRequestReadyForReview`). A ready pull request is never turned back
+   into a draft by a later unchecked attempt. The title carries the issue identifier so the existing
    `pr_opened` GitHub automation moves the issue to In Review; publication does not
-   change the issue status itself. The agent's summary is included only as fenced,
-   explicitly unverified text. GitHub's URL must belong to the checkout repository.
+   change the issue status itself. The description is rendered from the agent's
+   `.kuayle/pull_request.json` and the configured template, sanitized (see
+   [Pull request description](#pull-request-description-kua-210)). GitHub's URL
+   must belong to the checkout repository.
 
 When the branch has nothing to publish, nothing is pushed and no pull request is
 opened or updated (KUA-176). The step is recorded as `skipped`, never
@@ -430,6 +431,103 @@ Retries after a lost result recommit nothing, push the same commit and reuse the
 open pull request. Push or GitHub errors are retried up to the operation limit with
 the token redacted; exhausted or terminal failures mark the step failed and block
 the task with its validated work intact. Cancellation marks open steps cancelled.
+
+### Pull request description (KUA-210)
+
+The implementing attempt writes the description. The prompt
+(`withPullRequestFile`) and the `kuayle-agents` skill ask it to write
+`.kuayle/pull_request.json` at the worktree root:
+
+```json
+{"description": "the problem and the core idea of the fix",
+ "changes": ["one short line per change"],
+ "verification": ["what the agent ran and the result"],
+ "notes": "only when a reviewer needs it",
+ "screenshots": [{"file": "settings-dark.png", "caption": "Settings, dark theme"}]}
+```
+
+and, when it changed something people see, up to 6 PNG, JPEG or WebP files of
+at most 2 MB each in `.kuayle/screenshots/`. Every key is optional. The file is
+untrusted: publication reads it (and each listed screenshot) through the
+developer container as the agent's user, as a regular file only and never
+through a symlinked `.kuayle` or `screenshots` directory, at most 64 KiB.
+`domain.ParseAgentPullRequestFile` rejects the whole file when a value has the
+wrong type or a screenshot is not a plain `.png`/`.jpg`/`.jpeg`/`.webp` name in
+that directory, and cuts longer texts and lists (description 1,500 characters,
+notes 1,000, 15 items of 300). A rejected or missing file only leaves the
+description to Kuayle's facts. Nothing under `.kuayle/` is committed, and an
+attempt's start removes an earlier attempt's file and screenshots.
+
+`publicationBody` renders the nearest issue, project, team or workspace
+`pull_request_template` development setting (migration 169), or the default:
+
+```markdown
+## Description
+{{description}}
+
+## Changes
+{{changes}}
+
+## Verification
+{{verification}}
+
+## Screenshots
+{{screenshots}}
+
+## Notes
+{{notes}}
+```
+
+`{{issue}}` is the issue identifier and title, the identifier linked to the
+issue in Kuayle when the frontend address is known. Without `{{issue}}` in the
+template, the description starts with "Addresses <issue>." Verification lists
+the agent's items, or else its `validation.json` summary, plus one line when
+Kuayle's own check passed ("Kuayle (also) ran `<command>` independently in a
+clean container: passed.", or the count of agent-chosen commands it re-ran). A section
+whose placeholders all render empty is left out with its heading; a section
+with other text stays. Each placeholder is replaced once, so agent text that
+contains a placeholder is never expanded. Without the agent's file the
+description is the issue line and Kuayle's check line. There is no warning
+banner, provider or model line, file or commit list, or task id; a skipped check
+shows as a draft pull request. The bot signature still starts the description:
+it is the bot's identity, and GitHub shows the description as its first comment.
+The body is cut at 60,000 bytes.
+
+Sanitizing (`sanitizeAgentMarkdown`) applies to everything the agent wrote and
+to the issue title: control characters are dropped; lines that would start a
+heading, a code fence or a setext underline are escaped so agent text cannot
+restructure the description; raw HTML (`<`) and markdown images are shown as
+text; `@` mentions get a zero-width space; GitHub closing keywords followed by
+an issue reference ("fixes #12", "closes owner/repo#3", "resolved: <URL>",
+"fixes GH-5") get a zero-width space inside the keyword; and identifiers of
+other Kuayle issues get one before the dash, so the pull request stays linked to
+its own issue (forge linking refuses a description that names several). Inline
+code keeps its text except closing keywords and identifiers. The template
+itself keeps its markdown, loses HTML comments, and gets the same HTML, mention
+and closing-keyword treatment, since issue-scope settings can be set by members
+without repository access. Templates are validated on save
+(`domain.ValidatePullRequestTemplate`): non-blank text of at most 8,000
+characters using only `{{description}}`, `{{changes}}`, `{{verification}}`,
+`{{screenshots}}`, `{{notes}}` and `{{issue}}`; a stored template that fails
+the check renders the default.
+
+Screenshots are never committed to the pull request branch. The manager checks
+each listed file's size and magic bytes against its extension (PNG, JPEG or
+WebP), then commits the accepted ones with the repository-scoped installation
+token through the Git data API (`PublishFilesToBranch`) as the whole tree of a
+parentless commit on the branch `kuayle/screenshots/<task id>`, created or
+force-moved for each publication. The description links
+`https://github.com/<owner>/<repo>/blob/<commit>/<file>?raw=true`: GitHub serves
+it with the viewer's own access, so screenshots of a private repository are
+visible only to people who can read it, and the images live and are deleted with
+the repository. Their commit has no workflow files, so pushing the branch runs no
+Actions. The agent could already commit any file to the pull request branch, so
+this adds no new way to publish content; a branch protection rule that refuses
+the branch only drops the Screenshots section (logged), never the publication.
+The branches are kept after the pull request merges or closes so its
+description keeps rendering; there is no cleanup hook, and an administrator may
+delete `kuayle/screenshots/*` branches when the images are no longer needed
+(earlier publications' commits are unreferenced once the branch moves).
 
 ### What publication runs
 

@@ -63,11 +63,16 @@ func (r *DevMachineRepository) GetPublication(ctx context.Context, op domain.Dev
 	}
 	defer tx.Rollback()
 	publication := &domain.AgentPublication{Step: *step}
-	err = tx.QueryRowContext(ctx, `SELECT identifier_text,title FROM issues WHERE id=$1 AND workspace_id=$2`, task.IssueID, task.WorkspaceID).Scan(&publication.IssueIdentifier, &publication.IssueTitle)
+	err = tx.QueryRowContext(ctx, `SELECT i.identifier_text,i.title,w.slug FROM issues i JOIN workspaces w ON w.id=i.workspace_id WHERE i.id=$1 AND i.workspace_id=$2`, task.IssueID, task.WorkspaceID).Scan(&publication.IssueIdentifier, &publication.IssueTitle, &publication.WorkspaceSlug)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrAgentTaskUnauthorized
 	}
 	if err != nil {
+		return nil, err
+	}
+	// The description follows the nearest scope's template when the agent
+	// publishes, so a changed template applies to the next publication.
+	if publication.PullRequestTemplate, err = resolveScopeDefault(ctx, tx, task.WorkspaceID, task.IssueID, "pull_request_template"); err != nil {
 		return nil, err
 	}
 	var name, email sql.NullString

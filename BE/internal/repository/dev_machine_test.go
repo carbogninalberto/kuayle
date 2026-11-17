@@ -1137,7 +1137,7 @@ func TestScopeSettingUpsertPreservesIdentityUnderConcurrentWrites(t *testing.T) 
 			time.Sleep(2 * time.Millisecond)
 			updated := &domain.DevMachineScopeSetting{
 				ID: uuid.New(), WorkspaceID: fixture.workspaceID, TeamID: test.teamID, ProjectID: test.projectID, IssueID: test.issueID,
-				BaseBranch: stringPointer("updated"), EnvironmentID: &fixture.environmentID,
+				BaseBranch: stringPointer("updated"), EnvironmentID: &fixture.environmentID, PullRequestTemplate: stringPointer("## Why\n{{description}}"),
 			}
 			require.NoError(t, fixture.repository.UpsertScopeSetting(context.Background(), updated))
 			require.Equal(t, settings[0].ID, updated.ID)
@@ -1150,6 +1150,7 @@ func TestScopeSettingUpsertPreservesIdentityUnderConcurrentWrites(t *testing.T) 
 			require.Equal(t, updated.ID, stored.ID)
 			require.Equal(t, "updated", *stored.BaseBranch)
 			require.Equal(t, fixture.environmentID, *stored.EnvironmentID)
+			require.Equal(t, "## Why\n{{description}}", *stored.PullRequestTemplate)
 		})
 	}
 }

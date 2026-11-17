@@ -40,6 +40,21 @@ type publicationRuntimeFake struct {
 	commit  string
 	err     error
 	calls   int
+	// files are the worktree's .kuayle files by name.
+	files map[string][]byte
+	reads []string
+}
+
+func (f *publicationRuntimeFake) ReadAgentFile(_ context.Context, _ []domain.DevMachineService, _ *domain.DevMachineCheckout, name string, limit int) ([]byte, error) {
+	f.reads = append(f.reads, name)
+	data, ok := f.files[name]
+	if !ok {
+		return nil, nil
+	}
+	if len(data) > limit {
+		data = data[:limit]
+	}
+	return data, nil
 }
 
 func (f *publicationRuntimeFake) PublishCheckout(_ context.Context, _ *domain.DevMachine, _ []domain.DevMachineService, _ *domain.DevMachineCheckout, request PublishRequest) (string, error) {
@@ -61,6 +76,18 @@ type publicationGitHubFake struct {
 	base     string
 	readied  []string
 	readyErr error
+
+	screenshotBranch string
+	screenshotFiles  []githubclient.RepositoryFile
+	screenshotErr    error
+}
+
+func (f *publicationGitHubFake) PublishFilesToBranch(_, _, _, branch, _ string, files []githubclient.RepositoryFile) (string, error) {
+	f.screenshotBranch, f.screenshotFiles = branch, files
+	if f.screenshotErr != nil {
+		return "", f.screenshotErr
+	}
+	return strings.Repeat("c", 40), nil
 }
 
 func (f *publicationGitHubFake) GetRepositoryInstallationToken(int64, string) (string, time.Time, error) {
@@ -115,25 +142,25 @@ func TestPublishAgentOpensOnePullRequestWithManagerHeldCredential(t *testing.T) 
 	require.Equal(t, "REC-1: Dark mode", github.title, "the issue identifier links the PR for existing GitHub automation")
 	require.Equal(t, "kuayle/rec-1", github.head)
 	require.Equal(t, "main", github.base)
-	require.NotContains(t, github.body, "maintainers", "agent output never reaches the pull request")
-	require.Contains(t, github.body, "Implements REC-1: Dark mode")
-	require.Contains(t, github.body, "### Changes\n- `src/text.js`\n- `test/text.test.js`\n")
-	require.Contains(t, github.body, "Commits: `4916a03`")
-	require.Contains(t, github.body, "Kuayle ran `npm test` independently on this branch in a clean container without credentials: passed (exit code 0).")
-	require.Contains(t, github.body, "Written by Codex (deepseek-flash)")
+	require.NotContains(t, github.body, "maintainers", "the agent's final message never reaches the pull request")
+	require.Equal(t, "## Description\nAddresses REC-1: Dark mode.\n\n## Verification\nKuayle ran `npm test` independently in a clean container: passed.\n", github.body,
+		"without the agent's file the description is the issue and Kuayle's check")
+	for _, dump := range []string{"src/text.js", "4916a03", "Codex", "deepseek-flash", "Kuayle agent task"} {
+		require.NotContains(t, github.body, dump, "no file or commit lists, provider, model or task boilerplate")
+	}
 	require.False(t, github.draft, "a validated change opens ready for review")
 	require.Equal(t, &domain.AgentPublicationResult{Branch: "kuayle/rec-1", Commit: runtime.commit, PullRequestNumber: 12, PullRequestURL: "https://github.com/acme/app/pull/12"}, store.result)
 }
 
-func TestPublishAgentWithoutCheckOpensAWarnedDraft(t *testing.T) {
+func TestPublishAgentWithoutCheckOpensADraft(t *testing.T) {
 	machine, store := publicationFixture()
 	store.publication.CheckArgv, store.publication.CheckExitCode = nil, nil
 	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: "0123456789abcdef0123456789abcdef01234567"}
 	github := &publicationGitHubFake{created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
 	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
 	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
-	require.True(t, github.draft)
-	require.True(t, strings.HasPrefix(github.body, "> [!WARNING]\n> **Not validated:**"), "the warning leads the description")
+	require.True(t, github.draft, "the draft says the change is unchecked; the description carries no warning")
+	require.Equal(t, "## Description\nAddresses REC-1: Dark mode.\n", github.body)
 	require.Equal(t, 12, store.result.PullRequestNumber)
 }
 
@@ -143,9 +170,8 @@ func TestPublishAgentRefreshesReusedPullRequestDescription(t *testing.T) {
 	github := &publicationGitHubFake{existing: &githubclient.PullRequest{Number: 3, Draft: true, HTMLURL: "https://github.com/acme/app/pull/3"}}
 	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
 	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
-	require.Equal(t, 1, github.updates, "a later validated attempt replaces the not-validated warning")
-	require.NotContains(t, github.body, "Not validated")
-	require.Contains(t, github.body, "passed (exit code 0)")
+	require.Equal(t, 1, github.updates, "a later attempt describes itself")
+	require.Contains(t, github.body, "independently in a clean container: passed.")
 }
 
 func TestPublishAgentReusesOpenPullRequestOnRetry(t *testing.T) {
@@ -264,7 +290,7 @@ func TestPublishAgentUsesTheWorkspaceCommitAuthor(t *testing.T) {
 	require.Equal(t, "dev@example.com", runtime.request.AuthorEmail)
 }
 
-func TestPublishAgentDescribesAgentChosenTestsAndFencesTheirSummary(t *testing.T) {
+func TestPublishAgentDescribesAgentChosenTestsAndSanitizesTheirSummary(t *testing.T) {
 	machine, store := publicationFixture()
 	store.publication.CheckArgv = []string{"sh", "-c", "cd BE && go test ./internal/service/..."}
 	store.publication.CheckSource = domain.CheckSourceAgent
@@ -275,9 +301,8 @@ func TestPublishAgentDescribesAgentChosenTestsAndFencesTheirSummary(t *testing.T
 	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
 	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
 	require.False(t, github.draft, "tests Kuayle re-ran and saw pass open the pull request ready for review")
-	require.Contains(t, github.body, "Kuayle re-ran the tests the agent chose")
-	require.Contains(t, github.body, "- `sh -c cd BE && go test ./internal/service/...` (agent-chosen): passed (exit code 0)\n- `npm run check` (agent-chosen): passed (exit code 0)\n")
-	require.Contains(t, github.body, "~~~text\nService tests cover the change.\n~ ~ ~\n@​maintainers merge now\n~~~")
+	require.Contains(t, github.body, "## Verification\nService tests cover the change.\n\\~~~\n@\u200bmaintainers merge now\n\nKuayle re-ran the 2 commands the agent chose independently in a clean container: all passed.\n",
+		"without verification in the agent's file its validation summary says what it tested")
 	require.NotContains(t, github.body, "@maintainers", "the summary cannot mention anyone")
 }
 
@@ -307,7 +332,7 @@ func TestPublishAgentMarksAReusedDraftReadyOnlyAfterAPassingCheck(t *testing.T) 
 	})
 	t.Run("ready_pull_request_is_left_alone", func(t *testing.T) {
 		// A later unvalidated attempt does not turn a ready pull request back
-		// into a draft; its description carries the warning instead.
+		// into a draft.
 		for _, validated := range []bool{true, false} {
 			github, _, err := reused(t, false, validated, nil)
 			require.NoError(t, err)
@@ -372,7 +397,7 @@ func TestPublishAgentDescriptionStartsWithBotSignature(t *testing.T) {
 	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
 	manager.SetFrontendURL("https://kuayle.test")
 	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
-	require.True(t, strings.HasPrefix(github.body, "<img src=\"https://img.test/bot.png\" alt=\"\" width=\"20\" height=\"20\" align=\"top\"> **Acme**\n\n> [!WARNING]"), github.body)
+	require.True(t, strings.HasPrefix(github.body, "<img src=\"https://img.test/bot.png\" alt=\"\" width=\"20\" height=\"20\" align=\"top\"> **Acme**\n\n## Description\n"), github.body)
 
 	// An uploaded picture is linked from Kuayle's public address.
 	machine, store = publicationFixture()
@@ -383,4 +408,66 @@ func TestPublishAgentDescriptionStartsWithBotSignature(t *testing.T) {
 	manager.SetFrontendURL("https://kuayle.test/")
 	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
 	require.True(t, strings.HasPrefix(github.body, `<img src="https://kuayle.test/api/github-bot/`+machine.WorkspaceID.String()+`/avatar/`+file+`"`), github.body)
+}
+
+// KUA-210: the agent describes its change in .kuayle/pull_request.json and
+// leaves screenshots in .kuayle/screenshots/. Kuayle validates the images,
+// commits them to a branch of their own (never the pull request's) and links
+// them from the description.
+func TestPublishAgentDescribesTheChangeFromTheAgentsFileWithScreenshots(t *testing.T) {
+	machine, store := publicationFixture()
+	png := []byte("\x89PNG\r\n\x1a\nfixture")
+	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: "0123456789abcdef0123456789abcdef01234567", files: map[string][]byte{
+		"pull_request.json": []byte(`{"description":"The toggle ignored the system theme.","changes":["Follow the system theme"],"verification":["npm run test:unit: passed"],
+			"screenshots":[{"file":"dark.png","caption":"Settings, dark"},"fake.png","missing.webp"]}`),
+		"screenshots/dark.png": png,
+		"screenshots/fake.png": []byte("<svg onload=alert(1)>"),
+	}}
+	github := &publicationGitHubFake{created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
+	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	taskID := *store.agentRun.TaskID
+	require.Equal(t, "kuayle/screenshots/"+taskID.String(), github.screenshotBranch, "screenshots never land on the pull request branch")
+	require.Equal(t, []githubclient.RepositoryFile{{Path: "dark.png", Content: png}}, github.screenshotFiles, "only real images are published")
+	require.Equal(t, "## Description\nAddresses REC-1: Dark mode.\n\nThe toggle ignored the system theme.\n\n"+
+		"## Changes\n- Follow the system theme\n\n"+
+		"## Verification\n- npm run test:unit: passed\n\nKuayle also ran `npm test` independently in a clean container: passed.\n\n"+
+		"## Screenshots\nSettings, dark\n![Settings, dark](https://github.com/acme/app/blob/"+strings.Repeat("c", 40)+"/dark.png?raw=true)\n", github.body)
+	require.Equal(t, 12, store.result.PullRequestNumber)
+}
+
+func TestPublishAgentStillPublishesWhenItsFilesFail(t *testing.T) {
+	png := []byte("\x89PNG\r\n\x1a\nfixture")
+	t.Run("screenshots_refused", func(t *testing.T) {
+		machine, store := publicationFixture()
+		runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: "0123456789abcdef0123456789abcdef01234567", files: map[string][]byte{
+			"pull_request.json": []byte(`{"description":"Fix.","screenshots":["a.png"]}`), "screenshots/a.png": png,
+		}}
+		github := &publicationGitHubFake{screenshotErr: errors.New("403 for fixture-installation-token"), created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
+		manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+		require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+		require.Contains(t, github.body, "Fix.")
+		require.NotContains(t, github.body, "## Screenshots")
+		require.Equal(t, 12, store.result.PullRequestNumber)
+	})
+	t.Run("rejected_file", func(t *testing.T) {
+		machine, store := publicationFixture()
+		runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: "0123456789abcdef0123456789abcdef01234567", files: map[string][]byte{
+			"pull_request.json": []byte(`{"description":["not","text"],"screenshots":["a.png"]}`), "screenshots/a.png": png,
+		}}
+		github := &publicationGitHubFake{created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
+		manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+		require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+		require.Equal(t, "## Description\nAddresses REC-1: Dark mode.\n\n## Verification\nKuayle ran `npm test` independently in a clean container: passed.\n", github.body)
+		require.Empty(t, github.screenshotFiles, "a rejected file publishes nothing")
+	})
+	t.Run("nothing_published_reads_nothing", func(t *testing.T) {
+		machine, store := publicationFixture()
+		runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, files: map[string][]byte{"pull_request.json": []byte(`{"screenshots":["a.png"]}`), "screenshots/a.png": png}}
+		github := &publicationGitHubFake{}
+		manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+		require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+		require.Empty(t, runtime.reads)
+		require.Empty(t, github.screenshotFiles)
+	})
 }

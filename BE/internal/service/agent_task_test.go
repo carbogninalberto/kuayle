@@ -901,6 +901,17 @@ func TestHandoffNamesTheFailedAgentChosenTest(t *testing.T) {
 	require.Contains(t, prompt, "Kuayle re-ran the tests you declared in .kuayle/validation.json and `go test ./internal/service/...` failed (exit code 2)")
 }
 
+// KUA-210: the agent writes the pull request's description and screenshots;
+// a planning step changes nothing, so it is not asked to.
+func TestImplementPromptAsksForAPullRequestFile(t *testing.T) {
+	prompt := withContract("Implement dark mode", domain.AgentTask{}, nil, false)
+	for _, part := range []string{domain.AgentPullRequestFile, `"description"`, `"changes"`, `"verification"`, `"notes"`, `"screenshots"`, domain.AgentScreenshotsDir + "/", "PNG, JPEG or WebP", "never commits it", "kuayle-agents"} {
+		require.Contains(t, prompt, part)
+	}
+	require.Equal(t, prompt, withPullRequestFile(prompt), "added once")
+	require.NotContains(t, withContract("Plan dark mode", domain.AgentTask{}, nil, true), pullRequestFileLine)
+}
+
 func TestImplementPromptAsksForAValidationFile(t *testing.T) {
 	prompt := withValidationFile("Implement dark mode")
 	require.Contains(t, prompt, ".kuayle/validation.json")
