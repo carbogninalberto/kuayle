@@ -26,3 +26,13 @@ vulnerabilities:
       - pkg:golang/github.com/docker/docker@v28.5.2%2Bincompatible
     expired_at: 2027-01-31
     statement: Daemon-side flaw; only client code of the module is in Buildx, and the daemon is 29.9.3.
+  # picomatch (GHSA-fc5q-39xc-vjpf) has no fixed release: every version up to
+  # 4.0.7 is affected. The dev machine images carry it inside npm's own bundled
+  # modules and Node tooling, where it only matches glob patterns written by
+  # the image's tools, never patterns from untrusted input.
+  - id: CVE-2026-112366
+    purls:
+      - pkg:npm/picomatch@4.0.4
+      - pkg:npm/picomatch@4.0.5
+    expired_at: 2026-12-31
+    statement: No fixed picomatch release; only npm and Node tooling use it, with globs they define themselves.

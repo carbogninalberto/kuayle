@@ -166,8 +166,8 @@ func (m *Manager) captureSignIn(ctx context.Context, machine *domain.DevMachine,
 	return m.store.SaveAgentSignIn(ctx, machine.WorkspaceID, *op.RequestedByUserID, run.ProviderID, encrypted)
 }
 
-// returnSignIn keeps the sign-in an agent refreshed during its run, so a
-// rotated refresh token is not lost with the run's in-memory home.
+// returnSignIn saves a rotated refresh token only while the same sign-in
+// is still stored. A user can replace or delete it during the run.
 func (m *Manager) returnSignIn(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, used string) error {
 	if run.RequestedByUserID == nil {
 		return nil
@@ -180,9 +180,20 @@ func (m *Manager) returnSignIn(ctx context.Context, machine *domain.DevMachine, 
 	if err != nil || !validSignIn(content) || strings.TrimSpace(content) == strings.TrimSpace(used) {
 		return err
 	}
-	encrypted, err := cryptoutil.Encrypt(strings.TrimSpace(content), m.encryptionKey)
+	previous, err := m.store.GetAgentSignIn(ctx, machine.WorkspaceID, *run.RequestedByUserID, run.ProviderID)
+	if err != nil || previous == "" {
+		return err
+	}
+	current, err := cryptoutil.Decrypt(previous, m.encryptionKey)
+	if err != nil {
+		return fmt.Errorf("secret_decryption_failed: %w", err)
+	}
+	if current != used {
+		return nil
+	}
+	refreshed, err := cryptoutil.Encrypt(strings.TrimSpace(content), m.encryptionKey)
 	if err != nil {
 		return err
 	}
-	return m.store.SaveAgentSignIn(ctx, machine.WorkspaceID, *run.RequestedByUserID, run.ProviderID, encrypted)
+	return m.store.RefreshAgentSignIn(ctx, machine.WorkspaceID, *run.RequestedByUserID, run.ProviderID, previous, refreshed)
 }

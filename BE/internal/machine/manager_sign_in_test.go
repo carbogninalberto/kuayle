@@ -13,6 +13,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestManagerDiscardsCodexRefreshAfterSignInChanges(t *testing.T) {
+	for _, scenario := range []struct {
+		name        string
+		replacement string
+	}{
+		{name: "reconnected", replacement: `{"tokens":{"access_token":"<fixture-access-token-reconnected>"}}`},
+		{name: "disconnected"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			store, runtime, manager, run, key := signInRunFixture(t)
+			ctx := context.Background()
+			user := *run.RequestedByUserID
+			original := `{"tokens":{"access_token":"<fixture-access-token-original>"}}`
+			require.NoError(t, store.SaveAgentSignIn(ctx, run.WorkspaceID, user, "codex", sealSignIn(t, key, original)))
+			runtime.returnedSignIn = `{"tokens":{"access_token":"<fixture-access-token-refreshed>"}}`
+			var expected string
+			runtime.onAgentOutput = func(AgentOutput) error {
+				if scenario.replacement == "" {
+					delete(store.signIns, user.String()+"/codex")
+					return nil
+				}
+				expected = sealSignIn(t, key, scenario.replacement)
+				return store.SaveAgentSignIn(ctx, run.WorkspaceID, user, "codex", expected)
+			}
+
+			require.NoError(t, manager.runAgent(ctx, store.machine, &domain.DevMachineOperation{
+				MachineID: run.MachineID, WorkspaceID: run.WorkspaceID, AgentRunID: &run.ID, Generation: 1,
+			}))
+			require.Equal(t, original, runtime.agentSecrets["KUAYLE_CODEX_AUTH"])
+			require.Empty(t, runtime.returnedSignIn, "the run's returned sign-in is collected and removed")
+			stored, err := store.GetAgentSignIn(ctx, run.WorkspaceID, user, "codex")
+			require.NoError(t, err)
+			require.True(t, stored == expected, "the refresh must leave the current sign-in unchanged")
+		})
+	}
+}
+
 const claudeTokenFixture = "sk-ant-oat01-fixture-token-value-0001"
 
 // claudeSignInFixture is a Claude Code run without a model server whose

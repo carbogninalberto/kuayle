@@ -94,6 +94,7 @@ type ManagerStore interface {
 	// ListAgentSignIns gives the saved token's expiry, without values.
 	ListAgentSignIns(context.Context, uuid.UUID, uuid.UUID) ([]domain.AgentSignIn, error)
 	SaveAgentSignIn(context.Context, uuid.UUID, uuid.UUID, string, string) error
+	RefreshAgentSignIn(ctx context.Context, workspaceID, userID uuid.UUID, provider, previous, refreshed string) error
 	SetMachineState(context.Context, uuid.UUID, domain.DevMachineStatus, *string, *string, *string, *string) error
 	SetMachineStateForOperation(context.Context, uuid.UUID, int64, bool, domain.DevMachineStatus, *string, *string, *string, *string) (bool, error)
 	UpdateServiceRuntime(context.Context, uuid.UUID, string, string, string, *string) error

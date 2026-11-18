@@ -1,0 +1,35 @@
+{
+  "issues": [
+    {
+      "id": "20001",
+      "key": "DC-1",
+      "self": "http://jira.internal/rest/api/2/issue/20001",
+      "fields": {
+        "summary": "Data Center issue",
+        "description": "h1. Heading\nsome *wiki* text",
+        "status": { "id": "1", "name": "Open" },
+        "priority": { "id": "3", "name": "Medium" },
+        "issuetype": { "id": "1", "name": "Story", "subtask": false },
+        "project": { "id": "20", "key": "DC", "name": "DC Project" },
+        "reporter": { "name": "dcuser", "emailAddress": "dc@example.com", "displayName": "DC User" },
+        "created": "2024-02-01T09:00:00.000+0000",
+        "updated": "2024-02-02T09:00:00.000+0000",
+        "customfield_10014": "DC-9",
+        "customfield_10020": ["Sprint 2"]
+      },
+      "changelog": {
+        "histories": [
+          {
+            "id": "h1",
+            "created": "2024-02-02T09:00:00.000+0000",
+            "author": { "name": "dcuser", "displayName": "DC User" },
+            "items": [{ "field": "status", "fromString": "Open", "toString": "In Progress" }]
+          }
+        ],
+        "total": 1
+      }
+    }
+  ],
+  "total": 1,
+  "startAt": 0
+}

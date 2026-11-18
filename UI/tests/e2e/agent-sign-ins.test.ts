@@ -92,8 +92,8 @@ test('a member saves a Claude Code token and removes their sign-ins', async ({ p
 	const codex = card.getByTestId('sign-in-codex');
 	await expect(claude.getByText('Not signed in', { exact: true })).toBeVisible();
 	await expect(claude.getByText('claude setup-token', { exact: true })).toBeVisible();
-	await expect(codex.getByText('Signed in via terminal', { exact: true })).toBeVisible();
-	await expect(codex.getByText('Signed in from a machine’s terminal on Oct 1, 2026.')).toBeVisible();
+	await expect(codex.getByText('Signed in', { exact: true })).toBeVisible();
+	await expect(codex.getByText('Sign-in saved on Oct 1, 2026.')).toBeVisible();
 	await expect(codex.getByText('codex login --device-auth', { exact: false })).toBeVisible();
 	await expect(codex.getByLabel('Claude Code token', { exact: true })).toHaveCount(0);
 
@@ -122,7 +122,7 @@ test('a member saves a Claude Code token and removes their sign-ins', async ({ p
 	await confirm.getByRole('button', { name: 'Delete', exact: true }).click();
 	await expect(claude.getByText('Not signed in', { exact: true })).toBeVisible();
 
-	await codex.getByRole('button', { name: 'Remove the Codex terminal sign-in' }).click();
+	await codex.getByRole('button', { name: 'Remove Codex sign-in' }).click();
 	await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();
 	await expect(codex.getByText('Not signed in', { exact: true })).toBeVisible();
 	expect(requests.filter((request) => request.method === 'DELETE').map((request) => request.path + request.search)).toEqual([
@@ -212,4 +212,148 @@ test('sign-ins that fail to load can be retried', async ({ page }) => {
 	await page.goto('/test/settings/agents');
 	await expect(page.getByText('Your sign-ins could not be loaded.')).toBeVisible();
 	await expect(page.getByRole('region', { name: 'Your sign-ins' }).getByRole('button', { name: 'Refresh' })).toBeVisible();
+});
+
+const devicePath = '**/api/workspaces/test/agent-sign-ins/codex/device';
+const deviceCode = 'ABCD-EFGHJ';
+const verifyURL = 'https://auth.openai.com/codex/device';
+
+function deviceChallenge(expiresAt = Date.now() + 60_000) {
+	return {
+		attempt_id: 'device-attempt-fixture',
+		verification_url: verifyURL,
+		user_code: deviceCode,
+		expires_at: new Date(expiresAt).toISOString()
+	};
+}
+
+test('a member connects ChatGPT from Settings before creating a machine', async ({ page }) => {
+	const signIn: SignIn = { provider: 'codex', supports_token: false, token: null, terminal: null };
+	await mockSettings(page, [signIn]);
+	const challenge = deviceChallenge();
+	await page.route(`${devicePath}/start`, (route) => route.fulfill({ json: challenge }));
+	let polls = 0;
+	await page.route(`${devicePath}/poll`, (route) => {
+		expect(route.request().method()).toBe('POST');
+		expect(route.request().postDataJSON()).toEqual({ attempt_id: challenge.attempt_id });
+		if (++polls === 1) return route.fulfill({ json: { status: 'pending' } });
+		signIn.terminal = { saved_at: savedAt };
+		return route.fulfill({ json: { status: 'connected' } });
+	});
+	await page.goto('/test/settings/agents');
+	const codex = page.getByTestId('sign-in-codex');
+	await expect(codex.getByText('Not signed in', { exact: true })).toBeVisible();
+	await expect(codex.getByText('codex login --device-auth', { exact: false })).toBeVisible();
+	await codex.getByRole('button', { name: 'Connect ChatGPT', exact: true }).click();
+	const dialog = page.getByRole('dialog', { name: 'Connect ChatGPT' });
+	await expect(dialog.getByText(deviceCode, { exact: true })).toBeVisible();
+	await expect(dialog.getByRole('link', { name: 'Open ChatGPT' })).toHaveAttribute('href', verifyURL);
+	await expect(dialog.getByText('Waiting for approval in ChatGPT…')).toBeVisible();
+	await expect(codex.getByText('Signed in', { exact: true })).toBeVisible();
+	await expect(dialog).toHaveCount(0);
+	await expect(page.getByText(deviceCode, { exact: true })).toHaveCount(0);
+	await expect(codex.getByRole('button', { name: 'Connect ChatGPT', exact: true })).toBeFocused();
+	await page.reload();
+	await expect(codex.getByText('Sign-in saved on Oct 1, 2026.')).toBeVisible();
+});
+
+test('Escape cancels the device attempt and preserves the saved sign-in', async ({ page }) => {
+	await page.setViewportSize({ width: 375, height: 667 });
+	await mockSettings(page, [{ provider: 'codex', supports_token: false, token: null, terminal: { saved_at: savedAt } }]);
+	const challenge = deviceChallenge();
+	await page.route(`${devicePath}/start`, (route) => route.fulfill({ json: challenge }));
+	await page.route(`${devicePath}/poll`, (route) => route.fulfill({ json: { status: 'pending' } }));
+	await page.route(`${devicePath}/cancel`, (route) => route.fulfill({ status: 204 }));
+	await page.goto('/test/settings/agents');
+	const codex = page.getByTestId('sign-in-codex');
+	const button = codex.getByRole('button', { name: 'Connect ChatGPT', exact: true });
+	await button.click();
+	const dialog = page.getByRole('dialog', { name: 'Connect ChatGPT' });
+	await expect(dialog.getByText(deviceCode, { exact: true })).toBeVisible();
+	await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport();
+	const canceled = page.waitForResponse((response) => response.url().endsWith('/codex/device/cancel'));
+	await page.keyboard.press('Escape');
+	expect((await canceled).request().postDataJSON()).toEqual({ attempt_id: challenge.attempt_id });
+	await expect(dialog).toHaveCount(0);
+	await expect(button).toBeFocused();
+	await expect(codex.getByText('Sign-in saved on Oct 1, 2026.')).toBeVisible();
+});
+
+test('an expired device code is cleared and a new attempt is available', async ({ page }) => {
+	const now = Date.now();
+	await page.clock.install({ time: now });
+	await mockSettings(page, [{ provider: 'codex', supports_token: false, token: null, terminal: null }]);
+	let starts = 0;
+	await page.route(`${devicePath}/start`, (route) =>
+		route.fulfill({
+			json: starts++ === 0 ? deviceChallenge(now + 30_000) : { ...deviceChallenge(now + 120_000), user_code: 'WXYZ-QRSTU' }
+		})
+	);
+	await page.route(`${devicePath}/poll`, (route) => route.fulfill({ json: { status: 'pending' } }));
+	await page.goto('/test/settings/agents');
+	const codex = page.getByTestId('sign-in-codex');
+	const button = codex.getByRole('button', { name: 'Connect ChatGPT', exact: true });
+	await button.click();
+	const dialog = page.getByRole('dialog', { name: 'Connect ChatGPT' });
+	await expect(dialog.getByText(deviceCode, { exact: true })).toBeVisible();
+	await page.clock.fastForward(30_001);
+	await expect(dialog.getByRole('alert')).toHaveText('This code expired. Start again to get a new code.');
+	await expect(dialog.getByText(deviceCode, { exact: true })).toHaveCount(0);
+	await expect(dialog.getByText('codex login --device-auth', { exact: false })).toBeVisible();
+	await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+	await expect(codex.getByText('Not signed in', { exact: true })).toBeVisible();
+	await button.click();
+	await expect(dialog.getByText('WXYZ-QRSTU', { exact: true })).toBeVisible();
+});
+
+test('reopening during a canceled start waits for that attempt to be cleaned up', async ({ page }) => {
+	await mockSettings(page, [{ provider: 'codex', supports_token: false, token: null, terminal: null }]);
+	const first = deviceChallenge();
+	const second = { ...first, attempt_id: 'second-attempt-fixture', user_code: 'WXYZ-QRSTU' };
+	const calls: string[] = [];
+	let releaseStart!: () => void;
+	const delayedStart = new Promise<void>((resolve) => { releaseStart = resolve; });
+	await page.route(`${devicePath}/start`, async (route) => {
+		if (!calls.length) {
+			calls.push('first start');
+			await delayedStart;
+			return route.fulfill({ json: first });
+		}
+		calls.push('second start');
+		return route.fulfill({ json: second });
+	});
+	await page.route(`${devicePath}/cancel`, (route) => {
+		calls.push(route.request().postDataJSON().attempt_id);
+		return route.fulfill({ status: 204 });
+	});
+	await page.route(`${devicePath}/poll`, (route) => route.fulfill({ json: { status: 'pending' } }));
+	await page.goto('/test/settings/agents');
+	const button = page.getByTestId('sign-in-codex').getByRole('button', { name: 'Connect ChatGPT', exact: true });
+	const starts = page.waitForRequest((request) => request.url().endsWith('/codex/device/start'));
+	await button.click();
+	await starts;
+	const dialog = page.getByRole('dialog', { name: 'Connect ChatGPT' });
+	await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+	await button.click();
+	releaseStart();
+	await expect(dialog.getByText(second.user_code, { exact: true })).toBeVisible();
+	await expect(dialog.getByText(first.user_code, { exact: true })).toHaveCount(0);
+	expect(calls).toEqual(['first start', first.attempt_id, 'second start']);
+});
+
+test('a failed ChatGPT sign-in offers the terminal fallback without exposing provider details', async ({ page }) => {
+	await mockSettings(page, [{ provider: 'codex', supports_token: false, token: null, terminal: null }]);
+	const problem = 'private provider diagnostics fixture';
+	await page.route(`${devicePath}/start`, (route) =>
+		route.fulfill({ status: 502, json: { error: { code: 'UPSTREAM_ERROR', message: problem } } })
+	);
+	await page.goto('/test/settings/agents');
+	const codex = page.getByTestId('sign-in-codex');
+	await codex.getByRole('button', { name: 'Connect ChatGPT', exact: true }).click();
+	const dialog = page.getByRole('dialog', { name: 'Connect ChatGPT' });
+	await expect(dialog.getByRole('alert')).toHaveText('ChatGPT sign-in could not be completed. Try again or use the terminal.');
+	await expect(dialog.getByText('codex login --device-auth', { exact: false })).toBeVisible();
+	await expect(page.getByText(problem, { exact: true })).toHaveCount(0);
+	await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+	await expect(codex.getByText('Not signed in', { exact: true })).toBeVisible();
 });

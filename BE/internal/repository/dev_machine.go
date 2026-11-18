@@ -49,6 +49,8 @@ type DevMachineStore interface {
 	GetAgentModelDefault(context.Context, uuid.UUID, string) (*domain.AgentModelDefault, error)
 	SaveAgentModelDefault(context.Context, *domain.AgentModelDefault) error
 	ListAgentSignIns(context.Context, uuid.UUID, uuid.UUID) ([]domain.AgentSignIn, error)
+	GetAgentSignIn(context.Context, uuid.UUID, uuid.UUID, string) (string, error)
+	SaveAgentSignIn(context.Context, uuid.UUID, uuid.UUID, string, string) error
 	GetAgentSignInToken(context.Context, uuid.UUID, uuid.UUID, string) (string, error)
 	SaveAgentSignInToken(context.Context, uuid.UUID, uuid.UUID, string, string, time.Time) error
 	DeleteAgentSignIns(context.Context, uuid.UUID, uuid.UUID, string, string) (int64, error)
@@ -995,6 +997,21 @@ func (r *DevMachineRepository) SaveAgentSignIn(ctx context.Context, workspaceID,
 	return r.changeAgentSignIns(ctx, workspaceID, userID, func(tx *sqlx.Tx) (int64, error) {
 		result, err := tx.ExecContext(ctx, `INSERT INTO agent_sign_ins(workspace_id,user_id,provider,encrypted_credential) VALUES($1,$2,$3,$4)
 		ON CONFLICT (workspace_id,user_id,provider,kind) DO UPDATE SET encrypted_credential=EXCLUDED.encrypted_credential, updated_at=now()`, workspaceID, userID, provider, encrypted)
+		if err != nil {
+			return 0, err
+		}
+		return result.RowsAffected()
+	})
+}
+
+// RefreshAgentSignIn replaces a credentials file if it still matches the
+// ciphertext read by the caller. It leaves replaced or removed sign-ins alone.
+func (r *DevMachineRepository) RefreshAgentSignIn(ctx context.Context, workspaceID, userID uuid.UUID, provider, previous, refreshed string) error {
+	return r.changeAgentSignIns(ctx, workspaceID, userID, func(tx *sqlx.Tx) (int64, error) {
+		result, err := tx.ExecContext(ctx, `UPDATE agent_sign_ins SET encrypted_credential=$5, updated_at=now()
+			WHERE workspace_id=$1 AND user_id=$2 AND provider=$3 AND kind='credentials'
+			  AND encrypted_credential=$4 AND encrypted_credential<>$5`,
+			workspaceID, userID, provider, previous, refreshed)
 		if err != nil {
 			return 0, err
 		}

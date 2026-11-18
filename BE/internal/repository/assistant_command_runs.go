@@ -194,6 +194,12 @@ func (r *AssistantCommandRepository) ReusableMachine(ctx context.Context, ws, us
  ORDER BY (m.issue_id IS NULL) DESC, m.last_activity_at DESC NULLS LAST, m.created_at DESC`, ws, user, true)
 }
 
+// UserTemporaryMachine returns the user's own live temporary machine in the
+// workspace, whichever conversation started it, or ErrCommandMachineUnavailable.
+func (r *AssistantCommandRepository) UserTemporaryMachine(ctx context.Context, ws, user uuid.UUID) (*domain.DevMachine, error) {
+	return r.machine(ctx, `m.temporary_expires_at IS NOT NULL AND `+activeMachine+` AND $3::boolean ORDER BY m.created_at DESC`, ws, user, true)
+}
+
 const activeMachine = `m.desired_status='running' AND m.status NOT IN ('destroyed','failed','expired','stopped')`
 
 func (r *AssistantCommandRepository) machine(ctx context.Context, match string, ws, user uuid.UUID, arg any) (*domain.DevMachine, error) {
@@ -220,18 +226,23 @@ func (r *AssistantCommandRepository) CheckRunner(ctx context.Context, ws, user u
 }
 
 // TemporaryMachineQuota returns how many temporary machines are live in the
-// workspace and how many its policy allows.
-func (r *AssistantCommandRepository) TemporaryMachineQuota(ctx context.Context, ws uuid.UUID) (int, int, error) {
+// workspace, how many its policy allows, and how many of the live ones belong
+// to the user. Unlike activeMachine, liveTemporaryMachine counts machines that
+// cannot run commands yet (for example a failed one still desired running).
+func (r *AssistantCommandRepository) TemporaryMachineQuota(ctx context.Context, ws, user uuid.UUID) (used, limit, mine int, err error) {
 	var quota struct {
 		Used  int `db:"used"`
+		Mine  int `db:"mine"`
 		Limit int `db:"max_temporary_machines"`
 	}
-	err := r.db.GetContext(ctx, &quota, `SELECT p.max_temporary_machines,(SELECT COUNT(*) FROM dev_machines m WHERE m.workspace_id=p.workspace_id AND `+liveTemporaryMachine+`) AS used
- FROM dev_machine_workspace_policies p WHERE p.workspace_id=$1`, ws)
+	err = r.db.GetContext(ctx, &quota, `SELECT p.max_temporary_machines,
+  (SELECT COUNT(*) FROM dev_machines m WHERE m.workspace_id=p.workspace_id AND `+liveTemporaryMachine+`) AS used,
+  (SELECT COUNT(*) FROM dev_machines m WHERE m.workspace_id=p.workspace_id AND m.created_by_user_id=$2 AND `+liveTemporaryMachine+`) AS mine
+  FROM dev_machine_workspace_policies p WHERE p.workspace_id=$1`, ws, user)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, 0, nil
+		return 0, 0, 0, nil
 	}
-	return quota.Used, quota.Limit, err
+	return quota.Used, quota.Limit, quota.Mine, err
 }
 
 // liveTemporaryMachine counts toward the temporary machine quotas until it is

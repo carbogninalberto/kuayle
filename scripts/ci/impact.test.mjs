@@ -127,6 +127,13 @@ test('repository metadata and root documentation run only the harness', () => {
   assert.ok(planForPaths(['devmachine/agent/skills/kuayle/SKILL.md']).devImages.length > 0);
 });
 
+test('Codex login installer checks both architectures of its two consuming images', () => {
+  const plan = planForPaths(['BE/scripts/install-codex-login.sh']);
+  assert.deepEqual(plan.architectures, ['amd64', 'arm64']);
+  assert.deepEqual(ids(plan.releaseImages), ['all-in-one', 'api']);
+  assert.deepEqual(plan.devImages, []);
+});
+
 test('PR images build on amd64 only unless an input is architecture-sensitive', () => {
   for (const path of ['UI/src/routes/+page.svelte', 'BE/internal/service/issue.go', 'WEB/src/lib/data/features.ts']) {
     assert.deepEqual(planForPaths([path]).architectures, ['amd64'], path);

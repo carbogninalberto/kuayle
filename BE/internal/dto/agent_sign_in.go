@@ -1,6 +1,10 @@
 package dto
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // AgentSignInResponse is the current user's sign-in status for one coding
 // agent. It never carries the sign-in itself.
@@ -23,11 +27,27 @@ type AgentSignInTokenStatus struct {
 	Expired   bool       `json:"expired"`
 }
 
-// AgentSignInTerminalInfo describes a sign-in captured from the terminal.
+// AgentSignInTerminalInfo describes a saved credentials file. The terminal
+// JSON field also covers Codex credentials saved through Settings.
 type AgentSignInTerminalInfo struct {
 	SavedAt time.Time `json:"saved_at"`
 }
 
 type SaveAgentSignInTokenRequest struct {
 	Token string `json:"token"`
+}
+
+type CodexDeviceStartResponse struct {
+	AttemptID       uuid.UUID `json:"attempt_id"`
+	VerificationURL string    `json:"verification_url"`
+	UserCode        string    `json:"user_code"`
+	ExpiresAt       time.Time `json:"expires_at"`
+}
+
+type CodexDeviceAttemptRequest struct {
+	AttemptID uuid.UUID `json:"attempt_id"`
+}
+
+type CodexDevicePollResponse struct {
+	Status string `json:"status"`
 }

@@ -296,6 +296,12 @@ for sudo and holds none of the developer container's secrets (see
 [App ports](#app-ports)), and only when the task's creator asks, never when a
 task reaches review.
 
+Assistant command runs (`run_command`, `run_command_write`) use that same
+locked container configuration, so a machine's sudo setting never applies to
+them. Packages installed with sudo in the terminal stay in that container and
+do not reach command runs; bake them into a Development Environment instead
+(see [system packages](BE/docs/conversations.md#system-packages)).
+
 **Upgrading CLIs without sudo.** Both developer images point npm's global
 config at `/etc/npmrc` (`NPM_CONFIG_GLOBALCONFIG`), which sets
 `prefix=/workspace/.kuayle/npm-global` and lets Claude Code's install script
@@ -1047,7 +1053,11 @@ The IDE and headless start scripts and the autonomous agent runner create `$HOME
 
 ### Agent sign-in
 
-A Codex or Claude Code run without a model server (none serves the harness's protocol) uses the agent's own account. An API key secret on the machine (`OPENAI_API_KEY`/`CODEX_API_KEY`, or `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`/`CLAUDE_CODE_OAUTH_TOKEN`) still takes precedence. OpenCode never stops for sign-in; its saved API key is described below. Otherwise the manager uses the requesting user's stored sign-in, in this order: a saved Claude Code token (Claude Code only), then the credentials file captured from the terminal. With neither, it stops the run with the terminal error `sign_in_required` before starting a container. The task then fails with `sign_in_required=true` (migration `000077_agent_sign_ins`). For Claude Code the task panel first offers a field to paste a token and then, as an alternative, the terminal sign-in; for Codex only the terminal sign-in. The terminal sign-in opens the machine's terminal with `claude /login` or `codex login --device-auth`. Once the user has signed in, `POST /agent-tasks/:taskId/sign-in` (`request_id` makes repeats converge) queues a `capture_sign_in` operation: only the task's creator may request it, only while the task is stopped for sign-in. The manager reads `~/.claude/.credentials.json` or `~/.codex/auth.json` from the machine's terminal (then IDE) container, accepts only a JSON object of at most 64 KiB, encrypts it with `DEV_MACHINE_ENCRYPTION_KEY` into `agent_sign_ins` keyed by workspace, user and agent, and the request starts a new attempt. A missing sign-in answers `409 SIGN_IN_NOT_FOUND`.
+A Codex or Claude Code run without a model server uses the agent's own account. An API key secret on the machine (`OPENAI_API_KEY`/`CODEX_API_KEY`, or `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`/`CLAUDE_CODE_OAUTH_TOKEN`) takes precedence. The manager then uses the requesting user's saved Claude Code token or the agent's saved credentials file. Without a sign-in it stops before starting a container, with `sign_in_required=true` on the task (migration `000077_agent_sign_ins`). OpenCode never stops for sign-in and has its own saved API key.
+
+**Connect Codex from Settings.** In Settings > Agent configuration > Your sign-ins, connect your ChatGPT account before starting a machine. Enable device code login in ChatGPT Security settings, or ask your ChatGPT workspace admin to enable it. Open the verification page and enter the code shown in Kuayle. Keep the dialog open until Kuayle confirms the connection. The session-only `POST /agent-sign-ins/codex/device/{start,poll,cancel}` routes scope each attempt to the caller and workspace. The API runs the pinned Codex App Server over stdio using an isolated temporary home. Only the public prompt and status reach the UI. The authenticated poll stores the encrypted file with `DEV_MACHINE_ENCRYPTION_KEY` in `agent_sign_ins`. Attempts expire after 15 minutes. A new attempt replaces the previous one for that user in that workspace. Active attempts live in the API process, so clustered deployments need session affinity for the start, poll and cancel requests. An API restart requires a new attempt. Native API installations need `codex` on the server's path. Dev Machine provider policy and credential precedence still apply when machines and tasks use the sign-in.
+
+**Continue after sign-in.** A task creator can retry a stopped task with their saved Codex sign-in or Claude Code token. The task panel offers Claude Code token entry and terminal sign-in. Codex also offers terminal sign-in as a fallback. The terminal opens with `claude /login` or `codex login --device-auth`. When a user continues without saved credentials, `POST /agent-tasks/:taskId/sign-in` queues a `capture_sign_in` operation. The manager reads `~/.claude/.credentials.json` or `~/.codex/auth.json` from the machine's terminal or IDE container, accepts a JSON object of at most 64 KiB, encrypts it, and retries the task. Only the creator of a task stopped for sign-in can continue, and `request_id` makes repeated requests converge. Missing terminal credentials return `409 SIGN_IN_NOT_FOUND`. The manager saves a run's refreshed credentials only if the stored credentials still match what the run started with. This preserves replacements and removals made while a run was active.
 
 ### Usage limits
 
@@ -1687,6 +1697,153 @@ the composite ownership foreign keys and null-dependency checks remain enforced.
 Deleting only a service retains the machine/workspace audit context. Rolling back
 removes the triggers but cannot restore references to parents already deleted.
 
+## Foreign imports (KUA-100, Jira deliverable)
+
+Workspace admins can import issues from an external tracker into an existing
+workspace. This is distinct from workspace transfer, which builds a *new*
+workspace from a `.kuayle.zip`. Only Jira ships in this deliverable; Linear,
+GitHub Issues and CSV are future sources and share the framework.
+
+Migration `000174_imports` adds three tables:
+
+- `import_jobs` stores the source, site, opaque config/mapping/preview JSON,
+  encrypted credentials, progress counters and status (`draft`, `previewed`,
+  `queued`, `running`, `completed`, `failed`, `cancelled`).
+- `import_job_items` is the per-item report: one row per skipped or failed
+  source item with its type, source id, the Jira key of the issue it belongs to
+  (`PROJ-123`, so the admin can find it in Jira) and the reason. A parent-link
+  problem is a `parent` row naming the child issue.
+- `import_external_refs` maps `(workspace, source, site, external type, external
+  id)` to the Kuayle entity and a content hash. The unique key is what makes a
+  re-run update or skip instead of duplicating; the original Jira key
+  (`external_key`) and browse URL are kept here and as a reference line in the
+  issue description, while Kuayle numbering remains its own
+  (`IssueRepo.NextNumber`).
+
+`ImportService` creates a draft job, previews it without writing anything
+outside `import_jobs`, validates and stores the mapping, then queues the job.
+The preview is stored in the API's JSON shape: `unmapped_fields` lists source
+data no mapping can carry (custom fields, users without an email, unsupported
+description nodes) and `mapping_gaps` lists previewed projects, statuses,
+priorities and users the current mapping does not cover. Saving the mapping
+recomputes `mapping_gaps` in the same statement, so the admin can preview first
+and map afterwards. A previewed job can be previewed again; a queued, running
+or finished job cannot, and that is checked before the source is read. A Jira
+failure during preview (rejected credentials, unreachable or private address,
+unexpected response) is a `502 IMPORT_SOURCE_FAILED` with a message naming the
+cause and never the credentials, response body or request URL
+(`jira.DescribeError`). Mapping targets come from `GET .../imports/options`.
+
+The `source_site` part of the idempotency key is derived on the server from the
+lower-cased host of the credentials' `base_url` (the same value
+`jira.Client.Site()` returns); no client-supplied site is trusted, so importing
+two Jira Cloud sites into one workspace cannot collide. A base URL with
+credentials, a query or a fragment is refused. `ImportService.Run` is a polling
+worker like the backup scheduler: it recovers interrupted jobs, claims queued
+jobs with `FOR UPDATE SKIP LOCKED`, re-checks that the job's creator is still a
+workspace owner or admin, and writes labels, sprint cycles, epic projects,
+issues, sub-issues, comments (including a history summary), attachments and
+relations. Each issue is created in a short transaction together with its
+external ref; comments and attachments have their own refs so re-runs never
+duplicate them. Container resolution errors (an unmapped project, a failing
+label/cycle/project) are reported as per-item failures instead of aborting the
+job. Ref lookup or write errors fail the affected item rather than being
+silently treated as "not found".
+
+An issue's hash covers its source content (fields, comment hashes, attachment
+ids, history) and the Kuayle values it resolved to under the current mapping
+(team, status, priority, assignee, project, cycle, labels, parent, unmatched
+author). Unchanged issues are skipped; changing the mapping and re-running
+updates them. A re-run writes title and description explicitly
+(`IssueRepo.UpdateContent`). When an imported issue was moved to another team in
+Kuayle, the update keeps its team-scoped values: only a status mapped for its
+current team is applied, and its project and cycle stay.
+
+Status mappings are keyed `<team_uuid>:<source status>`: two projects mapped to
+different teams can map the same source status to different team statuses, and
+the worker falls back to that team's default status when a status is unmapped
+or its target belongs to another team. Priorities must be a Kuayle value (0..4).
+User mappings are keyed by the lower-cased email, or by the source user id when
+Jira hides the email, so every previewed user can be mapped; an empty key is
+rejected. There is no labels mapping — source labels and components are matched
+or created by name.
+
+Imported titles go through `sanitize.PlainText`. Descriptions, comments and the
+history summary are Markdown converted by `sanitize.EditorMarkdown`, which
+treats a literal tag as text rather than switching the body to HTML. The
+attribution line is built as HTML with the name escaped, and attachments are
+the editor's own attachment nodes linking `/api/workspaces/<slug>/assets/<id>`,
+the access-checked asset route in-app uploads use (never a storage or presigned
+URL). Attachment links are rebuilt from their refs on every run, so updates and
+a re-run after a failed issue create keep them. An imported issue is created
+already triaged unless its team has triage enabled, and gets a `SortOrder`
+derived from its Kuayle number like any in-app issue. On a re-run a comment or
+history summary whose source changed is updated in place; unchanged ones are
+left untouched. If the Kuayle comment was deleted or edited so it can no longer
+be updated, the re-run records that as a skipped item instead of duplicating
+it. A cancel requested mid-fetch stops the job before any Kuayle entity is
+written (checked every 25 emitted issues).
+
+Sprints are read from Cloud sprint objects and from the Server/DC
+`com.atlassian.greenhopper...Sprint@...[...]` strings. An issue gets the cycle
+of its active sprint, else a future one, else the last one listed; a new cycle
+takes the sprint's dates and state (active → active, future → upcoming, closed
+or unknown → completed). Existing cycles are matched by name and not changed.
+
+Assignees and authors resolve differently: a missing, unmatched or explicitly
+unassigned source user leaves an issue with no assignee, while an unmatched
+author (reporter or comment author) is attributed to the importer with the
+original name in the text. The importer fallback is for authors only.
+
+`total`, `processed`, `created`, `updated`, `skipped` and `failed` count
+issues only; comment, attachment, relation and parent-link outcomes appear
+exclusively in the per-item error report. Skipped or failed items do not fail
+the job.
+
+Running jobs send a heartbeat (`updated_at`) during a long fetch, while
+writing and before each attachment download. Stale recovery looks at a
+heartbeat older than ten minutes rather than the start time, and runs both at
+startup and once a minute, so a live job on a busy instance is never failed by
+another replica's recovery pass.
+
+Credentials are encrypted with `crypto.Encrypt` under a key derived from
+`JWT_SECRET` (`:import`) and written to `credentials_enc`. They are cleared in
+the same statement that sets a terminal status, again in a worker `defer` on
+every exit path, and again whenever stale running jobs are recovered. Draft and
+previewed jobs can be cancelled too: cancelling them ends the job immediately
+and clears their credentials. `Run` also expires draft/previewed jobs idle for
+more than 24 hours, cancelling them and wiping credentials in one statement;
+the item report stays readable. Responses never contain credentials. All import
+routes are session-only and require
+the workspace owner/admin role; personal access tokens and SSO-scoped sessions
+are rejected by middleware. Outbound requests dial only public addresses
+unless `IMPORT_ALLOW_PRIVATE_NETWORK` is enabled for a LAN Jira Server/DC, and
+redirects are not followed. Attachments use the shared `domain.MaxUploadSize`
+(10 MiB) and the upload handler's type validation (`domain.AllowedUploadType`,
+which ignores MIME parameters such as `charset`); oversized files are skipped
+and reported. Imported files belong to the target team, so a private team's
+attachments stay private.
+
+The item report is paged: `GET .../items?limit=&offset=` returns at most `limit`
+items (default 200, clamped by the service to 1..`repository.ImportItemsPageMax`
+= 500) and a `has_more` flag. The service reads one extra row to set
+`has_more`, and the repository clamp (`ImportItemsQueryLimit`) allows exactly
+that extra row. The UI appends further pages with "Load more". Unknown jobs and
+other workspaces' jobs get 404.
+
+The whole worker path, including private-team writes, attachment storage and
+idempotent re-runs, is covered against PostgreSQL by
+`TestJiraImportWritesThroughTheRealStore` (needs `DATABASE_URL`).
+Known limits: the fetch holds every issue in memory before writing (fine for
+the ~1,000-issue target, not for 100k), and the update path is not one
+transaction with its ref (a failure leaves a stale hash, so the next run
+updates again; it never duplicates).
+
+The UI for this step lives in `UI/src/routes/[workspaceSlug]/settings/import`:
+the prerendered `WEB/` app is the marketing site, while admin settings pages
+belong to the SvelteKit application. The mapping, progress and error-report
+screens use the installed shadcn-svelte primitives.
+
 ## Soft delete and undo
 
 Issues and wiki pages are soft-deleted (migrations `000165_issue_soft_delete_undo`
@@ -1854,8 +2011,8 @@ volume subpath, created by a fixed-argv prep container; Docker API 1.45+, and
 write runs fail on older daemons), so packages go there too (`pip install
 --target ./pkgs`, a venv or `npm install`). It is killed after 60 s, and 64 KiB
 of output is kept. It runs on a running machine the user owns: the given
-`machine_id`, the conversation's temporary machine, or the user's own machine
-(reused). `start_temporary_machine` asks for approval only when there is
+`machine_id`, the conversation's temporary machine, the user's own machine or
+their live temporary machine from another conversation (reused). `start_temporary_machine` asks for approval only when there is
 none, then starts a temporary machine (1 vCPU, 2 GB, 20 GB — the global
 `DevMachineMinDiskGB` floor — headless, no repository, agents, Docker or
 sudo), re-checking the approver's role under the workspace machine lock. The manager permanently deletes it 30
@@ -1863,6 +2020,9 @@ minutes after creation. The workspace allows `max_temporary_machines` of them
 (default 2, 0 turns them off) and one per user. The terminal capability matrix
 and the details are in
 [commands and temporary machines](BE/docs/conversations.md#commands-and-temporary-machines).
+Commands never install system packages (KUA-180); those come from the
+machine's Development Environment image, see
+[system packages](BE/docs/conversations.md#system-packages).
 Release tools read a linked repository's releases (`list_releases`,
 `get_release`), draft the next notes from the pull requests merged since the
 latest release in the workspace's editable "Release notes style" skill

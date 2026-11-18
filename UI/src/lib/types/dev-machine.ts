@@ -347,6 +347,8 @@ export interface DevMachinePolicy {
 	enabled: boolean;
 	max_concurrent_machines: number;
 	max_machines_per_user: number;
+	// Temporary machines the assistant may start to run commands, one per person (0 to 10, 0 turns them off).
+	max_temporary_machines?: number;
 	max_daily_agent_runs: number;
 	max_disk_gb: number;
 	allowed_providers: string[];

@@ -78,7 +78,7 @@
 		<AgentProfilesCard {slug} />
 		<AgentIdentitiesCard {slug} />
 		<CodingAgentsCard {policy} {canAdmin} {saving} onchange={saveAgents} />
-		<AgentSignInsCard {slug} />
+		{#key slug}<AgentSignInsCard {slug} />{/key}
 	</div>
 {/if}
 

@@ -23,6 +23,7 @@ advances. Product checks and images continue to verify the recorded PR head.
 | `UI/` runtime, translations, assets and dependencies | Frontend type/unit/browser checks and npm audit; web and all-in-one readiness on both architectures. WEB fetches the release manifest from main at runtime, so a PR manifest edit does not select WEB. |
 | `UI/tests/`, `UI/playwright*.ts` | Frontend checks and audit; no production container checks. |
 | `WEB/` source (including Markdown content), assets and dependencies | Marketing type/build/SEO/responsive checks. WEB is not the UI application image. |
+| `BE/scripts/install-codex-login.sh` | API and all-in-one readiness on amd64 and arm64. |
 | Root `Dockerfile` | All-in-one readiness. |
 | `UI/Dockerfile`, `UI/Caddyfile` | Web-image readiness. |
 | `BE/Dockerfile*` | The corresponding API, gateway, manager or updater image. Docker lifecycle uses separate runtime images and is not selected for these Dockerfile-only edits. |
@@ -72,6 +73,13 @@ Go test files and README files do not enter the built application.
 - PR Go race tests run in [Tests](../../.github/workflows/test.yml) with database
   coverage. Frontend browser tests build UI before preview. Security Scan retains
   govulncheck, vet, Go build and npm audit, without repeating those PR tests/builds.
+- The frontend npm audit runs [npm-audit.mjs](npm-audit.mjs) (not bare
+  `npm audit`): it fails on every high or critical advisory except the entries in
+  [UI/npm-audit-allowlist.json](../../UI/npm-audit-allowlist.json) (id, package,
+  reason, `review_by`). It also fails when an allowlisted advisory is no longer
+  reported or its `review_by` date has passed, so exceptions are removed or
+  re-reviewed. Only add an advisory with no available fix that is outside the
+  shipped app; its tests are in [npm-audit.test.mjs](npm-audit.test.mjs).
 - Docker lifecycle still builds the runtime set it needs on its quota-capable host.
   Those images are inputs to a distinct integration environment, not redundant
   substitutes for architecture scans.
