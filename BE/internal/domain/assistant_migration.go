@@ -69,7 +69,8 @@ func ValidMigrationActionName(name string) bool {
 }
 
 // ValidMigrationCommand reports whether command is a usable action command:
-// nonblank, no NUL, within CommandMaxBytes, and free of the secret itself.
+// nonblank, no NUL and within CommandMaxBytes. That it does not contain the
+// secret itself is checked where the secret is supplied (the service).
 func ValidMigrationCommand(command string) bool {
 	command = strings.TrimSpace(command)
 	return command != "" && len(command) <= CommandMaxBytes && utf8.ValidString(command) &&

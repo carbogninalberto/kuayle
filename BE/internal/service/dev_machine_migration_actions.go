@@ -69,6 +69,11 @@ func validateMigrationAction(input *dto.DevMachineMigrationActionInput, secretRe
 		}
 	case len(input.Secret) > domain.MigrationSecretMaxBytes || !utf8.ValidString(input.Secret) || strings.ContainsRune(input.Secret, 0):
 		return "", fmt.Errorf("%w: invalid secret", ErrInvalidMigrationAction)
+	case strings.Contains(input.Command, input.Secret) || strings.Contains(input.Description, input.Secret):
+		// The command and description are shown to the model, in approvals
+		// and in the machine's list; the secret reaches the run only as
+		// $KUAYLE_MIGRATION_SECRET.
+		return "", fmt.Errorf("%w: the command and description must not contain the secret; use $KUAYLE_MIGRATION_SECRET", ErrInvalidMigrationAction)
 	}
 	return input.Secret, nil
 }
