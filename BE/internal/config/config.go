@@ -86,6 +86,9 @@ type Config struct {
 	// Off by default: the base URL is admin supplied.
 	ImportAllowPrivateNetwork bool `envconfig:"IMPORT_ALLOW_PRIVATE_NETWORK" default:"false"`
 
+	SAMLSigningCertFile string `envconfig:"SAML_SP_CERT_FILE"`
+	SAMLSigningKeyFile  string `envconfig:"SAML_SP_KEY_FILE"`
+
 	// OIDCAllowPrivateNetwork lets a workspace's OIDC issuer target a private
 	// or loopback address (for example the Keycloak development container).
 	// Off by default: the issuer URL is workspace-admin supplied.

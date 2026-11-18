@@ -133,7 +133,7 @@ test('the model field suggests the catalog, limits the effort and still takes an
 	await expect(page.getByRole('option').first()).toContainText('opencode-go/glm-6');
 	await expect(page.getByRole('option').last()).toHaveText('Use “glm”');
 	await search.press('Enter');
-	await expect(model).toHaveText('opencode-go/glm-6');
+	await expect(model).toHaveText('GLM 6');
 	await expect(model).toBeFocused();
 
 	// GLM 6 allows off and high only: medium goes back to the default, and says so.
@@ -165,15 +165,18 @@ test('an unavailable list leaves the field usable and can be refreshed', async (
 	const saves: Array<Record<string, unknown>> = [];
 	const requests: string[] = [];
 	let reachable = false;
+	let refreshFailed = false;
 	await mockProfiles(
 		page,
 		(harness) => {
 			if (harness === 'codex')
 				return {
-					json: { harness, source: 'workspace', stale: false, unavailable: false, models: [{ id: 'gpt-5.5', name: 'gpt-5.5', efforts: [] }] }
+					json: { harness, source: 'workspace', stale: false, unavailable: false, models: [{ id: 'gpt-5.5', name: 'GPT 5.5', efforts: [] }] }
 				};
 			return reachable
-				? { json: { ...goPlan, stale: true } }
+				? refreshFailed
+					? { status: 502, json: {} }
+					: { json: { ...goPlan, models: [{ id: 'opencode-go/new', name: 'New OpenCode Model', efforts: [] }] } }
 				: { json: { harness, source: 'opencode-go', stale: false, unavailable: true, models: [] } };
 		},
 		saves,
@@ -188,12 +191,16 @@ test('an unavailable list leaves the field usable and can be refreshed', async (
 	await expect(status).toHaveText('The model list is unavailable. You can still type a model.');
 	await expect(page.getByRole('option')).toHaveCount(0);
 
-	// Refresh asks the server again; a list it could not update is shown as such.
+	// Refresh replaces the unavailable list, then preserves it if another refresh fails.
 	reachable = true;
 	await page.getByRole('button', { name: 'Refresh' }).click();
+	await expect(status).toHaveText('');
+	await expect(page.getByRole('option', { name: /New OpenCode Model.*opencode-go\/new/ })).toBeVisible();
+	refreshFailed = true;
+	await page.getByRole('button', { name: 'Refresh' }).click();
 	await expect(status).toHaveText('The model list could not be updated; this is the last one read.');
-	await expect(page.getByRole('option')).toHaveCount(3);
-	expect(requests).toEqual(['?harness=opencode', '?harness=opencode&refresh=true']);
+	await expect(page.getByRole('option', { name: /New OpenCode Model/ })).toBeVisible();
+	expect(requests).toEqual(['?harness=opencode', '?harness=opencode&refresh=true', '?harness=opencode&refresh=true']);
 
 	const search = page.getByPlaceholder('Search or type a model');
 	await search.fill('opencode-go/brand-new');
@@ -210,7 +217,7 @@ test('changing the coding agent loads that agent’s suggestions', async ({ page
 		page,
 		(harness) =>
 			harness === 'codex'
-				? { json: { harness, source: 'workspace', stale: false, unavailable: false, models: [{ id: 'gpt-5.5', name: 'gpt-5.5', efforts: [] }] } }
+				? { json: { harness, source: 'workspace', stale: false, unavailable: false, models: [{ id: 'gpt-5.5', name: 'GPT 5.5', efforts: [] }] } }
 				: { status: 500, json: { error: { code: 'INTERNAL', message: 'boom' } } },
 		[],
 		requests
@@ -228,7 +235,7 @@ test('changing the coding agent loads that agent’s suggestions', async ({ page
 	await sheet.locator('#profile-harness').click();
 	await page.getByRole('option', { name: 'Codex' }).click();
 	await model.click();
-	await expect(page.getByRole('option')).toHaveText(['gpt-5.5']);
+	await expect(page.getByRole('option', { name: /GPT 5.5.*gpt-5.5/ })).toBeVisible();
 	await expect(page.getByTestId('model-combobox-status')).toHaveText('');
 	expect(requests).toEqual(['?harness=opencode', '?harness=codex']);
 });

@@ -1049,7 +1049,7 @@ Reserved `KUAYLE_*` variables and `GITHUB_TOKEN` cannot be supplied by users.
 
 Settings → Agent configuration manages workspace model servers and which coding agents members may start. A model server has a name, an OpenAI-compatible base URL (used by Codex, which needs the Responses API) and/or an Anthropic-compatible base URL (used by Claude Code), an API key, a model list, a default and optional fast model, a thinking level, and whether it is the workspace default (one per workspace; the first server becomes the default). Creating, updating, deleting and model discovery require `dev_machine:admin`; members with `dev_machine:read` can list servers (never keys) to choose one when starting work. The key is encrypted with `cryptoutil.Encrypt` and `DEV_MACHINE_ENCRYPTION_KEY` and is never returned; an update without `api_key` keeps the stored key.
 
-Model discovery calls `GET <openai>/models` with a bearer key, or `GET <anthropic>/v1/models` with `x-api-key`, through a client that dials only public addresses unless `AI_ALLOW_PRIVATE_NETWORK` is set and never follows redirects. A saved server's key is only sent to the URLs saved with it. Model names are limited to `[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}`; at most 500 are kept.
+Model discovery calls `GET <openai>/models` with a bearer key, or `GET <anthropic>/v1/models` with `x-api-key`, through a client that dials only public addresses unless `AI_ALLOW_PRIVATE_NETWORK` is set and never follows redirects. A saved server's key is only sent to the URLs saved with it. At most 500 IDs matching `[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}` are kept. Discovery returns labels from `display_name` or `name` as an optional `model_names` map keyed by ID. The settings form saves the map alongside the IDs. Pickers use the ID as the label when a server supplies no display name or when its list predates label storage.
 
 Servers are workspace data rather than machine snapshots. The IDE and terminal containers receive the default server; an agent run receives only the server recorded on it. The manager copies `KUAYLE_MODEL_API_KEY`, `KUAYLE_MODEL`, `KUAYLE_MODEL_THINKING`, `KUAYLE_MODEL_LIST`, `KUAYLE_MODEL_OPENAI_BASE_URL` and, for an Anthropic-compatible server, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and the Claude Code model aliases into `/run/kuayle-secrets`; browser, collector and egress containers never receive them. Rotating a key therefore applies the next time the developer or agent container starts.
 
@@ -1113,17 +1113,17 @@ Migration `000076_agent_model_servers` converts an existing workspace DeepSeek c
 
 ### Agent model catalog
 
-`GET /agent-model-catalog?harness=<id>` (`dev_machine:read`, like the model server list; it holds model names only, never a key or URL) lists the models a profile or task can choose for a coding agent: `{harness, models: [{id, name, efforts}], source, updated_at, stale, unavailable}`. `id` is the exact string to save; `efforts` are the thinking levels the model allows, and an empty list means they are not known and any level is accepted. The model fields that use it (the profile sheet's combobox, and for OpenCode the task composer and the approval card) stay free text: the catalog suggests, the save validates.
+`GET /agent-model-catalog?harness=<id>` (`dev_machine:read`, like the model server list) returns `{harness, models: [{id, name, efforts}], source, updated_at, stale, unavailable}`. Pickers show the display name and ID and save the ID. An empty list of `efforts` means any thinking level is accepted. The profile sheet accepts custom models. The task composer and approval card offer a model server's known list when a server is selected, and accept custom models when using a harness's own sign-in.
 
 - **OpenCode** (`source: "opencode-go"`): the public model list of OpenCode's Go plan, `GET https://opencode.ai/inference/go/v1/models`, read without a key and with the User-Agent `kuayle`. The address is a constant in `BE/internal/service/agent_model_catalog.go`; no request or setting changes it. IDs are prefixed `opencode-go/`. Each model's `capabilities.reasoning.effort` is mapped onto Kuayle's levels: values Kuayle has are kept, `none` is `off`, others (`minimal`) are dropped, and `off` (no `--variant`, the model's default) is always allowed.
-- **Codex and Claude Code** (`source: "workspace"`): no upstream call. When the workspace's default model server speaks the agent's protocol it runs every profile of that agent and refuses a model outside its list, so the catalog is that list. Otherwise the agent runs on its own sign-in, which takes any model, and the catalog is the models of every server that speaks its protocol plus the agent's [workspace default](#agent-model-defaults).
+- **Codex and Claude Code** pickers (`source: "workspace"`) refresh by reading the server lists saved in the workspace. Workspace owners and admins can update those lists with **Fetch models** in Agent configuration, then save the server. When the workspace's default model server speaks the agent's protocol it runs every profile of that agent and refuses a model outside its list, so the catalog is that list. Otherwise the agent runs on its own sign-in, which takes any model, and the catalog is the models of every server that speaks its protocol plus the agent's [workspace default](#agent-model-defaults).
 - Other agents: an empty list.
 
-The Go plan list is fetched with the model discovery client (public addresses only unless `AI_ALLOW_PRIVATE_NETWORK` is set, no redirects, no proxy: `HTTP_PROXY` is not used), within 10 seconds, reading at most 2 MB and keeping at most 500 chat models whose ID fits the model-name pattern; names are stripped of control characters and cut to 80 characters. It is cached in memory per API process for one hour, and concurrent requests share one fetch. `refresh=true` fetches again, but two fetches are never less than 30 seconds apart, whoever asks. When a fetch fails the last good list is served with `stale: true`; with none, `models` is empty and `unavailable: true`. The route answers `200` either way.
+The Go plan list is fetched with the model discovery client (public addresses only unless `AI_ALLOW_PRIVATE_NETWORK` is set, no redirects or proxy), within 10 seconds, reading at most 2 MB and keeping at most 500 chat models whose ID fits the model-name pattern. Display names are stripped of control characters and cut to 80 characters. The list is cached in memory per API process for one hour, and concurrent refreshes share one fetch. `refresh=true` bypasses the one-hour TTL and uses a three-second minimum gap between fetch attempts. Once a fetch finishes, refreshes within that gap return the cached result. Automatic retries and save-time rechecks use a 30-second gap. A failed fetch returns the last successful list with `stale: true`, or an empty list with `unavailable: true` if no fetch has succeeded. Both responses have status `200`.
 
-**Outbound access.** The API server therefore makes an HTTPS request to `opencode.ai` the first time someone opens an OpenCode model field or saves an OpenCode Go profile, and about hourly while they keep doing so. A deployment that blocks that egress loses only the suggestions and the save-time check below: the first request waits up to 10 seconds, later ones answer at once for 30 seconds, the field says the list is unavailable, and typing and saving any model keeps working.
+**Outbound access.** The API server makes an HTTPS request to `opencode.ai` the first time someone opens an OpenCode model field or saves an OpenCode Go profile, and about hourly while they keep doing so. It also fetches on explicit refresh. A deployment that blocks that egress shows a stale or unavailable list and still accepts typed models.
 
-**Save-time check.** Saving a profile whose harness is OpenCode and whose model starts with `opencode-go/` is refused with `400` when the list in memory (fresh or stale) does not have the model (`OpenCode Go does not offer the model "…"`, after one rate-limited look for a model added since) or the model does not allow the effort (naming the allowed levels). With no list in memory, or for another OpenCode provider (`anthropic/…`, `openrouter/…`), the save is accepted as before; it waits at most 3 seconds for a first fetch. Task starts, retries and workflow steps never consult the catalog or the network, so a stored profile keeps running if the list later drops its model; the check applies when it is saved again.
+**Save-time check.** A fresh OpenCode Go list validates `opencode-go/` profiles on save. A missing model gets one rate-limited recheck before a `400`, and an invalid effort reports the allowed levels. A stale or unavailable list lets the profile save. A save waits up to 3 seconds for a fetch. Other OpenCode providers and task starts, retries, or workflow steps skip this check.
 
 ### Agent model defaults
 
@@ -1262,7 +1262,7 @@ workspace means the instance config does not apply (a warning is logged, and
 the miss is retried after 30 s). Shared issuers (Google, Microsoft
 `/common|organizations|consumers`) need allowed domains
 (`validate.SharedOIDCIssuer`), both in `SaveConfig` and at startup. The Keycloak development profile and provider notes are in
-[docs/sso.md](docs/sso.md). SAML 2.0 and SCIM 2.0 are follow-ups.
+[docs/sso.md](docs/sso.md). SAML 2.0 shares the same login state, provisioning and workspace-scoped sessions. The POST callback verifies a signed assertion using the workspace’s stored IdP metadata, its SP entity ID, ACS and one-use AuthnRequest ID. SAML identities have a protocol-prefixed issuer to isolate them from OIDC subjects. SCIM 2.0 is a follow-up.
 
 ## Activity and Logs
 
@@ -1314,7 +1314,7 @@ Migration `000033_dev_machines` creates:
 | `dev_machine_checkouts` | Idempotent issue worktrees with repository and branch metadata |
 | `dev_machine_terminal_sessions` | User terminal tabs mapped to runtime tmux sessions and optional checkouts |
 | `dev_machine_runtime_credentials` | Encrypted, expiring runtime-secret registrations used for telemetry redaction |
-| `agent_model_servers` | Workspace model servers: protocol URLs, encrypted API key, models, default and fast model, thinking level, default flag |
+| `agent_model_servers` | Workspace model servers: protocol URLs, encrypted API key, model IDs and display names, default and fast model, thinking level, default flag |
 | `agent_model_defaults` | Workspace default model and effort per coding agent on its own sign-in |
 
 The migration creates the final scoped-workspace schema directly. Composite foreign keys bind workspace, machine, service, checkout, run, session, and environment tuples so cross-workspace identifiers are rejected by PostgreSQL rather than relying only on application checks. Rolling migration `000033` back is destructive for all Dev Machine control-plane records.
@@ -2036,6 +2036,9 @@ and the details are in
 Commands never install system packages (KUA-180); those come from the
 machine's Development Environment image, see
 [system packages](BE/docs/conversations.md#system-packages).
+Commands never commit, branch or push a task checkout either (KUA-183);
+changes to a task's branch go through `follow_up_task` and publication, see
+[commits and pushes from chat](BE/docs/conversations.md#commits-and-pushes-from-chat).
 Release tools read a linked repository's releases (`list_releases`,
 `get_release`), draft the next notes from the pull requests merged since the
 latest release in the workspace's editable "Release notes style" skill

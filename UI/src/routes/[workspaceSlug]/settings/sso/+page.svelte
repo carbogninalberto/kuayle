@@ -1,4 +1,5 @@
 <script lang="ts">
+	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -22,6 +23,9 @@
 	let saving = $state(false);
 	let copied = $state(false);
 
+	let protocol = $state<'oidc' | 'saml'>('oidc');
+	let metadataUrl = $state('');
+	let metadataFiles = $state<FileList>();
 	let providerName = $state('');
 	let issuerUrl = $state('');
 	let clientId = $state('');
@@ -35,6 +39,9 @@
 
 	function apply(next: SSOConfig) {
 		config = next;
+		protocol = next.protocol === 'saml' ? 'saml' : 'oidc';
+		metadataUrl = '';
+		metadataFiles = undefined;
 		providerName = next.provider_name;
 		issuerUrl = next.issuer_url;
 		clientId = next.client_id;
@@ -73,9 +80,15 @@
 		try {
 			const next = await sso.save(slug, {
 				provider_name: providerName.trim(),
-				issuer_url: issuerUrl.trim(),
-				client_id: clientId.trim(),
-				...(clientSecret.trim() ? { client_secret: clientSecret } : {}),
+				protocol,
+				...(protocol === 'saml' ? {
+					metadata_url: metadataUrl.trim() || undefined,
+					metadata_xml: await metadataFiles?.[0]?.text()
+				} : {
+					issuer_url: issuerUrl.trim(),
+					client_id: clientId.trim(),
+					...(clientSecret.trim() ? { client_secret: clientSecret } : {})
+				}),
 				allowed_domains: domains(allowedDomains),
 				default_role: defaultRole,
 				require_sso: enabled && requireSso,
@@ -132,9 +145,8 @@
 	<div class="space-y-2">
 		<div class="flex items-center gap-2">
 			<ShieldCheck class="size-5 text-[var(--app-accent)]" aria-hidden="true" />
-			<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.sso.title']()}</h1>
+			<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.nav.sso']()}</h1>
 		</div>
-		<p class="text-sm text-[var(--color-text-secondary)]">{m['settings.sso.description']()}</p>
 	</div>
 
 	{#if loading}
@@ -165,47 +177,70 @@
 			</div>
 
 			<div class="space-y-1.5">
-				<Label for="sso-issuer">{m['settings.sso.issuer_url']()}</Label>
-				<Input
-					id="sso-issuer"
-					bind:value={issuerUrl}
-					disabled={readOnly}
-					placeholder="https://idp.example.com/realms/acme"
-					autocomplete="off"
-				/>
-				<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.sso.issuer_help']()}</p>
+				<Label for="sso-protocol">{m['settings.sso.protocol']()}</Label>
+				<SelectField id="sso-protocol" bind:value={protocol} disabled={readOnly}
+					options={[{ value: 'oidc', label: 'OpenID Connect' }, { value: 'saml', label: 'SAML 2.0' }]} />
 			</div>
-
-			<div class="grid gap-4 sm:grid-cols-2">
+			{#if protocol === 'saml'}
+				<a class="block w-fit text-sm underline" href={'/api/auth/sso/' + encodeURIComponent(slug) + '/metadata'}>{m['settings.sso.sp_metadata']()}</a>
 				<div class="space-y-1.5">
-					<Label for="sso-client-id">{m['settings.sso.client_id']()}</Label>
-					<Input id="sso-client-id" bind:value={clientId} disabled={readOnly} autocomplete="off" />
+					<Label for="sso-metadata-url">{m['settings.sso.idp_url']()}</Label>
+					<Input id="sso-metadata-url" type="url" bind:value={metadataUrl} disabled={readOnly || !!metadataFiles?.length} />
 				</div>
 				<div class="space-y-1.5">
-					<Label for="sso-client-secret">{m['settings.sso.client_secret']()}</Label>
-					<Password
-						id="sso-client-secret"
-						bind:value={clientSecret}
+					<Label for="sso-metadata-file">{m['settings.sso.idp_file']()}</Label>
+					<Input id="sso-metadata-file" type="file" accept=".xml,application/xml,text/xml" bind:files={metadataFiles}
+						onchange={(event) => {
+							const input = event.currentTarget;
+							input.setCustomValidity((input.files?.[0]?.size ?? 0) > 256 * 1024
+								? m['settings.sso.idp_file']() + ' ≤ 256 KiB' : '');
+						}}
+						disabled={readOnly || !!metadataUrl.trim()} />
+				</div>
+			{:else}
+				<div class="space-y-1.5">
+					<Label for="sso-issuer">{m['settings.sso.issuer_url']()}</Label>
+					<Input
+						id="sso-issuer"
+						bind:value={issuerUrl}
 						disabled={readOnly}
-						autocomplete="new-password"
-						placeholder={config.has_client_secret
-							? m['settings.sso.secret_stored']()
-							: m['settings.sso.secret_empty']()}
+						placeholder="https://idp.example.com/realms/acme"
+						autocomplete="off"
 					/>
-					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.sso.secret_help']()}</p>
+					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.sso.issuer_help']()}</p>
 				</div>
-			</div>
 
-			<div class="space-y-1.5">
-				<Label for="sso-redirect-uri">{m['settings.sso.redirect_uri']()}</Label>
-				<div class="flex gap-2">
-					<Input id="sso-redirect-uri" value={config.redirect_uri} readonly class="font-mono text-xs" />
-					<Button type="button" variant="outline" size="sm" onclick={copyRedirectURI} aria-label={m['settings.sso.copy_redirect_uri']()}>
-						{#if copied}<Check class="size-4" />{:else}<Copy class="size-4" />{/if}
-					</Button>
+				<div class="grid gap-4 sm:grid-cols-2">
+					<div class="space-y-1.5">
+						<Label for="sso-client-id">{m['settings.sso.client_id']()}</Label>
+						<Input id="sso-client-id" bind:value={clientId} disabled={readOnly} autocomplete="off" />
+					</div>
+					<div class="space-y-1.5">
+						<Label for="sso-client-secret">{m['settings.sso.client_secret']()}</Label>
+						<Password
+							id="sso-client-secret"
+							bind:value={clientSecret}
+							disabled={readOnly}
+							autocomplete="new-password"
+							placeholder={config.has_client_secret
+								? m['settings.sso.secret_stored']()
+								: m['settings.sso.secret_empty']()}
+						/>
+						<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.sso.secret_help']()}</p>
+					</div>
 				</div>
-				<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.sso.redirect_uri_help']()}</p>
-			</div>
+
+				<div class="space-y-1.5">
+					<Label for="sso-redirect-uri">{m['settings.sso.redirect_uri']()}</Label>
+					<div class="flex gap-2">
+						<Input id="sso-redirect-uri" value={config.redirect_uri} readonly class="font-mono text-xs" />
+						<Button type="button" variant="outline" size="sm" onclick={copyRedirectURI} aria-label={m['settings.sso.copy_redirect_uri']()}>
+							{#if copied}<Check class="size-4" />{:else}<Copy class="size-4" />{/if}
+						</Button>
+					</div>
+					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.sso.redirect_uri_help']()}</p>
+				</div>
+			{/if}
 
 			<div class="space-y-1.5">
 				<Label for="sso-domains">{m['settings.sso.allowed_domains']()}</Label>
@@ -280,4 +315,4 @@
 	{/if}
 </div>
 
-<PageTitle parts={[m['settings.sso.title'](), m['settings.title']()]} />
+<PageTitle parts={[m['settings.nav.sso'](), m['settings.title']()]} />

@@ -235,15 +235,16 @@ type CreateAgentRunRequest struct {
 // SaveModelServerRequest creates or updates a model server. The API key is
 // required when creating and kept when omitted on update.
 type SaveModelServerRequest struct {
-	Name             string   `json:"name" validate:"required,max=64"`
-	OpenAIBaseURL    *string  `json:"openai_base_url,omitempty"`
-	AnthropicBaseURL *string  `json:"anthropic_base_url,omitempty"`
-	APIKey           *string  `json:"api_key,omitempty"`
-	Models           []string `json:"models" validate:"max=500"`
-	DefaultModel     string   `json:"default_model" validate:"required,max=128"`
-	FastModel        string   `json:"fast_model" validate:"max=128"`
-	Thinking         string   `json:"thinking" validate:"required,oneof=off low medium high xhigh max"`
-	IsDefault        bool     `json:"is_default"`
+	Name             string            `json:"name" validate:"required,max=64"`
+	OpenAIBaseURL    *string           `json:"openai_base_url,omitempty"`
+	AnthropicBaseURL *string           `json:"anthropic_base_url,omitempty"`
+	APIKey           *string           `json:"api_key,omitempty"`
+	Models           []string          `json:"models" validate:"max=500"`
+	ModelNames       map[string]string `json:"model_names,omitempty" validate:"max=500"`
+	DefaultModel     string            `json:"default_model" validate:"required,max=128"`
+	FastModel        string            `json:"fast_model" validate:"max=128"`
+	Thinking         string            `json:"thinking" validate:"required,oneof=off low medium high xhigh max"`
+	IsDefault        bool              `json:"is_default"`
 }
 
 // DiscoverModelsRequest lists a server's models before or after saving it. A
@@ -256,20 +257,22 @@ type DiscoverModelsRequest struct {
 }
 
 type DiscoverModelsResponse struct {
-	Models []string `json:"models"`
+	Models     []string          `json:"models"`
+	ModelNames map[string]string `json:"model_names,omitempty"`
 }
 
 // ModelServerResponse never includes the API key.
 type ModelServerResponse struct {
-	ID               uuid.UUID `json:"id"`
-	Name             string    `json:"name"`
-	OpenAIBaseURL    *string   `json:"openai_base_url,omitempty"`
-	AnthropicBaseURL *string   `json:"anthropic_base_url,omitempty"`
-	Models           []string  `json:"models"`
-	DefaultModel     string    `json:"default_model"`
-	FastModel        string    `json:"fast_model"`
-	Thinking         string    `json:"thinking"`
-	IsDefault        bool      `json:"is_default"`
+	ID               uuid.UUID         `json:"id"`
+	Name             string            `json:"name"`
+	OpenAIBaseURL    *string           `json:"openai_base_url,omitempty"`
+	AnthropicBaseURL *string           `json:"anthropic_base_url,omitempty"`
+	Models           []string          `json:"models"`
+	ModelNames       map[string]string `json:"model_names,omitempty"`
+	DefaultModel     string            `json:"default_model"`
+	FastModel        string            `json:"fast_model"`
+	Thinking         string            `json:"thinking"`
+	IsDefault        bool              `json:"is_default"`
 	// Harnesses that can use this server, from the protocols it speaks.
 	Harnesses      []string  `json:"harnesses"`
 	ThinkingLevels []string  `json:"thinking_levels"`

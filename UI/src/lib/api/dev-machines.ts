@@ -440,15 +440,14 @@ export const agentModelDefaults = {
 		api.put<AgentModelDefault>(`${base(slug)}/agent-model-defaults/${encodeURIComponent(provider)}`, input)
 };
 
-// The models a profile or task can choose for a coding agent. refresh asks the
-// server to fetch its list again; the server limits how often it does.
+// The models a profile or task can choose for a coding agent.
 export function agentModelCatalog(slug: string, harness: string, refresh = false): Promise<AgentModelCatalog> {
 	const query = new URLSearchParams({ harness, ...(refresh ? { refresh: 'true' } : {}) });
-	return api.get(`${base(slug)}/agent-model-catalog?${query}`);
+	return api.get(`${base(slug)}/agent-model-catalog?${query}`, { cache: 'no-store' });
 }
 
 export const modelServers = {
-	list: (slug: string) => api.get<ModelServer[]>(`${base(slug)}/agent-model-servers`),
+	list: (slug: string) => api.get<ModelServer[]>(`${base(slug)}/agent-model-servers`, { cache: 'no-store' }),
 	create: (slug: string, input: ModelServerInput) => api.post<ModelServer>(`${base(slug)}/agent-model-servers`, input),
 	update: (slug: string, id: string, input: ModelServerInput) =>
 		api.put<ModelServer>(`${base(slug)}/agent-model-servers/${encodeURIComponent(id)}`, input),
@@ -457,7 +456,7 @@ export const modelServers = {
 	discover: (
 		slug: string,
 		input: { server_id?: string; openai_base_url?: string; anthropic_base_url?: string; api_key?: string }
-	) => api.post<{ models: string[] }>(`${base(slug)}/agent-model-servers/discover`, input)
+	) => api.post<Pick<ModelServer, 'models' | 'model_names'>>(`${base(slug)}/agent-model-servers/discover`, input)
 };
 
 // The agent tasks that used this machine, active first; session-only and

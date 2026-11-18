@@ -860,6 +860,7 @@ test('the approval card runs the model on the model server the user picked', asy
 		id,
 		name,
 		models,
+		model_names: { 'gpt-5': 'GPT 5', o4: 'O4', 'gpt-6': 'GPT 6' },
 		default_model: models[0],
 		fast_model: '',
 		thinking: 'high',
@@ -881,20 +882,40 @@ test('the approval card runs the model on the model server the user picked', asy
 		})
 	);
 	const bodies: unknown[] = [];
+	let refreshes = 0;
+	await page.route('**/api/workspaces/test/agent-model-servers', (route) => {
+		refreshes++;
+		if (refreshes === 2) return route.fulfill({ status: 502, json: {} });
+		return route.fulfill({
+			json: [server('server-a', 'Gateway A', true, ['gpt-5']), server('server-b', 'Gateway B', false, ['gpt-6'])]
+		});
+	});
 	page.on('request', (request) => {
 		if (request.method() === 'POST' && request.url().includes('/approvals/')) bodies.push(request.postDataJSON());
 	});
 	await page.goto('/test/assistant?conversation=chat-1');
 	const serverButton = page.getByRole('button', { name: 'Model server' });
 	await expect(serverButton).toHaveText('Gateway A');
-	await expect(page.getByRole('button', { name: 'Model', exact: true })).toHaveText('gpt-5');
+	const model = page.getByRole('combobox', { name: 'Model', exact: true });
+	await expect(model).toHaveText('GPT 5');
 	await serverButton.click();
 	await page.getByRole('menuitemradio', { name: 'Gateway B' }).click();
 	await expect(serverButton).toHaveText('Gateway B');
-	await expect(page.getByRole('button', { name: 'Model', exact: true })).toHaveText('gpt-5');
+	await expect(model).toHaveText('GPT 5');
+	await model.click();
+	await expect(page.getByRole('option', { name: /O4.*o4/ })).toBeVisible();
+	await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+	await expect(page.getByRole('option', { name: /O4.*o4/ })).toHaveCount(0);
+	const refreshed = page.getByRole('option', { name: /GPT 6.*gpt-6/ });
+	await expect(refreshed).toBeVisible();
+	await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+	await expect(page.getByTestId('model-combobox-status')).toContainText('this is the last one read');
+	await refreshed.click();
+	await expect(model).toHaveText('GPT 6');
+	expect(refreshes).toBe(2);
 	await page.getByRole('button', { name: 'Approve', exact: true }).click();
 	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
-	expect(bodies).toEqual([{ decision: 'approve', model: 'gpt-5', model_server_id: 'server-b' }]);
+	expect(bodies).toEqual([{ decision: 'approve', model: 'gpt-6', model_server_id: 'server-b' }]);
 });
 
 // KUA-204: the approver chooses the workflow a delegation's task follows; a
@@ -987,7 +1008,7 @@ test('the approval card runs the workflow the approver picked, without a model c
 	const workflow = page.getByTestId('task-workflow');
 	await expect(workflow).toHaveText('Issue default');
 	await expect(page.getByRole('button', { name: 'Model server' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Model', exact: true })).toBeVisible();
+	await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeVisible();
 	await expect(page.getByText("A custom workflow's first agent step decides", { exact: false })).toHaveCount(0);
 	await workflow.click();
 	// Standard and the workspace's non-archived custom workflows, nothing else.
@@ -997,7 +1018,7 @@ test('the approval card runs the workflow the approver picked, without a model c
 	await expect(page.getByText("A custom workflow's first agent step decides", { exact: false })).toBeVisible();
 	// The workflow decides the agent, so its pickers are gone.
 	await expect(page.getByRole('button', { name: 'Model server' })).toHaveCount(0);
-	await expect(page.getByRole('button', { name: 'Model', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveCount(0);
 	await page.getByRole('button', { name: 'Approve', exact: true }).click();
 	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
 	expect(bodies).toEqual([{ decision: 'approve', workflow_id: 'workflow-loop' }]);

@@ -116,7 +116,9 @@ authentication.
 | POST | `/api/auth/reset-password` | public |  |
 | GET | `/api/auth/sso/:slug` | public |  |
 | GET | `/api/auth/sso/:slug/callback` | public |  |
+| POST | `/api/auth/sso/:slug/callback` | public |  |
 | POST | `/api/auth/sso/:slug/link` | session only | Sign-in credentials (passkeys, profile, avatar) stay interactive so a leaked token cannot add or read a way to sign in. |
+| GET | `/api/auth/sso/:slug/metadata` | public |  |
 | GET | `/api/auth/sso/:slug/start` | public |  |
 | GET | `/api/cli-links` | session only | A token cannot mint, inspect or revoke tokens; those actions require the interactive sign-in. |
 | POST | `/api/cli-links` | session only | A token cannot mint, inspect or revoke tokens; those actions require the interactive sign-in. |

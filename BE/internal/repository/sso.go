@@ -29,9 +29,16 @@ func NewSSORepository(db *sqlx.DB) *SSORepository {
 	return &SSORepository{db: db}
 }
 
+// RequiresSSO runs for every workspace request. Read only the policy flags.
+func (r *SSORepository) RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (bool, error) {
+	var required bool
+	err := r.db.GetContext(ctx, &required, `SELECT EXISTS(SELECT 1 FROM workspace_sso_configs WHERE workspace_id=$1 AND enabled AND require_sso)`, workspaceID)
+	return required, err
+}
+
 func (r *SSORepository) GetConfig(ctx context.Context, workspaceID uuid.UUID) (*domain.SSOConfig, error) {
 	var config domain.SSOConfig
-	err := r.db.GetContext(ctx, &config, `SELECT workspace_id, issuer_url, client_id, client_secret_encrypted,
+	err := r.db.GetContext(ctx, &config, `SELECT workspace_id, saml_metadata, issuer_url, client_id, client_secret_encrypted,
 		allowed_domains, provider_name, default_role, require_sso, enabled, created_at, updated_at
 		FROM workspace_sso_configs WHERE workspace_id = $1`, workspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -46,10 +53,11 @@ func (r *SSORepository) GetConfig(ctx context.Context, workspaceID uuid.UUID) (*
 func (r *SSORepository) SaveConfig(ctx context.Context, config *domain.SSOConfig) error {
 	return r.db.QueryRowContext(ctx, `INSERT INTO workspace_sso_configs
 		(workspace_id, issuer_url, client_id, client_secret_encrypted, allowed_domains, provider_name,
-		 default_role, require_sso, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		 default_role, require_sso, enabled, saml_metadata)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (workspace_id) DO UPDATE SET
-			issuer_url = EXCLUDED.issuer_url,
+			saml_metadata = EXCLUDED.saml_metadata,
+ issuer_url = EXCLUDED.issuer_url,
 			client_id = EXCLUDED.client_id,
 			client_secret_encrypted = EXCLUDED.client_secret_encrypted,
 			allowed_domains = EXCLUDED.allowed_domains,
@@ -60,7 +68,7 @@ func (r *SSORepository) SaveConfig(ctx context.Context, config *domain.SSOConfig
 			updated_at = NOW()
 		RETURNING created_at, updated_at`,
 		config.WorkspaceID, config.IssuerURL, config.ClientID, config.ClientSecretEncrypted,
-		config.AllowedDomains, config.ProviderName, config.DefaultRole, config.RequireSSO, config.Enabled,
+		config.AllowedDomains, config.ProviderName, config.DefaultRole, config.RequireSSO, config.Enabled, config.SAMLMetadata,
 	).Scan(&config.CreatedAt, &config.UpdatedAt)
 }
 

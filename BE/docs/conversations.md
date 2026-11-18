@@ -1008,7 +1008,7 @@ decided not to cover it from chat, so it is not an open gap.
 | Install a system package (`apt-get install`) | The machine's image: packages added in an Environment Builder and saved as a Development Environment, then `run_command`/`run_command_write` with that machine's `machine_id`; static binaries can be downloaded into the conversation folder. No install from chat ([system packages](#system-packages)) | by design (KUA-180) |
 | Run a database migration against a real database | `run_migration` (see [database migrations from chat](#database-migrations-from-chat)) | covered (KUA-181) |
 | Read a machine's container or agent logs, `docker ps` | none | gap, KUA-182 |
-| Commit, branch or push on a checkout | read-only git through `get_task_worktree` and `run_command`; changes through `follow_up_task` | partial: pushing from chat is a gap, KUA-183 |
+| Commit, branch or push on a checkout | read-only git through `get_task_worktree` and `run_command`; changes through `follow_up_task`, which republishes the task branch and its pull request ([publication](agent-tasks.md#publication)). No commit, branch or push from chat ([commits and pushes from chat](#commits-and-pushes-from-chat)) | by design (KUA-183) |
 | Keep a process running (a dev server outside a task) | `start_preview` for a task's configured preview only | partial: ad-hoc long-running processes are a gap, KUA-184 |
 
 ### Commands and temporary machines
@@ -1209,6 +1209,59 @@ Non-root options for a one-off command:
 - A static or prebuilt binary fetched with `curl` through the machine's egress
   proxy into the conversation folder, then run from there as `./bin/tool` with
   `run_command_write`.
+
+#### Commits and pushes from chat
+
+The command tools never commit, branch or push a task checkout, and there
+is no approval-gated `git commit` or `git push` for a task's branch (KUA-183).
+Changes go through `follow_up_task`, which runs the task's own agent and
+publishes through [publication](agent-tasks.md#publication).
+
+Why this stays closed:
+
+- A push needs a forge credential, and command containers never get one (the
+  same rule as the database-migration row, KUA-181). A command run is a
+  fresh credential-free check container with a fixed environment
+  (`BE/internal/machine/command_run.go`); the command itself is text the
+  model wrote, so a repository-scoped token in that container would hand
+  the model's shell a live write credential for the repository, for any
+  command it proposes. An approval card does not change what that shell
+  can do once it runs — the same reasoning that keeps agent attempts
+  locked ([sudo in machines](../../TECHNICAL.md#sudo-in-machines)).
+- Command runs cannot write a task checkout anyway: `/workspace` is always
+  mounted read-only and a write run gets only the conversation folder, where
+  `git init` may commit to itself but never to the task worktree's `.git`
+  (KUA-153). Widening writes to a task worktree, `.git` included, would undo
+  that confinement for every command.
+- Publication is one mechanism, not a `git push`: it commits pending changes
+  as the configured identity without loading the checkout's git
+  configuration, folds other authors' commits into one, fast-forwards to
+  what others pushed, guards with `--force-with-lease` only the push that
+  rewrites the agent's own published commit (refusing to drop commits that
+  are not Kuayle's own) and pushes normally otherwise, copies the tip to a
+  fresh repository outside the workspace volume before the token is read,
+  and reuses or opens the pull request
+  ([publication](agent-tasks.md#publication), `BE/internal/machine/publication.go`).
+  A chat-side push would reimplement all of that — divergence,
+  author-folding, branch-protection and pull-request rules — as a second
+  write path that can disagree with the first.
+- The checkout is the task agent's live working tree: between attempts it
+  can hold uncommitted work no check has validated, and a chat-side commit
+  would snapshot and publish exactly that, leaving the agent's next attempt
+  on a branch state it did not create. `follow_up_task` keeps one writer: the
+  agent works, publication judges and pushes.
+- `follow_up_task` already answers the need end to end: it is
+  approval-gated, only the task's creator can approve it, it continues on
+  the task's own harness, branch and pull request, and publication opens or
+  updates the pull request. The cases a chat-side push would have to judge
+  already converge on that path: merged work asks first (KUA-193), and a
+  branch that conflicts with its base goes back to the agent through
+  `update_pull_request_branch`.
+
+To publish changes from chat, approve a `follow_up_task` with the
+instructions. To see what would be published first, `get_task_worktree`
+reports the branch, dirty state, changed paths and ahead/behind counts, and
+`run_check` runs the task's checks on the same checkout.
 
 ## Images
 
