@@ -136,3 +136,113 @@ func TestInstallationTokenHonorsCommentDeadline(t *testing.T) {
 	_, _, err = c.GetInstallationTokenContext(ctx, 123)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
+
+func TestUpsertPatchUpdatesMarkerCommentInPlace(t *testing.T) {
+	const marker = "<!-- kuayle:pr-issue:test -->"
+	const newBody = "<details>\n<p>new linkback</p>\n</details>"
+	patches, posts := 0, 0
+	c := &Client{appID: 42, httpClient: &http.Client{Transport: commentTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Method == http.MethodGet {
+			require.Equal(t, "/repos/owner/repo/issues/7/comments", r.URL.Path)
+			b, _ := json.Marshal([]map[string]any{{"id": 555, "body": marker + "\r\n\r\nLinked Kuayle issue: [KUA-60](https://kuayle.test/acme/issue/KUA-60)", "user": map[string]any{"type": "Bot"}, "performed_via_github_app": map[string]any{"id": 42}}})
+			return commentResponse(200, string(b)), nil
+		}
+		if r.Method == http.MethodPatch {
+			patches++
+			require.Equal(t, "/repos/owner/repo/issues/7/comments/555", r.URL.Path)
+			var body map[string]string
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			require.Equal(t, marker+"\n\n"+newBody, body["body"])
+			return commentResponse(200, `{}`), nil
+		}
+		posts++
+		return commentResponse(201, `{}`), nil
+	})}}
+	require.NoError(t, c.UpsertPullRequestComment(context.Background(), "secret", "owner/repo", 7, marker, newBody))
+	require.Equal(t, 1, patches)
+	require.Zero(t, posts)
+}
+
+func TestUpsertLeavesIdenticalBodyAlone(t *testing.T) {
+	const marker = "<!-- kuayle:pr-issue:test -->"
+	const body = "<details>\n<p>linkback</p>\n</details>"
+	writes := 0
+	c := &Client{appID: 42, httpClient: &http.Client{Transport: commentTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Method == http.MethodGet {
+			b, _ := json.Marshal([]map[string]any{{"id": 555, "body": marker + "\r\n\r\n" + body, "user": map[string]any{"type": "Bot"}, "performed_via_github_app": map[string]any{"id": 42}}})
+			return commentResponse(200, string(b)), nil
+		}
+		writes++
+		return commentResponse(201, `{}`), nil
+	})}}
+	require.NoError(t, c.UpsertPullRequestComment(context.Background(), "secret", "owner/repo", 7, marker, body))
+	require.Zero(t, writes)
+}
+
+func TestUpsertPostsWhenMarkerAbsent(t *testing.T) {
+	const marker = "<!-- kuayle:pr-issue:test -->"
+	patches, posts := 0, 0
+	c := &Client{appID: 42, httpClient: &http.Client{Transport: commentTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Method == http.MethodGet {
+			return commentResponse(200, `[{"id":1,"body":"unrelated","user":{"type":"Bot"},"performed_via_github_app":{"id":42}}]`), nil
+		}
+		if r.Method == http.MethodPatch {
+			patches++
+			return commentResponse(200, `{}`), nil
+		}
+		posts++
+		return commentResponse(201, `{}`), nil
+	})}}
+	require.NoError(t, c.UpsertPullRequestComment(context.Background(), "secret", "owner/repo", 7, marker, "body"))
+	require.Zero(t, patches)
+	require.Equal(t, 1, posts)
+}
+
+func TestUpsertIgnoresSpoofedMarker(t *testing.T) {
+	for name, existing := range map[string]map[string]any{
+		"other app":  {"body": "<!-- kuayle:pr-issue:test -->\n\nspoofed", "user": map[string]any{"type": "Bot"}, "performed_via_github_app": map[string]any{"id": 43}},
+		"human user": {"body": "<!-- kuayle:pr-issue:test -->\n\nspoofed", "user": map[string]any{"type": "User"}, "performed_via_github_app": map[string]any{"id": 42}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			patches, posts := 0, 0
+			c := &Client{appID: 42, httpClient: &http.Client{Transport: commentTransport(func(r *http.Request) (*http.Response, error) {
+				if r.Method == http.MethodGet {
+					b, _ := json.Marshal([]map[string]any{existing})
+					return commentResponse(200, string(b)), nil
+				}
+				if r.Method == http.MethodPatch {
+					patches++
+					return commentResponse(200, `{}`), nil
+				}
+				posts++
+				return commentResponse(201, `{}`), nil
+			})}}
+			require.NoError(t, c.UpsertPullRequestComment(context.Background(), "secret", "owner/repo", 7, "<!-- kuayle:pr-issue:test -->", "body"))
+			require.Zero(t, patches)
+			require.Equal(t, 1, posts)
+		})
+	}
+}
+
+func TestUpsertPatchFailureDoesNotPostOrExposeContent(t *testing.T) {
+	for _, status := range []int{401, 403, 404, 422, 429, 500} {
+		patches, posts := 0, 0
+		c := &Client{appID: 42, httpClient: &http.Client{Transport: commentTransport(func(r *http.Request) (*http.Response, error) {
+			if r.Method == http.MethodGet {
+				b, _ := json.Marshal([]map[string]any{{"id": 555, "body": "marker\r\n\r\nold", "user": map[string]any{"type": "Bot"}, "performed_via_github_app": map[string]any{"id": 42}}})
+				return commentResponse(200, string(b)), nil
+			}
+			if r.Method == http.MethodPatch {
+				patches++
+				return commentResponse(status, "secret private content"), nil
+			}
+			posts++
+			return commentResponse(201, `{}`), nil
+		})}}
+		err := c.UpsertPullRequestComment(context.Background(), "secret", "owner/repo", 7, "marker", "body")
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "secret")
+		require.Equal(t, 1, patches)
+		require.Zero(t, posts)
+	}
+}
