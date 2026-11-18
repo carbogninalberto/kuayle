@@ -27,6 +27,11 @@ type ssoHandlerRepo struct {
 	states map[string]*domain.SSOLoginState
 }
 
+func (r *ssoHandlerRepo) RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (bool, error) {
+	config := r.config
+	return config != nil && config.Enabled && config.RequireSSO, nil
+}
+
 func (r *ssoHandlerRepo) GetConfig(ctx context.Context, workspaceID uuid.UUID) (*domain.SSOConfig, error) {
 	return r.config, nil
 }
@@ -340,4 +345,64 @@ func TestSSOHandlerErrorMapping(t *testing.T) {
 	} {
 		require.Equal(t, want, ssoErrorCode(err))
 	}
+}
+
+func TestSAMLRejectsSensitiveInputWithoutDisclosure(t *testing.T) {
+	capture := &logCapture{}
+	hooks := log.StandardLogger().ReplaceHooks(log.LevelHooks{})
+	log.AddHook(capture)
+	defer log.StandardLogger().ReplaceHooks(hooks)
+	h, repo, _ := newSSOHandlerForTest(t)
+	secret := "private-key-canary"
+	req := dto.SSOConfigRequest{Protocol: "saml", MetadataXML: "-----BEGIN PRIVATE KEY-----" + secret, DefaultRole: "member"}
+	raw, err := json.Marshal(req)
+	require.NoError(t, err)
+	status, body := runSSOHandler(t, h, http.MethodPut, "/api/workspaces/acme/sso", string(raw))
+	require.Equal(t, http.StatusBadRequest, status)
+	require.NotContains(t, body, secret)
+	repo.config.SAMLMetadata = secret
+	_, body = runSSOHandler(t, h, http.MethodGet, "/api/workspaces/acme/sso", "")
+	require.NotContains(t, body, secret)
+	e := echo.New()
+	e.POST("/api/auth/sso/:slug/callback", h.Callback)
+	r := httptest.NewRequest(http.MethodPost, "/api/auth/sso/acme/callback", strings.NewReader(url.Values{"RelayState": {"spent"}, "SAMLResponse": {secret}}.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, r)
+	require.Equal(t, http.StatusFound, rec.Code)
+	require.NotContains(t, rec.Header().Get("Location")+rec.Body.String(), secret)
+	require.NotEmpty(t, capture.entries)
+	for _, entry := range capture.entries {
+		require.NotContains(t, entry, secret)
+	}
+}
+
+func TestSAMLPostUsesCrossSiteBinding(t *testing.T) {
+	h, repo, _ := newSSOHandlerForTest(t)
+	repo.config.SAMLMetadata = `<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://idp.example">
+ <IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+ <SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://idp.example/signin"/>
+ </IDPSSODescriptor></EntityDescriptor>`
+	started, ctx := runSSOStart(t, h, "acme", "")
+	require.NoError(t, h.Start(ctx))
+	redirect, err := url.Parse(started.Header().Get("Location"))
+	require.NoError(t, err)
+	relay := redirect.Query().Get("RelayState")
+	require.NotEmpty(t, relay)
+	cookies := started.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	require.Equal(t, http.SameSiteNoneMode, cookie.SameSite)
+	require.True(t, cookie.Secure && cookie.HttpOnly)
+	require.Equal(t, "/api/auth/sso/acme/callback", cookie.Path)
+	e := echo.New()
+	e.POST("/api/auth/sso/:slug/callback", h.Callback)
+	form := url.Values{"RelayState": {relay}, "SAMLResponse": {"invalid"}}
+	r := httptest.NewRequest(http.MethodPost, cookie.Path, strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, r)
+	require.Contains(t, rec.Header().Get("Location"), "sso_error=token_invalid")
+	require.Empty(t, repo.states)
 }

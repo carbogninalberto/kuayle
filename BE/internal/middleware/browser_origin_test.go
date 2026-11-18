@@ -50,3 +50,18 @@ func TestBrowserOriginRejectsSiblingWebSocket(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	require.Equal(t, 403, rec.Code)
 }
+
+func TestBrowserOriginAcceptsOnlySAMLCallbackFromIdP(t *testing.T) {
+	e := echo.New()
+	e.Use(BrowserOrigin("https://app.example.com"))
+	for _, route := range []string{"callback", "link"} {
+		e.POST("/api/auth/sso/:slug/"+route, func(c *echo.Context) error { return c.NoContent(http.StatusNoContent) })
+	}
+	for path, status := range map[string]int{"callback": 204, "link": 403} {
+		rec := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, "/api/auth/sso/acme/"+path, nil)
+		r.Header.Set("Origin", "https://idp.example.org")
+		e.ServeHTTP(rec, r)
+		require.Equal(t, status, rec.Code)
+	}
+}

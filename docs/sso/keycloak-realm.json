@@ -28,6 +28,46 @@
 				"pkce.code.challenge.method": "S256",
 				"post.logout.redirect.uris": "+"
 			}
+		},
+		{
+			"clientId": "http://localhost:5173/api/auth/sso/acme/metadata",
+			"name": "Kuayle SAML (acme)",
+			"enabled": true,
+			"protocol": "saml",
+			"redirectUris": [
+				"http://localhost:5173/api/auth/sso/acme/callback"
+			],
+			"attributes": {
+				"saml.assertion.signature": "true",
+				"saml.authnstatement": "true",
+				"saml.server.signature": "false",
+				"saml.client.signature": "false",
+				"saml.signature.algorithm": "RSA_SHA256",
+				"saml_name_id_format": "persistent",
+				"saml_force_name_id_format": "true"
+			},
+			"protocolMappers": [
+				{
+					"name": "email",
+					"protocol": "saml",
+					"protocolMapper": "saml-user-property-mapper",
+					"config": {
+						"user.attribute": "email",
+						"attribute.name": "email",
+						"attribute.nameformat": "Basic"
+					}
+				},
+				{
+					"name": "emailVerified",
+					"protocol": "saml",
+					"protocolMapper": "saml-user-property-mapper",
+					"config": {
+						"user.attribute": "emailVerified",
+						"attribute.name": "email_verified",
+						"attribute.nameformat": "Basic"
+					}
+				}
+			]
 		}
 	],
 	"users": [

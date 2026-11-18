@@ -113,6 +113,9 @@ func main() {
 			RequireSSO:     cfg.SSOInstanceConfig().RequireSSO,
 		},
 	)
+	if err := ssoSvc.LoadSAMLSigningKey(cfg.SAMLSigningCertFile, cfg.SAMLSigningKeyFile); err != nil {
+		log.Fatal(err)
+	}
 	// A missing SSO_OIDC_WORKSPACE_SLUG workspace only logs a warning.
 	ssoCheckCtx, cancelSSOCheck := context.WithTimeout(context.Background(), 5*time.Second)
 	ssoSvc.CheckInstanceWorkspace(ssoCheckCtx)

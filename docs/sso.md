@@ -1,15 +1,13 @@
-# Single sign-on with OpenID Connect
+# Workspace single sign-on
 
-Kuayle supports OIDC single sign-on per workspace. It is free and ungated: there
-is no licence key and no paid plan. SAML 2.0 and SCIM 2.0 are not implemented
-yet; they are planned follow-ups.
+Each workspace can use OpenID Connect or SAML 2.0. Both use the same membership, account linking, session scoping, require-SSO and owner break-glass rules.
 
 An owner or admin configures the provider in **Workspace settings → SSO**. The
 client secret is write-only: it is encrypted at rest, never returned by an API
 response and never written to the logs. The page shows the exact redirect URI
 to register at the identity provider.
 
-## What a sign-in does
+## What an OIDC sign-in does
 
 1. Kuayle sends the browser to the provider with an authorization-code request
    (PKCE `S256`, a random state and a random nonce). The flow state is stored
@@ -274,6 +272,23 @@ If the backend runs in the Compose `app` profile, the `extra_hosts` entry maps
 issuer the browser uses. `OIDC_ALLOW_PRIVATE_NETWORK` defaults to `true` in the
 development Compose file.
 
+## SAML 2.0
+
+In **Workspace settings → SSO**, select **SAML 2.0**. Use the **SP metadata** link to register Kuayle with the IdP. Each workspace has its own entity ID at `/api/auth/sso/{slug}/metadata`. The SP sends authentication requests by HTTP-Redirect. The IdP posts its response to the ACS at `/api/auth/sso/{slug}/callback`.
+
+Upload the IdP entity metadata XML or enter its HTTPS metadata URL and save. Kuayle imports a snapshot, limited to 256 KiB, and accepts multiple signing certificates for rollover. Import fresh metadata when the IdP rotates its keys. Leaving both fields empty on subsequent saves keeps the workspace's imported metadata. URL imports have a 15-second timeout and reject redirects and private destinations by default.
+
+Configure the IdP to **sign the assertion**, send an authentication statement and use a stable persistent NameID. Set the audience to the workspace entity ID. Include the IdP issuer in both the response and the assertion, the ACS URL as the response destination, and both `NotBefore` and `NotOnOrAfter` on the assertion conditions. For new accounts, map the user's verified email to the signed attributes `email` and `email_verified` (boolean true). The optional `name` attribute sets the display name. Existing accounts link from their own session. The ACS accepts SP-initiated sign-ins and requires the browser's per-request binding cookie. Use HTTPS outside localhost.
+
+To sign outbound requests, mount a PEM certificate and matching RSA private key (2048 bits or larger) readable by the backend. Set `SAML_SP_CERT_FILE` and `SAML_SP_KEY_FILE` to their paths and restart the backend. SP metadata then advertises the public signing certificate. An invalid or incomplete pair fails startup.
+
+### Try the development Keycloak SAML client
+
+1. With the local development environment configured, start `docker compose --profile sso up -d --wait postgres redis keycloak`. Set `OIDC_ALLOW_PRIVATE_NETWORK=true` in the development environment and run `make dev` to migrate the database and start the API and UI. Open Kuayle at <http://localhost:5173>. The Keycloak console is at <http://keycloak.localhost:8081>.
+2. Open SSO settings in the workspace with slug `acme`. Select SAML, enter `http://keycloak.localhost:8081/realms/kuayle/protocol/saml/descriptor`, enable SSO and save. The dev realm registers the exact metadata entity ID and ACS for this slug and frontend origin. For another workspace or origin, register its SP metadata as a separate Keycloak SAML client.
+3. In a private browser window visit `http://localhost:5173/api/auth/sso/acme/start` and sign in using the dev realm's demo user. For a new account, verify that Kuayle opens the acme workspace. If that email already belongs to a local member, use **Link SSO sign-in** from that account first.
+4. The service integration test can also exercise the imported dev realm. From `BE`, run `KUAYLE_TEST_KEYCLOAK_URL=http://keycloak.localhost:8081 go test ./internal/service -run TestSAMLKeycloak -count=1`. For a host-run backend or test, ensure `keycloak.localhost` resolves to `127.0.0.1` on that host.
+
 ## Troubleshooting
 
 - **`SSO_NOT_CONFIGURED`**: the workspace has no enabled configuration, or the
@@ -303,8 +318,6 @@ development Compose file.
 
 ## Not implemented yet
 
-- **SAML 2.0**: SP metadata, IdP metadata by URL or upload, signed assertion and
-  audience validation. It can reuse `user_identities` with `provider='saml'`.
 - **SCIM 2.0**: a bearer token per workspace, user/group provisioning, and
   deactivation that deletes the user's refresh tokens and revokes their PATs in
   one transaction, so a user deactivated at the IdP loses API access at once.
