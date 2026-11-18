@@ -87,6 +87,21 @@ func TestSanitizeEditorContentKeepsAttachmentMetadata(t *testing.T) {
 	assertContains(t, got, `/api/workspaces/acme/assets/`+assetID+`?download=1`)
 }
 
+// Imported text from another tracker is always Markdown: a literal tag in it
+// is text to show, never markup that switches the whole body to HTML.
+func TestEditorMarkdownTreatsTagsAsText(t *testing.T) {
+	got := EditorMarkdown("Use the <div> wrapper and **bold** text\n\n<script>alert(1)</script>")
+
+	assertContains(t, got, "<strong>bold</strong>")
+	assertContains(t, got, "&lt;div&gt;")
+	assertContains(t, got, "&lt;script&gt;")
+	assertNotContains(t, got, "<script>")
+	assertNotContains(t, got, "<div>")
+	if EditorMarkdown("   ") != "" {
+		t.Fatal("blank input must stay empty")
+	}
+}
+
 func assertContains(t *testing.T, value, substring string) {
 	t.Helper()
 	if !strings.Contains(value, substring) {

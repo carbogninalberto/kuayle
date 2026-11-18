@@ -76,6 +76,17 @@ func SanitizeEditorContent(input string) string {
 	return SanitizeHTML(markdownToEditorHTML(input))
 }
 
+// EditorMarkdown converts Markdown to safe editor HTML without the HTML
+// detection SanitizeEditorContent does: a literal tag in the input stays
+// visible text. Importers use it for text written in another tracker.
+func EditorMarkdown(input string) string {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return ""
+	}
+	return SanitizeHTML(markdownToEditorHTML(input))
+}
+
 // PlainText normalizes text-only fields while preserving literal special
 // characters such as <, >, &, quotes, slashes, and colons.
 func PlainText(input string) string {

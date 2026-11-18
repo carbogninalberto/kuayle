@@ -81,6 +81,11 @@ type Config struct {
 	BackupTimeout               time.Duration `envconfig:"BACKUP_TIMEOUT" default:"2h"`
 	BackupS3AllowPrivateNetwork bool          `envconfig:"BACKUP_S3_ALLOW_PRIVATE_NETWORK" default:"false"`
 
+	// ImportAllowPrivateNetwork lets an admin-configured Jira Server/DC base
+	// URL target private or loopback addresses (for example a Jira on the LAN).
+	// Off by default: the base URL is admin supplied.
+	ImportAllowPrivateNetwork bool `envconfig:"IMPORT_ALLOW_PRIVATE_NETWORK" default:"false"`
+
 	// OIDCAllowPrivateNetwork lets a workspace's OIDC issuer target a private
 	// or loopback address (for example the Keycloak development container).
 	// Off by default: the issuer URL is workspace-admin supplied.

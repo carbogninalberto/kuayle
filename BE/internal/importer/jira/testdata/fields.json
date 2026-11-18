@@ -1,0 +1,4 @@
+[
+  { "id": "customfield_10020", "name": "Sprint", "custom": true, "schema": { "custom": "com.atlassian.greenhopper.service.sprint.Sprint" } },
+  { "id": "customfield_10014", "name": "Epic Link", "custom": true, "schema": { "custom": "com.pyxis.greenhopper.jira:gh-epic-link" } }
+]
