@@ -403,9 +403,9 @@ func (t *AssistantTools) prepareBranchUpdate(ctx context.Context, ws, user uuid.
 	}
 	conflicts := status.MergeableState == "dirty" || (status.Mergeable != nil && !*status.Mergeable)
 	switch {
-	case method == "github" && conflicts:
+	case method == "github" && conflicts && agentPossible:
 		return uuid.Nil, nil, "", toolFailure("the branch has merge conflicts with %s, which only the task's coding agent can resolve (GitHub's update-branch cannot). Next step: follow_up_task with instructions to rebase onto %s and resolve the conflicts, which needs the user's approval in Kuayle", status.BaseRef, status.BaseRef)
-	case method == "task_agent" && !agentPossible, method == "" && !agentPossible && conflicts:
+	case method == "task_agent" && !agentPossible, conflicts && !agentPossible:
 		return uuid.Nil, nil, "", toolFailure("the task's agent cannot take a follow-up now (only the task's creator can ask, and the task must await review, be blocked or failed), and the branch has conflicts GitHub cannot resolve. Next step: resolve them on GitHub, or ask the task's creator")
 	case method == "github" || !agentPossible:
 		audit.Log("pull_request.update_pull_request_branch_requested", user, map[string]interface{}{"workspace_id": ws, "repository": target.Repository, "pull_request": target.Number})
