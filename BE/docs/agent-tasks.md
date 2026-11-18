@@ -3275,7 +3275,7 @@ the agent wrote. Links are dropped from the sentence, since a billing link can
 name the provider workspace. The task pauses through the usage-limit path: the
 attempt is cleaned up, the task ends `blocked` with the provider's sentence in
 `usage_limit_message` and `provider_credit_exhausted=true` (migration
-`000174_agent_task_provider_credit`), and the reason "Paused: OpenCode's
+`000176_agent_task_provider_credit`), and the reason "Paused: OpenCode's
 provider account has no credit left (…). Top up the provider account, then
 resume the task; the work done so far is kept." It is not a failure and keeps
 no failure class. There is no reset time and no automatic resume, and no
