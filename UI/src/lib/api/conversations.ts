@@ -282,6 +282,16 @@ export interface CommandRunPayload extends CommandMachine {
 	working_directory: string;
 	timeout_seconds: number;
 }
+// run_migration: a machine's named migration action, bound to the exact
+// command shown. The connection secret the command reaches only through
+// $KUAYLE_MIGRATION_SECRET is never part of the payload.
+export interface MigrationRunPayload extends CommandMachine {
+	/** The migration action's configured name. */
+	action: string;
+	description?: string;
+	command: string;
+	timeout_seconds: number;
+}
 // start_temporary_machine: the preset, its lifetime and the workspace quota.
 export interface TemporaryMachinePayload {
 	cpu_millis: number;
@@ -301,6 +311,9 @@ export interface CommandRunResult extends Omit<CommandMachine, 'machine_id'> {
 	status: 'queued' | 'running' | 'succeeded' | 'failed';
 	command: string;
 	write: boolean;
+	// A migration run carries migration: true and action: its configured name.
+	migration?: boolean;
+	action?: string;
 	working_directory: string;
 	exit_code: number | null;
 	output_tail: string;
@@ -443,6 +456,7 @@ export type ConversationApproval = ApprovalBase &
 		| { action: 'start_temporary_machine'; payload: TemporaryMachinePayload }
 		| { action: 'run_command'; payload: CommandRunPayload }
 		| { action: 'run_command_write'; payload: CommandRunPayload }
+		| { action: 'run_migration'; payload: MigrationRunPayload }
 		| { action: 'upgrade_instance'; payload: UpgradePayload }
 		| { action: 'reply_to_review_comment'; payload: PullRequestActionPayload }
 		| { action: 'resolve_review_thread'; payload: PullRequestActionPayload }

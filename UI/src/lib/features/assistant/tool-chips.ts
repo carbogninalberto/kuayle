@@ -54,6 +54,7 @@ const builtIn: Record<string, () => string> = {
 	start_temporary_machine: m['assistant.tool_start_temporary_machine'],
 	run_command: m['assistant.tool_run_command'],
 	run_command_write: m['assistant.tool_run_command_write'],
+	run_migration: m['assistant.tool_run_migration'],
 	get_command_run: m['assistant.tool_get_command_run'],
 	get_instance_version: m['assistant.tool_get_instance_version'],
 	upgrade_instance: m['assistant.tool_upgrade_instance'],

@@ -796,6 +796,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: the tool is running. Its result appears in the chat in Kuayle.", true
 		case "run_command", "run_command_write":
 			return "Approved: the command is running. Its result appears in the chat in Kuayle.", true
+		case "run_migration":
+			return "Approved: the migration is running. Its result appears in the chat in Kuayle.", true
 		case "start_temporary_machine":
 			return "Approved: the temporary machine is starting. It is deleted after 30 minutes.", true
 		case "reply_to_review_comment":
@@ -843,6 +845,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			message = "The tool could not start."
 		case "run_command", "run_command_write":
 			message = "The command could not start."
+		case "run_migration":
+			message = "The migration could not start."
 		case "start_temporary_machine":
 			message = "The temporary machine could not start."
 		case "upgrade_instance":

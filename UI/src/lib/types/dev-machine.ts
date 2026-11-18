@@ -490,6 +490,34 @@ export interface AppPortList {
 	scanned_at: string | null;
 }
 
+// A named migration action configured for a machine: the assistant can run it
+// by name after an approval. The command reaches its connection secret only
+// through $KUAYLE_MIGRATION_SECRET; the secret itself is write-only and never
+// returned.
+export interface MigrationAction {
+	id: string;
+	workspace_id: string;
+	machine_id: string;
+	name: string;
+	description: string;
+	command: string;
+	created_by_user_id?: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface MigrationActionList {
+	actions: MigrationAction[];
+}
+
+/** secret is required to create an action; omitted on update keeps the stored one. */
+export interface MigrationActionInput {
+	name: string;
+	description?: string;
+	command: string;
+	secret?: string;
+}
+
 export interface LaunchMachineServiceResponse {
 	status: DevMachineLaunchStatus;
 	launch_url?: string;

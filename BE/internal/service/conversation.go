@@ -209,6 +209,11 @@ func (s *ConversationService) execute(parent context.Context, a domain.Conversat
 			// Code runs only through the command tools, never by the model itself.
 			prompt = strings.TrimSuffix(strings.TrimSuffix(prompt, " You cannot run code yourself."), " You cannot read repositories or run code yourself.") + commands
 		}
+		if migrations := s.tools.migrationPrompt(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID); migrations != "" {
+			// A migration is a command the admin configured; it still runs only
+			// through the command tools, never by the model itself.
+			prompt = strings.TrimSuffix(strings.TrimSuffix(prompt, " You cannot run code yourself."), " You cannot read repositories or run code yourself.") + migrations
+		}
 	}
 	messages := []chatCompletionMessage{{Role: "system", Content: prompt}}
 	issue, err := s.Repo.GenerationIssue(ctx, a)
@@ -545,6 +550,9 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 	case "run_command", "run_command_write":
 		// Commands and temporary machines belong to the user's machine, not to an issue.
 		payload, err = s.tools.prepareCommand(ctx, a, action, arguments)
+	case "run_migration":
+		// A migration belongs to the user's machine, not to an issue.
+		payload, err = s.tools.prepareMigration(ctx, a, arguments)
 	default:
 		err = toolFailure("unknown tool")
 	}

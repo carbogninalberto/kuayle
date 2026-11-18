@@ -45,6 +45,9 @@ type ManagerStore interface {
 	AppendCommandRunOutput(context.Context, domain.DevMachineOperation, string, bool) error
 	CompleteCommandRun(context.Context, domain.DevMachineOperation, int) error
 	FailCommandRun(context.Context, domain.DevMachineOperation, string) error
+	// MigrationActionSecret returns a migration action's encrypted secret;
+	// the manager decrypts it with the instance key when the run starts.
+	MigrationActionSecret(ctx context.Context, ws, machine uuid.UUID, name string) (string, error)
 	// ListExpiredTemporaryMachines lists temporary machines past their
 	// expiry that are not being deleted yet.
 	ListExpiredTemporaryMachines(context.Context, time.Time, int) ([]domain.DevMachine, error)

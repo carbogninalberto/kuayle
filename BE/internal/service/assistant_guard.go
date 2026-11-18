@@ -63,6 +63,9 @@ var assistantActionPolicies = map[string]assistantActionPolicy{
 	"start_temporary_machine": {machine: true},
 	"run_command":             {machine: true},
 	"run_command_write":       {machine: true},
+	// A migration action (KUA-181) runs on the machine's owner, checked where
+	// the action is resolved and again when the run is queued.
+	"run_migration": {machine: true},
 	// Destructive wiki actions: members who can write the wiki, checked
 	// (wiki:write and the wiki's visibility) when requested and approved.
 	wikiDeleteAction:          {},

@@ -123,6 +123,8 @@ type AssistantTools struct {
 	commands          assistantCommandStore
 	temporaryMachines assistantTemporaryMachines
 	commandWait       time.Duration
+	// run_migration is unavailable until SetMigrations wires it.
+	migrations assistantMigrationStore
 	// machineAccess is the public demo rule; nil restricts nothing.
 	machineAccess *MachineAccess
 }
@@ -238,6 +240,8 @@ type assistantTool struct {
 	publish bool
 	// commands tools need SetCommands.
 	commands bool
+	// migrations tools need SetMigrations and the command store.
+	migrations bool
 }
 
 var assistantToolCatalog = []assistantTool{
@@ -319,6 +323,7 @@ func (t *AssistantTools) available(tool assistantTool) bool {
 		(!tool.scan || (t.checkouts != nil && t.scanRepos != nil)) &&
 		(!tool.worktree || (t.worktreeScans != nil && t.checkouts != nil && t.scanRepos != nil)) &&
 		(!tool.commands || (t.commands != nil && t.temporaryMachines != nil)) &&
+		(!tool.migrations || (t.commands != nil && t.migrations != nil)) &&
 		(!tool.webSearch || (t.research != nil && len(t.searchProvider) > 0)) &&
 		(!tool.subagents || (t.subagents && t.research != nil && (t.checkouts != nil && t.scanRepos != nil || len(t.searchProvider) > 0)))
 }

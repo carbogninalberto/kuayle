@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/require"
@@ -59,16 +61,19 @@ func (f *commandStoreFake) FailCommandRun(_ context.Context, _ domain.DevMachine
 
 type commandRuntimeFake struct {
 	*runtimeFake
-	calls   int
-	image   string
-	block   bool
-	fail    error
-	removed []uuid.UUID
+	calls           int
+	image           string
+	migrationSecret string
+	stdout          string
+	block           bool
+	fail            error
+	removed         []uuid.UUID
 }
 
-func (f *commandRuntimeFake) RunCommand(ctx context.Context, _ *domain.DevMachine, run *domain.CommandRun, image string, o *AgentObserver) (*AgentExecution, error) {
+func (f *commandRuntimeFake) RunCommand(ctx context.Context, _ *domain.DevMachine, run *domain.CommandRun, image, migrationSecret string, o *AgentObserver) (*AgentExecution, error) {
 	f.calls++
 	f.image = image
+	f.migrationSecret = migrationSecret
 	if err := o.Authorize(); err != nil {
 		return nil, err
 	}
@@ -82,7 +87,11 @@ func (f *commandRuntimeFake) RunCommand(ctx context.Context, _ *domain.DevMachin
 	if f.fail != nil {
 		return nil, f.fail
 	}
-	if err := o.Output("stdout", []byte("2026-11-15T01:00:00Z 1267650600228229401496703205376\n")); err != nil {
+	line := "2026-11-15T01:00:00Z 1267650600228229401496703205376\n"
+	if f.stdout != "" {
+		line = f.stdout
+	}
+	if err := o.Output("stdout", []byte(line)); err != nil {
 		return nil, err
 	}
 	return &AgentExecution{ContainerID: "command", ExitCode: 0}, nil
@@ -151,6 +160,7 @@ func TestCommandRunHidesInfrastructureErrors(t *testing.T) {
 type commandDockerFake struct {
 	api     string
 	shared  bool
+	secret  string
 	created map[string]commandCreateInput
 	order   []string
 }
@@ -199,7 +209,7 @@ func (f *commandDockerFake) run(t *testing.T, machine *domain.DevMachine, run *d
 		runtime.slices = &machineSlicesFake{}
 		runtime.machineScopes = map[uuid.UUID]bool{machine.ID: true}
 	}
-	_, err = runtime.RunCommand(context.Background(), machine, run, "developer:fixture", &AgentObserver{})
+	_, err = runtime.RunCommand(context.Background(), machine, run, "developer:fixture", f.secret, &AgentObserver{})
 	return err
 }
 
@@ -254,6 +264,7 @@ func TestCommandContainerGetsTheCommandOnlyAsData(t *testing.T) {
 		require.Contains(t, input.Env, "KUAYLE_COMMAND_CWD="+run.WorkingDirectory)
 		for _, env := range input.Env {
 			require.Regexp(t, `^(HOME|CI|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|http_proxy|https_proxy|no_proxy|KUAYLE_COMMAND|KUAYLE_COMMAND_CWD|KUAYLE_COMMAND_WRITE)=`, env, "no credentials")
+			require.NotContains(t, env, domain.MigrationSecretEnv, "an ordinary command never sees the migration secret")
 		}
 		require.Equal(t, run.ID.String(), input.Labels["com.kuayle.command-run-id"])
 		require.True(t, input.HostConfig.ReadonlyRootfs)
@@ -293,10 +304,110 @@ func TestCommandContainerGetsTheCommandOnlyAsData(t *testing.T) {
 		require.Equal(t, run.ID.String(), prep.Labels["com.kuayle.command-run-id"], "RemoveCommand finds it")
 	}
 
-	_, err := (&DockerRuntime{}).RunCommand(context.Background(), machine, &domain.CommandRun{ID: uuid.New(), Command: "ls", WorkingDirectory: "/workspace/../etc"}, "developer:fixture", &AgentObserver{})
+	_, err := (&DockerRuntime{}).RunCommand(context.Background(), machine, &domain.CommandRun{ID: uuid.New(), Command: "ls", WorkingDirectory: "/workspace/../etc"}, "developer:fixture", "", &AgentObserver{})
 	require.ErrorContains(t, err, "invalid command run")
-	_, err = (&DockerRuntime{}).RunCommand(context.Background(), machine, &domain.CommandRun{ID: uuid.New(), Command: "ls", Write: true, WorkingDirectory: "/workspace"}, "developer:fixture", &AgentObserver{})
+	_, err = (&DockerRuntime{}).RunCommand(context.Background(), machine, &domain.CommandRun{ID: uuid.New(), Command: "ls", Write: true, WorkingDirectory: "/workspace"}, "developer:fixture", "", &AgentObserver{})
 	require.ErrorContains(t, err, "invalid command run", "a write run is only ever in a conversation folder")
+}
+
+// A migration run's container gets its action's secret only as data, like
+// the command itself: never in its argv, and the bootstrap leaves it in the
+// environment for the migration tool to read.
+func TestMigrationRunContainerGetsTheSecretAsData(t *testing.T) {
+	machine := commandFixtureMachine()
+	run := &domain.CommandRun{ID: uuid.New(), Command: "kuayle-migrate up", Migration: true, ActionName: "migrate", WorkingDirectory: "/workspace"}
+	docker := &commandDockerFake{api: "1.52", secret: "fixture-migration-secret"}
+	require.NoError(t, docker.run(t, machine, run))
+	input := docker.created[commandContainerName(machine, run.ID)]
+	require.Contains(t, input.Env, domain.MigrationSecretEnv+"=fixture-migration-secret")
+	for _, arg := range append(input.Entrypoint, input.Cmd...) {
+		require.NotContains(t, arg, "fixture-migration-secret", "the secret never reaches the command line")
+	}
+	require.NotContains(t, commandBootstrap, domain.MigrationSecretEnv, "the bootstrap's unset list leaves the secret alone")
+}
+
+// The environment of a migration run carries its secret and the proxy; an
+// ordinary command's carries only the proxy.
+func TestCommandEnvironmentInjectsTheMigrationSecretOnlyForMigrationRuns(t *testing.T) {
+	machine := commandFixtureMachine()
+	plain := commandEnvironment(machine, &domain.CommandRun{Command: "ls", WorkingDirectory: "/workspace"}, "fixture-secret")
+	for _, env := range plain {
+		require.NotContains(t, env, domain.MigrationSecretEnv, "an ordinary command never sees the migration secret")
+	}
+	require.NotContains(t, strings.Join(plain, "\n"), "fixture-secret")
+
+	migration := commandEnvironment(machine, &domain.CommandRun{Command: "migrate", Migration: true, ActionName: "migrate", WorkingDirectory: "/workspace"}, "fixture-secret")
+	require.Contains(t, migration, domain.MigrationSecretEnv+"=fixture-secret")
+	for _, name := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
+		require.True(t, slices.ContainsFunc(migration, func(env string) bool { return strings.HasPrefix(env, name+"=") }), "the proxy vars stay")
+	}
+}
+
+// redactMigrationOutput hides the literal secret (plain and JSON-escaped)
+// and any DSN or password form around it; ordinary command output is stored
+// as it came.
+func TestRedactMigrationOutput(t *testing.T) {
+	secret := "hunter2"
+	cases := []struct{ name, in, want string }{
+		{"literal secret", "applying hunter2 now", "applying [REDACTED] now"},
+		{"postgres DSN with the secret", "postgres://app:hunter2@db:5432/app?sslmode=require", "postgres://app:[REDACTED]@db:5432/app?sslmode=require"},
+		{"key/value password", "host=db password=hunter2 dbname=app", "host=db password=[REDACTED] dbname=app"},
+		{"ordinary output", "1267650600228229401496703205376\n", "1267650600228229401496703205376\n"},
+	}
+	for _, c := range cases {
+		if got := redactMigrationOutput(secret, c.in); got != c.want {
+			t.Errorf("%s: redactMigrationOutput(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+	// The JSON-escaped form of a secret is redacted like the literal one.
+	if got := redactMigrationOutput(`hu"nter2`, `{"password":"hu\"nter2"}`); got != `{"password":"[REDACTED]"}` {
+		t.Errorf("JSON-escaped secret: got %q", got)
+	}
+	// Without a secret the DSN forms are still redacted.
+	if got := redactMigrationOutput("", "PGPASSWORD=hunter2 ./migrate"); got != "PGPASSWORD=[REDACTED] ./migrate" {
+		t.Errorf("no secret: got %q", got)
+	}
+}
+
+// A migration run executes with its decrypted secret and stores only the
+// redacted output; the secret never reaches the run's stored record.
+func TestMigrationRunInjectsItsSecretAndRedactsTheStoredOutput(t *testing.T) {
+	key := cryptoutil.DeriveKey("migration-secret-test")
+	secret := "postgres://app:hunter2@db:5432/app?sslmode=require"
+	encrypted, err := cryptoutil.Encrypt(secret, key)
+	require.NoError(t, err)
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture"}
+	run := &domain.CommandRun{ID: uuid.New(), Command: "kuayle-migrate up", Migration: true, ActionName: "migrate", WorkingDirectory: "/workspace", Status: "queued", CreatedAt: time.Now()}
+	store := &commandStoreFake{managerStoreFake: &managerStoreFake{machine: machine, migrationActionSecret: encrypted,
+		services: []domain.DevMachineService{{ServiceType: "terminal", ImageRef: "developer:fixture"}}}, run: run}
+	runtime := &commandRuntimeFake{runtimeFake: &runtimeFake{}, stdout: "2026-11-15T01:00:00Z connecting with " + secret + "\n"}
+	manager := &Manager{store: store, runtime: runtime, encryptionKey: key}
+	op := &domain.DevMachineOperation{Action: domain.DevMachineOpRunCommand, WorkspaceID: machine.WorkspaceID, IdempotencyKey: "command-run:" + run.ID.String()}
+
+	require.NoError(t, manager.processOperation(context.Background(), op))
+	require.Equal(t, secret, runtime.migrationSecret, "the decrypted secret reaches the runtime")
+	require.Equal(t, "connecting with [REDACTED]\n", store.output, "the stored output never carries the secret")
+	require.NotContains(t, store.output, "hunter2")
+	require.Empty(t, store.failures)
+}
+
+// A migration run whose action was deleted is refused for good, not
+// retried: the secret is gone, so the run can never start.
+func TestMigrationRunWithoutAnActionIsRefusedForGood(t *testing.T) {
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture"}
+	run := &domain.CommandRun{ID: uuid.New(), Command: "kuayle-migrate up", Migration: true, ActionName: "gone", WorkingDirectory: "/workspace", Status: "queued", CreatedAt: time.Now()}
+	store := &commandStoreFake{managerStoreFake: &managerStoreFake{machine: machine,
+		services: []domain.DevMachineService{{ServiceType: "terminal", ImageRef: "developer:fixture"}}}, run: run}
+	runtime := &commandRuntimeFake{runtimeFake: &runtimeFake{}}
+	manager := &Manager{store: store, runtime: runtime}
+	op := &domain.DevMachineOperation{Action: domain.DevMachineOpRunCommand, WorkspaceID: machine.WorkspaceID, IdempotencyKey: "command-run:" + run.ID.String()}
+
+	err := manager.processOperation(context.Background(), op)
+	var terminal *terminalOperationError
+	require.True(t, errors.As(err, &terminal), "a deleted action is not retried")
+	require.Equal(t, "The migration action is no longer configured on this machine", commandRunFailure(err))
+	require.Zero(t, runtime.calls)
+	require.Empty(t, runtime.migrationSecret)
 }
 
 // A daemon that cannot mount a subpath refuses write runs for good, rather
@@ -335,7 +446,7 @@ func TestCommandBootstrapEntersTheWorkingDirectory(t *testing.T) {
 	runIn := func(run *domain.CommandRun) (string, error) {
 		cmd := exec.Command("sh", commandArgv()...)
 		cmd.Dir = root
-		cmd.Env = append(append([]string{"PATH=" + os.Getenv("PATH")}, commandEnvironment(machine, run)...), "KUAYLE_COMMAND_CWD="+folder, "HOME="+root)
+		cmd.Env = append(append([]string{"PATH=" + os.Getenv("PATH")}, commandEnvironment(machine, run, "")...), "KUAYLE_COMMAND_CWD="+folder, "HOME="+root)
 		out, err := cmd.CombinedOutput()
 		return string(out), err
 	}

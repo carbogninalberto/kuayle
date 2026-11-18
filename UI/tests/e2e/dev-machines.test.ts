@@ -253,6 +253,8 @@ test('lists the tasks on a machine and handles actions without applying stale po
 			});
 		}
 		if (path.endsWith('/ports')) return route.fulfill({ json: { ports: [], listening: [], scanned_at: null } });
+		// The machine page's migrations card lists named migration actions on load.
+		if (path.endsWith('/migration-actions')) return route.fulfill({ json: { actions: [] } });
 		unhandledPaths.push(`${request.method()} ${path}`);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
 	});
@@ -302,6 +304,8 @@ test('lists the tasks on a machine and handles actions without applying stale po
 	await expect(page.getByText('Soft limit 20 GB', { exact: true })).toHaveCount(0);
 	await page.getByRole('tab', { name: 'Apps & services' }).click();
 	await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible();
+	// The Apps tab also carries the named migrations the assistant can run after approval.
+	await expect(page.getByRole('region', { name: 'Migrations' })).toContainText('No migrations configured');
 	await expect(page.getByTitle('Save development environment')).toHaveCount(0);
 	// Machines stay up until their user pauses or stops them: no inactivity controls.
 	await expect(page.getByRole('switch', { name: 'Keep running' })).toHaveCount(0);
@@ -1001,6 +1005,8 @@ test('retries a code-server launch while a paused machine resumes', async ({ pag
 		// The run dialog reads the workspace model servers.
 		if (path === '/api/workspaces/test/agent-model-servers') return route.fulfill({ json: [] });
 		if (path.endsWith('/ports')) return route.fulfill({ json: { ports: [], listening: [], scanned_at: null } });
+		// The machine page's migrations card lists named migration actions on load.
+		if (path.endsWith('/migration-actions')) return route.fulfill({ json: { actions: [] } });
 		unhandledPaths.push(`${request.method()} ${path}`);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
 	});

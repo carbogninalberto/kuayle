@@ -300,7 +300,11 @@ Assistant command runs (`run_command`, `run_command_write`) use that same
 locked container configuration, so a machine's sudo setting never applies to
 them. Packages installed with sudo in the terminal stay in that container and
 do not reach command runs; bake them into a Development Environment instead
-(see [system packages](BE/docs/conversations.md#system-packages)).
+(see [system packages](BE/docs/conversations.md#system-packages)). A
+`run_migration` run is the same locked container with one injected variable:
+the named migration action's connection secret, decrypted at run time and
+redacted from the stored output (see
+[database migrations from chat](BE/docs/conversations.md#database-migrations-from-chat)).
 
 **Upgrading CLIs without sudo.** Both developer images point npm's global
 config at `/etc/npmrc` (`NPM_CONFIG_GLOBALCONFIG`), which sets
@@ -2018,7 +2022,12 @@ write runs fail on older daemons), so packages go there too (`pip install
 --target ./pkgs`, a venv or `npm install`). It is killed after 60 s, and 64 KiB
 of output is kept. It runs on a running machine the user owns: the given
 `machine_id`, the conversation's temporary machine, the user's own machine or
-their live temporary machine from another conversation (reused). `start_temporary_machine` asks for approval only when there is
+their live temporary machine from another conversation (reused). `run_migration`
+(KUA-181, migration 181) runs a named migration action the same way, with the
+action's admin-configured command and its connection secret injected as
+`KUAYLE_MIGRATION_SECRET` and redacted from the stored output; a workspace
+owner, admin or the machine's creator configures the actions in the machine
+page's Database migrations card. `start_temporary_machine` asks for approval only when there is
 none, then starts a temporary machine (1 vCPU, 2 GB, 20 GB — the global
 `DevMachineMinDiskGB` floor — headless, no repository, agents, Docker or
 sudo), re-checking the approver's role under the workspace machine lock. The manager permanently deletes it 30

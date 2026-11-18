@@ -431,6 +431,11 @@ go test ./internal/service -run 'TestAssistant|TestAICompletion' -race -count=1
 go test ./internal/repository -run 'TestConversations|TestIssueConversations' -race -count=1
 go test ./cmd/server -run TestConversationHTTP -race -count=1
 go test ./migrations -run TestConversationsUpgrade -count=1
+# Migration actions (KUA-181): refusals, payload, execution and redaction.
+go test ./internal/service -run 'TestPrepareMigration|TestRunMigration' -count=1
+go test ./internal/machine -run 'TestCommand|TestRedact|TestMigration' -count=1
+go test ./pkg/sanitize -count=1
+go test ./internal/handler -run 'TestDevMachineMigration' -count=1
 # UI/
 npm run test:e2e -- tests/e2e/assistant.test.ts
 ```
@@ -463,7 +468,9 @@ and the read-only research tools `web_search`, `repo_list_files`, `repo_glob`,
 `list_machine_worktrees` and `spawn_research_subagents`
 (see [research tools](#research-tools)), and the command tools
 `start_temporary_machine`, `run_command`, `run_command_write` and
-`get_command_run` (see [commands and temporary machines](#commands-and-temporary-machines)).
+`get_command_run` (see [commands and temporary machines](#commands-and-temporary-machines)),
+and `run_migration` for named, admin-configured database migrations
+(see [database migrations from chat](#database-migrations-from-chat)).
 `link_repository`, and the live channel tools `message_task` and
 `get_task_messages` (see [agent messages in chat](#agent-messages-in-chat)).
 The wiki tools address a team wiki by `team_key` or a project wiki by
@@ -1037,7 +1044,7 @@ decided not to cover it from chat, so it is not an open gap.
 | Run tests ad hoc outside a task checkout | `run_command` on the user's machine (read-only workspace, 60 s) | partial: longer runs are a gap, KUA-179 |
 | Install a language package | `run_command_write` in the conversation folder: `pip install --target ./pkgs` then `PYTHONPATH=./pkgs`, a venv (`python3 -m venv .venv`), or `npm install`; not `pip install --user`, since `$HOME` is a tmpfs lost after each run | covered (KUA-153) |
 | Install a system package (`apt-get install`) | The machine's image: packages added in an Environment Builder and saved as a Development Environment, then `run_command`/`run_command_write` with that machine's `machine_id`; static binaries can be downloaded into the conversation folder. No install from chat ([system packages](#system-packages)) | by design (KUA-180) |
-| Run a database migration against a real database | none: command containers never get credentials | gap, KUA-181 |
+| Run a database migration against a real database | `run_migration` (see [database migrations from chat](#database-migrations-from-chat)) | covered (KUA-181) |
 | Read a machine's container or agent logs, `docker ps` | none | gap, KUA-182 |
 | Commit, branch or push on a checkout | read-only git through `get_task_worktree` and `run_command`; changes through `follow_up_task`, which republishes the task branch and its pull request ([publication](agent-tasks.md#publication)). No commit, branch or push from chat ([commits and pushes from chat](#commits-and-pushes-from-chat)) | by design (KUA-183) |
 | Keep a process running (a dev server outside a task) | `start_preview` for a task's configured preview only | partial: ad-hoc long-running processes are a gap, KUA-184 |
@@ -1137,6 +1144,59 @@ machine. Both limits are counted under the workspace's machine lock in
 `CreateBundle`, and temporary machines also count toward the ordinary machine
 quotas. Rolling back migration 159 drops the runs and the new approvals;
 temporary machines become ordinary machines that their owners delete.
+
+### Database migrations from chat
+
+A database migration is the one command a credential-free container cannot
+run, so `run_migration` (KUA-181, migration 181) never takes a command or a
+connection string from the model. A workspace owner, admin or the machine's
+creator configures **named migration actions** on a Dev Machine
+(`dev_machine_migration_actions`, unique name per machine ignoring case):
+a name, a description, a command and a connection secret. The command is
+admin-written and reads the secret only as `$KUAYLE_MIGRATION_SECRET`
+(for example `migrate -url "$KUAYLE_MIGRATION_SECRET" -path ./migrations up`);
+a command or description containing the connection secret is refused, including
+when an edit keeps the stored secret.
+The secret is stored encrypted and never returned by any API, listed or
+logged; the machine page's **Database migrations** card
+(`GET/POST /dev-machines/:machineId/migration-actions`,
+`PUT/DELETE .../migration-actions/:actionId`) is the settings surface, with
+reads and writes for the machine's creator and workspace owners and admins,
+re-checking that authority in the same transaction (other members get 403 and
+do not see the card; the routes need `dev_machine:read` / `dev_machine:manage`).
+
+The model only requests an action by name: `run_migration(action,
+machine_id?)`. The name must match one action among the user's usable
+machines; with none configured, with an unknown name, or with the same name
+on several machines (then it asks for `machine_id`), the call fails as data
+listing what is configured, so the model can retry or tell the user to ask an
+admin. The system prompt lists the configured actions by name, machine and
+description — never the command or the secret. Requesting one follows the
+command tools' approval flow: the approval payload names the action, its
+admin-configured command, the machine with its size and the 60 s limit
+(never the secret), the model is told it only runs after the user approves,
+and approving re-checks the approver's role and machine ownership in
+`QueueRun` like `run_command`. Telegram approval answers cover it too.
+
+The run is a `run_command` operation recorded in `assistant_command_runs`
+with `migration` and the action's name, read back with `get_command_run` and
+the approval card's polling endpoint like any command run. It runs in the
+same fresh check container (read-only `/workspace`, no credentials of the
+machine) with one addition: the machine manager decrypts the action's secret
+just before creating the container and injects it as the
+`KUAYLE_MIGRATION_SECRET` environment variable — never in the argv, the
+stored run or a log. If the action was deleted before the run started, the
+run fails with a user-safe reason instead of running without its secret.
+
+A migration tool's output can echo what it was told, so every stored chunk
+of a migration run is redacted first: the secret's literal and escaped forms
+(`sanitize.SecretReplacer`, applied per logical line like a custom tool's)
+and any DSN or password a tool might print (`sanitize.RedactDSNs` masks URL
+userinfo and key/value forms such as `postgres://user:pass@host`,
+`password=…`, `PGPASSWORD=…`). No DSN, password or the secret itself ever
+reaches the stored output, the transcript or the model. Ordinary
+`run_command`/`run_command_write` runs keep their credential-free
+environment byte for byte.
 
 #### System packages
 

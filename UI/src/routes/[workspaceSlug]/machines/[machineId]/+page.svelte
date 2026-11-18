@@ -24,6 +24,7 @@
 	import MachineStatusBadge from '$lib/features/dev-machines/MachineStatusBadge.svelte';
 	import MachineTasksCard from '$lib/features/dev-machines/MachineTasksCard.svelte';
 	import AppPortsCard from '$lib/features/dev-machines/AppPortsCard.svelte';
+	import MigrationActionsCard from '$lib/features/dev-machines/MigrationActionsCard.svelte';
 	import EnvironmentStatusCard from '$lib/features/dev-machines/EnvironmentStatusCard.svelte';
 	import MachineResizeDialog from '$lib/features/dev-machines/MachineResizeDialog.svelte';
 	import MachineUsageCharts from '$lib/features/dev-machines/MachineUsageCharts.svelte';
@@ -687,6 +688,10 @@
 
 					<Tabs.Content value="apps" class="space-y-5">
 		<AppPortsCard {slug} {machineId} running={machine.status === 'running'} canManage={!machine.created_by_user_id || machine.created_by_user_id === authState.user?.id} />
+	<!-- Only the machine's creator and workspace owners/admins may read or configure migrations. -->
+	{#if canManageMachine || canAdminDevMachines}
+		<MigrationActionsCard {slug} {machineId} canManage />
+	{/if}
 
 						<section class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
 							<div class="mb-3"><h2 class="flex items-center gap-2 text-sm font-semibold"><Server class="size-4 text-muted-foreground" aria-hidden="true" />{m['machines.services']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.services_desc']()}</p></div>

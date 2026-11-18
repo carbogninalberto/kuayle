@@ -98,16 +98,20 @@ type CommandRun struct {
 	ApprovalID        *uuid.UUID `json:"approval_id" db:"approval_id"`
 	Command           string     `json:"command" db:"command"`
 	Write             bool       `json:"write" db:"write"`
-	WorkingDirectory  string     `json:"working_directory" db:"working_directory"`
-	Status            string     `json:"status" db:"status"`
-	ExitCode          *int       `json:"exit_code" db:"exit_code"`
-	Output            string     `json:"output" db:"output"`
-	OutputTruncated   bool       `json:"output_truncated" db:"output_truncated"`
-	Error             *string    `json:"error" db:"error"`
-	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
-	StartedAt         *time.Time `json:"started_at" db:"started_at"`
-	FinishedAt        *time.Time `json:"finished_at" db:"finished_at"`
-	DurationMS        *int64     `json:"duration_ms" db:"duration_ms"`
+	// Migration marks a run started by run_migration; ActionName names the
+	// admin-configured migration action it ran ("" for an ordinary command).
+	Migration        bool       `json:"migration" db:"migration"`
+	ActionName       string     `json:"action,omitempty" db:"action_name"`
+	WorkingDirectory string     `json:"working_directory" db:"working_directory"`
+	Status           string     `json:"status" db:"status"`
+	ExitCode         *int       `json:"exit_code" db:"exit_code"`
+	Output           string     `json:"output" db:"output"`
+	OutputTruncated  bool       `json:"output_truncated" db:"output_truncated"`
+	Error            *string    `json:"error" db:"error"`
+	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
+	StartedAt        *time.Time `json:"started_at" db:"started_at"`
+	FinishedAt       *time.Time `json:"finished_at" db:"finished_at"`
+	DurationMS       *int64     `json:"duration_ms" db:"duration_ms"`
 	// ExpiresAt is the temporary machine's deletion time, when it has one.
 	ExpiresAt *time.Time `json:"expires_at,omitempty" db:"expires_at"`
 }

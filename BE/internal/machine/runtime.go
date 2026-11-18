@@ -119,8 +119,9 @@ type Runtime interface {
 	RunTool(context.Context, *domain.DevMachine, *domain.AssistantToolRunExecution, string, *AgentObserver) (*AgentExecution, error)
 	RemoveTool(context.Context, *domain.DevMachine, uuid.UUID) error
 	// RunCommand runs an approved assistant command in its own check
-	// container; RemoveCommand deletes the run's container.
-	RunCommand(context.Context, *domain.DevMachine, *domain.CommandRun, string, *AgentObserver) (*AgentExecution, error)
+	// container; migrationSecret is a migration run's action secret, empty
+	// otherwise. RemoveCommand deletes the run's container.
+	RunCommand(context.Context, *domain.DevMachine, *domain.CommandRun, string, string, *AgentObserver) (*AgentExecution, error)
 	RemoveCommand(context.Context, *domain.DevMachine, uuid.UUID) error
 	// ScanWorktree reads one task worktree with rg and git in the developer
 	// container. It changes nothing and needs no credentials.

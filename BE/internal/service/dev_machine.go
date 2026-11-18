@@ -125,6 +125,9 @@ type DevMachineService struct {
 	// manifests reads repositories for check suggestions; see
 	// SetRepositoryManifests.
 	manifests RepositoryManifestReader
+	// migrationActions persists named migration actions (KUA-181); see
+	// SetMigrationActions.
+	migrationActions MigrationActionStore
 	// access is the public demo rule; nil restricts nothing. See
 	// SetMachineAccess.
 	access       *MachineAccess
