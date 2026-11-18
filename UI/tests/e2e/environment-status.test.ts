@@ -103,6 +103,8 @@ async function fixture(page: Page, index: Partial<PackageIndex> = {}, machineSta
 		)
 			return route.fulfill({ json: [] });
 		if (path === `${machinePath}/ports`) return route.fulfill({ json: { ports: [], listening: [], scanned_at: time } });
+		// The machine page's migrations card lists the named migration actions on load.
+		if (path === `${machinePath}/migration-actions`) return route.fulfill({ json: { actions: [] } });
 		if (path === `${machinePath}/environment-status` && method === 'GET') {
 			const refresh = state.index.refresh;
 			if (refresh && (refresh.state === 'queued' || refresh.state === 'running')) {

@@ -140,6 +140,8 @@ async function fixture(page: Page, options: { creator?: string } = {}) {
 					}
 				}
 			});
+		// The Apps tab's migrations card lists the machine's named migration actions.
+		if (path === `${machinePath}/migration-actions`) return route.fulfill({ json: { actions: [] } });
 		if (path === `${machinePath}/ports` && method === 'GET') {
 			state.lists++;
 			return route.fulfill({ json: { ports: state.ports, listening: state.listening, scanned_at: time } });
