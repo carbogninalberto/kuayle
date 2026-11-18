@@ -3,7 +3,10 @@ import test from 'node:test';
 import {
     buildImportMapping,
     emptyMappingTargets,
-    mappingToTargets
+    mappingToTargets,
+    reportItemLabel,
+    sourceUserKey,
+    unmappedList
 } from '../../src/lib/features/imports/import-mapping.ts';
 
 test('an empty selection becomes an explicit placeholder, not a target', () => {
@@ -56,4 +59,31 @@ test('a saved mapping round-trips through the form targets with two teams', () =
     });
     const rebuilt = buildImportMapping(mappingToTargets(original));
     assert.deepEqual(rebuilt, original);
+});
+
+test('users without an email are keyed by their source id, never by an empty key', () => {
+    assert.equal(sourceUserKey({ external_id: 'acc-1', email: ' Jane@Example.com ' }), 'jane@example.com');
+    assert.equal(sourceUserKey({ external_id: 'acc-2', email: '' }), 'acc-2');
+    const targets = emptyMappingTargets();
+    targets.userTargets[sourceUserKey({ external_id: 'acc-2', email: '' })] = 'user-2';
+    targets.userTargets[sourceUserKey({ external_id: 'acc-3', email: '' })] = '';
+    assert.deepEqual(buildImportMapping(targets).users, {
+        'acc-2': { user_id: 'user-2' },
+        'acc-3': { user_id: null }
+    });
+});
+
+test('the unmapped list joins source notes and the current mapping gaps once each', () => {
+    assert.deepEqual(
+        unmappedList({ unmapped_fields: ['custom field: customfield_1', 'status: Done'], mapping_gaps: ['status: Done', 'project: Ops (OPS)'] }),
+        ['custom field: customfield_1', 'status: Done', 'project: Ops (OPS)']
+    );
+    assert.deepEqual(unmappedList({ unmapped_fields: null, mapping_gaps: undefined }), []);
+});
+
+test('report rows name the source key so the item can be found in the tracker', () => {
+    assert.equal(reportItemLabel({ external_type: 'issue', external_id: '10001', external_key: 'PROJ-1' }), 'PROJ-1');
+    assert.equal(reportItemLabel({ external_type: 'comment', external_id: 'c9', external_key: 'PROJ-1' }), 'PROJ-1 · comment c9');
+    assert.equal(reportItemLabel({ external_type: 'parent', external_id: '10002', external_key: 'PROJ-2' }), 'PROJ-2 · parent');
+    assert.equal(reportItemLabel({ external_type: 'issue', external_id: '10003', external_key: '' }), '10003');
 });

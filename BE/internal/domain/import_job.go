@@ -38,6 +38,11 @@ const (
 	ImportExternalLabel      = "label"
 )
 
+// ImportReportParent marks a parent-link outcome in the item report. It is a
+// report type only: a parent link has no external ref of its own, and its
+// row names the child issue.
+const ImportReportParent = "parent"
+
 // Item report outcomes.
 const (
 	ImportOutcomeFailed  = "failed"

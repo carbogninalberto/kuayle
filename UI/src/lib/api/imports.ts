@@ -59,6 +59,7 @@ export interface ImportPreview {
     users: Array<{ external_id: string; email: string; display_name: string }>;
     projects: Array<{ external_id: string; name: string; key: string }>;
     unmapped_fields: string[];
+    mapping_gaps: string[];
 }
 
 export interface ImportItem {
@@ -101,7 +102,7 @@ export const imports = {
         api.post(`${path(slug)}/${encodeURIComponent(id)}/start`),
     cancel: (slug: string, id: string): Promise<ImportJob> =>
         api.post(`${path(slug)}/${encodeURIComponent(id)}/cancel`),
-    items: (slug: string, id: string, offset = 0): Promise<{ items: ImportItem[]; has_more: boolean }> =>
-        api.get(`${path(slug)}/${encodeURIComponent(id)}/items?offset=${offset}`),
+    items: (slug: string, id: string, offset = 0, limit = 200): Promise<{ items: ImportItem[]; has_more: boolean }> =>
+        api.get(`${path(slug)}/${encodeURIComponent(id)}/items?offset=${offset}&limit=${limit}`),
     options: (slug: string): Promise<ImportOptions> => api.get(`${path(slug)}/options`)
 };

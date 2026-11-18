@@ -112,7 +112,7 @@ func TestRegisteredRoutesRejectPATOutsideBoundaries(t *testing.T) {
 		{"POST", "/api/workspaces/acme/imports/id/start", []string{"workspaces:read"}, false},
 		{"POST", "/api/workspaces/acme/imports/id/cancel", []string{"workspaces:read"}, false},
 		{"GET", "/api/workspaces/acme/imports/id/items", []string{"workspaces:read"}, false},
-		{"GET", "/api/workspaces/acme/imports/id/options", []string{"workspaces:read"}, false},
+		{"GET", "/api/workspaces/acme/imports/options", []string{"workspaces:read"}, false},
 		{"GET", "/api/workspaces/acme/export", []string{"workspaces:read"}, false},
 		{"POST", "/api/workspaces/acme/invite-links", []string{"members:read"}, false},
 		{"GET", "/api/workspaces/acme/invite-links", []string{"members:read"}, false},
@@ -187,7 +187,7 @@ func TestImportRoutesRequireWorkspaceAdmin(t *testing.T) {
 		{http.MethodPost, "/imports/id/start"},
 		{http.MethodPost, "/imports/id/cancel"},
 		{http.MethodGet, "/imports/id/items"},
-		{http.MethodGet, "/imports/id/options"},
+		{http.MethodGet, "/imports/options"},
 	}
 	for _, role := range []string{domain.RoleMember, domain.RoleGuest} {
 		for _, target := range targets {

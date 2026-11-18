@@ -26,7 +26,16 @@ var (
 	ErrAttachmentTooLarge     = errors.New("attachment exceeds the size limit")
 	ErrInvalidBaseURL         = errors.New("invalid Jira base URL")
 	ErrAttachmentHostMismatch = errors.New("attachment URL is outside the configured Jira host")
+	ErrRateLimited            = errors.New("jira kept rate limiting the import")
 )
+
+// StatusError is a non-2xx Jira response. It carries only the status code:
+// response bodies may contain source data and are never surfaced.
+type StatusError struct{ Status int }
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("jira request failed with status %d", e.Status)
+}
 
 // Config configures one Jira source. Cloud uses an email + API token with
 // Basic auth and the v3 REST API; Server/DC uses a personal access token with
@@ -65,10 +74,53 @@ type Client struct {
 // the host the client actually talks to.
 func parseBaseURL(raw string) (*url.URL, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+		return nil, ErrInvalidBaseURL
+	}
+	// Credentials travel in the job's encrypted credentials, never in the URL.
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return nil, ErrInvalidBaseURL
 	}
 	return parsed, nil
+}
+
+// DescribeError turns a Jira client error into a message that is safe to show
+// the admin: it names the cause (credentials, address, availability) without
+// response bodies, request URLs or credentials. It returns "" for an error it
+// does not recognise; the caller then shows a generic message.
+func DescribeError(err error) string {
+	var status *StatusError
+	var netErr net.Error
+	switch {
+	case err == nil:
+		return ""
+	case errors.As(err, &status):
+		switch status.Status {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return fmt.Sprintf("Jira rejected the credentials (HTTP %d). Check the email and API token and that the account can browse the projects.", status.Status)
+		case http.StatusNotFound:
+			return "Jira returned HTTP 404. Check the base URL and whether this is a Cloud or Server/Data Center site."
+		case http.StatusBadRequest:
+			return "Jira rejected the request (HTTP 400). Check the JQL filter."
+		default:
+			return fmt.Sprintf("Jira returned HTTP %d.", status.Status)
+		}
+	case errors.Is(err, ErrInvalidBaseURL):
+		return "The Jira base URL is invalid. Use the https address of the site, without credentials or a query."
+	case errors.Is(err, validate.ErrNonPublicAddress):
+		return "The Jira address is on a private network, which this server does not allow."
+	case errors.Is(err, ErrRateLimited):
+		return "Jira kept rate limiting the request. Try again later."
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &netErr):
+		return "Could not reach the Jira site. Check the base URL."
+	default:
+		var syntax *json.SyntaxError
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &syntax) || errors.As(err, &typeErr) {
+			return "Jira returned an unexpected response. Check the base URL and the Cloud or Server/Data Center choice."
+		}
+		return ""
+	}
 }
 
 // SiteFromBaseURL returns the lower-cased host of a Jira base URL. It is the
@@ -171,7 +223,7 @@ func (c *Client) do(ctx context.Context, req *http.Request) (*http.Response, err
 			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 				status := resp.StatusCode
 				resp.Body.Close()
-				return nil, fmt.Errorf("jira request failed with status %d", status)
+				return nil, &StatusError{Status: status}
 			}
 			return resp, nil
 		}
@@ -183,7 +235,7 @@ func (c *Client) do(ctx context.Context, req *http.Request) (*http.Response, err
 		}
 		resp.Body.Close()
 		if i == attempts-1 {
-			return nil, fmt.Errorf("jira rate limited after %d attempts", attempts)
+			return nil, fmt.Errorf("%w after %d attempts", ErrRateLimited, attempts)
 		}
 		timer := time.NewTimer(delay)
 		select {

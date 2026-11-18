@@ -414,7 +414,7 @@ type ImportRepo interface {
 	Create(ctx context.Context, job *domain.ImportJob) error
 	Get(ctx context.Context, workspaceID, id uuid.UUID) (*domain.ImportJob, error)
 	List(ctx context.Context, workspaceID uuid.UUID, limit, offset int) ([]domain.ImportJob, error)
-	UpdateMapping(ctx context.Context, workspaceID, id uuid.UUID, mapping json.RawMessage) error
+	UpdateMapping(ctx context.Context, workspaceID, id uuid.UUID, mapping, preview json.RawMessage) error
 	SetPreview(ctx context.Context, workspaceID, id uuid.UUID, preview json.RawMessage) error
 	Start(ctx context.Context, workspaceID, id uuid.UUID, total int) error
 	ClaimNext(ctx context.Context) (*domain.ImportJob, error)

@@ -22,7 +22,13 @@
 	import { Password } from '$lib/components/ui/password';
 	import { Progress } from '$lib/components/ui/progress';
 	import { appToast, getErrorMessage } from '$lib/features/toast/toast';
-	import { buildImportMapping, mappingToTargets } from '$lib/features/imports/import-mapping';
+	import {
+		buildImportMapping,
+		mappingToTargets,
+		reportItemLabel,
+		sourceUserKey,
+		unmappedList
+	} from '$lib/features/imports/import-mapping';
 	import { m } from '$lib/features/i18n/messages';
 	import { TriangleAlert } from '@lucide/svelte';
 
@@ -58,6 +64,7 @@
 	let sprintMode = $state<'cycle' | 'ignore'>('cycle');
 
 	const job = $derived(jobs.find((candidate) => candidate.id === selectedId) ?? null);
+	const unmapped = $derived(preview ? unmappedList(preview) : []);
 	const progressValue = $derived(
 		job && job.total > 0 ? Math.min(100, Math.round((job.processed / job.total) * 100)) : 0
 	);
@@ -380,10 +387,10 @@
 									<Badge variant="outline">{key}: {count}</Badge>
 								{/each}
 							</div>
-							{#if preview.unmapped_fields.length}
+							{#if unmapped.length}
 								<h3 class={fieldLabelClass}>{m['settings.import.unmapped']()}</h3>
-								<ul class="list-disc space-y-1 pl-5 text-sm text-[var(--color-text-secondary)]">
-									{#each preview.unmapped_fields as field}<li>{field}</li>{/each}
+								<ul class="list-disc space-y-1 pl-5 text-sm text-[var(--color-text-secondary)]" data-testid="import-unmapped">
+									{#each unmapped as field (field)}<li>{field}</li>{/each}
 								</ul>
 							{/if}
 						</div>
@@ -392,43 +399,47 @@
 							<div class="space-y-4 border-t border-[var(--app-border)] px-5 py-4">
 								<h3 class={fieldLabelClass}>{m['settings.import.mapping']()}</h3>
 
-								{#each preview.projects as sourceProject}
+								{#each preview.projects as sourceProject (sourceProject.external_id)}
+									{@const projectLabel = `${m['settings.import.project']()}: ${sourceProject.name} (${sourceProject.key})`}
 									<div class={rowClass}>
-										<span class="text-sm">{m['settings.import.project']()}: {sourceProject.name} ({sourceProject.key})</span>
+										<span class="text-sm">{projectLabel}</span>
 										<div class="w-full sm:w-64">
-											<SelectField bind:value={projectTeams[sourceProject.external_id]} options={[...unassignedOption, ...teamOptions]} placeholder={m['settings.import.unassigned']()} />
+											<SelectField aria-label={projectLabel} bind:value={projectTeams[sourceProject.external_id]} options={[...unassignedOption, ...teamOptions]} placeholder={m['settings.import.unassigned']()} />
 										</div>
 									</div>
 								{/each}
 
-							{#each mappedTeams as team (team.id)}
-								<div class="space-y-2">
-									<p class={hintClass}>{m['settings.import.status']()} · {team.name}</p>
-									{#each preview.statuses as sourceStatus}
-										<div class={rowClass}>
-											<span class="text-sm">{m['settings.import.status']()}: {sourceStatus}</span>
-											<div class="w-full sm:w-64">
-												<SelectField bind:value={statusTargets[`${team.id}:${sourceStatus.toLowerCase()}`]} options={statusOptions(team.id)} placeholder={m['settings.import.unassigned']()} />
+								{#each mappedTeams as team (team.id)}
+									<div class="space-y-2">
+										<p class={hintClass}>{m['settings.import.status']()} · {team.name}</p>
+										{#each preview.statuses as sourceStatus (sourceStatus)}
+											{@const statusLabel = `${m['settings.import.status']()}: ${sourceStatus}`}
+											<div class={rowClass}>
+												<span class="text-sm">{statusLabel}</span>
+												<div class="w-full sm:w-64">
+													<SelectField aria-label={`${statusLabel} · ${team.name}`} bind:value={statusTargets[`${team.id}:${sourceStatus.trim().toLowerCase()}`]} options={statusOptions(team.id)} placeholder={m['settings.import.unassigned']()} />
+												</div>
 											</div>
-										</div>
-									{/each}
-								</div>
-							{/each}
+										{/each}
+									</div>
+								{/each}
 
-							{#each preview.users as sourceUser}
+								{#each preview.users as sourceUser}
+									{@const userLabel = `${m['settings.import.user']()}: ${sourceUser.display_name || sourceUser.email || sourceUser.external_id}`}
 									<div class={rowClass}>
-										<span class="text-sm">{m['settings.import.user']()}: {sourceUser.display_name || sourceUser.email}</span>
+										<span class="text-sm">{userLabel}</span>
 										<div class="w-full sm:w-64">
-											<SelectField bind:value={userTargets[sourceUser.email.toLowerCase()]} options={[...unassignedOption, ...memberOptions]} placeholder={m['settings.import.unassigned']()} />
+											<SelectField aria-label={userLabel} bind:value={userTargets[sourceUserKey(sourceUser)]} options={[...unassignedOption, ...memberOptions]} placeholder={m['settings.import.unassigned']()} />
 										</div>
 									</div>
 								{/each}
 
-								{#each preview.priorities as sourcePriority}
+								{#each preview.priorities as sourcePriority (sourcePriority)}
+									{@const priorityLabel = `${m['settings.import.priority']()}: ${sourcePriority}`}
 									<div class={rowClass}>
-										<span class="text-sm">{m['settings.import.priority']()}: {sourcePriority}</span>
+										<span class="text-sm">{priorityLabel}</span>
 										<div class="w-full sm:w-64">
-											<SelectField bind:value={priorities[sourcePriority.toLowerCase()]} options={priorityOptions} placeholder={m['settings.import.unassigned']()} />
+											<SelectField aria-label={priorityLabel} bind:value={priorities[sourcePriority.trim().toLowerCase()]} options={priorityOptions} placeholder={m['settings.import.unassigned']()} />
 										</div>
 									</div>
 								{/each}
@@ -492,7 +503,7 @@
 									<Table.Body>
 										{#each items as item}
 											<Table.Row data-testid="import-item">
-												<Table.Cell>{item.external_type} {item.external_id}</Table.Cell>
+												<Table.Cell>{reportItemLabel(item)}</Table.Cell>
 												<Table.Cell><Badge variant={item.outcome === 'failed' ? 'destructive' : 'secondary'}>{item.outcome}</Badge></Table.Cell>
 												<Table.Cell>{item.reason}</Table.Cell>
 												<Table.Cell>{formatTime(item.created_at)}</Table.Cell>

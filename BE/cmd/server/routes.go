@@ -245,7 +245,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodPost, "/imports/:id/start", h.importJob.Start, mw.RequireWorkspaceAdmin(), mw.RejectSSOScopedSession())
 	sessionOnly(ws, http.MethodPost, "/imports/:id/cancel", h.importJob.Cancel, mw.RequireWorkspaceAdmin(), mw.RejectSSOScopedSession())
 	sessionOnly(ws, http.MethodGet, "/imports/:id/items", h.importJob.ListItems, mw.RequireWorkspaceAdmin(), mw.RejectSSOScopedSession())
-	sessionOnly(ws, http.MethodGet, "/imports/:id/options", h.importJob.Options, mw.RequireWorkspaceAdmin(), mw.RejectSSOScopedSession())
+	sessionOnly(ws, http.MethodGet, "/imports/options", h.importJob.Options, mw.RequireWorkspaceAdmin(), mw.RejectSSOScopedSession())
 
 	// SSO configuration is interactive-only: a leaked personal access token
 	// must never be able to point a workspace at an identity provider.

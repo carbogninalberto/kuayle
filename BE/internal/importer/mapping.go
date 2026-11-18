@@ -39,14 +39,16 @@ type StatusTarget struct {
 }
 
 // UserTarget maps a source user to a workspace member. A nil UserID is the
-// explicit unassigned/placeholder choice and falls back to the importer.
+// explicit unassigned/placeholder choice: an author falls back to the importer
+// with the original name in the text, an assignee is left empty.
 type UserTarget struct {
 	UserID *uuid.UUID `json:"user_id"`
 }
 
 // Mapping is the admin-configured translation from source values to Kuayle
-// entities. Keys are source identifiers or, for users and statuses, the
-// lower-cased source email / name.
+// entities. Project keys are source project ids; status keys are
+// "<team uuid>:<lower-cased status name>"; user keys are the lower-cased source
+// email, or the source user id when the source hides the email.
 type Mapping struct {
 	Projects   map[string]ProjectTarget `json:"projects"`
 	Statuses   map[string]StatusTarget  `json:"statuses"`
@@ -74,7 +76,9 @@ type Member struct {
 	DisplayName string
 }
 
-func attributionName(user *SourceUser) string {
+// AttributionName is the name shown for a source user who could not be
+// matched to a workspace member.
+func AttributionName(user *SourceUser) string {
 	if user == nil {
 		return "Unknown"
 	}
@@ -90,64 +94,78 @@ func attributionName(user *SourceUser) string {
 	return "Unknown"
 }
 
+// UserKey is the mapping key for a source user: the lower-cased email, or the
+// source id when the source hides the email (common on Jira Cloud). The UI
+// uses the same rule, so every previewed user can be mapped.
+func UserKey(user SourceUser) string {
+	if email := strings.ToLower(strings.TrimSpace(user.Email)); email != "" {
+		return email
+	}
+	return user.ExternalID
+}
+
+// resolveMember finds the member a source user maps to. explicit reports an
+// admin choice for this user (including the placeholder, which returns nil).
+// An empty email or id never matches, so users without one cannot collide on
+// an empty key.
+func (m Mapping) resolveMember(user *SourceUser, members []Member) (member *uuid.UUID, explicit bool) {
+	if user == nil {
+		return nil, false
+	}
+	email := strings.ToLower(strings.TrimSpace(user.Email))
+	var byID, byEmail UserTarget
+	hasID, hasEmail := false, false
+	if user.ExternalID != "" {
+		byID, hasID = m.Users[user.ExternalID]
+	}
+	if email != "" {
+		byEmail, hasEmail = m.Users[email]
+	}
+	if hasID && byID.UserID != nil {
+		return byID.UserID, true
+	}
+	if hasEmail && byEmail.UserID != nil {
+		return byEmail.UserID, true
+	}
+	// An explicit placeholder choice wins over an automatic email match.
+	if hasID || hasEmail {
+		return nil, true
+	}
+	if email != "" && email != UnassignedChoice {
+		for _, candidate := range members {
+			if strings.EqualFold(strings.TrimSpace(candidate.Email), email) {
+				id := candidate.UserID
+				return &id, false
+			}
+		}
+	}
+	return nil, false
+}
+
 // ResolveAssignee returns the Kuayle user that should be assigned an imported
 // issue, or nil when the issue should have no assignee. Unlike ResolveUser it
 // never falls back to the importer: a missing, unmatched or explicitly
 // unassigned source user leaves the issue unassigned. Assignees and authors
 // resolve differently on purpose.
 func (m Mapping) ResolveAssignee(user *SourceUser, members []Member) *uuid.UUID {
-	if user == nil {
-		return nil
-	}
-	email := strings.ToLower(strings.TrimSpace(user.Email))
-	byID, hasID := m.Users[user.ExternalID]
-	byEmail, hasEmail := m.Users[email]
-	if hasID && byID.UserID != nil {
-		return byID.UserID
-	}
-	if hasEmail && byEmail.UserID != nil {
-		return byEmail.UserID
-	}
-	// An explicit unassigned/placeholder choice wins over an automatic email
-	// match, so honour it rather than assigning a member with the same email.
-	if (hasID && byID.UserID == nil) || (hasEmail && byEmail.UserID == nil) {
-		return nil
-	}
-	if email != "" && email != UnassignedChoice {
-		for _, member := range members {
-			if strings.EqualFold(strings.TrimSpace(member.Email), email) {
-				id := member.UserID
-				return &id
-			}
-		}
-	}
-	return nil
+	member, _ := m.resolveMember(user, members)
+	return member
 }
 
-// ResolveUser returns the Kuayle user that should author an imported item and
-// an attribution prefix to add to its text when the original author could not
-// be matched. It is for authors (reporter, comment author) only; assignees use
-// ResolveAssignee. Order: explicit mapping, case-insensitive email match against
-// workspace members, then the importer. The placeholder choice is treated as
-// unmatched.
+// ResolveUser returns the Kuayle user that should author an imported item and,
+// when the original author could not be matched, that author's name for an
+// attribution line. It is for authors (reporter, comment author) only;
+// assignees use ResolveAssignee. Order: explicit mapping, case-insensitive
+// email match against workspace members, then the importer. The placeholder
+// choice is treated as unmatched.
 func (m Mapping) ResolveUser(user *SourceUser, members []Member, importerID uuid.UUID) (uuid.UUID, string) {
 	if user == nil {
 		return importerID, ""
 	}
-	if target, ok := m.Users[user.ExternalID]; ok && target.UserID != nil {
-		return *target.UserID, ""
+	if member, _ := m.resolveMember(user, members); member != nil {
+		return *member, ""
 	}
-	if target, ok := m.Users[strings.ToLower(strings.TrimSpace(user.Email))]; ok && target.UserID != nil {
-		return *target.UserID, ""
-	}
-	if email := strings.ToLower(strings.TrimSpace(user.Email)); email != "" && email != UnassignedChoice {
-		for _, member := range members {
-			if strings.EqualFold(strings.TrimSpace(member.Email), email) {
-				return member.UserID, ""
-			}
-		}
-	}
-	return importerID, "*Originally by " + attributionName(user) + "*"
+	return importerID, AttributionName(user)
 }
 
 // statusKey is the per-team key for a source status name. Two projects mapped
@@ -176,10 +194,12 @@ func (m Mapping) ResolvePriority(priority string) (domain.IssuePriority, bool) {
 	return domain.IssuePriority(value), true
 }
 
-// ExternalKey builds a stable, opaque idempotency key. It is unique per site
-// and external type so two trackers (or two Jira sites) cannot collide.
-func ExternalKey(source, site, extType, externalID string) string {
-	sum := sha256.Sum256([]byte(source + "\x00" + site + "\x00" + extType + "\x00" + externalID))
+// TargetHash folds the Kuayle values an issue resolved to (team, status,
+// priority, assignee, project, cycle, labels, epic mode) into its source
+// content hash. A re-run after the admin changes the mapping then updates
+// issues whose source did not change, instead of skipping them.
+func TargetHash(contentHash string, targets ...string) string {
+	sum := sha256.Sum256([]byte(contentHash + "\x00" + strings.Join(targets, "\x00")))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -201,6 +221,14 @@ func ContentHash(issue SourceIssue) string {
 	for _, comment := range issue.Comments {
 		commentHashes = append(commentHashes, CommentHash(comment))
 	}
+	sprints := make([]string, 0, len(issue.Sprints))
+	for _, sprint := range issue.Sprints {
+		sprints = append(sprints, sprint.Name)
+	}
+	attachments := make([]string, 0, len(issue.Attachments))
+	for _, attachment := range issue.Attachments {
+		attachments = append(attachments, attachment.ExternalID)
+	}
 	payload := struct {
 		Title, Description, Status, Priority string
 		Project, Parent, Epic                string
@@ -208,22 +236,24 @@ func ContentHash(issue SourceIssue) string {
 		Assignee                             string
 		CreatedAt, UpdatedAt                 time.Time
 		Comments                             []string
-		AttachmentCount                      int
+		Attachments                          []string
+		History                              string
 	}{
-		Title:           issue.Title,
-		Description:     issue.Description,
-		Status:          issue.Status,
-		Priority:        issue.Priority,
-		Project:         issue.ProjectExternalID,
-		Parent:          issue.ParentExternalID,
-		Epic:            issue.EpicExternalID,
-		Sprints:         issue.SprintIDs,
-		Labels:          issue.Labels,
-		Assignee:        "",
-		CreatedAt:       issue.CreatedAt,
-		UpdatedAt:       issue.UpdatedAt,
-		Comments:        commentHashes,
-		AttachmentCount: len(issue.Attachments),
+		Title:       issue.Title,
+		Description: issue.Description,
+		Status:      issue.Status,
+		Priority:    issue.Priority,
+		Project:     issue.ProjectExternalID,
+		Parent:      issue.ParentExternalID,
+		Epic:        issue.EpicExternalID,
+		Sprints:     sprints,
+		Labels:      issue.Labels,
+		Assignee:    "",
+		CreatedAt:   issue.CreatedAt,
+		UpdatedAt:   issue.UpdatedAt,
+		Comments:    commentHashes,
+		Attachments: attachments,
+		History:     issue.HistoryMarkdown,
 	}
 	if issue.Assignee != nil {
 		payload.Assignee = strings.ToLower(strings.TrimSpace(issue.Assignee.Email))
@@ -280,6 +310,9 @@ func (m Mapping) Validate(ctx ValidationContext) error {
 	}
 	sort.Strings(userKeys)
 	for _, key := range userKeys {
+		if strings.TrimSpace(key) == "" {
+			return errors.New("a user mapping needs the source email or user id")
+		}
 		if id := m.Users[key].UserID; id != nil && !ctx.Members[*id] {
 			return fmt.Errorf("user %q: member is not in this workspace", key)
 		}
@@ -298,14 +331,22 @@ func (m Mapping) Validate(ctx ValidationContext) error {
 	return nil
 }
 
-// UnmappedFor reports source values that the mapping does not cover, so the
-// dry-run preview can warn the admin before any write happens.
-func (m Mapping) UnmappedFor(preview *SourcePreview) []string {
+// UnmappedFor reports previewed source values the mapping does not cover yet,
+// so the admin sees what is left before starting. It runs after a preview and
+// again whenever the mapping is saved. members lets an email that matches a
+// workspace member count as mapped.
+func (m Mapping) UnmappedFor(preview *SourcePreview, members []Member) []string {
 	seen := map[string]bool{}
 	add := func(format string, args ...any) {
 		text := fmt.Sprintf(format, args...)
 		if !seen[text] {
 			seen[text] = true
+		}
+	}
+	// Issues of an unmapped project fail with "no project mapping".
+	for _, project := range preview.Projects {
+		if target, ok := m.Projects[project.ExternalID]; !ok || target.TeamID == uuid.Nil {
+			add("project: %s (%s)", project.Name, project.Key)
 		}
 	}
 	// A status must be mapped for every team an issue can land in. If no
@@ -335,9 +376,8 @@ func (m Mapping) UnmappedFor(preview *SourcePreview) []string {
 		}
 	}
 	for _, user := range preview.Users {
-		_, prefix := m.ResolveUser(&user, nil, uuid.New())
-		if prefix != "" {
-			add("user: %s", attributionName(&user))
+		if member, _ := m.resolveMember(&user, members); member == nil {
+			add("user: %s", AttributionName(&user))
 		}
 	}
 	out := make([]string, 0, len(seen))

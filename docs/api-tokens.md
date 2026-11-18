@@ -374,9 +374,9 @@ authentication.
 | POST | `/api/workspaces/:slug/imports/:id/cancel` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
 | GET | `/api/workspaces/:slug/imports/:id/items` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
 | PUT | `/api/workspaces/:slug/imports/:id/mapping` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
-| GET | `/api/workspaces/:slug/imports/:id/options` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
 | POST | `/api/workspaces/:slug/imports/:id/preview` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
 | POST | `/api/workspaces/:slug/imports/:id/start` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
+| GET | `/api/workspaces/:slug/imports/options` | session only | Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them. |
 | POST | `/api/workspaces/:slug/invite` | token | member:invite |
 | GET | `/api/workspaces/:slug/invite-links` | token | member:invite |
 | POST | `/api/workspaces/:slug/invite-links` | token | member:invite |

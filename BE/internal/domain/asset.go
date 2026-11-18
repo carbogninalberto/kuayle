@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,7 +13,12 @@ const MaxUploadSize = 10 * 1024 * 1024
 
 // AllowedUploadType resolves a detected MIME type and extension to a stored
 // content type, or rejects it when the type/extension pair is not accepted.
+// Parameters are dropped first: detection reports text as
+// "text/plain; charset=utf-8".
 func AllowedUploadType(detectedType, ext string) (string, bool) {
+	if base, _, found := strings.Cut(detectedType, ";"); found {
+		detectedType = strings.TrimSpace(base)
+	}
 	if detectedType == "text/plain" {
 		switch ext {
 		case ".csv":

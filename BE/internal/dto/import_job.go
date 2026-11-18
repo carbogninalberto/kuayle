@@ -67,6 +67,7 @@ type ImportPreviewResponse struct {
 	Users          []ImportSourceUser    `json:"users"`
 	Projects       []ImportSourceProject `json:"projects"`
 	UnmappedFields []string              `json:"unmapped_fields"`
+	MappingGaps    []string              `json:"mapping_gaps"`
 }
 
 type ImportSourceUser struct {

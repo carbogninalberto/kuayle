@@ -16,11 +16,11 @@ import (
 )
 
 func TestImportsMigrationFilesExist(t *testing.T) {
-	for _, name := range []string{"000173_imports.up.sql", "000173_imports.down.sql"} {
+	for _, name := range []string{"000174_imports.up.sql", "000174_imports.down.sql"} {
 		_, err := os.Stat(name)
 		require.NoError(t, err, "migration file %s must exist", name)
 	}
-	up, err := os.ReadFile("000173_imports.up.sql")
+	up, err := os.ReadFile("000174_imports.up.sql")
 	require.NoError(t, err)
 	require.Contains(t, string(up), "UNIQUE (workspace_id, source, source_site, external_type, external_id)")
 }
@@ -46,12 +46,12 @@ func TestImportsMigration(t *testing.T) {
 	require.NoError(t, err)
 	defer m.Close()
 
-	require.NoError(t, m.Migrate(172))
+	require.NoError(t, m.Migrate(173))
 	db, err := sql.Open("pgx", target)
 	require.NoError(t, err)
 	defer db.Close()
 
-	require.NoError(t, m.Migrate(173))
+	require.NoError(t, m.Migrate(174))
 	for _, table := range []string{"import_jobs", "import_job_items", "import_external_refs"} {
 		var exists bool
 		err = db.QueryRowContext(context.Background(), `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)`, table).Scan(&exists)

@@ -28,9 +28,14 @@ func NewImportJobHandler(svc *service.ImportService) *ImportJobHandler {
 
 func importHTTPError(c *echo.Context, err error) error {
 	var validation *service.ImportValidationError
+	var source *service.ImportSourceError
 	switch {
 	case errors.As(err, &validation):
 		return response.Error(c, http.StatusBadRequest, "INVALID_IMPORT", validation.Message)
+	case errors.As(err, &source):
+		// The tracker refused or could not be reached: a gateway failure with
+		// a message the admin can act on, not a bare 500.
+		return response.Error(c, http.StatusBadGateway, "IMPORT_SOURCE_FAILED", source.Message)
 	case errors.Is(err, service.ErrImportNotFound):
 		return response.NotFound(c, "Import")
 	case errors.Is(err, service.ErrImportNotEditable):
@@ -155,18 +160,16 @@ func (h *ImportJobHandler) Cancel(c *echo.Context) error {
 	return h.Get(c)
 }
 
+// defaultItemPage is the item-report page size when the client sends none.
+const defaultItemPage = 200
+
 // parseItemPage reads the item-report page size and offset from query strings.
-// The caller asks for limit+1 rows so it can tell whether another page exists.
+// The service clamps the size to repository.ImportItemsPageMax and detects
+// whether another page exists.
 func parseItemPage(limitRaw, offsetRaw string) (limit, offset int) {
-	limit = 200
+	limit = defaultItemPage
 	if n, err := strconv.Atoi(limitRaw); err == nil {
 		limit = n
-	}
-	if limit < 1 {
-		limit = 1
-	}
-	if limit > 500 {
-		limit = 500
 	}
 	if n, err := strconv.Atoi(offsetRaw); err == nil && n >= 0 {
 		offset = n
@@ -180,13 +183,9 @@ func (h *ImportJobHandler) ListItems(c *echo.Context) error {
 		return err
 	}
 	limit, offset := parseItemPage(c.QueryParam("limit"), c.QueryParam("offset"))
-	items, err := h.svc.ListItems(c.Request().Context(), ws.ID, importID(c), limit+1, offset)
+	items, hasMore, err := h.svc.ListItems(c.Request().Context(), ws.ID, importID(c), limit, offset)
 	if err != nil {
 		return importHTTPError(c, err)
-	}
-	hasMore := len(items) > limit
-	if hasMore {
-		items = items[:limit]
 	}
 	out := make([]dto.ImportItemResponse, 0, len(items))
 	for _, item := range items {
@@ -249,5 +248,6 @@ func importPreviewResponse(preview *importer.SourcePreview) dto.ImportPreviewRes
 	return dto.ImportPreviewResponse{
 		Counts: preview.Counts, Statuses: preview.Statuses, Priorities: preview.Priorities,
 		Labels: preview.Labels, Users: users, Projects: projects, UnmappedFields: preview.UnmappedFields,
+		MappingGaps: preview.MappingGaps,
 	}
 }

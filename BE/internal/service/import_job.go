@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +23,7 @@ var (
 	ErrInvalidImportMapping = errors.New("the import mapping is invalid")
 	ErrImportCancelled      = errors.New("import cancelled")
 	errImporterGone         = errors.New("the account that created this import no longer exists")
+	errImporterNotAdmin     = errors.New("the account that created this import is no longer a workspace admin")
 )
 
 // ImportValidationError is a user-facing validation message returned by the
@@ -31,6 +31,33 @@ var (
 type ImportValidationError struct{ Message string }
 
 func (e *ImportValidationError) Error() string { return e.Message }
+
+// ImportSourceError means the source tracker could not be read (rejected
+// credentials, unreachable or private address, unexpected response). Message
+// is safe to show: it never contains credentials or response bodies.
+type ImportSourceError struct{ Message string }
+
+func (e *ImportSourceError) Error() string { return e.Message }
+
+const genericSourceFailure = "The request to Jira failed. Check the base URL and credentials, then try again."
+
+// importFetchError marks a failure while reading the source during a run, so
+// the job error shown to the admin is the safe source message.
+type importFetchError struct{ err error }
+
+func (e *importFetchError) Error() string { return "fetch source: " + e.err.Error() }
+func (e *importFetchError) Unwrap() error { return e.err }
+
+// sourceErrorMessage is the job error recorded for a failed run.
+func sourceErrorMessage(err error) string {
+	var fetch *importFetchError
+	if errors.As(err, &fetch) {
+		if message := jira.DescribeError(fetch.err); message != "" {
+			return "Reading from Jira failed: " + message
+		}
+	}
+	return err.Error()
+}
 
 type ImportCreateInput struct {
 	Source      string
@@ -123,25 +150,77 @@ func (s *ImportService) List(ctx context.Context, workspaceID uuid.UUID, limit, 
 	return s.repo.List(ctx, workspaceID, limit, offset)
 }
 
-func (s *ImportService) ListItems(ctx context.Context, workspaceID, id uuid.UUID, limit, offset int) ([]domain.ImportJobItem, error) {
-	return s.repo.ListItems(ctx, workspaceID, id, limit, offset)
+// ListItems returns one page of a job's item report and whether another page
+// follows. The page size is clamped to 1..repository.ImportItemsPageMax; one
+// extra row is read to detect the next page.
+func (s *ImportService) ListItems(ctx context.Context, workspaceID, id uuid.UUID, limit, offset int) ([]domain.ImportJobItem, bool, error) {
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > repository.ImportItemsPageMax {
+		limit = repository.ImportItemsPageMax
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	// The job lookup scopes the report to the workspace and turns an unknown
+	// job into a 404 rather than an empty report.
+	if _, err := s.repo.Get(ctx, workspaceID, id); err != nil {
+		return nil, false, err
+	}
+	items, err := s.repo.ListItems(ctx, workspaceID, id, limit+1, offset)
+	if err != nil {
+		return nil, false, err
+	}
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	return items, hasMore, nil
 }
 
+// UpdateMapping validates and stores the mapping. When the job was already
+// previewed, the preview's mapping gaps are recomputed against the new
+// mapping and saved with it, so the admin sees what is still unmapped.
 func (s *ImportService) UpdateMapping(ctx context.Context, workspaceID, id uuid.UUID, raw json.RawMessage) error {
 	mapping, err := decodeMapping(raw)
 	if err != nil {
-		return &ImportValidationError{Message: err.Error()}
+		return &ImportValidationError{Message: "invalid mapping: " + err.Error()}
 	}
-	if err := s.validateMapping(ctx, workspaceID, mapping); err != nil {
-		return err
-	}
-	return s.repo.UpdateMapping(ctx, workspaceID, id, raw)
-}
-
-func (s *ImportService) validateMapping(ctx context.Context, workspaceID uuid.UUID, mapping importer.Mapping) error {
-	teams, err := s.store.Teams(ctx, workspaceID)
+	members, err := s.validateMapping(ctx, workspaceID, mapping)
 	if err != nil {
 		return err
+	}
+	job, err := s.repo.Get(ctx, workspaceID, id)
+	if err != nil {
+		return err
+	}
+	if job.Status != domain.ImportStatusDraft && job.Status != domain.ImportStatusPreviewed {
+		return ErrImportNotEditable
+	}
+	normalized, err := json.Marshal(mapping)
+	if err != nil {
+		return err
+	}
+	var preview json.RawMessage
+	if len(job.Preview) > 0 {
+		var stored importer.SourcePreview
+		if err := json.Unmarshal(job.Preview, &stored); err == nil {
+			stored.MappingGaps = mapping.UnmappedFor(&stored, members)
+			if preview, err = json.Marshal(stored); err != nil {
+				return err
+			}
+		}
+	}
+	return s.repo.UpdateMapping(ctx, workspaceID, id, normalized, preview)
+}
+
+// validateMapping checks every target against live workspace state and
+// returns the workspace members it loaded.
+func (s *ImportService) validateMapping(ctx context.Context, workspaceID uuid.UUID, mapping importer.Mapping) ([]importer.Member, error) {
+	teams, err := s.store.Teams(ctx, workspaceID)
+	if err != nil {
+		return nil, err
 	}
 	teamSet := make(map[uuid.UUID]domain.Team, len(teams))
 	for _, team := range teams {
@@ -151,30 +230,35 @@ func (s *ImportService) validateMapping(ctx context.Context, workspaceID uuid.UU
 	for teamID := range teamSet {
 		list, err := s.store.Statuses(ctx, workspaceID, teamID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		statuses[teamID] = list
 	}
 	members, err := s.store.Members(ctx, workspaceID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	memberSet := make(map[uuid.UUID]bool, len(members))
 	for _, member := range members {
 		memberSet[member.UserID] = true
 	}
 	if err := mapping.Validate(importer.ValidationContext{Teams: teamSet, TeamStatuses: statuses, Members: memberSet}); err != nil {
-		return &ImportValidationError{Message: err.Error()}
+		return nil, &ImportValidationError{Message: err.Error()}
 	}
-	return nil
+	return members, nil
 }
 
 // Preview is a dry run: it reads from the source and writes only the preview
-// JSON on the job. No Kuayle entity is created or updated.
+// JSON on the job. No Kuayle entity is created or updated. A previewed job can
+// be previewed again; a queued, running or finished one cannot, and that is
+// checked before the source is read.
 func (s *ImportService) Preview(ctx context.Context, workspaceID, id uuid.UUID) (*importer.SourcePreview, error) {
 	job, err := s.repo.Get(ctx, workspaceID, id)
 	if err != nil {
 		return nil, err
+	}
+	if job.Status != domain.ImportStatusDraft && job.Status != domain.ImportStatusPreviewed {
+		return nil, ErrImportNotEditable
 	}
 	source, err := s.sourceFor(ctx, job)
 	if err != nil {
@@ -182,11 +266,19 @@ func (s *ImportService) Preview(ctx context.Context, workspaceID, id uuid.UUID) 
 	}
 	preview, err := source.Preview(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("preview source: %w", err)
+		message := jira.DescribeError(err)
+		if message == "" {
+			s.logger.WithError(err).WithField("import_id", id).Warn("import preview failed")
+			message = genericSourceFailure
+		}
+		return nil, &ImportSourceError{Message: message}
 	}
-	mapping, err := decodeMapping(job.Mapping)
-	if err == nil {
-		preview.UnmappedFields = mergeUnique(preview.UnmappedFields, mapping.UnmappedFor(preview))
+	if mapping, err := decodeMapping(job.Mapping); err == nil {
+		members, err := s.store.Members(ctx, workspaceID)
+		if err != nil {
+			return nil, err
+		}
+		preview.MappingGaps = mapping.UnmappedFor(preview, members)
 	}
 	raw, err := json.Marshal(preview)
 	if err != nil {
@@ -209,9 +301,9 @@ func (s *ImportService) Start(ctx context.Context, workspaceID, id uuid.UUID) er
 	}
 	mapping, err := decodeMapping(job.Mapping)
 	if err != nil {
-		return &ImportValidationError{Message: err.Error()}
+		return &ImportValidationError{Message: "invalid mapping: " + err.Error()}
 	}
-	if err := s.validateMapping(ctx, workspaceID, mapping); err != nil {
+	if _, err := s.validateMapping(ctx, workspaceID, mapping); err != nil {
 		return err
 	}
 	var preview importer.SourcePreview
@@ -260,7 +352,14 @@ func (s *ImportService) sourceFor(ctx context.Context, job *domain.ImportJob) (i
 	if err != nil {
 		return nil, errors.New("could not decrypt import credentials")
 	}
-	return s.newSource(ctx, job.Config, json.RawMessage(plain))
+	source, err := s.newSource(ctx, job.Config, json.RawMessage(plain))
+	if err != nil {
+		if message := jira.DescribeError(err); message != "" {
+			return nil, &ImportValidationError{Message: message}
+		}
+		return nil, &ImportValidationError{Message: "the import configuration is invalid; create a new import"}
+	}
+	return source, nil
 }
 
 func decodeMapping(raw json.RawMessage) (importer.Mapping, error) {
@@ -283,19 +382,13 @@ func decodeMapping(raw json.RawMessage) (importer.Mapping, error) {
 	if mapping.Priorities == nil {
 		mapping.Priorities = map[string]int{}
 	}
-	return mapping, nil
-}
-
-func mergeUnique(a, b []string) []string {
-	seen := make(map[string]bool, len(a)+len(b))
-	out := make([]string, 0, len(a)+len(b))
-	for _, value := range append(append([]string{}, a...), b...) {
-		if !seen[value] {
-			seen[value] = true
-			out = append(out, value)
-		}
+	if mapping.EpicMode == "" {
+		mapping.EpicMode = importer.EpicModeProject
 	}
-	return out
+	if mapping.SprintMode == "" {
+		mapping.SprintMode = importer.SprintModeCycle
+	}
+	return mapping, nil
 }
 
 const (

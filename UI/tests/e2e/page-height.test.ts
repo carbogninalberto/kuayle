@@ -366,6 +366,53 @@ const lessons = Array.from({ length: 40 }, (_, index) => ({
 	created_at: createdAt,
 	updated_at: createdAt
 }));
+// A previewed Jira import with a long mapping: many statuses, users and projects.
+const importPreview = {
+	counts: { issues: 1000, comments: 3000, attachments: 120 },
+	statuses: Array.from({ length: 12 }, (_, index) => `Status ${index}`),
+	priorities: ['Highest', 'High', 'Medium', 'Low'],
+	labels: Array.from({ length: 10 }, (_, index) => `label-${index}`),
+	users: Array.from({ length: 20 }, (_, index) => ({ external_id: `acc-${index}`, email: '', display_name: `Jira user ${index}` })),
+	projects: [
+		{ external_id: '10', name: 'Web', key: 'WEB' },
+		{ external_id: '20', name: 'Design', key: 'DSN' }
+	],
+	unmapped_fields: ['custom field: customfield_10050'],
+	mapping_gaps: ['status: Status 3']
+};
+const importJob = {
+	id: id(94),
+	source: 'jira',
+	source_site: 'acme.atlassian.net',
+	status: 'previewed',
+	config: { cloud: true },
+	mapping: {
+		projects: { '10': { team_id: teamId, project_id: null }, '20': { team_id: secondTeamId, project_id: null } },
+		statuses: {},
+		users: {},
+		priorities: {},
+		epic_mode: 'project',
+		sprint_mode: 'cycle'
+	},
+	preview: importPreview,
+	total: 0,
+	processed: 0,
+	created_count: 0,
+	updated_count: 0,
+	skipped_count: 0,
+	failed_count: 0,
+	error: null,
+	cancel_requested: false,
+	created_at: createdAt,
+	updated_at: createdAt,
+	started_at: null,
+	finished_at: null
+};
+const importOptions = {
+	teams: teams.map((candidate) => ({ id: candidate.id, name: candidate.name, key: candidate.key, is_private: false })),
+	statuses: Object.fromEntries(teams.map((candidate) => [candidate.id, statuses(candidate.id)])),
+	members: members.map((member) => ({ user_id: member.user_id, email: member.email, display_name: member.name }))
+};
 const analytics = {
 	overview: {
 		total_issues: 42,
@@ -481,6 +528,9 @@ async function mockApi(page: Page, theme: 'light' | 'dark') {
 		if (path === `${w}/analytics/distribution`) return json(analytics.distribution);
 		if (path === `${w}/analytics/burnup`) return json(analytics.burnup);
 		if (path === `${w}/invite-links`) return json([]);
+		if (path === `${w}/imports`) return json({ imports: [importJob] });
+		if (path === `${w}/imports/options`) return json(importOptions);
+		if (path === `${w}/imports/${importJob.id}`) return json(importJob);
 		if (path === `${w}/projects`) return json(projects);
 		const projectMatch = path.match(/^\/api\/workspaces\/test\/projects\/([^/]+)(\/.*)?$/);
 		if (projectMatch) {
@@ -832,6 +882,7 @@ const routes: Route[] = [
 		'dev-machines',
 		'forges',
 		'github',
+		'import',
 		'labels',
 		'lessons',
 		'licenses',
@@ -851,7 +902,7 @@ const routes: Route[] = [
 		name: `settings ${name}`,
 		path: `/test/settings/${name}`,
 		// Pages whose mocked lists, or own copy, are taller than the window.
-		long: ['labels', 'members', 'preferences', 'templates', 'tokens', 'webhooks', 'lessons'].includes(name)
+		long: ['import', 'labels', 'members', 'preferences', 'templates', 'tokens', 'webhooks', 'lessons'].includes(name)
 	})),
 	{ name: 'settings team', path: `/test/settings/teams/${teamId}` },
 	{ name: 'settings team statuses', path: `/test/settings/teams/${teamId}/statuses` },

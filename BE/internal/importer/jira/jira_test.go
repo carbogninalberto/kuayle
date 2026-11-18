@@ -105,8 +105,8 @@ func TestCloudFetchPaginationAndTransform(t *testing.T) {
 	if len(first.Attachments) != 1 || first.Attachments[0].Filename != "spec.pdf" {
 		t.Fatalf("attachment not transformed: %+v", first.Attachments)
 	}
-	if len(first.SprintIDs) != 1 || first.SprintIDs[0] != "Sprint 5" {
-		t.Fatalf("sprint not transformed: %v", first.SprintIDs)
+	if len(first.Sprints) != 1 || first.Sprints[0].Name != "Sprint 5" {
+		t.Fatalf("sprint not transformed: %v", first.Sprints)
 	}
 	if len(first.Relations) != 2 {
 		t.Fatalf("expected two relations, got %+v", first.Relations)
@@ -375,5 +375,73 @@ func TestOversizedAttachmentIsFlagged(t *testing.T) {
 	})
 	if !errors.Is(err, ErrAttachmentTooLarge) {
 		t.Fatalf("expected ErrAttachmentTooLarge, got %v", err)
+	}
+}
+
+// Jira Cloud returns sprint objects, older Server/DC the Java toString of the
+// sprint. Both keep state and dates so an active sprint is not imported closed.
+func TestSprintFieldFormats(t *testing.T) {
+	fields := jiraFields{Custom: map[string]json.RawMessage{"customfield_1": json.RawMessage(`[
+		{"id": 7, "name": "Sprint 7", "state": "active", "startDate": "2024-03-01T09:00:00.000Z", "endDate": "2024-03-15T09:00:00.000Z"},
+		"com.atlassian.greenhopper.service.sprint.Sprint@1f2e[id=3,rapidViewId=1,state=CLOSED,name=Sprint 3, hotfixes,startDate=2024-01-01T09:00:00.000Z,endDate=2024-01-14T09:00:00.000Z,completeDate=<null>,sequence=3]",
+		"com.atlassian.greenhopper.service.sprint.Sprint@9a[id=9,rapidViewId=1,state=FUTURE,name=Next,startDate=<null>,endDate=<null>,sequence=9]",
+		"Plain sprint",
+		{"id": 8, "name": "sprint 7", "state": "closed"}
+	]`)}}
+	got := sprintValues(fields, "customfield_1")
+	if len(got) != 4 {
+		t.Fatalf("expected 4 distinct sprints, got %+v", got)
+	}
+	if got[0].Name != "Sprint 7" || got[0].State != importer.SprintStateActive || got[0].ExternalID != "7" || got[0].StartDate == nil || got[0].EndDate == nil {
+		t.Fatalf("object sprint not parsed: %+v", got[0])
+	}
+	if got[1].Name != "Sprint 3, hotfixes" || got[1].State != importer.SprintStateClosed || got[1].ExternalID != "3" || got[1].StartDate == nil {
+		t.Fatalf("legacy sprint not parsed: %+v", got[1])
+	}
+	if got[2].Name != "Next" || got[2].State != importer.SprintStateFuture || got[2].StartDate != nil {
+		t.Fatalf("future legacy sprint not parsed: %+v", got[2])
+	}
+	if got[3].Name != "Plain sprint" || got[3].State != "" {
+		t.Fatalf("plain sprint name not kept: %+v", got[3])
+	}
+}
+
+func TestDescribeErrorIsSafeAndSpecific(t *testing.T) {
+	unauthorized := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"errorMessages":["secret project names"]}`))
+	}))
+	defer unauthorized.Close()
+	_, err := testClient(t, unauthorized, true).Preview(context.Background())
+	var status *StatusError
+	if !errors.As(err, &status) || status.Status != http.StatusUnauthorized {
+		t.Fatalf("expected a 401 status error, got %v", err)
+	}
+	message := DescribeError(err)
+	if !strings.Contains(message, "rejected the credentials") || !strings.Contains(message, "401") {
+		t.Fatalf("unexpected message: %q", message)
+	}
+	for _, leaked := range []string{testToken, unauthorized.URL, "secret project names"} {
+		if strings.Contains(message, leaked) {
+			t.Fatalf("message leaked %q: %q", leaked, message)
+		}
+	}
+
+	private, err := NewClient(Config{BaseURL: "https://127.0.0.1:1", Token: testToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = private.Preview(context.Background())
+	if got := DescribeError(err); !strings.Contains(got, "private network") {
+		t.Fatalf("a refused private address should say so, got %q (%v)", got, err)
+	}
+
+	if _, err := NewClient(Config{BaseURL: "http://jira.example.com", Token: testToken}); !errors.Is(err, ErrInvalidBaseURL) || !strings.Contains(DescribeError(err), "base URL is invalid") {
+		t.Fatalf("plain http must be an invalid base URL without the private-network opt-in, got %v", err)
+	}
+	for _, bad := range []string{"https://user:pass@jira.example.com", "https://jira.example.com/?x=1", "ftp://jira.example.com"} {
+		if _, err := SiteFromBaseURL(bad); !errors.Is(err, ErrInvalidBaseURL) {
+			t.Fatalf("expected %q to be rejected, got %v", bad, err)
+		}
 	}
 }

@@ -1677,52 +1677,91 @@ workspace. This is distinct from workspace transfer, which builds a *new*
 workspace from a `.kuayle.zip`. Only Jira ships in this deliverable; Linear,
 GitHub Issues and CSV are future sources and share the framework.
 
-Migration `000173_imports` adds three tables:
+Migration `000174_imports` adds three tables:
 
 - `import_jobs` stores the source, site, opaque config/mapping/preview JSON,
   encrypted credentials, progress counters and status (`draft`, `previewed`,
   `queued`, `running`, `completed`, `failed`, `cancelled`).
 - `import_job_items` is the per-item report: one row per skipped or failed
-  source item with its external id and reason.
+  source item with its type, source id, the Jira key of the issue it belongs to
+  (`PROJ-123`, so the admin can find it in Jira) and the reason. A parent-link
+  problem is a `parent` row naming the child issue.
 - `import_external_refs` maps `(workspace, source, site, external type, external
   id)` to the Kuayle entity and a content hash. The unique key is what makes a
-  re-run update or skip instead of duplicating; the original Jira key and URL
-  are kept here and as a reference line in the issue description, while Kuayle
-  numbering remains its own (`IssueRepo.NextNumber`).
+  re-run update or skip instead of duplicating; the original Jira key
+  (`external_key`) and browse URL are kept here and as a reference line in the
+  issue description, while Kuayle numbering remains its own
+  (`IssueRepo.NextNumber`).
 
 `ImportService` creates a draft job, previews it without writing anything
 outside `import_jobs`, validates and stores the mapping, then queues the job.
+The preview is stored in the API's JSON shape: `unmapped_fields` lists source
+data no mapping can carry (custom fields, users without an email, unsupported
+description nodes) and `mapping_gaps` lists previewed projects, statuses,
+priorities and users the current mapping does not cover. Saving the mapping
+recomputes `mapping_gaps` in the same statement, so the admin can preview first
+and map afterwards. A previewed job can be previewed again; a queued, running
+or finished job cannot, and that is checked before the source is read. A Jira
+failure during preview (rejected credentials, unreachable or private address,
+unexpected response) is a `502 IMPORT_SOURCE_FAILED` with a message naming the
+cause and never the credentials, response body or request URL
+(`jira.DescribeError`). Mapping targets come from `GET .../imports/options`.
+
 The `source_site` part of the idempotency key is derived on the server from the
 lower-cased host of the credentials' `base_url` (the same value
 `jira.Client.Site()` returns); no client-supplied site is trusted, so importing
-two Jira Cloud sites into one workspace cannot collide. `ImportService.Run` is
-a polling worker like the backup scheduler: it recovers interrupted jobs,
-claims queued jobs with `FOR UPDATE SKIP LOCKED`, and writes labels, sprint
-cycles, epic projects, issues, sub-issues, comments (including a history
-summary), attachments and relations. Each issue is created in a short
-transaction together with its external ref; comments and attachments have
-their own refs so re-runs never duplicate them. Container resolution errors
-(an unmapped project, a failing label/cycle/project) are reported as per-item
-failures instead of aborting the job. Attachment links are rebuilt from their
-refs on every run, so updates and a re-run after a failed issue create keep the
-links to already-stored assets. Ref lookup or write errors fail the affected
-item rather than being silently treated as "not found".
+two Jira Cloud sites into one workspace cannot collide. A base URL with
+credentials, a query or a fragment is refused. `ImportService.Run` is a polling
+worker like the backup scheduler: it recovers interrupted jobs, claims queued
+jobs with `FOR UPDATE SKIP LOCKED`, re-checks that the job's creator is still a
+workspace owner or admin, and writes labels, sprint cycles, epic projects,
+issues, sub-issues, comments (including a history summary), attachments and
+relations. Each issue is created in a short transaction together with its
+external ref; comments and attachments have their own refs so re-runs never
+duplicate them. Container resolution errors (an unmapped project, a failing
+label/cycle/project) are reported as per-item failures instead of aborting the
+job. Ref lookup or write errors fail the affected item rather than being
+silently treated as "not found".
+
+An issue's hash covers its source content (fields, comment hashes, attachment
+ids, history) and the Kuayle values it resolved to under the current mapping
+(team, status, priority, assignee, project, cycle, labels, parent, unmatched
+author). Unchanged issues are skipped; changing the mapping and re-running
+updates them. A re-run writes title and description explicitly
+(`IssueRepo.UpdateContent`). When an imported issue was moved to another team in
+Kuayle, the update keeps its team-scoped values: only a status mapped for its
+current team is applied, and its project and cycle stay.
 
 Status mappings are keyed `<team_uuid>:<source status>`: two projects mapped to
 different teams can map the same source status to different team statuses, and
 the worker falls back to that team's default status when a status is unmapped
 or its target belongs to another team. Priorities must be a Kuayle value (0..4).
-There is no labels mapping — source labels and components are matched or
-created by name. Imported titles go through `sanitize.PlainText` and
-descriptions, comments and the history summary through
-`sanitize.SanitizeEditorContent`, so stored content is safe editor HTML. An
-imported issue is created already triaged unless its team has triage enabled,
-and gets a `SortOrder` derived from its Kuayle number like any in-app issue.
-On a re-run a comment whose source body or update time changed is updated in
-place; unchanged comments are left untouched. If the Kuayle comment was deleted
-or edited so it can no longer be updated, the re-run records that as a skipped
-item instead of duplicating it. A cancel requested mid-fetch stops the job
-before any Kuayle entity is written (checked every 25 emitted issues).
+User mappings are keyed by the lower-cased email, or by the source user id when
+Jira hides the email, so every previewed user can be mapped; an empty key is
+rejected. There is no labels mapping — source labels and components are matched
+or created by name.
+
+Imported titles go through `sanitize.PlainText`. Descriptions, comments and the
+history summary are Markdown converted by `sanitize.EditorMarkdown`, which
+treats a literal tag as text rather than switching the body to HTML. The
+attribution line is built as HTML with the name escaped, and attachments are
+the editor's own attachment nodes linking `/api/workspaces/<slug>/assets/<id>`,
+the access-checked asset route in-app uploads use (never a storage or presigned
+URL). Attachment links are rebuilt from their refs on every run, so updates and
+a re-run after a failed issue create keep them. An imported issue is created
+already triaged unless its team has triage enabled, and gets a `SortOrder`
+derived from its Kuayle number like any in-app issue. On a re-run a comment or
+history summary whose source changed is updated in place; unchanged ones are
+left untouched. If the Kuayle comment was deleted or edited so it can no longer
+be updated, the re-run records that as a skipped item instead of duplicating
+it. A cancel requested mid-fetch stops the job before any Kuayle entity is
+written (checked every 25 emitted issues).
+
+Sprints are read from Cloud sprint objects and from the Server/DC
+`com.atlassian.greenhopper...Sprint@...[...]` strings. An issue gets the cycle
+of its active sprint, else a future one, else the last one listed; a new cycle
+takes the sprint's dates and state (active → active, future → upcoming, closed
+or unknown → completed). Existing cycles are matched by name and not changed.
 
 Assignees and authors resolve differently: a missing, unmatched or explicitly
 unassigned source user leaves an issue with no assignee, while an unmatched
@@ -1730,8 +1769,9 @@ author (reporter or comment author) is attributed to the importer with the
 original name in the text. The importer fallback is for authors only.
 
 `total`, `processed`, `created`, `updated`, `skipped` and `failed` count
-issues only; comment, attachment and relation outcomes appear exclusively in
-the per-item error report. Skipped or failed items do not fail the job.
+issues only; comment, attachment, relation and parent-link outcomes appear
+exclusively in the per-item error report. Skipped or failed items do not fail
+the job.
 
 Running jobs send a heartbeat (`updated_at`) during a long fetch, while
 writing and before each attachment download. Stale recovery looks at a
@@ -1752,12 +1792,25 @@ the workspace owner/admin role; personal access tokens and SSO-scoped sessions
 are rejected by middleware. Outbound requests dial only public addresses
 unless `IMPORT_ALLOW_PRIVATE_NETWORK` is enabled for a LAN Jira Server/DC, and
 redirects are not followed. Attachments use the shared `domain.MaxUploadSize`
-(10 MiB) and the upload handler's type validation; oversized files are skipped
-and reported.
+(10 MiB) and the upload handler's type validation (`domain.AllowedUploadType`,
+which ignores MIME parameters such as `charset`); oversized files are skipped
+and reported. Imported files belong to the target team, so a private team's
+attachments stay private.
 
 The item report is paged: `GET .../items?limit=&offset=` returns at most `limit`
-items (default 200, clamped to 1..500) and a `has_more` flag; the UI appends
-further pages with "Load more".
+items (default 200, clamped by the service to 1..`repository.ImportItemsPageMax`
+= 500) and a `has_more` flag. The service reads one extra row to set
+`has_more`, and the repository clamp (`ImportItemsQueryLimit`) allows exactly
+that extra row. The UI appends further pages with "Load more". Unknown jobs and
+other workspaces' jobs get 404.
+
+The whole worker path, including private-team writes, attachment storage and
+idempotent re-runs, is covered against PostgreSQL by
+`TestJiraImportWritesThroughTheRealStore` (needs `DATABASE_URL`).
+Known limits: the fetch holds every issue in memory before writing (fine for
+the ~1,000-issue target, not for 100k), and the update path is not one
+transaction with its ref (a failure leaves a stale hash, so the next run
+updates again; it never duplicates).
 
 The UI for this step lives in `UI/src/routes/[workspaceSlug]/settings/import`:
 the prerendered `WEB/` app is the marketing site, while admin settings pages

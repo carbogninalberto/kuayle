@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,9 +38,37 @@ func NewImportJobRepository(db *sqlx.DB) *ImportJobRepository {
 	return &ImportJobRepository{db: db}
 }
 
-const importJobColumns = `id, seq, workspace_id, created_by, source, source_site, status,
-	config, mapping, preview, credentials_enc, total, processed, created_count, updated_count,
-	skipped_count, failed_count, error, cancel_requested, created_at, updated_at, started_at, finished_at`
+var importJobColumnList = []string{"id", "seq", "workspace_id", "created_by", "source", "source_site", "status",
+	"config", "mapping", "preview", "credentials_enc", "total", "processed", "created_count", "updated_count",
+	"skipped_count", "failed_count", "error", "cancel_requested", "created_at", "updated_at", "started_at", "finished_at"}
+
+var importJobColumns = strings.Join(importJobColumnList, ", ")
+
+func qualifiedImportJobColumns(alias string) string {
+	qualified := make([]string, 0, len(importJobColumnList))
+	for _, column := range importJobColumnList {
+		qualified = append(qualified, alias+"."+column)
+	}
+	return strings.Join(qualified, ", ")
+}
+
+// nullableRawJSON scans a nullable jsonb column, leaving the message nil for
+// SQL NULL (database/sql cannot store NULL into a json.RawMessage itself).
+type nullableRawJSON struct{ target *json.RawMessage }
+
+func (n nullableRawJSON) Scan(src any) error {
+	switch value := src.(type) {
+	case nil:
+		*n.target = nil
+	case []byte:
+		*n.target = append(json.RawMessage(nil), value...)
+	case string:
+		*n.target = json.RawMessage(value)
+	default:
+		return fmt.Errorf("unsupported jsonb value %T", src)
+	}
+	return nil
+}
 
 func (r *ImportJobRepository) Create(ctx context.Context, job *domain.ImportJob) error {
 	return r.db.QueryRowContext(ctx, `INSERT INTO import_jobs
@@ -83,11 +113,18 @@ func (r *ImportJobRepository) List(ctx context.Context, workspaceID uuid.UUID, l
 	return jobs, rows.Err()
 }
 
-// UpdateMapping is allowed only before the worker takes the job.
-func (r *ImportJobRepository) UpdateMapping(ctx context.Context, workspaceID, id uuid.UUID, mapping json.RawMessage) error {
-	res, err := r.db.ExecContext(ctx, `UPDATE import_jobs SET mapping = $1, updated_at = now()
-		WHERE id = $2 AND workspace_id = $3 AND status IN ($4, $5)`,
-		nullableJSON(mapping), id, workspaceID, domain.ImportStatusDraft, domain.ImportStatusPreviewed)
+// UpdateMapping is allowed only before the worker takes the job. A non-empty
+// preview replaces the stored one in the same statement, so the mapping gaps
+// shown to the admin always match the saved mapping.
+func (r *ImportJobRepository) UpdateMapping(ctx context.Context, workspaceID, id uuid.UUID, mapping, preview json.RawMessage) error {
+	var previewArg any
+	if len(preview) > 0 {
+		previewArg = []byte(preview)
+	}
+	res, err := r.db.ExecContext(ctx, `UPDATE import_jobs SET mapping = $1, preview = COALESCE($2::jsonb, preview),
+		updated_at = now()
+		WHERE id = $3 AND workspace_id = $4 AND status IN ($5, $6)`,
+		nullableJSON(mapping), previewArg, id, workspaceID, domain.ImportStatusDraft, domain.ImportStatusPreviewed)
 	if err != nil {
 		return err
 	}
@@ -98,10 +135,11 @@ func (r *ImportJobRepository) UpdateMapping(ctx context.Context, workspaceID, id
 	return nil
 }
 
-// SetPreview stores a dry-run result and moves a draft to previewed.
+// SetPreview stores a dry-run result and moves the job to previewed. A
+// previewed job may be previewed again, for example after the source changed.
 func (r *ImportJobRepository) SetPreview(ctx context.Context, workspaceID, id uuid.UUID, preview json.RawMessage) error {
 	res, err := r.db.ExecContext(ctx, `UPDATE import_jobs SET preview = $1, status = $2, updated_at = now()
-		WHERE id = $3 AND workspace_id = $4 AND status = $5`,
+		WHERE id = $3 AND workspace_id = $4 AND status IN ($5, $2)`,
 		nullableJSON(preview), domain.ImportStatusPreviewed, id, workspaceID, domain.ImportStatusDraft)
 	if err != nil {
 		return err
@@ -141,12 +179,14 @@ func (r *ImportJobRepository) Start(ctx context.Context, workspaceID, id uuid.UU
 // API replicas poll without handing the same job to two workers.
 func (r *ImportJobRepository) ClaimNext(ctx context.Context) (*domain.ImportJob, error) {
 	var job domain.ImportJob
-	err := r.db.GetContext(ctx, &job, `WITH candidate AS (
+	// The candidate CTE also has an id column, so the returned columns are
+	// qualified with the updated table's alias.
+	err := r.db.QueryRowContext(ctx, `WITH candidate AS (
 		SELECT id FROM import_jobs WHERE status = $1 ORDER BY seq
 		FOR UPDATE SKIP LOCKED LIMIT 1)
 		UPDATE import_jobs j SET status = $2, started_at = now(), updated_at = now()
 		FROM candidate c WHERE j.id = c.id
-		RETURNING `+importJobColumns, domain.ImportStatusQueued, domain.ImportStatusRunning)
+		RETURNING `+qualifiedImportJobColumns("j"), domain.ImportStatusQueued, domain.ImportStatusRunning).Scan(scanImportJob(&job)...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -181,9 +221,26 @@ func (r *ImportJobRepository) AddItem(ctx context.Context, item *domain.ImportJo
 	).Scan(&item.ID, &item.CreatedAt)
 }
 
+// ImportItemsPageMax is the largest item-report page the API returns.
+const ImportItemsPageMax = 500
+
+// ImportItemsQueryLimit clamps a ListItems limit. It allows one row more than
+// a full page, so the caller can ask for limit+1 to learn whether another
+// page exists; anything larger is cut to that, never reset to a default.
+func ImportItemsQueryLimit(limit int) int {
+	if limit < 1 {
+		return 1
+	}
+	if limit > ImportItemsPageMax+1 {
+		return ImportItemsPageMax + 1
+	}
+	return limit
+}
+
 func (r *ImportJobRepository) ListItems(ctx context.Context, workspaceID, jobID uuid.UUID, limit, offset int) ([]domain.ImportJobItem, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 50
+	limit = ImportItemsQueryLimit(limit)
+	if offset < 0 {
+		offset = 0
 	}
 	rows, err := r.db.QueryContext(ctx, `SELECT id, job_id, workspace_id, external_type, external_id,
 		external_key, outcome, reason, created_at FROM import_job_items
@@ -361,7 +418,7 @@ func nullableJSON(raw json.RawMessage) any {
 func scanImportJob(j *domain.ImportJob) []any {
 	return []any{
 		&j.ID, &j.Seq, &j.WorkspaceID, &j.CreatedBy, &j.Source, &j.SourceSite, &j.Status,
-		&j.Config, &j.Mapping, &j.Preview, &j.CredentialsEnc, &j.Total, &j.Processed, &j.CreatedCount,
+		&j.Config, &j.Mapping, nullableRawJSON{&j.Preview}, &j.CredentialsEnc, &j.Total, &j.Processed, &j.CreatedCount,
 		&j.UpdatedCount, &j.SkippedCount, &j.FailedCount, &j.Error, &j.CancelRequested, &j.CreatedAt,
 		&j.UpdatedAt, &j.StartedAt, &j.FinishedAt,
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -199,7 +200,6 @@ func transformIssue(raw json.RawMessage, comments []jiraComment, changelog jiraC
 		UpdatedAt:   parseJiraTime(f.Updated),
 		Assignee:    f.Assignee.source(),
 		Reporter:    f.Reporter.source(),
-		SprintIDs:   []string{},
 		Labels:      []string{},
 	}
 	if cfg.BaseURL != "" && issue.Key != "" {
@@ -223,7 +223,7 @@ func transformIssue(raw json.RawMessage, comments []jiraComment, changelog jiraC
 	if epicID := epicExternalID(f, cfg.EpicField); epicID != "" {
 		source.EpicExternalID = epicID
 	}
-	source.SprintIDs = sprintValues(f, cfg.SprintField)
+	source.Sprints = sprintValues(f, cfg.SprintField)
 
 	seen := map[string]bool{}
 	for _, label := range f.Labels {
@@ -343,7 +343,12 @@ func epicExternalID(f jiraFields, epicField string) string {
 	return ""
 }
 
-func sprintValues(f jiraFields, sprintField string) []string {
+// sprintValues reads the sprint custom field. Jira Cloud and recent Data
+// Center return objects; older Server/DC versions return the Java toString of
+// the sprint ("com.atlassian.greenhopper.service.sprint.Sprint@1f[id=1,
+// state=CLOSED,name=Sprint 1,startDate=...]"); fixtures and some proxies use a
+// bare name. All three keep the sprint's state and dates when present.
+func sprintValues(f jiraFields, sprintField string) []importer.SourceSprint {
 	if sprintField == "" {
 		return nil
 	}
@@ -355,25 +360,97 @@ func sprintValues(f jiraFields, sprintField string) []string {
 	if err := json.Unmarshal(raw, &values); err != nil {
 		return nil
 	}
-	out := []string{}
+	out := []importer.SourceSprint{}
 	seen := map[string]bool{}
+	add := func(sprint importer.SourceSprint) {
+		sprint.Name = strings.TrimSpace(sprint.Name)
+		if sprint.Name == "" || seen[strings.ToLower(sprint.Name)] {
+			return
+		}
+		seen[strings.ToLower(sprint.Name)] = true
+		out = append(out, sprint)
+	}
 	for _, value := range values {
 		var text string
-		if err := json.Unmarshal(value, &text); err == nil && text != "" && !seen[text] {
-			seen[text] = true
-			out = append(out, text)
+		if err := json.Unmarshal(value, &text); err == nil {
+			add(parseLegacySprint(text))
 			continue
 		}
 		var obj struct {
-			ID   any    `json:"id"`
-			Name string `json:"name"`
+			ID        any    `json:"id"`
+			Name      string `json:"name"`
+			State     string `json:"state"`
+			StartDate string `json:"startDate"`
+			EndDate   string `json:"endDate"`
 		}
-		if err := json.Unmarshal(value, &obj); err == nil && obj.Name != "" && !seen[obj.Name] {
-			seen[obj.Name] = true
-			out = append(out, obj.Name)
+		if err := json.Unmarshal(value, &obj); err == nil {
+			add(importer.SourceSprint{
+				ExternalID: sprintID(obj.ID), Name: obj.Name, State: sprintState(obj.State),
+				StartDate: optionalJiraTime(obj.StartDate), EndDate: optionalJiraTime(obj.EndDate),
+			})
 		}
 	}
 	return out
+}
+
+// parseLegacySprint reads the greenhopper toString format. Fields are split on
+// commas that start a new "key=" pair, so a comma inside a sprint name stays.
+func parseLegacySprint(text string) importer.SourceSprint {
+	start, end := strings.Index(text, "["), strings.LastIndex(text, "]")
+	if !strings.Contains(text, "greenhopper") || start < 0 || end <= start {
+		return importer.SourceSprint{Name: text}
+	}
+	fields := map[string]string{}
+	last := ""
+	for _, part := range strings.Split(text[start+1:end], ",") {
+		key, value, found := strings.Cut(part, "=")
+		if found && key != "" && strings.IndexFunc(key, func(r rune) bool {
+			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z')
+		}) < 0 {
+			fields[key] = value
+			last = key
+			continue
+		}
+		if last != "" {
+			fields[last] += "," + part
+		}
+	}
+	return importer.SourceSprint{
+		ExternalID: fields["id"], Name: fields["name"], State: sprintState(fields["state"]),
+		StartDate: optionalJiraTime(fields["startDate"]), EndDate: optionalJiraTime(fields["endDate"]),
+	}
+}
+
+func sprintID(raw any) string {
+	switch value := raw.(type) {
+	case float64:
+		return strconv.FormatFloat(value, 'f', -1, 64)
+	case string:
+		return value
+	default:
+		return ""
+	}
+}
+
+func sprintState(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case importer.SprintStateActive:
+		return importer.SprintStateActive
+	case importer.SprintStateFuture:
+		return importer.SprintStateFuture
+	case importer.SprintStateClosed:
+		return importer.SprintStateClosed
+	default:
+		return ""
+	}
+}
+
+func optionalJiraTime(raw string) *time.Time {
+	parsed := parseJiraTime(strings.TrimSpace(raw))
+	if parsed.IsZero() {
+		return nil
+	}
+	return &parsed
 }
 
 func historySummary(changelog jiraChangelog) string {

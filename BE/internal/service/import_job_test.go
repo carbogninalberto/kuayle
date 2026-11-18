@@ -73,18 +73,27 @@ func (f *fakeImportRepo) List(_ context.Context, ws uuid.UUID, _, _ int) ([]doma
 	}
 	return out, nil
 }
-func (f *fakeImportRepo) UpdateMapping(_ context.Context, ws, id uuid.UUID, raw json.RawMessage) error {
+func (f *fakeImportRepo) UpdateMapping(_ context.Context, ws, id uuid.UUID, raw, preview json.RawMessage) error {
 	job := f.jobs[id]
 	if job == nil || job.WorkspaceID != ws {
 		return repository.ErrImportJobNotFound
 	}
+	if job.Status != domain.ImportStatusDraft && job.Status != domain.ImportStatusPreviewed {
+		return repository.ErrImportNotEditable
+	}
 	job.Mapping = raw
+	if len(preview) > 0 {
+		job.Preview = preview
+	}
 	return nil
 }
 func (f *fakeImportRepo) SetPreview(_ context.Context, ws, id uuid.UUID, raw json.RawMessage) error {
 	job := f.jobs[id]
 	if job == nil || job.WorkspaceID != ws {
 		return repository.ErrImportJobNotFound
+	}
+	if job.Status != domain.ImportStatusDraft && job.Status != domain.ImportStatusPreviewed {
+		return repository.ErrImportNotEditable
 	}
 	job.Preview = raw
 	job.Status = domain.ImportStatusPreviewed
@@ -114,12 +123,23 @@ func (f *fakeImportRepo) AddItem(_ context.Context, item *domain.ImportJobItem) 
 	f.items = append(f.items, *item)
 	return nil
 }
-func (f *fakeImportRepo) ListItems(_ context.Context, ws, id uuid.UUID, _, _ int) ([]domain.ImportJobItem, error) {
+
+// ListItems pages like the real repository, including its limit clamp, so a
+// mismatch between the service's page size and the repository cap shows up.
+func (f *fakeImportRepo) ListItems(_ context.Context, ws, id uuid.UUID, limit, offset int) ([]domain.ImportJobItem, error) {
+	limit = repository.ImportItemsQueryLimit(limit)
 	out := []domain.ImportJobItem{}
 	for _, item := range f.items {
 		if item.WorkspaceID == ws && item.JobID == id {
 			out = append(out, item)
 		}
+	}
+	if offset >= len(out) {
+		return []domain.ImportJobItem{}, nil
+	}
+	out = out[offset:]
+	if len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }
@@ -223,7 +243,10 @@ type importFakeStore struct {
 	parents      map[uuid.UUID]uuid.UUID
 	labels       []string
 	cycles       []string
+	cycleSprints []importer.SourceSprint
 	projects     []string
+	containerIDs map[string]uuid.UUID
+	importerRole string
 	assetCount   int
 	assets       map[uuid.UUID]*domain.Asset
 	repo         *fakeImportRepo
@@ -243,7 +266,31 @@ func newImportFakeStore(ws, teamID, statusID, importerID uuid.UUID) *importFakeS
 		ws: ws, teamID: teamID, statusID: statusID, importerID: importerID,
 		members: []importer.Member{{UserID: importerID, Email: "importer@example.com"}},
 		issues:  map[uuid.UUID]*domain.Issue{}, parents: map[uuid.UUID]uuid.UUID{}, assets: map[uuid.UUID]*domain.Asset{}, number: 0,
+		containerIDs: map[string]uuid.UUID{},
 	}
+}
+
+// ensure returns a stable id per container key, like the real store finding
+// an existing label, cycle or project by name. created reports a new one.
+func (f *importFakeStore) ensure(key string) (uuid.UUID, bool) {
+	key = strings.ToLower(key)
+	if id, ok := f.containerIDs[key]; ok {
+		return id, false
+	}
+	id := uuid.New()
+	f.containerIDs[key] = id
+	return id, true
+}
+
+func (f *importFakeStore) MemberRole(context.Context, uuid.UUID, uuid.UUID) (string, error) {
+	if f.importerRole == "" {
+		return domain.RoleAdmin, nil
+	}
+	return f.importerRole, nil
+}
+
+func (f *importFakeStore) WorkspaceSlug(context.Context, uuid.UUID) (string, error) {
+	return "acme", nil
 }
 
 func (f *importFakeStore) Teams(context.Context, uuid.UUID) ([]domain.Team, error) {
@@ -262,25 +309,35 @@ func (f *importFakeStore) Members(context.Context, uuid.UUID) ([]importer.Member
 	return f.members, nil
 }
 func (f *importFakeStore) EnsureLabel(_ context.Context, _ uuid.UUID, _ *uuid.UUID, name string) (uuid.UUID, error) {
-	f.labels = append(f.labels, name)
-	return uuid.New(), nil
+	id, created := f.ensure("label:" + name)
+	if created {
+		f.labels = append(f.labels, name)
+	}
+	return id, nil
 }
-func (f *importFakeStore) EnsureCycle(_ context.Context, _, teamID uuid.UUID, name string) (uuid.UUID, error) {
+func (f *importFakeStore) EnsureCycle(_ context.Context, _, teamID uuid.UUID, sprint importer.SourceSprint) (uuid.UUID, error) {
 	if teamID == uuid.Nil {
 		return uuid.Nil, fmt.Errorf("cannot create cycle without a team")
 	}
-	if name == f.cycleErrName {
-		return uuid.Nil, fmt.Errorf("cannot create cycle %s", name)
+	if sprint.Name == f.cycleErrName {
+		return uuid.Nil, fmt.Errorf("cannot create cycle %s", sprint.Name)
 	}
-	f.cycles = append(f.cycles, name)
-	return uuid.New(), nil
+	id, created := f.ensure("cycle:" + teamID.String() + ":" + sprint.Name)
+	if created {
+		f.cycles = append(f.cycles, sprint.Name)
+		f.cycleSprints = append(f.cycleSprints, sprint)
+	}
+	return id, nil
 }
 func (f *importFakeStore) EnsureProject(_ context.Context, _, teamID uuid.UUID, name string) (uuid.UUID, error) {
 	if teamID == uuid.Nil {
 		return uuid.Nil, fmt.Errorf("cannot create project without a team")
 	}
-	f.projects = append(f.projects, name)
-	return uuid.New(), nil
+	id, created := f.ensure("project:" + name)
+	if created {
+		f.projects = append(f.projects, name)
+	}
+	return id, nil
 }
 func (f *importFakeStore) CreateIssue(_ context.Context, ws, teamID uuid.UUID, issue *domain.Issue, _, _ time.Time, ref *domain.ImportExternalRef) error {
 	if f.failCreate > 0 {
@@ -359,19 +416,19 @@ func (f *importFakeStore) CreateRelation(_ context.Context, _ uuid.UUID, issueID
 	f.relations = append(f.relations, &domain.IssueRelation{ID: id, IssueID: issueID, RelatedIssueID: relatedID, Type: typ})
 	return id, nil
 }
-func (f *importFakeStore) StoreAttachment(_ context.Context, _, _, _ uuid.UUID, filename string, _ io.Reader, _ int64, _ string) (*domain.Asset, string, error) {
+func (f *importFakeStore) StoreAttachment(_ context.Context, ws, teamID, _ uuid.UUID, filename string, _ io.Reader, size int64, _ string) (*domain.Asset, error) {
 	f.assetCount++
-	asset := &domain.Asset{ID: uuid.New(), Filename: filename}
+	asset := &domain.Asset{ID: uuid.New(), WorkspaceID: ws, TeamID: &teamID, Filename: filename, Size: size}
 	f.assets[asset.ID] = asset
-	return asset, "https://example.com/asset/" + asset.ID.String(), nil
+	return asset, nil
 }
 
-func (f *importFakeStore) AssetURL(_ context.Context, _ uuid.UUID, assetID uuid.UUID) (string, string, error) {
+func (f *importFakeStore) Asset(_ context.Context, _ uuid.UUID, assetID uuid.UUID) (*domain.Asset, error) {
 	asset := f.assets[assetID]
 	if asset == nil {
-		return "", "", fmt.Errorf("asset %s not found", assetID)
+		return nil, fmt.Errorf("asset %s not found", assetID)
 	}
-	return asset.Filename, "https://example.com/asset/" + assetID.String(), nil
+	return asset, nil
 }
 
 type fakeSource struct {
@@ -474,7 +531,7 @@ func sampleIssues(admin uuid.UUID) []importer.SourceIssue {
 			CreatedAt: created, UpdatedAt: created,
 			Reporter: &importer.SourceUser{ExternalID: "u1", Email: "original@example.com", DisplayName: "Original Author"},
 			Assignee: &importer.SourceUser{ExternalID: "u1", Email: "original@example.com", DisplayName: "Original Author"},
-			Labels:   []string{"backend"}, SprintIDs: []string{"Sprint 1"},
+			Labels:   []string{"backend"}, Sprints: []importer.SourceSprint{{Name: "Sprint 1"}},
 			Comments:        []importer.SourceComment{{ExternalID: "c1", Author: importer.SourceUser{ExternalID: "u9", DisplayName: "Ghost"}, Body: "hello", CreatedAt: created, UpdatedAt: created}},
 			Attachments:     []importer.SourceAttachment{{ExternalID: "a1", Filename: "spec.pdf", Size: 5}},
 			Relations:       []importer.SourceRelation{{ExternalID: "r1", SourceExternalID: "A", TargetExternalID: "B", Type: domain.RelationRelated}},
@@ -672,7 +729,7 @@ func TestUnmappedProjectWithSprintsFailsOnlyThatIssue(t *testing.T) {
 	h := newHarness(t)
 	h.source.issues = []importer.SourceIssue{
 		{ExternalID: "ok", Title: "Mapped", Status: "To Do", ProjectExternalID: "10"},
-		{ExternalID: "unmapped", Title: "Unmapped", Status: "To Do", ProjectExternalID: "999", SprintIDs: []string{"Sprint X"}, Labels: []string{"x"}, EpicExternalID: "EPIC-1"},
+		{ExternalID: "unmapped", Title: "Unmapped", Status: "To Do", ProjectExternalID: "999", Sprints: []importer.SourceSprint{{Name: "Sprint X"}}, Labels: []string{"x"}, EpicExternalID: "EPIC-1"},
 	}
 	h.previewAndStart(t)
 	h.svc.process(context.Background(), h.job)
@@ -699,8 +756,8 @@ func TestFailingCycleFailsOnlyThatIssue(t *testing.T) {
 	h := newHarness(t)
 	h.store.cycleErrName = "Bad Sprint"
 	h.source.issues = []importer.SourceIssue{
-		{ExternalID: "good", Title: "Good", Status: "To Do", ProjectExternalID: "10", SprintIDs: []string{"Good Sprint"}},
-		{ExternalID: "bad", Title: "Bad", Status: "To Do", ProjectExternalID: "10", SprintIDs: []string{"Bad Sprint"}},
+		{ExternalID: "good", Title: "Good", Status: "To Do", ProjectExternalID: "10", Sprints: []importer.SourceSprint{{Name: "Good Sprint"}}},
+		{ExternalID: "bad", Title: "Bad", Status: "To Do", ProjectExternalID: "10", Sprints: []importer.SourceSprint{{Name: "Bad Sprint"}}},
 	}
 	h.previewAndStart(t)
 	h.svc.process(context.Background(), h.job)
@@ -1198,8 +1255,8 @@ func TestJobIsScopedToItsWorkspace(t *testing.T) {
 	if err := h.svc.Cancel(context.Background(), other, h.job.ID); err == nil {
 		t.Fatal("another workspace could cancel the job")
 	}
-	if _, err := h.svc.ListItems(context.Background(), other, h.job.ID, 10, 0); err != nil {
-		t.Fatal("ListItems must be workspace scoped and return an empty list, not leak an error")
+	if items, _, err := h.svc.ListItems(context.Background(), other, h.job.ID, 10, 0); !errors.Is(err, ErrImportNotFound) || len(items) != 0 {
+		t.Fatalf("another workspace must get not found for the report, got %d items, %v", len(items), err)
 	}
 }
 

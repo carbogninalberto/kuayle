@@ -27,8 +27,10 @@ type importStore interface {
 	Teams(ctx context.Context, workspaceID uuid.UUID) ([]domain.Team, error)
 	Statuses(ctx context.Context, workspaceID, teamID uuid.UUID) ([]domain.TeamStatus, error)
 	Members(ctx context.Context, workspaceID uuid.UUID) ([]importer.Member, error)
+	WorkspaceSlug(ctx context.Context, workspaceID uuid.UUID) (string, error)
+	MemberRole(ctx context.Context, workspaceID, userID uuid.UUID) (string, error)
 	EnsureLabel(ctx context.Context, workspaceID uuid.UUID, projectID *uuid.UUID, name string) (uuid.UUID, error)
-	EnsureCycle(ctx context.Context, workspaceID, teamID uuid.UUID, name string) (uuid.UUID, error)
+	EnsureCycle(ctx context.Context, workspaceID, teamID uuid.UUID, sprint importer.SourceSprint) (uuid.UUID, error)
 	EnsureProject(ctx context.Context, workspaceID, teamID uuid.UUID, name string) (uuid.UUID, error)
 	CreateIssue(ctx context.Context, workspaceID, teamID uuid.UUID, issue *domain.Issue, createdAt, updatedAt time.Time, ref *domain.ImportExternalRef) error
 	GetIssue(ctx context.Context, workspaceID, issueID uuid.UUID) (*domain.Issue, error)
@@ -39,8 +41,8 @@ type importStore interface {
 	CreateComment(ctx context.Context, workspaceID uuid.UUID, comment *domain.Comment, createdAt, updatedAt time.Time) error
 	UpdateComment(ctx context.Context, workspaceID, issueID, commentID, authorID uuid.UUID, body string) (*domain.Comment, error)
 	CreateRelation(ctx context.Context, workspaceID, issueID, relatedID uuid.UUID, relationType domain.IssueRelationType) (uuid.UUID, error)
-	StoreAttachment(ctx context.Context, workspaceID, teamID, uploaderID uuid.UUID, filename string, content io.Reader, size int64, contentType string) (*domain.Asset, string, error)
-	AssetURL(ctx context.Context, workspaceID, assetID uuid.UUID) (filename, url string, err error)
+	StoreAttachment(ctx context.Context, workspaceID, teamID, uploaderID uuid.UUID, filename string, content io.Reader, size int64, contentType string) (*domain.Asset, error)
+	Asset(ctx context.Context, workspaceID, assetID uuid.UUID) (*domain.Asset, error)
 }
 
 type sqlImportStore struct {
@@ -106,6 +108,32 @@ func (s *sqlImportStore) Members(ctx context.Context, workspaceID uuid.UUID) ([]
 	return members, nil
 }
 
+// WorkspaceSlug names the workspace in imported attachment links, which use
+// the same access-checked asset route as in-app uploads.
+func (s *sqlImportStore) WorkspaceSlug(ctx context.Context, workspaceID uuid.UUID) (string, error) {
+	workspace, err := s.workspace.GetByID(ctx, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	if workspace == nil {
+		return "", fmt.Errorf("workspace %s not found", workspaceID)
+	}
+	return workspace.Slug, nil
+}
+
+// MemberRole is the user's current role in the workspace, or "" when they are
+// no longer a member.
+func (s *sqlImportStore) MemberRole(ctx context.Context, workspaceID, userID uuid.UUID) (string, error) {
+	member, err := s.workspace.GetMember(ctx, workspaceID, userID)
+	if err != nil {
+		return "", err
+	}
+	if member == nil {
+		return "", nil
+	}
+	return member.Role, nil
+}
+
 func (s *sqlImportStore) EnsureLabel(ctx context.Context, workspaceID uuid.UUID, projectID *uuid.UUID, name string) (uuid.UUID, error) {
 	exists, err := s.labels.ExistsByName(ctx, workspaceID, projectID, name, uuid.Nil)
 	if err != nil {
@@ -138,7 +166,23 @@ func (s *sqlImportStore) EnsureLabel(ctx context.Context, workspaceID uuid.UUID,
 	return label.ID, nil
 }
 
-func (s *sqlImportStore) EnsureCycle(ctx context.Context, workspaceID, teamID uuid.UUID, name string) (uuid.UUID, error) {
+// cycleStatus maps a sprint state to a cycle status. A sprint without a known
+// state becomes a completed cycle so it never shows as current work.
+func cycleStatus(state string) domain.CycleStatus {
+	switch state {
+	case importer.SprintStateActive:
+		return domain.CycleStatusActive
+	case importer.SprintStateFuture:
+		return domain.CycleStatusUpcoming
+	default:
+		return domain.CycleStatusCompleted
+	}
+}
+
+// EnsureCycle reuses the team's cycle with the sprint's name, or creates one
+// with the sprint's state and dates.
+func (s *sqlImportStore) EnsureCycle(ctx context.Context, workspaceID, teamID uuid.UUID, sprint importer.SourceSprint) (uuid.UUID, error) {
+	name := sprint.Name
 	exists, err := s.cycles.ExistsByName(ctx, teamID, name)
 	if err != nil {
 		return uuid.Nil, err
@@ -157,7 +201,10 @@ func (s *sqlImportStore) EnsureCycle(ctx context.Context, workspaceID, teamID uu
 	if err != nil {
 		return uuid.Nil, err
 	}
-	cycle := &domain.Cycle{ID: uuid.New(), TeamID: teamID, Name: name, Number: number, Status: domain.CycleStatusCompleted}
+	cycle := &domain.Cycle{
+		ID: uuid.New(), TeamID: teamID, Name: name, Number: number, Status: cycleStatus(sprint.State),
+		StartDate: sprint.StartDate, EndDate: sprint.EndDate,
+	}
 	if err := s.cycles.Create(ctx, cycle); err != nil {
 		return uuid.Nil, err
 	}
@@ -225,12 +272,21 @@ func (s *sqlImportStore) CreateIssue(ctx context.Context, workspaceID, teamID uu
 	return tx.Commit()
 }
 
+// GetIssue returns nil for an issue that was deleted, is no longer visible to
+// the importer or belongs to another workspace.
 func (s *sqlImportStore) GetIssue(ctx context.Context, workspaceID, issueID uuid.UUID) (*domain.Issue, error) {
-	return s.issues.GetByID(ctx, issueID)
+	issue, err := s.issues.GetByID(ctx, issueID)
+	if err != nil || issue == nil || issue.WorkspaceID != workspaceID {
+		return nil, err
+	}
+	return issue, nil
 }
 
+// UpdateIssue writes a re-imported issue. IssueRepo.Update leaves title and
+// description alone (the editor saves those separately), so the import
+// writes them explicitly.
 func (s *sqlImportStore) UpdateIssue(ctx context.Context, workspaceID uuid.UUID, issue *domain.Issue, updatedAt time.Time) error {
-	if err := s.issues.Update(ctx, issue); err != nil {
+	if err := s.issues.UpdateContent(ctx, issue, true, true); err != nil {
 		return err
 	}
 	if !updatedAt.IsZero() {
@@ -281,29 +337,32 @@ func (s *sqlImportStore) CreateRelation(ctx context.Context, workspaceID, issueI
 // StoreAttachment detects the MIME type and validates the type/extension pair
 // through the same rules as the upload handler, then stores through the asset
 // pipeline with the target team so team privacy is preserved.
-func (s *sqlImportStore) StoreAttachment(ctx context.Context, workspaceID, teamID, uploaderID uuid.UUID, filename string, content io.Reader, size int64, contentType string) (*domain.Asset, string, error) {
+func (s *sqlImportStore) StoreAttachment(ctx context.Context, workspaceID, teamID, uploaderID uuid.UUID, filename string, content io.Reader, size int64, contentType string) (*domain.Asset, error) {
+	filename = filepath.Base(filename)
 	if s.limitBytes > 0 && size > s.limitBytes {
-		return nil, "", fmt.Errorf("attachment %s exceeds the %d byte limit", filename, s.limitBytes)
+		return nil, fmt.Errorf("attachment %s exceeds the %d byte limit", filename, s.limitBytes)
 	}
 	data, err := io.ReadAll(io.LimitReader(content, s.limitBytes+1))
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if s.limitBytes > 0 && int64(len(data)) > s.limitBytes {
-		return nil, "", fmt.Errorf("attachment %s exceeds the %d byte limit", filename, s.limitBytes)
+		return nil, fmt.Errorf("attachment %s exceeds the %d byte limit", filename, s.limitBytes)
 	}
 	ext := strings.ToLower(filepath.Ext(filename))
-	if detected := mimetype.Detect(data); detected != nil {
-		resolved, ok := domain.AllowedUploadType(detected.String(), ext)
-		if !ok {
-			return nil, "", fmt.Errorf("attachment %s has an unsupported type", filename)
-		}
-		contentType = resolved
+	detected := mimetype.Detect(data)
+	resolved, ok := domain.AllowedUploadType(detected.String(), ext)
+	if !ok {
+		return nil, fmt.Errorf("attachment %s has an unsupported type", filename)
+	}
+	contentType = resolved
+	if ext == "" {
+		ext = detected.Extension()
 	}
 	key := uuid.New().String() + ext
 	written, err := s.storage.Put(ctx, key, bytes.NewReader(data), contentType)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	asset := &domain.Asset{
 		ID: uuid.New(), WorkspaceID: workspaceID, TeamID: &teamID, StorageKey: key,
@@ -311,29 +370,20 @@ func (s *sqlImportStore) StoreAttachment(ctx context.Context, workspaceID, teamI
 	}
 	if err := s.assets.Create(ctx, asset); err != nil {
 		_ = s.storage.Delete(ctx, key)
-		return nil, "", err
+		return nil, err
 	}
-	url, err := s.storage.URL(ctx, key)
-	if err != nil {
-		url = ""
-	}
-	return asset, url, nil
+	return asset, nil
 }
 
-// AssetURL rebuilds a stored attachment's link from its asset id. Existing
-// refs carry only the Kuayle asset id, so re-runs read the filename and URL
-// back from the asset and its storage key.
-func (s *sqlImportStore) AssetURL(ctx context.Context, workspaceID, assetID uuid.UUID) (string, string, error) {
+// Asset reads back an attachment imported by an earlier run, so a re-run can
+// relink it. The repository applies team visibility from ctx.
+func (s *sqlImportStore) Asset(ctx context.Context, workspaceID, assetID uuid.UUID) (*domain.Asset, error) {
 	asset, err := s.assets.GetByID(ctx, assetID)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	if asset == nil || asset.WorkspaceID != workspaceID {
-		return "", "", fmt.Errorf("attachment %s is not visible in this workspace", assetID)
+		return nil, fmt.Errorf("attachment %s is no longer visible in this workspace", assetID)
 	}
-	url, err := s.storage.URL(ctx, asset.StorageKey)
-	if err != nil {
-		return asset.Filename, "", nil
-	}
-	return asset.Filename, url, nil
+	return asset, nil
 }
