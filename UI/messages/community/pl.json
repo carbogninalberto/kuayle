@@ -3392,6 +3392,8 @@
 	"tasks.usage_limit_manual": "Automatyczne wznawianie jest wyłączone. Wznów zadanie po zresetowaniu limitu; dotychczasowa praca zostaje zachowana.",
 	"tasks.usage_limit_resume_now": "Wznów teraz",
 	"tasks.usage_limit_dont_resume": "Nie wznawiaj",
+	"tasks.credit_title": "Konto dostawcy {agent} nie ma środków",
+	"tasks.credit_body": "Doładuj konto dostawcy, a następnie wznów zadanie. Będzie kontynuowane w tym samym kroku i sesji; dotychczasowa praca zostanie zachowana.",
 	"tasks.transcript_finished_limited": "Wstrzymane przez limit użycia po {time}",
 	"tasks.transcript_error": "Błąd: {message}",
 	"tasks.transcript_output": "Dane wyjściowe",

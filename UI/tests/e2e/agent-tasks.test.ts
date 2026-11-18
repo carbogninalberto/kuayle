@@ -298,7 +298,8 @@ async function fixture(page: Page) {
 					reason: 'Resumed by request after the usage limit',
 					usage_limit_message: null,
 					usage_limit_resets_at: null,
-					usage_limit_resume_at: null
+					usage_limit_resume_at: null,
+					provider_credit_exhausted: false
 				};
 				return route.fulfill({ status: 202, json: state.task });
 			}
@@ -1737,6 +1738,42 @@ test('a task paused at the usage limit shows the reset and can be resumed', asyn
 	await expect(tasks.getByTestId('task-usage-limit')).toHaveCount(0);
 	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
 	expect(state.resumes).toEqual(['DELETE', 'POST']);
+});
+
+// Production (KUA-218): OpenCode's provider answered "Insufficient balance".
+// The task is paused, not failed, and nothing resumes it on its own: the
+// card says to top the account up, and the creator resumes it afterwards.
+test('a task paused because the provider account has no credit is resumed after a top-up', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	state.task = {
+		...state.task,
+		provider: 'opencode',
+		state: 'blocked',
+		reason:
+			"Paused: OpenCode's provider account has no credit left (APIError: Insufficient balance). Top up the provider account, then resume the task; the work done so far is kept.",
+		usage_limit_message: 'APIError: Insufficient balance.',
+		usage_limit_resets_at: null,
+		usage_limit_resume_at: null,
+		provider_credit_exhausted: true
+	};
+	emit('task.state_changed', state.task);
+	const paused = tasks.getByTestId('task-usage-limit');
+	await expect(paused.getByText("OpenCode's provider account has no credit", { exact: true })).toBeVisible();
+	await expect(paused.getByText('APIError: Insufficient balance.', { exact: true })).toBeVisible();
+	await expect(paused.getByText(/Top up the provider account, then resume the task/)).toBeVisible();
+	await expect(paused.getByText(/usage limit/i)).toHaveCount(0);
+	await expect(paused.getByRole('button', { name: "Don't resume" })).toHaveCount(0);
+	await expect(tasks.getByText('Paused', { exact: true })).toBeVisible();
+	await expect(tasks.getByText('Failed', { exact: true })).toHaveCount(0);
+
+	await paused.getByRole('button', { name: 'Resume now' }).click();
+	await expect(tasks.getByTestId('task-usage-limit')).toHaveCount(0);
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	expect(state.resumes).toEqual(['POST']);
 });
 
 test('a Claude Code task stopped for sign-in continues with a pasted token', async ({ page }) => {

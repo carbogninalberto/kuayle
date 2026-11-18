@@ -1675,7 +1675,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if result.PullRequestURL != "" {
 		run.PullRequestURL = &result.PullRequestURL
 	}
-	usageLimit := ""
+	usageLimit, providerCredit, modelNotFound, missingModel := "", "", false, ""
 	if executionErr != nil {
 		message := safeError(executionErr)
 		run.ErrorMessage = &message
@@ -1688,6 +1688,18 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 			message := limit.ErrorMessage()
 			run.ErrorMessage = &message
 			usageLimit = limit.Message
+		} else if credit, ok := domain.DetectProviderCredit(result.FailureReason, stdout); ok {
+			// The provider account has no credit: the task pauses until a
+			// person tops it up (KUA-218).
+			message := domain.ProviderCreditErrorMessage(credit)
+			run.ErrorMessage = &message
+			providerCredit = credit
+		} else if model, ok := domain.DetectModelNotFound(result.FailureReason, stdout, stderr); ok {
+			// The provider does not offer the model: a configuration error
+			// the same attempt would repeat (KUA-218).
+			message := domain.ModelNotFoundErrorMessage(model)
+			run.ErrorMessage = &message
+			modelNotFound, missingModel = true, model
 		} else if run.ErrorMessage == nil && result.NoFinalMessage {
 			// The harness exited normally but the agent never concluded.
 			message := domain.NoFinalMessageReason(result.FailureReason)
@@ -1702,10 +1714,12 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if run.Status == domain.DevMachineAgentRunStatusFailed || run.Status == domain.DevMachineAgentRunStatusTimeout || run.Status == domain.DevMachineAgentRunStatusCancelled {
 		if run.FailureClass == nil {
 			evidence := runFailureEvidence(string(run.Status), run.MaxRuntimeSeconds, execution, result, executionErr, memoryLimit, usageLimit, "", stderr)
+			evidence.ProviderCredit, evidence.ModelNotFound, evidence.MissingModel = providerCredit, modelNotFound, missingModel
 			failure := domain.ClassifyRunFailure(evidence)
-			// A specific message (memory, usage limit, no final message, what the
-			// harness said) stays the run's error; the class and cause are added.
-			preserve := memoryLimit != "" || usageLimit != "" || result.NoFinalMessage || result.FailureReason != "" || execution.ExitCode == 137
+			// A specific message (memory, usage limit, an account without
+			// credit, a model not found, no final message, what the harness
+			// said) stays the run's error; the class and cause are added.
+			preserve := memoryLimit != "" || usageLimit != "" || providerCredit != "" || modelNotFound || result.NoFinalMessage || result.FailureReason != "" || execution.ExitCode == 137
 			if failure.Rule == domain.FailureRuleManagerRestart {
 				// A restart says what really ended the run; the generic killed
 				// message would hide it.

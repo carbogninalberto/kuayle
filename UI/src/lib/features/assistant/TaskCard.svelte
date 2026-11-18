@@ -629,8 +629,10 @@
 	// A recorded approval shows the task is ready to merge; merging completes it.
 	const approver = $derived(task.state === 'awaiting_review' ? approvedBy(signals, task.run_id) : undefined);
 	const tone = $derived(approver ? 'success' : pause === 'paused' ? 'warning' : taskTone(task.state));
-	// Paused by the agent's usage limit: the alert below explains it.
+	// Paused by the agent's usage limit, or because the provider account has
+	// no credit left: the alert below explains it.
 	const usageLimited = $derived(task.state === 'blocked' && !!task.usage_limit_message);
+	const outOfCredit = $derived(usageLimited && !!task.provider_credit_exhausted);
 	const stateLabel = $derived(
 		approver
 			? m['tasks.approved']()
@@ -1082,17 +1084,24 @@
 					class="border-[var(--status-warning)]/40 bg-[var(--status-warning)]/5"
 				>
 					<CirclePause class="text-[var(--status-warning)]" />
-					<Alert.Title>{m['tasks.usage_limit_title']({ agent: agentLabel(task.provider) })}</Alert.Title>
+					<Alert.Title
+						>{outOfCredit
+							? m['tasks.credit_title']({ agent: agentLabel(task.provider) })
+							: m['tasks.usage_limit_title']({ agent: agentLabel(task.provider) })}</Alert.Title
+					>
 					<Alert.Description class="space-y-3">
 						<p class="break-words">{task.usage_limit_message}</p>
-						{#if task.usage_limit_resets_at}<p>
-								{m['tasks.usage_limit_resets']({ time: when(task.usage_limit_resets_at) })}
-							</p>{/if}
-						<p>
-							{task.usage_limit_resume_at
-								? m['tasks.usage_limit_resumes']({ time: when(task.usage_limit_resume_at) })
-								: m['tasks.usage_limit_manual']()}
-						</p>
+						{#if outOfCredit}<p>{m['tasks.credit_body']()}</p>
+						{:else}
+							{#if task.usage_limit_resets_at}<p>
+									{m['tasks.usage_limit_resets']({ time: when(task.usage_limit_resets_at) })}
+								</p>{/if}
+							<p>
+								{task.usage_limit_resume_at
+									? m['tasks.usage_limit_resumes']({ time: when(task.usage_limit_resume_at) })
+									: m['tasks.usage_limit_manual']()}
+							</p>
+						{/if}
 						<div class="flex flex-wrap gap-2">
 							<Button size="sm" disabled={!!usageAction} onclick={() => void usageLimitAction('resume')}
 								>{#if usageAction === 'resume'}<LoaderCircle class="animate-spin" />{:else}<Play

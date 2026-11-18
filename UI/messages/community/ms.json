@@ -3392,6 +3392,8 @@
 	"tasks.usage_limit_manual": "Sambung automatik dimatikan. Sambung tugas selepas had ditetapkan semula; kerja yang telah dibuat dikekalkan.",
 	"tasks.usage_limit_resume_now": "Sambung sekarang",
 	"tasks.usage_limit_dont_resume": "Jangan sambung",
+	"tasks.credit_title": "Akaun penyedia {agent} tiada kredit",
+	"tasks.credit_body": "Tambah nilai akaun penyedia, kemudian sambung semula tugas. Ia meneruskan langkah dan sesi yang sama; kerja setakat ini dikekalkan.",
 	"tasks.transcript_finished_limited": "Dijeda pada had penggunaan selepas {time}",
 	"tasks.transcript_error": "Ralat: {message}",
 	"tasks.transcript_output": "Output",

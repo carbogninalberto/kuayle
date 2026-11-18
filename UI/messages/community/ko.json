@@ -3392,6 +3392,8 @@
 	"tasks.usage_limit_manual": "자동 재개가 꺼져 있습니다. 한도가 초기화되면 작업을 재개하세요. 지금까지 한 작업은 유지됩니다.",
 	"tasks.usage_limit_resume_now": "지금 재개",
 	"tasks.usage_limit_dont_resume": "재개하지 않음",
+	"tasks.credit_title": "{agent}의 제공업체 계정에 크레딧이 없습니다",
+	"tasks.credit_body": "제공업체 계정을 충전한 다음 작업을 재개하세요. 같은 단계와 세션에서 계속되며 지금까지의 작업은 유지됩니다.",
 	"tasks.transcript_finished_limited": "{time} 후 사용 한도로 일시 중지됨",
 	"tasks.transcript_error": "오류: {message}",
 	"tasks.transcript_output": "출력",

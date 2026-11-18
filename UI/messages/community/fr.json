@@ -3392,6 +3392,8 @@
 	"tasks.usage_limit_manual": "La reprise automatique est désactivée. Reprenez la tâche une fois la limite réinitialisée ; le travail déjà fait est conservé.",
 	"tasks.usage_limit_resume_now": "Reprendre maintenant",
 	"tasks.usage_limit_dont_resume": "Ne pas reprendre",
+	"tasks.credit_title": "Le compte fournisseur de {agent} n'a plus de crédit",
+	"tasks.credit_body": "Rechargez le compte du fournisseur, puis reprenez la tâche. Elle reprend la même étape et la même session ; le travail déjà fait est conservé.",
 	"tasks.transcript_finished_limited": "En pause à la limite d'utilisation après {time}",
 	"tasks.transcript_error": "Erreur : {message}",
 	"tasks.transcript_output": "Sortie",

@@ -77,6 +77,13 @@ type RunFailureEvidence struct {
 	ExecutionError string
 	// UsageLimit is the provider's usage limit message, when detected.
 	UsageLimit string
+	// ProviderCredit is the provider's message that the account has no
+	// credit left, when detected (DetectProviderCredit).
+	ProviderCredit string
+	// ModelNotFound is set when the provider does not offer the run's model
+	// (DetectModelNotFound); MissingModel names it when the output did.
+	ModelNotFound bool
+	MissingModel  string
 	// HarnessError is what the harness itself reported went wrong.
 	HarnessError   string
 	NoFinalMessage bool
@@ -210,10 +217,12 @@ func exitSignal(code *int) string {
 // what the provider or the harness said, because such a run often also prints
 // an error. A usage limit and a provider error are the exception: they decide
 // before a persistence failure or a missing final message, since the task
-// pauses as the provider's or the cause would quote the wrong thing. A manager
-// restart comes after disk_full and usage_limit, which say what really
-// happened, and before platform_error and the provider rules, whose errors a
-// run that was stopped may print or cause on its way out.
+// pauses as the provider's or the cause would quote the wrong thing; so do an
+// account without credit and a model the provider does not offer (KUA-218),
+// which pause or fail the task instead of going back to the agent. A manager
+// restart comes after disk_full and those provider rules, which say what
+// really happened, and before platform_error and the other provider rules,
+// whose errors a run that was stopped may print or cause on its way out.
 var runFailureRules = []runFailureRule{
 	{"cancelled_by_person", FailurePerson,
 		func(e RunFailureEvidence) bool { return e.Status == "cancelled" && e.CancelledBy == CancelledByPerson },
@@ -266,6 +275,19 @@ var runFailureRules = []runFailureRule{
 	{"usage_limit", FailureProvider,
 		func(e RunFailureEvidence) bool { return e.UsageLimit != "" },
 		func(e RunFailureEvidence) string { return "The provider's usage limit was reached: " + e.UsageLimit }},
+	{FailureRuleProviderCredit, FailureProvider,
+		func(e RunFailureEvidence) bool { return e.ProviderCredit != "" },
+		func(e RunFailureEvidence) string {
+			return "The provider account has no credit left: " + e.ProviderCredit
+		}},
+	{FailureRuleModelNotFound, FailureProvider,
+		func(e RunFailureEvidence) bool { return e.ModelNotFound },
+		func(e RunFailureEvidence) string {
+			if e.MissingModel == "" {
+				return "The provider does not offer the model the run asked for"
+			}
+			return fmt.Sprintf("The provider has no model %q", e.MissingModel)
+		}},
 	{FailureRuleManagerRestart, FailurePlatform,
 		func(e RunFailureEvidence) bool {
 			return e.ManagerRestart && e.Status == "failed" && (!exited(e.ExitCode) || *e.ExitCode == 137 || *e.ExitCode == 143)

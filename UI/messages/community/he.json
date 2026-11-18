@@ -3392,6 +3392,8 @@
 	"tasks.usage_limit_manual": "החידוש האוטומטי כבוי. חדש את המשימה אחרי שהמגבלה תתאפס; העבודה שנעשתה עד עכשיו נשמרת.",
 	"tasks.usage_limit_resume_now": "חדש עכשיו",
 	"tasks.usage_limit_dont_resume": "אל תחדש",
+	"tasks.credit_title": "בחשבון הספק של {agent} אין יתרה",
+	"tasks.credit_body": "טענו את חשבון הספק ואז המשיכו את המשימה. היא ממשיכה באותו שלב ובאותו סשן; העבודה שנעשתה עד כה נשמרת.",
 	"tasks.transcript_finished_limited": "הושהתה במגבלת השימוש אחרי {time}",
 	"tasks.transcript_error": "שגיאה: {message}",
 	"tasks.transcript_output": "פלט",

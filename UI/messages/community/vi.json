@@ -3392,6 +3392,8 @@
 	"tasks.usage_limit_manual": "Tự động tiếp tục đang tắt. Hãy tiếp tục tác vụ khi giới hạn đã được đặt lại; công việc đã làm được giữ lại.",
 	"tasks.usage_limit_resume_now": "Tiếp tục ngay",
 	"tasks.usage_limit_dont_resume": "Không tiếp tục",
+	"tasks.credit_title": "Tài khoản nhà cung cấp của {agent} đã hết tín dụng",
+	"tasks.credit_body": "Nạp tiền vào tài khoản nhà cung cấp, sau đó tiếp tục tác vụ. Tác vụ tiếp tục cùng bước và phiên; công việc đã làm vẫn được giữ.",
 	"tasks.transcript_finished_limited": "Tạm dừng ở giới hạn sử dụng sau {time}",
 	"tasks.transcript_error": "Lỗi: {message}",
 	"tasks.transcript_output": "Đầu ra",

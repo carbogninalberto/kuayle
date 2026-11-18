@@ -3392,6 +3392,8 @@
 	"tasks.usage_limit_manual": "自動恢復已關閉。上限重設後請手動恢復任務；已完成的工作會保留。",
 	"tasks.usage_limit_resume_now": "立即恢復",
 	"tasks.usage_limit_dont_resume": "不要恢復",
+	"tasks.credit_title": "{agent} 的服務商帳戶餘額不足",
+	"tasks.credit_body": "請為服務商帳戶儲值，然後恢復任務。任務將繼續同一步驟和工作階段；已完成的工作會保留。",
 	"tasks.transcript_finished_limited": "{time} 後因使用上限暫停",
 	"tasks.transcript_error": "錯誤：{message}",
 	"tasks.transcript_output": "輸出",

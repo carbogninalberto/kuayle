@@ -3392,6 +3392,8 @@
 	"tasks.usage_limit_manual": "Automatisk gjenopptakelse er slått av. Gjenoppta oppgaven når grensen er tilbakestilt; arbeidet så langt beholdes.",
 	"tasks.usage_limit_resume_now": "Gjenoppta nå",
 	"tasks.usage_limit_dont_resume": "Ikke gjenoppta",
+	"tasks.credit_title": "Leverandørkontoen til {agent} har ingen kreditt",
+	"tasks.credit_body": "Fyll på leverandørkontoen, og gjenoppta deretter oppgaven. Den fortsetter samme trinn og økt; arbeidet så langt beholdes.",
 	"tasks.transcript_finished_limited": "Satt på pause ved bruksgrensen etter {time}",
 	"tasks.transcript_error": "Feil: {message}",
 	"tasks.transcript_output": "Utdata",

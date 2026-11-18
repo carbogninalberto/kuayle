@@ -3392,6 +3392,8 @@
 	"tasks.usage_limit_manual": "Автоматичне відновлення вимкнено. Відновіть завдання, коли ліміт скинеться; виконану роботу збережено.",
 	"tasks.usage_limit_resume_now": "Відновити зараз",
 	"tasks.usage_limit_dont_resume": "Не відновлювати",
+	"tasks.credit_title": "На рахунку провайдера {agent} немає коштів",
+	"tasks.credit_body": "Поповніть рахунок провайдера, потім відновіть завдання. Воно продовжить той самий крок і ту саму сесію; виконана робота збережеться.",
 	"tasks.transcript_finished_limited": "Призупинено через ліміт використання після {time}",
 	"tasks.transcript_error": "Помилка: {message}",
 	"tasks.transcript_output": "Вивід",

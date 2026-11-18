@@ -3392,6 +3392,8 @@
 	"tasks.usage_limit_manual": "Automatické pokračování je vypnuté. Pokračujte v úloze, až se limit obnoví; dosavadní práce zůstane zachována.",
 	"tasks.usage_limit_resume_now": "Pokračovat nyní",
 	"tasks.usage_limit_dont_resume": "Nepokračovat",
+	"tasks.credit_title": "Účet poskytovatele {agent} nemá žádný kredit",
+	"tasks.credit_body": "Dobijte účet poskytovatele a poté v úloze pokračujte. Naváže na stejný krok i relaci; dosavadní práce zůstane zachována.",
 	"tasks.transcript_finished_limited": "Pozastaveno limitem využití po {time}",
 	"tasks.transcript_error": "Chyba: {message}",
 	"tasks.transcript_output": "Výstup",

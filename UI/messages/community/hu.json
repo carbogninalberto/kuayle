@@ -3392,6 +3392,8 @@
 	"tasks.usage_limit_manual": "Az automatikus folytatás ki van kapcsolva. Folytassa a feladatot, amikor a korlát visszaállt; az eddigi munka megmarad.",
 	"tasks.usage_limit_resume_now": "Folytatás most",
 	"tasks.usage_limit_dont_resume": "Ne folytassa",
+	"tasks.credit_title": "A(z) {agent} szolgáltatói fiókjában nincs egyenleg",
+	"tasks.credit_body": "Töltsd fel a szolgáltatói fiókot, majd folytasd a feladatot. Ugyanabban a lépésben és munkamenetben folytatódik; az eddigi munka megmarad.",
 	"tasks.transcript_finished_limited": "Használati korlát miatt szüneteltetve {time} után",
 	"tasks.transcript_error": "Hiba: {message}",
 	"tasks.transcript_output": "Kimenet",

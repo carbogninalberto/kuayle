@@ -3392,6 +3392,8 @@
 	"tasks.usage_limit_manual": "A retomada automática está desativada. Retome a tarefa quando o limite for redefinido; o trabalho feito até agora é mantido.",
 	"tasks.usage_limit_resume_now": "Retomar agora",
 	"tasks.usage_limit_dont_resume": "Não retomar",
+	"tasks.credit_title": "A conta do provedor de {agent} está sem crédito",
+	"tasks.credit_body": "Recarregue a conta do provedor e depois retome a tarefa. Ela continua na mesma etapa e sessão; o trabalho feito até agora é mantido.",
 	"tasks.transcript_finished_limited": "Pausada no limite de uso após {time}",
 	"tasks.transcript_error": "Erro: {message}",
 	"tasks.transcript_output": "Saída",

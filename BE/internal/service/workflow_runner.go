@@ -675,6 +675,9 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 				outcome, detail = domain.WorkflowReviewChangesRequested, findings
 			}
 		case "failed", "cancelled":
+			if reviewModelNotFound(review) {
+				return w.failForReviewer(ctx, task, node, review.Reason)
+			}
 			outcome, detail = domain.WorkflowAgentFailed, "The review did not finish ("+review.State+")"
 		}
 	case node.Type == domain.WorkflowNodeCheck && node.Check == domain.WorkflowCheckCI:

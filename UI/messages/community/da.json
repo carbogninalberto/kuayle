@@ -3392,6 +3392,8 @@
 	"tasks.usage_limit_manual": "Automatisk genoptagelse er slået fra. Genoptag opgaven, når grænsen er nulstillet; arbejdet indtil nu bevares.",
 	"tasks.usage_limit_resume_now": "Genoptag nu",
 	"tasks.usage_limit_dont_resume": "Genoptag ikke",
+	"tasks.credit_title": "Udbyderkontoen for {agent} har ingen kredit",
+	"tasks.credit_body": "Fyld udbyderkontoen op, og genoptag derefter opgaven. Den fortsætter samme trin og session; arbejdet indtil nu bevares.",
 	"tasks.transcript_finished_limited": "Sat på pause ved brugsgrænsen efter {time}",
 	"tasks.transcript_error": "Fejl: {message}",
 	"tasks.transcript_output": "Output",

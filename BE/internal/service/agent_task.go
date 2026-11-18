@@ -34,6 +34,7 @@ type taskLifecycleStore interface {
 	FailForSignIn(context.Context, domain.AgentTask, string) error
 	FailForSignInWithClass(context.Context, domain.AgentTask, domain.FailureClass, string) error
 	PauseForUsageLimit(context.Context, domain.AgentTask, domain.UsageLimit, string, string) error
+	PauseForProviderCredit(context.Context, domain.AgentTask, string, string) error
 	ResumeDueUsageLimits(context.Context, string) (int, error)
 	BeginPlatformRetry(context.Context, domain.AgentTask, string) (bool, error)
 	CompleteReview(context.Context, domain.AgentTask) error
@@ -352,6 +353,16 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if run.ErrorMessage != nil {
 			if limit, ok := domain.ParseUsageLimitError(*run.ErrorMessage); ok {
 				return s.pauseForUsageLimit(ctx, task, limit)
+			}
+			// The provider account has no credit, or does not offer the
+			// model: the same attempt would fail again, so neither goes
+			// back to the agent or through a workflow's agent_failed edge
+			// (KUA-218).
+			if message, ok := domain.ParseProviderCreditError(*run.ErrorMessage); ok {
+				return s.pauseForProviderCredit(ctx, task, message)
+			}
+			if model, ok := domain.ParseModelNotFoundError(*run.ErrorMessage); ok {
+				return s.store.FailWithClass(ctx, task, domain.FailureProvider, modelNotFoundReason(task, model))
 			}
 		}
 		// An agent that stopped without concluding says so, in a workflow
@@ -1060,14 +1071,16 @@ func withLiveHandoff(prompt string, previous *domain.AgentHandoff, resumed, cont
 	} else if forMessage {
 		b.WriteString("- The person who owns this task started this attempt to tell you something; their message is below. Reply to it as described there and do what it asks, building on the work already in this worktree.\n")
 	} else if continued {
-		cause := "the provider's usage limit"
+		paused := "paused by the provider's usage limit"
 		if previous.Status == string(domain.DevMachineAgentRunStatusCancelled) {
-			cause = "a person"
+			paused = "paused by a person"
+		} else if previous.FailureRule == domain.FailureRuleProviderCredit {
+			paused = "paused because the provider account ran out of credit"
 		}
 		if previous.FailureRule == domain.FailureRuleManagerRestart {
 			b.WriteString("- The previous attempt was interrupted when Kuayle's machine manager restarted, not by a failure of yours. Its work so far is still in this worktree: check it (git status, git diff), then continue exactly where it stopped; do not start over, reset or discard changes.\n")
 		} else {
-			b.WriteString("- The previous attempt was paused by " + cause + ", not by a failure. Continue exactly where it stopped: the worktree is unchanged; do not start over, reset or discard changes.\n")
+			b.WriteString("- The previous attempt was " + paused + ", not by a failure. Continue exactly where it stopped: the worktree is unchanged; do not start over, reset or discard changes.\n")
 		}
 	}
 	fmt.Fprintf(&b, "- Previous native outcome: %s\n", previous.Status)

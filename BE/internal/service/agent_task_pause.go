@@ -15,7 +15,8 @@ func (s *AgentTaskService) PauseWorkflow(ctx context.Context, ws, id uuid.UUID, 
 }
 
 // Resume continues the creator's paused task: a workflow they paused (or
-// asked to pause), otherwise a task paused by its agent's usage limit.
+// asked to pause), otherwise a task paused by its agent's usage limit or
+// because its provider account had no credit left.
 func (s *AgentTaskService) Resume(ctx context.Context, ws, id uuid.UUID) (*domain.AgentTask, error) {
 	return s.Repo.ResumePaused(ctx, ws, id, usageLimitResumeNowText)
 }

@@ -3392,6 +3392,8 @@
 	"tasks.usage_limit_manual": "Reluarea automată este dezactivată. Reia sarcina după ce limita s-a resetat; munca făcută până acum se păstrează.",
 	"tasks.usage_limit_resume_now": "Reia acum",
 	"tasks.usage_limit_dont_resume": "Nu relua",
+	"tasks.credit_title": "Contul furnizorului {agent} nu mai are credit",
+	"tasks.credit_body": "Reîncarcă contul furnizorului, apoi reia sarcina. Continuă același pas și aceeași sesiune; munca de până acum se păstrează.",
 	"tasks.transcript_finished_limited": "În pauză la limita de utilizare după {time}",
 	"tasks.transcript_error": "Eroare: {message}",
 	"tasks.transcript_output": "Ieșire",

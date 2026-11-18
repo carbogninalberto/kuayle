@@ -74,6 +74,11 @@ type AgentTask struct {
 	UsageLimitResumeAt *time.Time `json:"usage_limit_resume_at,omitempty" db:"usage_limit_resume_at"`
 	// UsageLimitResumes counts automatic resumes in a row (MaxUsageLimitAutoResumes).
 	UsageLimitResumes int `json:"usage_limit_resumes" db:"usage_limit_resumes"`
+	// ProviderCreditExhausted marks a pause (UsageLimitMessage set) because
+	// the provider account has no credit left (KUA-218): nothing resets on
+	// its own, so it never resumes automatically, and resuming continues
+	// the same workflow step, visit and iteration.
+	ProviderCreditExhausted bool `json:"provider_credit_exhausted" db:"provider_credit_exhausted"`
 	// PlatformRetries counts the automatic retries of the current step after
 	// a retryable platform failure (MaxPlatformRetries); a new step resets it.
 	PlatformRetries int `json:"platform_retries" db:"platform_retries"`
