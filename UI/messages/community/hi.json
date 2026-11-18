@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "{tag} का प्रकाशन अस्वीकार किया गया",
 	"assistant.release_open": "रिलीज़ खोलें",
 	"assistant.tool_ship_pull_request": "पुल रिक्वेस्ट शिप करें",
+	"assistant.bulk_issues": "समस्याएँ अपडेट करें ({count})",
 	"assistant.ship_title": "{identifier} शिप करें: {repository} का #{number} मर्ज करें और {tag} प्रकाशित करें?",
 	"assistant.ship_description": "एक स्वीकृति {title} के लिए नीचे के हर चरण को क्रम से चलाती है। हर चरण अपने टूल की अनुमति जाँचें रखता है; पहला विफल चरण श्रृंखला रोक देता है और उसके बाद कुछ नहीं चलता।",
 	"assistant.ship_release_range": "रिलीज़ {previous} के बाद की हर चीज़ को कवर करती है; टैग करने से पहले उसका टेस्ट गेट और सीक्रेट स्कैन मर्ज कमिट पर फिर चलते हैं।",

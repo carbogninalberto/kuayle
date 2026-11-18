@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "Publication de {tag} refusée",
 	"assistant.release_open": "Ouvrir la version",
 	"assistant.tool_ship_pull_request": "Livrer la pull request",
+	"assistant.bulk_issues": "Mettre à jour les tickets ({count})",
 	"assistant.ship_title": "Livrer {identifier} : fusionner #{number} et publier {tag} de {repository} ?",
 	"assistant.ship_description": "Une seule approbation exécute dans l'ordre chaque étape ci-dessous pour {title}. Chaque étape conserve les contrôles de permission de son propre outil ; la première étape en échec arrête la chaîne et rien de ce qui suit ne s'exécute.",
 	"assistant.ship_release_range": "La version couvre tout depuis {previous} ; sa porte de tests et son analyse des secrets sont relancées sur le merge commit avant le tag.",

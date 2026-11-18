@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "Đã từ chối xuất bản {tag}",
 	"assistant.release_open": "Mở bản phát hành",
 	"assistant.tool_ship_pull_request": "Phát hành pull request",
+	"assistant.bulk_issues": "Cập nhật vấn đề ({count})",
 	"assistant.ship_title": "Phát hành {identifier}: merge #{number} và xuất bản {tag} của {repository}?",
 	"assistant.ship_description": "Một lần phê duyệt chạy lần lượt mọi bước dưới đây cho {title}. Mỗi bước giữ các kiểm tra quyền của công cụ riêng; bước thất bại đầu tiên sẽ dừng chuỗi và không bước nào phía sau chạy.",
 	"assistant.ship_release_range": "Bản phát hành bao gồm mọi thứ kể từ {previous}; cổng kiểm thử và quét secret chạy lại trên merge commit trước khi gắn tag.",

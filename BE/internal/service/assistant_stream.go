@@ -153,7 +153,7 @@ func (s *AISettingsService) streamAssistantTools(ctx context.Context, baseURL, m
 			call.ID += delta.ID
 			call.Function.Name += delta.Function.Name
 			call.Function.Arguments += delta.Function.Arguments
-			if len(call.ID) > 128 || len(call.Function.Name) > 64 || len(call.Function.Arguments) > assistantMaxToolInputBytes {
+			if len(call.ID) > 128 || len(call.Function.Name) > 64 || len(call.Function.Arguments) > toolInputLimit(call.Function.Name) {
 				return nil, ErrAIProviderRequestFailed
 			}
 		}

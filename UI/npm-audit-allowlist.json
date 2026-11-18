@@ -1,8 +1,1 @@
-[
-  {
-    "id": "GHSA-fc5q-39xc-vjpf",
-    "package": "picomatch",
-    "reason": "ReDoS through single-branch repeated extglobs in picomatch <= 4.0.7; no patched version exists yet. picomatch is only a build-time dependency of Vite, tinyglobby, fdir and unplugin and is not part of the shipped static app. Remove this entry once a fixed picomatch is released and locked (the audit fails when the advisory stops being reported).",
-    "review_by": "2026-12-31"
-  }
-]
+[]

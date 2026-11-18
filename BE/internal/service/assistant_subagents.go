@@ -400,7 +400,7 @@ func (s *ConversationService) runSubagent(parent context.Context, ws, creator uu
 // creator's current role, inside AssistantTools.run.
 func (s *ConversationService) subagentTool(ctx context.Context, ws, creator uuid.UUID, allowed map[string]bool, budget *subagentBudget, call chatToolCall, seen map[string]bool) (string, SubagentStep) {
 	started := time.Now()
-	step := SubagentStep{Tool: truncateRunes(call.Function.Name, 64), Input: normalizedToolInput(call.Function.Arguments)}
+	step := SubagentStep{Tool: truncateRunes(call.Function.Name, 64), Input: normalizedToolInput(call.Function.Name, call.Function.Arguments)}
 	if len(step.Input) > 600 {
 		step.Input = json.RawMessage(`{}`)
 	}

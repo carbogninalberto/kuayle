@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "Publiceren van {tag} geweigerd",
 	"assistant.release_open": "De release openen",
 	"assistant.tool_ship_pull_request": "Pull request opleveren",
+	"assistant.bulk_issues": "Issues bijwerken ({count})",
 	"assistant.ship_title": "{identifier} opleveren: #{number} mergen en {tag} van {repository} publiceren?",
 	"assistant.ship_description": "Eén goedkeuring voert alle onderstaande stappen voor {title} in volgorde uit. Elke stap behoudt de permissiecontroles van zijn eigen tool; de eerste mislukte stap stopt de keten en daarna wordt niets meer uitgevoerd.",
 	"assistant.ship_release_range": "De release omvat alles sinds {previous}; de testpoort en secretscan draaien opnieuw op de merge commit vóór het taggen.",

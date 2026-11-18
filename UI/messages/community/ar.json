@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "تم رفض نشر {tag}",
 	"assistant.release_open": "فتح الإصدار",
 	"assistant.tool_ship_pull_request": "شحن طلب السحب",
+	"assistant.bulk_issues": "تحديث المسائل ({count})",
 	"assistant.ship_title": "شحن {identifier}: دمج #{number} ونشر {tag} من {repository}؟",
 	"assistant.ship_description": "موافقة واحدة تشغّل كل خطوة أدناه بالترتيب لـ {title}. تحتفظ كل خطوة بفحوصات صلاحيات أداتها؛ تتوقف السلسلة عند أول خطوة تفشل ولا تعمل أي خطوة بعدها.",
 	"assistant.ship_release_range": "يشمل الإصدار كل شيء منذ {previous}؛ يُعاد تشغيل بوابة الاختبار وفحص الأسرار على الـ merge commit قبل وضع الوسم.",
