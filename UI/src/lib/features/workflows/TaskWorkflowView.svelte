@@ -105,6 +105,12 @@
 						? m['workflows.task.waiting_approval']({ question: decision.question || nodeLabel(run.node) })
 						: m['workflows.task.paused_note']()}
 				</p>
+				{#if decision.kind === 'approval' && run.ship_merge}
+					<!-- The ship approval: approving merges (KUA-209, KUA-216). -->
+					<p class="text-xs text-muted-foreground" data-testid="task-workflow-ship-merge">
+						{m['workflows.task.ship_merge_note']()}
+					</p>
+				{/if}
 				<div class="flex flex-wrap gap-2">
 					{#if decision.kind === 'approval'}
 						<Button size="sm" disabled={deciding} onclick={() => decide('approve')}>{m['workflows.task.approve']()}</Button>

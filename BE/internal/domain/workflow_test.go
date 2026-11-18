@@ -153,7 +153,7 @@ func walk(t *testing.T, g WorkflowGraph, profiles map[uuid.UUID]AgentProfile, cu
 	if d.Limit == "" {
 		cursor.Node = d.To.ID
 		cursor.Visits[d.To.ID]++
-		if g.Iteration(d.To, profiles) {
+		if g.StartsIteration(d, profiles) {
 			cursor.Iterations++
 		}
 	}
@@ -657,15 +657,15 @@ func TestBuiltinWorkflowGraphsRunLeftToRight(t *testing.T) {
 // KUA-209: the ship approval is the person's go-ahead to merge: its approved
 // transition leads to a done end (it merges) or to a merge step (that merges).
 func TestShipApprovalIsTheApprovalBeforeDoneOrTheMerge(t *testing.T) {
-	implementer, reviewer, _ := exampleProfiles()
+	implementer, reviewer, profiles := exampleProfiles()
 	loop := ReviewLoopWorkflowGraph(implementer, reviewer)
 	ship, _ := loop.Node("ship")
-	require.Equal(t, ShipMergesOnApproval, loop.ShipApproval(ship))
+	require.Equal(t, ShipMergesOnApproval, loop.ShipApproval(ship, profiles))
 	full := FullCycleWorkflowGraph(implementer, reviewer)
 	ship, _ = full.Node("ship")
-	require.Equal(t, ShipMergesAtMergeStep, full.ShipApproval(ship))
+	require.Equal(t, ShipMergesAtMergeStep, full.ShipApproval(ship, profiles))
 	ci, _ := full.Node("ci")
-	require.Empty(t, full.ShipApproval(ci), "only approvals")
+	require.Empty(t, full.ShipApproval(ci, profiles), "only approvals")
 
 	// An approval that leads to more work (a plan's go-ahead) is not one.
 	plan := WorkflowGraph{
@@ -673,11 +673,11 @@ func TestShipApprovalIsTheApprovalBeforeDoneOrTheMerge(t *testing.T) {
 		Edges: []WorkflowEdge{{ID: "a", Source: "ok", Target: "implement", Condition: WorkflowApprovalApproved}, {ID: "b", Source: "ok", Target: "failed", Condition: WorkflowElse}},
 	}
 	ok, _ := plan.Node("ok")
-	require.Empty(t, plan.ShipApproval(ok))
+	require.Empty(t, plan.ShipApproval(ok, profiles))
 	// Without an approved transition, its "else" decides.
 	plan.Edges = []WorkflowEdge{{ID: "b", Source: "ok", Target: "done", Condition: WorkflowElse}}
 	plan.Nodes = append(plan.Nodes, WorkflowNode{ID: "done", Type: WorkflowNodeEnd, Outcome: WorkflowEndDone})
-	require.Equal(t, ShipMergesOnApproval, plan.ShipApproval(ok))
+	require.Equal(t, ShipMergesOnApproval, plan.ShipApproval(ok, profiles))
 }
 
 // KUA-209: a conflict sends the work back to the first step that changes

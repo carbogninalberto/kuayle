@@ -67,6 +67,9 @@ type mergeHold struct {
 	// merged is set when the pull request is already merged at the head
 	// Kuayle merges (an earlier pass merged it).
 	merged bool
+	// mergedElsewhere is set when someone merged it at another head; reason
+	// says so.
+	mergedElsewhere bool
 }
 
 // waits reports whether a merge keeps waiting rather than ending: while the
@@ -148,7 +151,7 @@ func (g mergeGate) check(ctx context.Context, ws, actor uuid.UUID, repository st
 	case status.State == "merged" && status.HeadSHA == wait.Head:
 		return mergeHold{merged: true}, nil
 	case status.State == "merged":
-		return mergeHold{reason: fmt.Sprintf("Pull request #%d was merged outside Kuayle at %s, not at the approved %s", number, shortSHA(status.HeadSHA), shortSHA(wait.Head))}, nil
+		return mergeHold{mergedElsewhere: true, reason: fmt.Sprintf("Pull request #%d was merged outside Kuayle at %s, not at the approved %s", number, shortSHA(status.HeadSHA), shortSHA(wait.Head))}, nil
 	case status.State != "open" || status.Draft:
 		return mergeHold{}, nil // GitHub refuses the merge with its own reason
 	}

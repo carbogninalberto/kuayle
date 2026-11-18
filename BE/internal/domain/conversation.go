@@ -215,6 +215,16 @@ type MergeWait struct {
 	// Failure is why a workflow step's merge ended without merging, kept so
 	// the step shows it while it waits for a person again.
 	Failure string `json:"failure,omitempty"`
+	// A ship approval whose approved path runs through agent steps to a done
+	// end (KUA-216) records the merge Deferred until the workflow reaches that
+	// end: the pull request is pinned here, because the agent steps' attempts
+	// publish none of their own. AfterAgents lets that merge take a head the
+	// agent steps added commits to, once its checks pass.
+	Deferred    bool   `json:"deferred,omitempty"`
+	AfterAgents bool   `json:"after_agents,omitempty"`
+	Repository  string `json:"repository,omitempty"`
+	PullRequest int    `json:"pull_request,omitempty"`
+	BaseBranch  string `json:"base_branch,omitempty"`
 }
 
 // PullRequestHeadChange describes what others added to a task's pull request

@@ -21,7 +21,7 @@ func (s worldStore) WorkflowPullRequest(_ context.Context, task domain.AgentTask
 	if !s.w.published[task.RunID] {
 		return nil, repository.ErrNoReviewTarget
 	}
-	return &domain.AgentReviewTarget{Repository: "acme/app", PullRequestNumber: 12, PullRequestURL: "https://github.com/acme/app/pull/12", BaseBranch: "main", CommitSHA: task.RunID.String()}, nil
+	return &domain.AgentReviewTarget{Repository: "acme/app", PullRequestNumber: 12, PullRequestURL: "https://github.com/acme/app/pull/12", BaseBranch: "main", CommitSHA: s.w.head(task.RunID)}, nil
 }
 
 func (s worldStore) RecordWorkflowMerge(_ context.Context, task domain.AgentTask, merge repository.WorkflowMerge) (*domain.AgentTask, error) {
@@ -75,7 +75,7 @@ type workflowMerger struct {
 func (m *workflowMerger) MergeTaskPullRequest(_ context.Context, _ uuid.UUID, repository string, number int, sha, method string) error {
 	m.merged = append(m.merged, fmt.Sprintf("%s#%d@%s/%s", repository, number, sha, method))
 	m.h.pulls.status.State = "merged"
-	if m.h.w.task.State == "awaiting_review" {
+	if m.h.w.task.State == "awaiting_review" && m.h.w.published[m.h.w.task.RunID] {
 		done := domain.WorkflowStatusDone
 		m.h.w.task.State, m.h.w.task.WorkflowStatus, m.h.w.task.WorkflowWakeAt = "completed", &done, nil
 		m.h.w.task.Reason = fmt.Sprintf("Pull request #%d was merged on GitHub", number)
@@ -96,7 +96,7 @@ func (h *workflowHarness) withGitHub() *workflowMerger {
 
 // head is the published commit of the current attempt, which GitHub reports
 // as the pull request's head until something moves it.
-func (h *workflowHarness) head() string { return h.w.task.RunID.String() }
+func (h *workflowHarness) head() string { return h.w.head(h.w.task.RunID) }
 
 // toShip runs the example workflow to its ship approval with CI green.
 func (h *workflowHarness) toShip() {

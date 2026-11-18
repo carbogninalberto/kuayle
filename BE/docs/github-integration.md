@@ -38,7 +38,7 @@ A single GitHub App is pre-configured and shared across all workspaces. Users on
    | Issues | Read |
    | Checks | Read |
    | Commit statuses | Read |
-   | Actions | Read |
+   | Actions | Read and write |
    | Members (organization permission) | Read |
 
    **Events to subscribe to:**
@@ -207,6 +207,15 @@ Read**. Apps created before them must add **Actions: Read** in the GitHub App
 settings and each installation owner must accept it; until then the setup check
 lists it as missing and `get_workflow_run` names it instead of calling GitHub
 (see [release tools](conversations.md#release-tools)).
+
+A workflow's CI step runs failed GitHub Actions jobs again when the work comes
+back to it without a new commit (KUA-215, see
+[workflow CI](agent-tasks.md#workflow-ci-on-an-unchanged-commit)). That needs
+**Actions: Read and write**; the token Kuayle asks for to re-run jobs carries
+only that permission. Apps created before it must raise **Actions** to *Read
+and write* and each installation owner must accept it; until then the setup
+check lists it as missing, and a CI step that needs a re-run pauses the
+workflow for a person with the reason instead.
 
 ### GitHub App setup check
 
