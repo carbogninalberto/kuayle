@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "Penerbitan {tag} ditolak",
 	"assistant.release_open": "Buka rilis",
 	"assistant.tool_ship_pull_request": "Kirim pull request",
+	"assistant.bulk_issues": "Perbarui isu ({count})",
 	"assistant.ship_title": "Kirim {identifier}: merge #{number} dan terbitkan {tag} dari {repository}?",
 	"assistant.ship_description": "Satu persetujuan menjalankan setiap langkah di bawah secara berurutan untuk {title}. Setiap langkah mempertahankan pemeriksaan izin tool-nya sendiri; langkah pertama yang gagal menghentikan rangkaian dan tidak ada yang berjalan setelahnya.",
 	"assistant.ship_release_range": "Rilis mencakup semuanya sejak {previous}; gerbang pengujian dan pemindaian secret dijalankan lagi pada merge commit sebelum penandaan.",

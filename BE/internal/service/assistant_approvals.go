@@ -24,6 +24,7 @@ type approvalTasks interface {
 // decision and its effect are authorized here, never by UI state: the actor must
 // be the bound user, and the effect re-checks their current permissions.
 type AssistantApprovals struct {
+	issueTools    *AssistantTools
 	conversations *repository.ConversationRepository
 	tasks         approvalTasks
 	// Merging is unavailable until SetMerging wires it.
@@ -372,6 +373,8 @@ func (s *AssistantApprovals) execute(ctx context.Context, ws, conversation, id u
 // dispatch performs the approved action itself.
 func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id uuid.UUID, approval *domain.ConversationApproval, choice ModelChoice) (*domain.ConversationApproval, error) {
 	switch approval.Action {
+	case bulkUpdateAction:
+		return s.bulkUpdate(ctx, ws, conversation, approval)
 	case "merge_pull_request":
 		return s.merge(ctx, ws, conversation, approval)
 	case "accept_agent_work":

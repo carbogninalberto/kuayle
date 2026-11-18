@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "已拒绝发布 {tag}",
 	"assistant.release_open": "打开发布页面",
 	"assistant.tool_ship_pull_request": "交付拉取请求",
+	"assistant.bulk_issues": "更新议题（{count}）",
 	"assistant.ship_title": "交付 {identifier}：合并 #{number} 并发布 {repository} 的 {tag}？",
 	"assistant.ship_description": "一次批准即按顺序为 {title} 执行下列所有步骤。每个步骤都保留其工具自身的权限检查；第一个失败的步骤会停止整个流程，其后的步骤都不会运行。",
 	"assistant.ship_release_range": "此发布包含自 {previous} 以来的全部内容；打标签前会在合并提交上重新运行测试检查和密钥扫描。",

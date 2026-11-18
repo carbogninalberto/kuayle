@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "Publicação de {tag} negada",
 	"assistant.release_open": "Abrir o release",
 	"assistant.tool_ship_pull_request": "Entregar pull request",
+	"assistant.bulk_issues": "Atualizar issues ({count})",
 	"assistant.ship_title": "Entregar {identifier}: mesclar #{number} e publicar {tag} de {repository}?",
 	"assistant.ship_description": "Uma aprovação executa todas as etapas abaixo em ordem para {title}. Cada etapa mantém as verificações de permissão da própria ferramenta; a primeira etapa com falha interrompe a sequência e nada depois dela é executado.",
 	"assistant.ship_release_range": "O release cobre tudo desde {previous}; o portão de testes e a varredura de segredos rodam novamente no commit de merge antes de criar a tag.",

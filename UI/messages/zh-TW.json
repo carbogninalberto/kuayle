@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "已拒絕發佈 {tag}",
 	"assistant.release_open": "開啟發行頁面",
 	"assistant.tool_ship_pull_request": "交付提取要求",
+	"assistant.bulk_issues": "更新議題（{count}）",
 	"assistant.ship_title": "交付 {identifier}：合併 #{number} 並發佈 {repository} 的 {tag}？",
 	"assistant.ship_description": "一次核准即依序為 {title} 執行下列所有步驟。每個步驟都保留其工具本身的權限檢查；第一個失敗的步驟會停止整個流程，其後的步驟都不會執行。",
 	"assistant.ship_release_range": "此發行包含自 {previous} 以來的所有內容；加上標籤前會在合併提交上重新執行測試檢查與機密掃描。",

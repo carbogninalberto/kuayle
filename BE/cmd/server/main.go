@@ -218,6 +218,7 @@ func main() {
 	aiSettingsH := handler.NewAISettingsHandler(aiSettingsSvc)
 	conversationSvc := service.NewConversationService(repository.NewConversationRepository(db), aiSettingsSvc)
 	assistantTools := service.NewAssistantTools(issueRepo, teamRepo, workspaceRepo, issueSvc)
+	assistantTools.SetIssueLabels(labelRepo)
 	assistantToolSettings := repository.NewAssistantToolSettingsRepository(db)
 	assistantTools.SetSettings(assistantToolSettings)
 	wikiRepo := repository.NewWikiRepository(db)

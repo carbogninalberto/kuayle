@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "{tag} の公開を拒否しました",
 	"assistant.release_open": "リリースを開く",
 	"assistant.tool_ship_pull_request": "プルリクエストをリリース",
+	"assistant.bulk_issues": "課題を更新（{count}件）",
 	"assistant.ship_title": "{identifier} をリリース: #{number} をマージして {repository} の {tag} を公開しますか?",
 	"assistant.ship_description": "1回の承認で、{title} について以下のすべてのステップを順に実行します。各ステップは、それぞれのツールの権限チェックを維持します。最初に失敗したステップで処理は止まり、以降は実行されません。",
 	"assistant.ship_release_range": "リリースには {previous} 以降のすべてが含まれます。タグ付けの前に、マージコミットに対してテストゲートとシークレットスキャンが再度実行されます。",

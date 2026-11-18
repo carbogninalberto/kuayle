@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "Avslo publisering av {tag}",
 	"assistant.release_open": "Åpne utgivelsen",
 	"assistant.tool_ship_pull_request": "Lever pull request",
+	"assistant.bulk_issues": "Oppdater saker ({count})",
 	"assistant.ship_title": "Levere {identifier}: flette #{number} og publisere {tag} av {repository}?",
 	"assistant.ship_description": "Én godkjenning kjører alle trinnene nedenfor i rekkefølge for {title}. Hvert trinn beholder sine egne verktøys tillatelsessjekker; det første trinnet som feiler, stopper kjeden, og ingenting etter det kjører.",
 	"assistant.ship_release_range": "Utgivelsen dekker alt siden {previous}; testsperren og hemmelighetsskanningen kjører på nytt på merge-commiten før tagging.",

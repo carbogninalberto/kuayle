@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "Julkaisu hylätty: {tag}",
 	"assistant.release_open": "Avaa julkaisu",
 	"assistant.tool_ship_pull_request": "Toimita pull request",
+	"assistant.bulk_issues": "Päivitä tehtävät ({count})",
 	"assistant.ship_title": "Toimitetaanko {identifier}: yhdistä #{number} ja julkaise {tag} repositorysta {repository}?",
 	"assistant.ship_description": "Yksi hyväksyntä ajaa kaikki alla olevat vaiheet järjestyksessä kohteelle {title}. Jokainen vaihe säilyttää oman työkalunsa oikeustarkistukset; ensimmäinen epäonnistuva vaihe pysäyttää ketjun eikä sen jälkeisiä ajeta.",
 	"assistant.ship_release_range": "Julkaisu kattaa kaiken versiosta {previous} alkaen; sen testiportti ja salaisuuksien skannaus ajetaan uudelleen merge commitille ennen tagausta.",

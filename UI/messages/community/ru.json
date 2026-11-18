@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "Публикация {tag} отклонена",
 	"assistant.release_open": "Открыть релиз",
 	"assistant.tool_ship_pull_request": "Выпуск pull request",
+	"assistant.bulk_issues": "Обновить задачи ({count})",
 	"assistant.ship_title": "Выпустить {identifier}: слить #{number} и опубликовать {tag} для {repository}?",
 	"assistant.ship_description": "Одно одобрение выполняет по порядку все шаги ниже для {title}. Каждый шаг сохраняет проверки прав своего инструмента; первый неудачный шаг останавливает цепочку, и последующие не выполняются.",
 	"assistant.ship_release_range": "Релиз охватывает всё с {previous}; его тесты и сканирование секретов запускаются снова на коммите слияния перед тегированием.",

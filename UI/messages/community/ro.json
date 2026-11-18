@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "Publicarea lui {tag} a fost refuzată",
 	"assistant.release_open": "Deschide versiunea",
 	"assistant.tool_ship_pull_request": "Livrează pull request-ul",
+	"assistant.bulk_issues": "Actualizează problemele ({count})",
 	"assistant.ship_title": "Livrezi {identifier}: faci merge la #{number} și publici {tag} din {repository}?",
 	"assistant.ship_description": "O singură aprobare rulează în ordine toți pașii de mai jos pentru {title}. Fiecare pas păstrează verificările de permisiuni ale propriului instrument; primul pas eșuat oprește lanțul și nu mai rulează nimic după el.",
 	"assistant.ship_release_range": "Versiunea acoperă tot ce s-a întâmplat de la {previous}; poarta ei de teste și scanarea de secrete rulează din nou pe commit-ul de merge înainte de etichetare.",
