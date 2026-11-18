@@ -2027,8 +2027,8 @@ and the details are in
 Commands never install system packages (KUA-180); those come from the
 machine's Development Environment image, see
 [system packages](BE/docs/conversations.md#system-packages).
-Commands never commit, branch or push a checkout either (KUA-183); changes
-to a task's branch go through `follow_up_task` and publication, see
+Commands never commit, branch or push a task checkout either (KUA-183);
+changes to a task's branch go through `follow_up_task` and publication, see
 [commits and pushes from chat](BE/docs/conversations.md#commits-and-pushes-from-chat).
 Release tools read a linked repository's releases (`list_releases`,
 `get_release`), draft the next notes from the pull requests merged since the

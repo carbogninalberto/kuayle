@@ -1154,8 +1154,8 @@ Non-root options for a one-off command:
 
 #### Commits and pushes from chat
 
-The command tools never commit, branch or push a checkout, and there is no
-approval-gated `git commit` or `git push` for a task's branch (KUA-183).
+The command tools never commit, branch or push a task checkout, and there
+is no approval-gated `git commit` or `git push` for a task's branch (KUA-183).
 Changes go through `follow_up_task`, which runs the task's own agent and
 publishes through [publication](agent-tasks.md#publication).
 
@@ -1170,17 +1170,19 @@ Why this stays closed:
   command it proposes. An approval card does not change what that shell
   can do once it runs — the same reasoning that keeps agent attempts
   locked ([sudo in machines](../../TECHNICAL.md#sudo-in-machines)).
-- Command runs cannot write a checkout anyway: `/workspace` is always mounted
-  read-only and a write run gets only the conversation folder, so there is no
-  `.git` to commit in (KUA-153). Widening writes to a task worktree, `.git`
-  included, would undo that confinement for every command.
+- Command runs cannot write a task checkout anyway: `/workspace` is always
+  mounted read-only and a write run gets only the conversation folder, where
+  `git init` may commit to itself but never to the task worktree's `.git`
+  (KUA-153). Widening writes to a task worktree, `.git` included, would undo
+  that confinement for every command.
 - Publication is one mechanism, not a `git push`: it commits pending changes
   as the configured identity without loading the checkout's git
   configuration, folds other authors' commits into one, fast-forwards to
-  what others pushed, guards every push with `--force-with-lease` against
-  the recorded published commit and refuses to drop commits that are not
-  Kuayle's own, copies the tip to a fresh repository outside the workspace
-  volume before the token is read, and reuses or opens the pull request
+  what others pushed, guards with `--force-with-lease` only the push that
+  rewrites the agent's own published commit (refusing to drop commits that
+  are not Kuayle's own) and pushes normally otherwise, copies the tip to a
+  fresh repository outside the workspace volume before the token is read,
+  and reuses or opens the pull request
   ([publication](agent-tasks.md#publication), `BE/internal/machine/publication.go`).
   A chat-side push would reimplement all of that — divergence,
   author-folding, branch-protection and pull-request rules — as a second
