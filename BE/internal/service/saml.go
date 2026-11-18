@@ -13,12 +13,15 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/crewjam/saml"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
+	saml2 "github.com/russellhaering/gosaml2"
 	dsig "github.com/russellhaering/goxmldsig"
+	dsigtypes "github.com/russellhaering/goxmldsig/types"
 )
 
 const maxMetadataSize = 256 << 10
@@ -59,7 +62,6 @@ func (s *SSOService) samlProvider(slug, metadata string) (*saml.ServiceProvider,
 		AcsURL:                           *acs,
 		AuthnNameIDFormat:                saml.PersistentNameIDFormat,
 		AssertionConsumerServiceBindings: []string{saml.HTTPPostBinding},
-		RejectUnknownConditions:          true,
 	}
 	if s.samlKey != nil {
 		sp.Key, sp.Certificate, sp.SignatureMethod = s.samlKey, s.samlCert, dsig.RSASHA256SignatureMethod
@@ -128,7 +130,14 @@ func (s *SSOService) readIDPMetadata(ctx context.Context, req dto.SSOConfigReque
 	if err != nil || (!s.allowPrivate && u.Scheme != "https") {
 		return "", ssoInvalidf("Invalid IdP HTTP-Redirect endpoint")
 	}
-	count := 0
+	if _, err := idpSigningCertificates(role); err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func idpSigningCertificates(role *saml.IDPSSODescriptor) ([]*x509.Certificate, error) {
+	var certs []*x509.Certificate
 	for _, k := range role.KeyDescriptors {
 		if k.Use != "" && k.Use != "signing" {
 			continue
@@ -136,18 +145,19 @@ func (s *SSOService) readIDPMetadata(ctx context.Context, req dto.SSOConfigReque
 		for _, cert := range k.KeyInfo.X509Data.X509Certificates {
 			der, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(cert.Data), ""))
 			if err != nil {
-				return "", ssoInvalidf("Invalid IdP signing certificate")
+				return nil, ssoInvalidf("Invalid IdP signing certificate")
 			}
-			if _, err = x509.ParseCertificate(der); err != nil {
-				return "", ssoInvalidf("Invalid IdP signing certificate")
+			parsed, err := x509.ParseCertificate(der)
+			if err != nil {
+				return nil, ssoInvalidf("Invalid IdP signing certificate")
 			}
-			count++
+			certs = append(certs, parsed)
 		}
 	}
-	if count == 0 {
-		return "", ssoInvalidf("IdP metadata needs a signing certificate")
+	if len(certs) == 0 {
+		return nil, ssoInvalidf("IdP metadata needs a signing certificate")
 	}
-	return string(data), nil
+	return certs, nil
 }
 
 func (s *SSOService) startSAML(slug, metadata, state string) (string, string, error) {
@@ -166,14 +176,10 @@ func (s *SSOService) startSAML(slug, metadata, state string) (string, string, er
 	return target.String(), req.ID, nil
 }
 
-func (s *SSOService) verifySAML(slug, metadata, requestID, encoded string) (*ssoClaims, error) {
-	sp, err := s.samlProvider(slug, metadata)
-	if err != nil {
-		return nil, err
-	}
+func requiredSAMLAssertionID(encoded string, now time.Time) (string, error) {
 	data, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, ErrSSOTokenInvalid
+		return "", ErrSSOTokenInvalid
 	}
 	// The library also permits a signed envelope containing unsigned assertions.
 	// Require exactly one plaintext assertion with its own XML signature before
@@ -181,31 +187,88 @@ func (s *SSOService) verifySAML(slug, metadata, requestID, encoded string) (*sso
 	var envelope struct {
 		XMLName    xml.Name `xml:"urn:oasis:names:tc:SAML:2.0:protocol Response"`
 		Assertions []struct {
-			Signature []struct{} `xml:"http://www.w3.org/2000/09/xmldsig# Signature"`
+			ID         string                `xml:"ID,attr"`
+			Signature  []dsigtypes.Signature `xml:"http://www.w3.org/2000/09/xmldsig# Signature"`
+			Conditions saml.Conditions       `xml:"urn:oasis:names:tc:SAML:2.0:assertion Conditions"`
+			Subject    saml.Subject          `xml:"urn:oasis:names:tc:SAML:2.0:assertion Subject"`
 		} `xml:"urn:oasis:names:tc:SAML:2.0:assertion Assertion"`
 		Encrypted []struct{} `xml:"urn:oasis:names:tc:SAML:2.0:assertion EncryptedAssertion"`
 	}
 	if xml.Unmarshal(data, &envelope) != nil || len(envelope.Assertions) != 1 || len(envelope.Assertions[0].Signature) != 1 || len(envelope.Encrypted) != 0 {
-		return nil, ErrSSOTokenInvalid
+		return "", ErrSSOTokenInvalid
 	}
-	a, err := sp.ParseXMLResponse(data, []string{requestID}, sp.AcsURL)
-	if err != nil || a.Subject.NameID == nil || strings.TrimSpace(a.Subject.NameID.Value) == "" {
-		return nil, ErrSSOTokenInvalid
+	assertion := envelope.Assertions[0]
+	info := assertion.Signature[0].SignedInfo
+	if info == nil {
+		return "", ErrSSOTokenInvalid
 	}
-	// Bind the signed assertion to exactly one request, even when the outer
-	// response is unsigned. Strict deadlines also cover the library's skew allowance.
-	if len(a.Subject.SubjectConfirmations) != 1 {
-		return nil, ErrSSOTokenInvalid
+	refs := info.References
+	if assertion.ID == "" || len(refs) != 1 || refs[0].URI != "#"+assertion.ID {
+		return "", ErrSSOTokenInvalid
 	}
-	bearer := a.Subject.SubjectConfirmations[0].SubjectConfirmationData
+	if len(assertion.Conditions.UnknownConditions) != 0 || !now.Before(assertion.Conditions.NotOnOrAfter) || len(assertion.Subject.SubjectConfirmations) != 1 {
+		return "", ErrSSOTokenInvalid
+	}
+	confirmation := assertion.Subject.SubjectConfirmations[0].SubjectConfirmationData
+	if confirmation == nil || confirmation.NotBefore.After(now.Add(saml.MaxClockSkew)) {
+		return "", ErrSSOTokenInvalid
+	}
+	return assertion.ID, nil
+}
+
+func (s *SSOService) verifySAML(slug, metadata, requestID, encoded string) (*ssoClaims, error) {
+	sp, err := s.samlProvider(slug, metadata)
+	if err != nil {
+		return nil, err
+	}
 	now := s.now()
-	if bearer == nil || bearer.InResponseTo != requestID || !now.Before(bearer.NotOnOrAfter) || !now.Before(a.Conditions.NotOnOrAfter) {
+	assertionID, err := requiredSAMLAssertionID(encoded, now)
+	if err != nil {
+		return nil, err
+	}
+	if sp.IDPMetadata == nil || len(sp.IDPMetadata.IDPSSODescriptors) != 1 || sp.IDPMetadata.EntityID == "" {
 		return nil, ErrSSOTokenInvalid
+	}
+	certs, err := idpSigningCertificates(&sp.IDPMetadata.IDPSSODescriptors[0])
+	if err != nil {
+		return nil, ErrSSOTokenInvalid
+	}
+	verifier := saml2.SAMLServiceProvider{
+		IdentityProviderIssuer:      sp.IDPMetadata.EntityID,
+		AssertionConsumerServiceURL: sp.AcsURL.String(),
+		AudienceURI:                 sp.EntityID,
+		IDPCertificateStore:         &dsig.MemoryX509CertificateStore{Roots: certs},
+	}
+	response, err := verifier.ValidateEncodedResponse(encoded)
+	if err != nil || len(response.Assertions) != 1 || response.InResponseTo != requestID || response.Destination != sp.AcsURL.String() {
+		return nil, ErrSSOTokenInvalid
+	}
+	a := response.Assertions[0]
+	// The verifier removes an enveloped signature when it authenticates the assertion.
+	if a.ID != assertionID || a.Signature != nil || a.Version != "2.0" || a.AuthnStatement == nil {
+		return nil, ErrSSOTokenInvalid
+	}
+	if a.Subject.NameID == nil || strings.TrimSpace(a.Subject.NameID.Value) == "" || a.Conditions == nil || len(a.Conditions.AudienceRestrictions) == 0 {
+		return nil, ErrSSOTokenInvalid
+	}
+	warnings, err := verifier.VerifyAssertionConditions(&a)
+	if err != nil || warnings.InvalidTime || warnings.NotInAudience {
+		return nil, ErrSSOTokenInvalid
+	}
+	bearer := a.Subject.SubjectConfirmation.SubjectConfirmationData
+	bearerExpiry, err := time.Parse(time.RFC3339, bearer.NotOnOrAfter)
+	if err != nil || bearer.InResponseTo != requestID || !now.Before(bearerExpiry) {
+		return nil, ErrSSOTokenInvalid
+	}
+	for _, instant := range []time.Time{a.IssueInstant, response.IssueInstant} {
+		if instant.Before(now.Add(-saml.MaxIssueDelay)) || instant.After(now.Add(saml.MaxClockSkew)) {
+			return nil, ErrSSOTokenInvalid
+		}
 	}
 	// OIDC issuers are HTTP(S) URLs. Namespace SAML entities so a protocol
 	// switch cannot reinterpret an OIDC subject as a SAML NameID.
 	claims := &ssoClaims{Provider: domain.ProviderSAML, Issuer: "saml:" + a.Issuer.Value, Subject: a.Subject.NameID.Value}
-	for _, statement := range a.AttributeStatements {
+	if statement := a.AttributeStatement; statement != nil {
 		for _, attr := range statement.Attributes {
 			if len(attr.Values) != 1 {
 				continue

@@ -50,7 +50,7 @@ func TestSAMLSignIn(t *testing.T) {
 	require.NoError(t, err)
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(metadata) }))
 	defer source.Close()
-	for _, scenario := range []string{"valid", "unsigned assertion in signed response", "wrong audience", "expired", "replayed", "other workspace", "different request", "untrusted certificate", "unverified email"} {
+	for _, scenario := range []string{"valid", "unsigned envelope", "missing NameID", "empty issuer", "missing audience", "unsigned assertion in signed response", "wrong audience", "expired", "replayed", "other workspace", "different request", "untrusted certificate", "untrusted assertion in trusted response", "unverified email"} {
 		t.Run(scenario, func(t *testing.T) {
 			rig := newSSOTestRig(t)
 			cfg := dto.SSOConfigRequest{Protocol: "saml", MetadataXML: string(metadata), Enabled: true, DefaultRole: "member"}
@@ -84,6 +84,12 @@ func TestSAMLSignIn(t *testing.T) {
 			}}
 			require.NoError(t, (saml.DefaultAssertionMaker{}).MakeAssertion(request, session))
 			switch scenario {
+			case "missing NameID":
+				request.Assertion.Subject.NameID = nil
+			case "empty issuer":
+				request.Assertion.Issuer.Value = ""
+			case "missing audience":
+				request.Assertion.Conditions.AudienceRestrictions = nil
 			case "wrong audience":
 				request.Assertion.Conditions.AudienceRestrictions[0].Audience.Value = "another-sp"
 			case "expired":
@@ -92,14 +98,23 @@ func TestSAMLSignIn(t *testing.T) {
 				request.AssertionEl = request.Assertion.Element()
 			case "different request":
 				request.Assertion.Subject.SubjectConfirmations[0].SubjectConfirmationData.InResponseTo = "other-id"
-			case "untrusted certificate":
+			case "untrusted certificate", "untrusted assertion in trusted response":
 				other := idp
 				key, cert := testSAMLCertificate(t)
 				other.Key = key
 				other.Certificate = cert
 				request.IDP = &other
+				if scenario == "untrusted assertion in trusted response" {
+					require.NoError(t, request.MakeAssertionEl())
+					request.IDP = &idp
+				}
 			}
 			require.NoError(t, request.MakeResponse())
+			if scenario == "unsigned envelope" {
+				signature := request.ResponseEl.SelectElement("ds:Signature")
+				require.NotNil(t, signature)
+				request.ResponseEl.RemoveChild(signature)
+			}
 			doc := etree.NewDocument()
 			doc.SetRoot(request.ResponseEl)
 			data, err := doc.WriteToBytes()
@@ -118,7 +133,7 @@ func TestSAMLSignIn(t *testing.T) {
 				return err
 			}
 			switch scenario {
-			case "valid", "replayed":
+			case "valid", "unsigned envelope", "replayed":
 				require.NoError(t, callback())
 				require.Equal(t, domain.ProviderSAML, rig.repo.provisioned[0].Provider)
 				require.Equal(t, rig.workspace.ID, *rig.refresh.created[0].SSOWorkspaceID)
