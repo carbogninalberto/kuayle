@@ -669,7 +669,8 @@ use them. Machine teardown removes the whole volume.
 
 Each attempt receives the raster images (PNG, JPEG, WebP, GIF) embedded in its
 issue's description and comments that the task creator can read, including
-conversation images filed with `attach_images_to_issue`
+conversation images filed with `attach_images_to_issue`, whether as a comment
+or as the issue's own attachments
 ([conversation images](conversations.md#images)). When the attempt is created,
 the newest at most 10 images (10 MB each, 50 MB in total) are fixed in
 `agent_task_attachments` (migration 82) under the attempt's run ID, so a

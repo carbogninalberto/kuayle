@@ -434,9 +434,15 @@ export const WIKI_APPROVAL_ACTIONS = [
 ] as const;
 export type WikiApprovalAction = (typeof WIKI_APPROVAL_ACTIONS)[number];
 
+export interface BulkIssuePayload {
+	changes: Record<string, unknown>[];
+	results?: { identifier: string; success: boolean; error?: string }[];
+}
+
 export type ConversationApproval = ApprovalBase &
 	(
 		| { action: WikiApprovalAction; payload: WikiApprovalPayload }
+		| { action: 'bulk_update_issues'; payload: BulkIssuePayload }
 		| { action: 'delegate_issue'; payload: DelegationPayload }
 		| { action: 'merge_pull_request'; payload: MergePayload }
 		| { action: 'accept_agent_work'; payload: AcceptPayload }

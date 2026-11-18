@@ -762,7 +762,12 @@ Scripts, inputs and output are always rendered as escaped text.
 A provider may return tool calls only when tools were offered and must finish
 the turn with `finish_reason: "tool_calls"`. One reply runs at most 400 tool
 calls (at most 32 per model round, enough rounds for each call to run in its
-own) and 10 issue changes; further calls fail as data without running. Once the
+own) and 10 issue changes. A `bulk_update_issues` proposal spends one change
+for up to 100 issues (64 KiB of arguments). Its web approval card lists every
+issue and proposed field. Approval applies the rows independently and records
+each outcome on the card. If execution stops before recording an issue’s
+outcome, retrying flags that issue for verification and continues with the
+remaining rows. Further calls beyond the budget fail as data. Once the
 call budget is spent, half of the 64 KiB reply text is used, or less than 90
 seconds of the 10-minute reply remain, the next round offers no tools, so the
 model must answer. Each result is at most 24 KiB. The context resent each round
@@ -1316,11 +1321,14 @@ redacted. The toggle stays the owner's decision.
 `attach_images_to_issue` (a write tool, counted toward the change limit)
 requires `issue:update`, resolves the issue with the user's visibility and
 copies the conversation's sent images (all or the named IDs, at most 6) into
-new issue assets scoped to the issue's team, then posts one comment by the user
-embedding them. Issue readers then see them through the existing asset rules,
-outsiders of a private team do not, and an image already filed on that issue
-is not filed again. Coding tasks receive these and any other images embedded
-in the issue description and comments; see
+new issue assets scoped to the issue's team. The `as` option chooses how they
+are filed: `comment` (the default) posts one comment by the user embedding
+them; `attachment` appends them to the issue's description through the regular
+issue update, so they become the issue's own images instead of a comment. In
+both cases issue readers see them through the existing asset rules, outsiders
+of a private team do not, and an image already filed on that issue (either
+way) is not filed again. Coding tasks receive these and any other images
+embedded in the issue description and comments; see
 [issue images](agent-tasks.md#issue-images).
 
 The composer follows AI Elements Prompt Input attachments: an attach button,

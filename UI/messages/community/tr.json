@@ -2860,6 +2860,7 @@
 	"assistant.release_denied": "{tag} yayımlanması reddedildi",
 	"assistant.release_open": "Sürümü aç",
 	"assistant.tool_ship_pull_request": "Pull request'i yayına al",
+	"assistant.bulk_issues": "İşleri güncelle ({count})",
 	"assistant.ship_title": "{identifier} yayına alınsın mı: #{number} birleştirilip {repository} deposunun {tag} sürümü yayımlansın mı?",
 	"assistant.ship_description": "Tek bir onay, {title} için aşağıdaki her adımı sırayla çalıştırır. Her adım kendi aracının izin denetimlerini korur; başarısız olan ilk adım zinciri durdurur ve sonrasında hiçbir şey çalışmaz.",
 	"assistant.ship_release_range": "Sürüm, {previous} sürümünden bu yana her şeyi kapsar; etiketlemeden önce test kapısı ve gizli anahtar taraması merge commit'inde yeniden çalışır.",

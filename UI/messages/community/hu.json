@@ -2860,6 +2860,7 @@
 	"assistant.release_denied": "Közzététel elutasítva: {tag}",
 	"assistant.release_open": "Kiadás megnyitása",
 	"assistant.tool_ship_pull_request": "Pull request kiszállítása",
+	"assistant.bulk_issues": "Feladatok frissítése ({count})",
 	"assistant.ship_title": "Kiszállítod: {identifier}, azaz merge #{number}, és közzéteszed ezt: {tag} ({repository})?",
 	"assistant.ship_description": "Egyetlen jóváhagyás sorban lefuttatja az alábbi lépéseket ehhez: {title}. Minden lépés megtartja a saját eszköze jogosultság-ellenőrzéseit; az első sikertelen lépés megállítja a láncot, és utána semmi sem fut.",
 	"assistant.ship_release_range": "A kiadás mindent lefed ettől: {previous}; a tesztkapuja és a titokkeresése a címkézés előtt újra lefut a merge commiton.",

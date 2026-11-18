@@ -2860,6 +2860,7 @@
 	"assistant.release_denied": "Η δημοσίευση του {tag} απορρίφθηκε",
 	"assistant.release_open": "Άνοιγμα της έκδοσης",
 	"assistant.tool_ship_pull_request": "Παράδοση pull request",
+	"assistant.bulk_issues": "Ενημέρωση ζητημάτων ({count})",
 	"assistant.ship_title": "Παράδοση του {identifier}: συγχώνευση του #{number} και δημοσίευση του {tag} του {repository};",
 	"assistant.ship_description": "Μία έγκριση εκτελεί με τη σειρά όλα τα παρακάτω βήματα για το {title}. Κάθε βήμα διατηρεί τους ελέγχους δικαιωμάτων του δικού του εργαλείου· το πρώτο βήμα που αποτυγχάνει σταματά την αλυσίδα και τίποτα μετά από αυτό δεν εκτελείται.",
 	"assistant.ship_release_range": "Η έκδοση καλύπτει ό,τι έγινε από το {previous}· ο έλεγχος τεστ και η σάρωση μυστικών εκτελούνται ξανά στο merge commit πριν μπει το tag.",

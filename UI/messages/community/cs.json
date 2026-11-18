@@ -2860,6 +2860,7 @@
 	"assistant.release_denied": "Publikování {tag} zamítnuto",
 	"assistant.release_open": "Otevřít vydání",
 	"assistant.tool_ship_pull_request": "Dodat pull request",
+	"assistant.bulk_issues": "Aktualizovat úkoly ({count})",
 	"assistant.ship_title": "Dodat {identifier}: sloučit #{number} a publikovat {tag} v repozitáři {repository}?",
 	"assistant.ship_description": "Jedno schválení provede všechny níže uvedené kroky v pořadí pro {title}. Každý krok zachovává kontroly oprávnění svého nástroje; první selhávající krok řetězec zastaví a nic po něm se nespustí.",
 	"assistant.ship_release_range": "Vydání zahrnuje vše od {previous}; jeho testovací brána a kontrola tajných klíčů se před tagováním spustí znovu na merge commitu.",

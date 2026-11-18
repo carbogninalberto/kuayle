@@ -2860,6 +2860,7 @@
 	"assistant.release_denied": "Veröffentlichung von {tag} abgelehnt",
 	"assistant.release_open": "Release öffnen",
 	"assistant.tool_ship_pull_request": "Pull Request ausliefern",
+	"assistant.bulk_issues": "Vorgänge aktualisieren ({count})",
 	"assistant.ship_title": "{identifier} ausliefern: #{number} mergen und {tag} von {repository} veröffentlichen?",
 	"assistant.ship_description": "Eine Freigabe führt alle folgenden Schritte für {title} der Reihe nach aus. Jeder Schritt behält die Berechtigungsprüfungen seines eigenen Tools; der erste fehlschlagende Schritt stoppt die Kette und nichts danach läuft.",
 	"assistant.ship_release_range": "Das Release umfasst alles seit {previous}; Test-Gate und Secret-Scan laufen vor dem Taggen erneut auf dem Merge-Commit.",

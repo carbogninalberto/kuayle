@@ -2860,6 +2860,7 @@
 	"assistant.release_denied": "Publicación de {tag} denegada",
 	"assistant.release_open": "Abrir la versión",
 	"assistant.tool_ship_pull_request": "Entregar pull request",
+	"assistant.bulk_issues": "Actualizar incidencias ({count})",
 	"assistant.ship_title": "¿Entregar {identifier}: fusionar #{number} y publicar {tag} de {repository}?",
 	"assistant.ship_description": "Una sola aprobación ejecuta en orden todos los pasos de abajo para {title}. Cada paso mantiene las comprobaciones de permisos de su propia herramienta; el primer paso que falle detiene la cadena y no se ejecuta nada posterior.",
 	"assistant.ship_release_range": "La versión cubre todo lo posterior a {previous}; su control de pruebas y el análisis de secretos se ejecutan de nuevo sobre el merge commit antes de etiquetar.",

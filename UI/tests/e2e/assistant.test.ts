@@ -3370,3 +3370,56 @@ test('assistant reply text can be drag-selected and copied exactly; user text ca
 	await page.mouse.up();
 	await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
 });
+
+test('bulk issue changes share one approval and report individual outcomes', async ({ page }) => {
+	const state = await fixture(page);
+	const changes = [
+		{ identifier: 'ENG-1', status: 'done', priority: 2 },
+		{ identifier: 'ENG-2', label_ids: [], cycle_id: '' },
+		{ identifier: 'ENG-3', assignee_id: '', project_id: '' }
+	];
+	machineApproval(state, 'bulk_update_issues', { changes });
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Update issues (3)', { exact: true })).toBeVisible();
+	const rows = page.getByRole('listitem').filter({ hasText: /ENG-[123]/ });
+	await expect(rows).toHaveCount(3);
+	await expect(rows.nth(0)).toContainText('Status: Done · Priority: High');
+	await expect(rows.nth(1)).toContainText('Labels: None · Cycle: None');
+	await expect(rows.nth(2)).toContainText('Assignee: None · Project: None');
+	const approve = page.getByRole('button', { name: 'Approve', exact: true });
+	await expect(approve).toHaveCount(1);
+	const results = [
+		{ identifier: 'ENG-1', success: true },
+		{ identifier: 'ENG-2', success: false, error: 'issue not found' },
+		{ identifier: 'ENG-3', success: true }
+	];
+	await page.route('**/conversations/chat-1/approvals/approval-30', async (route) => {
+		state.decisions.push(route.request().postDataJSON().decision);
+		await route.fulfill({ json: {
+			...state.approvals[0], status: 'failed', error: '1 of 3 issue updates failed',
+			payload: { changes, results }
+		} });
+	});
+	await approve.focus();
+	await page.keyboard.press('Enter');
+	await expect(page.getByText('Update issues (3) · 1 of 3 issue updates failed')).toBeVisible();
+	await expect(rows.nth(1)).toContainText('issue not found');
+	await expect(rows.nth(2)).toContainText('Updated');
+	expect(state.decisions).toEqual(['approve']);
+});
+
+test('one approval lists all 25 proposed issue updates', async ({ page }) => {
+	const state = await fixture(page);
+	const project = 'f6a0c94c-990f-48d0-b0a7-0ed9b4ad6593';
+	const changes = Array.from({ length: 25 }, (_, i) => ({
+		identifier: `ENG-${i + 1}`, status: 'done', project_id: project
+	}));
+	machineApproval(state, 'bulk_update_issues', { changes });
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(1);
+	const rows = page.getByRole('listitem').filter({ hasText: /ENG-\d+/ });
+	await expect(rows).toHaveCount(25);
+	await expect(rows.last()).toHaveText(`ENG-25 Status: Done · Project: ${project}`);
+	await rows.last().scrollIntoViewIfNeeded();
+	expect(await rows.last().evaluate((row) => row.scrollWidth <= row.clientWidth)).toBe(true);
+});

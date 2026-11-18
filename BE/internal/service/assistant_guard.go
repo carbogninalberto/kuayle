@@ -48,6 +48,7 @@ type assistantActionPolicy struct {
 }
 
 var assistantActionPolicies = map[string]assistantActionPolicy{
+	bulkUpdateAction:       {role: roleMember},
 	"delegate_issue":       {machine: true},
 	"accept_agent_work":    {},
 	"request_agent_review": {machine: true},

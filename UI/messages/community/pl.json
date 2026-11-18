@@ -2860,6 +2860,7 @@
 	"assistant.release_denied": "Odrzucono publikację {tag}",
 	"assistant.release_open": "Otwórz wydanie",
 	"assistant.tool_ship_pull_request": "Wdróż pull request",
+	"assistant.bulk_issues": "Zaktualizuj zgłoszenia ({count})",
 	"assistant.ship_title": "Wdrożyć {identifier}: scalić #{number} i opublikować {tag} dla {repository}?",
 	"assistant.ship_description": "Jedno zatwierdzenie uruchamia po kolei wszystkie poniższe kroki dla {title}. Każdy krok zachowuje kontrole uprawnień własnego narzędzia; pierwszy nieudany krok zatrzymuje łańcuch i nic po nim się nie uruchamia.",
 	"assistant.ship_release_range": "Wydanie obejmuje wszystko od {previous}; jego bramka testowa i skan sekretów uruchomią się ponownie na merge commicie przed tagowaniem.",

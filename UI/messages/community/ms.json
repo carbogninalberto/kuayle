@@ -2860,6 +2860,7 @@
 	"assistant.release_denied": "Penerbitan {tag} ditolak",
 	"assistant.release_open": "Buka keluaran",
 	"assistant.tool_ship_pull_request": "Hantar pull request",
+	"assistant.bulk_issues": "Kemas kini isu ({count})",
 	"assistant.ship_title": "Hantar {identifier}: gabungkan #{number} dan terbitkan {tag} bagi {repository}?",
 	"assistant.ship_description": "Satu kelulusan menjalankan setiap langkah di bawah mengikut urutan untuk {title}. Setiap langkah mengekalkan semakan kebenaran alatnya sendiri; langkah pertama yang gagal menghentikan rantaian dan tiada apa-apa selepasnya dijalankan.",
 	"assistant.ship_release_range": "Keluaran meliputi segala-galanya sejak {previous}; get ujian dan imbasan rahsianya dijalankan semula pada merge commit sebelum menanda.",

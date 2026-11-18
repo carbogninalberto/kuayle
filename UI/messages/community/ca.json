@@ -2860,6 +2860,7 @@
 	"assistant.release_denied": "S'ha denegat la publicació de {tag}",
 	"assistant.release_open": "Obre la versió",
 	"assistant.tool_ship_pull_request": "Lliura la pull request",
+	"assistant.bulk_issues": "Actualitza les incidències ({count})",
 	"assistant.ship_title": "Voleu lliurar {identifier}: fusionar #{number} i publicar {tag} de {repository}?",
 	"assistant.ship_description": "Una sola aprovació executa en ordre tots els passos següents per a {title}. Cada pas conserva les comprovacions de permisos de la seva pròpia eina; el primer pas que falli atura la cadena i no s'executa res més.",
 	"assistant.ship_release_range": "La versió cobreix tot des de {previous}; la seva porta de proves i l'escaneig de secrets es tornen a executar al merge commit abans d'etiquetar.",

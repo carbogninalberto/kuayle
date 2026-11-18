@@ -2860,6 +2860,7 @@
 	"assistant.release_denied": "انتشار {tag} رد شد",
 	"assistant.release_open": "باز کردن انتشار",
 	"assistant.tool_ship_pull_request": "تحویل pull request",
+	"assistant.bulk_issues": "به‌روزرسانی مسائل ({count})",
 	"assistant.ship_title": "تحویل {identifier}: ادغام #{number} و انتشار {tag} از {repository}؟",
 	"assistant.ship_description": "یک تأیید، همه گام‌های زیر را به ترتیب برای {title} اجرا می‌کند. هر گام بررسی‌های مجوز ابزار خودش را حفظ می‌کند؛ اولین گام ناموفق زنجیره را متوقف می‌کند و گام‌های بعدی اجرا نمی‌شوند.",
 	"assistant.ship_release_range": "انتشار همه چیز را از {previous} پوشش می‌دهد؛ دروازه آزمون و اسکن رازها پیش از تگ دوباره روی merge commit اجرا می‌شوند.",

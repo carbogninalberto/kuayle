@@ -2860,6 +2860,7 @@
 	"assistant.release_denied": "Nekade publiceringen av {tag}",
 	"assistant.release_open": "Öppna utgåvan",
 	"assistant.tool_ship_pull_request": "Leverera pull request",
+	"assistant.bulk_issues": "Uppdatera ärenden ({count})",
 	"assistant.ship_title": "Leverera {identifier}: sammanfoga #{number} och publicera {tag} av {repository}?",
 	"assistant.ship_description": "Ett godkännande kör alla stegen nedan i ordning för {title}. Varje steg behåller sitt eget verktygs behörighetskontroller; det första misslyckade steget stoppar kedjan och inget efter det körs.",
 	"assistant.ship_release_range": "Utgåvan omfattar allt sedan {previous}; dess testgrind och hemlighetsskanning körs igen på merge-committen före taggning.",
