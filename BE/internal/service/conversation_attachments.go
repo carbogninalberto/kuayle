@@ -277,22 +277,33 @@ const attachImagesToolName = "attach_images_to_issue"
 
 var attachImagesTool = assistantTool{
 	name: attachImagesToolName, write: true,
-	description: "File images the user attached in this conversation on an issue, as a comment with the images, so issue readers and coding agents get them. Images are named in messages as [image attached: name, WxH, id=...]. Omit attachment_ids to file the newest images (at most 6). Only call this when the user asked to add or file the images, or asked to create an issue from them.",
-	parameters:  `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"attachment_ids":{"type":"array","maxItems":6,"items":{"type":"string","maxLength":36}}},"required":["identifier"],"additionalProperties":false}`,
+	description: "File images the user attached in this conversation on an issue, so issue readers and coding agents get them. With as=comment (the default) they are posted as one comment with the images; with as=attachment they are attached to the issue itself, appended to its description as the issue's own images, which is what the user means by including them in the issue's attachments. Images are named in messages as [image attached: name, WxH, id=...]. Omit attachment_ids to file the newest images (at most 6). Only call this when the user asked to add, attach or file the images, or asked to create an issue from them.",
+	parameters:  `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"attachment_ids":{"type":"array","maxItems":6,"items":{"type":"string","maxLength":36}},"as":{"type":"string","enum":["comment","attachment"]}},"required":["identifier"],"additionalProperties":false}`,
 }
 
 // attachImagesToIssue copies conversation images into issue assets scoped to
-// the issue's team and posts them as one comment by the user. Images already
-// filed on that issue are not filed again.
+// the issue's team and files them on the issue: by default as one comment by
+// the user embedding them, with as=attachment appended to the issue's own
+// description instead. Images already filed on that issue are not filed again.
 func (s *ConversationService) attachImagesToIssue(ctx context.Context, a domain.ConversationAttempt, arguments string) (any, *uuid.UUID, error) {
 	var input struct {
 		Identifier    string   `json:"identifier"`
 		AttachmentIDs []string `json:"attachment_ids"`
+		As            string   `json:"as"`
 	}
 	if err := decodeToolInput(arguments, &input); err != nil {
 		return nil, nil, err
 	}
-	if s.images == nil || s.tools == nil || s.assets == nil || s.comments == nil || s.workspaces == nil {
+	if input.As == "" {
+		input.As = "comment"
+	}
+	if input.As != "comment" && input.As != "attachment" {
+		return nil, nil, toolFailure(`as must be "comment" or "attachment"`)
+	}
+	unavailable := s.images == nil || s.tools == nil || s.assets == nil || s.workspaces == nil ||
+		(input.As == "comment" && s.comments == nil) ||
+		(input.As == "attachment" && s.tools.creator == nil)
+	if unavailable {
 		return nil, nil, toolFailure("image attachments are not available")
 	}
 	ws, user := a.Conversation.WorkspaceID, a.Conversation.CreatorID
@@ -351,7 +362,19 @@ func (s *ConversationService) attachImagesToIssue(ctx context.Context, a domain.
 		filed++
 	}
 	if filed > 0 {
-		if _, err = s.comments.Create(ctx, issue.ID, user, dto.CreateCommentRequest{Body: "<p>Images from the assistant conversation:</p>" + body.String()}); err != nil {
+		filedBody := "<p>Images from the assistant conversation:</p>" + body.String()
+		if input.As == "attachment" {
+			// The images become the issue's own attachments: appended to its
+			// description through the regular issue update, so history,
+			// sanitization and asset visibility all apply as for a user edit.
+			description := filedBody
+			if issue.Description != nil {
+				description = *issue.Description + description
+			}
+			if _, err = s.tools.creator.Update(ctx, ws, user, issue.Identifier, dto.UpdateIssueRequest{Description: &description}); err != nil {
+				return nil, nil, err
+			}
+		} else if _, err = s.comments.Create(ctx, issue.ID, user, dto.CreateCommentRequest{Body: filedBody}); err != nil {
 			return nil, nil, err
 		}
 	}

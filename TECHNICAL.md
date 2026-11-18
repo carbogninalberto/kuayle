@@ -2072,7 +2072,9 @@ authenticated, `nosniff`, script-sandboxed endpoint. With the AI setting
 "Model can see images" (off by default, with a probe) the newest images are sent
 as OpenAI-compatible `image_url` parts; otherwise the model gets a text note.
 The `attach_images_to_issue` tool copies them into issue assets of the issue's
-team, and task attempts copy the issue's images into
+team and files them on the issue, by default as a comment embedding them or,
+with `as: attachment`, appended to the issue's description as its own images.
+Task attempts copy the issue's images into
 `.kuayle/attachments/` in their worktree (excluded through the repository's
 `info/exclude`) and list them in the prompt. The machine manager therefore
 needs read access to upload storage: the Compose files mount the `uploads`
