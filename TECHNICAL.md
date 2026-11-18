@@ -694,7 +694,7 @@ finding and the CI step's detail (the next agent's `{{failing_checks}}`) carry
 the summary fenced as untrusted CI output, with the suite's link. A failed check
 run that no webhook reported, which a workflow's CI step finds in GitHub's check
 list, gets the same read (KUA-215): the step waits for it on its own record
-(`agent_task_workflow_steps.ci`, migration 174).
+(`agent_task_workflow_steps.ci`, migration 175).
 
 A workflow's CI step judges the published commit once
 ([workflow CI on an unchanged commit](BE/docs/agent-tasks.md#workflow-ci-on-an-unchanged-commit),
