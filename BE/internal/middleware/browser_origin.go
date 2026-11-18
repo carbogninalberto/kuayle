@@ -14,6 +14,10 @@ func BrowserOrigin(frontendOrigin string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			r := c.Request()
+			// The SAML ACS verifies a signed assertion and a one-use browser binding.
+			if r.Method == http.MethodPost && c.Path() == "/api/auth/sso/:slug/callback" {
+				return next(c)
+			}
 			safe := r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions
 			if safe && !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 				return next(c)
