@@ -910,6 +910,9 @@ func (r *DevMachineRepository) SaveModelServer(ctx context.Context, server *doma
 	if len(server.Models) == 0 {
 		server.Models = json.RawMessage(`[]`)
 	}
+	if len(server.ModelNames) == 0 {
+		server.ModelNames = json.RawMessage(`{}`)
+	}
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
@@ -924,17 +927,17 @@ func (r *DevMachineRepository) SaveModelServer(ctx context.Context, server *doma
 		server.ID = uuid.New()
 	}
 	if err = tx.QueryRowContext(ctx, `INSERT INTO agent_model_servers
-		(id, workspace_id, name, openai_base_url, anthropic_base_url, encrypted_api_key, encryption_key_version, models, default_model, fast_model, thinking, is_default, updated_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		(id, workspace_id, name, openai_base_url, anthropic_base_url, encrypted_api_key, encryption_key_version, models, model_names, default_model, fast_model, thinking, is_default, updated_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, openai_base_url=EXCLUDED.openai_base_url,
 			anthropic_base_url=EXCLUDED.anthropic_base_url, encrypted_api_key=EXCLUDED.encrypted_api_key,
-			encryption_key_version=EXCLUDED.encryption_key_version, models=EXCLUDED.models,
+			encryption_key_version=EXCLUDED.encryption_key_version, models=EXCLUDED.models, model_names=EXCLUDED.model_names,
 			default_model=EXCLUDED.default_model, fast_model=EXCLUDED.fast_model, thinking=EXCLUDED.thinking,
 			is_default=EXCLUDED.is_default, updated_by=EXCLUDED.updated_by
 		WHERE agent_model_servers.workspace_id=EXCLUDED.workspace_id
 		RETURNING created_at, updated_at`,
 		server.ID, server.WorkspaceID, server.Name, server.OpenAIBaseURL, server.AnthropicBaseURL, server.EncryptedAPIKey,
-		server.EncryptionKeyVersion, server.Models, server.DefaultModel, server.FastModel, server.Thinking, server.IsDefault, server.UpdatedBy,
+		server.EncryptionKeyVersion, server.Models, server.ModelNames, server.DefaultModel, server.FastModel, server.Thinking, server.IsDefault, server.UpdatedBy,
 	).Scan(&server.CreatedAt, &server.UpdatedAt); err != nil {
 		return err
 	}
