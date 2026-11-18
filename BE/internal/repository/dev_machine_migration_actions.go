@@ -77,22 +77,31 @@ func (r *DevMachineRepository) MigrationActionSecret(ctx context.Context, ws, ma
 	return NewAssistantCommandRepository(r.db).MigrationActionSecret(ctx, ws, machine, name)
 }
 
-// migrationActionVisible admits the machine's creator and current workspace
-// owners and admins; their membership is pinned (FOR SHARE) by the caller's
-// transaction on writes.
-const migrationActionVisible = `EXISTS(SELECT 1 FROM dev_machines m WHERE m.id=a.machine_id AND m.workspace_id=$1 AND m.created_by_user_id=$3)
-  OR EXISTS(SELECT 1 FROM workspace_members wm WHERE wm.workspace_id=$1 AND wm.user_id=$3 AND wm.role IN ('owner','admin'))`
-
 // ListMachineMigrationActions lists one machine's migration actions for the
-// machine's creator or a workspace owner or admin.
+// machine's creator or a workspace owner or admin, the same people who may
+// configure them; anyone else gets ErrMigrationActionForbidden, and a machine
+// outside the workspace ErrMigrationActionNotFound.
 func (r *AssistantCommandRepository) ListMachineMigrationActions(ctx context.Context, ws, machine, user uuid.UUID) ([]domain.MigrationAction, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if err = lockMigrationActionAdmin(ctx, tx, ws, machine, user); err != nil {
+		return nil, err
+	}
 	actions := []domain.MigrationAction{}
-	err := r.db.SelectContext(ctx, &actions, `SELECT a.* FROM dev_machine_migration_actions a
-  WHERE a.workspace_id=$1 AND a.machine_id=$2 AND `+migrationActionVisible+` ORDER BY a.name`, ws, machine, user)
-	return actions, err
+	if err = tx.SelectContext(ctx, &actions, `SELECT a.* FROM dev_machine_migration_actions a
+  WHERE a.workspace_id=$1 AND a.machine_id=$2 ORDER BY a.name`, ws, machine); err != nil {
+		return nil, err
+	}
+	return actions, tx.Commit()
 }
 
-func validateMigrationActionInput(action *domain.MigrationAction) error {
+// validateMigrationActionInput checks an action before it is written. The
+// encrypted secret is required when one is being stored: always on create,
+// and on update only when a new secret replaces the stored one.
+func validateMigrationActionInput(action *domain.MigrationAction, secretRequired bool) error {
 	if !domain.ValidMigrationActionName(action.Name) {
 		return ErrConversationInvalid
 	}
@@ -105,7 +114,7 @@ func validateMigrationActionInput(action *domain.MigrationAction) error {
 		return ErrConversationInvalid
 	}
 	action.Command = strings.TrimSpace(action.Command)
-	if action.EncryptedSecret == "" {
+	if secretRequired && action.EncryptedSecret == "" {
 		return ErrConversationInvalid
 	}
 	return nil
@@ -116,7 +125,7 @@ func validateMigrationActionInput(action *domain.MigrationAction) error {
 // actions: its creator or a current workspace owner or admin.
 func lockMigrationActionAdmin(ctx context.Context, tx *sqlx.Tx, ws, machine, user uuid.UUID) error {
 	var owner *uuid.UUID
-	err := tx.GetContext(ctx, &owner, `SELECT m.created_by_user_id FROM dev_machines m WHERE m.id=$3 AND m.workspace_id=$1 FOR SHARE`, ws, machine)
+	err := tx.GetContext(ctx, &owner, `SELECT m.created_by_user_id FROM dev_machines m WHERE m.id=$2 AND m.workspace_id=$1 FOR SHARE`, ws, machine)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrMigrationActionNotFound
 	}
@@ -143,7 +152,7 @@ func lockMigrationActionAdmin(ctx context.Context, tx *sqlx.Tx, ws, machine, use
 // CreateMachineMigrationAction stores a new action. Its name must be unused
 // on the machine; the caller's authority is re-checked in the transaction.
 func (r *AssistantCommandRepository) CreateMachineMigrationAction(ctx context.Context, ws, machine, user uuid.UUID, action *domain.MigrationAction) (*domain.MigrationAction, error) {
-	if err := validateMigrationActionInput(action); err != nil {
+	if err := validateMigrationActionInput(action, true); err != nil {
 		return nil, err
 	}
 	tx, err := r.db.BeginTxx(ctx, nil)
@@ -168,7 +177,7 @@ func (r *AssistantCommandRepository) CreateMachineMigrationAction(ctx context.Co
 // command, and its secret only when a new encrypted one is given. The
 // caller's authority is re-checked in the transaction.
 func (r *AssistantCommandRepository) UpdateMachineMigrationAction(ctx context.Context, ws, machine, actionID, user uuid.UUID, action *domain.MigrationAction, newSecret bool) (*domain.MigrationAction, error) {
-	if err := validateMigrationActionInput(action); err != nil {
+	if err := validateMigrationActionInput(action, newSecret); err != nil {
 		return nil, err
 	}
 	if !newSecret {
