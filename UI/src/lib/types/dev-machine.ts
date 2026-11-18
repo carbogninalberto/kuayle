@@ -321,6 +321,7 @@ export interface ModelServer {
 	openai_base_url?: string;
 	anthropic_base_url?: string;
 	models: string[];
+	model_names?: Record<string, string>;
 	default_model: string;
 	fast_model: string;
 	thinking: ThinkingLevel;
@@ -336,6 +337,7 @@ export interface ModelServerInput {
 	anthropic_base_url?: string;
 	api_key?: string;
 	models: string[];
+	model_names?: Record<string, string>;
 	default_model: string;
 	fast_model: string;
 	thinking: ThinkingLevel;

@@ -30,17 +30,19 @@ func TestModelCatalogListsWorkspaceModelsWithoutServerDetails(t *testing.T) {
 	sealed := "fixture-sealed-value"
 	store := &handlerDevMachineStoreFake{modelServers: []domain.AgentModelServer{{
 		ID: uuid.New(), WorkspaceID: workspaceID, Name: "Gateway", OpenAIBaseURL: &base, EncryptedAPIKey: sealed,
-		Models: json.RawMessage(`["gpt-5.5","gpt-5.5-mini"]`), DefaultModel: "gpt-5.5", Thinking: "high", IsDefault: true,
+		Models:     json.RawMessage(`["gpt-5.5","gpt-5.5-mini"]`),
+		ModelNames: json.RawMessage(`{"gpt-5.5":"GPT 5.5"}`), DefaultModel: "gpt-5.5", Thinking: "high", IsDefault: true,
 	}}}
 	h := modelServerHandler(store)
 
-	listed := getModelCatalog(t, h, "?harness=codex", workspaceID)
+	listed := getModelCatalog(t, h, "?harness=codex&refresh=true", workspaceID)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
+	require.Equal(t, "no-store", listed.Header().Get("Cache-Control"))
 	var catalog dto.AgentModelCatalogResponse
 	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &catalog))
 	require.Equal(t, "codex", catalog.Harness)
 	require.Equal(t, "workspace", catalog.Source)
-	require.Equal(t, []dto.AgentCatalogModel{{ID: "gpt-5.5", Name: "gpt-5.5", Efforts: []string{}}, {ID: "gpt-5.5-mini", Name: "gpt-5.5-mini", Efforts: []string{}}}, catalog.Models)
+	require.Equal(t, []dto.AgentCatalogModel{{ID: "gpt-5.5", Name: "GPT 5.5", Efforts: []string{}}, {ID: "gpt-5.5-mini", Name: "gpt-5.5-mini", Efforts: []string{}}}, catalog.Models)
 	require.NotContains(t, listed.Body.String(), sealed)
 	require.NotContains(t, listed.Body.String(), "models.example.test")
 	require.NotContains(t, listed.Body.String(), "Gateway")

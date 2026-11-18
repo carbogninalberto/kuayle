@@ -15,15 +15,15 @@
 		type AgentProfileList
 	} from '$lib/api/workflows';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
-	import { agentModelCatalog } from '$lib/api/dev-machines';
-	import type { AgentModelCatalog, ThinkingLevel } from '$lib/types/dev-machine';
+	import type { ThinkingLevel } from '$lib/types/dev-machine';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
 	import { AGENT_EFFORT, effortChoice } from '$lib/features/agents/model-choice';
-	import { allowedEfforts, catalogStatus, effortAfterModelChange } from '$lib/features/agents/model-catalog';
+	import { allowedEfforts, effortAfterModelChange } from '$lib/features/agents/model-catalog';
 	import ModelCombobox from '$lib/features/agents/ModelCombobox.svelte';
+	import { ModelSuggestions } from '$lib/features/agents/model-suggestions.svelte';
 	import { behaviourLabel } from './labels';
 	import { modelFormat, profileSubmission, takesModel } from './profile-model';
 	import ProfileSkills from './ProfileSkills.svelte';
@@ -93,48 +93,13 @@
 	// It also says how an agent writes its model names when not a bare name.
 	const format = $derived(modelFormat(list, draft.harness));
 
-	// The models the server suggests for the chosen coding agent. The field
-	// stays free text: without a list (loading, or the server could not read
-	// it) any model can still be typed, and the server validates it on save.
-	let catalog = $state<AgentModelCatalog | null>(null),
-		catalogLoading = $state(false),
-		catalogFailed = $state(false);
-	let catalogRequest = 0;
-	async function loadCatalog(harness: string, refresh = false) {
-		const request = ++catalogRequest;
-		catalogLoading = true;
-		catalogFailed = false;
-		if (!refresh) catalog = null;
-		try {
-			const loaded = await agentModelCatalog(slug, harness, refresh);
-			if (request === catalogRequest) catalog = loaded;
-		} catch {
-			if (request !== catalogRequest) return;
-			// A failed refresh keeps the list it had, now known to be out of date.
-			if (catalog) catalog = { ...catalog, stale: true };
-			else catalogFailed = true;
-		} finally {
-			if (request === catalogRequest) catalogLoading = false;
-		}
-	}
-	// Changing the coding agent loads its suggestions.
-	$effect(() => {
-		const harness = draft.harness;
-		const wanted = editable && modelAllowed && !!harness;
-		untrack(() => {
-			if (wanted) void loadCatalog(harness);
-			else {
-				catalogRequest++;
-				catalog = null;
-				catalogLoading = catalogFailed = false;
-			}
-		});
-	});
-	const status = $derived(catalogStatus(catalog, catalogLoading, catalogFailed));
+	const suggestions = new ModelSuggestions();
+	$effect(() => suggestions.open(slug, editable && modelAllowed ? draft.harness : ''));
+
 	// The effort a model change dropped, to tell the user.
 	let effortReset = $state<{ model: string; effort: ThinkingLevel } | null>(null);
 	function chooseModel(model: string) {
-		const next = effortAfterModelChange(catalog?.models, model, draft.effort);
+		const next = effortAfterModelChange(suggestions.models, model, draft.effort);
 		draft.model = model;
 		draft.effort = next.effort;
 		effortReset = next.reset ? { model, effort: next.reset as ThinkingLevel } : null;
@@ -142,7 +107,7 @@
 	// Only the levels the chosen model allows; every level for a typed model.
 	// An effort saved earlier stays visible until the user changes it.
 	const effortLevels = $derived.by(() => {
-		const levels = allowedEfforts(catalog?.models, draft.model, LEVELS);
+		const levels = allowedEfforts(suggestions.models, draft.model, LEVELS);
 		const current = draft.effort as ThinkingLevel;
 		return current && LEVELS.includes(current) && !levels.includes(current) ? [...levels, current] : levels;
 	});
@@ -254,13 +219,13 @@
 							<ModelCombobox
 								id="profile-model"
 								value={modelAllowed ? draft.model : ''}
-								models={catalog?.models ?? []}
-								{status}
+								models={suggestions.models}
+								status={suggestions.status}
 								placeholder={m['profiles.model_placeholder']()}
 								disabled={!editable || !modelAllowed}
 								aria-describedby={modelAllowed ? (format ? 'profile-model-format' : undefined) : 'profile-model-hint'}
 								onselect={chooseModel}
-								onrefresh={() => void loadCatalog(draft.harness, true)}
+								onrefresh={() => void suggestions.load(slug, draft.harness, true)}
 							/>
 						</div>
 						<div class="space-y-1.5">

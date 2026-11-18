@@ -259,6 +259,7 @@ type AgentModelServer struct {
 	EncryptedAPIKey      string          `json:"-" db:"encrypted_api_key"`
 	EncryptionKeyVersion int             `json:"-" db:"encryption_key_version"`
 	Models               json.RawMessage `json:"models" db:"models"`
+	ModelNames           json.RawMessage `json:"model_names,omitempty" db:"model_names"`
 	DefaultModel         string          `json:"default_model" db:"default_model"`
 	FastModel            string          `json:"fast_model" db:"fast_model"`
 	Thinking             string          `json:"thinking" db:"thinking"`
@@ -286,6 +287,12 @@ func (s AgentModelServer) ModelList() []string {
 	var models []string
 	_ = json.Unmarshal(s.Models, &models)
 	return models
+}
+
+func (s AgentModelServer) ModelDisplayNames() map[string]string {
+	var names map[string]string
+	_ = json.Unmarshal(s.ModelNames, &names)
+	return names
 }
 
 // Serves reports whether the server speaks the protocol a harness needs.

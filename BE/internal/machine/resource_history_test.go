@@ -60,15 +60,16 @@ func TestSamplingKeepsFlowingWhileReconcileIsStuck(t *testing.T) {
 	manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test")
 
 	reconciled := make(chan error, 1)
-	go func() { reconciled <- manager.reconcile(context.Background()) }()
+	go func() { reconciled <- manager.reconcile(t.Context()) }()
 	select {
 	case <-runtime.inspectEntered:
 	case <-time.After(5 * time.Second):
 		t.Fatal("reconcile never reached the runtime")
 	}
 	for i := 1; i <= 3; i++ {
-		manager.sampleResources(context.Background())
-		require.Eventually(t, func() bool { return len(store.samplesOf(machine.ID)) == i }, 5*time.Second, time.Millisecond,
+		// The sample is recorded before the sampler releases its claim on the machine.
+		sampleAndWait(manager)
+		require.Len(t, store.samplesOf(machine.ID), i,
 			"sample %d is recorded while reconcile is still blocked", i)
 	}
 	select {
@@ -78,8 +79,7 @@ func TestSamplingKeepsFlowingWhileReconcileIsStuck(t *testing.T) {
 	}
 	close(runtime.inspectBlock)
 	require.NoError(t, <-reconciled)
-	manager.operations.Wait()
-	require.Zero(t, runtime.statsCallsOf(machine.ID)-3, "only the sampler called Stats")
+	require.Equal(t, 3, runtime.statsCallsOf(machine.ID), "only the sampler called Stats")
 }
 
 // One machine whose Docker call hangs delays no other machine's samples, and
