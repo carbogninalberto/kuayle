@@ -1263,11 +1263,14 @@ redacted. The toggle stays the owner's decision.
 `attach_images_to_issue` (a write tool, counted toward the change limit)
 requires `issue:update`, resolves the issue with the user's visibility and
 copies the conversation's sent images (all or the named IDs, at most 6) into
-new issue assets scoped to the issue's team, then posts one comment by the user
-embedding them. Issue readers then see them through the existing asset rules,
-outsiders of a private team do not, and an image already filed on that issue
-is not filed again. Coding tasks receive these and any other images embedded
-in the issue description and comments; see
+new issue assets scoped to the issue's team. The `as` option chooses how they
+are filed: `comment` (the default) posts one comment by the user embedding
+them; `attachment` appends them to the issue's description through the regular
+issue update, so they become the issue's own images instead of a comment. In
+both cases issue readers see them through the existing asset rules, outsiders
+of a private team do not, and an image already filed on that issue (either
+way) is not filed again. Coding tasks receive these and any other images
+embedded in the issue description and comments; see
 [issue images](agent-tasks.md#issue-images).
 
 The composer follows AI Elements Prompt Input attachments: an attach button,
