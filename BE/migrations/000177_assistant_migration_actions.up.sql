@@ -14,7 +14,7 @@ CREATE TABLE dev_machine_migration_actions (
     description TEXT NOT NULL CHECK (char_length(description) BETWEEN 1 AND 500),
     -- The admin-configured command. It reaches the secret only as the
     -- $KUAYLE_MIGRATION_SECRET variable; the secret itself is never part of it.
-    command TEXT NOT NULL CHECK (octet_length(command) BETWEEN 1 AND 4000 AND position(chr(0) IN command) = 0),
+    command TEXT NOT NULL CHECK (octet_length(command) BETWEEN 1 AND 4000),
     -- The encrypted connection secret, never returned by any API.
     encrypted_secret TEXT NOT NULL CHECK (octet_length(encrypted_secret) BETWEEN 1 AND 65536),
     encryption_key_version INT NOT NULL DEFAULT 1,
