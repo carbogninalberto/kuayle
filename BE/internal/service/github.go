@@ -66,6 +66,9 @@ type GitHubService struct {
 	pullRequestMerged func(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (bool, error)
 	// mergePullRequest merges through the GitHub App; replaced in tests.
 	mergePullRequest func(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha, method string) error
+	// rerunFailedJobs runs Actions jobs again through the GitHub App;
+	// replaced in tests.
+	rerunFailedJobs func(ctx context.Context, workspaceID uuid.UUID, repository string, runs []int64) error
 	// mergeSettings holds the merge method per repository; repositoryMergeSettings
 	// reads the methods a repository allows (replaced in tests).
 	mergeSettings           pullRequestSettings

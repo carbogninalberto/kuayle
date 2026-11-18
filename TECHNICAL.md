@@ -685,7 +685,19 @@ missed a failed check's log, a background read (60 seconds, outside the webhook
 and the task worker) completes it, and the follow-up and the workflow's CI step
 wait for it for at most three minutes. The follow-up prompt, the notebook
 finding and the CI step's detail (the next agent's `{{failing_checks}}`) carry
-the summary fenced as untrusted CI output, with the suite's link.
+the summary fenced as untrusted CI output, with the suite's link. A failed check
+run that no webhook reported, which a workflow's CI step finds in GitHub's check
+list, gets the same read (KUA-215): the step waits for it on its own record
+(`agent_task_workflow_steps.ci`, migration 174).
+
+A workflow's CI step judges the published commit once
+([workflow CI on an unchanged commit](BE/docs/agent-tasks.md#workflow-ci-on-an-unchanged-commit),
+KUA-215). It reads only the suites reported for that commit and records what it
+judged on its step. When the work comes back without a new commit, the failures
+already judged are no new result: Kuayle runs the failed GitHub Actions jobs
+again once per commit (GitHub App **Actions: Read and write**, a token with
+only that permission) and judges that run; CI that still fails pauses the
+workflow for a person instead of sending the same failure back to an agent.
 
 Agent profiles are also members ([agents as issue assignees](BE/docs/agent-tasks.md#agents-as-issue-assignees),
 migration 142): an issue can be assigned to an agent beside people, and an agent
@@ -757,14 +769,19 @@ versions validated on save, defaults per workspace, team and project, and a
 runner that drives each task's pinned version node by node under the worker's
 lease. Tasks without a pinned version run the built-in Standard workflow,
 which is the existing fixed flow.
-A workflow's ship approval (an approval leading to `done` or a merge step)
-marks a draft pull request ready and brings a branch behind its base up to
-date when it is entered, and approving it merges the pull request through the
-merge gate below (on the approval, or at the merge step after it); the task is
-done only after the merge. Agent reviews also start on an up-to-date branch,
-and a conflicting branch goes back to the step that changes code
+A workflow's ship approval (an approval leading to `done` or a merge step, or,
+reached after CI passed, through agent steps to `done`) marks a draft pull
+request ready and brings a branch behind its base up to date when it is
+entered, and approving it merges the pull request through the merge gate below
+(on the approval, at the merge step after it, or at the `done` end the agent
+steps reach, which may merge their added commits once their checks pass); the
+task is done only after the merge. Accepting a task that waits at its ship
+approval approves it (KUA-216). Agent reviews also start on an up-to-date
+branch, and a conflicting branch goes back to the step that changes code
 ([merging from a workflow](BE/docs/agent-tasks.md#merging-from-a-workflow),
-KUA-209).
+KUA-209). A workflow's iteration budget counts rounds of work: an agent step
+that continues the round of the agent step before it (a plan handed to the
+implementer) starts no new iteration (KUA-215).
 Each profile has a [behaviour](BE/docs/agent-tasks.md#behaviours) (migration
 143): it plans, changes code or reviews, and its role is a free-text label. A
 planning step must leave the worktree unchanged and end with a plan, which is
@@ -1851,7 +1868,8 @@ Release tools read a linked repository's releases (`list_releases`,
 latest release in the workspace's editable "Release notes style" skill
 (`draft_release_notes`), publish a release after approval (`create_release`,
 owners and admins, migration 111) and follow its build (`get_workflow_run`,
-GitHub App **Actions: Read**). Tagging is refused unless the target is on the
+GitHub App **Actions: Read**; the app now asks for *Read and write*, for the
+CI re-runs above). Tagging is refused unless the target is on the
 default branch and all its checks passed; the release range (previous tag to
 target, from GitHub's compare API) and the notes go through a server-side secret
 scan first, and the approval card lets the approver edit the notes that are

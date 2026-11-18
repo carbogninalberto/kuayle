@@ -156,13 +156,24 @@ func (s *AgentTaskService) Retry(ctx context.Context, ws, id uuid.UUID, input do
 
 // Accept completes the creator's task awaiting review in Kuayle without
 // merging its pull request; administrators accept through the assistant's
-// approval instead (AcceptAsApprover).
+// approval instead (AcceptAsApprover). A task that waits at its workflow's
+// ship approval is approved instead: accepting the work there is the
+// go-ahead to ship, so Kuayle merges it with every gate and the task is done
+// only after the merge (KUA-216).
 func (s *AgentTaskService) Accept(ctx context.Context, ws, id uuid.UUID, generation int64) (*domain.AgentTask, error) {
+	if s.workflow != nil {
+		task, handled, err := s.workflow.AcceptAtShip(ctx, ws, id, generation)
+		if handled || err != nil {
+			return task, err
+		}
+	}
 	return s.accept(ctx, ws, id, generation, false)
 }
 
 // AcceptAsApprover lets the task's creator or a workspace owner/admin accept
-// it from an approved assistant request.
+// it from an approved assistant request. The assistant's request is to
+// accept without merging, and its approval says so, so it never merges, also
+// at a ship approval.
 func (s *AgentTaskService) AcceptAsApprover(ctx context.Context, ws, id uuid.UUID, generation int64) (*domain.AgentTask, error) {
 	return s.accept(ctx, ws, id, generation, true)
 }

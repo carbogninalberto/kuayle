@@ -45,6 +45,11 @@ type workflowTaskStore interface {
 	WorkflowPullRequest(context.Context, domain.AgentTask) (*domain.AgentReviewTarget, error)
 	RecordWorkflowMerge(context.Context, domain.AgentTask, repository.WorkflowMerge) (*domain.AgentTask, error)
 	DecideWorkflowMerge(context.Context, uuid.UUID, uuid.UUID, repository.WorkflowMerge) (*domain.AgentTask, error)
+	// The merge a ship approval deferred past its agent steps (KUA-216).
+	DeferredShipMerge(context.Context, domain.AgentTask) (*domain.MergeWait, error)
+	// What CI steps judged on a commit (KUA-215).
+	WorkflowCIHistory(context.Context, domain.AgentTask, string) ([]domain.WorkflowStep, error)
+	RecordWorkflowCI(context.Context, domain.AgentTask, domain.WorkflowCIRecord, *time.Time) error
 }
 
 type workflowDefinitionStore interface {
@@ -152,17 +157,19 @@ func (w *WorkflowRunner) graph(ctx context.Context, task domain.AgentTask) (*dom
 // a person asked to pause: the pause then takes effect instead (see
 // AgentFinished).
 func (w *WorkflowRunner) Outcome(ctx context.Context, task domain.AgentTask, outcome, detail string) error {
-	return w.outcome(ctx, task, outcome, detail, "")
+	return w.outcome(ctx, task, outcome, detail, "", nil)
 }
 
 // OutcomeFailure advances the task after its agent's iteration failed for
 // class. The step's detail keeps the whole cause; a workflow that ends here
 // tells a person the class and one short line of it.
 func (w *WorkflowRunner) OutcomeFailure(ctx context.Context, task domain.AgentTask, detail string, class domain.FailureClass) error {
-	return w.outcome(ctx, task, domain.WorkflowAgentFailed, detail, class)
+	return w.outcome(ctx, task, domain.WorkflowAgentFailed, detail, class, nil)
 }
 
-func (w *WorkflowRunner) outcome(ctx context.Context, task domain.AgentTask, outcome, detail string, class domain.FailureClass) error {
+// outcome advances the task; ci is what a CI check step judged, stored on
+// it as it closes.
+func (w *WorkflowRunner) outcome(ctx context.Context, task domain.AgentTask, outcome, detail string, class domain.FailureClass, ci *domain.WorkflowCIRecord) error {
 	if task.WorkflowPauseRequest != nil {
 		return w.tasks.ParkWorkflow(ctx, task)
 	}
@@ -174,6 +181,7 @@ func (w *WorkflowRunner) outcome(ctx context.Context, task domain.AgentTask, out
 		apply.FailureClass = class
 		apply.Entry.Reason += " · " + domain.TaskFailureReason(class, detail)
 	}
+	apply.CI = ci
 	_, err = w.tasks.ApplyWorkflow(ctx, task, *apply)
 	return err
 }
@@ -355,7 +363,9 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 		if immediate == "" {
 			apply.Moves = append(apply.Moves, move)
 			apply.Entry = entry
-			apply.Iteration = graph.Iteration(decision.To, profiles)
+			// A step that continues the round in progress (a plan handed to
+			// the implementer) is no new iteration (KUA-215).
+			apply.Iteration = graph.StartsIteration(decision, profiles)
 			return apply, nil
 		}
 		// The node finishes as soon as it is entered; leave it by its outcome.
@@ -400,6 +410,16 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 	switch to.Type {
 	case domain.WorkflowNodeEnd:
 		if to.Outcome == domain.WorkflowEndDone {
+			// A ship approval before the agent steps that led here deferred
+			// its merge to this end: the task is done once it merged (KUA-216).
+			merge, err := w.deferredShipMerge(ctx, task, now)
+			if err != nil {
+				return repository.WorkflowEntry{}, "", "", err
+			}
+			if merge != nil {
+				return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Merge: merge, WakeAt: wake(),
+					Reason: fmt.Sprintf("%s; Kuayle merges pull request #%d, as approved, once every check passes", reason, merge.PullRequest)}, "", "", nil
+			}
 			return repository.WorkflowEntry{Kind: repository.WorkflowEnterComplete, Reason: reason}, "", "", nil
 		}
 		return repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: reason}, "", "", nil
@@ -505,7 +525,7 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 			question = to.Label
 		}
 		suffix := ""
-		if graph.ShipApproval(to) != "" {
+		if graph.ShipApproval(to, profiles) != "" {
 			// The go-ahead to merge: the pull request is made ready to merge
 			// first, or sent back when it conflicts (KUA-209).
 			done, conflict := w.prepareBranch(ctx, task, true)
@@ -637,8 +657,9 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 		return w.tasks.SetWorkflowWake(ctx, task, nil)
 	}
 	// A person approved the merge this step carries out: the merge, not the
-	// step's timeout, decides while it runs (KUA-209).
-	if wait := step.MergeWait(); wait != nil && wait.Failure == "" && (node.Type == domain.WorkflowNodeApproval || node.Type == domain.WorkflowNodeMerge) {
+	// step's timeout, decides while it runs (KUA-209). A done end carries the
+	// merge a ship approval deferred to it (KUA-216).
+	if wait := step.MergeWait(); wait != nil && wait.Failure == "" && !wait.Deferred && (node.Type == domain.WorkflowNodeApproval || node.Type == domain.WorkflowNodeMerge || node.Type == domain.WorkflowNodeEnd) {
 		handled, err := w.driveMerge(ctx, task, node, *step, wait)
 		if err != nil || handled {
 			return err
@@ -655,6 +676,7 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 	}
 	outcome, detail, waiting := "", "", ""
 	var wake *time.Time
+	var ci *ciVerdict
 	switch {
 	case node.Type == domain.WorkflowNodeAgent && step.ReviewTaskID != nil:
 		review, err := w.tasks.WorkflowReview(ctx, task, *step.ReviewTaskID)
@@ -678,15 +700,20 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 			outcome, detail = domain.WorkflowAgentFailed, "The review did not finish ("+review.State+")"
 		}
 	case node.Type == domain.WorkflowNodeCheck && node.Check == domain.WorkflowCheckCI:
-		ci, err := w.tasks.WorkflowCI(ctx, task)
+		published, err := w.tasks.WorkflowCI(ctx, task)
 		if err != nil {
 			return err
 		}
-		if outcome, detail, waiting, wake, err = w.ciOutcome(ctx, task, ci, now); err != nil {
+		verdict, err := w.judgeCI(ctx, task, step, published, now)
+		if err != nil {
 			return err
 		}
+		if verdict.stop != "" {
+			return w.stopCI(ctx, task, *graph, profiles, verdict)
+		}
+		ci = &verdict
+		outcome, detail, waiting, wake = verdict.outcome, verdict.detail, verdict.waiting, verdict.wake
 	}
-	_ = profiles
 	if outcome == "" && deadline != nil && !now.Before(*deadline) {
 		outcome, detail = domain.WorkflowTimeout, fmt.Sprintf("%s waited %d minutes", node.Label, node.TimeoutMinutes)
 		if waiting != "" {
@@ -714,108 +741,49 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 				wake = at
 			}
 		}
+		if ci != nil && ci.save {
+			// What the CI step knows changed (details asked for, a re-run
+			// requested): stored with the wake-up, before the read starts.
+			if err := w.tasks.RecordWorkflowCI(ctx, task, *ci.record, wake); err != nil {
+				return err
+			}
+			if ci.after != nil {
+				ci.after()
+			}
+			return nil
+		}
 		return w.tasks.SetWorkflowWake(ctx, task, wake)
 	}
-	return w.Outcome(ctx, task, outcome, detail)
+	var record *domain.WorkflowCIRecord
+	if ci != nil {
+		record = ci.record
+	}
+	return w.outcome(ctx, task, outcome, detail, "", record)
 }
 
-// ciOutcome decides a CI check node. A failure reported by a webhook fails
-// it at once, with what GitHub reported about the failed checks; while
-// Kuayle still reads them after the webhook, the node waits for that read,
-// at most domain.CIFailureDetailsWait. Passing needs more than completed
-// suites, because GitHub only reports suites once they complete and a fast
-// one (lint) finishes before a slow one (tests) has reported anything: CI
-// passes only when GitHub lists at least one check for the published
-// commit, none failed, none is still running and the whole list could be
-// read. Otherwise the node keeps waiting (waiting says why) and polls again.
-func (w *WorkflowRunner) ciOutcome(ctx context.Context, task domain.AgentTask, ci *repository.WorkflowCI, now time.Time) (outcome, detail, waiting string, wake *time.Time, err error) {
-	if len(ci.Failed) > 0 {
-		for _, signal := range ci.Failed {
-			if !signal.CIDetailsAwaited(now) {
-				continue
-			}
-			// A read lost to a restart starts again; one running is left alone.
-			if reader, ok := w.checks.(ciFailureDetailsReader); ok {
-				head := signal.HeadSHA
-				if head == "" {
-					head = ci.CommitSHA
-				}
-				reader.ensureCIFailureDetails(task.WorkspaceID, ci.Repository, head)
-			}
-			poll := now.Add(ciDetailsPoll)
-			if until := signal.CreatedAt.Add(domain.CIFailureDetailsWait); until.Before(poll) {
-				poll = until
-			}
-			return "", "", "reading the failed checks from GitHub", &poll, nil
-		}
-		var names []string
-		everyRunner := true
-		for _, signal := range ci.Failed {
-			if signal.FailureClass == nil || *signal.FailureClass != domain.CIFailureRunner {
-				everyRunner = false
-			}
-			label := strings.TrimSpace(signal.FailureEvidence)
-			if label == "" {
-				label = signal.Name
-			}
-			names = append(names, oneLine(label, 200))
-		}
-		// The result is still "checks failed"; the one line only tells the
-		// next agent and the person that every failed suite was the runner's
-		// or the network's and may need a re-run.
-		note := ""
-		if everyRunner {
-			note = "\n\nCI failed on the runner; it may need to be run again: " + strings.Join(names, "; ")
-		}
-		// The detail is also the notebook's finding, so every suite's fenced
-		// summary is shortened to fit one.
-		budget := (domain.NotebookFindingBytes - len(note) - 2*(len(ci.Failed)-1)) / len(ci.Failed)
-		lines := make([]string, 0, len(ci.Failed))
-		for _, signal := range ci.Failed {
-			lines = append(lines, ciSuiteDetail(fmt.Sprintf("CI check suite %q concluded %q", signal.Name, signal.Outcome), signal.URL, signal.Outcome, signal.Summary, budget))
-		}
-		return domain.WorkflowChecksFailed, strings.Join(lines, "\n\n") + note, "", nil, nil
+// stopCI pauses the workflow at a CI step that found CI still failing on a
+// commit nothing was pushed to since CI failed on it (KUA-215), instead of
+// sending the same failure back: the step closes as checks failed and the
+// transition it would take is recorded without being entered. Continuing
+// takes it, with the failing checks; stopping fails the task. A transition
+// that ends the workflow, or that no transition follows, is taken as usual:
+// nothing loops there.
+func (w *WorkflowRunner) stopCI(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, v ciVerdict) error {
+	if task.WorkflowPauseRequest != nil {
+		return w.tasks.ParkWorkflow(ctx, task)
 	}
-	idle := now.Add(ciIdlePoll)
-	if w.checks == nil || ci.Repository == "" || ci.CommitSHA == "" {
-		// Completed suites alone never prove that CI passed.
-		return "", "", "Kuayle cannot read this commit's checks from GitHub", nil, nil
+	now := w.now()
+	decision := graph.Decide(task.Cursor().Released(now), domain.WorkflowChecksFailed, now, profiles)
+	if decision.Stuck || decision.Finish || decision.Limit != "" || decision.To.Type == domain.WorkflowNodeEnd {
+		return w.outcome(ctx, task, domain.WorkflowChecksFailed, strings.TrimSpace(v.detail+"\n\n"+v.stop), "", v.record)
 	}
-	checks, coverage, err := w.checks.CommitChecks(ctx, task.WorkspaceID, ci.Repository, ci.CommitSHA)
-	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return "", "", "", nil, err
-		}
-		return "", "", "GitHub's checks could not be read", &idle, nil
-	}
-	var failed []PullRequestCheck
-	pending := 0
-	for _, check := range checks {
-		switch check.State {
-		case "failed":
-			failed = append(failed, check)
-		case "pending":
-			pending++
-		}
-	}
-	switch {
-	case len(failed) > 0:
-		// No webhook reported these, so only the check's own output is known.
-		budget := (domain.NotebookFindingBytes - 2*(len(failed)-1)) / len(failed)
-		lines := make([]string, 0, len(failed))
-		for _, check := range failed {
-			lines = append(lines, ciSuiteDetail(fmt.Sprintf("CI check %q failed", check.Name), check.URL, "failure", check.Summary, budget))
-		}
-		return domain.WorkflowChecksFailed, strings.Join(lines, "\n\n"), "", nil, nil
-	case coverage.incomplete():
-		return "", "", "not every check of the commit could be read", &idle, nil
-	case pending > 0:
-		poll := now.Add(ciPoll)
-		return "", "", fmt.Sprintf("%d of %d CI checks still running", pending, len(checks)), &poll, nil
-	case len(checks) == 0:
-		return "", "", "no CI check has started on the commit", &idle, nil
-	}
-	return domain.WorkflowChecksPassed, fmt.Sprintf("All %d CI checks passed", len(checks)), "", nil, nil
+	decision.Reason = v.stop
+	apply := repository.WorkflowApply{Sequence: task.WorkflowSequence, Version: task.WorkflowVersionID, Outcome: domain.WorkflowChecksFailed, Detail: v.detail, CI: v.record,
+		Moves: []repository.WorkflowMove{{Decision: decision, Stop: true}},
+		Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterPause, Reason: fmt.Sprintf("%s%s. Continue to send the failing checks to %s, or stop the workflow", domain.WorkflowReasonPrefix, v.stop, decision.To.Label)},
+		Notes: []domain.NotebookNote{{FindingSource: domain.NotebookFindingCI, Finding: v.detail}, {Event: "Paused for a person's decision: " + v.stop}}}
+	_, err := w.tasks.ApplyWorkflow(ctx, task, apply)
+	return err
 }
 
 // Workflow decisions a person can make.
@@ -867,10 +835,11 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 			return nil, ErrWorkflowDecision
 		}
 		// Approving the ship approval merges the pull request (KUA-209): on
-		// the approval itself, or at the merge step it leads to.
-		var merge *domain.MergeWait
+		// the approval itself, at the merge step it leads to, or once the
+		// agent steps after it reach the done end (KUA-216).
+		var merge, deferred *domain.MergeWait
 		if outcome == domain.WorkflowApprovalApproved && w.pulls != nil && w.merger != nil {
-			switch graph.ShipApproval(node) {
+			switch graph.ShipApproval(node, profiles) {
 			case domain.ShipMergesOnApproval:
 				merged, started, err := w.startMerge(ctx, ws, *task, node)
 				if err != nil || started {
@@ -878,6 +847,10 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 				}
 			case domain.ShipMergesAtMergeStep:
 				if merge, _, err = w.approvedMerge(ctx, *task); err != nil {
+					return nil, err
+				}
+			case domain.ShipMergesAfterAgents:
+				if deferred, _, err = w.approvedMerge(ctx, *task); err != nil {
 					return nil, err
 				}
 			}
@@ -890,6 +863,15 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 			apply.Entry.Merge, apply.Entry.NeedsPerson = merge, false
 			apply.Entry.WakeAt = ptr(w.now())
 			apply.Entry.Reason = domain.WorkflowReasonPrefix + apply.Moves[last].Decision.Reason + "; Kuayle merges the pull request once every check passes"
+		}
+		if deferred != nil {
+			// The approval is recorded with the merge it starts once the agent
+			// steps after it finish; the done end carries it out.
+			deferred.Deferred = true
+			apply.StepMerge = deferred
+			if apply.Entry.Kind == repository.WorkflowEnterIteration {
+				apply.Entry.Reason += fmt.Sprintf("; Kuayle merges pull request #%d once the workflow reaches its end and every check passes", deferred.PullRequest)
+			}
 		}
 	case domain.WorkflowStatusPaused:
 		step, err := w.tasks.CurrentWorkflowStep(ctx, *task)
@@ -935,8 +917,12 @@ func (w *WorkflowRunner) continuePast(ctx context.Context, task domain.AgentTask
 		outcome = *step.Outcome
 	}
 	probe := graph.Decide(task.Cursor().Released(w.now()), outcome, w.now(), profiles)
-	// The limit's reason was added to the step's detail when it stopped.
+	// The limit's reason was added to the step's detail when it stopped, and
+	// so was a CI step's reason for pausing (KUA-215).
 	detail := strings.TrimSuffix(strings.TrimSuffix(step.Detail, probe.Reason), "\n")
+	if at := strings.LastIndex(detail, "\n"+ciNoChanges); at >= 0 {
+		detail = detail[:at]
+	}
 	switch probe.Limit {
 	case domain.WorkflowLimitIterations, domain.WorkflowLimitTime:
 		extended, now := task, w.now()

@@ -49,7 +49,7 @@ func newPlanHarness(t *testing.T, implementPrompt string) *workflowHarness {
 	versionID := uuid.New()
 	node, status := "plan", domain.WorkflowStatusRunning
 	now := time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC)
-	world := &workflowWorld{
+	world := &workflowWorld{t: t,
 		now: now,
 		task: domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), Kind: domain.AgentTaskKindImplement, State: "running", Generation: 1, RunID: uuid.New(),
 			Prompt: "Add dark mode", Provider: "codex", WorkflowVersionID: &versionID, WorkflowNode: &node, WorkflowVisits: json.RawMessage(`{"start":1,"plan":1}`),

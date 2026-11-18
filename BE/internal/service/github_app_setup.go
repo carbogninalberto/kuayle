@@ -28,8 +28,9 @@ var githubAppPermissions = map[string]string{
 	"issues":        "read",
 	"checks":        "read",
 	"statuses":      "read",
-	// get_workflow_run follows release builds (KUA-88).
-	"actions": "read",
+	// get_workflow_run follows release builds (KUA-88); a workflow's CI step
+	// runs failed jobs again when nothing changed since they failed (KUA-215).
+	"actions": "write",
 }
 
 var githubAppEvents = []string{

@@ -725,10 +725,25 @@ type WorkflowDecision struct {
 	Finish bool
 }
 
-// Iteration reports whether entering the node starts an iteration in the
-// task's worktree: an agent step that plans or changes code.
+// Iteration reports whether entering the node runs an agent in the task's
+// worktree: an agent step that plans or changes code.
 func (g WorkflowGraph) Iteration(node WorkflowNode, profiles map[uuid.UUID]AgentProfile) bool {
 	return node.Type == WorkflowNodeAgent && node.ProfileID != nil && !profiles[*node.ProfileID].Reviews()
+}
+
+// StartsIteration reports whether the decision starts a new iteration, the
+// unit the budget's max_iterations counts (KUA-215). An iteration is one round
+// of work in the worktree: it starts when the work enters an agent step that
+// plans or changes code from anything else (the start, a check, a
+// publication, a review, an approval) or after an agent step failed. An agent
+// step entered because the agent step before it finished continues that
+// round: a planning step handing its plan to the implementer, or one
+// implementer handing its work to the next, is one iteration, not two.
+func (g WorkflowGraph) StartsIteration(decision WorkflowDecision, profiles map[uuid.UUID]AgentProfile) bool {
+	if !g.Iteration(decision.To, profiles) {
+		return false
+	}
+	return !(g.Iteration(decision.From, profiles) && decision.Outcome == WorkflowAgentFinished)
 }
 
 // leadsToApproval reports whether an "else" transition leads to an approval.
@@ -796,7 +811,7 @@ func (g WorkflowGraph) limit(decision *WorkflowDecision, cursor WorkflowCursor, 
 	case to.MaxVisits > 0 && cursor.Visits[to.ID] >= to.MaxVisits:
 		decision.Limit = WorkflowLimitVisits
 		decision.Reason = fmt.Sprintf("%s reached its limit of %d visits after %s", to.Label, to.MaxVisits, because)
-	case g.Budget.MaxIterations > 0 && g.Iteration(to, profiles) && cursor.Iterations >= g.Budget.IterationAllowance(cursor):
+	case g.Budget.MaxIterations > 0 && g.StartsIteration(*decision, profiles) && cursor.Iterations >= g.Budget.IterationAllowance(cursor):
 		decision.Limit = WorkflowLimitIterations
 		decision.Reason = fmt.Sprintf("The workflow's budget of %d iterations is used up; %s would start another", g.Budget.IterationAllowance(cursor), to.Label)
 	case g.BudgetDeadline(cursor) != nil && !now.Before(*g.BudgetDeadline(cursor)):
@@ -812,33 +827,31 @@ const (
 	ShipMergesOnApproval = "approval"
 	// ShipMergesAtMergeStep: approving leads to a merge step, which merges.
 	ShipMergesAtMergeStep = "merge_step"
+	// ShipMergesAfterAgents: approving leads through agent steps to a done
+	// end; Kuayle merges when the workflow reaches that end (KUA-216).
+	ShipMergesAfterAgents = "after_agents"
 )
 
 // ShipApproval reports whether an approval node is the workflow's ship
-// approval, the person's go-ahead to merge: its approved transition (or its
-// "else" without one) leads straight to an end that finishes as done or to a
-// merge step. Kuayle then merges the task's pull request when it is approved,
-// on the approval itself or at that merge step, and marks a draft pull
-// request ready for review when the approval is entered (KUA-209). It returns
-// "" for any other node.
-func (g WorkflowGraph) ShipApproval(node WorkflowNode) string {
+// approval, the person's go-ahead to merge, and how its merge is carried out.
+// Its approved transition (or its "else" without one) leads:
+//
+//   - straight to an end that finishes as done (ShipMergesOnApproval), or to a
+//     merge step (ShipMergesAtMergeStep) (KUA-209);
+//   - to agent steps that plan or change code whose finished transitions lead
+//     on, through agent steps only, to an end that finishes as done, while a
+//     CI check's "checks passed" transition leads to the approval
+//     (ShipMergesAfterAgents, KUA-216). The CI condition tells a go-ahead to
+//     ship from a plan's approval, which also leads to agents.
+//
+// Kuayle then merges the task's pull request once it is approved, and marks a
+// draft pull request ready for review when the approval is entered. It
+// returns "" for any other node.
+func (g WorkflowGraph) ShipApproval(node WorkflowNode, profiles map[uuid.UUID]AgentProfile) string {
 	if node.Type != WorkflowNodeApproval {
 		return ""
 	}
-	var chosen *WorkflowEdge
-	for i := range g.Edges {
-		edge := g.Edges[i]
-		if edge.Source != node.ID {
-			continue
-		}
-		if edge.Condition == WorkflowApprovalApproved {
-			chosen = &edge
-			break
-		}
-		if edge.Condition == WorkflowElse && chosen == nil {
-			chosen = &edge
-		}
-	}
+	chosen := g.leaving(node.ID, WorkflowApprovalApproved)
 	if chosen == nil {
 		return ""
 	}
@@ -848,8 +861,59 @@ func (g WorkflowGraph) ShipApproval(node WorkflowNode) string {
 		return ShipMergesOnApproval
 	case to.Type == WorkflowNodeMerge:
 		return ShipMergesAtMergeStep
+	case g.Iteration(to, profiles) && g.reachedAfterCI(node.ID) && g.agentsReachDone(to, profiles):
+		return ShipMergesAfterAgents
 	}
 	return ""
+}
+
+// leaving is the transition the outcome takes out of the node: the one
+// naming it, else the node's "else" transition.
+func (g WorkflowGraph) leaving(id, outcome string) *WorkflowEdge {
+	var chosen *WorkflowEdge
+	for i := range g.Edges {
+		edge := g.Edges[i]
+		if edge.Source != id {
+			continue
+		}
+		if edge.Condition == outcome {
+			return &edge
+		}
+		if edge.Condition == WorkflowElse && chosen == nil {
+			chosen = &edge
+		}
+	}
+	return chosen
+}
+
+// reachedAfterCI reports whether a CI check's "checks passed" transition
+// leads to the node.
+func (g WorkflowGraph) reachedAfterCI(id string) bool {
+	for _, edge := range g.Edges {
+		if edge.Target != id || edge.Condition != WorkflowChecksPassed {
+			continue
+		}
+		if source, ok := g.Node(edge.Source); ok && source.Type == WorkflowNodeCheck && source.Check == WorkflowCheckCI {
+			return true
+		}
+	}
+	return false
+}
+
+// agentsReachDone reports whether the finished transitions of agent steps
+// that plan or change code, from the node on, lead through such steps only
+// to an end that finishes as done.
+func (g WorkflowGraph) agentsReachDone(node WorkflowNode, profiles map[uuid.UUID]AgentProfile) bool {
+	seen := map[string]bool{}
+	for g.Iteration(node, profiles) && !seen[node.ID] {
+		seen[node.ID] = true
+		edge := g.leaving(node.ID, WorkflowAgentFinished)
+		if edge == nil {
+			return false
+		}
+		node, _ = g.Node(edge.Target)
+	}
+	return node.Type == WorkflowNodeEnd && node.Outcome == WorkflowEndDone
 }
 
 // SendBack is the decision that sends the work from the cursor's node back to
@@ -1253,8 +1317,12 @@ type WorkflowStep struct {
 	// does not count that time.
 	PausedSeconds int `json:"paused_seconds" db:"paused_seconds"`
 	// Merge is the approved merge a ship approval or the merge step after it
-	// carries out (a MergeWait), while it waits or after it failed.
+	// carries out (a MergeWait), while it waits or after it failed. On a ship
+	// approval whose merge waits for the agent steps after it, it is Deferred
+	// until the workflow reaches its done end, whose step then carries it.
 	Merge *json.RawMessage `json:"merge,omitempty" db:"merge"`
+	// CI is what a CI check step judged (a WorkflowCIRecord, KUA-215).
+	CI *json.RawMessage `json:"ci,omitempty" db:"ci"`
 }
 
 // MergeWait reads the step's merge, or nil.
@@ -1267,6 +1335,51 @@ func (s WorkflowStep) MergeWait() *MergeWait {
 		return nil
 	}
 	return &wait
+}
+
+// CIRecord reads what the step judged about CI, or nil.
+func (s WorkflowStep) CIRecord() *WorkflowCIRecord {
+	if s.CI == nil || len(*s.CI) == 0 || string(*s.CI) == "null" {
+		return nil
+	}
+	var record WorkflowCIRecord
+	if json.Unmarshal(*s.CI, &record) != nil {
+		return nil
+	}
+	return &record
+}
+
+// WorkflowCIRecord is what a CI check step judged about the published commit
+// (KUA-215), stored on the step. A later CI step on the same commit reads it:
+// a failure it already judged is not a new result, so an agent that pushed
+// nothing after CI failed is not sent the same failure again.
+type WorkflowCIRecord struct {
+	Repository string `json:"repository,omitempty"`
+	// Head is the published commit the step judged.
+	Head string `json:"head"`
+	// Failed identifies the failed checks the step saw on Head: a check's
+	// link (an Actions job's link changes when it is run again), or its name
+	// and when it was reported.
+	Failed []string `json:"failed,omitempty"`
+	// DetailsSince is when the step asked Kuayle to read Head's failed check
+	// runs from GitHub (their failed steps, annotations and log ends, as for a
+	// failed suite, KUA-206). DetailsRead is set once that read was recorded,
+	// with Details what it found (possibly nothing).
+	DetailsSince *time.Time `json:"details_since,omitempty"`
+	DetailsRead  bool       `json:"details_read,omitempty"`
+	Details      string     `json:"details,omitempty"`
+	// RerunAt is when Kuayle asked GitHub to run Head's failed jobs again,
+	// because nothing had changed since CI failed on it; Rerun are the failed
+	// checks it saw then and RerunRuns the Actions runs it asked for.
+	RerunAt   *time.Time `json:"rerun_at,omitempty"`
+	Rerun     []string   `json:"rerun,omitempty"`
+	RerunRuns []int64    `json:"rerun_runs,omitempty"`
+}
+
+// DetailsAwaited reports whether the step still waits for Head's failed check
+// runs to be read: asked for and not recorded within CIFailureDetailsWait.
+func (r WorkflowCIRecord) DetailsAwaited(now time.Time) bool {
+	return r.DetailsSince != nil && !r.DetailsRead && now.Before(r.DetailsSince.Add(CIFailureDetailsWait))
 }
 
 // How a person pauses a running workflow: at once, which stops the agent

@@ -786,8 +786,54 @@ minutes from the signal) and starts the read again if none is running, for
 example after a restart. Its detail, which is also the next agent's
 `{{failing_checks}}` and the notebook's CI finding, names each failed suite
 with its link and its fenced summary, shortened so the whole detail fits one
-notebook finding. A failed check GitHub lists without a webhook carries only
-the check's own output, fenced the same way.
+notebook finding. A failed check run GitHub lists without a webhook (the
+step reads the commit's whole check list) gets the same details (KUA-215): the
+step records on itself that it waits (`agent_task_workflow_steps.ci`,
+migration 174), then asks for the same background read of the commit's failed
+checks, and `RecordCIDetails` stores what it found on every open CI step of
+that commit in that repository and wakes it, as for a signal. The step waits
+for it at most three minutes, then names each failed check with its link and,
+once, the fenced summary of the commit's failed checks; without one it says
+Kuayle could not read them, as before. The suites a CI step reads are only
+those its attempt's webhooks reported for the commit it published
+(`head_sha`): a suite of an earlier commit says nothing about this one.
+
+### Workflow CI on an unchanged commit
+
+A CI step judges the commit the task published once (KUA-215). It records
+what it judged on its step (`agent_task_workflow_steps.ci`: the commit, the
+failed checks it saw, the details read and any re-run), so a later CI step on
+the same commit knows the failures it already judged. This matters when the
+work comes back to CI without a new commit: an agent that found the failure
+flaky and changed nothing publishes the same head again, and before KUA-215
+the next CI step failed again within seconds on the same Actions run, until
+the iteration budget ran out (KUA-185).
+
+- When an earlier CI step of the task failed on the commit, the step reads
+  GitHub's whole check list. What still runs is waited for, and CI that now
+  passes passes (`checks_passed`, saying the commit failed CI before).
+- Otherwise the old failures are no new result. The first time, Kuayle asks
+  GitHub to run the failed jobs again (`rerun-failed-jobs` for each Actions run
+  among the failed checks, as the workspace's GitHub App with a token that only
+  has **Actions: write**) and records the request on the step; the step polls
+  every minute. A check's identity is its link, and an Actions job run again
+  gets a new one, so the jobs that failed before are not taken as the re-run's
+  result; GitHub gets ten minutes to start them.
+- CI that still fails on that commit pauses the workflow for a person
+  (`blocked`, workflow `paused`) with "No changes were made since CI failed on
+  `<commit>`, and CI still fails on `<checks>`" instead of sending the same
+  failure back. The CI step closes as `checks_failed` with its detail, and the
+  transition it would take is recorded without being entered. Continuing takes
+  it with the failing checks (not the pause's reason) as `{{failing_checks}}`;
+  stopping fails the task. A later unchanged attempt does not run the jobs a
+  second time: the workflow pauses again at once. A transition that ends the
+  workflow, or a limit, is taken as usual.
+- When the jobs cannot run again (no failed check is an Actions job, the
+  workspace turned pull request actions off, the app lacks Actions write) the
+  workflow pauses at once with that reason; a person can run them on GitHub and
+  continue. GitHub that cannot be reached is asked again five minutes later.
+
+A new commit is judged as usual: its failure goes back to the agent.
 
 ### Kuayle issue comments
 
@@ -923,9 +969,12 @@ capability for a future implementation.
 
 A workflow merges its task's pull request when a person approves its **ship
 approval** (KUA-209): an approval whose approved transition (or its `else`
-without one) leads straight to a `done` end or to a `merge` step
-(`WorkflowGraph.ShipApproval`). The runner (`BE/internal/service/workflow_merge.go`)
-uses the merge mechanism above.
+without one) leads straight to a `done` end or to a `merge` step, or (KUA-216)
+leads through agent steps that plan or change code, each finishing into the
+next, to a `done` end while a CI check's `checks_passed` transition leads to
+the approval (`WorkflowGraph.ShipApproval`). The CI condition tells a go-ahead
+to ship from a plan's approval, which also leads to agents. The runner
+(`BE/internal/service/workflow_merge.go`) uses the merge mechanism above.
 
 - **Entering the ship approval** Kuayle marks a draft pull request ready for
   review (audited `pull_request.marked_ready_by_workflow`) and brings a branch
@@ -955,6 +1004,35 @@ uses the merge mechanism above.
   the creator a person is needed again; approving again retries, denying
   follows the denied transition. While a merge runs nobody decides the step
   (`can_decide` is false) and its timeout does not fire.
+- **A ship approval before agent steps** (KUA-216; the graph of KUA-171:
+  `ci → ship → agent step → done`) is entered the same way. Approving records
+  the merge on the approval, marked `deferred` and pinned to the published
+  commit and its pull request, and the agent steps run as iterations. Their
+  attempts publish no pull request of their own, so the pin keeps the one to
+  merge. The `done` end they reach does not complete the task at once: it
+  stays open in `awaiting_review`, carrying the merge
+  (`AgentTaskRepository.DeferredShipMerge` finds it while only agent steps
+  followed the approval; once the work left them, the approval no longer
+  covers what ships and the end completes as usual). The worker merges as the
+  approver; the merge may take a head the agent steps added commits to, when
+  the approved commit is still in its history (GitHub's comparison), and only
+  once that head's checks pass. Merging completes the task on the end (a held
+  completion: the step closes as `done` with the merge as its detail). Nobody
+  decides at an end, so a merge refused there (a head that no longer contains
+  the approved commit, failing checks, the wait running out) fails the task
+  with the reason; a person retries it or merges on GitHub. A pull request a
+  person merges on GitHub while the end waits completes the task there, since
+  the merge webhook only completes tasks whose attempt published the pull
+  request. Commits someone
+  else pushes while the agent steps run are merged with theirs when they build
+  on the approved commit and pass CI: the approval was given knowing agent
+  steps follow it.
+- **Accept at the ship approval** (KUA-216): `POST /agent-tasks/:taskId/accept`
+  on a task waiting at its ship approval approves it, exactly as approving
+  does, and answers with the task still
+  in `awaiting_review` while Kuayle merges; the task is done only after the
+  merge. A repeated Accept while it merges returns the task. The task card and
+  the approval say so (`ship_merge` on the task's workflow view).
 
 A merge step reached any other way waits for a person to merge (ship from chat
 or merge on GitHub), as before; graphs with a merge step after the approval
@@ -977,7 +1055,9 @@ auto-close rules are not applied on acceptance.
 
 - `POST /agent-tasks/:taskId/accept` with `{"generation": N}` (the attempt the
   user reviewed; unknown fields are rejected) is for the task's creator, under
-  the ordinary task authorization; it answers 200 with the completed task.
+  the ordinary task authorization; it answers 200 with the completed task. On a
+  task waiting at its workflow's ship approval it approves instead and Kuayle
+  merges (see [merging from a workflow](#merging-from-a-workflow), KUA-216).
   Other users get 404 like every task route, a stale generation or a task not
   awaiting review gets 409 `TASK_CONFLICT`. Repeating an acceptance of the same
   attempt returns the completed task again and changes nothing. A task
@@ -989,7 +1069,8 @@ auto-close rules are not applied on acceptance.
   repository re-checks role, issue team visibility and the generation under
   the issue and task locks. An admin's acceptance never returns the creator's
   private task payload. A repeated or resumed approval converges on the same
-  completed task.
+  completed task. The request is to accept without merging and its card says
+  so, so it never merges, also at a ship approval.
 
 Because merge completion only considers tasks still in `awaiting_review`, a
 later merge webhook or the merge reconciler finding the accepted pull request
@@ -2304,8 +2385,9 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   from choices; running tasks keep their pinned version.
 - **Graph**: nodes `start`, `agent` (profile and iteration prompt template),
   `check` (`tests`: the independent check; `ci`: the pull request's CI),
-  `approval` (an approval leading to `done` or a merge step is the ship approval,
-  which merges the pull request when approved: see
+  `approval` (an approval leading to `done` or a merge step, or after CI passed
+  through agent steps to `done`, is the ship approval, which merges the pull
+  request when approved: see
   [merging from a workflow](#merging-from-a-workflow)), `publish`, `merge` (after
   an approved ship approval it merges; otherwise it waits until the pull request
   merges, through the [ship](conversations.md) chain or GitHub; the merge
@@ -2318,7 +2400,10 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   run or status for the published commit and all of them completed
   successfully with the whole list read (webhooks only report completed
   suites, so a fast suite passing says nothing about a slow one); it polls
-  every minute while checks run and every five minutes while none started.
+  every minute while checks run and every five minutes while none started. It
+  reads only results for the commit its attempt published, and a commit an
+  earlier CI step failed on is not failed again on the same results: see
+  [workflow CI on an unchanged commit](#workflow-ci-on-an-unchanged-commit).
   Edges carry a condition the source node can produce (`agent_finished`,
   `agent_failed`, `checks_passed`, `checks_failed`, `review_approved`,
   `review_changes_requested`, `approval_approved`, `approval_denied`,
@@ -2353,7 +2438,17 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   the step, the profile and what is wrong, as the `400`/`403` message of the
   task composer and as the error on the assistant's approval card.
 - **Budget**: `max_iterations`, `max_minutes` and `on_exhausted` (`fail` or
-  `ask`). A visit limit or the budget either fails the task or pauses the
+  `ask`). An **iteration** is one round of work in the worktree
+  (`WorkflowGraph.StartsIteration`, KUA-215): it starts when the work enters an
+  agent step that plans or changes code from anything else (the start, a
+  check, a publication, a review, an approval) or after an agent step failed.
+  An agent step entered because the agent step before it finished continues
+  the round: an orchestrator's plan and the implementer it hands off to are
+  one iteration, as is a chain of implementers. So `max_iterations: 8` on
+  `start → orchestrator → implementer → publish → review → …` is eight rounds
+  of review (it was four), the templates count as before, and a retry after a
+  failed agent still counts. The iteration budget is checked where a round starts, never
+  between the steps of a round. A visit limit or the budget either fails the task or pauses the
   workflow for a person to continue or stop. Limits are checked at every
   transition, and the time budget also wakes an automated waiting step (a
   reviewer or CI) when it runs out: the task then stays on that open step
@@ -2399,7 +2494,8 @@ per task: the task engine reports each outcome (agent iteration finished or
 failed, independent check, publication) to `WorkflowRunner.Outcome`, which
 plans the next moves and applies them, with the step rows, in the same
 transaction as the task's state change. Agent steps reuse the iteration
-machinery (each is an iteration whose reason names the node and transition),
+machinery (each runs as a new attempt whose reason names the node and
+transition; which of them start a budget iteration is described above),
 check and publish nodes reuse validation and publication, reviewer steps reuse
 review tasks, and waiting nodes (review, CI, approval, merge, timeout) park the
 task in `awaiting_review` with `workflow_wake_at`. A waiting node is

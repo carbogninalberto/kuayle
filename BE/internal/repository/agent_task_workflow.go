@@ -119,6 +119,12 @@ type WorkflowApply struct {
 	// FailureClass is who or what made an agent's iteration fail, when the
 	// move ends the workflow in failure. The step's detail keeps the cause.
 	FailureClass domain.FailureClass
+	// CI is what the CI check step being closed judged (KUA-215).
+	CI *domain.WorkflowCIRecord
+	// StepMerge is the merge a person approved at the ship approval being
+	// closed, deferred until the agent steps after it reach the done end
+	// (KUA-216).
+	StepMerge *domain.MergeWait
 }
 
 func workflowEvent(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) error {
@@ -426,7 +432,9 @@ func ComputeWorkflowApply(task domain.AgentTask, apply WorkflowApply, now time.T
 		if i < last {
 			outcome := move.Immediate
 			step.Outcome, step.FinishedAt = &outcome, &now
-		} else if to.Type == domain.WorkflowNodeEnd {
+		} else if to.Type == domain.WorkflowNodeEnd && apply.Entry.Kind != WorkflowEnterWait {
+			// An end is finished when it is entered, unless the task waits
+			// there for the merge a ship approval deferred to it (KUA-216).
 			outcome := to.Outcome
 			step.Outcome, step.FinishedAt = &outcome, &now
 		}
@@ -511,10 +519,14 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 		// Only an unfinished step is held: a waiting one stops (fails or
 		// pauses), and a paused one waits again. A hold keeps the sequence,
 		// so the status is what fences a replayed decision.
-		want := domain.WorkflowStatusWaiting
+		// A done end waiting for its deferred merge completes once merged
+		// (KUA-216).
+		want, endOnly := domain.WorkflowStatusWaiting, false
 		switch apply.Entry.Kind {
 		case WorkflowEnterWait:
 			want = domain.WorkflowStatusPaused
+		case WorkflowEnterComplete:
+			endOnly = true
 		case WorkflowEnterFail, WorkflowEnterPause:
 		default:
 			return ErrAgentTaskConflict
@@ -523,7 +535,7 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 			return ErrAgentTaskConflict
 		}
 		var open bool
-		if err := tx.GetContext(ctx, &open, `SELECT EXISTS(SELECT 1 FROM agent_task_workflow_steps WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL)`, task.ID, apply.Sequence); err != nil {
+		if err := tx.GetContext(ctx, &open, `SELECT EXISTS(SELECT 1 FROM agent_task_workflow_steps WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL AND (NOT $3 OR node_type='end'))`, task.ID, apply.Sequence, endOnly); err != nil {
 			return err
 		}
 		if !open {
@@ -547,9 +559,30 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 				return err
 			}
 		}
+		if apply.Entry.Kind == WorkflowEnterComplete {
+			if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET outcome=COALESCE(NULLIF($3,''),outcome),detail=CASE WHEN $4='' THEN detail ELSE $4 END,finished_at=COALESCE(finished_at,now()) WHERE task_id=$1 AND sequence=$2`,
+				task.ID, apply.Sequence, apply.Outcome, truncateBytes(apply.Detail, 16000)); err != nil {
+				return err
+			}
+		}
 	} else if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET outcome=COALESCE(NULLIF($3,''),outcome),detail=CASE WHEN $4='' THEN detail ELSE $4 END,decided_by=COALESCE($5,decided_by),finished_at=COALESCE(finished_at,now()) WHERE task_id=$1 AND sequence=$2`,
 		task.ID, apply.Sequence, apply.Outcome, truncateBytes(apply.Detail, 16000), apply.Actor); err != nil {
 		return err
+	}
+	// What the closed CI step judged, and the merge a person approved at the
+	// closed ship approval for the done end after its agent steps.
+	if !apply.Hold && (apply.CI != nil || apply.StepMerge != nil) {
+		ci, err := jsonOrNil(apply.CI)
+		if err != nil {
+			return err
+		}
+		merge, err := jsonOrNil(apply.StepMerge)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET ci=COALESCE($3::jsonb,ci),merge=COALESCE($4::jsonb,merge) WHERE task_id=$1 AND sequence=$2`, task.ID, apply.Sequence, ci, merge); err != nil {
+			return err
+		}
 	}
 	if (apply.Plan != "" || apply.PlanFailed) && !apply.Hold {
 		if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET plan=$3 WHERE task_id=$1 AND sequence=$2`, task.ID, apply.Sequence, apply.Plan); err != nil {
@@ -642,6 +675,19 @@ func markWorkflowReviewNotice(ctx context.Context, tx *sqlx.Tx, task domain.Agen
 	_, err := tx.ExecContext(ctx, `UPDATE agent_task_transitions SET notification_pending=$2
  WHERE sequence=(SELECT max(sequence) FROM agent_task_transitions WHERE task_id=$1 AND to_state='awaiting_review')`, task.ID, pending)
 	return err
+}
+
+// jsonOrNil encodes a value for a JSONB parameter; nil stays NULL.
+func jsonOrNil[T any](value *T) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	text := string(data)
+	return &text, nil
 }
 
 func nullTime(at time.Time) *time.Time {
@@ -990,6 +1036,10 @@ var (
 	passedCIOutcomes = map[string]bool{"success": true, "neutral": true, "skipped": true}
 )
 
+// WorkflowCI reads the suites webhooks reported for the published commit of
+// the current attempt only (KUA-215): a suite of an earlier commit, even of
+// the same attempt, says nothing about this one. Without a published commit
+// there is nothing to report.
 func (r *AgentTaskRepository) WorkflowCI(ctx context.Context, task domain.AgentTask) (*WorkflowCI, error) {
 	out := &WorkflowCI{}
 	if target, err := reviewTarget(ctx, r.db, task); err == nil {
@@ -997,8 +1047,11 @@ func (r *AgentTaskRepository) WorkflowCI(ctx context.Context, task domain.AgentT
 	} else if !errors.Is(err, ErrNoReviewTarget) {
 		return nil, err
 	}
+	if out.CommitSHA == "" {
+		return out, nil
+	}
 	var signals []domain.AgentTaskSignal
-	if err := r.db.SelectContext(ctx, &signals, `SELECT * FROM agent_task_signals WHERE task_id=$1 AND run_id=$2 AND kind='ci' ORDER BY updated_at`, task.ID, task.RunID); err != nil {
+	if err := r.db.SelectContext(ctx, &signals, `SELECT * FROM agent_task_signals WHERE task_id=$1 AND run_id=$2 AND kind='ci' AND head_sha=$3 ORDER BY updated_at`, task.ID, task.RunID, out.CommitSHA); err != nil {
 		return nil, err
 	}
 	for _, signal := range signals {
@@ -1097,6 +1150,67 @@ func (r *AgentTaskRepository) SetWorkflowWake(ctx context.Context, claimed domai
 		return ErrAgentTaskConflict
 	}
 	return nil
+}
+
+// RecordWorkflowCI stores what the CI check step the task waits on knows so
+// far (KUA-215: the details asked for, a re-run requested) and when to
+// evaluate it again, fenced by the worker lease like SetWorkflowWake.
+func (r *AgentTaskRepository) RecordWorkflowCI(ctx context.Context, claimed domain.AgentTask, record domain.WorkflowCIRecord, wake *time.Time) error {
+	data, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_wake_at=$3 WHERE id=$1 AND lease_token=$2 AND workflow_sequence=$4 AND workflow_status='waiting'`, claimed.ID, claimed.LeaseToken, wake, claimed.WorkflowSequence)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrAgentTaskConflict
+	}
+	res, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET ci=$3 WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL AND node_type='check'`, claimed.ID, claimed.WorkflowSequence, data)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrAgentTaskConflict
+	}
+	return tx.Commit()
+}
+
+// WorkflowCIHistory lists the task's CI check steps that judged the commit,
+// oldest first, the open one included (KUA-215).
+func (r *AgentTaskRepository) WorkflowCIHistory(ctx context.Context, task domain.AgentTask, head string) ([]domain.WorkflowStep, error) {
+	steps := []domain.WorkflowStep{}
+	if head == "" {
+		return steps, nil
+	}
+	err := r.db.SelectContext(ctx, &steps, `SELECT * FROM agent_task_workflow_steps WHERE task_id=$1 AND node_type='check' AND ci->>'head'=$2 ORDER BY sequence`, task.ID, head)
+	return steps, err
+}
+
+// DeferredShipMerge is the merge a person approved at a ship approval whose
+// approved path runs through agent steps to a done end (KUA-216): the newest
+// step carrying a deferred merge, as long as every step entered after it is an
+// agent step. Once the work left those agent steps (to a check, a
+// publication, another approval), the approval no longer covers what the task
+// ships, and it returns nil.
+func (r *AgentTaskRepository) DeferredShipMerge(ctx context.Context, task domain.AgentTask) (*domain.MergeWait, error) {
+	var step domain.WorkflowStep
+	err := r.db.GetContext(ctx, &step, `SELECT * FROM agent_task_workflow_steps s WHERE s.task_id=$1 AND s.node_type='approval' AND s.finished_at IS NOT NULL AND s.merge->>'deferred'='true'
+ AND NOT EXISTS(SELECT 1 FROM agent_task_workflow_steps x WHERE x.task_id=s.task_id AND x.sequence>s.sequence AND x.node_type<>'agent')
+ ORDER BY s.sequence DESC LIMIT 1`, task.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return step.MergeWait(), nil
 }
 
 // RetryWorkflow places a task a person retries back on its latest
