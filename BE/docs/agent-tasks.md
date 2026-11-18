@@ -1185,10 +1185,14 @@ it; with checks still running, that they are no reason to request changes;
 with a failed check, that it supports a finding only when the reviewer can tie
 it to the change. When the attempt succeeds, `CompleteReview`
 reads the attempt's recorded summary (the harness's final message, already
-capped at 4,000 bytes by the provider parser), normalizes the verdict
-(`unknown` when missing; never treated as approval), stores findings as
-bounded valid UTF-8 (16 KiB column limit) and completes the review in one
-fenced transaction. Every review transition emits `task.review_updated` to the
+capped at 4,000 bytes by the provider parser), normalizes the verdict, stores
+findings as bounded valid UTF-8 (16 KiB column limit) and completes the review
+in one fenced transaction. An answer without a verdict it can read fails the
+review instead, in the same transaction, through the usual runtime cleanup,
+with the reason `Agent failure: the reviewer's answer had no verdict`; no
+verdict, findings, lesson or pull request comment is recorded for it (KUA-227).
+A workflow's reviewer step then leaves on `agent_failed` with that reason,
+never as an approval. Every review transition emits `task.review_updated` to the
 reviewed task's conversation, so its card refreshes.
 
 If the user asked to post, the comment becomes due once the review completes.
@@ -1495,7 +1499,14 @@ success.
 
 The manager buffers logical lines, redacts known secrets before persistence,
 including multiline fragments and JSON-escaped forms, and sanitizes invalid UTF-8
-and NUL. Each stream is capped at 4 MiB and 4,096 logical records, plus a limit
+and NUL. A line of a multiline secret is redacted on its own only when, trimmed,
+it has at least 8 characters and a letter or digit, and every string value of
+8 or more characters in a JSON secret is redacted wherever it is printed
+(`sanitize.SecretReplacer`). So the punctuation of a pretty-printed JSON
+credential, such as the Codex sign-in's `{` and `}` lines, never redacts the
+braces of the output, while its tokens stay redacted on their own, inside an
+event or escaped (KUA-227). Redaction then only replaces string content, so
+event lines stay JSON and the final message is parsed from them. Each stream is capped at 4 MiB and 4,096 logical records, plus a limit
 marker. A stored line never exceeds 16 KiB. A longer line that is one JSON
 object (a harness event, up to 1 MiB) is redacted whole, its decoded values are
 redacted again, and then every string value over a limit is cut to it (the

@@ -1071,3 +1071,24 @@ func TestWorkflowCIStepSaysARunnerFailureNeedsARerun(t *testing.T) {
 	require.Contains(t, h.w.steps[h.w.task.WorkflowSequence-1].Detail, "Docker Runtime Integration")
 	require.Equal(t, "queued", h.w.task.State, "the next iteration is queued")
 }
+
+// A review whose answer had no verdict fails (KUA-227). The reviewer step
+// then leaves on agent_failed, never as an approval or as changes requested,
+// and says why.
+func TestAReviewerStepWhoseReviewHadNoVerdictFailsAndSaysWhy(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{})
+	h.agentFinishes("Added a theme toggle")
+	h.published()
+	step := h.current()
+	require.Equal(t, "review", step.NodeID)
+	h.w.reviews[*step.ReviewTaskID] = &repository.WorkflowReview{State: "failed", Reason: "Agent failure: the reviewer's answer had no verdict"}
+	now := h.w.now
+	h.w.task.WorkflowWakeAt = &now
+	require.True(t, h.tick())
+	reviewed := h.w.steps[step.Sequence]
+	require.NotNil(t, reviewed.Outcome)
+	require.Equal(t, domain.WorkflowAgentFailed, *reviewed.Outcome)
+	require.Equal(t, "The review did not finish (failed): Agent failure: the reviewer's answer had no verdict", reviewed.Detail)
+	require.Equal(t, "failed", h.current().NodeID, "the template's review-failed transition ends the workflow")
+	require.Equal(t, domain.WorkflowStatusFailed, *h.w.task.WorkflowStatus)
+}

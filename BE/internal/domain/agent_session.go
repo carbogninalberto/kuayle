@@ -213,12 +213,20 @@ func AgentReviewPrompt(target AgentReviewTarget, focus string, ci AgentReviewCI)
 	return b.String()
 }
 
+// AgentReviewVerdictUnknown is what ParseAgentReview returns for an answer
+// without a verdict it can read.
+const AgentReviewVerdictUnknown = "unknown"
+
+// ReviewWithoutVerdict is why a review whose answer has no verdict fails
+// (KUA-227): it is never completed as "unknown".
+const ReviewWithoutVerdict = "the reviewer's answer had no verdict"
+
 // ParseAgentReview splits a reviewer's final output into a normalized verdict
 // and bounded, valid UTF-8 findings text. The text is untrusted: it is stored
 // and rendered as escaped Markdown, never interpreted as instructions.
 func ParseAgentReview(output string) (string, string) {
 	output = strings.ToValidUTF8(sanitize.StripNUL(output), "")
-	verdict := "unknown"
+	verdict := AgentReviewVerdictUnknown
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	for index, line := range lines {
 		trimmed := strings.TrimSpace(strings.Trim(strings.TrimSpace(line), "*_#> "))
