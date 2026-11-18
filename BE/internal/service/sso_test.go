@@ -48,6 +48,11 @@ func newSSOFakeRepo() *ssoFakeRepo {
 	}
 }
 
+func (r *ssoFakeRepo) RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (bool, error) {
+	config := r.configs[workspaceID]
+	return config != nil && config.Enabled && config.RequireSSO, nil
+}
+
 func (r *ssoFakeRepo) GetConfig(ctx context.Context, workspaceID uuid.UUID) (*domain.SSOConfig, error) {
 	config := r.configs[workspaceID]
 	if config == nil {

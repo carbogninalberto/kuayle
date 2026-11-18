@@ -143,6 +143,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 		public(auth, http.MethodGet, "/sso/:slug", h.sso.Public)
 		public(auth, http.MethodGet, "/sso/:slug/start", h.sso.Start)
 		public(auth, http.MethodGet, "/sso/:slug/callback", h.sso.Callback)
+		public(auth, http.MethodGet, "/sso/:slug/metadata", h.sso.Metadata)
+		public(auth, http.MethodPost, "/sso/:slug/callback", h.sso.Callback)
 	}
 
 	// Public share routes (no auth, rate limited)

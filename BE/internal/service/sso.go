@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -28,7 +30,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// SSOLoginStateTTL is how long a started OIDC flow may be completed.
+// SSOLoginStateTTL is how long a started SSO flow may be completed.
 const SSOLoginStateTTL = 10 * time.Minute
 
 // ssoInstanceMissTTL is how long a missing instance workspace is remembered,
@@ -37,7 +39,7 @@ const SSOLoginStateTTL = 10 * time.Minute
 const ssoInstanceMissTTL = 30 * time.Second
 
 var (
-	// ErrSSONotConfigured: the workspace has no enabled OIDC configuration.
+	// ErrSSONotConfigured: the workspace has no enabled SSO configuration.
 	ErrSSONotConfigured = errors.New("SSO is not configured for this workspace")
 	// ErrSSOStateInvalid: the callback state is unknown, expired, already used,
 	// belongs to another workspace or browser.
@@ -101,6 +103,7 @@ type SSOWorkspaceLookup interface {
 }
 
 type resolvedSSOConfig struct {
+	SAMLMetadata      string
 	WorkspaceID       uuid.UUID
 	IssuerURL         string
 	ClientID          string
@@ -121,9 +124,11 @@ type cachedSSOProvider struct {
 	provider  *oidc.Provider
 }
 
-// SSOService runs the OIDC authorization-code flow and manages per-workspace
+// SSOService runs the OIDC and SAML flows and manages per-workspace
 // configuration, identities and just-in-time provisioning.
 type SSOService struct {
+	samlKey       *rsa.PrivateKey
+	samlCert      *x509.Certificate
 	repo          repository.SSORepo
 	users         repository.UserRepo
 	workspaces    SSOWorkspaceLookup
@@ -267,6 +272,7 @@ func (s *SSOService) resolved(ctx context.Context, workspaceID uuid.UUID) (*reso
 		}
 	}
 	return &resolvedSSOConfig{
+		SAMLMetadata:   stored.SAMLMetadata,
 		WorkspaceID:    stored.WorkspaceID,
 		IssuerURL:      strings.TrimSpace(stored.IssuerURL),
 		ClientID:       stored.ClientID,
@@ -291,11 +297,7 @@ func (s *SSOService) RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (bo
 	if instanceID != uuid.Nil && instanceID == workspaceID {
 		return s.instance.RequireSSO, nil
 	}
-	stored, err := s.repo.GetConfig(ctx, workspaceID)
-	if err != nil {
-		return false, err
-	}
-	return stored != nil && stored.Enabled && stored.RequireSSO, nil
+	return s.repo.RequiresSSO(ctx, workspaceID)
 }
 
 // UserSSORequired reports whether every workspace the user belongs to requires
@@ -349,6 +351,7 @@ func (s *SSOService) GetConfig(ctx context.Context, slug string) (*dto.SSOConfig
 		return nil, err
 	}
 	response := &dto.SSOConfigResponse{
+		Protocol:          domain.ProviderOIDC,
 		DefaultRole:       domain.RoleMember,
 		AllowedDomains:    []string{},
 		RedirectURI:       s.redirectURI(ws.Slug),
@@ -357,6 +360,9 @@ func (s *SSOService) GetConfig(ctx context.Context, slug string) (*dto.SSOConfig
 	if config == nil {
 		response.Enabled = false
 		return response, nil
+	}
+	if config.SAMLMetadata != "" {
+		response.Protocol = domain.ProviderSAML
 	}
 	response.IssuerURL = config.IssuerURL
 	response.ClientID = config.ClientID
@@ -370,7 +376,7 @@ func (s *SSOService) GetConfig(ctx context.Context, slug string) (*dto.SSOConfig
 	return response, nil
 }
 
-// SaveConfig creates or updates the workspace OIDC configuration. A request
+// SaveConfig creates or updates the workspace SSO configuration. A request
 // without a client secret keeps the stored one.
 func (s *SSOService) SaveConfig(ctx context.Context, slug string, req dto.SSOConfigRequest) (*dto.SSOConfigResponse, error) {
 	ws, err := s.workspace(ctx, slug)
@@ -386,13 +392,49 @@ func (s *SSOService) SaveConfig(ctx context.Context, slug string, req dto.SSOCon
 	if !validSSODefaultRole(req.DefaultRole) {
 		return nil, ssoInvalidf("Default role must be member or guest")
 	}
+	domains, err := validDomains(req.AllowedDomains)
+	if err != nil {
+		return nil, err
+	}
+	existing, err := s.repo.GetConfig(ctx, ws.ID)
+	if err != nil {
+		return nil, err
+	}
+	config := &domain.SSOConfig{
+		WorkspaceID:    ws.ID,
+		AllowedDomains: domains,
+		ProviderName:   strings.TrimSpace(req.ProviderName),
+		DefaultRole:    req.DefaultRole,
+		RequireSSO:     req.RequireSSO,
+		Enabled:        req.Enabled,
+	}
+	if req.Protocol == domain.ProviderSAML {
+		if req.MetadataXML == "" && req.MetadataURL == "" && existing != nil && existing.SAMLMetadata != "" {
+			config.SAMLMetadata = existing.SAMLMetadata
+		} else {
+			config.SAMLMetadata, err = s.readIDPMetadata(ctx, req)
+		}
+	} else {
+		err = s.configureOIDC(ctx, config, existing, req)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.SaveConfig(ctx, config); err != nil {
+		return nil, err
+	}
+	s.invalidateProvider(ws.ID)
+	return s.GetConfig(ctx, slug)
+}
+
+func (s *SSOService) configureOIDC(ctx context.Context, config, existing *domain.SSOConfig, req dto.SSOConfigRequest) error {
 	rawIssuer := strings.TrimSpace(req.IssuerURL)
 	issuer, err := validate.OperatorBaseURL(rawIssuer)
 	if err != nil {
-		return nil, ssoInvalidf("Issuer URL %s", err.Error())
+		return ssoInvalidf("Issuer URL %s", err.Error())
 	}
 	if issuer.Scheme != "https" && !s.allowPrivate {
-		return nil, ssoInvalidf("Issuer URL must use https; set OIDC_ALLOW_PRIVATE_NETWORK for a private http identity provider")
+		return ssoInvalidf("Issuer URL must use https; set OIDC_ALLOW_PRIVATE_NETWORK for a private http identity provider")
 	}
 	// go-oidc matches the issuer exactly. OperatorBaseURL drops a trailing
 	// slash for dialing, so put it back when the admin entered one: Auth0's
@@ -403,14 +445,10 @@ func (s *SSOService) SaveConfig(ctx context.Context, slug string, req dto.SSOCon
 	}
 	clientID := strings.TrimSpace(req.ClientID)
 	if clientID == "" {
-		return nil, ssoInvalidf("Client ID is required")
+		return ssoInvalidf("Client ID is required")
 	}
-	domains, err := validDomains(req.AllowedDomains)
-	if err != nil {
-		return nil, err
-	}
-	if req.Enabled && len(domains) == 0 && validate.SharedOIDCIssuer(issuerURL) {
-		return nil, ssoInvalidf("Allowed email domains are required for a shared identity provider such as Google or Microsoft /common")
+	if req.Enabled && len(config.AllowedDomains) == 0 && validate.SharedOIDCIssuer(issuerURL) {
+		return ssoInvalidf("Allowed email domains are required for a shared identity provider such as Google or Microsoft /common")
 	}
 
 	// Discovery validates the issuer and must happen before the secret is
@@ -418,41 +456,25 @@ func (s *SSOService) SaveConfig(ctx context.Context, slug string, req dto.SSOCon
 	probe := &resolvedSSOConfig{IssuerURL: issuerURL, ClientID: clientID}
 	probeCtx := oidc.ClientContext(ctx, s.httpClient)
 	if _, err := oidc.NewProvider(probeCtx, probe.IssuerURL); err != nil {
-		return nil, ssoInvalidf("OIDC discovery failed for the issuer URL")
+		return ssoInvalidf("OIDC discovery failed for the issuer URL")
 	}
 
-	existing, err := s.repo.GetConfig(ctx, ws.ID)
-	if err != nil {
-		return nil, err
-	}
-	config := &domain.SSOConfig{
-		WorkspaceID:    ws.ID,
-		IssuerURL:      issuerURL,
-		ClientID:       clientID,
-		AllowedDomains: domains,
-		ProviderName:   strings.TrimSpace(req.ProviderName),
-		DefaultRole:    req.DefaultRole,
-		RequireSSO:     req.RequireSSO,
-		Enabled:        req.Enabled,
-	}
+	config.IssuerURL = issuerURL
+	config.ClientID = clientID
 	if existing != nil {
 		config.ClientSecretEncrypted = existing.ClientSecretEncrypted
 	}
 	if req.ClientSecret != nil && strings.TrimSpace(*req.ClientSecret) != "" {
 		encrypted, err := crypto.Encrypt(*req.ClientSecret, s.encryptionKey)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		config.ClientSecretEncrypted = encrypted
 	}
-	if err := s.repo.SaveConfig(ctx, config); err != nil {
-		return nil, err
-	}
-	s.invalidateProvider(ws.ID)
-	return s.GetConfig(ctx, slug)
+	return nil
 }
 
-// DeleteConfig removes the workspace's OIDC configuration.
+// DeleteConfig removes the workspace's SSO configuration.
 func (s *SSOService) DeleteConfig(ctx context.Context, slug string) error {
 	ws, err := s.workspace(ctx, slug)
 	if err != nil {
@@ -488,7 +510,7 @@ func (s *SSOService) PublicInfo(ctx context.Context, slug string) (*dto.SSOPubli
 	return &dto.SSOPublicInfo{Enabled: true, ProviderName: name}, nil
 }
 
-// Start begins the authorization-code flow and returns the IdP URL to send the
+// Start begins the workspace sign-in flow and returns the IdP URL to send the
 // browser to plus the binding value the callback cookie must carry.
 func (s *SSOService) Start(ctx context.Context, slug, redirectAfter string) (string, string, error) {
 	ws, err := s.workspace(ctx, slug)
@@ -498,7 +520,7 @@ func (s *SSOService) Start(ctx context.Context, slug, redirectAfter string) (str
 	return s.startFlow(ctx, ws, redirectAfter, nil)
 }
 
-// StartLink begins an authorization-code flow that links the returned identity
+// StartLink begins a sign-in flow that links the returned identity
 // to the signed-in account. Only the account's own session may request it.
 func (s *SSOService) StartLink(ctx context.Context, slug string, userID uuid.UUID, redirectAfter string) (string, string, error) {
 	ws, err := s.workspace(ctx, slug)
@@ -523,11 +545,6 @@ func (s *SSOService) startFlow(ctx context.Context, ws *domain.Workspace, redire
 	if config == nil || !config.Enabled {
 		return "", "", ErrSSONotConfigured
 	}
-	provider, err := s.provider(ctx, config)
-	if err != nil {
-		return "", "", err
-	}
-
 	state, err := randomValue()
 	if err != nil {
 		return "", "", err
@@ -540,10 +557,28 @@ func (s *SSOService) startFlow(ctx context.Context, ws *domain.Workspace, redire
 	if err != nil {
 		return "", "", err
 	}
-	verifier := oauth2.GenerateVerifier()
-	encryptedVerifier, err := crypto.Encrypt(verifier, s.encryptionKey)
-	if err != nil {
-		return "", "", err
+	var authURL, encryptedVerifier string
+	if config.SAMLMetadata != "" {
+		authURL, nonce, err = s.startSAML(ws.Slug, config.SAMLMetadata, state)
+		if err != nil {
+			return "", "", err
+		}
+	} else {
+		provider, err := s.provider(ctx, config)
+		if err != nil {
+			return "", "", err
+		}
+
+		verifier := oauth2.GenerateVerifier()
+		encryptedVerifier, err = crypto.Encrypt(verifier, s.encryptionKey)
+		if err != nil {
+			return "", "", err
+		}
+		oauthConfig := s.oauthConfig(ws.Slug, config, provider)
+		authURL = oauthConfig.AuthCodeURL(state,
+			oidc.Nonce(nonce),
+			oauth2.S256ChallengeOption(verifier),
+		)
 	}
 	loginState := &domain.SSOLoginState{
 		StateHash:             hashValue(state),
@@ -561,11 +596,6 @@ func (s *SSOService) startFlow(ctx context.Context, ws *domain.Workspace, redire
 	// Opportunistic cleanup; a failure does not block a sign-in.
 	_ = s.repo.DeleteExpiredLoginStates(ctx)
 
-	oauthConfig := s.oauthConfig(ws.Slug, config, provider)
-	authURL := oauthConfig.AuthCodeURL(state,
-		oidc.Nonce(nonce),
-		oauth2.S256ChallengeOption(verifier),
-	)
 	return authURL, bind, nil
 }
 
@@ -578,6 +608,14 @@ func (s *SSOService) Callback(ctx context.Context, slug, state, code, bindValue 
 // CallbackRedirect finishes the flow: verify state, browser binding, PKCE and the ID
 // token, then link or provision the user and mint an SSO session.
 func (s *SSOService) CallbackRedirect(ctx context.Context, slug, state, code, bindValue string) (*domain.User, string, string, string, error) {
+	return s.completeCallback(ctx, slug, state, code, bindValue, false)
+}
+
+func (s *SSOService) SAMLCallback(ctx context.Context, slug, state, encoded, bind string) (*domain.User, string, string, string, error) {
+	return s.completeCallback(ctx, slug, state, encoded, bind, true)
+}
+
+func (s *SSOService) completeCallback(ctx context.Context, slug, state, code, bindValue string, isSAML bool) (*domain.User, string, string, string, error) {
 	ws, err := s.workspace(ctx, slug)
 	if err != nil {
 		return nil, "", "", "", err
@@ -601,44 +639,21 @@ func (s *SSOService) CallbackRedirect(ctx context.Context, slug, state, code, bi
 		subtle.ConstantTimeCompare([]byte(hashValue(bindValue)), []byte(loginState.BindHash)) != 1 {
 		return nil, "", "", "", ErrSSOStateInvalid
 	}
-	verifier, err := crypto.Decrypt(loginState.CodeVerifierEncrypted, s.encryptionKey)
-	if err != nil {
+	if isSAML != (config.SAMLMetadata != "") || isSAML != (loginState.CodeVerifierEncrypted == "") {
 		return nil, "", "", "", ErrSSOStateInvalid
 	}
-	provider, err := s.provider(ctx, config)
+	var claims *ssoClaims
+	if isSAML {
+		claims, err = s.verifySAML(ws.Slug, config.SAMLMetadata, loginState.Nonce, code)
+	} else {
+		claims, err = s.verifyOIDC(ctx, ws, config, loginState, code)
+	}
 	if err != nil {
 		return nil, "", "", "", err
 	}
-	oauthConfig := s.oauthConfig(ws.Slug, config, provider)
-	exchangeCtx := oidc.ClientContext(ctx, s.httpClient)
-	token, err := oauthConfig.Exchange(exchangeCtx, code, oauth2.VerifierOption(verifier))
-	if err != nil {
-		return nil, "", "", "", ErrSSOTokenInvalid
-	}
-	rawIDToken, ok := token.Extra("id_token").(string)
-	if !ok || rawIDToken == "" {
-		return nil, "", "", "", ErrSSOTokenInvalid
-	}
-	idToken, err := provider.Verifier(&oidc.Config{ClientID: config.ClientID}).Verify(exchangeCtx, rawIDToken)
-	if err != nil {
-		return nil, "", "", "", ErrSSOTokenInvalid
-	}
-	if subtle.ConstantTimeCompare([]byte(idToken.Nonce), []byte(loginState.Nonce)) != 1 {
-		return nil, "", "", "", ErrSSOTokenInvalid
-	}
-
-	var claims struct {
-		Email             string `json:"email"`
-		EmailVerified     any    `json:"email_verified"`
-		Name              string `json:"name"`
-		PreferredUsername string `json:"preferred_username"`
-	}
-	if err := idToken.Claims(&claims); err != nil {
-		return nil, "", "", "", ErrSSOTokenInvalid
-	}
 	email := strings.ToLower(strings.TrimSpace(claims.Email))
 
-	identity, err := s.repo.GetIdentity(ctx, ws.ID, idToken.Issuer, idToken.Subject)
+	identity, err := s.repo.GetIdentity(ctx, ws.ID, claims.Issuer, claims.Subject)
 	if err != nil {
 		return nil, "", "", "", err
 	}
@@ -659,8 +674,8 @@ func (s *SSOService) CallbackRedirect(ctx context.Context, slug, state, code, bi
 		if len(config.AllowedDomains) > 0 && (email == "" || !domainAllowed(email, config.AllowedDomains)) {
 			return nil, "", "", "", ErrSSODomainNotAllowed
 		}
-		if _, err := s.repo.LinkIdentity(ctx, linkedUserID, ws.ID, domain.ProviderOIDC,
-			idToken.Issuer, idToken.Subject, email); err != nil {
+		if _, err := s.repo.LinkIdentity(ctx, linkedUserID, ws.ID, claims.Provider,
+			claims.Issuer, claims.Subject, email); err != nil {
 			if errors.Is(err, repository.ErrSSOIdentityTaken) {
 				return nil, "", "", "", ErrSSOIdentityTaken
 			}
@@ -727,9 +742,9 @@ func (s *SSOService) CallbackRedirect(ctx context.Context, slug, state, code, bi
 	}
 	user, err := s.repo.ProvisionIdentity(ctx, repository.SSOProvisionParams{
 		WorkspaceID:  ws.ID,
-		Issuer:       idToken.Issuer,
-		Subject:      idToken.Subject,
-		Provider:     domain.ProviderOIDC,
+		Issuer:       claims.Issuer,
+		Subject:      claims.Subject,
+		Provider:     claims.Provider,
 		Email:        email,
 		Name:         name,
 		DefaultRole:  normalizedDefaultRole(config.DefaultRole),
@@ -749,6 +764,48 @@ func (s *SSOService) CallbackRedirect(ctx context.Context, slug, state, code, bi
 		return nil, "", "", "", err
 	}
 	return user, accessToken, refreshToken, loginState.RedirectAfter, nil
+}
+
+type ssoClaims struct {
+	Issuer, Subject, Provider string `json:"-"`
+	Email                     string `json:"email"`
+	EmailVerified             any    `json:"email_verified"`
+	Name                      string `json:"name"`
+	PreferredUsername         string `json:"preferred_username"`
+}
+
+func (s *SSOService) verifyOIDC(ctx context.Context, ws *domain.Workspace, config *resolvedSSOConfig, loginState *domain.SSOLoginState, code string) (*ssoClaims, error) {
+	verifier, err := crypto.Decrypt(loginState.CodeVerifierEncrypted, s.encryptionKey)
+	if err != nil {
+		return nil, ErrSSOStateInvalid
+	}
+	provider, err := s.provider(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	oauthConfig := s.oauthConfig(ws.Slug, config, provider)
+	exchangeCtx := oidc.ClientContext(ctx, s.httpClient)
+	token, err := oauthConfig.Exchange(exchangeCtx, code, oauth2.VerifierOption(verifier))
+	if err != nil {
+		return nil, ErrSSOTokenInvalid
+	}
+	rawIDToken, ok := token.Extra("id_token").(string)
+	if !ok || rawIDToken == "" {
+		return nil, ErrSSOTokenInvalid
+	}
+	idToken, err := provider.Verifier(&oidc.Config{ClientID: config.ClientID}).Verify(exchangeCtx, rawIDToken)
+	if err != nil {
+		return nil, ErrSSOTokenInvalid
+	}
+	if subtle.ConstantTimeCompare([]byte(idToken.Nonce), []byte(loginState.Nonce)) != 1 {
+		return nil, ErrSSOTokenInvalid
+	}
+
+	claims := &ssoClaims{Issuer: idToken.Issuer, Subject: idToken.Subject, Provider: domain.ProviderOIDC}
+	if err := idToken.Claims(claims); err != nil {
+		return nil, ErrSSOTokenInvalid
+	}
+	return claims, nil
 }
 
 func (s *SSOService) oauthConfig(slug string, config *resolvedSSOConfig, provider *oidc.Provider) *oauth2.Config {

@@ -23,7 +23,7 @@ import (
 // gets its own cookie so two tabs (or workspaces) cannot overwrite each other.
 const SSOBindCookieName = "kuayle_sso_bind"
 
-// SSOHandler serves workspace OIDC settings and the public sign-in flow.
+// SSOHandler serves workspace SSO settings and the public sign-in flow.
 type SSOHandler struct {
 	sso          *service.SSOService
 	auth         *AuthHandler
@@ -87,6 +87,14 @@ func (h *SSOHandler) configFailure(c *echo.Context, err error) error {
 	}
 }
 
+func (h *SSOHandler) Metadata(c *echo.Context) error {
+	data, err := h.sso.SAMLMetadata(c.Request().Context(), c.Param("slug"))
+	if err != nil {
+		return h.configFailure(c, err)
+	}
+	return c.Blob(http.StatusOK, "application/samlmetadata+xml", data)
+}
+
 // Public handles GET /api/auth/sso/:slug.
 func (h *SSOHandler) Public(c *echo.Context) error {
 	info, err := h.sso.PublicInfo(c.Request().Context(), c.Param("slug"))
@@ -130,7 +138,19 @@ func (h *SSOHandler) setBindCookie(c *echo.Context, slug, authURL, bind string) 
 	if err != nil {
 		return
 	}
+	isSAML := parsed.Query().Has("SAMLRequest")
 	state := parsed.Query().Get("state")
+	if isSAML {
+		state = parsed.Query().Get("RelayState")
+	}
+	h.writeBindCookie(c, slug, state, bind, int(service.SSOLoginStateTTL/time.Second), isSAML)
+}
+
+func (h *SSOHandler) writeBindCookie(c *echo.Context, slug, state, bind string, maxAge int, isSAML bool) {
+	sameSite := http.SameSiteLaxMode
+	if isSAML {
+		sameSite = http.SameSiteNoneMode
+	}
 	if state == "" {
 		return
 	}
@@ -139,9 +159,9 @@ func (h *SSOHandler) setBindCookie(c *echo.Context, slug, authURL, bind string) 
 		Value:    bind,
 		Path:     ssoBindCookiePath(slug),
 		HttpOnly: true,
-		Secure:   h.secureCookie,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(service.SSOLoginStateTTL / time.Second),
+		Secure:   h.secureCookie || isSAML,
+		SameSite: sameSite,
+		MaxAge:   maxAge,
 	})
 }
 
@@ -169,19 +189,31 @@ func (h *SSOHandler) startFailure(c *echo.Context, err error) error {
 	}
 }
 
-// Callback handles GET /api/auth/sso/:slug/callback. Every outcome is a
+// Callback handles the OIDC GET and SAML POST to /api/auth/sso/:slug/callback. Every outcome is a
 // redirect back to the login page; no token, code or IdP error text is put in
 // the URL or the logs.
 func (h *SSOHandler) Callback(c *echo.Context) error {
 	slug := c.Param("slug")
 	state := c.QueryParam("state")
+	complete := h.sso.CallbackRedirect
+	code := c.QueryParam("code")
+	if c.Request().Method == http.MethodPost {
+		req := c.Request()
+		req.Body = http.MaxBytesReader(c.Response(), req.Body, 2<<20)
+		if req.ParseForm() != nil {
+			return h.redirectLogin(c, "token_invalid")
+		}
+		state = req.PostForm.Get("RelayState")
+		code = req.PostForm.Get("SAMLResponse")
+		complete = h.sso.SAMLCallback
+	}
 	bind := ""
 	if state != "" {
 		if cookie, err := c.Cookie(ssoBindCookieName(state)); err == nil {
 			bind = cookie.Value
 		}
 	}
-	h.clearBindCookie(c, slug, state)
+	h.writeBindCookie(c, slug, state, "", -1, c.Request().Method == http.MethodPost)
 
 	if idpError := strings.TrimSpace(c.QueryParam("error")); idpError != "" {
 		log.WithFields(log.Fields{
@@ -190,8 +222,8 @@ func (h *SSOHandler) Callback(c *echo.Context) error {
 		return h.redirectLogin(c, "provider_error")
 	}
 
-	user, accessToken, refreshToken, redirectAfter, err := h.sso.CallbackRedirect(
-		c.Request().Context(), slug, state, c.QueryParam("code"), bind)
+	user, accessToken, refreshToken, redirectAfter, err := complete(
+		c.Request().Context(), slug, state, code, bind)
 	if err != nil {
 		code := ssoErrorCode(err)
 		fields := log.Fields{"event": "sso.callback_failed", "workspace_slug": slug, "reason": code, "ip": c.RealIP()}
@@ -219,21 +251,6 @@ func (h *SSOHandler) redirectLogin(c *echo.Context, code string) error {
 		target += "&workspace=" + url.QueryEscape(slug)
 	}
 	return c.Redirect(http.StatusFound, target)
-}
-
-func (h *SSOHandler) clearBindCookie(c *echo.Context, slug, state string) {
-	if state == "" {
-		return
-	}
-	c.SetCookie(&http.Cookie{
-		Name:     ssoBindCookieName(state),
-		Value:    "",
-		Path:     ssoBindCookiePath(slug),
-		HttpOnly: true,
-		Secure:   h.secureCookie,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   -1,
-	})
 }
 
 func ssoErrorCode(err error) string {

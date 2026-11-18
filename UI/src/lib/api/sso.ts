@@ -3,6 +3,7 @@ import { api } from './client';
 export type SSODefaultRole = 'member' | 'guest';
 
 export interface SSOConfig {
+	protocol?: 'oidc' | 'saml';
 	issuer_url: string;
 	client_id: string;
 	has_client_secret: boolean;
@@ -16,8 +17,11 @@ export interface SSOConfig {
 }
 
 export interface SSOConfigRequest {
-	issuer_url: string;
-	client_id: string;
+	protocol?: 'oidc' | 'saml';
+	metadata_xml?: string;
+	metadata_url?: string;
+	issuer_url?: string;
+	client_id?: string;
 	/** Write-only: omit or leave empty to keep the stored secret. */
 	client_secret?: string;
 	allowed_domains: string[];
