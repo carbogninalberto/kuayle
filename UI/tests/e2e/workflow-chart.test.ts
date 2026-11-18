@@ -168,7 +168,7 @@ const summary = (id: string, name: string, graph: Graph) => ({
 // graph for it; a blank workflow keeps the graph the page sent.
 async function mockSettings(page: Page, stored: Record<string, Graph> = {}) {
 	const saved = new Map(Object.entries(stored).map(([id, graph]) => [id, summary(id, id, graph)]));
-	const saves: Array<{ graph: Graph }> = [];
+	const saves: Array<{ name: string; graph: Graph }> = [];
 	await page.route('https://raw.githubusercontent.com/**', (route) => route.fulfill({ json: [] }));
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
 	await page.route('**/api/**', async (route) => {
@@ -371,7 +371,7 @@ for (const size of sizes) {
 				await editor.getByRole('toolbar').getByRole('button', { name: 'Tidy up', exact: true }).click();
 				await expectLeftToRight(editor, graph, loopsOf[template] ?? []);
 				await expect(editor.getByTestId('workflow-save')).toBeDisabled();
-				await expect(editor.getByText('Unsaved changes')).toHaveCount(0);
+				await expect(editor.getByRole('button', { name: 'v1 · saved' })).toBeVisible();
 			});
 		}
 
@@ -388,12 +388,17 @@ for (const size of sizes) {
 			await expectSideHandles(editor, 'start', 'implement');
 			// Arranging it for display is not a change.
 			await expect(editor.getByTestId('workflow-save')).toBeDisabled();
-			await expect(editor.getByText('Unsaved changes')).toHaveCount(0);
+			await expect(editor.getByRole('button', { name: 'v1 · saved' })).toBeVisible();
 			expect(saves).toEqual([]);
 
-			await editor.getByLabel('Name').fill('Legacy, renamed');
+			const breadcrumb = editor.getByRole('navigation', { name: 'breadcrumb' });
+			await breadcrumb.getByRole('button', { name: 'Rename workflow: legacy' }).click();
+			const title = breadcrumb.getByRole('textbox', { name: 'Name' });
+			await title.fill('Legacy, renamed');
+			await title.press('Enter');
 			await editor.getByTestId('workflow-save').click();
 			await expect.poll(() => saves.length).toBe(1);
+			expect(saves[0].name).toBe('Legacy, renamed');
 			const sent = saves[0].graph;
 			expect(sent.edges).toEqual(stored.edges);
 			expect(sent.nodes.map(({ position: _, ...rest }) => rest)).toEqual(

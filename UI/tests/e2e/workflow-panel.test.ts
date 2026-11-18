@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import type { WorkflowGraph, WorkflowSaveInput } from '../../src/lib/api/workflows';
 
 // The workflow editor's right side panel can be hidden so the canvas gets the
 // width (KUA-147). The choice is a per-user preference, so it survives a
@@ -21,7 +22,7 @@ const profile = (id: string, name: string, behaviour: string) => ({
 	updated_at: time
 });
 const profiles = [profile('p-impl', 'Implementer', 'changes_code')];
-const graph = () => ({
+const graph = (): WorkflowGraph => ({
 	nodes: [
 		{ id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
 		{ id: 'plan', type: 'agent', label: 'Implementer', profile_id: 'p-impl', prompt: 'Implement the plan.', position: { x: 280, y: 0 } },
@@ -37,6 +38,11 @@ const graph = () => ({
 async function fixture(page: Page) {
 	const state = {
 		patches: [] as any[],
+		saves: [] as WorkflowSaveInput[],
+		saveResponse: undefined as Promise<void> | undefined,
+		name: 'Optimized',
+		graph: graph(),
+		versions: [4, 3].map((version) => ({ id: `cheap-v${version}`, workflow_id: 'cheap', version, created_at: time })),
 		preferences: {
 			font_size: 'default',
 			pointer_cursors: true,
@@ -56,20 +62,20 @@ async function fixture(page: Page) {
 	};
 	await page.route('https://raw.githubusercontent.com/**', (route) => route.fulfill({ json: [] }));
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
-	await page.route('**/api/**', async (route) => {
+	await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
 		const request = route.request();
 		const path = new URL(request.url()).pathname;
 		const workspace = { id: 'workspace-1', slug: 'test', name: 'Test Workspace', current_user_role: 'owner' };
 		const summary = () => ({
 			id: 'cheap',
-			name: 'Cheap Workflow',
+			name: state.name,
 			description: '',
 			builtin: false,
 			customized: false,
-			latest_version: 4,
-			version_id: 'cheap-v4',
+			latest_version: state.versions[0].version,
+			version_id: state.versions[0].id,
 			archived: false,
-			graph: graph(),
+			graph: state.graph,
 			updated_at: time
 		});
 		if (path === '/api/auth/me')
@@ -100,7 +106,19 @@ async function fixture(page: Page) {
 			return route.fulfill({ json: { issues: [], warnings: [] } });
 		if (path === '/api/workspaces/test/workflows')
 			return route.fulfill({ json: { workflows: [summary()], defaults: [], can_manage: true } });
-		if (path === '/api/workspaces/test/workflows/cheap') return route.fulfill({ json: { ...summary(), versions: [] } });
+		if (path === '/api/workspaces/test/workflows/cheap') {
+			if (request.method() === 'PUT') {
+				const input: WorkflowSaveInput = request.postDataJSON();
+				const version = state.versions[0].version + 1;
+				state.saves.push(input);
+				await state.saveResponse;
+				state.name = input.name;
+				state.graph = input.graph ?? state.graph;
+				state.versions.unshift({ ...state.versions[0], id: `cheap-v${version}`, version });
+				return route.fulfill({ json: summary() });
+			}
+			return route.fulfill({ json: { ...summary(), versions: state.versions } });
+		}
 		return route.fulfill({ json: [] });
 	});
 	return state;
@@ -226,4 +244,119 @@ test('phone: the panel collapses and opens again without losing the canvas', asy
 	await expect(editor.getByTestId('workflow-inspector-panel')).toBeVisible();
 	await expect(editor.getByTestId('workflow-canvas-area')).toBeVisible();
 	await expect(editor.getByTestId('workflow-save')).toBeDisabled();
+});
+
+test('workflow header shows saved and draft states, with history and an icon-only save', async ({ page }) => {
+	const state = await fixture(page);
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto('/test/settings/workflows/cheap');
+	const header = page.getByTestId('workflow-editor').locator('header').first();
+	const badge = header.getByRole('button', { name: /^v4 · / });
+	const save = header.getByRole('button', { name: 'Save version' });
+	const back = header.getByRole('link', { name: 'Agents workflows' });
+	await expect(back).toHaveAttribute('href', '/test/settings/workflows');
+	await expect(header.getByRole('heading', { name: 'Optimized' })).toBeVisible();
+	await expect(header.getByText('All changes saved')).toHaveCount(0);
+	await expect(header.getByText('Version 4', { exact: true })).toHaveCount(0);
+	await expect(badge).toHaveText('v4 · saved');
+	await expect(badge).toHaveCSS('color', 'rgb(74, 222, 128)');
+	await expect(save).toBeDisabled();
+	await expect(save).toHaveText('');
+	await expect(save.locator('svg.lucide-save')).toBeVisible();
+	const badgeBox = (await badge.boundingBox())!;
+	const saveBox = (await save.boundingBox())!;
+	await page.mouse.move(saveBox.x + saveBox.width / 2, saveBox.y + saveBox.height / 2);
+	await expect(page.getByRole('tooltip')).toHaveText('Save version');
+	expect(saveBox.x - (badgeBox.x + badgeBox.width)).toBeCloseTo(12, 0);
+	expect(badgeBox.x).toBeGreaterThan(1100);
+
+	await badge.press('Enter');
+	const popover = page.getByRole('dialog', { name: 'Saved version 4' });
+	await expect(popover).toContainText('There are no pending edits.');
+	await popover.getByRole('button', { name: 'Version history' }).click();
+	const history = page.getByRole('dialog', { name: 'Version history' });
+	await expect(history.getByRole('listitem')).toHaveText([/Version 4/, /Version 3/]);
+	await page.keyboard.press('Escape');
+	await expect(history).toBeHidden();
+	await expect(badge).toBeFocused();
+
+	const editor = page.getByTestId('workflow-editor');
+	await editor.getByTestId('workflow-node-plan').click();
+	const step = editor.getByTestId('workflow-node-inspector').getByRole('textbox', { name: 'Name', exact: true });
+	await step.fill('Implementation');
+	await expect(badge).toHaveText('v4 · draft');
+	await expect(badge).toHaveCSS('color', 'rgb(250, 204, 21)');
+	await expect(save).toBeEnabled();
+	await badge.click();
+	await expect(popover).toContainText('Pending edits are uncommitted.');
+	await page.keyboard.press('Escape');
+	await save.focus();
+	await expect(page.getByRole('tooltip')).toHaveText('Save version');
+	await save.click();
+	await expect.poll(() => state.saves[0]?.expected_version).toBe(4);
+	const saved = header.getByRole('button', { name: 'v5 · saved' });
+	await expect(saved).toBeVisible();
+	await expect(save).toBeDisabled();
+	await saved.click();
+	await page.getByRole('button', { name: 'Version history' }).click();
+	await expect(history.getByRole('listitem')).toHaveText([/Version 5/, /Version 4/, /Version 3/]);
+	await page.keyboard.press('Escape');
+	await back.click();
+	await expect(page).toHaveURL('/test/settings/workflows');
+});
+
+test('workflow title commits with Enter and cancels with Escape without moving the header actions', async ({ page }) => {
+	const state = await fixture(page);
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.goto('/test/settings/workflows/cheap');
+	const editor = page.getByTestId('workflow-editor');
+	const rename = editor.getByRole('button', { name: 'Rename workflow: Optimized' });
+	const badge = editor.getByRole('button', { name: 'v4 · saved' });
+	const save = editor.getByRole('button', { name: 'Save version' });
+	await expect(rename).toBeVisible();
+	const badgeBox = await badge.boundingBox();
+	await rename.click();
+	const title = editor.getByRole('textbox', { name: 'Name', exact: true });
+	await expect(title).toBeFocused();
+	await title.fill('A long name that should not shift the badge while editing');
+	expect(await badge.boundingBox()).toEqual(badgeBox);
+	await expect(save).toBeDisabled();
+	await title.press('Escape');
+	await expect(rename).toBeFocused();
+
+	await rename.press('Enter');
+	await title.fill('Optimized process');
+	await title.press('Enter');
+	await expect(editor.getByRole('button', { name: 'Rename workflow: Optimized process' })).toBeFocused();
+	await expect(editor.getByRole('button', { name: 'v4 · draft' })).toBeVisible();
+	expect(state.saves).toHaveLength(0);
+	await save.click();
+	await expect.poll(() => state.saves[0]?.name).toBe('Optimized process');
+	await expect(editor.getByRole('button', { name: 'v5 · saved' })).toBeVisible();
+});
+
+test('a rename committed during a save stays in the next draft', async ({ page }) => {
+	const state = await fixture(page);
+	const { promise, resolve } = Promise.withResolvers<void>();
+	state.saveResponse = promise;
+	await page.goto('/test/settings/workflows/cheap');
+	const editor = page.getByTestId('workflow-editor');
+	const title = editor.getByRole('textbox', { name: 'Name', exact: true });
+	const save = editor.getByRole('button', { name: 'Save version' });
+
+	await editor.getByRole('button', { name: 'Rename workflow: Optimized' }).click();
+	await title.fill('First rename');
+	await title.press('Enter');
+	await save.click();
+	await expect.poll(() => state.saves[0]?.name).toBe('First rename');
+	await expect(save).toBeDisabled();
+
+	await editor.getByRole('button', { name: 'Rename workflow: First rename' }).click();
+	await title.fill('Second rename');
+	await title.press('Enter');
+	resolve();
+	await expect(editor.getByRole('button', { name: 'v5 · draft' })).toBeVisible();
+	await save.click();
+	await expect.poll(() => state.saves[1]).toMatchObject({ name: 'Second rename', expected_version: 5 });
+	await expect(editor.getByRole('button', { name: 'v6 · saved' })).toBeVisible();
 });

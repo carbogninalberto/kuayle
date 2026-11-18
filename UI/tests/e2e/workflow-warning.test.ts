@@ -141,9 +141,14 @@ for (const size of [
 		if (shots && size.name === 'desktop') await page.screenshot({ path: `${shots}/5-workflow-warning.png` });
 
 		// It does not block the save.
-		await page.locator('#workflow-name').fill('Cheap Workflow 5');
+		const breadcrumb = editor.getByRole('navigation', { name: 'breadcrumb' });
+		await breadcrumb.getByRole('button', { name: 'Rename workflow: Cheap Workflow' }).click();
+		const title = breadcrumb.getByRole('textbox', { name: 'Name' });
+		await title.fill('Cheap Workflow 5');
+		await title.press('Enter');
 		await editor.getByTestId('workflow-save').click();
 		await expect.poll(() => state.saves.length).toBe(1);
+		expect(state.saves[0].name).toBe('Cheap Workflow 5');
 		await expect(card.getByLabel(text)).toBeVisible();
 
 		// Asking for a plan under another name clears it.
