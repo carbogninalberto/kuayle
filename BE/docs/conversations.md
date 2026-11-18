@@ -1167,10 +1167,9 @@ Why this stays closed:
   (`BE/internal/machine/command_run.go`); the command itself is text the
   model wrote, so a repository-scoped token in that container would hand
   the model's shell a live write credential for the repository, for any
-  command it proposes. An
-  approval card does not change what that shell can do once it runs — the
-  same reasoning that keeps agent attempts locked
-  ([sudo in machines](../../TECHNICAL.md#sudo-in-machines)).
+  command it proposes. An approval card does not change what that shell
+  can do once it runs — the same reasoning that keeps agent attempts
+  locked ([sudo in machines](../../TECHNICAL.md#sudo-in-machines)).
 - Command runs cannot write a checkout anyway: `/workspace` is always mounted
   read-only and a write run gets only the conversation folder, so there is no
   `.git` to commit in (KUA-153). Widening writes to a task worktree, `.git`
