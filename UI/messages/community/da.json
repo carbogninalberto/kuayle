@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "Afviste udgivelse af {tag}",
 	"assistant.release_open": "Åbn udgivelsen",
 	"assistant.tool_ship_pull_request": "Lever pull request",
+	"assistant.bulk_issues": "Opdater opgaver ({count})",
 	"assistant.ship_title": "Lever {identifier}: flet #{number} og udgiv {tag} af {repository}?",
 	"assistant.ship_description": "Én godkendelse kører hvert trin nedenfor i rækkefølge for {title}. Hvert trin beholder sit eget værktøjs tilladelseskontroller; det første trin, der fejler, stopper kæden, og intet derefter køres.",
 	"assistant.ship_release_range": "Udgivelsen dækker alt siden {previous}; dens testgate og hemmelighedsscanning køres igen på merge-committen før tagging.",

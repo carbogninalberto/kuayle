@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "פרסום {tag} נדחה",
 	"assistant.release_open": "פתיחת הגרסה",
 	"assistant.tool_ship_pull_request": "שילוח pull request",
+	"assistant.bulk_issues": "עדכון משימות ({count})",
 	"assistant.ship_title": "לשלח את {identifier}: למזג את #{number} ולפרסם את {tag} של {repository}?",
 	"assistant.ship_description": "אישור אחד מריץ לפי הסדר את כל השלבים שלהלן עבור {title}. כל שלב שומר על בדיקות ההרשאה של הכלי שלו; השלב הראשון שנכשל עוצר את השרשרת ושום דבר אחריו לא ירוץ.",
 	"assistant.ship_release_range": "הגרסה מכסה את כל מה שנוסף מאז {previous}; שער הבדיקות וסריקת הסודות שלה רצים שוב על ה-merge commit לפני התיוג.",

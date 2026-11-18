@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "ปฏิเสธการเผยแพร่ {tag} แล้ว",
 	"assistant.release_open": "เปิดรุ่นที่ปล่อย",
 	"assistant.tool_ship_pull_request": "ส่งมอบ pull request",
+	"assistant.bulk_issues": "อัปเดตประเด็น ({count})",
 	"assistant.ship_title": "ส่งมอบ {identifier}: merge #{number} และเผยแพร่ {tag} ของ {repository} หรือไม่",
 	"assistant.ship_description": "การอนุมัติครั้งเดียวจะรันทุกขั้นตอนด้านล่างตามลำดับสำหรับ {title} แต่ละขั้นตอนยังคงการตรวจสอบสิทธิ์ของเครื่องมือตัวเอง ขั้นตอนแรกที่ล้มเหลวจะหยุดห่วงโซ่และไม่มีขั้นตอนใดหลังจากนั้นรัน",
 	"assistant.ship_release_range": "รุ่นที่ปล่อยครอบคลุมทุกอย่างตั้งแต่ {previous} การทดสอบและการสแกน secret จะรันอีกครั้งบน merge commit ก่อนติดแท็ก",

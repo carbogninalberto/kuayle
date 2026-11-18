@@ -48,6 +48,7 @@
 	import MergeHeadChange from './MergeHeadChange.svelte';
 	import { safePullRequestUrl } from './merged-work';
 	import ShipApprovalCard from './ShipApprovalCard.svelte';
+	import BulkIssueChanges from './BulkIssueChanges.svelte';
 	import ShipSteps from './ShipSteps.svelte';
 	import ProposedSkillCard, { proposedSkill } from './ProposedSkillCard.svelte';
 	import ProposedToolCard, { proposedTool } from './ProposedToolCard.svelte';
@@ -189,6 +190,15 @@
 	}
 	// Outcome lines per approval action.
 	function outcome(approval: ConversationApproval) {
+		if (approval.action === 'bulk_update_issues') {
+			const title = m['assistant.bulk_issues']({ count: approval.payload.changes.length });
+			const status = {
+				approved: m['assistant.completed'](), failed: approval.error ?? m['assistant.failed'](),
+				denied: m['workflows.condition.approval_denied'](), expired: m['settings.tokens.expired'](),
+				approving: m['tasks.state.running']()
+			};
+			return approval.status in status ? `${title} · ${status[approval.status as keyof typeof status]}` : title;
+		}
 		if (isWikiApproval(approval)) {
 			const subject = wikiSubject(approval.payload);
 			switch (approval.status) {
@@ -499,7 +509,7 @@
 					? wikiSubject(approval.payload)
 					: approval.action === 'upgrade_instance' ||
 						  approval.action === 'create_release' ||
-						  isCommandApproval(approval)
+						  isCommandApproval(approval) || approval.action === 'bulk_update_issues'
 						? ''
 						: approval.payload.identifier}
 				{#if approval.status === 'pending'}
@@ -533,7 +543,10 @@
 									</Alert.Description>
 								</Alert.Root>
 							{/if}
-							{#if approval.action === 'merge_pull_request'}
+							{#if approval.action === 'bulk_update_issues'}
+								<Item.Title>{m['assistant.bulk_issues']({ count: approval.payload.changes.length })}</Item.Title>
+								<BulkIssueChanges payload={approval.payload} />
+							{:else if approval.action === 'merge_pull_request'}
 								<Item.Title
 									>{m['assistant.merge_title']({ identifier, number: approval.payload.pull_request })}</Item.Title
 								>
@@ -1023,6 +1036,9 @@
 						>
 						<Trace.Title class="whitespace-normal break-words">{outcome(approval)}</Trace.Title>
 					</Trace.Line>
+					{#if approval.action === 'bulk_update_issues' && approval.payload.results?.length}
+						<BulkIssueChanges payload={approval.payload} />
+					{/if}
 					{#if approval.action === 'merge_pull_request' && approval.status === 'waiting_checks' && approval.payload.wait?.waiting}<p
 							data-testid="merge-waiting"
 							class="pl-6 text-xs break-words text-muted-foreground"

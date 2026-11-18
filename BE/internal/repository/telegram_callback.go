@@ -61,9 +61,8 @@ func (r *TelegramRepository) ReceiveCallback(ctx context.Context, ws uuid.UUID, 
 		return nil, tx.Commit()
 	}
 	// Approvals of other users are indistinguishable from missing ones, and so
-	// are messages to a coding agent, which are decided only in Kuayle where
-	// the card shows the text being approved.
-	err = tx.GetContext(ctx, &callback.ConversationID, `SELECT a.conversation_id FROM conversation_approvals a JOIN conversations c ON c.id=a.conversation_id WHERE a.id=$1 AND a.actor_id=$2 AND c.workspace_id=$3 AND a.action<>'message_task'`, approval, callback.UserID, ws)
+	// are actions that require reviewing the full proposal on the web card.
+	err = tx.GetContext(ctx, &callback.ConversationID, `SELECT a.conversation_id FROM conversation_approvals a JOIN conversations c ON c.id=a.conversation_id WHERE a.id=$1 AND a.actor_id=$2 AND c.workspace_id=$3 AND a.action NOT IN ('message_task','bulk_update_issues')`, approval, callback.UserID, ws)
 	if errors.Is(err, sql.ErrNoRows) {
 		callback.ConversationID = uuid.Nil
 	} else if err != nil {

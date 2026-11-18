@@ -60,10 +60,11 @@ type assistantMemberRepo interface {
 // model only proposes calls; every call re-checks the conversation creator's
 // current role and team visibility in Go, exactly like the HTTP routes.
 type AssistantTools struct {
-	issues  repository.IssueRepo
-	teams   repository.TeamRepo
-	members assistantMemberRepo
-	creator assistantIssueCreator
+	issueLabels repository.LabelRepo
+	issues      repository.IssueRepo
+	teams       repository.TeamRepo
+	members     assistantMemberRepo
+	creator     assistantIssueCreator
 	// The GitHub permission preflight is skipped until SetGitHubAccess wires it.
 	access githubAccess
 	// Planning tools are unavailable until SetPlanning wires them.
@@ -244,6 +245,7 @@ var assistantToolCatalog = []assistantTool{
 	{name: "search_issues", description: "Search issues the user can access by text in the title or identifier.", parameters: `{"type":"object","properties":{"query":{"type":"string","maxLength":200},"limit":{"type":"integer","minimum":1,"maximum":20}},"required":["query"],"additionalProperties":false}`},
 	{name: "get_issue", description: "Read one issue by identifier, such as ENG-12, including the development repository coding agents use for it when one is configured on the issue, its project, team or workspace.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "delegate_issue", description: "Ask the user to approve starting a coding agent on an existing issue. The agent works in the development repository configured for the issue, its project, team or workspace, so do not ask for a repository unless this tool reports that none is configured. The agent only starts after the user approves in Kuayle; never claim work has started. Set harness and model only when the user named them; otherwise the configured default is used. Pass a model name exactly as the user wrote it; OpenCode models are written provider/model (for example opencode-go/deepseek-v4.1-flash). The user can still change them on the approval card. Set workflow (a workflow name or ID of the workspace, or \"standard\") only when the user named one; otherwise the issue's default workflow is used, and a custom workflow's first agent step decides the harness and model.", approval: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000},"harness":{"type":"string","enum":["claude-code","codex","opencode"]},"model":{"type":"string","maxLength":200},"workflow":{"type":"string","maxLength":100}},"required":["identifier","instructions"],"additionalProperties":false}`},
+	bulkUpdateTool,
 	{name: "update_issue", description: "Change an existing issue's title, description, status or priority. Only call this when the user explicitly asked for that change.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"status":{"type":"string","enum":["backlog","todo","in_progress","in_review","done","cancelled"]},"priority":{"type":"integer","minimum":0,"maximum":4}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "create_issue", description: "Create a new issue, optionally as a sub-issue of parent_identifier to split work between agents. Only call this when the user explicitly asked to create or file an issue.", write: true, parameters: `{"type":"object","properties":{"team_key":{"type":"string","maxLength":16},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"priority":{"type":"integer","minimum":0,"maximum":4},"parent_identifier":{"type":"string","maxLength":32}},"required":["team_key","title"],"additionalProperties":false}`},
 	{name: "plan_issues", description: "Order up to 20 issues by their blocked-by dependencies into waves that can run in parallel. Delegated issues with unfinished blockers wait automatically, so a whole plan can be delegated at once.", parameters: `{"type":"object","properties":{"identifiers":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","maxLength":32}}},"required":["identifiers"],"additionalProperties":false}`},
@@ -347,13 +349,41 @@ func decodeToolInput(raw string, target any) error {
 	return nil
 }
 
+func toolInputLimit(name string) int {
+	if name == bulkUpdateAction {
+		return 64 << 10
+	}
+	return assistantMaxToolInputBytes
+}
+
 // normalizedToolInput is the stored, displayed copy of the arguments.
-func normalizedToolInput(raw string) json.RawMessage {
+func normalizedToolInput(name, raw string) json.RawMessage {
 	var compact bytes.Buffer
-	if json.Compact(&compact, []byte(raw)) != nil || compact.Len() == 0 || compact.Len() > assistantMaxToolInputBytes {
+	if json.Compact(&compact, []byte(raw)) != nil || compact.Len() == 0 || compact.Len() > toolInputLimit(name) {
 		return json.RawMessage(`{}`)
 	}
 	return compact.Bytes()
+}
+
+func (t *AssistantTools) authorizeTool(ctx context.Context, ws, user uuid.UUID, tool assistantTool) (*domain.WorkspaceMember, error) {
+	name := tool.name
+	member, err := t.members.GetMember(ctx, ws, user)
+	if err != nil || member == nil || member.Role == domain.RoleGuest || !domain.HasPermission(member.Role, domain.PermIssuesRead) {
+		return nil, toolFailure("you no longer have access to this workspace")
+	}
+	if name == "create_issue" && !domain.HasPermission(member.Role, domain.PermIssueCreate) {
+		return nil, toolFailure("your role cannot create issues")
+	}
+	if (name == "update_issue" || name == "link_issues" || name == bulkUpdateAction) && !domain.HasPermission(member.Role, domain.PermIssueUpdate) {
+		return nil, toolFailure("your role cannot update issues")
+	}
+	if tool.wiki && !domain.HasPermission(member.Role, domain.PermWikiRead) {
+		return nil, toolFailure("your role cannot read wikis")
+	}
+	if tool.wiki && tool.write && !domain.HasPermission(member.Role, domain.PermWikiWrite) {
+		return nil, toolFailure("your role cannot edit wikis")
+	}
+	return member, nil
 }
 
 // run executes one call for the conversation creator. It returns the result
@@ -365,21 +395,9 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 	}
 	// Changes made through these tools are attributed to the assistant.
 	ctx = domain.WithActingAgent(ctx, "assistant")
-	member, err := t.members.GetMember(ctx, ws, user)
-	if err != nil || member == nil || member.Role == domain.RoleGuest || !domain.HasPermission(member.Role, domain.PermIssuesRead) {
-		return nil, nil, toolFailure("you no longer have access to this workspace")
-	}
-	if name == "create_issue" && !domain.HasPermission(member.Role, domain.PermIssueCreate) {
-		return nil, nil, toolFailure("your role cannot create issues")
-	}
-	if (name == "update_issue" || name == "link_issues") && !domain.HasPermission(member.Role, domain.PermIssueUpdate) {
-		return nil, nil, toolFailure("your role cannot update issues")
-	}
-	if tool.wiki && !domain.HasPermission(member.Role, domain.PermWikiRead) {
-		return nil, nil, toolFailure("your role cannot read wikis")
-	}
-	if tool.wiki && tool.write && !domain.HasPermission(member.Role, domain.PermWikiWrite) {
-		return nil, nil, toolFailure("your role cannot edit wikis")
+	member, err := t.authorizeTool(ctx, ws, user, tool)
+	if err != nil {
+		return nil, nil, err
 	}
 	switch name {
 	case "list_wiki_pages", "get_wiki_page", "list_wiki_page_versions", "create_wiki_page", "update_wiki_page", "append_wiki_registry", "manage_wiki_registry", "move_wiki_page", "publish_wiki_page":
@@ -531,25 +549,7 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		if input.Description != nil && utf8.RuneCountInString(*input.Description) > 8000 {
 			return nil, nil, toolFailure("invalid issue fields")
 		}
-		if input.Status != nil && !slices.Contains([]string{"backlog", "todo", "in_progress", "in_review", "done", "cancelled"}, *input.Status) {
-			return nil, nil, toolFailure("invalid status")
-		}
-		if input.Priority != nil && (*input.Priority < 0 || *input.Priority > 4) {
-			return nil, nil, toolFailure("invalid issue fields")
-		}
-		if request.Title == nil && request.Description == nil && request.Status == nil && request.Priority == nil {
-			return nil, nil, toolFailure("no changes requested")
-		}
-		identifier := strings.ToUpper(strings.TrimSpace(input.Identifier))
-		// Resolve with the user's own visibility first; missing and hidden issues look the same.
-		if issue, err := t.issues.GetByIdentifier(ctx, ws, identifier); err != nil || issue == nil {
-			return nil, nil, toolFailure("issue not found")
-		}
-		issue, err := t.creator.Update(ctx, ws, user, identifier, request)
-		if err != nil {
-			return nil, nil, toolFailure("the issue could not be updated")
-		}
-		return issueSummary(*issue), &issue.ID, nil
+		return t.updateIssue(ctx, ws, user, input.Identifier, request)
 	case "create_issue":
 		var input struct {
 			TeamKey     string `json:"team_key"`
@@ -591,6 +591,28 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return issueSummary(*issue), &issue.ID, nil
 	}
 	return nil, nil, toolFailure("unknown tool")
+}
+
+func (t *AssistantTools) updateIssue(ctx context.Context, ws, user uuid.UUID, identifier string, request dto.UpdateIssueRequest) (any, *uuid.UUID, error) {
+	if request.Status != nil && !slices.Contains([]string{"backlog", "todo", "in_progress", "in_review", "done", "cancelled"}, *request.Status) {
+		return nil, nil, toolFailure("invalid status")
+	}
+	if request.Priority != nil && (*request.Priority < 0 || *request.Priority > 4) {
+		return nil, nil, toolFailure("priority must be 0 to 4")
+	}
+	if request.Title == nil && request.Description == nil && request.Status == nil && request.Priority == nil && request.AssigneeIDs == nil && request.LabelIDs == nil && request.ProjectID == nil && request.CycleID == nil {
+		return nil, nil, toolFailure("no changes requested")
+	}
+	identifier = strings.ToUpper(strings.TrimSpace(identifier))
+	// Resolve with the user's own visibility first; missing and hidden issues look the same.
+	if issue, err := t.issues.GetByIdentifier(ctx, ws, identifier); err != nil || issue == nil {
+		return nil, nil, toolFailure("issue not found")
+	}
+	issue, err := t.creator.Update(ctx, ws, user, identifier, request)
+	if err != nil {
+		return nil, nil, toolFailure("the issue could not be updated")
+	}
+	return issueSummary(*issue), &issue.ID, nil
 }
 
 // teamByKey finds a team the user can see by its key, or by a key it had

@@ -788,7 +788,12 @@ Scripts, inputs and output are always rendered as escaped text.
 A provider may return tool calls only when tools were offered and must finish
 the turn with `finish_reason: "tool_calls"`. One reply runs at most 400 tool
 calls (at most 32 per model round, enough rounds for each call to run in its
-own) and 10 issue changes; further calls fail as data without running. Once the
+own) and 10 issue changes. A `bulk_update_issues` proposal spends one change
+for up to 100 issues (64 KiB of arguments). Its web approval card lists every
+issue and proposed field. Approval applies the rows independently and records
+each outcome on the card. If execution stops before recording an issue’s
+outcome, retrying flags that issue for verification and continues with the
+remaining rows. Further calls beyond the budget fail as data. Once the
 call budget is spent, half of the 64 KiB reply text is used, or less than 90
 seconds of the 10-minute reply remain, the next round offers no tools, so the
 model must answer. Each result is at most 24 KiB. The context resent each round

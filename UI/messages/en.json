@@ -2842,6 +2842,7 @@
 	"assistant.release_denied": "Denied publishing {tag}",
 	"assistant.release_open": "Open the release",
 	"assistant.tool_ship_pull_request": "Ship pull request",
+	"assistant.bulk_issues": "Update issues ({count})",
 	"assistant.ship_title": "Ship {identifier}: merge #{number} and publish {tag} of {repository}?",
 	"assistant.ship_description": "One approval runs every step below in order for {title}. Each step keeps its own tool's permission checks; the first failing step stops the chain and nothing after it runs.",
 	"assistant.ship_release_range": "The release covers everything since {previous}; its test gate and secret scan run again on the merge commit before tagging.",
