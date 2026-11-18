@@ -1121,14 +1121,15 @@ creator configures **named migration actions** on a Dev Machine
 (`dev_machine_migration_actions`, unique name per machine ignoring case):
 a name, a description, a command and a connection secret. The command is
 admin-written and reads the secret only as `$KUAYLE_MIGRATION_SECRET`
-(for example `migrate -url "$KUAYLE_MIGRATION_SECRET" -path ./migrations up`).
+(for example `migrate -url "$KUAYLE_MIGRATION_SECRET" -path ./migrations up`);
+a command or description containing the supplied secret is refused.
 The secret is stored encrypted and never returned by any API, listed or
 logged; the machine page's **Database migrations** card
 (`GET/POST /dev-machines/:machineId/migration-actions`,
 `PUT/DELETE .../migration-actions/:actionId`) is the settings surface, with
-reads for the machine's creator and workspace owners and admins and writes
-re-checking that authority in the storing transaction (members get 403, and
-the routes need `dev_machine:read` / `dev_machine:manage`).
+reads and writes for the machine's creator and workspace owners and admins,
+re-checking that authority in the same transaction (other members get 403 and
+do not see the card; the routes need `dev_machine:read` / `dev_machine:manage`).
 
 The model only requests an action by name: `run_migration(action,
 machine_id?)`. The name must match one action among the user's usable
