@@ -72,6 +72,8 @@ type AssistantTools struct {
 	relations    assistantRelationCreator
 	// Agent work tools are unavailable until SetAgentWork wires them.
 	work assistantAgentWork
+	// Task watch tools (watch_agent_work) need SetTaskWatchers as well.
+	watchers assistantTaskWatchers
 	// merge_pull_request shows the head GitHub reports once SetPullRequestHeads
 	// wires it; before that it shows the published commit.
 	heads pullRequestHeadReader
@@ -174,6 +176,19 @@ func (t *AssistantTools) SetAgentWork(work assistantAgentWork) {
 	t.work = work
 }
 
+// assistantTaskWatchers registers one-shot coding-task watches (KUA-165).
+type assistantTaskWatchers interface {
+	// WatchTask returns the task's state and false instead of registering
+	// when the task already reached what the watch waits for.
+	WatchTask(ctx context.Context, ws, user, task, conversation, parent uuid.UUID, until string) (string, bool, error)
+}
+
+// SetTaskWatchers enables watch_agent_work, which pings the user in the
+// conversation it was called from when the watched task reaches its state.
+func (t *AssistantTools) SetTaskWatchers(watchers assistantTaskWatchers) {
+	t.watchers = watchers
+}
+
 // SetPlanning enables the dependency tools (plan_issues, link_issues and
 // blockers in get_issue).
 func (t *AssistantTools) SetPlanning(dependencies assistantDependencies, relations assistantRelationCreator) {
@@ -191,6 +206,8 @@ type assistantTool struct {
 	approval bool
 	// agentWork tools need SetAgentWork.
 	agentWork bool
+	// watch tools also need SetTaskWatchers.
+	watch bool
 	// repositories tools need SetRepositories.
 	repositories bool
 	// machines tools need SetMachines.
@@ -233,6 +250,7 @@ var assistantToolCatalog = []assistantTool{
 	{name: "create_issue", description: "Create a new issue, optionally as a sub-issue of parent_identifier to split work between agents. Only call this when the user explicitly asked to create or file an issue.", write: true, parameters: `{"type":"object","properties":{"team_key":{"type":"string","maxLength":16},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"priority":{"type":"integer","minimum":0,"maximum":4},"parent_identifier":{"type":"string","maxLength":32}},"required":["team_key","title"],"additionalProperties":false}`},
 	{name: "plan_issues", description: "Order up to 20 issues by their blocked-by dependencies into waves that can run in parallel. Delegated issues with unfinished blockers wait automatically, so a whole plan can be delegated at once.", parameters: `{"type":"object","properties":{"identifiers":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","maxLength":32}}},"required":["identifiers"],"additionalProperties":false}`},
 	{name: "get_agent_work", agentWork: true, description: "Read the coding tasks on an issue as Kuayle recorded them: state, attempt, pull request, latest review decision (agent_review.stale=true means the pull request head moved after that review: its findings are withheld, which is not the same as no findings; propose request_agent_review for the new head and do not repeat old findings) and latest manual check (run_check). Use it before saying anything about an issue's code, pull request or merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
+	{name: "watch_agent_work", agentWork: true, watch: true, description: "Register a one-shot watch on an issue's latest coding task and ping the user in this chat when the task reaches a state, so they need not keep asking. until is awaiting_review, completed or failed; omit it for any end state (completed, failed or cancelled). The watch never fires for a state the task already reached: when the call reports the task is already in that state, tell the user that state instead of registering. Only call this when the user asked to be notified, pinged or alerted about a task.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"until":{"type":"string","enum":["awaiting_review","completed","failed"]}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "list_agent_work", agentWork: true, description: "List the workspace's most recently updated coding tasks on issues the user can see, newest first: issue, task state and reason, agent, attempt, pull request and latest review decision. Use it for questions about what agents are doing, what is pending or awaiting review, or overall status; filter by state when the user asks about one.", parameters: `{"type":"object","properties":{"state":{"type":"string","enum":["queued","preparing","running","waiting_input","validating","publishing","awaiting_review","blocked","completed","failed","cancelling","cancelled"]},"limit":{"type":"integer","minimum":1,"maximum":50}},"additionalProperties":false}`},
 	{name: "merge_pull_request", agentWork: true, approval: true, description: "Ask the user to approve merging the pull request of an issue's task that is awaiting review with the repository's merge method (chosen in the development settings, otherwise the first the repository allows: squash, merge, rebase), at the head commit GitHub reports now (the card lists commits others pushed after Kuayle published, and whether the tree changed). Nothing merges until the user approves in Kuayle, and a later push is refused; GitHub still enforces branch protection. Kuayle merges only a head that contains its base branch and whose checks passed: approving a branch that is behind its base brings it up to date with GitHub's update-branch, and the approval then waits and merges the updated head automatically once its checks pass (tell the user the merge happens when the checks pass; the card shows it waiting, and the result arrives in this chat), and a branch that conflicts with its base is refused so the task agent can merge the base (update_pull_request_branch). If agent_review is stale, its findings are withheld: offer request_agent_review for the new head instead of repeating them. A draft pull request is refused with the next step (mark_pull_request_ready); read get_pull_request, get_pull_request_checks and list_pull_request_comments first and report failing checks or unresolved review threads. Only call this when the user asked to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "accept_agent_work", agentWork: true, approval: true, description: "Ask the user to approve accepting the work of an issue's task that is awaiting review, in Kuayle, without merging its pull request: the task completes, its app stops and the issue moves to its team's completed status, while the pull request stays open and unmerged on GitHub. Only the task's creator or a workspace admin can accept. Only call this when the user asked to accept the work without merging; use merge_pull_request to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
@@ -290,7 +308,7 @@ func (tool assistantTool) spec() chatToolSpec {
 
 // available reports whether a tool's dependencies are wired.
 func (t *AssistantTools) available(tool assistantTool) bool {
-	return (!tool.wiki || (t.wiki != nil && t.wikiProjects != nil)) && (!tool.publish || (t.wikiPublish != nil && t.wikiWorkspaces != nil)) && (!tool.agentWork || t.work != nil) && (!tool.repositories || t.repositories != nil) &&
+	return (!tool.wiki || (t.wiki != nil && t.wikiProjects != nil)) && (!tool.publish || (t.wikiPublish != nil && t.wikiWorkspaces != nil)) && (!tool.agentWork || t.work != nil) && (!tool.watch || t.watchers != nil) && (!tool.repositories || t.repositories != nil) &&
 		(!tool.machines || (t.machineTasks != nil && t.machinePorts != nil)) &&
 		(!tool.live || t.live != nil) &&
 		(!tool.skills || t.skills != nil) &&

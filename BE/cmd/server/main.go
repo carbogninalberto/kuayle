@@ -263,6 +263,8 @@ func main() {
 	agentTaskSvc.SetRegistry(wikiSvc)
 	// Finished, failed and review-ready tasks notify their creator (KUA-122).
 	agentTaskSvc.SetNotifications(repository.NewAgentTaskRepository(db), notifSvc, hub)
+	// A claimed task watch pings its watcher in their own chat (KUA-165).
+	agentTaskSvc.SetWatchers(repository.NewAgentTaskRepository(db), conversationSvc.Repo)
 	assistantTools.SetWorkflows(workflowRepo)
 	workflowH := handler.NewWorkflowHandler(service.NewWorkflowService(workflowRepo, devMachineAgentReg, agentTaskSvc))
 	// Workspace memory (KUA-134): approved lessons per repository. Putting
@@ -274,6 +276,7 @@ func main() {
 	agentTaskSvc.SetMemory(memorySvc)
 	memoryH := handler.NewWorkspaceMemoryHandler(memorySvc)
 	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))
+	assistantTools.SetTaskWatchers(repository.NewAgentTaskRepository(db))
 	assistantTools.SetRepositories(devMachineRepo)
 	assistantTools.SetLiveChannel(repository.NewAgentTaskRepository(db))
 	assistantApprovals := service.NewAssistantApprovals(conversationSvc.Repo, agentTaskSvc)

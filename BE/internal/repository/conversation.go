@@ -372,6 +372,37 @@ func (r *ConversationRepository) Cancel(ctx context.Context, ws, id uuid.UUID) e
 	}
 	return tx.Commit()
 }
+
+// PostAssistantNotice posts one completed assistant message without a model
+// call, replying to the given user message. The actor from ctx must be the
+// conversation's creator and a current non-guest member, as for a send. It is
+// how a claimed task watch pings the user who registered it (KUA-165); the
+// message carries no tool calls and no generation is claimed.
+func (r *ConversationRepository) PostAssistantNotice(ctx context.Context, ws, conversation, parent uuid.UUID, content string) (*domain.ConversationMessage, error) {
+	if strings.TrimSpace(content) == "" || len(content) > 16384 {
+		return nil, ErrConversationInvalid
+	}
+	tx, _, err := r.authorized(ctx, ws, conversation)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var known bool
+	if err = tx.GetContext(ctx, &known, `SELECT EXISTS(SELECT 1 FROM conversation_messages WHERE id=$1 AND conversation_id=$2 AND role='user')`, parent, conversation); err != nil {
+		return nil, err
+	}
+	if !known {
+		return nil, ErrConversationNotFound
+	}
+	notice, err := addConversationMessage(ctx, tx, conversation, uuid.New(), &parent, "assistant", content, "completed", "", "")
+	if err != nil {
+		return nil, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE conversations SET updated_at=now() WHERE id=$1`, conversation); err != nil {
+		return nil, err
+	}
+	return notice, tx.Commit()
+}
 func (r *ConversationRepository) Claim(ctx context.Context) (*domain.ConversationAttempt, error) {
 	tx, err := beginConversationTransaction(ctx, r.db)
 	if err != nil {
