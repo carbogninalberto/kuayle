@@ -7,7 +7,6 @@
 		TriangleAlert,
 		ArrowLeft,
 		ArrowRight,
-		Check,
 		CircleAlert,
 		Copy,
 		StretchHorizontal,
@@ -19,6 +18,7 @@
 		Pencil,
 		Plus,
 		Redo2,
+		Save,
 		Trash2,
 		Undo2,
 		ZoomIn,
@@ -30,7 +30,8 @@
 	import AiMarkdownEditor from './AiMarkdownEditor.svelte';
 	import InfoHint from '$lib/components/shared/InfoHint.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
-	import { Button } from '$lib/components/ui/button/index.js';
+	import * as Breadcrumb from '$lib/components/ui/breadcrumb/index.js';
+	import { Button, type ButtonProps } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
@@ -44,6 +45,7 @@
 		workflows,
 		type AgentProfile,
 		type WorkflowCondition,
+		type WorkflowDetail,
 		type WorkflowGraph,
 		type WorkflowIssue,
 		type WorkflowNodeType,
@@ -53,6 +55,7 @@
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
 	import { m } from '$lib/features/i18n/messages';
 	import WorkflowCanvas, { type Selection } from './WorkflowCanvas.svelte';
+	import WorkflowVersionBadge from './WorkflowVersionBadge.svelte';
 	import { conditionLabel, issueLabel, nodeTypeLabel, profileTitle, warningLabels } from './labels';
 	import { blockHint, blockIcon, blockLabel, blockTone, nodeIcon, nodeTone } from './node-style';
 	import {
@@ -97,7 +100,7 @@
 		onsaved
 	}: {
 		slug: string;
-		workflow: WorkflowSummary;
+		workflow: WorkflowDetail;
 		profiles: AgentProfile[];
 		editable: boolean;
 		backHref: string;
@@ -113,8 +116,13 @@
 	// arranged positions too.
 	let graph = $state<WorkflowGraph>(untrack(() => leftToRight(clone(workflow.graph))));
 	let name = $state(untrack(() => workflow.name));
+	let editingName = $state(false);
+	let draftName = $state('');
+	let nameInput = $state<HTMLInputElement | null>(null);
+	let renameButton = $state<HTMLElement | null>(null);
 	let description = $state(untrack(() => workflow.description));
 	let version = $state(untrack(() => workflow.latest_version));
+	let versions = $state<{ version: number; created_at?: string }[]>(untrack(() => workflow.versions ?? []));
 	let selection = $state<Selection>(null);
 	let tab = $state<'inspect' | 'outline' | 'settings'>('inspect');
 	let issues = $state<WorkflowIssue[]>([]);
@@ -136,6 +144,7 @@
 		lastChange = 0;
 
 	const panelOpen = $derived(preferencesState.workflowEditorPanelOpen);
+	const saveDisabled = $derived(saving || !dirty || !name.trim());
 
 	const activeProfiles = $derived(profiles.filter((p) => !p.archived_at));
 	const selectedNode = $derived(
@@ -204,6 +213,29 @@
 		if (!target) return;
 		leaveConfirmed = true;
 		void goto(target);
+	}
+
+	async function startRename() {
+		draftName = name;
+		editingName = true;
+		await tick();
+		nameInput?.focus();
+		nameInput?.select();
+	}
+
+	async function renameKeydown(event: KeyboardEvent) {
+		if (event.isComposing || (event.key !== 'Enter' && event.key !== 'Escape')) return;
+		event.preventDefault();
+		if (event.key === 'Enter') {
+			const nextName = draftName.trim();
+			if (nextName && nextName !== name) {
+				name = nextName;
+				dirty = true;
+			}
+		}
+		editingName = false;
+		await tick();
+		renameButton?.focus();
 	}
 
 	function shortcut(event: KeyboardEvent) {
@@ -377,16 +409,20 @@
 
 	async function save() {
 		if (!editable || saving || !dirty) return;
+		const savedName = name;
+		const savedDescription = description;
+		const savedGraph = graph;
 		saving = true;
 		try {
 			const saved = await workflows.save(slug, workflow.id, {
-				name,
-				description,
-				graph: graphForSave(graph),
+				name: savedName,
+				description: savedDescription,
+				graph: graphForSave(savedGraph),
 				expected_version: version
 			});
 			version = saved.latest_version;
-			dirty = false;
+			versions = [{ version, created_at: saved.updated_at }, ...versions];
+			dirty = name !== savedName || description !== savedDescription || graph !== savedGraph;
 			issues = [];
 			appToast.success(m['workflows.editor.saved']({ version: saved.latest_version }));
 			onsaved?.(saved);
@@ -411,35 +447,53 @@
 <svelte:window onkeydown={shortcut} />
 
 <div class="flex h-full min-h-0 flex-col" data-testid="workflow-editor">
-	<header class="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:px-4">
-		<Button
-			variant="ghost"
-			size="icon-sm"
-			href={backHref}
-			aria-label={m['workflows.back']()}
-			title={m['workflows.back']()}><ArrowLeft /></Button
-		>
-		<div class="flex min-w-0 flex-1 items-center gap-2">
-			{#if editable && !workflow.builtin}
-				<Input
-					id="workflow-name"
-					aria-label={m['workflows.name']()}
-					placeholder={m['workflows.editor.untitled']()}
-					bind:value={name}
-					maxlength={80}
-					oninput={() => (dirty = true)}
-					class="h-8 max-w-sm min-w-0 border-transparent bg-transparent px-2 text-base font-semibold shadow-none hover:border-input focus-visible:border-input dark:bg-transparent"
-				/>
-			{:else}
-				<h1 class="truncate px-2 text-base font-semibold">{name}</h1>
-			{/if}
-			<div class="hidden items-center gap-1.5 sm:flex">
-				{#if workflow.builtin}<Badge variant="secondary">{m['workflows.builtin']()}</Badge>{/if}
-				{#if version > 0}<Badge variant="outline">{m['workflows.version']({ version })}</Badge>{/if}
-				{#if !editable}<Badge variant="outline">{m['workflows.read_only']()}</Badge>{/if}
-			</div>
-		</div>
-		<div class="flex shrink-0 items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+	<header class="flex h-14 shrink-0 items-center justify-between gap-4 border-b px-3 sm:gap-6 sm:px-4">
+		<Breadcrumb.Root class="min-w-0">
+			<Breadcrumb.List class="flex-nowrap gap-2 sm:gap-3">
+				<Breadcrumb.Item class="min-w-0">
+					<Breadcrumb.Link href={backHref} title={m['workflows.title']()} class="flex min-w-0 items-center gap-1.5">
+						<ArrowLeft class="size-4 shrink-0" aria-hidden="true" />
+						<span class="truncate">{m['workflows.title']()}</span>
+					</Breadcrumb.Link>
+				</Breadcrumb.Item>
+				<Breadcrumb.Separator class="shrink-0">/</Breadcrumb.Separator>
+				<Breadcrumb.Item aria-current="page" class="min-w-[6ch] max-w-[38ch] text-foreground">
+					{#if editingName}
+						<Input
+							bind:ref={nameInput}
+							bind:value={draftName}
+							aria-label={m['workflows.name']()}
+							maxlength={80}
+							onkeydown={renameKeydown}
+							onblur={() => (editingName = false)}
+							class="field-sizing-content w-auto min-w-[6ch] max-w-full font-medium"
+						/>
+					{:else}
+						<h1 aria-label={name} class="min-w-0 truncate text-sm font-medium">
+							{#if editable && !workflow.builtin}
+								<Button
+									variant="plain"
+									bind:ref={renameButton}
+									aria-label={m['workflows.editor.rename']({ name })}
+									title={name}
+									onclick={startRename}
+									class="max-w-full truncate rounded-sm text-left underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+								>{name}</Button>
+							{:else}
+								{name}
+							{/if}
+						</h1>
+					{/if}
+				</Breadcrumb.Item>
+				{#if workflow.builtin && version > 0}<Breadcrumb.Item class="hidden lg:inline-flex">
+						<Badge variant="secondary">{m['workflows.builtin']()}</Badge>
+					</Breadcrumb.Item>{/if}
+				{#if !editable}<Breadcrumb.Item class="hidden lg:inline-flex">
+						<Badge variant="outline">{m['workflows.read_only']()}</Badge>
+					</Breadcrumb.Item>{/if}
+			</Breadcrumb.List>
+		</Breadcrumb.Root>
+		<div class="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
 			{#if issues.length > 0}
 				<Popover.Root>
 					<Popover.Trigger>
@@ -447,9 +501,11 @@
 								{...props}
 								variant="ghost"
 								size="sm"
-								class="text-destructive hover:text-destructive"
+								class="px-1 text-destructive hover:text-destructive sm:px-2.5"
 								data-testid="workflow-problems-trigger"
-								><CircleAlert />{m['workflows.editor.problems']({ count: issues.length })}</Button
+								><CircleAlert aria-hidden="true" /><span class="sr-only sm:not-sr-only"
+									>{m['workflows.editor.problems']({ count: issues.length })}</span
+								></Button
 							>{/snippet}
 					</Popover.Trigger>
 					<Popover.Content align="end" class="w-80 p-0" data-testid="workflow-problems">
@@ -482,43 +538,58 @@
 						</ul>
 					</Popover.Content>
 				</Popover.Root>
-			{:else if checking}<span>{m['workflows.editor.checking']()}</span>
-			{:else if dirty}<span class="flex items-center gap-1.5"
-					><span class="size-1.5 rounded-full bg-amber-500"></span>{m['workflows.editor.unsaved']()}</span
-				>
-			{:else if editable}<span class="hidden items-center gap-1 sm:flex"
-					><Check class="size-3.5" />{m['workflows.editor.saved_state']()}</span
-				>{/if}
-			{#if editable}<Button
-					size="sm"
-					onclick={save}
-					disabled={saving || !dirty || !name.trim()}
-					title={m['workflows.editor.shortcut_save']()}
-					data-testid="workflow-save">{m['workflows.editor.save']()}</Button
-				>{/if}
+			{:else if checking}<span class="sr-only sm:not-sr-only" role="status">{m['workflows.editor.checking']()}</span>{/if}
+			<WorkflowVersionBadge {version} {versions} {dirty} />
+			<Tooltip.Provider delayDuration={300}>
+				{#if editable}
+					{#snippet saveButton(triggerProps: ButtonProps)}
+						<Button
+							{...triggerProps}
+							size="icon"
+							aria-label={m['workflows.editor.save']()}
+							aria-keyshortcuts="Control+S Meta+S"
+							onclick={save}
+							disabled={saveDisabled}
+							data-testid="workflow-save"
+						><Save aria-hidden="true" /></Button>
+					{/snippet}
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props: { type, tabindex, ...props } })}
+								{#if saveDisabled}
+									<span {...props} class="inline-flex">
+										{@render saveButton({})}
+									</span>
+								{:else}
+									{@render saveButton(props)}
+								{/if}
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content side="bottom" role="tooltip">{m['workflows.editor.save']()}</Tooltip.Content>
+					</Tooltip.Root>
+				{/if}
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}<Button
+								{...props}
+								variant="ghost"
+								size="icon-sm"
+								aria-label={panelOpen
+									? m['workflows.editor.hide_panel']()
+									: m['workflows.editor.show_panel']()}
+								aria-expanded={panelOpen}
+								aria-controls={panelOpen ? 'workflow-inspector-panel' : undefined}
+								data-testid="workflow-panel-toggle"
+								onclick={() => preferencesState.setWorkflowEditorPanelOpen(!panelOpen)}
+								>{#if panelOpen}<PanelRightClose />{:else}<PanelRightOpen />{/if}</Button
+							>{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content side="bottom"
+						>{panelOpen ? m['workflows.editor.hide_panel']() : m['workflows.editor.show_panel']()}</Tooltip.Content
+					>
+				</Tooltip.Root>
+			</Tooltip.Provider>
 		</div>
-		<Tooltip.Provider delayDuration={300}>
-			<Tooltip.Root>
-				<Tooltip.Trigger>
-					{#snippet child({ props })}<Button
-							{...props}
-							variant="ghost"
-							size="icon-sm"
-							aria-label={panelOpen
-								? m['workflows.editor.hide_panel']()
-								: m['workflows.editor.show_panel']()}
-							aria-expanded={panelOpen}
-							aria-controls={panelOpen ? 'workflow-inspector-panel' : undefined}
-							data-testid="workflow-panel-toggle"
-							onclick={() => preferencesState.setWorkflowEditorPanelOpen(!panelOpen)}
-							>{#if panelOpen}<PanelRightClose />{:else}<PanelRightOpen />{/if}</Button
-						>{/snippet}
-				</Tooltip.Trigger>
-				<Tooltip.Content side="bottom"
-					>{panelOpen ? m['workflows.editor.hide_panel']() : m['workflows.editor.show_panel']()}</Tooltip.Content
-				>
-			</Tooltip.Root>
-		</Tooltip.Provider>
 	</header>
 
 	<!-- The editor is exactly as tall as its page and owns any scrolling (KUA-201). Side by
