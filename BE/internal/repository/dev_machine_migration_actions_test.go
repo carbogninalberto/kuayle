@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -71,16 +72,27 @@ func TestMigrationActionUpdateWithoutASecretKeepsTheStoredOne(t *testing.T) {
 	created, err := f.repo.CreateMachineMigrationAction(f.ctx, f.ws, f.machine, f.creator, f.action(`migrate -url "$KUAYLE_MIGRATION_SECRET" up`, "sealed1"))
 	require.NoError(t, err)
 
-	updated, err := f.repo.UpdateMachineMigrationAction(f.ctx, f.ws, f.machine, created.ID, f.owner, f.action(`migrate -url "$KUAYLE_MIGRATION_SECRET" up 1`, ""), false)
+	rejected := errors.New("the edit contains the stored secret")
+	edit := f.action(`migrate -url "$KUAYLE_MIGRATION_SECRET" up 1`, "")
+	_, err = f.repo.UpdateMachineMigrationAction(f.ctx, f.ws, f.machine, created.ID, f.owner, edit, false, func(ciphertext string) error {
+		require.Equal(t, "sealed1", ciphertext)
+		return rejected
+	})
+	require.ErrorIs(t, err, rejected)
+	var command string
+	require.NoError(t, f.db.Get(&command, `SELECT command FROM dev_machine_migration_actions WHERE id=$1`, created.ID))
+	require.Equal(t, created.Command, command)
+
+	updated, err := f.repo.UpdateMachineMigrationAction(f.ctx, f.ws, f.machine, created.ID, f.owner, edit, false, func(string) error { return nil })
 	require.NoError(t, err, "an omitted secret keeps the stored one")
 	require.Equal(t, `migrate -url "$KUAYLE_MIGRATION_SECRET" up 1`, updated.Command)
 	require.Equal(t, "sealed1", f.storedSecret(t, created.ID))
 
-	_, err = f.repo.UpdateMachineMigrationAction(f.ctx, f.ws, f.machine, created.ID, f.creator, f.action(`migrate -url "$KUAYLE_MIGRATION_SECRET" up`, "sealed2"), true)
+	_, err = f.repo.UpdateMachineMigrationAction(f.ctx, f.ws, f.machine, created.ID, f.creator, f.action(`migrate -url "$KUAYLE_MIGRATION_SECRET" up`, "sealed2"), true, nil)
 	require.NoError(t, err)
 	require.Equal(t, "sealed2", f.storedSecret(t, created.ID))
 
-	_, err = f.repo.UpdateMachineMigrationAction(f.ctx, f.ws, f.machine, created.ID, f.creator, f.action(`migrate up`, ""), true)
+	_, err = f.repo.UpdateMachineMigrationAction(f.ctx, f.ws, f.machine, created.ID, f.creator, f.action(`migrate up`, ""), true, nil)
 	require.Error(t, err, "a new secret cannot be empty")
 	_, err = f.repo.CreateMachineMigrationAction(f.ctx, f.ws, f.machine, f.creator, &domain.MigrationAction{Name: "other", Description: "Other", Command: "migrate up"})
 	require.Error(t, err, "a new action needs a secret")

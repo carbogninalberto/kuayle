@@ -66,7 +66,7 @@ func (f *migrationActionStoreFake) CreateMachineMigrationAction(_ context.Contex
 	return &created, nil
 }
 
-func (f *migrationActionStoreFake) UpdateMachineMigrationAction(_ context.Context, _, machine, actionID, user uuid.UUID, action *domain.MigrationAction, newSecret bool) (*domain.MigrationAction, error) {
+func (f *migrationActionStoreFake) UpdateMachineMigrationAction(_ context.Context, _, machine, actionID, user uuid.UUID, action *domain.MigrationAction, newSecret bool, validateStoredSecret func(string) error) (*domain.MigrationAction, error) {
 	newSecretValue := newSecret
 	f.updateAction, f.updateNewSecret = action, &newSecretValue
 	if !f.mayConfigure(user) {
@@ -75,6 +75,11 @@ func (f *migrationActionStoreFake) UpdateMachineMigrationAction(_ context.Contex
 	for _, existing := range f.actions {
 		if existing.ID != actionID || existing.MachineID != machine {
 			continue
+		}
+		if !newSecret {
+			if err := validateStoredSecret(existing.EncryptedSecret); err != nil {
+				return nil, err
+			}
 		}
 		for _, other := range f.actions {
 			if other != existing && other.MachineID == machine && other.Name == action.Name {
@@ -241,4 +246,35 @@ func TestDevMachineMigrationActionConflictAndNewSecret(t *testing.T) {
 	require.True(t, *store.updateNewSecret, "a sent secret replaces the stored one")
 	require.NotEmpty(t, store.updateAction.EncryptedSecret)
 	require.NotEqual(t, "second-secret", store.updateAction.EncryptedSecret)
+}
+
+func TestDevMachineMigrationActionRejectsStoredSecretInAnEdit(t *testing.T) {
+	workspaceID, machineID, creator := uuid.New(), uuid.New(), uuid.New()
+	store := &migrationActionStoreFake{creator: creator}
+	h := migrationActionHandler(store)
+	base := "/dev-machines/" + machineID.String() + "/migration-actions"
+	connection := "fixture-" + uuid.NewString()
+	input := dto.DevMachineMigrationActionInput{
+		Name: "migrate", Description: "Run migrations", Command: "migrate up", Secret: connection,
+	}
+	body, err := json.Marshal(input)
+	require.NoError(t, err)
+	created := sendMigrationAction(t, h, http.MethodPost, base, string(body), workspaceID, machineID, creator, uuid.Nil)
+	require.Equal(t, http.StatusCreated, created.Code)
+	actionID := store.actions[0].ID
+
+	for name, edit := range map[string]dto.DevMachineMigrationActionInput{
+		"command":     {Name: input.Name, Description: input.Description, Command: "migrate up " + connection},
+		"description": {Name: input.Name, Description: "Run migrations for " + connection, Command: input.Command},
+	} {
+		t.Run(name, func(t *testing.T) {
+			body, err := json.Marshal(edit)
+			require.NoError(t, err)
+			updated := sendMigrationAction(t, h, http.MethodPut, base+"/"+actionID.String(), string(body), workspaceID, machineID, creator, actionID)
+			require.Equal(t, http.StatusBadRequest, updated.Code)
+			require.False(t, strings.Contains(updated.Body.String(), connection), "response exposed the stored secret")
+			require.True(t, store.actions[0].Command == input.Command, "command was changed")
+			require.True(t, store.actions[0].Description == input.Description, "description was changed")
+		})
+	}
 }

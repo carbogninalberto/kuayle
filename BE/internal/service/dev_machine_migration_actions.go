@@ -30,7 +30,7 @@ var ErrInvalidMigrationAction = errors.New("invalid migration action")
 type MigrationActionStore interface {
 	ListMachineMigrationActions(ctx context.Context, ws, machine, user uuid.UUID) ([]domain.MigrationAction, error)
 	CreateMachineMigrationAction(ctx context.Context, ws, machine, user uuid.UUID, action *domain.MigrationAction) (*domain.MigrationAction, error)
-	UpdateMachineMigrationAction(ctx context.Context, ws, machine, actionID, user uuid.UUID, action *domain.MigrationAction, newSecret bool) (*domain.MigrationAction, error)
+	UpdateMachineMigrationAction(ctx context.Context, ws, machine, actionID, user uuid.UUID, action *domain.MigrationAction, newSecret bool, validateStoredSecret func(string) error) (*domain.MigrationAction, error)
 	DeleteMachineMigrationAction(ctx context.Context, ws, machine, actionID, user uuid.UUID) error
 }
 
@@ -69,13 +69,19 @@ func validateMigrationAction(input *dto.DevMachineMigrationActionInput, secretRe
 		}
 	case len(input.Secret) > domain.MigrationSecretMaxBytes || !utf8.ValidString(input.Secret) || strings.ContainsRune(input.Secret, 0):
 		return "", fmt.Errorf("%w: invalid secret", ErrInvalidMigrationAction)
-	case strings.Contains(input.Command, input.Secret) || strings.Contains(input.Description, input.Secret):
-		// The command and description are shown to the model, in approvals
-		// and in the machine's list; the secret reaches the run only as
-		// $KUAYLE_MIGRATION_SECRET.
-		return "", fmt.Errorf("%w: the command and description must not contain the secret; use $KUAYLE_MIGRATION_SECRET", ErrInvalidMigrationAction)
+	}
+	if err := validateMigrationActionSecret(input.Command, input.Description, input.Secret); err != nil {
+		return "", err
 	}
 	return input.Secret, nil
+}
+
+func validateMigrationActionSecret(command, description, secret string) error {
+	// The command and description are shown in chat and on the machine page.
+	if secret != "" && (strings.Contains(command, secret) || strings.Contains(description, secret)) {
+		return fmt.Errorf("%w: the command and description must not contain the secret; use $KUAYLE_MIGRATION_SECRET", ErrInvalidMigrationAction)
+	}
+	return nil
 }
 
 // CreateMigrationAction stores a new named migration action. The secret is
@@ -114,7 +120,13 @@ func (s *DevMachineService) UpdateMigrationAction(ctx context.Context, workspace
 		}
 		action.EncryptedSecret = encrypted
 	}
-	return s.migrationActions.UpdateMachineMigrationAction(ctx, workspaceID, machineID, actionID, userID, action, secret != "")
+	return s.migrationActions.UpdateMachineMigrationAction(ctx, workspaceID, machineID, actionID, userID, action, secret != "", func(ciphertext string) error {
+		stored, err := cryptoutil.Decrypt(ciphertext, s.encryptionKey)
+		if err != nil {
+			return err
+		}
+		return validateMigrationActionSecret(action.Command, action.Description, stored)
+	})
 }
 
 // DeleteMigrationAction removes one action; the store re-checks the

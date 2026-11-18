@@ -1155,7 +1155,8 @@ creator configures **named migration actions** on a Dev Machine
 a name, a description, a command and a connection secret. The command is
 admin-written and reads the secret only as `$KUAYLE_MIGRATION_SECRET`
 (for example `migrate -url "$KUAYLE_MIGRATION_SECRET" -path ./migrations up`);
-a command or description containing the supplied secret is refused.
+a command or description containing the connection secret is refused, including
+when an edit keeps the stored secret.
 The secret is stored encrypted and never returned by any API, listed or
 logged; the machine page's **Database migrations** card
 (`GET/POST /dev-machines/:machineId/migration-actions`,

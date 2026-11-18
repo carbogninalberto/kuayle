@@ -175,8 +175,9 @@ func (r *AssistantCommandRepository) CreateMachineMigrationAction(ctx context.Co
 
 // UpdateMachineMigrationAction changes one action's name, description and
 // command, and its secret only when a new encrypted one is given. The
-// caller's authority is re-checked in the transaction.
-func (r *AssistantCommandRepository) UpdateMachineMigrationAction(ctx context.Context, ws, machine, actionID, user uuid.UUID, action *domain.MigrationAction, newSecret bool) (*domain.MigrationAction, error) {
+// caller's authority is re-checked in the transaction. If the secret is kept,
+// validate it while holding the row lock so a concurrent edit can't replace it.
+func (r *AssistantCommandRepository) UpdateMachineMigrationAction(ctx context.Context, ws, machine, actionID, user uuid.UUID, action *domain.MigrationAction, newSecret bool, validateStoredSecret func(string) error) (*domain.MigrationAction, error) {
 	if err := validateMigrationActionInput(action, newSecret); err != nil {
 		return nil, err
 	}
@@ -190,6 +191,20 @@ func (r *AssistantCommandRepository) UpdateMachineMigrationAction(ctx context.Co
 	defer tx.Rollback()
 	if err = lockMigrationActionAdmin(ctx, tx, ws, machine, user); err != nil {
 		return nil, err
+	}
+	if !newSecret {
+		var ciphertext string
+		err = tx.GetContext(ctx, &ciphertext, `SELECT encrypted_secret FROM dev_machine_migration_actions
+  WHERE id=$1 AND workspace_id=$2 AND machine_id=$3 FOR UPDATE`, actionID, ws, machine)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrMigrationActionNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
+		if err = validateStoredSecret(ciphertext); err != nil {
+			return nil, err
+		}
 	}
 	updated := &domain.MigrationAction{}
 	query := `UPDATE dev_machine_migration_actions SET name=$4,description=$5,command=$6,
