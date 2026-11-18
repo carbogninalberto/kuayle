@@ -148,6 +148,27 @@ func TestModelMessagesSendNewestImagesAsPartsWithinBounds(t *testing.T) {
 	assert.Equal(t, "image_url", wire.Content[1].Type)
 }
 
+// The attach tool offers comment (the default) and attachment filing, and a
+// value outside those is refused before anything is read or written.
+func TestAttachImagesToolFilesAsCommentOrIssueAttachment(t *testing.T) {
+	var schema struct {
+		Properties map[string]struct {
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(attachImagesTool.parameters), &schema))
+	require.Equal(t, []string{"comment", "attachment"}, schema.Properties["as"].Enum)
+
+	svc := &ConversationService{}
+	attempt := domain.ConversationAttempt{Conversation: domain.Conversation{WorkspaceID: uuid.New(), CreatorID: uuid.New()}}
+	_, _, err := svc.attachImagesToIssue(context.Background(), attempt, `{"identifier":"PRV-1","as":"badge"}`)
+	require.ErrorContains(t, err, `as must be "comment" or "attachment"`)
+	for _, arguments := range []string{`{"identifier":"PRV-1"}`, `{"identifier":"PRV-1","as":"comment"}`} {
+		_, _, err = svc.attachImagesToIssue(context.Background(), attempt, arguments)
+		require.ErrorContains(t, err, "image attachments are not available", arguments)
+	}
+}
+
 func TestVisionProbeReportsWhetherTheModelSawTheImage(t *testing.T) {
 	var body []byte
 	answer := "Red."

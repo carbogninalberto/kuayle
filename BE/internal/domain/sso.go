@@ -9,10 +9,12 @@ import (
 
 // ProviderOIDC is the user_identities provider of an OpenID Connect sign-in.
 const ProviderOIDC = "oidc"
+const ProviderSAML = "saml"
 
-// SSOConfig is a workspace's OpenID Connect configuration. The client secret
+// SSOConfig is a workspace's SSO configuration. The client secret
 // is stored encrypted and is never part of a response.
 type SSOConfig struct {
+	SAMLMetadata          string         `json:"-" db:"saml_metadata"`
 	WorkspaceID           uuid.UUID      `json:"workspace_id" db:"workspace_id"`
 	IssuerURL             string         `json:"issuer_url" db:"issuer_url"`
 	ClientID              string         `json:"client_id" db:"client_id"`
@@ -41,7 +43,7 @@ type UserIdentity struct {
 	LastLoginAt *time.Time `json:"last_login_at" db:"last_login_at"`
 }
 
-// SSOLoginState is the server-side half of an authorization-code flow. It is
+// SSOLoginState is the server-side half of an SSO flow. It is
 // consumed once by state hash; the PKCE verifier is encrypted at rest.
 type SSOLoginState struct {
 	StateHash             string    `db:"state_hash"`

@@ -38,6 +38,7 @@ async function mockApi(page: Page, role: 'owner' | 'admin' | 'member', saves: un
 				const update = request.postDataJSON();
 				saves.push(update);
 				config = ssoConfig({
+					protocol: update.protocol,
 					issuer_url: update.issuer_url,
 					client_id: update.client_id,
 					allowed_domains: update.allowed_domains,
@@ -58,7 +59,7 @@ test('an owner edits the OIDC configuration and the secret stays write-only', as
 	await mockApi(page, 'owner', saves);
 	await page.goto('/test/settings/sso');
 
-	await expect(page.getByRole('heading', { name: 'Single sign-on (OIDC)' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Single sign-on' })).toBeVisible();
 	await expect(page.getByLabel('Issuer URL')).toHaveValue('https://idp.example.com/realms/test');
 	await expect(page.getByLabel('Redirect URI', { exact: true })).toHaveValue(redirectURI);
 
@@ -134,4 +135,21 @@ test('an empty allowed-domain list shows a warning', async ({ page }) => {
 
 	await page.getByLabel('Allowed email domains').fill('example.org');
 	await expect(warning).toHaveCount(0);
+});
+
+test('an owner configures SAML from an IdP metadata file', async ({ page }) => {
+	const saves: unknown[] = [];
+	await mockApi(page, 'owner', saves);
+	await page.goto('/test/settings/sso');
+	await page.getByLabel('Protocol', { exact: true }).click();
+	await page.getByRole('option', { name: 'SAML 2.0' }).click();
+	await expect(page.getByLabel('Client secret')).toHaveCount(0);
+	await expect(page.getByRole('link', { name: 'SP metadata' })).toHaveAttribute('href', '/api/auth/sso/test/metadata');
+	await page.getByLabel('IdP metadata file').setInputFiles({
+		name: 'metadata.xml', mimeType: 'application/xml', buffer: Buffer.from('<EntityDescriptor/>')
+	});
+	await page.getByRole('button', { name: 'Save configuration' }).click();
+	await expect.poll(() => saves.length).toBe(1);
+	expect(saves[0]).toMatchObject({protocol: 'saml', metadata_xml: '<EntityDescriptor/>'});
+	expect(saves[0]).not.toHaveProperty('client_secret');
 });

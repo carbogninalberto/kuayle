@@ -1258,7 +1258,7 @@ workspace means the instance config does not apply (a warning is logged, and
 the miss is retried after 30 s). Shared issuers (Google, Microsoft
 `/common|organizations|consumers`) need allowed domains
 (`validate.SharedOIDCIssuer`), both in `SaveConfig` and at startup. The Keycloak development profile and provider notes are in
-[docs/sso.md](docs/sso.md). SAML 2.0 and SCIM 2.0 are follow-ups.
+[docs/sso.md](docs/sso.md). SAML 2.0 shares the same login state, provisioning and workspace-scoped sessions. The POST callback verifies a signed assertion using the workspace’s stored IdP metadata, its SP entity ID, ACS and one-use AuthnRequest ID. SAML identities have a protocol-prefixed issuer to isolate them from OIDC subjects. SCIM 2.0 is a follow-up.
 
 ## Activity and Logs
 
@@ -2074,7 +2074,9 @@ authenticated, `nosniff`, script-sandboxed endpoint. With the AI setting
 "Model can see images" (off by default, with a probe) the newest images are sent
 as OpenAI-compatible `image_url` parts; otherwise the model gets a text note.
 The `attach_images_to_issue` tool copies them into issue assets of the issue's
-team, and task attempts copy the issue's images into
+team and files them on the issue, by default as a comment embedding them or,
+with `as: attachment`, appended to the issue's description as its own images.
+Task attempts copy the issue's images into
 `.kuayle/attachments/` in their worktree (excluded through the repository's
 `info/exclude`) and list them in the prompt. The machine manager therefore
 needs read access to upload storage: the Compose files mount the `uploads`
