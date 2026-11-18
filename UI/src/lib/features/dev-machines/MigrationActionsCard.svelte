@@ -50,7 +50,10 @@
 	let removeOpen = $state(false);
 	let request = 0;
 
-	const canSave = $derived(!!name.trim() && !!command.trim() && (!!editing || !!secret.trim()));
+	// The API requires every field but the secret on edit, which keeps the stored one.
+	const canSave = $derived(
+		!!name.trim() && !!description.trim() && !!command.trim() && (!!editing || !!secret.trim())
+	);
 
 	async function load(target: string) {
 		const id = ++request;
@@ -118,7 +121,7 @@
 		formError = '';
 		const input = {
 			name: name.trim(),
-			description: description.trim() || undefined,
+			description: description.trim(),
 			command: command.trim(),
 			// Omitted on edit: the stored secret stays.
 			secret: editing || !secret.trim() ? undefined : secret
@@ -232,7 +235,13 @@
 			</div>
 			<div class="space-y-1.5">
 				<Label for={`${titleId}-description`}>{m['machines.migration_description']()}</Label>
-				<Input id={`${titleId}-description`} bind:value={description} maxlength={500} autocomplete="off" />
+				<Input
+					id={`${titleId}-description`}
+					bind:value={description}
+					maxlength={500}
+					autocomplete="off"
+					required
+				/>
 			</div>
 			<div class="space-y-1.5">
 				<Label for={`${titleId}-command`}>{m['machines.migration_command']()}</Label>

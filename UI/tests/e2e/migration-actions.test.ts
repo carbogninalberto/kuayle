@@ -29,6 +29,7 @@ async function fixture(
 		created: [] as Record<string, unknown>[],
 		updated: [] as Record<string, unknown>[],
 		removed: [] as string[],
+		lists: 0,
 		unhandled: [] as string[]
 	};
 	const machine = {
@@ -111,8 +112,10 @@ async function fixture(
 					}
 				}
 			});
-		if (path === `${machinePath}/migration-actions` && method === 'GET')
+		if (path === `${machinePath}/migration-actions` && method === 'GET') {
+			state.lists++;
 			return route.fulfill({ json: { actions: state.actions } });
+		}
 		if (path === `${machinePath}/migration-actions` && method === 'POST') {
 			const input = request.postDataJSON();
 			state.created.push(input);
@@ -177,9 +180,11 @@ test('configures a named migration, keeps its secret write-only, and removes it 
 	// The form tells the admin where the command reads the connection secret from.
 	await expect(dialog).toContainText('$KUAYLE_MIGRATION_SECRET');
 	await dialog.getByLabel('Name').fill('migrate-db');
-	await dialog.getByLabel('Description').fill('Production schema');
 	await dialog.getByLabel('Command').fill('migrate apply --dsn "$KUAYLE_MIGRATION_SECRET"');
 	await dialog.getByLabel('Connection secret').fill('postgres://migration:donotprint@db.internal:5432/app');
+	// The API requires a description, so the form does too.
+	await expect(dialog.getByRole('button', { name: 'Add migration' })).toBeDisabled();
+	await dialog.getByLabel('Description').fill('Production schema');
 	await dialog.getByRole('button', { name: 'Add migration' }).click();
 	await expect(dialog).toHaveCount(0);
 
@@ -227,30 +232,14 @@ test('configures a named migration, keeps its secret write-only, and removes it 
 	expect(state.unhandled).toEqual([]);
 });
 
-test('shows the card read-only to a member who did not create the machine', async ({ page }) => {
-	await fixture(page, {
-		creator: '00000000-0000-0000-0000-000000000099',
-		role: 'member',
-		actions: [
-			{
-				id: 'ma-1',
-				workspace_id: workspaceId,
-				machine_id: machineId,
-				name: 'migrate-db',
-				description: '',
-				command: 'migrate apply --dsn "$KUAYLE_MIGRATION_SECRET"',
-				created_by_user_id: '00000000-0000-0000-0000-000000000099',
-				created_at: time,
-				updated_at: time
-			}
-		]
-	});
+test('hides migrations from a member who did not create the machine', async ({ page }) => {
+	// Reading a machine's migrations is for its creator and workspace owners and
+	// admins, as configuring them is: the API refuses anyone else.
+	const state = await fixture(page, { creator: '00000000-0000-0000-0000-000000000099', role: 'member' });
 	await openApps(page);
-	const migrations = card(page);
-	await expect(migrations.getByRole('listitem').filter({ hasText: 'migrate-db' })).toBeVisible();
-	await expect(migrations.getByRole('button', { name: 'Add migration' })).toHaveCount(0);
-	await expect(migrations.getByRole('button', { name: 'Edit migrate-db' })).toHaveCount(0);
-	await expect(migrations.getByRole('button', { name: 'Remove migrate-db' })).toHaveCount(0);
+	await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible();
+	await expect(card(page)).toHaveCount(0);
+	expect(state.lists).toBe(0);
 });
 
 test('lets a workspace admin configure migrations on a machine they did not create', async ({ page }) => {

@@ -688,7 +688,10 @@
 
 					<Tabs.Content value="apps" class="space-y-5">
 		<AppPortsCard {slug} {machineId} running={machine.status === 'running'} canManage={!machine.created_by_user_id || machine.created_by_user_id === authState.user?.id} />
-	<MigrationActionsCard {slug} {machineId} canManage={canManageMachine || canAdminDevMachines} />
+	<!-- Only the machine's creator and workspace owners/admins may read or configure migrations. -->
+	{#if canManageMachine || canAdminDevMachines}
+		<MigrationActionsCard {slug} {machineId} canManage />
+	{/if}
 
 						<section class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
 							<div class="mb-3"><h2 class="flex items-center gap-2 text-sm font-semibold"><Server class="size-4 text-muted-foreground" aria-hidden="true" />{m['machines.services']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.services_desc']()}</p></div>
