@@ -460,6 +460,14 @@ test.describe('passkey settings', () => {
 		await expect(rows.nth(1)).toContainText('Pixel 9');
 		expect(api.calls.at(-1)).toMatchObject({ method: 'PATCH', path: '/api/auth/passkey/credentials/passkey-2', body: { name: 'Pixel 9' } });
 
+		// The "renamed" toast slides in over the bottom-right corner, where the last row's buttons
+		// are. A click that Playwright checked just before the toast moved there lands on the toast
+		// instead and the confirmation never opens, so clear the toast before using those buttons.
+		const renamed = page.locator('[data-sonner-toast]').filter({ hasText: 'Passkey renamed' });
+		await expect(renamed).toBeVisible();
+		await renamed.getByRole('button', { name: 'Close toast' }).click();
+		await expect(renamed).toBeHidden();
+
 		// Removing asks first; cancelling keeps the passkey.
 		await section(page).getByRole('button', { name: 'Remove Pixel 9' }).click();
 		const confirm = page.getByRole('alertdialog', { name: 'Remove passkey?' });
