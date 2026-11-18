@@ -452,7 +452,8 @@ streaming, history, denied access, mobile layout and long transcript scrolling.
 The worker offers OpenAI-compatible function tools: `list_teams`,
 `search_issues`, `get_issue`, `create_issue`, `update_issue` (title, description,
 status or priority; assignees are not changed), `delegate_issue`, `plan_issues` and `link_issues` (see [dependencies and collaborating agents](agent-tasks.md#dependencies-and-collaborating-agents)),
-`get_agent_work`, `list_agent_work`, `merge_pull_request`, `accept_agent_work`
+`get_agent_work`, `list_agent_work`, `watch_agent_work`
+(see [watching agent work](#watching-agent-work)), `merge_pull_request`, `accept_agent_work`
 (see [accepting without merge](agent-tasks.md#accepting-without-merge)), `request_agent_review`,
 `follow_up_task` (see [requested agent reviews](agent-tasks.md#requested-agent-reviews)),
 `run_check` (see [manual checks](agent-tasks.md#manual-checks)),
@@ -527,6 +528,38 @@ shows it on the approval payload (`repository`, `base_branch`,
 neither reports one; delegation then fails as data asking the user to choose and
 link one, and a repository the policy refuses fails the same way. The approval
 does not pin the repository: the task resolves current settings when it runs.
+
+### Watching agent work
+
+`watch_agent_work(identifier, until?)` (KUA-165, migration 180) registers a
+one-shot watch on an issue's latest coding task from the conversation it is
+called in, so the user can ask "ping me when KUA-X finishes" instead of polling.
+`until` is `awaiting_review`, `completed` or `failed`; omitted, it means any end
+state (`completed`, `failed` or `cancelled`). The watch is bound to the
+conversation's creator, that conversation and the user message the tool call
+answered; registering again from the same conversation replaces the watch, and
+re-reading the member role keeps guests and former members out.
+
+A watch fires on the same events as the creator's transition notice (KUA-122):
+the transaction that records an end state, or a wait in `awaiting_review` that
+needs a person, marks the matching watches due. A workflow passes through
+`awaiting_review` for its agent review and its CI wait, which need nobody, so
+`until=awaiting_review` fires only when a step waits for a person
+(`markWorkflowReviewNotice`); outside a workflow it fires on entering the state
+unless the task's own agent review runs. A watch never fires for a state the
+task already reached: `WatchTask` reads the state under a share lock on the
+task row, which every transition updates before marking watches, and reports
+that state instead of registering, so the assistant answers with it; a task of
+another workspace is refused.
+
+`RunNotifications` claims due watches with `SKIP LOCKED`, deleting each row as
+it is claimed, so a watch pings exactly once even with several workers; a
+delivery that then fails is not repeated. A claimed watch posts one short
+completed assistant message in the watch's conversation without a model call,
+and stores the user's normal notification (in-app, plus email/push per the
+user's preferences) and announces it over the user's event stream, unless the
+creator's notice for the same event already reaches the watcher: a creator
+watching their own task gets one notification and the chat message.
 
 ### Tool switches (Settings → Assistant)
 

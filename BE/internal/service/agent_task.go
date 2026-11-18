@@ -78,6 +78,10 @@ type AgentTaskService struct {
 	notices       taskNoticeStore
 	notifications notificationCreator
 	userEvents    userEventPublisher
+	// Claimed task watches (KUA-165) ping their watcher in their own
+	// conversation; nil until SetWatchers wires these.
+	watchers      taskWatcherStore
+	conversations conversationNoticePoster
 	// webhooks delivers the issue status changes tasks make; nil until
 	// SetWebhooks wires it.
 	webhooks webhookEmitter

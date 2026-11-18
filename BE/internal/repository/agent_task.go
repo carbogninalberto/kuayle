@@ -250,11 +250,25 @@ func recordAgentTaskTransition(ctx context.Context, tx *sqlx.Tx, task domain.Age
 	// The creator is notified of a transition marked pending (ClaimTaskNotices).
 	// A task that waits for its own agent review needs nobody yet. A workflow
 	// entering awaiting_review overrides the mark: markWorkflowReviewNotice.
-	_, err := tx.ExecContext(ctx, `INSERT INTO agent_task_transitions(task_id,from_state,to_state,actor_id,reason,notification_pending)
- VALUES($1,$2,$3,$4,$5,$6::boolean AND NOT ($7::boolean AND EXISTS(SELECT 1 FROM agent_tasks r WHERE r.review_of_task_id=$1 AND r.state NOT IN ('completed','failed','cancelled'))))`,
-		task.ID, from, task.State, actor, task.Reason, taskTransitionNotifies(task, actor), task.State == "awaiting_review")
+	reviewing := false
+	if task.State == "awaiting_review" {
+		if err := tx.GetContext(ctx, &reviewing, `SELECT EXISTS(SELECT 1 FROM agent_tasks r WHERE r.review_of_task_id=$1 AND r.state NOT IN ('completed','failed','cancelled'))`, task.ID); err != nil {
+			return err
+		}
+	}
+	pending := taskTransitionNotifies(task, actor) && !reviewing
+	_, err := tx.ExecContext(ctx, `INSERT INTO agent_task_transitions(task_id,from_state,to_state,actor_id,reason,notification_pending) VALUES($1,$2,$3,$4,$5,$6)`,
+		task.ID, from, task.State, actor, task.Reason, pending)
 	if err != nil {
 		return err
+	}
+	// Watches for this event are due by the same rule (KUA-165): any end
+	// state, and a review wait outside a workflow, whose waits in
+	// awaiting_review are announced by the step (markWorkflowReviewNotice).
+	if domain.IsAgentTaskEndState(task.State) || (task.State == "awaiting_review" && !task.RunsWorkflow() && !reviewing) {
+		if err = markTaskWatchersDue(ctx, tx, task, task.State, pending); err != nil {
+			return err
+		}
 	}
 	// Before the state event, so its payload carries the preview state.
 	if err = taskPreviewTransition(ctx, tx, &task); err != nil {
