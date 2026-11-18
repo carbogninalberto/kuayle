@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Migration 177 adds run_migration to the approval action list, keeps every
-// action an earlier migration allowed, and adds the named migration actions
+// Migration 181 adds run_migration to the approval action list, keeps every
+// action an earlier migration allowed (bulk_update_issues came in 179), and adds the named migration actions
 // and the migration mark of command runs; rolling back removes only those.
 func TestAssistantMigrationActionsMigration(t *testing.T) {
 	url := os.Getenv("DATABASE_URL")
@@ -43,14 +43,15 @@ func TestAssistantMigrationActionsMigration(t *testing.T) {
 		return definition
 	}
 
-	require.NoError(t, m.Migrate(176))
+	require.NoError(t, m.Migrate(179))
 	before := actions()
 	require.Contains(t, before, "'run_command_write'")
+	require.Contains(t, before, "'bulk_update_issues'")
 
-	require.NoError(t, m.Migrate(177))
+	require.NoError(t, m.Migrate(181))
 	after := actions()
 	require.Contains(t, after, "'run_migration'")
-	for _, action := range []string{"message_task", "start_temporary_machine", "run_command", "run_command_write"} {
+	for _, action := range []string{"message_task", "start_temporary_machine", "run_command", "run_command_write", "bulk_update_issues"} {
 		require.Contains(t, after, "'"+action+"'", "every earlier action is kept")
 	}
 	fixture := insertBaseMigrationFixture(t, db)
@@ -73,7 +74,7 @@ func TestAssistantMigrationActionsMigration(t *testing.T) {
 	_, err = db.Exec(`UPDATE assistant_command_runs SET write=true WHERE migration`)
 	require.Error(t, err, "a migration run never writes files")
 
-	require.NoError(t, m.Migrate(176))
+	require.NoError(t, m.Migrate(179))
 	require.Equal(t, before, actions(), "rolling back restores the earlier list")
 	var gone bool
 	require.NoError(t, db.QueryRow(`SELECT to_regclass('public.dev_machine_migration_actions') IS NULL`).Scan(&gone))

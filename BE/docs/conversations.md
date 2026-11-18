@@ -1115,7 +1115,7 @@ temporary machines become ordinary machines that their owners delete.
 ### Database migrations from chat
 
 A database migration is the one command a credential-free container cannot
-run, so `run_migration` (KUA-181, migration 177) never takes a command or a
+run, so `run_migration` (KUA-181, migration 181) never takes a command or a
 connection string from the model. A workspace owner, admin or the machine's
 creator configures **named migration actions** on a Dev Machine
 (`dev_machine_migration_actions`, unique name per machine ignoring case):

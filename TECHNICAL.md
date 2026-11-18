@@ -2021,7 +2021,7 @@ write runs fail on older daemons), so packages go there too (`pip install
 of output is kept. It runs on a running machine the user owns: the given
 `machine_id`, the conversation's temporary machine, the user's own machine or
 their live temporary machine from another conversation (reused). `run_migration`
-(KUA-181, migration 177) runs a named migration action the same way, with the
+(KUA-181, migration 181) runs a named migration action the same way, with the
 action's admin-configured command and its connection secret injected as
 `KUAYLE_MIGRATION_SECRET` and redacted from the stored output; a workspace
 owner, admin or the machine's creator configures the actions in the machine
