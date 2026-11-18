@@ -447,7 +447,8 @@ streaming, history, denied access, mobile layout and long transcript scrolling.
 The worker offers OpenAI-compatible function tools: `list_teams`,
 `search_issues`, `get_issue`, `create_issue`, `update_issue` (title, description,
 status or priority; assignees are not changed), `delegate_issue`, `plan_issues` and `link_issues` (see [dependencies and collaborating agents](agent-tasks.md#dependencies-and-collaborating-agents)),
-`get_agent_work`, `list_agent_work`, `merge_pull_request`, `accept_agent_work`
+`get_agent_work`, `list_agent_work`, `watch_agent_work`
+(see [watching agent work](#watching-agent-work)), `merge_pull_request`, `accept_agent_work`
 (see [accepting without merge](agent-tasks.md#accepting-without-merge)), `request_agent_review`,
 `follow_up_task` (see [requested agent reviews](agent-tasks.md#requested-agent-reviews)),
 `run_check` (see [manual checks](agent-tasks.md#manual-checks)),
@@ -520,6 +521,28 @@ shows it on the approval payload (`repository`, `base_branch`,
 neither reports one; delegation then fails as data asking the user to choose and
 link one, and a repository the policy refuses fails the same way. The approval
 does not pin the repository: the task resolves current settings when it runs.
+
+### Watching agent work
+
+`watch_agent_work(identifier, until?)` (KUA-165, migration 177) registers a
+one-shot watch on an issue's latest coding task from the conversation it is
+called in, so the user can ask "ping me when KUA-X finishes" instead of polling.
+`until` is `awaiting_review`, `completed` or `failed`; omitted, it means any end
+state (`completed`, `failed` or `cancelled`). The watch is bound to the
+conversation's creator, that conversation and the user message the tool call
+answered; registering again from the same conversation replaces the watch, and
+re-reading the member role keeps guests and former members out. A watch never
+fires for a state the task already reached: the tool call fails with the
+current state, so the assistant reports it instead of registering, and the row
+stores the task's last transition (`from_sequence`) so only later transitions
+match. `RunNotifications` claims matched watches with `SKIP LOCKED`, deleting
+each row as it is claimed, so a watch pings exactly once even with several
+workers; a delivery that then fails is not repeated. A claimed watch stores the
+user's normal notification (in-app, plus email/push per the user's
+preferences), announces it over the user's event stream, and posts one short
+completed assistant message in the watch's conversation without a model call;
+the task's creator also gets the ordinary transition notice (KUA-122), so a
+creator watching their own task is notified for both reasons.
 
 ### Tool switches (Settings → Assistant)
 

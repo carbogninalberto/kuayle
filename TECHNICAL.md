@@ -1961,7 +1961,9 @@ bounded issue snapshot and original-team visibility checks. Conversations are
 never shared; private folders and visible projects only tag and filter the
 creator's list, and issue chats follow their issue's project. Orchestrator tools let
 the assistant list teams, search, read, create and update issues, read and list
-agent work, link an issue or project to a repository and request approval for
+agent work, watch a coding task so the user is pinged in chat when it reaches a
+state they asked about, link an issue or project to a repository and request
+approval for
 delegation, an agent review of a published pull request, a follow-up on a task
 or a merge, start or stop a task's preview and expose or list its machine's app
 ports (start and expose need approval), with the user's own permissions; it
