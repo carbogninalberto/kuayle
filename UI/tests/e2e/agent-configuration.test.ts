@@ -111,7 +111,7 @@ test('adds a model server from fetched models, edits it without the key and remo
 		}
 		if (path === '/api/workspaces/test/agent-model-servers/discover') {
 			discoveries.push(request.postDataJSON());
-			return route.fulfill({ json: { models: ['qwen3-coder:30b', 'gpt-oss-120b'] } });
+			return route.fulfill({ json: { models: ['qwen3-coder:30b', 'gpt-oss-120b'], model_names: { 'gpt-oss-120b': 'GPT OSS 120B' } } });
 		}
 		if (path === '/api/workspaces/test/agent-model-servers' && request.method() === 'POST') {
 			const body = request.postDataJSON();
@@ -156,7 +156,7 @@ test('adds a model server from fetched models, edits it without the key and remo
 	await expect.poll(() => discoveries.length).toBe(1);
 	expect(discoveries[0]).toEqual({ openai_base_url: 'https://models.example.test/v1', api_key: 'sk-model-secret' });
 	await dialog.getByRole('combobox', { name: 'Default model' }).click();
-	await page.getByRole('option', { name: 'gpt-oss-120b' }).click();
+	await page.getByRole('option', { name: 'GPT OSS 120B (gpt-oss-120b)' }).click();
 	await dialog.getByRole('combobox', { name: 'Thinking' }).click();
 	await page.getByRole('option', { name: 'Max' }).click();
 	await dialog.getByRole('button', { name: 'Save', exact: true }).click();
@@ -166,6 +166,7 @@ test('adds a model server from fetched models, edits it without the key and remo
 		openai_base_url: 'https://models.example.test/v1',
 		api_key: 'sk-model-secret',
 		models: ['qwen3-coder:30b', 'gpt-oss-120b'],
+		model_names: { 'gpt-oss-120b': 'GPT OSS 120B' },
 		default_model: 'gpt-oss-120b',
 		thinking: 'max'
 	});

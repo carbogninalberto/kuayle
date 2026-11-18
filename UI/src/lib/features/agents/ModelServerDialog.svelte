@@ -12,6 +12,7 @@
 	import { appToast, getErrorMessage } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
 	import AgentLogo from './AgentLogo.svelte';
+	import { modelOptionLabel, modelServerName } from './model-catalog';
 
 	let {
 		slug,
@@ -41,6 +42,8 @@
 		anthropic = $state(initial?.anthropic_base_url ?? ''),
 		apiKey = $state(''),
 		models = $state<string[]>(initial?.models ?? []),
+		modelNames = $state(initial?.model_names ?? {}),
+		discovered = $state(false),
 		defaultModel = $state(initial?.default_model ?? ''),
 		fastModel = $state(initial?.fast_model ?? ''),
 		thinking = $state<ThinkingLevel>(initial?.thinking ?? 'high'),
@@ -59,13 +62,16 @@
 					anthropic.trim() === (server.anthropic_base_url ?? '')))
 	);
 	const canSave = $derived(name.trim() !== '' && hasURL && defaultModel.trim() !== '' && (!!server || apiKey !== ''));
-	const modelOptions = $derived(models.map((model) => ({ value: model, label: model })));
+	const modelOptions = $derived(
+		models.map((model) => ({ value: model, label: modelOptionLabel(modelServerName(modelNames, model), model) }))
+	);
 
 	function preset(choice: (typeof presets)[number]) {
 		if (!name.trim()) name = choice.name;
 		openai = choice.openai ?? '';
 		anthropic = choice.anthropic ?? '';
 		models = [];
+		modelNames = {};
 		fetchError = '';
 	}
 
@@ -81,6 +87,8 @@
 				api_key: apiKey || undefined
 			});
 			models = result.models;
+			modelNames = result.model_names ?? {};
+			discovered = true;
 			if (models.length === 0) fetchError = m['settings.agents.no_models']();
 			if (!models.includes(defaultModel)) defaultModel = models[0] ?? defaultModel;
 			if (fastModel && !models.includes(fastModel)) fastModel = '';
@@ -101,6 +109,7 @@
 			anthropic_base_url: anthropic.trim() || undefined,
 			...(apiKey ? { api_key: apiKey } : {}),
 			models,
+			...(discovered || Object.keys(modelNames).length ? { model_names: modelNames } : {}),
 			default_model: defaultModel.trim(),
 			fast_model: fastModel.trim(),
 			thinking,

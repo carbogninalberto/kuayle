@@ -29,14 +29,14 @@ const (
 	// key. The address is fixed here: no request or setting can change it.
 	openCodeGoModelsURL = "https://opencode.ai/inference/go/v1/models"
 	// openCodeGoPrefix is how OpenCode addresses a Go plan model.
-	openCodeGoPrefix = "opencode-go/"
+	openCodeGoPrefix = catalogSourceOpenCodeGo + "/"
 	// catalogUserAgent names the client as OpenCode asks, with nothing about
 	// the deployment or its users.
 	catalogUserAgent = "kuayle"
 
 	openCodeGoCatalogTTL = time.Hour
-	// openCodeGoCatalogRetry is the least time between two fetches, whether a
-	// user asked to refresh or the last fetch failed.
+	// openCodeGoCatalogRetry limits automatic retries after a failed fetch
+	// and save-time rechecks for an unknown model.
 	openCodeGoCatalogRetry   = 30 * time.Second
 	openCodeGoFetchTimeout   = 10 * time.Second
 	openCodeGoSaveWait       = 3 * time.Second
@@ -97,18 +97,25 @@ func (c *openCodeGoCatalog) cached() openCodeGoList {
 	return c.listLocked()
 }
 
-// load returns the list, fetching it first when there is none, it is past its
-// TTL or force asks for a refresh. Fetches are at least openCodeGoCatalogRetry
-// apart; in between, what is in memory is returned. The caller waits for a
-// fetch at most wait, and no longer than its own context.
-func (c *openCodeGoCatalog) load(ctx context.Context, client *http.Client, force bool, wait time.Duration) openCodeGoList {
+type catalogLoadMode int
+
+const (
+	catalogLoad catalogLoadMode = iota
+	catalogRecheck
+	catalogRefresh
+)
+
+// load shares any in-flight fetch. An explicit refresh bypasses the TTL and
+// automatic retry delay. The caller waits at most wait or its own deadline.
+func (c *openCodeGoCatalog) load(ctx context.Context, client *http.Client, mode catalogLoadMode, wait time.Duration) openCodeGoList {
 	if c == nil {
 		return openCodeGoList{}
 	}
 	c.mu.Lock()
 	now := c.now()
-	due := force || c.fetchedAt.IsZero() || c.failed || now.Sub(c.fetchedAt) >= openCodeGoCatalogTTL
-	if due && c.inflight == nil && (c.attemptedAt.IsZero() || now.Sub(c.attemptedAt) >= openCodeGoCatalogRetry) {
+	due := mode != catalogLoad || c.fetchedAt.IsZero() || c.failed || now.Sub(c.fetchedAt) >= openCodeGoCatalogTTL
+	canFetch := mode == catalogRefresh || c.attemptedAt.IsZero() || now.Sub(c.attemptedAt) >= openCodeGoCatalogRetry
+	if due && c.inflight == nil && canFetch {
 		c.inflight, c.attemptedAt = make(chan struct{}), now
 		go c.fetch(client, c.inflight)
 	}
@@ -120,10 +127,20 @@ func (c *openCodeGoCatalog) load(ctx context.Context, client *http.Client, force
 		select {
 		case <-pending:
 		case <-timer.C:
+			return c.staleWhileFetching()
 		case <-ctx.Done():
+			return c.staleWhileFetching()
 		}
 	}
 	return c.cached()
+}
+
+func (c *openCodeGoCatalog) staleWhileFetching() openCodeGoList {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	list := c.listLocked()
+	list.stale = list.stale || (list.available && c.inflight != nil)
+	return list
 }
 
 func (c *openCodeGoCatalog) fetch(client *http.Client, done chan struct{}) {
@@ -149,6 +166,7 @@ func fetchOpenCodeGoModels(ctx context.Context, client *http.Client, url string)
 	}
 	request.Header.Set("User-Agent", catalogUserAgent)
 	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Cache-Control", "no-cache")
 	response, err := client.Do(request)
 	if err != nil {
 		return nil, errCatalogFetch
@@ -163,7 +181,7 @@ func fetchOpenCodeGoModels(ctx context.Context, client *http.Client, url string)
 	}
 	models := parseOpenCodeGoModels(body)
 	if len(models) == 0 {
-		// An empty list would refuse every model on save; keep the last one.
+		// A missing or invalid provider list should keep the last good one.
 		return nil, errCatalogFetch
 	}
 	return models, nil
@@ -176,6 +194,7 @@ func parseOpenCodeGoModels(body []byte) []dto.AgentCatalogModel {
 		Data []struct {
 			ID           string          `json:"id"`
 			Name         json.RawMessage `json:"name"`
+			DisplayName  json.RawMessage `json:"display_name"`
 			Type         json.RawMessage `json:"type"`
 			Capabilities json.RawMessage `json:"capabilities"`
 		} `json:"data"`
@@ -185,13 +204,13 @@ func parseOpenCodeGoModels(body []byte) []dto.AgentCatalogModel {
 	}
 	models, seen := []dto.AgentCatalogModel{}, map[string]bool{}
 	for _, item := range listing.Data {
-		id := openCodeGoPrefix + item.ID
-		var kind, name string
+		bare := strings.TrimPrefix(item.ID, openCodeGoPrefix)
+		id := openCodeGoPrefix + bare
+		var kind string
 		_ = json.Unmarshal(item.Type, &kind)
-		_ = json.Unmarshal(item.Name, &name)
 		// The bare ID must be a model name too: the prefix alone would let an
 		// ID that starts like a flag through.
-		if seen[id] || !modelNamePattern.MatchString(item.ID) || !modelNamePattern.MatchString(id) || (kind != "" && kind != "chat") {
+		if seen[id] || !modelNamePattern.MatchString(bare) || !modelNamePattern.MatchString(id) || (kind != "" && kind != "chat") {
 			continue
 		}
 		seen[id] = true
@@ -202,7 +221,7 @@ func parseOpenCodeGoModels(body []byte) []dto.AgentCatalogModel {
 			} `json:"reasoning"`
 		}
 		_ = json.Unmarshal(item.Capabilities, &capabilities)
-		models = append(models, dto.AgentCatalogModel{ID: id, Name: catalogModelName(name, item.ID), Efforts: kuayleEfforts(capabilities.Reasoning.Effort)})
+		models = append(models, dto.AgentCatalogModel{ID: id, Name: upstreamModelName(item.DisplayName, item.Name, bare), Efforts: kuayleEfforts(capabilities.Reasoning.Effort)})
 		if len(models) == maxDiscoveredModels {
 			break
 		}
@@ -259,13 +278,17 @@ func catalogModelName(name, fallback string) string {
 // AgentModelCatalog lists the models a profile or task can choose for a
 // coding agent. It never fails because an upstream is unreachable: OpenCode's
 // list is then the last good one marked stale, or empty and unavailable.
-// refresh asks for a new fetch, at most every openCodeGoCatalogRetry.
+// refresh asks for a new fetch of the Go provider list.
 // Callers check that the user may read the workspace's agent settings.
 func (s *DevMachineService) AgentModelCatalog(ctx context.Context, workspaceID uuid.UUID, harness string, refresh bool) (*dto.AgentModelCatalogResponse, error) {
 	catalog := &dto.AgentModelCatalogResponse{Harness: harness, Models: []dto.AgentCatalogModel{}}
 	switch {
 	case harness == "opencode":
-		list := s.openCodeGo.load(ctx, s.modelHTTPClient(), refresh, openCodeGoFetchTimeout)
+		mode := catalogLoad
+		if refresh {
+			mode = catalogRefresh
+		}
+		list := s.openCodeGo.load(ctx, s.modelHTTPClient(), mode, openCodeGoFetchTimeout)
 		catalog.Source, catalog.Stale, catalog.Unavailable = catalogSourceOpenCodeGo, list.stale, !list.available
 		if list.available {
 			catalog.Models = append(catalog.Models, list.models...)
@@ -277,9 +300,7 @@ func (s *DevMachineService) AgentModelCatalog(ctx context.Context, workspaceID u
 		if err != nil {
 			return nil, err
 		}
-		for _, model := range models {
-			catalog.Models = append(catalog.Models, dto.AgentCatalogModel{ID: model, Name: model, Efforts: []string{}})
-		}
+		catalog.Models = models
 		if len(models) > 0 {
 			catalog.Source = catalogSourceWorkspace
 		}
@@ -294,31 +315,41 @@ func (s *DevMachineService) AgentModelCatalog(ctx context.Context, workspaceID u
 // Otherwise the harness runs on its own sign-in, which takes any model: the
 // models of every server that speaks its protocol and the workspace's default
 // model for the agent are all suggestions.
-func (s *DevMachineService) workspaceModels(ctx context.Context, workspaceID uuid.UUID, harness string) ([]string, error) {
+func (s *DevMachineService) workspaceModels(ctx context.Context, workspaceID uuid.UUID, harness string) ([]dto.AgentCatalogModel, error) {
 	servers, err := s.store.ListModelServers(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
-	models := []string{}
-	add := func(values ...string) {
-		for _, value := range values {
-			if value != "" && modelNamePattern.MatchString(value) && !containsString(models, value) && len(models) < maxDiscoveredModels {
-				models = append(models, value)
+	models := []dto.AgentCatalogModel{}
+	indexes := map[string]int{}
+	add := func(names map[string]string, values ...string) {
+		for _, id := range values {
+			if !modelNamePattern.MatchString(id) {
+				continue
+			}
+			name := catalogModelName(names[id], id)
+			if index, seen := indexes[id]; seen {
+				if models[index].Name == id {
+					models[index].Name = name
+				}
+			} else if len(models) < maxDiscoveredModels {
+				indexes[id] = len(models)
+				models = append(models, dto.AgentCatalogModel{ID: id, Name: name, Efforts: []string{}})
 			}
 		}
 	}
 	for _, server := range servers {
 		if server.IsDefault && server.Serves(harness) {
 			if listed := server.ModelList(); len(listed) > 0 {
-				add(listed...)
+				add(server.ModelDisplayNames(), listed...)
 				return models, nil
 			}
 		}
 	}
 	for _, server := range servers {
 		if server.Serves(harness) {
-			add(server.ModelList()...)
-			add(server.DefaultModel)
+			add(server.ModelDisplayNames(), server.ModelList()...)
+			add(nil, server.DefaultModel)
 		}
 	}
 	defaults, err := s.store.ListAgentModelDefaults(ctx, workspaceID)
@@ -327,7 +358,7 @@ func (s *DevMachineService) workspaceModels(ctx context.Context, workspaceID uui
 	}
 	for _, value := range defaults {
 		if value.Provider == harness {
-			add(value.Model)
+			add(nil, value.Model)
 		}
 	}
 	return models, nil
@@ -335,8 +366,8 @@ func (s *DevMachineService) workspaceModels(ctx context.Context, workspaceID uui
 
 // validateCatalogModel checks a model and effort a user is saving against the
 // catalog. Only OpenCode's Go plan models can be judged: another OpenCode
-// provider, another coding agent, or no list in memory accept as before, so a
-// save never depends on the upstream being reachable. It waits briefly for a
+// provider, another coding agent, or an unavailable or stale list accept as
+// before, so a save never depends on the upstream being reachable. It waits briefly for a
 // first fetch, and looks once for a model added since the last one before
 // refusing it. Task starts and workflow steps do not call it: a stored
 // profile keeps running if the list later drops its model.
@@ -344,13 +375,16 @@ func (s *DevMachineService) validateCatalogModel(ctx context.Context, provider, 
 	if provider != "opencode" || !strings.HasPrefix(model, openCodeGoPrefix) {
 		return nil
 	}
-	list := s.openCodeGo.load(ctx, s.modelHTTPClient(), false, s.openCodeGo.wait())
-	if !list.available {
+	list := s.openCodeGo.load(ctx, s.modelHTTPClient(), catalogLoad, s.openCodeGo.wait())
+	if !list.available || list.stale {
 		return nil
 	}
 	entry, known := findCatalogModel(list.models, model)
 	if !known {
-		list = s.openCodeGo.load(ctx, s.modelHTTPClient(), true, s.openCodeGo.wait())
+		list = s.openCodeGo.load(ctx, s.modelHTTPClient(), catalogRecheck, s.openCodeGo.wait())
+		if !list.available || list.stale {
+			return nil
+		}
 		if entry, known = findCatalogModel(list.models, model); !known {
 			return &AgentModelError{fmt.Sprintf("OpenCode Go does not offer the model %q", model)}
 		}

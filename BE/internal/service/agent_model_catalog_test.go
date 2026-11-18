@@ -25,7 +25,7 @@ import (
 const goPlanListing = `{"object":"list","data":[
  {"id":"deepseek-v4.1-flash","name":"DeepSeek V4.1 Flash","type":"chat","context":128000,
   "capabilities":{"reasoning":{"supported":true,"effort":["low","high","max"]},"tools":true}},
- {"id":"glm-6","name":"GLM 6","type":"chat","capabilities":{"reasoning":{"supported":true,"effort":["none","high"]}}},
+ {"id":"opencode-go/glm-6","display_name":"GLM 6","type":"chat","capabilities":{"reasoning":{"supported":true,"effort":["none","high"]}}},
  {"id":"kimi-k3","name":"Kimi K3","type":"chat","capabilities":{"reasoning":{"supported":true,"effort":["minimal","low","medium","high","xhigh"]}}},
  {"id":"qwen-coder","name":"Qwen Coder","type":"chat","capabilities":{"reasoning":{"supported":false}}},
  {"id":"plain","type":"chat"},
@@ -283,31 +283,34 @@ func TestOpenCodeCatalogDialsPublicAddressesOnly(t *testing.T) {
 	require.Zero(t, up.requests.Load())
 }
 
-func TestOpenCodeCatalogRefreshBypassesTheTTLButIsRateLimited(t *testing.T) {
+func TestOpenCodeCatalogRefreshFetchesChangedModelsImmediately(t *testing.T) {
 	up := newGoPlanUpstream(t)
-	svc, clock := catalogService(t, &devMachineStoreFake{}, up)
+	svc, _ := catalogService(t, &devMachineStoreFake{}, up)
 	ctx := context.Background()
 	_, err := svc.AgentModelCatalog(ctx, uuid.New(), "opencode", false)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, up.requests.Load())
 
-	for range 5 {
-		catalog, err := svc.AgentModelCatalog(ctx, uuid.New(), "opencode", true)
-		require.NoError(t, err)
-		require.Len(t, catalog.Models, 7)
-	}
-	require.EqualValues(t, 1, up.requests.Load(), "a refresh right after a fetch is served from memory")
-
-	clock.advance(openCodeGoCatalogRetry + time.Second)
-	up.answer(http.StatusOK, `{"data":[{"id":"only-one","name":"Only One","type":"chat"}]}`)
+	up.answer(http.StatusOK, `{"data":[{"id":"opencode-go/only-one","name":"Only One","canonical_id":"canonical-id"}]}`)
 	refreshed, err := svc.AgentModelCatalog(ctx, uuid.New(), "opencode", true)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, up.requests.Load(), "a refresh fetches although the list is within its TTL")
-	require.Equal(t, []string{"opencode-go/only-one"}, catalogIDs(refreshed))
+	require.EqualValues(t, 2, up.requests.Load(), "an explicit refresh bypasses the TTL and retry window")
+	require.Equal(t, []dto.AgentCatalogModel{{ID: "opencode-go/only-one", Name: "Only One", Efforts: []string{}}}, refreshed.Models)
 
-	_, err = svc.AgentModelCatalog(ctx, uuid.New(), "opencode", true)
+	up.answer(http.StatusBadGateway, `{}`)
+	stale, err := svc.AgentModelCatalog(ctx, uuid.New(), "opencode", true)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, up.requests.Load())
+	require.EqualValues(t, 3, up.requests.Load())
+	require.True(t, stale.Stale)
+	require.Equal(t, refreshed.Models, stale.Models)
+	require.NoError(t, svc.validateCatalogModel(ctx, "opencode", "opencode-go/typed-model", "high"))
+
+	up.answer(http.StatusOK, goPlanListing)
+	recovered, err := svc.AgentModelCatalog(ctx, uuid.New(), "opencode", true)
+	require.NoError(t, err)
+	require.EqualValues(t, 4, up.requests.Load(), "an explicit refresh retries a failure immediately")
+	require.False(t, recovered.Stale)
+	require.Len(t, recovered.Models, 7)
 }
 
 func TestOpenCodeCatalogKeepsAtMostTheDiscoveryLimit(t *testing.T) {
@@ -335,7 +338,8 @@ func TestModelServerHarnessCatalogListsWorkspaceModels(t *testing.T) {
 	ws := uuid.New()
 	up := newGoPlanUpstream(t)
 	anthropicOnly := domain.AgentModelServer{ID: uuid.New(), WorkspaceID: ws, Name: "Anthropic gateway",
-		AnthropicBaseURL: dmStrPtr("https://gateway.example.test"), Models: []byte(`["claude-opus-5-5","claude-haiku-5"]`), DefaultModel: "claude-opus-5-5", Thinking: "high"}
+		AnthropicBaseURL: dmStrPtr("https://gateway.example.test"), Models: []byte(`["claude-opus-5-5","claude-haiku-5"]`),
+		ModelNames: []byte(`{"claude-opus-5-5":"Claude Opus 5.5"}`), DefaultModel: "claude-opus-5-5", Thinking: "high"}
 	store := &devMachineStoreFake{
 		modelServers: []domain.AgentModelServer{anthropicOnly},
 		agentModelDefaults: []domain.AgentModelDefault{
@@ -353,7 +357,8 @@ func TestModelServerHarnessCatalogListsWorkspaceModels(t *testing.T) {
 	require.Equal(t, "workspace", claude.Source)
 	require.False(t, claude.Unavailable)
 	require.Equal(t, []string{"claude-opus-5-5", "claude-haiku-5", "claude-sonnet-5"}, catalogIDs(claude))
-	require.Equal(t, "claude-opus-5-5", claude.Models[0].Name)
+	require.Equal(t, "Claude Opus 5.5", claude.Models[0].Name)
+	require.Equal(t, "claude-haiku-5", claude.Models[1].Name, "older entries fall back to their IDs")
 	require.Empty(t, claude.Models[0].Efforts)
 
 	codex, err := svc.AgentModelCatalog(ctx, ws, "codex", false)
@@ -437,17 +442,17 @@ func TestProfileModelCheckNeverDependsOnTheUpstream(t *testing.T) {
 	require.Less(t, time.Since(started), 3*time.Second)
 }
 
-func TestProfileModelCheckUsesAStaleListAndLearnsNewModels(t *testing.T) {
+func TestProfileModelCheckAllowsSavingWithAStaleListAndLearnsNewModels(t *testing.T) {
 	up := newGoPlanUpstream(t)
 	svc, clock := catalogService(t, &devMachineStoreFake{}, up)
 	ctx := context.Background()
 	require.NoError(t, svc.validateCatalogModel(ctx, "opencode", "opencode-go/glm-6", "high"))
 
-	// The upstream goes away: the last good list still decides.
+	// The upstream goes away: its last good list is only a suggestion.
 	up.answer(http.StatusBadGateway, ``)
 	clock.advance(openCodeGoCatalogTTL + time.Minute)
-	var refused *AgentModelError
-	require.ErrorAs(t, svc.validateCatalogModel(ctx, "opencode", "opencode-go/deepseek-v9", ""), &refused)
+	require.NoError(t, svc.validateCatalogModel(ctx, "opencode", "opencode-go/deepseek-v9", ""))
+	require.NoError(t, svc.validateCatalogModel(ctx, "opencode", "opencode-go/glm-6", "medium"))
 	require.NoError(t, svc.validateCatalogModel(ctx, "opencode", "opencode-go/glm-6", "high"))
 
 	// A model added upstream since the last fetch is looked up before it is

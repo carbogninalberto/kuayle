@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -112,15 +113,17 @@ func TestModelServerRejectsInvalidValues(t *testing.T) {
 }
 
 func TestDiscoverModelsListsOpenAIAndAnthropicServers(t *testing.T) {
+	var openAIListing atomic.Value
+	openAIListing.Store(`{"data":[{"id":"z-model"},{"id":"a-model","name":"A Model"},{"id":"bad model"}]}`)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/models":
 			require.Equal(t, "Bearer sk-openai", r.Header.Get("Authorization"))
-			_, _ = w.Write([]byte(`{"data":[{"id":"z-model"},{"id":"a-model"},{"id":"bad model"}]}`))
+			_, _ = w.Write([]byte(openAIListing.Load().(string)))
 		case "/anthropic/v1/models":
 			require.Equal(t, "sk-ant", r.Header.Get("x-api-key"))
 			require.Equal(t, "2023-06-01", r.Header.Get("anthropic-version"))
-			_, _ = w.Write([]byte(`{"data":[{"id":"claude-sonnet-5-5"}]}`))
+			_, _ = w.Write([]byte(`{"data":[{"id":"claude-sonnet-5-5","display_name":"Claude Sonnet 5.5"}]}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -134,18 +137,33 @@ func TestDiscoverModelsListsOpenAIAndAnthropicServers(t *testing.T) {
 	listed, err := svc.DiscoverModels(ctx, ws, dto.DiscoverModelsRequest{OpenAIBaseURL: dmStrPtr(server.URL + "/v1"), APIKey: dmStrPtr("sk-openai")})
 	require.NoError(t, err)
 	require.Equal(t, []string{"a-model", "z-model"}, listed.Models, "sorted, invalid names dropped")
+	require.Equal(t, map[string]string{"a-model": "A Model"}, listed.ModelNames)
 	listed, err = svc.DiscoverModels(ctx, ws, dto.DiscoverModelsRequest{AnthropicBaseURL: dmStrPtr(server.URL + "/anthropic"), APIKey: dmStrPtr("sk-ant")})
 	require.NoError(t, err)
 	require.Equal(t, []string{"claude-sonnet-5-5"}, listed.Models)
+	require.Equal(t, map[string]string{"claude-sonnet-5-5": "Claude Sonnet 5.5"}, listed.ModelNames)
 
 	// A saved server's key is reused only for its own URL.
 	saved, err := svc.SaveModelServer(ctx, ws, uuid.New(), nil, dto.SaveModelServerRequest{
-		Name: "Local", OpenAIBaseURL: dmStrPtr(server.URL + "/v1"), APIKey: dmStrPtr("sk-openai"), DefaultModel: "a-model", Thinking: "high",
+		Name: "Local", OpenAIBaseURL: dmStrPtr(server.URL + "/v1"), APIKey: dmStrPtr("sk-openai"), Models: []string{"a-model"}, ModelNames: map[string]string{"a-model": "A Model"}, DefaultModel: "a-model", Thinking: "high",
 	})
 	require.NoError(t, err)
+	catalog, err := svc.AgentModelCatalog(ctx, ws, "codex", true)
+	require.NoError(t, err)
+	require.Equal(t, "A Model", catalog.Models[0].Name)
+	openAIListing.Store(`{"data":[{"id":"new-model","name":"New Model"}]}`)
 	listed, err = svc.DiscoverModels(ctx, ws, dto.DiscoverModelsRequest{ServerID: &saved.ID, OpenAIBaseURL: dmStrPtr(server.URL + "/v1")})
 	require.NoError(t, err)
-	require.Len(t, listed.Models, 2)
+	require.Equal(t, []string{"new-model"}, listed.Models)
+	require.Equal(t, map[string]string{"new-model": "New Model"}, listed.ModelNames)
+	_, err = svc.SaveModelServer(ctx, ws, uuid.New(), &saved.ID, dto.SaveModelServerRequest{
+		Name: "Local", OpenAIBaseURL: dmStrPtr(server.URL + "/v1"), Models: listed.Models, ModelNames: listed.ModelNames,
+		DefaultModel: "new-model", Thinking: "high",
+	})
+	require.NoError(t, err)
+	refreshed, err := svc.AgentModelCatalog(ctx, ws, "codex", true)
+	require.NoError(t, err)
+	require.Equal(t, []dto.AgentCatalogModel{{ID: "new-model", Name: "New Model", Efforts: []string{}}}, refreshed.Models)
 	_, err = svc.DiscoverModels(ctx, ws, dto.DiscoverModelsRequest{ServerID: &saved.ID, OpenAIBaseURL: dmStrPtr("https://attacker.example.test/v1")})
 	require.ErrorIs(t, err, ErrInvalidMachineInput, "the stored key never goes to a different URL")
 

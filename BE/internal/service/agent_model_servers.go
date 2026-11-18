@@ -52,7 +52,7 @@ func modelServerResponse(server domain.AgentModelServer) dto.ModelServerResponse
 	}
 	return dto.ModelServerResponse{
 		ID: server.ID, Name: server.Name, OpenAIBaseURL: server.OpenAIBaseURL, AnthropicBaseURL: server.AnthropicBaseURL,
-		Models: models, DefaultModel: server.DefaultModel, FastModel: server.FastModel, Thinking: server.Thinking,
+		Models: models, ModelNames: server.ModelDisplayNames(), DefaultModel: server.DefaultModel, FastModel: server.FastModel, Thinking: server.Thinking,
 		IsDefault: server.IsDefault, Harnesses: harnesses, ThinkingLevels: append([]string(nil), modelThinkingLevels...),
 		UpdatedAt: server.UpdatedAt,
 	}
@@ -140,6 +140,17 @@ func (s *DevMachineService) SaveModelServer(ctx context.Context, workspaceID, us
 		return nil, err
 	}
 	encodedModels, _ := json.Marshal(models)
+	names := request.ModelNames
+	if names == nil {
+		names = server.ModelDisplayNames()
+	}
+	cleanNames := make(map[string]string)
+	for _, model := range models {
+		if name := catalogModelName(names[model], ""); name != "" && name != model {
+			cleanNames[model] = name
+		}
+	}
+	server.ModelNames, _ = json.Marshal(cleanNames)
 	server.Name, server.OpenAIBaseURL, server.AnthropicBaseURL = name, openai, anthropic
 	server.Models, server.DefaultModel, server.FastModel, server.Thinking = encodedModels, request.DefaultModel, request.FastModel, request.Thinking
 	server.IsDefault = request.IsDefault || len(existing) == 0 || (len(existing) == 1 && existing[0].ID == server.ID)
@@ -200,22 +211,17 @@ func (s *DevMachineService) DiscoverModels(ctx context.Context, workspaceID uuid
 	if !validModelAPIKey(key) {
 		return nil, fmt.Errorf("%w: an API key is required to list models", ErrInvalidMachineInput)
 	}
-	var models []string
 	switch {
 	case openai != nil:
-		models, err = s.listModels(ctx, strings.TrimSuffix(*openai, "/")+"/models", map[string]string{"Authorization": "Bearer " + key})
+		return s.listModels(ctx, strings.TrimSuffix(*openai, "/")+"/models", map[string]string{"Authorization": "Bearer " + key})
 	case anthropic != nil:
-		models, err = s.listModels(ctx, strings.TrimSuffix(*anthropic, "/")+"/v1/models?limit=1000", map[string]string{"x-api-key": key, "anthropic-version": "2023-06-01"})
+		return s.listModels(ctx, strings.TrimSuffix(*anthropic, "/")+"/v1/models?limit=1000", map[string]string{"x-api-key": key, "anthropic-version": "2023-06-01"})
 	default:
 		return nil, fmt.Errorf("%w: add a base URL to list models", ErrInvalidMachineInput)
 	}
-	if err != nil {
-		return nil, err
-	}
-	return &dto.DiscoverModelsResponse{Models: models}, nil
 }
 
-func (s *DevMachineService) listModels(ctx context.Context, url string, headers map[string]string) ([]string, error) {
+func (s *DevMachineService) listModels(ctx context.Context, url string, headers map[string]string) (*dto.DiscoverModelsResponse, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid base URL", ErrInvalidMachineInput)
@@ -223,6 +229,7 @@ func (s *DevMachineService) listModels(ctx context.Context, url string, headers 
 	for name, value := range headers {
 		request.Header.Set(name, value)
 	}
+	request.Header.Set("Cache-Control", "no-cache")
 	response, err := s.modelHTTPClient().Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("%w: the server could not be reached", ErrModelDiscoveryFailed)
@@ -233,23 +240,43 @@ func (s *DevMachineService) listModels(ctx context.Context, url string, headers 
 	}
 	var listing struct {
 		Data []struct {
-			ID string `json:"id"`
+			ID          string          `json:"id"`
+			Name        json.RawMessage `json:"name"`
+			DisplayName json.RawMessage `json:"display_name"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&listing); err != nil {
+	if err := json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&listing); err != nil || listing.Data == nil {
 		return nil, fmt.Errorf("%w: the server did not return a model list", ErrModelDiscoveryFailed)
 	}
-	models := []string{}
+	result := &dto.DiscoverModelsResponse{Models: []string{}, ModelNames: map[string]string{}}
+	seen := make(map[string]bool)
 	for _, item := range listing.Data {
-		if modelNamePattern.MatchString(item.ID) && !containsString(models, item.ID) {
-			models = append(models, item.ID)
+		if !modelNamePattern.MatchString(item.ID) {
+			continue
 		}
-		if len(models) == maxDiscoveredModels {
-			break
+		if !seen[item.ID] {
+			if len(result.Models) == maxDiscoveredModels {
+				continue
+			}
+			result.Models = append(result.Models, item.ID)
+			seen[item.ID] = true
+		}
+		if name := upstreamModelName(item.DisplayName, item.Name, ""); name != "" && name != item.ID && result.ModelNames[item.ID] == "" {
+			result.ModelNames[item.ID] = name
 		}
 	}
-	sort.Strings(models)
-	return models, nil
+	sort.Strings(result.Models)
+	return result, nil
+}
+
+func upstreamModelName(displayName, name json.RawMessage, fallback string) string {
+	var label string
+	_ = json.Unmarshal(displayName, &label)
+	if label = catalogModelName(label, ""); label != "" {
+		return label
+	}
+	_ = json.Unmarshal(name, &label)
+	return catalogModelName(label, fallback)
 }
 
 var (
