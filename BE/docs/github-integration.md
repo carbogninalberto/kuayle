@@ -38,7 +38,7 @@ A single GitHub App is pre-configured and shared across all workspaces. Users on
    | Issues | Read |
    | Checks | Read |
    | Commit statuses | Read |
-   | Actions | Read |
+   | Actions | Read and write |
    | Members (organization permission) | Read |
 
    **Events to subscribe to:**
@@ -156,7 +156,7 @@ Users can enable/disable each rule in Settings > GitHub > Automations.
 
 ## PR bot comments (KUA-60)
 
-The existing GitHub App posts `Linked Kuayle issue: [KUA-60](https://your-domain.com/your-workspace/issue/KUA-60)` on `pull_request.opened`. It does not edit the PR description, include the issue title/description, or depend on the PR author's account type. Issue access still requires the normal Kuayle authorization. There is no historical backfill, and edits/reopens do not create new comments.
+The existing GitHub App posts a Linear-style collapsible linkback on `pull_request.opened`: a `<details>` block whose summary links the issue identifier and title, the flattened issue description (plain text, truncated) inside, a `Review in Kuayle` link, and a bot signature when configured. The block carries `<!-- kuayle:pr-issue:<workspace> -->` (idempotency marker) and `<!-- kuayle:issue-linkback:start/end -->` markers, has no blank lines (so the host never interprets Markdown or mentions in the issue content), and is updated in place via a PATCH when a redelivery would render a different body. It does not edit the PR description or depend on the PR author's account type. Issue access still requires the normal Kuayle authorization. There is no historical backfill, and edits/reopens do not create new comments.
 
 Set `FRONTEND_URL` to the externally reachable Kuayle URL. Both the shared app and per-workspace manifest app use their existing installation credentials. **Pull requests: Read and write** permits PR comments through GitHub's issue-comments endpoint; **Issues: write** is not required. Existing installations need no permission change if they already grant the documented permissions. The app must subscribe to **Pull request**, and the repository must be linked and active in the workspace.
 
@@ -207,6 +207,15 @@ Read**. Apps created before them must add **Actions: Read** in the GitHub App
 settings and each installation owner must accept it; until then the setup check
 lists it as missing and `get_workflow_run` names it instead of calling GitHub
 (see [release tools](conversations.md#release-tools)).
+
+A workflow's CI step runs failed GitHub Actions jobs again when the work comes
+back to it without a new commit (KUA-215, see
+[workflow CI](agent-tasks.md#workflow-ci-on-an-unchanged-commit)). That needs
+**Actions: Read and write**; the token Kuayle asks for to re-run jobs carries
+only that permission. Apps created before it must raise **Actions** to *Read
+and write* and each installation owner must accept it; until then the setup
+check lists it as missing, and a CI step that needs a re-run pauses the
+workflow for a person with the reason instead.
 
 ### GitHub App setup check
 

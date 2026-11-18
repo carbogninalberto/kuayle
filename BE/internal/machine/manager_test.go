@@ -212,6 +212,14 @@ func (f *managerStoreFake) SaveAgentSignIn(_ context.Context, _ uuid.UUID, user 
 	return nil
 }
 
+func (f *managerStoreFake) RefreshAgentSignIn(_ context.Context, _ uuid.UUID, user uuid.UUID, provider, previous, refreshed string) error {
+	key := user.String() + "/" + provider
+	if current, ok := f.signIns[key]; ok && current == previous {
+		f.signIns[key] = refreshed
+	}
+	return nil
+}
+
 // deepSeekServer is the model server migrated from a workspace DeepSeek key.
 func deepSeekServer(workspaceID uuid.UUID, encrypted, model, thinking string) *domain.AgentModelServer {
 	return &domain.AgentModelServer{

@@ -232,7 +232,47 @@ func (r *AgentTaskRepository) RecordCIDetails(ctx context.Context, ws uuid.UUID,
 			followUps = append(followUps, *followUp)
 		}
 	}
+	// Workflow CI steps that found failed check runs no webhook reported
+	// wait for the same read (KUA-215).
+	var steps []struct {
+		TaskID   uuid.UUID `db:"task_id"`
+		Sequence int       `db:"sequence"`
+	}
+	if err := r.db.SelectContext(ctx, &steps, `SELECT s.task_id,s.sequence FROM agent_task_workflow_steps s JOIN agent_tasks t ON t.id=s.task_id
+ WHERE t.workspace_id=$1 AND s.finished_at IS NULL AND s.node_type='check' AND s.ci IS NOT NULL AND s.ci->>'head'=$3 AND LOWER(s.ci->>'repository')=LOWER($2)
+ AND s.ci->>'details_since' IS NOT NULL AND COALESCE(s.ci->>'details_read','')<>'true' ORDER BY s.entered_at LIMIT 20`, ws, repository, headSHA); err != nil {
+		return followUps, err
+	}
+	for _, step := range steps {
+		if err := r.recordWorkflowCIDetails(ctx, step.TaskID, step.Sequence, summary); err != nil {
+			return followUps, err
+		}
+	}
 	return followUps, nil
+}
+
+// recordWorkflowCIDetails stores a details read on the CI step the task
+// still waits on, under the task lock, and wakes the task to read it.
+func (r *AgentTaskRepository) recordWorkflowCIDetails(ctx context.Context, taskID uuid.UUID, sequence int, summary string) error {
+	tx, task, err := r.transaction(ctx, taskID, false)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if task.WorkflowSequence != sequence {
+		return tx.Commit()
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET ci=ci||jsonb_build_object('details_read',true,'details',$3::text)
+ WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL AND ci->>'details_since' IS NOT NULL AND COALESCE(ci->>'details_read','')<>'true'`, taskID, sequence, domain.TruncateBytes(summary, domain.CIFailureSummaryBytes))
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		if _, err = tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_wake_at=now() WHERE id=$1 AND state='awaiting_review' AND workflow_status='waiting'`, taskID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (r *AgentTaskRepository) recordCIDetails(ctx context.Context, taskID, signalID uuid.UUID, summary string) (*domain.AgentTaskFollowUp, error) {

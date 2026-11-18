@@ -11,6 +11,7 @@
 	import { formatDate } from '$lib/utils/format';
 	import AgentLogo from './AgentLogo.svelte';
 	import ClaudeTokenForm from './ClaudeTokenForm.svelte';
+	import CodexConnectDialog from './CodexConnectDialog.svelte';
 	import { agentInfo } from './agents';
 	import { signInState } from './sign-in';
 
@@ -27,9 +28,7 @@
 		loading = true;
 		failed = false;
 		try {
-			signIns = await agentSignIns.list(slug);
-		} catch {
-			failed = true;
+			await refreshSignIns();
 		} finally {
 			loading = false;
 		}
@@ -40,6 +39,7 @@
 	// An OpenCode sign-in is an API key: it has no expiry and its own wording.
 	const isKey = (signIn: AgentSignIn) => signIn.provider === 'opencode';
 	const badges = {
+		codex: { label: () => m['settings.agents.codex_signed_in'](), variant: 'secondary' },
 		key: { label: () => m['settings.agents.sign_in_badge_key'](), variant: 'secondary' },
 		token: { label: () => m['settings.agents.sign_in_badge_token'](), variant: 'secondary' },
 		terminal: { label: () => m['settings.agents.sign_in_badge_terminal'](), variant: 'secondary' },
@@ -50,6 +50,14 @@
 	async function saved(signIn: AgentSignIn) {
 		signIns = signIns.map((item) => (item.provider === signIn.provider ? signIn : item));
 		appToast.success(isKey(signIn) ? m['settings.agents.opencode_key_saved']() : m['settings.agents.claude_token_saved']());
+	}
+
+	async function refreshSignIns() {
+		try {
+			signIns = await agentSignIns.list(slug);
+		} catch {
+			failed = true;
+		}
 	}
 
 	async function remove() {
@@ -84,7 +92,8 @@
 			{#each signIns as signIn (signIn.provider)}
 				{@const name = agentInfo(signIn.provider).name}
 				{@const state = signInState(signIn)}
-				{@const badge = badges[state === 'token' && isKey(signIn) ? 'key' : state]}
+				{@const codex = signIn.provider === 'codex'}
+				{@const badge = badges[codex && state === 'terminal' ? 'codex' : state === 'token' && isKey(signIn) ? 'key' : state]}
 				<div class="space-y-3 rounded-lg border p-3" data-testid="sign-in-{signIn.provider}">
 					<Item.Root size="sm" class="p-0">
 						<Item.Media><AgentLogo agent={signIn.provider} size="lg" /></Item.Media>
@@ -109,7 +118,9 @@
 							{/if}
 							{#if signIn.terminal}
 								<Item.Description class="text-xs"
-									>{m['settings.agents.sign_in_terminal_info']({ saved: date(signIn.terminal.saved_at) })}</Item.Description
+									>{codex
+										? m['settings.agents.codex_sign_in_info']({ saved: date(signIn.terminal.saved_at) })
+										: m['settings.agents.sign_in_terminal_info']({ saved: date(signIn.terminal.saved_at) })}</Item.Description
 								>
 							{/if}
 						</Item.Content>
@@ -129,9 +140,9 @@
 										size="sm"
 										variant="ghost"
 										class="text-destructive hover:text-destructive"
-										aria-label={m['settings.agents.remove_terminal_named']({ name })}
+										aria-label={codex ? undefined : m['settings.agents.remove_terminal_named']({ name })}
 										onclick={() => (removing = { provider: signIn.provider, kind: 'credentials' })}
-										><Trash2 />{m['settings.agents.remove_terminal']()}</Button
+										><Trash2 />{codex ? m['settings.agents.codex_disconnect']() : m['settings.agents.remove_terminal']()}</Button
 									>{/if}
 							</Item.Actions>
 						{/if}
@@ -148,7 +159,8 @@
 						</div>
 						<ClaudeTokenForm {slug} saved={!!signIn.token} onsaved={saved} />
 						<p class="text-xs text-muted-foreground">{m['settings.agents.claude_terminal_help']()}</p>
-					{:else}
+					{:else if codex}
+						<CodexConnectDialog {slug} onconnected={refreshSignIns} />
 						<p class="text-xs text-muted-foreground">{m['settings.agents.codex_sign_in_help']()}</p>
 					{/if}
 				</div>
@@ -162,7 +174,9 @@
 		<AlertDialog.Header>
 			<AlertDialog.Title>{m['settings.agents.remove_sign_in_title']()}</AlertDialog.Title>
 			<AlertDialog.Description
-				>{removing?.provider === 'opencode'
+				>{removing?.provider === 'codex'
+					? m['settings.agents.codex_disconnect_desc']()
+					: removing?.provider === 'opencode'
 					? m['settings.agents.remove_key_desc']({ name: agentInfo(removing.provider).name })
 					: m['settings.agents.remove_sign_in_desc']({ name: agentInfo(removing?.provider ?? '').name })}</AlertDialog.Description
 			>

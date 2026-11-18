@@ -11,6 +11,8 @@ export default defineConfig({
 		? [['dot'], ...(process.env.GITHUB_ACTIONS ? [['github'] as ['github']] : []), ['html', { open: 'never' }]]
 		: 'list',
 	webServer: {
+		// Shared by the build and preview below so both know this is a browser-test run.
+		env: { KUAYLE_BROWSER_TESTS: '1' },
 		// PLAYWRIGHT_PORT lets parallel worktrees run browser tests side by side.
 		command: `npm run build && npm run preview -- --port ${process.env.PLAYWRIGHT_PORT ?? 4174}`,
 		port: Number(process.env.PLAYWRIGHT_PORT ?? 4174),

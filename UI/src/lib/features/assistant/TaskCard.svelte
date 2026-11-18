@@ -67,6 +67,7 @@
 	} from '$lib/api/agent-tasks';
 	import type { AgentRun, AppPort, DevMachineLogChunk } from '$lib/types/dev-machine';
 	import { listMachinePorts } from '$lib/api/dev-machines';
+	import { workflows } from '$lib/api/workflows';
 	import { portName, taskAppPorts } from '$lib/features/dev-machines/app-ports';
 	import { openAppPort } from '$lib/features/dev-machines/open-app-port';
 	import { getErrorMessage } from '$lib/features/toast/toast';
@@ -141,9 +142,14 @@
 	const failed = $derived(pause !== 'paused' && ['failed', 'blocked'].includes(task.state));
 	const canCancel = $derived(!['completed', 'cancelled'].includes(task.state));
 	const canRetry = $derived(['failed', 'blocked', 'awaiting_review'].includes(task.state));
-	// Work awaiting review can be accepted in Kuayle without merging.
+	// Work awaiting review can be accepted in Kuayle without merging, except at
+	// its workflow's ship approval: there accepting approves it and Kuayle
+	// merges (KUA-216). Whether the task waits there is the server's to say,
+	// so the card asks before the confirmation names what will happen.
 	const canAccept = $derived(task.state === 'awaiting_review' && task.kind !== 'review');
-	let acceptOpen = $state(false);
+	const mayShip = $derived(!!task.workflow_version_id && task.workflow_status === 'waiting');
+	let acceptOpen = $state(false),
+		acceptShip = $state(false);
 	// A newer version of the task's workflow, which its creator can move it
 	// to. Asked again whenever the task changes state or version: a task is
 	// moved while it is paused or waiting.
@@ -598,8 +604,29 @@
 			if (!disposed) busy = false;
 		}
 	}
+	async function openAccept() {
+		if (busy) return;
+		acceptShip = false;
+		if (mayShip) {
+			busy = true;
+			error = '';
+			try {
+				const view = await workflows.task(chat.slug, task.id);
+				if (disposed) return;
+				acceptShip = !!view?.ship_merge;
+			} catch (e) {
+				failure(e);
+				return;
+			} finally {
+				if (!disposed) busy = false;
+			}
+		}
+		acceptOpen = true;
+	}
 	// Accepting completes the attempt the user reviewed; the pull request stays
-	// open and unmerged. A newer attempt or a merge in between refuses it.
+	// open and unmerged. A newer attempt or a merge in between refuses it. At a
+	// ship approval the server approves instead, and the task stays awaiting
+	// review until Kuayle merged.
 	async function accept() {
 		acceptOpen = false;
 		if (busy) return;
@@ -778,9 +805,9 @@
 				id: 'accept',
 				icon: BadgeCheck,
 				label: m['tasks.accept'](),
-				title: m['tasks.accept_help'](),
+				title: mayShip ? m['tasks.accept_workflow_help']() : m['tasks.accept_help'](),
 				disabled: busy,
-				onclick: () => (acceptOpen = true),
+				onclick: () => void openAccept(),
 				group: resumable ? 'more' : 'main',
 				variant: resumable ? undefined : 'primary'
 			});
@@ -1052,6 +1079,7 @@
 								onsaved={continueAfterSignIn}
 							/>
 							<p>{m['tasks.sign_in_terminal_instead']()}</p>
+						{:else if task.provider === 'codex'}<p>{m['tasks.sign_in_codex_body']()}</p>
 						{:else}<p>{m['tasks.sign_in_body']()}</p>{/if}
 						<div class="flex flex-wrap gap-2">
 							{#if task.machine_id && dock}<Button
@@ -1070,7 +1098,7 @@
 									]()}{/if}</Button
 							>
 						</div>
-						{#if task.provider === 'claude-code'}<a
+						{#if task.provider === 'claude-code' || task.provider === 'codex'}<a
 								class="inline-block text-xs underline underline-offset-2"
 								href="/{chat.slug}/settings/agents#your-sign-ins">{m['tasks.sign_in_manage']()}</a
 							>{/if}
@@ -1281,16 +1309,18 @@
 		<AlertDialog.Content>
 			<AlertDialog.Header>
 				<AlertDialog.Title
-					>{m['tasks.accept_title']({
+					>{(acceptShip ? m['tasks.accept_ship_title'] : m['tasks.accept_title'])({
 						identifier: chat.issue?.identifier ?? m['tasks.this_task']()
 					})}</AlertDialog.Title
 				>
-				<AlertDialog.Description>{m['tasks.accept_desc']()}</AlertDialog.Description>
+				<AlertDialog.Description data-testid="task-accept-description"
+					>{acceptShip ? m['tasks.accept_ship_desc']() : m['tasks.accept_desc']()}</AlertDialog.Description
+				>
 			</AlertDialog.Header>
 			<AlertDialog.Footer>
 				<AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel>
 				<AlertDialog.Action disabled={busy} onclick={() => void accept()}
-					>{m['tasks.accept_confirm']()}</AlertDialog.Action
+					>{acceptShip ? m['tasks.accept_ship_confirm']() : m['tasks.accept_confirm']()}</AlertDialog.Action
 				>
 			</AlertDialog.Footer>
 		</AlertDialog.Content>

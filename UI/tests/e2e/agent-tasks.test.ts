@@ -44,6 +44,8 @@ async function fixture(page: Page) {
 		merged: null as null | { number: number; url: string; repository: string },
 		accepts: [] as any[],
 		acceptError: null as any,
+		// The task's workflow view, when a test gives the task one.
+		workflowView: null as any,
 		cancels: 0,
 		sockets: [] as WebSocketRoute[],
 		events: [] as any[],
@@ -245,6 +247,8 @@ async function fixture(page: Page) {
 				state.task = { ...state.task, state: 'queued', generation: 2, run_id: 'run-2', sign_in_required: false };
 				return route.fulfill({ status: 202, json: state.task });
 			}
+			if (state.workflowView && path.endsWith('/agent-tasks/task-1/workflow'))
+				return route.fulfill({ json: state.workflowView });
 			if (path.endsWith('/workflow/switch')) {
 				if (req.method() === 'GET') return route.fulfill({ json: state.workflowSwitch });
 				if (state.workflowSwitch.refused)
@@ -306,7 +310,14 @@ async function fixture(page: Page) {
 			if (path.endsWith('/accept')) {
 				state.accepts.push(req.postDataJSON());
 				if (state.acceptError) return route.fulfill(state.acceptError);
-				state.task = { ...state.task, state: 'completed', reason: 'Accepted in Kuayle by Owner' };
+				// At the ship approval accepting approves it: Kuayle merges first.
+				state.task = state.workflowView?.ship_merge
+					? {
+							...state.task,
+							reason: 'Workflow · Ready to ship: approved; Kuayle is merging pull request #12 once every check passes',
+							updated_at: new Date(Date.parse(state.task.updated_at) + 1000).toISOString()
+						}
+					: { ...state.task, state: 'completed', reason: 'Accepted in Kuayle by Owner' };
 				return route.fulfill({ json: state.task });
 			}
 			if (path.endsWith('/retry')) {
@@ -1255,6 +1266,85 @@ test('accepts work awaiting review in Kuayle without merging, after confirmation
 	await expect(task.getByRole('link', { name: 'Open pull request', exact: true })).toBeVisible();
 });
 
+// KUA-216: at its workflow's ship approval, Accept approves the merge, and
+// the confirmation says so; at any other wait it accepts without merging.
+test('accepting at the ship approval says the pull request is merged first', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	await awaitReview(state, emit);
+	const view = (node: string, shipMerge: boolean) => ({
+		workflow_id: 'workflow-1',
+		name: 'Ship it',
+		version: 1,
+		builtin: false,
+		graph: {
+			nodes: [
+				{ id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
+				{ id: 'ci', type: 'check', label: 'CI', check: 'ci', position: { x: 200, y: 0 } },
+				{ id: 'ship', type: 'approval', label: 'Ready to ship', position: { x: 400, y: 0 } },
+				{ id: 'done', type: 'end', label: 'Done', outcome: 'done', position: { x: 600, y: 0 } }
+			],
+			edges: [],
+			budget: {}
+		},
+		node,
+		status: 'waiting',
+		visits: {},
+		iterations: 1,
+		sequence: 5,
+		steps: [],
+		runs: [],
+		profiles: [],
+		can_decide: true,
+		task_state: 'awaiting_review',
+		task_reason: '',
+		task_generation: 1,
+		pauses: [],
+		ship_merge: shipMerge
+	});
+	state.workflowView = view('ship', true);
+	state.task = {
+		...state.task,
+		workflow_version_id: 'version-1',
+		workflow_node: 'ship',
+		workflow_status: 'waiting',
+		reason: 'Workflow · CI → Ready to ship: checks passed; waiting for approval: Ready to ship',
+		updated_at: new Date(Date.parse(state.task.updated_at) + 1000).toISOString()
+	};
+	emit('task.state_changed', state.task);
+	const task = page.getByRole('article', { name: 'Coding task' });
+	const accept = task.getByRole('button', { name: 'Accept', exact: true });
+	await expect(task.getByText(/waiting for approval: Ready to ship/)).toBeVisible();
+
+	await accept.click();
+	const dialog = page.getByRole('alertdialog', { name: 'Accept and merge ENG-1?' });
+	await expect(dialog.getByTestId('task-accept-description')).toHaveText(
+		"The task waits at its workflow's ship approval, so accepting approves it: Kuayle merges the pull request once every check passes, after any steps that follow, and the task is done only after the merge. If it cannot merge, the task says why."
+	);
+	await expect(dialog).not.toContainText('not merged');
+	await dialog.getByRole('button', { name: 'Accept and merge', exact: true }).click();
+	await expect(task.getByText(/Kuayle is merging pull request #12/)).toBeVisible();
+	await expect(task.getByText('Completed', { exact: true })).toHaveCount(0);
+	expect(state.accepts).toEqual([{ generation: 1 }]);
+
+	// Waiting for CI is no ship approval: accepting completes without merging.
+	state.workflowView = view('ci', false);
+	state.task = {
+		...state.task,
+		workflow_node: 'ci',
+		reason: 'Workflow · waiting for CI',
+		updated_at: new Date(Date.parse(state.task.updated_at) + 1000).toISOString()
+	};
+	emit('task.state_changed', state.task);
+	await expect(task.getByText('Workflow · waiting for CI', { exact: true })).toBeVisible();
+	await accept.click();
+	const plain = page.getByRole('alertdialog', { name: 'Accept ENG-1 without merging?' });
+	await expect(plain).toContainText('The pull request stays open on GitHub and is not merged.');
+	await plain.getByRole('button', { name: 'Accept work', exact: true }).click();
+	await expect(task.getByText('Accepted in Kuayle by Owner', { exact: true })).toBeVisible();
+});
+
 for (const [name, width] of [
 	['desktop', 1280],
 	['phone', 390]
@@ -1692,9 +1782,13 @@ test('a task stopped for the agent’s sign-in continues once the user signed in
 	};
 	emit('task.state_changed', state.task);
 	await expect(tasks.getByText('Codex needs you to sign in', { exact: true })).toBeVisible();
+	await expect(tasks.getByRole('link', { name: 'Manage your sign-ins' })).toHaveAttribute(
+		'href',
+		'/test/settings/agents#your-sign-ins'
+	);
 	const proceed = tasks.getByRole('button', { name: 'I’ve signed in — continue' });
 	await proceed.click();
-	await expect(tasks.getByText('No sign-in was found in the terminal yet.', { exact: false })).toBeVisible();
+	await expect(tasks.getByText('No sign-in was found yet.', { exact: false })).toBeVisible();
 	state.signInFound = true;
 	await proceed.click();
 	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();

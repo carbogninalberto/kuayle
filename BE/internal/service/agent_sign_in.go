@@ -25,7 +25,7 @@ var agentDisplayNames = map[string]string{"claude-code": "Claude Code", "codex":
 const signInWait = 25 * time.Second
 
 // ContinueAfterSignIn starts a new attempt once the task's creator has signed
-// in: with a token they saved (nothing to capture), or by storing the sign-in
+// in: using a saved Claude Code token or Codex sign-in, or by storing the sign-in
 // they completed in their machine's terminal. requestID makes a double click
 // converge on one capture and one retry.
 func (s *AgentTaskService) ContinueAfterSignIn(ctx context.Context, ws, id, requestID uuid.UUID) (*domain.AgentTask, error) {
@@ -37,7 +37,7 @@ func (s *AgentTaskService) ContinueAfterSignIn(ctx context.Context, ws, id, requ
 		if err != nil {
 			return nil, err
 		}
-		if ok, err := s.creatorSavedToken(ctx, ws, task); err != nil {
+		if ok, err := s.creatorSavedSignIn(ctx, ws, task); err != nil {
 			return nil, err
 		} else if ok {
 			return s.retryAfterSignIn(ctx, ws, id, requestID, task)
@@ -75,12 +75,16 @@ func (s *AgentTaskService) ContinueAfterSignIn(ctx context.Context, ws, id, requ
 	return s.retryAfterSignIn(ctx, ws, id, requestID, task)
 }
 
-// creatorSavedToken reports whether the caller created this task stopped for
-// sign-in and has since saved a token for its agent.
-func (s *AgentTaskService) creatorSavedToken(ctx context.Context, ws uuid.UUID, task *domain.AgentTask) (bool, error) {
+// creatorSavedSignIn reports whether the caller created this task stopped for
+// sign-in and can retry with their saved credentials.
+func (s *AgentTaskService) creatorSavedSignIn(ctx context.Context, ws uuid.UUID, task *domain.AgentTask) (bool, error) {
 	access, ok := domain.AccessFromContext(ctx)
-	if !ok || s.machines == nil || task.CreatorID != access.UserID || task.State != "failed" || !task.SignInRequired {
+	if !ok || s.machines == nil || access.WorkspaceID != ws || task.CreatorID != access.UserID || task.State != "failed" || !task.SignInRequired {
 		return false, nil
+	}
+	if task.Provider == "codex" {
+		sealed, err := s.machines.store.GetAgentSignIn(ctx, ws, access.UserID, task.Provider)
+		return sealed != "", err
 	}
 	return s.machines.HasAgentSignInToken(ctx, ws, access.UserID, task.Provider)
 }

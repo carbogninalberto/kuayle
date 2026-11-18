@@ -102,12 +102,9 @@ export type ShortcutDef = {
 
 const SEQUENCE_TIMEOUT = 500; // ms
 
-export function createShortcutEngine(defs: ShortcutDef[]) {
+export function createShortcutEngine(defs: ShortcutDef[] | (() => ShortcutDef[])) {
 	let pendingKeys: string[] = [];
 	let pendingTimer: ReturnType<typeof setTimeout> | null = null;
-
-	const sequences = defs.filter((d) => d.keys && d.keys.length > 0);
-	const singles = defs.filter((d) => d.key && !d.keys);
 
 	function resetPending() {
 		pendingKeys = [];
@@ -120,6 +117,11 @@ export function createShortcutEngine(defs: ShortcutDef[]) {
 	function handler(e: KeyboardEvent) {
 		if (ignoredEvent(e)) return;
 
+		// Resolve on every keydown so a getter can follow reactive definitions
+		// (for example translated labels) without rebuilding the engine.
+		const currentDefs = typeof defs === 'function' ? defs() : defs;
+		const sequences = currentDefs.filter((d) => d.keys && d.keys.length > 0);
+		const singles = currentDefs.filter((d) => d.key && !d.keys);
 		const key = e.key.toLowerCase();
 
 		// Check single-key shortcuts with modifiers first
@@ -170,5 +172,5 @@ export function createShortcutEngine(defs: ShortcutDef[]) {
 		}
 	}
 
-	return { handler, defs };
+	return { handler };
 }

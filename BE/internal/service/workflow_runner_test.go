@@ -20,6 +20,7 @@ import (
 // computation the database transaction uses, so a fresh runner on the same
 // world behaves like a restarted process.
 type workflowWorld struct {
+	t         *testing.T
 	now       time.Time
 	task      domain.AgentTask
 	steps     map[int]*domain.WorkflowStep
@@ -28,12 +29,17 @@ type workflowWorld struct {
 	reviews   map[uuid.UUID]*repository.WorkflowReview
 	ci        map[uuid.UUID]*repository.WorkflowCI
 	// checks is what GitHub lists for each published commit (keyed by run).
-	checks   map[uuid.UUID][]PullRequestCheck
-	coverage ChecksCoverage
-	noGitHub bool
-	version  domain.WorkflowVersion
-	profiles map[uuid.UUID]domain.AgentProfile
-	entries  []repository.WorkflowEntry
+	checks map[uuid.UUID][]PullRequestCheck
+	// heads names the commit a run published when it is not the run's own
+	// (an attempt that pushed nothing new publishes the same commit again),
+	// and shaChecks what GitHub lists for such a commit.
+	heads     map[uuid.UUID]string
+	shaChecks map[string][]PullRequestCheck
+	coverage  ChecksCoverage
+	noGitHub  bool
+	version   domain.WorkflowVersion
+	profiles  map[uuid.UUID]domain.AgentProfile
+	entries   []repository.WorkflowEntry
 	// notes are what applied moves added to the task's notebook.
 	notes []domain.NotebookNote
 	// decider is the person deciding approvals; notices counts the times
@@ -69,6 +75,14 @@ func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowAp
 		if *w.task.WorkflowStatus != want {
 			return nil, repository.ErrAgentTaskConflict
 		}
+		// A done end that waited for its merge completes on it (KUA-216).
+		if apply.Entry.Kind == repository.WorkflowEnterComplete {
+			if current.NodeType != domain.WorkflowNodeEnd {
+				return nil, repository.ErrAgentTaskConflict
+			}
+			outcome := apply.Outcome
+			current.Outcome, current.FinishedAt, current.Detail = &outcome, &w.now, apply.Detail
+		}
 	} else {
 		if apply.Outcome != "" {
 			current.Outcome = &apply.Outcome
@@ -82,6 +96,12 @@ func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowAp
 		if apply.Plan != "" || apply.PlanFailed {
 			plan := apply.Plan
 			current.Plan = &plan
+		}
+		if apply.CI != nil {
+			current.CI = rawJSON(w.t, apply.CI)
+		}
+		if apply.StepMerge != nil {
+			current.Merge = rawJSON(w.t, apply.StepMerge)
 		}
 	}
 	result := repository.ComputeWorkflowApply(w.task, apply, w.now)
@@ -179,15 +199,26 @@ func (s worldStore) WorkflowCI(_ context.Context, task domain.AgentTask) (*repos
 		ci = *recorded
 	}
 	if s.w.published[task.RunID] {
-		ci.Published, ci.Repository, ci.CommitSHA = true, "acme/app", task.RunID.String()
+		ci.Published, ci.Repository, ci.CommitSHA = true, "acme/app", s.w.head(task.RunID)
 	}
 	return &ci, nil
+}
+
+// head is the commit the run published.
+func (w *workflowWorld) head(run uuid.UUID) string {
+	if head := w.heads[run]; head != "" {
+		return head
+	}
+	return run.String()
 }
 
 // CommitChecks is GitHub's full check list of a published commit.
 func (s worldStore) CommitChecks(_ context.Context, _ uuid.UUID, repository, sha string) ([]PullRequestCheck, ChecksCoverage, error) {
 	if repository != "acme/app" {
 		return nil, ChecksCoverage{}, errors.New("unknown repository")
+	}
+	if checks, ok := s.w.shaChecks[sha]; ok {
+		return checks, s.w.coverage, nil
 	}
 	run, err := uuid.Parse(sha)
 	if err != nil {
@@ -224,6 +255,55 @@ func (s worldStore) WorkflowDecisionTask(context.Context, uuid.UUID, uuid.UUID) 
 func (s worldStore) DecideWorkflow(_ context.Context, _, _ uuid.UUID, apply repository.WorkflowApply) (*domain.AgentTask, error) {
 	return s.w.apply(s.w.task, apply)
 }
+func (s worldStore) WorkflowCIHistory(_ context.Context, _ domain.AgentTask, head string) ([]domain.WorkflowStep, error) {
+	var steps []domain.WorkflowStep
+	for seq := 1; seq <= s.w.task.WorkflowSequence; seq++ {
+		if step := s.w.steps[seq]; step != nil && step.NodeType == domain.WorkflowNodeCheck {
+			if record := step.CIRecord(); record != nil && record.Head == head {
+				steps = append(steps, *step)
+			}
+		}
+	}
+	return steps, nil
+}
+
+// RecordWorkflowCI applies repository.RecordWorkflowCI's checks and writes.
+func (s worldStore) RecordWorkflowCI(_ context.Context, task domain.AgentTask, record domain.WorkflowCIRecord, wake *time.Time) error {
+	step := s.w.steps[s.w.task.WorkflowSequence]
+	if task.WorkflowSequence != s.w.task.WorkflowSequence || *s.w.task.WorkflowStatus != domain.WorkflowStatusWaiting || step.FinishedAt != nil || step.NodeType != domain.WorkflowNodeCheck {
+		return repository.ErrAgentTaskConflict
+	}
+	step.CI = rawJSON(s.w.t, &record)
+	s.w.task.WorkflowWakeAt = wake
+	return nil
+}
+
+// DeferredShipMerge applies repository.DeferredShipMerge's rule.
+func (s worldStore) DeferredShipMerge(context.Context, domain.AgentTask) (*domain.MergeWait, error) {
+	for seq := s.w.task.WorkflowSequence; seq > 0; seq-- {
+		step := s.w.steps[seq]
+		if step == nil {
+			continue
+		}
+		if step.NodeType == domain.WorkflowNodeApproval && step.FinishedAt != nil {
+			if wait := step.MergeWait(); wait != nil && wait.Deferred {
+				return wait, nil
+			}
+		}
+		if step.NodeType != domain.WorkflowNodeAgent {
+			return nil, nil
+		}
+	}
+	return nil, nil
+}
+
+func rawJSON(t *testing.T, value any) *json.RawMessage {
+	data, err := json.Marshal(value)
+	require.NoError(t, err)
+	raw := json.RawMessage(data)
+	return &raw
+}
+
 func (s worldStore) Version(context.Context, uuid.UUID, uuid.UUID) (*domain.WorkflowVersion, error) {
 	return &s.w.version, nil
 }
@@ -255,6 +335,7 @@ func newWorkflowHarness(t *testing.T, budget domain.WorkflowBudget) *workflowHar
 	node, status := "implement", domain.WorkflowStatusRunning
 	now := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC)
 	world := &workflowWorld{
+		t:   t,
 		now: now,
 		task: domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), Kind: domain.AgentTaskKindImplement, State: "running", Generation: 1, RunID: uuid.New(),
 			Prompt: "Add dark mode", Provider: "claude-code", WorkflowVersionID: &versionID, WorkflowNode: &node, WorkflowVisits: json.RawMessage(`{"start":1,"implement":1}`),
@@ -264,7 +345,7 @@ func newWorkflowHarness(t *testing.T, budget domain.WorkflowBudget) *workflowHar
 			2: {Sequence: 2, NodeID: "implement", NodeType: "agent", Visit: 1},
 		},
 		runs: map[uuid.UUID]*repository.WorkflowRun{}, published: map[uuid.UUID]bool{}, reviews: map[uuid.UUID]*repository.WorkflowReview{}, ci: map[uuid.UUID]*repository.WorkflowCI{},
-		checks:  map[uuid.UUID][]PullRequestCheck{},
+		checks: map[uuid.UUID][]PullRequestCheck{}, heads: map[uuid.UUID]string{}, shaChecks: map[string][]PullRequestCheck{},
 		version: domain.WorkflowVersion{ID: versionID, Graph: raw},
 		profiles: map[uuid.UUID]domain.AgentProfile{
 			implementer: {ID: implementer, Name: "Implementer", Role: "Implementer", Behaviour: domain.AgentBehaviourChangesCode, Harness: "claude-code", Instructions: "Write tests."},

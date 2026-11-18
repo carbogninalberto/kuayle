@@ -159,6 +159,9 @@ func (r *DockerRuntime) prepareCommandFolder(ctx context.Context, machine *domai
 			hostConfig.Mounts[i].ReadOnly = false
 		}
 	}
+	if err := r.scopeMachineResources(ctx, machine, "agent", prepLabels, hostConfig); err != nil {
+		return err
+	}
 	created, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Name: name,
 		Config: &container.Config{Image: image, User: "1000:1000", WorkingDir: "/workspace", Entrypoint: []string{"sh"}, Cmd: commandPrepArgv(run.WorkingDirectory),

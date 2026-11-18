@@ -812,6 +812,10 @@ type TaskWorkflow struct {
 	PausedAt     *time.Time                  `json:"paused_at,omitempty"`
 	PauseRequest *string                     `json:"pause_request,omitempty"`
 	Pauses       []domain.WorkflowPauseEvent `json:"pauses"`
+	// ShipMerge is set while the task waits at its workflow's ship approval
+	// and approving it (or accepting the task) merges the pull request
+	// (KUA-216).
+	ShipMerge bool `json:"ship_merge,omitempty"`
 }
 
 // TaskWorkflow reads a task's workflow view. summariesSince, when set, leaves
@@ -878,6 +882,11 @@ func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID, su
 			if step.Sequence == task.WorkflowSequence && mergeActive(step) {
 				out.CanDecide = false
 			}
+		}
+	}
+	if runner := s.tasks.Workflow(); runner != nil {
+		if out.ShipMerge, err = runner.ShipMergeWaiting(ctx, *task); err != nil {
+			return nil, err
 		}
 	}
 	return out, nil

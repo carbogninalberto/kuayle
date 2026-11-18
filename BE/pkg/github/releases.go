@@ -147,6 +147,13 @@ func (c *Client) GetWorkflowJobContext(ctx context.Context, token, owner, repo s
 	return &job, nil
 }
 
+// RerunFailedJobs asks GitHub to run a workflow run's failed jobs again, with
+// the jobs that depend on them, as a new attempt of the run (KUA-215). It
+// needs a token with the Actions write permission.
+func (c *Client) RerunFailedJobs(ctx context.Context, token, owner, repo string, id int64) error {
+	return c.doContext(ctx, http.MethodPost, fmt.Sprintf("%s/repos/%s/%s/actions/runs/%d/rerun-failed-jobs", githubAPIBaseURL, owner, repo, id), token, nil, nil)
+}
+
 // maxJobPages bounds the jobs read for one run.
 const maxJobPages = 3
 

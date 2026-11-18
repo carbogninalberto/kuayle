@@ -21,6 +21,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/buildinfo"
 	"github.com/kuayle/kuayle-backend/internal/clientip"
 	"github.com/kuayle/kuayle-backend/internal/config"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/handler"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
@@ -361,6 +362,14 @@ func main() {
 	workspaceTransferSvc := service.NewWorkspaceTransferService(workspaceTransferRepo, store)
 	workspaceTransferH := handler.NewWorkspaceTransferHandler(workspaceTransferSvc)
 
+	importRepo := repository.NewImportJobRepository(db)
+	importStore := service.NewSQLImportStore(teamRepo, teamStatusRepo, workspaceRepo, labelRepo, cycleRepo,
+		projectRepo, issueRepo, commentRepo, relationRepo, assetRepo, importRepo, store, domain.MaxUploadSize)
+	importSvc := service.NewImportService(importRepo, importStore,
+		service.JiraSourceFactory(cfg.ImportAllowPrivateNetwork, domain.MaxUploadSize),
+		crypto.DeriveKey(cfg.JWTSecret+":import"), domain.MaxUploadSize)
+	importH := handler.NewImportJobHandler(importSvc)
+
 	// GitHub integration
 	var globalGitHubApp *service.GlobalGitHubAppConfig
 	if cfg.GitHubApp.IsConfigured() {
@@ -467,6 +476,7 @@ func main() {
 		inviteLink:        inviteLinkH,
 		config:            configH,
 		workspaceTransfer: workspaceTransferH,
+		importJob:         importH,
 		auth:              authH,
 		passkey:           passkeyH,
 		sso:               ssoH,
@@ -534,6 +544,7 @@ func main() {
 	go agentTaskSvc.RunNotifications(conversationCtx)
 	go wikiSvc.RunOverviewSchedules(conversationCtx)
 	go backupSvc.Run(conversationCtx)
+	go importSvc.Run(conversationCtx)
 	go agentMessageSvc.Run(conversationCtx, 10*time.Second)
 	go automationSvc.Run(conversationCtx)
 	go agentAssigneeSvc.Run(conversationCtx)

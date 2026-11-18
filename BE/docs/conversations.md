@@ -978,7 +978,8 @@ actions; rolling back deletes those approvals, not the previews or ports.
 What a user would open a terminal for today, and the assistant tool that does
 it. Keep this table current in the same change as a tool that covers a row; a
 gap names its issue, or "issue to file" until a person files one (agents
-cannot file Kuayle issues).
+cannot file Kuayle issues). A row marked "by design" names the issue that
+decided not to cover it from chat, so it is not an open gap.
 
 | Terminal-shaped task | Covered by | Status |
 | --- | --- | --- |
@@ -996,7 +997,8 @@ cannot file Kuayle issues).
 | Call a public endpoint (`curl`) | `run_command`, through the machine's egress proxy | covered (KUA-153) |
 | Write scratch files or generate an artifact | `run_command_write`: only the conversation's folder is writable, the rest of `/workspace` stays read-only | covered (KUA-153) |
 | Run tests ad hoc outside a task checkout | `run_command` on the user's machine (read-only workspace, 60 s) | partial: longer runs are a gap, KUA-179 |
-| Install a language package | `run_command_write` in the conversation folder: `pip install --target ./pkgs` then `PYTHONPATH=./pkgs`, a venv (`python3 -m venv .venv`), or `npm install`; not `pip install --user`, since `$HOME` is a tmpfs lost after each run | partial: system packages (no sudo, no apt on temporary machines) are a gap, KUA-180 |
+| Install a language package | `run_command_write` in the conversation folder: `pip install --target ./pkgs` then `PYTHONPATH=./pkgs`, a venv (`python3 -m venv .venv`), or `npm install`; not `pip install --user`, since `$HOME` is a tmpfs lost after each run | covered (KUA-153) |
+| Install a system package (`apt-get install`) | The machine's image: packages added in an Environment Builder and saved as a Development Environment, then `run_command`/`run_command_write` with that machine's `machine_id`; static binaries can be downloaded into the conversation folder. No install from chat ([system packages](#system-packages)) | by design (KUA-180) |
 | Run a database migration against a real database | none: command containers never get credentials | gap, KUA-181 |
 | Read a machine's container or agent logs, `docker ps` | none | gap, KUA-182 |
 | Commit, branch or push on a checkout | read-only git through `get_task_worktree` and `run_command`; changes through `follow_up_task` | partial: pushing from chat is a gap, KUA-183 |
@@ -1012,10 +1014,13 @@ so, and the `start_temporary_machine` description repeats it.
   reuse, and then nothing starts and no card is shown: this conversation's
   live temporary machine, else the user's own running, non-temporary machine
   (not an environment builder, not being deleted; machines of no issue first,
-  then the most recently active). The result names the machine, its size,
+  then the most recently active), else the user's live temporary machine from
+  another conversation. The result names the machine, its size,
   `reused` and the conversation folder
   `/workspace/kuayle-assistant/<conversation>`. Otherwise it checks the
-  workspace quota and asks for approval of the preset
+  workspace quota — refusing before the card when the user already has a
+  temporary machine that counts toward it but cannot run commands — and asks
+  for approval of the preset
   (`domain.TemporaryMachineResources`: 1 vCPU, 2048 MB, 20 GB, headless; 20 GB
   is the global `DevMachineMinDiskGB` floor of every machine, not a size chosen
   for commands). The
@@ -1025,7 +1030,8 @@ so, and the `start_temporary_machine` description repeats it.
 - `run_command` and `run_command_write` (approval tools, even on the user's
   own machine). They take `command` (at most 4000 bytes) and an optional
   `machine_id`, which must be a running machine the user owns. Without it they
-  use the conversation's temporary machine, else the reuse candidate, else they
+  use the conversation's temporary machine, else the user's own running machine
+  or their live temporary machine from another conversation (reused), else they
   fail with what the assistant can do instead. `run_command` takes a
   `working_directory` relative to `/workspace` (default `/workspace`).
   `run_command_write` always starts in the conversation folder, which it
@@ -1080,7 +1086,8 @@ machine.
 
 A temporary machine has no repository (the workspace's default repository and
 environment are ignored), no agents, no environment variables, no Docker
-daemon and no sudo, whatever the workspace policy allows. Kuayle therefore
+daemon and no sudo, whatever the workspace policy allows; it cannot install
+system packages ([system packages](#system-packages)). Kuayle therefore
 never mints a credential for it. It is never chosen for an agent task.
 `dev_machines.temporary_expires_at` is fixed at 30 minutes from creation and
 never extended. `Manager.reconcile` asks for the permanent deletion of every
@@ -1092,6 +1099,58 @@ machine. Both limits are counted under the workspace's machine lock in
 `CreateBundle`, and temporary machines also count toward the ordinary machine
 quotas. Rolling back migration 159 drops the runs and the new approvals;
 temporary machines become ordinary machines that their owners delete.
+
+#### System packages
+
+The command tools never install system packages, and there is no
+approval-gated or allowlisted `apt` for `run_command` or `run_command_write`
+(KUA-180). System packages come from the machine's image instead.
+
+Why this stays closed:
+
+- The command container is always locked down, whatever the machine's sudo
+  policy: a read-only root filesystem, all capabilities dropped,
+  `no-new-privileges`, and `User: "1000:1000"`. `secureHostConfig` relaxes only
+  `ide` and `terminal` containers on sudo machines, never command runs. `apt`
+  needs root, a writable `/usr` and `/var`, and several capabilities that are
+  dropped here.
+- Every run is a fresh container that is removed afterwards, so an install
+  into its root filesystem would not persist. Keeping it would mean committing
+  images or writing outside the conversation folder, which would undo the
+  write confinement of KUA-153.
+- Package maintainer scripts run as root, driven by commands the model
+  proposes. This is the same reasoning as agent attempts staying locked
+  ([sudo in machines](../../TECHNICAL.md#sudo-in-machines)): an approval card
+  and an allowlist do not change what root can do once those scripts run.
+- Temporary machines have no environment and expire after 30 minutes.
+
+To get system packages:
+
+1. An owner or admin starts an Environment Builder, installs the packages
+   there (`sudo apt-get install …` works because its root filesystem is
+   writable), stops or pauses it, and saves it as a
+   [Development Environment](../../TECHNICAL.md#scoped-settings-worktrees-and-environments).
+2. Create a machine with that environment, or use one that already has it.
+3. Give that machine's `machine_id` to `run_command` or `run_command_write`.
+   Commands then run in the environment's image, so the packages are there.
+
+This works only on the user's own machines, not on temporary ones.
+
+What does not work:
+
+- `sudo apt-get install` in a sudo machine's terminal or IDE does not reach
+  commands. Each command starts a new container from the machine's image; the
+  install changes only that terminal or IDE container until it is recreated.
+- A temporary machine always runs the stock developer image, with no
+  environment and no packages added to it.
+
+Non-root options for a one-off command:
+
+- A language package in the conversation folder (see the
+  [terminal capability matrix](#terminal-capability-matrix)).
+- A static or prebuilt binary fetched with `curl` through the machine's egress
+  proxy into the conversation folder, then run from there as `./bin/tool` with
+  `run_command_write`.
 
 ## Images
 

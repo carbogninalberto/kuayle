@@ -742,8 +742,8 @@ async function drag(page: Page, chart: Locator, direction: 1 | -1) {
 
 // An issue conversation whose coding task follows a workflow and waits on CI;
 // advance() moves the run to another step, as the server would announce it.
-async function mockTask(page: Page) {
-	let node = 'ci';
+async function mockTask(page: Page, { at = 'ci', decide = false, shipMerge = false } = {}) {
+	let node = at;
 	const sockets: WebSocketRoute[] = [];
 	const conversation = {
 		id: 'chat-1',
@@ -846,10 +846,11 @@ async function mockTask(page: Page) {
 						step(5, 'ci', 'review', 'review_approved')
 					],
 					profiles,
-					can_decide: false,
+					can_decide: decide,
 					task_state: 'awaiting_review',
 					task_reason: 'Waiting for CI',
-					task_generation: 1
+					task_generation: 1,
+					ship_merge: shipMerge
 				}
 			});
 		if (path.includes('/agent-tasks/task-1')) {
@@ -877,4 +878,27 @@ async function mockTask(page: Page) {
 			sockets.at(-1)!.send(JSON.stringify(event));
 		}
 	};
+}
+
+// KUA-216: the ship approval says that approving merges the pull request;
+// another approval does not.
+for (const shipMerge of [true, false]) {
+	test(`an approval ${shipMerge ? 'that ships says it merges' : 'that does not ship says nothing of a merge'}`, async ({ page }) => {
+		await mockTask(page, { at: 'ship', decide: true, shipMerge });
+		await page.goto('/test/assistant?conversation=chat-1');
+		const agents = page.getByRole('button', { name: 'Agents', exact: true }).first();
+		await expect(agents).toBeVisible();
+		const view = page.getByTestId('task-workflow');
+		if (!(await view.isVisible())) await agents.click();
+		await expect(view).toBeVisible();
+		const decision = view.getByTestId('task-workflow-decision');
+		await expect(decision).toContainText('Waiting for an approval: Ready to ship');
+		await expect(decision.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
+		const note = decision.getByTestId('task-workflow-ship-merge');
+		if (shipMerge)
+			await expect(note).toHaveText(
+				'Approving merges the pull request: Kuayle merges it once every check passes, after any steps that follow, and the task is done only after the merge.'
+			);
+		else await expect(note).toHaveCount(0);
+	});
 }

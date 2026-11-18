@@ -29,7 +29,8 @@
 		Workflow,
 		GitBranch,
 		DatabaseBackup,
-		ShieldCheck
+		ShieldCheck,
+		Import
 	} from '@lucide/svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
 	import type { Snippet } from 'svelte';
@@ -118,7 +119,10 @@
 				{ label: m['settings.nav.labels'](), href: `/${slug}/settings/labels`, icon: Tag },
 				{ label: m['settings.nav.webhooks'](), href: `/${slug}/settings/webhooks`, icon: Webhook },
 				...(canAdministerWorkspace
-					? [{ label: m['settings.nav.sso'](), href: `/${slug}/settings/sso`, icon: ShieldCheck }]
+					? [
+							{ label: m['settings.nav.sso'](), href: `/${slug}/settings/sso`, icon: ShieldCheck },
+							{ label: m['settings.nav.import'](), href: `/${slug}/settings/import`, icon: Import }
+						]
 					: []),
 				{ label: m['settings.nav.github'](), href: `/${slug}/settings/github`, icon: GithubLogoIcon },
 				...(canManageWorkspace

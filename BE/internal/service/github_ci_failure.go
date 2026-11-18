@@ -40,8 +40,61 @@ const (
 )
 
 // actionsJobPath finds the job in an Actions check run's details URL, such as
-// https://github.com/acme/app/actions/runs/9/job/42.
-var actionsJobPath = regexp.MustCompile(`/actions/runs/\d+/job/(\d+)`)
+// https://github.com/acme/app/actions/runs/9/job/42, and actionsRunPath the
+// run it belongs to.
+var (
+	actionsJobPath = regexp.MustCompile(`/actions/runs/\d+/job/(\d+)`)
+	actionsRunPath = regexp.MustCompile(`/actions/runs/(\d+)(?:/|$)`)
+)
+
+// actionsRunID returns the Actions run named by a check's link, or 0 for a
+// check from another CI.
+func actionsRunID(link string) int64 {
+	match := actionsRunPath.FindStringSubmatch(link)
+	if len(match) != 2 {
+		return 0
+	}
+	id, err := strconv.ParseInt(match[1], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return id
+}
+
+// RerunFailedJobs asks GitHub to run the failed jobs of the given Actions
+// runs again (KUA-215), as the workspace's GitHub App with a token that can
+// only do that. The workspace may turn pull request actions off; the app
+// needs the Actions write permission.
+func (s *GitHubService) RerunFailedJobs(ctx context.Context, ws uuid.UUID, repository string, runs []int64) error {
+	if err := s.requireAbility(ctx, ws, domain.GitHubBotPullRequestActions); err != nil {
+		return err
+	}
+	if rerun := s.rerunFailedJobs; rerun != nil {
+		return rerun(ctx, ws, repository, runs)
+	}
+	owner, name, ok := strings.Cut(repository, "/")
+	if !ok {
+		return fmt.Errorf("invalid repository %q", repository)
+	}
+	inst, err := s.ghRepo.GetInstallationByWorkspace(ctx, ws)
+	if err != nil || inst == nil {
+		return fmt.Errorf("GitHub not connected")
+	}
+	client, _, err := s.getClient(ctx, ws)
+	if err != nil {
+		return err
+	}
+	token, _, err := client.GetActionsWriteInstallationToken(ctx, inst.InstallationID, name)
+	if err != nil {
+		return err
+	}
+	for _, id := range runs {
+		if err = client.RerunFailedJobs(ctx, token, owner, name, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // ciOutcomeFailed reports whether a normalized check suite conclusion is a
 // failure Kuayle classifies.

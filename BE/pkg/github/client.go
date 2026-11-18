@@ -51,6 +51,12 @@ func (c *Client) GetReadOnlyRepositoryInstallationToken(ctx context.Context, ins
 	return c.repositoryInstallationToken(ctx, installationID, repository, map[string]string{"contents": "read", "metadata": "read"})
 }
 
+// GetActionsWriteInstallationToken creates a short-lived installation token
+// that can only run one repository's Actions workflows again (KUA-215).
+func (c *Client) GetActionsWriteInstallationToken(ctx context.Context, installationID int64, repository string) (string, time.Time, error) {
+	return c.repositoryInstallationToken(ctx, installationID, repository, map[string]string{"actions": "write", "metadata": "read"})
+}
+
 func (c *Client) repositoryInstallationToken(ctx context.Context, installationID int64, repository string, permissions map[string]string) (string, time.Time, error) {
 	appJWT, err := c.generateAppJWT()
 	if err != nil {

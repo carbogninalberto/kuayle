@@ -257,6 +257,11 @@ export interface TaskWorkflow {
 	/** Set while a person's pause holds the workflow. */
 	paused_at?: string | null;
 	pause_request?: 'now' | 'after_step' | null;
+	/**
+	 * Set while the task waits at its workflow's ship approval and approving
+	 * it, or accepting the task, merges the pull request (KUA-216).
+	 */
+	ship_merge?: boolean;
 	/** The workflow's pauses, resumes and version moves, oldest first. */
 	pauses?: WorkflowPauseEvent[];
 }

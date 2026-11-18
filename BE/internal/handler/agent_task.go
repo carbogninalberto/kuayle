@@ -222,8 +222,8 @@ func (h *AgentTaskHandler) ManualChecks(c *echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-// ContinueAfterSignIn keeps the sign-in the user completed in their terminal
-// and starts a new attempt.
+// ContinueAfterSignIn starts a new attempt using the caller’s saved sign-in
+// or captures the sign-in they completed in their terminal first.
 func (h *AgentTaskHandler) ContinueAfterSignIn(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {

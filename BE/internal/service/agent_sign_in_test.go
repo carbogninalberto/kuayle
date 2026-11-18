@@ -39,6 +39,10 @@ func (f *signInStoreFake) ListAgentSignIns(_ context.Context, ws, user uuid.UUID
 	return signIns, nil
 }
 
+func (f *signInStoreFake) GetAgentSignIn(_ context.Context, ws, user uuid.UUID, provider string) (string, error) {
+	return f.rows[signInKey(ws, user, provider, domain.AgentSignInCredentials)].encrypted, nil
+}
+
 func (f *signInStoreFake) GetAgentSignInToken(_ context.Context, ws, user uuid.UUID, provider string) (string, error) {
 	return f.rows[signInKey(ws, user, provider, domain.AgentSignInToken)].encrypted, nil
 }
@@ -218,22 +222,22 @@ func TestContinueAfterSignInUsesOnlyTheCreatorsOwnToken(t *testing.T) {
 		return domain.WithAccess(context.Background(), domain.Access{WorkspaceID: ws, UserID: user})
 	}
 
-	ok, err := svc.creatorSavedToken(as(creator), ws, task)
+	ok, err := svc.creatorSavedSignIn(as(creator), ws, task)
 	require.NoError(t, err)
 	require.False(t, ok, "no token saved yet: capture from the terminal")
 	_, err = machines.SaveAgentSignInToken(context.Background(), ws, creator, "claude-code", tokenFixture)
 	require.NoError(t, err)
-	ok, err = svc.creatorSavedToken(as(creator), ws, task)
+	ok, err = svc.creatorSavedSignIn(as(creator), ws, task)
 	require.NoError(t, err)
 	require.True(t, ok)
 
 	other := uuid.New()
 	_, err = machines.SaveAgentSignInToken(context.Background(), ws, other, "claude-code", tokenFixture)
 	require.NoError(t, err)
-	ok, err = svc.creatorSavedToken(as(other), ws, task)
+	ok, err = svc.creatorSavedSignIn(as(other), ws, task)
 	require.NoError(t, err)
 	require.False(t, ok, "another user's token never continues someone else's task")
-	ok, err = svc.creatorSavedToken(context.Background(), ws, task)
+	ok, err = svc.creatorSavedSignIn(context.Background(), ws, task)
 	require.NoError(t, err)
 	require.False(t, ok, "no caller")
 
@@ -244,8 +248,32 @@ func TestContinueAfterSignInUsesOnlyTheCreatorsOwnToken(t *testing.T) {
 	} {
 		copy := *task
 		change(&copy)
-		ok, err = svc.creatorSavedToken(as(creator), ws, &copy)
+		ok, err = svc.creatorSavedSignIn(as(creator), ws, &copy)
 		require.NoError(t, err)
 		require.False(t, ok, name)
+	}
+}
+
+func TestContinueAfterSignInUsesCreatorsSavedCodexCredentials(t *testing.T) {
+	ws, creator, other := uuid.New(), uuid.New(), uuid.New()
+	store := &signInStoreFake{rows: map[string]signInRow{}}
+	svc := &AgentTaskService{machines: newTestDevMachineService(store)}
+	task := &domain.AgentTask{WorkspaceID: ws, CreatorID: creator, Provider: "codex", State: "failed", SignInRequired: true}
+	as := func(workspace, user uuid.UUID) context.Context {
+		return domain.WithAccess(context.Background(), domain.Access{WorkspaceID: workspace, UserID: user})
+	}
+	store.rows[signInKey(ws, other, "codex", domain.AgentSignInCredentials)] = signInRow{encrypted: "sealed-other"}
+	ok, err := svc.creatorSavedSignIn(as(ws, creator), ws, task)
+	require.NoError(t, err)
+	require.False(t, ok, "capture from the terminal when the creator has no saved sign-in")
+
+	store.rows[signInKey(ws, creator, "codex", domain.AgentSignInCredentials)] = signInRow{encrypted: "sealed-creator"}
+	ok, err = svc.creatorSavedSignIn(as(ws, creator), ws, task)
+	require.NoError(t, err)
+	require.True(t, ok, "an already saved Codex sign-in bypasses terminal capture")
+	for _, ctx := range []context.Context{as(ws, other), as(uuid.New(), creator)} {
+		ok, err := svc.creatorSavedSignIn(ctx, ws, task)
+		require.NoError(t, err)
+		require.False(t, ok)
 	}
 }
