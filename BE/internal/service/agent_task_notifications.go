@@ -3,8 +3,9 @@ package service
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -95,8 +96,10 @@ func (s *AgentTaskService) deliverTaskNotices(ctx context.Context) {
 
 // deliverTaskWatches pings each claimed watch once (KUA-165): the user's
 // normal notification, plus a short assistant message in the conversation the
-// watch was registered in, without a model call. Claiming deleted the row, so
-// a delivery that fails is not repeated.
+// watch was registered in, without a model call. A watcher whom the creator's
+// notice for the same event already notifies (watch.Notified) gets only the
+// message, so they are notified once. Claiming deleted the row, so a delivery
+// that fails is not repeated.
 func (s *AgentTaskService) deliverTaskWatches(ctx context.Context) {
 	if s.watchers == nil || s.conversations == nil || s.notifications == nil || s.userEvents == nil {
 		return
@@ -110,22 +113,24 @@ func (s *AgentTaskService) deliverTaskWatches(ctx context.Context) {
 	}
 	for _, watch := range watches {
 		title := taskNoticeTitle(domain.AgentTaskNotice{
-			TaskID: watch.TaskID, WorkspaceID: watch.WorkspaceID, CreatorID: watch.UserID,
-			IssueID: watch.IssueID, State: watch.State, IssueIdentifier: watch.IssueIdentifier, IssueTitle: watch.IssueTitle,
+			TaskID: watch.TaskID, WorkspaceID: watch.WorkspaceID, CreatorID: watch.UserID, IssueID: watch.IssueID,
+			Kind: watch.Kind, State: watch.State, IssueIdentifier: watch.IssueIdentifier, IssueTitle: watch.IssueTitle,
 		})
-		notifType := domain.AgentTaskNotificationType(watch.State)
-		if notifType == "" {
-			// A cancelled task still finished working; its ping says so.
-			notifType = domain.NotificationAgentTaskFinished
+		if !watch.Notified {
+			notifType := domain.AgentTaskNotificationType(watch.State)
+			if notifType == "" {
+				// A cancelled task still finished working; its ping says so.
+				notifType = domain.NotificationAgentTaskFinished
+			}
+			if err := s.notifications.Create(ctx, watch.UserID, watch.WorkspaceID, &watch.IssueID, notifType, title); err != nil {
+				log.WithField("task_id", watch.TaskID).WithError(err).Error("Could not store a task watch notification; the ping is lost")
+				continue
+			}
+			publishNotification(s.userEvents, watch.WorkspaceID, watch.UserID, notificationEvent{
+				Type: notifType, Title: title, IssueID: &watch.IssueID, IssueIdentifier: watch.IssueIdentifier,
+				Extra: map[string]string{"task_id": watch.TaskID.String(), "status": watch.State},
+			})
 		}
-		if err := s.notifications.Create(ctx, watch.UserID, watch.WorkspaceID, &watch.IssueID, notifType, title); err != nil {
-			log.WithField("task_id", watch.TaskID).WithError(err).Error("Could not store a task watch notification; the ping is lost")
-			continue
-		}
-		publishNotification(s.userEvents, watch.WorkspaceID, watch.UserID, notificationEvent{
-			Type: notifType, Title: title, IssueID: &watch.IssueID, IssueIdentifier: watch.IssueIdentifier,
-			Extra: map[string]string{"task_id": watch.TaskID.String(), "status": watch.State},
-		})
 		asWatcher := domain.WithAccess(ctx, domain.Access{WorkspaceID: watch.WorkspaceID, UserID: watch.UserID})
 		if _, err := s.conversations.PostAssistantNotice(asWatcher, watch.WorkspaceID, watch.ConversationID, watch.ParentMessageID, watchPingMessage(title)); err != nil {
 			log.WithField("task_id", watch.TaskID).WithError(err).Warn("Could not post a task watch message; the chat ping is lost")
@@ -136,7 +141,8 @@ func (s *AgentTaskService) deliverTaskWatches(ctx context.Context) {
 // watchPingMessage is the chat message a claimed watch posts: the same text as
 // the notification, marked as the ping the user asked for.
 func watchPingMessage(title string) string {
-	return "Ping, as you asked: " + strings.ToLower(title[:1]) + title[1:] + "."
+	first, size := utf8.DecodeRuneInString(title)
+	return "Ping, as you asked: " + string(unicode.ToLower(first)) + title[size:] + "."
 }
 
 func taskNoticeTitle(notice domain.AgentTaskNotice) string {

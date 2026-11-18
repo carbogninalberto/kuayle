@@ -674,7 +674,12 @@ func markWorkflowReviewNotice(ctx context.Context, tx *sqlx.Tx, task domain.Agen
 	pending := needsPerson && task.CreatorID != uuid.Nil && (actor == nil || *actor != task.CreatorID)
 	_, err := tx.ExecContext(ctx, `UPDATE agent_task_transitions SET notification_pending=$2
  WHERE sequence=(SELECT max(sequence) FROM agent_task_transitions WHERE task_id=$1 AND to_state='awaiting_review')`, task.ID, pending)
-	return err
+	if err != nil || !needsPerson {
+		return err
+	}
+	// A watch for awaiting_review is due when a person is needed (KUA-165),
+	// also when the creator made the change and is not notified.
+	return markTaskWatchersDue(ctx, tx, task, "awaiting_review", pending)
 }
 
 // jsonOrNil encodes a value for a JSONB parameter; nil stays NULL.

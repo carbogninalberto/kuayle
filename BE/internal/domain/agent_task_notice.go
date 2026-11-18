@@ -41,9 +41,9 @@ func IsAgentTaskEndState(state string) bool {
 	return state == "completed" || state == "failed" || state == "cancelled"
 }
 
-// AgentTaskWatch is one claimed one-shot watch (KUA-165): the transition that
-// satisfied it, the user it pings and the conversation it was registered in.
-// Until is the watched state, empty for any end state.
+// AgentTaskWatch is one claimed one-shot watch (KUA-165): the state of the
+// event that made it due, the user it pings and the conversation it was
+// registered in. Until is the watched state, empty for any end state.
 type AgentTaskWatch struct {
 	TaskID          uuid.UUID `db:"task_id"`
 	WorkspaceID     uuid.UUID `db:"workspace_id"`
@@ -52,6 +52,11 @@ type AgentTaskWatch struct {
 	ParentMessageID uuid.UUID `db:"parent_message_id"`
 	Until           string    `db:"until_state"`
 	State           string    `db:"state"`
+	// Notified is true when the task's creator notice for the same transition
+	// already notifies this user (KUA-122): the watch then only posts its chat
+	// message, so the user is not notified twice.
+	Notified        bool      `db:"notified"`
+	Kind            string    `db:"kind"`
 	IssueID         uuid.UUID `db:"issue_id"`
 	IssueIdentifier string    `db:"issue_identifier"`
 	IssueTitle      string    `db:"issue_title"`

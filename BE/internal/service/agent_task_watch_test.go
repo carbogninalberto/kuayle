@@ -128,3 +128,33 @@ func TestTaskWatchDeliveryIsBestEffort(t *testing.T) {
 	require.Len(t, events.events, 1)
 	require.Empty(t, conversations.posted)
 }
+
+// A watcher who is also the task's creator already gets the ordinary
+// transition notice (KUA-122) for the same transition: the watch then posts
+// only its chat message, so one notification is stored and one
+// notification.created event is published, in the same pass.
+func TestTaskWatchOfANotifiedUserPostsOnlyTheChatMessage(t *testing.T) {
+	notifications, events := &notificationsFake{}, &userEventsFake{}
+	conversations := &conversationNoticesFake{}
+	watch := watchFor("completed")
+	watch.Notified = true
+	notice := domain.AgentTaskNotice{TaskID: watch.TaskID, WorkspaceID: watch.WorkspaceID, CreatorID: watch.UserID, IssueID: watch.IssueID,
+		Kind: domain.AgentTaskKindImplement, State: "completed", IssueIdentifier: "ENG-7", IssueTitle: "Fix login"}
+	svc := &AgentTaskService{}
+	svc.SetWatchers(&taskWatcherClaimsFake{pending: []domain.AgentTaskWatch{watch}}, conversations)
+	svc.SetNotifications(&taskNoticesFake{pending: []domain.AgentTaskNotice{notice}}, notifications, events)
+
+	svc.deliverTaskNotices(context.Background())
+	svc.deliverTaskWatches(context.Background())
+
+	require.Len(t, notifications.created, 1, "the creator notice is the only notification")
+	require.Len(t, events.events, 1, "one notification.created event")
+	require.Equal(t, []postedNotice{{ws: watch.WorkspaceID, conversation: watch.ConversationID, parent: watch.ParentMessageID,
+		content: "Ping, as you asked: coding task completed on ENG-7: Fix login."}}, conversations.posted, "the chat ping is still posted")
+}
+
+// The ping lowercases the title's first letter as a rune, not a byte.
+func TestWatchPingMessageLowercasesTheFirstRune(t *testing.T) {
+	require.Equal(t, "Ping, as you asked: coding task completed on ENG-7: Fix login.", watchPingMessage("Coding task completed on ENG-7: Fix login"))
+	require.Equal(t, "Ping, as you asked: élan.", watchPingMessage("Élan"))
+}

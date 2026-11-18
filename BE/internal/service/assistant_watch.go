@@ -18,8 +18,9 @@ import (
 // no model call.
 //
 // The watch never fires for a state the task already reached at registration:
-// the call fails with the current state so the assistant answers directly,
-// and a task that already finished is reported instead of watched.
+// the store reads the state and registers in one step, and the call fails
+// with that state so the assistant answers directly; a task that already
+// finished is reported instead of watched.
 func (t *AssistantTools) watchAgentWork(ctx context.Context, a domain.ConversationAttempt, arguments string) (any, *uuid.UUID, error) {
 	ws, user := a.Conversation.WorkspaceID, a.Conversation.CreatorID
 	member, err := t.members.GetMember(ctx, ws, user)
@@ -50,18 +51,22 @@ func (t *AssistantTools) watchAgentWork(ctx context.Context, a domain.Conversati
 	if err != nil {
 		return nil, nil, err
 	}
-	if (input.Until != "" && target.State == input.Until) || (input.Until == "" && domain.IsAgentTaskEndState(target.State)) {
-		return nil, nil, toolFailure("the coding task on %s is already %s; report that state instead of watching", issue.Identifier, target.State)
-	}
 	if a.Message.ParentID == nil {
 		return nil, nil, toolFailure("the watch could not be registered in this conversation")
 	}
-	if err = t.watchers.WatchTask(ctx, ws, user, target.TaskID, a.Conversation.ID, *a.Message.ParentID, input.Until); err != nil {
+	state, watching, err := t.watchers.WatchTask(ctx, ws, user, target.TaskID, a.Conversation.ID, *a.Message.ParentID, input.Until)
+	if errors.Is(err, repository.ErrWatchedTaskNotFound) {
+		return nil, nil, toolFailure("this issue has no coding task")
+	}
+	if err != nil {
 		return nil, nil, err
+	}
+	if !watching {
+		return nil, nil, toolFailure("the coding task on %s is already %s; report that state instead of watching", issue.Identifier, state)
 	}
 	until := input.Until
 	if until == "" {
 		until = "any end state"
 	}
-	return map[string]any{"watching": true, "identifier": issue.Identifier, "state": target.State, "until": until}, &issue.ID, nil
+	return map[string]any{"watching": true, "identifier": issue.Identifier, "state": state, "until": until}, &issue.ID, nil
 }

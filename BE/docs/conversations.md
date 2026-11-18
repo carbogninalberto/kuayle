@@ -524,25 +524,35 @@ does not pin the repository: the task resolves current settings when it runs.
 
 ### Watching agent work
 
-`watch_agent_work(identifier, until?)` (KUA-165, migration 177) registers a
+`watch_agent_work(identifier, until?)` (KUA-165, migration 180) registers a
 one-shot watch on an issue's latest coding task from the conversation it is
 called in, so the user can ask "ping me when KUA-X finishes" instead of polling.
 `until` is `awaiting_review`, `completed` or `failed`; omitted, it means any end
 state (`completed`, `failed` or `cancelled`). The watch is bound to the
 conversation's creator, that conversation and the user message the tool call
 answered; registering again from the same conversation replaces the watch, and
-re-reading the member role keeps guests and former members out. A watch never
-fires for a state the task already reached: the tool call fails with the
-current state, so the assistant reports it instead of registering, and the row
-stores the task's last transition (`from_sequence`) so only later transitions
-match. `RunNotifications` claims matched watches with `SKIP LOCKED`, deleting
-each row as it is claimed, so a watch pings exactly once even with several
-workers; a delivery that then fails is not repeated. A claimed watch stores the
-user's normal notification (in-app, plus email/push per the user's
-preferences), announces it over the user's event stream, and posts one short
-completed assistant message in the watch's conversation without a model call;
-the task's creator also gets the ordinary transition notice (KUA-122), so a
-creator watching their own task is notified for both reasons.
+re-reading the member role keeps guests and former members out.
+
+A watch fires on the same events as the creator's transition notice (KUA-122):
+the transaction that records an end state, or a wait in `awaiting_review` that
+needs a person, marks the matching watches due. A workflow passes through
+`awaiting_review` for its agent review and its CI wait, which need nobody, so
+`until=awaiting_review` fires only when a step waits for a person
+(`markWorkflowReviewNotice`); outside a workflow it fires on entering the state
+unless the task's own agent review runs. A watch never fires for a state the
+task already reached: `WatchTask` reads the state under a share lock on the
+task row, which every transition updates before marking watches, and reports
+that state instead of registering, so the assistant answers with it; a task of
+another workspace is refused.
+
+`RunNotifications` claims due watches with `SKIP LOCKED`, deleting each row as
+it is claimed, so a watch pings exactly once even with several workers; a
+delivery that then fails is not repeated. A claimed watch posts one short
+completed assistant message in the watch's conversation without a model call,
+and stores the user's normal notification (in-app, plus email/push per the
+user's preferences) and announces it over the user's event stream, unless the
+creator's notice for the same event already reaches the watcher: a creator
+watching their own task gets one notification and the chat message.
 
 ### Tool switches (Settings → Assistant)
 

@@ -16,18 +16,30 @@ type registeredWatch struct {
 	until                                string
 }
 
-// taskWatchersFake records registered watches; err refuses registration.
+// taskWatchersFake records registered watches. Like the repository, it reads
+// the task's state when registering: state is what it reads (running when
+// empty), and reached reports that state instead of registering. err refuses
+// registration.
 type taskWatchersFake struct {
 	registered []registeredWatch
+	state      string
+	reached    bool
 	err        error
 }
 
-func (f *taskWatchersFake) WatchTask(_ context.Context, ws, user, task, conversation, parent uuid.UUID, until string) error {
+func (f *taskWatchersFake) WatchTask(_ context.Context, ws, user, task, conversation, parent uuid.UUID, until string) (string, bool, error) {
 	if f.err != nil {
-		return f.err
+		return "", false, f.err
+	}
+	state := f.state
+	if state == "" {
+		state = "running"
+	}
+	if f.reached {
+		return state, false, nil
 	}
 	f.registered = append(f.registered, registeredWatch{ws, user, task, conversation, parent, until})
-	return nil
+	return state, true, nil
 }
 
 type watchFixture struct {
@@ -133,35 +145,31 @@ func TestWatchAgentWorkRefusesWhatItCannotWatch(t *testing.T) {
 }
 
 // The watch never fires for a state the task already reached: the call reports
-// the current state so the assistant answers instead of registering.
+// the state the store read while registering, so the assistant answers
+// instead, also when the task moved on after the tool looked it up.
 func TestWatchAgentWorkReportsAnAlreadyReachedState(t *testing.T) {
 	f := newWatchFixture()
-	for _, tc := range []struct {
-		state string
-		until string
-	}{
-		{"awaiting_review", "awaiting_review"},
-		{"completed", "completed"},
-		{"completed", ""},
-		{"failed", ""},
-		{"cancelled", ""},
-	} {
-		f.tools.work = prWork{followUp: &repository.FollowUpTarget{TaskID: f.task, CreatorID: f.creator, State: tc.state}}
-		arguments := `{"identifier":"ENG-1"}`
-		if tc.until != "" {
-			arguments = `{"identifier":"ENG-1","until":"` + tc.until + `"}`
-		}
-		_, err := f.watch(t, arguments)
-		require.ErrorContains(t, err, "already "+tc.state, tc.until)
-		require.Empty(t, f.watchers.registered, tc.until)
+	for _, state := range []string{"awaiting_review", "completed", "failed", "cancelled"} {
+		f.watchers.state, f.watchers.reached = state, true
+		_, err := f.watch(t, `{"identifier":"ENG-1"}`)
+		require.ErrorContains(t, err, "the coding task on ENG-1 is already "+state, state)
+		require.Empty(t, f.watchers.registered, state)
 	}
-	// A task that finished can still be retried, so watching it stay alight
-	// for a later state remains possible.
-	f.tools.work = prWork{followUp: &repository.FollowUpTarget{TaskID: f.task, CreatorID: f.creator, State: "failed"}}
+	require.Equal(t, "running", f.tools.work.(prWork).followUp.State, "the tool's own lookup still saw the task running")
+
+	// A task that moved on before the watch was stored is reported in the
+	// state the store read, not the one the tool looked up first.
+	f.watchers.state, f.watchers.reached = "validating", false
 	result, err := f.watch(t, `{"identifier":"ENG-1","until":"completed"}`)
 	require.NoError(t, err)
 	require.Equal(t, true, result["watching"])
+	require.Equal(t, "validating", result["state"])
 	require.Len(t, f.watchers.registered, 1)
+
+	// A task that disappears between the lookup and the watch has nothing to watch.
+	f.watchers.err = repository.ErrWatchedTaskNotFound
+	_, err = f.watch(t, `{"identifier":"ENG-1"}`)
+	require.ErrorContains(t, err, "this issue has no coding task")
 }
 
 func TestWatchAgentWorkNeedsItsStoresWired(t *testing.T) {

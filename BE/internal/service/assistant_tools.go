@@ -177,7 +177,9 @@ func (t *AssistantTools) SetAgentWork(work assistantAgentWork) {
 
 // assistantTaskWatchers registers one-shot coding-task watches (KUA-165).
 type assistantTaskWatchers interface {
-	WatchTask(ctx context.Context, ws, user, task, conversation, parent uuid.UUID, until string) error
+	// WatchTask returns the task's state and false instead of registering
+	// when the task already reached what the watch waits for.
+	WatchTask(ctx context.Context, ws, user, task, conversation, parent uuid.UUID, until string) (string, bool, error)
 }
 
 // SetTaskWatchers enables watch_agent_work, which pings the user in the
