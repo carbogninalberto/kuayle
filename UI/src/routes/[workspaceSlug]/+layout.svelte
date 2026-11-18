@@ -306,7 +306,7 @@
 		{ key: '?', shift: true, handler: () => (showShortcutHelp = !showShortcutHelp), label: m['sidebar.keyboard_shortcuts'](), category: m['sidebar.help']() },
 	]);
 
-	const shortcutEngine = createShortcutEngine(shortcutDefs);
+	const shortcutEngine = createShortcutEngine(() => shortcutDefs);
 
 	onMount(() => {
 		document.addEventListener('keydown', shortcutEngine.handler);
