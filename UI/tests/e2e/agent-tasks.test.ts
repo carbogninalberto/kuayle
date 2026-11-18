@@ -1691,9 +1691,13 @@ test('a task stopped for the agent’s sign-in continues once the user signed in
 	};
 	emit('task.state_changed', state.task);
 	await expect(tasks.getByText('Codex needs you to sign in', { exact: true })).toBeVisible();
+	await expect(tasks.getByRole('link', { name: 'Manage your sign-ins' })).toHaveAttribute(
+		'href',
+		'/test/settings/agents#your-sign-ins'
+	);
 	const proceed = tasks.getByRole('button', { name: 'I’ve signed in — continue' });
 	await proceed.click();
-	await expect(tasks.getByText('No sign-in was found in the terminal yet.', { exact: false })).toBeVisible();
+	await expect(tasks.getByText('No sign-in was found yet.', { exact: false })).toBeVisible();
 	state.signInFound = true;
 	await proceed.click();
 	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();

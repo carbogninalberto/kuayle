@@ -30,7 +30,14 @@ RUN VERSION=$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)".*/\1/p' /tmp/ui-pack
     CGO_ENABLED=0 go build -ldflags "-X github.com/kuayle/kuayle-backend/internal/buildinfo.Version=${VERSION}" -o server ./cmd/server
 
 # Stage 4: Final image
+FROM --platform=$BUILDPLATFORM alpine:3.23 AS codex-login
+ARG TARGETARCH
+COPY BE/scripts/install-codex-login.sh /tmp/install-codex-login.sh
+RUN apk add --no-cache openssl && sh /tmp/install-codex-login.sh "$TARGETARCH"
+
 FROM alpine:3.23
+COPY --from=codex-login /usr/local/bin/codex /usr/local/bin/codex
+RUN codex --version
 ARG SECURITY_REFRESH=initial
 RUN apk update && apk upgrade --no-cache && apk add --no-cache ca-certificates
 WORKDIR /app

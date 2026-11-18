@@ -1050,6 +1050,7 @@
 								onsaved={continueAfterSignIn}
 							/>
 							<p>{m['tasks.sign_in_terminal_instead']()}</p>
+						{:else if task.provider === 'codex'}<p>{m['tasks.sign_in_codex_body']()}</p>
 						{:else}<p>{m['tasks.sign_in_body']()}</p>{/if}
 						<div class="flex flex-wrap gap-2">
 							{#if task.machine_id && dock}<Button
@@ -1068,7 +1069,7 @@
 									]()}{/if}</Button
 							>
 						</div>
-						{#if task.provider === 'claude-code'}<a
+						{#if task.provider === 'claude-code' || task.provider === 'codex'}<a
 								class="inline-block text-xs underline underline-offset-2"
 								href="/{chat.slug}/settings/agents#your-sign-ins">{m['tasks.sign_in_manage']()}</a
 							>{/if}

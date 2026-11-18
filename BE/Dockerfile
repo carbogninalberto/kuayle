@@ -7,7 +7,14 @@ COPY . .
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -ldflags "-X github.com/kuayle/kuayle-backend/internal/buildinfo.Version=${VERSION}" -o server ./cmd/server
 
+FROM --platform=$BUILDPLATFORM alpine:3.23 AS codex-login
+ARG TARGETARCH
+COPY scripts/install-codex-login.sh /tmp/install-codex-login.sh
+RUN apk add --no-cache openssl && sh /tmp/install-codex-login.sh "$TARGETARCH"
+
 FROM alpine:3.23
+COPY --from=codex-login /usr/local/bin/codex /usr/local/bin/codex
+RUN codex --version
 ARG SECURITY_REFRESH=initial
 # postgresql17-client provides pg_dump for Settings -> Backups; keep its major
 # version equal to the postgres image in selfhosting/docker-compose.yml.

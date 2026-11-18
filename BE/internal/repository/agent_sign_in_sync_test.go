@@ -81,6 +81,56 @@ func TestAgentSignInChangesQueueASyncForTheOwnersRunningMachines(t *testing.T) {
 	require.Len(t, syncs(owned), 2)
 }
 
+func TestRefreshAgentSignInOnlyUpdatesMatchingCredentials(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+	fixture := newEnvironmentRaceFixture(t, db)
+	store := fixture.repository
+	workspace, user := fixture.workspaceID, fixture.userID
+	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+
+	completeSyncs := func() {
+		t.Helper()
+		_, err := db.Exec(`UPDATE dev_machine_operations SET status='completed' WHERE machine_id=$1 AND action='sync_agent_sign_ins'`, machine)
+		require.NoError(t, err)
+	}
+	assertSignInAndPendingSyncs := func(credential string, pending int) {
+		t.Helper()
+		got, err := store.GetAgentSignIn(ctx, workspace, user, "codex")
+		require.NoError(t, err)
+		require.Equal(t, credential, got)
+		var count int
+		require.NoError(t, db.Get(&count, `SELECT count(*) FROM dev_machine_operations
+			WHERE machine_id=$1 AND action='sync_agent_sign_ins' AND status='pending'`, machine))
+		require.Equal(t, pending, count)
+	}
+
+	require.NoError(t, store.SaveAgentSignIn(ctx, workspace, user, "codex", "sealed-original"))
+	completeSyncs()
+	require.NoError(t, store.RefreshAgentSignIn(ctx, workspace, user, "codex", "sealed-original", "sealed-original"))
+	assertSignInAndPendingSyncs("sealed-original", 0)
+
+	require.NoError(t, store.RefreshAgentSignIn(ctx, workspace, user, "codex", "sealed-original", "sealed-rotated"))
+	assertSignInAndPendingSyncs("sealed-rotated", 1)
+
+	require.NoError(t, store.SaveAgentSignIn(ctx, workspace, user, "codex", "sealed-reconnected"))
+	completeSyncs()
+	require.NoError(t, store.RefreshAgentSignIn(ctx, workspace, user, "codex", "sealed-rotated", "sealed-stale"))
+	assertSignInAndPendingSyncs("sealed-reconnected", 0)
+
+	_, err = store.DeleteAgentSignIns(ctx, workspace, user, "codex", "credentials")
+	require.NoError(t, err)
+	completeSyncs()
+	require.NoError(t, store.RefreshAgentSignIn(ctx, workspace, user, "codex", "sealed-reconnected", "sealed-stale"))
+	assertSignInAndPendingSyncs("", 0)
+}
+
 // Opening a task's session in Claude Code marks the attempt that recorded
 // it, scoped to the task, its workspace and machine, so the next attempt
 // knows the user continued it.

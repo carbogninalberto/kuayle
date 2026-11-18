@@ -197,6 +197,9 @@ authentication.
 | GET | `/api/workspaces/:slug/agent-sign-ins` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | DELETE | `/api/workspaces/:slug/agent-sign-ins/:provider` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | PUT | `/api/workspaces/:slug/agent-sign-ins/:provider/token` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| POST | `/api/workspaces/:slug/agent-sign-ins/codex/device/cancel` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| POST | `/api/workspaces/:slug/agent-sign-ins/codex/device/poll` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| POST | `/api/workspaces/:slug/agent-sign-ins/codex/device/start` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks` | token | agent_tasks:read |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId` | token | agent_tasks:read |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/accept` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
