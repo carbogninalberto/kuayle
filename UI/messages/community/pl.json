@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Brak domyślnego repozytorium",
 	"settings.dev_machines.no_envs": "Brak zapisanych środowisk.",
 	"settings.dev_machines.per_user": "Maszyny na użytkownika",
+	"settings.dev_machines.max_temporary": "Tymczasowe maszyny asystenta",
+	"settings.dev_machines.max_temporary_desc": "Małe maszyny, które asystent może uruchomić do wykonywania poleceń, jedna na osobę, usuwane po 30 minutach. 0 wyłącza je.",
 	"settings.dev_machines.providers": "Dostawcy",
 	"settings.dev_machines.providers_desc": "Do nowych maszyn można podłączyć tylko wybranych dostawców.",
 	"settings.dev_machines.repo": "Repozytorium deweloperskie",

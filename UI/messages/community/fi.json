@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Ei oletusrepositorya",
 	"settings.dev_machines.no_envs": "Ei vielä tallennettuja ympäristöjä.",
 	"settings.dev_machines.per_user": "Koneita käyttäjää kohden",
+	"settings.dev_machines.max_temporary": "Avustajan väliaikaiset koneet",
+	"settings.dev_machines.max_temporary_desc": "Pienet koneet, joita avustaja voi käynnistää komentojen ajamiseen, yksi henkilöä kohti, poistetaan 30 minuutin kuluttua. 0 poistaa ne käytöstä.",
 	"settings.dev_machines.providers": "Palveluntarjoajat",
 	"settings.dev_machines.providers_desc": "Vain valitut palveluntarjoajat voidaan liittää uusiin koneisiin.",
 	"settings.dev_machines.repo": "Kehitysrepository",

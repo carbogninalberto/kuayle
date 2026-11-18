@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Nincs alapértelmezett repository",
 	"settings.dev_machines.no_envs": "Még nincs mentett környezet.",
 	"settings.dev_machines.per_user": "Gépek felhasználónként",
+	"settings.dev_machines.max_temporary": "Az asszisztens ideiglenes gépei",
+	"settings.dev_machines.max_temporary_desc": "Kis gépek, amelyeket az asszisztens elindíthat parancsok futtatására, személyenként egy, 30 perc után törlődnek. 0 kikapcsolja őket.",
 	"settings.dev_machines.providers": "Szolgáltatók",
 	"settings.dev_machines.providers_desc": "Csak a kiválasztott szolgáltatók csatolhatók új gépekhez.",
 	"settings.dev_machines.repo": "Fejlesztési repository",

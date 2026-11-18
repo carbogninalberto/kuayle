@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "无默认仓库",
 	"settings.dev_machines.no_envs": "暂无已保存的环境。",
 	"settings.dev_machines.per_user": "每用户机器数",
+	"settings.dev_machines.max_temporary": "助手临时机器",
+	"settings.dev_machines.max_temporary_desc": "助手可启动用于运行命令的小型机器，每人一台，30 分钟后删除。0 表示关闭。",
 	"settings.dev_machines.providers": "提供商",
 	"settings.dev_machines.providers_desc": "只有选定的提供商可以附加到新机器。",
 	"settings.dev_machines.repo": "开发仓库",

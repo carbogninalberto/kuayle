@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Inget standardrepo",
 	"settings.dev_machines.no_envs": "Inga sparade miljöer ännu.",
 	"settings.dev_machines.per_user": "Maskiner per användare",
+	"settings.dev_machines.max_temporary": "Assistentens tillfälliga maskiner",
+	"settings.dev_machines.max_temporary_desc": "Små maskiner som assistenten kan starta för att köra kommandon, en per person, raderas efter 30 minuter. 0 stänger av dem.",
 	"settings.dev_machines.providers": "Leverantörer",
 	"settings.dev_machines.providers_desc": "Bara valda leverantörer kan kopplas till nya maskiner.",
 	"settings.dev_machines.repo": "Utvecklingsrepo",

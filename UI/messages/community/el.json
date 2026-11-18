@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Χωρίς προεπιλεγμένο αποθετήριο",
 	"settings.dev_machines.no_envs": "Δεν υπάρχουν αποθηκευμένα περιβάλλοντα ακόμη.",
 	"settings.dev_machines.per_user": "Μηχανήματα ανά χρήστη",
+	"settings.dev_machines.max_temporary": "Προσωρινές μηχανές βοηθού",
+	"settings.dev_machines.max_temporary_desc": "Μικρές μηχανές που μπορεί να ξεκινήσει ο βοηθός για εκτέλεση εντολών, μία ανά άτομο, που διαγράφονται μετά από 30 λεπτά. Το 0 τις απενεργοποιεί.",
 	"settings.dev_machines.providers": "Πάροχοι",
 	"settings.dev_machines.providers_desc": "Μόνο οι επιλεγμένοι πάροχοι μπορούν να συνδεθούν σε νέα μηχανήματα.",
 	"settings.dev_machines.repo": "Αποθετήριο ανάπτυξης",

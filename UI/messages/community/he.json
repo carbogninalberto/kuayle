@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "ללא מאגר ברירת מחדל",
 	"settings.dev_machines.no_envs": "עדיין אין סביבות שמורות.",
 	"settings.dev_machines.per_user": "מכונות לכל משתמש",
+	"settings.dev_machines.max_temporary": "מכונות זמניות של העוזר",
+	"settings.dev_machines.max_temporary_desc": "מכונות קטנות שהעוזר יכול להפעיל להרצת פקודות, אחת לכל אדם, נמחקות אחרי 30 דקות. 0 מכבה אותן.",
 	"settings.dev_machines.providers": "ספקים",
 	"settings.dev_machines.providers_desc": "רק ספקים שנבחרו ניתנים לחיבור למכונות חדשות.",
 	"settings.dev_machines.repo": "מאגר פיתוח",

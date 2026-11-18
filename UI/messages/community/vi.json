@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Không có repository mặc định",
 	"settings.dev_machines.no_envs": "Chưa có môi trường nào được lưu.",
 	"settings.dev_machines.per_user": "Số máy mỗi người dùng",
+	"settings.dev_machines.max_temporary": "Máy tạm thời của trợ lý",
+	"settings.dev_machines.max_temporary_desc": "Máy nhỏ trợ lý có thể khởi động để chạy lệnh, mỗi người một máy, xóa sau 30 phút. 0 tắt tính năng này.",
 	"settings.dev_machines.providers": "Nhà cung cấp",
 	"settings.dev_machines.providers_desc": "Chỉ các nhà cung cấp được chọn mới có thể gắn vào máy mới.",
 	"settings.dev_machines.repo": "Repository phát triển",

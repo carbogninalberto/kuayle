@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Niciun repository implicit",
 	"settings.dev_machines.no_envs": "Niciun mediu salvat încă.",
 	"settings.dev_machines.per_user": "Mașini per utilizator",
+	"settings.dev_machines.max_temporary": "Mașini temporare ale asistentului",
+	"settings.dev_machines.max_temporary_desc": "Mașini mici pe care asistentul le poate porni pentru a rula comenzi, una per persoană, șterse după 30 de minute. 0 le dezactivează.",
 	"settings.dev_machines.providers": "Furnizori",
 	"settings.dev_machines.providers_desc": "Doar furnizorii selectați pot fi atașați mașinilor noi.",
 	"settings.dev_machines.repo": "Repository de dezvoltare",

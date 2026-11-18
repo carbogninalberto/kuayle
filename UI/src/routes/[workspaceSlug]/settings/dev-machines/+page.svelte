@@ -160,7 +160,7 @@
 				getDevMachinePolicy(slug), getGitHubStatus(slug),
 				getDevMachineScopeSetting(slug, 'workspace'), listDevMachineEnvironments(slug)
 			]);
-			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false, allow_docker: loaded.allow_docker ?? false, allow_sudo: loaded.allow_sudo ?? false, task_machine_cpu_millis: loaded.task_machine_cpu_millis || DEFAULT_TASK_MACHINE_RESOURCES.cpu_millis, task_machine_memory_mb: loaded.task_machine_memory_mb || DEFAULT_TASK_MACHINE_RESOURCES.memory_mb, task_machine_disk_gb: loaded.task_machine_disk_gb || DEFAULT_TASK_MACHINE_RESOURCES.disk_gb, task_machine_max_tasks: loaded.task_machine_max_tasks || DEFAULT_TASK_MACHINE_MAX_TASKS };
+			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false, allow_docker: loaded.allow_docker ?? false, allow_sudo: loaded.allow_sudo ?? false, max_temporary_machines: loaded.max_temporary_machines ?? 2, task_machine_cpu_millis: loaded.task_machine_cpu_millis || DEFAULT_TASK_MACHINE_RESOURCES.cpu_millis, task_machine_memory_mb: loaded.task_machine_memory_mb || DEFAULT_TASK_MACHINE_RESOURCES.memory_mb, task_machine_disk_gb: loaded.task_machine_disk_gb || DEFAULT_TASK_MACHINE_RESOURCES.disk_gb, task_machine_max_tasks: loaded.task_machine_max_tasks || DEFAULT_TASK_MACHINE_MAX_TASKS };
 			repositories = policy.allowed_repositories.join('\n');
 			linkedRepositories = github.repos ?? [];
 			environments = availableEnvironments ?? [];
@@ -192,6 +192,7 @@
 				enabled: policy.enabled,
 				max_concurrent_machines: policy.max_concurrent_machines,
 				max_machines_per_user: policy.max_machines_per_user,
+				max_temporary_machines: Math.min(10, Math.max(0, Math.round(Number(policy.max_temporary_machines) || 0))),
 				max_daily_agent_runs: policy.max_daily_agent_runs,
 				max_disk_gb: policy.max_disk_gb,
 				allowed_providers: policy.allowed_providers,
@@ -306,6 +307,7 @@
 			<div class="grid gap-4 sm:grid-cols-2">
 				<label class="space-y-1"><Label>{m['settings.dev_machines.concurrent']()}</Label><Input type="number" min="0" max="100" bind:value={policy.max_concurrent_machines} /></label>
 				<label class="space-y-1"><Label>{m['settings.dev_machines.per_user']()}</Label><Input type="number" min="0" max="50" bind:value={policy.max_machines_per_user} /></label>
+				<label class="space-y-1"><Label>{m['settings.dev_machines.max_temporary']()}</Label><Input type="number" min="0" max="10" bind:value={policy.max_temporary_machines} /><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.max_temporary_desc']()}</p></label>
 				<label class="space-y-1"><Label>{m['settings.dev_machines.daily_runs']()}</Label><Input type="number" min="0" bind:value={policy.max_daily_agent_runs} /></label>
 				<label class="space-y-1"><Label>{m['settings.dev_machines.max_disk']()}</Label><Input type="number" min="20" max="2048" step="2" bind:value={policy.max_disk_gb} /></label>
 			</div>

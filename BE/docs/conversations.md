@@ -1014,10 +1014,13 @@ so, and the `start_temporary_machine` description repeats it.
   reuse, and then nothing starts and no card is shown: this conversation's
   live temporary machine, else the user's own running, non-temporary machine
   (not an environment builder, not being deleted; machines of no issue first,
-  then the most recently active). The result names the machine, its size,
+  then the most recently active), else the user's live temporary machine from
+  another conversation. The result names the machine, its size,
   `reused` and the conversation folder
   `/workspace/kuayle-assistant/<conversation>`. Otherwise it checks the
-  workspace quota and asks for approval of the preset
+  workspace quota — refusing before the card when the user already has a
+  temporary machine that counts toward it but cannot run commands — and asks
+  for approval of the preset
   (`domain.TemporaryMachineResources`: 1 vCPU, 2048 MB, 20 GB, headless; 20 GB
   is the global `DevMachineMinDiskGB` floor of every machine, not a size chosen
   for commands). The
@@ -1027,7 +1030,8 @@ so, and the `start_temporary_machine` description repeats it.
 - `run_command` and `run_command_write` (approval tools, even on the user's
   own machine). They take `command` (at most 4000 bytes) and an optional
   `machine_id`, which must be a running machine the user owns. Without it they
-  use the conversation's temporary machine, else the reuse candidate, else they
+  use the conversation's temporary machine, else the user's own running machine
+  or their live temporary machine from another conversation (reused), else they
   fail with what the assistant can do instead. `run_command` takes a
   `working_directory` relative to `/workspace` (default `/workspace`).
   `run_command_write` always starts in the conversation folder, which it

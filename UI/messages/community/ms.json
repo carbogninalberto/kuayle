@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Tiada repositori lalai",
 	"settings.dev_machines.no_envs": "Belum ada persekitaran disimpan.",
 	"settings.dev_machines.per_user": "Mesin bagi setiap pengguna",
+	"settings.dev_machines.max_temporary": "Mesin sementara pembantu",
+	"settings.dev_machines.max_temporary_desc": "Mesin kecil yang boleh dimulakan oleh pembantu untuk menjalankan arahan, satu bagi setiap orang, dipadam selepas 30 minit. 0 mematikkannya.",
 	"settings.dev_machines.providers": "Penyedia",
 	"settings.dev_machines.providers_desc": "Hanya penyedia yang dipilih boleh dilampirkan pada mesin baharu.",
 	"settings.dev_machines.repo": "Repositori pembangunan",

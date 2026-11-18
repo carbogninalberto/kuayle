@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Tanpa repositori default",
 	"settings.dev_machines.no_envs": "Belum ada lingkungan tersimpan.",
 	"settings.dev_machines.per_user": "Mesin per pengguna",
+	"settings.dev_machines.max_temporary": "Mesin sementara asisten",
+	"settings.dev_machines.max_temporary_desc": "Mesin kecil yang dapat dimulai asisten untuk menjalankan perintah, satu per orang, dihapus setelah 30 menit. 0 menonaktifkannya.",
 	"settings.dev_machines.providers": "Penyedia",
 	"settings.dev_machines.providers_desc": "Hanya penyedia yang dipilih yang dapat dipasang ke mesin baru.",
 	"settings.dev_machines.repo": "Repositori pengembangan",

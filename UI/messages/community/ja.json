@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "デフォルトのリポジトリなし",
 	"settings.dev_machines.no_envs": "保存済みの環境はまだありません。",
 	"settings.dev_machines.per_user": "ユーザーあたりのマシン数",
+	"settings.dev_machines.max_temporary": "アシスタントの一時マシン",
+	"settings.dev_machines.max_temporary_desc": "アシスタントがコマンド実行用に起動できる小さなマシン。1人1台、30分後に削除されます。0で無効になります。",
 	"settings.dev_machines.providers": "プロバイダー",
 	"settings.dev_machines.providers_desc": "選択したプロバイダーのみ、新しいマシンに接続できます。",
 	"settings.dev_machines.repo": "開発リポジトリ",

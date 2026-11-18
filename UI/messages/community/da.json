@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Intet standardrepository",
 	"settings.dev_machines.no_envs": "Ingen gemte miljøer endnu.",
 	"settings.dev_machines.per_user": "Maskiner pr. bruger",
+	"settings.dev_machines.max_temporary": "Assistentens midlertidige maskiner",
+	"settings.dev_machines.max_temporary_desc": "Små maskiner som assistenten kan starte for at køre kommandoer, én pr. person, slettes efter 30 minutter. 0 slår dem fra.",
 	"settings.dev_machines.providers": "Udbydere",
 	"settings.dev_machines.providers_desc": "Kun valgte udbydere kan knyttes til nye maskiner.",
 	"settings.dev_machines.repo": "Udviklingsrepository",

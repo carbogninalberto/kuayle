@@ -210,6 +210,23 @@ test('members see task machine resources read-only', async ({ page }) => {
 	await expect(section.getByRole('slider', { name: 'Memory' })).toHaveAttribute('data-disabled', '');
 });
 
+test('admins set how many temporary machines the assistant may start', async ({ page }) => {
+	const state = await mockPolicyApi(page, { ...eightGiB, max_temporary_machines: 3 });
+	await page.goto('/test/settings/dev-machines?tab=policy');
+	const field = page.getByLabel('Assistant temporary machines');
+	await expect(field).toHaveValue('3');
+	await field.fill('0');
+	await page.getByRole('button', { name: 'Save policy' }).click();
+	await expect.poll(() => state.saved.length).toBe(1);
+	expect(state.saved.at(-1)!.max_temporary_machines).toBe(0);
+});
+
+test('members see the temporary machine limit read-only', async ({ page }) => {
+	await mockPolicyApi(page, { ...eightGiB, max_temporary_machines: 3 }, 'member');
+	await page.goto('/test/settings/dev-machines?tab=policy');
+	await expect(page.getByLabel('Assistant temporary machines')).toBeDisabled();
+});
+
 test('the task machine section fits a phone screen', async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await mockPolicyApi(page, eightGiB);

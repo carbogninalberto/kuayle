@@ -48,7 +48,8 @@ type assistantCommandStore interface {
 	UsableMachine(ctx context.Context, ws, user, machine uuid.UUID) (*domain.DevMachine, error)
 	ConversationMachine(ctx context.Context, ws, user, conversation uuid.UUID) (*domain.DevMachine, error)
 	ReusableMachine(ctx context.Context, ws, user uuid.UUID) (*domain.DevMachine, error)
-	TemporaryMachineQuota(ctx context.Context, ws uuid.UUID) (int, int, error)
+	UserTemporaryMachine(ctx context.Context, ws, user uuid.UUID) (*domain.DevMachine, error)
+	TemporaryMachineQuota(ctx context.Context, ws, user uuid.UUID) (used, limit, mine int, err error)
 	CheckRunner(ctx context.Context, ws, user uuid.UUID) error
 }
 
@@ -120,7 +121,8 @@ func (t *AssistantTools) commandUser(ctx context.Context, ws, user uuid.UUID) er
 
 // commandMachine is the machine a command runs on: the given one, which the
 // user must own, else the conversation's temporary machine, else the user's
-// own running machine (reused).
+// own running machine, else their live temporary machine from another
+// conversation (reused).
 func (t *AssistantTools) commandMachine(ctx context.Context, ws, user, conversation uuid.UUID, machineID string) (*domain.DevMachine, bool, error) {
 	if text := strings.TrimSpace(machineID); text != "" {
 		id, err := uuid.Parse(text)
@@ -147,11 +149,23 @@ func (t *AssistantTools) commandMachine(ctx context.Context, ws, user, conversat
 		return nil, false, err
 	}
 	machine, err = t.commands.ReusableMachine(ctx, ws, user)
+	if err == nil {
+		return machine, true, nil
+	}
+	if !errors.Is(err, repository.ErrCommandMachineUnavailable) {
+		return nil, false, err
+	}
+	// A live temporary machine started in another conversation is reusable:
+	// the approval path accepts any of the user's usable machines.
+	machine, err = t.commands.UserTemporaryMachine(ctx, ws, user)
 	if errors.Is(err, repository.ErrCommandMachineUnavailable) {
 		return nil, false, toolFailure("%s", noCommandMachine)
 	}
 	if err != nil {
 		return nil, false, err
+	}
+	if machine.Status != domain.DevMachineStatusRunning {
+		return nil, false, toolFailure("The temporary machine %s is still starting; ask again in a minute.", machine.Name)
 	}
 	return machine, true, nil
 }
@@ -192,9 +206,11 @@ func (t *AssistantTools) prepareCommand(ctx context.Context, a domain.Conversati
 }
 
 // prepareTemporaryMachine answers start_temporary_machine: an existing machine
-// is returned at once (reused, or this conversation's temporary one) and needs
-// no approval; otherwise the request is checked against the quota and becomes
-// an approval card.
+// is returned at once (this conversation's temporary one, the user's own
+// permanent one or their live temporary machine from another conversation) and
+// needs no approval; otherwise the request is checked against the quota and
+// becomes an approval card. A temporary machine that counts toward the quota
+// but cannot run commands is refused before showing a card that would fail.
 func (t *AssistantTools) prepareTemporaryMachine(ctx context.Context, a domain.ConversationAttempt, arguments string) (*domain.TemporaryMachinePayload, map[string]any, error) {
 	ws, user := a.Conversation.WorkspaceID, a.Conversation.CreatorID
 	if err := decodeToolInput(arguments, &struct{}{}); err != nil {
@@ -219,9 +235,17 @@ func (t *AssistantTools) prepareTemporaryMachine(ctx context.Context, a domain.C
 	} else if !errors.Is(err, repository.ErrCommandMachineUnavailable) {
 		return nil, nil, err
 	}
-	used, limit, err := t.commands.TemporaryMachineQuota(ctx, ws)
+	if machine, err := t.commands.UserTemporaryMachine(ctx, ws, user); err == nil {
+		return nil, existing(machine, true, "No machine was started: you already have a temporary machine from another conversation; commands run on it in this conversation's folder until it expires. Each command still needs approval."), nil
+	} else if !errors.Is(err, repository.ErrCommandMachineUnavailable) {
+		return nil, nil, err
+	}
+	used, limit, mine, err := t.commands.TemporaryMachineQuota(ctx, ws, user)
 	if err != nil {
 		return nil, nil, err
+	}
+	if mine > 0 {
+		return nil, nil, toolFailure("You already have a temporary machine in this workspace that cannot run commands now; wait until it expires, delete it, or give machine_id of one of your running machines.")
 	}
 	if limit == 0 {
 		return nil, nil, toolFailure("Temporary machines are turned off in this workspace (its Dev Machine policy allows none); give machine_id of one of your running machines, or ask an admin to allow them.")

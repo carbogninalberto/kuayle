@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Немає типового репозиторію",
 	"settings.dev_machines.no_envs": "Збережених середовищ ще немає.",
 	"settings.dev_machines.per_user": "Машин на користувача",
+	"settings.dev_machines.max_temporary": "Тимчасові машини асистента",
+	"settings.dev_machines.max_temporary_desc": "Невеликі машини, які асистент може запустити для виконання команд, по одній на людину, видаляються через 30 хвилин. 0 вимикає їх.",
 	"settings.dev_machines.providers": "Провайдери",
 	"settings.dev_machines.providers_desc": "До нових машин можна прикріплювати лише вибраних провайдерів.",
 	"settings.dev_machines.repo": "Репозиторій розробки",

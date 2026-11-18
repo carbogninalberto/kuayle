@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Cap repositori per defecte",
 	"settings.dev_machines.no_envs": "Encara no hi ha cap entorn desat.",
 	"settings.dev_machines.per_user": "Màquines per usuari",
+	"settings.dev_machines.max_temporary": "Màquines temporals de l'assistent",
+	"settings.dev_machines.max_temporary_desc": "Màquines petites que l'assistent pot iniciar per executar comandes, una per persona, eliminades després de 30 minuts. 0 les desactiva.",
 	"settings.dev_machines.providers": "Proveïdors",
 	"settings.dev_machines.providers_desc": "Només es poden associar a màquines noves els proveïdors seleccionats.",
 	"settings.dev_machines.repo": "Repositori de desenvolupament",

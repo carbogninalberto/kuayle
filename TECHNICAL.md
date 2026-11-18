@@ -1843,8 +1843,8 @@ volume subpath, created by a fixed-argv prep container; Docker API 1.45+, and
 write runs fail on older daemons), so packages go there too (`pip install
 --target ./pkgs`, a venv or `npm install`). It is killed after 60 s, and 64 KiB
 of output is kept. It runs on a running machine the user owns: the given
-`machine_id`, the conversation's temporary machine, or the user's own machine
-(reused). `start_temporary_machine` asks for approval only when there is
+`machine_id`, the conversation's temporary machine, the user's own machine or
+their live temporary machine from another conversation (reused). `start_temporary_machine` asks for approval only when there is
 none, then starts a temporary machine (1 vCPU, 2 GB, 20 GB — the global
 `DevMachineMinDiskGB` floor — headless, no repository, agents, Docker or
 sudo), re-checking the approver's role under the workspace machine lock. The manager permanently deletes it 30

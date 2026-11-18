@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Geen standaardrepository",
 	"settings.dev_machines.no_envs": "Nog geen opgeslagen omgevingen.",
 	"settings.dev_machines.per_user": "Machines per gebruiker",
+	"settings.dev_machines.max_temporary": "Tijdelijke assistent-machines",
+	"settings.dev_machines.max_temporary_desc": "Kleine machines die de assistent kan starten om commando's uit te voeren, één per persoon, na 30 minuten verwijderd. 0 schakelt ze uit.",
 	"settings.dev_machines.providers": "Providers",
 	"settings.dev_machines.providers_desc": "Alleen geselecteerde providers kunnen aan nieuwe machines worden gekoppeld.",
 	"settings.dev_machines.repo": "Ontwikkelrepository",

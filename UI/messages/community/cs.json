@@ -1100,6 +1100,8 @@
 	"settings.dev_machines.no_default_repo": "Bez výchozího repozitáře",
 	"settings.dev_machines.no_envs": "Zatím žádná uložená prostředí.",
 	"settings.dev_machines.per_user": "Strojů na uživatele",
+	"settings.dev_machines.max_temporary": "Dočasné stroje asistenta",
+	"settings.dev_machines.max_temporary_desc": "Malé stroje, které může asistent spustit pro spouštění příkazů, jeden na osobu, odstraněné po 30 minutách. 0 je vypne.",
 	"settings.dev_machines.providers": "Poskytovatelé",
 	"settings.dev_machines.providers_desc": "K novým strojům lze připojit pouze vybrané poskytovatele.",
 	"settings.dev_machines.repo": "Vývojový repozitář",
