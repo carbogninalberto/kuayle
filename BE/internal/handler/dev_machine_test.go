@@ -365,6 +365,28 @@ func sendModelServer(t *testing.T, h *DevMachineHandler, method, path, body, rol
 	return recorder
 }
 
+func TestModelServerSavesFullDiscoveredListWithDisplayNames(t *testing.T) {
+	request := dto.SaveModelServerRequest{
+		Name: "Gateway", OpenAIBaseURL: new("https://models.example.test/v1"),
+		APIKey: new("fixture-model-key"), Thinking: "high",
+		ModelNames: make(map[string]string),
+	}
+	for i := range 500 {
+		id := fmt.Sprintf("%s-%03d", strings.Repeat("a", 124), i)
+		request.Models = append(request.Models, id)
+		request.ModelNames[id] = fmt.Sprintf("Model %03d %s", i, strings.Repeat("界", 70))
+	}
+	request.DefaultModel = request.Models[0]
+	body, err := json.Marshal(request)
+	require.NoError(t, err)
+	result := sendModelServer(t, modelServerHandler(&handlerDevMachineStoreFake{}), http.MethodPost, "/agent-model-servers", string(body), domain.RoleAdmin, uuid.New(), uuid.New(), nil)
+	require.Equal(t, http.StatusCreated, result.Code, result.Body.String())
+	var saved dto.ModelServerResponse
+	require.NoError(t, json.Unmarshal(result.Body.Bytes(), &saved))
+	require.Equal(t, request.Models, saved.Models)
+	require.Equal(t, request.ModelNames, saved.ModelNames)
+}
+
 func TestModelServerResponsesNeverExposeTheAPIKey(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	store := &handlerDevMachineStoreFake{}

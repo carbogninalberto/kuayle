@@ -13,12 +13,6 @@ export interface ModelSelection {
 
 type Options = Pick<TaskOptions, 'providers' | 'model_servers' | 'default_provider'>;
 
-// The models a server runs; one without a list runs its default model.
-export function serverModels(server: ModelServer | undefined): string[] {
-	if (!server) return [];
-	return server.models.length ? server.models : [server.default_model];
-}
-
 // The server the backend runs a model on when none was picked, as
 // serverForModel there: the preferred one, then the default, then the first
 // other compatible server that lists it (a server with no list runs any model).

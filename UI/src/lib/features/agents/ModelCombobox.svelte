@@ -19,23 +19,31 @@
 		status,
 		placeholder,
 		disabled = false,
+		compact = false,
+		allowCustom = true,
+		canClear = true,
 		onselect,
 		onrefresh,
 		...triggerProps
 	}: {
-		id: string;
+		id?: string;
 		value: string;
 		models: CatalogModel[];
 		status: CatalogStatus;
 		/** Shown while no model is set, and as the choice that clears it. */
 		placeholder: string;
 		disabled?: boolean;
+		compact?: boolean;
+		allowCustom?: boolean;
+		canClear?: boolean;
 		onselect: (model: string) => void;
 		onrefresh: () => void;
 		'aria-describedby'?: string;
+		'aria-label'?: string;
 	} = $props();
 
 	let open = $state(false);
+	const selectedName = $derived(models.find((model) => model.id === value)?.name?.trim() || value);
 	const statusText = $derived(
 		status === 'loading'
 			? m['profiles.models_loading']()
@@ -66,29 +74,33 @@
 			{id}
 			type="button"
 			variant="outline"
+			size={compact ? 'sm' : 'default'}
 			role="combobox"
 			aria-expanded={open}
 			{disabled}
-			class="w-full justify-between gap-2 px-2.5 font-mono font-normal"
+			class="{compact ? 'max-w-64' : 'w-full'} justify-between gap-2 px-2.5 font-normal"
 			data-testid="model-combobox"
 		>
-			<span class="truncate {value ? '' : 'font-sans text-muted-foreground'}">{value || placeholder}</span>
+			<span class="truncate {value ? (selectedName === value ? 'font-mono' : '') : 'text-muted-foreground'}"
+				>{selectedName || placeholder}</span
+			>
 			<ChevronsUpDown class="size-4 shrink-0 opacity-50" />
 		</Button>
 	{/snippet}
 	{#snippet children(search)}
-		{@const typed = typedChoice(models, search)}
-		{#if value && !search.trim()}
+		{@const typed = allowCustom ? typedChoice(models, search) : ''}
+		{#if canClear && value && !search.trim()}
 			<Command.Item value="default:" onSelect={() => choose('')}>
 				<span class="text-xs">{placeholder}</span>
 			</Command.Item>
 		{/if}
 		{#each filterModels(models, search) as model (model.id)}
+			{@const name = model.name?.trim() || model.id}
 			<Command.Item value={`model:${model.id}`} data-checked={model.id === value} onSelect={() => choose(model.id)}>
 				<span class="min-w-0">
-					<span class="block truncate font-mono text-xs">{model.id}</span>
-					{#if model.name && model.name !== model.id}
-						<span class="block truncate text-xs text-muted-foreground">{model.name}</span>
+					<span class="block truncate text-xs">{name}</span>
+					{#if name !== model.id}
+						<span class="block truncate font-mono text-xs text-muted-foreground">{model.id}</span>
 					{/if}
 				</span>
 			</Command.Item>

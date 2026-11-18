@@ -1,9 +1,17 @@
-import type { AgentModelCatalog, CatalogModel } from '$lib/types/dev-machine';
+import type { AgentModelCatalog, CatalogModel, ModelServer } from '$lib/types/dev-machine';
 
 // The model catalog is what a model field suggests for a coding agent. The
 // server decides what is in it (per agent) and which efforts each model
 // allows; nothing here knows an agent or a model by name. It only helps:
 // whatever is typed is still accepted and validated when it is saved.
+
+export function modelServerName(names: ModelServer['model_names'], id: string): string {
+	return names && Object.hasOwn(names, id) ? names[id]?.trim() || id : id;
+}
+
+export function modelOptionLabel(name: string, id: string): string {
+	return name === id ? id : `${name} (${id})`;
+}
 
 /** The models whose id or name contains every word typed, in catalog order. */
 export function filterModels(models: CatalogModel[] | undefined, query: string): CatalogModel[] {

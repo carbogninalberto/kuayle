@@ -448,6 +448,45 @@ async function fixture(page: Page) {
 	return { state, emit };
 }
 
+test('refreshes OpenCode models in the task composer and can delegate after a fetch failure', async ({ page }) => {
+	const { state } = await fixture(page);
+	state.providers.push({ id: 'opencode', display_name: 'OpenCode', supported_modes: ['autonomous'], custom: false });
+	const requests: string[] = [];
+	await page.route('**/api/workspaces/test/agent-model-catalog?*', (route) => {
+		const query = new URL(route.request().url()).searchParams;
+		if (query.get('harness') !== 'opencode') return route.fallback();
+		requests.push(query.get('refresh') ?? '');
+		if (requests.length === 3) return route.fulfill({ status: 502, json: {} });
+		const model = requests.length === 1
+			? { id: 'opencode-go/original', name: 'Original Model' }
+			: { id: 'opencode-go/current', name: 'Current Model' };
+		return route.fulfill({
+			json: { harness: 'opencode', source: 'opencode-go', stale: false, unavailable: false, models: [model] }
+		});
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await showAgents(page);
+	await page.getByRole('button', { name: 'Start coding', exact: true }).click();
+	const dialog = page.getByRole('dialog', { name: 'Start coding', exact: true });
+	await dialog.getByRole('radio', { name: 'OpenCode' }).click();
+	const model = dialog.getByRole('combobox', { name: 'Model', exact: true });
+	await model.click();
+	await expect(page.getByRole('option', { name: /Original Model.*opencode-go\/original/ })).toBeVisible();
+	const refresh = page.getByRole('button', { name: 'Refresh', exact: true });
+	await refresh.click();
+	const current = page.getByRole('option', { name: /Current Model.*opencode-go\/current/ });
+	await expect(current).toBeVisible();
+	await expect(page.getByRole('option', { name: /Original Model/ })).toHaveCount(0);
+	await refresh.click();
+	await expect(page.getByTestId('model-combobox-status')).toContainText('this is the last one read');
+	await current.click();
+	await expect(model).toHaveText('Current Model');
+	expect(requests).toEqual(['', 'true', 'true']);
+	await dialog.getByRole('textbox', { name: 'Task instructions' }).fill('Implement search');
+	await dialog.getByRole('button', { name: 'Delegate task', exact: true }).click();
+	await expect.poll(() => state.creates[0]).toMatchObject({ provider: 'opencode', model: 'opencode-go/current' });
+});
+
 test('delegates from an issue conversation and shows real execution updates', async ({ page }) => {
 	const { state, emit } = await fixture(page);
 	// A second harness, so the picker shows several tiles side by side.
