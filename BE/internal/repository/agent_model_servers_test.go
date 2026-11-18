@@ -40,12 +40,16 @@ func TestModelServersKeepOneDefaultPerWorkspace(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, byID.IsDefault)
 	require.Equal(t, []string{"a"}, byID.ModelList())
+	require.Empty(t, byID.ModelDisplayNames())
+	byID.ModelNames = json.RawMessage(`{"a":"Model A"}`)
+	require.NoError(t, repo.SaveModelServer(ctx, byID))
 	none, err := repo.GetModelServer(ctx, other, &first.ID)
 	require.NoError(t, err)
 	require.Nil(t, none, "servers are scoped to their workspace")
 	servers, err := repo.ListModelServers(ctx, workspace)
 	require.NoError(t, err)
 	require.Equal(t, []string{"Second", "First"}, []string{servers[0].Name, servers[1].Name}, "the default comes first")
+	require.Equal(t, map[string]string{"a": "Model A"}, servers[1].ModelDisplayNames())
 
 	moved := *first
 	moved.WorkspaceID = other

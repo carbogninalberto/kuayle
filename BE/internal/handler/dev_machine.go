@@ -656,7 +656,8 @@ func (h *DevMachineHandler) saveModelServer(c *echo.Context, id *uuid.UUID) erro
 	if !canAdministerDevMachines(c) {
 		return response.Forbidden(c)
 	}
-	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 96*1024)
+	// The 500-model list can include a display name keyed by each ID.
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 512*1024)
 	var request dto.SaveModelServerRequest
 	if !bindAndValidate(c, &request) {
 		return nil
@@ -689,13 +690,13 @@ func (h *DevMachineHandler) DeleteModelServer(c *echo.Context) error {
 // ModelCatalog lists the models a profile or task can choose for the coding
 // agent named by ?harness=. It holds model names only, never a key, so
 // whoever may read the model servers may read it. ?refresh=true asks for a
-// new fetch of OpenCode's list; the service rate-limits that. An unreachable
-// upstream is reported in the body, not as an error.
+// new fetch of OpenCode's list. An unreachable upstream is reported in the body.
 func (h *DevMachineHandler) ModelCatalog(c *echo.Context) error {
 	catalog, err := h.service.AgentModelCatalog(c.Request().Context(), middleware.GetWorkspace(c).ID, c.QueryParam("harness"), c.QueryParam("refresh") == "true")
 	if err != nil {
 		return machineError(c, err)
 	}
+	c.Response().Header().Set("Cache-Control", "no-store")
 	return response.Success(c, http.StatusOK, catalog)
 }
 

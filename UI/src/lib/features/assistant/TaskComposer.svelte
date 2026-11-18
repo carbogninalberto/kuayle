@@ -10,8 +10,9 @@
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { preferredServer, serversFor } from '$lib/features/agents/model-choice';
 	import { allowedEfforts, effortAfterModelChange } from '$lib/features/agents/model-catalog';
-	import { agentModelCatalog } from '$lib/api/dev-machines';
-	import type { CatalogModel, ThinkingLevel } from '$lib/types/dev-machine';
+	import ModelCombobox from '$lib/features/agents/ModelCombobox.svelte';
+	import { ModelSuggestions, hasModelSuggestions } from '$lib/features/agents/model-suggestions.svelte';
+	import type { ThinkingLevel } from '$lib/types/dev-machine';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import {
 		agentTasks,
@@ -70,28 +71,15 @@
 	const compatibleServers = $derived(serversFor(options?.model_servers, provider));
 	const server = $derived(compatibleServers.find((item) => item.id === serverId));
 	const canOverride = $derived(!!server);
-	// An agent no model server runs (OpenCode) chooses among its own models:
-	// the server's catalog for it. A model belongs to its agent, so changing
-	// the agent always starts from that agent's default again, and a catalog
-	// of the workspace's model servers is left to the server picker.
 	const LEVELS: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max'];
-	let ownModels = $state<CatalogModel[]>([]);
-	let catalogRequest = 0;
-	const ownEfforts = $derived(allowedEfforts(ownModels, model, LEVELS));
-	async function loadOwnModels(harness: string) {
-		const request = ++catalogRequest;
-		ownModels = [];
-		if (!harness || serversFor(options?.model_servers, harness).length) return;
-		try {
-			const catalog = await agentModelCatalog(slug, harness);
-			if (!disposed && request === catalogRequest && catalog.source !== 'workspace') ownModels = catalog.models;
-		} catch {
-			/* Without the list the task starts with the agent's own default. */
-		}
-	}
-	function chooseOwnModel(value: string) {
+	const suggestions = new ModelSuggestions();
+	const showModel = $derived(!task && (canOverride || (!compatibleServers.length && hasModelSuggestions(provider))));
+	$effect(() => suggestions.open(slug, showModel && !customChosen ? provider : '', server));
+	const ownEfforts = $derived(allowedEfforts(suggestions.models, model, LEVELS));
+
+	function chooseModel(value: string) {
 		model = value;
-		thinking = effortAfterModelChange(ownModels, value, thinking).effort;
+		if (!server) thinking = effortAfterModelChange(suggestions.models, value, thinking).effort;
 	}
 	function chooseProvider(value: string) {
 		if (!value) return;
@@ -100,7 +88,6 @@
 		serverId = preferred?.id ?? '';
 		model = preferred?.default_model ?? '';
 		thinking = preferred?.thinking ?? '';
-		void loadOwnModels(value);
 	}
 	function chooseServer(value: string) {
 		const next = compatibleServers.find((item) => item.id === value);
@@ -284,28 +271,22 @@
 						{#if !compatibleServers.length && provider}<span class="px-1 text-xs text-muted-foreground"
 								>{m['tasks.own_sign_in']()}</span
 							>{/if}
-						{#if !compatibleServers.length && ownModels.length}
-							<DropdownMenu.Root
-								><DropdownMenu.Trigger
-									>{#snippet child({ props })}<InputGroup.Button
-											{...props}
-											disabled={saving}
-											aria-label={m['tasks.model']()}
-											>{model || m['profiles.model_placeholder']()}<ChevronDown size={14} /></InputGroup.Button
-										>{/snippet}</DropdownMenu.Trigger
-								><DropdownMenu.Content class="max-h-72 overflow-y-auto"
-									><DropdownMenu.RadioGroup value={model} onValueChange={chooseOwnModel}
-										><DropdownMenu.RadioItem value="" closeOnSelect
-											>{m['profiles.model_placeholder']()}</DropdownMenu.RadioItem
-										>{#if model && !ownModels.some((item) => item.id === model)}<DropdownMenu.RadioItem
-												value={model}
-												closeOnSelect>{model}</DropdownMenu.RadioItem
-											>{/if}{#each ownModels as item (item.id)}<DropdownMenu.RadioItem value={item.id} closeOnSelect
-												>{item.id}</DropdownMenu.RadioItem
-											>{/each}</DropdownMenu.RadioGroup
-									></DropdownMenu.Content
-								></DropdownMenu.Root
-							>
+						{#if showModel}
+							<ModelCombobox
+								compact
+								value={model}
+								models={suggestions.models}
+								status={suggestions.status}
+								placeholder={m['profiles.model_placeholder']()}
+								aria-label={m['tasks.model']()}
+								disabled={saving}
+								allowCustom={!server}
+								canClear={!server}
+								onselect={chooseModel}
+								onrefresh={() => void suggestions.load(slug, provider, true, server)}
+							/>
+						{/if}
+						{#if !compatibleServers.length && suggestions.models.length}
 							<DropdownMenu.Root
 								><DropdownMenu.Trigger
 									>{#snippet child({ props })}<InputGroup.Button
@@ -328,22 +309,6 @@
 							>
 						{/if}
 						{#if canOverride}
-							<DropdownMenu.Root
-								><DropdownMenu.Trigger
-									>{#snippet child({ props })}<InputGroup.Button
-											{...props}
-											disabled={saving}
-											aria-label={m['tasks.model']()}>{model}<ChevronDown size={14} /></InputGroup.Button
-										>{/snippet}</DropdownMenu.Trigger
-								><DropdownMenu.Content
-									><DropdownMenu.RadioGroup bind:value={model}
-										>{#each server?.models.length ? server.models : [server?.default_model ?? ''] as value (value)}<DropdownMenu.RadioItem
-												{value}
-												closeOnSelect>{value}</DropdownMenu.RadioItem
-											>{/each}</DropdownMenu.RadioGroup
-									></DropdownMenu.Content
-								></DropdownMenu.Root
-							>
 							<DropdownMenu.Root
 								><DropdownMenu.Trigger
 									>{#snippet child({ props })}<InputGroup.Button
