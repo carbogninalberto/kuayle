@@ -3411,6 +3411,8 @@
 	"tasks.usage_limit_manual": "Automatic resume is off. Resume the task once the limit has reset; the work done so far is kept.",
 	"tasks.usage_limit_resume_now": "Resume now",
 	"tasks.usage_limit_dont_resume": "Don't resume",
+	"tasks.credit_title": "{agent}'s provider account has no credit",
+	"tasks.credit_body": "Top up the provider account, then resume the task. It continues the same step and session; the work done so far is kept.",
 	"tasks.transcript_finished_limited": "Paused at the usage limit after {time}",
 	"tasks.transcript_error": "Error: {message}",
 	"tasks.transcript_output": "Output",

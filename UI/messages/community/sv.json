@@ -3411,6 +3411,8 @@
 	"tasks.usage_limit_manual": "Automatisk återupptagning är avstängd. Återuppta uppgiften när gränsen har återställts; arbetet hittills behålls.",
 	"tasks.usage_limit_resume_now": "Återuppta nu",
 	"tasks.usage_limit_dont_resume": "Återuppta inte",
+	"tasks.credit_title": "Leverantörskontot för {agent} saknar kredit",
+	"tasks.credit_body": "Fyll på leverantörskontot och återuppta sedan uppgiften. Den fortsätter i samma steg och session; arbetet hittills behålls.",
 	"tasks.transcript_finished_limited": "Pausad vid användningsgränsen efter {time}",
 	"tasks.transcript_error": "Fel: {message}",
 	"tasks.transcript_output": "Utdata",

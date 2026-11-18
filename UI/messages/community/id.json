@@ -3411,6 +3411,8 @@
 	"tasks.usage_limit_manual": "Lanjut otomatis nonaktif. Lanjutkan tugas setelah batas diatur ulang; pekerjaan yang sudah dilakukan tetap disimpan.",
 	"tasks.usage_limit_resume_now": "Lanjutkan sekarang",
 	"tasks.usage_limit_dont_resume": "Jangan lanjutkan",
+	"tasks.credit_title": "Akun penyedia {agent} tidak memiliki kredit",
+	"tasks.credit_body": "Isi ulang akun penyedia, lalu lanjutkan tugas. Tugas melanjutkan langkah dan sesi yang sama; pekerjaan sejauh ini tetap disimpan.",
 	"tasks.transcript_finished_limited": "Dijeda di batas penggunaan setelah {time}",
 	"tasks.transcript_error": "Error: {message}",
 	"tasks.transcript_output": "Output",

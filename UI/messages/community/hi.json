@@ -3411,6 +3411,8 @@
 	"tasks.usage_limit_manual": "अपने-आप फिर शुरू होना बंद है। सीमा रीसेट होने के बाद कार्य फिर शुरू करें; अब तक किया गया काम बना रहेगा।",
 	"tasks.usage_limit_resume_now": "अभी फिर शुरू करें",
 	"tasks.usage_limit_dont_resume": "फिर शुरू न करें",
+	"tasks.credit_title": "{agent} के प्रदाता खाते में क्रेडिट नहीं है",
+	"tasks.credit_body": "प्रदाता खाते को टॉप अप करें, फिर कार्य फिर से शुरू करें। यह उसी चरण और सत्र को जारी रखता है; अब तक किया गया काम बना रहता है।",
 	"tasks.transcript_finished_limited": "{time} बाद उपयोग सीमा पर रुका",
 	"tasks.transcript_error": "त्रुटि: {message}",
 	"tasks.transcript_output": "आउटपुट",

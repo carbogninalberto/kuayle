@@ -3411,6 +3411,8 @@
 	"tasks.usage_limit_manual": "La reanudación automática está desactivada. Reanuda la tarea cuando el límite se haya restablecido; se conserva el trabajo hecho hasta ahora.",
 	"tasks.usage_limit_resume_now": "Reanudar ahora",
 	"tasks.usage_limit_dont_resume": "No reanudar",
+	"tasks.credit_title": "La cuenta del proveedor de {agent} no tiene crédito",
+	"tasks.credit_body": "Recarga la cuenta del proveedor y luego reanuda la tarea. Continúa en el mismo paso y la misma sesión; se conserva el trabajo hecho hasta ahora.",
 	"tasks.transcript_finished_limited": "En pausa por el límite de uso tras {time}",
 	"tasks.transcript_error": "Error: {message}",
 	"tasks.transcript_output": "Salida",

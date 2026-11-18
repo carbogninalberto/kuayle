@@ -3411,6 +3411,8 @@
 	"tasks.usage_limit_manual": "ปิดการทำต่ออัตโนมัติอยู่ ทำงานต่อเมื่อขีดจำกัดรีเซ็ตแล้ว งานที่ทำไปแล้วจะถูกเก็บไว้",
 	"tasks.usage_limit_resume_now": "ทำต่อเลย",
 	"tasks.usage_limit_dont_resume": "ไม่ทำต่อ",
+	"tasks.credit_title": "บัญชีผู้ให้บริการของ {agent} ไม่มีเครดิต",
+	"tasks.credit_body": "เติมเงินบัญชีผู้ให้บริการ แล้วกลับมาทำงานต่อ งานจะดำเนินต่อในขั้นตอนและเซสชันเดิม และงานที่ทำไว้จะยังคงอยู่",
 	"tasks.transcript_finished_limited": "หยุดชั่วคราวที่ขีดจำกัดการใช้งานหลัง {time}",
 	"tasks.transcript_error": "ข้อผิดพลาด: {message}",
 	"tasks.transcript_output": "เอาต์พุต",

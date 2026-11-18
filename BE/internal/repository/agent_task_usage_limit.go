@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
@@ -34,7 +35,7 @@ func (r *AgentTaskRepository) PauseForUsageLimit(ctx context.Context, claimed do
 	if task.UsageLimitResumes < domain.MaxUsageLimitAutoResumes {
 		resumeAt = &resume
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE agent_tasks SET usage_limit_message=$2,usage_limit_resets_at=$3,usage_limit_resume_at=$4 WHERE id=$1`,
+	if _, err = tx.ExecContext(ctx, `UPDATE agent_tasks SET usage_limit_message=$2,usage_limit_resets_at=$3,usage_limit_resume_at=$4,provider_credit_exhausted=false WHERE id=$1`,
 		task.ID, limit.Message, limit.ResetsAt, resumeAt); err != nil {
 		return err
 	}
@@ -57,6 +58,43 @@ func (r *AgentTaskRepository) PauseForUsageLimit(ctx context.Context, claimed do
 	// A pause is not a failure: the task keeps no failure class.
 	if err = beginAgentTaskFailure(ctx, tx, task, "", reason); err != nil {
 		return err
+	}
+	return tx.Commit()
+}
+
+// PauseForProviderCredit ends the claimed attempt because the provider
+// account has no credit left (KUA-218). It pauses the task through the usual
+// cleanup like a usage limit, with the provider's message, but with no reset
+// time and no automatic resume: only a person topping the account up ends it.
+// It holds none of the creator's other tasks, which pause themselves if they
+// meet the same account. A workflow task stays on its step, and its time
+// budget stops until the task is resumed, as for a wait on a person.
+func (r *AgentTaskRepository) PauseForProviderCredit(ctx context.Context, claimed domain.AgentTask, message, reason string) error {
+	tx, task, err := r.transaction(ctx, claimed.ID, false)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err = fenceAgentTask(ctx, tx, *task, claimed); err != nil {
+		return err
+	}
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET usage_limit_message=$2,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,provider_credit_exhausted=true WHERE id=$1 RETURNING *`,
+		task.ID, truncateBytes(message, 500)); err != nil {
+		return err
+	}
+	if err = noteNotebook(ctx, tx, task.ID, nil, domain.NotebookNote{Event: "Paused: the provider account has no credit left; the attempt did not fail and the worktree is unchanged"}); err != nil {
+		return err
+	}
+	// A pause is not a failure: the task keeps no failure class.
+	if err = beginAgentTaskFailure(ctx, tx, task, "", reason); err != nil {
+		return err
+	}
+	// After the transition, which releases a waiting_input hold: this one
+	// lasts until the task is resumed or retried.
+	if task.RunsWorkflow() {
+		if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_held_since=COALESCE(workflow_held_since,now()) WHERE id=$1 RETURNING *`, task.ID); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -135,6 +173,12 @@ func (r *AgentTaskRepository) resumeAfterUsageLimit(ctx context.Context, id uuid
 		return nil, ErrAgentTaskConflict
 	}
 	withdrawn := task.WorkflowPauseRequest != nil
+	// A pause for credit (KUA-218) never resumes on its own (no resume time)
+	// and continues its step instead of starting a new visit.
+	credit := task.ProviderCreditExhausted
+	if credit {
+		reason = domain.ProviderCreditResumedReason
+	}
 	var pending bool
 	if err = tx.GetContext(ctx, &pending, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE task_id=$1 AND status IN ('queued','starting','running','waiting_input'))
  OR EXISTS(SELECT 1 FROM dev_machine_operations o WHERE (o.checkout_id=$2 OR o.agent_run_id IN (SELECT id FROM dev_machine_agent_runs WHERE task_id=$1)) AND o.status IN ('pending','leased'))`, task.ID, task.CheckoutID); err != nil {
@@ -146,7 +190,7 @@ func (r *AgentTaskRepository) resumeAfterUsageLimit(ctx context.Context, id uuid
 	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,failure_class=NULL,sign_in_required=false,
  lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at,
  usage_limit_resumes=CASE WHEN $2 THEN t.usage_limit_resumes+1 ELSE 0 END,
- usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,resume_native_session=true,
+ usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,provider_credit_exhausted=false,resume_native_session=true,
  -- "Resume now" also ends a pause the creator had asked for after this step.
  workflow_pause_request=CASE WHEN $2 THEN t.workflow_pause_request END
  FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, automatic); err != nil {
@@ -157,17 +201,27 @@ func (r *AgentTaskRepository) resumeAfterUsageLimit(ctx context.Context, id uuid
 			return nil, err
 		}
 	}
-	if !automatic {
-		if _, err = tx.ExecContext(ctx, `DELETE FROM agent_usage_limit_holds WHERE user_id=$1 AND provider=$2`, task.CreatorID, task.Provider); err != nil {
+	if credit {
+		// The workflow task continues the step its pause interrupted.
+		if err = continueCreditPausedStep(ctx, tx, task); err != nil {
+			return nil, err
+		}
+	} else {
+		// A credit pause holds nothing; a usage limit's hold is lifted.
+		if !automatic {
+			if _, err = tx.ExecContext(ctx, `DELETE FROM agent_usage_limit_holds WHERE user_id=$1 AND provider=$2`, task.CreatorID, task.Provider); err != nil {
+				return nil, err
+			}
+		}
+		// A workflow task continues on its implementing step, as a retry does.
+		if err = retryWorkflow(ctx, tx, task, task.CreatorID); err != nil {
 			return nil, err
 		}
 	}
-	// A workflow task continues on its implementing step, as a retry does.
-	if err = retryWorkflow(ctx, tx, task, task.CreatorID); err != nil {
-		return nil, err
-	}
 	resumed := "Resumed after the usage limit reset"
-	if actor != nil {
+	if credit {
+		resumed = "Resumed by a person after the provider account ran out of credit"
+	} else if actor != nil {
 		resumed = "Resumed by a person after the usage limit"
 	}
 	if err = noteNotebook(ctx, tx, task.ID, actor, domain.NotebookNote{Event: resumed}); err != nil {
@@ -176,7 +230,35 @@ func (r *AgentTaskRepository) resumeAfterUsageLimit(ctx context.Context, id uuid
 	if err = transitionAgentTask(ctx, tx, task, "queued", reason, actor); err != nil {
 		return nil, err
 	}
+	if credit && task.RunsWorkflow() {
+		if err = workflowEvent(ctx, tx, *task); err != nil {
+			return nil, err
+		}
+	}
 	return task, tx.Commit()
+}
+
+// continueCreditPausedStep keeps a workflow task resumed after a credit pause
+// on the step the pause interrupted (KUA-218): the step's attempt is the new
+// one, in the same visit and iteration. The time the pause held the budget
+// clock is left out of the time budget and of the step's working time, as for
+// a person's pause. Called in the resume's transaction.
+func continueCreditPausedStep(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask) error {
+	if !task.RunsWorkflow() {
+		return nil
+	}
+	if task.WorkflowHeldSince != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET paused_seconds=paused_seconds+GREATEST(0,EXTRACT(EPOCH FROM now()-$3::timestamptz))::int
+ WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL`, task.ID, task.WorkflowSequence, *task.WorkflowHeldSince); err != nil {
+			return err
+		}
+		if err := tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_budget_from=CASE WHEN COALESCE(workflow_budget_from,workflow_started_at) IS NULL THEN workflow_budget_from ELSE COALESCE(workflow_budget_from,workflow_started_at)+(now()-workflow_held_since) END,workflow_held_since=NULL WHERE id=$1 AND workflow_held_since IS NOT NULL RETURNING *`, task.ID); err != nil {
+			return err
+		}
+	}
+	// The same step, visit and iteration: only its attempt is new.
+	_, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET generation=$3 WHERE task_id=$1 AND sequence=$2`, task.ID, task.WorkflowSequence, task.Generation)
+	return err
 }
 
 // usageLimitHeld is the Claim condition that keeps a queued task waiting

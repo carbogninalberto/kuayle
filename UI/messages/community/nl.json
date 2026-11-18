@@ -3411,6 +3411,8 @@
 	"tasks.usage_limit_manual": "Automatisch hervatten staat uit. Hervat de taak zodra de limiet is teruggezet; het werk tot nu toe blijft behouden.",
 	"tasks.usage_limit_resume_now": "Nu hervatten",
 	"tasks.usage_limit_dont_resume": "Niet hervatten",
+	"tasks.credit_title": "Het provideraccount van {agent} heeft geen tegoed",
+	"tasks.credit_body": "Waardeer het provideraccount op en hervat daarna de taak. Die gaat verder in dezelfde stap en sessie; het werk tot nu toe blijft behouden.",
 	"tasks.transcript_finished_limited": "Gepauzeerd bij de gebruikslimiet na {time}",
 	"tasks.transcript_error": "Fout: {message}",
 	"tasks.transcript_output": "Uitvoer",

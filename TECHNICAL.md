@@ -1071,6 +1071,10 @@ An agent whose provider refuses work until a quota resets (Claude Code's 5-hour 
 
 The task card shows the provider's message, the reset time and the two controls; the transcript shows "Paused at the usage limit" instead of "Stopped with an error".
 
+**Provider account without credit** (KUA-218, migration `000176_agent_task_provider_credit`). `domain.DetectProviderCredit` reads only the harness's own error and the error events of its JSON output for OpenCode's "Insufficient balance", Anthropic's "credit balance is too low", OpenAI's `insufficient_quota` / "You exceeded your current quota" and Codex's "Quota exceeded. Check your plan and billing details." The run error is `provider_credit_exhausted: <sentence>` (links dropped) with rule `provider_credit`. The task pauses through the same cleanup into `blocked` with `usage_limit_message` and `provider_credit_exhausted=true`, but with no reset, no automatic resume and no hold. A workflow task stays on its step and its time budget is held. "Resume now" continues the same step, visit and iteration. The task card says to top the provider account up, then resume.
+
+**Model the provider does not offer.** `domain.DetectModelNotFound` reads OpenCode's `ProviderModelNotFoundError` (also from its `level=ERROR` log line), Anthropic's `not_found_error` ("model: …"), Claude Code's "There's an issue with the selected model (…)" and OpenAI's "The model `…` does not exist" / `model_not_found`. The run error is `model_not_found: <model>` with rule `model_not_found`. The task fails with class `provider`, naming the model and where it is set, and does not take a workflow's `agent_failed` edge. See [agent-tasks.md](BE/docs/agent-tasks.md#provider-credit-and-unknown-models).
+
 ### Workflow pause and resume
 
 A task's creator can pause its running workflow and resume it from the same step (migration `000145_workflow_pause`, KUA-129): `POST /agent-tasks/:taskId/pause` with `{"mode": "now" | "after_step"}` and `POST /agent-tasks/:taskId/resume`, session-only and limited to the creator like cancel.

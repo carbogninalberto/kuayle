@@ -43,6 +43,10 @@ export interface AgentTask {
 	usage_limit_resets_at?: string | null;
 	usage_limit_resume_at?: string | null;
 	usage_limit_resumes?: number;
+	// The same pause because the provider account has no credit left: the
+	// message is the provider's, nothing resumes on its own, and resuming
+	// after a top-up continues the same step.
+	provider_credit_exhausted?: boolean;
 	// A review task reviews another task's published pull request; it is shown
 	// on that task's card, never as a task of its own.
 	kind?: 'implement' | 'review';

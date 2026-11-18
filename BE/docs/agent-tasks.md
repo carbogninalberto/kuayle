@@ -1274,7 +1274,11 @@ when the workflow ends in failure, into the task's reason and
 failed and keeps no failure class. A run whose harness output says a write
 found no space (`database or disk is full`, `SQLITE_FULL`, `ENOSPC`,
 `no space left on device`, `disk quota exceeded`) is `platform` with rule
-`disk_full`, not the agent's `harness_error`.
+`disk_full`, not the agent's `harness_error`. A provider account without credit
+(rule `provider_credit`) pauses the task and a model the provider does not
+offer (rule `model_not_found`) fails it; both are `provider` and neither goes
+through a workflow's `agent_failed` edge (see
+[Provider credit and unknown models](#provider-credit-and-unknown-models)).
 
 A run that failed with class `platform` and rule `manager_restart` (see
 [Machine manager restarts](#machine-manager-restarts)) is retried
@@ -3250,3 +3254,65 @@ session. The provider's wording is read from its JSON events and from the plain
 not a limit. The creator's other queued tasks for that agent wait for the reset.
 `POST /agent-tasks/:taskId/resume` resumes now and `DELETE` on the same path
 turns the automatic resume off. See TECHNICAL.md, "Usage limits".
+
+## Provider credit and unknown models
+
+Two provider answers are about the account or the configuration, not the work,
+so another attempt with the same account and model fails the same way (KUA-218).
+In production an OpenCode step answered "APIError: Insufficient balance" six
+times, and each failure took the workflow's `agent_failed` self-loop and used a
+visit.
+
+**No credit.** When the harness's own error says the account has no credit
+(OpenCode's "Insufficient balance", Anthropic's "credit balance is too low",
+OpenAI's `insufficient_quota` and "You exceeded your current quota", Codex's
+"Quota exceeded. Check your plan and billing details."), the manager stores the
+run error `provider_credit_exhausted: <the provider's sentence>` and classifies
+the run `provider` / `provider_credit`. Only the harness's error and the error
+events of its JSON output are read (an OpenCode or Codex `error` or
+`turn.failed`, a Claude Code result with `is_error`), never tool output or what
+the agent wrote. Links are dropped from the sentence, since a billing link can
+name the provider workspace. The task pauses through the usage-limit path: the
+attempt is cleaned up, the task ends `blocked` with the provider's sentence in
+`usage_limit_message` and `provider_credit_exhausted=true` (migration
+`000176_agent_task_provider_credit`), and the reason "Paused: OpenCode's
+provider account has no credit left (…). Top up the provider account, then
+resume the task; the work done so far is kept." It is not a failure and keeps
+no failure class. There is no reset time and no automatic resume, and no
+`agent_usage_limit_holds` row: the creator's other tasks pause themselves if
+they meet the same account. The creator is told as for a usage limit, through
+the blocked transition's conversation event and Telegram notice.
+
+A workflow task stays on its step: no edge is taken, and no visit or iteration
+is used. While it waits, `workflow_held_since` stops its time budget, as for a
+wait on a person. `POST /agent-tasks/:taskId/resume` after the top-up starts a
+new attempt of the same step, visit and iteration with
+`resume_native_session=true`. The held time is added to `workflow_budget_from`
+and to the step's `paused_seconds`, and the handoff tells the agent that the
+account ran out of credit and to continue where it stopped. A retry instead of
+a resume forgets the pause and starts a new visit, as a retry always does.
+
+**Unknown model.** When the provider does not offer the run's model, the run
+error is `model_not_found: <model>` and the rule `provider` / `model_not_found`.
+The model is read from OpenCode's `ProviderModelNotFoundError` ("Model not
+found: <model>"), which OpenCode reports as "UnknownError: Unexpected server
+error" in its event and names only in its `level=ERROR` log line on standard
+error, from Anthropic's `not_found_error` ("model: <model>"), Claude Code's
+"There's an issue with the selected model (<model>)", and OpenAI's "The model
+`<model>` does not exist or you do not have access to it" or `model_not_found`.
+The task fails at once with class `provider` and a reason naming the model and
+where it is set, without going through a workflow's `agent_failed` edge: a
+step's agent profile in Settings → Agents, an assigned agent's profile, or the
+model the task was started with. This is how other configuration errors that a
+run reports are handled (a missing sign-in, a resource limit): the task fails
+with how to fix it, because a pause would resume with the same model. A retry
+keeps the task's model unless the retry names one (`model`); a workflow step
+takes its profile's model when the workflow enters the step.
+
+A reviewer step runs as its own review task. When that task fails with
+`model_not_found` (read from its current run's `failure_rule`), the workflow
+fails with the review task's reason and class `provider` instead of following
+the reviewer's `agent_failed` edge, which would start the same review with the
+same model. A review task out of credit pauses like any task, and the reviewer
+step waits until it is resumed (`POST /agent-tasks/:taskId/resume` with the
+review task's ID).

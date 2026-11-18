@@ -3411,6 +3411,8 @@
 	"tasks.usage_limit_manual": "ازسرگیری خودکار خاموش است. پس از بازنشانی سقف، کار را از سر بگیرید؛ کار انجام‌شده حفظ می‌شود.",
 	"tasks.usage_limit_resume_now": "اکنون از سر بگیر",
 	"tasks.usage_limit_dont_resume": "از سر نگیر",
+	"tasks.credit_title": "حساب ارائه‌دهندهٔ {agent} اعتباری ندارد",
+	"tasks.credit_body": "حساب ارائه‌دهنده را شارژ کنید و سپس کار را ادامه دهید. همان مرحله و همان نشست ادامه می‌یابد؛ کارهای انجام‌شده حفظ می‌شوند.",
 	"tasks.transcript_finished_limited": "پس از {time} به دلیل سقف مصرف متوقف شد",
 	"tasks.transcript_error": "خطا: {message}",
 	"tasks.transcript_output": "خروجی",

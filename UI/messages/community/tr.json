@@ -3411,6 +3411,8 @@
 	"tasks.usage_limit_manual": "Otomatik devam kapalı. Sınır sıfırlandığında görevi sürdürün; şimdiye kadar yapılan iş korunur.",
 	"tasks.usage_limit_resume_now": "Şimdi sürdür",
 	"tasks.usage_limit_dont_resume": "Sürdürme",
+	"tasks.credit_title": "{agent} sağlayıcı hesabında kredi yok",
+	"tasks.credit_body": "Sağlayıcı hesabına bakiye yükleyin, ardından göreve devam edin. Aynı adımda ve oturumda devam eder; şimdiye kadarki çalışma korunur.",
 	"tasks.transcript_finished_limited": "{time} sonra kullanım sınırında duraklatıldı",
 	"tasks.transcript_error": "Hata: {message}",
 	"tasks.transcript_output": "Çıktı",

@@ -3411,6 +3411,8 @@
 	"tasks.usage_limit_manual": "La ripresa automatica è disattivata. Riprendi l'attività quando il limite si è azzerato; il lavoro fatto finora viene mantenuto.",
 	"tasks.usage_limit_resume_now": "Riprendi ora",
 	"tasks.usage_limit_dont_resume": "Non riprendere",
+	"tasks.credit_title": "L'account del provider di {agent} non ha più credito",
+	"tasks.credit_body": "Ricarica l'account del provider, poi riprendi l'attività. Continua lo stesso passaggio e la stessa sessione; il lavoro fatto finora viene mantenuto.",
 	"tasks.transcript_finished_limited": "In pausa per il limite di utilizzo dopo {time}",
 	"tasks.transcript_error": "Errore: {message}",
 	"tasks.transcript_output": "Output",
