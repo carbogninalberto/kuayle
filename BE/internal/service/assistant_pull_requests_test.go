@@ -469,7 +469,9 @@ func TestUpdateBranchExplainsConflictsAndUpToDateBranches(t *testing.T) {
 	f.tools.work = prWork{followUp: &repository.FollowUpTarget{TaskID: f.task, CreatorID: f.creator, State: "blocked"}}
 	_, _, _, err = f.tools.preparePullRequestAction(ctx, f.ws, f.creator, "update_pull_request_branch", `{"identifier":"ENG-1","method":"github"}`)
 	require.ErrorContains(t, err, "merge conflicts")
-	require.ErrorContains(t, err, "task agent resolves them")
+	require.ErrorContains(t, err, "only the task's coding agent can resolve")
+	require.ErrorContains(t, err, "follow_up_task with instructions to rebase onto main")
+	require.ErrorContains(t, err, "needs the user's approval")
 	_, _, action, err := f.tools.preparePullRequestAction(ctx, f.ws, f.creator, "update_pull_request_branch", `{"identifier":"ENG-1"}`)
 	require.NoError(t, err)
 	require.Equal(t, "follow_up_task", action)
