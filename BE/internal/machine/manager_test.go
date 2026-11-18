@@ -84,10 +84,13 @@ type managerStoreFake struct {
 	markAgentRunStarting      func() error
 	updateAgentRunStarted     func() error
 	envVarListCalls           int
-	runtimeServicesCreated    int
-	modelServer               *domain.AgentModelServer
-	resourceLimits            []string
-	policy                    *domain.DevMachineWorkspacePolicy
+	// migrationActionSecret is the encrypted secret MigrationActionSecret
+	// hands the manager; empty means no action is configured.
+	migrationActionSecret  string
+	runtimeServicesCreated int
+	modelServer            *domain.AgentModelServer
+	resourceLimits         []string
+	policy                 *domain.DevMachineWorkspacePolicy
 	// signInReads records the workspace/user of each sign-in read.
 	signInReads []string
 	tokenExpiry time.Time
@@ -182,6 +185,12 @@ func (f *managerStoreFake) ListServices(context.Context, uuid.UUID, uuid.UUID) (
 func (f *managerStoreFake) ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error) {
 	f.envVarListCalls++
 	return f.envVars, nil
+}
+func (f *managerStoreFake) MigrationActionSecret(_ context.Context, _ uuid.UUID, _ uuid.UUID, _ string) (string, error) {
+	if f.migrationActionSecret != "" {
+		return f.migrationActionSecret, nil
+	}
+	return "", repository.ErrMigrationActionNotFound
 }
 func (f *managerStoreFake) GetModelServer(context.Context, uuid.UUID, *uuid.UUID) (*domain.AgentModelServer, error) {
 	return f.modelServer, nil

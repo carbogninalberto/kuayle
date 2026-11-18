@@ -285,6 +285,11 @@ func main() {
 	assistantCommands := repository.NewAssistantCommandRepository(db)
 	assistantTools.SetCommands(assistantCommands, devMachineSvc)
 	assistantApprovals.SetCommands(assistantCommands, devMachineSvc)
+	// Named migration actions (KUA-181) are requested by name only.
+	assistantTools.SetMigrations(assistantCommands)
+	// Named migration actions (KUA-181) are configured through the machine
+	// service, which encrypts their connection secret.
+	devMachineSvc.SetMigrationActions(assistantCommands)
 	assistantSystem := service.NewAssistantSystem(service.NewSystemUpdater(cfg.SystemUpdaterURL, cfg.SystemUpdaterToken), cfg.IsSysAdmin, buildinfo.Version)
 	assistantTools.SetSystem(assistantSystem)
 	assistantSystem.SetHealthCheck(func(ctx context.Context) error { return db.PingContext(ctx) })

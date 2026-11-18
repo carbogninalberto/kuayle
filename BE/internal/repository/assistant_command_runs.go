@@ -36,13 +36,27 @@ var (
 	// ErrTemporaryMachinesOff means the workspace policy allows no temporary
 	// machines.
 	ErrTemporaryMachinesOff = errors.New("temporary machines are turned off in this workspace")
+	// ErrMigrationActionNotFound means no migration action of that name is
+	// configured on a machine the caller may use.
+	ErrMigrationActionNotFound = errors.New("no migration action is configured on that machine")
+	// ErrMigrationActionForbidden means the caller may not configure the
+	// machine's migration actions: not the machine's creator and not a
+	// current workspace owner or admin.
+	ErrMigrationActionForbidden = errors.New("only workspace owners, admins or the machine's creator can configure migration actions")
+	// ErrMigrationActionConflict means the action's name is already used on
+	// the machine.
+	ErrMigrationActionConflict = errors.New("a migration action of that name already exists on this machine")
 )
 
 // CommandRunRequest is a validated command for a machine the requester owns.
 type CommandRunRequest struct {
-	MachineID        uuid.UUID
-	Command          string
-	Write            bool
+	MachineID uuid.UUID
+	Command   string
+	Write     bool
+	// Migration marks a run_migration run; ActionName names the
+	// admin-configured action whose command it carries.
+	Migration        bool
+	ActionName       string
 	WorkingDirectory string
 	// Reused records that the machine is one of the user's own machines the
 	// assistant chose instead of starting a temporary one.
@@ -61,7 +75,7 @@ func NewAssistantCommandRepository(db *sqlx.DB) *AssistantCommandRepository {
 }
 
 const commandRunColumns = `r.id,r.workspace_id,r.machine_id,r.machine_name,r.cpu_millis,r.memory_mb,r.disk_gb,r.temporary,r.reused,r.requested_by_user_id,r.conversation_id,
- r.tool_call_id,r.approval_id,r.command,r.write,r.working_directory,r.status,r.exit_code,r.output,r.output_truncated,r.error,r.created_at,r.started_at,r.finished_at,
+  r.tool_call_id,r.approval_id,r.command,r.write,r.migration,r.action_name,r.working_directory,r.status,r.exit_code,r.output,r.output_truncated,r.error,r.created_at,r.started_at,r.finished_at,
  (EXTRACT(EPOCH FROM (r.finished_at-r.started_at))*1000)::bigint AS duration_ms,
  (SELECT m.temporary_expires_at FROM dev_machines m WHERE m.id=r.machine_id) AS expires_at`
 
@@ -93,12 +107,19 @@ const usableMachine = `m.workspace_id=$1 AND m.created_by_user_id=$2 AND m.delet
  AND (m.temporary_expires_at IS NULL OR m.temporary_expires_at > now())`
 
 // QueueRun queues an approved command for the actor on a running machine they
-// own that nothing else uses. An approval queues at most one run.
+// own that nothing else uses. An approval queues at most one run. A migration
+// run names its action and never writes files.
 func (r *AssistantCommandRepository) QueueRun(ctx context.Context, ws, actor uuid.UUID, req CommandRunRequest) (*domain.CommandRun, error) {
 	if strings.TrimSpace(req.Command) == "" || len(req.Command) > domain.CommandMaxBytes || strings.ContainsRune(req.Command, 0) {
 		return nil, ErrConversationInvalid
 	}
 	if _, ok := domain.CommandWorkingDirectory(req.WorkingDirectory); !ok || !strings.HasPrefix(req.WorkingDirectory, "/workspace") {
+		return nil, ErrConversationInvalid
+	}
+	if req.Migration && (!domain.ValidMigrationActionName(req.ActionName) || req.Write) {
+		return nil, ErrConversationInvalid
+	}
+	if !req.Migration && req.ActionName != "" {
 		return nil, ErrConversationInvalid
 	}
 	tx, err := r.db.BeginTxx(ctx, nil)
@@ -136,10 +157,10 @@ func (r *AssistantCommandRepository) QueueRun(ctx context.Context, ws, actor uui
 	}
 	run := &domain.CommandRun{}
 	if err = tx.GetContext(ctx, run, `WITH inserted AS (INSERT INTO assistant_command_runs(workspace_id,machine_id,machine_name,cpu_millis,memory_mb,disk_gb,temporary,reused,requested_by_user_id,
- conversation_id,tool_call_id,approval_id,command,write,working_directory,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'queued') RETURNING *)
- SELECT `+commandRunColumns+` FROM inserted r`,
+  conversation_id,tool_call_id,approval_id,command,write,migration,action_name,working_directory,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'queued') RETURNING *)
+  SELECT `+commandRunColumns+` FROM inserted r`,
 		ws, machine.ID, machine.Name, machine.CPUMillis, machine.MemoryMB, machine.DiskGB, machine.TemporaryExpiresAt != nil, req.Reused, actor,
-		req.ConversationID, req.ToolCallID, req.ApprovalID, req.Command, req.Write, req.WorkingDirectory); err != nil {
+		req.ConversationID, req.ToolCallID, req.ApprovalID, req.Command, req.Write, req.Migration, req.ActionName, req.WorkingDirectory); err != nil {
 		return nil, err
 	}
 	run.ExpiresAt = machine.TemporaryExpiresAt

@@ -81,6 +81,7 @@ var assistantCommandToolCatalog = []assistantTool{
 	{name: "run_command", commands: true, approval: true, description: "Ask the user to approve running one short shell command (sh -c, at most 60 seconds, output capped) read-only on a machine: /workspace is mounted read-only and only /tmp and $HOME are writable, so it can compute, check a snippet (python3 -c, node -e), inspect files or call a public URL, but changes nothing. Without machine_id it uses this conversation's temporary machine or the user's own running machine. working_directory is relative to /workspace (default /workspace). It runs in a container without credentials. Use it only when no other tool can answer; the command runs only after approval, so never claim a result before get_command_run returns it.", parameters: `{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":4000},"machine_id":{"type":"string","maxLength":36},"working_directory":{"type":"string","maxLength":500}},"required":["command"],"additionalProperties":false}`},
 	{name: "run_command_write", commands: true, approval: true, description: "Ask the user to approve running one short shell command (sh -c, at most 60 seconds, output capped) that may write files: it starts in this conversation's folder /workspace/kuayle-assistant/<conversation>, and only that folder is writable (the rest of /workspace stays read-only; for packages use pip install --target ./pkgs with PYTHONPATH=./pkgs, a venv, or npm install there). Use run_command instead unless the command must create or change files, and only when the user asked for it. It runs in a container without credentials, only after approval.", parameters: `{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":4000},"machine_id":{"type":"string","maxLength":36}},"required":["command"],"additionalProperties":false}`},
 	{name: "get_command_run", commands: true, description: "Read a command run by run_id, or the run an approval started by approval_id: status, exit code, the end of its output, and the machine it ran on with its size, whether it was reused and when a temporary machine is deleted. It waits up to about a minute for a running command. Use it after the user approved run_command or run_command_write.", parameters: `{"type":"object","properties":{"run_id":{"type":"string","maxLength":36},"approval_id":{"type":"string","maxLength":36}},"additionalProperties":false}`},
+	{name: "run_migration", commands: true, migrations: true, approval: true, description: "Ask the user to approve running a named database migration action that a workspace admin configured on the user's machine. You only choose the action name (and machine_id when several machines have an action of that name); the command and its connection secret are admin-configured and never shown to you. Nothing runs until the user approves, so never claim it ran; read the result with get_command_run.", parameters: `{"type":"object","properties":{"action":{"type":"string","minLength":1,"maxLength":100},"machine_id":{"type":"string","maxLength":36}},"required":["action"],"additionalProperties":false}`},
 }
 
 // commandPrompt tells the model when to use the command tools, or "" when
@@ -286,6 +287,10 @@ func commandRunResult(run *domain.CommandRun) map[string]any {
 	}
 	result["run_id"], result["status"], result["command"], result["write"], result["working_directory"] = run.ID, run.Status, run.Command, run.Write, run.WorkingDirectory
 	result["exit_code"], result["output_tail"], result["output_truncated"], result["duration_ms"] = run.ExitCode, output, truncated, run.DurationMS
+	if run.Migration {
+		result["migration"] = true
+		result["action"] = run.ActionName
+	}
 	if run.Error != nil {
 		result["error"] = *run.Error
 	}

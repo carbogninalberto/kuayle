@@ -398,6 +398,8 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 		return s.startTemporaryMachine(ctx, ws, conversation, approval)
 	case "run_command", "run_command_write":
 		return s.runCommand(ctx, ws, conversation, approval)
+	case "run_migration":
+		return s.runMigration(ctx, ws, conversation, approval)
 	case "run_custom_tool":
 		return s.runCustomTool(ctx, ws, conversation, approval)
 	case "reply_to_review_comment", "resolve_review_thread", "update_pull_request_branch", "mark_pull_request_ready":

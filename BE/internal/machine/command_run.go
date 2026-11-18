@@ -15,6 +15,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
@@ -70,13 +72,18 @@ func commandPrepArgv(folder string) []string {
 // mount a volume's subpath: writes are never widened to all of /workspace.
 var errCommandWritesUnconfined = &terminalOperationError{code: "command_write_unconfined", message: "This machine's Docker is too old to confine writes to the conversation folder"}
 
-// commandEnvironment is a command container's whole environment.
-func commandEnvironment(machine *domain.DevMachine, run *domain.CommandRun) []string {
+// commandEnvironment is a command container's whole environment. A migration
+// run also carries its action's secret, decrypted moments before and never
+// stored anywhere else.
+func commandEnvironment(machine *domain.DevMachine, run *domain.CommandRun, migrationSecret string) []string {
 	write := "0"
 	if run.Write {
 		write = "1"
 	}
 	env := []string{"HOME=/home/kuayle", "CI=true", "KUAYLE_COMMAND=" + run.Command, "KUAYLE_COMMAND_CWD=" + run.WorkingDirectory, "KUAYLE_COMMAND_WRITE=" + write}
+	if run.Migration {
+		env = append(env, domain.MigrationSecretEnv+"="+migrationSecret)
+	}
 	return append(env, proxyVariables(egressProxyURL(machine), "localhost,127.0.0.1")...)
 }
 
@@ -191,9 +198,20 @@ func (r *DockerRuntime) prepareCommandFolder(ctx context.Context, machine *domai
 	}
 }
 
+// redactMigrationOutput redacts a stored chunk of a migration run: the
+// literal secret (with its escaped forms) first, then any DSN or password a
+// migration tool might echo. Applied to every chunk before it is stored.
+func redactMigrationOutput(secret, content string) string {
+	if secret != "" {
+		content = sanitize.SecretReplacer([]string{secret}).Replace(content)
+	}
+	return sanitize.RedactDSNs(content)
+}
+
 // RunCommand runs an approved command in its own check container, or resumes
-// the container this lease already started.
-func (r *DockerRuntime) RunCommand(ctx context.Context, machine *domain.DevMachine, run *domain.CommandRun, image string, observer *AgentObserver) (*AgentExecution, error) {
+// the container this lease already started. A migration run's secret reaches
+// only the container's environment.
+func (r *DockerRuntime) RunCommand(ctx context.Context, machine *domain.DevMachine, run *domain.CommandRun, image, migrationSecret string, observer *AgentObserver) (*AgentExecution, error) {
 	if machine.DockerNetworkName == nil || machine.WorkspaceVolumeName == nil || run == nil {
 		return nil, fmt.Errorf("command runtime resources are unavailable")
 	}
@@ -258,7 +276,7 @@ func (r *DockerRuntime) RunCommand(ctx context.Context, machine *domain.DevMachi
 	result, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Name: name,
 		Config: &container.Config{Image: image, User: "1000:1000", WorkingDir: "/workspace", Entrypoint: []string{"sh"}, Cmd: cmd, Labels: labels,
-			AttachStdout: true, AttachStderr: true, Env: commandEnvironment(machine, run)},
+			AttachStdout: true, AttachStderr: true, Env: commandEnvironment(machine, run, migrationSecret)},
 		HostConfig:       hostConfig,
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{*machine.DockerNetworkName: {}}},
 	})
@@ -318,6 +336,22 @@ func (m *Manager) runCommand(ctx context.Context, machine *domain.DevMachine, op
 	if run.Status != "queued" && run.Status != "running" {
 		return nil
 	}
+	// A migration run's secret is decrypted here only: it reaches the
+	// container's environment and the redactions, never the run, the stored
+	// output or a log.
+	secret := ""
+	if run.Migration {
+		encrypted, err := m.store.MigrationActionSecret(ctx, op.WorkspaceID, machine.ID, run.ActionName)
+		switch {
+		case errors.Is(err, repository.ErrMigrationActionNotFound):
+			return &terminalOperationError{code: "migration_action_missing", message: "The migration action is no longer configured on this machine"}
+		case err != nil:
+			return err
+		}
+		if secret, err = cryptoutil.Decrypt(encrypted, m.encryptionKey); err != nil {
+			return fmt.Errorf("migration_secret_decryption_failed: %w", err)
+		}
+	}
 	image := ""
 	services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
 	if err != nil {
@@ -335,19 +369,29 @@ func (m *Manager) runCommand(ctx context.Context, machine *domain.DevMachine, op
 	runCtx, cancel := context.WithTimeout(ctx, commandRunDeadline)
 	defer cancel()
 	writer := &toolOutputWriter{last: time.Now(), write: func(content string, truncated bool) error {
+		// Belt-and-braces: the buffer already redacts each line, and every
+		// stored chunk of a migration run passes the same redaction again.
+		if run.Migration {
+			content = redactMigrationOutput(secret, content)
+		}
 		writeCtx, done := context.WithTimeout(runCtx, 5*time.Second)
 		defer done()
 		return m.store.AppendCommandRunOutput(writeCtx, *op, content, truncated)
 	}}
 	// Nothing on the machine holds Kuayle credentials; the buffer only
-	// bounds and stores the output.
-	output := newAgentOutputBuffer(map[string]string{}, writer.persist)
+	// bounds and stores the output, and a migration run's buffer also
+	// redacts its secret per logical line, like a custom tool's.
+	redactions := map[string]string{}
+	if run.Migration {
+		redactions[domain.MigrationSecretEnv] = secret
+	}
+	output := newAgentOutputBuffer(redactions, writer.persist)
 	observer := &AgentObserver{
 		Authorize: func() error { _, err := m.store.GetCommandRun(runCtx, *op); return err },
 		Started:   func(string) error { return m.store.StartCommandRun(runCtx, *op) },
 		Output:    output.WriteDocker,
 	}
-	result, execErr := m.runtime.RunCommand(runCtx, machine, run, image, observer)
+	result, execErr := m.runtime.RunCommand(runCtx, machine, run, image, secret, observer)
 	if execErr == nil {
 		execErr = output.Finish()
 	}

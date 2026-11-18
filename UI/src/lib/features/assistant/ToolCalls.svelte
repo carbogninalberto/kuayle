@@ -171,17 +171,24 @@
 	): approval is Extract<ConversationApproval, { action: WikiApprovalAction }> {
 		return (WIKI_APPROVAL_ACTIONS as readonly string[]).includes(approval.action);
 	}
-	// Commands and temporary machines name a machine rather than an issue.
+	// Commands, migrations and temporary machines name a machine rather than an issue.
 	function isCommandApproval(
 		approval: ConversationApproval
 	): approval is Extract<
 		ConversationApproval,
-		{ action: 'start_temporary_machine' | 'run_command' | 'run_command_write' }
+		{
+			action:
+				| 'start_temporary_machine'
+				| 'run_command'
+				| 'run_command_write'
+				| 'run_migration';
+		}
 	> {
 		return (
 			approval.action === 'start_temporary_machine' ||
 			approval.action === 'run_command' ||
-			approval.action === 'run_command_write'
+			approval.action === 'run_command_write' ||
+			approval.action === 'run_migration'
 		);
 	}
 	function wikiSubject(payload: WikiApprovalPayload): string {
@@ -263,7 +270,11 @@
 					return m['assistant.temp_machine_denied']();
 			}
 		}
-		if (approval.action === 'run_command' || approval.action === 'run_command_write') {
+		if (
+			approval.action === 'run_command' ||
+			approval.action === 'run_command_write' ||
+			approval.action === 'run_migration'
+		) {
 			const identifier = approval.payload.machine,
 				tool = approval.action;
 			switch (approval.status) {
@@ -893,30 +904,40 @@
 										limit: approval.payload.quota_limit
 									})}
 								</p>
-							{:else if approval.action === 'run_command' || approval.action === 'run_command_write'}
-								{@const size = commandMachineSize(approval.payload)}
-								<Item.Title class="break-all"
-									>{approval.payload.write
+						{:else if approval.action === 'run_command' || approval.action === 'run_command_write' || approval.action === 'run_migration'}
+							{@const size = commandMachineSize(approval.payload)}
+							<Item.Title class="break-all"
+								>{approval.action === 'run_migration'
+									? m['assistant.migration_title']({
+											machine: approval.payload.machine,
+											action: approval.payload.action
+										})
+									: approval.payload.write
 										? m['assistant.command_write_title']({ machine: approval.payload.machine })
 										: m['assistant.command_title']({ machine: approval.payload.machine })}</Item.Title
+							>
+							{#if approval.action === 'run_migration' && approval.payload.description}
+								<Item.Description class="line-clamp-none">{approval.payload.description}</Item.Description>
+							{/if}
+							<!-- The exact command that runs, as sh -c. -->
+							<CodeBlock.Root size="sm"
+								><CodeBlock.Content code={approval.payload.command} wrap class="max-h-48 text-xs" /></CodeBlock.Root
+							>
+							<p class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+								<Server size={12} class="shrink-0" /><span class="break-words"
+									>{m['assistant.command_machine']({ machine: approval.payload.machine, ...size })} · {approval.payload
+										.reused
+										? m['assistant.command_reused']()
+										: approval.payload.temporary
+											? m['assistant.command_temporary']()
+											: m['assistant.command_own_machine']()}</span
 								>
-								<!-- The exact command that runs, as sh -c. -->
-								<CodeBlock.Root size="sm"
-									><CodeBlock.Content code={approval.payload.command} wrap class="max-h-48 text-xs" /></CodeBlock.Root
-								>
-								<p class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-									<Server size={12} class="shrink-0" /><span class="break-words"
-										>{m['assistant.command_machine']({ machine: approval.payload.machine, ...size })} · {approval.payload
-											.reused
-											? m['assistant.command_reused']()
-											: approval.payload.temporary
-												? m['assistant.command_temporary']()
-												: m['assistant.command_own_machine']()}</span
-									>
-								</p>
-								<p class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-									<Lock size={12} class="shrink-0" /><span class="break-all"
-										>{approval.payload.write
+							</p>
+							<p class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+								<Lock size={12} class="shrink-0" /><span class="break-all"
+									>{approval.action === 'run_migration'
+										? m['assistant.migration_note']({ seconds: approval.payload.timeout_seconds })
+										: approval.payload.write
 											? m['assistant.command_write_folder_note']({
 													directory: approval.payload.working_directory,
 													seconds: approval.payload.timeout_seconds
@@ -925,8 +946,8 @@
 													directory: approval.payload.working_directory,
 													seconds: approval.payload.timeout_seconds
 												})}</span
-									>
-								</p>
+								>
+							</p>
 							{:else}
 								<Item.Title>{m['assistant.approval_title']({ identifier })}</Item.Title>
 								<Item.Description class="line-clamp-none"
@@ -1065,7 +1086,10 @@
 							name="custom_{approval.payload.tool_name}"
 							toolId={approval.payload.tool_id}
 							approvalId={approval.id}
-						/>{:else if (approval.action === 'run_command' || approval.action === 'run_command_write') && approval.status === 'approved'}<CommandRunResult
+						/>{:else if (approval.action === 'run_command' ||
+							approval.action === 'run_command_write' ||
+							approval.action === 'run_migration') &&
+							approval.status === 'approved'}<CommandRunResult
 							{slug}
 							tool={approval.action}
 							conversationId={approval.conversation_id}

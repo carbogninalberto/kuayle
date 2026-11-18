@@ -462,6 +462,17 @@ type PackageIndexStatus struct {
 	Refresh       *PackageIndexRefresh `json:"refresh"`
 }
 
+// DevMachineMigrationActionInput configures one named migration action of a
+// machine (KUA-181). The command references the connection secret only as
+// $KUAYLE_MIGRATION_SECRET; the secret is required on create, and an omitted
+// empty one on update keeps the stored secret.
+type DevMachineMigrationActionInput struct {
+	Name        string `json:"name" validate:"required,max=100"`
+	Description string `json:"description" validate:"required,max=500"`
+	Command     string `json:"command" validate:"required,max=4000"`
+	Secret      string `json:"secret" validate:"max=8192"` // required on create; omitted on update keeps the stored one
+}
+
 // PackageIndexRefresh is the last "sudo apt-get update" of the container:
 // queued, running, succeeded or failed with its exit code and output tail.
 type PackageIndexRefresh struct {

@@ -185,7 +185,7 @@ func TestDockerCommandRunsOnARealContainer(t *testing.T) {
 		run := &domain.CommandRun{ID: uuid.New(), Command: "touch pwned", Write: true, WorkingDirectory: domain.CommandFolder(uuid.New()), Status: "queued"}
 		_, code := f.inspectVolume(t, "mkdir -p /workspace/kuayle-assistant && ln -s /workspace "+run.WorkingDirectory)
 		require.Zero(t, code)
-		_, err := f.runtime.RunCommand(context.Background(), f.machine, run, f.image, &AgentObserver{})
+		_, err := f.runtime.RunCommand(context.Background(), f.machine, run, f.image, "", &AgentObserver{})
 		require.Equal(t, "The conversation folder could not be prepared on this machine", commandRunFailure(err))
 		require.NoError(t, f.runtime.RemoveCommand(context.Background(), f.machine, run.ID))
 		out, _ := f.inspectVolume(t, "ls -A /workspace")

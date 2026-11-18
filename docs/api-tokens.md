@@ -323,6 +323,10 @@ authentication.
 | POST | `/api/workspaces/:slug/dev-machines/:machineId/environment-status/package-index/refresh` | token | dev_machine:manage |
 | GET | `/api/workspaces/:slug/dev-machines/:machineId/events` | token | dev_machine:read |
 | GET | `/api/workspaces/:slug/dev-machines/:machineId/logs` | token | dev_machine:read |
+| GET | `/api/workspaces/:slug/dev-machines/:machineId/migration-actions` | token | dev_machine:read |
+| POST | `/api/workspaces/:slug/dev-machines/:machineId/migration-actions` | token | dev_machine:manage |
+| DELETE | `/api/workspaces/:slug/dev-machines/:machineId/migration-actions/:actionId` | token | dev_machine:manage |
+| PUT | `/api/workspaces/:slug/dev-machines/:machineId/migration-actions/:actionId` | token | dev_machine:manage |
 | POST | `/api/workspaces/:slug/dev-machines/:machineId/pause` | token | dev_machine:manage |
 | POST | `/api/workspaces/:slug/dev-machines/:machineId/permanent-delete` | token | dev_machine:admin |
 | GET | `/api/workspaces/:slug/dev-machines/:machineId/ports` | session only | Dev-machine ports and task bindings are interactive runtime operations. |

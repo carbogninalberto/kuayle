@@ -2,6 +2,7 @@ package sanitize
 
 import (
 	"encoding/json"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -39,4 +40,25 @@ func SecretReplacer(secrets []string) *strings.Replacer {
 		pairs = append(pairs, key, "[REDACTED]")
 	}
 	return strings.NewReplacer(pairs...)
+}
+
+// dsnUserinfo matches the password of a URL userinfo, any scheme:
+// scheme://user:password@ or scheme://:password@. A URL without credentials
+// has no user:password@ to match, and the password class excludes the slash,
+// so the path is never eaten.
+var dsnUserinfo = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://[^\s:/@"'<>]*:)([^\s@/"'<>]+)(@)`)
+
+// dsnKeyValue matches a key/value DSN password: password=..., PASSWORD=...,
+// PGPASSWORD=..., DB_PASSWORD=..., SOURCE_PASSWORD=..., passwd=... The
+// optional separator underscore covers the prefixed spellings; PWD= never
+// matches.
+var dsnKeyValue = regexp.MustCompile(`(?i)\b((?:pg|db|mysql|source_)?_?password|passwd)=([^\s'"]+)`)
+
+// RedactDSNs masks credentials a migration tool might echo: the password of
+// a URL userinfo (any scheme) and key/value DSN password forms. User names,
+// hosts and paths stay; a URL without credentials and plain text are
+// untouched.
+func RedactDSNs(content string) string {
+	content = dsnUserinfo.ReplaceAllString(content, "${1}[REDACTED]${3}")
+	return dsnKeyValue.ReplaceAllString(content, "$1=[REDACTED]")
 }

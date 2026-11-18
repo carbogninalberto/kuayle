@@ -22,6 +22,9 @@ import type {
 	DevMachineCheckSuggestion,
 	EnvironmentStatus,
 	LaunchMachineServiceResponse,
+	MigrationAction,
+	MigrationActionInput,
+	MigrationActionList,
 	ResourceBucket,
 	TerminalSessionLaunchResponse,
 	ModelServer,
@@ -172,6 +175,33 @@ export function renameMachinePort(
 
 export function removeMachinePort(slug: string, machineId: string, portId: string): Promise<void> {
 	return api.delete(`${base(slug)}/dev-machines/${machineId}/ports/${portId}`);
+}
+
+// The machine's named migration actions; the stored connection secrets never
+// travel with them.
+export function listMachineMigrationActions(slug: string, machineId: string): Promise<MigrationActionList> {
+	return api.get(`${base(slug)}/dev-machines/${machineId}/migration-actions`);
+}
+
+export function createMachineMigrationAction(
+	slug: string,
+	machineId: string,
+	input: MigrationActionInput
+): Promise<MigrationAction> {
+	return api.post(`${base(slug)}/dev-machines/${machineId}/migration-actions`, input);
+}
+
+export function updateMachineMigrationAction(
+	slug: string,
+	machineId: string,
+	actionId: string,
+	input: MigrationActionInput
+): Promise<MigrationAction> {
+	return api.put(`${base(slug)}/dev-machines/${machineId}/migration-actions/${actionId}`, input);
+}
+
+export function deleteMachineMigrationAction(slug: string, machineId: string, actionId: string): Promise<void> {
+	return api.delete(`${base(slug)}/dev-machines/${machineId}/migration-actions/${actionId}`);
 }
 
 function launchMachinePort(slug: string, machineId: string, portId: string): Promise<LaunchMachineServiceResponse> {
