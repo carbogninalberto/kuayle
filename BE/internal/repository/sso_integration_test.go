@@ -55,14 +55,22 @@ func TestSSORepositoryPostgres(t *testing.T) {
 	require.Equal(t, []string{"example.test"}, []string(config.AllowedDomains))
 	require.Equal(t, domain.RoleGuest, config.DefaultRole)
 	require.True(t, config.RequireSSO)
+	required, err := repo.RequiresSSO(ctx, workspace.ID)
+	require.NoError(t, err)
+	require.True(t, required)
 
 	saved.ClientID = "updated-client"
+	saved.SAMLMetadata = "<EntityDescriptor/>"
 	saved.RequireSSO = false
 	require.NoError(t, repo.SaveConfig(ctx, saved))
 	config, err = repo.GetConfig(ctx, workspace.ID)
 	require.NoError(t, err)
 	require.Equal(t, "updated-client", config.ClientID)
+	require.Equal(t, saved.SAMLMetadata, config.SAMLMetadata)
 	require.False(t, config.RequireSSO)
+	required, err = repo.RequiresSSO(ctx, workspace.ID)
+	require.NoError(t, err)
+	require.False(t, required)
 
 	// Flow state is consumed exactly once.
 	state := &domain.SSOLoginState{

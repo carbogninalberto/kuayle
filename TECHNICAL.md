@@ -1258,7 +1258,7 @@ workspace means the instance config does not apply (a warning is logged, and
 the miss is retried after 30 s). Shared issuers (Google, Microsoft
 `/common|organizations|consumers`) need allowed domains
 (`validate.SharedOIDCIssuer`), both in `SaveConfig` and at startup. The Keycloak development profile and provider notes are in
-[docs/sso.md](docs/sso.md). SAML 2.0 and SCIM 2.0 are follow-ups.
+[docs/sso.md](docs/sso.md). SAML 2.0 shares the same login state, provisioning and workspace-scoped sessions. The POST callback verifies a signed assertion using the workspace’s stored IdP metadata, its SP entity ID, ACS and one-use AuthnRequest ID. SAML identities have a protocol-prefixed issuer to isolate them from OIDC subjects. SCIM 2.0 is a follow-up.
 
 ## Activity and Logs
 
