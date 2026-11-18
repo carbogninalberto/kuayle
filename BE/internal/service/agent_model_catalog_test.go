@@ -283,21 +283,29 @@ func TestOpenCodeCatalogDialsPublicAddressesOnly(t *testing.T) {
 	require.Zero(t, up.requests.Load())
 }
 
-func TestOpenCodeCatalogRefreshFetchesChangedModelsImmediately(t *testing.T) {
+func TestOpenCodeCatalogRefreshFetchesChangedModelsAndLimitsUpstreamRequests(t *testing.T) {
 	up := newGoPlanUpstream(t)
-	svc, _ := catalogService(t, &devMachineStoreFake{}, up)
+	svc, clock := catalogService(t, &devMachineStoreFake{}, up)
 	ctx := context.Background()
 	_, err := svc.AgentModelCatalog(ctx, uuid.New(), "opencode", false)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, up.requests.Load())
 
 	up.answer(http.StatusOK, `{"data":[{"id":"opencode-go/only-one","name":"Only One","canonical_id":"canonical-id"}]}`)
+	clock.advance(3 * time.Second)
 	refreshed, err := svc.AgentModelCatalog(ctx, uuid.New(), "opencode", true)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, up.requests.Load(), "an explicit refresh bypasses the TTL and retry window")
+	require.EqualValues(t, 2, up.requests.Load(), "an explicit refresh uses a shorter delay than an automatic retry")
 	require.Equal(t, []dto.AgentCatalogModel{{ID: "opencode-go/only-one", Name: "Only One", Efforts: []string{}}}, refreshed.Models)
 
 	up.answer(http.StatusBadGateway, `{}`)
+	for range 3 {
+		cached, err := svc.AgentModelCatalog(ctx, uuid.New(), "opencode", true)
+		require.NoError(t, err)
+		require.Equal(t, refreshed, cached, "rapid refreshes share the last result across workspaces")
+	}
+	require.EqualValues(t, 2, up.requests.Load())
+	clock.advance(3 * time.Second)
 	stale, err := svc.AgentModelCatalog(ctx, uuid.New(), "opencode", true)
 	require.NoError(t, err)
 	require.EqualValues(t, 3, up.requests.Load())
@@ -306,9 +314,15 @@ func TestOpenCodeCatalogRefreshFetchesChangedModelsImmediately(t *testing.T) {
 	require.NoError(t, svc.validateCatalogModel(ctx, "opencode", "opencode-go/typed-model", "high"))
 
 	up.answer(http.StatusOK, goPlanListing)
+	clock.advance(2 * time.Second)
+	stillStale, err := svc.AgentModelCatalog(ctx, uuid.New(), "opencode", true)
+	require.NoError(t, err)
+	require.Equal(t, stale, stillStale, "the short delay also applies after a failure")
+	require.EqualValues(t, 3, up.requests.Load())
+	clock.advance(time.Second)
 	recovered, err := svc.AgentModelCatalog(ctx, uuid.New(), "opencode", true)
 	require.NoError(t, err)
-	require.EqualValues(t, 4, up.requests.Load(), "an explicit refresh retries a failure immediately")
+	require.EqualValues(t, 4, up.requests.Load(), "an explicit refresh retries a failure after the short delay")
 	require.False(t, recovered.Stale)
 	require.Len(t, recovered.Models, 7)
 }

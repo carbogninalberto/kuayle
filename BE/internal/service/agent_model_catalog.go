@@ -37,7 +37,9 @@ const (
 	openCodeGoCatalogTTL = time.Hour
 	// openCodeGoCatalogRetry limits automatic retries after a failed fetch
 	// and save-time rechecks for an unknown model.
-	openCodeGoCatalogRetry   = 30 * time.Second
+	openCodeGoCatalogRetry = 30 * time.Second
+	// Explicit refreshes can fetch sooner, with a minimum gap for the shared list.
+	openCodeGoCatalogRefresh = 3 * time.Second
 	openCodeGoFetchTimeout   = 10 * time.Second
 	openCodeGoSaveWait       = 3 * time.Second
 	maxCatalogBodyBytes      = 2 << 20
@@ -106,7 +108,7 @@ const (
 )
 
 // load shares any in-flight fetch. An explicit refresh bypasses the TTL and
-// automatic retry delay. The caller waits at most wait or its own deadline.
+// uses a shorter delay between attempts. The caller waits at most wait or its own deadline.
 func (c *openCodeGoCatalog) load(ctx context.Context, client *http.Client, mode catalogLoadMode, wait time.Duration) openCodeGoList {
 	if c == nil {
 		return openCodeGoList{}
@@ -114,7 +116,11 @@ func (c *openCodeGoCatalog) load(ctx context.Context, client *http.Client, mode 
 	c.mu.Lock()
 	now := c.now()
 	due := mode != catalogLoad || c.fetchedAt.IsZero() || c.failed || now.Sub(c.fetchedAt) >= openCodeGoCatalogTTL
-	canFetch := mode == catalogRefresh || c.attemptedAt.IsZero() || now.Sub(c.attemptedAt) >= openCodeGoCatalogRetry
+	retry := openCodeGoCatalogRetry
+	if mode == catalogRefresh {
+		retry = openCodeGoCatalogRefresh
+	}
+	canFetch := c.attemptedAt.IsZero() || now.Sub(c.attemptedAt) >= retry
 	if due && c.inflight == nil && canFetch {
 		c.inflight, c.attemptedAt = make(chan struct{}), now
 		go c.fetch(client, c.inflight)
