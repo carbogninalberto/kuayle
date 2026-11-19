@@ -1,5 +1,7 @@
 import type { AgentReview, AgentSession } from '$lib/api/agent-tasks';
 
+export type ReviewSession = AgentSession & { review: AgentReview };
+
 // The coding agents that can review a pull request, in menu order.
 export const reviewHarnessIds = ['claude-code', 'codex', 'opencode'] as const;
 
@@ -12,9 +14,9 @@ export function reviewHarnesses(allowed: string[], implementer: string): string[
 
 // Review sessions with their review, newest first; the card shows them as
 // review cards and the implement session in its execution details.
-export function reviewSessions(sessions: AgentSession[]): (AgentSession & { review: AgentReview })[] {
+export function reviewSessions(sessions: AgentSession[]): ReviewSession[] {
 	return sessions
-		.filter((s): s is AgentSession & { review: AgentReview } => s.purpose === 'review' && !!s.review)
+		.filter((s): s is ReviewSession => s.purpose === 'review' && !!s.review)
 		.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
 }
 

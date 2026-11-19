@@ -1822,10 +1822,11 @@ test('requests an agent review from the agent view, through the chat, and shows 
 	emit('task.review_updated', { task_id: 'task-1', review_task_id: 'review-1', state: 'completed' });
 	// The findings are read in the agent view, not on the card.
 	await toggle.click();
-	const reviews = thread.getByRole('region', { name: 'Agent reviews' });
-	await expect(tasks.getByRole('region', { name: 'Agent reviews' })).toHaveCount(0);
+	const reviews = thread.getByRole('list', { name: 'Path taken' }).getByRole('region', { name: 'Review by Claude Code' });
+	await expect(tasks.getByRole('region', { name: 'Review by Claude Code' })).toHaveCount(0);
 	await expect(reviews.getByText('Review by Claude Code', { exact: true })).toBeVisible();
 	await expect(reviews.getByText('Changes requested', { exact: true })).toBeVisible();
+	await reviews.getByRole('button', { name: /Review by Claude Code/ }).click();
 	await expect(reviews.getByText('handle the empty query', { exact: false })).toBeVisible();
 	await expect(reviews.getByText('Commit 0123456 of pull request #12', { exact: true })).toBeVisible();
 	await expect(reviews.getByText('Findings posted on the pull request.', { exact: false })).toBeVisible();
@@ -1968,6 +1969,7 @@ test('the chat composer messages the running agent and its answers show live; th
 	await composer.press('Enter');
 	await expect.poll(() => state.liveSends).toEqual(['Keep the old route']);
 	await expect(composer).toHaveValue('');
+	await expect(page.getByRole('article', { name: 'You', exact: true })).toContainText('Keep the old route');
 	// Nothing was sent to the assistant; switching back aims the composer at it again.
 	await page.getByRole('button', { name: 'Back to assistant' }).click();
 	await expect(target).toHaveAccessibleName('Send to: Assistant');

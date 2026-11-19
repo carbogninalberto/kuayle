@@ -168,7 +168,7 @@ func TestAgentMessagesToTheOrchestratorAreRecordedForTheTask(t *testing.T) {
 }
 
 // The conversation that owns a task learns about every live message in both
-// directions, and its history carries what the agent sent, labelled with the
+// directions, and its history carries what the agent and its creator sent, labelled with the
 // issue, without placing it among the conversation's own messages.
 func TestLiveMessagesReachTheTasksConversation(t *testing.T) {
 	f := newMessageFixture(t)
@@ -207,9 +207,11 @@ func TestLiveMessagesReachTheTasksConversation(t *testing.T) {
 
 	history, err := NewConversationRepository(f.db).History(f.ctx, f.workspace, *f.sender.ConversationID, 0)
 	require.NoError(t, err)
-	require.Len(t, history.AgentMessages, 1, "only what the agent sent and Kuayle accepted")
-	require.Equal(t, reply.ID, history.AgentMessages[0].ID)
-	require.Equal(t, "AUT-2", history.AgentMessages[0].Identifier)
+	require.Len(t, history.AgentMessages, 2, "the user's message and the accepted agent reply")
+	require.Equal(t, sent.ID, history.AgentMessages[0].ID)
+	require.Equal(t, domain.AgentLiveDelivered, history.AgentMessages[0].State)
+	require.Equal(t, reply.ID, history.AgentMessages[1].ID)
+	require.Equal(t, "AUT-2", history.AgentMessages[1].Identifier)
 	require.Empty(t, history.Messages, "agent messages never become conversation messages")
 	_, err = NewConversationRepository(f.db).History(f.memberCtx, f.workspace, *f.sender.ConversationID, 0)
 	require.ErrorIs(t, err, ErrConversationNotFound)

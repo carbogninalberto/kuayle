@@ -61,8 +61,9 @@
 	<DropdownMenu.Root>
 		<DropdownMenu.Trigger>
 			{#snippet child({ props })}
-				<Button {...props} variant="outline" size="sm" class="shrink-0"
-					><ScanSearch />{m['tasks.request_review']()}</Button
+				<Button {...props} variant="outline" size="sm" class="@max-[36rem]:w-7 @max-[36rem]:px-0"
+					aria-label={m['tasks.request_review']()} title={m['tasks.request_review']()}
+					><ScanSearch /><span class="hidden @min-[36rem]:inline">{m['tasks.request_review']()}</span></Button
 				>
 			{/snippet}
 		</DropdownMenu.Trigger>

@@ -580,15 +580,17 @@ func notifyLiveQuestion(ctx context.Context, tx *sqlx.Tx, message domain.AgentLi
 	return err
 }
 
-// conversationAgentMessages returns what the conversation's coding agents
-// sent it and Kuayle accepted, created in [from, to) (either bound optional),
+// conversationAgentMessages returns the creator's messages to coding agents
+// and their accepted replies, created in [from, to) (either bound optional),
 // newest 200, oldest first, labelled with their issues.
 func conversationAgentMessages(ctx context.Context, tx *sqlx.Tx, c domain.Conversation, from, to *time.Time) ([]domain.AgentLiveChatMessage, error) {
 	messages := []domain.AgentLiveChatMessage{}
 	err := tx.SelectContext(ctx, &messages, `SELECT * FROM (SELECT m.*,i.identifier_text FROM agent_live_messages m
  JOIN agent_tasks t ON t.id=m.task_id AND t.workspace_id=m.workspace_id
  JOIN issues i ON i.id=t.issue_id AND i.workspace_id=t.workspace_id
- WHERE t.conversation_id=$1 AND t.workspace_id=$2 AND t.creator_id=$3 AND m.direction='from_agent' AND m.state='received'
+ WHERE t.conversation_id=$1 AND t.workspace_id=$2 AND t.creator_id=$3
+  AND ((m.direction='from_agent' AND m.state='received')
+    OR (m.direction='to_agent' AND m.sender='user' AND m.author_id=$3 AND m.state IN ('queued','delivered')))
   AND ($4::timestamptz IS NULL OR m.created_at>=$4) AND ($5::timestamptz IS NULL OR m.created_at<$5)
  ORDER BY m.created_at DESC,m.id DESC LIMIT 200) a ORDER BY created_at,id`, c.ID, c.WorkspaceID, c.CreatorID, from, to)
 	return messages, err
