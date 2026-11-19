@@ -38,7 +38,7 @@ test('backend runtime and dependency changes include API, all-in-one and Go runt
     assert.equal(plan.runtime, true);
     assert.equal(plan.frontend, false);
     assert.deepEqual(ids(plan.releaseImages), ['all-in-one', 'api']);
-    assert.deepEqual(ids(plan.devImages), ['gateway', 'manager']);
+    assert.deepEqual(ids(plan.devImages), path === 'BE/go.sum' ? ['gateway', 'manager', 'egress'] : ['gateway', 'manager']);
     assert.deepEqual(ids(plan.securityImages), ['updater']);
   }
 });
@@ -91,6 +91,27 @@ test('headless and shared developer image inputs select only their consumers', (
   for (const path of ['devmachine/common/kuayle-agent-sign-in.sh', 'devmachine/common/kuayle-claude-config.cjs', 'devmachine/common/kuayle-task-claude']) {
     assert.deepEqual(ids(planForPaths([path]).devImages), ['ide', 'headless'], path);
   }
+});
+
+test('the egress image builds from the root and tracks the shared forge address guard', () => {
+  const proxy = planForPaths(['BE/cmd/machine-egress/main.go']);
+  assert.equal(proxy.backend, true);
+  assert.equal(proxy.runtime, true);
+  assert.deepEqual(proxy.architectures, ['amd64', 'arm64']);
+  assert.deepEqual(ids(proxy.devImages), ['egress']);
+  assert.equal(proxy.devImages[0].context, '.');
+  assert.ok(ids(planForPaths(['BE/pkg/validate/dial.go']).devImages).includes('egress'));
+});
+
+test('the public URL custom tool selects backend tests and its browser fixture', () => {
+  for (const path of ['BE/assistant-tools/fetch_url.py', 'BE/assistant-tools/fetch_url.json']) {
+    const plan = planForPaths([path]);
+    assert.equal(plan.backend, true);
+    assert.equal(plan.frontend, true);
+    assert.deepEqual(plan.devImages, []);
+    assert.deepEqual(plan.releaseImages, []);
+  }
+  assert.equal(planForPaths(['BE/assistant-tools/test_fetch_url.py']).frontend, false);
 });
 
 test('the machine Docker daemon image and the shared Docker CLI installer select their consumers', () => {

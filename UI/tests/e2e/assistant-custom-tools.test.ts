@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 const at = '2026-10-20T09:30:00Z';
 const workspaceId = 'workspace-1';
@@ -111,7 +112,11 @@ async function base(page: Page, role: 'admin' | 'member') {
 	};
 }
 
-async function settings(page: Page, role: 'admin' | 'member') {
+async function settings(
+	page: Page,
+	role: 'admin' | 'member',
+	testOutput = '1 passed\n<img src=x onerror="window.evil=1">'
+) {
 	const { tools, versions } = seed();
 	const state = { tools, versions, writes: [] as Write[], runs: [run({ status: 'succeeded', exit_code: 0, output: 'old run', duration_ms: 1200, finished_at: at, id: 'run-0' })], polls: 0 };
 	const common = await base(page, role);
@@ -143,7 +148,7 @@ async function settings(page: Page, role: 'admin' | 'member') {
 			return route.fulfill({
 				json: run(
 					done
-						? { status: 'succeeded', exit_code: 0, output: '1 passed\n<img src=x onerror="window.evil=1">', duration_ms: 4200, finished_at: at }
+						? { status: 'succeeded', exit_code: 0, output: testOutput, duration_ms: 4200, finished_at: at }
 						: {}
 				)
 			});
@@ -332,6 +337,40 @@ test('admins build a tool, activate a reviewed draft and test-run it', async ({ 
 	await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
 	await expect(page.getByRole('list', { name: 'Custom tools' })).toBeVisible();
 	expect(state.writes.at(-1)).toMatchObject({ method: 'DELETE', path: `/${releaseId}` });
+});
+
+test('an admin activates and test-runs the public URL reader', async ({ page }) => {
+	const definition = JSON.parse(readFileSync(new URL('../../../BE/assistant-tools/fetch_url.json', import.meta.url), 'utf8'));
+	const script = readFileSync(new URL('../../../BE/assistant-tools/fetch_url.py', import.meta.url), 'utf8');
+	const url = 'https://github.com/cloudflare/security-audit-skill';
+	const output = JSON.stringify({ untrusted_data: { url, content: 'dir skills' } });
+	const state = await settings(page, 'admin', output);
+	const id = '00000000-0000-4000-8000-0000000000a3';
+	state.tools.push({
+		...state.tools[0], ...definition, id, current_version: 1, latest_version: 1, pending_version: null
+	});
+	state.versions[id] = [{
+		...state.versions[releaseId][0], ...definition, tool_id: id, version: 1, script
+	}];
+
+	await page.goto(`/test/settings/assistant?tab=custom-tools&tool=${id}`);
+	await expect(page.getByRole('heading', { name: 'fetch_url', exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Review and activate' }).click();
+	const review = page.getByRole('dialog', { name: 'Review version 1' });
+	await review.getByRole('button', { name: 'Activate' }).click();
+	await expect(review).toBeHidden();
+	expect(state.writes.at(-1)).toEqual({ method: 'POST', path: `/${id}/activate`, body: { version: 1 } });
+
+	await page.getByRole('button', { name: 'Test run' }).click();
+	const tester = page.getByRole('dialog', { name: 'Test run fetch_url' });
+	await tester.getByRole('combobox', { name: 'Machine' }).click();
+	await page.getByRole('option', { name: /ada-box/ }).click();
+	await tester.getByRole('textbox', { name: 'url', exact: true }).fill(url);
+	await tester.getByRole('button', { name: 'Run', exact: true }).click();
+	await expect(tester.getByText(output)).toBeVisible({ timeout: 10_000 });
+	expect(state.writes.at(-1)).toEqual({
+		method: 'POST', path: `/${id}/test-run`, body: { inputs: { url }, machine_id: 'machine-1', version: 1 }
+	});
 });
 
 test('members read custom tools without write controls, also at phone width', async ({ page }) => {

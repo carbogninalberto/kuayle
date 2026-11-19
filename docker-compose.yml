@@ -414,8 +414,8 @@ services:
     profiles: ["dev-machine-images"]
     image: ${DEV_MACHINE_EGRESS_IMAGE:-kuayle/dev-machine-egress:dev}
     build:
-      context: ./devmachine
-      dockerfile: egress/Dockerfile
+      context: .
+      dockerfile: devmachine/egress/Dockerfile
     entrypoint: ["/bin/true"]
 
   dev-machine-docker:

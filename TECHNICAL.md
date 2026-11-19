@@ -2033,6 +2033,9 @@ reviews, activates, restores, deletes and test-runs them with their run
 history; chat shows `propose_tool` drafts and run approvals and results as
 escaped text. See [custom tools](BE/docs/conversations.md#custom-tools) and
 [custom tool runs](BE/docs/agent-tasks.md#custom-tool-runs).
+The optional [public URL reader](BE/docs/conversations.md#public-url-reader) runs
+through the Dev Machine egress proxy, which shares the forge address check in
+`pkg/validate`. The proxy source is in `BE/cmd/machine-egress`.
 Command tools (KUA-153, migration 159) run one short shell command after
 approval: `run_command` read-only, `run_command_write` in the conversation's
 folder `/workspace/kuayle-assistant/<conversation>`, read with

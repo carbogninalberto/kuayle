@@ -804,6 +804,32 @@ validated inputs, and an approved or `auto` run is polled (found by its
 `approval_id` in the tool's runs) until it ends; `get_tool_run` is one line.
 Scripts, inputs and output are always rendered as escaped text.
 
+#### Public URL reader
+
+A workspace owner or admin can add `fetch_url` in **Settings → Assistant →
+Custom tools → New tool**. Use the values in the [tool definition](../assistant-tools/fetch_url.json)
+and paste the [Python script](../assistant-tools/fetch_url.py) into Script. Add
+the required string parameter `url`, select **Read-only** and **Runs
+automatically**, and choose **Save draft and test**. Test the draft on a
+running Dev Machine you own, then review and activate it to offer
+`custom_fetch_url` to the assistant. Calls from chat also need a machine.
+
+The tool issues HTTPS GET requests to DNS hostnames on port 443 through the Dev
+Machine egress proxy. The proxy applies its domain policy and the same
+public-address check as the forge client. Each redirect is checked again.
+Fetches have a 15-second total deadline, a five-redirect limit and a 256 KiB
+response limit. HTML is converted
+to text, and text and listings are returned as `untrusted_data`. For longer
+text, pass the returned `next_url` unchanged to read the next part.
+
+Public GitHub repository roots, `tree` and `blob` links use the [GitHub Contents
+API](https://docs.github.com/en/rest/repos/contents#get-repository-content)
+without credentials. The machine's egress policy must allow `api.github.com`.
+To draft a skill, ask the assistant to open the repository, follow the
+`SKILL.md` link, read any continuations, and use `propose_skill`. For sources
+over the existing 12,000-character proposal limit, ask for a draft based on
+the source within that limit.
+
 A provider may return tool calls only when tools were offered and must finish
 the turn with `finish_reason: "tool_calls"`. One reply runs at most 400 tool
 calls (at most 32 per model round, enough rounds for each call to run in its

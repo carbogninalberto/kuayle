@@ -12,7 +12,7 @@ const goImage = (id, name) => ({ id, name, context: './BE', dockerfile: `./BE/Do
 // `package` is the GHCR repository published on release: kuayle-<Compose service>,
 // which selfhosting/release_update.py pulls for an active Dev Machines profile.
 const devImages = [goImage('gateway', 'Gateway'), goImage('manager', 'Manager'),
-  ...['ide', 'headless', 'browser', 'collector', 'egress', 'docker'].map((id) => ({ id, name: id === 'ide' ? 'IDE' : id[0].toUpperCase() + id.slice(1), context: './devmachine', dockerfile: `./devmachine/${id}/Dockerfile`, build_args: '', package: `kuayle-dev-machine-${id}` })),
+  ...['ide', 'headless', 'browser', 'collector', 'egress', 'docker'].map((id) => ({ id, name: id === 'ide' ? 'IDE' : id[0].toUpperCase() + id.slice(1), context: id === 'egress' ? '.' : './devmachine', dockerfile: `./devmachine/${id}/Dockerfile`, build_args: '', package: `kuayle-dev-machine-${id}` })),
   ...[['claude', 'Claude', 'claude-code'], ['opencode', 'OpenCode', 'opencode'], ['codex', 'Codex', 'codex']].map(([id, name, provider]) => ({ id: `agent-${id}`, name: `Agent ${name}`, context: './devmachine', dockerfile: './devmachine/agent/Dockerfile', build_args: `PROVIDER=${provider}`, package: `kuayle-dev-machine-agent-${id}` }))
 ];
 const updater = goImage('updater', 'Updater');
@@ -33,7 +33,7 @@ export function isDocumentation(path) {
 // dependency locks, native build scripts and the advisory allow-list.
 export function platformSensitive(path) {
   return /(^|\/)Dockerfile[^/]*$/.test(path) ||
-    ['BE/go.mod', 'BE/go.sum', 'UI/package.json', 'UI/package-lock.json', '.trivyignore.yaml', '.dockerignore', 'selfhosting/image_smoke_test.py'].includes(path) ||
+    ['BE/go.mod', 'BE/go.sum', 'BE/cmd/machine-egress/main.go', 'BE/pkg/validate/dial.go', 'UI/package.json', 'UI/package-lock.json', '.trivyignore.yaml', '.dockerignore', 'selfhosting/image_smoke_test.py'].includes(path) ||
     (path.startsWith('devmachine/') && !path.startsWith('devmachine/security/'));
 }
 
@@ -87,6 +87,18 @@ export function planForPaths(paths, event = 'pull_request', includeArm64 = false
     }
     if (path.startsWith('BE/')) {
       flags.backend = true;
+      if (path.startsWith('BE/assistant-tools/')) {
+        if (['BE/assistant-tools/fetch_url.json', 'BE/assistant-tools/fetch_url.py'].includes(path)) flags.frontend = true;
+        continue;
+      }
+      if (path === 'BE/cmd/machine-egress/main.go') {
+        add(dev, ['egress']);
+        flags.runtime = true;
+        continue;
+      }
+      if (['BE/pkg/validate/dial.go', 'BE/go.mod', 'BE/go.sum'].includes(path)) {
+        add(dev, ['egress']);
+      }
       // The UI PAT scope contract test reads these backend definitions.
       if (['BE/internal/domain/personal_access_token.go', 'BE/internal/domain/permission.go'].includes(path)) flags.frontend = true;
       // The UI sanitizer tests read the class allowlist contract shared with the Go sanitizer.
