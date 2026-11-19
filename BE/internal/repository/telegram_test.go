@@ -106,12 +106,15 @@ func TestTelegramAllowlistLinkingAndSharedConversation(t *testing.T) {
 	claimed, err := repo.ClaimDelivery(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
+	claimed.ConversationID = &chats[0].ID
 	// Empty allowlist denies both new input and previously queued output.
 	config.AllowedUserIDs = []int64{}
 	require.NoError(t, repo.Save(ctx, config))
 	sent := false
-	require.NoError(t, repo.Deliver(context.Background(), *claimed, func(domain.TelegramDelivery) error { sent = true; return nil }))
+	require.NoError(t, repo.Deliver(context.Background(), *claimed, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", func(domain.TelegramDelivery) error { sent = true; return nil }))
 	require.False(t, sent, "a previously claimed delivery must reauthorize after revocation")
+	require.NoError(t, db.Get(&n, `SELECT count(*) FROM sign_in_tokens`))
+	require.Zero(t, n)
 	update.ID = 4
 	require.NoError(t, repo.Receive(context.Background(), ws, "header-fixture", update, "", "compatible", "test"))
 	delivery, err := repo.ClaimDelivery(context.Background())

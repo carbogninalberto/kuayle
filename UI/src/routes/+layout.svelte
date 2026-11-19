@@ -2,6 +2,10 @@
 	import '../app.css';
 	import { Toaster } from 'svelte-sonner';
 	import { onMount } from 'svelte';
+	import { replaceState } from '$app/navigation';
+	import { page } from '$app/state';
+	import { exchangeSignInToken } from '$lib/api/auth';
+	import { consumeSignInLink } from '$lib/features/auth/sign-in-link';
 	import { setCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
 	import ReleaseNotice from '$lib/components/shared/ReleaseNotice.svelte';
 	import PasskeyPrompt from '$lib/features/auth/PasskeyPrompt.svelte';
@@ -13,7 +17,19 @@
 	import { remoteImages } from '$lib/components/shared/remote-images.action';
 
 	let { children } = $props();
+	let exchangingSignIn = $state(page.url.searchParams.has('sign_in'));
 	setCurrentWorkspace();
+
+	onMount(async () => {
+		if (!exchangingSignIn) return;
+		try {
+			await consumeSignInLink(new URL(page.url.href), page.params.workspaceSlug, (clean) => replaceState(clean, page.state), exchangeSignInToken);
+		} catch {
+			// The destination can still open with the existing session or manual sign-in.
+		} finally {
+			exchangingSignIn = false;
+		}
+	});
 
 	onMount(() => {
 		preferencesState.init();
@@ -30,4 +46,8 @@
 <Toaster position="bottom-right" theme={preferencesState.resolvedMode} />
 <ReleaseNotice />
 <PasskeyPrompt />
-{@render children()}
+{#if exchangingSignIn}
+	<p role="status" class="grid min-h-dvh place-items-center text-sm text-muted-foreground">{m['common.loading']()}</p>
+{:else}
+	{@render children()}
+{/if}

@@ -6,6 +6,15 @@ export function login(req: LoginRequest): Promise<User> {
 	return api.post<User>('/api/auth/login', req, { redirectOnUnauthorized: false, retryUnauthorized: false });
 }
 
+export function exchangeSignInToken(slug: string, token: string): Promise<void> {
+	return api.post<void>(`/api/auth/sign-in-token/${encodeURIComponent(slug)}`, { token }, {
+		redirectOnUnauthorized: false,
+		retryUnauthorized: false,
+		referrerPolicy: 'no-referrer',
+		signal: AbortSignal.timeout?.(10_000)
+	});
+}
+
 export function register(req: RegisterRequest): Promise<User> {
 	return api.post<User>('/api/auth/register', req, { redirectOnUnauthorized: false, retryUnauthorized: false });
 }

@@ -4352,5 +4352,9 @@
 	"settings.import.sub_issues": "Sub-issues",
 	"settings.import.comments": "Comments",
 	"settings.import.attachments": "Attachments",
-	"settings.import.links": "Links"
+	"settings.import.links": "Links",
+	"pwa.browser.in_app_ios": "Anda menggunakan pelayar {app}. Buka pautan dalam Safari untuk menggunakan aplikasi penuh.",
+	"pwa.browser.in_app": "Anda menggunakan pelayar {app}. Buka pautan dalam pelayar anda untuk menggunakan aplikasi penuh.",
+	"pwa.browser.home_screen": "Jika Kuayle ada pada skrin utama anda, bukanya dari situ untuk menggunakan aplikasi penuh.",
+	"pwa.browser.copy_failed": "Pautan tidak dapat disalin"
 }

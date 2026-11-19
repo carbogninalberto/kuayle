@@ -33,9 +33,13 @@ func NewRefreshTokenRepository(db *sqlx.DB) *RefreshTokenRepository {
 }
 
 func (r *RefreshTokenRepository) Create(ctx context.Context, rt *RefreshToken) error {
+	return createRefreshToken(ctx, r.db, rt)
+}
+
+func createRefreshToken(ctx context.Context, db sqlx.ExtContext, rt *RefreshToken) error {
 	query := `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, authenticated_at, passkey_credential_id, sso_workspace_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING created_at`
-	return r.db.QueryRowContext(ctx, query, rt.ID, rt.UserID, rt.TokenHash, rt.ExpiresAt, rt.AuthenticatedAt, rt.PasskeyCredentialID, rt.SSOWorkspaceID).Scan(&rt.CreatedAt)
+	return db.QueryRowxContext(ctx, query, rt.ID, rt.UserID, rt.TokenHash, rt.ExpiresAt, rt.AuthenticatedAt, rt.PasskeyCredentialID, rt.SSOWorkspaceID).Scan(&rt.CreatedAt)
 }
 
 func (r *RefreshTokenRepository) GetByHash(ctx context.Context, hash string) (*RefreshToken, error) {

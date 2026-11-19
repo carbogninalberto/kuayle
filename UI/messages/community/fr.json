@@ -4352,5 +4352,9 @@
 	"settings.import.sub_issues": "Sub-issues",
 	"settings.import.comments": "Comments",
 	"settings.import.attachments": "Attachments",
-	"settings.import.links": "Links"
+	"settings.import.links": "Links",
+	"pwa.browser.in_app_ios": "Vous utilisez le navigateur de {app}. Ouvrez le lien dans Safari pour accéder à l’application complète.",
+	"pwa.browser.in_app": "Vous utilisez le navigateur de {app}. Ouvrez le lien dans votre navigateur pour accéder à l’application complète.",
+	"pwa.browser.home_screen": "Si Kuayle est sur votre écran d’accueil, ouvrez-le depuis cet écran pour utiliser l’application complète.",
+	"pwa.browser.copy_failed": "Impossible de copier le lien"
 }

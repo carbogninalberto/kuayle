@@ -4352,5 +4352,9 @@
 	"settings.import.sub_issues": "Sub-issues",
 	"settings.import.comments": "Comments",
 	"settings.import.attachments": "Attachments",
-	"settings.import.links": "Links"
+	"settings.import.links": "Links",
+	"pwa.browser.in_app_ios": "Вы открыли ссылку в браузере {app}. Для полной версии приложения откройте её в Safari.",
+	"pwa.browser.in_app": "Вы открыли ссылку в браузере {app}. Для полной версии приложения откройте её в своём браузере.",
+	"pwa.browser.home_screen": "Если Kuayle есть на экране «Домой», откройте его там для доступа к полной версии приложения.",
+	"pwa.browser.copy_failed": "Не удалось скопировать ссылку"
 }

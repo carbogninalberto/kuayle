@@ -4352,5 +4352,9 @@
 	"settings.import.sub_issues": "Sub-issues",
 	"settings.import.comments": "Comments",
 	"settings.import.attachments": "Attachments",
-	"settings.import.links": "Links"
+	"settings.import.links": "Links",
+	"pwa.browser.in_app_ios": "Ви відкрили посилання в браузері {app}. Щоб скористатися повною версією застосунку, відкрийте його в Safari.",
+	"pwa.browser.in_app": "Ви відкрили посилання в браузері {app}. Щоб скористатися повною версією застосунку, відкрийте його у своєму браузері.",
+	"pwa.browser.home_screen": "Якщо Kuayle є на початковому екрані, відкрийте його звідти, щоб скористатися повною версією застосунку.",
+	"pwa.browser.copy_failed": "Не вдалося скопіювати посилання"
 }

@@ -104,9 +104,19 @@ final delivery edits that message (falling back to a new message) and adds any
 approval buttons. Replies are sent as Telegram HTML converted from the assistant's
 Markdown (bold, italic, strikethrough, code, fenced blocks, quotes, lists and
 http(s) links; everything else escaped), and as plain text if Telegram refuses the
-formatting. Replies end with an "Open in Kuayle" link to the conversation only
-when `FRONTEND_URL` is HTTPS: Telegram does not link `localhost`, which a phone
-could not reach anyway.
+formatting. Conversation replies, approval messages, and task notices end with
+an "Open in Kuayle" link when `FRONTEND_URL` is HTTPS. The link opens the
+conversation with a single-use credential valid for ten minutes. Kuayle stores
+only its SHA-256 hash and checks the recipient's current membership and Telegram
+binding at exchange. Treat an unused URL like a password and keep it in the
+private bot chat. Existing SSO requirements still apply, and an expired link
+returns to the conversation after manual sign-in. Redact the `sign_in` query
+parameter if you enable proxy access logs.
+
+On iOS, a regular HTTPS link opens in a browser. To use the installed web app,
+open Kuayle from the Home Screen. Browser and Home Screen sessions are separate.
+Use links to navigate to the relevant conversation or issue. Web Push is the
+channel for event alerts in the Home Screen app.
 
 Disabling blocks input and queued output immediately; authenticated updates are
 acknowledged and ignored while disabled. Re-enabling or switching bots uses

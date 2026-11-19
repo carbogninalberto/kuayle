@@ -4352,5 +4352,9 @@
 	"settings.import.sub_issues": "Sub-issues",
 	"settings.import.comments": "Comments",
 	"settings.import.attachments": "Attachments",
-	"settings.import.links": "Links"
+	"settings.import.links": "Links",
+	"pwa.browser.in_app_ios": "Anda berada di peramban {app}. Buka tautan di Safari untuk menggunakan aplikasi lengkap.",
+	"pwa.browser.in_app": "Anda berada di peramban {app}. Buka tautan di peramban pilihan Anda untuk menggunakan aplikasi lengkap.",
+	"pwa.browser.home_screen": "Jika Kuayle ada di layar utama, buka dari sana untuk menggunakan aplikasi lengkap.",
+	"pwa.browser.copy_failed": "Tautan tidak dapat disalin"
 }

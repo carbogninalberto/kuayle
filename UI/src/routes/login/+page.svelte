@@ -4,6 +4,8 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { safeLoginNext } from '$lib/features/auth/sign-in-link';
+	import BrowserGuide from '$lib/features/pwa/BrowserGuide.svelte';
 	import { login, register } from '$lib/api/auth';
 	import { ChevronDown, ChevronUp, Loader2 } from '@lucide/svelte';
 	import { Input } from '$lib/components/ui/input';
@@ -40,6 +42,7 @@
 	let ssoBusy = $state(false);
 	let ssoMessage = $state<string | null>(null);
 	const inviteToken = $derived(page.url.searchParams.get('invite') ?? '');
+	const next = $derived(safeLoginNext(page.url.searchParams.get('next'), page.url.origin));
 	// The backend accepts invite tokens even when public registration is off.
 	const canSignUp = $derived(!demoMode && (registrationEnabled || Boolean(inviteToken)));
 	const mode = $derived(signingUp && canSignUp ? 'register' : 'login');
@@ -111,8 +114,7 @@
 				ssoMessage = m['login.sso.not_enabled']();
 				return;
 			}
-			const after = page.url.pathname === '/login' ? '' : page.url.pathname + page.url.search;
-			window.location.href = ssoStartUrl(slug, after);
+			window.location.href = ssoStartUrl(slug, next ?? undefined);
 		} catch {
 			ssoMessage = m['login.sso.not_enabled']();
 		} finally {
@@ -127,6 +129,10 @@
 		if (inviteToken) {
 			// The invite route resolves the intended workspace, including after atomic signup.
 			await goto(`/invite/${encodeURIComponent(inviteToken)}`);
+			return;
+		}
+		if (next) {
+			await goto(next, { replaceState: true });
 			return;
 		}
 
@@ -155,7 +161,7 @@
 	async function continueWithSSOLink(slug: string, user: User) {
 		authState.setUser(user);
 		try {
-			const { auth_url } = await sso.startLink(slug);
+			const { auth_url } = await sso.startLink(slug, next ?? undefined);
 			window.location.href = auth_url;
 		} catch (err: any) {
 			appToast.apiError(err, m['login.sso.link_start_failed']());
@@ -169,8 +175,9 @@
 	}
 </script>
 
-<div class="flex min-h-screen items-center justify-center bg-[var(--color-bg)]">
-	<div class="w-full max-w-sm space-y-6 p-8">
+<div class="flex min-h-screen flex-col bg-[var(--color-bg)]">
+	<BrowserGuide />
+	<div class="m-auto w-full max-w-sm space-y-6 p-8">
 		<div class="text-center">
 			<img src="/favicon.svg" alt={m['login.logo_alt']()} class="mx-auto mb-4 h-14 w-14" />
 			<h1 class="text-2xl font-bold text-[var(--color-text-primary)]">Kuayle</h1>

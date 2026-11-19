@@ -4352,5 +4352,9 @@
 	"settings.import.sub_issues": "Sub-issues",
 	"settings.import.comments": "Comments",
 	"settings.import.attachments": "Attachments",
-	"settings.import.links": "Links"
+	"settings.import.links": "Links",
+	"pwa.browser.in_app_ios": "Bạn đang dùng trình duyệt của {app}. Hãy mở liên kết trong Safari để dùng ứng dụng đầy đủ.",
+	"pwa.browser.in_app": "Bạn đang dùng trình duyệt của {app}. Hãy mở liên kết trong trình duyệt của bạn để dùng ứng dụng đầy đủ.",
+	"pwa.browser.home_screen": "Nếu Kuayle có trên Màn hình chính, hãy mở từ đó để dùng ứng dụng đầy đủ.",
+	"pwa.browser.copy_failed": "Không thể sao chép liên kết"
 }

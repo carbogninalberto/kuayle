@@ -114,6 +114,7 @@ authentication.
 | POST | `/api/auth/refresh` | public |  |
 | POST | `/api/auth/register` | public |  |
 | POST | `/api/auth/reset-password` | public |  |
+| POST | `/api/auth/sign-in-token/:slug` | public |  |
 | GET | `/api/auth/sso/:slug` | public |  |
 | GET | `/api/auth/sso/:slug/callback` | public |  |
 | POST | `/api/auth/sso/:slug/callback` | public |  |

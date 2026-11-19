@@ -4352,5 +4352,9 @@
 	"settings.import.sub_issues": "Sub-issues",
 	"settings.import.comments": "Comments",
 	"settings.import.attachments": "Attachments",
-	"settings.import.links": "Links"
+	"settings.import.links": "Links",
+	"pwa.browser.in_app_ios": "{app} 내장 브라우저를 사용 중입니다. 전체 앱을 사용하려면 Safari에서 여세요.",
+	"pwa.browser.in_app": "{app} 내장 브라우저를 사용 중입니다. 전체 앱을 사용하려면 기본 브라우저에서 여세요.",
+	"pwa.browser.home_screen": "홈 화면에 Kuayle이 있다면 거기에서 열어 전체 앱을 사용하세요.",
+	"pwa.browser.copy_failed": "링크를 복사하지 못했습니다"
 }

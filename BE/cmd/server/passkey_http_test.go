@@ -56,6 +56,7 @@ func newPasskeyServer(t *testing.T, opts ...service.AuthServiceOption) *passkeyS
 	users := repository.NewUserRepository(db)
 	opts = append(opts, service.WithPasswordReset(repository.NewPasswordResetRepository(db), nil, passkeyHTTPOrigin, false))
 	authSvc := service.NewAuthService(users, repository.NewRefreshTokenRepository(db), secret, opts...)
+	authSvc.SetSignInTokens(repository.NewSignInTokenRepository(db))
 	rp, err := service.NewPasskeyRelyingParty("", "", "Kuayle Test", passkeyHTTPOrigin)
 	require.NoError(t, err)
 	passkeys, err := service.NewPasskeyService(authSvc, users, repository.NewPasskeyRepository(db), rp)

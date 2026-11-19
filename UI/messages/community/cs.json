@@ -4352,5 +4352,9 @@
 	"settings.import.sub_issues": "Sub-issues",
 	"settings.import.comments": "Comments",
 	"settings.import.attachments": "Attachments",
-	"settings.import.links": "Links"
+	"settings.import.links": "Links",
+	"pwa.browser.in_app_ios": "Používáte prohlížeč aplikace {app}. Otevřete odkaz v Safari a používejte plnou verzi aplikace.",
+	"pwa.browser.in_app": "Používáte prohlížeč aplikace {app}. Otevřete odkaz ve svém prohlížeči a používejte plnou verzi aplikace.",
+	"pwa.browser.home_screen": "Pokud máte Kuayle na ploše, otevřete ho odtud a používejte plnou verzi aplikace.",
+	"pwa.browser.copy_failed": "Odkaz se nepodařilo zkopírovat"
 }

@@ -4352,5 +4352,9 @@
 	"settings.import.sub_issues": "Sub-issues",
 	"settings.import.comments": "Comments",
 	"settings.import.attachments": "Attachments",
-	"settings.import.links": "Links"
+	"settings.import.links": "Links",
+	"pwa.browser.in_app_ios": "Χρησιμοποιείς το πρόγραμμα περιήγησης του {app}. Άνοιξε τον σύνδεσμο στο Safari για την πλήρη εφαρμογή.",
+	"pwa.browser.in_app": "Χρησιμοποιείς το πρόγραμμα περιήγησης του {app}. Άνοιξε τον σύνδεσμο στο δικό σου πρόγραμμα περιήγησης για την πλήρη εφαρμογή.",
+	"pwa.browser.home_screen": "Αν το Kuayle βρίσκεται στην οθόνη αφετηρίας, άνοιξέ το από εκεί για την πλήρη εφαρμογή.",
+	"pwa.browser.copy_failed": "Δεν ήταν δυνατή η αντιγραφή του συνδέσμου"
 }
