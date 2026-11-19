@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
@@ -27,6 +28,8 @@ type ConversationService struct {
 	workspaces attachmentWorkspaces
 	// subagentCall replaces the model calls of research sub-tasks in tests.
 	subagentCall subagentCaller
+	// now is the clock that picks the assistant's date line; tests replace it.
+	now func() time.Time
 }
 
 // SetApprovals enables resolving assistant approval requests.
@@ -69,7 +72,7 @@ func (s *ConversationService) SetTools(tools *AssistantTools) {
 }
 
 func NewConversationService(repo *repository.ConversationRepository, ai *AISettingsService) *ConversationService {
-	return &ConversationService{Repo: repo, ai: ai}
+	return &ConversationService{Repo: repo, ai: ai, now: time.Now}
 }
 
 // Rich fences the web chat renders directly. Telegram shares this prompt and
@@ -84,6 +87,30 @@ func guidanceMessages(images bool) []chatCompletionMessage {
 		messages = append(messages, chatCompletionMessage{Role: "system", Content: "Users can attach images; each is named in their message as [image attached: name, WxH, id=...]. When you cannot see an image's content, say so instead of guessing what it shows."})
 	}
 	return append(messages, chatCompletionMessage{Role: "system", Content: richBlocksPrompt})
+}
+
+// assistantTimezone resolves the zone the assistant computes dates in: the
+// user's profile timezone when their profile has one, else the workspace's
+// (WikiOverviewTimezone), else UTC. An unknown name falls back instead of
+// failing the reply.
+func assistantTimezone(profileTz string) *time.Location {
+	if profileTz != "" {
+		if loc, err := time.LoadLocation(profileTz); err == nil {
+			return loc
+		}
+	}
+	if WikiOverviewTimezone != nil {
+		return WikiOverviewTimezone
+	}
+	return time.UTC
+}
+
+// assistantToday is the prompt line telling the model the current date,
+// weekday and zone, computed per reply so relative dates such as "next
+// Friday" resolve in the user's day instead of being guessed.
+func assistantToday(now time.Time, profileTz string) string {
+	at := now.In(assistantTimezone(profileTz))
+	return fmt.Sprintf("Today is %s, %s (%s).", at.Weekday(), at.Format("2006-01-02"), at.Location())
 }
 func (s *ConversationService) configuration(ctx context.Context, ws uuid.UUID) (*domain.AISettings, error) {
 	settings, err := s.ai.Get(ctx, ws)
@@ -215,6 +242,9 @@ func (s *ConversationService) execute(parent context.Context, a domain.Conversat
 			prompt = strings.TrimSuffix(strings.TrimSuffix(prompt, " You cannot run code yourself."), " You cannot read repositories or run code yourself.") + migrations
 		}
 	}
+	// Profiles have no timezone setting yet, so the workspace's zone (UTC
+	// today) answers; the date line itself is computed per reply.
+	prompt += " " + assistantToday(s.now(), "")
 	messages := []chatCompletionMessage{{Role: "system", Content: prompt}}
 	issue, err := s.Repo.GenerationIssue(ctx, a)
 	if err != nil {
