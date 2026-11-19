@@ -1,11 +1,49 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/require"
 )
+
+// prefsRepoStub stands in for the preferences repository when reading the
+// profile timezone.
+type prefsRepoStub struct {
+	prefs *domain.UserPreferences
+	err   error
+}
+
+func (f *prefsRepoStub) Get(context.Context, uuid.UUID) (*domain.UserPreferences, error) {
+	return f.prefs, f.err
+}
+
+func (f *prefsRepoStub) Upsert(context.Context, *domain.UserPreferences) error { return nil }
+
+// The stored profile timezone reaches the prompt's date line; every way the
+// lookup can be unavailable keeps the workspace zone instead of failing the
+// reply.
+func TestProfileTimezoneFailsOpenToTheWorkspaceZone(t *testing.T) {
+	chat := &ConversationService{}
+	ws, user := uuid.New(), uuid.New()
+	require.Empty(t, chat.profileTimezone(context.Background(), ws, user), "no wired preferences repository keeps the workspace zone")
+
+	chat.SetPreferences(&prefsRepoStub{err: errors.New("column missing")})
+	require.Empty(t, chat.profileTimezone(context.Background(), ws, user), "a failed read keeps the workspace zone")
+
+	chat.SetPreferences(&prefsRepoStub{})
+	require.Empty(t, chat.profileTimezone(context.Background(), ws, user), "a missing profile keeps the workspace zone")
+
+	chat.SetPreferences(&prefsRepoStub{prefs: &domain.UserPreferences{Timezone: "Pacific/Auckland"}})
+	require.Equal(t, "Pacific/Auckland", chat.profileTimezone(context.Background(), ws, user))
+}
+
+var _ repository.UserPreferencesRepo = (*prefsRepoStub)(nil)
 
 // The assistant's prompt pins today's date, weekday and zone: at
 // 2026-11-13 22:30 UTC it is still Friday in UTC, while UTC+13 has

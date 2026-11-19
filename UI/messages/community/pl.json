@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Jasny",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rose Light",
+	"prefs.timezone": "Strefa czasowa",
+	"prefs.timezone_desc": "Asystent używa tej strefy czasowej do dat takich jak \"najbliższy piątek\".",
 	"prefs.title": "Preferencje",
 	"prefs.workflow_order": "Kolejność przepływu pracy",
 	"prefs.workflow_sorting": "Sortowanie grup przepływu pracy",

@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Vaalea",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rose Light",
+	"prefs.timezone": "Aikavyöhyke",
+	"prefs.timezone_desc": "Avustaja käyttää tätä aikavyöhykettä päivämäärätarkasteluihin, kuten \"ensi perjantai\".",
 	"prefs.title": "Asetukset",
 	"prefs.workflow_order": "Työnkulun järjestys",
 	"prefs.workflow_sorting": "Työnkulkuryhmien lajittelu",

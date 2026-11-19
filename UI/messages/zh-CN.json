@@ -870,6 +870,8 @@
 	"prefs.theme.light": "浅色",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "玫瑰浅色",
+	"prefs.timezone": "时区",
+	"prefs.timezone_desc": "助理根据此时区计算“下周五”之类的日期。",
 	"prefs.title": "偏好设置",
 	"prefs.workflow_order": "工作流顺序",
 	"prefs.workflow_sorting": "工作流分组排序",

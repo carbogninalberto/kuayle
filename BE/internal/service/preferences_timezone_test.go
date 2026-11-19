@@ -34,4 +34,12 @@ func TestPreferencesTimezoneWriteValidation(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidPreferences)
 	require.Equal(t, 2, repo.upserts, "an invalid zone is refused without storing")
 	require.Empty(t, repo.stored.Timezone, "the refused value never reaches storage")
+
+	// "Local" loads but names the server's zone, not the user's, so it is
+	// refused like any other non-IANA value.
+	local := " Local "
+	_, err = svc.Update(ctx, user, dto.UpdatePreferencesRequest{Timezone: &local})
+	require.ErrorIs(t, err, ErrInvalidPreferences)
+	require.Equal(t, 2, repo.upserts, "\"Local\" is refused without storing")
+	require.Empty(t, repo.stored.Timezone)
 }

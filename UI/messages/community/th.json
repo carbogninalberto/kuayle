@@ -870,6 +870,8 @@
 	"prefs.theme.light": "สว่าง",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rose Light",
+	"prefs.timezone": "เขตเวลา",
+	"prefs.timezone_desc": "ผู้ช่วยใช้เขตเวลานี้ในการคำนวณวันที่ เช่น \"วันศุกร์หน้า\"",
 	"prefs.title": "การตั้งค่า",
 	"prefs.workflow_order": "ลำดับเวิร์กโฟลว์",
 	"prefs.workflow_sorting": "การเรียงกลุ่มเวิร์กโฟลว์",

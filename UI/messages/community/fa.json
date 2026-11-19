@@ -870,6 +870,8 @@
 	"prefs.theme.light": "روشن",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "گل‌سرخی روشن",
+	"prefs.timezone": "منطقه زمانی",
+	"prefs.timezone_desc": "دستیار از این منطقه زمانی برای محاسبه تاریخ‌هایی مانند \"جمعه آینده\" استفاده می‌کند.",
 	"prefs.title": "تنظیمات شخصی",
 	"prefs.workflow_order": "ترتیب گردش‌کار",
 	"prefs.workflow_sorting": "مرتب‌سازی گروه‌های گردش‌کار",

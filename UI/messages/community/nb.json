@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Lys",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rosa lys",
+	"prefs.timezone": "Tidssone",
+	"prefs.timezone_desc": "Assistenten bruker denne tidssonen til datoer som \"neste fredag\".",
 	"prefs.title": "Preferanser",
 	"prefs.workflow_order": "Arbeidsflytrekkefølge",
 	"prefs.workflow_sorting": "Sortering av arbeidsflytgrupper",

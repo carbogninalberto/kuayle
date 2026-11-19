@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Φωτεινό",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rose Light",
+	"prefs.timezone": "Ζώνη ώρας",
+	"prefs.timezone_desc": "Ο βοηθός χρησιμοποιεί αυτή τη ζώνη ώρας για ημερομηνίες όπως \"την επόμενη Παρασκευή\".",
 	"prefs.title": "Προτιμήσεις",
 	"prefs.workflow_order": "Σειρά ροής εργασίας",
 	"prefs.workflow_sorting": "Ταξινόμηση ομάδων ροής εργασίας",

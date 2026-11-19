@@ -38,6 +38,7 @@ interface PreferencesData {
 	workflowEditorPanelOpen?: boolean;
 	notificationSound: NotificationSound;
 	notificationEvents: NotificationEvents;
+	timezone?: string;
 	localDirty?: boolean;
 }
 
@@ -69,6 +70,8 @@ class PreferencesState {
 	workflowEditorPanelOpen = $state(true);
 	notificationSound = $state<NotificationSound>(DEFAULT_NOTIFICATION_SOUND);
 	notificationEvents = $state<NotificationEvents>(defaultNotificationEvents());
+	/** The zone the assistant computes dates in; empty until detected or chosen. */
+	timezone = $state('');
 
 	private systemPrefersDark = $state(true);
 	private initialized = false;
@@ -97,6 +100,13 @@ class PreferencesState {
 		this.initialized = true;
 
 		this.loadLocal();
+
+		// The assistant computes dates in the user's zone: browsers that
+		// report one fill it once, so replies are right without a visit to
+		// settings; a picked zone here always wins.
+		if (!this.timezone) {
+			this.setTimezone(browserTimezone());
+		}
 
 		const mql = window.matchMedia('(prefers-color-scheme: dark)');
 		this.systemPrefersDark = mql.matches;
@@ -141,6 +151,7 @@ class PreferencesState {
 			if (data.workflowEditorPanelOpen !== undefined) this.workflowEditorPanelOpen = data.workflowEditorPanelOpen !== false;
 			if (data.notificationSound !== undefined) this.notificationSound = normalizeNotificationSound(data.notificationSound);
 			if (data.notificationEvents !== undefined) this.notificationEvents = normalizeNotificationEvents(data.notificationEvents);
+			if (data.timezone !== undefined) this.timezone = data.timezone;
 			if (data.localDirty !== undefined) this.localDirty = data.localDirty;
 		} catch {
 			// ignore corrupt data
@@ -182,8 +193,10 @@ class PreferencesState {
 			this.browserNotifications = data.browser_notifications !== false;
 			this.workflowEditorPanelOpen = data.workflow_editor_panel_open !== false;
 			this.notificationSound = normalizeNotificationSound(data.notification_sound);
-			this.notificationEvents = normalizeNotificationEvents(data.notification_events);
-			this.localDirty = false;
+		this.notificationEvents = normalizeNotificationEvents(data.notification_events);
+		// Absent on a server that predates the field: keep the defaults.
+		this.timezone = data.timezone ?? '';
+		this.localDirty = false;
 			this.persistLocal();
 		} catch {
 			// API unavailable — local-only is fine
@@ -206,6 +219,7 @@ class PreferencesState {
 			workflowEditorPanelOpen: this.workflowEditorPanelOpen,
 			notificationSound: this.notificationSound,
 			notificationEvents: this.notificationEvents,
+			timezone: this.timezone,
 			localDirty: this.localDirty
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -266,7 +280,8 @@ class PreferencesState {
 			browser_notifications: this.browserNotifications,
 			workflow_editor_panel_open: this.workflowEditorPanelOpen,
 			notification_sound: this.notificationSound,
-			notification_events: { ...this.notificationEvents }
+			notification_events: { ...this.notificationEvents },
+			timezone: this.timezone
 		};
 	}
 
@@ -371,6 +386,22 @@ class PreferencesState {
 	setNotificationEvent(key: NotificationEventKey, enabled: boolean) {
 		this.notificationEvents = { ...this.notificationEvents, [key]: enabled };
 		this.persist();
+	}
+
+	setTimezone(timezone: string) {
+		if (!timezone || timezone === this.timezone) return;
+		this.timezone = timezone;
+		this.persist();
+	}
+}
+
+// The browser's IANA zone, or '' when it reports none; used to fill the
+// profile timezone once so assistant dates match the user's day.
+function browserTimezone(): string {
+	try {
+		return Intl.DateTimeFormat().resolvedOptions().timeZone ?? '';
+	} catch {
+		return '';
 	}
 }
 

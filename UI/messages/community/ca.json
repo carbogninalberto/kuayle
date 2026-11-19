@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Clar",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rosa clar",
+	"prefs.timezone": "Zona horària",
+	"prefs.timezone_desc": "L'assistent utilitza aquesta zona per calcular dates com \"divendres vinent\".",
 	"prefs.title": "Preferències",
 	"prefs.workflow_order": "Ordre del flux de treball",
 	"prefs.workflow_sorting": "Ordenació dels grups del flux de treball",

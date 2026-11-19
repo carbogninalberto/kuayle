@@ -133,12 +133,19 @@ func assistantToday(now time.Time, profileTz string, workspace *time.Location) s
 
 // profileTimezone reads the user's stored timezone; a missing profile or a
 // failed read keeps the workspace default instead of failing the reply.
-func (s *ConversationService) profileTimezone(ctx context.Context, user uuid.UUID) string {
+func (s *ConversationService) profileTimezone(ctx context.Context, ws, user uuid.UUID) string {
 	if s.prefs == nil {
 		return ""
 	}
 	prefs, err := s.prefs.Get(ctx, user)
-	if err != nil || prefs == nil {
+	if err != nil {
+		// Fail open: the reply continues in the workspace zone, but a missing
+		// column or a transient database failure must not degrade dates
+		// silently.
+		log.WithFields(log.Fields{"workspace_id": ws, "user_id": user}).WithError(err).Warn("Assistant timezone lookup failed; using the workspace zone")
+		return ""
+	}
+	if prefs == nil {
 		return ""
 	}
 	return prefs.Timezone
@@ -277,7 +284,7 @@ func (s *ConversationService) execute(parent context.Context, a domain.Conversat
 	// The date line is computed per reply in the requesting user's zone:
 	// their profile timezone when set, else the workspace's (UTC until
 	// workspaces gain a timezone setting).
-	prompt += " " + assistantToday(s.clock(), s.profileTimezone(ctx, a.Conversation.CreatorID), time.UTC)
+	prompt += " " + assistantToday(s.clock(), s.profileTimezone(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID), time.UTC)
 	messages := []chatCompletionMessage{{Role: "system", Content: prompt}}
 	issue, err := s.Repo.GenerationIssue(ctx, a)
 	if err != nil {

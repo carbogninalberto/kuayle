@@ -870,6 +870,8 @@
 	"prefs.theme.light": "लाइट",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rose Light",
+	"prefs.timezone": "समय क्षेत्र",
+	"prefs.timezone_desc": "सहायक \"अगले शुक्रवार\" जैसी तारीखों के लिए इस समय क्षेत्र का उपयोग करता है।",
 	"prefs.title": "प्राथमिकताएँ",
 	"prefs.workflow_order": "वर्कफ़्लो क्रम",
 	"prefs.workflow_sorting": "वर्कफ़्लो ग्रुप की क्रमबद्धता",

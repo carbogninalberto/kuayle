@@ -143,7 +143,8 @@ func (s *PreferencesService) Update(ctx context.Context, userID uuid.UUID, req d
 		// IANA name, and an empty value clears the stored zone.
 		timezone := strings.TrimSpace(*req.Timezone)
 		if timezone != "" {
-			if _, err := time.LoadLocation(timezone); err != nil {
+			// "Local" loads but names the server's zone, not the user's.
+			if _, err := time.LoadLocation(timezone); err != nil || timezone == "Local" {
 				return nil, fmt.Errorf("%w: invalid timezone %q", ErrInvalidPreferences, timezone)
 			}
 		}

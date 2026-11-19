@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Terang",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rose Light",
+	"prefs.timezone": "Zona waktu",
+	"prefs.timezone_desc": "Asisten menggunakan zona waktu ini untuk tanggal seperti \"Jumat depan\".",
 	"prefs.title": "Preferensi",
 	"prefs.workflow_order": "Urutan alur kerja",
 	"prefs.workflow_sorting": "Pengurutan grup alur kerja",
