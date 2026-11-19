@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -12,12 +11,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// validateAgent uses the developer environment, never a model invocation. The
-// original credential snapshot is used only for output redaction, not injection.
-// It runs both the attempt's independent validation and manual checks
-// (run_check); the store applies each one's own authority.
-func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine, op *domain.DevMachineOperation) error {
-	step, err := m.store.GetValidation(ctx, *op)
+// Run an explicitly requested check in the developer environment. Credentials are used only for output redaction.
+func (m *Manager) runManualCheck(ctx context.Context, machine *domain.DevMachine, op *domain.DevMachineOperation) error {
+	step, err := m.store.GetManualCheck(ctx, *op)
 	if err != nil {
 		return err
 	}
@@ -29,7 +25,7 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 		return err
 	}
 	if run == nil || run.TaskID == nil || run.CheckoutID == nil || run.EncryptedOutputSecrets == nil {
-		return &terminalOperationError{code: "validation_unavailable", message: "Validation requires the original checkout and redaction snapshot"}
+		return &terminalOperationError{code: "validation_unavailable", message: "A manual check requires the original checkout and redaction snapshot"}
 	}
 	secrets, err := m.decodeAgentRunSecrets(*run.EncryptedOutputSecrets)
 	if err != nil {
@@ -75,63 +71,21 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 	output := newAgentOutputBuffer(secrets.Redactions, func(stream string, sequence int64, source, content string, truncated bool) error {
 		writeCtx, done := context.WithTimeout(runCtx, 5*time.Second)
 		defer done()
-		return m.store.CreateValidationOutput(writeCtx, *op, &domain.DevMachineLogChunk{WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceID: &step.ID, Stream: stream, Sequence: sequence, SourceKey: source, Content: content, Truncated: truncated})
+		return m.store.CreateManualCheckOutput(writeCtx, *op, &domain.DevMachineLogChunk{WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceID: &step.ID, Stream: stream, Sequence: sequence, SourceKey: source, Content: content, Truncated: truncated})
 	})
-	observer := &AgentObserver{Authorize: func() error { _, err := m.store.GetValidation(runCtx, *op); return err }, Started: func(id string) error { return m.store.StartValidation(runCtx, *op, id) }, Output: output.WriteDocker, Detach: m.detach}
-	// Every command runs, in order and each in its own container, so the
-	// result shows each one's outcome; the first failure decides the exit code.
-	commands := step.CheckCommands()
-	if len(commands) == 0 {
-		return &terminalOperationError{code: "validation_unavailable", message: "The check has no command"}
+	observer := &AgentObserver{Authorize: func() error { _, err := m.store.GetManualCheck(runCtx, *op); return err }, Started: func(id string) error { return m.store.StartManualCheck(runCtx, *op, id) }, Output: output.WriteDocker, Detach: m.detach}
+	if m.shuttingDown() {
+		return errManagerShutdown
 	}
-	// Notes join the commands' Docker-formatted stderr, with a timestamp
-	// fixed by the step so a replay stores the same lines.
-	noteTime := step.CreatedAt.UTC().Format(time.RFC3339Nano)
-	note := func(format string, args ...any) error {
-		return output.WriteDocker("stderr", []byte(noteTime+" Kuayle: "+fmt.Sprintf(format, args...)+"\n"))
+	execution, execErr := m.runtime.RunManualCheck(runCtx, machine, run, step, checkout, image, observer)
+	if errors.Is(execErr, ErrAgentDetached) || (execErr != nil && errors.Is(context.Cause(ctx), errManagerShutdown)) {
+		return errManagerShutdown
 	}
-	results := make([]domain.CheckCommandResult, 0, len(commands))
-	exitCode := 0
-	var execution *AgentExecution
-	var execErr error
-	for index, argv := range commands {
-		if m.shuttingDown() {
-			// A stopping manager starts no check container: the next manager runs or re-adopts this command.
-			return errManagerShutdown
-		}
-		// Deterministic notes, so a replay stores the same output; the first
-		// is written once the check runs (output needs a running step).
-		if index > 0 {
-			if execErr = note("running command %d of %d: %s", index+1, len(commands), strings.Join(argv, " ")); execErr != nil {
-				break
-			}
-		}
-		execution, execErr = m.runtime.RunValidation(runCtx, machine, run, step, index, checkout, image, observer)
-		if errors.Is(execErr, ErrAgentDetached) || (execErr != nil && errors.Is(context.Cause(ctx), errManagerShutdown)) {
-			// The check keeps running for the next manager, which re-adopts its
-			// container; its deadline counts from step.StartedAt. Its compose
-			// services stay for it: this returns before their cleanup is deferred.
-			return errManagerShutdown
-		}
-		if memoryLimit := m.recordRunMemoryLimit(ctx, machine, run, "validation", execution); memoryLimit != "" && execErr == nil {
-			writeKuayleNote(output, run.ID, memoryLimit)
-		}
-		if execErr != nil {
-			break
-		}
-		if execution == nil {
-			execErr = errors.New("validation execution returned no result")
-			break
-		}
-		results = append(results, domain.CheckCommandResult{ExitCode: execution.ExitCode})
-		if exitCode == 0 {
-			exitCode = execution.ExitCode
-		}
-		if len(commands) > 1 {
-			if execErr = note("command %d of %d (%s) exited with code %d", index+1, len(commands), strings.Join(argv, " "), execution.ExitCode); execErr != nil {
-				break
-			}
-		}
+	if memoryLimit := m.recordRunMemoryLimit(ctx, machine, run, "validation", execution); memoryLimit != "" && execErr == nil {
+		writeKuayleNote(output, run.ID, memoryLimit)
+	}
+	if execution == nil && execErr == nil {
+		execErr = errors.New("check execution returned no result")
 	}
 	if step.ComposeFile != "" {
 		// Services live only for this check; the check container stays for replay.
@@ -159,17 +113,10 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 		if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 			cleanupCtx, done := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			defer done()
-			if step.StepType == manualCheckStepType {
-				// Only this check's container stops; the attempt's are kept.
-				if err = m.runtime.RemoveCheck(cleanupCtx, machine, run, step); err != nil {
-					return fmt.Errorf("validation_cleanup_failed: %w", err)
-				}
-				return &terminalOperationError{code: "validation_timeout", message: "The check exceeded its time limit"}
-			}
-			if err = m.runtime.CancelAgent(cleanupCtx, run); err != nil {
+			if err = m.runtime.RemoveCheck(cleanupCtx, machine, run, step); err != nil {
 				return fmt.Errorf("validation_cleanup_failed: %w", err)
 			}
-			return &terminalOperationError{code: "validation_timeout", message: "Independent validation exceeded its time limit"}
+			return &terminalOperationError{code: "validation_timeout", message: "The check exceeded its time limit"}
 		}
 		// The runtime stops a process whose output/authorization failed. Keep
 		// its deterministic container for replay; deleting it would rerun the
@@ -184,12 +131,7 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 			return err
 		}
 	}
-	// A step with a single command predates per-command results or is a
-	// configured or manual check: its exit code is the whole result.
-	if len(step.Commands) == 0 {
-		results = nil
-	}
-	if err = m.store.CompleteValidation(ctx, *op, exitCode, results); err != nil {
+	if err = m.store.CompleteManualCheck(ctx, *op, execution.ExitCode); err != nil {
 		return err
 	}
 	// A recorded manual check is never replayed, so its container can go.

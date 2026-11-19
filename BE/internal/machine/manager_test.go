@@ -556,6 +556,11 @@ type githubAPIFake struct {
 	repository     string
 }
 
+func (f *githubAPIFake) GetPublicationToken(_ context.Context, id int64, repo string) (githubclient.PublicationToken, error) {
+	token, expires, err := f.GetRepositoryInstallationToken(id, repo)
+	return githubclient.PublicationToken{Token: token, ExpiresAt: expires}, err
+}
+
 func (f *githubAPIFake) GetRepositoryInstallationToken(installationID int64, repository string) (string, time.Time, error) {
 	f.installationID = installationID
 	f.repository = repository

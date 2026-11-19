@@ -246,7 +246,6 @@ export interface RunCheckPayload {
 	title: string;
 	task_id: string;
 	generation: number;
-	// Absent: the task's configured check command.
 	command?: string[];
 }
 // A custom tool run is bound to the tool version and the validated inputs shown.

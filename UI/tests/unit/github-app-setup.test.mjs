@@ -20,6 +20,7 @@ const base = {
 test('names events and permissions as GitHub shows them', () => {
 	assert.equal(githubEventLabel('pull_request_review'), 'Pull request review');
 	assert.equal(githubEventLabel('check_suite'), 'Check suite');
+	assert.equal(githubPermissionLabel({ name: 'workflows', level: 'write' }), 'Workflows: Read and write');
 	assert.equal(githubEventLabel('some_new_event'), 'some_new_event');
 	assert.equal(githubPermissionLabel({ name: 'checks', level: 'read' }), 'Checks: Read-only');
 	assert.equal(githubPermissionLabel({ name: 'pull_requests', level: 'write' }), 'Pull requests: Read and write');

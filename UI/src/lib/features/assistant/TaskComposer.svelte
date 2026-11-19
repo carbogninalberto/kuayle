@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import TestCommandField from '$lib/features/dev-machines/TestCommandField.svelte';
-	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
+
+
 	import { ChevronDown } from '@lucide/svelte';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -45,7 +45,7 @@
 		onaccepted: (task: AgentTask) => void;
 		onclose: () => void;
 	} = $props();
-	let testCommand = $state('');
+
 	let prompt = $state(''),
 		provider = $state(''),
 		serverId = $state(''),
@@ -100,7 +100,7 @@
 	);
 	onMount(() => {
 		prompt = task?.prompt ?? initialPrompt;
-		testCommand = formatTestCommand(task?.test_command);
+
 		chooseProvider(task?.provider ?? options?.default_provider ?? options?.providers[0]?.id ?? '');
 		if (!task)
 			workflowsApi
@@ -119,7 +119,7 @@
 			if (saved?.pending && typeof saved.prompt === 'string') {
 				prompt = saved.prompt;
 				pending = saved.pending;
-				testCommand = formatTestCommand(saved.test_command);
+
 				if (!task && typeof saved.workflow_id === 'string') workflowChoice = saved.workflow_id;
 				if (!task && options?.providers.some((p) => p.id === saved.provider)) {
 					chooseProvider(saved.provider);
@@ -143,16 +143,10 @@
 		event?.preventDefault();
 		if (saving || !prompt.trim() || new TextEncoder().encode(prompt).length > 32768 || (!task && !provider)) return;
 		error = '';
-		let command: string[] | undefined;
-		try {
-			command = parseTestCommand(testCommand);
-		} catch {
-			return;
-		}
 		saving = true;
 		const input = {
 			prompt: prompt.trim(),
-			test_command: command,
+
 			provider,
 			// Without a model server only a model of the agent's own catalog is set.
 			model: canOverride || !compatibleServers.length ? model : '',
@@ -161,7 +155,7 @@
 			...(!task && workflowChoice !== DEFAULT_WORKFLOW ? { workflow_id: workflowChoice } : {})
 		};
 		const key = JSON.stringify(
-			task ? { prompt: input.prompt, generation: task.generation, test_command: command } : input
+			task ? { prompt: input.prompt, generation: task.generation } : input
 		);
 		if (!pending || pending.key !== key) pending = { key, id: crypto.randomUUID() };
 		try {
@@ -173,7 +167,7 @@
 						request_id: pending.id,
 						generation: task.generation,
 						prompt: input.prompt,
-						test_command: command,
+
 						...(confirmMerged ? { confirm_merged: true } : {})
 					})
 				: await agentTasks.create(slug, conversation, { ...input, request_id: pending.id } satisfies TaskInput);
@@ -330,7 +324,7 @@
 						>{/if}
 				</InputGroup.Addon>
 			</InputGroup.Root>
-			<TestCommandField bind:value={testCommand} disabled={saving} />
+
 			{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
 			<Dialog.Footer
 				><Button type="button" variant="outline" onclick={onclose}>{m['tasks.close']()}</Button><Button

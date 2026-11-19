@@ -879,6 +879,7 @@ const routes: Route[] = [
 		'ai',
 		'assistant',
 		'backups',
+		'push',
 		'dev-machines',
 		'forges',
 		'github',

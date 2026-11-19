@@ -1,11 +1,11 @@
 /**
  * Kuayle's side of every comparison, verified against the implementation (BE/, UI/, selfhosting/)
- * at v0.2.23. One source of truth: alternative pages, the compare matrix and the homepage read from here.
+ * at the versions listed below. One source of truth: alternative pages, the compare matrix and the homepage read from here.
  * Gaps are stated as gaps. Update this file when the product changes.
  */
 import type { Mark } from './competitor-types.ts';
 
-export const KUAYLE_FACTS_VERSION = 'v0.2.23';
+export const KUAYLE_FACTS_SOURCE = 'SSO and SCIM were checked against Kuayle v0.2.46. Other Kuayle comparisons use v0.2.23.';
 
 export interface KuayleFact {
 	mark: Mark;
@@ -23,8 +23,8 @@ export const KUAYLE = {
 		text: 'No licence fee and no paid tier. Nothing is gated behind a key; you pay for your own server.'
 	},
 	sso: {
-		mark: 'partial',
-		text: 'OIDC single sign-on is free in every workspace (Google Workspace, Microsoft Entra ID, Okta, Keycloak, Authentik), with just-in-time provisioning, verified-email account linking and per-workspace require-SSO with owner break-glass. SAML 2.0 and SCIM 2.0 are not available yet.'
+		mark: 'yes',
+		text: 'Every workspace includes OIDC or SAML 2.0 single sign-on and SCIM 2.0 provisioning for free. SSO supports just-in-time provisioning and verified-email account linking. Workspaces can require SSO while owners keep password access for emergencies. Okta and Microsoft Entra ID can provision users and groups through SCIM. Owners and admins manage SCIM tokens through the API only.'
 	},
 	ai: {
 		mark: 'yes',
@@ -126,6 +126,8 @@ export const KUAYLE_FEATURE_GROUPS: { group: string; blurb: string; items: { lab
 		blurb: 'Decide who sees what.',
 		items: [
 			{ label: 'Private teams', href: '/features/teams-and-access-control' },
+			{ label: 'OIDC or SAML single sign-on' },
+			{ label: 'SCIM user and group provisioning' },
 			{ label: 'Workspace roles', href: '/features/teams-and-access-control' },
 			{ label: 'Multiple workspaces' },
 			{ label: 'Workspace export and import', href: '/self-hosting/workspace-transfer' }

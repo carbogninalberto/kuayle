@@ -46,7 +46,7 @@ func TestAnAttemptThatOwesAReplyStillSucceeds(t *testing.T) {
 	svc := &AgentTaskService{store: store, runtime: runtime}
 	require.NoError(t, svc.step(context.Background(), store.task))
 	require.Empty(t, store.failReason)
-	require.Equal(t, []string{"validating"}, store.transitions, "the work is checked and published as usual")
+	require.Equal(t, []string{"publishing"}, store.transitions, "the work is published as usual")
 }
 
 // Interrupt and send: the resumed attempt continues the interrupted session

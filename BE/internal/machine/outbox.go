@@ -48,14 +48,14 @@ grep -qxF '/.kuayle/' "$exclude" 2>/dev/null || printf '\n/.kuayle/\n' >> "$excl
 
 // prepareOutboxScript excludes .kuayle/ and creates .kuayle/outbox/,
 // replacing symlinks with directories, and removes an earlier attempt's
-// validation file, pull request file and screenshots so each attempt
+// pull request file and screenshots so each attempt
 // declares its own tests and description (a symlinked screenshots directory
 // is removed as a link).
 const prepareOutboxScript = excludeKuayleScript + `[ ! -L "$root/.kuayle" ] || rm -f "$root/.kuayle"
 mkdir -p "$root/.kuayle"
 [ ! -L "$root/.kuayle/outbox" ] || rm -f "$root/.kuayle/outbox"
 mkdir -p "$root/.kuayle/outbox"
-rm -f "$root/.kuayle/validation.json" "$root/.kuayle/pull_request.json"
+rm -f "$root/.kuayle/pull_request.json"
 rm -rf "$root/.kuayle/screenshots"`
 
 // outboxTakeScript prints "M <worktree> <file> <base64>" for each regular
