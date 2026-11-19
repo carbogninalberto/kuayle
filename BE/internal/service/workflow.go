@@ -408,7 +408,7 @@ func (s *WorkflowService) builtinProfileIDs(ctx context.Context, ws uuid.UUID) (
 }
 
 // standardCopy is an editable copy of the Standard flow: the built-in
-// implementer, the configured check, a pull request and a human review that
+// implementer, a pull request and a human review that
 // can send the work back (at most five times, like today's follow-ups).
 func standardCopy(implementer uuid.UUID) domain.WorkflowGraph {
 	graph := domain.StandardWorkflowGraph()
@@ -423,7 +423,7 @@ func standardCopy(implementer uuid.UUID) domain.WorkflowGraph {
 		case "failed":
 			// Publishing can fail here, so the failed ending follows Publish:
 			// one column further right than in the built-in graph.
-			graph.Nodes[i].Position = domain.WorkflowPositionAt(4, 1, true)
+			graph.Nodes[i].Position = domain.WorkflowPositionAt(3, 1, true)
 		}
 	}
 	graph.Edges = append(graph.Edges, domain.WorkflowEdge{ID: "e-publish-failed", Source: "publish", Target: "failed", Condition: domain.WorkflowPublishFailed})

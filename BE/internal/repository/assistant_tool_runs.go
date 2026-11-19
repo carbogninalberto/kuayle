@@ -15,7 +15,7 @@ import (
 
 // A custom tool run executes one tool version on a dev machine in the same
 // credential-free check container as manual checks, under the same machine
-// lock: never beside an agent attempt, an independent check or another run.
+// lock: never beside an agent attempt, a check or another run.
 
 // toolRunKeyPrefix starts a run_tool operation's idempotency key; the rest is
 // the ID of the run the operation executes.

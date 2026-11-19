@@ -487,10 +487,10 @@ export const features: ContentRegistry = {
 			},
 			{
 				heading: 'Agent tasks, automations and workflows',
-				body: 'Agents run as tasks you delegate from an issue chat, or that the assistant starts after your approval. Each task works in its own worktree and branch; Kuayle re-runs the checks the agent chose in a clean container and opens a pull request, and CI failures, review comments and issue comments queue follow-up attempts. Automations delegate matching issues on a label or status, optionally on a schedule, and workspaces can design their own workflows on a canvas.',
+				body: 'Agents run as tasks you delegate from an issue chat, or that the assistant starts after your approval. Each agent works in its own worktree and branch and reports the tests it ran. Kuayle opens a pull request when the agent finishes. CI failures, review comments and issue comments queue follow-up attempts. Automations delegate matching issues on a label or status, optionally on a schedule, and workspaces can design their own workflows on a canvas.',
 				list: [
 					'Delegation from an issue chat, or by the assistant with your approval',
-					'Independent checks, then a pull request; the task waits for review',
+					'Completed changes open as pull requests ready for review',
 					'Automations on a label or status, attended or unattended by policy',
 					'Editable workflows with review steps and retries',
 					'Agent profiles with instructions and skills'

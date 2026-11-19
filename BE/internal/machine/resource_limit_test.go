@@ -99,8 +99,8 @@ type oomValidationRuntimeFake struct {
 	*validationRuntimeFake
 }
 
-func (f *oomValidationRuntimeFake) RunValidation(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep, _ int, checkout *domain.DevMachineCheckout, image string, o *AgentObserver) (*AgentExecution, error) {
-	execution, err := f.validationRuntimeFake.RunValidation(ctx, machine, run, step, 0, checkout, image, o)
+func (f *oomValidationRuntimeFake) RunManualCheck(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep, checkout *domain.DevMachineCheckout, image string, o *AgentObserver) (*AgentExecution, error) {
+	execution, err := f.validationRuntimeFake.RunManualCheck(ctx, machine, run, step, checkout, image, o)
 	if execution != nil {
 		execution.OOMKilled, execution.MemoryLimitBytes = true, 2<<30
 	}
@@ -116,7 +116,7 @@ func TestOutOfMemoryCheckExplainsTheLimitInItsLog(t *testing.T) {
 	store := &validationStoreFake{managerStoreFake: &managerStoreFake{machine: machine, agentRun: &domain.DevMachineAgentRun{ID: runID, TaskID: &taskID, CheckoutID: &checkoutID, EncryptedOutputSecrets: &encrypted, MaxRuntimeSeconds: 60}, checkout: &domain.DevMachineCheckout{ID: checkoutID, MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, ScopeKey: taskID.String(), Status: "ready"}, services: []domain.DevMachineService{{ServiceType: "terminal", ImageRef: "developer:fixture"}}}, step: domain.DevMachineAgentRunStep{ID: uuid.New(), AgentRunID: runID, Status: "queued", CreatedAt: time.Now(), CommandArgv: []byte(`["test"]`)}}
 	runtime := &oomValidationRuntimeFake{validationRuntimeFake: &validationRuntimeFake{runtimeFake: &runtimeFake{}, exit: 137}}
 	manager := &Manager{store: store, runtime: runtime, encryptionKey: key}
-	require.NoError(t, manager.validateAgent(context.Background(), machine, &domain.DevMachineOperation{AgentRunID: &runID}))
+	require.NoError(t, manager.runManualCheck(context.Background(), machine, &domain.DevMachineOperation{AgentRunID: &runID}))
 	require.Equal(t, 137, *store.exit)
 	expected := "Out of memory: the check container reached its 2 GiB memory limit. Resize the machine or raise the task machine memory."
 	var logged []string

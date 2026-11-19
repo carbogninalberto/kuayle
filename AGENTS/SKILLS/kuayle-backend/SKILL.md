@@ -68,7 +68,7 @@ challenges are consumed before verification, and a session minted by a passkey e
 with that passkey. Test ceremonies with the software authenticator in
 [internal/passkeytest](../../../BE/internal/passkeytest/authenticator.go).
 
-For task/runtime work, follow the [agent task contract](../../../BE/docs/agent-tasks.md).
+For task/runtime work, follow the [agent task contract](../../../BE/docs/agent-tasks.md). Keep the [runtime agent skill](../../../devmachine/common/kuayle-agents.md) consistent with the implementation prompt and publication contract.
 Keep native task ownership, pre-dispatch encrypted credential snapshots, atomic
 log/activity persistence and physical cancellation checks intact. Its status
 section distinguishes implemented backend contracts from workflows not yet enabled.

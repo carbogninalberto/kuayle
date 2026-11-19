@@ -122,9 +122,6 @@ type DevMachineService struct {
 	openCodeGo *openCodeGoCatalog
 	// diskQuotaMode is the configured workspace disk quota mode.
 	diskQuotaMode string
-	// manifests reads repositories for check suggestions; see
-	// SetRepositoryManifests.
-	manifests RepositoryManifestReader
 	// migrationActions persists named migration actions (KUA-181); see
 	// SetMigrationActions.
 	migrationActions MigrationActionStore
@@ -919,9 +916,6 @@ func (s *DevMachineService) UpdateScopeSetting(ctx context.Context, workspaceID 
 	if !exists {
 		return nil, fmt.Errorf("%w: invalid development setting scope", ErrInvalidMachineInput)
 	}
-	if err := domain.ValidateTestCommand(request.TestCommand); err != nil {
-		return nil, ErrInvalidMachineInput
-	}
 	setting := &domain.DevMachineScopeSetting{WorkspaceID: workspaceID, TeamID: teamID, ProjectID: projectID, IssueID: issueID}
 	if request.AgentProvider != nil && *request.AgentProvider != "" {
 		provider, ok := s.agents.Get(*request.AgentProvider)
@@ -963,11 +957,6 @@ func (s *DevMachineService) UpdateScopeSetting(ctx context.Context, workspaceID 
 		raw, _ := json.Marshal(request.PreviewCommand)
 		previewCommand := json.RawMessage(raw)
 		setting.PreviewCommand, setting.PreviewPort = &previewCommand, request.PreviewPort
-	}
-	if request.TestCommand != nil {
-		command, _ := json.Marshal(request.TestCommand)
-		raw := json.RawMessage(command)
-		setting.TestCommand = &raw
 	}
 	if request.GitHubRepoID != nil {
 		repositoryID, _ := uuid.Parse(*request.GitHubRepoID)
@@ -1626,7 +1615,7 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 	}
 	invocation, err := provider.BuildInvocation(agent.RunInput{
 		Mode: agent.Mode(req.Mode), Prompt: prompt, WorkspacePath: workspacePath,
-		AcceptanceCriteria: req.AcceptanceCriteria, TestCommand: req.TestCommand, ExtraArgs: req.ExtraArgs, Config: config,
+		AcceptanceCriteria: req.AcceptanceCriteria, ExtraArgs: req.ExtraArgs, Config: config,
 		Model: req.Model, Thinking: req.Thinking, Session: req.Session, OpenAIBaseURL: openAIBaseURL,
 	})
 	if err != nil {
@@ -1658,9 +1647,6 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 	criteria, _ := json.Marshal(req.AcceptanceCriteria)
 	allowedCommands, _ := json.Marshal(req.AllowedCommands)
 	forbiddenPaths, _ := json.Marshal(req.ForbiddenPaths)
-	allowedSecrets, _ := json.Marshal(req.AllowedSecrets)
-	testCommandJSON, _ := json.Marshal(req.TestCommand)
-	testCommand := json.RawMessage(testCommandJSON)
 	timeout := req.MaxRuntimeSeconds
 	if timeout == 0 {
 		timeout = 3600
@@ -1669,12 +1655,13 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 		ID: runID, MachineID: machineID, WorkspaceID: workspaceID, IssueID: runIssueID, CheckoutID: checkoutID,
 		RequestedByUserID: &userID, ProviderID: req.Provider, Mode: req.Mode,
 		Status: domain.DevMachineAgentRunStatusQueued, Prompt: prompt, AcceptanceCriteria: criteria,
-		AllowedCommands: allowedCommands, ForbiddenPaths: forbiddenPaths, AllowedSecrets: allowedSecrets, TestCommand: &testCommand,
+		AllowedCommands: allowedCommands, ForbiddenPaths: forbiddenPaths,
 		CommandArgv: commandArgv, CommandEnvironment: commandEnvironment, Model: req.Model, Thinking: req.Thinking,
 		MaxRuntimeSeconds: timeout, PushBranch: pushBranch,
 		NativeSessionID: nativeSession, ProfileFiles: profileFiles,
 		NotebookRequired: req.NotebookRequired, WorktreeReadOnly: req.WorktreeReadOnly,
 	}
+	run.AllowedSecrets, _ = json.Marshal(req.AllowedSecrets)
 	if req.Session != nil && req.Mode == "autonomous" {
 		// The command of the closing continuation, which continues this
 		// attempt's session once to ask for what is missing when it
@@ -2427,9 +2414,6 @@ func buildAgentPrompt(machine *domain.DevMachine, checkout *domain.DevMachineChe
 		for _, criterion := range request.AcceptanceCriteria {
 			fmt.Fprintf(&builder, "  - %s\n", criterion)
 		}
-	}
-	if len(request.TestCommand) > 0 {
-		fmt.Fprintf(&builder, "- Run this exact test argv: %q\n", request.TestCommand)
 	}
 	if !request.UseRootWorkspace && (request.PushBranch == nil || *request.PushBranch) {
 		builder.WriteString("- Commit the completed changes and push the working branch using the provided GitHub App credential.\n")

@@ -139,7 +139,7 @@ assistant that can hand issues to coding agents running on your own machines.
 
 - Multi-container dev machines with code-server, a native terminal and an in-browser Chrome, behind an authenticated gateway, with one Git worktree per issue.
 - Coding agents: Claude Code, Codex, OpenCode, Qwen Code, Crush, Goose and Kimi, plus admin-configured CLIs.
-- Delegated tasks run an independent check, open a pull request, and pick up CI failures and review feedback. Blocked issues wait for their blockers.
+- Delegated tasks run relevant tests, report the results, open a pull request, and pick up CI failures and review feedback. Blocked issues wait for their blockers.
 - Automations start agents on issues matching a label or status.
 
 </details>

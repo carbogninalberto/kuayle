@@ -201,8 +201,6 @@ func TestRetryFindsThePreviousAttemptsRecordedOutcome(t *testing.T) {
 	require.NotNil(t, previous)
 	require.Equal(t, current.RunID, previous.AttemptID)
 	require.Equal(t, "succeeded", previous.Status)
-	require.Equal(t, "succeeded", previous.Validation)
-	require.Equal(t, 0, *previous.ValidationExitCode)
 	require.Equal(t, "https://github.com/fixture/repo/pull/12", previous.PullRequestURL)
 }
 

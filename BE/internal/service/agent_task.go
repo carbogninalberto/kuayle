@@ -41,7 +41,6 @@ type taskLifecycleStore interface {
 	CompleteReview(context.Context, domain.AgentTask) error
 }
 type taskExecutionRuntime interface {
-	Validate(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error)
 	Publish(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error)
 	Prepare(context.Context, *domain.AgentTask) (bool, error)
 	Attempt(context.Context, domain.AgentTask) (*domain.DevMachineAgentRun, error)
@@ -54,7 +53,6 @@ type taskRuntimeStore interface {
 	ReserveMachine(context.Context, domain.AgentTask, uuid.UUID, *uuid.UUID) (repository.MachineReservation, error)
 	PreviousAttempt(context.Context, domain.AgentTask) (*domain.AgentHandoff, error)
 	CancelAttempt(context.Context, domain.AgentTask) error
-	EnsureValidation(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error)
 	EnsurePublication(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error)
 	ProfileBundle(context.Context, domain.AgentTask) (*domain.AgentProfileBundle, error)
 }
@@ -210,10 +208,6 @@ func (s *AgentTaskService) announceAgentStatus(ctx context.Context, task domain.
 	s.events.Broadcast(task.WorkspaceID, realtime.Event{Type: "issue.agents_updated", Payload: map[string]string{"issue_id": task.IssueID.String()}})
 }
 
-// unvalidatedPublishingReason marks a publication that follows a skipped
-// check; the publishing state keeps it until the pull request is recorded.
-const unvalidatedPublishingReason = "No check command is configured; publishing a draft pull request without validation"
-
 func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) error {
 	if task.State == "cancelling" {
 		if err := s.runtime.Cancel(ctx, task); err != nil {
@@ -247,38 +241,15 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			return nil
 		}
 	}
+	// Finish tasks that were already between implementation and publication at upgrade.
 	if task.State == "validating" {
-		result, err := s.runtime.Validate(ctx, task)
-		if err != nil {
-			return s.preparationError(ctx, task, err)
-		}
-		if result == nil {
-			return nil
-		}
 		if task.RunsWorkflow() {
-			return s.workflowValidated(ctx, task, result)
-		}
-		switch result.Status {
-		case domain.DevMachineAgentRunStepStatusSucceeded:
-			return s.store.Transition(ctx, task, "publishing", "Independent validation passed; preparing review artifacts")
-		case domain.DevMachineAgentRunStepStatusSkipped:
-			// The work is still published, as a draft that says it was not tested.
-			return s.store.Transition(ctx, task, "publishing", unvalidatedPublishingReason)
-		case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
-			// Name the command that failed, not only that validation did.
-			cause := "Independent validation failed; stopping execution before retry"
-			if command, exit, failed := result.FailedCommand(); failed {
-				cause = fmt.Sprintf("An independent check failed: %s exit %d", truncateRunes(strings.Join(command, " "), 300), exit)
-				if result.CommandSource != nil && *result.CommandSource == domain.CheckSourceAgent {
-					cause = fmt.Sprintf("Kuayle re-ran the agent's tests and they failed: %s exit %d", truncateRunes(strings.Join(command, " "), 300), exit)
-				}
+			if s.workflow == nil {
+				return ErrInvalidOperation
 			}
-			if result.Status == domain.DevMachineAgentRunStepStatusFailed {
-				return s.store.FailWithClass(ctx, task, domain.FailureAgent, domain.TaskFailureReason(domain.FailureAgent, cause))
-			}
-			return s.store.Fail(ctx, task, cause)
+			return s.workflow.Outcome(ctx, task, domain.WorkflowChecksSkipped, "Continuing past a retired workflow step")
 		}
-		return nil
+		return s.store.Transition(ctx, task, "publishing", "Preparing the pull request")
 	}
 	if task.State == "publishing" {
 		result, err := s.runtime.Publish(ctx, task)
@@ -301,13 +272,10 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			return s.workflowPublished(ctx, task, result)
 		}
 		// Only a recorded pull request reaches review. Publishing failures keep
-		// the validated work in place, so the task blocks instead of failing.
+		// the work in place, so the task blocks instead of failing.
 		switch result.Status {
 		case domain.DevMachineAgentRunStepStatusSucceeded:
 			reason := "Pull request opened; waiting for human review"
-			if task.Reason == unvalidatedPublishingReason {
-				reason = "Draft pull request opened without validation; no check command is configured. Review it, and add a check in the development settings"
-			}
 			if err := s.store.Transition(ctx, task, "awaiting_review", reason); err != nil {
 				return err
 			}
@@ -449,7 +417,7 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 				return err
 			}
 		}
-		// A review ends with its findings; it is never validated or published.
+		// A review ends with its findings; it is never published.
 		if task.Kind == domain.AgentTaskKindReview {
 			return s.store.CompleteReview(ctx, task)
 		}
@@ -457,13 +425,12 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if task.RunsWorkflow() && s.workflow != nil {
 			return s.workflow.AgentFinished(ctx, task)
 		}
-		// Process success is not evidence that independent validation passed.
-		reason := "Implementation iteration finished; independent validation is pending"
+		reason := "Implementation iteration finished; preparing the pull request"
 		// A missing notebook update never fails the attempt; the task says it.
 		if run.NotebookProblem != nil && (domain.IsNotebookNotUpdated(*run.NotebookProblem) || *run.NotebookProblem == domain.NotebookNotCollected) {
 			reason += ". " + *run.NotebookProblem
 		}
-		return s.store.Transition(ctx, task, "validating", reason)
+		return s.store.Transition(ctx, task, "publishing", reason)
 	}
 	return nil
 }
@@ -781,13 +748,6 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	// issues (a full build and test cycle across several services) routinely
 	// take more than an hour.
 	const timeout = 3 * 60 * 60
-	var command []string
-	if len(task.ValidationCommand) > 0 && json.Unmarshal(task.ValidationCommand, &command) != nil {
-		return nil, ErrInvalidMachineInput
-	}
-	if domain.ValidateTestCommand(command) != nil {
-		return nil, ErrInvalidMachineInput
-	}
 	review := task.Kind == domain.AgentTaskKindReview
 	var previous *domain.AgentHandoff
 	if task.Generation > 1 && !review {
@@ -945,7 +905,7 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	// review is never published. Without push the manager adds no GitHub token.
 	push := false
 	checkout := task.CheckoutID.String()
-	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: prompt, TestCommand: command, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, ModelServerID: task.ModelServerID, PushBranch: &push, MaxRuntimeSeconds: timeout, Session: session, ProfileFiles: profileFiles,
+	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: prompt, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, ModelServerID: task.ModelServerID, PushBranch: &push, MaxRuntimeSeconds: timeout, Session: session, ProfileFiles: profileFiles,
 		PromptSources: assembly.sources(), NotebookRequired: notebook != nil,
 		// A planning step cannot change code: its worktree is read-only where
 		// the harness can run that way.
@@ -1039,16 +999,6 @@ func (r *devMachineTaskRuntime) Cancel(ctx context.Context, task domain.AgentTas
 	return r.tasks.CancelAttempt(ctx, task)
 }
 
-func (r *devMachineTaskRuntime) Validate(ctx context.Context, task domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {
-	if err := r.machines.RequireMachineUse(task.CreatorID); err != nil {
-		return nil, err
-	}
-	if _, err := r.machines.enabledPolicy(ctx, task.WorkspaceID); err != nil {
-		return nil, err
-	}
-	return r.tasks.EnsureValidation(ctx, task)
-}
-
 func (r *devMachineTaskRuntime) Publish(ctx context.Context, task domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {
 	if err := r.machines.RequireMachineUse(task.CreatorID); err != nil {
 		return nil, err
@@ -1107,17 +1057,6 @@ func withLiveHandoff(prompt string, previous *domain.AgentHandoff, resumed, cont
 	}
 	if previous.NoFinalMessage {
 		b.WriteString("- The previous attempt ended without a final message, so nothing says what it did. Its changes are still in this worktree: check the worktree (git status, git diff) before you change anything, finish what is missing, and end with a summary of what was done, by that attempt and by you.\n")
-	}
-	switch {
-	case previous.Validation == "":
-		b.WriteString("- Independent check: not run\n")
-	case previous.ValidationExitCode != nil:
-		fmt.Fprintf(&b, "- Independent check: %s (exit code %d)\n", previous.Validation, *previous.ValidationExitCode)
-	default:
-		fmt.Fprintf(&b, "- Independent check: %s\n", previous.Validation)
-	}
-	if previous.ValidationSource == domain.CheckSourceAgent && len(previous.FailedCommand) > 0 && previous.FailedCommandExitCode != nil {
-		fmt.Fprintf(&b, "- Kuayle re-ran the tests you declared in %s and `%s` failed (exit code %d); its output is on the task. Fix the cause, then declare your tests again.\n", domain.AgentValidationFile, strings.ReplaceAll(truncateRunes(strings.Join(previous.FailedCommand, " "), 500), "`", "'"), *previous.FailedCommandExitCode)
 	}
 	if previous.PullRequestURL != "" {
 		fmt.Fprintf(&b, "- Published pull request: %s (keep working on its branch)\n", previous.PullRequestURL)
@@ -1264,7 +1203,7 @@ func withQA(prompt string, task domain.AgentTask) string {
 }
 
 // planningLine frames a workflow's planning step. It replaces the lines an
-// implementing attempt gets (manual QA, the tests Kuayle re-runs): a planning
+// implementing attempt gets (manual QA, testing): a planning
 // step changes nothing, so there is nothing to try or test. The runner fails
 // the step when the worktree changed or the final message is no plan.
 var planningLine = fmt.Sprintf("Planning step: plan this for the next agent; do not implement it. Read whatever you need, but leave this worktree exactly as it is: do not create, edit, move or delete files in it (files git ignores included), do not commit, and do not stage changes (the worktree is mounted read-only where Kuayle can, and a step that changes it fails). The only place you write is Kuayle's own `.kuayle/` directory in it, for messages and your notebook update. Your final message is the plan and nothing else: Kuayle hands it, whole, to the agent of the next step as its instructions, and that agent has not seen this conversation. Write it for that agent: what to change and where (files, functions), in which order, which tests to add or run, the decisions you made and why, and what to leave alone. Keep it under %d characters; a step without a final message, or with a longer one, fails.", domain.PlanMaxCharacters)
@@ -1276,9 +1215,9 @@ var planningLine = fmt.Sprintf("Planning step: plan this for the next agent; do 
 func withContract(prompt string, task domain.AgentTask, related []domain.RelatedWork, planning bool) string {
 	if !planning {
 		prompt = withQA(prompt, task)
-		prompt = withValidationFile(prompt)
 		prompt = withPublication(prompt)
 		prompt = withPullRequestFile(prompt)
+		prompt += "\n\nBefore finishing, run the tests relevant to your change. In your summary, say what you ran and what you skipped."
 	}
 	prompt = withOutbox(prompt, related)
 	prompt = withLiveChannel(prompt)
@@ -1288,23 +1227,12 @@ func withContract(prompt string, task domain.AgentTask, related []domain.Related
 	return prompt
 }
 
-// validationFileLine asks an implement attempt to choose the tests Kuayle
-// reruns. A configured check still overrides them.
-const validationFileLine = "Tests Kuayle re-runs: before you finish, pick the fast tests relevant to your change (avoid tests that need a database or other services when you can), run them yourself, then write `.kuayle/validation.json` at this worktree's root as {\"commands\":[[\"sh\",\"-c\",\"cd BE && go test ./internal/service/...\"]],\"summary\":\"what you tested and why, and what you did not\"} (at most 8 argv arrays, summary at most 2000 characters). Unless the project configures its own check, Kuayle re-runs those commands in a clean container without credentials or databases, and the pull request opens ready for review only if they pass. See the kuayle-agents skill."
-
-func withValidationFile(prompt string) string {
-	if strings.Contains(prompt, validationFileLine) || len(prompt)+len(validationFileLine) > 31500 {
-		return prompt
-	}
-	return prompt + "\n\n" + validationFileLine
-}
-
 // publicationLine tells an implementing attempt who commits and pushes. The
 // attempt's container has no git identity and no GitHub credential by design
 // (Kuayle commits as the workspace's configured author and pushes with its
 // own token), and agents that tried reported the refusal as a failure. It
 // also asks for the final message a run must end with.
-const publicationLine = "Publishing: Kuayle commits and pushes for you. Before editing, check git status. If the checkout conflicts with the fetched task branch, resolve and stage the affected files. When you finish, Kuayle commits every change in this worktree as the workspace's configured author, pushes the task branch and opens or updates the pull request. This container has no git identity and no GitHub token on purpose, so do not run git commit, git push or gh, do not configure a git identity, and do not report their absence as a problem: leave your changes uncommitted in the worktree. End with a final message that says what you changed and what you tested; the next step and the reviewer read it, and a run that ends without one fails."
+const publicationLine = "Publishing: Kuayle commits and pushes for you. Before editing, check git status. If the checkout conflicts with the fetched task branch, resolve and stage the affected files. When you finish, Kuayle commits every change in this worktree as the workspace's configured author, pushes the task branch and opens or updates the pull request. This container has no git identity and no GitHub token on purpose, so do not run git commit, git push or gh, do not configure a git identity, and do not report their absence as a problem: leave your changes uncommitted in the worktree. In your final message, say what you changed; the next step and the reviewer read it, and a run that ends without one fails."
 
 func withPublication(prompt string) string {
 	if strings.Contains(prompt, publicationLine) || len(prompt)+len(publicationLine) > 32000 {
@@ -1367,32 +1295,6 @@ func (r *devMachineTaskRuntime) attachAgent(ctx context.Context, machine *domain
 		if err = r.machines.store.AttachAgentProvider(ctx, &providers[i]); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-// workflowValidated reports the independent check's result to the workflow.
-// A skipped check (none configured) is never a pass: only an "else"
-// transition follows it.
-func (s *AgentTaskService) workflowValidated(ctx context.Context, task domain.AgentTask, result *domain.DevMachineAgentRunStep) error {
-	if s.workflow == nil {
-		return ErrInvalidOperation
-	}
-	summary := ""
-	if result.Summary != nil {
-		summary = *result.Summary
-	}
-	switch result.Status {
-	case domain.DevMachineAgentRunStepStatusSucceeded:
-		return s.workflow.Outcome(ctx, task, domain.WorkflowChecksPassed, summary)
-	case domain.DevMachineAgentRunStepStatusSkipped:
-		return s.workflow.Outcome(ctx, task, domain.WorkflowChecksSkipped, summary)
-	case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
-		detail := "Independent validation failed"
-		if command, exit, failed := result.FailedCommand(); failed {
-			detail = fmt.Sprintf("Kuayle re-ran %s and it exited %d", truncateRunes(strings.Join(command, " "), 300), exit)
-		}
-		return s.workflow.Outcome(ctx, task, domain.WorkflowChecksFailed, detail)
 	}
 	return nil
 }

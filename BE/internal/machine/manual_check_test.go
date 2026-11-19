@@ -119,7 +119,7 @@ func TestManualCheckContainerIsNamedPerStepAndGetsNoCredentials(t *testing.T) {
 	docker, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.52"))
 	require.NoError(t, err)
 	defer docker.Close()
-	result, err := (&DockerRuntime{client: docker}).RunValidation(context.Background(), machine, run, step, 0, checkout, "developer:fixture", &AgentObserver{})
+	result, err := (&DockerRuntime{client: docker}).RunManualCheck(context.Background(), machine, run, step, checkout, "developer:fixture", &AgentObserver{})
 	require.NoError(t, err)
 	require.Zero(t, result.ExitCode)
 	name := "kuayle-fixture-check-" + step.ID.String()

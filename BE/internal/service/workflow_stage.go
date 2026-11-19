@@ -15,7 +15,7 @@ func (w *WorkflowRunner) finishStage(ctx context.Context, task domain.AgentTask,
 		return err
 	}
 	// A changed worktree is a new attempt. Only an unchanged worktree may
-	// continue using the input attempt's validation and published PR.
+	// continue using the input attempt's published PR.
 	work := task
 	unchanged := run.WorktreeChanged != nil && !*run.WorktreeChanged
 	if step.StageFirstRunID != nil && *step.StageFirstRunID != task.RunID {

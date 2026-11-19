@@ -45,13 +45,13 @@ type AgentTask struct {
 	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
 
-	TestCommand       *json.RawMessage `json:"test_command" db:"test_command"`
-	ValidationCommand json.RawMessage  `json:"validation_command" db:"validation_command"`
+	LegacyTestCommand       ignoredColumn `json:"-" db:"test_command"`
+	LegacyValidationCommand ignoredColumn `json:"-" db:"validation_command"`
 	// AgentInstructions are the inherited project instructions accepted with
 	// this attempt; trusted configuration set by workspace members.
 	AgentInstructions string `json:"agent_instructions" db:"agent_instructions"`
 	// ComposeFile is the inherited repository-relative Compose file whose
-	// services run beside the independent check; empty means none.
+	// services run beside a manual check; empty means none.
 	ComposeFile string `json:"compose_file" db:"compose_file"`
 	// PreviewCommand and its preferred PreviewPort start a QA preview when
 	// the task reaches review or on request; an empty command means none.
@@ -203,8 +203,6 @@ type AgentTaskRequest struct {
 	// ModelServerID picks a workspace model server; nil uses the default.
 	ModelServerID *uuid.UUID `json:"model_server_id,omitempty"`
 
-	TestCommand []string `json:"test_command"`
-
 	// WorkflowID chooses the task's workflow: a workflow's ID, "standard",
 	// or omitted for the issue's project, team or workspace default.
 	WorkflowID *string `json:"workflow_id,omitempty"`
@@ -242,8 +240,6 @@ type AgentTaskRetryRequest struct {
 	// ConfirmMerged starts the new attempt although the issue's work was
 	// already merged; without it that retry is a MergedWorkError (KUA-193).
 	ConfirmMerged bool `json:"confirm_merged,omitempty"`
-
-	TestCommand []string `json:"test_command"`
 }
 
 type AgentTaskTransition struct {
@@ -297,7 +293,7 @@ func ValidAgentTaskTransition(from, to string) bool {
 	case "preparing":
 		return to == "running"
 	case "running":
-		return to == "waiting_input" || to == "validating"
+		return to == "waiting_input" || to == "publishing"
 	case "waiting_input":
 		return to == "running"
 	case "validating":
@@ -375,15 +371,6 @@ type AgentPublication struct {
 	IssueIdentifier string
 	IssueTitle      string
 	FromStoppedTask bool
-	// The independent check that passed for this attempt, for the PR body.
-	CheckArgv     []string
-	CheckExitCode *int
-	// CheckSource is configured or agent; CheckCommands are every command it
-	// ran with its exit code, and AgentSummary is the agent's own, untrusted
-	// account of what it chose to test.
-	CheckSource   string
-	CheckCommands []CheckCommandRun
-	AgentSummary  string
 	// The workspace's configured commit author, when set.
 	AuthorName, AuthorEmail string
 	// The last commit Kuayle published on the task branch, if any.
@@ -537,21 +524,14 @@ type AgentTaskFollowUp struct {
 // harness sessions are not restored across attempts, so a successor receives
 // this explicit handoff instead of hidden context.
 type AgentHandoff struct {
-	AttemptID          uuid.UUID
-	MachineID          uuid.UUID
-	NativeSessionID    string
-	Status             string
-	Summary            string
-	ChangedFiles       []string
-	Validation         string
-	ValidationExitCode *int
-	// ValidationSource says whether the check was configured or the agent's
-	// own choice; FailedCommand is its first failing command, if any.
-	ValidationSource      string
-	FailedCommand         []string
-	FailedCommandExitCode *int
-	PullRequestURL        string
-	PublicationBlock      string
+	AttemptID        uuid.UUID
+	MachineID        uuid.UUID
+	NativeSessionID  string
+	Status           string
+	Summary          string
+	ChangedFiles     []string
+	PullRequestURL   string
+	PublicationBlock string
 	// ContinuedInteractively means the user opened this attempt's native
 	// session in Claude Code through the task terminal.
 	ContinuedInteractively bool
@@ -571,7 +551,7 @@ type AgentHandoff struct {
 	FailureRule string
 }
 
-// ValidationArtifact is a file the independent check left in its report
+// ValidationArtifact is a file a check left in its report
 // directories. Content is untrusted and only ever served as a download or
 // an inert image.
 type ValidationArtifact struct {
@@ -583,3 +563,8 @@ type ValidationArtifact struct {
 	Data        []byte    `json:"-" db:"data"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 }
+
+// ignoredColumn lets sqlx scan legacy columns in full-row queries without retaining their values.
+type ignoredColumn struct{}
+
+func (*ignoredColumn) Scan(any) error { return nil }

@@ -22,8 +22,8 @@ import (
 // fenced transaction (repository.ApplyWorkflow), so a restart resumes from
 // the persisted cursor and nothing runs twice. Each node reuses the task's
 // existing machinery: an agent step that plans or changes code is an
-// iteration, a reviewing step a review task, a tests check the independent
-// validation, a publish step the publication, and waiting nodes wait in
+// iteration, a reviewing step a review task, a publish step the publication,
+// and waiting nodes wait in
 // awaiting_review. What an agent step is comes from its profile's behaviour.
 
 type workflowTaskStore interface {
@@ -34,7 +34,6 @@ type workflowTaskStore interface {
 	LatestWorkflowPlan(context.Context, domain.AgentTask) (string, error)
 	WorkflowCI(context.Context, domain.AgentTask) (*repository.WorkflowCI, error)
 	HasPublishedWork(context.Context, domain.AgentTask) (bool, error)
-	ValidationOutput(context.Context, domain.AgentTask) (string, error)
 	WorkflowRun(context.Context, domain.AgentTask) (*repository.WorkflowRun, error)
 	SetWorkflowWake(context.Context, domain.AgentTask, *time.Time) error
 	ScopeInstructions(context.Context, domain.AgentTask) (string, error)
@@ -457,14 +456,8 @@ func (w *WorkflowRunner) enterNative(ctx context.Context, task domain.AgentTask,
 			}
 			return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: reason + "; waiting for CI on the pull request", WakeAt: wake()}, "", "", nil
 		}
-		run, err := w.tasks.WorkflowRun(ctx, task)
-		if err != nil {
-			return repository.WorkflowEntry{}, "", "", err
-		}
-		if run.Status != string(domain.DevMachineAgentRunStatusSucceeded) {
-			return repository.WorkflowEntry{}, domain.WorkflowChecksFailed, to.Label + ": the last agent iteration did not finish, so there is nothing to check", nil
-		}
-		return repository.WorkflowEntry{Kind: repository.WorkflowEnterValidate, Reason: reason + "; independent validation is pending"}, "", "", nil
+		// Older workflow versions can still contain a local check.
+		return repository.WorkflowEntry{}, domain.WorkflowChecksSkipped, "Continuing past a retired workflow step", nil
 	case domain.WorkflowNodePublish:
 		run, err := w.tasks.WorkflowRun(ctx, task)
 		if err != nil {
@@ -658,13 +651,6 @@ func (w *WorkflowRunner) variables(ctx context.Context, task domain.AgentTask, g
 		}
 	case node.Type == domain.WorkflowNodeCheck && outcome == domain.WorkflowChecksFailed:
 		vars.FailingChecks = detail
-		if node.Check == domain.WorkflowCheckTests {
-			output, err := w.tasks.ValidationOutput(ctx, task)
-			if err != nil {
-				return vars, err
-			}
-			vars.FailingChecks = strings.TrimSpace(output + "\n" + detail)
-		}
 	}
 	return vars, nil
 }

@@ -322,7 +322,7 @@ func (s *AgentTaskService) resolveIssueWorkflow(ctx context.Context, ws, issue u
 	if err != nil {
 		return err
 	}
-	if len(domain.ValidateWorkflowGraph(*graph, profiles)) > 0 {
+	if len(domain.ValidateStoredWorkflowGraph(*graph, profiles)) > 0 {
 		return ErrWorkflowUnusable
 	}
 	for _, node := range graph.Nodes {
