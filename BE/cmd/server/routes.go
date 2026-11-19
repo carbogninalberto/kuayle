@@ -61,6 +61,7 @@ type appHandlers struct {
 	auth              *handler.AuthHandler
 	passkey           *handler.PasskeyHandler
 	sso               *handler.SSOHandler
+	scim              *handler.SCIMHandler
 	workspace         *handler.WorkspaceHandler
 	team              *handler.TeamHandler
 	issue             *handler.IssueHandler
@@ -145,6 +146,27 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 		public(auth, http.MethodGet, "/sso/:slug/callback", h.sso.Callback)
 		public(auth, http.MethodGet, "/sso/:slug/metadata", h.sso.Metadata)
 		public(auth, http.MethodPost, "/sso/:slug/callback", h.sso.Callback)
+	}
+
+	if h.scim != nil {
+		scim := e.Group(handler.SCIMPath)
+		for _, route := range []struct {
+			path    string
+			handle  echo.HandlerFunc
+			methods []string
+		}{
+			{"/Users", h.scim.Users, []string{http.MethodGet, http.MethodPost}},
+			{"/Users/:id", h.scim.User, []string{http.MethodGet, http.MethodPut, http.MethodPatch, http.MethodDelete}},
+			{"/Groups", h.scim.Groups, []string{http.MethodGet, http.MethodPost}},
+			{"/Groups/:id", h.scim.Group, []string{http.MethodGet, http.MethodPut, http.MethodPatch, http.MethodDelete}},
+		} {
+			for _, method := range route.methods {
+				addNamedRoute(scim, method, route.path, route.handle, "scim")
+			}
+		}
+		for _, path := range []string{"/ServiceProviderConfig", "/Schemas", "/Schemas/:id", "/ResourceTypes", "/ResourceTypes/:id"} {
+			addNamedRoute(scim, http.MethodGet, path, h.scim.Discovery, "scim")
+		}
 	}
 
 	// Public share routes (no auth, rate limited)
@@ -255,6 +277,14 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 		sessionOnly(ws, http.MethodGet, "/sso", h.sso.Get, mw.RequireWorkspaceAdmin())
 		sessionOnly(ws, http.MethodPut, "/sso", h.sso.Save, mw.RequireWorkspaceAdmin())
 		sessionOnly(ws, http.MethodDelete, "/sso", h.sso.Delete, mw.RequireWorkspaceAdmin())
+	}
+
+	if h.scim != nil {
+		sessionOnly(ws, http.MethodGet, "/scim/token", h.scim.TokenStatus, mw.RequireWorkspaceAdmin())
+		sessionOnly(ws, http.MethodPost, "/scim/token", h.scim.RotateToken, mw.RequireWorkspaceAdmin())
+		sessionOnly(ws, http.MethodDelete, "/scim/token", h.scim.RevokeToken, mw.RequireWorkspaceAdmin())
+		sessionOnly(ws, http.MethodPut, "/scim/groups/:id/team", h.scim.MapGroup, mw.RequireWorkspaceAdmin())
+		sessionOnly(ws, http.MethodDelete, "/scim/groups/:id/team", h.scim.MapGroup, mw.RequireWorkspaceAdmin())
 	}
 
 	// Teams

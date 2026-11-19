@@ -149,6 +149,23 @@ authentication.
 | GET | `/api/public/share/:token/issues` | public |  |
 | GET | `/api/public/system/update-activity` | public |  |
 | GET | `/api/public/wiki/:token` | public |  |
+| GET | `/api/scim/v2/:slug/Groups` | SCIM bearer only | workspace provisioning token |
+| POST | `/api/scim/v2/:slug/Groups` | SCIM bearer only | workspace provisioning token |
+| DELETE | `/api/scim/v2/:slug/Groups/:id` | SCIM bearer only | workspace provisioning token |
+| GET | `/api/scim/v2/:slug/Groups/:id` | SCIM bearer only | workspace provisioning token |
+| PATCH | `/api/scim/v2/:slug/Groups/:id` | SCIM bearer only | workspace provisioning token |
+| PUT | `/api/scim/v2/:slug/Groups/:id` | SCIM bearer only | workspace provisioning token |
+| GET | `/api/scim/v2/:slug/ResourceTypes` | SCIM bearer only | workspace provisioning token |
+| GET | `/api/scim/v2/:slug/ResourceTypes/:id` | SCIM bearer only | workspace provisioning token |
+| GET | `/api/scim/v2/:slug/Schemas` | SCIM bearer only | workspace provisioning token |
+| GET | `/api/scim/v2/:slug/Schemas/:id` | SCIM bearer only | workspace provisioning token |
+| GET | `/api/scim/v2/:slug/ServiceProviderConfig` | SCIM bearer only | workspace provisioning token |
+| GET | `/api/scim/v2/:slug/Users` | SCIM bearer only | workspace provisioning token |
+| POST | `/api/scim/v2/:slug/Users` | SCIM bearer only | workspace provisioning token |
+| DELETE | `/api/scim/v2/:slug/Users/:id` | SCIM bearer only | workspace provisioning token |
+| GET | `/api/scim/v2/:slug/Users/:id` | SCIM bearer only | workspace provisioning token |
+| PATCH | `/api/scim/v2/:slug/Users/:id` | SCIM bearer only | workspace provisioning token |
+| PUT | `/api/scim/v2/:slug/Users/:id` | SCIM bearer only | workspace provisioning token |
 | POST | `/api/system/backups/run` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
 | GET | `/api/system/backups/runs` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
 | POST | `/api/system/backups/runs/:id/verify` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
@@ -477,6 +494,11 @@ authentication.
 | PATCH | `/api/workspaces/:slug/projects/:id/wiki/settings` | token | wiki:write |
 | GET | `/api/workspaces/:slug/projects/:id/wiki/tree` | token | wiki:read |
 | POST | `/api/workspaces/:slug/projects/:id/wiki/tree` | token | wiki:write |
+| DELETE | `/api/workspaces/:slug/scim/groups/:id/team` | session only | Only an interactive workspace owner or admin may manage its provisioning token and team mappings. |
+| PUT | `/api/workspaces/:slug/scim/groups/:id/team` | session only | Only an interactive workspace owner or admin may manage its provisioning token and team mappings. |
+| DELETE | `/api/workspaces/:slug/scim/token` | session only | Only an interactive workspace owner or admin may manage its provisioning token and team mappings. |
+| GET | `/api/workspaces/:slug/scim/token` | session only | Only an interactive workspace owner or admin may manage its provisioning token and team mappings. |
+| POST | `/api/workspaces/:slug/scim/token` | session only | Only an interactive workspace owner or admin may manage its provisioning token and team mappings. |
 | GET | `/api/workspaces/:slug/shared-links` | session only | Shared links publish workspace data publicly and stay an interactive decision. |
 | POST | `/api/workspaces/:slug/shared-links` | session only | Shared links publish workspace data publicly and stay an interactive decision. |
 | DELETE | `/api/workspaces/:slug/shared-links/:id` | session only | Shared links publish workspace data publicly and stay an interactive decision. |
