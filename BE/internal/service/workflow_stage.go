@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -29,9 +31,6 @@ func (w *WorkflowRunner) finishStage(ctx context.Context, task domain.AgentTask,
 	if step.StageInputRunID != nil && problem == "" {
 		work.RunID = *step.StageInputRunID
 	}
-	fail := func(problem string) error {
-		return w.AgentFailedBecause(ctx, task, problem)
-	}
 	last := strings.TrimSpace(run.Summary)
 	if i := strings.LastIndexByte(last, '\n'); i >= 0 {
 		last = strings.TrimSpace(last[i+1:])
@@ -41,20 +40,15 @@ func (w *WorkflowRunner) finishStage(ctx context.Context, task domain.AgentTask,
 	if !run.FinalMessage || run.SummaryTruncated {
 		last = ""
 	}
+	outcome, warning := stageRoute(graph, node, last)
 	var apply *repository.WorkflowApply
-	if id, chosen := strings.CutPrefix(last, "KUAYLE_STAGE_ROUTE "); chosen {
-		outcome := domain.WorkflowAssistant + ":" + id
-		if decision := graph.Decide(work.Cursor(), outcome, w.now(), profiles); decision.Stuck {
-			return fail("The stage assistant selected an unavailable transition")
-		}
+	if outcome != "" {
 		apply, err = w.plan(ctx, work, outcome, run.NotebookNote, false)
-	} else if strings.HasPrefix(last, "KUAYLE_STAGE_") && last != "KUAYLE_STAGE_CONTINUE" {
-		return fail("The stage assistant did not end its final message with a valid routing decision")
 	} else if node.Type == domain.WorkflowNodeStart {
 		apply, err = w.plan(ctx, work, domain.WorkflowElse, run.NotebookNote, false)
 	} else {
 		if node.StageReadsWorktree() && problem != "" {
-			return fail(problem)
+			return w.AgentFailedBecause(ctx, task, strings.TrimSpace(problem+" "+warning))
 		}
 		entry, immediate, detail, enterErr := w.enterNative(ctx, work, graph, profiles, node, domain.WorkflowReasonPrefix+node.Label, w.now(), step.MergeWait())
 		if enterErr != nil {
@@ -69,12 +63,31 @@ func (w *WorkflowRunner) finishStage(ctx context.Context, task domain.AgentTask,
 	if err != nil {
 		return err
 	}
+	if warning != "" {
+		apply.Entry.Reason = truncateUTF8Bytes(apply.Entry.Reason+" "+warning, 2048)
+	}
 	apply.StageFinished = true
 	if work.RunID != task.RunID {
 		apply.RestoreRun = &work.RunID
 	}
 	_, err = w.tasks.ApplyWorkflow(ctx, task, *apply)
 	return err
+}
+
+// An empty outcome runs the built-in stage, including its usual worktree checks.
+func stageRoute(graph domain.WorkflowGraph, node domain.WorkflowNode, last string) (outcome, warning string) {
+	if last == "KUAYLE_STAGE_CONTINUE" || !strings.HasPrefix(last, "KUAYLE_STAGE_") {
+		return "", ""
+	}
+	options := graph.SelectableStageRoutes(node)
+	if id, ok := strings.CutPrefix(last, "KUAYLE_STAGE_ROUTE "); ok && slices.Contains(options, id) {
+		return domain.WorkflowAssistant + ":" + id, ""
+	}
+	selectable := strings.Join(options, ", ")
+	if selectable == "" {
+		selectable = "none"
+	}
+	return "", fmt.Sprintf("Warning: ignored stage assistant directive %q. Using KUAYLE_STAGE_CONTINUE. Selectable transitions: %s.", oneLine(last, 250), selectable)
 }
 
 // Only a stage that kept HEAD and the non-ignored tree may reuse the input
