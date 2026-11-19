@@ -573,8 +573,8 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 		}
 		return tx.Commit()
 	} else if task.FailurePending && task.PlatformRetryPending {
-		// A platform failure (the machine manager restarted): the same step
-		// runs again as a new attempt, with the same visit and iteration.
+		// Retryable platform failures get a new attempt in the same step,
+		// visit and iteration.
 		if _, err = tx.ExecContext(ctx, `UPDATE agent_tasks SET platform_retry_pending=false WHERE id=$1`, task.ID); err != nil {
 			return err
 		}

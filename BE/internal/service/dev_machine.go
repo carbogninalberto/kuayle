@@ -333,7 +333,7 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 		ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, RoutingKey: routingKey,
 		Name: name, Status: domain.DevMachineStatusQueued, DesiredStatus: domain.DevMachineStatusRunning,
 		Generation: 1, ProjectID: projectID, IssueID: issueID, BaseBranch: baseBranch, WorkingBranch: workingBranch,
-		MachineSize: req.Size, Profile: profile, CPUMillis: cpuMillis, MemoryMB: memoryMB, DiskGB: diskGB, PidsLimit: 512,
+		MachineSize: req.Size, Profile: profile, CPUMillis: cpuMillis, MemoryMB: memoryMB, DiskGB: diskGB, PidsLimit: 4096,
 		ServicesConfig: servicesConfig, Labels: json.RawMessage(`{}`), EnvironmentID: environmentID,
 		EnvironmentBuilder: req.EnvironmentBuilder, LastActivityAt: &now,
 		SudoEnabled: policy.AllowSudo && temporary == nil,
