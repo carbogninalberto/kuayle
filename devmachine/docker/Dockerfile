@@ -35,7 +35,7 @@ RUN git init -q rootlesskit && cd rootlesskit \
     && CGO_ENABLED=0 go build -trimpath -buildvcs=false -mod=vendor -o /out/rootlesskit ./cmd/rootlesskit \
     && /out/rootlesskit --version | grep -qx "rootlesskit version $ROOTLESSKIT_VERSION"
 
-FROM docker:29.9.3-dind-rootless@sha256:e3d0fa70055956693134873845b743bbe35b5199c68a52347032ae3e5dbac9a0
+FROM docker:29.10.0-dind-rootless@sha256:5a703ad0d72cd5e4fb4beca8024d6eddef6d22a46ed1d9812bf3d24ff43ccbce
 
 USER 0:0
 COPY docker/kuayle-docker-start docker/kuayle-docker-healthcheck /usr/local/bin/
