@@ -3726,6 +3726,8 @@
 	"workflows.editor.show_panel": "サイドパネルを表示",
 	"workflows.editor.nothing_selected": "キャンバス上、または下のリストからステップか遷移を選択してください。",
 	"workflows.editor.node_label": "名前",
+	"workflows.editor.stage_assistant": "ステージアシスタント",
+	"workflows.condition.assistant": "アシスタントの選択",
 	"workflows.editor.node_profile": "エージェントプロファイル",
 	"workflows.editor.node_profile_placeholder": "プロファイルを選択",
 	"workflows.editor.node_prompt": "イテレーションのプロンプト",

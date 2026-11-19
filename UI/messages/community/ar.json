@@ -3726,6 +3726,8 @@
 	"workflows.editor.show_panel": "إظهار اللوحة الجانبية",
 	"workflows.editor.nothing_selected": "اختر خطوة أو انتقالاً على اللوحة، أو في القوائم أدناه.",
 	"workflows.editor.node_label": "الاسم",
+	"workflows.editor.stage_assistant": "مساعد المرحلة",
+	"workflows.condition.assistant": "اختيار المساعد",
 	"workflows.editor.node_profile": "ملف الوكيل",
 	"workflows.editor.node_profile_placeholder": "اختر ملفاً",
 	"workflows.editor.node_prompt": "موجّه التكرار",

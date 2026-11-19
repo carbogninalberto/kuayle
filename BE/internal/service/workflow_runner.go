@@ -209,6 +209,9 @@ func (w *WorkflowRunner) AgentFinished(ctx context.Context, task domain.AgentTas
 	}
 	// A step whose agent did not update the notebook still finished; the
 	// step's detail says so.
+	if node.Supervised() {
+		return w.finishStage(ctx, task, *graph, profiles, node, *run)
+	}
 	if node.Type != domain.WorkflowNodeAgent || node.ProfileID == nil || !profiles[*node.ProfileID].Plans() {
 		return w.Outcome(ctx, task, domain.WorkflowAgentFinished, run.NotebookNote)
 	}
@@ -389,7 +392,7 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 func afterFailedPlan(to domain.WorkflowNode, profiles map[uuid.UUID]domain.AgentProfile) bool {
 	switch to.Type {
 	case domain.WorkflowNodeEnd, domain.WorkflowNodeApproval:
-		return true
+		return !to.Supervised()
 	case domain.WorkflowNodeAgent:
 		return to.ProfileID != nil && profiles[*to.ProfileID].Plans()
 	}
@@ -400,6 +403,29 @@ func afterFailedPlan(to domain.WorkflowNode, profiles map[uuid.UUID]domain.Agent
 // it finishes with at once and why.
 func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, cursor domain.WorkflowCursor, decision domain.WorkflowDecision, reason string, vars domain.WorkflowVariables, now time.Time) (repository.WorkflowEntry, string, string, error) {
 	to := decision.To
+	if to.Type == domain.WorkflowNodeAgent {
+		return w.enterAgent(ctx, task, to, profiles, cursor, reason, vars, now)
+	}
+	var merge *domain.MergeWait
+	if to.Type == domain.WorkflowNodeEnd && to.Outcome == domain.WorkflowEndDone {
+		// Claim the deferred approval as we enter the end. A supervised end
+		// keeps it on its own step until the assistant hands back control.
+		var err error
+		merge, err = w.deferredShipMerge(ctx, task, now)
+		if err != nil {
+			return repository.WorkflowEntry{}, "", "", err
+		}
+	}
+	if to.Supervised() {
+		to.Prompt = decision.Reason + "\n\n{{previous_summary}}\n\n{{diff}}"
+		entry, outcome, detail, err := w.enterAgent(ctx, task, to, profiles, cursor, reason, vars, now)
+		entry.Merge = merge
+		return entry, outcome, detail, err
+	}
+	return w.enterNative(ctx, task, graph, profiles, to, reason, now, merge)
+}
+
+func (w *WorkflowRunner) enterNative(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, to domain.WorkflowNode, reason string, now time.Time, merge *domain.MergeWait) (repository.WorkflowEntry, string, string, error) {
 	// A waiting node is evaluated as soon as it is entered: what it waits for
 	// may already be there (CI finished during the review), and Evaluate then
 	// sets its next wake-up (its timeout, the time budget, a CI poll).
@@ -410,12 +436,6 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 	switch to.Type {
 	case domain.WorkflowNodeEnd:
 		if to.Outcome == domain.WorkflowEndDone {
-			// A ship approval before the agent steps that led here deferred
-			// its merge to this end: the task is done once it merged (KUA-216).
-			merge, err := w.deferredShipMerge(ctx, task, now)
-			if err != nil {
-				return repository.WorkflowEntry{}, "", "", err
-			}
 			if merge != nil {
 				return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Merge: merge, WakeAt: wake(),
 					Reason: fmt.Sprintf("%s; Kuayle merges pull request #%d, as approved, once every check passes", reason, merge.PullRequest)}, "", "", nil
@@ -423,74 +443,6 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 			return repository.WorkflowEntry{Kind: repository.WorkflowEnterComplete, Reason: reason}, "", "", nil
 		}
 		return repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: reason}, "", "", nil
-	case domain.WorkflowNodeAgent:
-		profile, ok := profiles[*to.ProfileID]
-		if !ok {
-			return repository.WorkflowEntry{}, domain.WorkflowAgentFailed, to.Label + ": its agent profile no longer exists", nil
-		}
-		// Profiles never widen permissions: every step is checked against the
-		// workspace policy as it is now.
-		if err := w.policy(ctx, task.WorkspaceID, profile); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return repository.WorkflowEntry{}, "", "", err
-			}
-			return repository.WorkflowEntry{}, domain.WorkflowAgentFailed, fmt.Sprintf("The workspace policy does not allow %s to run %s: %v", profile.Name, harnessName(profile.Harness), err), nil
-		}
-		if profile.Reviews() {
-			published, err := w.tasks.HasPublishedWork(ctx, task)
-			if err != nil {
-				return repository.WorkflowEntry{}, "", "", err
-			}
-			if !published {
-				return repository.WorkflowEntry{}, domain.WorkflowAgentFailed, to.Label + ": there is no published pull request to review", nil
-			}
-			// The review sees the branch with its base's newest commits; one
-			// that conflicts goes back as changes requested (KUA-209).
-			if _, conflict := w.prepareBranch(ctx, task, false); conflict != "" {
-				return repository.WorkflowEntry{}, domain.WorkflowReviewChangesRequested, conflict, nil
-			}
-			// A review's focus is short, so the plan is not added to it
-			// unless the step's prompt asks for it.
-			reviewVars := vars
-			if !strings.Contains(to.Prompt, "{{plan}}") {
-				reviewVars.Plan = ""
-			}
-			focus := strings.TrimSpace(strings.TrimSpace(profile.Instructions) + "\n\n" + domain.RenderWorkflowPrompt(to.Prompt, reviewVars))
-			// CI is the CI step's; the reviewer is told what it is on the
-			// commit it reviews so it does not block on a run it cannot see.
-			ci, err := w.reviewCI(ctx, task)
-			if err != nil {
-				return repository.WorkflowEntry{}, "", "", err
-			}
-			return repository.WorkflowEntry{Kind: repository.WorkflowEnterReview, Reason: reason + "; " + profile.Name + " reviews the pull request",
-				Review: &domain.AgentReviewRequest{Provider: profile.Harness, Model: profile.Model, Thinking: profile.Effort, Focus: truncateUTF8Bytes(focus, 4000), CI: ci}, WakeAt: wake()}, "", "", nil
-		}
-		scope, err := w.tasks.ScopeInstructions(ctx, task)
-		if err != nil {
-			return repository.WorkflowEntry{}, "", "", err
-		}
-		base, _, _ := strings.Cut(task.Prompt, followUpMarker)
-		heading := fmt.Sprintf("%s%s (visit %d):\n", workflowStepMarker, to.Label, cursor.Visits[to.ID]+1)
-		// The plan is passed whole: the untrusted variables and then the
-		// original instructions give way to it.
-		limit := 32000
-		if vars.Plan != "" {
-			limit = workflowStepBytes
-		}
-		rendered := domain.RenderWorkflowPromptWithin(to.Prompt, vars, limit-len(heading)-len(vars.Rebase))
-		if rendered == "" {
-			rendered = "Continue the task on the existing branch."
-		}
-		if vars.Rebase != "" {
-			rendered = vars.Rebase + "\n\n" + rendered
-		}
-		section := heading + rendered
-		if room := limit - len(section); len(base) > room {
-			base = truncateRunes(base, max(room/4, 0))
-		}
-		return repository.WorkflowEntry{Kind: repository.WorkflowEnterIteration, Reason: reason,
-			Prompt: base + section, Instructions: workflowInstructions(scope, profile, domain.WorkflowNode{}),
-			Provider: profile.Harness, Model: profile.Model, Thinking: profile.Effort}, "", "", nil
 	case domain.WorkflowNodeCheck:
 		if to.Check == domain.WorkflowCheckCI {
 			published, err := w.tasks.HasPublishedWork(ctx, task)
@@ -538,9 +490,82 @@ func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph
 		}
 		return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: reason + "; waiting for approval: " + oneLine(question, 300) + suffix, WakeAt: wake(), NeedsPerson: true}, "", "", nil
 	case domain.WorkflowNodeMerge:
+		if merge != nil {
+			return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Merge: merge, WakeAt: wake(), Reason: reason + "; Kuayle merges the pull request once every check passes"}, "", "", nil
+		}
 		return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: reason + "; waiting for the pull request to be merged (ship it from chat or merge it on GitHub)", WakeAt: wake(), NeedsPerson: true}, "", "", nil
 	}
 	return repository.WorkflowEntry{}, "", "", ErrInvalidOperation
+}
+
+func (w *WorkflowRunner) enterAgent(ctx context.Context, task domain.AgentTask, to domain.WorkflowNode, profiles map[uuid.UUID]domain.AgentProfile, cursor domain.WorkflowCursor, reason string, vars domain.WorkflowVariables, now time.Time) (repository.WorkflowEntry, string, string, error) {
+	profile, ok := profiles[*to.ProfileID]
+	if !ok {
+		return repository.WorkflowEntry{}, domain.WorkflowAgentFailed, to.Label + ": its agent profile no longer exists", nil
+	}
+	// Profiles never widen permissions: every step is checked against the
+	// workspace policy as it is now.
+	if err := w.policy(ctx, task.WorkspaceID, profile); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return repository.WorkflowEntry{}, "", "", err
+		}
+		return repository.WorkflowEntry{}, domain.WorkflowAgentFailed, fmt.Sprintf("The workspace policy does not allow %s to run %s: %v", profile.Name, harnessName(profile.Harness), err), nil
+	}
+	if profile.Reviews() {
+		published, err := w.tasks.HasPublishedWork(ctx, task)
+		if err != nil {
+			return repository.WorkflowEntry{}, "", "", err
+		}
+		if !published {
+			return repository.WorkflowEntry{}, domain.WorkflowAgentFailed, to.Label + ": there is no published pull request to review", nil
+		}
+		// The review sees the branch with its base's newest commits; one
+		// that conflicts goes back as changes requested (KUA-209).
+		if _, conflict := w.prepareBranch(ctx, task, false); conflict != "" {
+			return repository.WorkflowEntry{}, domain.WorkflowReviewChangesRequested, conflict, nil
+		}
+		// A review's focus is short, so the plan is not added to it
+		// unless the step's prompt asks for it.
+		reviewVars := vars
+		if !strings.Contains(to.Prompt, "{{plan}}") {
+			reviewVars.Plan = ""
+		}
+		focus := strings.TrimSpace(strings.TrimSpace(profile.Instructions) + "\n\n" + domain.RenderWorkflowPrompt(to.Prompt, reviewVars))
+		// CI is the CI step's; the reviewer is told what it is on the
+		// commit it reviews so it does not block on a run it cannot see.
+		ci, err := w.reviewCI(ctx, task)
+		if err != nil {
+			return repository.WorkflowEntry{}, "", "", err
+		}
+		return repository.WorkflowEntry{Kind: repository.WorkflowEnterReview, Reason: reason + "; " + profile.Name + " reviews the pull request",
+			Review: &domain.AgentReviewRequest{Provider: profile.Harness, Model: profile.Model, Thinking: profile.Effort, Focus: truncateUTF8Bytes(focus, 4000), CI: ci}, WakeAt: &now}, "", "", nil
+	}
+	scope, err := w.tasks.ScopeInstructions(ctx, task)
+	if err != nil {
+		return repository.WorkflowEntry{}, "", "", err
+	}
+	base, _, _ := strings.Cut(task.Prompt, followUpMarker)
+	heading := fmt.Sprintf("%s%s (visit %d):\n", workflowStepMarker, to.Label, cursor.Visits[to.ID]+1)
+	// The plan is passed whole: the untrusted variables and then the
+	// original instructions give way to it.
+	limit := 32000
+	if vars.Plan != "" {
+		limit = workflowStepBytes
+	}
+	rendered := domain.RenderWorkflowPromptWithin(to.Prompt, vars, limit-len(heading)-len(vars.Rebase))
+	if rendered == "" {
+		rendered = "Continue the task on the existing branch."
+	}
+	if vars.Rebase != "" {
+		rendered = vars.Rebase + "\n\n" + rendered
+	}
+	section := heading + rendered
+	if room := limit - len(section); len(base) > room {
+		base = truncateRunes(base, max(room/4, 0))
+	}
+	return repository.WorkflowEntry{Kind: repository.WorkflowEnterIteration, Reason: reason,
+		Prompt: base + section, Instructions: workflowInstructions(scope, profile, domain.WorkflowNode{}),
+		Provider: profile.Harness, Model: profile.Model, Thinking: profile.Effort}, "", "", nil
 }
 
 // reviewCI reads each check of the published commit from GitHub for a
@@ -655,6 +680,13 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 	node, ok := graph.Node(step.NodeID)
 	if !ok || task.WorkflowStatus == nil || *task.WorkflowStatus != domain.WorkflowStatusWaiting || step.FinishedAt != nil {
 		return w.tasks.SetWorkflowWake(ctx, task, nil)
+	}
+	if step.StageMergeObserved {
+		outcome := domain.WorkflowMerged
+		if node.Type == domain.WorkflowNodeApproval {
+			outcome = domain.WorkflowApprovalApproved
+		}
+		return w.Outcome(ctx, task, outcome, "The published pull request was merged")
 	}
 	// A person approved the merge this step carries out: the merge, not the
 	// step's timeout, decides while it runs (KUA-209). A done end carries the
@@ -867,7 +899,7 @@ func (w *WorkflowRunner) Decide(ctx context.Context, ws, id uuid.UUID, sequence 
 		if apply, err = w.plan(ctx, *task, outcome, "", false); err != nil {
 			return nil, err
 		}
-		if last := len(apply.Moves) - 1; merge != nil && last >= 0 && !apply.Moves[last].Stop && apply.Moves[last].Decision.To.Type == domain.WorkflowNodeMerge && apply.Entry.Kind == repository.WorkflowEnterWait {
+		if last := len(apply.Moves) - 1; merge != nil && last >= 0 && !apply.Moves[last].Stop && apply.Moves[last].Decision.To.Type == domain.WorkflowNodeMerge && (apply.Entry.Kind == repository.WorkflowEnterWait || apply.Entry.Kind == repository.WorkflowEnterIteration) {
 			// Kuayle merges now; a person is needed again only if it cannot.
 			apply.Entry.Merge, apply.Entry.NeedsPerson = merge, false
 			apply.Entry.WakeAt = ptr(w.now())

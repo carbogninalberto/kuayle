@@ -440,7 +440,7 @@
 		const node = graph.nodes.find((n) => n.id === source);
 		if (!node) return [];
 		const used = new Set(graph.edges.filter((e) => e.source === source && e.id !== own).map((e) => e.condition));
-		return conditionsFor(node, profiles).filter((c) => !used.has(c));
+		return conditionsFor(node, profiles).filter((c) => c === 'assistant' || !used.has(c));
 	};
 </script>
 
@@ -871,25 +871,25 @@
 									oninput={(event) => change(updateNode(graph, node.id, { label: event.currentTarget.value }))}
 								/>
 							</div>
+							<div class="space-y-1.5">
+								<Label for="node-profile">{node.type === 'agent' ? m['workflows.editor.node_profile']() : m['workflows.editor.stage_assistant']()}</Label>
+								<SelectField
+									id="node-profile"
+									bind:value={
+										() => node.profile_id ?? (node.type === 'agent' ? '' : 'none'),
+										(value: string) => change(updateNode(graph, node.id, { profile_id: value === 'none' ? null : value || null }))
+									}
+									disabled={!editable}
+									options={[
+										{ value: node.type === 'agent' ? '' : 'none', label: node.type === 'agent' ? m['workflows.editor.node_profile_placeholder']() : m['issue.history.none']() },
+										...activeProfiles.filter((p) => node.type === 'agent' || p.behaviour === 'changes_code').map((p) => ({
+											value: p.id,
+											label: profileTitle(p)
+										}))
+									]}
+								/>
+							</div>
 							{#if node.type === 'agent'}
-								<div class="space-y-1.5">
-									<Label for="node-profile">{m['workflows.editor.node_profile']()}</Label>
-									<SelectField
-										id="node-profile"
-										bind:value={
-											() => node.profile_id ?? '',
-											(value: string) => change(updateNode(graph, node.id, { profile_id: value || null }))
-										}
-										disabled={!editable}
-										options={[
-											{ value: '', label: m['workflows.editor.node_profile_placeholder']() },
-											...activeProfiles.map((p) => ({
-												value: p.id,
-												label: profileTitle(p)
-											}))
-										]}
-									/>
-								</div>
 								<div class="space-y-1.5">
 									<div class="flex items-center gap-1">
 										<Label>{m['workflows.editor.node_prompt']()}</Label>

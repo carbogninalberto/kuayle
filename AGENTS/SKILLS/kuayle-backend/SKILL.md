@@ -72,3 +72,5 @@ For task/runtime work, follow the [agent task contract](../../../BE/docs/agent-t
 Keep native task ownership, pre-dispatch encrypted credential snapshots, atomic
 log/activity persistence and physical cancellation checks intact. Its status
 section distinguishes implemented backend contracts from workflows not yet enabled.
+
+For workflow changes, preserve the [stage assistant routing contract](../../../BE/docs/agent-tasks.md#configurable-workflows) across delegation, retries and native stage execution.

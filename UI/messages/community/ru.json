@@ -3726,6 +3726,8 @@
 	"workflows.editor.show_panel": "Показать боковую панель",
 	"workflows.editor.nothing_selected": "Выберите шаг или переход на холсте либо в списках ниже.",
 	"workflows.editor.node_label": "Название",
+	"workflows.editor.stage_assistant": "Ассистент этапа",
+	"workflows.condition.assistant": "Выбор ассистента",
 	"workflows.editor.node_profile": "Профиль агента",
 	"workflows.editor.node_profile_placeholder": "Выберите профиль",
 	"workflows.editor.node_prompt": "Промпт итерации",
