@@ -162,10 +162,16 @@ git --git-dir="$bare_repository" fetch --prune origin
 git --git-dir="$bare_repository" worktree prune
 
 mkdir -p "$(dirname "$workspace_path")"
-if git --git-dir="$bare_repository" show-ref --verify --quiet "refs/heads/$working_branch"; then
+local_ref="refs/heads/$working_branch"
+remote_ref="refs/remotes/origin/$working_branch"
+# Start at the fetched tip when the local branch can fast-forward. Preserve
+# local commits when the branch has diverged or the remote ref disappeared.
+if git --git-dir="$bare_repository" show-ref --verify --quiet "$remote_ref" &&
+    { ! git --git-dir="$bare_repository" show-ref --verify --quiet "$local_ref" ||
+      git --git-dir="$bare_repository" merge-base --is-ancestor "$local_ref" "$remote_ref"; }; then
+  git --git-dir="$bare_repository" worktree add -B "$working_branch" "$workspace_path" "$remote_ref"
+elif git --git-dir="$bare_repository" show-ref --verify --quiet "$local_ref"; then
   git --git-dir="$bare_repository" worktree add "$workspace_path" "$working_branch"
-elif git --git-dir="$bare_repository" show-ref --verify --quiet "refs/remotes/origin/$working_branch"; then
-  git --git-dir="$bare_repository" worktree add -b "$working_branch" "$workspace_path" "refs/remotes/origin/$working_branch"
 else
   git --git-dir="$bare_repository" show-ref --verify --quiet "refs/remotes/origin/$base_branch"
   git --git-dir="$bare_repository" worktree add -b "$working_branch" "$workspace_path" "refs/remotes/origin/$base_branch"

@@ -85,6 +85,7 @@ for volume in $volumes; do
   else
     case "$result" in
       *": no such volume") ;;
+      *": volume is in use"|*": volume is in use - "*) printf 'in use %s\n' "$volume" ;;
       *) printf '%s\n' "$result" >&2; failed=yes ;;
     esac
   fi
@@ -96,6 +97,12 @@ var (
 	taskCleanupRepoName  = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 	taskCleanupTreeName  = regexp.MustCompile(`^[a-z0-9._-]+$`)
 )
+
+// Compose drops dots and strips leading punctuation from directory names.
+// Keep the task UUID suffix so worktrees on the same machine stay isolated.
+func taskComposeProject(workspacePath string) string {
+	return strings.TrimLeft(strings.ReplaceAll(path.Base(workspacePath), ".", ""), "_-")
+}
 
 func (r *DockerRuntime) CleanupTaskResources(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, taskID uuid.UUID, runs []uuid.UUID) error {
 	owner, repo, _ := strings.Cut(checkout.RepositoryFullName, "/")
@@ -136,12 +143,23 @@ func (r *DockerRuntime) CleanupTaskResources(ctx context.Context, machine *domai
 		// the bounded command exit before the manager releases the task lease.
 		volumeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 40*time.Second)
 		defer cancel()
-		output, err = r.execOutput(volumeCtx, docker, []string{"timeout", "-k", "5", "30", "/bin/sh", "-c", taskVolumeCleanupScript, "kuayle-task-volumes", name, taskID.String()})
+		output, err = r.execOutput(volumeCtx, docker, []string{"timeout", "-k", "5", "30", "/bin/sh", "-c", taskVolumeCleanupScript, "kuayle-task-volumes", taskComposeProject(checkout.WorkspacePath), taskID.String()})
 		if err != nil {
 			return fmt.Errorf("remove task Docker volumes: %w", err)
 		}
-		if removed := nonEmptyLines(output); len(removed) > 0 {
+		var removed, inUse []string
+		for _, volume := range nonEmptyLines(output) {
+			if name, ok := strings.CutPrefix(volume, "in use "); ok {
+				inUse = append(inUse, name)
+			} else {
+				removed = append(removed, volume)
+			}
+		}
+		if len(removed) > 0 {
 			fields.WithField("volumes", removed).Info("removed task Docker volumes")
+		}
+		if len(inUse) > 0 {
+			fields.WithField("volumes", inUse).Info("skipped task Docker volumes still in use")
 		}
 	} else if hasDockerService(services) {
 		return fmt.Errorf("machine Docker daemon is unavailable for task cleanup")

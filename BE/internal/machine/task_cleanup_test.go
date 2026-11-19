@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -27,7 +26,7 @@ func TestTaskCleanupRejectsAnotherTasksPaths(t *testing.T) {
 
 func TestTaskCleanupRemovesOnlyRegisteredWorktreeAndRunDirectories(t *testing.T) {
 	e := newGitScriptEnv(t)
-	e.remote("acme/app", "README.md")
+	seed := e.remote("acme/app", "README.md")
 	root := filepath.Join(e.root, "workspace")
 	repo := filepath.Join(root, "repos", "acme", "app.git")
 	first, second := filepath.Join(root, "tasks", "first"), filepath.Join(root, "tasks", "second")
@@ -74,6 +73,18 @@ func TestTaskCleanupRemovesOnlyRegisteredWorktreeAndRunDirectories(t *testing.T)
 	require.Equal(t, head, e.git(first, "rev-parse", "HEAD"))
 	require.NoFileExists(t, filepath.Join(first, "untracked"))
 
+	e.git(first, "push", "origin", "HEAD:refs/heads/kuayle/first")
+	out, err = clean("first")
+	require.NoError(t, err, out)
+	e.git(seed, "fetch", "origin", "kuayle/first")
+	e.git(seed, "checkout", "-B", "kuayle/first", "FETCH_HEAD")
+	e.git(seed, "commit", "--allow-empty", "-qm", "upstream task commit")
+	newHead := e.git(seed, "rev-parse", "HEAD")
+	e.git(seed, "push", "origin", "HEAD:refs/heads/kuayle/first")
+	out, err = e.runCheckout(root, "acme/app", first)
+	require.NoError(t, err, out)
+	require.Equal(t, newHead, e.git(first, "rev-parse", "HEAD"))
+
 	unrelated := filepath.Join(root, "tasks", "unregistered")
 	require.NoError(t, os.Mkdir(unrelated, 0o755))
 	out, err = clean("unregistered")
@@ -106,7 +117,7 @@ set -eu
 [ "$DOCKER_HOST" = unix:///run/fixture/docker.sock ] && [ -z "${DOCKER_CONTEXT:-}" ]
 case "$*" in
   "volume ls -q --filter label=com.docker.compose.project=rec-1-task")
-    printf '%s\n' vanished-volume rec1-gocache ;;
+    printf '%s\n' attached-cache vanished-volume rec1-gocache ;;
   "volume ls -q --filter label=com.kuayle.task-id=task")
     printf '%s\n' task-db rec1-gocache ;;
   "volume rm -- task-db"|"volume rm -- rec1-gocache")
@@ -114,11 +125,14 @@ case "$*" in
   "volume rm -- vanished-volume")
     printf '%s\n' 'get vanished-volume: no such volume' >&2
     exit 1 ;;
+  "volume rm -- attached-cache")
+    printf '%s\n' 'remove attached-cache: volume is in use - [running-container]' >&2
+    exit 1 ;;
   *) echo "unexpected docker command: $*" >&2; exit 2 ;;
 esac`
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "docker"), []byte(fakeDocker), 0o700))
 	cmd := exec.Command("sh", "-c", taskVolumeCleanupScript, "kuayle-task-volumes", "rec-1-task", "task")
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
-	require.Equal(t, []string{"rec1-gocache", "task-db"}, strings.Fields(string(out)))
+	require.Equal(t, []string{"in use attached-cache", "rec1-gocache", "task-db"}, nonEmptyLines(string(out)))
 }

@@ -1341,9 +1341,14 @@ active check, preview or task terminal delays cleanup.
 The operation retires the checkout and uses an isolated container with the
 machine's workspace mounted at `/workspace` to run `git worktree remove`
 and remove that task's per-attempt temp directories. The task's branches are
-retained, so a follow-up can prepare its checkout again. The machine's Docker
-daemon removes volumes carrying the exact task worktree's Compose project
-label or `com.kuayle.task-id=<task UUID>`. Docker can remove detached volumes.
+retained, so a follow-up can prepare its checkout again. Docker-enabled agent
+attempts set `COMPOSE_PROJECT_NAME` to the normalized worktree directory name
+(including the task UUID), so Compose labels volumes with the same project
+even when started from a subdirectory. The machine's Docker daemon removes
+detached volumes with that project label or `com.kuayle.task-id=<task UUID>`.
+Volumes still referenced by a container are logged and skipped. Volumes from
+older or explicitly named Compose projects, including issue-only names like
+`kua177-gocache`, are cleaned only when either ownership label matches.
 A paused or stopped machine with a Docker daemon is cleaned when it next runs.
 
 Preparation resolves the task's repository from the issue, project, team and
