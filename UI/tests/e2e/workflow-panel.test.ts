@@ -360,3 +360,23 @@ test('a rename committed during a save stays in the next draft', async ({ page }
 	await expect.poll(() => state.saves[1]).toMatchObject({ name: 'Second rename', expected_version: 5 });
 	await expect(editor.getByRole('button', { name: 'v6 · saved' })).toBeVisible();
 });
+
+test('a terminal stage can save, reload and remove its assistant', async ({ page }) => {
+	const state = await fixture(page);
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto('/test/settings/workflows/cheap');
+	const node = page.getByTestId('workflow-node-done');
+	await node.click();
+	const assistant = page.getByRole('combobox', { name: 'Stage assistant' });
+	await assistant.click();
+	await page.getByRole('option', { name: 'Implementer', exact: true }).click();
+	await page.getByRole('button', { name: 'Save version' }).click();
+	await expect.poll(() => state.graph.nodes.find((n) => n.id === 'done')?.profile_id).toBe('p-impl');
+	await page.reload();
+	await node.click();
+	await expect(assistant).toHaveText(/Implementer/);
+	await assistant.click();
+	await page.getByRole('option', { name: 'None', exact: true }).click();
+	await page.getByRole('button', { name: 'Save version' }).click();
+	await expect.poll(() => state.graph.nodes.find((n) => n.id === 'done')?.profile_id).toBeUndefined();
+});

@@ -98,6 +98,10 @@ type WorkflowApply struct {
 	// was moved to another version in between refuses them: its sequence did
 	// not change, but its transitions did.
 	Version *uuid.UUID
+	// StageFinished hands an open stage back to its native operation. RestoreRun
+	// retains the incoming attempt and its evidence when the worktree was unchanged.
+	StageFinished bool
+	RestoreRun    *uuid.UUID
 	// Hold keeps the task on its current step, unfinished and without moves:
 	// the time budget ran out while it waited (Entry fails or pauses), or a
 	// person continued past that and it waits again (Entry waits).
@@ -175,6 +179,14 @@ func startWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, ver
 	start, ok := graph.Start()
 	if !ok {
 		return ErrConversationInvalid
+	}
+	if start.Supervised() {
+		visits, _ := json.Marshal(map[string]int{start.ID: 1})
+		if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_version_id=$2,workflow_node=$3,workflow_visits=$4,workflow_iterations=1,workflow_status='running',workflow_sequence=1 WHERE id=$1 RETURNING *`, task.ID, version.ID, start.ID, visits); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO agent_task_workflow_steps(task_id,sequence,node_id,node_type,visit,reason,generation,stage_first_run_id) VALUES($1,1,$2,'start',1,'Task delegated', $3,$4)`, task.ID, start.ID, task.Generation, task.RunID)
+		return err
 	}
 	decision := graph.Decide(domain.WorkflowCursor{Node: start.ID, Visits: map[string]int{}}, domain.WorkflowElse, time.Now(), nil)
 	if decision.Stuck || decision.To.Type != domain.WorkflowNodeAgent {
@@ -408,7 +420,7 @@ type WorkflowResult struct {
 
 // ComputeWorkflowApply applies moves to the task's cursor.
 func ComputeWorkflowApply(task domain.AgentTask, apply WorkflowApply, now time.Time) WorkflowResult {
-	result := WorkflowResult{Cursor: task.Cursor(), Sequence: apply.Sequence, Status: domain.WorkflowStatusRunning}
+	result := WorkflowResult{Cursor: task.Cursor(), Sequence: apply.Sequence, FinalSequence: apply.Sequence, Status: domain.WorkflowStatusRunning}
 	last := len(apply.Moves) - 1
 	for i, move := range apply.Moves {
 		if i == last && (move.Stop || apply.Entry.Kind == WorkflowEnterPause) {
@@ -432,7 +444,7 @@ func ComputeWorkflowApply(task domain.AgentTask, apply WorkflowApply, now time.T
 		if i < last {
 			outcome := move.Immediate
 			step.Outcome, step.FinishedAt = &outcome, &now
-		} else if to.Type == domain.WorkflowNodeEnd && apply.Entry.Kind != WorkflowEnterWait {
+		} else if to.Type == domain.WorkflowNodeEnd && apply.Entry.Kind != WorkflowEnterWait && apply.Entry.Kind != WorkflowEnterIteration {
 			// An end is finished when it is entered, unless the task waits
 			// there for the merge a ship approval deferred to it (KUA-216).
 			outcome := to.Outcome
@@ -515,7 +527,18 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 	if task.WorkflowPausedAt != nil {
 		return ErrAgentTaskConflict
 	}
-	if apply.Hold {
+	if apply.StageFinished {
+		if task.State != "running" || task.WorkflowStatus == nil || *task.WorkflowStatus != domain.WorkflowStatusRunning {
+			return ErrAgentTaskConflict
+		}
+		if apply.RestoreRun != nil {
+			if err := tx.GetContext(ctx, task, `UPDATE agent_tasks t SET run_id=s.stage_input_run_id FROM agent_task_workflow_steps s WHERE t.id=$1 AND s.task_id=t.id AND s.sequence=$2 AND s.finished_at IS NULL AND s.stage_input_run_id=$3 RETURNING t.*`, task.ID, apply.Sequence, *apply.RestoreRun); errors.Is(err, sql.ErrNoRows) {
+				return ErrAgentTaskConflict
+			} else if err != nil {
+				return err
+			}
+		}
+	} else if apply.Hold {
 		// Only an unfinished step is held: a waiting one stops (fails or
 		// pauses), and a paused one waits again. A hold keeps the sequence,
 		// so the status is what fences a replayed decision.
@@ -559,7 +582,7 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 				return err
 			}
 		}
-		if apply.Entry.Kind == WorkflowEnterComplete {
+		if apply.Entry.Kind == WorkflowEnterComplete || (apply.StageFinished && apply.Entry.Kind == WorkflowEnterFail) {
 			if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET outcome=COALESCE(NULLIF($3,''),outcome),detail=CASE WHEN $4='' THEN detail ELSE $4 END,finished_at=COALESCE(finished_at,now()) WHERE task_id=$1 AND sequence=$2`,
 				task.ID, apply.Sequence, apply.Outcome, truncateBytes(apply.Detail, 16000)); err != nil {
 				return err
@@ -620,22 +643,24 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 		return err
 	}
 	reason := apply.Entry.Reason
+	if apply.Entry.Merge != nil && (len(result.Steps) > 0 || apply.StageFinished) {
+		var data []byte
+		if data, err = json.Marshal(apply.Entry.Merge); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET merge=$3 WHERE task_id=$1 AND sequence=$2`, task.ID, result.FinalSequence, data); err != nil {
+			return err
+		}
+	}
 	switch apply.Entry.Kind {
 	case WorkflowEnterIteration:
+		inputRun := task.RunID
 		if err = workflowIteration(ctx, tx, task, apply.Entry, apply.Actor); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET generation=$3 WHERE task_id=$1 AND sequence=$2`, task.ID, result.FinalSequence, task.Generation)
+		_, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET generation=$3,stage_first_run_id=CASE WHEN node_type<>'agent' THEN $5::uuid END,stage_input_run_id=CASE WHEN node_type<>'agent' THEN $4::uuid END WHERE task_id=$1 AND sequence=$2`, task.ID, result.FinalSequence, task.Generation, inputRun, task.RunID)
 	case WorkflowEnterWait:
-		if apply.Entry.Merge != nil && len(result.Steps) > 0 {
-			var data []byte
-			if data, err = json.Marshal(apply.Entry.Merge); err != nil {
-				return err
-			}
-			if _, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET merge=$3 WHERE task_id=$1 AND sequence=$2`, task.ID, result.FinalSequence, data); err != nil {
-				return err
-			}
-		}
+
 		err = transitionWorkflowTask(ctx, tx, task, WorkflowEntryState(apply.Entry.Kind), reason, apply.Actor)
 	case WorkflowEnterReview:
 		var review *domain.AgentTask
@@ -1110,8 +1135,9 @@ type WorkflowRun struct {
 	// (uncommitted changes and commits alike), from Kuayle's own comparison
 	// before and after it; nil when it could not be made. WorktreeFiles
 	// lists what changed.
-	WorktreeChanged *bool
-	WorktreeFiles   []string
+	WorktreeBefore, WorktreeAfter string
+	WorktreeChanged               *bool
+	WorktreeFiles                 []string
 	// NotebookNote says that the run did not update the task notebook and
 	// Kuayle recorded its final message instead; empty when it did.
 	NotebookNote string
@@ -1124,11 +1150,13 @@ func (r *AgentTaskRepository) WorkflowRun(ctx context.Context, task domain.Agent
 		Files     json.RawMessage `db:"changed_files"`
 		Final     bool            `db:"final_message"`
 		Truncated bool            `db:"summary_truncated"`
+		Before    string          `db:"worktree_before"`
+		After     string          `db:"worktree_after"`
 		Changed   *bool           `db:"worktree_changed"`
 		Worktree  json.RawMessage `db:"worktree_changed_files"`
 		Notebook  *string         `db:"notebook_problem"`
 	}
-	err := r.db.GetContext(ctx, &row, `SELECT status::text AS status,summary,changed_files,worktree_changed,worktree_changed_files,notebook_problem,
+	err := r.db.GetContext(ctx, &row, `SELECT status::text AS status,summary,changed_files,worktree_changed,worktree_changed_files,notebook_problem,COALESCE(worktree_before,'') AS worktree_before,COALESCE(environment->>'worktree_after','') AS worktree_after,
  COALESCE(result->>'final_message','')='true' AS final_message,COALESCE(result->>'summary_truncated','')='true' AS summary_truncated
  FROM dev_machine_agent_runs WHERE id=$1 AND task_id=$2`, task.RunID, task.ID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1137,7 +1165,7 @@ func (r *AgentTaskRepository) WorkflowRun(ctx context.Context, task domain.Agent
 	if err != nil {
 		return nil, err
 	}
-	run := &WorkflowRun{Status: row.Status, FinalMessage: row.Final, SummaryTruncated: row.Truncated, WorktreeChanged: row.Changed}
+	run := &WorkflowRun{Status: row.Status, FinalMessage: row.Final, SummaryTruncated: row.Truncated, WorktreeChanged: row.Changed, WorktreeBefore: row.Before, WorktreeAfter: row.After}
 	_ = json.Unmarshal(row.Files, &run.ChangedFiles)
 	_ = json.Unmarshal(row.Worktree, &run.WorktreeFiles)
 	if row.Summary != nil {
@@ -1212,8 +1240,8 @@ func (r *AgentTaskRepository) WorkflowCIHistory(ctx context.Context, task domain
 func (r *AgentTaskRepository) DeferredShipMerge(ctx context.Context, task domain.AgentTask) (*domain.MergeWait, error) {
 	var step domain.WorkflowStep
 	err := r.db.GetContext(ctx, &step, `SELECT * FROM agent_task_workflow_steps s WHERE s.task_id=$1 AND s.node_type='approval' AND s.finished_at IS NOT NULL AND s.merge->>'deferred'='true'
- AND NOT EXISTS(SELECT 1 FROM agent_task_workflow_steps x WHERE x.task_id=s.task_id AND x.sequence>s.sequence AND x.node_type<>'agent')
- ORDER BY s.sequence DESC LIMIT 1`, task.ID)
+ AND NOT EXISTS(SELECT 1 FROM agent_task_workflow_steps x WHERE x.task_id=s.task_id AND x.sequence>s.sequence AND x.node_type<>'agent' AND NOT (x.sequence=$2 AND x.node_type='end' AND x.finished_at IS NULL))
+ ORDER BY s.sequence DESC LIMIT 1`, task.ID, task.WorkflowSequence)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -1250,7 +1278,7 @@ func retryWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, act
 	var step domain.WorkflowStep
 	found := false
 	for _, candidate := range steps {
-		if node, ok := graph.Node(candidate.NodeID); ok && node.Type == domain.WorkflowNodeAgent {
+		if node, ok := graph.Node(candidate.NodeID); ok && (node.Type == domain.WorkflowNodeAgent || node.Supervised()) {
 			step, found = candidate, true
 			break
 		}
@@ -1279,8 +1307,8 @@ func retryWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, act
 	cursor.Iterations++
 	visits, _ := json.Marshal(cursor.Visits)
 	sequence := task.WorkflowSequence + 1
-	if _, err = tx.ExecContext(ctx, `INSERT INTO agent_task_workflow_steps(task_id,sequence,node_id,node_type,visit,from_node,reason,generation,decided_by) VALUES($1,$2,$3,$4,$5,$6,'Retried by a person',$7,$8)`,
-		task.ID, sequence, step.NodeID, step.NodeType, cursor.Visits[step.NodeID], cursor.Node, task.Generation, actor); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO agent_task_workflow_steps(task_id,sequence,node_id,node_type,visit,from_node,reason,generation,decided_by,stage_first_run_id,stage_input_run_id) VALUES($1,$2,$3,$4,$5,$6,'Retried by a person',$7,$8,$9,$10)`,
+		task.ID, sequence, step.NodeID, step.NodeType, cursor.Visits[step.NodeID], cursor.Node, task.Generation, actor, step.StageFirstRunID, step.StageInputRunID); err != nil {
 		return err
 	}
 	return tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_node=$2,workflow_visits=$3,workflow_iterations=$4,workflow_sequence=$5,workflow_status='running',workflow_wake_at=NULL,workflow_budget_extensions=$6,workflow_budget_from=$7,workflow_held_since=NULL WHERE id=$1 RETURNING *`,
@@ -1321,6 +1349,7 @@ func (r *AgentTaskRepository) ProfileBundle(ctx context.Context, task domain.Age
 	// A task run as an agent identity (an assigned or mentioned agent) uses
 	// that profile; a workflow task uses its current step's.
 	profileID := task.AgentProfileID
+	var stageInstructions string
 	if task.RunsWorkflow() {
 		if task.WorkflowNode == nil {
 			return nil, nil
@@ -1342,6 +1371,9 @@ func (r *AgentTaskRepository) ProfileBundle(ctx context.Context, task domain.Age
 			return nil, nil
 		}
 		profileID = node.ProfileID
+		if node.Supervised() {
+			stageInstructions = graph.StageInstructions(node)
+		}
 	}
 	if profileID == nil {
 		return nil, nil
@@ -1354,7 +1386,7 @@ func (r *AgentTaskRepository) ProfileBundle(ctx context.Context, task domain.Age
 	if err != nil {
 		return nil, err
 	}
-	bundle := &domain.AgentProfileBundle{Name: profile.Name, Role: profile.Role, Behaviour: profile.Behaviour, Instructions: profile.Instructions, Skills: []domain.AgentProfileSkill{}}
+	bundle := &domain.AgentProfileBundle{StageInstructions: stageInstructions, Name: profile.Name, Role: profile.Role, Behaviour: profile.Behaviour, Instructions: profile.Instructions, Skills: []domain.AgentProfileSkill{}}
 	err = r.db.SelectContext(ctx, &bundle.Skills, `SELECT s.name AS name,s.description AS description,s.body AS body FROM agent_profile_skills ps
  JOIN assistant_skills s ON s.id=ps.skill_id AND s.workspace_id=ps.workspace_id
  WHERE ps.profile_id=$1 AND ps.workspace_id=$2 AND s.team_id IS NULL AND s.status='active' AND s.enabled ORDER BY ps.position`, profile.ID, task.WorkspaceID)

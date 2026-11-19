@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/agent"
@@ -295,15 +294,14 @@ func (s *AgentTaskService) resolveWorkflow(ctx context.Context, ws, conversation
 		return ErrWorkflowUnusable
 	}
 	for _, node := range graph.Nodes {
-		if node.Type == domain.WorkflowNodeAgent {
+		if node.ProfileID != nil {
 			profile := profiles[*node.ProfileID]
 			if err = s.profilePolicy(ctx, ws, profile); err != nil {
 				return s.stepError(ctx, ws, version, node, profile, err)
 			}
 		}
 	}
-	start, _ := graph.Start()
-	first := graph.Decide(domain.WorkflowCursor{Node: start.ID, Visits: map[string]int{}}, domain.WorkflowElse, time.Now(), profiles).To
+	first := graph.FirstRun()
 	profile := profiles[*first.ProfileID]
 	input.Provider, input.Model, input.Thinking, input.ModelServerID = profile.Harness, profile.Model, profile.Effort, nil
 	input.Workflow = version

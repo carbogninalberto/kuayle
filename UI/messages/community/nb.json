@@ -3726,6 +3726,8 @@
 	"workflows.editor.show_panel": "Vis sidepanelet",
 	"workflows.editor.nothing_selected": "Velg et trinn eller en overgang på lerretet, eller i listene nedenfor.",
 	"workflows.editor.node_label": "Navn",
+	"workflows.editor.stage_assistant": "Faseassistent",
+	"workflows.condition.assistant": "Assistentens valg",
 	"workflows.editor.node_profile": "Agentprofil",
 	"workflows.editor.node_profile_placeholder": "Velg en profil",
 	"workflows.editor.node_prompt": "Iterasjonsprompt",

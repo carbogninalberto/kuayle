@@ -3726,6 +3726,8 @@
 	"workflows.editor.show_panel": "साइड पैनल दिखाएँ",
 	"workflows.editor.nothing_selected": "कैनवास पर या नीचे की सूचियों में कोई चरण या ट्रांज़िशन चुनें।",
 	"workflows.editor.node_label": "नाम",
+	"workflows.editor.stage_assistant": "चरण सहायक",
+	"workflows.condition.assistant": "सहायक का चयन",
 	"workflows.editor.node_profile": "एजेंट प्रोफ़ाइल",
 	"workflows.editor.node_profile_placeholder": "प्रोफ़ाइल चुनें",
 	"workflows.editor.node_prompt": "इटरेशन प्रॉम्प्ट",

@@ -3726,6 +3726,8 @@
 	"workflows.editor.show_panel": "แสดงแผงด้านข้าง",
 	"workflows.editor.nothing_selected": "เลือกขั้นตอนหรือการเปลี่ยนสถานะบนแคนวาส หรือในรายการด้านล่าง",
 	"workflows.editor.node_label": "ชื่อ",
+	"workflows.editor.stage_assistant": "ผู้ช่วยประจำขั้นตอน",
+	"workflows.condition.assistant": "ตัวเลือกของผู้ช่วย",
 	"workflows.editor.node_profile": "โปรไฟล์ Agent",
 	"workflows.editor.node_profile_placeholder": "เลือกโปรไฟล์",
 	"workflows.editor.node_prompt": "พรอมต์ของรอบ",

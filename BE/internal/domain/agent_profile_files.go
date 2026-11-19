@@ -23,6 +23,8 @@ type AgentProfileBundle struct {
 	Behaviour    string
 	Instructions string
 	Skills       []AgentProfileSkill
+	// StageInstructions come from the pinned graph at dispatch, including retries.
+	StageInstructions string
 	// Notebook is the task's notebook, rendered (Notebook.Render). It is not
 	// part of the profile: it travels in the same instructions file, after
 	// the profile's instructions, so every harness reads it as instructions.
