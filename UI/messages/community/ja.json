@@ -2395,6 +2395,8 @@
 	"automations.status": "ステータス",
 	"automations.any_status": "任意のオープンステータス",
 	"automations.instructions": "エージェントへの指示",
+	"automations.pin_version": "現在のバージョンに固定",
+	"automations.follow_latest": "最新バージョンを使用",
 	"automations.schedule": "実行タイミング",
 	"automations.any_time": "いつでも",
 	"automations.at_hour": "UTC {hour}:00",

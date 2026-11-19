@@ -2395,6 +2395,8 @@
 	"automations.status": "स्टेटस",
 	"automations.any_status": "कोई भी खुला स्टेटस",
 	"automations.instructions": "एजेंट के लिए निर्देश",
+	"automations.pin_version": "वर्तमान संस्करण पिन करें",
+	"automations.follow_latest": "नवीनतम संस्करण का उपयोग करें",
 	"automations.schedule": "कब",
 	"automations.any_time": "कभी भी",
 	"automations.at_hour": "UTC {hour}:00 बजे",

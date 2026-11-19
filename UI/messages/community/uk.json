@@ -2395,6 +2395,8 @@
 	"automations.status": "Статус",
 	"automations.any_status": "Будь-який відкритий статус",
 	"automations.instructions": "Інструкції для агента",
+	"automations.pin_version": "Закріпити поточну версію",
+	"automations.follow_latest": "Використовувати останню версію",
 	"automations.schedule": "Коли",
 	"automations.any_time": "У будь-який час",
 	"automations.at_hour": "о {hour}:00 UTC",

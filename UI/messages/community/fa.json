@@ -2395,6 +2395,8 @@
 	"automations.status": "وضعیت",
 	"automations.any_status": "هر وضعیت باز",
 	"automations.instructions": "دستورالعمل برای عامل",
+	"automations.pin_version": "ثابت نگه داشتن نسخهٔ فعلی",
+	"automations.follow_latest": "استفاده از آخرین نسخه",
 	"automations.schedule": "زمان",
 	"automations.any_time": "هر زمان",
 	"automations.at_hour": "ساعت {hour}:00 UTC",

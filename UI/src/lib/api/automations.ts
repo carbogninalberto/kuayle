@@ -11,6 +11,11 @@ export interface AgentAutomation {
 	instructions: string;
 	unattended: boolean;
 	run_hour?: number | null;
+	workflow_id?: string;
+	pinned_version?: number;
+	cron?: string;
+	timezone?: string;
+	next_run_at?: string;
 	max_active: number;
 	created_at: string;
 }
@@ -36,6 +41,10 @@ export interface AgentAutomationInput {
 	instructions: string;
 	unattended: boolean;
 	run_hour?: number;
+	workflow_id?: string;
+	version_policy?: 'latest' | 'pin';
+	cron?: string;
+	timezone?: string;
 	max_active: number;
 }
 

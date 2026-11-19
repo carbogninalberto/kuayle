@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const workspaceId = '00000000-0000-0000-0000-000000000002';
 const teamId = '00000000-0000-0000-0000-000000000010';
+const workflowId = '00000000-0000-0000-0000-000000000030';
 const labelId = '00000000-0000-0000-0000-000000000020';
 
 async function mockAutomationsApi(page: Page) {
@@ -68,6 +69,8 @@ async function mockAutomationsApi(page: Page) {
 		if (path === '/api/notifications') {
 			return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		}
+		if (path === '/api/workspaces/test/workflows')
+			return route.fulfill({ json: { workflows: [{ id: workflowId, name: 'Review loop', latest_version: 3 }] } });
 		if (path === '/api/workspaces/test/teams')
 			return route.fulfill({ json: [{ id: teamId, name: 'Engineering', key: 'ENG' }] });
 		if (path === '/api/workspaces/test/labels')
@@ -81,7 +84,7 @@ async function mockAutomationsApi(page: Page) {
 		if (path === '/api/workspaces/test/agent-automations' && request.method() === 'POST') {
 			const input = request.postDataJSON();
 			state.created.push(input);
-			const rule = { id: 'rule-1', owner_id: 'u', enabled: true, created_at: '2026-10-27T10:00:00Z', ...input };
+			const rule = { id: 'rule-1', owner_id: 'u', enabled: true, created_at: '2026-10-27T10:00:00Z', next_run_at: '2026-11-23T08:30:00Z', pinned_version: 3, ...input };
 			state.rules.push(rule);
 			return route.fulfill({ status: 201, json: rule });
 		}
@@ -148,17 +151,31 @@ test('admins create, pause and approve agent automations', async ({ page }) => {
 	await page.getByRole('option', { name: 'agent' }).click();
 	await expect(section.getByRole('switch', { name: 'Start without approval' })).toBeDisabled();
 	await expect(section.getByText('Allow unattended automations in the workspace policy')).toBeVisible();
+	await section.getByRole('combobox', { name: 'Workflow', exact: true }).click();
+	await page.getByRole('option', { name: 'Review loop' }).click();
+	await section.getByRole('switch', { name: 'Pin the current version' }).click();
+	await section.getByRole('combobox', { name: 'When' }).click();
+	await page.getByRole('option', { name: 'Cron', exact: true }).click();
+	await section.getByLabel('Cron expression').fill('30 9 * * 1-5');
+	await section.getByLabel('Timezone').fill('Europe/Rome');
 	await create.click();
 	await expect.poll(() => state.created.length).toBe(1);
 	expect(state.created[0]).toEqual({
 		team_id: teamId,
 		name: 'Agent label',
+		workflow_id: workflowId,
+		version_policy: 'pin',
+		cron: '30 9 * * 1-5',
+		timezone: 'Europe/Rome',
 		label_id: labelId,
 		instructions: 'Fix the issue and add tests',
 		unattended: false,
 		max_active: 1
 	});
-	await expect(section.getByText('Engineering · label agent · Any time')).toBeVisible();
+	await expect(section.getByText('Engineering · label agent · 30 9 * * 1-5 · Europe/Rome')).toBeVisible();
+
+	await expect(section.getByText(/Next run:.*09:30|Next run:.*9:30/)).toBeVisible();
+	await expect(section.getByText('Review loop · Version 3')).toBeVisible();
 
 	await section.getByRole('switch', { name: 'Enable Agent label' }).click();
 	await expect.poll(() => state.patches).toEqual([{ enabled: false }]);

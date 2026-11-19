@@ -2395,6 +2395,8 @@
 	"automations.status": "Estado",
 	"automations.any_status": "Cualquier estado abierto",
 	"automations.instructions": "Instrucciones para el agente",
+	"automations.pin_version": "Fijar la versión actual",
+	"automations.follow_latest": "Usar la última versión",
 	"automations.schedule": "Cuándo",
 	"automations.any_time": "En cualquier momento",
 	"automations.at_hour": "a las {hour}:00 UTC",

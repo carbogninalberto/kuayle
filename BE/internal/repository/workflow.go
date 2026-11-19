@@ -625,9 +625,13 @@ func resolveWorkflowVersion(ctx context.Context, q sqlx.QueryerContext, ws, issu
 		}
 		workflowID = row.WorkflowID
 	}
+	return publishedWorkflowVersion(ctx, q, ws, *workflowID, nil)
+}
+
+func publishedWorkflowVersion(ctx context.Context, q sqlx.QueryerContext, ws, workflow uuid.UUID, number *int) (*domain.WorkflowVersion, error) {
 	version := &domain.WorkflowVersion{}
-	err := sqlx.GetContext(ctx, q, version, `SELECT v.* FROM workflows w JOIN workflow_versions v ON v.workflow_id=w.id AND v.version=w.latest_version
- WHERE w.id=$1 AND w.workspace_id=$2 AND w.archived_at IS NULL`, workflowID, ws)
+	err := sqlx.GetContext(ctx, q, version, `SELECT v.* FROM workflows w JOIN workflow_versions v ON v.workflow_id=w.id AND v.version=COALESCE($3,w.latest_version)
+ WHERE w.id=$1 AND w.workspace_id=$2 AND w.archived_at IS NULL FOR SHARE OF w`, workflow, ws, number)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrWorkflowNotFound
 	}
@@ -649,4 +653,17 @@ func standardOverrideVersion(ctx context.Context, q sqlx.QueryerContext, ws uuid
 // ResolveWorkflow is resolveWorkflowVersion outside a transaction.
 func (r *WorkflowRepository) ResolveWorkflow(ctx context.Context, ws, issue uuid.UUID, chosen *string) (*domain.WorkflowVersion, error) {
 	return resolveWorkflowVersion(ctx, r.db, ws, issue, chosen)
+}
+
+// PinnedVersion resolves an automation's immutable version only while the
+// selected workflow is still available to start tasks in this workspace.
+func (r *WorkflowRepository) PinnedVersion(ctx context.Context, ws uuid.UUID, workflow *string, number int) (*domain.WorkflowVersion, error) {
+	if workflow == nil {
+		return nil, ErrWorkflowNotFound
+	}
+	id, err := uuid.Parse(*workflow)
+	if err != nil {
+		return nil, ErrWorkflowNotFound
+	}
+	return publishedWorkflowVersion(ctx, r.db, ws, id, &number)
 }

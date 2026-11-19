@@ -88,6 +88,17 @@ func TestAgentAutomationHTTPRequiresAdminsForRulesAndOwnersForDecisions(t *testi
 	request("GET", "/agent-automations", "", member, 403, nil)
 	request("POST", "/agent-automations", strings.Replace(rule, `"Fix it"`, `""`, 1), owner, 400, nil)
 	request("POST", "/agent-automations", strings.Replace(rule, `"max_active":1`, `"max_active":1,"owner_id":"`+member.String()+`"`, 1), owner, 400, nil)
+	cronRule := strings.Replace(rule, `"max_active":1`, `"cron":"30 9 * * 1-5","timezone":"Europe/Rome"`, 1)
+	var scheduled map[string]any
+	request("POST", "/agent-automations", cronRule, owner, 201, &scheduled)
+	next, err := time.Parse(time.RFC3339Nano, scheduled["next_run_at"].(string))
+	require.NoError(t, err)
+	rome, err := time.LoadLocation("Europe/Rome")
+	require.NoError(t, err)
+	require.Equal(t, 9, next.In(rome).Hour())
+	require.Equal(t, 30, next.In(rome).Minute())
+	request("POST", "/agent-automations", strings.Replace(cronRule, "Europe/Rome", "Invalid/Zone", 1), owner, 400, nil)
+	request("POST", "/agent-automations", strings.Replace(cronRule, `"cron":`, `"run_hour":3,"cron":`, 1), owner, 400, nil)
 	var created domain.AgentAutomation
 	request("POST", "/agent-automations", rule, owner, 201, &created)
 	require.Equal(t, owner, created.OwnerID, "the creator owns the rule")

@@ -42,14 +42,18 @@ func NewAgentAutomationService(repo *repository.AgentAutomationRepository, conve
 }
 
 type AutomationInput struct {
-	TeamID       uuid.UUID  `json:"team_id"`
-	Name         string     `json:"name"`
-	LabelID      *uuid.UUID `json:"label_id,omitempty"`
-	StatusID     *uuid.UUID `json:"status_id,omitempty"`
-	Instructions string     `json:"instructions"`
-	Unattended   bool       `json:"unattended"`
-	RunHour      *int       `json:"run_hour,omitempty"`
-	MaxActive    int        `json:"max_active"`
+	TeamID        uuid.UUID  `json:"team_id"`
+	Name          string     `json:"name"`
+	LabelID       *uuid.UUID `json:"label_id,omitempty"`
+	StatusID      *uuid.UUID `json:"status_id,omitempty"`
+	Instructions  string     `json:"instructions"`
+	Unattended    bool       `json:"unattended"`
+	RunHour       *int       `json:"run_hour,omitempty"`
+	WorkflowID    *uuid.UUID `json:"workflow_id,omitempty"`
+	VersionPolicy string     `json:"version_policy,omitempty"`
+	Cron          string     `json:"cron,omitempty"`
+	Timezone      string     `json:"timezone,omitempty"`
+	MaxActive     int        `json:"max_active"`
 }
 
 func (s *AgentAutomationService) List(ctx context.Context, ws uuid.UUID) ([]domain.AgentAutomation, error) {
@@ -72,7 +76,24 @@ func (s *AgentAutomationService) Create(ctx context.Context, ws, owner uuid.UUID
 	}
 	automation := &domain.AgentAutomation{WorkspaceID: ws, TeamID: input.TeamID, OwnerID: owner, Name: input.Name, LabelID: input.LabelID, StatusID: input.StatusID,
 		Instructions: input.Instructions, Unattended: input.Unattended, RunHour: input.RunHour, MaxActive: input.MaxActive}
-	if err := s.repo.Create(ctx, automation); err != nil {
+	automation.WorkflowID = input.WorkflowID
+	if input.VersionPolicy != "" && (input.WorkflowID == nil || (input.VersionPolicy != "pin" && input.VersionPolicy != "latest")) {
+		return nil, ErrInvalidAutomation
+	}
+	automation.Cron, automation.Timezone = strings.TrimSpace(input.Cron), input.Timezone
+	if automation.Timezone == "" {
+		automation.Timezone = "UTC"
+	}
+	if automation.Cron != "" {
+		next, err := domain.NextAutomationCron(automation.Cron, automation.Timezone, time.Now())
+		if err != nil || input.RunHour != nil {
+			return nil, ErrInvalidAutomation
+		}
+		automation.NextRunAt = &next
+	} else if automation.Timezone != "UTC" {
+		return nil, ErrInvalidAutomation
+	}
+	if err := s.repo.Create(ctx, automation, input.VersionPolicy == "pin"); err != nil {
 		if errors.Is(err, repository.ErrAutomationNotFound) {
 			return nil, ErrInvalidAutomation
 		}
@@ -152,7 +173,11 @@ func (s *AgentAutomationService) start(ctx context.Context, run domain.AgentAuto
 		return
 	}
 	access := domain.WithAccess(ctx, domain.Access{WorkspaceID: run.WorkspaceID, UserID: *run.ActorID})
-	task, err := delegateIssue(access, s.conversations, s.tasks, run.WorkspaceID, run.IssueID, run.Instructions, run.RequestID, "", "", nil, "", "")
+	workflow := ""
+	if run.WorkflowID != nil {
+		workflow = run.WorkflowID.String()
+	}
+	task, err := delegateIssue(access, s.conversations, s.tasks, run.WorkspaceID, run.IssueID, run.Instructions, run.RequestID, "", "", nil, workflow, "", run.PinnedVersion)
 	if err != nil {
 		message, permanent := delegationFailure(err)
 		if !permanent {

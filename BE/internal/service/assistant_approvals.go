@@ -417,7 +417,7 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, "This approval cannot be executed")
 	}
 	harness, model, server := choice.over(payload.Harness, payload.Model)
-	task, err := delegateIssue(ctx, s.conversations, s.tasks, ws, approval.IssueID, payload.Instructions, approval.RequestID, harness, model, server, payload.WorkflowID, payload.Effort)
+	task, err := delegateIssue(ctx, s.conversations, s.tasks, ws, approval.IssueID, payload.Instructions, approval.RequestID, harness, model, server, payload.WorkflowID, payload.Effort, nil)
 	if err != nil {
 		if message, permanent := delegationFailure(err); permanent {
 			return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, message)
@@ -431,7 +431,7 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 // delegateIssue starts a coding task on an issue for the actor in ctx, with the
 // task composer's defaults. Replaying the same request ID converges on one task.
 // An empty workflow runs the issue's default workflow.
-func delegateIssue(ctx context.Context, conversations *repository.ConversationRepository, tasks approvalTasks, ws, issue uuid.UUID, instructions string, requestID uuid.UUID, harness, model string, server *uuid.UUID, workflow, effort string) (*domain.AgentTask, error) {
+func delegateIssue(ctx context.Context, conversations *repository.ConversationRepository, tasks approvalTasks, ws, issue uuid.UUID, instructions string, requestID uuid.UUID, harness, model string, server *uuid.UUID, workflow, effort string, pinnedVersion *int) (*domain.AgentTask, error) {
 	chat, err := conversations.OpenIssue(ctx, ws, issue)
 	if err != nil {
 		return nil, err
@@ -444,6 +444,7 @@ func delegateIssue(ctx context.Context, conversations *repository.ConversationRe
 	if err != nil {
 		return nil, err
 	}
+	request.PinnedWorkflowVersion = pinnedVersion
 	return tasks.Create(ctx, ws, chat.ID, request)
 }
 

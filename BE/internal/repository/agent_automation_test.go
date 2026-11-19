@@ -54,7 +54,7 @@ func (f automationFixture) rule(t *testing.T, mutate func(*domain.AgentAutomatio
 	if mutate != nil {
 		mutate(a)
 	}
-	require.NoError(t, f.repo.Create(f.ctx, a))
+	require.NoError(t, f.repo.Create(f.ctx, a, false))
 	return a
 }
 
@@ -177,8 +177,30 @@ func TestOnlyTheOwnerOrAnAdminDecidesAndTheApproverActs(t *testing.T) {
 func TestAutomationRulesValidateTheirScope(t *testing.T) {
 	f := newAutomationFixture(t)
 	foreign := uuid.New()
-	err := f.repo.Create(f.ctx, &domain.AgentAutomation{WorkspaceID: f.workspace, TeamID: f.team, OwnerID: f.user, Name: "x", StatusID: &foreign, Instructions: "x", MaxActive: 1})
+	err := f.repo.Create(f.ctx, &domain.AgentAutomation{WorkspaceID: f.workspace, TeamID: f.team, OwnerID: f.user, Name: "x", StatusID: &foreign, Instructions: "x", MaxActive: 1}, false)
 	require.ErrorIs(t, err, ErrAutomationNotFound, "a status must belong to the rule's team")
-	err = f.repo.Create(f.ctx, &domain.AgentAutomation{WorkspaceID: uuid.New(), TeamID: f.team, OwnerID: f.user, Name: "x", LabelID: &f.label, Instructions: "x", MaxActive: 1})
+	err = f.repo.Create(f.ctx, &domain.AgentAutomation{WorkspaceID: uuid.New(), TeamID: f.team, OwnerID: f.user, Name: "x", LabelID: &f.label, Instructions: "x", MaxActive: 1}, false)
 	require.ErrorIs(t, err, ErrAutomationNotFound, "the team must belong to the workspace")
+}
+
+func TestCronClaimsOnceWhenOverdueAndAdvancesEmptyMatches(t *testing.T) {
+	f := newAutomationFixture(t)
+	future := time.Now().Add(24 * time.Hour)
+	rule := f.rule(t, func(a *domain.AgentAutomation) {
+		a.Cron, a.Timezone, a.NextRunAt = "*/15 * * * *", "Asia/Kathmandu", &future
+	})
+	runs, err := f.repo.Claim(f.ctx, 50)
+	require.NoError(t, err)
+	require.Empty(t, runs)
+	for _, count := range []int{1, 0} {
+		_, err = f.db.Exec(`UPDATE agent_automations SET next_run_at=now()-interval '3 days' WHERE id=$1`, rule.ID)
+		require.NoError(t, err)
+		runs, err = f.repo.Claim(f.ctx, 50)
+		require.NoError(t, err)
+		require.Len(t, runs, count)
+		var next time.Time
+		require.NoError(t, f.db.Get(&next, `SELECT next_run_at FROM agent_automations WHERE id=$1`, rule.ID))
+		require.True(t, next.After(time.Now()))
+		require.WithinDuration(t, time.Now(), next, 15*time.Minute)
+	}
 }

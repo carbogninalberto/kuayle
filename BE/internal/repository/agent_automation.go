@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -18,7 +19,7 @@ func NewAgentAutomationRepository(db *sqlx.DB) *AgentAutomationRepository {
 	return &AgentAutomationRepository{db: db}
 }
 
-const runViewColumns = `r.*, a.name AS automation_name, a.owner_id, a.instructions, a.team_id, i.identifier_text AS issue_identifier, i.title AS issue_title`
+const runViewColumns = `r.*, a.workflow_id, a.pinned_version, a.name AS automation_name, a.owner_id, a.instructions, a.team_id, i.identifier_text AS issue_identifier, i.title AS issue_title`
 
 func (r *AgentAutomationRepository) List(ctx context.Context, ws uuid.UUID) ([]domain.AgentAutomation, error) {
 	automations := []domain.AgentAutomation{}
@@ -28,16 +29,47 @@ func (r *AgentAutomationRepository) List(ctx context.Context, ws uuid.UUID) ([]d
 
 // Create stores a rule. The label must belong to the workspace and the status
 // to the rule's team, which must belong to the workspace.
-func (r *AgentAutomationRepository) Create(ctx context.Context, a *domain.AgentAutomation) error {
-	err := r.db.GetContext(ctx, a, `INSERT INTO agent_automations(workspace_id,team_id,owner_id,name,label_id,status_id,instructions,unattended,run_hour,max_active)
- SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10 FROM teams t WHERE t.id=$2 AND t.workspace_id=$1
+func (r *AgentAutomationRepository) Create(ctx context.Context, a *domain.AgentAutomation, pin bool) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if a.WorkflowID != nil {
+		version, err := publishedWorkflowVersion(ctx, tx, a.WorkspaceID, *a.WorkflowID, nil)
+		if errors.Is(err, ErrWorkflowNotFound) {
+			return ErrAutomationNotFound
+		}
+		if err != nil {
+			return err
+		}
+		graph, err := domain.ParseWorkflowGraph(version.Graph)
+		if err != nil || graph.FirstRun().ProfileID == nil {
+			return ErrAutomationNotFound
+		}
+		var available bool
+		if err = tx.GetContext(ctx, &available, `SELECT EXISTS(SELECT 1 FROM agent_profiles WHERE id=$1 AND workspace_id=$2 AND archived_at IS NULL FOR SHARE)`, graph.FirstRun().ProfileID, a.WorkspaceID); err != nil {
+			return err
+		}
+		if !available {
+			return ErrAutomationNotFound
+		}
+		if pin {
+			a.PinnedVersion = &version.Version
+		}
+	}
+	err = tx.GetContext(ctx, a, `INSERT INTO agent_automations(workspace_id,team_id,owner_id,name,label_id,status_id,instructions,unattended,run_hour,max_active,workflow_id,pinned_version,cron,timezone,next_run_at)
+ SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE(NULLIF($14,''),'UTC'),$15 FROM teams t WHERE t.id=$2 AND t.workspace_id=$1
  AND ($5::uuid IS NULL OR EXISTS(SELECT 1 FROM labels l WHERE l.id=$5 AND l.workspace_id=$1))
  AND ($6::uuid IS NULL OR EXISTS(SELECT 1 FROM team_statuses s WHERE s.id=$6 AND s.team_id=$2))
- RETURNING *`, a.WorkspaceID, a.TeamID, a.OwnerID, a.Name, a.LabelID, a.StatusID, a.Instructions, a.Unattended, a.RunHour, a.MaxActive)
+ RETURNING *`, a.WorkspaceID, a.TeamID, a.OwnerID, a.Name, a.LabelID, a.StatusID, a.Instructions, a.Unattended, a.RunHour, a.MaxActive, a.WorkflowID, a.PinnedVersion, a.Cron, a.Timezone, a.NextRunAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrAutomationNotFound
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *AgentAutomationRepository) SetEnabled(ctx context.Context, ws, id uuid.UUID, enabled bool) (*domain.AgentAutomation, error) {
@@ -80,12 +112,22 @@ func (r *AgentAutomationRepository) Claim(ctx context.Context, limit int) ([]dom
 	defer tx.Rollback()
 	var automations []domain.AgentAutomation
 	if err = tx.SelectContext(ctx, &automations, `SELECT a.* FROM agent_automations a JOIN dev_machine_workspace_policies p ON p.workspace_id=a.workspace_id AND p.enabled
- WHERE a.enabled AND (a.run_hour IS NULL OR a.run_hour=extract(hour FROM now() AT TIME ZONE 'UTC'))
- ORDER BY a.updated_at LIMIT $1 FOR UPDATE OF a SKIP LOCKED`, limit); err != nil {
+ WHERE a.enabled AND (a.next_run_at IS NULL OR a.next_run_at <= now()) AND (a.run_hour IS NULL OR a.run_hour=extract(hour FROM now() AT TIME ZONE 'UTC'))
+ ORDER BY a.last_checked_at NULLS FIRST, a.id LIMIT $1 FOR UPDATE OF a SKIP LOCKED`, limit); err != nil {
 		return nil, err
 	}
 	claimed := []domain.AgentAutomationRunView{}
 	for _, a := range automations {
+		if a.Cron != "" {
+			next, err := domain.NextAutomationCron(a.Cron, a.Timezone, time.Now())
+			if err != nil {
+				return nil, err
+			}
+			a.NextRunAt = &next
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE agent_automations SET next_run_at=$2,last_checked_at=now() WHERE id=$1`, a.ID, a.NextRunAt); err != nil {
+			return nil, err
+		}
 		var active int
 		if err = tx.GetContext(ctx, &active, `SELECT count(*) FROM agent_automation_runs r LEFT JOIN agent_tasks t ON t.id=r.task_id
  WHERE r.automation_id=$1 AND (r.status IN ('pending_approval','starting') OR (r.status='started' AND t.state NOT IN ('completed','cancelled','failed')))
