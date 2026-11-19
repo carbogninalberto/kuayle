@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -167,6 +168,9 @@ func (s *DevMachineService) OpenTaskTerminal(ctx context.Context, workspaceID, m
 		UserID: userID, Name: "Claude Code", RuntimeSessionName: taskTerminalSessionPrefix + nonce + suffix, Status: "active",
 	}
 	if err := s.store.CreateTerminalSession(ctx, session); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrCheckoutNotReady
+		}
 		return nil, err
 	}
 	return s.launchTerminalSession(ctx, machine, terminalService, checkout, session)

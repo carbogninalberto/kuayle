@@ -842,6 +842,9 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	workingDirectory := "/workspace"
 	if checkout != nil {
 		workingDirectory = checkout.WorkspacePath
+		if docker && run.TaskID != nil && checkout.ScopeKey == run.TaskID.String() {
+			runtimeEnvironment = append(runtimeEnvironment, "COMPOSE_PROJECT_NAME="+taskComposeProject(workingDirectory))
+		}
 	}
 	// Without an inbox the attempt still runs; live messages then wait for
 	// the next attempt's prompt.
