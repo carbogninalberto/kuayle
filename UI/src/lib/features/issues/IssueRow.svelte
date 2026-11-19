@@ -306,6 +306,7 @@
 			<Popover.Root bind:open={priorityOpen}>
 				<Popover.Trigger
 					disabled={readOnly}
+					aria-label={m['issue.priority']()}
 					class="flex items-center cursor-pointer rounded p-0.5 opacity-60 hover:opacity-100 hover:bg-[var(--color-bg-tertiary)] transition-all"
 				>
 					<IssuePriorityIcon priority={issue.priority} size={14} />
@@ -325,7 +326,6 @@
 							{getPriorityLabel(value)}
 						</Button>
 					{/each}
-					<AgentAssigneeItems {slug} teamId={issue.team_id} {issue} variant="plain" onchanged={() => onchanged?.()} />
 				</Popover.Content>
 			</Popover.Root>
 		</span>
@@ -498,7 +498,7 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<span class="shrink-0 flex items-center" onclick={(e) => e.stopPropagation()}>
 			<Popover.Root bind:open={assigneeOpen}>
-				<Popover.Trigger disabled={readOnly} class="flex items-center gap-1 cursor-pointer transition-all">
+				<Popover.Trigger disabled={readOnly} aria-label={m['issue.assignee']()} class="flex items-center gap-1 cursor-pointer transition-all">
 					{#each issue.agent_assignees ?? [] as agent (agent.id)}
 						<AgentAvatar name={agent.name} color={agent.avatar_color} size={20} state={agent.task_state} />
 					{/each}
@@ -580,6 +580,7 @@
 							{member.name || member.email}
 						</Button>
 					{/each}
+					<AgentAssigneeItems {slug} teamId={issue.team_id} {issue} variant="plain" onchanged={() => onchanged?.()} />
 				</Popover.Content>
 			</Popover.Root>
 		</span>
