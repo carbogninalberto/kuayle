@@ -30,3 +30,17 @@ func AccessFromContext(ctx context.Context) (Access, bool) {
 func PublicContext(ctx context.Context) context.Context {
 	return context.WithValue(ctx, accessKey{}, struct{}{})
 }
+
+type sessionVersionKey struct{}
+
+func WithSessionVersion(ctx context.Context, version int64) context.Context {
+	return context.WithValue(ctx, sessionVersionKey{}, version)
+}
+
+func SessionVersion(ctx context.Context) *int64 {
+	version, ok := ctx.Value(sessionVersionKey{}).(int64)
+	if !ok {
+		return nil
+	}
+	return &version
+}

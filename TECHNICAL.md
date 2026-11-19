@@ -1233,7 +1233,8 @@ minted for another workspace. Identities are unique on
 `(workspace_id, issuer, subject)`, so a configuration in one workspace cannot
 authenticate into another. First sign-in creates the account with a random
 unusable password and adds the workspace membership in one transaction; an
-existing account is linked only by a verified email.
+existing account links itself from an authenticated session. An active SCIM-created
+account can bind its first verified IdP subject in the workspace that provisioned it.
 
 SSO sessions carry the `sso_ws` JWT claim and `refresh_tokens.sso_workspace_id`,
 so refresh rotation keeps the minting workspace. `WorkspaceMembership` answers
@@ -1262,7 +1263,28 @@ workspace means the instance config does not apply (a warning is logged, and
 the miss is retried after 30 s). Shared issuers (Google, Microsoft
 `/common|organizations|consumers`) need allowed domains
 (`validate.SharedOIDCIssuer`), both in `SaveConfig` and at startup. The Keycloak development profile and provider notes are in
-[docs/sso.md](docs/sso.md). SAML 2.0 shares the same login state, provisioning and workspace-scoped sessions. The POST callback verifies a signed assertion using the workspace’s stored IdP metadata, its SP entity ID, ACS and one-use AuthnRequest ID. SAML identities have a protocol-prefixed issuer to isolate them from OIDC subjects. SCIM 2.0 is a follow-up.
+[docs/sso.md](docs/sso.md). SAML 2.0 shares the same login state, provisioning and workspace-scoped sessions. The POST callback verifies a signed assertion using the workspace’s stored IdP metadata, its SP entity ID, ACS and one-use AuthnRequest ID. SAML identities have a protocol-prefixed issuer to isolate them from OIDC subjects.
+
+## SCIM 2.0 provisioning
+
+The provider endpoint is `/api/scim/v2/:slug`. The separate owner/admin token
+endpoint returns a newly rotated bearer token once. The workspace config keeps
+only its SHA-256 digest. The protocol uses the matched workspace ID for every
+resource query. Workspace config row locks serialize writes with rotation,
+revocation and mapping updates.
+
+SCIM resources belong to accounts created through this workspace's provisioner.
+Deactivation commits the status, existing workspace membership cleanup, group
+membership removal, and credential revocation in one PostgreSQL transaction.
+The version on the account invalidates its existing access JWTs. Refresh rows
+carry the same version, including during rotation. Legacy tokens start at
+version zero. PAT and CLI link issuance from an interactive session also checks
+that version while locking the account. Deprovisioning revokes outstanding CLI
+links before PATs so in-flight link redemption cannot leave a working PAT.
+
+Group-to-team mappings are explicit and unique per team. The grant table records
+which team memberships came from SCIM, allowing the provisioner to remove its
+own grants and preserve manually assigned members. See the [self-hosting guide](docs/self-hosting.md#scim-20-provisioning) for provider setup.
 
 ## Activity and Logs
 

@@ -29,11 +29,13 @@ type Claims struct {
 	PasskeyID string `json:"pkc,omitempty"`
 	// SSOWorkspaceID is the workspace whose SSO minted the session, if any.
 	SSOWorkspaceID string `json:"sso_ws,omitempty"`
+	SessionVersion int64  `json:"sv,omitempty"`
 	jwt.RegisteredClaims
 }
 
 // Session describes how the session behind an access token was established.
 type Session struct {
+	Version         int64
 	AuthenticatedAt time.Time
 	PasskeyID       *uuid.UUID
 	SSOWorkspaceID  *uuid.UUID
@@ -47,8 +49,9 @@ func GenerateAccessToken(userID uuid.UUID, secret string) (string, error) {
 // and how its session was authenticated.
 func GenerateSessionAccessToken(userID uuid.UUID, secret string, session Session) (string, error) {
 	claims := Claims{
-		UserID: userID,
-		Type:   TokenTypeAccess,
+		UserID:         userID,
+		Type:           TokenTypeAccess,
+		SessionVersion: session.Version,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(accessTokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
