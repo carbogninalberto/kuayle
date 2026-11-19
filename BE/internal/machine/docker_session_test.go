@@ -64,6 +64,7 @@ func TestSessionPurgeHelperIsIsolatedAndTargetsOnlyTheTask(t *testing.T) {
 	require.Empty(t, host.CapAdd)
 	require.Len(t, host.Mounts, 1)
 	require.Equal(t, "workspace", host.Mounts[0].Source)
+	require.Equal(t, "/workspace", host.Mounts[0].Target)
 	require.Equal(t, 1, started)
 	require.GreaterOrEqual(t, removed, 1, "the helper is removed afterwards")
 }

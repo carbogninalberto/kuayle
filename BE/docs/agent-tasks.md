@@ -1316,9 +1316,8 @@ preparing task may already have started native execution between worker polls.
 An authorized repeat cancellation request can retry failed cleanup operations
 once their underlying cause has been repaired.
 
-Cancellation, failure and completion leave the task's machine as it is: a
-machine Kuayle created for the task and a reused one both stay running, with
-their volume and worktrees, so a later task can reuse them. The exception is a
+Cancellation, failure and completion leave the task's machine running with
+its workspace volume, so a later task can reuse it. The exception is a
 start that has not begun: when a cancelling task has no attempt yet and its own
 machine (the one created for its reservation, used by no other task or run) has
 only the task's own spawn or start operations (its creation spawn and its
@@ -1331,6 +1330,26 @@ returns to its current state. A reused machine, one another task waits for, and
 a start already leased or attempted are left alone, and cancellation keeps
 waiting for them as before. Revoked access cancels through the same cleanup. Machines are never
 paused, stopped or torn down on a timer either; only their user does that.
+
+The manager queues `cleanup_task` after a 30-minute grace period for completed
+and cancelled tasks, including tasks that ended before the operation was
+introduced. A failed task is eligible when its last published PR for the
+branch is closed or merged, or after a seven-day retry window if it published
+a PR. A failed task without a recorded publication keeps its checkout. An
+active check, preview or task terminal delays cleanup.
+
+The operation retires the checkout and uses an isolated container with the
+machine's workspace mounted at `/workspace` to run `git worktree remove`
+and remove that task's per-attempt temp directories. The task's branches are
+retained, so a follow-up can prepare its checkout again. Docker-enabled agent
+attempts set `COMPOSE_PROJECT_NAME` to the normalized worktree directory name
+(including the task UUID), so Compose labels volumes with the same project
+even when started from a subdirectory. The machine's Docker daemon removes
+detached volumes with that project label or `com.kuayle.task-id=<task UUID>`.
+Volumes still referenced by a container are logged and skipped. Volumes from
+older or explicitly named Compose projects, including issue-only names like
+`kua177-gocache`, are cleaned only when either ownership label matches.
+A paused or stopped machine with a Docker daemon is cleaned when it next runs.
 
 Preparation resolves the task's repository from the issue, project, team and
 workspace development settings (the most specific configured scope wins), so an

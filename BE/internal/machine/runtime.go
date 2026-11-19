@@ -151,6 +151,7 @@ type Runtime interface {
 	// container's in-memory home with files (name to content).
 	SyncAgentSignIns(ctx context.Context, services []domain.DevMachineService, files map[string]string) error
 	PurgeTaskSession(context.Context, *domain.DevMachine, string, uuid.UUID) error
+	CleanupTaskResources(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, uuid.UUID, []uuid.UUID) error
 	// SyncCheckout fast-forwards the checkout to commits others pushed to the task
 	// branch on GitHub, and fails if it cannot without rewriting either side.
 	// When the checkout rewrote the commits Kuayle published (the agent rebased

@@ -956,6 +956,18 @@ func TestCheckoutIssueRetriesFailedCheckout(t *testing.T) {
 	require.NotNil(t, store.checkoutOperation)
 	require.Equal(t, int64(3), store.checkoutOperation.Generation)
 	require.Contains(t, store.checkoutOperation.IdempotencyKey, "checkout-issue-retry:")
+
+	taskID := uuid.New()
+	store.createCheckoutCalled = false
+	store.checkouts[0].ScopeKey, store.checkouts[0].Status = taskID.String(), "retired"
+	checkout, err = svc.checkoutTask(context.Background(), domain.AgentTask{
+		ID: taskID, WorkspaceID: workspaceID, CreatorID: userID, IssueID: issueID, MachineID: &machineID,
+		CheckoutID: store.checkouts[0].ID, Generation: 2,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "queued", checkout.Status)
+	require.True(t, store.createCheckoutCalled)
+	require.Equal(t, "task-checkout-retry:"+taskID.String()+":2", store.checkoutOperation.IdempotencyKey)
 }
 
 func TestCheckoutIssueRequiresDevelopmentRepository(t *testing.T) {
