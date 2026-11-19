@@ -127,5 +127,7 @@ type UserPreferences struct {
 	WorkflowEditorPanelOpen   bool                      `json:"workflow_editor_panel_open" db:"workflow_editor_panel_open"`
 	NotificationSound         string                    `json:"notification_sound" db:"notification_sound"`
 	NotificationEvents        NotificationEvents        `json:"notification_events" db:"notification_events"`
-	UpdatedAt                 time.Time                 `json:"updated_at" db:"updated_at"`
+	// Timezone is the user's IANA zone, empty when unset.
+	Timezone  string    `json:"timezone" db:"timezone"`
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }

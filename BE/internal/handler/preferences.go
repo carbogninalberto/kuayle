@@ -78,5 +78,6 @@ func toPreferencesResponse(prefs *domain.UserPreferences) dto.UserPreferencesRes
 		WorkflowEditorPanelOpen:   prefs.WorkflowEditorPanelOpen,
 		NotificationSound:         prefs.NotificationSound,
 		NotificationEvents:        map[string]bool(prefs.NotificationEvents.Complete()),
+		Timezone:                  prefs.Timezone,
 	}
 }

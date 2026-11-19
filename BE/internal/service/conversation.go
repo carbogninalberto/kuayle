@@ -28,6 +28,9 @@ type ConversationService struct {
 	workspaces attachmentWorkspaces
 	// subagentCall replaces the model calls of research sub-tasks in tests.
 	subagentCall subagentCaller
+	// prefs reads the requesting user's profile, e.g. their timezone; it is
+	// nil until SetPreferences wires it.
+	prefs repository.UserPreferencesRepo
 	// now is the clock that picks the assistant's date line; tests replace it.
 	now func() time.Time
 }
@@ -75,6 +78,21 @@ func NewConversationService(repo *repository.ConversationRepository, ai *AISetti
 	return &ConversationService{Repo: repo, ai: ai, now: time.Now}
 }
 
+// SetPreferences enables per-user profile data, such as the timezone the
+// assistant computes dates in.
+func (s *ConversationService) SetPreferences(prefs repository.UserPreferencesRepo) {
+	s.prefs = prefs
+}
+
+// clock picks the moment of the assistant's date line; test literals built
+// without a clock fall back to the real one instead of panicking.
+func (s *ConversationService) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
 // Rich fences the web chat renders directly. Telegram shares this prompt and
 // shows them as code, so the wording names the web chat.
 const richBlocksPrompt = "In the Kuayle web chat you may add a chart as a ```chart fenced block containing only JSON {\"type\":\"bar|line|area|pie\",\"title\":\"…\",\"unit\":\"…\",\"categories\":[…],\"series\":[{\"name\":\"…\",\"data\":[numbers]}]} (at most 5 series, 100 categories), or a small self-contained interactive widget as a ```html block (inline scripts and styles only; it runs sandboxed with no network, so embed all data). Use them only when a visual clearly helps, put the numbers you got from tools in them, never invent data, and keep text outside the block."
@@ -90,17 +108,17 @@ func guidanceMessages(images bool) []chatCompletionMessage {
 }
 
 // assistantTimezone resolves the zone the assistant computes dates in: the
-// user's profile timezone when their profile has one, else the workspace's
-// (WikiOverviewTimezone), else UTC. An unknown name falls back instead of
-// failing the reply.
-func assistantTimezone(profileTz string) *time.Location {
+// user's profile timezone when their profile has one, else the given
+// workspace zone, else UTC. An unknown name falls back instead of failing
+// the reply.
+func assistantTimezone(profileTz string, workspace *time.Location) *time.Location {
 	if profileTz != "" {
 		if loc, err := time.LoadLocation(profileTz); err == nil {
 			return loc
 		}
 	}
-	if WikiOverviewTimezone != nil {
-		return WikiOverviewTimezone
+	if workspace != nil {
+		return workspace
 	}
 	return time.UTC
 }
@@ -108,10 +126,24 @@ func assistantTimezone(profileTz string) *time.Location {
 // assistantToday is the prompt line telling the model the current date,
 // weekday and zone, computed per reply so relative dates such as "next
 // Friday" resolve in the user's day instead of being guessed.
-func assistantToday(now time.Time, profileTz string) string {
-	at := now.In(assistantTimezone(profileTz))
+func assistantToday(now time.Time, profileTz string, workspace *time.Location) string {
+	at := now.In(assistantTimezone(profileTz, workspace))
 	return fmt.Sprintf("Today is %s, %s (%s).", at.Weekday(), at.Format("2006-01-02"), at.Location())
 }
+
+// profileTimezone reads the user's stored timezone; a missing profile or a
+// failed read keeps the workspace default instead of failing the reply.
+func (s *ConversationService) profileTimezone(ctx context.Context, user uuid.UUID) string {
+	if s.prefs == nil {
+		return ""
+	}
+	prefs, err := s.prefs.Get(ctx, user)
+	if err != nil || prefs == nil {
+		return ""
+	}
+	return prefs.Timezone
+}
+
 func (s *ConversationService) configuration(ctx context.Context, ws uuid.UUID) (*domain.AISettings, error) {
 	settings, err := s.ai.Get(ctx, ws)
 	if err != nil {
@@ -242,9 +274,10 @@ func (s *ConversationService) execute(parent context.Context, a domain.Conversat
 			prompt = strings.TrimSuffix(strings.TrimSuffix(prompt, " You cannot run code yourself."), " You cannot read repositories or run code yourself.") + migrations
 		}
 	}
-	// Profiles have no timezone setting yet, so the workspace's zone (UTC
-	// today) answers; the date line itself is computed per reply.
-	prompt += " " + assistantToday(s.now(), "")
+	// The date line is computed per reply in the requesting user's zone:
+	// their profile timezone when set, else the workspace's (UTC until
+	// workspaces gain a timezone setting).
+	prompt += " " + assistantToday(s.clock(), s.profileTimezone(ctx, a.Conversation.CreatorID), time.UTC)
 	messages := []chatCompletionMessage{{Role: "system", Content: prompt}}
 	issue, err := s.Repo.GenerationIssue(ctx, a)
 	if err != nil {

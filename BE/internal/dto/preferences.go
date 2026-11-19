@@ -16,6 +16,8 @@ type UserPreferencesResponse struct {
 	NotificationSound         string                          `json:"notification_sound"`
 	// NotificationEvents always carries every event key.
 	NotificationEvents map[string]bool `json:"notification_events"`
+	// Timezone is the user's IANA zone, empty when unset.
+	Timezone string `json:"timezone"`
 }
 
 type UpdatePreferencesRequest struct {
@@ -34,6 +36,8 @@ type UpdatePreferencesRequest struct {
 	NotificationSound         *string                          `json:"notification_sound" validate:"omitempty,oneof=off chime bell pop drop pulse"`
 	// NotificationEvents is merged onto the stored map; unknown keys are refused.
 	NotificationEvents *map[string]bool `json:"notification_events"`
+	// Timezone is an IANA zone name; the service refuses unknown names.
+	Timezone *string `json:"timezone"`
 }
 
 type WorkflowSortOverride struct {
