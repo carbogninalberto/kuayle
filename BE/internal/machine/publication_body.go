@@ -3,6 +3,7 @@ package machine
 import (
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -14,16 +15,20 @@ import (
 const pullRequestBodyMaxBytes = 60000
 
 // pullRequestContent is what an attempt left for its pull request: its
-// parsed .kuayle/pull_request.json (nil without a usable one) and the
-// screenshots Kuayle published for it, in the file's order.
+// parsed .kuayle/pull_request.json (nil without a usable one), its published
+// screenshots and any evidence carried forward from a previous publication.
 type pullRequestContent struct {
-	file        *domain.AgentPullRequest
-	screenshots []publishedScreenshot
+	file               *domain.AgentPullRequest
+	repository         string
+	screenshots        []publishedScreenshot
+	earlierScreenshots []publishedScreenshot
+	notices            []string
 }
 
 type publishedScreenshot struct {
-	URL     string
-	Caption string
+	URL       string
+	Caption   string
+	recovered bool
 }
 
 // publicationBody renders the pull request description from the configured
@@ -42,11 +47,13 @@ func publicationBody(publication *domain.AgentPublication, content pullRequestCo
 		file = *content.file
 	}
 	own := publication.IssueIdentifier
-	clean := func(text string) string { return sanitizeAgentMarkdown(text, own) }
+	clean := func(text string) string { return sanitizeAgentMarkdown(text, own, nil) }
+	owner, repo, _ := splitRepositoryFullName(content.repository)
+	allowScreenshot := func(link string) bool { return durableScreenshotURL(link, owner, repo) }
 	issue := issueReference(publication, frontendURL)
 	values := map[string]string{"issue": issue}
 
-	description := clean(file.Description)
+	description := sanitizeAgentMarkdown(file.Description, own, allowScreenshot)
 	if !strings.Contains(template, "{{issue}}") {
 		lead := "Addresses " + issue
 		if !strings.HasSuffix(lead, ".") && !strings.HasSuffix(lead, "!") && !strings.HasSuffix(lead, "?") {
@@ -59,28 +66,53 @@ func publicationBody(publication *domain.AgentPublication, content pullRequestCo
 
 	values["verification"] = bulletList(file.Verification, clean)
 
-	shots := make([]string, 0, len(content.screenshots))
-	for _, shot := range content.screenshots {
-		caption := clean(strings.Join(strings.Fields(shot.Caption), " "))
-		alt := strings.NewReplacer("[", "", "]", "", "\\", "").Replace(caption)
-		image := "![" + alt + "](" + shot.URL + ")"
-		if caption != "" {
-			image = caption + "\n" + image
-		}
-		shots = append(shots, image)
-	}
-	values["screenshots"] = strings.Join(shots, "\n\n")
-	values["notes"] = clean(file.Notes)
+	values["notes"] = sanitizeAgentMarkdown(file.Notes, own, allowScreenshot)
 
-	body := renderPullRequestTemplate(sanitizeTemplate(template), values)
-	return truncateText(body, pullRequestBodyMaxBytes)
+	template = sanitizeTemplate(template)
+	body := renderPullRequestTemplate(template, values)
+	evidence := renderScreenshotEvidence(&content, body, clean)
+	notices := strings.Join(content.notices, "\n\n")
+	if evidence == "" {
+		return bodyWithScreenshotEvidence(body, notices)
+	}
+	if strings.Contains(template, "{{screenshots}}") {
+		values["screenshots"] = evidence
+		rendered := renderPullRequestTemplate(template, values)
+		if len(rendered)+len(notices)+2 <= pullRequestBodyMaxBytes {
+			return bodyWithScreenshotEvidence(rendered, notices)
+		}
+	}
+	return bodyWithScreenshotEvidence(body, joinBlocks(screenshotsHeading, evidence, notices))
+}
+
+func bodyWithScreenshotEvidence(body, evidence string) string {
+	if evidence == "" && len(body) <= pullRequestBodyMaxBytes {
+		return body
+	}
+	if len(body)+len(evidence)+2 <= pullRequestBodyMaxBytes {
+		return joinBlocks(body, evidence) + "\n"
+	}
+
+	// Report images embedded in the description or notes if truncation removes
+	// their last reference.
+	clipped := truncateText(body, pullRequestBodyMaxBytes-len(evidence)-3)
+	if !strings.Contains(evidence, screenshotsOverflowNote) {
+		visible := screenshotURLs(clipped)
+		if slices.ContainsFunc(previousScreenshotImages(body), func(shot publishedScreenshot) bool { return !visible[shot.URL] }) {
+			evidence = joinBlocks(evidence, screenshotsOverflowNote)
+			clipped = truncateText(body, pullRequestBodyMaxBytes-len(evidence)-3)
+		}
+	}
+	// A truncated description can leave an open Markdown block. Put the
+	// evidence first so it still renders in that case.
+	return joinBlocks(evidence, clipped) + "\n"
 }
 
 // issueReference is "KUA-12: title", the identifier linked to the issue in
 // Kuayle when Kuayle's public address and the workspace are known.
 func issueReference(publication *domain.AgentPublication, frontendURL string) string {
 	identifier := publication.IssueIdentifier
-	title := sanitizeAgentMarkdown(strings.Join(strings.Fields(truncateText(publication.IssueTitle, 300)), " "), identifier)
+	title := sanitizeAgentMarkdown(strings.Join(strings.Fields(truncateText(publication.IssueTitle, 300)), " "), identifier, nil)
 	reference := identifier
 	if link := kuayleIssueURL(frontendURL, publication.WorkspaceSlug, identifier); link != "" {
 		reference = "[" + identifier + "](" + link + ")"
@@ -176,7 +208,7 @@ func renderPullRequestTemplate(template string, values map[string]string) string
 // workspace members who cannot write to the repository.
 func sanitizeTemplate(template string) string {
 	template = strings.ReplaceAll(htmlComment.ReplaceAllString(strings.ReplaceAll(template, "\r\n", "\n"), ""), "\r", "\n")
-	return neutralizeInline(stopClosingKeywords(template))
+	return neutralizeInline(stopClosingKeywords(template), nil)
 }
 
 const zeroWidthSpace = "\u200b"
@@ -197,11 +229,11 @@ var (
 // sanitizeAgentMarkdown makes agent text safe to place in a section: valid
 // one-paragraph-break markdown without control characters; no headings, code
 // fences or setext underlines that could restructure the description; raw
-// HTML and images shown as text; no mentions or GitHub closing keywords; and
-// no identifier of another Kuayle issue, so the pull request stays linked to
-// its own (own). Inline code spans keep their text except closing keywords
-// and identifiers, which GitHub and Kuayle read inside code too.
-func sanitizeAgentMarkdown(text, own string) string {
+// HTML and unapproved images shown as text; no mentions or GitHub closing
+// keywords; and no identifier of another Kuayle issue, so the pull request
+// stays linked to its own (own). Inline code spans keep their text except
+// closing keywords and identifiers, which GitHub and Kuayle read inside code too.
+func sanitizeAgentMarkdown(text, own string, allowScreenshot func(string) bool) string {
 	text = strings.ToValidUTF8(strings.ReplaceAll(text, "\r\n", "\n"), "")
 	text = strings.Map(func(r rune) rune {
 		if r == '\r' {
@@ -220,7 +252,7 @@ func sanitizeAgentMarkdown(text, own string) string {
 	}
 	text = strings.Join(lines, "\n")
 	text = stopIssueIdentifiers(stopClosingKeywords(text), own)
-	text = neutralizeInline(text)
+	text = neutralizeInline(text, allowScreenshot)
 	return strings.TrimSpace(blankLines.ReplaceAllString(text, "\n\n"))
 }
 
@@ -249,10 +281,10 @@ func stopIssueIdentifiers(text, own string) string {
 	return b.String()
 }
 
-// neutralizeInline renders raw HTML and images as text and stops mentions
+// neutralizeInline renders raw HTML and unapproved images as text and stops mentions
 // outside inline code spans; a code span is a run of backticks closed by a
 // run of the same length within the paragraph.
-func neutralizeInline(text string) string {
+func neutralizeInline(text string, allowScreenshot func(string) bool) string {
 	var b strings.Builder
 	for i := 0; i < len(text); {
 		switch c := text[i]; {
@@ -274,6 +306,20 @@ func neutralizeInline(text string) string {
 		case c == '@':
 			b.WriteString("@" + zeroWidthSpace)
 		case c == '!' && i+1 < len(text) && text[i+1] == '[':
+			if allowScreenshot != nil {
+				if image := markdownScreenshot.FindStringSubmatch(text[i:]); image != nil {
+					if allowScreenshot(image[2]) {
+						b.WriteString(screenshotMarkdown(neutralizeInline(image[1], nil), image[2]))
+						i += len(image[0])
+						continue
+					}
+					if destination, err := url.Parse(image[2]); err != nil || destination.Host == "" {
+						b.WriteString("!\\[" + neutralizeInline(image[1], nil) + "]")
+						i += len(image[0])
+						continue
+					}
+				}
+			}
 			b.WriteString("!\\[")
 			i += 2
 			continue
