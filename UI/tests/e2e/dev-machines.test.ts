@@ -1558,7 +1558,7 @@ test('keeps Dev Machines in Settings with machine and policy tabs, and redirects
 	expect(unhandled).toEqual([]);
 });
 
-test('cancels Issue Machine Picker work when the dialog is dismissed', async ({ page }) => {
+test('stops Issue Machine Picker work on dismissal or when a checkout is retired', async ({ page }) => {
 	const workspaceId = '00000000-0000-0000-0000-000000000002';
 	const teamId = '00000000-0000-0000-0000-000000000010';
 	const issueId = '00000000-0000-0000-0000-000000000100';
@@ -1780,6 +1780,14 @@ test('cancels Issue Machine Picker work when the dialog is dismissed', async ({ 
 	expect(popup.isClosed()).toBe(true);
 	await expect(page.getByRole('heading', { name: 'Choose Dev Machine' })).toHaveCount(0);
 	await expect(page).toHaveURL('/test/issue/TST-43');
+
+	checkout.status = 'retired';
+	const priorCheckoutRequests = checkoutRequests;
+	const retiredPicker = await openPicker('Open Terminal');
+	await retiredPicker.getByRole('button', { name: 'Open Terminal' }).click();
+	await expect(retiredPicker.getByText('Issue checkout is unavailable', { exact: true })).toBeVisible();
+	expect(checkoutRequests).toBe(priorCheckoutRequests + 1);
+	expect(terminalRequests).toBe(0);
 });
 
 test('searches linked repositories in IssueRepositoryDialog and saves selection', async ({ page }) => {

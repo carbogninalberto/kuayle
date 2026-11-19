@@ -387,7 +387,7 @@ export interface DevMachineCheckout {
 	base_branch: string;
 	working_branch: string;
 	workspace_path: string;
-	status: 'queued' | 'preparing' | 'ready' | 'failed';
+	status: 'queued' | 'preparing' | 'ready' | 'failed' | 'retired';
 	last_error?: string;
 	created_at: string;
 	updated_at: string;

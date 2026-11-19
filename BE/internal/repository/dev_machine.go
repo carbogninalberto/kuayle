@@ -2599,7 +2599,10 @@ func (r *DevMachineRepository) UpdateCheckoutState(ctx context.Context, checkout
 func (r *DevMachineRepository) CreateTerminalSession(ctx context.Context, session *domain.DevMachineTerminalSession) error {
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_terminal_sessions
 		(id,workspace_id,machine_id,checkout_id,user_id,name,runtime_session_name,status)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8
+		WHERE $4::uuid IS NULL OR EXISTS (
+		  SELECT 1 FROM dev_machine_checkouts WHERE id=$4 AND workspace_id=$2 AND machine_id=$3 AND status<>'retired' FOR SHARE
+		)
 		RETURNING created_at,last_activity_at`, session.ID, session.WorkspaceID, session.MachineID,
 		session.CheckoutID, session.UserID, session.Name, session.RuntimeSessionName, session.Status,
 	).Scan(&session.CreatedAt, &session.LastActivityAt)

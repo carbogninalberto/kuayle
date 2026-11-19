@@ -1124,7 +1124,7 @@ func (s *DevMachineService) checkoutIssue(ctx context.Context, workspaceID, mach
 	}
 	for index := range existing {
 		if existing[index].IssueID == issueID && existing[index].ScopeKey == scope {
-			if existing[index].Status == "failed" && (scope == "" || retryGeneration > 1) {
+			if existing[index].Status == "retired" || (existing[index].Status == "failed" && (scope == "" || retryGeneration > 1)) {
 				key := "checkout-issue-retry:" + issueID.String() + ":" + uuid.NewString()
 				if scope != "" {
 					key = fmt.Sprintf("task-checkout-retry:%s:%d", scope, retryGeneration)
