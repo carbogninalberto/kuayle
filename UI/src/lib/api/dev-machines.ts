@@ -294,6 +294,7 @@ export async function ensureIssueCheckoutReady(
 	let checkout = await ensureIssueCheckout(slug, machineId, issueId);
 	while (checkout.status !== 'ready') {
 		if (checkout.status === 'failed') throw new Error(checkout.last_error || 'Issue checkout failed');
+		if (checkout.status === 'retired') throw new Error('Issue checkout is unavailable');
 		options.onStatus?.(checkout);
 		const delay = options.pollIntervalMs ?? 2_000;
 		if (Date.now() + delay > deadline) throw new Error('Issue checkout is still preparing');
