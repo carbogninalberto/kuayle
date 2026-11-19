@@ -66,6 +66,7 @@ export interface AgentProfileList {
 export type WorkflowNodeType = 'start' | 'agent' | 'check' | 'approval' | 'publish' | 'merge' | 'end';
 
 export type WorkflowCondition =
+	| 'assistant'
 	| 'agent_finished'
 	| 'agent_failed'
 	| 'checks_passed'

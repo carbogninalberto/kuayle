@@ -3726,6 +3726,8 @@
 	"workflows.editor.show_panel": "Afficher le panneau latéral",
 	"workflows.editor.nothing_selected": "Sélectionnez une étape ou une transition sur le canevas, ou dans les listes ci-dessous.",
 	"workflows.editor.node_label": "Nom",
+	"workflows.editor.stage_assistant": "Assistant de l’étape",
+	"workflows.condition.assistant": "Choix de l’assistant",
 	"workflows.editor.node_profile": "Profil d'agent",
 	"workflows.editor.node_profile_placeholder": "Choisir un profil",
 	"workflows.editor.node_prompt": "Prompt d'itération",

@@ -15,6 +15,7 @@ const types: Record<WorkflowNodeType, () => string> = {
 };
 
 const conditions: Record<WorkflowCondition, () => string> = {
+	assistant: m['workflows.condition.assistant'],
 	agent_finished: m['workflows.condition.agent_finished'],
 	agent_failed: m['workflows.condition.agent_failed'],
 	checks_passed: m['workflows.condition.checks_passed'],

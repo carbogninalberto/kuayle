@@ -3726,6 +3726,8 @@
 	"workflows.editor.show_panel": "Visa sidopanelen",
 	"workflows.editor.nothing_selected": "Välj ett steg eller en övergång på ytan, eller i listorna nedan.",
 	"workflows.editor.node_label": "Namn",
+	"workflows.editor.stage_assistant": "Fasassistent",
+	"workflows.condition.assistant": "Assistentens val",
 	"workflows.editor.node_profile": "Agentprofil",
 	"workflows.editor.node_profile_placeholder": "Välj en profil",
 	"workflows.editor.node_prompt": "Iterationsprompt",
