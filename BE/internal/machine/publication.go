@@ -202,22 +202,33 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 			result = domain.AgentPublicationResult{Branch: checkout.WorkingBranch, Remains: true, PullRequestURL: safeURL}
 		}
 	} else if commit != "" {
-		// The bot's signature stays: it is the bot's name and picture, and
-		// GitHub shows the description as the bot's first comment.
-		content := m.pullRequestFiles(ctx, githubAPI, token, run, services, checkout, publication)
-		body := publication.Bot.Signature(m.frontendURL) + publicationBody(publication, content, m.frontendURL)
 		var pullRequest *githubclient.PullRequest
 		var prErr error
 		if publication.FromStoppedTask {
-			body = "**not validated: published from a failed task**\n\n" + body
 			pullRequest, prErr = stoppedPullRequest(githubAPI, token, owner, repository, checkout)
 		} else {
 			pullRequest, prErr = githubAPI.FindOpenPullRequest(token, owner, repository, checkout.WorkingBranch, checkout.BaseBranch)
 		}
-		if prErr == nil && pullRequest == nil {
+		if prErr != nil {
+			return errors.New("pull_request_failed: " + strings.ReplaceAll(safeError(prErr), token, "[redacted]"))
+		}
+		// Read the previous screenshot snapshot before an upload can advance it.
+		var previous pullRequestContent
+		if pullRequest != nil {
+			previous = priorPullRequestScreenshots(githubAPI, token, owner, repository, *run.TaskID, pullRequest.Body)
+		}
+		content := m.pullRequestFiles(ctx, githubAPI, token, run, services, checkout, publication)
+		content.earlierScreenshots = previous.earlierScreenshots
+		content.notices = append(content.notices, previous.notices...)
+		// GitHub shows the description, including the bot's signature, as the
+		// bot's first comment.
+		body := publication.Bot.Signature(m.frontendURL) + publicationBody(publication, content, m.frontendURL)
+		if publication.FromStoppedTask {
+			body = "**not validated: published from a failed task**\n\n" + body
+		}
+		if pullRequest == nil {
 			pullRequest, prErr = githubAPI.CreatePullRequest(token, owner, repository, title, checkout.WorkingBranch, checkout.BaseBranch, body, publication.FromStoppedTask)
-		} else if prErr == nil {
-			// A reused pull request describes this attempt.
+		} else {
 			prErr = githubAPI.UpdatePullRequestBody(token, owner, repository, pullRequest.Number, body)
 			if prErr == nil && pullRequest.Draft && !publication.FromStoppedTask {
 				prErr = githubAPI.MarkPullRequestReadyForReview(token, pullRequest.NodeID)
