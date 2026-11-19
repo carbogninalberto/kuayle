@@ -162,8 +162,10 @@ git --git-dir="$bare_repository" fetch --prune origin
 git --git-dir="$bare_repository" worktree prune
 
 mkdir -p "$(dirname "$workspace_path")"
-if git --git-dir="$bare_repository" show-ref --verify --quiet "refs/remotes/origin/$working_branch"; then
-  git --git-dir="$bare_repository" worktree add -B "$working_branch" "$workspace_path" "refs/remotes/origin/$working_branch"
+if git --git-dir="$bare_repository" show-ref --verify --quiet "refs/heads/$working_branch"; then
+  git --git-dir="$bare_repository" worktree add "$workspace_path" "$working_branch"
+elif git --git-dir="$bare_repository" show-ref --verify --quiet "refs/remotes/origin/$working_branch"; then
+  git --git-dir="$bare_repository" worktree add -b "$working_branch" "$workspace_path" "refs/remotes/origin/$working_branch"
 else
   git --git-dir="$bare_repository" show-ref --verify --quiet "refs/remotes/origin/$base_branch"
   git --git-dir="$bare_repository" worktree add -b "$working_branch" "$workspace_path" "refs/remotes/origin/$base_branch"
