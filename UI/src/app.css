@@ -778,6 +778,34 @@ html.pointer-cursors [data-slot="switch"] {
 	cursor: pointer;
 }
 
+/* Tables in stored rich text and the editor. */
+:where(.prose, .description-content):has(> table),
+.tiptap .tableWrapper {
+	overflow-x: auto;
+}
+
+:where(.prose, .description-content) table {
+	border-collapse: collapse;
+	margin-block: 0.75rem;
+}
+
+:where(.prose, .description-content) :is(th, td) {
+	min-width: 6rem;
+	border: 1px solid var(--app-border);
+	padding: 0.4rem 0.6rem;
+	vertical-align: top;
+	overflow-wrap: anywhere;
+}
+
+:where(.prose, .description-content) th {
+	background: var(--color-bg-secondary);
+	font-weight: 600;
+}
+
+:where(.prose, .description-content) th:not([align]) {
+	text-align: left;
+}
+
 /* Task list checkboxes in rendered HTML (comments, descriptions) */
 .prose input[type="checkbox"] {
 	appearance: none;

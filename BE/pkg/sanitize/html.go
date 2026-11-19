@@ -14,6 +14,7 @@ var policy *bluemonday.Policy
 
 var (
 	allowedHTMLTagPattern = regexp.MustCompile(`(?i)</?(?:p|br|strong|b|em|i|s|del|code|pre|a|h[1-6]|ul|ol|li|blockquote|hr|span|div|label|img|input)(?:\s[^>]*)?/?>`)
+	leadingHTMLTable      = regexp.MustCompile(`(?i)^<table(?:\s[^>]*)?>`)
 	headingPattern        = regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
 	taskItemPattern       = regexp.MustCompile(`^\s*[-*+]\s+\[([ xX])\]\s+(.+)$`)
 	bulletItemPattern     = regexp.MustCompile(`^\s*[-*+]\s+(.+)$`)
@@ -30,7 +31,10 @@ func init() {
 		"h1", "h2", "h3", "h4", "h5", "h6",
 		"ul", "ol", "li", "blockquote", "hr",
 		"span", "div", "label",
+		"table", "thead", "tbody", "tfoot", "tr", "th", "td",
 	)
+	policy.AllowAttrs("colspan", "rowspan").Matching(regexp.MustCompile(`^[1-9][0-9]{0,2}$`)).OnElements("th", "td")
+	policy.AllowAttrs("align").Matching(regexp.MustCompile(`^(left|center|right)$`)).OnElements("th", "td")
 
 	// Class values are narrowed to the editor's own names by restrictClasses.
 	policy.AllowAttrs("class").Globally()
@@ -70,7 +74,7 @@ func SanitizeEditorContent(input string) string {
 	if input == "" {
 		return ""
 	}
-	if allowedHTMLTagPattern.MatchString(input) {
+	if leadingHTMLTable.MatchString(input) || allowedHTMLTagPattern.MatchString(input) {
 		return SanitizeHTML(input)
 	}
 	return SanitizeHTML(markdownToEditorHTML(input))
@@ -170,7 +174,8 @@ func markdownToEditorHTML(input string) string {
 		flushList()
 	}
 
-	for _, line := range lines {
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 
 		if inCodeFence {
@@ -262,6 +267,15 @@ func markdownToEditorHTML(input string) string {
 			flushList()
 			quote = append(quote, strings.TrimSpace(strings.TrimPrefix(trimmed, ">")))
 			continue
+		}
+
+		if i+1 < len(lines) {
+			if table, consumed := renderMarkdownTable(lines[i:]); consumed > 0 {
+				flushBlocks()
+				out.WriteString(table)
+				i += consumed - 1
+				continue
+			}
 		}
 
 		flushQuote()

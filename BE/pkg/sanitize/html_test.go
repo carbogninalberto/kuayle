@@ -56,6 +56,52 @@ func TestSanitizeEditorContentKeepsSafeEditorHTML(t *testing.T) {
 	assertNotContains(t, got, `alert(1)`)
 }
 
+func TestSanitizeEditorContentConvertsMarkdownTable(t *testing.T) {
+	input := `Release checklist
+
+Step | Result
+:--- | ---:
+**Build** | Pass \| retry
+Test | ` + "`<table> \\| go test`" + `
+
+Ready for review.`
+	want := `<p>Release checklist</p><table><thead><tr><th align="left">Step</th><th align="right">Result</th></tr></thead>` +
+		`<tbody><tr><td align="left"><strong>Build</strong></td><td align="right">Pass | retry</td></tr>` +
+		`<tr><td align="left">Test</td><td align="right"><code>&lt;table&gt; | go test</code></td></tr></tbody></table><p>Ready for review.</p>`
+	if got := SanitizeEditorContent(input); got != want {
+		t.Fatalf("SanitizeEditorContent() = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizeEditorContentRequiresMarkdownTableDelimiter(t *testing.T) {
+	for _, input := range []string{
+		"| Step | Result |\n| Build | Pass |",
+		"| Step | Result |\n| ---- |\n| Build | Pass |",
+		"```md\n| Step | Result |\n| ---- | ------ |\n| Build | Pass |\n```",
+	} {
+		got := SanitizeEditorContent(input)
+		assertNotContains(t, got, "<table>")
+		assertContains(t, got, "| Step | Result |")
+	}
+}
+
+func TestSanitizeEditorContentKeepsSafeHTMLTable(t *testing.T) {
+	input := `<table class="fixed" style="position:fixed"><thead><tr><th colspan="2" onclick="run()">Release</th></tr></thead>` +
+		`<tbody><tr><td rowspan="2">Build</td><td align="right">Passed</td></tr><tr><td>Reviewed</td></tr></tbody>` +
+		`<tfoot><tr><td colspan="-1" rowspan="0" align="bad">Total</td><td></td></tr></tfoot></table>`
+	want := `<table><thead><tr><th colspan="2">Release</th></tr></thead>` +
+		`<tbody><tr><td rowspan="2">Build</td><td align="right">Passed</td></tr><tr><td>Reviewed</td></tr></tbody>` +
+		`<tfoot><tr><td>Total</td><td></td></tr></tfoot></table>`
+	for _, clean := range []func(string) string{SanitizeHTML, SanitizeEditorContent} {
+		if got := clean(input); got != want {
+			t.Errorf("sanitized table = %q, want %q", got, want)
+		}
+		if got := clean(want); got != want {
+			t.Errorf("sanitizing a stored table changed it to %q", got)
+		}
+	}
+}
+
 func TestSanitizeEditorContentKeepsProtectedAssetImages(t *testing.T) {
 	assetID := "123e4567-e89b-12d3-a456-426614174000"
 	input := `<p><img src="/api/workspaces/acme/assets/` + assetID + `" alt="Screenshot"></p>`
