@@ -41,7 +41,7 @@ func agentTaskError(c *echo.Context, err error) error {
 	case errors.Is(err, repository.ErrCheckUnavailable):
 		return response.Error(c, http.StatusConflict, "CHECK_UNAVAILABLE", "The check needs the task's latest iteration and its checkout on a running machine")
 	case errors.Is(err, repository.ErrNoCheckCommand):
-		return response.Error(c, http.StatusConflict, "NO_CHECK_COMMAND", "No check command is configured; set one in the development settings or give a command")
+		return response.Error(c, http.StatusConflict, "NO_CHECK_COMMAND", "Provide a command to run")
 	case errors.Is(err, repository.ErrCheckForbidden):
 		return response.Error(c, http.StatusForbidden, "FORBIDDEN", "Only members who can edit development settings can run a custom check command")
 	case errors.Is(err, repository.ErrAgentLiveMessageInvalid):
@@ -499,22 +499,6 @@ func (h *AgentTaskHandler) Diff(c *echo.Context) error {
 		return agentTaskError(c, err)
 	}
 	c.Response().Header().Set("Cache-Control", "private, no-store")
-	return response.Success(c, http.StatusOK, result)
-}
-
-func (h *AgentTaskHandler) Validation(c *echo.Context) error {
-	id, err := taskID(c, "taskId")
-	if err != nil {
-		return agentTaskError(c, err)
-	}
-	run, err := taskID(c, "runId")
-	if err != nil {
-		return agentTaskError(c, err)
-	}
-	result, err := h.svc.Repo.Validation(c.Request().Context(), middleware.GetWorkspace(c).ID, id, run)
-	if err != nil {
-		return agentTaskError(c, err)
-	}
 	return response.Success(c, http.StatusOK, result)
 }
 

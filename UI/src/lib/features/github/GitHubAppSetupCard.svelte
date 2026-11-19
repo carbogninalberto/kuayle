@@ -128,6 +128,9 @@
 							<ul class="list-disc space-y-0.5 pl-5">
 								{#each view.checklist as item (item)}<li>{item}</li>{/each}
 							</ul>
+							{#if setup?.missing_permissions.some((permission) => permission.name === 'workflows')}
+								<p>{m['settings.github.app_setup.workflows_reason']()}</p>
+							{/if}
 						</div>
 					{/if}
 					{#if view.steps.length > 0}

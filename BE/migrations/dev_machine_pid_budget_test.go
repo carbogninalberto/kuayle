@@ -30,7 +30,7 @@ func TestDevMachinePIDBudgetMigration(t *testing.T) {
 	m, err := migrate.New("file://.", testURL)
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
-	require.NoError(t, m.Migrate(189))
+	require.NoError(t, m.Migrate(193))
 	db, err := sql.Open("pgx", testURL)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
@@ -49,7 +49,7 @@ func TestDevMachinePIDBudgetMigration(t *testing.T) {
 	_, err = db.Exec(`UPDATE dev_machines SET pids_limit=2048 WHERE routing_key='explicitlimit'`)
 	require.NoError(t, err)
 
-	require.NoError(t, m.Migrate(190))
+	require.NoError(t, m.Migrate(194))
 	limits := func() []int {
 		t.Helper()
 		var pids []int

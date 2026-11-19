@@ -1,7 +1,6 @@
 package machine
 
 import (
-	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
@@ -30,8 +29,7 @@ type publishedScreenshot struct {
 // publicationBody renders the pull request description from the configured
 // template (or the default one). The agent writes the description, changes,
 // verification, notes and screenshots; everything it wrote is sanitized here
-// (sanitizeAgentMarkdown). Kuayle adds the issue reference and, when its
-// independent check passed, one line saying so. A section whose placeholders
+// (sanitizeAgentMarkdown). Kuayle adds the issue reference. A section whose placeholders
 // all render empty is left out, heading included. Without the agent's file
 // the description is the issue line and Kuayle's facts.
 func publicationBody(publication *domain.AgentPublication, content pullRequestContent, frontendURL string) string {
@@ -59,12 +57,7 @@ func publicationBody(publication *domain.AgentPublication, content pullRequestCo
 	values["description"] = description
 	values["changes"] = bulletList(file.Changes, clean)
 
-	verification := bulletList(file.Verification, clean)
-	if verification == "" {
-		// The agent's own account of the tests it chose for Kuayle to re-run.
-		verification = clean(publication.AgentSummary)
-	}
-	values["verification"] = joinBlocks(verification, clean(independentCheckLine(publication, verification != "")))
+	values["verification"] = bulletList(file.Verification, clean)
 
 	shots := make([]string, 0, len(content.screenshots))
 	for _, shot := range content.screenshots {
@@ -109,27 +102,6 @@ func kuayleIssueURL(frontendURL, slug, identifier string) string {
 	}
 	link := strings.TrimRight(base.String(), "/") + "/" + url.PathEscape(slug) + "/issue/" + identifier
 	return strings.NewReplacer("(", "%28", ")", "%29", "<", "%3C", ">", "%3E", " ", "%20").Replace(link)
-}
-
-// independentCheckLine is Kuayle's own check result, when one passed; also
-// says the agent's own verification comes before it.
-func independentCheckLine(publication *domain.AgentPublication, also bool) string {
-	if !publicationValidated(publication) {
-		return ""
-	}
-	command := func(argv []string) string {
-		return "`" + strings.ReplaceAll(truncateText(strings.Join(strings.Fields(strings.Join(argv, " ")), " "), 160), "`", "'") + "`"
-	}
-	if publication.CheckSource == domain.CheckSourceAgent {
-		if len(publication.CheckCommands) > 1 {
-			return fmt.Sprintf("Kuayle re-ran the %d commands the agent chose independently in a clean container: all passed.", len(publication.CheckCommands))
-		}
-		return "Kuayle re-ran " + command(publication.CheckArgv) + " independently in a clean container: passed."
-	}
-	if also {
-		return "Kuayle also ran " + command(publication.CheckArgv) + " independently in a clean container: passed."
-	}
-	return "Kuayle ran " + command(publication.CheckArgv) + " independently in a clean container: passed."
 }
 
 func bulletList(items []string, clean func(string) string) string {

@@ -55,6 +55,8 @@ func workflowError(c *echo.Context, err error) error {
 		return response.Error(c, http.StatusBadRequest, "PROFILE_SKILL_INVALID", "Only active skills shared with the whole workspace can be added to an agent profile")
 	case errors.Is(err, repository.ErrAgentProfileInUse):
 		return response.Error(c, http.StatusConflict, "PROFILE_IN_USE", "A workflow uses this profile; change the workflow first")
+	case errors.Is(err, repository.ErrWorkflowAutomation):
+		return response.Error(c, http.StatusConflict, "WORKFLOW_AUTOMATION", "An automation uses this workflow. Remove the rule before deleting the workflow.")
 	case errors.Is(err, repository.ErrWorkflowInUse):
 		return response.Error(c, http.StatusConflict, "WORKFLOW_IN_USE", "A task that is still running uses this workflow; wait for it to finish or cancel it first")
 	case errors.Is(err, repository.ErrWorkflowStale):

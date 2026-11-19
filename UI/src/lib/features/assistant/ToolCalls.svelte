@@ -731,9 +731,7 @@
 								<!-- The exact argv that runs, as recorded on the check. -->
 								<CodeBlock.Root size="sm"
 									><CodeBlock.Content
-										code={approval.payload.command
-											? JSON.stringify(approval.payload.command)
-											: m['assistant.run_check_default']()}
+										code={JSON.stringify(approval.payload.command ?? [])}
 										wrap
 										class="max-h-48 text-xs"
 									/></CodeBlock.Root

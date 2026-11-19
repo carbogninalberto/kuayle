@@ -24,10 +24,10 @@ import (
 )
 
 type ManagerStore interface {
-	GetValidation(context.Context, domain.DevMachineOperation) (*domain.DevMachineAgentRunStep, error)
-	StartValidation(context.Context, domain.DevMachineOperation, string) error
-	CompleteValidation(context.Context, domain.DevMachineOperation, int, []domain.CheckCommandResult) error
-	CreateValidationOutput(context.Context, domain.DevMachineOperation, *domain.DevMachineLogChunk) error
+	GetManualCheck(context.Context, domain.DevMachineOperation) (*domain.DevMachineAgentRunStep, error)
+	StartManualCheck(context.Context, domain.DevMachineOperation, string) error
+	CompleteManualCheck(context.Context, domain.DevMachineOperation, int) error
+	CreateManualCheckOutput(context.Context, domain.DevMachineOperation, *domain.DevMachineLogChunk) error
 	ListResourceAllocations(context.Context) ([]domain.DevMachineResourceAllocation, error)
 	RecordNativeSession(context.Context, uuid.UUID, string) error
 	SaveValidationArtifacts(context.Context, domain.DevMachineOperation, []domain.ValidationArtifact) error
@@ -172,6 +172,7 @@ const DefaultShutdownDrain = 90 * time.Second
 var errManagerShutdown = errors.New("manager_restart: the machine manager is shutting down; the next manager continues this operation")
 
 type githubAPI interface {
+	GetPublicationToken(context.Context, int64, string) (githubclient.PublicationToken, error)
 	GetRepositoryInstallationToken(int64, string) (string, time.Time, error)
 	CreatePullRequest(string, string, string, string, string, string, string, bool) (*githubclient.PullRequest, error)
 	UpdatePullRequestBody(string, string, string, int, string) error
@@ -468,7 +469,7 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 	}()
 	started := time.Now()
 	operationCtx, cancel := context.WithCancel(ctx)
-	if (operation.Action == domain.DevMachineOpRunAgent || operation.Action == domain.DevMachineOpValidateAgent || operation.Action == domain.DevMachineOpPublishAgent || operation.Action == domain.DevMachineOpRunCheck) && operation.AgentRunID != nil {
+	if (operation.Action == domain.DevMachineOpRunAgent || operation.Action == domain.DevMachineOpPublishAgent || operation.Action == domain.DevMachineOpRunCheck) && operation.AgentRunID != nil {
 		m.registerActiveRun(operation.MachineID, *operation.AgentRunID, cancel)
 		defer m.unregisterActiveRun(operation.MachineID, *operation.AgentRunID)
 	}
@@ -622,6 +623,22 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 	if operation.Action == domain.DevMachineOpResize {
 		return m.resize(ctx, machine)
 	}
+	if operation.Action == domain.DevMachineOpValidateAgent {
+		// An earlier manager may have left check and Compose containers running.
+		// The task waits for this cleanup before publishing or starting its next step.
+		if operation.AgentRunID == nil {
+			return repository.ErrAgentTaskConflict
+		}
+		run, err := m.store.GetAgentRunInternal(ctx, *operation.AgentRunID)
+		if err != nil {
+			return err
+		}
+		if run == nil || run.TaskID == nil || run.Status != domain.DevMachineAgentRunStatusSucceeded ||
+			run.MachineID != machine.ID || run.WorkspaceID != machine.WorkspaceID || operation.WorkspaceID != machine.WorkspaceID {
+			return repository.ErrAgentTaskConflict
+		}
+		return m.runtime.CancelAgent(ctx, run)
+	}
 	if operation.Generation < machine.Generation {
 		switch operation.Action {
 		case domain.DevMachineOpTeardown, domain.DevMachineOpCancelAgent, domain.DevMachineOpTerminateTerminal, domain.DevMachineOpPurgeTaskSession, domain.DevMachineOpCleanupTask, domain.DevMachineOpStopPreview:
@@ -634,8 +651,6 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 				return m.store.UpdateCheckoutState(ctx, *operation.CheckoutID, "failed", &message)
 			}
 			return nil
-		case domain.DevMachineOpValidateAgent:
-			return &terminalOperationError{code: "validation_stale", message: "Machine changed during validation"}
 		case domain.DevMachineOpRunCheck:
 			return &terminalOperationError{code: "check_stale", message: "The machine changed before the check ran"}
 		case domain.DevMachineOpRunTool:
@@ -820,8 +835,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		m.previewsEnded(ctx, machine)
 		m.environmentEnded(ctx, machine)
 		return m.setStateAndEventForOperation(ctx, machine, operation, domain.DevMachineStatusDestroyed, "machine.destroyed", nil, true)
-	case domain.DevMachineOpValidateAgent, domain.DevMachineOpRunCheck:
-		return m.validateAgent(ctx, machine, operation)
+	case domain.DevMachineOpRunCheck:
+		return m.runManualCheck(ctx, machine, operation)
 	case domain.DevMachineOpRunTool:
 		return m.runTool(ctx, machine, operation)
 	case domain.DevMachineOpRefreshPackageIndex:
@@ -1609,7 +1624,6 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	notebookNotCollected, replies := closing.notebookNotCollected, closing.replies
 	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	m.closeLiveInbox(outboxCtx, machine, run)
-	m.takeValidationFile(outboxCtx, machine, run, services, checkout)
 	if cleaner, ok := m.runtime.(runTmpRuntime); ok && run.Mode != "interactive" {
 		if err := cleaner.RemoveRunTmp(outboxCtx, services, agentRunTmpKey(run)); err != nil {
 			log.WithField("agent_run_id", run.ID).WithError(err).Warn("agent run directory could not be removed")
@@ -2239,41 +2253,13 @@ func errorCode(err error) string {
 }
 
 func (m *Manager) repositoryToken(ctx context.Context, machine *domain.DevMachine, repositoryFullName string) (githubAPI, string, error) {
-	if repositoryFullName == "" {
-		repositoryFullName = checkoutRepositoryFullName(machine, nil)
-	}
-	repoOwner, repoName, ok := splitRepositoryFullName(repositoryFullName)
-	if !ok {
-		return nil, "", sql.ErrNoRows
-	}
-	installationID, err := m.store.GetGitHubInstallationID(ctx, machine.WorkspaceID, repoOwner+"/"+repoName)
+	client, installationID, repoName, err := m.repositoryInstallation(ctx, machine, repositoryFullName)
 	if err != nil {
 		return nil, "", err
-	}
-	client := m.github
-	if client == nil {
-		config, err := m.store.GetGitHubAppConfig(ctx, machine.WorkspaceID)
-		if err != nil {
-			return nil, "", err
-		}
-		if config == nil || len(m.githubKey) == 0 {
-			return nil, "", sql.ErrNoRows
-		}
-		privateKey, err := cryptoutil.Decrypt(config.PrivateKey, m.githubKey)
-		if err != nil {
-			return nil, "", fmt.Errorf("github_app_decryption_failed: %w", err)
-		}
-		client, err = githubclient.NewClient(config.AppID, privateKey)
-		if err != nil {
-			return nil, "", err
-		}
 	}
 	token, expiresAt, err := client.GetRepositoryInstallationToken(installationID, repoName)
 	if err != nil {
 		return nil, "", err
-	}
-	if token == "" {
-		return nil, "", errors.New("empty GitHub installation token")
 	}
 	if err := m.registerRuntimeCredential(ctx, machine.ID, token, expiresAt); err != nil {
 		return nil, "", fmt.Errorf("runtime_credential_registration_failed: %w", err)
@@ -2281,7 +2267,43 @@ func (m *Manager) repositoryToken(ctx context.Context, machine *domain.DevMachin
 	return client, token, nil
 }
 
+func (m *Manager) repositoryInstallation(ctx context.Context, machine *domain.DevMachine, repositoryFullName string) (githubAPI, int64, string, error) {
+	if repositoryFullName == "" {
+		repositoryFullName = checkoutRepositoryFullName(machine, nil)
+	}
+	repoOwner, repoName, ok := splitRepositoryFullName(repositoryFullName)
+	if !ok {
+		return nil, 0, "", sql.ErrNoRows
+	}
+	installationID, err := m.store.GetGitHubInstallationID(ctx, machine.WorkspaceID, repoOwner+"/"+repoName)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	client := m.github
+	if client == nil {
+		config, err := m.store.GetGitHubAppConfig(ctx, machine.WorkspaceID)
+		if err != nil {
+			return nil, 0, "", err
+		}
+		if config == nil || len(m.githubKey) == 0 {
+			return nil, 0, "", sql.ErrNoRows
+		}
+		privateKey, err := cryptoutil.Decrypt(config.PrivateKey, m.githubKey)
+		if err != nil {
+			return nil, 0, "", fmt.Errorf("github_app_decryption_failed: %w", err)
+		}
+		client, err = githubclient.NewClient(config.AppID, privateKey)
+		if err != nil {
+			return nil, 0, "", err
+		}
+	}
+	return client, installationID, repoName, nil
+}
+
 func (m *Manager) registerRuntimeCredential(ctx context.Context, machineID uuid.UUID, token string, expiresAt time.Time) error {
+	if token == "" {
+		return errors.New("empty GitHub installation token")
+	}
 	fingerprint := sha256.Sum256([]byte(token))
 	encrypted, err := cryptoutil.Encrypt(token, m.encryptionKey)
 	if err != nil {

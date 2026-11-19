@@ -41,10 +41,6 @@ func (r *AgentTaskRepository) Create(ctx context.Context, ws, conversation uuid.
 	if existing, err := replayAgentTaskCreate(ctx, tx, c, input); err != nil || existing != nil {
 		return existing, err
 	}
-	requested, command, err := resolveAgentTaskCommand(ctx, tx, ws, *c.IssueID, input.TestCommand)
-	if err != nil {
-		return nil, err
-	}
 	var task domain.AgentTask
 	instructions, err := resolveScopeDefault(ctx, tx, ws, *c.IssueID, "agent_instructions")
 	if err != nil {
@@ -72,7 +68,7 @@ func (r *AgentTaskRepository) Create(ctx context.Context, ws, conversation uuid.
 			return nil, err
 		}
 	}
-	err = tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,reason,issue_status_id,issue_updated_at,test_command,validation_command,agent_instructions,compose_file,preview_command,preview_port,model_server_id,agent_profile_id) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Waiting for execution',i.status_id,i.updated_at,$11,$12,$13,$14,$15,$16,$17,$18 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`, ws, conversation, c.CreatorID, c.IssueID, c.TeamID, input.RequestID, input.Prompt, input.Provider, input.Model, input.Thinking, requested, command, instructions, compose, preview, previewPort, input.ModelServerID, agentProfile)
+	err = tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,reason,issue_status_id,issue_updated_at,agent_instructions,compose_file,preview_command,preview_port,model_server_id,agent_profile_id) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Waiting for execution',i.status_id,i.updated_at,$11,$12,$13,$14,$15,$16 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`, ws, conversation, c.CreatorID, c.IssueID, c.TeamID, input.RequestID, input.Prompt, input.Provider, input.Model, input.Thinking, instructions, compose, preview, previewPort, input.ModelServerID, agentProfile)
 	if err != nil {
 		return nil, err
 	}
@@ -219,6 +215,9 @@ func (r *AgentTaskRepository) Claim(ctx context.Context) (*domain.AgentTask, err
   -- evaluated when an event or its timeout wakes it.
   OR (state='awaiting_review' AND workflow_wake_at<=now() AND next_poll_at<=now()))
  AND (lease_expires_at IS NULL OR lease_expires_at<=now())
+ -- Let the manager clean up a pre-upgrade check before publishing its checkout.
+ AND NOT (state='validating' AND EXISTS(SELECT 1 FROM dev_machine_operations o
+   WHERE o.agent_run_id=agent_tasks.run_id AND o.action='validate_agent' AND o.status IN ('pending','leased')))
  -- A workflow a person paused is left alone until it is resumed; only the
  -- cleanup of an attempt the pause stopped (or a cancellation) goes on.
  AND (workflow_paused_at IS NULL OR state='cancelling')
@@ -405,11 +404,7 @@ func (r *AgentTaskRepository) Transition(ctx context.Context, claimed domain.Age
 	}
 	if to == "publishing" {
 		var passed bool
-		if err = tx.GetContext(ctx, &passed, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_run_steps s JOIN dev_machine_operations o ON o.agent_run_id=s.agent_run_id AND o.action='validate_agent'
-         WHERE s.agent_run_id=$1 AND s.sequence=0 AND s.step_type='validation' AND s.status='succeeded' AND s.exit_code=0 AND s.started_at IS NOT NULL AND s.completed_at IS NOT NULL AND o.status='completed')
-         -- With no check configured the step is skipped, never passed; the work
-         -- is still published, as a draft whose publication records no check.
-         OR EXISTS(SELECT 1 FROM dev_machine_agent_run_steps s WHERE s.agent_run_id=$1 AND s.sequence=0 AND s.step_type='validation' AND s.status='skipped' AND s.command_argv='[]'::jsonb AND s.completed_at IS NOT NULL)`, task.RunID); err != nil {
+		if err = tx.GetContext(ctx, &passed, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE id=$1 AND task_id=$2 AND workspace_id=$3 AND status='succeeded')`, task.RunID, task.ID, task.WorkspaceID); err != nil {
 			return err
 		}
 		if !passed {
@@ -1174,10 +1169,6 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 	if err = refuseMergedWork(ctx, tx, task, req.ConfirmMerged); err != nil {
 		return nil, err
 	}
-	requested, command, err := resolveAgentTaskCommand(ctx, tx, ws, task.IssueID, req.TestCommand)
-	if err != nil {
-		return nil, err
-	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO agent_task_retries(task_id,request_id,expected_generation,prompt,model,model_server_id) VALUES($1,$2,$3,$4,$5,$6)`, id, req.RequestID, req.Generation, req.Prompt, req.Model, requestedRetryServer(req)); err != nil {
 		return nil, err
 	}
@@ -1193,7 +1184,14 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 	if err != nil {
 		return nil, err
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET model=COALESCE(NULLIF($9::text,''),t.model),thinking=COALESCE(NULLIF($12::text,''),CASE WHEN $9::text<>'' THEN $10::text ELSE t.thinking END),model_server_id=CASE WHEN $9::text<>'' THEN $11::uuid ELSE t.model_server_id END,prompt=$2,test_command=$3,validation_command=$4,agent_instructions=CASE WHEN t.workflow_version_id IS NOT NULL AND t.kind<>'review' THEN t.agent_instructions ELSE $5 END,compose_file=$6,preview_command=$7,preview_port=$8,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,failure_class=NULL,sign_in_required=false,usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,usage_limit_resumes=0,provider_credit_exhausted=false,resume_native_session=false,platform_retries=0,platform_retry_pending=false,live_resume_generation=NULL,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, req.Prompt, requested, command, instructions, compose, preview, previewPort, req.Model, req.Thinking, req.ModelServerID, req.RequestedEffort); err != nil {
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET model=COALESCE(NULLIF($7::text,''),t.model),thinking=COALESCE(NULLIF($10::text,''),CASE WHEN $7::text<>'' THEN $8::text ELSE t.thinking END),
+ model_server_id=CASE WHEN $7::text<>'' THEN $9::uuid ELSE t.model_server_id END,prompt=$2,
+ agent_instructions=CASE WHEN t.workflow_version_id IS NOT NULL AND t.kind<>'review' THEN t.agent_instructions ELSE $3 END,compose_file=$4,preview_command=$5,preview_port=$6,
+ generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,failure_class=NULL,sign_in_required=false,usage_limit_message=NULL,usage_limit_resets_at=NULL,usage_limit_resume_at=NULL,usage_limit_resumes=0,
+ provider_credit_exhausted=false,resume_native_session=false,platform_retries=0,platform_retry_pending=false,live_resume_generation=NULL,
+ lease_token=NULL, lease_expires_at=NULL, next_poll_at=now(),
+ issue_status_id=i.status_id,issue_updated_at=i.updated_at
+ FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, req.Prompt, instructions, compose, preview, previewPort, req.Model, req.Thinking, req.ModelServerID, req.RequestedEffort); err != nil {
 		return nil, err
 	}
 	// A workflow task continues on its implementing agent step, keeping that

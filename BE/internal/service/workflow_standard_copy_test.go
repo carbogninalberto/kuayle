@@ -22,17 +22,16 @@ func TestStandardCopyWorkflowRunsLeftToRight(t *testing.T) {
 	want := map[string]domain.WorkflowPosition{
 		"start":     domain.WorkflowPositionAt(0, 0, false),
 		"implement": domain.WorkflowPositionAt(1, 0, false),
-		"validate":  domain.WorkflowPositionAt(2, 0, false),
-		"publish":   domain.WorkflowPositionAt(3, 0, false),
-		"review":    domain.WorkflowPositionAt(4, 0, false),
-		"done":      domain.WorkflowPositionAt(5, 0, false),
-		"failed":    domain.WorkflowPositionAt(4, 1, true),
+		"publish":   domain.WorkflowPositionAt(2, 0, false),
+		"review":    domain.WorkflowPositionAt(3, 0, false),
+		"done":      domain.WorkflowPositionAt(4, 0, false),
+		"failed":    domain.WorkflowPositionAt(3, 1, true),
 	}
 	require.Len(t, g.Nodes, len(want))
 	for id, position := range want {
 		require.Equal(t, position, nodes[id].Position, id)
 	}
-	require.Equal(t, domain.WorkflowPosition{X: 1488, Y: 120}, nodes["failed"].Position)
+	require.Equal(t, domain.WorkflowPosition{X: 1108, Y: 120}, nodes["failed"].Position)
 	var publishFailed bool
 	for _, e := range g.Edges {
 		from, to := nodes[e.Source], nodes[e.Target]
