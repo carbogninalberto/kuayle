@@ -461,8 +461,8 @@ streaming, history, denied access, mobile layout and long transcript scrolling.
 ## Orchestrator tools
 
 The worker offers OpenAI-compatible function tools: `list_teams`,
-`search_issues`, `get_issue`, `create_issue`, `update_issue` (title, description,
-status or priority; assignees are not changed), `delegate_issue`, `plan_issues` and `link_issues` (see [dependencies and collaborating agents](agent-tasks.md#dependencies-and-collaborating-agents)),
+`search_issues`, `get_issue`, `create_issue`, `update_issue`,
+`delegate_issue`, `plan_issues` and `link_issues` (see [dependencies and collaborating agents](agent-tasks.md#dependencies-and-collaborating-agents)),
 `get_agent_work`, `list_agent_work`, `watch_agent_work`
 (see [watching agent work](#watching-agent-work)), `merge_pull_request`, `accept_agent_work`
 (see [accepting without merge](agent-tasks.md#accepting-without-merge)), `request_agent_review`,
@@ -507,13 +507,33 @@ action is one catalog entry in `assistant_wiki_tools.go`, a case in
 `runWikiTool` (or, for an approval tool, in `prepareWikiApproval`, the
 `requestApproval` switch, `AssistantApprovals.wikiAction`, the policy table and
 the approvals' action constraint).
-`create_issue` accepts a `parent_identifier`. The write tools (`create_issue`,
-`update_issue`, `link_issues` and `link_repository`) count toward the per-reply
-change limit. The model only proposes calls.
+`create_issue` accepts a `parent_identifier`, and `update_issue` can change the
+status. Both accept title, description, priority and the optional fields below.
+
+- `assignees` is an array of workspace member names or email addresses. Use
+  `["me"]` for the conversation creator.
+- `due_date` is a calendar date in `YYYY-MM-DD` format. The assistant converts
+  relative dates such as Friday using the current date in the user's time zone.
+- `cycle` and `project` accept a name or ID from the issue's team.
+- `labels` is an array of label names. The available labels are workspace-wide
+  labels and labels of the issue's current or newly selected project.
+
+Names match case-insensitively. A missing or ambiguous match fails the call
+before the issue is written and includes the offending value and up to 25
+available options. The error says when more options are available. On update,
+omit fields to keep their values. Use `""` to clear `due_date`, `cycle` or
+`project`. Assignee and label arrays replace the corresponding sets, and empty
+arrays clear them. Changing or clearing the project removes labels scoped to
+the previous project. If the tool cannot confirm the requested assignees or
+labels after saving, it reports which issue was saved so any correction can
+target that issue.
+
+The write tools (`create_issue`, `update_issue`, `link_issues` and
+`link_repository`) count toward the per-reply change limit. The model only proposes calls.
 `AssistantTools` executes each in Go as the conversation creator, re-reading the
 current workspace role (guests and roles without `issue:create` or
 `issue:update` are refused) and
-using the same team-visibility-scoped repositories and `IssueService.Create` as
+using the same team-visibility-scoped repositories and `IssueService` writes as
 the HTTP routes. Arguments are strict JSON: unknown fields such as a creator ID
 are rejected, and the issue is always created with the user's own identity.
 Teams are resolved by key among the teams the user can see.

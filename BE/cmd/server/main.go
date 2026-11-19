@@ -255,6 +255,7 @@ func main() {
 	conversationSvc.SetPreferences(prefsRepo)
 	assistantTools := service.NewAssistantTools(issueRepo, teamRepo, workspaceRepo, issueSvc)
 	assistantTools.SetIssueLabels(labelRepo)
+	assistantTools.SetIssueFieldLookups(workspaceRepo, cycleRepo, projectRepo)
 	assistantToolSettings := repository.NewAssistantToolSettingsRepository(db)
 	assistantTools.SetSettings(assistantToolSettings)
 	wikiRepo := repository.NewWikiRepository(db)
