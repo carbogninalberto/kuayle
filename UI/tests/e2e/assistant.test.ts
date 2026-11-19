@@ -769,7 +769,8 @@ test('asks for approval before delegating and records the decision from the back
 			payload: {
 				identifier: 'ENG-1',
 				title: 'Dark mode',
-				instructions: '<b onmouseover="window.evil=1">Implement</b> dark mode'
+				instructions: '<b onmouseover="window.evil=1">Implement</b> dark mode',
+				effort: 'high'
 			},
 			status: 'pending',
 			expires_at: '2026-10-27T10:00:00Z',
@@ -780,6 +781,7 @@ test('asks for approval before delegating and records the decision from the back
 	await page.goto('/test/assistant?conversation=chat-1');
 	await expect(page.getByText('Start a coding agent on ENG-1?', { exact: true })).toBeVisible();
 	await expect(page.getByText('<b onmouseover=', { exact: false })).toBeVisible();
+	await expect(page.getByText('Effort: high', { exact: true })).toBeVisible();
 	// The approval request closes the message: it comes after the reply's text.
 	const text = await page.getByText('Approval is pending.', { exact: true }).boundingBox();
 	const request = await page.getByText('Start a coding agent on ENG-1?', { exact: true }).boundingBox();
@@ -2302,7 +2304,10 @@ test('a requested review and a follow-up wait for approval in the chat', async (
 				title: 'Dark mode',
 				task_id: 'task-9',
 				generation: 1,
-				instructions: 'Fix the review findings'
+				instructions: 'Fix the review findings',
+				harness: 'claude-code',
+				model: 'claude-opus-5-5',
+				effort: 'medium'
 			}
 		}
 	] as any;
@@ -2317,6 +2322,7 @@ test('a requested review and a follow-up wait for approval in the chat', async (
 	await expect(page.getByText('Error handling', { exact: true })).toBeVisible();
 	await expect(page.getByText('Start a follow-up on ENG-1?', { exact: true })).toBeVisible();
 	await expect(page.getByText('Fix the review findings', { exact: true })).toBeVisible();
+	await expect(page.getByText('Effort: medium', { exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Approve', exact: true }).first().click();
 	await expect(page.getByText('Claude Code review of ENG-1 started', { exact: true })).toBeVisible();
 	expect(state.decisions).toEqual(['approve']);

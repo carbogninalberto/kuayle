@@ -223,11 +223,14 @@ func parseOpenCodeGoModels(body []byte) []dto.AgentCatalogModel {
 		// A shape other than the expected one means the efforts are not known.
 		var capabilities struct {
 			Reasoning struct {
-				Effort []string `json:"effort"`
+				Effort    []string `json:"effort"`
+				Supported *bool    `json:"supported"`
 			} `json:"reasoning"`
 		}
 		_ = json.Unmarshal(item.Capabilities, &capabilities)
-		models = append(models, dto.AgentCatalogModel{ID: id, Name: upstreamModelName(item.DisplayName, item.Name, bare), Efforts: kuayleEfforts(capabilities.Reasoning.Effort)})
+		reasoning := capabilities.Reasoning
+		models = append(models, dto.AgentCatalogModel{ID: id, Name: upstreamModelName(item.DisplayName, item.Name, bare),
+			Efforts: kuayleEfforts(reasoning.Effort), ReasoningUnsupported: reasoning.Supported != nil && !*reasoning.Supported})
 		if len(models) == maxDiscoveredModels {
 			break
 		}
@@ -375,30 +378,37 @@ func (s *DevMachineService) workspaceModels(ctx context.Context, workspaceID uui
 // provider, another coding agent, or an unavailable or stale list accept as
 // before, so a save never depends on the upstream being reachable. It waits briefly for a
 // first fetch, and looks once for a model added since the last one before
-// refusing it. Task starts and workflow steps do not call it: a stored
-// profile keeps running if the list later drops its model.
+// refusing it. A stored profile keeps running if the list later drops its model.
 func (s *DevMachineService) validateCatalogModel(ctx context.Context, provider, model, thinking string) error {
-	if provider != "opencode" || !strings.HasPrefix(model, openCodeGoPrefix) {
-		return nil
-	}
-	list := s.openCodeGo.load(ctx, s.modelHTTPClient(), catalogLoad, s.openCodeGo.wait())
-	if !list.available || list.stale {
-		return nil
-	}
-	entry, known := findCatalogModel(list.models, model)
-	if !known {
-		list = s.openCodeGo.load(ctx, s.modelHTTPClient(), catalogRecheck, s.openCodeGo.wait())
-		if !list.available || list.stale {
-			return nil
-		}
-		if entry, known = findCatalogModel(list.models, model); !known {
-			return &AgentModelError{fmt.Sprintf("OpenCode Go does not offer the model %q", model)}
-		}
+	entry, err := s.catalogModelForValidation(ctx, provider, model)
+	if err != nil {
+		return err
 	}
 	if thinking != "" && thinking != "off" && len(entry.Efforts) > 0 && !containsString(entry.Efforts, thinking) {
 		return &AgentModelError{fmt.Sprintf("%s allows the effort levels %s", model, strings.Join(entry.Efforts, ", "))}
 	}
 	return nil
+}
+
+func (s *DevMachineService) catalogModelForValidation(ctx context.Context, provider, model string) (dto.AgentCatalogModel, error) {
+	if provider != "opencode" || !strings.HasPrefix(model, openCodeGoPrefix) {
+		return dto.AgentCatalogModel{}, nil
+	}
+	list := s.openCodeGo.load(ctx, s.modelHTTPClient(), catalogLoad, s.openCodeGo.wait())
+	if !list.available || list.stale {
+		return dto.AgentCatalogModel{}, nil
+	}
+	entry, known := findCatalogModel(list.models, model)
+	if !known {
+		list = s.openCodeGo.load(ctx, s.modelHTTPClient(), catalogRecheck, s.openCodeGo.wait())
+		if !list.available || list.stale {
+			return dto.AgentCatalogModel{}, nil
+		}
+		if entry, known = findCatalogModel(list.models, model); !known {
+			return dto.AgentCatalogModel{}, &AgentModelError{fmt.Sprintf("OpenCode Go does not offer the model %q", model)}
+		}
+	}
+	return entry, nil
 }
 
 func (c *openCodeGoCatalog) wait() time.Duration {

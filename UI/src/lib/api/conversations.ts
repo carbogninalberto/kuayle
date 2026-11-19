@@ -120,6 +120,7 @@ export interface DelegationPayload {
 	/** The coding agent the assistant proposed; empty means the configured default. */
 	harness?: string;
 	model?: string;
+	effort?: string;
 	/** The development repository resolved when approval was requested. */
 	repository?: string;
 	base_branch?: string;
@@ -199,6 +200,7 @@ export interface FollowUpPayload {
 	generation: number;
 	instructions: string;
 	model?: string;
+	effort?: string;
 	/** The model, harness and model server (absent: the workspace default) the task ran with. */
 	current_model?: string;
 	harness?: string;

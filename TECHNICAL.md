@@ -1123,7 +1123,7 @@ The Go plan list is fetched with the model discovery client (public addresses on
 
 **Outbound access.** The API server makes an HTTPS request to `opencode.ai` the first time someone opens an OpenCode model field or saves an OpenCode Go profile, and about hourly while they keep doing so. It also fetches on explicit refresh. A deployment that blocks that egress shows a stale or unavailable list and still accepts typed models.
 
-**Save-time check.** A fresh OpenCode Go list validates `opencode-go/` profiles on save. A missing model gets one rate-limited recheck before a `400`, and an invalid effort reports the allowed levels. A stale or unavailable list lets the profile save. A save waits up to 3 seconds for a fetch. Other OpenCode providers and task starts, retries, or workflow steps skip this check.
+**Choice-time check.** A fresh OpenCode Go list validates `opencode-go/` profiles on save and explicit `effort` in assistant delegation or follow-up requests. A missing model gets one rate-limited recheck, and an invalid effort reports the allowed levels. A stale or unavailable list leaves validation to the harness. The check waits up to 3 seconds for a fetch. Other OpenCode providers and ordinary task starts, retries or workflow steps skip the catalog check.
 
 ### Agent model defaults
 

@@ -19,6 +19,8 @@ type IssueAgentWork struct {
 	State             string    `db:"state" json:"state"`
 	Reason            string    `db:"reason" json:"reason"`
 	Provider          string    `db:"provider" json:"agent"`
+	Model             string    `db:"model" json:"model,omitempty"`
+	Effort            string    `db:"effort" json:"effort,omitempty"`
 	Attempt           int64     `db:"generation" json:"attempt"`
 	PullRequestURL    *string   `db:"pull_request_url" json:"pull_request_url,omitempty"`
 	PullRequestNumber *int      `db:"pull_request_number" json:"pull_request_number,omitempty"`
@@ -49,12 +51,14 @@ func (r *AgentTaskRepository) IssueAgentWork(ctx context.Context, ws, issue uuid
 	}
 	work := []IssueAgentWork{}
 	err := r.db.SelectContext(ctx, &work, `SELECT t.id,t.state,t.reason,t.provider,t.generation,t.updated_at,
+ COALESCE(NULLIF(run.model,''),t.model) AS model,COALESCE(NULLIF(run.thinking,''),t.thinking) AS effort,
  (SELECT g.url FROM dev_machine_git_refs g WHERE g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id AND g.ref_type='pull_request' AND g.source='published' ORDER BY g.created_at DESC LIMIT 1) AS pull_request_url,
  (SELECT g.pull_request_number FROM dev_machine_git_refs g WHERE g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id AND g.ref_type='pull_request' AND g.source='published' ORDER BY g.created_at DESC LIMIT 1) AS pull_request_number,
  (SELECT s.outcome FROM agent_task_signals s WHERE s.task_id=t.id AND s.run_id=t.run_id AND s.kind='review' AND s.action<>'untrusted' AND s.outcome<>'commented' ORDER BY s.created_at DESC LIMIT 1) AS review,
  `+latestAgentReview(2000)+`,
  `+latestManualCheck+`
- FROM agent_tasks t WHERE t.workspace_id=$1 AND t.issue_id=$2 AND t.kind='implement' ORDER BY t.created_at DESC LIMIT 5`, ws, issue, actor)
+ FROM agent_tasks t LEFT JOIN dev_machine_agent_runs run ON run.id=t.run_id AND run.workspace_id=t.workspace_id
+ WHERE t.workspace_id=$1 AND t.issue_id=$2 AND t.kind='implement' ORDER BY t.created_at DESC LIMIT 5`, ws, issue, actor)
 	return work, err
 }
 

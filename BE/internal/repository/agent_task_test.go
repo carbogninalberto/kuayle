@@ -11,9 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/kuayle/kuayle-backend/internal/domain"
-	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 	"github.com/stretchr/testify/require"
 )
 
@@ -275,26 +273,29 @@ func TestAgentTasksReserveMachinesAndFenceActualDispatch(t *testing.T) {
 	require.NoError(t, db.Get(&count, `SELECT count(*) FROM dev_machine_events WHERE agent_run_id=$1 AND event_type='tool.started'`, run.ID))
 	require.Equal(t, 2, count)
 
-	// KUA-188: jsonb rejects the \u0000 escape (22P05), which stopped runs
-	// whose agent printed a NUL. The sanitized payload persists without it.
+	// Pass provider JSON directly to the repository, and verify both copies
+	// can be committed in the same transaction.
 	nulChunk := *chunk
 	nulChunk.Stream, nulChunk.Sequence, nulChunk.Content = "stderr", 1, "nul\n"
-	rawNUL := []byte(`{"text":"a\u0000b"}`)
-	err = fixture.repository.CreateAgentOutput(ctx, &nulChunk, []domain.DevMachineEvent{{EventType: "tool.output", Payload: rawNUL}})
-	var pgErr *pgconn.PgError
-	require.ErrorAs(t, err, &pgErr)
-	require.Equal(t, "22P05", pgErr.Code, "the original failure: unsupported Unicode escape sequence")
-	sanitized, err := sanitize.JSONWithoutNUL(rawNUL)
-	require.NoError(t, err)
-	require.NoError(t, fixture.repository.CreateAgentOutput(ctx, &nulChunk, []domain.DevMachineEvent{{EventType: "tool.output", Payload: sanitized}}))
+	rawOutput := []byte(`{"tool":{"output":["a\u0000b","c\uD800d","e\udc00f","\ud83d\ude00","\\u0000"]}}`)
+	toolEvents := []domain.DevMachineEvent{{EventType: "tool.output", Payload: rawOutput}}
+	require.NoError(t, fixture.repository.CreateAgentOutput(ctx, &nulChunk, toolEvents))
+	eventLogID := nulChunk.ID
+	nulChunk.Sequence++
+	nulChunk.Content = "more\x00output\n"
+	require.NoError(t, fixture.repository.CreateAgentOutput(ctx, &nulChunk, nil))
+	require.NoError(t, fixture.repository.CreateAgentOutput(ctx, &nulChunk, nil), "replay of the same raw chunk must match")
+	var logContent string
+	require.NoError(t, db.Get(&logContent, `SELECT content FROM dev_machine_log_chunks WHERE id=$1`, nulChunk.ID))
+	require.Equal(t, "more\uFFFDoutput\n", logContent)
 	var stored string
 	require.NoError(t, db.Get(&stored, `SELECT payload::text FROM dev_machine_events WHERE agent_run_id=$1 AND event_type='tool.output'`, run.ID))
-	require.NotContains(t, stored, `\u0000`)
-	require.JSONEq(t, `{"text":"ab"}`, stored)
+	wantPayload := `{"tool":{"output":["a�b","c�d","e�f","😀","\\u0000"]}}`
+	require.JSONEq(t, wantPayload, stored)
 	var activity string
-	require.NoError(t, db.Get(&activity, `SELECT payload::text FROM conversation_events WHERE conversation_id=$1 AND type='task.activity' AND payload::text LIKE '%tool.output%'`, c.ID))
-	require.NotContains(t, activity, `\u0000`, "the conversation activity carries the sanitized payload too")
-	require.Contains(t, activity, `"ab"`)
+	require.NoError(t, db.Get(&activity, `SELECT (payload->'events'->0->'payload')::text FROM conversation_events
+		WHERE conversation_id=$1 AND type='task.activity' AND payload->'log_id'=to_jsonb($2::bigint)`, c.ID, eventLogID))
+	require.JSONEq(t, wantPayload, activity)
 
 	require.NoError(t, repo.RequestCancel(ctx, ws, task.ID))
 	chunk.Sequence = 3

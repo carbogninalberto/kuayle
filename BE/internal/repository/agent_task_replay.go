@@ -56,7 +56,7 @@ func replayAgentTaskCreate(ctx context.Context, tx *sqlx.Tx, c *domain.Conversat
 	// A task run as an agent identity took them from that profile likewise.
 	sameProfile := (accepted.AgentProfileID == nil) == (input.AgentProfile == nil) && (input.AgentProfile == nil || *accepted.AgentProfileID == input.AgentProfile.ID)
 	sameAgent := sameProfile && (accepted.WorkflowVersionID != nil || accepted.AgentProfileID != nil || (accepted.Provider == input.Provider && accepted.Model == input.Model && accepted.Thinking == input.Thinking && sameUUIDPointer(accepted.ModelServerID, input.ModelServerID)))
-	if accepted.Prompt != strings.TrimSpace(input.Prompt) || !sameAgent || !sameAgentTaskCommand(accepted.TestCommand, input.TestCommand) {
+	if accepted.Prompt != strings.TrimSpace(input.Prompt) || !sameAgent || !sameAgentTaskCommand(accepted.TestCommand, input.TestCommand) || (input.RequestedEffort != "" && accepted.Thinking != input.RequestedEffort) {
 		return nil, ErrConversationConflict
 	}
 	return accepted, nil
@@ -83,7 +83,7 @@ func replayAgentTaskRetry(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTa
 	if err != nil {
 		return nil, err
 	}
-	if !sameAgentTaskCommand(accepted.TestCommand, input.TestCommand) {
+	if !sameAgentTaskCommand(accepted.TestCommand, input.TestCommand) || (input.RequestedEffort != "" && accepted.Thinking != input.RequestedEffort) {
 		return nil, ErrConversationConflict
 	}
 	return accepted, nil
