@@ -348,8 +348,8 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 	case domain.DevMachineAgentRunStatusQueued, domain.DevMachineAgentRunStatusStarting:
 		return nil
 	case domain.DevMachineAgentRunStatusFailed, domain.DevMachineAgentRunStatusTimeout:
-		// A platform failure that is not the run's own (the machine manager
-		// restarted) retries the same step and never uses the budget.
+		// A retryable platform failure restarts the same step without using
+		// another iteration.
 		if run.Status == domain.DevMachineAgentRunStatusFailed && run.FailureClass != nil && run.FailureRule != nil && domain.RetryablePlatformFailure(*run.FailureClass, *run.FailureRule) {
 			return s.retryAfterPlatformFailure(ctx, task, run)
 		}
@@ -1088,6 +1088,8 @@ func withLiveHandoff(prompt string, previous *domain.AgentHandoff, resumed, cont
 		b.WriteString("- The person who owns this task interrupted the previous attempt to tell you something; their message is below. Nothing failed and the worktree is unchanged: read the message, reply to it as described there, then continue from where you stopped with it in mind. Do not start over, reset or discard changes.\n")
 	} else if forMessage {
 		b.WriteString("- The person who owns this task started this attempt to tell you something; their message is below. Reply to it as described there and do what it asks, building on the work already in this worktree.\n")
+	} else if previous.FailureRule == domain.FailureRulePIDLimit {
+		b.WriteString("- The previous attempt hit the agent container's PID limit. Check git status and git diff, then continue from the worktree. Use fewer parallel workers for process-heavy commands, for example `npx playwright test --workers=1`.\n")
 	} else if continued {
 		paused := "paused by the provider's usage limit"
 		if previous.Status == string(domain.DevMachineAgentRunStatusCancelled) {

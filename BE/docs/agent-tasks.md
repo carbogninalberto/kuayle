@@ -1300,25 +1300,19 @@ offer (rule `model_not_found`) fails it; both are `provider` and neither goes
 through a workflow's `agent_failed` edge (see
 [Provider credit and unknown models](#provider-credit-and-unknown-models)).
 
-A run that failed with class `platform` and rule `manager_restart` (see
-[Machine manager restarts](#machine-manager-restarts)) is retried
-automatically on the same step. The runtime cleanup runs as for a failure, then
-the step restarts as a new attempt, with a new generation and run ID that
-continue the native session, in the same workflow visit and iteration: the
-retry uses neither the workflow's iteration budget nor the step's visit limit.
-The task shows "Retrying automatically: Kuayle's machine manager restarted
-while the agent worked (retry N of 3)" and the notebook records it. The retried
-attempt's handoff prompt tells the agent that a manager restart interrupted it
-and to continue from the worktree. A step has at most three automatic retries
-(`agent_tasks.platform_retries`, migration 000162), reset when the workflow starts
-another step or a person retries the task; the fourth such failure during the
-step fails the task with class `platform` and a reason saying the manager
-restarted three times during this step and to retry the task. A person who
-cancels the task while the retry's cleanup runs cancels it: no new attempt
-starts. The other platform rules
-(`out_of_memory`, `pid_limit`, `time_limit`, `platform_error`) are not retried
-automatically: the same workload would hit the same limit again, so the task
-fails and says how to fix it.
+A run classified as `platform` with rule `pid_limit` or `manager_restart`
+(see [Machine manager restarts](#machine-manager-restarts)) is retried on the
+same step. After runtime cleanup, a new generation and run ID continue the
+native session when available. The step keeps its workflow visit and iteration.
+The task and notebook record the interruption and retry count. After a PID-limit
+crash, the handoff tells the agent to continue from the worktree with fewer
+parallel workers. A step gets up to three automatic retries
+(`agent_tasks.platform_retries`, migration 000162). The count resets when the
+workflow starts another step or a person retries the task. The next eligible
+failure after the cap ends the task with class `platform` and the latest cause.
+A person's cancellation during cleanup ends the task. Other platform rules,
+including `out_of_memory`, `time_limit` and `platform_error`, follow their
+existing failure paths.
 
 A native failure caused by a resource limit (an out-of-memory kill of the agent
 container, see [resource limits](../../TECHNICAL.md#resource-limits-and-quotas))
