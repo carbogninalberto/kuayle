@@ -163,3 +163,65 @@ func TestTerminalAssistantHandsOffTheApprovedMerge(t *testing.T) {
 	require.Equal(t, []string{"acme/app#12@" + approved + "/squash"}, merger.merged)
 	require.Equal(t, "completed", h.w.task.State)
 }
+
+func TestCheckStageAssistantContinuesOnPublishedWork(t *testing.T) {
+	head, tree := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	ignored, output := strings.Repeat("c", 40), strings.Repeat("d", 40)
+	before := head + " " + tree + " " + ignored
+	build := head + " " + tree + " " + output
+	edited := head + " " + output + " " + ignored
+	commit := output + " " + tree + " " + ignored
+	for _, tc := range []struct {
+		name, firstAfter, after string
+		files                   []string
+		wantProblem             string
+	}{
+		{"ignored build output", "", build, []string{"files that git ignores"}, ""},
+		{"retry leaves ignored output", edited, build, []string{"src/check.go"}, ""},
+		{"tracked file", "", edited, []string{"src/check.go"}, "src/check.go"},
+		{"tracked file named like the ignored marker", "", edited, []string{"files that git ignores"}, "files that git ignores"},
+		{"legacy run with a changed file", "", "", []string{"src/check.go"}, "src/check.go"},
+		{"earlier run edited a file", edited, edited, nil, "src/check.go"},
+		{"new commit with identical files", "", commit, nil, "HEAD"},
+		{"missing retry fingerprint", build, "", nil, "could not verify"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newWorkflowHarness(t, domain.WorkflowBudget{})
+			var graph domain.WorkflowGraph
+			require.NoError(t, json.Unmarshal(h.w.version.Graph, &graph))
+			for i := range graph.Nodes {
+				if graph.Nodes[i].ID == "ci" {
+					graph.Nodes[i].ProfileID = graph.FirstRun().ProfileID
+				}
+			}
+			h.w.version.Graph = *rawJSON(t, graph)
+			h.restart()
+			input := h.w.task.RunID
+			h.toCI("Implemented the change")
+			require.Equal(t, "queued", h.w.task.State)
+			require.Equal(t, input, *h.current().StageInputRunID)
+			start := before
+			if tc.firstAfter != "" {
+				h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{WorktreeBefore: before, WorktreeAfter: tc.firstAfter, WorktreeChanged: ptr(true), WorktreeFiles: []string{"src/check.go"}}
+				h.w.task.RunID = uuid.New() // A retry keeps the visit's first run and input attempt.
+				start = tc.firstAfter
+			}
+			h.w.task.State = "running"
+			h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{
+				Status: "succeeded", Summary: "Ran the build.\nKUAYLE_STAGE_CONTINUE", FinalMessage: true,
+				WorktreeBefore: start, WorktreeAfter: tc.after, WorktreeChanged: ptr(start != tc.after), WorktreeFiles: tc.files,
+			}
+			require.NoError(t, h.runner.AgentFinished(t.Context(), h.w.task))
+			if tc.wantProblem != "" {
+				require.Equal(t, "cancelling", h.w.task.State)
+				require.Contains(t, h.w.task.Reason, "no transition follows")
+				require.Contains(t, h.w.task.Reason, tc.wantProblem)
+				return
+			}
+			require.Equal(t, "awaiting_review", h.w.task.State, h.w.task.Reason)
+			require.Equal(t, input, h.w.task.RunID, "built-in CI uses the validated, published attempt")
+			h.ci("success", "Checks passed")
+			require.Equal(t, "ship", h.current().NodeID)
+		})
+	}
+}
