@@ -56,6 +56,11 @@ type InviteRedeemer interface {
 
 type AuthServiceOption func(*AuthService)
 
+// WithPublicDemoMode disables password signup, including through an invite link.
+func WithPublicDemoMode(enabled bool) AuthServiceOption {
+	return func(s *AuthService) { s.publicDemoMode = enabled }
+}
+
 // WithRegistrationDisabled gates public registration behind a valid invite token.
 func WithRegistrationDisabled(disabled bool) AuthServiceOption {
 	return func(s *AuthService) { s.disableRegistration = disabled }
@@ -70,6 +75,7 @@ type AuthService struct {
 	userRepo            repository.UserRepo
 	refreshRepo         repository.RefreshTokenRepo
 	jwtSecret           string
+	publicDemoMode      bool
 	disableRegistration bool
 	inviteRedeemer      InviteRedeemer
 	resetRepo           repository.PasswordResetRepo
@@ -91,7 +97,15 @@ func NewAuthService(userRepo repository.UserRepo, refreshRepo repository.Refresh
 	return s
 }
 
+// PublicRegistrationEnabled reports whether signup is available without an invitation.
+func (s *AuthService) PublicRegistrationEnabled() bool {
+	return !s.publicDemoMode && !s.disableRegistration
+}
+
 func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*domain.User, string, string, error) {
+	if s.publicDemoMode {
+		return nil, "", "", ErrRegistrationDisabled
+	}
 	if err := validatePasswordComplexity(req.Password); err != nil {
 		return nil, "", "", err
 	}

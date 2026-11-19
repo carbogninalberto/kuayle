@@ -96,6 +96,7 @@ func main() {
 	// Services
 	inviteLinkSvc := service.NewInviteLinkService(inviteLinkRepo, workspaceRepo)
 	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret,
+		service.WithPublicDemoMode(cfg.PublicDemoMode),
 		service.WithRegistrationDisabled(cfg.DisableRegistration),
 		service.WithInviteRedeemer(inviteLinkSvc),
 		service.WithPasswordReset(repository.NewPasswordResetRepository(db), resetMailer(cfg), cfg.FrontendURL, cfg.Environment == "development"),
@@ -200,7 +201,7 @@ func main() {
 	}
 	passkeyH := handler.NewPasskeyHandler(passkeySvc, authH)
 	ssoH := handler.NewSSOHandler(ssoSvc, authH, cfg.Environment != "development" || cfg.DevMachine.AllowSameSite)
-	configH := handler.NewConfigHandler(!cfg.DisableRegistration).
+	configH := handler.NewConfigHandler(authSvc.PublicRegistrationEnabled()).
 		WithPasskeys(passkeySvc.Enabled()).
 		WithSSOInstance(cfg.SSOInstanceConfig().Configured()).
 		WithSSOAvailability(ssoSvc.SignInEnabled)

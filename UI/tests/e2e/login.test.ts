@@ -81,7 +81,7 @@ test('SSO appears only when enabled and offers a short provider action', async (
 
 	await page.goto('/login');
 	await expect(page.getByRole('button', { name: 'Sign in with a passkey' })).toBeVisible();
-	await expect.soft(ssoButton(page)).toHaveCount(0);
+	await expect(ssoButton(page)).toHaveCount(0);
 
 	enabled = true;
 	await page.reload();
