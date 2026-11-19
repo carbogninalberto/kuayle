@@ -278,6 +278,7 @@ func main() {
 	agentTaskSvc.SetMemory(memorySvc)
 	memoryH := handler.NewWorkspaceMemoryHandler(memorySvc)
 	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))
+	assistantTools.SetAgentTasks(agentTaskSvc)
 	assistantTools.SetTaskWatchers(repository.NewAgentTaskRepository(db))
 	assistantTools.SetRepositories(devMachineRepo)
 	assistantTools.SetLiveChannel(repository.NewAgentTaskRepository(db))

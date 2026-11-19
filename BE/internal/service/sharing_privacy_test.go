@@ -148,6 +148,13 @@ func TestSharingPrivacyPostgres(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("public webhook was not delivered")
 	}
+	// Releasing the receiver lets the worker finish, but its transaction can
+	// still hold the publication lock. Wait for it outside the privacy update.
+	webhookFinished, cancel := context.WithTimeout(ownerCtx, 5*time.Second)
+	defer cancel()
+	_, err = db.ExecContext(webhookFinished, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,63))`, ws)
+	require.NoError(t, err, "webhook delivery must release the publication lock")
+
 	// Transition must reject even stopped or unscoped machine artifacts; their
 	// historical prompts/images cannot safely be assigned to a team.
 	for _, artifact := range []struct{ table, insert string }{

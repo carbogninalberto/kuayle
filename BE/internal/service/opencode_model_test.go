@@ -154,7 +154,7 @@ func TestChatModelKeepsAnOpenCodeModelOffTheModelServers(t *testing.T) {
 	require.Empty(t, thinking)
 	require.Nil(t, server)
 
-	request, err := delegationRequest(options, uuid.New(), "Implement it", "opencode", openCodeModel, nil, "")
+	request, err := delegationRequest(options, uuid.New(), "Implement it", "opencode", openCodeModel, nil, "", "")
 	require.NoError(t, err)
 	require.Equal(t, "opencode", request.Provider)
 	require.Equal(t, openCodeModel, request.Model)
