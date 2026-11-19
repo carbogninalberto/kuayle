@@ -225,14 +225,48 @@ export function iterationStep(steps: WorkflowStep[], generation: number): Workfl
 	return steps.filter((s) => s.generation === generation).sort((a, b) => b.sequence - a.sequence)[0];
 }
 
-type RunState = Pick<TaskWorkflow, 'node' | 'visits' | 'steps'>;
+type RunState = Pick<TaskWorkflow, 'graph' | 'node' | 'status' | 'task_state' | 'task_reason' | 'visits' | 'steps'>;
+
+function completedMerge(run: RunState) {
+	if (run.status !== 'done' && run.task_state !== 'completed') return;
+	if (!run.graph.nodes.some((node) => node.id === run.node && node.type === 'merge')) return;
+	// GitHub merge completion closes the task before the runner can record the
+	// merged transition. Manual acceptance also completes a task, so require
+	// the merge outcome or the reason recorded by completeMerged in the repository.
+	const step = run.steps.findLast((step) => step.node_id === run.node);
+	if (step?.outcome !== 'merged' && !/^Pull request #\d+ was merged on GitHub$/.test(run.task_reason)) return;
+	const outgoing = run.graph.edges.filter((edge) => edge.source === run.node);
+	const edge = outgoing.find((edge) => edge.condition === 'merged') ?? outgoing.find((edge) => edge.condition === 'else');
+	if (edge && run.graph.nodes.some((node) => node.id === edge.target && node.type === 'end' && node.outcome === 'done'))
+		return edge;
+}
 
 /** A task's run as the canvas shows it: the current node, the path and the visit counts. */
 export function runOverlay(run: RunState) {
 	const { visited, fired } = pathOf(run.steps);
 	// A Standard task records no steps: its state is placed on one node.
 	if (run.node) visited.add(run.node);
-	return { current: run.node, visited, visits: run.visits, fired };
+	const finished =
+		run.status === 'done' || run.status === 'failed' || ['completed', 'failed', 'cancelled'].includes(run.task_state);
+	const end = finished ? completedMerge(run) : undefined;
+	let visits = run.visits;
+	if (end) {
+		visited.add(end.target);
+		fired.set(end.id, { count: (fired.get(end.id)?.count ?? 0) + 1, reason: run.task_reason });
+		visits = { ...visits, [end.target]: (visits[end.target] ?? 0) + 1 };
+	}
+	return { current: finished ? null : run.node, focus: end?.target ?? run.node, visited, visits, fired };
+}
+
+/** Once a run ends, show the endings and incoming transitions it reached. */
+export function runChartGraph(graph: WorkflowGraph, run: ReturnType<typeof runOverlay>): WorkflowGraph {
+	if (run.current !== null) return graph;
+	const endings = new Set(graph.nodes.filter((node) => node.type === 'end').map((node) => node.id));
+	return {
+		...graph,
+		nodes: graph.nodes.filter((node) => node.type !== 'end' || run.visited.has(node.id)),
+		edges: graph.edges.filter((edge) => !endings.has(edge.target) || run.fired.has(edge.id))
+	};
 }
 
 export type PendingDecision =
