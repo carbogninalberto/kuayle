@@ -58,6 +58,7 @@ func allRegisteredRoutes(t *testing.T) []registeredRoute {
 func matrixHandlers() *appHandlers {
 	return &appHandlers{
 		sso:             &handler.SSOHandler{},
+		scim:            &handler.SCIMHandler{},
 		telegram:        &handler.TelegramHandler{},
 		agentAutomation: &handler.AgentAutomationHandler{},
 		agentMessage:    &handler.AgentMessageHandler{},
@@ -200,6 +201,8 @@ func matrixAccess(route registeredRoute) (access, scope string) {
 	switch {
 	case route.Name == "public":
 		return "public", ""
+	case route.Name == "scim":
+		return "SCIM bearer only", "workspace provisioning token"
 	case route.Name == "token":
 		return "token only", "the caller's own token"
 	case route.Name == "owner":

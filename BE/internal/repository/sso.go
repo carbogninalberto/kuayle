@@ -131,9 +131,8 @@ func (r *SSORepository) TouchIdentity(ctx context.Context, id uuid.UUID) error {
 }
 
 // ProvisionIdentity creates the account of a first SSO sign-in, links the
-// identity and adds the workspace membership. It never binds an account that
-// existed before this sign-in: a matching email returns ErrSSOLinkRequired,
-// because only that account's own authenticated session may link an identity.
+// identity and adds the workspace membership. A pre-existing account must
+// link itself unless it was provisioned by SCIM in this same workspace.
 // Concurrent first sign-ins of the same subject converge on one account.
 func (r *SSORepository) ProvisionIdentity(ctx context.Context, params SSOProvisionParams) (*domain.User, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
@@ -167,7 +166,11 @@ func (r *SSORepository) ProvisionIdentity(ctx context.Context, params SSOProvisi
 	err = tx.GetContext(ctx, &existing, `SELECT id FROM users WHERE lower(email) = lower($1)
 		ORDER BY created_at LIMIT 1`, params.Email)
 	if err == nil {
-		return nil, ErrSSOLinkRequired
+		user, err := linkSCIMIdentity(ctx, tx, existing.ID, params)
+		if err != nil {
+			return nil, err
+		}
+		return user, tx.Commit()
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
@@ -206,10 +209,7 @@ func (r *SSORepository) ProvisionIdentity(ctx context.Context, params SSOProvisi
 		return nil, err
 	}
 
-	if _, err := tx.ExecContext(ctx, `INSERT INTO user_identities
-		(id, user_id, workspace_id, provider, issuer, subject, email, last_login_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
-		uuid.New(), user.ID, params.WorkspaceID, params.Provider, params.Issuer, params.Subject, params.Email); err != nil {
+	if err := insertProvisionedIdentity(ctx, tx, user.ID, params); err != nil {
 		return nil, err
 	}
 
@@ -223,6 +223,51 @@ func (r *SSORepository) ProvisionIdentity(ctx context.Context, params SSOProvisi
 		return nil, err
 	}
 	return &user, nil
+}
+
+func linkSCIMIdentity(ctx context.Context, tx *sqlx.Tx, userID uuid.UUID, params SSOProvisionParams) (*domain.User, error) {
+	// Only a same-workspace, still-active, SCIM-created account may accept its
+	// first verified IdP subject by email. Serialize with SCIM deprovisioning.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(610046,0)`); err != nil {
+		return nil, err
+	}
+	var user domain.User
+	err := tx.GetContext(ctx, &user, `SELECT u.* FROM users u JOIN scim_users su ON su.user_id=u.id
+		JOIN workspace_members wm ON wm.workspace_id=su.workspace_id AND wm.user_id=u.id
+		WHERE su.workspace_id=$1 AND u.id=$2 AND su.active AND NOT su.deleted FOR UPDATE OF su`, params.WorkspaceID, userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrSSOLinkRequired
+	}
+	if err != nil {
+		return nil, err
+	}
+	var linked bool
+	err = tx.GetContext(ctx, &linked, `SELECT EXISTS (SELECT 1 FROM user_identities
+		WHERE workspace_id=$1 AND user_id=$2 AND issuer=$3 AND subject=$4)`,
+		params.WorkspaceID, userID, params.Issuer, params.Subject)
+	if err != nil || linked {
+		return &user, err
+	}
+	err = tx.GetContext(ctx, &linked, `SELECT EXISTS (SELECT 1 FROM user_identities
+		WHERE workspace_id=$1 AND user_id=$2)`, params.WorkspaceID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if linked {
+		return nil, ErrSSOLinkRequired
+	}
+	if err := insertProvisionedIdentity(ctx, tx, user.ID, params); err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func insertProvisionedIdentity(ctx context.Context, tx *sqlx.Tx, userID uuid.UUID, params SSOProvisionParams) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO user_identities
+		(id, user_id, workspace_id, provider, issuer, subject, email, last_login_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+		uuid.New(), userID, params.WorkspaceID, params.Provider, params.Issuer, params.Subject, params.Email)
+	return err
 }
 
 // LinkIdentity binds an IdP subject to an account that already proved its own

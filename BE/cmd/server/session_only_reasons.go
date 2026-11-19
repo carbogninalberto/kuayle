@@ -31,7 +31,10 @@ const (
 	reasonImports         = "Foreign imports hold tracker credentials and write into existing teams; only an interactive workspace admin may run them."
 )
 
+const reasonSCIMConfig = "Only an interactive workspace owner or admin may manage its provisioning token and team mappings."
+
 var sessionOnlyReasons = []sessionOnlyReason{
+	{PathPrefix: "/api/workspaces/:slug/scim", Reason: reasonSCIMConfig},
 	{PathPrefix: "/api/tokens", Reason: reasonTokenManagement},
 	{PathPrefix: "/api/cli-links", Reason: reasonTokenManagement},
 	{PathPrefix: "/api/auth/passkey", Reason: reasonSignInSecrets},
