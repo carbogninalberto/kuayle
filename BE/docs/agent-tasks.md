@@ -319,6 +319,13 @@ workspace's scans for an hour.
 
 ## Publication
 
+The [stopped-task publication approval](conversations.md#publishing-a-stopped-task)
+queues the same `publish_agent` operation on the original checkout of a failed,
+cancelled or blocked task. The operation checks for uncommitted changes and unpublished local commits before
+syncing and publishing. It opens or updates a draft pull request marked
+“not validated: published from a failed task”. The task's stopped state remains
+in the task record, and the approval reports the publication result.
+
 Task attempts never receive a GitHub credential (`push_branch` is false), so the
 harness cannot push or open pull requests itself, and the attempt's container
 has no git identity. An implementing attempt's prompt says so ("Publishing:

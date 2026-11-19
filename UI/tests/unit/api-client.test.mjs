@@ -5,11 +5,13 @@ import { setImmediate } from 'node:timers/promises';
 import test from 'node:test';
 
 // Substitute only SvelteKit's navigation adapter; exercise the actual request implementation.
-async function loadClient() {
+async function loadClient(path = '/') {
 	const source = await readFile(new URL('../../src/lib/api/client.ts', import.meta.url), 'utf8');
-	const isolated = source.replace(
+	const signInLink = new URL('../../src/lib/features/auth/sign-in-link.ts', import.meta.url);
+	const isolated = source.replace("'$lib/features/auth/sign-in-link'", JSON.stringify(signInLink.href)).replace(
 		"import { goto } from '$app/navigation';",
-		'export const redirects = []; const goto = async (path) => { redirects.push(path); };'
+		`export const redirects = []; const goto = async (path) => { redirects.push(path); };
+		const window = { location: { href: ${JSON.stringify('https://kuayle.test' + path)} } };`
 	);
 	const javascript = stripTypeScriptTypes(isolated);
 	return import(`data:text/javascript;base64,${Buffer.from(`${javascript}\n// ${Math.random()}`).toString('base64')}`);
@@ -18,7 +20,8 @@ const unauthorized = () => new Response(JSON.stringify({ error: { code: 'UNAUTHO
 
 for (const firstRedirect of [false, true]) {
 	test(`concurrent session requests share refresh and retain individual redirect policy (${firstRedirect} first)`, async (t) => {
-		const { api, redirects } = await loadClient();
+		const destination = '/acme/issue/ACME-2?source=telegram#activity';
+		const { api, redirects } = await loadClient(destination);
 		let releaseRefresh;
 		const gate = new Promise((resolve) => {
 			releaseRefresh = resolve;
@@ -39,7 +42,7 @@ for (const firstRedirect of [false, true]) {
 		releaseRefresh();
 		const failures = await Promise.all([first, second]);
 		assert.ok(failures.every((e) => e.error.code === 'UNAUTHORIZED'));
-		assert.deepEqual(redirects, ['/login']);
+		assert.deepEqual(redirects, ['/login?' + new URLSearchParams({ next: destination })]);
 	});
 }
 

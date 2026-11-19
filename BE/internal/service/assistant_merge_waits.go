@@ -204,5 +204,5 @@ func (s *AssistantApprovals) notifyMergeFinished(ctx context.Context, ws uuid.UU
 		log.WithField("approval_id", approval.ID).WithError(err).Warn("Could not notify about a finished merge")
 		return
 	}
-	publishNotification(s.userEvents, ws, approval.ActorID, event)
+	publishNotification(s.userEvents, ws, approval.ActorID, event, s.notifications)
 }

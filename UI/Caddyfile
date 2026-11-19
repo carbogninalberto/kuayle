@@ -2,7 +2,7 @@
 	header {
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
-		Referrer-Policy strict-origin-when-cross-origin
+		Referrer-Policy no-referrer
 	}
 
 	# Installable app: a typed manifest, and a worker script always revalidated

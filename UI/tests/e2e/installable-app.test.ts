@@ -154,3 +154,50 @@ test('the installed app disables pinch and double-tap zoom while browser tabs ke
 	await page.screenshot({ path: testInfo.outputPath('installed-login-390.png') });
 	await installed.close();
 });
+
+test('the installed worker requests a deep-linked notification for a push', async ({ page, context }) => {
+	await page.addInitScript((key) => localStorage.setItem(key, '1'), OPT_IN_KEY);
+	await signedOut(page);
+	const [worker] = await Promise.all([context.waitForEvent('serviceworker'), page.goto('/login')]);
+	await expect.poll(() => page.evaluate(async () => (await navigator.serviceWorker.ready).active?.state)).toBe('activated');
+	const payload = {
+		title: 'Approval requested',
+		body: 'Review a deployment',
+		tag: 'approval_requested:123',
+		data: { url: '/test/assistant?conversation=123' }
+	};
+	const notifications = await worker.evaluate(async (payload) => {
+		const scope = globalThis as typeof globalThis & {
+			registration: ServiceWorkerRegistration;
+			PushEvent: new (type: string, init: { data: string }) => Event;
+		};
+		const event = new scope.PushEvent('push', { data: JSON.stringify(payload) });
+		const lifetime: { completion?: Promise<unknown> } = {};
+		// A synthetic event has no browser-managed lifetime. Capture what the
+		// worker passes to waitUntil and await it before checking the result.
+		Object.defineProperty(event, 'waitUntil', {
+			value: (promise: Promise<unknown>) => { lifetime.completion = promise; }
+		});
+		const notifications: { title: string; options?: NotificationOptions }[] = [];
+		const showNotification = scope.registration.showNotification;
+		scope.registration.showNotification = async (title, options) => { notifications.push({ title, options }); };
+		try {
+			scope.dispatchEvent(event);
+			if (!lifetime.completion) throw new Error('The push handler did not call waitUntil');
+			await lifetime.completion;
+			return notifications;
+		} finally {
+			scope.registration.showNotification = showNotification;
+		}
+	}, payload);
+	expect(notifications).toEqual([{
+		title: payload.title,
+		options: {
+			body: payload.body,
+			tag: payload.tag,
+			data: payload.data,
+			renotify: false,
+			icon: '/icons/icon-192.png'
+		}
+	}]);
+});

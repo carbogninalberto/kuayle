@@ -12,11 +12,14 @@ import (
 
 type NotificationService struct {
 	notifRepo repository.NotificationRepo
+	push      *PushService
 }
 
 func NewNotificationService(notifRepo repository.NotificationRepo) *NotificationService {
 	return &NotificationService{notifRepo: notifRepo}
 }
+
+func (s *NotificationService) SetPush(push *PushService) { s.push = push }
 
 func (s *NotificationService) Create(ctx context.Context, userID, workspaceID uuid.UUID, issueID *uuid.UUID, notifType, title string, sourceTeams ...uuid.UUID) error {
 	n := &domain.Notification{

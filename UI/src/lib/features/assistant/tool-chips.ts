@@ -45,6 +45,7 @@ const builtIn: Record<string, () => string> = {
 	expose_port: m['assistant.tool_expose_port'],
 	list_ports: m['assistant.tool_list_ports'],
 	run_check: m['assistant.tool_run_check'],
+	publish_task_changes: m['assistant.tool_publish_task_changes'],
 	message_task: m['assistant.tool_message_task'],
 	get_task_messages: m['assistant.tool_get_task_messages'],
 	load_skill: m['assistant.tool_load_skill'],

@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
 
 // Approval cards of the command tools (KUA-153): starting a temporary machine
 // and running a command, then the command's result on the approved card.
@@ -36,10 +36,10 @@ const approval = (action: string, payload: Record<string, unknown>) => ({
 	updated_at: at
 });
 
-async function chat(page: Page, tools: unknown[], approvals: any[]) {
-	const state = { approvals, decisions: [] as string[], run: null as Record<string, unknown> | null, runReads: 0 };
+async function chat(page: Page, tools: unknown[], approvals: any[], approveStatus = 'approved') {
+	const state = { approvals, decisions: [] as string[], run: null as Record<string, unknown> | null, runReads: 0, stream: null as WebSocketRoute | null };
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
-	await page.routeWebSocket('**/conversations/chat-1/stream*', () => {});
+	await page.routeWebSocket('**/conversations/chat-1/stream*', (ws) => { state.stream = ws; });
 	await page.route('https://raw.githubusercontent.com/**', (route) => route.fulfill({ json: [] }));
 	await page.route('**/api/**', async (route) => {
 		const request = route.request();
@@ -57,7 +57,7 @@ async function chat(page: Page, tools: unknown[], approvals: any[]) {
 		if (path.endsWith('/approvals/approval-1')) {
 			const decision = request.postDataJSON().decision;
 			state.decisions.push(decision);
-			const resolved = { ...state.approvals[0], status: decision === 'approve' ? 'approved' : 'denied', resolved_at: at, updated_at: '2026-11-15T09:31:00Z' };
+			const resolved = { ...state.approvals[0], status: decision === 'approve' ? approveStatus : 'denied', resolved_at: at, updated_at: '2026-11-15T09:31:00Z' };
 			state.approvals = [resolved];
 			return route.fulfill({ json: resolved });
 		}
@@ -167,3 +167,41 @@ test('a write command on the user own machine says it is reused and writable', a
 		page.getByText('Runs in /workspace/kuayle-assistant/chat-1; only this conversation folder is writable, the rest of /workspace stays read-only. No credentials; stopped after 60 seconds.')
 	).toBeVisible();
 });
+
+for (const [result, hasLink] of [['published', true], ['published', false], ['empty', false]] as const) {
+	test(`stopped task publication reports ${result} with link=${hasLink} after approval`, async ({ page }) => {
+		const action = 'publish_task_changes';
+		const payload = { identifier: 'ENG-1', title: 'Dark mode', task_id: 'task-1', generation: 1 };
+		const state = await chat(page, [call(action, { identifier: 'ENG-1' })], [
+			{ ...approval(action, payload), issue_id: 'issue-1' }
+		], 'approving');
+		await page.goto('/test/assistant?conversation=chat-1');
+		await expect(page.getByText('Publish stopped task changes for ENG-1?')).toBeVisible();
+		await expect(page.getByText(/draft pull request marked “not validated”/)).toBeVisible();
+		expect(state.decisions).toEqual([]);
+		await page.getByRole('button', { name: 'Approve', exact: true }).click();
+		await expect(page.getByText('Checking and publishing changes for ENG-1')).toBeVisible();
+		expect(state.decisions).toEqual(['approve']);
+
+		await expect.poll(() => state.stream !== null).toBe(true);
+		const url = 'https://github.com/acme/app/pull/12';
+		state.stream?.send(JSON.stringify({
+			id: 'event-1', cursor: 1, conversation_id: 'chat-1', type: 'approval.resolved',
+			payload: {
+				...state.approvals[0], status: 'approved', updated_at: '2026-11-15T09:32:00Z',
+				payload: { ...payload, outcome: result, ...(hasLink ? { pull_request_url: url } : {}) }
+			}
+		}));
+		if (result === 'published') {
+			await expect(page.getByText('Published a draft pull request for ENG-1')).toBeVisible();
+		} else {
+			await expect(page.getByText('Nothing to publish for ENG-1. The checkout has no unpublished changes.')).toBeVisible();
+		}
+		const link = page.getByRole('link', { name: 'Open draft pull request' });
+		if (hasLink) {
+			await expect(link).toHaveAttribute('href', url);
+		} else {
+			await expect(link).toHaveCount(0);
+		}
+	});
+}

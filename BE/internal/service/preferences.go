@@ -44,6 +44,7 @@ func (s *PreferencesService) Get(ctx context.Context, userID uuid.UUID) (*domain
 			RecentDueDates:            domain.RecentDueDates{},
 			IssuesGroupBy:             "status",
 			BrowserNotifications:      true,
+			PushNotifications:         true,
 			WorkflowEditorPanelOpen:   true,
 			NotificationSound:         domain.DefaultNotificationSound,
 			NotificationEvents:        domain.NotificationEvents{}.Complete(),
@@ -118,6 +119,9 @@ func (s *PreferencesService) Update(ctx context.Context, userID uuid.UUID, req d
 	}
 	if req.BrowserNotifications != nil {
 		prefs.BrowserNotifications = *req.BrowserNotifications
+	}
+	if req.PushNotifications != nil {
+		prefs.PushNotifications = *req.PushNotifications
 	}
 	if req.WorkflowEditorPanelOpen != nil {
 		prefs.WorkflowEditorPanelOpen = *req.WorkflowEditorPanelOpen

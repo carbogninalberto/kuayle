@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -146,17 +147,32 @@ func TestTelegramApprovalButtonsResolveThroughTheSharedBackend(t *testing.T) {
 	go func() { telegram.Run(workerCtx); close(done) }()
 	defer func() { cancel(); <-done }()
 	var keyboard []any
+	var signedLink []string
 	require.Eventually(t, func() bool {
 		recorder.mu.Lock()
 		defer recorder.mu.Unlock()
 		for _, m := range recorder.messages {
 			if markup, ok := m["reply_markup"].(map[string]any); ok {
 				keyboard = markup["inline_keyboard"].([]any)
+				signedLink = regexp.MustCompile(`/assistant\?conversation=([a-f0-9-]+)&amp;sign_in=([A-Za-z0-9_-]+)`).FindStringSubmatch(m["text"].(string))
 				return true
 			}
 		}
 		return false
 	}, 5*time.Second, 20*time.Millisecond)
+	require.Len(t, signedLink, 3)
+	require.Equal(t, attempt.Conversation.ID.String(), signedLink[1])
+	require.Len(t, signedLink[2], 43)
+	var stored struct {
+		Hash string `db:"token_hash"`
+		TTL  int    `db:"ttl"`
+	}
+	require.Eventually(t, func() bool {
+		return db.Get(&stored, `SELECT token_hash, extract(epoch FROM expires_at-created_at)::int AS ttl
+ FROM sign_in_tokens WHERE workspace_id=$1 AND user_id=$2`, ws, user) == nil
+	}, time.Second, 20*time.Millisecond)
+	require.Equal(t, hashToken(signedLink[2]), stored.Hash)
+	require.Equal(t, 600, stored.TTL)
 	row := keyboard[0].([]any)
 	approve := row[0].(map[string]any)["callback_data"].(string)
 	deny := row[1].(map[string]any)["callback_data"].(string)

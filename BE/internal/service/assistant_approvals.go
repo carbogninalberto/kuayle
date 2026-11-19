@@ -381,6 +381,8 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 		return s.accept(ctx, ws, conversation, approval)
 	case "request_agent_review":
 		return s.review(ctx, ws, conversation, approval, choice)
+	case domain.PublishTaskChangesAction:
+		return s.publishTaskChanges(ctx, ws, conversation, id)
 	case "follow_up_task":
 		return s.followUp(ctx, ws, conversation, approval, choice)
 	case "message_task":

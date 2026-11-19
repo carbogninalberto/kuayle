@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/crypto"
+	log "github.com/sirupsen/logrus"
 )
 
 var ErrTelegramAPI = errors.New("Telegram request failed; check the bot token and public HTTPS address")
@@ -567,7 +569,16 @@ func (s *TelegramService) Run(ctx context.Context) {
 				continue
 			}
 			deliveryCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
-			_ = s.Repo.Deliver(deliveryCtx, *d, func(d domain.TelegramDelivery) error {
+			var signIn, signInHash string
+			if d.ConversationID != nil && publicHTTPSURL(s.frontend) {
+				var secret [signInTokenBytes]byte
+				rand.Read(secret[:])
+				signIn = base64.RawURLEncoding.EncodeToString(secret[:])
+				signInHash = hashToken(signIn)
+			}
+			issued := false
+			err = s.Repo.Deliver(deliveryCtx, *d, signInHash, func(d domain.TelegramDelivery) error {
+				issued = signInHash != ""
 				token, err := crypto.Decrypt(d.TokenEncrypted, s.key)
 				if err != nil {
 					return err
@@ -577,7 +588,7 @@ func (s *TelegramService) Run(ctx context.Context) {
 				}
 				text := telegramText(d.Text, 3200)
 				if d.ConversationID != nil {
-					text = s.replyText(d.Text, d.Slug, *d.ConversationID)
+					text = s.replyText(d.Text, d.Slug, *d.ConversationID, signIn)
 				}
 				payload := map[string]any{"chat_id": d.TelegramUserID, "link_preview_options": map[string]any{"is_disabled": true}}
 				if keyboard := approvalKeyboard(d.Approvals); keyboard != nil {
@@ -596,6 +607,9 @@ func (s *TelegramService) Run(ctx context.Context) {
 				return s.sendFormatted(deliveryCtx, token, "sendMessage", payload, text, nil)
 			})
 			cancel()
+			if err == nil && issued {
+				log.WithFields(log.Fields{"event": "auth.sign_in_token_issued", "workspace_id": d.WorkspaceID, "user_id": d.UserID, "purpose": "telegram"}).Info("sign-in link issued")
+			}
 		}
 	}
 }
@@ -627,11 +641,14 @@ func toolDraftNote(drafts []domain.TelegramToolDraft) string {
 // replyText is a reply with a link back to its conversation. Telegram only
 // links public addresses, and a local address is unreachable from the phone
 // anyway, so the link is left out unless the app is served over HTTPS.
-func (s *TelegramService) replyText(text, slug string, conversation uuid.UUID) string {
+func (s *TelegramService) replyText(text, slug string, conversation uuid.UUID, signIn string) string {
 	text = telegramText(text, 3200)
-	link := s.frontend + "/" + url.PathEscape(slug) + "/assistant?conversation=" + conversation.String()
-	if strings.HasPrefix(link, "https://") {
-		text += "\n\n[Open in Kuayle](" + link + ")"
+	if publicHTTPSURL(s.frontend) {
+		query := url.Values{"conversation": {conversation.String()}}
+		if signIn != "" {
+			query.Set("sign_in", signIn)
+		}
+		text += "\n\n[Open in Kuayle](" + s.frontend + "/" + url.PathEscape(slug) + "/assistant?" + query.Encode() + ")"
 	}
 	return text
 }
@@ -774,6 +791,9 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 	}
 	switch approval.Status {
 	case "approving":
+		if approval.Action == domain.PublishTaskChangesAction {
+			return "Approved. Kuayle is publishing the draft. The result appears in the chat in Kuayle.", true
+		}
 		if approval.Action == shipAction {
 			return "Approved: shipping started. Kuayle merges, waits for the tests and releases; follow each step in the chat in Kuayle.", true
 		}
@@ -790,6 +810,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: the follow-up is starting.", true
 		case "message_task":
 			return "Approved: the message was sent to the coding agent.", true
+		case domain.PublishTaskChangesAction:
+			return "Publication finished. The result appears in the chat in Kuayle.", true
 		case "run_check":
 			return "Approved: the check is starting.", true
 		case "run_custom_tool":
@@ -839,6 +861,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			message = "The preview could not be started."
 		case "expose_port":
 			message = "The port could not be exposed."
+		case domain.PublishTaskChangesAction:
+			message = "Kuayle could not publish the draft."
 		case "run_check":
 			message = "The check could not start."
 		case "run_custom_tool":

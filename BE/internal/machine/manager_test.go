@@ -547,6 +547,8 @@ func (f *managerStoreFake) PurgeAccessLogs(_ context.Context, before time.Time, 
 	return 0, nil
 }
 
+func (f *githubAPIFake) ConvertPullRequestToDraft(string, string) error { return nil }
+
 type githubAPIFake struct {
 	token          string
 	expiresAt      time.Time

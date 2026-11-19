@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	githubclient "github.com/kuayle/kuayle-backend/pkg/github"
 )
 
 // GitIdentity is the commit author recorded for agent publications. The pull
@@ -69,8 +70,8 @@ func (m *Manager) syncBeforeTaskVisit(ctx context.Context, machine *domain.DevMa
 	return nil
 }
 
-// publishAgent commits, pushes and opens the pull request for an independently
-// validated task attempt. The native harness never receives the credential.
+// publishAgent commits, pushes and opens the pull request for a validated
+// attempt or an approved stopped task. The harness never receives the credential.
 func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, op *domain.DevMachineOperation) error {
 	publication, err := m.store.GetPublication(ctx, *op)
 	if err != nil {
@@ -98,16 +99,33 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	if !ok {
 		return &terminalOperationError{code: "publication_unavailable", message: "Task repository is invalid"}
 	}
+	services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
+	if err != nil {
+		return err
+	}
+	if publication.FromStoppedTask && publication.Step.Status == domain.DevMachineAgentRunStepStatusQueued {
+		status, scanErr := m.runtime.ScanWorktree(ctx, machine, services, WorktreeScanJob{
+			Path: checkout.WorkspacePath, Branch: checkout.WorkingBranch, BaseBranch: checkout.BaseBranch,
+			Request: domain.WorktreeScanRequest{Kind: domain.WorktreeScanStatus}, PublicationStatus: true,
+		})
+		if scanErr != nil || status == nil || status.Commit == "" || status.Truncated {
+			return &terminalOperationError{code: "publication_unavailable", message: domain.StoppedPublicationUnavailable}
+		}
+		// Before the first push, compare with the base. An unknown base falls
+		// through to the publisher, which fetches it from GitHub.
+		firstPushAtBase := publication.PublishedCommit == "" && status.Ahead != nil && *status.Ahead == 0
+		if !status.Dirty && (status.Commit == publication.PublishedCommit || firstPushAtBase) {
+			return m.store.CompletePublication(ctx, *op, domain.AgentPublicationResult{})
+		}
+	}
+	// Record that publication started before changing the checkout.
+	// A retried operation can then finish pushing or opening the same draft.
 	if err = m.store.StartPublication(ctx, *op); err != nil {
 		return err
 	}
 	githubAPI, token, err := m.repositoryToken(ctx, machine, checkout.RepositoryFullName)
 	if err != nil || token == "" {
-		return &terminalOperationError{code: "publication_unavailable", message: "Repository-scoped GitHub App token is unavailable"}
-	}
-	services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
-	if err != nil {
-		return err
+		return &terminalOperationError{code: "publication_github_unavailable", message: "Repository-scoped GitHub App token is unavailable"}
 	}
 	title := truncateText(publication.IssueIdentifier+": "+publication.IssueTitle, 240)
 	identity := m.gitIdentity()
@@ -134,13 +152,20 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 		}
 		return errors.New("checkout_sync_failed: " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
 	}
+	if publication.FromStoppedTask {
+		// An open pull request must be a draft before its branch receives
+		// unchecked changes.
+		if _, err = stoppedPullRequest(githubAPI, token, owner, repository, checkout); err != nil {
+			return errors.New("pull_request_failed: " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
+		}
+	}
 	commit, err := m.runtime.PublishCheckout(ctx, machine, services, checkout, request)
 	remains := errors.Is(err, ErrPublishedWorkRemains)
 	if err != nil && !remains {
 		return errors.New("publication_failed: " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
 	}
 	result := domain.AgentPublicationResult{}
-	if remains {
+	if remains && !publication.FromStoppedTask {
 		// Nothing was pushed, so the earlier work stays on the branch and in its
 		// pull request. An open pull request is named, for the reason that
 		// blocks the task: none is created, updated or readied here. Without
@@ -163,7 +188,14 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 		// GitHub shows the description as the bot's first comment.
 		content := m.pullRequestFiles(ctx, githubAPI, token, run, services, checkout, publication)
 		body := publication.Bot.Signature(m.frontendURL) + publicationBody(publication, content, m.frontendURL)
-		pullRequest, prErr := githubAPI.FindOpenPullRequest(token, owner, repository, checkout.WorkingBranch, checkout.BaseBranch)
+		var pullRequest *githubclient.PullRequest
+		var prErr error
+		if publication.FromStoppedTask {
+			body = "**not validated: published from a failed task**\n\n" + body
+			pullRequest, prErr = stoppedPullRequest(githubAPI, token, owner, repository, checkout)
+		} else {
+			pullRequest, prErr = githubAPI.FindOpenPullRequest(token, owner, repository, checkout.WorkingBranch, checkout.BaseBranch)
+		}
 		if prErr == nil && pullRequest == nil {
 			// Without an independent check the change opens as a draft, so it
 			// cannot be merged before someone has looked at it.
@@ -190,10 +222,18 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	return m.store.CompletePublication(ctx, *op, result)
 }
 
+func stoppedPullRequest(github githubAPI, token, owner, repository string, checkout *domain.DevMachineCheckout) (*githubclient.PullRequest, error) {
+	pullRequest, err := github.FindOpenPullRequest(token, owner, repository, checkout.WorkingBranch, checkout.BaseBranch)
+	if err == nil && pullRequest != nil && !pullRequest.Draft {
+		err = github.ConvertPullRequestToDraft(token, pullRequest.NodeID)
+	}
+	return pullRequest, err
+}
+
 // publicationValidated reports whether a configured check passed on this
 // attempt. Only a succeeded validation step records the check's argv.
 func publicationValidated(publication *domain.AgentPublication) bool {
-	return len(publication.CheckArgv) > 0 && publication.CheckExitCode != nil
+	return !publication.FromStoppedTask && len(publication.CheckArgv) > 0 && publication.CheckExitCode != nil
 }
 
 func truncateText(value string, limit int) string {

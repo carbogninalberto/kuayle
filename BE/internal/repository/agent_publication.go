@@ -102,12 +102,12 @@ func (r *AgentTaskRepository) QueuePublicationRepair(ctx context.Context, claime
 // GetPublication re-verifies publication authority for the leased operation and
 // returns the issue reference used in the commit and pull request.
 func (r *DevMachineRepository) GetPublication(ctx context.Context, op domain.DevMachineOperation) (*domain.AgentPublication, error) {
-	tx, task, step, err := r.taskStepTransaction(ctx, op, publicationPhase)
+	tx, task, step, err := r.publicationTransaction(ctx, op)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	publication := &domain.AgentPublication{Step: *step}
+	publication := &domain.AgentPublication{Step: *step, FromStoppedTask: isStoppedPublication(op)}
 	err = tx.QueryRowContext(ctx, `SELECT i.identifier_text,i.title,w.slug FROM issues i JOIN workspaces w ON w.id=i.workspace_id WHERE i.id=$1 AND i.workspace_id=$2`, task.IssueID, task.WorkspaceID).Scan(&publication.IssueIdentifier, &publication.IssueTitle, &publication.WorkspaceSlug)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrAgentTaskUnauthorized
@@ -131,9 +131,12 @@ func (r *DevMachineRepository) GetPublication(ctx context.Context, op domain.Dev
 		return nil, err
 	}
 	publication.Bot = &bot
-	publication.PublishedCommit, err = lastPublishedCommit(ctx, tx, task.RunID)
+	publication.PublishedCommit, err = lastPublishedCommit(ctx, tx, step.AgentRunID)
 	if err != nil {
 		return nil, err
+	}
+	if publication.FromStoppedTask {
+		return publication, nil
 	}
 	check := domain.DevMachineAgentRunStep{}
 	err = tx.GetContext(ctx, &check, `SELECT * FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 AND sequence=0 AND step_type='validation' AND status='succeeded'`, task.RunID)
@@ -170,8 +173,15 @@ func lastPublishedCommit(ctx context.Context, q sqlx.QueryerContext, run uuid.UU
 	return published, err
 }
 
+func (r *DevMachineRepository) publicationTransaction(ctx context.Context, op domain.DevMachineOperation) (*sqlx.Tx, *domain.AgentTask, *domain.DevMachineAgentRunStep, error) {
+	if isStoppedPublication(op) {
+		return r.stoppedPublicationTransaction(ctx, op)
+	}
+	return r.taskStepTransaction(ctx, op, publicationPhase)
+}
+
 func (r *DevMachineRepository) StartPublication(ctx context.Context, op domain.DevMachineOperation) error {
-	tx, task, step, err := r.taskStepTransaction(ctx, op, publicationPhase)
+	tx, task, step, err := r.publicationTransaction(ctx, op)
 	if err != nil {
 		return err
 	}
@@ -182,8 +192,15 @@ func (r *DevMachineRepository) StartPublication(ctx context.Context, op domain.D
 	if step.Status == domain.DevMachineAgentRunStepStatusRunning {
 		return nil
 	}
-	if err = tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status='running',started_at=COALESCE(started_at,now()),summary='Publishing the validated changes' WHERE id=$1 RETURNING *`, step.ID); err != nil {
+	summary := "Publishing the validated changes"
+	if isStoppedPublication(op) {
+		summary = "Publishing stopped task changes as a draft"
+	}
+	if err = tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status='running',started_at=COALESCE(started_at,now()),summary=$2 WHERE id=$1 RETURNING *`, step.ID, summary); err != nil {
 		return err
+	}
+	if isStoppedPublication(op) {
+		return tx.Commit()
 	}
 	if err = validationEvent(ctx, tx, *task, step); err != nil {
 		return err
@@ -197,12 +214,14 @@ func (r *DevMachineRepository) StartPublication(ctx context.Context, op domain.D
 // its summary says so, or says that the task's open pull request still holds
 // work the agent removed (result.Remains).
 func (r *DevMachineRepository) CompletePublication(ctx context.Context, op domain.DevMachineOperation, result domain.AgentPublicationResult) error {
-	tx, task, step, err := r.taskStepTransaction(ctx, op, publicationPhase)
+	tx, task, step, err := r.publicationTransaction(ctx, op)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if step.Status != domain.DevMachineAgentRunStepStatusRunning || step.StartedAt == nil {
+	stopped := isStoppedPublication(op)
+	skipped := stopped && step.Status == domain.DevMachineAgentRunStepStatusQueued && result.Commit == ""
+	if !skipped && (step.Status != domain.DevMachineAgentRunStepStatusRunning || step.StartedAt == nil) {
 		return ErrAgentTaskConflict
 	}
 	if result.Commit == "" {
@@ -215,6 +234,9 @@ func (r *DevMachineRepository) CompletePublication(ctx context.Context, op domai
 			return err
 		}
 		summary := domain.NoChangesReason(checkout.BaseBranch.String)
+		if stopped {
+			summary = domain.StoppedPublicationEmpty
+		}
 		// Remains without an open pull request is nothing to publish: no pull
 		// request holds the removed work any more.
 		if result.Remains && strings.TrimSpace(result.PullRequestURL) != "" {
@@ -247,6 +269,9 @@ func (r *DevMachineRepository) CompletePublication(ctx context.Context, op domai
 			return ErrAgentTaskConflict
 		}
 	}
+	if stopped {
+		return tx.Commit()
+	}
 	if err = validationEvent(ctx, tx, *task, step); err != nil {
 		return err
 	}
@@ -278,7 +303,8 @@ func (r *AgentTaskRepository) Publication(ctx context.Context, ws, id, run uuid.
 		return nil, err
 	}
 	step := &domain.DevMachineAgentRunStep{}
-	err = tx.GetContext(ctx, step, `SELECT * FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 AND sequence=1 AND step_type='publication'`, run)
+	err = tx.GetContext(ctx, step, `SELECT * FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 AND step_type='publication'
+ AND (sequence=1 OR status='succeeded') ORDER BY sequence DESC LIMIT 1`, run)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
