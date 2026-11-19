@@ -8,11 +8,11 @@
 	import { cn } from '$lib/utils.js';
 	import WorkflowCanvas from './WorkflowCanvas.svelte';
 	import type { FlowApi } from './FlowBridge.svelte';
-	import { centreOn, isCentred, type FiredTransition } from './workflow-graph';
+	import { centreOn, isCentred, type runOverlay } from './workflow-graph';
 
-	// A task's running workflow on a canvas its viewer pans and zooms, with
+	// A task's workflow on a canvas its viewer pans and zooms, with
 	// tools to zoom, fit the whole graph, centre the current step and (inline)
-	// expand it. It follows the run: each new current step is centred once;
+	// expand it. It follows the run: each new step, including its end, is centred once;
 	// moving around in between is the viewer's, and nothing snaps it back.
 	// Its keys work while focus is in the chart, never page-wide (the chat
 	// input and the editor have their own).
@@ -29,7 +29,7 @@
 	}: {
 		graph: WorkflowGraph;
 		profiles: AgentProfile[];
-		run: { current: string; visited: Set<string>; visits: Record<string, number>; fired: Map<string, FiredTransition> };
+		run: ReturnType<typeof runOverlay>;
 		label: string;
 		/** The zoom it opens at. */
 		zoom: number;
@@ -45,12 +45,12 @@
 	let view = $state<{ x: number; y: number; zoom: number; width: number; height: number }>();
 
 	// Centring needs a step the graph has (a run may name none yet).
-	const current = $derived(graph.nodes.some((n) => n.id === run.current) ? run.current : null);
-	const centred = $derived(!!current && !!view && isCentred(graph, current, view, view));
+	const focus = $derived(graph.nodes.some((n) => n.id === run.focus) ? run.focus : null);
+	const centred = $derived(!!focus && !!view && isCentred(graph, focus, view, view));
 
 	function centre() {
-		if (!api || !view || !current) return;
-		const at = centreOn(graph, current, view, view.zoom);
+		if (!api || !view || !focus) return;
+		const at = centreOn(graph, focus, view, view.zoom);
 		if (at) api.go(at);
 	}
 
@@ -60,10 +60,10 @@
 	let followed: string | null | undefined;
 	$effect(() => {
 		if (!api || !view) return;
-		if (followed === undefined) followed = current;
-		else if (current && current !== followed) {
+		if (followed === undefined) followed = focus;
+		else if (focus && focus !== followed) {
 			centre();
-			followed = current;
+			followed = focus;
 		}
 	});
 
@@ -131,7 +131,7 @@
 			{@render tool(m['workflows.editor.zoom_out'](), ZoomOut, () => api?.zoomOut(), '-')}
 			{@render tool(m['workflows.editor.zoom_in'](), ZoomIn, () => api?.zoomIn(), '+')}
 			{@render tool(m['workflows.editor.fit_view'](), Scan, () => api?.fit(), 'F')}
-			{#if current}{@render tool(m['workflows.task.centre_current'](), LocateFixed, centre, 'C', centred)}{/if}
+			{#if run.current && focus}{@render tool(m['workflows.task.centre_current'](), LocateFixed, centre, 'C', centred)}{/if}
 			{#if onexpand}
 				<Tooltip.Root>
 					<Tooltip.Trigger>
