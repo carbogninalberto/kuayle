@@ -412,6 +412,9 @@ func (t *AssistantTools) prepareBranchUpdate(ctx context.Context, ws, user uuid.
 	case method == "task_agent" && !agentPossible, conflicts && !agentPossible:
 		return uuid.Nil, nil, "", toolFailure("the task's agent cannot take a follow-up now (only the task's creator can ask, and the task must await review, be blocked or failed), and the branch has conflicts GitHub cannot resolve. Next step: resolve them on GitHub, or ask the task's creator")
 	case method == "github" || !agentPossible:
+		if status.migrationCheckUnavailable {
+			return uuid.Nil, nil, "", toolFailure("%s. Try again shortly", migrationCheckUnavailableReason)
+		}
 		audit.Log("pull_request.update_pull_request_branch_requested", user, map[string]interface{}{"workspace_id": ws, "repository": target.Repository, "pull_request": target.Number})
 		return issue.ID, payload, "update_pull_request_branch", nil
 	}
@@ -486,6 +489,9 @@ func (s *AssistantApprovals) applyPullRequestAction(ctx context.Context, ws uuid
 		}
 		if status.migrationRepair != "" {
 			return fail(status.migrationRepair + " Ask again with method task_agent to send the repair to the task agent")
+		}
+		if status.migrationCheckUnavailable {
+			return uuid.Nil, "", errors.New(migrationCheckUnavailableReason)
 		}
 		newHead, err = s.pulls.UpdatePullRequestBranch(ctx, ws, payload.Repository, payload.PullRequest, payload.Head)
 	case "mark_pull_request_ready":

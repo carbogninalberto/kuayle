@@ -31,7 +31,15 @@ description: Implement Kuayle Go API behavior, authorization, persistence and mi
 - `issues` and `wiki_pages` are views hiding soft-deleted rows; alter the
   `issue_records`/`wiki_page_records` tables and recreate the view, and name the
   table only to see deleted rows (see [Soft delete and undo](../../../TECHNICAL.md#soft-delete-and-undo)).
-- Add the next numbered up/down migration under [migrations](../../../BE/migrations).
+- Before choosing a migration number and again before publishing, fetch the
+  base with `git fetch origin <base-branch>` and inspect it with
+  `git ls-tree --name-only FETCH_HEAD:BE/migrations`. Use the base branch in
+  your task's execution contract. If a private repository's fetch is unavailable,
+  inspect the base tracking ref Kuayle provided. Kuayle checks the remote base
+  during publication. Pick the next number after the highest version on the
+  base or your task branch for both files under [migrations](../../../BE/migrations).
+  If the base takes your number, renumber the up/down pair, update its
+  references and rerun the checks.
   Do not rewrite an already shipped migration. Inspect existing migration tests
   and verify upgrades on a disposable database with representative existing data.
   Document irreversible data effects or rollback limitations.

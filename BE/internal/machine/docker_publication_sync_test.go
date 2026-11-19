@@ -101,7 +101,7 @@ func (f *scriptFixture) commit(floor string) (string, error) {
 }
 
 func (f *scriptFixture) push(commit, lease string) (string, error) {
-	return f.script(publishPushScript, "fixture-credential\n", "push", "acme/app", "kuayle/rec-1", f.checkout, commit, "main", "agent@kuayle.invalid", lease)
+	return f.script(publishPushScript, "fixture-credential\n", "push", "acme/app", "kuayle/rec-1", f.checkout, commit, "main", "agent@kuayle.invalid", lease, "Kuayle Agent", "REC-1")
 }
 
 // freshCheckout replaces the checkout with a clone that only knows the base

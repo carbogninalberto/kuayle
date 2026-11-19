@@ -48,6 +48,8 @@ type PullRequestStatus struct {
 	// migrationRepair is the task instruction for a version it shares with
 	// a different migration in the base.
 	migrationRepair string
+	// A missing comparison or migration tree leaves the collision check unknown.
+	migrationCheckUnavailable bool
 }
 
 // PullRequestCheck is one CI check of the head commit.
@@ -109,6 +111,10 @@ func (s *GitHubService) PullRequestStatus(ctx context.Context, ws uuid.UUID, rep
 	if err != nil {
 		return nil, err
 	}
+	return readPullRequestStatus(client, token, owner, name, number)
+}
+
+func readPullRequestStatus(client *gh.Client, token, owner, name string, number int) (*PullRequestStatus, error) {
 	pull, err := client.GetPullRequest(token, owner, name, number)
 	if err != nil {
 		return nil, err
@@ -123,18 +129,13 @@ func (s *GitHubService) PullRequestStatus(ctx context.Context, ws uuid.UUID, rep
 	// Ahead and behind are counted from the base branch; a failed comparison
 	// only leaves them unknown (-1) rather than failing the whole read.
 	status.Ahead, status.Behind = -1, -1
+	status.migrationCheckUnavailable = status.State == "open"
 	if status.State == "open" && status.HeadSHA != "" {
-		base := pull.Base.SHA
-		if base == "" {
-			base = pull.Base.Ref
-		}
-		if comparison, err := client.CompareCommits(token, owner, name, base, status.HeadSHA); err == nil {
+		if comparison, err := client.CompareCommits(token, owner, name, status.BaseRef, status.HeadSHA); err == nil {
 			status.Ahead, status.Behind, status.MergeBase = comparison.AheadBy, comparison.BehindBy, comparison.MergeBaseCommit.SHA
 			listTree := func(ref string) ([]gh.TreeEntry, error) { return client.ListTree(token, owner, name, ref) }
-			status.migrationRepair, err = pullRequestMigrationRepair(listTree, base, status.HeadSHA, status.BaseRef, comparison.Files)
-			if err != nil {
-				return nil, fmt.Errorf("could not check the pull request for migration number collisions: %w", err)
-			}
+			status.migrationRepair, err = pullRequestMigrationRepair(listTree, comparison.BaseCommit.SHA, status.HeadSHA, status.BaseRef, comparison.Files)
+			status.migrationCheckUnavailable = err != nil
 		}
 	}
 	return status, nil

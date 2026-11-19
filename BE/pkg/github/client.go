@@ -564,13 +564,14 @@ func (c *Client) CompareCommitsPage(token, owner, repo, base, head string, page 
 
 // Comparison is the first page of commits between two refs. Status is "ahead"
 // only when head descends from base; "diverged" or "behind" mean rewritten
-// history. TotalCommits can exceed len(Commits). MergeBaseCommit is the newest
-// commit both share: base's tip when BehindBy is 0.
+// history. TotalCommits can exceed len(Commits). BaseCommit is the resolved
+// base ref. MergeBaseCommit is the newest commit both sides share.
 type Comparison struct {
 	Status          string        `json:"status"`
 	AheadBy         int           `json:"ahead_by"`
 	BehindBy        int           `json:"behind_by"`
 	TotalCommits    int           `json:"total_commits"`
+	BaseCommit      Commit        `json:"base_commit"`
 	MergeBaseCommit Commit        `json:"merge_base_commit"`
 	Commits         []Commit      `json:"commits"`
 	Files           []CompareFile `json:"files"`

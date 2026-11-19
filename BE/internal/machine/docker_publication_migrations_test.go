@@ -2,6 +2,7 @@ package machine
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -43,6 +44,7 @@ func TestPublicationRenumbersRacingMigrationPairs(t *testing.T) {
 	require.Equal(t, f.originTip(), published)
 	require.NotEqual(t, head, published)
 	require.Equal(t, head, f.run(f.origin, nil, "rev-parse", published+"^"))
+	require.Equal(t, "REC-1: chore(migrations): renumber colliding task migrations", f.run(f.origin, nil, "show", "-s", "--format=%s", published))
 	require.Equal(t, winnerHead, f.run(f.origin, nil, "rev-parse", "main"))
 	migrations := f.run(f.origin, nil, "ls-tree", "-r", "--name-only", published, "BE/migrations/")
 	require.NotContains(t, migrations, "000178_bulk_issue_approvals.")
@@ -60,6 +62,30 @@ func TestPublicationRenumbersRacingMigrationPairs(t *testing.T) {
 	output, err = f.push(published, "")
 	require.NoError(t, err, output)
 	require.Equal(t, published, f.originTip(), "a retry keeps the published numbering and commit")
+}
+
+func TestPublicationBlocksWhenMigrationCheckNeedsNode(t *testing.T) {
+	f := newScriptFixture(t)
+	addMigrationPair(f, f.checkout, "000177_existing")
+	f.run(f.checkout, nil, "push", "-q", "origin", "HEAD:main")
+	addMigrationPair(f, f.checkout, "000178_task")
+	head := f.head()
+
+	// Give the publisher its usual shell tools and Git wrapper, without Node.
+	for _, name := range []string{"cat", "chmod", "cut", "env", "grep", "head", "ln", "mkdir", "mktemp", "rm"} {
+		path, err := exec.LookPath(name)
+		require.NoError(t, err)
+		require.NoError(t, os.Symlink(path, filepath.Join(f.wrapper, name)))
+	}
+	output, err := f.script("export PATH=\"${PATH%%:*}\"\n"+publishPushScript, "fixture-credential\n", "push",
+		"acme/app", "kuayle/rec-1", f.checkout, head, "main", "agent@kuayle.invalid")
+	require.NoError(t, err, output)
+	_, err = pushedCommit(output, head)
+	var blocked *checkoutSyncBlockedError
+	require.ErrorAs(t, err, &blocked)
+	require.Contains(t, blocked.detail, "Node.js")
+	require.Contains(t, blocked.detail, "BE/migrations")
+	require.True(t, f.fails(f.origin, "show-ref", "--verify", "refs/heads/kuayle/rec-1"))
 }
 
 func TestPublicationHandsOffAnIncompleteMigrationPair(t *testing.T) {

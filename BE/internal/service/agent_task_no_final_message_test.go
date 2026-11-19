@@ -83,14 +83,10 @@ func TestAgentFailedForRunNamesTheCauseOnce(t *testing.T) {
 func TestImplementPromptSaysKuayleCommitsAndPushes(t *testing.T) {
 	prompt := withContract("Implement dark mode", domain.AgentTask{}, nil, false)
 	require.Contains(t, prompt, "Kuayle commits and pushes for you")
-	require.Contains(t, prompt, "git fetch origin <base-branch>")
-	require.Contains(t, prompt, "git ls-tree --name-only FETCH_HEAD:BE/migrations")
-	require.Contains(t, prompt, "before choosing a migration number and again before publishing")
 	require.Contains(t, prompt, "no git identity and no GitHub token on purpose")
 	require.Contains(t, prompt, "do not report their absence as a problem")
 	require.Contains(t, prompt, "a run that ends without one fails")
 	require.Equal(t, prompt, withPublication(prompt), "added once")
-	require.Contains(t, withPublication(publicationLine), migrationNumberLine, "older task prompts get the new instruction")
 
 	require.NotContains(t, withContract("Plan dark mode", domain.AgentTask{}, nil, true), publicationLine)
 }

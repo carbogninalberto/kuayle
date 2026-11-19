@@ -20,9 +20,10 @@ type PublishRequest struct {
 	PublishedCommit string
 	// Lease is the GitHub tip SyncCheckout saw when the agent had rewritten the
 	// published commit. When set, the push is guarded by force-with-lease.
-	Lease   string
-	Message string
-	Token   string
+	Lease           string
+	IssueIdentifier string
+	Message         string
+	Token           string
 }
 
 var (
@@ -272,9 +273,13 @@ fi
 renumbered=
 if [ -n "$(git --git-dir="$work/repo" ls-tree -d refs/kuayle/remote/base -- BE/migrations)" ] &&
    [ -n "$(git --git-dir="$work/repo" ls-tree -d "$commit" -- BE/migrations)" ]; then
+  if ! command -v node >/dev/null 2>&1; then
+    printf 'blocked\nPublication needs Node.js in the developer container to check BE/migrations against the latest base. Use a developer image with Node.js, then retry publication.\n'
+    exit 0
+  fi
   renumbered=$(GIT_AUTHOR_NAME="${8:-Kuayle Agent}" GIT_COMMITTER_NAME="${8:-Kuayle Agent}" \
     GIT_AUTHOR_EMAIL="$email" GIT_COMMITTER_EMAIL="$email" env -u NODE_OPTIONS -u NODE_PATH \
-    node - "$work/repo" refs/kuayle/remote/base "$commit" <<'KUAYLE_MIGRATIONS'
+    node - "$work/repo" refs/kuayle/remote/base "$commit" "${9:-}" <<'KUAYLE_MIGRATIONS'
 ` + publicationMigrationsScript + `KUAYLE_MIGRATIONS
 )
   case $renumbered in
@@ -343,7 +348,7 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 		return "", fmt.Errorf("publication returned an invalid commit")
 	}
 	pushed, err := r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishPushScript, "kuayle-publish-push",
-		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit, checkout.BaseBranch, request.AuthorEmail, request.Lease, request.AuthorName}, request.Token+"\n")
+		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit, checkout.BaseBranch, request.AuthorEmail, request.Lease, request.AuthorName, request.IssueIdentifier}, request.Token+"\n")
 	if err != nil {
 		return "", err
 	}

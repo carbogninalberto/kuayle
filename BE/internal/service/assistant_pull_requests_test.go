@@ -778,6 +778,27 @@ func TestApprovedBranchUpdateReportsAHeadItCouldNotRecord(t *testing.T) {
 	require.Contains(t, message, "follow_up_task")
 }
 
+func TestApprovedBranchUpdateWaitsForTheMigrationCheck(t *testing.T) {
+	f := newPRFixture()
+	f.github.status.Behind = 1
+	f.github.status.migrationCheckUnavailable = true
+	ctx := context.Background()
+	_, _, _, err := f.tools.preparePullRequestAction(ctx, f.ws, f.admin, "update_pull_request_branch", `{"identifier":"ENG-1","method":"github"}`)
+	require.ErrorContains(t, err, "could not check")
+
+	approvals, approval := approvalFor(f, f.admin, "update_pull_request_branch", domain.PullRequestActionPayload{Head: "head1"})
+	_, message, err := approvals.applyPullRequestAction(ctx, f.ws, approval)
+	require.ErrorContains(t, err, "could not check")
+	require.Empty(t, message, "the approval remains retryable")
+	require.Empty(t, f.github.calls)
+
+	f.github.status.migrationCheckUnavailable = false
+	_, message, err = approvals.applyPullRequestAction(ctx, f.ws, approval)
+	require.NoError(t, err)
+	require.Empty(t, message)
+	require.Equal(t, []string{"update:head1"}, f.github.calls)
+}
+
 func TestGetPullRequestChecksNeverReportsPassingWhenCoverageIsIncomplete(t *testing.T) {
 	passing := []PullRequestCheck{{Name: "lint", State: "passed"}}
 	for name, tc := range map[string]struct {

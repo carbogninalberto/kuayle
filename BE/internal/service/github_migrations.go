@@ -10,6 +10,7 @@ import (
 )
 
 const migrationDirectory = "BE/migrations/"
+const migrationCheckUnavailableReason = "Kuayle could not check the pull request for migration number collisions"
 
 var migrationFilename = regexp.MustCompile(`^BE/migrations/([0-9]+)_([^/\r\n]+)\.(up|down)\.sql$`)
 
@@ -32,6 +33,9 @@ func pullRequestMigrationRepair(listTree func(string) ([]gh.TreeEntry, error), b
 	}
 	if len(taskPaths) == 0 {
 		return "", nil
+	}
+	if base == "" {
+		return "", fmt.Errorf("GitHub's comparison did not include the base commit")
 	}
 	basePaths, err := migrationPaths(listTree, base)
 	if err != nil {

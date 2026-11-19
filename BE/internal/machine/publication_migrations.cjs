@@ -2,7 +2,7 @@
 // a temporary Git index. The original task commit and checked-out files stay
 // intact until the task next syncs the published branch.
 const { execFileSync } = require('node:child_process');
-const [repository, base, head] = process.argv.slice(2);
+const [repository, base, head, issue] = process.argv.slice(2);
 const directory = 'BE/migrations/';
 
 function git(args, input) {
@@ -143,7 +143,8 @@ function renumber() {
 	git(['read-tree', head]);
 	git(['update-index', '-z', '--index-info'], index.join(''));
 	const updated = git(['write-tree']).toString().trim();
-	process.stdout.write(git(['commit-tree', '--no-gpg-sign', updated, '-p', head, '-m', 'Renumber colliding task migrations']));
+	const message = 'chore(migrations): renumber colliding task migrations';
+	process.stdout.write(git(['commit-tree', '--no-gpg-sign', updated, '-p', head, '-m', issue ? `${issue}: ${message}` : message]));
 }
 
 renumber();

@@ -266,6 +266,33 @@ func TestShipSendsMigrationCollisionBackToTheImplementer(t *testing.T) {
 	}
 }
 
+func TestShipRetriesWhenGitHubCannotCheckMigrations(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{})
+	merger := h.withGitHub()
+	h.agentFinishes("Added a migration")
+	h.pulls.status.HeadSHA, h.pulls.checksHead = h.head(), h.head()
+	h.published()
+	h.review("approve", "Looks good")
+	h.pulls.status.Behind = 1
+	h.pulls.status.migrationCheckUnavailable = true
+	h.ci("success", "")
+	require.Equal(t, "ship", h.current().NodeID)
+	require.NoError(t, h.decideAs(WorkflowDecisionApprove))
+	require.True(t, h.tick())
+	require.Contains(t, h.w.task.Reason, "could not check")
+	for _, call := range h.pulls.calls {
+		require.NotContains(t, call, "update:")
+	}
+	require.Empty(t, merger.merged)
+	require.NotNil(t, h.w.task.WorkflowWakeAt, "the approved merge will retry")
+
+	h.pulls.status.migrationCheckUnavailable = false
+	h.pulls.status.Behind = 0
+	h.pulls.checks = passingChecks
+	require.True(t, h.later(time.Minute))
+	require.Equal(t, []string{"acme/app#12@" + h.head() + "/squash"}, merger.merged)
+}
+
 // KUA-209: a merge that cannot happen keeps the task at its approval with the
 // reason, and a person can approve again once it is fixed.
 func TestAShipMergeThatFailsStaysAtTheApproval(t *testing.T) {

@@ -104,7 +104,7 @@ func (w *WorkflowRunner) prepareBranch(ctx context.Context, task domain.AgentTas
 	if pullRequestConflicts(status) {
 		return done, rebaseInstruction(base)
 	}
-	if status.Behind <= 0 {
+	if status.Behind <= 0 || status.migrationCheckUnavailable {
 		return done, ""
 	}
 	head, err := w.pulls.UpdatePullRequestBranch(ctx, task.WorkspaceID, target.Repository, target.PullRequestNumber, status.HeadSHA)

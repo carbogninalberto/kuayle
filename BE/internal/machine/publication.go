@@ -141,7 +141,7 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	// for a guarded force push instead of changing the checkout.
 	request := PublishRequest{
 		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token, PublishedCommit: publication.PublishedCommit,
-		Message: title + "\n\nKuayle agent task " + run.TaskID.String(),
+		IssueIdentifier: publication.IssueIdentifier, Message: title + "\n\nKuayle agent task " + run.TaskID.String(),
 	}
 	request.Lease, err = m.runtime.SyncCheckout(ctx, machine, services, checkout, request)
 	if err != nil {
