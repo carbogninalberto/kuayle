@@ -9,25 +9,24 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 )
 
-func (w *WorkflowRunner) finishStage(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, node domain.WorkflowNode, run repository.WorkflowRun) error {
+func (w *WorkflowRunner) finishStage(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, node domain.WorkflowNode, run *repository.WorkflowRun) error {
 	step, err := w.tasks.CurrentWorkflowStep(ctx, task)
 	if err != nil {
 		return err
 	}
-	// A changed worktree is a new attempt. Only an unchanged worktree may
-	// continue using the input attempt's validation and published PR.
-	work := task
-	unchanged := run.WorktreeChanged != nil && !*run.WorktreeChanged
+	// A retry is compared to the start of the whole stage visit.
+	first := run
 	if step.StageFirstRunID != nil && *step.StageFirstRunID != task.RunID {
 		original := task
 		original.RunID = *step.StageFirstRunID
-		first, err := w.tasks.WorkflowRun(ctx, original)
+		first, err = w.tasks.WorkflowRun(ctx, original)
 		if err != nil {
 			return err
 		}
-		unchanged = first.WorktreeBefore != "" && first.WorktreeBefore == run.WorktreeAfter
 	}
-	if step.StageInputRunID != nil && unchanged {
+	problem := stageWorktreeProblem(first, run)
+	work := task
+	if step.StageInputRunID != nil && problem == "" {
 		work.RunID = *step.StageInputRunID
 	}
 	fail := func(problem string) error {
@@ -54,8 +53,8 @@ func (w *WorkflowRunner) finishStage(ctx context.Context, task domain.AgentTask,
 	} else if node.Type == domain.WorkflowNodeStart {
 		apply, err = w.plan(ctx, work, domain.WorkflowElse, run.NotebookNote, false)
 	} else {
-		if node.StageReadsWorktree() && !unchanged {
-			return fail("The stage assistant must leave the worktree unchanged to continue this stage")
+		if node.StageReadsWorktree() && problem != "" {
+			return fail(problem)
 		}
 		entry, immediate, detail, enterErr := w.enterNative(ctx, work, graph, profiles, node, domain.WorkflowReasonPrefix+node.Label, w.now(), step.MergeWait())
 		if enterErr != nil {
@@ -76,4 +75,39 @@ func (w *WorkflowRunner) finishStage(ctx context.Context, task domain.AgentTask,
 	}
 	_, err = w.tasks.ApplyWorkflow(ctx, task, *apply)
 	return err
+}
+
+// Only a stage that kept HEAD and the non-ignored tree may reuse the input
+// attempt's validation and PR. A build can add ignored output on any run.
+func stageWorktreeProblem(first, last *repository.WorkflowRun) string {
+	beforeHead, beforeTree, beforeOK := domain.WorktreeContent(first.WorktreeBefore)
+	afterHead, afterTree, afterOK := domain.WorktreeContent(last.WorktreeAfter)
+	if !beforeOK || !afterOK {
+		// Older runs may have only the stricter, whole-fingerprint comparison.
+		if first == last && (first.WorktreeBefore == "" || last.WorktreeAfter == "") && last.WorktreeChanged != nil {
+			if !*last.WorktreeChanged {
+				return ""
+			}
+			if len(last.WorktreeFiles) > 0 {
+				return "Kuayle could not verify the stage's worktree. The run recorded changes to " + changedFileSummary(last.WorktreeFiles)
+			}
+		}
+		return "Kuayle could not verify that the stage assistant left HEAD and the non-ignored files unchanged"
+	}
+	if beforeTree == afterTree {
+		if beforeHead != afterHead {
+			return "The stage assistant changed HEAD, so the built-in stage cannot use the input attempt"
+		}
+		return ""
+	}
+	problem := "The stage assistant changed non-ignored files"
+	// File lists are per-run. A retry may have only added build output
+	// after the first run's edits, or made further edits of its own.
+	if _, tree, ok := domain.WorktreeContent(first.WorktreeAfter); ok && tree == afterTree && len(first.WorktreeFiles) > 0 {
+		return problem + ": " + changedFileSummary(first.WorktreeFiles)
+	}
+	if _, tree, ok := domain.WorktreeContent(last.WorktreeBefore); ok && tree != afterTree && len(last.WorktreeFiles) > 0 {
+		return problem + ". Files changed on the final run: " + changedFileSummary(last.WorktreeFiles)
+	}
+	return problem
 }

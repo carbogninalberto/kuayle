@@ -2443,10 +2443,17 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   assistant chose. An unknown edge or one reserved for a built-in outcome
   fails the stage. A plain handoff or `KUAYLE_STAGE_CONTINUE` runs the built-in
   action. At a terminal stage this finishes the configured outcome.
-  CI, approval, merge and end require an unchanged worktree to continue their
-  built-in action. A stage assistant that edits code there can hand off through
-  a configured rework branch. Checks, publications, human approvals and
-  merges still have their own evidence and authorization.
+  When HEAD and all non-ignored files (including untracked files) match
+  the start of the stage visit, the built-in action reuses the input attempt's
+  validation and published pull request. This comparison spans retries. A
+  build or test can create ignored output without invalidating that evidence.
+  CI, approval, merge and end require this match to continue. An assistant
+  that edits code there can explicitly select a configured rework branch.
+  If it tries to continue instead, the stage fails and the task shows the
+  reason and recorded changed filenames when available. A failed assistant
+  cannot select a fallback or authorize the built-in action. Checks,
+  publications, human approvals and merges retain their own evidence and
+  authorization.
 - **Workflows** (`workflows`, `workflow_versions`): a save inserts the next
   immutable version (an update trigger refuses changes) with the graph as
   JSONB; `expected_version` refuses a stale save. Archiving hides a workflow
