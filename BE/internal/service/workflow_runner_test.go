@@ -72,6 +72,9 @@ func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowAp
 		if apply.Entry.Kind == repository.WorkflowEnterWait {
 			want = domain.WorkflowStatusPaused
 		}
+		if apply.StageFinished {
+			want = domain.WorkflowStatusRunning
+		}
 		if *w.task.WorkflowStatus != want {
 			return nil, repository.ErrAgentTaskConflict
 		}
@@ -144,15 +147,9 @@ func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowAp
 		review := uuid.New()
 		w.reviews[review] = &repository.WorkflowReview{State: "queued"}
 		w.steps[result.FinalSequence].ReviewTaskID = &review
-	case repository.WorkflowEnterWait:
-		if entry.Merge != nil {
-			data, err := json.Marshal(entry.Merge)
-			if err != nil {
-				return nil, err
-			}
-			raw := json.RawMessage(data)
-			w.steps[result.FinalSequence].Merge = &raw
-		}
+	}
+	if entry.Merge != nil {
+		w.steps[result.FinalSequence].Merge = rawJSON(w.t, entry.Merge)
 	}
 	if entry.Kind == repository.WorkflowEnterFail && apply.FailureClass != "" {
 		class := string(apply.FailureClass)

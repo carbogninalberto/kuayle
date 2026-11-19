@@ -559,6 +559,10 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 	if err != nil {
 		return nil, nil, err
 	}
+	model, effort, err := s.tools.approvalEffort(ctx, ws, issueID, payload)
+	if err != nil {
+		return nil, nil, err
+	}
 	// The approval is still offered when GitHub access is missing, so the admin
 	// sees what to grant on the card; approving re-checks it.
 	gap := preflightGitHub(ctx, s.tools.access, ws, action)
@@ -576,6 +580,9 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 	auditApprovalRequested(actor, ws, approval, gap)
 	s.approvals.notifyRequested(ctx, a.Conversation, approval, identifier)
 	result := map[string]any{"approval_id": approval.ID, "status": "pending_user_approval"}
+	if effort != "" {
+		result["model"], result["effort"] = model, effort
+	}
 	if gap != nil {
 		result["github_access"] = gap
 		result["warning"] = gap.Message

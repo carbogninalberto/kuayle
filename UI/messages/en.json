@@ -3726,6 +3726,8 @@
 	"workflows.editor.show_panel": "Show side panel",
 	"workflows.editor.nothing_selected": "Select a step or a transition on the canvas, or in the lists below.",
 	"workflows.editor.node_label": "Name",
+	"workflows.editor.stage_assistant": "Stage assistant",
+	"workflows.condition.assistant": "Assistant choice",
 	"workflows.editor.node_profile": "Agent profile",
 	"workflows.editor.node_profile_placeholder": "Choose a profile",
 	"workflows.editor.node_prompt": "Iteration prompt",

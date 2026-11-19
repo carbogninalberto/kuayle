@@ -253,7 +253,7 @@ including `*.push.apple.com` for Apple devices.
 
 - iOS and iPadOS 16.4+ deliver Web Push to web apps launched from the Home Screen.
   Open Kuayle from its icon and tap **Enable push** under **Settings → Preferences**.
-  Safari tabs and Telegramx27s in-app webview on iOS receive no Web Push notifications. [Apple platform requirements](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers)
+  Safari tabs and Telegram’s in-app browser on iOS receive no Web Push notifications. [Apple platform requirements](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers)
 - Supported Android Chrome and desktop browsers also support enrollment from a
   regular tab.
 - Every push displays a system notification. Kuayle uses no silent pushes.
@@ -287,7 +287,7 @@ ends the sessions that were signed in with one.
 An owner or admin can configure OpenID Connect per workspace under
 **Settings → SSO**: issuer URL, client ID, client secret, allowed email domains,
 the default role for just-in-time users and whether the workspace requires SSO.
-OIDC is free and ungated. SAML 2.0 and SCIM 2.0 are follow-ups.
+OIDC is free and ungated. The [single sign-on guide](sso.md#saml-20) also covers SAML 2.0.
 
 - The client secret is encrypted at rest and write-only: no API response
   returns it and it is never logged.
@@ -304,15 +304,115 @@ OIDC is free and ungated. SAML 2.0 and SCIM 2.0 are follow-ups.
 - An SSO-minted session is scoped to its workspace: other workspaces and
   account-level actions (passkeys, profile, workspace creation, invites, tokens
   for other workspaces) answer `403 SSO_SESSION_SCOPED`.
-- Existing accounts are never linked by a public SSO callback; linking requires
-  signing in with the account's own password or passkey first.
-- Personal access tokens are not blocked by require-SSO in this phase; revoke
-  them manually when someone leaves. SCIM deprovisioning will do it atomically.
+- Existing accounts link an IdP identity from an authenticated session.
+  An active SCIM-created account can link its first verified identity through
+  SSO in the workspace that provisioned it.
+- With **Require SSO** on, personal access tokens must be minted from an SSO
+  session for that workspace.
 
 The provider walkthrough (Keycloak included), provider notes and troubleshooting
 are in the [single sign-on guide](sso.md). The migration adds
 `workspace_sso_configs`, `user_identities` and `sso_login_states` and a
 nullable `refresh_tokens.sso_workspace_id`.
+
+## SCIM 2.0 provisioning
+
+Use one provisioning connection per workspace. Give the IdP the HTTPS base URL
+`https://kuayle.example.com/api/scim/v2/<workspace-slug>`. Use the same external
+origin as `FRONTEND_URL` so resource locations point to the instance the IdP
+can reach.
+
+A signed-in workspace owner or admin can use these endpoints under
+`/api/workspaces/<workspace-slug>/scim`:
+
+| Method and path | Effect |
+| --- | --- |
+| `GET /token` | Read whether provisioning is enabled and when the token was last rotated. |
+| `POST /token` | Rotate the workspace token and return the new `token` once. Update the IdP immediately. |
+| `DELETE /token` | Revoke the current token. The workspace keeps its provisioned records and mappings. |
+| `PUT /groups/<group-id>/team` | Map the SCIM group to a team with a JSON body such as `{"team_id":"<team-uuid>"}`. |
+| `DELETE /groups/<group-id>/team` | Remove the mapping and the team memberships it granted. |
+
+For example, after signing in as the owner or admin, open the browser's
+developer console on the Kuayle origin. In Chromium, the following copies a
+new token without displaying it. Replace `my-workspace` with the workspace slug.
+Paste the token into the IdP's secret field, then clear your clipboard.
+
+```js
+const result = await fetch("/api/workspaces/my-workspace/scim/token", { method: "POST" })
+if (result.ok) copy((await result.json()).token)
+```
+
+The IdP sends the token as `Authorization: Bearer <token>`. Kuayle stores its
+SHA-256 hash and rejects a token presented for any other workspace. Use a
+separate token for each workspace and keep it in the IdP's credential store.
+
+### Okta
+
+1. Create an app integration with SCIM provisioning. On the app's **General**
+   tab, enable **SCIM** under **Provisioning**.
+2. In **Provisioning → Integration**, enter the SCIM base URL, set **Unique
+   identifier field for users** to `userName`, and select **HTTP Header**
+   authentication. Enter the workspace token and test the connection.
+3. In **Provisioning → To App**, enable **Create Users**, **Update User
+   Attributes** and **Deactivate Users**. Map the application username to a
+   unique login email and leave password synchronization disabled.
+4. Assign a pilot user. To provision groups, turn on **Push Groups** and push
+   a pilot group after assigning its users to the app.
+
+See the [Okta configuration guide](https://help.okta.com/en-us/content/topics/apps/apps_app_integration_wizard_scim.htm).
+
+### Microsoft Entra ID
+
+1. In **Enterprise applications**, create a non-gallery application. Open
+   **Provisioning** and create an automatic provisioning configuration.
+2. Enter the SCIM base URL as **Tenant URL** and the workspace token as
+   **Secret Token**. Use **Test Connection** and save.
+3. In attribute mappings, use `userName` as the User matching attribute and
+   `displayName` as the Group matching attribute. Keep `active` mapped to
+   Entra's soft-delete expression. Map `externalId`, `displayName`,
+   `name.givenName`, `name.familyName`, and `emails[type eq "work"].value` as
+   needed. Remove unsupported mappings such as password, phone numbers,
+   addresses, and enterprise extensions.
+4. Select **Sync only assigned users and groups**, assign a pilot user and
+   group, try on-demand provisioning, then start provisioning. Check the
+   provisioning logs after assigning and unassigning the pilot.
+
+See the [Microsoft Entra SCIM provisioning guide](https://learn.microsoft.com/en-us/entra/identity/app-provisioning/use-scim-to-provision-users-and-groups).
+
+### Resource and offboarding behavior
+
+- `/Users` and `/Groups` support collection GET and POST and per-ID GET, PUT,
+  PATCH and DELETE. Discovery is available at `/ServiceProviderConfig`,
+  `/ResourceTypes` and `/Schemas`. Lists use `startIndex` and `count` with up to
+  100 results. Supported equality filters are `userName`, `externalId` and
+  `emails.value` (including the work-email filter) for Users, and
+  `displayName` and `externalId` for Groups.
+- Provisioned users receive the workspace's **Member** role. Kuayle uses the
+  primary email, first email or email-form username to create the account.
+  An email already in use returns a conflict. Later SCIM updates change the
+  provisioning profile and display name. The account's sign-in address stays
+  fixed. To use SSO, configure it for the same workspace and have the IdP send
+  the account's verified sign-in email for the first login.
+- Setting `active` from `true` to `false` removes workspace and team access, removes SCIM group
+  membership, invalidates the account's access and refresh sessions, and
+  revokes its personal access tokens and outstanding CLI connection links
+  before the response returns. Credentials are account-wide and memberships
+  in other workspaces remain in place. Sending `active: true` re-enrolls the
+  user as a workspace member. The IdP can then push group memberships again.
+  DELETE additionally hides the SCIM record and retains the account and its
+  sign-in address for history. Use `active: false` for reversible offboarding.
+- Group membership affects Kuayle teams only after an owner or admin maps the
+  group to an existing team in the same workspace. Each team accepts one
+  mapping. Use the SCIM group ID from `GET /Groups`. Mapped groups grant team
+  membership to active SCIM users, including on private teams. Removing members
+  from the group, unmapping the group, or deleting it removes memberships that
+  SCIM granted and preserves existing manual memberships.
+- Rolling back migration 183 removes SCIM configuration, records and grant tracking.
+  It preserves account and membership rows and does not reconstruct removed
+  memberships, refresh sessions or personal access tokens. Pre-existing access
+  JWTs may remain valid until they expire if rolled back to a server that does
+  not check session versions.
 
 ## Private teams
 

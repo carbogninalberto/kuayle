@@ -3726,6 +3726,8 @@
 	"workflows.editor.show_panel": "Näytä sivupaneeli",
 	"workflows.editor.nothing_selected": "Valitse vaihe tai siirtymä kanvaksesta tai alla olevista listoista.",
 	"workflows.editor.node_label": "Nimi",
+	"workflows.editor.stage_assistant": "Vaiheen avustaja",
+	"workflows.condition.assistant": "Avustajan valinta",
 	"workflows.editor.node_profile": "Agenttiprofiili",
 	"workflows.editor.node_profile_placeholder": "Valitse profiili",
 	"workflows.editor.node_prompt": "Iteraation prompt",

@@ -44,7 +44,7 @@ func (s *PreferencesService) Get(ctx context.Context, userID uuid.UUID) (*domain
 			RecentDueDates:            domain.RecentDueDates{},
 			IssuesGroupBy:             "status",
 			BrowserNotifications:      true,
-			PushNotifications: true,
+			PushNotifications:         true,
 			WorkflowEditorPanelOpen:   true,
 			NotificationSound:         domain.DefaultNotificationSound,
 			NotificationEvents:        domain.NotificationEvents{}.Complete(),

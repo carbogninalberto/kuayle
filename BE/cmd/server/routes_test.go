@@ -26,7 +26,7 @@ func noopMiddleware() echo.MiddlewareFunc {
 // token scope. A route registered without the helpers (empty Name) fails.
 func TestRoutePermissionAnnotations(t *testing.T) {
 	e := echo.New()
-	registerRoutes(e, &appHandlers{}, &appMiddleware{
+	registerRoutes(e, matrixHandlers(), &appMiddleware{
 		auth:                   noopMiddleware(),
 		authRateLimit:          noopMiddleware(),
 		publicRateLimit:        noopMiddleware(),
@@ -46,7 +46,7 @@ func TestRoutePermissionAnnotations(t *testing.T) {
 		count++
 		require.NotEmpty(t, r.Name, "route %s %s has no permission annotation (use the scoped/sessionOnly/ownerOnly helpers or set an exemption Name)", r.Method, r.Path)
 		switch {
-		case r.Name == "public" || r.Name == "token" || r.Name == "session" || r.Name == "owner":
+		case r.Name == "public" || r.Name == "token" || r.Name == "session" || r.Name == "owner" || r.Name == "scim":
 			// Explicit exemption categories.
 		case strings.HasPrefix(r.Name, "perm:"):
 			code := strings.TrimPrefix(r.Name, "perm:")
