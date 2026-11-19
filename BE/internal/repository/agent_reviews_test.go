@@ -260,6 +260,9 @@ func TestAReviewWhoseAnswerHasNoVerdictFails(t *testing.T) {
 	failing, err := repo.Get(ctx, ws, review.ID)
 	require.NoError(t, err)
 	require.Equal(t, "cancelling", failing.State, "the review fails through runtime cleanup")
+	// The manager finished the run's operation and confirms the cleanup.
+	_, err = db.Exec(`UPDATE dev_machine_operations SET status='completed',lease_owner=NULL,lease_expires_at=NULL WHERE machine_id=$1 AND status IN ('pending','leased')`, machine)
+	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO dev_machine_operations(workspace_id,machine_id,agent_run_id,action,status,generation,idempotency_key) VALUES($1,$2,$3,'cancel_agent','completed',1,$4)`,
 		ws, machine, review.RunID, "task-cancel:"+review.ID.String()+":"+review.RunID.String())
 	require.NoError(t, err)
