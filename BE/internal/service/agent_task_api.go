@@ -310,7 +310,13 @@ func (s *AgentTaskService) resolveIssueWorkflow(ctx context.Context, ws, issue u
 		}
 		return nil
 	}
-	version, err := s.definitions.ResolveWorkflow(ctx, ws, issue, input.WorkflowID)
+	var version *domain.WorkflowVersion
+	var err error
+	if input.PinnedWorkflowVersion != nil {
+		version, err = s.definitions.PinnedVersion(ctx, ws, input.WorkflowID, *input.PinnedWorkflowVersion)
+	} else {
+		version, err = s.definitions.ResolveWorkflow(ctx, ws, issue, input.WorkflowID)
+	}
 	if err != nil || version == nil {
 		return err
 	}

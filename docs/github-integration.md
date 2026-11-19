@@ -10,6 +10,16 @@ Kuayle connects to GitHub through a **GitHub App**. By default, each workspace u
 - **Auto-transitions** — branch created → In Progress, PR opened → In Review, PR merged → Done (configurable)
 - **Activity feed** — linked PRs, branches, and commits on the matching issue detail page
 
+## Publishing GitHub Actions workflows
+
+**Workflows: Read and write** lets Kuayle publish agent edits under
+`.github/workflows/` and update or merge branches that carry CI changes.
+Review agent-written workflows in the pull request. New manifest apps request
+the permission automatically. For an existing app, open **Settings → GitHub**
+and use **Fix on GitHub** to add the permission (ask the operator for a shared
+app). Each installation owner then uses **Accept on GitHub**. After acceptance,
+retry the publication that named the affected workflow files.
+
 ## Publicly reachable instance
 
 If GitHub can reach your Kuayle instance (for example `https://kuayle.yourcompany.com`), the manifest flow can populate the callback and webhook URLs:

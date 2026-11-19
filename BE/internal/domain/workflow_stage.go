@@ -10,7 +10,7 @@ func (graph WorkflowGraph) StageInstructions(node WorkflowNode) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Oversee the %s stage %q (%s).\n", node.Type, node.Label, node.ID)
 	fmt.Fprintf(&b, "Stage settings: check=%q, terminal outcome=%q, instructions=%s.\n", node.Check, node.Outcome, node.Prompt)
-	b.WriteString("Work on this stage in the task worktree. Update the task notebook with your work and handoff. At CI, approval, merge and end stages keep the worktree unchanged when continuing the built-in stage.\n")
+	b.WriteString("Work on this stage in the task worktree. Update the task notebook with your work and handoff. At CI, approval, merge and end stages keep HEAD and non-ignored files unchanged when continuing the built-in stage. Ignored build and test output is allowed.\n")
 	b.WriteString("Outgoing transitions (condition, edge ID, destination):\n")
 	var branches []WorkflowEdge
 	for _, edge := range graph.Edges {

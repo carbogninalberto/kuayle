@@ -31,6 +31,9 @@ var githubAppPermissions = map[string]string{
 	// get_workflow_run follows release builds (KUA-88); a workflow's CI step
 	// runs failed jobs again when nothing changed since they failed (KUA-215).
 	"actions": "write",
+	// Push agent edits to .github/workflows or sync base commits that changed
+	// workflows into a task branch, update the PR branch, and merge those PRs.
+	"workflows": "write",
 }
 
 var githubAppEvents = []string{

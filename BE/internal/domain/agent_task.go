@@ -208,6 +208,8 @@ type AgentTaskRequest struct {
 	// WorkflowID chooses the task's workflow: a workflow's ID, "standard",
 	// or omitted for the issue's project, team or workspace default.
 	WorkflowID *string `json:"workflow_id,omitempty"`
+	// Only trusted automation rules can request a specific published version.
+	PinnedWorkflowVersion *int `json:"-"`
 	// Workflow is the resolved version and WorkflowInstructions the first
 	// agent step's profile and step instructions; the service sets them.
 	Workflow             *WorkflowVersion `json:"-"`
@@ -429,13 +431,22 @@ const publishedWorkRemainsLimit = 300
 // PublicationCheckoutBlockedCode marks a checkout that needs to change before
 // publication can be retried. Its redacted detail is safe to show on the task.
 const PublicationCheckoutBlockedCode = "checkout_sync_blocked"
+const PublicationWorkflowsPermissionCode = "publication_workflows_permission"
 
 // PublicationCheckoutBlockReason reads the user-facing detail from a recorded publication failure.
 func PublicationCheckoutBlockReason(summary *string) string {
+	return publicationFailureDetail(summary, PublicationCheckoutBlockedCode)
+}
+
+func PublicationWorkflowsPermissionReason(summary *string) string {
+	return publicationFailureDetail(summary, PublicationWorkflowsPermissionCode)
+}
+
+func publicationFailureDetail(summary *string, code string) string {
 	if summary == nil {
 		return ""
 	}
-	reason, ok := strings.CutPrefix(*summary, PublicationCheckoutBlockedCode+": ")
+	reason, ok := strings.CutPrefix(*summary, code+": ")
 	if !ok {
 		return ""
 	}

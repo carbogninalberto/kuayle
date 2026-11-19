@@ -7,12 +7,12 @@ const steps = {
 	app_missing: {
 		state: 'app_missing',
 		missing_events: ['pull_request_review', 'check_suite'],
-		missing_permissions: [{ name: 'checks', level: 'read' }]
+		missing_permissions: [{ name: 'checks', level: 'read' }, { name: 'workflows', level: 'write' }]
 	},
 	installation_pending: {
 		state: 'installation_pending',
 		missing_events: ['pull_request_review', 'check_suite'],
-		missing_permissions: [{ name: 'checks', level: 'read' }]
+		missing_permissions: [{ name: 'checks', level: 'read' }, { name: 'workflows', level: 'write' }]
 	},
 	ok: { state: 'ok', missing_events: [], missing_permissions: [] },
 	installation_suspended: { state: 'installation_suspended', missing_events: [], missing_permissions: [] }
@@ -74,7 +74,9 @@ test('guides the owner from a missing app setting to accepted permissions', asyn
 	await page.goto('/test/settings/github');
 
 	const card = page.getByTestId('github-app-setup');
-	await expect(card).toContainText("Kuayle can't see CI results and review requests");
+	await expect(card).toContainText('The GitHub App is missing these settings.');
+	await expect(card.getByRole('listitem').filter({ hasText: 'Workflows: Read and write' })).toBeVisible();
+	await expect(card).toContainText('publish and merge changes to GitHub Actions workflows');
 	await expect(card.getByRole('listitem').filter({ hasText: 'Checks: Read-only' })).toBeVisible();
 	await expect(card.getByRole('listitem').filter({ hasText: 'Pull request review' })).toBeVisible();
 	await expect(card.getByRole('listitem').filter({ hasText: 'Check suite' })).toBeVisible();

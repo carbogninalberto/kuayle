@@ -39,6 +39,7 @@ A single GitHub App is pre-configured and shared across all workspaces. Users on
    | Checks | Read |
    | Commit statuses | Read |
    | Actions | Read and write |
+   | Workflows | Read and write |
    | Members (organization permission) | Read |
 
    **Events to subscribe to:**
@@ -216,6 +217,16 @@ only that permission. Apps created before it must raise **Actions** to *Read
 and write* and each installation owner must accept it; until then the setup
 check lists it as missing, and a CI step that needs a re-run pauses the
 workflow for a person with the reason instead.
+
+**Workflows: Read and write** lets Kuayle push CI changes written by an agent under
+`.github/workflows/`. It also covers task branch syncs, PR branch updates and merges
+that bring in workflow changes. Review those changes in the pull request.
+New manifest apps request this permission. For an existing app, the app owner
+(or shared-app operator) adds it under **Permissions & events**, then each
+installation owner accepts the update. Settings → GitHub shows **Fix on GitHub**
+and **Accept on GitHub** as appropriate. Until acceptance, publication stops
+before a workflow-changing push, names the affected paths, and can be retried
+after the grant. Other changes can still publish.
 
 ### GitHub App setup check
 

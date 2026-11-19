@@ -290,7 +290,10 @@ func (e *HeadSyncError) Unwrap() error { return e.Err }
 // it waits briefly for the head to move; if it has not, the pull_request
 // webhook records it later and the returned head is still expectedHead.
 func (s *GitHubService) UpdatePullRequestBranch(ctx context.Context, ws uuid.UUID, repository string, number int, expectedHead string) (string, error) {
-	client, token, owner, name, err := s.pullWriteClient(ctx, ws, repository)
+	if err := s.requireAbility(ctx, ws, domain.GitHubBotPullRequestActions); err != nil {
+		return "", err
+	}
+	client, token, owner, name, err := s.branchWriteClient(ctx, ws, repository)
 	if err != nil {
 		return "", err
 	}

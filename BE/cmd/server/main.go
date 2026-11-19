@@ -73,12 +73,63 @@ func main() {
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
 
+	workspaceRepo := repository.NewWorkspaceRepository(db)
+	hub := realtime.NewHub(workspaceRepo.RealtimeAccess)
+	conversationRepo := repository.NewConversationRepository(db)
+	// Dev Machine control-plane store
+	devMachineRepo := repository.NewDevMachineRepository(db)
+
+	// Dev Machine agent registry
+	devMachineAgentReg := agent.NewRegistry(
+		agent.NewClaudeCodeProvider(cfg.DevMachine.ClaudeCodeImage),
+		agent.NewOpenCodeProvider(cfg.DevMachine.OpenCodeImage),
+		agent.NewCodexProvider(cfg.DevMachine.CodexImage),
+		agent.NewQwenCodeProvider(cfg.DevMachine.HeadlessImage),
+		agent.NewCrushProvider(cfg.DevMachine.HeadlessImage),
+		agent.NewKimiProvider(cfg.DevMachine.HeadlessImage),
+		agent.NewGooseProvider(cfg.DevMachine.HeadlessImage),
+		agent.NewCustomCLIProvider(cfg.DevMachine.CustomImage),
+	)
+
+	var devMachineEncKey []byte
+	if cfg.DevMachine.EncryptionKey != "" {
+		devMachineEncKey = crypto.DeriveKey(cfg.DevMachine.EncryptionKey)
+	}
+	devMachineSvc := service.NewDevMachineService(
+		devMachineRepo, devMachineAgentReg, cfg.DevMachine.Enabled, cfg.DevMachine.Domain,
+		devMachineEncKey, time.Duration(cfg.DevMachine.TicketTTLSeconds)*time.Second,
+		service.DevMachineImages{
+			IDE: cfg.DevMachine.IDEImage, Headless: cfg.DevMachine.HeadlessImage, Browser: cfg.DevMachine.BrowserImage,
+			Collector: cfg.DevMachine.CollectorImage,
+			Egress:    cfg.DevMachine.EgressImage,
+			Docker:    cfg.DevMachine.DockerImage,
+		}, cfg.FrontendURL,
+	)
+	devMachineSvc.SetModelDiscovery(cfg.AIAllowPrivateNetwork)
+	devMachineSvc.SetDiskQuotaMode(cfg.DevMachine.EffectiveDiskQuotaMode())
+	// Public demo mode keeps Dev Machines for SYSADMINS. The route guard
+	// covers the Dev Machine routes; every service that reaches a machine
+	// another way (assistant tools and approvals, custom tool runs, the task
+	// service behind automations, follow-ups and workers) gets the same rule.
+	machineAccess := service.NewMachineAccess(cfg.DemoDevMachineAllowed)
+	devMachineSvc.SetMachineAccess(machineAccess)
+
+	agentTaskSvc := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), devMachineSvc, hub)
+	// Tasks that pin a configurable workflow follow it (KUA-95).
+	workflowRepo := repository.NewWorkflowRepository(db)
+	agentTaskSvc.SetWorkflows(workflowRepo)
+	automationSvc := service.NewAgentAutomationService(repository.NewAgentAutomationRepository(db), conversationRepo, agentTaskSvc)
+	if len(os.Args) == 2 && os.Args[1] == "automation-worker" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		automationSvc.Run(ctx)
+		return
+	}
+
 	// Repositories
 	userRepo := repository.NewUserRepository(db)
 	refreshRepo := repository.NewRefreshTokenRepository(db)
 	patRepo := repository.NewPersonalAccessTokenRepository(db)
-	workspaceRepo := repository.NewWorkspaceRepository(db)
-	hub := realtime.NewHub(workspaceRepo.RealtimeAccess)
 	teamRepo := repository.NewTeamRepository(db)
 	issueRepo := repository.NewIssueRepository(db)
 	labelRepo := repository.NewLabelRepository(db)
@@ -99,9 +150,6 @@ func main() {
 	inviteLinkRepo := repository.NewWorkspaceInviteLinkRepository(db)
 	cliLinkRepo := repository.NewCLILinkRepository(db)
 	ssoRepo := repository.NewSSORepository(db)
-
-	// Dev Machine control-plane store
-	devMachineRepo := repository.NewDevMachineRepository(db)
 
 	// Services
 	inviteLinkSvc := service.NewInviteLinkService(inviteLinkRepo, workspaceRepo)
@@ -158,7 +206,6 @@ func main() {
 	teamStatusSvc := service.NewTeamStatusService(teamStatusRepo, visibilityRepo)
 	favSvc := service.NewFavoriteService(favRepo)
 	prefsSvc := service.NewPreferencesService(prefsRepo)
-	conversationRepo := repository.NewConversationRepository(db)
 	instanceSettings := repository.NewInstanceSettingsRepository(db, crypto.DeriveKey(cfg.JWTSecret+":instance-settings"))
 	pushSvc := service.NewPushService(cfg.VAPID, instanceSettings, repository.NewPushSubscriptionRepository(db), prefsSvc, workspaceRepo,
 		ssoSvc.RequiresSSO, notifRepo, conversationRepo.Authorize)
@@ -169,41 +216,6 @@ func main() {
 	tokenSvc.SetSSORequirement(ssoSvc)
 	cliLinkSvc := service.NewCLILinkService(cliLinkRepo, tokenSvc, cfg.FrontendURL)
 	aiSettingsSvc := service.NewAISettingsService(aiSettingsRepo, workspaceRepo, issueRepo, crypto.DeriveKey(cfg.JWTSecret+":ai"), service.WithAIPrivateNetworkAccess(cfg.AIAllowPrivateNetwork))
-
-	// Dev Machine agent registry
-	devMachineAgentReg := agent.NewRegistry(
-		agent.NewClaudeCodeProvider(cfg.DevMachine.ClaudeCodeImage),
-		agent.NewOpenCodeProvider(cfg.DevMachine.OpenCodeImage),
-		agent.NewCodexProvider(cfg.DevMachine.CodexImage),
-		agent.NewQwenCodeProvider(cfg.DevMachine.HeadlessImage),
-		agent.NewCrushProvider(cfg.DevMachine.HeadlessImage),
-		agent.NewKimiProvider(cfg.DevMachine.HeadlessImage),
-		agent.NewGooseProvider(cfg.DevMachine.HeadlessImage),
-		agent.NewCustomCLIProvider(cfg.DevMachine.CustomImage),
-	)
-
-	var devMachineEncKey []byte
-	if cfg.DevMachine.EncryptionKey != "" {
-		devMachineEncKey = crypto.DeriveKey(cfg.DevMachine.EncryptionKey)
-	}
-	devMachineSvc := service.NewDevMachineService(
-		devMachineRepo, devMachineAgentReg, cfg.DevMachine.Enabled, cfg.DevMachine.Domain,
-		devMachineEncKey, time.Duration(cfg.DevMachine.TicketTTLSeconds)*time.Second,
-		service.DevMachineImages{
-			IDE: cfg.DevMachine.IDEImage, Headless: cfg.DevMachine.HeadlessImage, Browser: cfg.DevMachine.BrowserImage,
-			Collector: cfg.DevMachine.CollectorImage,
-			Egress:    cfg.DevMachine.EgressImage,
-			Docker:    cfg.DevMachine.DockerImage,
-		}, cfg.FrontendURL,
-	)
-	devMachineSvc.SetModelDiscovery(cfg.AIAllowPrivateNetwork)
-	devMachineSvc.SetDiskQuotaMode(cfg.DevMachine.EffectiveDiskQuotaMode())
-	// Public demo mode keeps Dev Machines for SYSADMINS. The route guard
-	// covers the Dev Machine routes; every service that reaches a machine
-	// another way (assistant tools and approvals, custom tool runs, the task
-	// service behind automations, follow-ups and workers) gets the same rule.
-	machineAccess := service.NewMachineAccess(cfg.DemoDevMachineAllowed)
-	devMachineSvc.SetMachineAccess(machineAccess)
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
@@ -277,11 +289,7 @@ func main() {
 	assistantTools.SetPlanning(repository.NewIssueDependencyRepository(db), service.NewIssueRelationService(repository.NewIssueRelationRepository(db), issueRepo))
 	conversationSvc.SetTools(assistantTools)
 	conversationH := handler.NewConversationHandler(conversationSvc, cfg.FrontendURL)
-	agentTaskSvc := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), devMachineSvc, hub)
 	agentTaskSvc.SetWebhooks(webhookSvc)
-	// Tasks that pin a configurable workflow follow it (KUA-95).
-	workflowRepo := repository.NewWorkflowRepository(db)
-	agentTaskSvc.SetWorkflows(workflowRepo)
 	agentTaskSvc.SetRegistry(wikiSvc)
 	// Finished, failed and review-ready tasks notify their creator (KUA-122).
 	agentTaskSvc.SetNotifications(repository.NewAgentTaskRepository(db), notifSvc, hub)
@@ -329,7 +337,6 @@ func main() {
 	agentMessageSvc := service.NewAgentMessageService(repository.NewAgentMessageRepository(db), hub)
 	agentMessageSvc.SetWebhooks(webhookSvc, commentRepo, issueRepo)
 	agentMessageH := handler.NewAgentMessageHandler(agentMessageSvc)
-	automationSvc := service.NewAgentAutomationService(repository.NewAgentAutomationRepository(db), conversationSvc.Repo, agentTaskSvc, notifSvc, hub)
 	agentAutomationH := handler.NewAgentAutomationHandler(automationSvc)
 	// AI agents as issue assignees (KUA-107): assignments and mentions start
 	// tasks through the same task service as delegation and automations.
@@ -587,7 +594,10 @@ func main() {
 	go backupSvc.Run(conversationCtx)
 	go importSvc.Run(conversationCtx)
 	go agentMessageSvc.Run(conversationCtx, 10*time.Second)
-	go automationSvc.Run(conversationCtx)
+	go listenAutomationApprovals(conversationCtx, cfg.DatabaseURL, hub)
+	if !cfg.AutomationWorkerExternal {
+		go automationSvc.Run(conversationCtx)
+	}
 	go agentAssigneeSvc.Run(conversationCtx)
 	go githubSvc.RunMergeReconciliation(conversationCtx, 2*time.Minute)
 	// Workspace webhook deliveries are stored: workers send the ones left

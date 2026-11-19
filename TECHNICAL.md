@@ -806,7 +806,7 @@ records its final message itself, and the attempt never fails over it. A
 planning step's worktree is mounted read-only, and the prompt every attempt
 received is recorded by source.
 
-[Automations](BE/docs/agent-tasks.md#automations) (migration 69) delegate matching issues on a label or status trigger, optionally on a UTC schedule. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
+[Automations](BE/docs/agent-tasks.md#automations) (migrations 69 and 193) delegate matching issues to their default, selected latest or pinned workflow. Rules match continuously, during a legacy UTC hour or on a timezone-aware cron schedule. The dedicated automation worker supports leased starts, bounded retries and replay. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
 
 ## Resource Limits and Quotas
 
@@ -1162,6 +1162,7 @@ Required GitHub App repository permissions:
 | metadata | read |
 | contents | read and write |
 | pull requests | read and write |
+| workflows | read and write for publication and PR branch updates or merges that change workflows |
 
 The manager requests a token restricted to the selected linked repository and required permissions for the machine checkout or agent run. The token is short-lived, never stored in plaintext, and injected only into the developer or agent containers that need Git.
 

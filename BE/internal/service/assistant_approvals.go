@@ -417,7 +417,10 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, "This approval cannot be executed")
 	}
 	harness, model, server := choice.over(payload.Harness, payload.Model)
-	task, err := delegateIssue(ctx, s.conversations, s.tasks, ws, approval.IssueID, payload.Instructions, approval.RequestID, harness, model, server, payload.WorkflowID, payload.Effort)
+	task, err := delegateIssue(ctx, s.conversations, s.tasks, ws, approval.IssueID, issueDelegation{
+		requestID: approval.RequestID, instructions: payload.Instructions, workflow: payload.WorkflowID, effort: payload.Effort,
+		model: ModelChoice{Harness: harness, Model: model, ModelServerID: server},
+	})
 	if err != nil {
 		if message, permanent := delegationFailure(err); permanent {
 			return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, message)
@@ -428,22 +431,34 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 	return s.conversations.FinishApproval(ctx, ws, conversation, id, &task.ID, "")
 }
 
+type issueDelegation struct {
+	requestID                      uuid.UUID
+	instructions, workflow, effort string
+	model                          ModelChoice
+	pinnedVersion                  *int
+	team                           *uuid.UUID
+}
+
 // delegateIssue starts a coding task on an issue for the actor in ctx, with the
 // task composer's defaults. Replaying the same request ID converges on one task.
 // An empty workflow runs the issue's default workflow.
-func delegateIssue(ctx context.Context, conversations *repository.ConversationRepository, tasks approvalTasks, ws, issue uuid.UUID, instructions string, requestID uuid.UUID, harness, model string, server *uuid.UUID, workflow, effort string) (*domain.AgentTask, error) {
+func delegateIssue(ctx context.Context, conversations *repository.ConversationRepository, tasks approvalTasks, ws, issue uuid.UUID, d issueDelegation) (*domain.AgentTask, error) {
 	chat, err := conversations.OpenIssue(ctx, ws, issue)
 	if err != nil {
 		return nil, err
+	}
+	if d.team != nil && (chat.TeamID == nil || *chat.TeamID != *d.team) {
+		return nil, repository.ErrConversationNotFound
 	}
 	options, err := tasks.Options(ctx, ws, chat.ID)
 	if err != nil {
 		return nil, err
 	}
-	request, err := delegationRequest(options, requestID, instructions, harness, model, server, workflow, effort)
+	request, err := delegationRequest(options, d.requestID, d.instructions, d.model.Harness, d.model.Model, d.model.ModelServerID, d.workflow, d.effort)
 	if err != nil {
 		return nil, err
 	}
+	request.PinnedWorkflowVersion = d.pinnedVersion
 	return tasks.Create(ctx, ws, chat.ID, request)
 }
 

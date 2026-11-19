@@ -130,12 +130,20 @@ func (w *workflowWorld) apply(task domain.AgentTask, apply repository.WorkflowAp
 		held := result.Cursor.HeldSince
 		w.task.WorkflowHeldSince = &held
 	}
+	if apply.RestoreRun != nil {
+		w.task.RunID = *apply.RestoreRun
+	}
 	entry := apply.Entry
 	w.entries = append(w.entries, entry)
 	switch entry.Kind {
 	case repository.WorkflowEnterIteration:
 		w.task.Generation++
+		input := w.task.RunID
 		w.task.RunID = uuid.New()
+		if step := w.steps[result.FinalSequence]; step.NodeType != domain.WorkflowNodeAgent {
+			first := w.task.RunID
+			step.StageInputRunID, step.StageFirstRunID = &input, &first
+		}
 		w.task.Prompt, w.task.AgentInstructions = entry.Prompt, entry.Instructions
 		w.task.Provider, w.task.Model, w.task.Thinking = entry.Provider, entry.Model, entry.Thinking
 		generation := w.task.Generation
