@@ -172,6 +172,7 @@ const DefaultShutdownDrain = 90 * time.Second
 var errManagerShutdown = errors.New("manager_restart: the machine manager is shutting down; the next manager continues this operation")
 
 type githubAPI interface {
+	GetPublicationToken(context.Context, int64, string) (githubclient.PublicationToken, error)
 	GetRepositoryInstallationToken(int64, string) (string, time.Time, error)
 	CreatePullRequest(string, string, string, string, string, string, string, bool) (*githubclient.PullRequest, error)
 	UpdatePullRequestBody(string, string, string, int, string) error
@@ -2239,41 +2240,13 @@ func errorCode(err error) string {
 }
 
 func (m *Manager) repositoryToken(ctx context.Context, machine *domain.DevMachine, repositoryFullName string) (githubAPI, string, error) {
-	if repositoryFullName == "" {
-		repositoryFullName = checkoutRepositoryFullName(machine, nil)
-	}
-	repoOwner, repoName, ok := splitRepositoryFullName(repositoryFullName)
-	if !ok {
-		return nil, "", sql.ErrNoRows
-	}
-	installationID, err := m.store.GetGitHubInstallationID(ctx, machine.WorkspaceID, repoOwner+"/"+repoName)
+	client, installationID, repoName, err := m.repositoryInstallation(ctx, machine, repositoryFullName)
 	if err != nil {
 		return nil, "", err
-	}
-	client := m.github
-	if client == nil {
-		config, err := m.store.GetGitHubAppConfig(ctx, machine.WorkspaceID)
-		if err != nil {
-			return nil, "", err
-		}
-		if config == nil || len(m.githubKey) == 0 {
-			return nil, "", sql.ErrNoRows
-		}
-		privateKey, err := cryptoutil.Decrypt(config.PrivateKey, m.githubKey)
-		if err != nil {
-			return nil, "", fmt.Errorf("github_app_decryption_failed: %w", err)
-		}
-		client, err = githubclient.NewClient(config.AppID, privateKey)
-		if err != nil {
-			return nil, "", err
-		}
 	}
 	token, expiresAt, err := client.GetRepositoryInstallationToken(installationID, repoName)
 	if err != nil {
 		return nil, "", err
-	}
-	if token == "" {
-		return nil, "", errors.New("empty GitHub installation token")
 	}
 	if err := m.registerRuntimeCredential(ctx, machine.ID, token, expiresAt); err != nil {
 		return nil, "", fmt.Errorf("runtime_credential_registration_failed: %w", err)
@@ -2281,7 +2254,43 @@ func (m *Manager) repositoryToken(ctx context.Context, machine *domain.DevMachin
 	return client, token, nil
 }
 
+func (m *Manager) repositoryInstallation(ctx context.Context, machine *domain.DevMachine, repositoryFullName string) (githubAPI, int64, string, error) {
+	if repositoryFullName == "" {
+		repositoryFullName = checkoutRepositoryFullName(machine, nil)
+	}
+	repoOwner, repoName, ok := splitRepositoryFullName(repositoryFullName)
+	if !ok {
+		return nil, 0, "", sql.ErrNoRows
+	}
+	installationID, err := m.store.GetGitHubInstallationID(ctx, machine.WorkspaceID, repoOwner+"/"+repoName)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	client := m.github
+	if client == nil {
+		config, err := m.store.GetGitHubAppConfig(ctx, machine.WorkspaceID)
+		if err != nil {
+			return nil, 0, "", err
+		}
+		if config == nil || len(m.githubKey) == 0 {
+			return nil, 0, "", sql.ErrNoRows
+		}
+		privateKey, err := cryptoutil.Decrypt(config.PrivateKey, m.githubKey)
+		if err != nil {
+			return nil, 0, "", fmt.Errorf("github_app_decryption_failed: %w", err)
+		}
+		client, err = githubclient.NewClient(config.AppID, privateKey)
+		if err != nil {
+			return nil, 0, "", err
+		}
+	}
+	return client, installationID, repoName, nil
+}
+
 func (m *Manager) registerRuntimeCredential(ctx context.Context, machineID uuid.UUID, token string, expiresAt time.Time) error {
+	if token == "" {
+		return errors.New("empty GitHub installation token")
+	}
 	fingerprint := sha256.Sum256([]byte(token))
 	encrypted, err := cryptoutil.Encrypt(token, m.encryptionKey)
 	if err != nil {
