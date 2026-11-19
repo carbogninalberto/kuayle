@@ -332,7 +332,7 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 		}
 		failedPlan = false
 		reason := domain.WorkflowReasonPrefix + decision.Reason
-		if outcome == domain.WorkflowCheckoutBlocked {
+		if (outcome == domain.WorkflowCheckoutBlocked || outcome == domain.WorkflowPublishFailed) && detail != "" {
 			reason += ". " + detail
 		}
 		if decision.Stuck {

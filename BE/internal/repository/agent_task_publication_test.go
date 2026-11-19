@@ -426,3 +426,21 @@ func TestMachinePurgeKeepsAgentTaskHistory(t *testing.T) {
 	require.NoError(t, db.Get(&left, `SELECT count(*) FROM dev_machines WHERE id=$1`, machine))
 	require.Zero(t, left)
 }
+
+func TestWorkflowPermissionFailureReachesPublicationStep(t *testing.T) {
+	db, repo, ctx, _, claimed := publishingTask(t)
+	_, err := repo.EnsurePublication(ctx, *claimed)
+	require.NoError(t, err)
+	store := NewDevMachineRepository(db)
+	op := leasePublication(t, store, ctx)
+	require.NoError(t, store.StartPublication(ctx, op))
+	const reason = "Grant Workflows: Read and write for .github/workflows/test.yml"
+	summary := domain.PublicationWorkflowsPermissionCode + ": " + reason
+	retry, err := store.FailOperation(ctx, op.ID, *op.LeaseOwner, domain.PublicationWorkflowsPermissionCode, summary, false)
+	require.NoError(t, err)
+	require.False(t, retry)
+	step, err := repo.EnsurePublication(ctx, *claimed)
+	require.NoError(t, err)
+	require.Equal(t, domain.DevMachineAgentRunStepStatusFailed, step.Status)
+	require.Equal(t, reason, domain.PublicationWorkflowsPermissionReason(step.Summary))
+}

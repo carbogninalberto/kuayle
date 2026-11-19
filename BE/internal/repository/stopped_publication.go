@@ -243,6 +243,7 @@ func (r *ConversationRepository) FinishStoppedPublication(ctx context.Context, d
 	var outcome string
 	var pullRequestURL *string
 	checkoutReason := domain.PublicationCheckoutBlockReason(result.Message)
+	workflowReason := domain.PublicationWorkflowsPermissionReason(result.Message)
 	switch {
 	case !result.Visible || result.Code.String == "publication_forbidden":
 		failure = ErrStoppedPublicationForbidden.Error()
@@ -252,6 +253,8 @@ func (r *ConversationRepository) FinishStoppedPublication(ctx context.Context, d
 		outcome = "empty"
 	case result.Status.String == "failed" && result.Code.String == "publication_github_unavailable":
 		failure = "The repository's GitHub App credentials are unavailable. Ask a workspace admin to check the GitHub integration, then try again."
+	case result.Status.String == "failed" && result.Code.String == domain.PublicationWorkflowsPermissionCode && workflowReason != "":
+		failure = workflowReason
 	case result.Status.String == "failed" && result.Code.String == domain.PublicationCheckoutBlockedCode && checkoutReason != "":
 		failure = checkoutReason
 	case result.Status.String == "failed" && result.Code.String != "publication_unavailable" && result.Code.String != "publication_stale":

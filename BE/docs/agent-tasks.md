@@ -397,7 +397,12 @@ force-pushed. Then:
    configured identity. The author check still covers every commit the push
    adds, including a rewrite's. The agent-writable checkout's configuration
    (hooks, URL rewrites, credential helpers) is never loaded, and the token is
-   never written to the workspace volume.
+   never written to the workspace volume. Before pushing, the publisher checks the
+   installation grant used for that token. If outgoing commits change
+   `.github/workflows/` without **Workflows: Read and write**, publication stops
+   with `publication_workflows_permission`. A GitHub workflow-permission rejection
+   has the same terminal outcome. The task names the files and explains how to
+   [update the app and accept the grant](github-integration.md#github-app-setup-check).
 3. Reuses an open pull request from the task branch into the base branch, or opens
    one with the GitHub App, as a draft when the attempt's check was skipped. A
    reused pull request gets this attempt's description, and a draft is marked

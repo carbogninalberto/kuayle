@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -94,4 +95,37 @@ func TestGetInstallationReportsUninstalledAndSuspended(t *testing.T) {
 	inst, err := c.GetInstallationContext(context.Background(), 2)
 	require.NoError(t, err)
 	require.NotNil(t, inst.SuspendedAt)
+}
+
+func TestPublicationTokenScopesToAcceptedWorkflowGrant(t *testing.T) {
+	for _, level := range []string{"", "read", "write"} {
+		t.Run("grant_"+level, func(t *testing.T) {
+			grants := 0
+			c, _ := appClient(t, func(r *http.Request) (*http.Response, error) {
+				if r.Method == http.MethodGet {
+					require.Equal(t, "/app/installations/77", r.URL.Path)
+					grants++
+					return commentResponse(200, `{"permissions":{"workflows":"`+level+`"}}`), nil
+				}
+				require.Equal(t, "/app/installations/77/access_tokens", r.URL.Path)
+				var body struct {
+					Repositories []string
+					Permissions  map[string]string
+				}
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+				require.Equal(t, []string{"app"}, body.Repositories)
+				want := map[string]string{"contents": "write", "pull_requests": "write", "metadata": "read"}
+				if level == "write" {
+					want["workflows"] = "write"
+				}
+				require.Equal(t, want, body.Permissions)
+				return commentResponse(201, `{"token":"fixture","expires_at":"2030-01-01T00:00:00Z"}`), nil
+			})
+			got, err := c.GetPublicationToken(context.Background(), 77, "app")
+			require.NoError(t, err)
+			require.Equal(t, "fixture", got.Token)
+			require.Equal(t, level == "write", got.WorkflowsWrite)
+			require.Equal(t, 1, grants)
+		})
+	}
 }

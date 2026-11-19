@@ -1058,3 +1058,20 @@ func TestPreparationExplainsARestartWaitingForHostCapacity(t *testing.T) {
 	require.ErrorContains(t, err, message)
 	require.Equal(t, []string{start.IdempotencyKey}, store.operationLookups, "the wait is read from the task's own start")
 }
+
+func TestPublicationPermissionFailureShowsItsReason(t *testing.T) {
+	reason := "Grant Workflows: Read and write to publish .github/workflows/test.yml"
+	summary := "publication_workflows_permission: " + reason
+	task := domain.AgentTask{ID: uuid.New(), State: "publishing"}
+	store := &taskStoreFake{task: task}
+	runtime := &taskRuntimeFake{publication: &domain.DevMachineAgentRunStep{Status: "failed", Summary: &summary}}
+	svc := &AgentTaskService{store: store, runtime: runtime}
+	require.NoError(t, svc.step(context.Background(), task))
+	require.Equal(t, []string{reason}, store.reasons)
+
+	h := newWorkflowHarness(t, domain.WorkflowBudget{MaxIterations: 16})
+	h.agentFinishes("Updated CI")
+	svc.workflow = h.runner
+	require.NoError(t, svc.workflowPublished(context.Background(), h.w.task, runtime.publication))
+	require.Contains(t, h.w.task.Reason, reason)
+}

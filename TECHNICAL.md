@@ -1162,6 +1162,7 @@ Required GitHub App repository permissions:
 | metadata | read |
 | contents | read and write |
 | pull requests | read and write |
+| workflows | read and write for publication and PR branch updates or merges that change workflows |
 
 The manager requests a token restricted to the selected linked repository and required permissions for the machine checkout or agent run. The token is short-lived, never stored in plaintext, and injected only into the developer or agent containers that need Git.
 

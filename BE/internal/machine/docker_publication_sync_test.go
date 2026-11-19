@@ -751,8 +751,7 @@ func TestPushScriptReportsRemainingWorkWhenThePublishedCommitIsUnknown(t *testin
 	require.Equal(t, published, f.originTip(), "nothing was pushed, so the work stays published")
 }
 
-// The push step's stdout is the manager's only input: none and remains mean
-// nothing was pushed, and anything else is the pushed commit.
+// Empty stdout confirms a push. The two no-change outcomes leave the remote alone.
 func TestPushedCommitReadsThePushStep(t *testing.T) {
 	commit := strings.Repeat("a", 40)
 	for _, test := range []struct {
@@ -773,4 +772,52 @@ func TestPushedCommitReadsThePushStep(t *testing.T) {
 		}
 		require.Equal(t, test.commit, pushed, test.output)
 	}
+}
+
+func TestWorkflowPermissionPreflightStopsBeforePush(t *testing.T) {
+	f := newScriptFixture(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(f.checkout, ".github/workflows"), 0o755))
+	const workflow = ".github/workflows/build job.yml"
+	commit := f.commitFile(f.checkout, workflow, kuayleIdentity)
+	output, err := f.push(commit, "")
+	require.NoError(t, err, output)
+	require.True(t, f.fails(f.origin, "show-ref", "--verify", "refs/heads/kuayle/rec-1"), "preflight must leave the remote branch absent")
+	_, err = pushedCommit(output, commit)
+	var terminal *terminalOperationError
+	require.ErrorAs(t, err, &terminal)
+	require.Equal(t, "publication_workflows_permission", terminal.code)
+	require.Contains(t, terminal.message, workflow)
+	require.Contains(t, terminal.message, "Workflows: Read and write")
+
+	output, err = f.script(publishPushScript, "fixture-credential\n", "push", "acme/app", "kuayle/rec-1", f.checkout, commit, "main", "agent@kuayle.invalid", "", "true")
+	require.NoError(t, err, output)
+	require.Equal(t, commit, f.originTip())
+	next := f.commitFile(f.checkout, "notes.md", kuayleIdentity)
+	output, err = f.push(next, "")
+	require.NoError(t, err, output)
+	require.Equal(t, next, f.originTip(), "a previously published workflow does not block an ordinary follow-up")
+}
+
+func TestWorkflowPermissionPreflightChecksBaseSyncAndIntermediateCommits(t *testing.T) {
+	f := newScriptFixture(t)
+	published := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+	output, err := f.push(published, "")
+	require.NoError(t, err, output)
+
+	seed := filepath.Join(f.root, "seed")
+	const workflow = ".github/workflows/test.yml"
+	require.NoError(t, os.MkdirAll(filepath.Join(seed, ".github/workflows"), 0o755))
+	f.commitFile(seed, workflow, fixtureIdentity)
+	f.run(seed, nil, "push", f.origin, "main")
+	f.run(f.checkout, nil, "fetch", "origin")
+	f.run(f.checkout, kuayleIdentity, "merge", "--no-ff", "-m", "sync main", "origin/main")
+	// Leave the destination tree unchanged for this file: only a comparison
+	// of the commits can still see the workflow introduced by the base sync.
+	f.run(f.checkout, nil, "rm", workflow)
+	f.run(f.checkout, kuayleIdentity, "commit", "-qm", "remove workflow")
+	output, err = f.push(f.head(), "")
+	require.NoError(t, err, output)
+	_, err = pushedCommit(output, f.head())
+	require.ErrorContains(t, err, workflow)
+	require.Equal(t, published, f.originTip())
 }
