@@ -660,7 +660,6 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET generation=$3,stage_first_run_id=CASE WHEN node_type<>'agent' THEN $5::uuid END,stage_input_run_id=CASE WHEN node_type<>'agent' THEN $4::uuid END WHERE task_id=$1 AND sequence=$2`, task.ID, result.FinalSequence, task.Generation, inputRun, task.RunID)
 	case WorkflowEnterWait:
-
 		err = transitionWorkflowTask(ctx, tx, task, WorkflowEntryState(apply.Entry.Kind), reason, apply.Actor)
 	case WorkflowEnterReview:
 		var review *domain.AgentTask
@@ -1240,8 +1239,8 @@ func (r *AgentTaskRepository) WorkflowCIHistory(ctx context.Context, task domain
 func (r *AgentTaskRepository) DeferredShipMerge(ctx context.Context, task domain.AgentTask) (*domain.MergeWait, error) {
 	var step domain.WorkflowStep
 	err := r.db.GetContext(ctx, &step, `SELECT * FROM agent_task_workflow_steps s WHERE s.task_id=$1 AND s.node_type='approval' AND s.finished_at IS NOT NULL AND s.merge->>'deferred'='true'
- AND NOT EXISTS(SELECT 1 FROM agent_task_workflow_steps x WHERE x.task_id=s.task_id AND x.sequence>s.sequence AND x.node_type<>'agent' AND NOT (x.sequence=$2 AND x.node_type='end' AND x.finished_at IS NULL))
- ORDER BY s.sequence DESC LIMIT 1`, task.ID, task.WorkflowSequence)
+ AND NOT EXISTS(SELECT 1 FROM agent_task_workflow_steps x WHERE x.task_id=s.task_id AND x.sequence>s.sequence AND x.node_type<>'agent')
+ ORDER BY s.sequence DESC LIMIT 1`, task.ID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -1307,8 +1306,15 @@ func retryWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, act
 	cursor.Iterations++
 	visits, _ := json.Marshal(cursor.Visits)
 	sequence := task.WorkflowSequence + 1
-	if _, err = tx.ExecContext(ctx, `INSERT INTO agent_task_workflow_steps(task_id,sequence,node_id,node_type,visit,from_node,reason,generation,decided_by,stage_first_run_id,stage_input_run_id) VALUES($1,$2,$3,$4,$5,$6,'Retried by a person',$7,$8,$9,$10)`,
-		task.ID, sequence, step.NodeID, step.NodeType, cursor.Visits[step.NodeID], cursor.Node, task.Generation, actor, step.StageFirstRunID, step.StageInputRunID); err != nil {
+	// A retry of the same supervised stage keeps the approval and merge
+	// evidence already attached to that visit.
+	var merge *json.RawMessage
+	var observed bool
+	if step.StageFirstRunID != nil && step.Sequence == task.WorkflowSequence {
+		merge, observed = step.Merge, step.StageMergeObserved
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO agent_task_workflow_steps(task_id,sequence,node_id,node_type,visit,from_node,reason,generation,decided_by,stage_first_run_id,stage_input_run_id,merge,stage_merge_observed) VALUES($1,$2,$3,$4,$5,$6,'Retried by a person',$7,$8,$9,$10,$11,$12)`,
+		task.ID, sequence, step.NodeID, step.NodeType, cursor.Visits[step.NodeID], cursor.Node, task.Generation, actor, step.StageFirstRunID, step.StageInputRunID, merge, observed); err != nil {
 		return err
 	}
 	return tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_node=$2,workflow_visits=$3,workflow_iterations=$4,workflow_sequence=$5,workflow_status='running',workflow_wake_at=NULL,workflow_budget_extensions=$6,workflow_budget_from=$7,workflow_held_since=NULL WHERE id=$1 RETURNING *`,

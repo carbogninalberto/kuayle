@@ -131,3 +131,35 @@ func TestStageAssistantCannotChooseANativeApproval(t *testing.T) {
 	require.Equal(t, "cancelling", h.w.task.State)
 	require.Contains(t, h.w.task.Reason, "unavailable transition")
 }
+
+func TestTerminalAssistantHandsOffTheApprovedMerge(t *testing.T) {
+	h, merger, github := toAfterAgentsShip(t)
+	var graph domain.WorkflowGraph
+	require.NoError(t, json.Unmarshal(h.w.version.Graph, &graph))
+	for i := range graph.Nodes {
+		if graph.Nodes[i].ID == "done" {
+			implementer, ok := graph.Node("agent-2")
+			require.True(t, ok)
+			graph.Nodes[i].ProfileID = implementer.ProfileID
+		}
+	}
+	h.w.version.Graph = *rawJSON(t, graph)
+	h.restart()
+	h.runner.SetPullRequests(github, merger)
+	approved := h.head()
+	require.NoError(t, h.decideAs(WorkflowDecisionApprove))
+	h.agentFinishes("Updated the changelog")
+	require.Equal(t, "done", h.current().NodeID)
+	require.Equal(t, "queued", h.w.task.State)
+	require.NotNil(t, h.current().MergeWait(), "the approved merge stays with the terminal assistant")
+	require.Equal(t, approved, h.current().MergeWait().Approved)
+	h.w.task.State = "running"
+	h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{Status: "succeeded", Summary: "Ready to ship", FinalMessage: true, WorktreeChanged: ptr(false)}
+	require.NoError(t, h.runner.AgentFinished(t.Context(), h.w.task))
+	require.Equal(t, "awaiting_review", h.w.task.State)
+	require.Empty(t, merger.merged)
+	h.pulls.checks = passingChecks
+	require.True(t, h.tick())
+	require.Equal(t, []string{"acme/app#12@" + approved + "/squash"}, merger.merged)
+	require.Equal(t, "completed", h.w.task.State)
+}

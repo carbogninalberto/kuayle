@@ -57,16 +57,13 @@ func (w *WorkflowRunner) finishStage(ctx context.Context, task domain.AgentTask,
 		if node.StageReadsWorktree() && !unchanged {
 			return fail("The stage assistant must leave the worktree unchanged to continue this stage")
 		}
-		entry, immediate, detail, enterErr := w.enterNative(ctx, work, graph, profiles, work.Cursor(), domain.WorkflowDecision{To: node}, domain.WorkflowReasonPrefix+node.Label, domain.WorkflowVariables{}, w.now())
+		entry, immediate, detail, enterErr := w.enterNative(ctx, work, graph, profiles, node, domain.WorkflowReasonPrefix+node.Label, w.now(), step.MergeWait())
 		if enterErr != nil {
 			return enterErr
 		}
 		if immediate != "" {
 			apply, err = w.plan(ctx, work, immediate, detail, false)
 		} else {
-			if pending := step.MergeWait(); pending != nil && node.Type == domain.WorkflowNodeMerge {
-				entry.Merge, entry.NeedsPerson = pending, false
-			}
 			apply = &repository.WorkflowApply{Sequence: task.WorkflowSequence, Version: task.WorkflowVersionID, Hold: true, Entry: entry, Outcome: node.Outcome, Detail: run.NotebookNote}
 		}
 	}

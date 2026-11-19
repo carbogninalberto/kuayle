@@ -402,16 +402,30 @@ func afterFailedPlan(to domain.WorkflowNode, profiles map[uuid.UUID]domain.Agent
 // enter returns what entering the decision's target does, or the outcome
 // it finishes with at once and why.
 func (w *WorkflowRunner) enter(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, cursor domain.WorkflowCursor, decision domain.WorkflowDecision, reason string, vars domain.WorkflowVariables, now time.Time) (repository.WorkflowEntry, string, string, error) {
-	if decision.To.Supervised() {
-		to := decision.To
-		to.Prompt = decision.Reason + "\n\n{{previous_summary}}\n\n{{diff}}"
+	to := decision.To
+	if to.Type == domain.WorkflowNodeAgent {
 		return w.enterAgent(ctx, task, to, profiles, cursor, reason, vars, now)
 	}
-	return w.enterNative(ctx, task, graph, profiles, cursor, decision, reason, vars, now)
+	var merge *domain.MergeWait
+	if to.Type == domain.WorkflowNodeEnd && to.Outcome == domain.WorkflowEndDone {
+		// Claim the deferred approval as we enter the end. A supervised end
+		// keeps it on its own step until the assistant hands back control.
+		var err error
+		merge, err = w.deferredShipMerge(ctx, task, now)
+		if err != nil {
+			return repository.WorkflowEntry{}, "", "", err
+		}
+	}
+	if to.Supervised() {
+		to.Prompt = decision.Reason + "\n\n{{previous_summary}}\n\n{{diff}}"
+		entry, outcome, detail, err := w.enterAgent(ctx, task, to, profiles, cursor, reason, vars, now)
+		entry.Merge = merge
+		return entry, outcome, detail, err
+	}
+	return w.enterNative(ctx, task, graph, profiles, to, reason, now, merge)
 }
 
-func (w *WorkflowRunner) enterNative(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, cursor domain.WorkflowCursor, decision domain.WorkflowDecision, reason string, vars domain.WorkflowVariables, now time.Time) (repository.WorkflowEntry, string, string, error) {
-	to := decision.To
+func (w *WorkflowRunner) enterNative(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, to domain.WorkflowNode, reason string, now time.Time, merge *domain.MergeWait) (repository.WorkflowEntry, string, string, error) {
 	// A waiting node is evaluated as soon as it is entered: what it waits for
 	// may already be there (CI finished during the review), and Evaluate then
 	// sets its next wake-up (its timeout, the time budget, a CI poll).
@@ -422,12 +436,6 @@ func (w *WorkflowRunner) enterNative(ctx context.Context, task domain.AgentTask,
 	switch to.Type {
 	case domain.WorkflowNodeEnd:
 		if to.Outcome == domain.WorkflowEndDone {
-			// A ship approval before the agent steps that led here deferred
-			// its merge to this end: the task is done once it merged (KUA-216).
-			merge, err := w.deferredShipMerge(ctx, task, now)
-			if err != nil {
-				return repository.WorkflowEntry{}, "", "", err
-			}
 			if merge != nil {
 				return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Merge: merge, WakeAt: wake(),
 					Reason: fmt.Sprintf("%s; Kuayle merges pull request #%d, as approved, once every check passes", reason, merge.PullRequest)}, "", "", nil
@@ -435,8 +443,6 @@ func (w *WorkflowRunner) enterNative(ctx context.Context, task domain.AgentTask,
 			return repository.WorkflowEntry{Kind: repository.WorkflowEnterComplete, Reason: reason}, "", "", nil
 		}
 		return repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: reason}, "", "", nil
-	case domain.WorkflowNodeAgent:
-		return w.enterAgent(ctx, task, to, profiles, cursor, reason, vars, now)
 	case domain.WorkflowNodeCheck:
 		if to.Check == domain.WorkflowCheckCI {
 			published, err := w.tasks.HasPublishedWork(ctx, task)
@@ -484,6 +490,9 @@ func (w *WorkflowRunner) enterNative(ctx context.Context, task domain.AgentTask,
 		}
 		return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: reason + "; waiting for approval: " + oneLine(question, 300) + suffix, WakeAt: wake(), NeedsPerson: true}, "", "", nil
 	case domain.WorkflowNodeMerge:
+		if merge != nil {
+			return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Merge: merge, WakeAt: wake(), Reason: reason + "; Kuayle merges the pull request once every check passes"}, "", "", nil
+		}
 		return repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, Reason: reason + "; waiting for the pull request to be merged (ship it from chat or merge it on GitHub)", WakeAt: wake(), NeedsPerson: true}, "", "", nil
 	}
 	return repository.WorkflowEntry{}, "", "", ErrInvalidOperation
