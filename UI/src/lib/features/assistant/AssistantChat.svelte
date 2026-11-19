@@ -40,6 +40,7 @@
 	import { ComposerAttachments } from './composer-attachments.svelte';
 	import ComposerAttachmentList from './ComposerAttachments.svelte';
 	import ComposerVoice from './ComposerVoice.svelte';
+	import ComposerContext from './ComposerContext.svelte';
 	import { appendTranscript } from '$lib/features/voice/voice-rules';
 	import MessageAttachments from './MessageAttachments.svelte';
 	import { ATTACHMENT_TYPES } from './attachment-rules';
@@ -673,11 +674,10 @@
 		error = '';
 		notice = '';
 		try {
-			await agentTasks.sendLiveMessage(slug, task.id, body);
+			const message = await agentTasks.sendLiveMessage(slug, task.id, body);
+			chat.recordAgentSend(message);
 			if (disposed) return;
 			if (text.trim() === body) text = '';
-			// The agent's thread reloads and shows the message with its delivery.
-			chat.taskLiveCursor = { ...chat.taskLiveCursor, [task.id]: -Date.now() };
 			notice = m['assistant.sent_to_agent']({ identifier: chat.issue?.identifier ?? '', agent: agentName(task) });
 			await tick();
 			textarea?.focus();
@@ -1274,6 +1274,7 @@
 							{/if}
 						</div>
 						<div class="flex shrink-0 items-center gap-1">
+							<ComposerContext {chat} />
 							<ComposerVoice
 								{slug}
 								ensureConversation={() => ensureConversation(m['voice.conversation_title']())}
@@ -1338,7 +1339,7 @@
 				<ScrollerHandle bind:scroller />
 				<MessageScroller.Root>
 					<MessageScroller.Viewport aria-label={m['assistant.messages']()}>
-						{#if agentView}<MessageScroller.Content class="mx-auto w-full max-w-3xl gap-6 px-4 py-6 md:px-6">
+						{#if agentView}<MessageScroller.Content class="mx-auto w-full max-w-3xl gap-6 px-4 pb-6 md:px-6">
 								<section aria-label={m['assistant.agent_view_label']({ identifier: chat.issue?.identifier ?? '' })}>
 									{#if agentTask}{#key agentTask.id}<AgentThread
 												{chat}
@@ -1347,11 +1348,11 @@
 												onback={closeAgent}
 												allowedAgents={board?.options?.providers.map((provider) => provider.id) ?? []}
 											/>{/key}{:else if firstLoad || (chat.issue && !chat.unavailable && (!board || board.loading))}<p
-											class="text-sm text-muted-foreground"
+											class="pt-6 text-sm text-muted-foreground"
 											role="status"
 										>
 											{m['assistant.loading']()}
-										</p>{:else}<div class="space-y-3">
+										</p>{:else}<div class="space-y-3 pt-6">
 											<p role="alert" class="text-sm text-muted-foreground">{m['assistant.agent_view_missing']()}</p>
 											<Button variant="outline" size="sm" href={assistantHref}
 												><MessageCircle />{m['assistant.target_back']()}</Button
@@ -1389,7 +1390,7 @@
 								<p class="text-sm text-muted-foreground" role="status">{m['assistant.loading']()}</p>
 							{:else if chat.unavailable}
 								<p role="alert" class="text-sm text-muted-foreground">{m['assistant.unavailable']()}</p>
-							{:else if chat.messages.length === 0 && !Object.keys(chat.liveTasks).length}
+							{:else if chat.messages.length === 0 && chat.agentMessages.length === 0 && !Object.keys(chat.liveTasks).length}
 								<div class="my-auto flex flex-col items-start gap-3 py-16">
 									<div class="rounded-xl border bg-muted/40 p-3"><MessageCircle size={24} /></div>
 									<h2 class="text-2xl font-semibold tracking-tight">{m['assistant.welcome']()}</h2>

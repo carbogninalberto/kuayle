@@ -1319,8 +1319,9 @@ test('lists background agent work; failed tasks stay listed and finished ones fo
 	await expect(queue.getByRole('link', { name: /WEB-3/ })).toBeVisible();
 });
 
-test('three columns on desktop; both sidebars become drawers on narrow screens', async ({ page }) => {
-	await fixture(page);
+test('three columns on desktop; both sidebars become drawers on narrow screens', async ({ page }, testInfo) => {
+	const state = await fixture(page);
+	state.messages = longTranscript(12);
 	await page.setViewportSize({ width: 1440, height: 900 });
 	await page.goto('/test/assistant?conversation=chat-1');
 	const sidebar = page.getByRole('complementary', { name: 'Assistant sidebar' });
@@ -1392,9 +1393,21 @@ test('three columns on desktop; both sidebars become drawers on narrow screens',
 	await expect(drawer).toHaveCount(0);
 	await page.getByRole('button', { name: 'Details', exact: true }).click();
 	const details = page.getByRole('dialog', { name: 'Details' });
-	await expect(details.getByText('Context', { exact: true })).toBeVisible();
+	await expect(details.getByText('Context', { exact: true })).toHaveCount(0);
 	await details.getByRole('button', { name: 'Close panel' }).click();
 	await expect(details).toHaveCount(0);
+	const contextUsage = page.getByRole('button', { name: 'Context usage' });
+	await expect(contextUsage).toHaveAttribute('aria-expanded', 'false');
+	await contextUsage.press('Enter');
+	const contextPopover = page.getByRole('dialog', { name: 'Context' });
+	await expect(contextPopover).toBeVisible();
+	await expect(contextPopover).toBeFocused();
+	await expect(contextPopover.getByRole('img', { name: 'Context usage 24%' })).toBeVisible();
+	await expect(contextPopover.getByText('12 of the latest 50 messages are sent to the model')).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('assistant-context.png') });
+	await page.keyboard.press('Escape');
+	await expect(contextPopover).toHaveCount(0);
+	await expect(contextUsage).toBeFocused();
 });
 
 test('earlier history folds behind one row and unfolds again', async ({ page }) => {

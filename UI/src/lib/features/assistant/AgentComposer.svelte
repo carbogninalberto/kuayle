@@ -65,12 +65,11 @@
 		sending = mode ?? 'plain';
 		error = '';
 		try {
-			await agentTasks.sendLiveMessage(chat.slug, task.id, sent, mode, confirmMerged);
+			const message = await agentTasks.sendLiveMessage(chat.slug, task.id, sent, mode, confirmMerged);
+			chat.recordAgentSend(message);
 			if (disposed) return;
 			if (text.trim() === typed) text = '';
 			if (answered && chat.agentQuestion?.id === answered.id) chat.agentQuestion = null;
-			// The timeline reloads and shows the message where it was taken.
-			chat.taskLiveCursor = { ...chat.taskLiveCursor, [task.id]: -Date.now() };
 			if (mode) chat.acceptTask(await agentTasks.get(chat.slug, task.id), false, chat.liveTasks[task.id] ?? null);
 		} catch (e) {
 			if (disposed) return;
