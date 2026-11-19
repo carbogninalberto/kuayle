@@ -957,13 +957,22 @@ inherits the proposed model. With no choice the default model server applies as
 before. The harness must be allowed in the workspace, and the model must be one
 the chosen server offers (validation fails the approval otherwise; an unknown
 server is never replaced by another). Reviews still default to the implementing
-task's harness. A follow-up continues on the task's own harness, so only its
-model and server change (`agent_tasks.model`, `thinking` and `model_server_id`
-are updated together when the attempt is queued). An explicit model takes the
-thinking level of the server that runs it; the default server stays implicit
-unless the task was pinned to a server. Harness and model on an approval other
+task's harness. A follow-up continues on the task's own harness and can change
+its model, effort and model server when the attempt is queued. By default, an
+explicit model takes the thinking level of the server that runs it. The default
+server stays implicit unless the task was pinned to a server. Harness and model on an approval other
 than these three, or on a denial, are ignored. Only the approval's bound actor
 can resolve it, and the effect re-checks their access as for any approval.
+
+`delegate_issue` and `follow_up_task` accept `effort` (`low`, `medium`, `high`,
+`xhigh` or `max`) when the user asks for reasoning effort. The tool checks the
+resolved harness and model against the available capability data and lists the
+valid levels in a refusal. The pending tool result reports the proposed model
+and effort, and the approval card shows the effort. Approval rechecks the final
+choice and records the effort in `agent_tasks.thinking`. A custom workflow uses
+it for the first agent step. A follow-up can change effort while keeping its
+current model and server. `get_agent_work` reports the settings recorded for
+the task and uses the current run's settings once that run exists.
 
 ### Workflow choice for delegations started from chat
 

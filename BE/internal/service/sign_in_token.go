@@ -52,7 +52,7 @@ func (s *AuthService) ExchangeSignInToken(ctx context.Context, slug, token, acce
 		}
 		var err error
 		// A bearer link does not satisfy checks that require recent reauthentication.
-		access, refresh, err = s.issueSessionWith(ctx, user, time.Time{}, nil, nil, store)
+		access, refresh, err = s.issueSessionWith(ctx, user, time.Time{}, nil, nil, nil, store)
 		return err
 	})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -67,7 +67,13 @@ func (s *AuthService) ExchangeSignInToken(ctx context.Context, slug, token, acce
 
 func (s *AuthService) signInCookieUser(ctx context.Context, access, refresh string) (uuid.UUID, error) {
 	if claims, err := jwtpkg.ValidateAccessToken(access, s.jwtSecret); err == nil {
-		return claims.UserID, nil
+		user, err := s.userRepo.GetByID(ctx, claims.UserID)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if user != nil && user.SessionVersion == claims.SessionVersion {
+			return user.ID, nil
+		}
 	}
 	claims, err := jwtpkg.ValidateRefreshToken(refresh, s.jwtSecret)
 	if err != nil {

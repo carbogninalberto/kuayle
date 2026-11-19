@@ -34,14 +34,11 @@ to register at the identity provider.
    - The email domain must be in the workspace's allowed domains (an empty list
      allows any domain the provider verified; shared providers such as Google
      and Microsoft `/common` require a list, see below).
-   - An existing Kuayle account with that verified email is **never linked
-     automatically**: Kuayle refuses with `link_required`. The account owner
-     signs in with their password (or passkey) and then links the identity from
-     the profile page or the sign-in page. Only that authenticated session may
-     bind the IdP subject. Being invited to, or added to, a workspace is not
-     consent to link. An existing account that is **not yet a member** of the
-     workspace must be invited or added first; linking itself never grants
-     membership.
+   - An active account created by [SCIM](self-hosting.md#scim-20-provisioning)
+     in this workspace can bind its first IdP subject using that verified email.
+   - Other existing accounts receive the `link_required` response. The account
+     owner signs in with their password or passkey and links the IdP identity.
+     The account must already have workspace membership to link.
    - Otherwise Kuayle creates the account with a random unusable password and
      adds it to the workspace with the configured default role (`member` or
      `guest`). Just-in-time provisioning only covers emails that have no
@@ -77,8 +74,9 @@ taking over the victim's other workspaces or credentials.
 
 ## Linking an existing account
 
-An existing account is linked only by a session that already proved the
-account's own credential, and only in a workspace it is already a member of:
+Use the account's password or passkey to link an existing account in a workspace
+it already belongs to. Active SCIM-created accounts follow the first sign-in
+flow described above.
 
 1. If the account is not a member of the workspace yet, an owner or admin
    invites or adds it first. Signing in through the workspace's IdP does not
@@ -93,9 +91,7 @@ account's own credential, and only in a workspace it is already a member of:
    workspace membership is added.
 
 Members of a workspace that requires SSO who open it with a password session see
-a notice with **Continue with SSO** that starts this link flow in place. An
-existing account is never linked by a public SSO callback, even when the IdP
-asserts a verified email and even when the account is already a member.
+a notice with **Continue with SSO** that starts this link flow in place.
 
 
 ## Configure a provider
@@ -192,9 +188,7 @@ and on every API request:
   interactive password sign-in only. An owner who needs API access to the
   workspace signs in with SSO and creates a token from that session.
 
-Revoking a departing user's tokens when the IdP deactivates them needs SCIM 2.0
-deprovisioning, which is a later phase; until then, revoke their tokens manually
-or remove them from the workspace (a token never outlives the membership).
+For IdP-driven onboarding and offboarding, configure [SCIM 2.0 provisioning](self-hosting.md#scim-20-provisioning).
 
 ## Instance-level configuration
 
@@ -282,7 +276,7 @@ In **Workspace settings → SSO**, select **SAML 2.0**. Use the **SP metadata** 
 
 Upload the IdP entity metadata XML or enter its HTTPS metadata URL and save. Kuayle imports a snapshot, limited to 256 KiB, and accepts multiple signing certificates for rollover. Import fresh metadata when the IdP rotates its keys. Leaving both fields empty on subsequent saves keeps the workspace's imported metadata. URL imports have a 15-second timeout and reject redirects and private destinations by default.
 
-Configure the IdP to **sign the assertion**, send an authentication statement and use a stable persistent NameID. Set the audience to the workspace entity ID. Include the IdP issuer in both the response and the assertion, the ACS URL as the response destination, and both `NotBefore` and `NotOnOrAfter` on the assertion conditions. For new accounts, map the user's verified email to the signed attributes `email` and `email_verified` (boolean true). The optional `name` attribute sets the display name. Existing accounts link from their own session. The ACS accepts SP-initiated sign-ins and requires the browser's per-request binding cookie. Use HTTPS outside localhost.
+Configure the IdP to **sign the assertion**, send an authentication statement and use a stable persistent NameID. Set the audience to the workspace entity ID. Include the IdP issuer in both the response and the assertion, the ACS URL as the response destination, and both `NotBefore` and `NotOnOrAfter` on the assertion conditions. For new accounts, map the user's verified email to the signed attributes `email` and `email_verified` (boolean true). The optional `name` attribute sets the display name. Existing accounts follow the same linking rules as OIDC. The ACS accepts SP-initiated sign-ins and requires the browser's per-request binding cookie. Use HTTPS outside localhost.
 
 To sign outbound requests, mount a PEM certificate and matching RSA private key (2048 bits or larger) readable by the backend. Set `SAML_SP_CERT_FILE` and `SAML_SP_KEY_FILE` to their paths and restart the backend. SP metadata then advertises the public signing certificate. An invalid or incomplete pair fails startup.
 
@@ -319,9 +313,3 @@ To sign outbound requests, mount a PEM certificate and matching RSA private key 
   or passkey for those actions.
 - **`provider_error`**: the provider redirected back with an error. Its text is
   deliberately not shown or logged; check the provider's own logs.
-
-## Not implemented yet
-
-- **SCIM 2.0**: a bearer token per workspace, user/group provisioning, and
-  deactivation that deletes the user's refresh tokens and revokes their PATs in
-  one transaction, so a user deactivated at the IdP loses API access at once.

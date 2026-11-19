@@ -216,6 +216,8 @@ type AgentTaskRequest struct {
 	// flow with the profile's harness, model, instructions and skills. Only
 	// services set it; it is never decoded from a request.
 	AgentProfile *AgentProfile `json:"-"`
+	// RequestedEffort is an assistant override, including on a workflow's first step.
+	RequestedEffort string `json:"-"`
 }
 
 type AgentTaskRetryRequest struct {
@@ -235,6 +237,8 @@ type AgentTaskRetryRequest struct {
 	// (an approval card); nil lets the service choose. The retry receipt records
 	// it with Model, so a replay with another choice conflicts.
 	RequestedModelServerID *uuid.UUID `json:"-"`
+	// RequestedEffort overrides the thinking level even when the model stays the same.
+	RequestedEffort string `json:"-"`
 	// ConfirmMerged starts the new attempt although the issue's work was
 	// already merged; without it that retry is a MergedWorkError (KUA-193).
 	ConfirmMerged bool `json:"confirm_merged,omitempty"`

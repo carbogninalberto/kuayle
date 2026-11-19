@@ -66,10 +66,10 @@ func TestDelegationResolvesTheChosenWorkflow(t *testing.T) {
 // the task service resolves and checks it again when the task is created.
 func TestDelegationRequestCarriesTheWorkflow(t *testing.T) {
 	options := &AgentTaskOptions{Providers: []dto.AgentProviderResponse{{ID: "codex"}}}
-	request, err := delegationRequest(options, uuid.New(), "Implement it", "", "", nil, "")
+	request, err := delegationRequest(options, uuid.New(), "Implement it", "", "", nil, "", "")
 	require.NoError(t, err)
 	require.Nil(t, request.WorkflowID)
-	request, err = delegationRequest(options, uuid.New(), "Implement it", "", "", nil, "0b2b5a4e-4a9e-4b52-9f39-7fb0f0a0a0a0")
+	request, err = delegationRequest(options, uuid.New(), "Implement it", "", "", nil, "0b2b5a4e-4a9e-4b52-9f39-7fb0f0a0a0a0", "")
 	require.NoError(t, err)
 	require.NotNil(t, request.WorkflowID)
 	require.Equal(t, "0b2b5a4e-4a9e-4b52-9f39-7fb0f0a0a0a0", *request.WorkflowID)

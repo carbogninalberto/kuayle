@@ -32,10 +32,12 @@ func NewCLILinkRepository(db *sqlx.DB) *CLILinkRepository {
 func (r *CLILinkRepository) Create(ctx context.Context, link *domain.CLIConnectionLink) error {
 	query := `INSERT INTO cli_connection_links
 		(id, user_id, name, code_hash, code_prefix, scopes, workspace_slugs, token_expires_at, expires_at, max_uses, sso_workspace_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING uses, created_at`
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+		FROM (SELECT id FROM users WHERE id=$2 AND ($12::bigint IS NULL OR session_version=$12) FOR SHARE) account
+		RETURNING uses, created_at`
 	return r.db.QueryRowContext(ctx, query,
 		link.ID, link.UserID, link.Name, link.CodeHash, link.CodePrefix,
-		link.Scopes, link.WorkspaceSlugs, link.TokenExpiresAt, link.ExpiresAt, link.MaxUses, link.SSOWorkspaceID,
+		link.Scopes, link.WorkspaceSlugs, link.TokenExpiresAt, link.ExpiresAt, link.MaxUses, link.SSOWorkspaceID, domain.SessionVersion(ctx),
 	).Scan(&link.Uses, &link.CreatedAt)
 }
 

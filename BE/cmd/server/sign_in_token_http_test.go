@@ -65,10 +65,17 @@ func TestTelegramSignInTokenExchange(t *testing.T) {
 	other.client.Jar.SetCookies(base, []*http.Cookie{{Name: "access_token", Path: "/", MaxAge: -1}})
 	require.Equal(t, http.StatusUnauthorized, other.do(http.MethodPost, path, body).Status)
 
+	// Reproduce the session revocation done by SCIM. The browser still has
+	// its old cookies, and the user's live Telegram binding can sign in again.
+	_, err = s.db.Exec(`WITH revoked AS (UPDATE users SET session_version=session_version+1 WHERE id=$1 RETURNING id)
+ DELETE FROM refresh_tokens WHERE user_id IN (SELECT id FROM revoked)`, userID)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusUnauthorized, browser.do(http.MethodGet, "/api/auth/me", nil).Status)
+
 	req, err := http.NewRequest(http.MethodPost, s.url+path, strings.NewReader(fmt.Sprintf(`{"token":%q}`, token)))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	res, err := anonymous.client.Do(req)
+	res, err := browser.client.Do(req)
 	require.NoError(t, err)
 	defer res.Body.Close()
 	require.Equal(t, http.StatusNoContent, res.StatusCode)
@@ -84,11 +91,13 @@ func TestTelegramSignInTokenExchange(t *testing.T) {
 		require.True(t, cookie.HttpOnly)
 		require.Equal(t, http.SameSiteStrictMode, cookie.SameSite)
 	}
-	me := anonymous.do(http.MethodGet, "/api/auth/me", nil)
+	me := browser.do(http.MethodGet, "/api/auth/me", nil)
 	require.Equal(t, http.StatusOK, me.Status)
 	var signedIn struct{ ID uuid.UUID }
 	require.NoError(t, json.Unmarshal(me.Data, &signedIn))
 	require.Equal(t, userID, signedIn.ID)
+	require.Equal(t, http.StatusOK, browser.do(http.MethodPost, "/api/auth/refresh", nil).Status)
+	require.Equal(t, http.StatusOK, browser.do(http.MethodGet, "/api/auth/me", nil).Status)
 	require.Equal(t, http.StatusUnauthorized, s.browser(t).do(http.MethodPost, path, body).Status)
 
 	_, err = s.db.Exec(`UPDATE sign_in_tokens SET used_at=NULL, created_at=now()-interval '11 minutes', expires_at=now()-interval '1 minute'

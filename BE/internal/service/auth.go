@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -215,7 +216,11 @@ func (s *AuthService) RefreshTokens(ctx context.Context, refreshToken string) (s
 	if rt.AuthenticatedAt != nil {
 		authenticatedAt = *rt.AuthenticatedAt
 	}
-	return s.issueSessionFor(ctx, claims.UserID, authenticatedAt, rt.PasskeyCredentialID, rt.SSOWorkspaceID)
+	access, refresh, err := s.issueSessionFor(ctx, claims.UserID, authenticatedAt, rt.PasskeyCredentialID, rt.SSOWorkspaceID, &rt.SessionVersion)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", ErrInvalidToken
+	}
+	return access, refresh, err
 }
 
 // RejectPasswordSignIn refuses a verified password or passkey sign-in when
@@ -238,7 +243,7 @@ func (s *AuthService) RejectPasswordSignIn(ctx context.Context, userID uuid.UUID
 // IssueSSOSession mints a session that records the workspace whose SSO the
 // user signed in through.
 func (s *AuthService) IssueSSOSession(ctx context.Context, userID, workspaceID uuid.UUID) (string, string, error) {
-	return s.issueSessionFor(ctx, userID, time.Now(), nil, &workspaceID)
+	return s.issueSessionFor(ctx, userID, time.Now(), nil, &workspaceID, nil)
 }
 
 // issueSession mints the access and refresh tokens of a session and stores the
@@ -247,23 +252,14 @@ func (s *AuthService) IssueSSOSession(ctx context.Context, userID, workspaceID u
 // passkeyID the passkey that did so, if any, and ssoWorkspaceID the workspace
 // whose SSO minted the session, if any.
 func (s *AuthService) issueSession(ctx context.Context, userID uuid.UUID, authenticatedAt time.Time, passkeyID *uuid.UUID) (string, string, error) {
-	return s.issueSessionFor(ctx, userID, authenticatedAt, passkeyID, nil)
+	return s.issueSessionFor(ctx, userID, authenticatedAt, passkeyID, nil, nil)
 }
 
-func (s *AuthService) issueSessionFor(ctx context.Context, userID uuid.UUID, authenticatedAt time.Time, passkeyID, ssoWorkspaceID *uuid.UUID) (string, string, error) {
-	return s.issueSessionWith(ctx, userID, authenticatedAt, passkeyID, ssoWorkspaceID, s.refreshRepo.Create)
+func (s *AuthService) issueSessionFor(ctx context.Context, userID uuid.UUID, authenticatedAt time.Time, passkeyID, ssoWorkspaceID *uuid.UUID, expectedVersion *int64) (string, string, error) {
+	return s.issueSessionWith(ctx, userID, authenticatedAt, passkeyID, ssoWorkspaceID, expectedVersion, s.refreshRepo.Create)
 }
 
-func (s *AuthService) issueSessionWith(ctx context.Context, userID uuid.UUID, authenticatedAt time.Time, passkeyID, ssoWorkspaceID *uuid.UUID, store func(context.Context, *repository.RefreshToken) error) (string, string, error) {
-	accessToken, err := jwtpkg.GenerateSessionAccessToken(userID, s.jwtSecret, jwtpkg.Session{
-		AuthenticatedAt: authenticatedAt,
-		PasskeyID:       passkeyID,
-		SSOWorkspaceID:  ssoWorkspaceID,
-	})
-	if err != nil {
-		return "", "", err
-	}
-
+func (s *AuthService) issueSessionWith(ctx context.Context, userID uuid.UUID, authenticatedAt time.Time, passkeyID, ssoWorkspaceID *uuid.UUID, expectedVersion *int64, store func(context.Context, *repository.RefreshToken) error) (string, string, error) {
 	refreshToken, expiresAt, err := jwtpkg.GenerateRefreshToken(userID, s.jwtSecret)
 	if err != nil {
 		return "", "", err
@@ -276,6 +272,7 @@ func (s *AuthService) issueSessionWith(ctx context.Context, userID uuid.UUID, au
 		ExpiresAt:           expiresAt,
 		PasskeyCredentialID: passkeyID,
 		SSOWorkspaceID:      ssoWorkspaceID,
+		ExpectedVersion:     expectedVersion,
 	}
 	if !authenticatedAt.IsZero() {
 		rt.AuthenticatedAt = &authenticatedAt
@@ -284,6 +281,15 @@ func (s *AuthService) issueSessionWith(ctx context.Context, userID uuid.UUID, au
 		return "", "", err
 	}
 
+	accessToken, err := jwtpkg.GenerateSessionAccessToken(userID, s.jwtSecret, jwtpkg.Session{
+		Version:         rt.SessionVersion,
+		AuthenticatedAt: authenticatedAt,
+		PasskeyID:       passkeyID,
+		SSOWorkspaceID:  ssoWorkspaceID,
+	})
+	if err != nil {
+		return "", "", err
+	}
 	return accessToken, refreshToken, nil
 }
 
