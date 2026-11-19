@@ -4381,5 +4381,22 @@
 	"pwa.browser.in_app_ios": "Používáte prohlížeč aplikace {app}. Otevřete odkaz v Safari a používejte plnou verzi aplikace.",
 	"pwa.browser.in_app": "Používáte prohlížeč aplikace {app}. Otevřete odkaz ve svém prohlížeči a používejte plnou verzi aplikace.",
 	"pwa.browser.home_screen": "Pokud máte Kuayle na ploše, otevřete ho odtud a používejte plnou verzi aplikace.",
-	"pwa.browser.copy_failed": "Odkaz se nepodařilo zkopírovat"
+	"pwa.browser.copy_failed": "Odkaz se nepodařilo zkopírovat",
+	"settings.push.title": "Push notifications",
+	"settings.push.denied": "Only instance sysadmins can manage push notifications.",
+	"settings.push.environment": "Environment variables manage these settings.",
+	"settings.push.app": "Configured in the app.",
+	"settings.push.off": "Web Push has not been configured.",
+	"settings.push.public_key": "Public key",
+	"settings.push.generate": "Generate key pair",
+	"settings.push.regenerate": "Regenerate key pair",
+	"settings.push.rotation_warning": "Every device must enable push again after you regenerate the key pair.",
+	"settings.push.contact": "Contact",
+	"settings.push.contact_hint": "Enter a mailto: address or an HTTPS contact URL for the push provider.",
+	"settings.push.enable": "Enable Web Push",
+	"settings.push.saved": "Push settings saved.",
+	"settings.push.devices": "Your subscribed devices: {count}",
+	"settings.push.test": "Send test notification",
+	"settings.push.result": "Sent: {sent}. Failed: {failed}.",
+	"settings.push.failed": "Could not complete the Web Push request."
 }

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/config"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/stretchr/testify/require"
@@ -58,6 +59,8 @@ func (*pushDeliveryStore) Register(context.Context, domain.PushSubscription, *uu
 	return uuid.Nil, nil
 }
 func (*pushDeliveryStore) Delete(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID) error { return nil }
+func (*pushDeliveryStore) CountByUser(context.Context, uuid.UUID) (int, error)            { return 0, nil }
+
 func (*pushDeliveryStore) ListByUser(context.Context, uuid.UUID) ([]domain.PushSubscription, error) {
 	return nil, nil
 }
@@ -76,7 +79,7 @@ func TestPushDeliveryPrunesAndIsolatesFailures(t *testing.T) {
 	healthy := domain.PushSubscription{ID: uuid.New()}
 	store := &pushDeliveryStore{recorded: map[uuid.UUID]bool{}}
 	attempts := map[uuid.UUID]int{}
-	svc := &PushService{store: store, send: func(_ context.Context, sub domain.PushSubscription, _ []byte) (int, error) {
+	svc := &PushService{store: store, send: func(_ context.Context, _ config.VAPIDConfig, sub domain.PushSubscription, _ []byte) (int, error) {
 		attempts[sub.ID]++
 		switch sub.ID {
 		case failed.ID:
@@ -88,7 +91,7 @@ func TestPushDeliveryPrunesAndIsolatesFailures(t *testing.T) {
 		}
 	}}
 	for _, sub := range []domain.PushSubscription{failed, dead, healthy} {
-		svc.deliver(t.Context(), sub, []byte("{}"))
+		svc.deliver(t.Context(), config.VAPIDConfig{}, sub, []byte("{}"))
 	}
 	require.Equal(t, []uuid.UUID{dead.ID}, store.dropped)
 	require.Equal(t, map[uuid.UUID]bool{failed.ID: false, healthy.ID: true}, store.recorded)
@@ -129,4 +132,37 @@ func TestPushSubscriptionValidatesEndpointAndKeys(t *testing.T) {
 	}
 	req.Auth = "too-short"
 	require.False(t, validPushSubscription(req))
+}
+
+type userPushDevices struct {
+	pushDeliveryStore
+	byUser map[uuid.UUID][]domain.PushSubscription
+}
+
+func (s *userPushDevices) ListByUser(_ context.Context, user uuid.UUID) ([]domain.PushSubscription, error) {
+	return s.byUser[user], nil
+}
+
+func TestPushTestUsesCallerSubscriptionsAndEffectiveKeys(t *testing.T) {
+	admin, other := uuid.New(), uuid.New()
+	subs := &userPushDevices{pushDeliveryStore: pushDeliveryStore{recorded: map[uuid.UUID]bool{}}, byUser: map[uuid.UUID][]domain.PushSubscription{
+		admin: {{ID: uuid.New()}, {ID: uuid.New()}}, other: {{ID: uuid.New()}},
+	}}
+	env := config.VAPIDConfig{PublicKey: "public", Subject: "https://example.org"}
+	s := NewPushService(env, nil, subs, nil, nil, nil, nil, nil)
+	var sent []uuid.UUID
+	s.send = func(_ context.Context, cfg config.VAPIDConfig, sub domain.PushSubscription, payload []byte) (int, error) {
+		require.Equal(t, env, cfg)
+		require.Contains(t, string(payload), "Kuayle")
+		sent = append(sent, sub.ID)
+		if sub.ID == subs.byUser[admin][0].ID {
+			return 201, nil
+		}
+		return 410, nil
+	}
+	result, err := s.Test(t.Context(), admin)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Sent)
+	require.Equal(t, 1, result.Failed)
+	require.Equal(t, []uuid.UUID{subs.byUser[admin][0].ID, subs.byUser[admin][1].ID}, sent)
 }
