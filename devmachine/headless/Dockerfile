@@ -2,7 +2,7 @@ FROM golang:1.26.11-alpine AS go-stage
 
 FROM node:22.23.3-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c AS node-stage
 
-FROM golang:1.27.3-bookworm AS crush-build
+FROM golang:1.27.4-bookworm AS crush-build
 # Release binaries embed an older Go standard library with known CVEs; build with patched Go.
 ARG CRUSH_VERSION=0.101.0
 # golang.org/x/net is raised past CVE-2026-78661 (GO-2026-6860), which the

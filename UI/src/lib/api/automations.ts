@@ -1,3 +1,4 @@
+import type { TaskState } from './agent-tasks';
 import { api } from './client';
 
 export interface AgentAutomation {
@@ -11,6 +12,12 @@ export interface AgentAutomation {
 	instructions: string;
 	unattended: boolean;
 	run_hour?: number | null;
+	workflow_id?: string;
+	pinned_version?: number;
+	cron?: string;
+	timezone?: string;
+	next_run_at?: string;
+	schedule_error?: string;
 	max_active: number;
 	created_at: string;
 }
@@ -24,6 +31,14 @@ export interface AgentAutomationRun {
 	issue_title: string;
 	status: 'pending_approval' | 'starting' | 'started' | 'dismissed' | 'failed';
 	task_id?: string | null;
+	workflow_name?: string;
+	pinned_version?: number;
+	task_version?: number;
+	task_step?: string;
+	task_state?: TaskState;
+	attempts: number;
+	replays: number;
+	can_replay?: boolean;
 	error?: string | null;
 	created_at: string;
 }
@@ -36,6 +51,10 @@ export interface AgentAutomationInput {
 	instructions: string;
 	unattended: boolean;
 	run_hour?: number;
+	workflow_id?: string;
+	version_policy?: 'latest' | 'pin';
+	cron?: string;
+	timezone?: string;
 	max_active: number;
 }
 
@@ -48,7 +67,13 @@ export const automations = {
 	setEnabled: (slug: string, id: string, enabled: boolean) =>
 		api.patch<AgentAutomation>(`${base(slug)}/agent-automations/${id}`, { enabled }),
 	remove: (slug: string, id: string) => api.delete<void>(`${base(slug)}/agent-automations/${id}`),
-	runs: (slug: string) => api.get<AgentAutomationRun[]>(`${base(slug)}/agent-automation-runs`),
+	runs: (slug: string, rule?: string, before?: string) => {
+		const query = new URLSearchParams();
+		if (rule) query.set('automation_id', rule);
+		if (before) query.set('before', before);
+		return api.get<AgentAutomationRun[]>(`${base(slug)}/agent-automation-runs${query.size ? '?' + query : ''}`);
+	},
+	replay: (slug: string, id: string) => api.post<AgentAutomationRun>(`${base(slug)}/agent-automation-runs/${id}/replay`),
 	decide: (slug: string, id: string, approve: boolean) =>
 		api.post<AgentAutomationRun>(`${base(slug)}/agent-automation-runs/${id}/${approve ? 'approve' : 'dismiss'}`)
 };

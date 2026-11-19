@@ -1,41 +1,12 @@
 ---
 name: kuayle-agents
-description: Use when you need to declare the tests Kuayle re-runs for your change (.kuayle/validation.json), to describe your change and attach screenshots for the pull request (.kuayle/pull_request.json, .kuayle/screenshots/), to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, to log what you did in the project's or team's wiki registry, to propose a lesson about the repository for later agents, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox). Every such message needs a reply that names it ("reply_to").
+description: Use when you need to describe your change and attach screenshots for the pull request (.kuayle/pull_request.json, .kuayle/screenshots/), to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, to log what you did in the project's or team's wiki registry, to propose a lesson about the repository for later agents, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox). Every such message needs a reply that names it ("reply_to").
 ---
 
-# Declare the tests Kuayle re-runs
+# Test your change
 
-Before you finish an implementation task, choose the tests that show your
-change works, run them yourself, and write them to
-`.kuayle/validation.json` at the root of your worktree:
-
-```sh
-dir="$(git rev-parse --show-toplevel)/.kuayle"
-mkdir -p "$dir"
-cat > "$dir/.validation.json" <<'JSON'
-{"commands":[["sh","-c","cd BE && go test ./internal/service/..."],["sh","-c","cd UI && npm ci && npm run check"]],
- "summary":"Service tests cover the new rule; UI types checked. Repository tests need a database and were not run."}
-JSON
-mv "$dir/.validation.json" "$dir/validation.json"
-```
-
-- `commands`: 1 to 8 argv arrays, run in order without a shell unless you use
-  `sh -c`. Each command can have at most 64 arguments.
-- `summary`: at most 2,000 characters on what you tested, why, and what you did
-  not test.
-- Kuayle re-runs the commands in a clean container from the developer image,
-  on your branch, **without credentials, databases or other services** (a
-  project's configured Compose services are the exception), and with
-  `CI=true`. Pick fast tests relevant to your change that pass there:
-  install dependencies in the command if needed, and prefer tests that need
-  no database.
-- If the project configures its own check command, that check runs instead.
-- When the tests pass, the pull request opens ready for review, and its
-  Verification section says Kuayle re-ran them. Your summary is shown there
-  when your pull request file gives no verification. When one fails, the task fails
-  with that command and exit code, and your next attempt is told which one.
-- A file that breaks these rules is ignored as a whole, and the change opens as
-  a draft. Nothing under `.kuayle/` is committed.
+Before finishing an implementation task, run the tests relevant to your change.
+In your final summary, describe what you ran, the results, and what you skipped.
 
 # Describe the pull request
 

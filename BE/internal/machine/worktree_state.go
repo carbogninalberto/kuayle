@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -38,8 +37,6 @@ tree=$(git write-tree)
 ignored=$(git ls-files --others --ignored --exclude-standard --directory | grep -v '^\.kuayle/' | git hash-object --stdin)
 printf '%s %s %s\n' "$head" "$tree" "$ignored"`
 
-var worktreeStatePattern = regexp.MustCompile(`^[0-9a-f]{40,64} [0-9a-f]{40,64} [0-9a-f]{40,64}$`)
-
 // maxWorktreeChangedFiles bounds the changed paths kept on a run.
 const maxWorktreeChangedFiles = 100
 
@@ -50,7 +47,7 @@ func parseWorktreeState(output string) string {
 		return ""
 	}
 	state := strings.TrimSpace(lines[len(lines)-1])
-	if !worktreeStatePattern.MatchString(state) {
+	if _, _, ok := domain.WorktreeContent(state); !ok {
 		return ""
 	}
 	return state

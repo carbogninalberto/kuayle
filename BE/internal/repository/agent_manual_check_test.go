@@ -51,10 +51,9 @@ func TestManualCheckRunsOnTheLatestAttemptWithoutChangingTheTask(t *testing.T) {
 	db, repo, ctx, task, machine := idleTaskWithCheckout(t)
 	_, err := repo.RunCheck(ctx, task.WorkspaceID, task.ID, nil)
 	require.ErrorIs(t, err, ErrNoCheckCommand, "no command is configured yet")
-	// A check configured after the attempt is the task's check now.
-	_, err = db.Exec(`INSERT INTO dev_machine_scope_settings(workspace_id,issue_id,test_command,compose_file) VALUES($1,$2,'["npm","test"]','compose.yaml')`, task.WorkspaceID, task.IssueID)
+	_, err = db.Exec(`UPDATE agent_tasks SET compose_file='compose.yaml',validation_command='["old"]' WHERE id=$1`, task.ID)
 	require.NoError(t, err)
-	step, err := repo.RunCheck(ctx, task.WorkspaceID, task.ID, nil)
+	step, err := repo.RunCheck(ctx, task.WorkspaceID, task.ID, []string{"npm", "test"})
 	require.NoError(t, err)
 	require.Equal(t, "manual_check", step.StepType)
 	require.Equal(t, task.RunID, step.AgentRunID)
@@ -75,11 +74,11 @@ func TestManualCheckRunsOnTheLatestAttemptWithoutChangingTheTask(t *testing.T) {
 
 	store := NewDevMachineRepository(db)
 	leased := leaseManualCheck(t, db, ctx, task, step)
-	require.ErrorIs(t, store.CompleteValidation(ctx, leased, 0, nil), ErrAgentTaskConflict, "a result needs a real start")
-	require.NoError(t, store.StartValidation(ctx, leased, "container"))
+	require.ErrorIs(t, store.CompleteManualCheck(ctx, leased, 0), ErrAgentTaskConflict, "a result needs a real start")
+	require.NoError(t, store.StartManualCheck(ctx, leased, "container"))
 	chunk := &domain.DevMachineLogChunk{WorkspaceID: task.WorkspaceID, MachineID: machine, AgentRunID: &task.RunID, ServiceID: &step.ID, Stream: "stdout", Sequence: 1, Content: "3 tests failed", SourceKey: "source"}
-	require.NoError(t, store.CreateValidationOutput(ctx, leased, chunk))
-	require.NoError(t, store.CompleteValidation(ctx, leased, 3, nil))
+	require.NoError(t, store.CreateManualCheckOutput(ctx, leased, chunk))
+	require.NoError(t, store.CompleteManualCheck(ctx, leased, 3))
 	require.NoError(t, store.CompleteOperation(ctx, leased.ID, *leased.LeaseOwner))
 
 	checks, err := repo.ManualChecks(ctx, task.WorkspaceID, task.ID, task.RunID)
@@ -88,10 +87,6 @@ func TestManualCheckRunsOnTheLatestAttemptWithoutChangingTheTask(t *testing.T) {
 	require.Equal(t, domain.DevMachineAgentRunStepStatusFailed, checks[0].Status)
 	require.Equal(t, 3, *checks[0].ExitCode)
 	require.Equal(t, "The check failed", *checks[0].Summary)
-	validation, err := repo.Validation(ctx, task.WorkspaceID, task.ID, task.RunID)
-	require.NoError(t, err)
-	require.Nil(t, validation, "a manual check is not the attempt's independent validation")
-
 	after, err := repo.Get(ctx, task.WorkspaceID, task.ID)
 	require.NoError(t, err)
 	require.Equal(t, "awaiting_review", after.State)
@@ -161,7 +156,7 @@ func TestManualCheckRejectsRevokedAuthorityAndRecordsFailedOperations(t *testing
 			require.NoError(t, err)
 			op := leaseManualCheck(t, db, ctx, task, step)
 			store := NewDevMachineRepository(db)
-			require.NoError(t, store.StartValidation(ctx, op, "container"))
+			require.NoError(t, store.StartManualCheck(ctx, op, "container"))
 			switch scenario {
 			case "retried":
 				_, err = db.Exec(`UPDATE agent_tasks SET run_id=gen_random_uuid(),state='queued' WHERE id=$1`, task.ID)
@@ -179,10 +174,10 @@ func TestManualCheckRejectsRevokedAuthorityAndRecordsFailedOperations(t *testing
 				require.False(t, retry)
 			}
 			require.NoError(t, err)
-			_, err = store.GetValidation(ctx, op)
+			_, err = store.GetManualCheck(ctx, op)
 			require.Error(t, err)
-			require.Error(t, store.CompleteValidation(ctx, op, 0, nil))
-			require.Error(t, store.CreateValidationOutput(ctx, op, &domain.DevMachineLogChunk{WorkspaceID: task.WorkspaceID, MachineID: op.MachineID, AgentRunID: &task.RunID, ServiceID: &step.ID, Stream: "stdout", Sequence: 1, Content: "must not persist"}))
+			require.Error(t, store.CompleteManualCheck(ctx, op, 0))
+			require.Error(t, store.CreateManualCheckOutput(ctx, op, &domain.DevMachineLogChunk{WorkspaceID: task.WorkspaceID, MachineID: op.MachineID, AgentRunID: &task.RunID, ServiceID: &step.ID, Stream: "stdout", Sequence: 1, Content: "must not persist"}))
 			var status string
 			require.NoError(t, db.Get(&status, `SELECT status FROM dev_machine_agent_run_steps WHERE id=$1`, step.ID))
 			require.Equal(t, "running", status)
@@ -199,20 +194,6 @@ func TestManualCheckRejectsRevokedAuthorityAndRecordsFailedOperations(t *testing
 	}
 }
 
-func TestManualCheckStepsDoNotBreakCheckCommandDecoding(t *testing.T) {
-	db, repo, ctx, task, _ := idleTaskWithCheckout(t)
-	_, err := db.Exec(`UPDATE agent_tasks SET test_command='["go","test","./..."]',validation_command='["go","test","./..."]' WHERE id=$1`, task.ID)
-	require.NoError(t, err)
-	// A command requested for the task wins over the configured one.
-	_, err = db.Exec(`INSERT INTO dev_machine_scope_settings(workspace_id,issue_id,test_command) VALUES($1,$2,'["npm","test"]')`, task.WorkspaceID, task.IssueID)
-	require.NoError(t, err)
-	step, err := repo.RunCheck(ctx, task.WorkspaceID, task.ID, nil)
-	require.NoError(t, err)
-	var argv []string
-	require.NoError(t, json.Unmarshal(step.CommandArgv, &argv))
-	require.Equal(t, []string{"go", "test", "./..."}, argv)
-}
-
 func TestAgentWorkReportsTheLatestManualCheckAndKeepsItsOutputPrivate(t *testing.T) {
 	db, repo, ctx, task, machine := idleTaskWithCheckout(t)
 	work, err := repo.IssueAgentWork(ctx, task.WorkspaceID, task.IssueID)
@@ -223,11 +204,11 @@ func TestAgentWorkReportsTheLatestManualCheckAndKeepsItsOutputPrivate(t *testing
 	require.NoError(t, err)
 	op := leaseManualCheck(t, db, ctx, task, step)
 	store := NewDevMachineRepository(db)
-	require.NoError(t, store.StartValidation(ctx, op, "container"))
+	require.NoError(t, store.StartManualCheck(ctx, op, "container"))
 	for i, line := range []string{"PASS auth\n", "FAIL search: expected 2 results\n"} {
-		require.NoError(t, store.CreateValidationOutput(ctx, op, &domain.DevMachineLogChunk{WorkspaceID: task.WorkspaceID, MachineID: machine, AgentRunID: &task.RunID, ServiceID: &step.ID, Stream: "stdout", Sequence: int64(i + 1), Content: line, SourceKey: "source"}))
+		require.NoError(t, store.CreateManualCheckOutput(ctx, op, &domain.DevMachineLogChunk{WorkspaceID: task.WorkspaceID, MachineID: machine, AgentRunID: &task.RunID, ServiceID: &step.ID, Stream: "stdout", Sequence: int64(i + 1), Content: line, SourceKey: "source"}))
 	}
-	require.NoError(t, store.CompleteValidation(ctx, op, 1, nil))
+	require.NoError(t, store.CompleteManualCheck(ctx, op, 1))
 	type check struct {
 		Status     string   `json:"status"`
 		ExitCode   *int     `json:"exit_code"`

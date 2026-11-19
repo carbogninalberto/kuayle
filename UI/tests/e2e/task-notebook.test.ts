@@ -196,7 +196,6 @@ async function fixture(page: Page) {
 			if (prompt) return state.prompts[prompt[1]] ? route.fulfill({ json: state.prompts[prompt[1]] }) : missing();
 			if (/^\/runs\/[^/]+\/logs$/.test(rest)) return route.fulfill({ json: { logs: [] } });
 			if (rest === '/runs') return route.fulfill({ json: { runs: [] } });
-			if (rest.endsWith('/validation')) return route.fulfill({ json: null });
 			if (rest.endsWith('/checks')) return route.fulfill({ json: [] });
 			if (rest === '/live-messages') return route.fulfill({ json: { messages: [] } });
 			if (rest === '/history') return route.fulfill({ json: { transitions: [] } });

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strings"
 )
 
 // RepositoryFile is one file of a commit made through the Git data API.
@@ -66,4 +67,13 @@ func (c *Client) PublishFilesToBranch(token, owner, repo, branch, message string
 		return "", err
 	}
 	return commit, nil
+}
+
+// escapePath escapes each segment of a slash-separated path.
+func escapePath(path string) string {
+	segments := strings.Split(path, "/")
+	for i, segment := range segments {
+		segments[i] = url.PathEscape(segment)
+	}
+	return strings.Join(segments, "/")
 }

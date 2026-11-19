@@ -928,22 +928,6 @@
 										oninput={(event) => change(updateNode(graph, node.id, { prompt: event.currentTarget.value }))}
 									/>
 								</div>
-							{:else if node.type === 'check'}
-								<div class="space-y-1.5">
-									<Label for="node-check">{m['workflows.editor.node_check']()}</Label>
-									<SelectField
-										id="node-check"
-										bind:value={
-											() => node.check ?? 'tests',
-											(value: string) => change(updateNode(graph, node.id, { check: value as 'tests' | 'ci' }))
-										}
-										disabled={!editable}
-										options={[
-											{ value: 'tests', label: m['workflows.editor.check_tests']() },
-											{ value: 'ci', label: m['workflows.editor.check_ci']() }
-										]}
-									/>
-								</div>
 							{:else if node.type === 'end'}
 								<div class="space-y-1.5">
 									<Label for="node-outcome">{m['workflows.editor.node_outcome']()}</Label>

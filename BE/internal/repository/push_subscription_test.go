@@ -38,6 +38,11 @@ func TestPushSubscriptionLifecycle(t *testing.T) {
 	sub.ID, err = repo.Register(ctx, sub, nil)
 	require.NoError(t, err)
 	require.NotEqual(t, uuid.Nil, sub.ID)
+	for user, want := range map[uuid.UUID]int{owner: 1, other: 0} {
+		count, err := repo.CountByUser(ctx, user)
+		require.NoError(t, err)
+		require.Equal(t, want, count)
+	}
 	stale := sub
 	sub.P256DH = "key-2"
 	id, err := repo.Register(ctx, sub, nil)

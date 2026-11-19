@@ -260,7 +260,6 @@ async function fixture(page: Page) {
 				const all = (state.logs[logs[1]] ?? []).filter((log) => log.id > Number(url.searchParams.get('after') ?? 0));
 				return route.fulfill({ json: { logs: all } });
 			}
-			if (rest.endsWith('/validation')) return route.fulfill({ json: null });
 			if (rest.endsWith('/checks')) return route.fulfill({ json: [] });
 			if (rest === '/history') return route.fulfill({ json: { transitions: [] } });
 			if (rest === '/sessions') return route.fulfill({ json: { sessions: [] } });

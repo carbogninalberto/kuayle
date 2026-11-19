@@ -293,7 +293,7 @@ func TestAMissingNotebookUpdateNeverFailsTheWork(t *testing.T) {
 	svc := &AgentTaskService{store: store, runtime: runtime}
 	require.NoError(t, svc.step(context.Background(), store.task))
 	require.Empty(t, store.failReason)
-	require.Equal(t, "validating", store.transitions[len(store.transitions)-1])
+	require.Equal(t, "publishing", store.transitions[len(store.transitions)-1])
 	require.Contains(t, store.reasons[len(store.reasons)-1], "did not update the task notebook")
 
 	// A refused update that the agent then fixed leaves no note.
@@ -301,7 +301,7 @@ func TestAMissingNotebookUpdateNeverFailsTheWork(t *testing.T) {
 	store = &taskStoreFake{task: domain.AgentTask{State: "running", Provider: "opencode"}}
 	svc = &AgentTaskService{store: store, runtime: &taskRuntimeFake{run: &domain.DevMachineAgentRun{Status: domain.DevMachineAgentRunStatusSucceeded, NotebookProblem: &transient}}}
 	require.NoError(t, svc.step(context.Background(), store.task))
-	require.Equal(t, "validating", store.transitions[len(store.transitions)-1])
+	require.Equal(t, "publishing", store.transitions[len(store.transitions)-1])
 	require.NotContains(t, store.reasons[len(store.reasons)-1], "notebook")
 
 	// In a workflow the step finishes and moves on; its detail carries the note.

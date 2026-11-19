@@ -32,19 +32,15 @@ const templates: Record<string, Graph> = {
 		nodes: [
 			{ id: 'start', type: 'start', label: 'Start', position: at(0) },
 			{ id: 'implement', type: 'agent', label: 'Implement', position: at(1) },
-			{ id: 'validate', type: 'check', label: 'Validate', check: 'tests', position: at(2) },
-			{ id: 'publish', type: 'publish', label: 'Publish pull request', position: at(3) },
-			{ id: 'review', type: 'approval', label: 'Human review', prompt: 'Review the pull request', position: at(4) },
-			{ id: 'done', type: 'end', label: 'Done', outcome: 'done', position: at(5) },
-			{ id: 'failed', type: 'end', label: 'Failed', outcome: 'failed', position: at(4, 1, true) }
+			{ id: 'publish', type: 'publish', label: 'Publish pull request', position: at(2) },
+			{ id: 'review', type: 'approval', label: 'Human review', prompt: 'Review the pull request', position: at(3) },
+			{ id: 'done', type: 'end', label: 'Done', outcome: 'done', position: at(4) },
+			{ id: 'failed', type: 'end', label: 'Failed', outcome: 'failed', position: at(3, 1, true) }
 		],
 		edges: edges([
 			['start', 'implement', 'else'],
-			['implement', 'validate', 'agent_finished'],
+			['implement', 'publish', 'agent_finished'],
 			['implement', 'failed', 'agent_failed'],
-			['validate', 'publish', 'checks_passed'],
-			['validate', 'publish', 'else'],
-			['validate', 'failed', 'checks_failed'],
 			['publish', 'review', 'published'],
 			['publish', 'failed', 'publish_failed'],
 			['review', 'done', 'approval_approved'],
@@ -84,21 +80,18 @@ const templates: Record<string, Graph> = {
 		nodes: [
 			{ id: 'start', type: 'start', label: 'Start', position: at(0) },
 			{ id: 'implement', type: 'agent', label: 'Implement', profile_id: 'p-impl', max_visits: 5, position: at(1) },
-			{ id: 'tests', type: 'check', label: 'Tests', check: 'tests', position: at(2) },
-			{ id: 'publish', type: 'publish', label: 'Open pull request', position: at(3) },
-			{ id: 'review', type: 'agent', label: 'Review', profile_id: 'p-rev', max_visits: 6, position: at(4) },
-			{ id: 'ci', type: 'check', label: 'CI', check: 'ci', timeout_minutes: 120, position: at(5) },
-			{ id: 'ship', type: 'approval', label: 'Ready to ship', prompt: 'Ready to merge?', position: at(6) },
-			{ id: 'merge', type: 'merge', label: 'Merge', position: at(7) },
-			{ id: 'done', type: 'end', label: 'Done', outcome: 'done', position: at(8) },
-			{ id: 'failed', type: 'end', label: 'Failed', outcome: 'failed', position: at(6, 1, true) }
+			{ id: 'publish', type: 'publish', label: 'Open pull request', position: at(2) },
+			{ id: 'review', type: 'agent', label: 'Review', profile_id: 'p-rev', max_visits: 6, position: at(3) },
+			{ id: 'ci', type: 'check', label: 'CI', check: 'ci', timeout_minutes: 120, position: at(4) },
+			{ id: 'ship', type: 'approval', label: 'Ready to ship', prompt: 'Ready to merge?', position: at(5) },
+			{ id: 'merge', type: 'merge', label: 'Merge', position: at(6) },
+			{ id: 'done', type: 'end', label: 'Done', outcome: 'done', position: at(7) },
+			{ id: 'failed', type: 'end', label: 'Failed', outcome: 'failed', position: at(5, 1, true) }
 		],
 		edges: edges([
 			['start', 'implement', 'else'],
-			['implement', 'tests', 'agent_finished'],
+			['implement', 'publish', 'agent_finished'],
 			['implement', 'implement', 'agent_failed'],
-			['tests', 'publish', 'checks_passed'],
-			['tests', 'implement', 'checks_failed'],
 			['publish', 'review', 'published'],
 			['publish', 'implement', 'publish_failed'],
 			['review', 'ci', 'review_approved'],
@@ -125,10 +118,10 @@ const vertical = (graph: Graph): Graph => ({
 	}))
 });
 // The full cycle (its implementer and reviewer retry themselves) with a
-// transition from the tests straight to the go-ahead, past three steps.
+// transition from implementation straight to the go-ahead, past three steps.
 const withSkip = (): Graph => ({
 	...templates.full_cycle,
-	edges: [...templates.full_cycle.edges, ...edges([['tests', 'ship', 'else']])]
+	edges: [...templates.full_cycle.edges, ...edges([['implement', 'ship', 'else']])]
 });
 
 const profile = (id: string, name: string, behaviour: string, builtin: string) => ({
@@ -311,7 +304,6 @@ const loopsOf: Record<string, string[][]> = {
 		['ci', 'implement']
 	],
 	full_cycle: [
-		['tests', 'implement'],
 		['publish', 'implement'],
 		['review', 'implement'],
 		['ci', 'implement'],
@@ -801,12 +793,11 @@ async function mockTask(page: Page, { at = 'ci', decide = false, shipMerge = fal
 		? [
 				step(1, 'start'),
 				step(2, 'implement', 'start', 'else'),
-				step(3, 'tests', 'implement', 'agent_finished'),
-				step(4, 'publish', 'tests', 'checks_passed'),
-				step(5, 'review', 'publish', 'published'),
-				step(6, 'ci', 'review', 'review_approved'),
-				step(7, 'ship', 'ci', 'checks_passed'),
-				step(8, 'merge', 'ship', 'approval_approved')
+				step(3, 'publish', 'implement', 'agent_finished'),
+				step(4, 'review', 'publish', 'published'),
+				step(5, 'ci', 'review', 'review_approved'),
+				step(6, 'ship', 'ci', 'checks_passed'),
+				step(7, 'merge', 'ship', 'approval_approved')
 			]
 		: [
 				step(1, 'start'),
@@ -881,7 +872,6 @@ async function mockTask(page: Page, { at = 'ci', decide = false, shipMerge = fal
 			if (path.endsWith('/sessions')) return route.fulfill({ json: { sessions: [] } });
 			if (path.endsWith('/logs')) return route.fulfill({ json: { logs: [] } });
 			if (path.endsWith('/publication')) return route.fulfill({ json: { step: null } });
-			if (path.endsWith('/validation')) return route.fulfill({ json: null });
 			if (path.endsWith('/signals')) return route.fulfill({ json: [] });
 			return route.fulfill({ json: task });
 		}

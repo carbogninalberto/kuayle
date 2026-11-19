@@ -14,8 +14,6 @@ export type TaskState =
 	| 'cancelling'
 	| 'cancelled';
 export interface AgentTask {
-	test_command?: string[] | null;
-	validation_command?: string[];
 	id: string;
 	workspace_id: string;
 	conversation_id: string | null;
@@ -78,16 +76,9 @@ export interface TaskPreview {
 export interface ValidationStep {
 	id: string;
 	agent_run_id: string;
-	// 'validation' for the attempt's independent check, 'manual_check' for one run on demand.
 	step_type?: string;
 	status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
 	command_argv: string[];
-	// Where the independent check's commands came from, every command it runs
-	// and their exit codes, and the agent's own (untrusted) summary.
-	command_source?: 'configured' | 'agent' | null;
-	commands?: string[][] | null;
-	command_results?: { exit_code: number }[] | null;
-	agent_summary?: string | null;
 	exit_code?: number | null;
 	summary?: string | null;
 	compose_file?: string;
@@ -208,7 +199,6 @@ export interface TaskTransition {
 	created_at: string;
 }
 export interface TaskInput {
-	test_command?: string[];
 	request_id: string;
 	prompt: string;
 	provider: string;
@@ -408,7 +398,7 @@ export const agentTasks = {
 	retry: (
 		slug: string,
 		id: string,
-		input: { request_id: string; generation: number; prompt: string; test_command?: string[]; confirm_merged?: boolean }
+		input: { request_id: string; generation: number; prompt: string; confirm_merged?: boolean }
 	) => api.post<AgentTask>(`${task(slug, id)}/retry`, input),
 	history: (slug: string, id: string, after = 0) =>
 		api.get<{ transitions: TaskTransition[]; next_after?: number }>(`${task(slug, id)}/history?after=${after}`),
@@ -430,14 +420,9 @@ export const agentTasks = {
 	debugTrace: (slug: string, id: string) => api.blob(`${task(slug, id)}/debug`),
 	diff: (slug: string, id: string, run: string) =>
 		api.get<{ diff: string; truncated: boolean }>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/diff`),
-	validation: (slug: string, id: string, run: string) =>
-		api.get<ValidationStep | null>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/validation`),
 	// Checks run on demand on an attempt, oldest first.
 	manualChecks: (slug: string, id: string, run: string) =>
 		api.get<ValidationStep[]>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/checks`),
-	// Runs the task's check, or a command, without an agent attempt.
-	runCheck: (slug: string, id: string, command?: string[]) =>
-		api.post<ValidationStep>(`${task(slug, id)}/checks`, command ? { command } : {}),
 	queue: (slug: string) => api.get<AgentQueueItem[]>(`${base(slug)}/agent-tasks`),
 	signals: (slug: string, id: string) => api.get<TaskSignal[]>(`${task(slug, id)}/signals`),
 	sessions: (slug: string, id: string) => api.get<{ sessions: AgentSession[] }>(`${task(slug, id)}/sessions`),

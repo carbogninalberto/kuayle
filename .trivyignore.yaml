@@ -13,19 +13,19 @@ vulnerabilities:
     expired_at: 2027-01-31
     statement: No fixed go-jose v3 release; JWK parsing is not reachable in Kuayle's Caddy.
   # Docker Engine daemon flaws (archive upload and docker cp), fixed in Engine
-  # 29.5.1 and moby/moby v2; the machine daemon runs 29.9.3. The finding is the
+  # 29.5.1 and moby/moby v2; the machine daemon runs 29.10.0. The finding is the
   # github.com/docker/docker module compiled into the Buildx client plugin,
   # which has no fixed release on that module path.
   - id: CVE-2026-41567
     purls:
       - pkg:golang/github.com/docker/docker@v28.5.2%2Bincompatible
     expired_at: 2027-01-31
-    statement: Daemon-side flaw; only client code of the module is in Buildx, and the daemon is 29.9.3.
+    statement: Daemon-side flaw; only client code of the module is in Buildx, and the daemon is 29.10.0.
   - id: CVE-2026-42306
     purls:
       - pkg:golang/github.com/docker/docker@v28.5.2%2Bincompatible
     expired_at: 2027-01-31
-    statement: Daemon-side flaw; only client code of the module is in Buildx, and the daemon is 29.9.3.
+    statement: Daemon-side flaw; only client code of the module is in Buildx, and the daemon is 29.10.0.
   # picomatch (GHSA-fc5q-39xc-vjpf) has no fixed release: every version up to
   # 4.0.7 is affected. The dev machine images carry it inside npm's own bundled
   # modules and Node tooling, where it only matches glob patterns written by

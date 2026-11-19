@@ -262,7 +262,6 @@ async function fixture(page: Page) {
 				return route.fulfill({ json: { transitions: state.transitions.filter((t) => t.sequence > after) } });
 			}
 			if (/^\/runs\/[^/]+\/logs$/.test(rest)) return route.fulfill({ json: { logs: [] } });
-			if (rest.endsWith('/validation')) return route.fulfill({ json: null });
 			if (rest.endsWith('/checks')) return route.fulfill({ json: [] });
 			if (rest === '/live-messages') return route.fulfill({ json: { messages: [] } });
 			if (rest === '/sessions') return route.fulfill({ json: { sessions: state.sessions } });

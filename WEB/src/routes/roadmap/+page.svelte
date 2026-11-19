@@ -30,6 +30,7 @@
 			heading: `Available in ${release.version}`,
 			body: 'The current release includes the issue workflow, workspace roles, public and private teams, custom statuses, comments, sub-issues, relations, labels, issue version history, cycles, projects, saved views, analytics, notifications, public sharing, webhooks, personal access tokens, invite links, workspace transfer and GitHub integration.',
 			list: [
+				'Workspace single sign-on with OIDC or SAML 2.0, plus SCIM 2.0 user and group provisioning',
 				'Private teams with membership-based access (v0.1.19)',
 				'Issue title and description version history (v0.1.22)',
 				'Cycle and project pages with the full issue list, list/board layouts and an issue picker (v0.1.23)',
@@ -46,7 +47,7 @@
 			body: 'These capabilities are not available in the current user interface. Their absence is documented so teams can evaluate Kuayle against present requirements rather than future assumptions.',
 			list: [
 				'Importers from other trackers (workspace transfer only moves data between Kuayle instances)',
-				'Enterprise identity: SAML SSO, SCIM and LDAP (OIDC SSO is available)',
+				'LDAP authentication',
 				'GitLab and chat integrations',
 				'Email notifications (notifications are delivered in-app)',
 				'Restoring an earlier issue version (history is read-only)',

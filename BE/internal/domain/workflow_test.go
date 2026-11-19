@@ -46,7 +46,7 @@ func TestFullCycleTemplateUsesEveryStepAndLoopsFailuresBack(t *testing.T) {
 			back[edge.Source] = edge.Condition
 		}
 	}
-	require.Equal(t, map[string]string{"implement": WorkflowAgentFailed, "tests": WorkflowChecksFailed, "publish": WorkflowPublishFailed,
+	require.Equal(t, map[string]string{"implement": WorkflowAgentFailed, "publish": WorkflowPublishFailed,
 		"review": WorkflowReviewChangesRequested, "ci": WorkflowChecksFailed, "ship": WorkflowApprovalDenied}, back)
 	retry := false
 	for _, edge := range g.Edges {
@@ -251,7 +251,9 @@ func TestDecideUsesElseAndReportsStuck(t *testing.T) {
 	require.Equal(t, "e", d.To.ID)
 	require.Contains(t, d.Reason, "(else)")
 	g.Edges[0].Condition = WorkflowChecksPassed
-	require.True(t, g.Decide(WorkflowCursor{Node: "c", Visits: map[string]int{}}, WorkflowChecksSkipped, time.Now(), nil).Stuck)
+	continued := g.Decide(WorkflowCursor{Node: "c", Visits: map[string]int{}}, WorkflowChecksSkipped, time.Now(), nil)
+	require.Equal(t, "e", continued.To.ID)
+	require.Equal(t, WorkflowChecksSkipped, continued.Outcome)
 }
 
 func TestRenderWorkflowPromptFencesVariables(t *testing.T) {
@@ -331,13 +333,12 @@ func TestMergeStepLeadsToADoneEnd(t *testing.T) {
 	require.Empty(t, ValidateWorkflowGraph(timeout, profiles), "a timeout may lead back to a person")
 }
 
-// Standard publishes unchecked work (no check configured) as a draft; its
-// read-only graph shows that transition (review finding 9).
-func TestStandardGraphPublishesUncheckedWork(t *testing.T) {
+// The Standard graph publishes a finished implementation directly.
+func TestStandardGraphPublishesFinishedWork(t *testing.T) {
 	graph := StandardWorkflowGraph()
-	decision := graph.Decide(WorkflowCursor{Node: "validate", Visits: map[string]int{}}, WorkflowChecksSkipped, time.Now(), nil)
+	decision := graph.Decide(WorkflowCursor{Node: "implement", Visits: map[string]int{}}, WorkflowAgentFinished, time.Now(), nil)
 	require.Equal(t, "publish", decision.To.ID)
-	require.Equal(t, WorkflowElse, decision.Condition)
+	require.Equal(t, WorkflowAgentFinished, decision.Condition)
 }
 
 // KUA-176: a publish step whose branch had no changes against its base
