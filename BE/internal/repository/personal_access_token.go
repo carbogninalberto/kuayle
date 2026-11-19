@@ -20,10 +20,12 @@ func NewPersonalAccessTokenRepository(db *sqlx.DB) *PersonalAccessTokenRepositor
 
 func (r *PersonalAccessTokenRepository) Create(ctx context.Context, token *domain.PersonalAccessToken) error {
 	query := `INSERT INTO personal_access_tokens (id, user_id, name, token_hash, token_prefix, scopes, workspace_slugs, expires_at, connection_link_id, sso_workspace_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING created_at`
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+		FROM (SELECT id FROM users WHERE id=$2 AND ($11::bigint IS NULL OR session_version=$11) FOR SHARE) account
+		RETURNING created_at`
 	return r.db.QueryRowContext(ctx, query,
 		token.ID, token.UserID, token.Name, token.TokenHash, token.TokenPrefix,
-		token.Scopes, token.WorkspaceSlugs, token.ExpiresAt, token.ConnectionLinkID, token.SSOWorkspaceID,
+		token.Scopes, token.WorkspaceSlugs, token.ExpiresAt, token.ConnectionLinkID, token.SSOWorkspaceID, domain.SessionVersion(ctx),
 	).Scan(&token.CreatedAt)
 }
 

@@ -49,6 +49,7 @@ const (
 	WorkflowMerged                 = "merged"
 	WorkflowTimeout                = "timeout"
 	WorkflowElse                   = "else"
+	WorkflowAssistant              = "assistant"
 	// WorkflowNoChanges is a publish step's outcome when the branch adds no
 	// changes to its base (nothing was pushed and no pull request opened,
 	// KUA-176). A transition naming it always follows it. An "else" transition
@@ -256,7 +257,7 @@ type WorkflowNode struct {
 	ID    string `json:"id"`
 	Type  string `json:"type"`
 	Label string `json:"label"`
-	// ProfileID is the agent profile an agent step runs.
+	// ProfileID runs the agent step, or supervises a built-in stage before it acts.
 	ProfileID *uuid.UUID `json:"profile_id,omitempty"`
 	// Prompt is the agent step's iteration prompt template, or the question
 	// an approval asks.
@@ -270,6 +271,23 @@ type WorkflowNode struct {
 	// Outcome is "done" or "failed" for an end node.
 	Outcome  string           `json:"outcome,omitempty"`
 	Position WorkflowPosition `json:"position"`
+}
+
+// Supervised reports whether a built-in stage runs an assistant on entry.
+func (n WorkflowNode) Supervised() bool { return n.Type != WorkflowNodeAgent && n.ProfileID != nil }
+
+// FirstRun is the worktree run created by delegation.
+func (g WorkflowGraph) FirstRun() WorkflowNode {
+	start, _ := g.Start()
+	if start.Supervised() {
+		return start
+	}
+	edge := g.leaving(start.ID, WorkflowElse)
+	if edge == nil {
+		return WorkflowNode{}
+	}
+	first, _ := g.Node(edge.Target)
+	return first
 }
 
 type WorkflowEdge struct {
@@ -403,9 +421,16 @@ func WorkflowNodeWaits(node WorkflowNode, profiles map[uuid.UUID]AgentProfile) b
 // WorkflowConditions returns the conditions an edge leaving the node may use.
 func WorkflowConditions(node WorkflowNode, profiles map[uuid.UUID]AgentProfile) []string {
 	if node.Type == WorkflowNodeStart {
+		if node.Supervised() {
+			return []string{WorkflowElse, WorkflowAssistant}
+		}
 		return []string{WorkflowElse}
 	}
-	return append(workflowOutcomes(node, profiles), WorkflowElse)
+	outcomes := append(workflowOutcomes(node, profiles), WorkflowElse)
+	if node.Supervised() && node.Type != WorkflowNodeEnd {
+		outcomes = append(outcomes, WorkflowAssistant)
+	}
+	return outcomes
 }
 
 // ValidateWorkflowGraph checks a graph against the profiles that exist (and
@@ -469,8 +494,13 @@ func ValidateWorkflowGraph(g WorkflowGraph, profiles map[uuid.UUID]AgentProfile)
 		default:
 			add("invalid_type", node.ID, "", "%s: unknown node type %q", label, node.Type)
 		}
-		if node.Type != WorkflowNodeAgent && node.ProfileID != nil {
-			add("unexpected_profile", node.ID, "", "%s: only agent steps run a profile", label)
+		if node.Supervised() {
+			profile, ok := profiles[*node.ProfileID]
+			if !ok {
+				add("missing_profile", node.ID, "", "%s: its assistant profile does not exist or was archived", label)
+			} else if profile.Behaviour != AgentBehaviourChangesCode {
+				add("stage_profile", node.ID, "", "%s: a stage assistant needs a profile that can work in the task worktree", label)
+			}
 		}
 	}
 	if starts != 1 {
@@ -517,7 +547,7 @@ func ValidateWorkflowGraph(g WorkflowGraph, profiles map[uuid.UUID]AgentProfile)
 			add("merge_target", edge.Source, edge.ID, "%s: merging completes the task, so this transition leads to an end that finishes as done", source.Label)
 		}
 		for _, other := range outgoing[edge.Source] {
-			if other.Condition == edge.Condition {
+			if other.Condition == edge.Condition && edge.Condition != WorkflowAssistant {
 				add("duplicate_condition", edge.Source, edge.ID, "%s: two transitions leave on %q", source.Label, edge.Condition)
 			}
 		}
@@ -533,6 +563,10 @@ func ValidateWorkflowGraph(g WorkflowGraph, profiles map[uuid.UUID]AgentProfile)
 			add("end_has_exit", node.ID, "", "%s: an end has no outgoing transitions", node.Label)
 		case node.Type == WorkflowNodeStart && incoming[node.ID] > 0:
 			add("start_has_entry", node.ID, "", "%s: nothing leads back to the start", node.Label)
+		case node.Type == WorkflowNodeStart && node.Supervised():
+			if g.leaving(node.ID, WorkflowElse) == nil {
+				add("start_exit", node.ID, "", "%s: choose the default transition from the start", node.Label)
+			}
 		case node.Type == WorkflowNodeStart && len(outgoing[node.ID]) != 1:
 			add("start_exit", node.ID, "", "%s: the start leads to exactly one step", node.Label)
 		case node.Type == WorkflowNodeStart:
@@ -740,6 +774,9 @@ func (g WorkflowGraph) Iteration(node WorkflowNode, profiles map[uuid.UUID]Agent
 // round: a planning step handing its plan to the implementer, or one
 // implementer handing its work to the next, is one iteration, not two.
 func (g WorkflowGraph) StartsIteration(decision WorkflowDecision, profiles map[uuid.UUID]AgentProfile) bool {
+	if decision.To.Supervised() {
+		return true
+	}
 	if !g.Iteration(decision.To, profiles) {
 		return false
 	}
@@ -760,7 +797,7 @@ func (g WorkflowGraph) leadsToApproval(id string) bool {
 // leads to an approval; otherwise the decision finishes the workflow (Finish)
 // with nothing new to publish. A merge only waits for a pull request, and with
 // nothing published none comes. It reports a limit when the target's visit
-// limit or the budget would be exceeded; reaching an end is never limited, so
+// limit or the budget would be exceeded; reaching an unassisted end is never limited, so
 // a workflow can always finish.
 func (g WorkflowGraph) Decide(cursor WorkflowCursor, outcome string, now time.Time, profiles map[uuid.UUID]AgentProfile) WorkflowDecision {
 	from, _ := g.Node(cursor.Node)
@@ -769,6 +806,20 @@ func (g WorkflowGraph) Decide(cursor WorkflowCursor, outcome string, now time.Ti
 	for i := range g.Edges {
 		edge := g.Edges[i]
 		if edge.Source != cursor.Node {
+			continue
+		}
+		if id, selected := strings.CutPrefix(outcome, WorkflowAssistant+":"); selected {
+			if from.Supervised() && edge.ID == id && g.assistantChoice(edge) {
+				chosen = &edge
+				break
+			}
+			continue
+		}
+		// A failed supervisor cannot grant approval or fall through to success.
+		if from.Supervised() && outcome == WorkflowAgentFailed {
+			continue
+		}
+		if edge.Condition == WorkflowAssistant {
 			continue
 		}
 		if edge.Condition == outcome && outcome != WorkflowElse {
@@ -792,6 +843,9 @@ func (g WorkflowGraph) Decide(cursor WorkflowCursor, outcome string, now time.Ti
 	to, _ := g.Node(chosen.Target)
 	decision.Edge, decision.To, decision.Condition = chosen, to, chosen.Condition
 	because := WorkflowOutcomeText(outcome)
+	if strings.HasPrefix(outcome, WorkflowAssistant+":") {
+		because = "stage assistant chose " + chosen.ID
+	}
 	if chosen.Condition == WorkflowElse && outcome != WorkflowElse {
 		because += " (else)"
 	}
@@ -801,10 +855,10 @@ func (g WorkflowGraph) Decide(cursor WorkflowCursor, outcome string, now time.Ti
 }
 
 // limit marks a decision whose target would exceed its visit limit or the
-// budget. Reaching an end is never limited.
+// budget. An unassisted end can always finish.
 func (g WorkflowGraph) limit(decision *WorkflowDecision, cursor WorkflowCursor, because string, now time.Time, profiles map[uuid.UUID]AgentProfile) {
 	to := decision.To
-	if to.Type == WorkflowNodeEnd {
+	if to.Type == WorkflowNodeEnd && !to.Supervised() {
 		return
 	}
 	switch {
@@ -1295,19 +1349,22 @@ func FullCycleWorkflowGraph(implementer, reviewer uuid.UUID) WorkflowGraph {
 // WorkflowStep is one node a task entered: the path taken, with the
 // transition that led there and why it fired.
 type WorkflowStep struct {
-	TaskID       uuid.UUID  `json:"task_id" db:"task_id"`
-	Sequence     int        `json:"sequence" db:"sequence"`
-	NodeID       string     `json:"node_id" db:"node_id"`
-	NodeType     string     `json:"node_type" db:"node_type"`
-	Visit        int        `json:"visit" db:"visit"`
-	FromNode     *string    `json:"from_node,omitempty" db:"from_node"`
-	EdgeID       *string    `json:"edge_id,omitempty" db:"edge_id"`
-	Condition    *string    `json:"condition,omitempty" db:"condition"`
-	Reason       string     `json:"reason" db:"reason"`
-	Generation   *int64     `json:"generation,omitempty" db:"generation"`
-	ReviewTaskID *uuid.UUID `json:"review_task_id,omitempty" db:"review_task_id"`
-	Outcome      *string    `json:"outcome,omitempty" db:"outcome"`
-	Detail       string     `json:"detail" db:"detail"`
+	TaskID             uuid.UUID  `json:"task_id" db:"task_id"`
+	Sequence           int        `json:"sequence" db:"sequence"`
+	NodeID             string     `json:"node_id" db:"node_id"`
+	NodeType           string     `json:"node_type" db:"node_type"`
+	Visit              int        `json:"visit" db:"visit"`
+	FromNode           *string    `json:"from_node,omitempty" db:"from_node"`
+	EdgeID             *string    `json:"edge_id,omitempty" db:"edge_id"`
+	Condition          *string    `json:"condition,omitempty" db:"condition"`
+	Reason             string     `json:"reason" db:"reason"`
+	Generation         *int64     `json:"generation,omitempty" db:"generation"`
+	StageMergeObserved bool       `json:"-" db:"stage_merge_observed"`
+	StageFirstRunID    *uuid.UUID `json:"-" db:"stage_first_run_id"`
+	StageInputRunID    *uuid.UUID `json:"-" db:"stage_input_run_id"`
+	ReviewTaskID       *uuid.UUID `json:"review_task_id,omitempty" db:"review_task_id"`
+	Outcome            *string    `json:"outcome,omitempty" db:"outcome"`
+	Detail             string     `json:"detail" db:"detail"`
 	// Plan is the plan a planning step produced, whole.
 	Plan       *string    `json:"plan,omitempty" db:"plan"`
 	DecidedBy  *uuid.UUID `json:"decided_by,omitempty" db:"decided_by"`

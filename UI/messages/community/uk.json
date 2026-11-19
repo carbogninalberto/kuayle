@@ -3734,6 +3734,8 @@
 	"workflows.editor.show_panel": "Показати бічну панель",
 	"workflows.editor.nothing_selected": "Виберіть крок або перехід на полотні чи в списках нижче.",
 	"workflows.editor.node_label": "Назва",
+	"workflows.editor.stage_assistant": "Асистент етапу",
+	"workflows.condition.assistant": "Вибір асистента",
 	"workflows.editor.node_profile": "Профіль агента",
 	"workflows.editor.node_profile_placeholder": "Виберіть профіль",
 	"workflows.editor.node_prompt": "Промпт ітерації",

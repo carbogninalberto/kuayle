@@ -3734,6 +3734,8 @@
 	"workflows.editor.show_panel": "Oldalpanel megjelenítése",
 	"workflows.editor.nothing_selected": "Válassz egy lépést vagy átmenetet a vásznon, vagy az alábbi listákban.",
 	"workflows.editor.node_label": "Név",
+	"workflows.editor.stage_assistant": "Szakaszsegéd",
+	"workflows.condition.assistant": "A segéd választása",
 	"workflows.editor.node_profile": "Agentprofil",
 	"workflows.editor.node_profile_placeholder": "Profil választása",
 	"workflows.editor.node_prompt": "Iterációs prompt",

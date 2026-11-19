@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/agent"
@@ -30,7 +29,11 @@ func (s *AgentTaskService) Options(ctx context.Context, ws, conversation uuid.UU
 	if c.IssueID == nil {
 		return nil, repository.ErrConversationInvalid
 	}
-	if _, err = s.machines.enabledPolicy(ctx, ws); err != nil {
+	return s.issueTaskOptions(ctx, ws, *c.IssueID)
+}
+
+func (s *AgentTaskService) issueTaskOptions(ctx context.Context, ws, issue uuid.UUID) (*AgentTaskOptions, error) {
+	if _, err := s.machines.enabledPolicy(ctx, ws); err != nil {
 		return nil, err
 	}
 	providers, err := s.machines.AvailableProviders(ctx, ws)
@@ -45,7 +48,7 @@ func (s *AgentTaskService) Options(ctx context.Context, ws, conversation uuid.UU
 			result.Providers = append(result.Providers, p)
 		}
 	}
-	preferred, err := s.Repo.DefaultProvider(ctx, ws, *c.IssueID)
+	preferred, err := s.Repo.DefaultProvider(ctx, ws, issue)
 	if err != nil {
 		return nil, err
 	}
@@ -120,6 +123,12 @@ func (s *AgentTaskService) Create(ctx context.Context, ws, conversation uuid.UUI
 			return nil, err
 		}
 	}
+	if input.RequestedEffort != "" {
+		if _, err := s.validateAssistantEffort(ctx, ws, input); err != nil {
+			return nil, err
+		}
+		input.Thinking = input.RequestedEffort
+	}
 	if err := s.validateRequest(ctx, ws, input); err != nil {
 		return nil, err
 	}
@@ -138,20 +147,35 @@ func (s *AgentTaskService) Retry(ctx context.Context, ws, id uuid.UUID, input do
 	if err != nil {
 		return nil, err
 	}
-	model, thinking, serverID := task.Model, task.Thinking, task.ModelServerID
-	if input.Model != "" {
-		// Keep thinking and the model server consistent with the new model.
-		servers, err := s.machines.ListModelServers(ctx, ws)
-		if err != nil {
-			return nil, err
-		}
-		model, thinking, serverID = retryModel(servers, task, input.Model, input.RequestedModelServerID)
-		input.Thinking, input.ModelServerID = thinking, serverID
-	}
-	if err = s.validateRequest(ctx, ws, domain.AgentTaskRequest{Prompt: input.Prompt, Provider: task.Provider, Model: model, Thinking: thinking, ModelServerID: serverID}); err != nil {
+	invocation, err := s.retryInvocation(ctx, ws, task, input)
+	if err != nil {
 		return nil, err
 	}
+	if input.RequestedEffort != "" {
+		if _, err = s.validateAssistantEffort(ctx, ws, invocation); err != nil {
+			return nil, err
+		}
+	}
+	if err = s.validateRequest(ctx, ws, invocation); err != nil {
+		return nil, err
+	}
+	input.Thinking, input.ModelServerID = invocation.Thinking, invocation.ModelServerID
 	return s.Repo.Retry(ctx, ws, id, input)
+}
+
+func (s *AgentTaskService) retryInvocation(ctx context.Context, ws uuid.UUID, task *domain.AgentTask, input domain.AgentTaskRetryRequest) (domain.AgentTaskRequest, error) {
+	invocation := domain.AgentTaskRequest{Prompt: input.Prompt, Provider: task.Provider, Model: task.Model, Thinking: task.Thinking, ModelServerID: task.ModelServerID, RequestedEffort: input.RequestedEffort}
+	if input.Model != "" {
+		servers, err := s.machines.ListModelServers(ctx, ws)
+		if err != nil {
+			return domain.AgentTaskRequest{}, err
+		}
+		invocation.Model, invocation.Thinking, invocation.ModelServerID = retryModel(servers, task, input.Model, input.RequestedModelServerID)
+	}
+	if input.RequestedEffort != "" {
+		invocation.Thinking = input.RequestedEffort
+	}
+	return invocation, nil
 }
 
 // Accept completes the creator's task awaiting review in Kuayle without
@@ -265,12 +289,8 @@ func (s *AgentTaskService) stepError(ctx context.Context, ws uuid.UUID, version 
 // profile must be allowed by the workspace policy now; each step is checked
 // again when it runs.
 func (s *AgentTaskService) resolveWorkflow(ctx context.Context, ws, conversation uuid.UUID, input *domain.AgentTaskRequest) error {
-	input.Workflow, input.WorkflowInstructions = nil, ""
 	if s.definitions == nil {
-		if input.WorkflowID != nil && *input.WorkflowID != domain.StandardWorkflowID && *input.WorkflowID != "" {
-			return repository.ErrWorkflowNotFound
-		}
-		return nil
+		return s.resolveIssueWorkflow(ctx, ws, uuid.Nil, input)
 	}
 	c, err := s.Repo.Conversation(ctx, ws, conversation)
 	if err != nil {
@@ -279,7 +299,18 @@ func (s *AgentTaskService) resolveWorkflow(ctx context.Context, ws, conversation
 	if c.IssueID == nil {
 		return repository.ErrConversationInvalid
 	}
-	version, err := s.definitions.ResolveWorkflow(ctx, ws, *c.IssueID, input.WorkflowID)
+	return s.resolveIssueWorkflow(ctx, ws, *c.IssueID, input)
+}
+
+func (s *AgentTaskService) resolveIssueWorkflow(ctx context.Context, ws, issue uuid.UUID, input *domain.AgentTaskRequest) error {
+	input.Workflow, input.WorkflowInstructions = nil, ""
+	if s.definitions == nil {
+		if input.WorkflowID != nil && *input.WorkflowID != domain.StandardWorkflowID && *input.WorkflowID != "" {
+			return repository.ErrWorkflowNotFound
+		}
+		return nil
+	}
+	version, err := s.definitions.ResolveWorkflow(ctx, ws, issue, input.WorkflowID)
 	if err != nil || version == nil {
 		return err
 	}
@@ -295,15 +326,14 @@ func (s *AgentTaskService) resolveWorkflow(ctx context.Context, ws, conversation
 		return ErrWorkflowUnusable
 	}
 	for _, node := range graph.Nodes {
-		if node.Type == domain.WorkflowNodeAgent {
+		if node.ProfileID != nil {
 			profile := profiles[*node.ProfileID]
 			if err = s.profilePolicy(ctx, ws, profile); err != nil {
 				return s.stepError(ctx, ws, version, node, profile, err)
 			}
 		}
 	}
-	start, _ := graph.Start()
-	first := graph.Decide(domain.WorkflowCursor{Node: start.ID, Visits: map[string]int{}}, domain.WorkflowElse, time.Now(), profiles).To
+	first := graph.FirstRun()
 	profile := profiles[*first.ProfileID]
 	input.Provider, input.Model, input.Thinking, input.ModelServerID = profile.Harness, profile.Model, profile.Effort, nil
 	input.Workflow = version

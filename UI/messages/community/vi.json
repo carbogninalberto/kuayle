@@ -3734,6 +3734,8 @@
 	"workflows.editor.show_panel": "Hiện bảng bên",
 	"workflows.editor.nothing_selected": "Chọn một bước hoặc một chuyển tiếp trên canvas, hoặc trong các danh sách bên dưới.",
 	"workflows.editor.node_label": "Tên",
+	"workflows.editor.stage_assistant": "Trợ lý giai đoạn",
+	"workflows.condition.assistant": "Lựa chọn của trợ lý",
 	"workflows.editor.node_profile": "Hồ sơ agent",
 	"workflows.editor.node_profile_placeholder": "Chọn một hồ sơ",
 	"workflows.editor.node_prompt": "Prompt của lần chạy",

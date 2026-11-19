@@ -731,7 +731,7 @@ func (s *WorkflowService) graphIssues(ctx context.Context, ws uuid.UUID, raw jso
 	}
 	reasons := map[uuid.UUID]string{}
 	for _, node := range graph.Nodes {
-		if node.Type != domain.WorkflowNodeAgent || node.ProfileID == nil {
+		if node.ProfileID == nil {
 			continue
 		}
 		profile, ok := profiles[*node.ProfileID]

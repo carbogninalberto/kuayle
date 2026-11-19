@@ -49,6 +49,10 @@ func GetSessionSSOWorkspace(c *echo.Context) uuid.UUID {
 	return id
 }
 
+type SessionVersions interface {
+	SessionCurrent(ctx context.Context, userID uuid.UUID, version int64) (bool, error)
+}
+
 // SessionPasskeys tells whether the passkey a session was minted with still
 // belongs to the user. Removing a passkey must end its sessions at once, not
 // when their access tokens expire.
@@ -69,6 +73,10 @@ func Auth(jwtSecret string, patRepo repository.PersonalAccessTokenRepo, hostCook
 
 // AuthWithPasskeys is Auth that also rejects sessions whose passkey was removed.
 func AuthWithPasskeys(jwtSecret string, patRepo repository.PersonalAccessTokenRepo, passkeys SessionPasskeys, hostCookies ...bool) echo.MiddlewareFunc {
+	return AuthWithSessionVersions(jwtSecret, patRepo, passkeys, nil, hostCookies...)
+}
+
+func AuthWithSessionVersions(jwtSecret string, patRepo repository.PersonalAccessTokenRepo, passkeys SessionPasskeys, sessions SessionVersions, hostCookies ...bool) echo.MiddlewareFunc {
 	cookieName := "access_token"
 	if len(hostCookies) > 0 && hostCookies[0] {
 		cookieName = "__Host-kuayle-access"
@@ -113,6 +121,18 @@ func AuthWithPasskeys(jwtSecret string, patRepo repository.PersonalAccessTokenRe
 			claims, err := jwtpkg.ValidateAccessToken(tokenString, jwtSecret)
 			if err != nil {
 				return response.Unauthorized(c)
+			}
+
+			if sessions != nil {
+				current, err := sessions.SessionCurrent(c.Request().Context(), claims.UserID, claims.SessionVersion)
+				if err != nil {
+					log.WithError(err).Error("failed to check session revocation")
+					return response.InternalError(c)
+				}
+				if !current {
+					return response.Unauthorized(c)
+				}
+				c.SetRequest(c.Request().WithContext(domain.WithSessionVersion(c.Request().Context(), claims.SessionVersion)))
 			}
 
 			if claims.PasskeyID != "" {

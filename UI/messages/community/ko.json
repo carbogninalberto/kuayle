@@ -3734,6 +3734,8 @@
 	"workflows.editor.show_panel": "사이드 패널 표시",
 	"workflows.editor.nothing_selected": "캔버스나 아래 목록에서 단계 또는 전환을 선택하세요.",
 	"workflows.editor.node_label": "이름",
+	"workflows.editor.stage_assistant": "단계 도우미",
+	"workflows.condition.assistant": "도우미 선택",
 	"workflows.editor.node_profile": "에이전트 프로필",
 	"workflows.editor.node_profile_placeholder": "프로필 선택",
 	"workflows.editor.node_prompt": "반복 프롬프트",

@@ -3734,6 +3734,8 @@
 	"workflows.editor.show_panel": "הצג את החלונית הצדדית",
 	"workflows.editor.nothing_selected": "בחרו שלב או מעבר בקנבס, או ברשימות שלמטה.",
 	"workflows.editor.node_label": "שם",
+	"workflows.editor.stage_assistant": "עוזר השלב",
+	"workflows.condition.assistant": "בחירת העוזר",
 	"workflows.editor.node_profile": "פרופיל סוכן",
 	"workflows.editor.node_profile_placeholder": "בחירת פרופיל",
 	"workflows.editor.node_prompt": "פרומפט האיטרציה",

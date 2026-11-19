@@ -1022,6 +1022,9 @@
 									/></CodeBlock.Root
 								>
 							{/if}
+							{#if (approval.action === 'delegate_issue' || approval.action === 'follow_up_task') && approval.payload.effort}
+								<p class="text-xs text-muted-foreground">{m['tasks.effort']()}: {approval.payload.effort}</p>
+							{/if}
 							{#if (approval.action === 'delegate_issue' && !isCustomChoice(workflowOf(approval))) || approval.action === 'request_agent_review' || approval.action === 'follow_up_task'}
 								<ApprovalModelPicker
 									{slug}

@@ -3734,6 +3734,8 @@
 	"workflows.editor.show_panel": "Mostra pannello laterale",
 	"workflows.editor.nothing_selected": "Seleziona un passaggio o una transizione nell'area o negli elenchi qui sotto.",
 	"workflows.editor.node_label": "Nome",
+	"workflows.editor.stage_assistant": "Assistente della fase",
+	"workflows.condition.assistant": "Scelta dell’assistente",
 	"workflows.editor.node_profile": "Profilo agente",
 	"workflows.editor.node_profile_placeholder": "Scegli un profilo",
 	"workflows.editor.node_prompt": "Prompt dell'iterazione",

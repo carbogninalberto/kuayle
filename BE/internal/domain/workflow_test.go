@@ -710,3 +710,27 @@ func TestSendBackGoesToTheFirstStepThatChangesCodeWithinItsLimits(t *testing.T) 
 	g.Nodes = g.Nodes[:0]
 	require.True(t, g.SendBack(WorkflowCursor{Node: "ship"}, WorkflowBranchConflict, now, profiles).Stuck)
 }
+
+func TestStageAssistantsAndTheirOutgoingRoutes(t *testing.T) {
+	builder, reviewer, profiles := exampleProfiles()
+	g := FullCycleWorkflowGraph(builder, reviewer)
+	for i := range g.Nodes {
+		if g.Nodes[i].Type != WorkflowNodeAgent {
+			g.Nodes[i].ProfileID = &builder
+		}
+	}
+	g.Edges = append(g.Edges,
+		WorkflowEdge{ID: "fix", Source: "ci", Target: "implement", Condition: "assistant"},
+		WorkflowEdge{ID: "inspect", Source: "ci", Target: "review", Condition: "assistant"})
+	require.Empty(t, ValidateWorkflowGraph(g, profiles))
+	cursor := WorkflowCursor{Node: "ci", Visits: map[string]int{}}
+	require.Equal(t, "review", g.Decide(cursor, "assistant:inspect", time.Now(), profiles).To.ID)
+	for _, edge := range g.Edges {
+		if edge.Source == "ci" && edge.Condition == WorkflowChecksFailed {
+			require.Equal(t, edge.Target, g.Decide(cursor, "assistant:"+edge.ID, time.Now(), profiles).To.ID)
+		}
+	}
+	for _, forged := range []string{"assistant:missing", "assistant:ci-passed", "assistant:start-implement"} {
+		require.True(t, g.Decide(cursor, forged, time.Now(), profiles).Stuck, forged)
+	}
+}

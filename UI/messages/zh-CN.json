@@ -3734,6 +3734,8 @@
 	"workflows.editor.show_panel": "显示侧边面板",
 	"workflows.editor.nothing_selected": "在画布或下方列表中选择一个步骤或转换。",
 	"workflows.editor.node_label": "名称",
+	"workflows.editor.stage_assistant": "阶段助手",
+	"workflows.condition.assistant": "助手选择",
 	"workflows.editor.node_profile": "智能体配置",
 	"workflows.editor.node_profile_placeholder": "选择配置",
 	"workflows.editor.node_prompt": "迭代提示",

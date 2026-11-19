@@ -200,6 +200,7 @@ func main() {
 		log.Fatalf("failed to set up passkeys: %v", err)
 	}
 	passkeyH := handler.NewPasskeyHandler(passkeySvc, authH)
+	scimH := handler.NewSCIMHandler(service.NewSCIMService(repository.NewSCIMRepository(db), workspaceSvc), cfg.FrontendURL)
 	ssoH := handler.NewSSOHandler(ssoSvc, authH, cfg.Environment != "development" || cfg.DevMachine.AllowSameSite)
 	configH := handler.NewConfigHandler(authSvc.PublicRegistrationEnabled()).
 		WithPasskeys(passkeySvc.Enabled()).
@@ -278,6 +279,7 @@ func main() {
 	agentTaskSvc.SetMemory(memorySvc)
 	memoryH := handler.NewWorkspaceMemoryHandler(memorySvc)
 	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))
+	assistantTools.SetAgentTasks(agentTaskSvc)
 	assistantTools.SetTaskWatchers(repository.NewAgentTaskRepository(db))
 	assistantTools.SetRepositories(devMachineRepo)
 	assistantTools.SetLiveChannel(repository.NewAgentTaskRepository(db))
@@ -494,6 +496,7 @@ func main() {
 		auth:              authH,
 		passkey:           passkeyH,
 		sso:               ssoH,
+		scim:              scimH,
 		workspace:         workspaceH,
 		team:              teamH,
 		issue:             issueH,
@@ -538,7 +541,7 @@ func main() {
 		wikiPublish:       handler.NewWikiPublishHandler(wikiPublishSvc, cfg.FrontendURL),
 		openapi:           handler.NewOpenAPIHandler(buildinfo.Version),
 	}, &appMiddleware{
-		auth:                   mw.AuthWithPasskeys(cfg.JWTSecret, patRepo, passkeySvc, cfg.DevMachine.AllowSameSite),
+		auth:                   mw.AuthWithSessionVersions(cfg.JWTSecret, patRepo, passkeySvc, refreshRepo, cfg.DevMachine.AllowSameSite),
 		authRateLimit:          mw.RateLimit(5, 10),
 		publicRateLimit:        mw.RateLimit(2, 5),
 		publicAssetRateLimit:   mw.RateLimit(10, 20),

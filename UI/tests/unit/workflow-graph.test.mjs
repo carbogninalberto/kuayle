@@ -28,6 +28,7 @@ import {
 	newNode,
 	pathOf,
 	pendingDecision,
+	runChartGraph,
 	runOverlay,
 	placeIssues,
 	removeNode,
@@ -117,7 +118,7 @@ test('saving drops empty optional fields and keeps limits', () => {
 		profile_id: 'impl',
 		max_visits: 3
 	});
-	assert.equal(saved.nodes[0].profile_id, undefined, 'only agent steps keep a profile');
+	assert.equal(saved.nodes[0].profile_id, 'impl', 'start keeps its stage assistant');
 	assert.deepEqual(saved.budget, { max_minutes: 90, on_exhausted: 'ask' });
 });
 
@@ -200,6 +201,101 @@ test('the run overlay marks the current node and keeps it visited for a Standard
 	);
 	assert.deepEqual([...traced.visited], ['start', 'implement']);
 	assert.equal(traced.fired.get('e1').count, 1);
+});
+
+const mergeRun = (patch = {}) =>
+	run({
+		graph: templates.full_cycle,
+		node: 'merge',
+		status: 'done',
+		task_state: 'completed',
+		task_reason: 'Pull request #12 was merged on GitHub',
+		visits: { ship: 1, merge: 1 },
+		steps: [
+			{ sequence: 1, node_id: 'ship', reason: 'Checks passed' },
+			{ sequence: 2, node_id: 'merge', edge_id: 'ship-merge-approval_approved', outcome: 'task_completed' }
+		],
+		...patch
+	});
+
+test('a confirmed merge completes the run at the end of its merged transition', () => {
+	const completed = mergeRun();
+	const overlay = runOverlay(completed);
+	assert.equal(overlay.current, null);
+	assert.equal(overlay.focus, 'done');
+	assert.deepEqual([...overlay.visited], ['ship', 'merge', 'done']);
+	assert.equal(overlay.visits.done, 1);
+	assert.deepEqual([...overlay.fired.keys()], ['ship-merge-approval_approved', 'merge-done-merged']);
+	const chart = runChartGraph(completed.graph, overlay);
+	assert.deepEqual(chart.nodes.filter((node) => node.type === 'end').map((node) => node.id), ['done']);
+	assert.deepEqual(chart.edges.filter((edge) => edge.target === 'done').map((edge) => edge.id), ['merge-done-merged']);
+	assert.ok(!chart.edges.some((edge) => edge.target === 'failed'));
+});
+
+test('a confirmed merge prefers its explicit transition and falls back to else', () => {
+	const completed = mergeRun();
+	const fallback = { id: 'merge-else', source: 'merge', target: 'other-end', condition: 'else' };
+	const graph = {
+		...completed.graph,
+		nodes: [...completed.graph.nodes, { id: 'other-end', type: 'end', outcome: 'done' }],
+		edges: [fallback, ...completed.graph.edges]
+	};
+	assert.equal(runOverlay({ ...completed, graph }).focus, 'done');
+	graph.edges = graph.edges.filter((edge) => edge.condition !== 'merged');
+	const overlay = runOverlay({ ...completed, graph });
+	assert.equal(overlay.focus, 'other-end');
+	assert.ok(overlay.fired.has(fallback.id));
+});
+
+test('a terminal run preserves a recorded ending and does not count the ending twice', () => {
+	const completed = mergeRun();
+	const overlay = runOverlay({
+		...completed,
+		steps: [...completed.steps, { sequence: 3, node_id: 'done', edge_id: 'merge-done-merged' }],
+		visits: { ...completed.visits, done: 1 },
+		node: 'done'
+	});
+	assert.equal(overlay.current, null);
+	assert.equal(overlay.focus, 'done');
+	assert.equal(overlay.fired.get('merge-done-merged').count, 1);
+	assert.equal(overlay.visits.done, 1);
+});
+
+test('a merge marks its transition even when an earlier attempt reached the same end', () => {
+	const completed = mergeRun();
+	const overlay = runOverlay({
+		...completed,
+		steps: [{ sequence: 0, node_id: 'done' }, ...completed.steps],
+		visits: { ...completed.visits, done: 1 }
+	});
+	assert.equal(overlay.visits.done, 2);
+	assert.equal(overlay.fired.get('merge-done-merged').count, 1);
+});
+
+test('failed, cancelled and accepted runs without a terminal transition preserve only the recorded path', () => {
+	for (const [task_state, status] of [['failed', 'failed'], ['cancelled', 'waiting'], ['completed', 'done']]) {
+		const overlay = runOverlay(mergeRun({ task_state, status, task_reason: 'Stopped outside the workflow' }));
+		assert.equal(overlay.current, null, task_state);
+		assert.equal(overlay.focus, 'merge', task_state);
+		assert.deepEqual([...overlay.visited], ['ship', 'merge'], task_state);
+		assert.deepEqual([...overlay.fired.keys()], ['ship-merge-approval_approved'], task_state);
+	}
+});
+
+test('a failed workflow keeps the end and transition it reached', () => {
+	const failure = 'ci-failed-timeout';
+	const failed = mergeRun({
+		node: 'failed',
+		status: 'failed',
+		task_state: 'failed',
+		steps: [{ sequence: 1, node_id: 'failed', edge_id: failure }]
+	});
+	const overlay = runOverlay(failed);
+	assert.equal(overlay.current, null);
+	assert.equal(overlay.focus, 'failed');
+	const chart = runChartGraph(failed.graph, overlay);
+	assert.deepEqual(chart.nodes.filter((node) => node.type === 'end').map((node) => node.id), ['failed']);
+	assert.deepEqual(chart.edges.filter((edge) => edge.target === 'failed').map((edge) => edge.id), [failure]);
 });
 
 test('a person decides an approval only while the task awaits it, and a limit while paused', () => {

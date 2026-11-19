@@ -3734,6 +3734,8 @@
 	"workflows.editor.show_panel": "Εμφάνιση πλαϊνού πίνακα",
 	"workflows.editor.nothing_selected": "Επιλέξτε ένα βήμα ή μια μετάβαση στον καμβά ή στις λίστες παρακάτω.",
 	"workflows.editor.node_label": "Όνομα",
+	"workflows.editor.stage_assistant": "Βοηθός σταδίου",
+	"workflows.condition.assistant": "Επιλογή βοηθού",
 	"workflows.editor.node_profile": "Προφίλ πράκτορα",
 	"workflows.editor.node_profile_placeholder": "Επιλέξτε προφίλ",
 	"workflows.editor.node_prompt": "Prompt επανάληψης",

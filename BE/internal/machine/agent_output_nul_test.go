@@ -14,9 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// KUA-188: a NUL in agent output reached the jsonb insert as the escape
-// \u0000, PostgreSQL rejected it (22P05) and the run stopped.
-func TestAgentOutputWithNULIsPersistedWithoutIt(t *testing.T) {
+func TestAgentRunContinuesAfterOutputWithNUL(t *testing.T) {
 	key := cryptoutil.DeriveKey("nul-output-test")
 	encrypted, err := cryptoutil.Encrypt("fixture-model-key", key)
 	require.NoError(t, err)
@@ -24,14 +22,17 @@ func TestAgentOutputWithNULIsPersistedWithoutIt(t *testing.T) {
 	store := &managerStoreFake{machine: &domain.DevMachine{ID: run.MachineID, WorkspaceID: run.WorkspaceID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1}, agentRun: run, provider: &domain.DevMachineAgentProvider{ProviderID: "codex", ImageRef: "test"}, modelServer: &domain.AgentModelServer{EncryptedAPIKey: encrypted, DefaultModel: "deepseek-flash", Thinking: "high"}}
 	runtime := &runtimeFake{agentExecution: &AgentExecution{
 		ContainerID: "native",
-		Stdout: `{"type":"item.completed","item":{"text":"a\u0000b","k\u0000":"v"}}` + "\n" +
-			`{"type":"tool\u0000.output","n":12345678901234567890}` + "\n" +
-			"hello\x00world\n",
+		Stdout: `{"type":"tool\u0000.output","text":"a\u0000b\ud800"}` + "\n" +
+			"hello\x00world\n" +
+			`{"type":"item.completed","item":{"type":"agent_message","text":"Finished the issue."}}` + "\n",
 		Stderr: "warn\x00ing\n",
 	}}
 	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewCodexProvider("test")), nil, key, nil, "test")
 
 	require.NoError(t, manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{AgentRunID: &run.ID, Generation: 1}))
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, run.Status)
+	require.NotNil(t, run.Summary)
+	require.Equal(t, "Finished the issue.", *run.Summary)
 
 	// Content: raw NUL bytes become U+FFFD before persistence, so replaying
 	// an already stored line compares equal.
@@ -43,36 +44,22 @@ func TestAgentOutputWithNULIsPersistedWithoutIt(t *testing.T) {
 	require.Contains(t, contents, "hello\uFFFDworld\n", "stdout content")
 	require.Contains(t, contents, "warn\uFFFDing\n", "stderr content")
 
-	// Event payloads: no NUL in any form reaches jsonb.
-	byType := map[string]json.RawMessage{}
+	var types []string
 	for _, event := range store.events {
-		require.NotContains(t, event.EventType, "\x00")
-		require.NotContains(t, string(event.Payload), `\u0000`)
-		require.NotContains(t, string(event.Payload), "\x00")
-		byType[event.EventType] = event.Payload
+		types = append(types, event.EventType)
 	}
-	completed, ok := byType["item.completed"]
-	require.True(t, ok, "events: %v", byType)
-	require.True(t, json.Valid(completed))
-	var decoded struct {
-		Item map[string]string `json:"item"`
-	}
-	require.NoError(t, json.Unmarshal(completed, &decoded))
-	require.Equal(t, map[string]string{"text": "ab", "k": "v"}, decoded.Item)
-
-	output, ok := byType["tool.output"]
-	require.True(t, ok, "a NUL in the event type is stripped: %v", byType)
-	require.Contains(t, string(output), `"n":12345678901234567890`)
+	require.Contains(t, types, "tool.output")
+	require.Contains(t, types, "item.completed")
 }
 
-func TestAgentEventRecordStripsNULFromTypeAndMessageFallback(t *testing.T) {
+func TestAgentEventRecordPreservesPayloadAndFallsBackToMessage(t *testing.T) {
 	for name, parsed := range map[string]agent.Event{
 		"empty payload":   {Type: "note", Message: "a\x00b"},
 		"invalid payload": {Type: "note", Message: "a\x00b", Payload: json.RawMessage(`{"x":"\u0000"`)},
 	} {
 		eventType, payload := agentEventRecord(parsed)
 		require.Equal(t, "note", eventType, name)
-		require.JSONEq(t, `{"message":"ab"}`, string(payload), name)
+		require.JSONEq(t, `{"message":"a\u0000b"}`, string(payload), name)
 	}
 
 	eventType, _ := agentEventRecord(agent.Event{Type: "\x00"})
@@ -80,7 +67,7 @@ func TestAgentEventRecordStripsNULFromTypeAndMessageFallback(t *testing.T) {
 	eventType, _ = agentEventRecord(agent.Event{Type: strings.Repeat("t", 129)})
 	require.Equal(t, "provider.event", eventType)
 
-	clean := json.RawMessage(`{ "type": "x",  "a": 1 }`)
-	_, payload := agentEventRecord(agent.Event{Type: "x", Payload: clean})
-	require.Equal(t, clean, payload, "payloads without NUL are stored byte for byte")
+	raw := json.RawMessage(`{ "type": "x",  "a": "\u0000\ud800" }`)
+	_, payload := agentEventRecord(agent.Event{Type: "x", Payload: raw})
+	require.Equal(t, raw, payload)
 }

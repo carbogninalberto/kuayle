@@ -149,6 +149,7 @@ type DelegationPayload struct {
 	// means the workspace, project or team default. The approver can change them.
 	Harness string `json:"harness,omitempty"`
 	Model   string `json:"model,omitempty"`
+	Effort  string `json:"effort,omitempty"`
 	// WorkflowID is the workflow the assistant chose ("standard" or a
 	// workflow ID of the workspace) and Workflow its name for the card; empty
 	// means the issue's default workflow. Creating the task checks it again.
@@ -314,6 +315,8 @@ type FollowUpPayload struct {
 	Instructions string    `json:"instructions"`
 	// Model switches the task's model for this attempt; the harness stays.
 	Model string `json:"model,omitempty"`
+	// Effort overrides the task's thinking level for the follow-up.
+	Effort string `json:"effort,omitempty"`
 	// CurrentModel is the model the task ran with, shown on the card.
 	CurrentModel string `json:"current_model,omitempty"`
 	// Harness is the task's coding agent, shown on the card.

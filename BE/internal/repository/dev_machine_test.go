@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -1586,6 +1587,57 @@ func TestReconcileOrphanedCheckouts(t *testing.T) {
 	require.NoError(t, db.QueryRow(`SELECT status,last_error FROM dev_machine_checkouts WHERE id=$1`, missingID).Scan(&retryStatus, &retryLastError))
 	require.Equal(t, "queued", retryStatus)
 	require.Nil(t, retryLastError)
+}
+
+func TestStoreAgentRunOutputReplacesInvalidUnicode(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db := isolatedPrivacyDatabase(t, databaseURL)
+	fixture := newEnvironmentRaceFixture(t, db)
+	machineID := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	runID := uuid.New()
+	_, err := db.Exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,provider_id,mode,status,prompt,command_argv,max_runtime_seconds)
+		VALUES($1,$2,$3,'codex','autonomous','running','test','[]',60)`, runID, fixture.workspaceID, machineID)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	payload := json.RawMessage(`{"summary":"done\u0000","details":["\ud800"]}`)
+	wantPayload := `{"summary":"done�","details":["�"]}`
+	text := "done\x00 \xed\xa0\x80"
+	t.Run("event", func(t *testing.T) {
+		event := &domain.DevMachineEvent{WorkspaceID: fixture.workspaceID, MachineID: machineID, AgentRunID: &runID, Source: "agent", EventType: "agent.\x00note", Payload: payload}
+		require.NoError(t, fixture.repository.CreateEvent(ctx, event))
+		var eventType, stored string
+		require.NoError(t, db.QueryRow(`SELECT event_type, payload::text FROM dev_machine_events WHERE id=$1`, event.ID).Scan(&eventType, &stored))
+		require.Equal(t, "agent.�note", eventType)
+		require.JSONEq(t, wantPayload, stored)
+	})
+	t.Run("log chunk", func(t *testing.T) {
+		chunk := &domain.DevMachineLogChunk{WorkspaceID: fixture.workspaceID, MachineID: machineID, AgentRunID: &runID, Stream: "stdout", Sequence: 1, Content: text}
+		require.NoError(t, fixture.repository.CreateLogChunk(ctx, chunk))
+		var stored string
+		require.NoError(t, db.Get(&stored, `SELECT content FROM dev_machine_log_chunks WHERE id=$1`, chunk.ID))
+		require.Equal(t, "done\uFFFD \uFFFD", stored)
+	})
+	t.Run("run completion", func(t *testing.T) {
+		run, err := fixture.repository.GetAgentRunInternal(ctx, runID)
+		require.NoError(t, err)
+		run.Status = domain.DevMachineAgentRunStatusSucceeded
+		run.Summary = &text
+		run.Result = &payload
+		run.ChangedFiles = json.RawMessage(`["report\u0000.txt"]`)
+		require.NoError(t, fixture.repository.CompleteAgentRun(ctx, run))
+		stored, err := fixture.repository.GetAgentRunInternal(ctx, runID)
+		require.NoError(t, err)
+		require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, stored.Status)
+		require.NotNil(t, stored.Summary)
+		require.Equal(t, "done\uFFFD \uFFFD", *stored.Summary)
+		require.NotNil(t, stored.Result)
+		require.JSONEq(t, wantPayload, string(*stored.Result))
+		require.JSONEq(t, `["report�.txt"]`, string(stored.ChangedFiles))
+	})
 }
 
 func TestCreateLogChunkOnConflictMatchesSchema(t *testing.T) {

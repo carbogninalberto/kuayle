@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.2.45",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.45",
+    "body": "## What's changed\n\n### New\n\n- **Choose the reasoning effort when delegating or following up.** Ask the assistant for a model and an effort, for example \"follow up with Opus 5.5 at medium effort\". The approval card shows both. If the model doesn't support that effort, the assistant lists the levels it does support. (#308, KUA-169)\n- **Dev machines clean up after finished tasks.** 30 minutes after a task ends, Kuayle removes its worktree, temporary run files and Docker volumes. Branches stay for follow-ups. A failed task with an open pull request keeps its checkout for up to seven days, or until the pull request is closed. (#306, KUA-226)\n\n### Fixes\n\n- **Agent output with a NUL character no longer stops the run.** Kuayle replaces NUL characters and broken Unicode with the standard replacement character instead of failing to store them. (#311, KUA-158)\n- **A finished workflow shows where it ended.** After a merge, the workflow graph highlights the End step it reached, not \"Merge / ship\" as the current step. (#309, KUA-230)\n- **The sign-in screen offers only what is enabled.** Sign up is hidden when sign-up is off or in demo mode, and the server refuses password sign-ups in demo mode. SSO appears only when a provider is enabled, and its button reads \"Continue\". (#305, KUA-228)\n\n### Upgrade notes\n\n- **Migration 182.** Adds the task cleanup operation and a `retired` status for dev machine checkouts.\n- **Cleanup also covers older tasks.** Tasks that finished before this release become eligible after the upgrade, using the same rules. Docker volumes still attached to a container are left in place and logged.\n",
+    "published_at": "2026-11-19T13:14:32Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.45",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.2.44",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.44",
     "body": "## What's changed\n\n### Fixes\n\n- **Codex reviews get a verdict again.** With a ChatGPT sign-in, every `{` and `}` in a Codex run's output was hidden as if it were part of the secret. Kuayle then couldn't read the answer, and the review ended as \"unknown\". Secrets are still hidden, including every token in a JSON sign-in file, but the output stays readable. (#304, KUA-227)\n- **A review without a verdict fails and says why.** If the reviewer's answer has no verdict, the review now fails with \"the reviewer's answer had no verdict\" instead of finishing as \"unknown\". In a workflow, the reviewer step takes its failure path. (#304, KUA-227)\n\n### Upgrade notes\n\n- No migrations or configuration changes.\n- Reviews that already finished as \"unknown\" stay as they are. Run them again to get a verdict.\n",

@@ -417,7 +417,7 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, "This approval cannot be executed")
 	}
 	harness, model, server := choice.over(payload.Harness, payload.Model)
-	task, err := delegateIssue(ctx, s.conversations, s.tasks, ws, approval.IssueID, payload.Instructions, approval.RequestID, harness, model, server, payload.WorkflowID)
+	task, err := delegateIssue(ctx, s.conversations, s.tasks, ws, approval.IssueID, payload.Instructions, approval.RequestID, harness, model, server, payload.WorkflowID, payload.Effort)
 	if err != nil {
 		if message, permanent := delegationFailure(err); permanent {
 			return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, message)
@@ -431,7 +431,7 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 // delegateIssue starts a coding task on an issue for the actor in ctx, with the
 // task composer's defaults. Replaying the same request ID converges on one task.
 // An empty workflow runs the issue's default workflow.
-func delegateIssue(ctx context.Context, conversations *repository.ConversationRepository, tasks approvalTasks, ws, issue uuid.UUID, instructions string, requestID uuid.UUID, harness, model string, server *uuid.UUID, workflow string) (*domain.AgentTask, error) {
+func delegateIssue(ctx context.Context, conversations *repository.ConversationRepository, tasks approvalTasks, ws, issue uuid.UUID, instructions string, requestID uuid.UUID, harness, model string, server *uuid.UUID, workflow, effort string) (*domain.AgentTask, error) {
 	chat, err := conversations.OpenIssue(ctx, ws, issue)
 	if err != nil {
 		return nil, err
@@ -440,7 +440,7 @@ func delegateIssue(ctx context.Context, conversations *repository.ConversationRe
 	if err != nil {
 		return nil, err
 	}
-	request, err := delegationRequest(options, requestID, instructions, harness, model, server, workflow)
+	request, err := delegationRequest(options, requestID, instructions, harness, model, server, workflow, effort)
 	if err != nil {
 		return nil, err
 	}
@@ -450,7 +450,7 @@ func delegateIssue(ctx context.Context, conversations *repository.ConversationRe
 // delegationRequest is the task request a delegation starts: the chosen or
 // default harness and model, and the chosen workflow, which the task service
 // resolves and checks against the workspace policy when it creates the task.
-func delegationRequest(options *AgentTaskOptions, requestID uuid.UUID, instructions, harness, model string, server *uuid.UUID, workflow string) (domain.AgentTaskRequest, error) {
+func delegationRequest(options *AgentTaskOptions, requestID uuid.UUID, instructions, harness, model string, server *uuid.UUID, workflow, effort string) (domain.AgentTaskRequest, error) {
 	if len(options.Providers) == 0 {
 		return domain.AgentTaskRequest{}, ErrProviderNotAllowed
 	}
@@ -466,11 +466,17 @@ func delegationRequest(options *AgentTaskOptions, requestID uuid.UUID, instructi
 		}
 		provider = harness
 	}
-	request := domain.AgentTaskRequest{RequestID: requestID, Prompt: instructions, Provider: provider}
+	request := domain.AgentTaskRequest{RequestID: requestID, Prompt: instructions, Provider: provider, RequestedEffort: effort}
+	if effort != "" {
+		model = assistantModelID(provider, model)
+	}
 	// Match the task composer's defaults: the explicit model, else the default
 	// model server's model and thinking level when that server speaks the
 	// harness's protocol.
 	request.Model, request.Thinking, request.ModelServerID = chatModel(options, provider, model, server)
+	if effort != "" {
+		request.Thinking = effort
+	}
 	if workflow != "" {
 		request.WorkflowID = &workflow
 	}
@@ -724,7 +730,7 @@ func (s *AssistantApprovals) followUp(ctx context.Context, ws, conversation uuid
 	}
 	if err == nil {
 		model, server := followUpModel(choice, payload)
-		task, err = s.reviews.Retry(ctx, ws, payload.TaskID, domain.AgentTaskRetryRequest{RequestID: approval.RequestID, Generation: payload.Generation, Prompt: chatFollowUpPrompt(task.Prompt, payload.Instructions, review), Model: model, RequestedModelServerID: server,
+		task, err = s.reviews.Retry(ctx, ws, payload.TaskID, domain.AgentTaskRetryRequest{RequestID: approval.RequestID, Generation: payload.Generation, Prompt: chatFollowUpPrompt(task.Prompt, payload.Instructions, review), Model: model, RequestedModelServerID: server, RequestedEffort: payload.Effort,
 			// The person approved these instructions; the assistant drafted them.
 			Note: &domain.NotebookNote{Instruction: &domain.NotebookInstruction{Source: domain.NotebookInstructionFollowUp, Assistant: true, Text: payload.Instructions}},
 			// Approving a card that showed the issue's merged work confirms it.
