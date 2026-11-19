@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 
 const userId = '00000000-0000-0000-0000-000000000001';
 const teamId = '00000000-0000-0000-0000-000000000010';
@@ -17,6 +17,7 @@ async function mockWorkspace(page: Page, options: { role?: string; assigned?: As
 	const role = options.role ?? 'owner';
 	const state = {
 		assigned: options.assigned ?? [],
+		socket: null as WebSocketRoute | null,
 		puts: [] as string[][],
 		updates: [] as { id: string; body: any }[],
 		issueQueries: [] as string[],
@@ -46,7 +47,7 @@ async function mockWorkspace(page: Page, options: { role?: string; assigned?: As
 	});
 	// A second issue assigned to a person, for grouping by assignee.
 	const personIssue = () => ({ ...issue(), id: '00000000-0000-0000-0000-000000000102', identifier: 'ENG-2', title: 'Person issue', assignee_id: userId, assignee: user, assignees: [user], agent_assignees: [], sort_order: 2000 });
-	await page.routeWebSocket('**/ws', () => {});
+	await page.routeWebSocket('**/ws', (socket) => { state.socket = socket; });
 	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) => route.fulfill({ json: [] }));
 	await page.route('**/api/**', async (route) => {
 		const request = route.request();
@@ -223,6 +224,48 @@ test('an agent can be mentioned in a comment', async ({ page }) => {
 	expect(state.comments[0]).toContain('data-kind="agent"');
 });
 
+test('issue rows offer agents in the assignee picker and update their task state live', async ({ page }, testInfo) => {
+	const state = await mockWorkspace(page);
+	await page.goto(`/test/teams/${teamId}`);
+	const row = page.getByRole('button', { name: 'ENG-1', exact: true });
+	const assignee = row.getByRole('button', { name: 'Assignee', exact: true });
+	const priority = row.getByRole('button', { name: 'Priority', exact: true });
+	const picker = page.locator('[data-slot="popover-content"][data-state="open"]');
+	const agent = picker.getByRole('button', { name: /Fixer/ });
+	const avatar = row.getByTitle('Fixer', { exact: true });
+
+	await assignee.click();
+	await expect(picker.getByRole('button', { name: 'Clear all' })).toBeVisible();
+	await expect(picker.getByRole('button', { name: /Test User/ })).toBeVisible();
+	await expect(picker.getByText('AI agents', { exact: true })).toBeVisible();
+	await expect(agent).toHaveAttribute('aria-pressed', 'false');
+	await expect(picker.getByRole('button', { name: /Docs writer/ })).toHaveCount(0);
+	await page.keyboard.press('Escape');
+
+	await priority.click();
+	await expect(picker.getByRole('button')).toHaveText(['No priority', 'Urgent', 'High', 'Medium', 'Low']);
+	await page.screenshot({ path: testInfo.outputPath('row-priority.png') });
+	await page.keyboard.press('Escape');
+
+	await assignee.click();
+	await agent.press('Space');
+	await expect(agent).toHaveAttribute('aria-pressed', 'true');
+	await expect(avatar).toBeVisible();
+	expect(state.puts).toEqual([[fixerId]]);
+	await page.screenshot({ path: testInfo.outputPath('row-assignee.png') });
+
+	// Once the agent's work is in review, removing it needs no cancellation confirmation.
+	await expect.poll(() => state.socket).not.toBeNull();
+	state.assigned = [{ id: fixerId, task_state: 'awaiting_review' }];
+	state.socket!.send(JSON.stringify({ type: 'issue.agents_updated', payload: { issue_id: issueId } }));
+	await expect(avatar.locator('span')).toHaveClass(/--status-warning/);
+	await agent.click();
+	await expect(agent).toHaveAttribute('aria-pressed', 'false');
+	await expect(avatar).toHaveCount(0);
+	await expect(page.getByRole('alertdialog')).toHaveCount(0);
+	expect(state.puts).toEqual([[fixerId], []]);
+});
+
 test('agents appear in the issue list, the assignee filter and my issues', async ({ page }) => {
 	const state = await mockWorkspace(page, { assigned: [{ id: fixerId, task_state: 'running' }] });
 	await page.goto(`/test/teams/${teamId}`);
@@ -230,7 +273,7 @@ test('agents appear in the issue list, the assignee filter and my issues', async
 	await expect(page.locator('[data-agent-avatar][title="Fixer"]').first()).toBeVisible();
 
 	await page.getByRole('button', { name: 'Filter', exact: true }).click();
-	await page.getByRole('button', { name: 'Assignee', exact: true }).click();
+	await page.locator('[data-slot="popover-content"]').getByRole('button', { name: 'Assignee', exact: true }).click();
 	await page.locator('[data-agent-filter="Fixer"]').click();
 	await expect.poll(() => state.issueQueries.some((query) => query.includes(`assignee=${fixerId}`))).toBe(true);
 	await expect(page.getByRole('button', { name: 'Fixer (agent)' })).toBeVisible();
