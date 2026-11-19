@@ -262,7 +262,7 @@ func (o *agentOutputBuffer) line(state *agentOutputStream, content string) (stor
 	// The limit applies to the line itself, not to Docker's timestamp.
 	long := len(content) > maxAgentOutputLine
 	// Sanitize only after matching raw secret bytes. PostgreSQL text rejects NUL.
-	content = strings.ReplaceAll(strings.ToValidUTF8(o.redact.Replace(content), "\uFFFD"), "\x00", "\uFFFD")
+	content = sanitize.PostgresText(o.redact.Replace(content))
 	if !long {
 		return content, content, true, nil
 	}
