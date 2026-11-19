@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"sort"
 
 	"github.com/google/uuid"
@@ -47,7 +46,7 @@ func resolveDevelopmentScopes(ctx context.Context, store scopeSettingReader, wor
 	resolved := &domain.DevMachineScopeSetting{WorkspaceID: workspaceID}
 	repositorySource := ""
 	for _, scope := range scopes {
-		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil && resolved.TestCommand != nil && resolved.AgentProvider != nil && resolved.AgentInstructions != nil && resolved.ComposeFile != nil && resolved.PreviewCommand != nil {
+		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil && resolved.AgentProvider != nil && resolved.AgentInstructions != nil && resolved.ComposeFile != nil && resolved.PreviewCommand != nil {
 			break
 		}
 		setting, err := store.GetScopeSetting(ctx, workspaceID, scope.team, scope.project, scope.issue)
@@ -63,10 +62,6 @@ func resolveDevelopmentScopes(ctx context.Context, store scopeSettingReader, wor
 		}
 		if resolved.EnvironmentID == nil && setting.EnvironmentID != nil {
 			resolved.EnvironmentID = setting.EnvironmentID
-		}
-		if resolved.TestCommand == nil && setting.TestCommand != nil {
-			command := append(json.RawMessage(nil), (*setting.TestCommand)...)
-			resolved.TestCommand = &command
 		}
 		if resolved.AgentProvider == nil && setting.AgentProvider != nil {
 			resolved.AgentProvider = setting.AgentProvider

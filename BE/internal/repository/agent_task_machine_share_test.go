@@ -530,30 +530,6 @@ func TestTaskAttemptsRunTogetherOnASharedMachine(t *testing.T) {
 
 // A finished attempt is validated and published while another task's attempt
 // still runs on the same machine.
-func TestValidationRunsBesideAnotherTasksAttempt(t *testing.T) {
-	db, repo, ctx, task, fixture := taskRecoveryFixture(t)
-	claimed := prepareTaskStart(t, db, repo, ctx, task, fixture)
-	_, err := repo.Start(ctx, *claimed)
-	require.NoError(t, err)
-	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now() WHERE id=$1`, task.RunID)
-	require.NoError(t, err)
-	require.NoError(t, repo.Transition(ctx, *claimed, "validating", "Native attempt finished"))
-	_, err = db.Exec(`UPDATE agent_tasks SET validation_command='["true"]' WHERE id=$1`, task.ID)
-	require.NoError(t, err)
-	var machine uuid.UUID
-	require.NoError(t, db.Get(&machine, `SELECT machine_id FROM agent_tasks WHERE id=$1`, task.ID))
-	other, err := repo.Create(ctx, task.WorkspaceID, *task.ConversationID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Other work", Provider: "codex"})
-	require.NoError(t, err)
-	shareOtherTask(t, db, *other, machine)
-
-	step, err := repo.EnsureValidation(ctx, *claimed)
-	require.NoError(t, err)
-	require.NotNil(t, step)
-	var queued int
-	require.NoError(t, db.Get(&queued, `SELECT count(*) FROM dev_machine_operations WHERE agent_run_id=$1 AND action='validate_agent' AND status='pending'`, task.RunID))
-	require.Equal(t, 1, queued)
-}
-
 func shareOtherTask(t *testing.T, db *sqlx.DB, task domain.AgentTask, machine uuid.UUID) {
 	t.Helper()
 	_, err := db.Exec(`UPDATE agent_tasks SET machine_id=$2,state='running',next_poll_at=now()+interval '1 hour' WHERE id=$1`, task.ID, machine)

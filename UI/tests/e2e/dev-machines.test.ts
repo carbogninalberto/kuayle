@@ -1919,14 +1919,8 @@ test('searches linked repositories in IssueRepositoryDialog and saves selection'
 		github_repo_id: 'repo-2',
 		base_branch: 'develop'
 	});
-	// A command-only override must be saved, even with inherited repo/environment.
-	await expect(dialog).not.toBeVisible();
-	await page.getByTitle('Issue actions').click();
-	await page.getByRole('button', { name: 'Set Development Defaults' }).click();
-	await expect(dialog.getByRole('textbox', { name: 'Test command' })).toBeEnabled();
-	await dialog.getByRole('textbox', { name: 'Test command' }).fill('[]');
-	await dialog.getByRole('button', { name: 'Save defaults' }).click();
-	await expect.poll(() => putPayload).toEqual({ scope_type: 'issue', scope_id: issueId, test_command: [] });
+	expect(putPayload).not.toHaveProperty('test_command');
+
 });
 
 test('bounds machine telemetry during long-running sessions', async ({ page }) => {

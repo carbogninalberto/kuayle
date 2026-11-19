@@ -531,7 +531,7 @@ the same `dev_machine_scope_settings` as `PUT /dev-machine-scope-setting`: it
 needs `dev_machine:manage`, a project needs a workspace owner or admin, the
 repository must be active in the workspace's GitHub installation and allowed by
 the Dev Machine policy's repository allowlist, and the scope's other settings
-(environment, test command, instructions, preview) are kept.
+(environment, instructions, preview) are kept.
 `get_issue` adds the issue's `development_repository` (repository, base branch
 and the issue/project/team/workspace scope that configured it), and
 `delegate_issue` resolves the same repository when it requests approval and
@@ -1064,7 +1064,7 @@ decided not to cover it from chat, so it is not an open gap.
 | --- | --- | --- |
 | Grep, glob, read or list symbols of pushed code | `repo_grep`, `repo_glob`, `repo_read_file`, `repo_list_files`, `repo_symbols` ([research tools](#research-tools)) | covered |
 | Read a task's live worktree and its git state (uncommitted work included) | `source: "task"` scans, `get_task_worktree`, `list_machine_worktrees` (KUA-141) | covered |
-| Run a task's check or tests on its checkout | `run_check`, with an optional `command` ([manual checks](agent-tasks.md#manual-checks)) | covered |
+| Run a task's check or tests on its checkout | `run_check`, with an explicit `command` ([manual checks](agent-tasks.md#manual-checks)) | covered |
 | Run a workspace-approved script | custom tools `custom_<name>` ([custom tools](#custom-tools)) | covered |
 | Pull request state, checks, comments, replies, threads, branch update, draft state | [pull request tools](#pull-request-tools) | covered |
 | Releases, release notes, the release build, merge-and-release | [release tools](#release-tools), `ship_pull_request` | covered |

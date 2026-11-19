@@ -2,9 +2,9 @@ package machine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
-	"strconv"
 
 	"github.com/containerd/errdefs"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -13,18 +13,17 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// RunValidation runs one command of a check step: each command of an
-// agent-chosen check has its own deterministic container, so a retry replays
-// the commands that already ran and Docker reports every exit code.
-func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep, index int, checkout *domain.DevMachineCheckout, image string, observer *AgentObserver) (*AgentExecution, error) {
+const manualCheckStepType = "manual_check"
+
+// RunManualCheck runs the manual check in a deterministic container so a retry can recover its exit code.
+func (r *DockerRuntime) RunManualCheck(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep, checkout *domain.DevMachineCheckout, image string, observer *AgentObserver) (*AgentExecution, error) {
 	if machine.DockerNetworkName == nil || machine.WorkspaceVolumeName == nil || checkout == nil {
-		return nil, fmt.Errorf("validation runtime resources are unavailable")
+		return nil, fmt.Errorf("manual check runtime resources are unavailable")
 	}
-	commands := step.CheckCommands()
-	if index < 0 || index >= len(commands) || domain.ValidateTestCommand(commands[index]) != nil {
-		return nil, fmt.Errorf("invalid validation command")
+	var argv []string
+	if json.Unmarshal(step.CommandArgv, &argv) != nil || len(argv) == 0 || domain.ValidateTestCommand(argv) != nil {
+		return nil, fmt.Errorf("invalid check command")
 	}
-	argv := commands[index]
 	if machine.EnvironmentID != nil {
 		if err := r.ensureEnvironmentImage(ctx, image, machine.WorkspaceID, *machine.EnvironmentID); err != nil {
 			return nil, err
@@ -32,7 +31,7 @@ func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMa
 	} else if err := r.ensureImage(ctx, image); err != nil {
 		return nil, err
 	}
-	key := checkCommandKey(run, step, index)
+	key := checkContainerKey(run, step)
 	name := "kuayle-" + machine.RoutingKey + "-" + key
 	labels := machineLabels(machine)
 	labels["com.kuayle.service"] = "agent"
@@ -41,11 +40,11 @@ func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMa
 	if result, err := r.client.ContainerInspect(ctx, name, client.ContainerInspectOptions{}); err == nil {
 		config := result.Container.Config
 		if result.Container.State == nil || config == nil || config.Image != image || !checkContainerRuns(config, argv) || config.WorkingDir != checkout.WorkspacePath {
-			return nil, fmt.Errorf("validation container does not match the accepted command")
+			return nil, fmt.Errorf("manual check container does not match the accepted command")
 		}
 		for key, value := range labels {
 			if config.Labels[key] != value {
-				return nil, fmt.Errorf("validation container ownership does not match")
+				return nil, fmt.Errorf("manual check container ownership does not match")
 			}
 		}
 		// A check that never started still needs its services; one that ran is
@@ -100,8 +99,7 @@ func checkContainerRuns(config *container.Config, argv []string) bool {
 }
 
 // checkContainerKey names a check's container, service and network alias.
-// The attempt's independent validation keeps one per attempt; each manual
-// check gets its own, so it never replays an earlier check's result.
+// Retain the original per-run name when cleaning up an older check.
 func checkContainerKey(run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep) string {
 	if step != nil && step.StepType == manualCheckStepType {
 		return "check-" + step.ID.String()
@@ -109,19 +107,6 @@ func checkContainerKey(run *domain.DevMachineAgentRun, step *domain.DevMachineAg
 	return "validation-" + run.ID.String()
 }
 
-// checkCommandKey names the container of a check's command index; the first
-// keeps the check's own name.
-func checkCommandKey(run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep, index int) string {
-	if index == 0 {
-		return checkContainerKey(run, step)
-	}
-	return checkContainerKey(run, step) + "-" + strconv.Itoa(index)
-}
-
-const manualCheckStepType = "manual_check"
-
-// RemoveCheck deletes a finished manual check's container. Its recorded
-// result and output stay; only replay needed the container.
 func (r *DockerRuntime) RemoveCheck(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep) error {
 	if step == nil || step.StepType != manualCheckStepType {
 		return nil

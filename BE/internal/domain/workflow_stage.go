@@ -10,7 +10,7 @@ func (graph WorkflowGraph) StageInstructions(node WorkflowNode) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Oversee the %s stage %q (%s).\n", node.Type, node.Label, node.ID)
 	fmt.Fprintf(&b, "Stage settings: check=%q, terminal outcome=%q, instructions=%s.\n", node.Check, node.Outcome, node.Prompt)
-	b.WriteString("Work on this stage in the task worktree. Update the task notebook with your work and handoff. At CI, approval, merge and end stages keep the worktree unchanged when continuing the built-in stage.\n")
+	b.WriteString("Work on this stage in the task worktree. Update the task notebook with your work and handoff. At CI, approval, merge and end stages keep HEAD and non-ignored files unchanged when continuing the built-in stage. Ignored build and test output is allowed.\n")
 	b.WriteString("Outgoing transitions (condition, edge ID, destination):\n")
 	var branches []WorkflowEdge
 	for _, edge := range graph.Edges {
@@ -33,8 +33,19 @@ func (graph WorkflowGraph) StageInstructions(node WorkflowNode) string {
 	if len(branches) == 0 {
 		b.WriteString("(none; finish the stage)\n")
 	}
-	b.WriteString("End your final message with KUAYLE_STAGE_CONTINUE to run the built-in stage, or KUAYLE_STAGE_ROUTE <edge ID> to take a selectable transition. Kuayle evaluates all other conditions itself.")
+	b.WriteString("Never name a [built-in] transition. End your final message with KUAYLE_STAGE_CONTINUE so Kuayle evaluates built-in conditions, or KUAYLE_STAGE_ROUTE <edge ID> to take a [selectable] transition.")
 	return b.String()
+}
+
+// SelectableStageRoutes lists the outgoing edge IDs a stage assistant may name.
+func (graph WorkflowGraph) SelectableStageRoutes(node WorkflowNode) []string {
+	var ids []string
+	for _, edge := range graph.Edges {
+		if edge.Source == node.ID && graph.assistantChoice(edge) {
+			ids = append(ids, edge.ID)
+		}
+	}
+	return ids
 }
 
 func (node WorkflowNode) StageReadsWorktree() bool {

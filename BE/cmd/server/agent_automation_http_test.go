@@ -17,7 +17,6 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/handler"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
-	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
@@ -58,7 +57,7 @@ func TestAgentAutomationHTTPRequiresAdminsForRulesAndOwnersForDecisions(t *testi
 	machineSvc := service.NewDevMachineService(machines, agent.NewRegistry(agent.NewCodexProvider("test")), true, "machines.test.invalid", make([]byte, 32), time.Minute, service.DevMachineImages{})
 	taskSvc := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), machineSvc, nil)
 	automationRepo := repository.NewAgentAutomationRepository(db)
-	automations := service.NewAgentAutomationService(automationRepo, repository.NewConversationRepository(db), taskSvc, service.NewNotificationService(repository.NewNotificationRepository(db)), realtime.NewHub())
+	automations := service.NewAgentAutomationService(automationRepo, repository.NewConversationRepository(db), taskSvc)
 	secret := "automation-http-jwt-secret-with-at-least-32-chars"
 	middleware := testMiddleware(mw.Auth(secret, repository.NewPersonalAccessTokenRepository(db)))
 	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db), mw.SSONotEnforced)
@@ -88,6 +87,17 @@ func TestAgentAutomationHTTPRequiresAdminsForRulesAndOwnersForDecisions(t *testi
 	request("GET", "/agent-automations", "", member, 403, nil)
 	request("POST", "/agent-automations", strings.Replace(rule, `"Fix it"`, `""`, 1), owner, 400, nil)
 	request("POST", "/agent-automations", strings.Replace(rule, `"max_active":1`, `"max_active":1,"owner_id":"`+member.String()+`"`, 1), owner, 400, nil)
+	cronRule := strings.Replace(rule, `"max_active":1`, `"cron":"30 9 * * 1-5","timezone":"Europe/Rome"`, 1)
+	var scheduled map[string]any
+	request("POST", "/agent-automations", cronRule, owner, 201, &scheduled)
+	next, err := time.Parse(time.RFC3339Nano, scheduled["next_run_at"].(string))
+	require.NoError(t, err)
+	rome, err := time.LoadLocation("Europe/Rome")
+	require.NoError(t, err)
+	require.Equal(t, 9, next.In(rome).Hour())
+	require.Equal(t, 30, next.In(rome).Minute())
+	request("POST", "/agent-automations", strings.Replace(cronRule, "Europe/Rome", "Invalid/Zone", 1), owner, 400, nil)
+	request("POST", "/agent-automations", strings.Replace(cronRule, `"cron":`, `"run_hour":3,"cron":`, 1), owner, 400, nil)
 	var created domain.AgentAutomation
 	request("POST", "/agent-automations", rule, owner, 201, &created)
 	require.Equal(t, owner, created.OwnerID, "the creator owns the rule")
@@ -95,6 +105,21 @@ func TestAgentAutomationHTTPRequiresAdminsForRulesAndOwnersForDecisions(t *testi
 	require.NoError(t, db.Get(&run, `INSERT INTO agent_automation_runs(automation_id,workspace_id,issue_id,status) VALUES($1,$2,$3,'pending_approval') RETURNING id`, created.ID, ws, issue))
 	request("POST", "/agent-automation-runs/"+run.String()+"/approve", "", member, 404, nil)
 	request("POST", "/agent-automation-runs/"+run.String()+"/dismiss", "", owner, 200, nil)
+	// Only the original authorized actor can replay a failed start.
+	_, err = db.Exec(`UPDATE agent_automation_runs SET status='failed',actor_id=$2,error='Transient failure' WHERE id=$1`, run, owner)
+	require.NoError(t, err)
+	history := "/agent-automation-runs?automation_id=" + created.ID.String()
+	request("GET", history, "", member, 403, nil)
+	var runs []domain.AgentAutomationRunView
+	request("GET", history, "", owner, 200, &runs)
+	require.Len(t, runs, 1)
+	require.True(t, runs[0].CanReplay)
+	request("POST", "/agent-automation-runs/"+run.String()+"/replay", "", member, 404, nil)
+	var retried domain.AgentAutomationRunView
+	request("POST", "/agent-automation-runs/"+run.String()+"/replay", "", owner, 200, &retried)
+	require.Equal(t, "starting", retried.Status)
+	require.Equal(t, 1, retried.Replays)
+	request("POST", "/agent-automation-runs/"+run.String()+"/replay", "", owner, 404, nil)
 	request("PATCH", "/agent-automations/"+created.ID.String(), `{"enabled":false}`, member, 403, nil)
 	var disabled domain.AgentAutomation
 	request("PATCH", "/agent-automations/"+created.ID.String(), `{"enabled":false}`, owner, 200, &disabled)

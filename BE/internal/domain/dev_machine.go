@@ -382,7 +382,7 @@ type DevMachineAgentRun struct {
 	AllowedCommands        json.RawMessage          `json:"allowed_commands" db:"allowed_commands"`
 	ForbiddenPaths         json.RawMessage          `json:"forbidden_paths" db:"forbidden_paths"`
 	AllowedSecrets         json.RawMessage          `json:"allowed_secrets" db:"allowed_secrets"`
-	TestCommand            *json.RawMessage         `json:"test_command,omitempty" db:"test_command"`
+	LegacyTestCommand      ignoredColumn            `json:"-" db:"test_command"`
 	CommandArgv            json.RawMessage          `json:"command_argv" db:"command_argv"`
 	CommandEnvironment     json.RawMessage          `json:"command_environment" db:"command_environment"`
 	// ProfileFiles are the agent profile's instructions and skills, written
@@ -405,12 +405,10 @@ type DevMachineAgentRun struct {
 	// session in Claude Code through the task terminal.
 	SessionContinuedAt *time.Time `json:"-" db:"session_continued_at"`
 	// SessionID is the Kuayle agent session the attempt ran in.
-	SessionID *uuid.UUID `json:"session_id,omitempty" db:"session_id"`
-	// DeclaredValidation is the attempt's parsed .kuayle/validation.json
-	// (AgentDeclaredValidation), when it wrote one.
-	DeclaredValidation *json.RawMessage `json:"-" db:"declared_validation"`
-	Diff               string           `json:"-" db:"diff"`
-	DiffTruncated      bool             `json:"-" db:"diff_truncated"`
+	SessionID                *uuid.UUID    `json:"session_id,omitempty" db:"session_id"`
+	LegacyDeclaredValidation ignoredColumn `json:"-" db:"declared_validation"`
+	Diff                     string        `json:"-" db:"diff"`
+	DiffTruncated            bool          `json:"-" db:"diff_truncated"`
 	// NotebookRequired: the attempt should leave a valid update of the task
 	// notebook. NotebookUpdates counts its updates that changed the notebook;
 	// NotebookUnchanged says it left a valid update that changed nothing.
@@ -480,9 +478,7 @@ type DevMachineAgentRunStep struct {
 	CompletedAt *time.Time                   `json:"completed_at,omitempty" db:"completed_at"`
 	CreatedAt   time.Time                    `json:"created_at" db:"created_at"`
 	ComposeFile string                       `json:"compose_file,omitempty" db:"compose_file"`
-	// An independent check records where its commands came from (configured
-	// or chosen by the agent), every command it runs and their results, and
-	// the agent's untrusted summary of what it tested.
+	// Historical check metadata remains available in debug traces.
 	CommandSource  *string         `json:"command_source,omitempty" db:"command_source"`
 	Commands       NullJSON        `json:"commands,omitempty" db:"commands"`
 	CommandResults json.RawMessage `json:"command_results,omitempty" db:"command_results"`
@@ -819,7 +815,7 @@ type DevMachineScopeSetting struct {
 	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
 
-	TestCommand *json.RawMessage `json:"test_command" db:"test_command"`
+	LegacyTestCommand ignoredColumn `json:"-" db:"test_command"`
 
 	AgentProvider     *string `json:"agent_provider" db:"agent_provider"`
 	AgentInstructions *string `json:"agent_instructions" db:"agent_instructions"`

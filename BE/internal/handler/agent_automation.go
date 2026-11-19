@@ -106,7 +106,12 @@ func (h *AgentAutomationHandler) Runs(c *echo.Context) error {
 	if !canAdministerDevMachines(c) {
 		return response.Forbidden(c)
 	}
-	runs, err := h.svc.Runs(c.Request().Context(), middleware.GetWorkspace(c).ID)
+	rule, ruleErr := optionalUUID(c, "automation_id")
+	before, beforeErr := optionalUUID(c, "before")
+	if ruleErr != nil || beforeErr != nil || (before != nil && rule == nil) {
+		return automationError(c, service.ErrInvalidAutomation)
+	}
+	runs, err := h.svc.Runs(c.Request().Context(), middleware.GetWorkspace(c).ID, rule, before)
 	if err != nil {
 		return automationError(c, err)
 	}
@@ -127,3 +132,18 @@ func (h *AgentAutomationHandler) decide(c *echo.Context, approve bool) error {
 
 func (h *AgentAutomationHandler) Approve(c *echo.Context) error { return h.decide(c, true) }
 func (h *AgentAutomationHandler) Dismiss(c *echo.Context) error { return h.decide(c, false) }
+
+func (h *AgentAutomationHandler) Replay(c *echo.Context) error {
+	id, err := uuid.Parse(c.Param("runId"))
+	if err != nil {
+		return automationError(c, repository.ErrAutomationNotFound)
+	}
+	run, err := h.svc.Replay(c.Request().Context(), middleware.GetWorkspace(c).ID, id, middleware.GetUserID(c), canAdministerDevMachines(c))
+	if errors.Is(err, repository.ErrAgentTaskConflict) {
+		return response.Error(c, http.StatusConflict, "AUTOMATION_AT_CAPACITY", "The automation has reached its active run limit")
+	}
+	if err != nil {
+		return automationError(c, err)
+	}
+	return response.Success(c, http.StatusOK, run)
+}

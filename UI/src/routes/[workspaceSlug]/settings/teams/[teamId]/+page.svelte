@@ -1,13 +1,13 @@
 <script lang="ts">
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
-	import TestCommandField from '$lib/features/dev-machines/TestCommandField.svelte';
+
 	import ComposeFileField from '$lib/features/dev-machines/ComposeFileField.svelte';
 	import PreviewSettingField from '$lib/features/dev-machines/PreviewSettingField.svelte';
 	import { previewSettingPayload } from '$lib/features/dev-machines/preview-setting';
 	import AgentDefaultsField from '$lib/features/dev-machines/AgentDefaultsField.svelte';
 	import PullRequestTemplateField from '$lib/features/dev-machines/PullRequestTemplateField.svelte';
 	import { pullRequestTemplatePayload, pullRequestTemplateValue } from '$lib/features/dev-machines/pull-request-template';
-	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
+
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -26,7 +26,7 @@
 	import * as Select from '$lib/components/ui/select';
 	import * as Popover from '$lib/components/ui/popover';
 	import { getGitHubStatus } from '$lib/api/github';
-	import { deleteDevMachineScopeSetting, getDevMachineCheckSuggestion, getDevMachineScopeSetting, listDevMachineEnvironments, updateDevMachineScopeSetting } from '$lib/api/dev-machines';
+	import { deleteDevMachineScopeSetting, getDevMachineScopeSetting, listDevMachineEnvironments, updateDevMachineScopeSetting } from '$lib/api/dev-machines';
 	import type { GitHubRepo } from '$lib/types/github';
 	import type { DevMachineEnvironment } from '$lib/types/dev-machine';
 	import { appToast } from '$lib/features/toast/toast';
@@ -63,7 +63,7 @@
 	let developmentEnvironments = $state<DevMachineEnvironment[]>([]);
 	let developmentRepositoryId = $state('inherit');
 	let developmentEnvironmentId = $state('inherit');
-	let developmentTestCommand = $state('');
+
 	let developmentAgentProvider = $state('inherit');
 	let developmentAgentInstructions = $state('');
 	let developmentPullRequestTemplate = $state('');
@@ -256,7 +256,7 @@
 			developmentEnvironments = (environments ?? []).filter((item) => item.status === 'ready');
 			developmentRepositoryId = setting.github_repo_id ?? 'inherit';
 			developmentEnvironmentId = setting.environment_id ?? 'inherit';
-			developmentTestCommand = formatTestCommand(setting.test_command); developmentAgentProvider = setting.agent_provider ?? 'inherit'; developmentAgentInstructions = setting.agent_instructions ?? ''; developmentPullRequestTemplate = pullRequestTemplateValue(setting.pull_request_template, true); developmentComposeFile = setting.compose_file ?? ''; developmentPreviewCommand = setting.preview_command ? JSON.stringify(setting.preview_command) : ''; developmentPreviewPort = setting.preview_port ? String(setting.preview_port) : '';
+			developmentAgentProvider = setting.agent_provider ?? 'inherit'; developmentAgentInstructions = setting.agent_instructions ?? ''; developmentPullRequestTemplate = pullRequestTemplateValue(setting.pull_request_template, true); developmentComposeFile = setting.compose_file ?? ''; developmentPreviewCommand = setting.preview_command ? JSON.stringify(setting.preview_command) : ''; developmentPreviewPort = setting.preview_port ? String(setting.preview_port) : '';
 			developmentReady = true;
 		} catch (error) {
 			if (!isCurrentDevelopmentScope(s, t, version)) return;
@@ -275,7 +275,7 @@
 		developmentEnvironments = [];
 		developmentRepositoryId = 'inherit';
 		developmentEnvironmentId = 'inherit';
-		developmentTestCommand = '';
+
 		developmentAgentProvider = 'inherit';
 		developmentAgentInstructions = '';
 		developmentPullRequestTemplate = '';
@@ -426,16 +426,16 @@
 		const repository = developmentRepositories.find((item) => item.id === repositoryId);
 		savingDevelopment = true;
 		try {
-			const command = parseTestCommand(developmentTestCommand);
+
 			const template = pullRequestTemplatePayload(developmentPullRequestTemplate, true);
-			if (repositoryId === 'inherit' && environmentId === 'inherit' && command === undefined && developmentAgentProvider === 'inherit' && !developmentAgentInstructions.trim() && !template.pull_request_template && !developmentComposeFile.trim() && !developmentPreviewCommand.trim()) {
+			if (repositoryId === 'inherit' && environmentId === 'inherit' && developmentAgentProvider === 'inherit' && !developmentAgentInstructions.trim() && !template.pull_request_template && !developmentComposeFile.trim() && !developmentPreviewCommand.trim()) {
 				await deleteDevMachineScopeSetting(s, 'team', t);
 			} else {
 				await updateDevMachineScopeSetting(s, {
 					scope_type: 'team', scope_id: t,
 					github_repo_id: repository?.id, base_branch: repository?.default_branch,
 					environment_id: environmentId === 'inherit' ? undefined : environmentId,
-					test_command: command, agent_provider: developmentAgentProvider === 'inherit' ? undefined : developmentAgentProvider, agent_instructions: developmentAgentInstructions.trim() || undefined, compose_file: developmentComposeFile.trim() || undefined, ...previewSettingPayload(developmentPreviewCommand, developmentPreviewPort), ...template
+					agent_provider: developmentAgentProvider === 'inherit' ? undefined : developmentAgentProvider, agent_instructions: developmentAgentInstructions.trim() || undefined, compose_file: developmentComposeFile.trim() || undefined, ...previewSettingPayload(developmentPreviewCommand, developmentPreviewPort), ...template
 				});
 			}
 			if (!isCurrentDevelopmentScope(s, t, requestVersion) || developmentSaveVersion !== saveVersion) return;
@@ -546,7 +546,7 @@
 				{#if !canManageDevelopment}<p class="rounded-md border border-[var(--app-border)] p-3 text-xs text-[var(--color-text-tertiary)] sm:col-span-2">{privacyEnabled ? m['privacy.disabled_feature']() : m['team_settings.development_admin_only']()}</p>{/if}
 				<div class="space-y-1"><Label>{m['team_settings.repository']()}</Label><Select.Root type="single" value={developmentRepositoryId} disabled={developmentLoading || !developmentReady || !canManageDevelopment} onValueChange={(value) => value && (developmentRepositoryId = value)}><Select.Trigger class="w-full">{developmentLoading ? m['team_settings.loading']() : developmentRepositories.find((item) => item.id === developmentRepositoryId)?.full_name ?? m['team_settings.use_workspace_default']()}</Select.Trigger><Select.Content><Select.Item value="inherit" label={m['team_settings.use_workspace_default']()}>{m['team_settings.use_workspace_default']()}</Select.Item>{#each developmentRepositories as repository}<Select.Item value={repository.id} label={repository.full_name}>{repository.full_name}</Select.Item>{/each}</Select.Content></Select.Root></div>
 				<div class="space-y-1"><Label>{m['team_settings.environment']()}</Label><Select.Root type="single" value={developmentEnvironmentId} disabled={developmentLoading || !developmentReady || !canManageDevelopment} onValueChange={(value) => value && (developmentEnvironmentId = value)}><Select.Trigger class="w-full">{developmentLoading ? m['team_settings.loading']() : developmentEnvironments.find((item) => item.id === developmentEnvironmentId)?.name ?? m['team_settings.use_workspace_default']()}</Select.Trigger><Select.Content><Select.Item value="inherit" label={m['team_settings.use_workspace_default']()}>{m['team_settings.use_workspace_default']()}</Select.Item>{#each developmentEnvironments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}</Select.Content></Select.Root></div>
-				<div class="sm:col-span-2"><TestCommandField bind:value={developmentTestCommand} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} suggest={() => getDevMachineCheckSuggestion(slug, developmentRepositoryId === 'inherit' ? { teamId } : { repositoryId: developmentRepositoryId })} /></div><div class="sm:col-span-2"><ComposeFileField bind:value={developmentComposeFile} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /></div><PreviewSettingField bind:command={developmentPreviewCommand} bind:port={developmentPreviewPort} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /><AgentDefaultsField bind:provider={developmentAgentProvider} bind:instructions={developmentAgentInstructions} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /><PullRequestTemplateField bind:value={developmentPullRequestTemplate} inherits disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} />
+				<div class="sm:col-span-2"><ComposeFileField bind:value={developmentComposeFile} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /></div><PreviewSettingField bind:command={developmentPreviewCommand} bind:port={developmentPreviewPort} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /><AgentDefaultsField bind:provider={developmentAgentProvider} bind:instructions={developmentAgentInstructions} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /><PullRequestTemplateField bind:value={developmentPullRequestTemplate} inherits disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} />
 				<div class="flex justify-end sm:col-span-2"><Button size="sm" onclick={saveDevelopmentSettings} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment}>{savingDevelopment ? m['team_settings.saving']() : m['team_settings.save_development_defaults']()}</Button></div>
 			</div>
 		</div>
