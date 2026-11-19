@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 )
 
 type DevMachineStore interface {
@@ -1288,7 +1289,7 @@ func nullJSON(raw []byte) any {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
 	}
-	return raw
+	return sanitize.PostgresJSON(raw)
 }
 
 func nullJSONPointer(raw *json.RawMessage) any {
@@ -1296,6 +1297,13 @@ func nullJSONPointer(raw *json.RawMessage) any {
 		return nil
 	}
 	return nullJSON(*raw)
+}
+
+func postgresTextPointer(text *string) any {
+	if text == nil {
+		return nil
+	}
+	return sanitize.PostgresText(*text)
 }
 
 func (r *DevMachineRepository) GetAgentRun(ctx context.Context, workspaceID, runID uuid.UUID) (*domain.DevMachineAgentRun, error) {
@@ -1406,10 +1414,12 @@ func (r *DevMachineRepository) CompleteAgentRun(ctx context.Context, run *domain
 		worktree_changed_files=COALESCE($18, '[]'::jsonb), failure_class=$19, failure_rule=$20,
 		failure_cause=$21, environment=$22, output_cuts=COALESCE($23, '[]'::jsonb), completed_at=NOW()
 		WHERE id=$13 AND (status NOT IN ('succeeded','failed','cancelled','timeout') OR status=$1)`,
-		run.Status, nullJSONPointer(run.Result), run.Summary, run.ChangedFiles, run.Commits, run.Branch,
-		run.PullRequestURL, run.TestsRun, run.TestStatus, run.RiskNotes, run.ExitCode, run.ErrorMessage, run.ID,
-		run.Diff, run.DiffTruncated, nullJSONPointer(run.DeclaredValidation), run.WorktreeChanged, nullJSON(run.WorktreeChangedFiles),
-		run.FailureClass, run.FailureRule, run.FailureCause, nullJSON(run.Environment), nullJSON(run.OutputCuts))
+		run.Status, nullJSONPointer(run.Result), postgresTextPointer(run.Summary), sanitize.PostgresJSON(run.ChangedFiles),
+		sanitize.PostgresJSON(run.Commits), postgresTextPointer(run.Branch), postgresTextPointer(run.PullRequestURL),
+		sanitize.PostgresJSON(run.TestsRun), run.TestStatus, sanitize.PostgresJSON(run.RiskNotes), run.ExitCode,
+		postgresTextPointer(run.ErrorMessage), run.ID, sanitize.PostgresText(run.Diff), run.DiffTruncated,
+		nullJSONPointer(run.DeclaredValidation), run.WorktreeChanged, nullJSON(run.WorktreeChangedFiles),
+		run.FailureClass, run.FailureRule, postgresTextPointer(run.FailureCause), nullJSON(run.Environment), nullJSON(run.OutputCuts))
 	return err
 }
 
@@ -1439,7 +1449,7 @@ func (r *DevMachineRepository) CreateEvent(ctx context.Context, event *domain.De
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_events
 		(workspace_id, machine_id, agent_run_id, actor_user_id, source, event_type, payload, occurred_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, created_at`, event.WorkspaceID, event.MachineID,
-		event.AgentRunID, event.ActorUserID, event.Source, event.EventType, event.Payload, event.OccurredAt,
+		event.AgentRunID, event.ActorUserID, event.Source, sanitize.PostgresText(event.EventType), sanitize.PostgresJSON(event.Payload), event.OccurredAt,
 	).Scan(&event.ID, &event.CreatedAt)
 }
 
@@ -1485,7 +1495,7 @@ func (r *DevMachineRepository) CreateLogChunk(ctx context.Context, chunk *domain
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		ON CONFLICT (machine_id, agent_run_id, service_id, stream, sequence) DO UPDATE SET id=dev_machine_log_chunks.id RETURNING id, created_at`,
 		chunk.WorkspaceID, chunk.MachineID, chunk.AgentRunID, chunk.ServiceID, chunk.Stream,
-		chunk.Sequence, chunk.Content, chunk.Truncated,
+		chunk.Sequence, sanitize.PostgresText(chunk.Content), chunk.Truncated,
 	).Scan(&chunk.ID, &chunk.CreatedAt)
 }
 
@@ -1518,12 +1528,12 @@ func (r *DevMachineRepository) CreateAgentOutput(ctx context.Context, chunk *dom
 // The caller holds current task/operation authority. This helper commits logs,
 // deduplication and replay events together, without trusting provider claims.
 func persistAgentOutput(ctx context.Context, tx *sqlx.Tx, chunk *domain.DevMachineLogChunk, events []domain.DevMachineEvent) error {
-	var err error
-	err = tx.QueryRowContext(ctx, `INSERT INTO dev_machine_log_chunks(workspace_id,machine_id,agent_run_id,service_id,stream,sequence,content,truncated,source_key)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(machine_id,agent_run_id,service_id,stream,sequence) DO NOTHING RETURNING id,created_at`, chunk.WorkspaceID, chunk.MachineID, chunk.AgentRunID, chunk.ServiceID, chunk.Stream, chunk.Sequence, chunk.Content, chunk.Truncated, chunk.SourceKey).Scan(&chunk.ID, &chunk.CreatedAt)
+	content := sanitize.PostgresText(chunk.Content)
+	err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_log_chunks(workspace_id,machine_id,agent_run_id,service_id,stream,sequence,content,truncated,source_key)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(machine_id,agent_run_id,service_id,stream,sequence) DO NOTHING RETURNING id,created_at`, chunk.WorkspaceID, chunk.MachineID, chunk.AgentRunID, chunk.ServiceID, chunk.Stream, chunk.Sequence, content, chunk.Truncated, chunk.SourceKey).Scan(&chunk.ID, &chunk.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		var same bool
-		if err = tx.GetContext(ctx, &same, `SELECT content=$6 AND truncated=$7 AND source_key=$8 FROM dev_machine_log_chunks WHERE machine_id=$1 AND agent_run_id=$2 AND service_id=$3 AND stream=$4 AND sequence=$5`, chunk.MachineID, chunk.AgentRunID, chunk.ServiceID, chunk.Stream, chunk.Sequence, chunk.Content, chunk.Truncated, chunk.SourceKey); err != nil {
+		if err = tx.GetContext(ctx, &same, `SELECT content=$6 AND truncated=$7 AND source_key=$8 FROM dev_machine_log_chunks WHERE machine_id=$1 AND agent_run_id=$2 AND service_id=$3 AND stream=$4 AND sequence=$5`, chunk.MachineID, chunk.AgentRunID, chunk.ServiceID, chunk.Stream, chunk.Sequence, content, chunk.Truncated, chunk.SourceKey); err != nil {
 			return err
 		}
 		if !same {
@@ -1534,12 +1544,15 @@ func persistAgentOutput(ctx context.Context, tx *sqlx.Tx, chunk *domain.DevMachi
 	if err != nil {
 		return err
 	}
+	activities := make([]domain.AgentTaskActivityEvent, 0, len(events))
 	for _, event := range events {
-		payload := event.Payload
+		eventType := sanitize.PostgresText(event.EventType)
+		payload := sanitize.PostgresJSON(event.Payload)
+		activities = append(activities, domain.AgentTaskActivityEvent{Type: eventType, Payload: payload})
 		if len(payload) == 0 {
 			payload = []byte(`{}`)
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO dev_machine_events(workspace_id,machine_id,agent_run_id,source,event_type,payload) VALUES($1,$2,$3,'agent',$4,$5)`, chunk.WorkspaceID, chunk.MachineID, chunk.AgentRunID, event.EventType, payload)
+		_, err = tx.ExecContext(ctx, `INSERT INTO dev_machine_events(workspace_id,machine_id,agent_run_id,source,event_type,payload) VALUES($1,$2,$3,'agent',$4,$5)`, chunk.WorkspaceID, chunk.MachineID, chunk.AgentRunID, eventType, payload)
 		if err != nil {
 			return err
 		}
@@ -1555,10 +1568,7 @@ func persistAgentOutput(ctx context.Context, tx *sqlx.Tx, chunk *domain.DevMachi
 		return err
 	}
 	if err == nil {
-		activity := domain.AgentTaskActivity{TaskID: task.ID, RunID: *chunk.AgentRunID, LogID: chunk.ID, Stream: chunk.Stream, Truncated: chunk.Truncated, Events: []domain.AgentTaskActivityEvent{}}
-		for _, event := range events {
-			activity.Events = append(activity.Events, domain.AgentTaskActivityEvent{Type: event.EventType, Payload: event.Payload})
-		}
+		activity := domain.AgentTaskActivity{TaskID: task.ID, RunID: *chunk.AgentRunID, LogID: chunk.ID, Stream: chunk.Stream, Truncated: chunk.Truncated, Events: activities}
 		if _, err = conversationEvent(ctx, tx, task.ConversationID, "task.activity", activity); err != nil {
 			return err
 		}
