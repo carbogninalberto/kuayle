@@ -225,6 +225,68 @@ func TestReviewsAreIdempotentRunWithoutPushAndRecordFindings(t *testing.T) {
 	require.Nil(t, comment)
 }
 
+// Production (KUA-227): a reviewer's answer without a verdict completed the
+// review as "Review finished: unknown". It fails instead and says why; no
+// verdict, findings, lesson or pull request comment is recorded.
+func TestAReviewWhoseAnswerHasNoVerdictFails(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	enableLessons(t)
+	ws := task.WorkspaceID
+	request := reviewRequest("codex")
+	request.PostToPullRequest = true
+	review, _, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, request)
+	require.NoError(t, err)
+	claimed, err := repo.Claim(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	require.Equal(t, review.ID, claimed.ID)
+	require.NoError(t, repo.Transition(ctx, *claimed, "preparing", "Preparing review"))
+	var machine uuid.UUID
+	require.NoError(t, db.Get(&machine, `SELECT machine_id FROM agent_tasks WHERE id=$1`, task.ID))
+	_, err = db.Exec(`UPDATE agent_tasks SET machine_id=$2 WHERE id=$1`, review.ID, machine)
+	require.NoError(t, err)
+	claimed.MachineID = &machine
+	run := &domain.DevMachineAgentRun{ID: review.RunID, WorkspaceID: ws, MachineID: machine, IssueID: &task.IssueID, RequestedByUserID: &task.CreatorID, ProviderID: "codex", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusQueued, Prompt: review.Prompt, AcceptanceCriteria: []byte(`[]`), AllowedCommands: []byte(`[]`), ForbiddenPaths: []byte(`[]`), AllowedSecrets: []byte(`[]`), CommandArgv: []byte(`["codex"]`), MaxRuntimeSeconds: 60}
+	op := &domain.DevMachineOperation{ID: uuid.New(), WorkspaceID: ws, MachineID: machine, Action: domain.DevMachineOpRunAgent, Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "run-agent:" + review.RunID.String(), RequestedByUserID: &task.CreatorID, MaxAttempts: 3}
+	require.NoError(t, NewDevMachineRepository(db).CreateAgentRun(domain.WithTaskExecution(ctx, *claimed), run, op))
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='running',started_at=now() WHERE id=$1`, review.RunID)
+	require.NoError(t, err)
+	_, err = repo.Start(ctx, *claimed)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now(),summary=$2 WHERE id=$1`, review.RunID, "I looked at the change.\n\n- `app.go:12` major: handle the error")
+	require.NoError(t, err)
+
+	require.NoError(t, repo.CompleteReview(ctx, *claimed))
+	failing, err := repo.Get(ctx, ws, review.ID)
+	require.NoError(t, err)
+	require.Equal(t, "cancelling", failing.State, "the review fails through runtime cleanup")
+	// The manager finished the run's operation and confirms the cleanup.
+	_, err = db.Exec(`UPDATE dev_machine_operations SET status='completed',lease_owner=NULL,lease_expires_at=NULL WHERE machine_id=$1 AND status IN ('pending','leased')`, machine)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO dev_machine_operations(workspace_id,machine_id,agent_run_id,action,status,generation,idempotency_key) VALUES($1,$2,$3,'cancel_agent','completed',1,$4)`,
+		ws, machine, review.RunID, "task-cancel:"+review.ID.String()+":"+review.RunID.String())
+	require.NoError(t, err)
+	require.NoError(t, repo.FinishCancellation(ctx, *claimed, "Runtime cancellation confirmed"))
+	failed, err := repo.Get(ctx, ws, review.ID)
+	require.NoError(t, err)
+	require.Equal(t, "failed", failed.State)
+	require.Equal(t, "Agent failure: the reviewer's answer had no verdict", failed.Reason)
+	require.NotNil(t, failed.FailureClass)
+	require.Equal(t, string(domain.FailureAgent), *failed.FailureClass)
+
+	var record domain.AgentReview
+	require.NoError(t, db.Get(&record, `SELECT * FROM agent_reviews WHERE task_id=$1`, review.ID))
+	require.Nil(t, record.Verdict, "no verdict is made up")
+	require.Nil(t, record.Findings)
+	require.Nil(t, record.CompletedAt)
+	var lessons int
+	require.NoError(t, db.Get(&lessons, `SELECT count(*) FROM workspace_lessons WHERE source_task_id=$1`, task.ID))
+	require.Zero(t, lessons)
+	comment, err := repo.ClaimReviewComment(context.Background(), time.Minute)
+	require.NoError(t, err)
+	require.Nil(t, comment, "a failed review posts nothing")
+}
+
 func TestReviewRequestsRequireAPublishedPullRequestAndIssueAccess(t *testing.T) {
 	db, repo, ctx, task, _ := taskRecoveryFixture(t)
 	ws := task.WorkspaceID

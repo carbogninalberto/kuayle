@@ -689,8 +689,9 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 			if review.Findings != nil {
 				findings = *review.Findings
 			}
-			// Only an explicit approval approves; a comment or a missing
-			// verdict sends the work back.
+			// Only an explicit approval approves; a comment sends the work
+			// back. A review without a verdict fails instead (KUA-227);
+			// one completed as "unknown" before that also sends it back.
 			if review.Verdict != nil && *review.Verdict == "approve" {
 				outcome, detail = domain.WorkflowReviewApproved, findings
 			} else {
@@ -700,7 +701,12 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 			if reviewModelNotFound(review) {
 				return w.failForReviewer(ctx, task, node, review.Reason)
 			}
+			// The review task's reason says why, for example that the
+			// reviewer's answer had no verdict (KUA-227).
 			outcome, detail = domain.WorkflowAgentFailed, "The review did not finish ("+review.State+")"
+			if reason := strings.TrimSpace(review.Reason); reason != "" {
+				detail += ": " + reason
+			}
 		}
 	case node.Type == domain.WorkflowNodeCheck && node.Check == domain.WorkflowCheckCI:
 		published, err := w.tasks.WorkflowCI(ctx, task)

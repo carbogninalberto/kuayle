@@ -203,7 +203,10 @@ func reviewUpdated(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) erro
 
 // CompleteReview records the reviewer's findings from its succeeded attempt
 // and completes the review task, fenced by the worker lease. The findings are
-// the harness's final output, parsed from Kuayle's own record of the run.
+// the harness's final output, parsed from Kuayle's own record of the run. An
+// answer without a verdict is not a review: the task fails through runtime
+// cleanup and says so, and nothing is recorded as its verdict or findings
+// (KUA-227).
 func (r *AgentTaskRepository) CompleteReview(ctx context.Context, claimed domain.AgentTask) error {
 	tx, task, err := r.transaction(ctx, claimed.ID, true)
 	if err != nil {
@@ -229,6 +232,12 @@ func (r *AgentTaskRepository) CompleteReview(ctx context.Context, claimed domain
 		output = *summary
 	}
 	verdict, findings := domain.ParseAgentReview(output)
+	if verdict == domain.AgentReviewVerdictUnknown {
+		if err = beginAgentTaskFailure(ctx, tx, task, domain.FailureAgent, domain.TaskFailureReason(domain.FailureAgent, domain.ReviewWithoutVerdict)); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
 	if findings == "" {
 		findings = "The reviewer reported no findings."
 	}
