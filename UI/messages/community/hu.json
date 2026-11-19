@@ -2395,6 +2395,8 @@
 	"automations.status": "Állapot",
 	"automations.any_status": "Bármely nyitott állapot",
 	"automations.instructions": "Utasítások az agentnek",
+	"automations.pin_version": "Jelenlegi verzió rögzítése",
+	"automations.follow_latest": "Legújabb verzió követése",
 	"automations.schedule": "Mikor",
 	"automations.any_time": "Bármikor",
 	"automations.at_hour": "{hour}:00 UTC-kor",

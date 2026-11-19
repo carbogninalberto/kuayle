@@ -1621,40 +1621,61 @@ results.
 
 ## Automations
 
-Migration 69 adds event-driven and scheduled delegation. Workspace
-administrators manage `agent_automations` rules from the coding-agent settings
-page. A rule belongs to one team. It matches open issues that have its label,
-its status, or both, optionally only during one UTC `run_hour`, and
-`max_active` (1–5) caps its pending, starting and active runs.
+Workspace administrators manage rules in **Settings → Dev Machines → Automations**.
+A rule matches a team's issues by label, status, or both. Each issue matches a
+rule once. Open blockers and an active task exclude an issue. The active limit
+(1–5) counts pending approvals, starts and unfinished tasks.
 
-Rules match current issue state instead of history events, which are recorded
-best-effort. A worker in the API process claims matches every 15 seconds. Each
-rule is locked `FOR UPDATE SKIP LOCKED`, and `agent_automation_runs` is unique
-per (rule, issue), so a crash or several API instances never miss or duplicate
-a match. An issue that already has active agent work is skipped. Nothing is
-claimed while coding agents are disabled for the workspace.
+A rule inherits the issue's workflow unless it selects a published workflow in
+the same workspace. Following latest resolves the version at task creation.
+**Pin the current version** keeps the version published when the rule is saved.
+The first runnable step must have an active agent profile. Starting a task
+checks the actor's current access, workflow and agent policies. Archiving the
+workflow prevents new starts, including pinned ones. Remove its rules before
+deleting a workflow. Removing a rule also removes its run history.
 
-By default a run is `pending_approval`, and the rule owner gets a
-notification. The owner or a workspace administrator can approve or dismiss
-it. Approval starts the task as the approver.
+Choose **Any time**, a UTC hour, or a five-field cron expression and IANA
+timezone. For example, `30 9 * * 1-5` in `Europe/Rome` checks at 09:30 local
+time on weekdays. A missing DST minute is skipped and a repeated minute is
+eligible twice. Settings shows the next scheduled match. On recovery, overdue
+cron rules check current issue state once and advance to the next future
+occurrence. The original `run_hour` keeps matching throughout that UTC hour.
 
-A rule marked unattended starts as its owner without approval, but only if the
-workspace policy enables `allow_unattended_automations`. Otherwise its runs
-also wait for approval.
+Matches and approval notifications commit together. The owner or a workspace
+administrator can approve or dismiss a pending run. Approval runs the task as
+the approver. An unattended run acts as its owner and needs an enabled
+workspace policy allowing unattended starts. Revoking that permission before a
+retry sends the run back for approval.
 
-Starting reuses the chat delegation path: it opens the issue conversation and
-calls `AgentTaskService.Create` with the composer defaults, under the actor's
-current permissions. The run's fixed request ID replays the same task after a
-crash. A transient failure stays `starting` for the worker to retry. A
-permanent one, such as lost access or a disabled provider, becomes `failed`
-with the reason. A rule grants nothing by itself, and removing its owner's
-access stops its unattended runs.
+### Running the automation worker
+
+Supervise `./server automation-worker` as a separate process using the same
+backend binary, database and Dev Machine policy, keys and demo settings as the
+API. It starts matching immediately and polls every 15 seconds without opening
+an HTTP port. Set `AUTOMATION_WORKER_EXTERNAL=true` on the API replicas when
+using dedicated workers. Existing single-process installations keep an embedded
+worker by default. Stop all writers, including standalone workers, before
+migrating or restoring the database. Restart them on the matching server version.
+
+Workers lock due rules and lease each task start for two minutes. A committed
+task is recovered using the original actor and request ID. Transient errors
+back off for 30 then 60 seconds. Three unsuccessful attempts, or one permanent
+refusal, leave a failed run with a reason. Open a rule's **Run history** to see
+its issues, tasks, current workflow versions and steps, attempts and failures.
+The original actor can replay a failed start while still authorized to decide
+on it. Replay checks the rule's active limit and keeps the same request ID.
 
 - `GET/POST /agent-automations`, `PATCH /agent-automations/:id` (`{enabled}`)
-  and `DELETE /agent-automations/:id` are administrator-only.
-- `GET /agent-automation-runs` lists recent runs (administrators).
-- `POST /agent-automation-runs/:id/approve|dismiss` is open to the rule owner
-  or an administrator.
+  and `DELETE /agent-automations/:id` require workspace administration.
+- Create accepts optional `workflow_id`, `version_policy` (`latest` or `pin`),
+  and either `run_hour` or `cron` with an optional `timezone` (default UTC).
+- `GET /agent-automation-runs` returns the newest 50 visible runs. Pass
+  `automation_id` for one rule and `before` with the last run ID for older rows.
+- `POST /agent-automation-runs/:id/approve|dismiss|replay` records a decision.
+
+Migration 193 preserves existing rules. Downgrade pauses workflow and cron
+rules and dismisses their outstanding starts and approvals so an older server
+cannot start the wrong workflow or cadence. It drops scheduling and retry metadata.
 
 ## Agents as issue assignees
 
@@ -2553,7 +2574,7 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   most specific wins. A task may choose any active workflow (`workflow_id` on
   task creation, `"standard"` for Standard); the assistant's `delegate_issue`
   accepts an optional `workflow` (name, ID or `standard`) resolved when the
-  approval is requested, and automations use the defaults, all through
+  approval is requested. [Automations](#automations) can inherit that default, follow a selected workflow, or pin its published version at rule creation. All start through
   `AgentTaskService.Create`. A custom workflow's first
   agent step decides the task's harness, model and effort.
 

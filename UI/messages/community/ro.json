@@ -2395,6 +2395,8 @@
 	"automations.status": "Status",
 	"automations.any_status": "Orice status deschis",
 	"automations.instructions": "Instrucțiuni pentru agent",
+	"automations.pin_version": "Fixează versiunea curentă",
+	"automations.follow_latest": "Folosește ultima versiune",
 	"automations.schedule": "Când",
 	"automations.any_time": "Oricând",
 	"automations.at_hour": "la {hour}:00 UTC",

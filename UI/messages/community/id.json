@@ -2395,6 +2395,8 @@
 	"automations.status": "Status",
 	"automations.any_status": "Status terbuka apa pun",
 	"automations.instructions": "Instruksi untuk agen",
+	"automations.pin_version": "Sematkan versi saat ini",
+	"automations.follow_latest": "Ikuti versi terbaru",
 	"automations.schedule": "Kapan",
 	"automations.any_time": "Kapan saja",
 	"automations.at_hour": "pukul {hour}:00 UTC",

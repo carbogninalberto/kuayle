@@ -2395,6 +2395,8 @@
 	"automations.status": "Status",
 	"automations.any_status": "Elke open status",
 	"automations.instructions": "Instructies voor de agent",
+	"automations.pin_version": "Huidige versie vastzetten",
+	"automations.follow_latest": "Nieuwste versie volgen",
 	"automations.schedule": "Wanneer",
 	"automations.any_time": "Op elk moment",
 	"automations.at_hour": "om {hour}:00 UTC",

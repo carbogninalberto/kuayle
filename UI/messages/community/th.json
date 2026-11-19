@@ -2395,6 +2395,8 @@
 	"automations.status": "สถานะ",
 	"automations.any_status": "สถานะที่เปิดอยู่ใดก็ได้",
 	"automations.instructions": "คำสั่งสำหรับ Agent",
+	"automations.pin_version": "ตรึงเวอร์ชันปัจจุบัน",
+	"automations.follow_latest": "ใช้เวอร์ชันล่าสุด",
 	"automations.schedule": "เมื่อใด",
 	"automations.any_time": "เวลาใดก็ได้",
 	"automations.at_hour": "เวลา {hour}:00 UTC",

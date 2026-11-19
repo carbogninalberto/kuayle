@@ -2395,6 +2395,8 @@
 	"automations.status": "סטטוס",
 	"automations.any_status": "כל סטטוס פתוח",
 	"automations.instructions": "הנחיות לסוכן",
+	"automations.pin_version": "הצמדת הגרסה הנוכחית",
+	"automations.follow_latest": "שימוש בגרסה העדכנית",
 	"automations.schedule": "מתי",
 	"automations.any_time": "בכל זמן",
 	"automations.at_hour": "ב-{hour}:00 UTC",

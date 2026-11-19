@@ -208,6 +208,8 @@ type AgentTaskRequest struct {
 	// WorkflowID chooses the task's workflow: a workflow's ID, "standard",
 	// or omitted for the issue's project, team or workspace default.
 	WorkflowID *string `json:"workflow_id,omitempty"`
+	// Only trusted automation rules can request a specific published version.
+	PinnedWorkflowVersion *int `json:"-"`
 	// Workflow is the resolved version and WorkflowInstructions the first
 	// agent step's profile and step instructions; the service sets them.
 	Workflow             *WorkflowVersion `json:"-"`
