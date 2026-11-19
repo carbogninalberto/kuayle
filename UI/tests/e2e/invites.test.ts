@@ -190,12 +190,13 @@ test('session retry stops after one refresh even if refreshed credentials are re
 	expect(requests.filter((r) => r.path === '/api/auth/me')).toHaveLength(2);
 });
 
-test('public signup is disabled when registration is disabled without an invitation', async ({ page }) => {
+test('public signup is hidden when registration is disabled without an invitation', async ({ page }) => {
 	await mockApi(page);
+	const configResponse = page.waitForResponse('**/api/config');
 	await page.goto('/login');
-	const signUp = page.getByRole('button', { name: 'Sign up', exact: true });
-	await expect(signUp).toBeVisible();
-	await expect(signUp).toBeDisabled();
+	await (await configResponse).finished();
+	await expect(page.getByText("Don't have an account?")).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Sign up', exact: true, includeHidden: true })).toHaveCount(0);
 });
 
 test('invite link creation validates expiry and use limits before submitting', async ({ page }) => {

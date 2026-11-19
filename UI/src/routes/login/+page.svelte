@@ -275,15 +275,17 @@
 			{/if}
 		{/if}
 
-		<p class="text-center text-sm text-[var(--color-text-secondary)]">
-			{mode === 'login' ? m['login.no_account']() : m['login.has_account']()}
-			<Button variant="plain" onclick={() => (signingUp = mode === 'login')}
-				disabled={loading || !canSignUp}
-				class="text-[var(--app-accent)] enabled:hover:underline disabled:opacity-50"
-			>
-				{mode === 'login' ? m['login.button.sign_up']() : m['login.button.signin']()}
-			</Button>
-		</p>
+		{#if canSignUp}
+			<p class="text-center text-sm text-[var(--color-text-secondary)]">
+				{mode === 'login' ? m['login.no_account']() : m['login.has_account']()}
+				<Button variant="plain" onclick={() => (signingUp = mode === 'login')}
+					disabled={loading}
+					class="text-[var(--app-accent)] enabled:hover:underline disabled:opacity-50"
+				>
+					{mode === 'login' ? m['login.button.sign_up']() : m['login.button.signin']()}
+				</Button>
+			</p>
+		{/if}
 	</div>
 
 	{#if demoMode && mode === 'login'}

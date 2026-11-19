@@ -1,9 +1,15 @@
 import { test, expect, type Page } from '@playwright/test';
 
-const signUp = (page: Page) => page.getByRole('button', { name: 'Sign up', exact: true });
+const signUp = (page: Page) =>
+	page.getByRole('button', { name: 'Sign up', exact: true, includeHidden: true });
 const ssoButton = (page: Page) =>
 	page.getByRole('button', { name: 'Sign in with SSO', includeHidden: true });
 const demoMode = /^(1|true|yes|on)$/i.test(process.env.PUBLIC_DEMO_MODE ?? '');
+
+async function expectNoSignUp(page: Page) {
+	await expect(page.getByText("Don't have an account?")).toHaveCount(0);
+	await expect(signUp(page)).toHaveCount(0);
+}
 
 test.beforeEach(async ({ page }) => {
 	await page.route('https://raw.githubusercontent.com/**', (route) => route.fulfill({ json: [] }));
@@ -22,8 +28,9 @@ test('login form has required fields', async ({ page }) => {
 	await expect(page.getByRole('textbox', { name: 'Password', exact: true })).toBeVisible();
 });
 
-test('signup waits for activation and stays disabled in demo mode', async ({ page }) => {
+test('signup waits for activation and stays hidden in demo mode', async ({ page }) => {
 	const demoUsers = page.getByRole('button', { name: 'Demo users' });
+	const passkey = page.getByRole('button', { name: 'Sign in with a passkey' });
 	const { promise: configReady, resolve: releaseConfig } = Promise.withResolvers<void>();
 	await page.route('**/api/config', async (route) => {
 		await configReady;
@@ -31,33 +38,36 @@ test('signup waits for activation and stays disabled in demo mode', async ({ pag
 	});
 	await page.goto('/login');
 	try {
-		await expect(signUp(page)).toBeVisible();
-		await expect(signUp(page)).toBeDisabled();
+		await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+		await expectNoSignUp(page);
 	} finally {
 		releaseConfig();
 	}
-	await expect(page.getByRole('button', { name: 'Sign in with a passkey' })).toBeVisible();
+	await expect(passkey).toBeVisible();
 
 	if (demoMode) {
 		await expect(demoUsers).toBeVisible();
-		await expect(signUp(page)).toBeDisabled();
+		await expectNoSignUp(page);
 		await page.goto('/login?invite=demo-invite');
-		await expect(signUp(page)).toBeDisabled();
+		await expect(passkey).toBeVisible();
+		await expectNoSignUp(page);
 	} else {
 		await expect(demoUsers).toHaveCount(0);
+		await expect(page.getByText("Don't have an account?")).toBeVisible();
 		await expect(signUp(page)).toBeEnabled();
 		await signUp(page).press('Enter');
 		await expect(page.getByRole('button', { name: 'Create account' })).toBeVisible();
+		await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+		await expect(signUp(page)).toBeVisible();
 	}
 });
 
-test('an unavailable auth configuration leaves signup disabled and SSO hidden', async ({ page }) => {
+test('an unavailable auth configuration hides signup and SSO', async ({ page }) => {
 	await page.route('**/api/config', (route) => route.fulfill({ status: 503, json: {} }));
 	const configResponse = page.waitForResponse('**/api/config');
 	await page.goto('/login');
 	await (await configResponse).finished();
-	await expect(signUp(page)).toBeVisible();
-	await expect(signUp(page)).toBeDisabled();
+	await expectNoSignUp(page);
 	await expect(ssoButton(page)).toHaveCount(0);
 });
 
