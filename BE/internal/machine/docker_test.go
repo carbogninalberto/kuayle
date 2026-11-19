@@ -349,29 +349,42 @@ func TestHeadlessTerminalUsesDeveloperContainerSecurityAndResources(t *testing.T
 	require.False(t, terminalConfig.Mounts[0].ReadOnly)
 }
 
-// A 512-PID machine split by share gave its agent 179 tasks. A Claude Code
-// session (a multithreaded native runtime) with a parallel `go test ./...` that
-// shells out to git hit that ceiling: thread and fork creation failed, git
-// crashed and the harness was killed with SIGSEGV (exit 139). The containers
-// people and agents build in keep a process budget that fits such a workload;
-// the small service containers keep their share.
+// Developer containers keep their floor so parallel build tools can fork even
+// on machines with a small PID budget. Support containers keep their share.
 func TestBuildContainersGetAProcessBudgetForParallelToolchains(t *testing.T) {
 	runtime := &DockerRuntime{}
 	for _, profile := range []string{domain.DevMachineProfileStandard, domain.DevMachineProfileHeadless} {
 		machine := &domain.DevMachine{MemoryMB: 12288, CPUMillis: 4000, PidsLimit: 512, Profile: profile}
 		for _, docker := range []bool{false, true} {
-			for _, service := range []string{"agent", "terminal", "ide"} {
+			for _, service := range []string{"terminal", "ide"} {
 				pids := *runtime.secureHostConfig(machine, service, "network", "volume", docker).Resources.PidsLimit
-				require.GreaterOrEqual(t, pids, int64(1024), "%s on a %s machine (docker=%t)", service, profile, docker)
+				require.Equal(t, int64(1024), pids, "%s on a %s machine (docker=%t)", service, profile, docker)
 			}
 			require.Equal(t, int64(32), *runtime.secureHostConfig(machine, "collector", "network", "volume", docker).Resources.PidsLimit)
 			require.Equal(t, int64(32), *runtime.secureHostConfig(machine, "egress", "network", "volume", docker).Resources.PidsLimit)
 		}
 	}
+}
 
-	// A machine configured with more processes keeps its larger share.
-	large := &domain.DevMachine{MemoryMB: 16384, CPUMillis: 8000, PidsLimit: 8192, Profile: domain.DevMachineProfileHeadless}
-	require.Equal(t, int64(8192)*35/100, *runtime.secureHostConfig(large, "agent", "network", "volume", true).Resources.PidsLimit)
+func TestAgentPIDLimitStaysWithinMachineBudget(t *testing.T) {
+	runtime := &DockerRuntime{}
+	for _, test := range []struct {
+		name  string
+		limit int
+		want  int64
+	}{
+		{"below the build floor", 512, 512},
+		{"between the floors", 2048, 2048},
+		{"at the agent floor", 4096, 4096},
+		{"share below the agent floor", 8192, 4096},
+		{"share above the agent floor", 16384, 5734},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			machine := &domain.DevMachine{MemoryMB: 16384, CPUMillis: 8000, PidsLimit: test.limit, Profile: domain.DevMachineProfileHeadless}
+			config := runtime.secureHostConfig(machine, "agent", "network", "volume", true)
+			require.Equal(t, test.want, *config.Resources.PidsLimit)
+		})
+	}
 }
 
 func TestDeveloperContainerIDSupportsHeadlessTerminalOnlyMachines(t *testing.T) {

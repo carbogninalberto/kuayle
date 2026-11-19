@@ -4,7 +4,8 @@ export default defineConfig({
 	testDir: 'tests/e2e',
 	forbidOnly: !!process.env.CI,
 	retries: 0,
-	workers: process.env.CI ? 2 : undefined,
+	// Keep Chromium's process and thread count bounded in agent containers.
+	workers: 2,
 	// On GitHub Actions the github reporter also turns each failure into an annotation on its
 	// spec line; it stays out of local runs, CI=1 included.
 	reporter: process.env.CI
