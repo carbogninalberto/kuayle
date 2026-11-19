@@ -952,7 +952,9 @@ changes from the issue's latest failed, cancelled or blocked coding task. The
 task creator or a workspace admin can approve from their own chat. The approval
 is bound to the task attempt and requires its original checkout on a running
 Dev Machine. After approval, the card shows the draft pull request, an empty
-checkout result or the reason publication could not finish. A completed approval
+checkout result or the reason publication could not finish. If pending edits
+conflict with a newer GitHub tip, the card names the files and the checkout keeps
+the merge for repair. A completed approval
 records `outcome` as `published` or `empty`. The task keeps its
 state. See [publication](agent-tasks.md#publication) for GitHub and lease rules.
 

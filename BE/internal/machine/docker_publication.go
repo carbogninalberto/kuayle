@@ -99,6 +99,29 @@ g() { gi "$@" </dev/null; }
 on_task_branch() { [ "$(head -n 1 "$gitdir/HEAD")" = "ref: refs/heads/$branch" ] || { echo "checkout is not on the task branch" >&2; exit 1; }; }
 `
 
+const publishStageScript = `
+# Staging compares a nested repository by running git inside it, under that
+# repository's own configuration. Nested repositories are left out of that
+# comparison and recorded afterwards at their current commit, which reads
+# their HEAD without running anything in them.
+nested() { g ls-files -s | grep '^160000 [0-9a-f]* 0' | cut -f 2- || true; }
+stage_changes() {
+  nested | gi update-index --skip-worktree --stdin
+  g -c advice.addEmbeddedRepo=false add -A
+  nested | gi update-index --no-skip-worktree --stdin
+  g diff-files --ignore-submodules=dirty --name-only -z | gi update-index --add --remove -z --stdin
+}
+link_merge_state() {
+  for state in MERGE_HEAD MERGE_MODE MERGE_MSG; do
+    [ ! -f "$gitdir/$state" ] || ln -s "$gitdir/$state" "$work/checkout/$state"
+  done
+}
+commit_changes() {
+  g commit --no-verify -q -m "$message"
+  rm -f "$gitdir/MERGE_HEAD" "$gitdir/MERGE_MODE" "$gitdir/MERGE_MSG"
+}
+`
+
 // The commit step runs without any credential and through publishCheckoutScript,
 // so no program named by the checkout's configuration, attributes or nested
 // repositories runs; the agent's identity claims are replaced.
@@ -107,20 +130,10 @@ path=$1 branch=$2 base=$3 step=commit
 export GIT_AUTHOR_NAME="$4" GIT_AUTHOR_EMAIL="$5" GIT_COMMITTER_NAME="$4" GIT_COMMITTER_EMAIL="$5"
 message=$(cat)
 [ -n "$message" ] || { echo "missing commit message" >&2; exit 1; }
-` + publishCheckoutScript + `on_task_branch
+` + publishCheckoutScript + publishStageScript + `on_task_branch
 # A merge the agent left uncommitted is concluded as it would be in the checkout.
-for state in MERGE_HEAD MERGE_MODE MERGE_MSG; do
-  [ ! -f "$gitdir/$state" ] || ln -s "$gitdir/$state" "$work/checkout/$state"
-done
-# Staging compares a nested repository by running git inside it, under that
-# repository's own configuration. Nested repositories are left out of that
-# comparison and recorded afterwards at their current commit, which reads
-# their HEAD without running anything in them.
-nested() { g ls-files -s | grep '^160000 [0-9a-f]* 0' | cut -f 2- || true; }
-nested | gi update-index --skip-worktree --stdin
-g -c advice.addEmbeddedRepo=false add -A
-nested | gi update-index --no-skip-worktree --stdin
-g diff-files --ignore-submodules=dirty --name-only -z | gi update-index --add --remove -z --stdin
+link_merge_state
+stage_changes
 # Commits made since the last publication by anyone but the configured author,
 # or carrying co-author trailers, are folded into one commit by that author.
 # The floor is the commit Kuayle recorded as published ($6), never a marker in
@@ -163,8 +176,7 @@ if [ -n "$rebuilt" ] || [ -n "$foreign" ] || g log --format=%B "$floor..HEAD" --
   fi
 fi
 if ! g diff --cached --quiet; then
-  g commit --no-verify -q -m "$message"
-  rm -f "$gitdir/MERGE_HEAD" "$gitdir/MERGE_MODE" "$gitdir/MERGE_MSG"
+  commit_changes
 fi
 g rev-parse --verify HEAD
 `
@@ -332,8 +344,11 @@ func pushedCommit(output, commit string) (string, error) {
 
 // The sync step brings the checkout up to the task branch on GitHub before it is
 // published: commits others pushed (a maintainer merging the base branch into
-// the pull request) are fetched and fast-forwarded to, never overwritten. When
-// the histories diverged because the agent rewrote the commits Kuayle published
+// the pull request) are fetched and fast-forwarded to, never overwritten. If
+// pending work prevents a fast-forward, it is committed and then merged with
+// the fetched tip. A conflict leaves that commit and the merge in the checkout
+// for the next attempt to resolve. When the histories diverged because the
+// agent rewrote the commits Kuayle published
 // itself, GitHub's tip is still exactly the commit Kuayle recorded as published
 // ($4). Nobody else pushed then, so the checkout is left alone and the tip is
 // printed as the lease for a guarded force push. Any other divergence is
@@ -343,8 +358,10 @@ func pushedCommit(output, commit string) (string, error) {
 // runs.
 const publishSyncScript = `set -eu
 repository=$1 branch=$2 path=$3 published=$4 step=sync
+export GIT_AUTHOR_NAME="$5" GIT_AUTHOR_EMAIL="$6" GIT_COMMITTER_NAME="$5" GIT_COMMITTER_EMAIL="$6"
+message=$7
 umask 077
-` + publishCheckoutScript + `on_task_branch
+` + publishCheckoutScript + publishStageScript + `on_task_branch
 IFS= read -r token
 [ -n "$token" ] || { echo "missing repository credential" >&2; exit 1; }
 printf '%s' "$token" > "$work/token"
@@ -365,15 +382,49 @@ if remote ls-remote --exit-code --heads "$url" "refs/heads/$branch" >/dev/null; 
   remote fetch -q --no-tags --no-recurse-submodules "$url" "+refs/heads/$branch:refs/kuayle/branch"
   fetched=1
 else
+  status=$?
+  [ "$status" -eq 2 ] || exit "$status"
   fetched=
 fi
 rm -f "$work/token" "$work/askpass"
+block_checkout() { printf 'blocked\n%s\n' "$1"; exit 0; }
+check_conflicts() {
+  files=$(g -c core.quotePath=false diff --cached --name-only --diff-filter=U)
+  [ -z "$files" ] || { printf 'conflicts\n%s\n' "$files"; exit 0; }
+}
+check_conflicts
 [ -n "$fetched" ] || exit 0
 g fetch -q --no-tags --no-recurse-submodules "$work/repo" "+refs/kuayle/branch:refs/remotes/origin/$branch"
 tip=$(g rev-parse --verify "refs/remotes/origin/$branch^{commit}")
+if [ -f "$gitdir/MERGE_HEAD" ] && [ "$(cat "$gitdir/MERGE_HEAD")" = "$tip" ]; then
+  # The agent staged the resolutions. A merge that keeps the checkpoint's
+  # tree still needs to record the GitHub tip as a parent.
+  link_merge_state
+  stage_changes
+  commit_changes
+  exit 0
+fi
 g merge-base --is-ancestor "$tip" HEAD && exit 0
 if g merge-base --is-ancestor HEAD "$tip"; then
-  g merge -q --ff-only "$tip" || { echo "could not fast-forward the checkout to commits pushed to GitHub; resolve it by hand, nothing was force-pushed" >&2; exit 1; }
+  [ ! -f "$gitdir/MERGE_HEAD" ] || block_checkout "Finish the in-progress merge before bringing in commits from the GitHub task branch."
+  stage_changes
+  if g diff --cached --quiet; then
+    g merge -q --ff-only --no-overwrite-ignore "$tip" >"$work/merge-output" 2>&1 ||
+      block_checkout "Could not fast-forward to the GitHub task branch. $(cat "$work/merge-output")"
+    exit 0
+  fi
+  # Keep a durable copy before the merge touches the working tree.
+  g commit --no-verify -q -m "$message"
+  if ! g merge -q --no-ff --no-overwrite-ignore -m "$message" "$tip" >"$work/merge-output" 2>&1; then
+    if [ -f "$work/checkout/MERGE_HEAD" ]; then
+      # Keep the standard merge state after the isolated git directory goes away.
+      for state in ORIG_HEAD MERGE_MODE MERGE_MSG MERGE_HEAD; do
+        mv -f "$work/checkout/$state" "$gitdir/"
+      done
+    fi
+    check_conflicts
+    block_checkout "Could not merge the GitHub task branch into the saved changes. $(cat "$work/merge-output")"
+  fi
   exit 0
 fi
 if [ -n "$published" ] && [ "$tip" = "$published" ]; then
@@ -383,17 +434,16 @@ if [ -n "$published" ] && [ "$tip" = "$published" ]; then
   echo "lease $tip"
   exit 0
 fi
-echo "the task branch on GitHub has commits the checkout does not have and the checkout has commits GitHub does not have; someone else pushed to the branch, so it cannot be fast-forwarded and nothing was force-pushed" >&2
-exit 1
+block_checkout "The task branch on GitHub and the checkout have diverged. Bring the GitHub branch's commits into the checkout before publishing."
 `
 
-// SyncCheckout fast-forwards the task checkout to the task branch on GitHub,
-// leaving it alone when someone else pushed commits the checkout does not have.
+// SyncCheckout brings commits pushed to the task branch on GitHub into the
+// checkout while preserving pending changes.
 // When the checkout rewrote the commits Kuayle published and GitHub's tip is
 // still the commit Kuayle recorded as published, nobody else pushed: it returns
 // that tip as the lease for a guarded force push instead of changing the
 // checkout.
-func (r *DockerRuntime) SyncCheckout(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, token, published string) (string, error) {
+func (r *DockerRuntime) SyncCheckout(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, request PublishRequest) (string, error) {
 	developerContainer := developerContainerID(services)
 	if developerContainer == "" {
 		return "", fmt.Errorf("developer container is unavailable")
@@ -401,26 +451,38 @@ func (r *DockerRuntime) SyncCheckout(ctx context.Context, _ *domain.DevMachine, 
 	if checkout == nil || !publishRepositoryPattern.MatchString(checkout.RepositoryFullName) {
 		return "", fmt.Errorf("invalid publication repository")
 	}
-	if token == "" {
+	if request.Token == "" {
 		return "", fmt.Errorf("repository credential is unavailable")
 	}
-	if published != "" && !publishCommitPattern.MatchString(published) {
+	if request.PublishedCommit != "" && !publishCommitPattern.MatchString(request.PublishedCommit) {
 		return "", fmt.Errorf("invalid published commit")
 	}
 	output, err := r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishSyncScript, "kuayle-publish-sync",
-		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, published}, token+"\n")
+		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, request.PublishedCommit,
+		request.AuthorName, request.AuthorEmail, request.Message}, request.Token+"\n")
 	if err != nil {
 		return "", err
 	}
 	return parseSyncLease(output)
 }
 
-// parseSyncLease validates the sync step's stdout: nothing for a fast-forward or
-// the refusal of a divergence, or the lease of a rewrite the sync accepted.
+// A checkout block requires changes to the worktree before it can be retried.
+type checkoutSyncBlockedError struct{ detail string }
+
+func (e *checkoutSyncBlockedError) Error() string { return e.detail }
+
+// parseSyncLease reads the sync step's stdout: nothing when no lease is needed,
+// the lease of an accepted rewrite, or the reason the checkout is blocked.
 func parseSyncLease(output string) (string, error) {
 	output = strings.TrimSpace(output)
 	if output == "" {
 		return "", nil
+	}
+	if files, ok := strings.CutPrefix(output, "conflicts\n"); ok {
+		return "", &checkoutSyncBlockedError{detail: "Merge conflicts in " + strings.ReplaceAll(files, "\n", ", ")}
+	}
+	if detail, ok := strings.CutPrefix(output, "blocked\n"); ok {
+		return "", &checkoutSyncBlockedError{detail: detail}
 	}
 	lease, ok := strings.CutPrefix(output, "lease ")
 	if !ok || !publishCommitPattern.MatchString(lease) {

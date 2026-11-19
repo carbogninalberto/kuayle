@@ -45,8 +45,14 @@ func TestPublishTaskChangesApprovesOneLeasedPublication(t *testing.T) {
 			require.NoError(t, err)
 			var originalRun uuid.UUID
 			require.NoError(t, f.db.Get(&originalRun, `SELECT run_id FROM agent_tasks WHERE id=$1`, taskID))
+			var publishedCommit string
 			if tc.noNewNativeRun {
-				_, err := f.db.Exec(`UPDATE agent_tasks SET generation=generation+1,run_id=gen_random_uuid() WHERE id=$1`, taskID)
+				publishedCommit = reviewedCommit
+				_, err = f.db.Exec(`INSERT INTO dev_machine_git_refs(workspace_id,machine_id,agent_run_id,ref_type,repository_full_name,ref_name,commit_sha,source)
+ SELECT r.workspace_id,r.machine_id,r.id,'commit',c.repository_full_name,c.working_branch,$2,'published'
+ FROM dev_machine_agent_runs r JOIN dev_machine_checkouts c ON c.id=r.checkout_id WHERE r.id=$1`, originalRun, publishedCommit)
+				require.NoError(t, err)
+				_, err = f.db.Exec(`UPDATE agent_tasks SET generation=generation+1,run_id=gen_random_uuid() WHERE id=$1`, taskID)
 				require.NoError(t, err)
 			}
 			result, attempt, approvals := liveToolResult(t, f, domain.PublishTaskChangesAction, `{"identifier":"eng-1"}`)
@@ -79,6 +85,7 @@ func TestPublishTaskChangesApprovesOneLeasedPublication(t *testing.T) {
 			publication, err := store.GetPublication(f.ctx, op)
 			require.NoError(t, err)
 			require.True(t, publication.FromStoppedTask)
+			require.Equal(t, publishedCommit, publication.PublishedCommit, "sync uses the published tip of the run that owns the checkout")
 
 			const url = "https://github.com/acme/app/pull/27"
 			outcome := domain.AgentPublicationResult{}
@@ -116,6 +123,35 @@ func TestPublishTaskChangesApprovesOneLeasedPublication(t *testing.T) {
 			require.Equal(t, tc.state, state)
 		})
 	}
+}
+
+func TestPublishTaskChangesReportsCheckoutConflict(t *testing.T) {
+	f, taskID := stoppedPublicationFixture(t)
+	_, attempt, approvals := liveToolResult(t, f, domain.PublishTaskChangesAction, `{"identifier":"ENG-1"}`)
+	require.Len(t, approvals, 1)
+	_, err := f.service.ResolveApproval(f.ctx, f.ws, attempt.Conversation.ID, approvals[0].ID, true)
+	require.NoError(t, err)
+	store := repository.NewDevMachineRepository(f.db)
+	ops, err := store.LeaseOperations(f.ctx, "publish-test", 1, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, ops, 1)
+	op := ops[0]
+	require.NoError(t, store.StartPublication(f.ctx, op))
+	const reason = "Merge conflicts in notes.md"
+	retrying, err := store.FailOperation(f.ctx, op.ID, *op.LeaseOwner, domain.PublicationCheckoutBlockedCode, domain.PublicationCheckoutBlockedCode+": "+reason, false)
+	require.NoError(t, err)
+	require.False(t, retrying)
+	decisions, err := f.repo.StoppedPublicationDecisions(f.ctx)
+	require.NoError(t, err)
+	require.Len(t, decisions, 1)
+	finished, err := f.repo.FinishStoppedPublication(f.ctx, decisions[0])
+	require.NoError(t, err)
+	require.Equal(t, "failed", finished.Status)
+	require.NotNil(t, finished.Error)
+	require.Contains(t, *finished.Error, reason)
+	var state string
+	require.NoError(t, f.db.Get(&state, `SELECT state FROM agent_tasks WHERE id=$1`, taskID))
+	require.Equal(t, "failed", state)
 }
 
 func TestPublishTaskChangesRefusesOthersAndRechecksAdmins(t *testing.T) {

@@ -70,6 +70,7 @@ type ManagerStore interface {
 	SetPackageIndexRefresh(context.Context, uuid.UUID, string, string, *int, *string) error
 	DeleteEnvironmentCheck(context.Context, uuid.UUID) error
 	DeferOperation(context.Context, uuid.UUID, string, string, string, time.Duration) error
+	LastPublishedCommit(context.Context, uuid.UUID) (string, error)
 	GetPublication(context.Context, domain.DevMachineOperation) (*domain.AgentPublication, error)
 	StartPublication(context.Context, domain.DevMachineOperation) error
 	CompletePublication(context.Context, domain.DevMachineOperation, domain.AgentPublicationResult) error
@@ -1410,6 +1411,14 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	}
 	// Only the first start of an attempt clears what earlier attempts left.
 	firstStart := run.Status == domain.DevMachineAgentRunStatusQueued
+	if firstStart && run.TaskID != nil && checkout != nil && checkout.ScopeKey == run.TaskID.String() {
+		if checkout.MachineID != machine.ID || checkout.WorkspaceID != machine.WorkspaceID {
+			return &terminalOperationError{code: "checkout_not_ready", message: "Task checkout is unavailable"}
+		}
+		if err := m.syncBeforeTaskVisit(ctx, machine, run, runServices, checkout); err != nil {
+			return err
+		}
+	}
 	if err := m.store.MarkAgentRunStarting(ctx, run.ID); err != nil {
 		if errors.Is(err, repository.ErrAgentTaskUnauthorized) {
 			return m.cancelUnauthorizedRun(ctx, run)

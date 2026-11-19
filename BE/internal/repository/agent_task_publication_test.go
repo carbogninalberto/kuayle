@@ -240,6 +240,55 @@ func TestExhaustedPublicationFailsInsteadOfWaiting(t *testing.T) {
 	require.Equal(t, domain.DevMachineAgentRunStepStatusFailed, step.Status)
 }
 
+func TestPublicationCheckoutBlockIsRecordedAndPassedToARetry(t *testing.T) {
+	db, repo, ctx, task, claimed := publishingTask(t)
+	_, err := repo.EnsurePublication(ctx, *claimed)
+	require.NoError(t, err)
+	store := NewDevMachineRepository(db)
+	op := leasePublication(t, store, ctx)
+	require.NoError(t, store.StartPublication(ctx, op))
+	reason := "Merge conflicts in notes.md"
+	summary := domain.PublicationCheckoutBlockedCode + ": " + reason
+	retrying, err := store.FailOperation(ctx, op.ID, *op.LeaseOwner, domain.PublicationCheckoutBlockedCode, summary, false)
+	require.NoError(t, err)
+	require.False(t, retrying)
+	step, err := repo.EnsurePublication(ctx, *claimed)
+	require.NoError(t, err)
+	require.Equal(t, domain.DevMachineAgentRunStepStatusFailed, step.Status)
+	require.Equal(t, reason, domain.PublicationCheckoutBlockReason(step.Summary))
+	require.NoError(t, repo.QueuePublicationRepair(ctx, *claimed, reason))
+	require.ErrorIs(t, repo.QueuePublicationRepair(ctx, *claimed, reason), ErrAgentTaskConflict)
+	retried, err := repo.Get(ctx, task.WorkspaceID, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, "queued", retried.State)
+	require.NotEqual(t, task.RunID, retried.RunID)
+	require.Equal(t, task.CheckoutID, retried.CheckoutID)
+	require.Contains(t, retried.Reason, "notes.md")
+	handoff, err := repo.PreviousAttempt(ctx, *retried)
+	require.NoError(t, err)
+	require.Equal(t, reason, handoff.PublicationBlock)
+
+	// If the repair visit leaves the conflict unresolved, its publication
+	// shows the file and stops. It cannot start a third visit automatically.
+	repair, err := repo.Claim(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, repair)
+	require.Equal(t, retried.RunID, repair.RunID)
+	_, err = db.Exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,checkout_id,task_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status)
+ VALUES($1,$2,$3,$4,$5,$6,'codex','autonomous','Resolve the conflict','["codex"]',60,'succeeded')`, repair.RunID, repair.WorkspaceID, repair.MachineID, repair.CheckoutID, repair.ID, repair.CreatorID)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE agent_tasks SET state='publishing' WHERE id=$1`, repair.ID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO dev_machine_agent_run_steps(agent_run_id,sequence,step_type,name,status,summary) VALUES($1,1,'publication','Publish changes','failed',$2)`, repair.RunID, summary)
+	require.NoError(t, err)
+	require.NoError(t, repo.QueuePublicationRepair(ctx, *repair, reason))
+	stopped, err := repo.Get(ctx, task.WorkspaceID, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, "blocked", stopped.State)
+	require.Equal(t, reason, stopped.Reason)
+	require.Equal(t, repair.Generation, stopped.Generation)
+}
+
 func TestPublicationRejectsRevokedAuthority(t *testing.T) {
 	for _, scenario := range []string{"cancelled", "membership", "policy", "machine_generation", "expired_lease", "superseded_attempt"} {
 		t.Run(scenario, func(t *testing.T) {

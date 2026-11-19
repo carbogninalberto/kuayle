@@ -55,6 +55,50 @@ func (r *AgentTaskRepository) EnsurePublication(ctx context.Context, claimed dom
 	return step, tx.Commit()
 }
 
+// QueuePublicationRepair gives a Standard task one coding attempt to repair
+// its checkout. Two consecutive blocked publications wait for human input.
+func (r *AgentTaskRepository) QueuePublicationRepair(ctx context.Context, claimed domain.AgentTask, reason string) error {
+	tx, task, err := r.transaction(ctx, claimed.ID, true)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err = fenceAgentTask(ctx, tx, *task, claimed); err != nil {
+		return err
+	}
+	if task.State != "publishing" || task.RunsWorkflow() || task.Kind == domain.AgentTaskKindReview {
+		return ErrAgentTaskConflict
+	}
+	var summary string
+	var previous *string
+	err = tx.QueryRowContext(ctx, `SELECT current.summary,
+ (SELECT p.summary FROM dev_machine_agent_runs r
+  LEFT JOIN dev_machine_agent_run_steps p ON p.agent_run_id=r.id AND p.step_type='publication' AND p.sequence=1 AND p.status='failed'
+  WHERE r.task_id=$2 AND r.workspace_id=$3 AND r.id<>$1 ORDER BY r.created_at DESC,r.id LIMIT 1)
+ FROM dev_machine_agent_run_steps current WHERE current.agent_run_id=$1 AND current.sequence=1 AND current.step_type='publication' AND current.status='failed'`, task.RunID, task.ID, task.WorkspaceID).Scan(&summary, &previous)
+	if err != nil {
+		return err
+	}
+	if reason == "" || domain.PublicationCheckoutBlockReason(&summary) != reason {
+		return ErrAgentTaskConflict
+	}
+	if domain.PublicationCheckoutBlockReason(previous) != "" {
+		if err = transitionAgentTask(ctx, tx, task, "blocked", reason, nil); err != nil {
+			return err
+		}
+	} else {
+		if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET run_id=gen_random_uuid(), generation=generation+1,
+ lease_token=NULL, lease_expires_at=NULL, next_poll_at=now(), resume_native_session=false, platform_retries=0
+ WHERE id=$1 RETURNING *`, task.ID); err != nil {
+			return err
+		}
+		if err = transitionAgentTask(ctx, tx, task, "queued", "Agent will repair the checkout: "+reason, nil); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // GetPublication re-verifies publication authority for the leased operation and
 // returns the issue reference used in the commit and pull request.
 func (r *DevMachineRepository) GetPublication(ctx context.Context, op domain.DevMachineOperation) (*domain.AgentPublication, error) {
@@ -87,16 +131,10 @@ func (r *DevMachineRepository) GetPublication(ctx context.Context, op domain.Dev
 		return nil, err
 	}
 	publication.Bot = &bot
-	// The branch's last commit Kuayle pushed; commits merely observed in the
-	// checkout do not count.
-	var published sql.NullString
-	if err = tx.QueryRowContext(ctx, `SELECT g.commit_sha FROM dev_machine_agent_runs r
- JOIN dev_machine_checkouts c ON c.id=r.checkout_id AND c.workspace_id=r.workspace_id
- JOIN dev_machine_git_refs g ON g.workspace_id=r.workspace_id AND g.repository_full_name=c.repository_full_name AND g.ref_name=c.working_branch AND g.ref_type='commit' AND g.source='published'
- WHERE r.id=$1 AND g.commit_sha IS NOT NULL ORDER BY g.created_at DESC LIMIT 1`, step.AgentRunID).Scan(&published); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	publication.PublishedCommit, err = lastPublishedCommit(ctx, tx, step.AgentRunID)
+	if err != nil {
 		return nil, err
 	}
-	publication.PublishedCommit = published.String
 	if publication.FromStoppedTask {
 		return publication, nil
 	}
@@ -116,6 +154,23 @@ func (r *DevMachineRepository) GetPublication(ctx context.Context, op domain.Dev
 		return nil, err
 	}
 	return publication, nil
+}
+
+// LastPublishedCommit identifies a task checkout previously published by Kuayle.
+func (r *DevMachineRepository) LastPublishedCommit(ctx context.Context, run uuid.UUID) (string, error) {
+	return lastPublishedCommit(ctx, r.db, run)
+}
+
+func lastPublishedCommit(ctx context.Context, q sqlx.QueryerContext, run uuid.UUID) (string, error) {
+	var published string
+	err := sqlx.GetContext(ctx, q, &published, `SELECT g.commit_sha FROM dev_machine_agent_runs r
+ JOIN dev_machine_checkouts c ON c.id=r.checkout_id AND c.workspace_id=r.workspace_id
+ JOIN dev_machine_git_refs g ON g.workspace_id=r.workspace_id AND g.repository_full_name=c.repository_full_name AND g.ref_name=c.working_branch AND g.ref_type='commit' AND g.source='published'
+ WHERE r.id=$1 AND g.commit_sha IS NOT NULL ORDER BY g.created_at DESC LIMIT 1`, run)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return published, err
 }
 
 func (r *DevMachineRepository) publicationTransaction(ctx context.Context, op domain.DevMachineOperation) (*sqlx.Tx, *domain.AgentTask, *domain.DevMachineAgentRunStep, error) {

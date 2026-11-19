@@ -3,6 +3,8 @@ package machine
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -221,6 +223,7 @@ func TestPublishAgentFromStoppedTask(t *testing.T) {
 			}
 			require.Equal(t, runtime.commit, store.result.Commit)
 			require.Equal(t, 1, runtime.syncs)
+			require.Equal(t, tc.published, runtime.syncPublished)
 			require.Equal(t, 1, runtime.calls)
 			require.Contains(t, github.body, "not validated: published from a failed task")
 			require.NotContains(t, github.body, "passed.")
@@ -451,6 +454,100 @@ func TestPublishAgentSyncsTheCheckoutFirstAndStopsWhenItCannotFastForward(t *tes
 	require.Equal(t, 1, base.syncs)
 	require.Equal(t, 1, runtime.calls)
 	require.Empty(t, runtime.request.Lease)
+}
+
+func TestPublishSyncPreservesPendingWorkWhenTheTaskBranchMoves(t *testing.T) {
+	f := newScriptFixture(t)
+	base := "first\n" + strings.Repeat("context\n", 10) + "last\n"
+	published := f.writeAndCommit(f.checkout, "notes.md", base, 0o644, kuayleIdentity)
+	f.run(f.checkout, nil, "push", "-q", f.origin, "kuayle/rec-1")
+	maintainer := filepath.Join(f.root, "maintainer")
+	f.run(f.root, nil, "clone", "-q", "-b", "kuayle/rec-1", f.origin, maintainer)
+	upstream := f.writeAndCommit(maintainer, "notes.md", strings.Replace(base, "first", "maintainer", 1), 0o644, fixtureIdentity)
+	f.run(maintainer, nil, "push", "-q", f.origin, "kuayle/rec-1")
+	require.NoError(t, os.WriteFile(filepath.Join(f.checkout, "notes.md"), []byte(strings.Replace(base, "last", "agent", 1)), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(f.checkout, "new.md"), []byte("new agent file\n"), 0o644))
+	f.run(f.checkout, nil, "add", "new.md")
+	require.NoError(t, os.WriteFile(filepath.Join(f.checkout, "untracked.md"), []byte("untracked agent file\n"), 0o644))
+
+	output, err := f.sync(published)
+	require.NoError(t, err, output)
+	require.Empty(t, output, "publication can push normally without a force lease")
+	commit, err := f.commit(published)
+	require.NoError(t, err, commit)
+	require.False(t, f.fails(f.checkout, "merge-base", "--is-ancestor", upstream, commit))
+	output, err = f.push(commit, "")
+	require.NoError(t, err, output)
+	require.Equal(t, commit, f.originTip())
+	require.Equal(t, "maintainer\n"+strings.Repeat("context\n", 10)+"agent", f.run(f.origin, nil, "show", commit+":notes.md"))
+	require.Equal(t, "new agent file", f.run(f.origin, nil, "show", commit+":new.md"))
+	require.Equal(t, "untracked agent file", f.run(f.origin, nil, "show", commit+":untracked.md"))
+}
+
+func TestPublishSyncNamesConflictsAndCanContinueAfterTheyAreResolved(t *testing.T) {
+	f := newScriptFixture(t)
+	f.commitFile(f.checkout, "notes.md", kuayleIdentity)
+	published := f.commitFile(f.checkout, "release notes.md", kuayleIdentity)
+	f.run(f.checkout, nil, "push", "-q", f.origin, "kuayle/rec-1")
+	maintainer := filepath.Join(f.root, "maintainer")
+	f.run(f.root, nil, "clone", "-q", "-b", "kuayle/rec-1", f.origin, maintainer)
+	f.writeAndCommit(maintainer, "notes.md", "maintainer\n", 0o644, fixtureIdentity)
+	upstream := f.writeAndCommit(maintainer, "release notes.md", "maintainer\n", 0o644, fixtureIdentity)
+	f.run(maintainer, nil, "push", "-q", f.origin, "kuayle/rec-1")
+	require.NoError(t, os.WriteFile(filepath.Join(f.checkout, "notes.md"), []byte("agent\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(f.checkout, "release notes.md"), []byte("agent\n"), 0o644))
+
+	output, err := f.sync(published)
+	require.NoError(t, err, output)
+	_, conflict := parseSyncLease(output)
+	require.ErrorContains(t, conflict, "notes.md, release notes.md")
+	checkpoint := f.head()
+	require.Equal(t, "agent", f.run(f.checkout, nil, "show", "HEAD:notes.md"))
+	require.Equal(t, "notes.md\nrelease notes.md", f.run(f.checkout, nil, "diff", "--name-only", "--diff-filter=U"))
+	require.Equal(t, upstream, f.originTip())
+
+	retry, err := f.sync(published)
+	require.NoError(t, err, retry)
+	_, retryErr := parseSyncLease(retry)
+	require.EqualError(t, retryErr, conflict.Error())
+	require.Equal(t, checkpoint, f.head(), "an unresolved retry leaves the saved work in place")
+
+	// Resolve by keeping the local version. This stages no content change against
+	// the saved commit, but publication still needs to conclude the merge.
+	require.NoError(t, os.WriteFile(filepath.Join(f.checkout, "notes.md"), []byte("agent\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(f.checkout, "release notes.md"), []byte("agent\n"), 0o644))
+	f.run(f.checkout, nil, "add", "notes.md", "release notes.md")
+	output, err = f.sync(published)
+	require.NoError(t, err, output)
+	lease, err := parseSyncLease(output)
+	require.NoError(t, err)
+	require.Empty(t, lease)
+	commit, err := f.commit(published)
+	require.NoError(t, err, commit)
+	require.False(t, f.fails(f.checkout, "merge-base", "--is-ancestor", upstream, commit))
+	require.Equal(t, "agent", f.run(f.checkout, nil, "show", commit+":notes.md"))
+	output, err = f.push(commit, "")
+	require.NoError(t, err, output)
+	require.Equal(t, commit, f.originTip())
+}
+
+func TestPublishAgentDoesNotRetryAnUnresolvedCheckout(t *testing.T) {
+	_, store := publicationFixture()
+	_, err := parseSyncLease("conflicts\nnotes.md\nfixture-installation-token.md")
+	base := &runtimeFake{syncErr: err}
+	runtime := &publicationRuntimeFake{runtimeFake: base}
+	manager := NewManager(store, runtime, nil, &publicationGitHubFake{}, make([]byte, 32), nil, "fixture")
+	manager.operationSlots <- struct{}{}
+	manager.operations.Add(1)
+	manager.processLeasedOperation(context.Background(), domain.DevMachineOperation{Action: domain.DevMachineOpPublishAgent})
+	require.NotNil(t, store.failedOperationRetryable)
+	require.False(t, *store.failedOperationRetryable)
+	require.Equal(t, "checkout_sync_blocked", store.failedOperationCode)
+	require.Contains(t, store.failedOperationMessage, "notes.md")
+	require.Contains(t, store.failedOperationMessage, "[redacted].md")
+	require.NotContains(t, store.failedOperationMessage, "fixture-installation-token")
+	require.Equal(t, 1, base.syncs)
+	require.Zero(t, runtime.calls)
 }
 
 // The sync sees Kuayle's recorded published commit, so it can tell the agent's

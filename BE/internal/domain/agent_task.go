@@ -303,7 +303,7 @@ func ValidAgentTaskTransition(from, to string) bool {
 	case "validating":
 		return to == "running" || to == "publishing"
 	case "publishing":
-		return to == "awaiting_review"
+		return to == "awaiting_review" || to == "queued"
 	case "awaiting_review":
 		return to == "completed" || to == "queued"
 	case "blocked", "failed":
@@ -426,6 +426,22 @@ const publishedWorkRemainsPrefix = "The agent removed all its changes, but "
 // in the reason, well below the 2048-byte limit of a task reason.
 const publishedWorkRemainsLimit = 300
 
+// PublicationCheckoutBlockedCode marks a checkout that needs to change before
+// publication can be retried. Its redacted detail is safe to show on the task.
+const PublicationCheckoutBlockedCode = "checkout_sync_blocked"
+
+// PublicationCheckoutBlockReason reads the user-facing detail from a recorded publication failure.
+func PublicationCheckoutBlockReason(summary *string) string {
+	if summary == nil {
+		return ""
+	}
+	reason, ok := strings.CutPrefix(*summary, PublicationCheckoutBlockedCode+": ")
+	if !ok {
+		return ""
+	}
+	return reason
+}
+
 // PublishedWorkRemainsReason is the reason of a publication that had nothing
 // new to publish while the task's open pull request still holds work the agent
 // removed: it names the pull request and what a person can do. A long URL is
@@ -535,6 +551,7 @@ type AgentHandoff struct {
 	FailedCommand         []string
 	FailedCommandExitCode *int
 	PullRequestURL        string
+	PublicationBlock      string
 	// ContinuedInteractively means the user opened this attempt's native
 	// session in Claude Code through the task terminal.
 	ContinuedInteractively bool

@@ -315,9 +315,9 @@ func TestPublishScriptsNeverRunProgramsNamedByTheCheckout(t *testing.T) {
 		script("push", publishPushScript, input, "acme/app", "kuayle/rec-1", worktree, published, "main", "agent@kuayle.invalid", "")
 		require.Equal(t, published, run(origin, nil, "rev-parse", "refs/heads/kuayle/rec-1"))
 	}
-	sync := func() {
+	sync := func() string {
 		t.Helper()
-		script("sync", publishSyncScript, input, "acme/app", "kuayle/rec-1", worktree, "")
+		return script("sync", publishSyncScript, input, "acme/app", "kuayle/rec-1", worktree, "", "Kuayle Agent", "agent@kuayle.invalid", "REC-1: Dark mode")
 	}
 
 	sync()
@@ -352,9 +352,20 @@ func TestPublishScriptsNeverRunProgramsNamedByTheCheckout(t *testing.T) {
 	require.Equal(t, reviewed, run(origin, nil, "rev-parse", second+"^"), "the maintainer's commit is kept")
 	require.Equal(t, "second.txt", run(origin, nil, "show", "--name-only", "--format=", second))
 
-	// The checkout is left on the published commit with nothing pending.
+	// The fallback that saves local edits and merges overlapping upstream edits
+	// also runs with isolated configuration and leaves a real conflict.
+	run(maintainer, nil, "pull", "--ff-only", "-q")
+	write(maintainer, "review.txt", "new review\n")
+	run(maintainer, nil, "add", "review.txt")
+	run(maintainer, human, "commit", "-q", "-m", "Review again")
+	run(maintainer, nil, "push", "-q", origin, "kuayle/rec-1")
+	write(worktree, "review.txt", "agent edit\n")
+	_, err = parseSyncLease(sync())
+	require.ErrorContains(t, err, "review.txt")
+
 	require.NoError(t, os.WriteFile(filepath.Join(cache, "config"), cleanConfig, 0o644))
 	require.NoError(t, os.Remove(filepath.Join(cache, "info", "attributes")))
-	require.Equal(t, second, run(worktree, nil, "rev-parse", "HEAD"))
-	require.Empty(t, run(worktree, nil, "-c", "core.fsmonitor=false", "status", "--porcelain", "--ignore-submodules=all"))
+	require.Equal(t, second, run(worktree, nil, "rev-parse", "HEAD^"), "the saved edit builds on the published commit")
+	require.Equal(t, "agent edit", run(worktree, nil, "show", "HEAD:review.txt"))
+	require.Equal(t, "review.txt", run(worktree, nil, "-c", "core.fsmonitor=false", "diff", "--name-only", "--diff-filter=U"))
 }

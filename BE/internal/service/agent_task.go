@@ -36,6 +36,7 @@ type taskLifecycleStore interface {
 	PauseForUsageLimit(context.Context, domain.AgentTask, domain.UsageLimit, string, string) error
 	PauseForProviderCredit(context.Context, domain.AgentTask, string, string) error
 	ResumeDueUsageLimits(context.Context, string) (int, error)
+	QueuePublicationRepair(context.Context, domain.AgentTask, string) error
 	BeginPlatformRetry(context.Context, domain.AgentTask, string) (bool, error)
 	CompleteReview(context.Context, domain.AgentTask) error
 }
@@ -286,6 +287,15 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		}
 		if result == nil {
 			return nil
+		}
+		if reason := domain.PublicationCheckoutBlockReason(result.Summary); result.Status == domain.DevMachineAgentRunStepStatusFailed && reason != "" {
+			if task.RunsWorkflow() {
+				if s.workflow == nil {
+					return ErrInvalidOperation
+				}
+				return s.workflow.Outcome(ctx, task, domain.WorkflowCheckoutBlocked, reason)
+			}
+			return s.store.QueuePublicationRepair(ctx, task, reason)
 		}
 		if task.RunsWorkflow() {
 			return s.workflowPublished(ctx, task, result)
@@ -1112,6 +1122,10 @@ func withLiveHandoff(prompt string, previous *domain.AgentHandoff, resumed, cont
 	if previous.PullRequestURL != "" {
 		fmt.Fprintf(&b, "- Published pull request: %s (keep working on its branch)\n", previous.PullRequestURL)
 	}
+	if previous.PublicationBlock != "" {
+		b.WriteString("- The previous publication is blocked on the checkout. Inspect `git status`, resolve the problem below, and stage any merge resolutions before you finish. Preserve the saved work and the incoming commits.\n")
+		fmt.Fprintf(&b, "~~~text\n%s\n~~~\n", strings.ReplaceAll(previous.PublicationBlock, "~~~", "~ ~ ~"))
+	}
 	if len(previous.ChangedFiles) > 0 {
 		files := previous.ChangedFiles
 		if len(files) > 50 {
@@ -1290,7 +1304,7 @@ func withValidationFile(prompt string) string {
 // (Kuayle commits as the workspace's configured author and pushes with its
 // own token), and agents that tried reported the refusal as a failure. It
 // also asks for the final message a run must end with.
-const publicationLine = "Publishing: Kuayle commits and pushes for you. When you finish, it commits every change in this worktree as the workspace's configured author, pushes the task branch and opens or updates the pull request. This container has no git identity and no GitHub token on purpose, so do not run git commit, git push or gh, do not configure a git identity, and do not report their absence as a problem: leave your changes uncommitted in the worktree. End with a final message that says what you changed and what you tested; the next step and the reviewer read it, and a run that ends without one fails."
+const publicationLine = "Publishing: Kuayle commits and pushes for you. Before editing, check git status. If the checkout conflicts with the fetched task branch, resolve and stage the affected files. When you finish, Kuayle commits every change in this worktree as the workspace's configured author, pushes the task branch and opens or updates the pull request. This container has no git identity and no GitHub token on purpose, so do not run git commit, git push or gh, do not configure a git identity, and do not report their absence as a problem: leave your changes uncommitted in the worktree. End with a final message that says what you changed and what you tested; the next step and the reviewer read it, and a run that ends without one fails."
 
 func withPublication(prompt string) string {
 	if strings.Contains(prompt, publicationLine) || len(prompt)+len(publicationLine) > 32000 {

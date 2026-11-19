@@ -314,7 +314,7 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 	}
 	for range len(graph.Nodes)*2 + 2 {
 		decision := graph.Decide(cursor, outcome, now, profiles)
-		if outcome == domain.WorkflowBranchConflict {
+		if outcome == domain.WorkflowBranchConflict || outcome == domain.WorkflowCheckoutBlocked {
 			// No transition names a conflict: the work goes back to the step
 			// that changes code (KUA-209).
 			decision = graph.SendBack(cursor, outcome, now, profiles)
@@ -332,6 +332,9 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 		}
 		failedPlan = false
 		reason := domain.WorkflowReasonPrefix + decision.Reason
+		if outcome == domain.WorkflowCheckoutBlocked {
+			reason += ". " + detail
+		}
 		if decision.Stuck {
 			apply.Moves = append(apply.Moves, repository.WorkflowMove{Decision: decision, Stop: true})
 			apply.Entry = repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: reason}

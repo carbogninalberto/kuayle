@@ -224,11 +224,12 @@ func (r *ConversationRepository) FinishStoppedPublication(ctx context.Context, d
 	var result struct {
 		Status  sql.NullString `db:"status"`
 		Code    sql.NullString `db:"error_code"`
+		Message *string        `db:"error_message"`
 		Step    sql.NullString `db:"step_status"`
 		Link    sql.NullString `db:"summary"`
 		Visible bool           `db:"visible"`
 	}
-	err = tx.GetContext(ctx, &result, `SELECT o.status,o.error_code,s.status AS step_status,s.summary,
+	err = tx.GetContext(ctx, &result, `SELECT o.status,o.error_code,o.error_message,s.status AS step_status,s.summary,
  EXISTS (SELECT 1 FROM issues i WHERE i.id=a.issue_id AND i.workspace_id=$2 AND kuayle_team_access(i.team_id,a.actor_id,$2)) AS visible
  FROM conversation_approvals a LEFT JOIN dev_machine_operations o ON o.id=a.request_id AND o.workspace_id=$2
  LEFT JOIN dev_machine_agent_run_steps s ON s.id=a.request_id WHERE a.id=$1`, approval.ID, decision.WorkspaceID)
@@ -241,6 +242,7 @@ func (r *ConversationRepository) FinishStoppedPublication(ctx context.Context, d
 	status, failure := "failed", ErrStoppedPublicationUnavailable.Error()
 	var outcome string
 	var pullRequestURL *string
+	checkoutReason := domain.PublicationCheckoutBlockReason(result.Message)
 	switch {
 	case !result.Visible || result.Code.String == "publication_forbidden":
 		failure = ErrStoppedPublicationForbidden.Error()
@@ -250,6 +252,8 @@ func (r *ConversationRepository) FinishStoppedPublication(ctx context.Context, d
 		outcome = "empty"
 	case result.Status.String == "failed" && result.Code.String == "publication_github_unavailable":
 		failure = "The repository's GitHub App credentials are unavailable. Ask a workspace admin to check the GitHub integration, then try again."
+	case result.Status.String == "failed" && result.Code.String == domain.PublicationCheckoutBlockedCode && checkoutReason != "":
+		failure = checkoutReason
 	case result.Status.String == "failed" && result.Code.String != "publication_unavailable" && result.Code.String != "publication_stale":
 		failure = "Kuayle could not publish the draft. Ask the task creator to check its checkout and GitHub branch."
 	}

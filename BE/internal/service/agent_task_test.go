@@ -579,6 +579,45 @@ func (f *taskRuntimeFake) Publish(context.Context, domain.AgentTask) (*domain.De
 	return f.publication, nil
 }
 
+func (f *taskStoreFake) QueuePublicationRepair(_ context.Context, _ domain.AgentTask, reason string) error {
+	f.task.State = "queued"
+	f.reasons = append(f.reasons, reason)
+	return nil
+}
+
+func TestTaskQueuesARepairWithTheCheckoutConflictForTheUser(t *testing.T) {
+	task := domain.AgentTask{State: "publishing"}
+	store := &taskStoreFake{task: task}
+	summary := "checkout_sync_blocked: Merge conflicts in notes.md"
+	runtime := &taskRuntimeFake{publication: &domain.DevMachineAgentRunStep{Status: "failed", Summary: &summary}}
+	service := &AgentTaskService{store: store, runtime: runtime}
+	require.NoError(t, service.step(context.Background(), task))
+	require.Equal(t, "queued", store.task.State)
+	require.Equal(t, []string{"Merge conflicts in notes.md"}, store.reasons)
+}
+
+func TestWorkflowSendsPublishConflictsToTheImplementer(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{MaxIterations: 16, OnExhausted: domain.WorkflowOnLimitFail})
+	h.agentFinishes("Implemented the change")
+	store := &taskStoreFake{task: h.w.task}
+	summary := "checkout_sync_blocked: Merge conflicts in notes.md"
+	runtime := &taskRuntimeFake{publication: &domain.DevMachineAgentRunStep{Status: "failed", Summary: &summary}}
+	service := &AgentTaskService{store: store, runtime: runtime, workflow: h.runner}
+	require.NoError(t, service.step(context.Background(), h.w.task))
+	require.Equal(t, []string{"start", "implement", "publish", "implement"}, h.path())
+	require.Contains(t, h.w.steps[h.w.task.WorkflowSequence-1].Detail, "notes.md")
+	require.Contains(t, h.w.entries[len(h.w.entries)-1].Reason, "notes.md")
+}
+
+func TestHandoffTellsTheRetryingAgentHowToResolveTheCheckoutBlock(t *testing.T) {
+	handoff := &domain.AgentHandoff{PublicationBlock: "Merge conflicts in notes.md"}
+	for _, resumed := range []bool{false, true} {
+		prompt := withHandoff("Continue", handoff, resumed, false)
+		require.Contains(t, prompt, "stage any merge resolutions")
+		require.Contains(t, prompt, "~~~text\nMerge conflicts in notes.md\n~~~")
+	}
+}
+
 func TestTaskPublicationReachesReviewOnlyFromRecordedPullRequest(t *testing.T) {
 	for _, tc := range []struct {
 		status domain.DevMachineAgentRunStepStatus

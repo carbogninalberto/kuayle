@@ -152,13 +152,13 @@ type Runtime interface {
 	SyncAgentSignIns(ctx context.Context, services []domain.DevMachineService, files map[string]string) error
 	PurgeTaskSession(context.Context, *domain.DevMachine, string, uuid.UUID) error
 	CleanupTaskResources(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, uuid.UUID, []uuid.UUID) error
-	// SyncCheckout fast-forwards the checkout to commits others pushed to the task
-	// branch on GitHub, and fails if it cannot without rewriting either side.
+	// SyncCheckout brings commits others pushed to the task branch on GitHub
+	// into the checkout, preserving pending work without rewriting either side.
 	// When the checkout rewrote the commits Kuayle published (the agent rebased
 	// its own branch) and GitHub's tip is still the recorded published commit,
 	// nobody else pushed: it returns that tip as the lease for a guarded force
 	// push and leaves the checkout alone.
-	SyncCheckout(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, token, published string) (lease string, err error)
+	SyncCheckout(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, request PublishRequest) (lease string, err error)
 	// PublishCheckout commits and pushes the checkout's task branch. It returns
 	// the pushed commit, or "" when the push step found nothing to publish
 	// against the base as it is on GitHub. It returns ErrPublishedWorkRemains
