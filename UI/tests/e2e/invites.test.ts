@@ -192,9 +192,11 @@ test('session retry stops after one refresh even if refreshed credentials are re
 
 test('public signup is hidden when registration is disabled without an invitation', async ({ page }) => {
 	await mockApi(page);
+	const configResponse = page.waitForResponse('**/api/config');
 	await page.goto('/login');
-	await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Sign up', exact: true })).toHaveCount(0);
+	await (await configResponse).finished();
+	await expect(page.getByText("Don't have an account?")).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Sign up', exact: true, includeHidden: true })).toHaveCount(0);
 });
 
 test('invite link creation validates expiry and use limits before submitting', async ({ page }) => {

@@ -490,6 +490,20 @@ func (s *SSOService) DeleteConfig(ctx context.Context, slug string) error {
 	return nil
 }
 
+// SignInEnabled reports whether at least one workspace offers SSO.
+func (s *SSOService) SignInEnabled(ctx context.Context) (bool, error) {
+	if s.instance.Configured() {
+		info, err := s.PublicInfo(ctx, s.instance.WorkspaceSlug)
+		if err != nil && !errors.Is(err, ErrSSONotConfigured) {
+			return false, err
+		}
+		if err == nil && info.Enabled {
+			return true, nil
+		}
+	}
+	return s.repo.HasEnabledConfig(ctx)
+}
+
 // PublicInfo tells the sign-in page whether a workspace offers SSO.
 func (s *SSOService) PublicInfo(ctx context.Context, slug string) (*dto.SSOPublicInfo, error) {
 	ws, err := s.workspace(ctx, slug)

@@ -370,6 +370,33 @@ func (m *mockInviteRedeemer) Register(ctx context.Context, token string, user *d
 	return args.Error(0)
 }
 
+func TestRegister_PublicDemoMode(t *testing.T) {
+	for _, tc := range []struct {
+		name, inviteToken string
+	}{
+		{name: "public signup"},
+		{name: "invited signup", inviteToken: "invite-tok"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			users := new(mockUserRepo)
+			refresh := new(mockRefreshTokenRepo)
+			invites := new(mockInviteRedeemer)
+			svc := NewAuthService(users, refresh, "test-secret",
+				WithPublicDemoMode(true), WithInviteRedeemer(invites))
+
+			user, accessToken, refreshToken, err := svc.Register(context.Background(), dto.RegisterRequest{
+				Email: "new@example.test", Password: "Password123!!", Name: "New User", InviteToken: tc.inviteToken,
+			})
+
+			require.ErrorIs(t, err, ErrRegistrationDisabled)
+			assert.Nil(t, user)
+			assert.Empty(t, accessToken)
+			assert.Empty(t, refreshToken)
+			assert.False(t, svc.PublicRegistrationEnabled())
+		})
+	}
+}
+
 func TestRegister_RegistrationDisabled_NoToken(t *testing.T) {
 	userRepo := new(mockUserRepo)
 	refreshRepo := new(mockRefreshTokenRepo)
@@ -384,6 +411,7 @@ func TestRegister_RegistrationDisabled_NoToken(t *testing.T) {
 
 	assert.ErrorIs(t, err, ErrRegistrationDisabled)
 	assert.Nil(t, user)
+	assert.False(t, svc.PublicRegistrationEnabled())
 	userRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
 
