@@ -14,14 +14,17 @@ import (
 )
 
 const (
-	screenshotsRecoveredNote   = "Kuayle restored screenshots missing from the previous description."
-	screenshotsUnsupportedNote = "Earlier screenshots with unsupported links were omitted."
-	screenshotsCheckFailedNote = "Kuayle could not check the screenshot branch for earlier evidence."
-	screenshotsOverflowNote    = "Some screenshots could not fit in the pull request description."
+	screenshotsRecoveredNote    = "Kuayle restored screenshots missing from the previous description."
+	screenshotsUnsupportedNote  = "Earlier screenshots with unsupported links were omitted."
+	screenshotsCheckFailedNote  = "Kuayle could not check the screenshot branch for earlier evidence."
+	screenshotsUploadFailedNote = "Kuayle could not publish this attempt's screenshots."
+	screenshotsOverflowNote     = "Some screenshots could not fit in the pull request description."
+	screenshotsHeading          = "## Screenshots"
+	earlierScreenshotsHeading   = "### Earlier attempts"
 )
 
 var (
-	markdownScreenshot = regexp.MustCompile(`^!\[([^\]]*)\]\(<?([^<>()\s]+)>?(?:[ \t]+"[^"]*")?\)`)
+	markdownScreenshot = regexp.MustCompile(`^!\[([^\]\r\n]*)\]\(<?([^<>()\s]+)>?(?:[ \t]+"[^"\r\n]*")?\)`)
 	repoScreenshot     = regexp.MustCompile(`^/([^/]+)/([^/]+)/blob/(?:[0-9a-f]{40}|[0-9a-f]{64})/(?:[A-Za-z0-9._%+-]+/)*[A-Za-z0-9._%+-]+\.(?i:png|jpe?g|webp|gif)$`)
 	githubAttachment   = regexp.MustCompile(`^/user-attachments/assets/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$`)
 )
@@ -30,11 +33,6 @@ var (
 // body and recovers the last stored snapshot if any of its links are missing.
 func priorPullRequestScreenshots(github githubAPI, token, owner, repo string, taskID uuid.UUID, body string) pullRequestContent {
 	content := pullRequestContent{}
-	for _, notice := range []string{screenshotsRecoveredNote, screenshotsUnsupportedNote, screenshotsOverflowNote} {
-		if strings.Contains(body, notice) {
-			content.notices = append(content.notices, notice)
-		}
-	}
 	seen := map[string]bool{}
 	for _, shot := range previousScreenshotImages(body) {
 		if !durableScreenshotURL(shot.URL, owner, repo) {
@@ -43,7 +41,7 @@ func priorPullRequestScreenshots(github githubAPI, token, owner, repo string, ta
 		}
 		if !seen[shot.URL] {
 			seen[shot.URL] = true
-			content.screenshots = append(content.screenshots, shot)
+			content.earlierScreenshots = append(content.earlierScreenshots, shot)
 		}
 	}
 	store, ok := github.(screenshotPublisher)
@@ -63,8 +61,7 @@ func priorPullRequestScreenshots(github githubAPI, token, owner, repo string, ta
 		link := screenshotURL(owner, repo, commit, entry.Path)
 		if !seen[link] {
 			seen[link] = true
-			content.screenshots = append(content.screenshots, publishedScreenshot{URL: link, Caption: entry.Path})
-			content.addScreenshotNotice(screenshotsRecoveredNote)
+			content.earlierScreenshots = append(content.earlierScreenshots, publishedScreenshot{URL: link, Caption: entry.Path, recovered: true})
 		}
 	}
 	return content
@@ -154,18 +151,71 @@ func durableScreenshotURL(value, owner, repo string) bool {
 	return u.RawQuery == "raw=true" && match != nil && strings.EqualFold(match[1], owner) && strings.EqualFold(match[2], repo)
 }
 
-func mergeScreenshots(current, previous []publishedScreenshot) []publishedScreenshot {
-	seen := make(map[string]bool, len(current))
-	for _, shot := range current {
-		seen[shot.URL] = true
+func screenshotName(link string) string {
+	name, _ := url.PathUnescape(path.Base(strings.TrimSuffix(link, "?raw=true")))
+	return name
+}
+
+func carriedScreenshots(current, previous []publishedScreenshot, body string) []publishedScreenshot {
+	if len(previous) == 0 {
+		return nil
 	}
+	retaken := make(map[string]bool, len(current))
+	for _, shot := range current {
+		retaken[screenshotName(shot.URL)] = true
+	}
+	inline := screenshotURLs(body)
+	var carried []publishedScreenshot
 	for _, shot := range previous {
-		if !seen[shot.URL] {
-			seen[shot.URL] = true
-			current = append(current, shot)
+		if !inline[shot.URL] && !retaken[screenshotName(shot.URL)] {
+			carried = append(carried, shot)
 		}
 	}
-	return current
+	return carried
+}
+
+func screenshotURLs(body string) map[string]bool {
+	links := map[string]bool{}
+	for _, shot := range previousScreenshotImages(body) {
+		links[shot.URL] = true
+	}
+	return links
+}
+
+var screenshotAltText = strings.NewReplacer("[", "", "]", "", "\\", "")
+
+func screenshotMarkdown(caption, link string) string {
+	return "![" + screenshotAltText.Replace(caption) + "](" + link + ")"
+}
+
+func renderScreenshotEvidence(content *pullRequestContent, body string, clean func(string) string) string {
+	earlier := carriedScreenshots(content.screenshots, content.earlierScreenshots, body)
+	// Reserve space for the fallback heading, notices and their separators.
+	limit := pullRequestBodyMaxBytes - len(screenshotsHeading) - len(strings.Join(content.notices, "\n\n")) -
+		len(screenshotsRecoveredNote) - len(screenshotsOverflowNote) - 11
+	var images strings.Builder
+	for i, shot := range slices.Concat(content.screenshots, earlier) {
+		caption := clean(strings.Join(strings.Fields(strings.ReplaceAll(shot.Caption, zeroWidthSpace, "")), " "))
+		block := screenshotMarkdown(caption, shot.URL)
+		if caption != "" {
+			block = caption + "\n" + block
+		}
+		if i == len(content.screenshots) {
+			block = earlierScreenshotsHeading + "\n\n" + block
+		}
+		if images.Len()+len(block)+2 > limit {
+			content.addScreenshotNotice(screenshotsOverflowNote)
+			break
+		}
+		if images.Len() > 0 {
+			images.WriteString("\n\n")
+		}
+		images.WriteString(block)
+		if shot.recovered {
+			content.addScreenshotNotice(screenshotsRecoveredNote)
+		}
+	}
+	return images.String()
 }
 
 func (content *pullRequestContent) addScreenshotNotice(notice string) {

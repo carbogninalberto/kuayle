@@ -657,18 +657,26 @@ func TestPublishAgentKeepsScreenshotsOnSameHeadFollowUp(t *testing.T) {
 	require.Contains(t, github.body, "Kuayle ran `npm test` independently in a clean container: passed.")
 	require.NotContains(t, github.body, "First attempt.")
 	require.Equal(t, 1, strings.Count(github.body, image))
+	require.Contains(t, github.body, "## Screenshots\n\n### Earlier attempts\n\nDemo login\n"+image)
 	require.Contains(t, github.body, "![Mobile]("+attachment+")")
 	require.NotContains(t, github.body, "/workspace/tasks/")
 	require.Contains(t, github.body, "Earlier screenshots with unsupported links were omitted.")
+
+	github.existing.Body = github.body
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.NotContains(t, github.body, "Earlier screenshots with unsupported links were omitted.")
 }
 
 func TestPublishAgentRestoresScreenshotsMissingFromReusedPullRequest(t *testing.T) {
 	machine, store := publicationFixture()
 	previous := strings.Repeat("b", 40)
 	github := &publicationGitHubFake{
-		existing:       &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12", Body: "Earlier description without screenshots."},
+		existing: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12",
+			Body: "![Old login](" + screenshotURL("acme", "app", strings.Repeat("d", 40), "login-demo.png") + ")\n\nSome screenshots could not fit in the pull request description."},
 		screenshotHead: previous,
-		screenshotTree: []githubclient.TreeEntry{{Path: "login-demo.png", Type: "blob"}, {Path: "folder.png", Type: "tree"}},
+		screenshotTree: []githubclient.TreeEntry{
+			{Path: "login-demo.png", Type: "blob"}, {Path: "settings.png", Type: "blob"}, {Path: "folder.png", Type: "tree"},
+		},
 	}
 	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: strings.Repeat("a", 40), files: map[string][]byte{
 		"pull_request.json":          []byte(`{"screenshots":["login-demo.png"]}`),
@@ -676,17 +684,56 @@ func TestPublishAgentRestoresScreenshotsMissingFromReusedPullRequest(t *testing.
 	}}
 	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
 	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
-	require.Contains(t, github.body, screenshotURL("acme", "app", previous, "login-demo.png"))
-	require.Contains(t, github.body, screenshotURL("acme", "app", strings.Repeat("c", 40), "login-demo.png"))
+	retake := screenshotURL("acme", "app", strings.Repeat("c", 40), "login-demo.png")
+	settings := screenshotURL("acme", "app", previous, "settings.png")
+	require.NotContains(t, github.body, screenshotURL("acme", "app", previous, "login-demo.png"))
+	require.NotContains(t, github.body, screenshotURL("acme", "app", strings.Repeat("d", 40), "login-demo.png"))
+	require.Contains(t, github.body, "## Screenshots\n![]("+retake+")\n\n### Earlier attempts\n\nsettings.png\n![settings.png]("+settings+")")
 	require.Contains(t, github.body, "Kuayle restored screenshots missing from the previous description.")
+	require.NotContains(t, github.body, "Some screenshots could not fit in the pull request description.")
 	require.NotContains(t, github.body, "folder.png")
 
 	// Retrying the publication with the same evidence should neither lose nor
 	// duplicate images, even after the screenshot branch has advanced.
 	github.existing.Body = github.body
 	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
-	require.Equal(t, 1, strings.Count(github.body, screenshotURL("acme", "app", previous, "login-demo.png")))
-	require.Equal(t, 1, strings.Count(github.body, screenshotURL("acme", "app", strings.Repeat("c", 40), "login-demo.png")))
+	require.Equal(t, 1, strings.Count(github.body, retake))
+	require.Equal(t, 1, strings.Count(github.body, settings))
+	require.NotContains(t, github.body, "Kuayle restored screenshots missing from the previous description.")
+}
+
+func TestPublishAgentDoesNotRepeatDurableImagesFromCurrentDescriptionOrNotes(t *testing.T) {
+	machine, store := publicationFixture()
+	attachment := "https://github.com/user-attachments/assets/589795bb-e028-430c-901a-bb2a18bcf4cb"
+	commit := strings.Repeat("b", 40)
+	link := screenshotURL("acme", "app", commit, "settings.png")
+	github := &publicationGitHubFake{
+		existing: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12",
+			Body: "![Old caption](" + attachment + ")"},
+		screenshotHead: commit,
+		screenshotTree: []githubclient.TreeEntry{{Path: "settings.png", Type: "blob"}},
+	}
+	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: strings.Repeat("a", 40), files: map[string][]byte{
+		"pull_request.json": []byte(`{"description":"See ![Mobile](` + attachment + `)","notes":"![Settings](` + link + `)\n\n![# Local preview](/workspace/tasks/rec-1/demo.png)"}`),
+	}}
+	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.Contains(t, github.body, "See ![Mobile]("+attachment+")")
+	require.Contains(t, github.body, "## Notes\n![Settings]("+link+")")
+	require.Equal(t, 1, strings.Count(github.body, attachment))
+	require.Equal(t, 1, strings.Count(github.body, link))
+	require.Contains(t, github.body, "Local preview")
+	require.NotContains(t, github.body, "\n# Local preview")
+	require.NotContains(t, github.body, "/workspace/tasks/")
+	require.NotContains(t, github.body, "## Screenshots")
+	require.NotContains(t, github.body, "Kuayle restored screenshots missing from the previous description.")
+
+	// If the template omits these fields, keep their prior evidence visible.
+	store.publication.PullRequestTemplate = "## Issue\n{{issue}}"
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.Contains(t, github.body, "### Earlier attempts")
+	require.Contains(t, github.body, "![Old caption]("+attachment+")")
+	require.Contains(t, github.body, "![settings.png]("+link+")")
 }
 
 func TestPublishAgentKeepsExistingImagesWhenTheScreenshotBranchCannotBeRead(t *testing.T) {
@@ -730,7 +777,30 @@ func TestPublishAgentStillPublishesWhenItsFilesFail(t *testing.T) {
 		require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
 		require.Contains(t, github.body, "Fix.")
 		require.NotContains(t, github.body, "## Screenshots")
+		require.Contains(t, github.body, "Kuayle could not publish this attempt's screenshots.")
+		require.NotContains(t, github.body, "fixture-installation-token")
 		require.Equal(t, 12, store.result.PullRequestNumber)
+	})
+	t.Run("screenshot_branch_advanced", func(t *testing.T) {
+		machine, store := publicationFixture()
+		link := screenshotURL("acme", "app", strings.Repeat("b", 40), "a.png")
+		runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: strings.Repeat("a", 40), files: map[string][]byte{
+			"pull_request.json": []byte(`{"screenshots":["a.png"]}`), "screenshots/a.png": png,
+		}}
+		github := &publicationGitHubFake{
+			existing: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12",
+				Body: "![Earlier A](" + link + ")"},
+			screenshotErr: &githubclient.APIError{Status: 422, Message: "Update is not a fast forward"},
+		}
+		manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+		require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+		require.Contains(t, github.body, "### Earlier attempts\n\nEarlier A\n![Earlier A]("+link+")")
+		require.Contains(t, github.body, "Kuayle could not publish this attempt's screenshots.")
+
+		github.existing.Body = github.body
+		runtime.files = nil
+		require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+		require.NotContains(t, github.body, "Kuayle could not publish this attempt's screenshots.")
 	})
 	t.Run("rejected_file", func(t *testing.T) {
 		machine, store := publicationFixture()

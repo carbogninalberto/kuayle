@@ -200,8 +200,8 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 			previous = priorPullRequestScreenshots(githubAPI, token, owner, repository, *run.TaskID, pullRequest.Body)
 		}
 		content := m.pullRequestFiles(ctx, githubAPI, token, run, services, checkout, publication)
-		content.screenshots = mergeScreenshots(content.screenshots, previous.screenshots)
-		content.notices = previous.notices
+		content.earlierScreenshots = previous.earlierScreenshots
+		content.notices = append(content.notices, previous.notices...)
 		body := publication.Bot.Signature(m.frontendURL) + publicationBody(publication, content, m.frontendURL)
 		if publication.FromStoppedTask {
 			body = "**not validated: published from a failed task**\n\n" + body

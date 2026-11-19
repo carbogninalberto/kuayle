@@ -509,8 +509,11 @@ starts the description. The body is limited to 60,000 bytes.
 Sanitizing (`sanitizeAgentMarkdown`) applies to everything the agent wrote and
 to the issue title: control characters are dropped; lines that would start a
 heading, a code fence or a setext underline are escaped so agent text cannot
-restructure the description; raw HTML (`<`) and markdown images are shown as
-text; `@` mentions get a zero-width space; GitHub closing keywords followed by
+restructure the description. Raw HTML (`<`) is shown as text. Markdown images
+in the description or notes can render when they link to commit-pinned files
+in the same repository or to GitHub user attachments. Local image paths in
+these fields are dropped, and other images are shown as text. `@` mentions
+get a zero-width space. GitHub closing keywords followed by
 an issue reference ("fixes #12", "closes owner/repo#3", "resolved: <URL>",
 "fixes GH-5") get a zero-width space inside the keyword; and identifiers of
 other Kuayle issues get one before the dash, so the pull request stays linked to
@@ -537,8 +540,8 @@ visible only to people who can read it, and the images live and are deleted with
 the repository. Their commit has no workflow files, so pushing the branch runs no
 Actions. The agent could already commit any file to the pull request branch, so
 this adds no new way to publish content; a branch protection rule that refuses
-the branch prevents new uploads and is logged. The branches are kept after
-the pull request merges or closes so its description keeps rendering. An
+the branch prevents new uploads and is reported in the description. Kuayle keeps
+the branches after the pull request merges or closes so its description keeps rendering. An
 administrator may delete `kuayle/screenshots/*` branches when the images are no
 longer needed.
 
@@ -546,9 +549,12 @@ When an attempt updates an open pull request, Kuayle carries forward Markdown
 images and standalone image tags that link to commit-pinned files in the same
 repository or to GitHub user attachments. Before uploading new files, it checks
 the screenshot branch and restores links from its latest snapshot when they
-are missing from the description.
-The description notes recovered links, unsupported links, failed branch reads
-and images that exceed the description limit.
+are missing from the description. A successfully uploaded screenshot replaces
+earlier images with the same filename in the description. Other carried
+images appear under **Earlier attempts** unless the current description or
+notes already display them.
+Each publish reports the links it restored or omitted, failures to read or
+update the screenshot branch, and images that exceed the description limit.
 A template without `{{screenshots}}` gets a Screenshots section whenever there
 is evidence to show.
 

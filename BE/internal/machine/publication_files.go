@@ -119,7 +119,7 @@ func (m *Manager) pullRequestFiles(ctx context.Context, github githubAPI, token 
 		logger.WithField("reason", parsed.Error).Warn("agent pull request file was rejected")
 		return pullRequestContent{}
 	}
-	content := pullRequestContent{file: &parsed}
+	content := pullRequestContent{file: &parsed, repository: checkout.RepositoryFullName}
 	publisher, publishes := github.(screenshotPublisher)
 	if len(parsed.Screenshots) == 0 || !publishes {
 		return content
@@ -148,6 +148,7 @@ func (m *Manager) pullRequestFiles(ctx context.Context, github githubAPI, token 
 	commit, err := publisher.PublishFilesToBranch(token, owner, repository, screenshotBranch(*run.TaskID), publication.IssueIdentifier+": screenshots for the pull request description", files)
 	if err != nil {
 		logger.WithField("error", strings.ReplaceAll(safeError(err), token, "[redacted]")).Warn("agent screenshots could not be published")
+		content.addScreenshotNotice(screenshotsUploadFailedNote)
 		return content
 	}
 	for i, file := range files {
