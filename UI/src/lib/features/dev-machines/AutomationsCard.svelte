@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Plus, Trash2, Check, X } from '@lucide/svelte';
+	import AutomationRunHistory from './AutomationRunHistory.svelte';
+	import { Plus, Trash2, Check, X, History } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -25,6 +26,7 @@
 	let teams = $state<Team[]>([]);
 	let labels = $state<IssueLabel[]>([]);
 	let statuses = $state<TeamStatus[]>([]);
+	let historyRule = $state('');
 	let creating = $state(false);
 	let busy = $state(false);
 	let name = $state('');
@@ -138,10 +140,15 @@
 				if (next < now) next.setUTCDate(next.getUTCDate() + 1);
 			}
 		} else return '';
-		return next.toLocaleString(undefined, {
-			timeZone: rule.timezone ?? 'UTC', month: 'short', day: 'numeric',
-			hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
-		});
+		try {
+			return next.toLocaleString(undefined, {
+				timeZone: rule.timezone ?? 'UTC', month: 'short', day: 'numeric',
+				hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
+			});
+		} catch {
+			// Older browsers can lack a timezone accepted by the server.
+			return next.toUTCString();
+		}
 	}
 
 	async function create() {
@@ -328,31 +335,40 @@
 	{:else}
 		<ul class="space-y-2">
 			{#each rules as rule (rule.id)}
-				<li class="flex items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3">
-					<div class="min-w-0">
-						<p class="truncate text-sm font-medium">{rule.name}</p>
-						<p class="truncate text-xs text-[var(--color-text-tertiary)]">{trigger(rule)}</p>
-						{#if rule.workflow_id}
-							<p class="text-xs">{available.find(w => w.id === rule.workflow_id)?.name ?? rule.workflow_id} · {rule.pinned_version ? m['workflows.version']({ version: rule.pinned_version }) : m['automations.follow_latest']()}</p>
-						{/if}
-						{#if rule.enabled && (rule.next_run_at || rule.run_hour != null)}
-							<p class="text-xs">{m['settings.backups.next_run']({ time: nextMatch(rule) })}</p>
-						{/if}
+				<li class="space-y-3 rounded-lg border border-[var(--app-border)] p-3">
+					<div class="flex items-center justify-between gap-3">
+						<div class="min-w-0">
+							<p class="truncate text-sm font-medium">{rule.name}</p>
+							<p class="truncate text-xs text-[var(--color-text-tertiary)]">{trigger(rule)}</p>
+							{#if rule.schedule_error}<p class="text-xs">{rule.schedule_error}</p>{/if}
+							{#if rule.workflow_id}
+								<p class="text-xs">{available.find(w => w.id === rule.workflow_id)?.name ?? rule.workflow_id} · {rule.pinned_version ? m['workflows.version']({ version: rule.pinned_version }) : m['automations.follow_latest']()}</p>
+							{/if}
+							{#if rule.enabled && (rule.next_run_at || rule.run_hour != null)}
+								<p class="text-xs">{m['settings.backups.next_run']({ time: nextMatch(rule) })}</p>
+							{/if}
+						</div>
+						<div class="flex shrink-0 items-center gap-2">
+							<Button type="button" size="icon" variant="ghost" aria-label={m['assistant_custom_tools.runs']()}
+								aria-expanded={historyRule === rule.id}
+								onclick={() => (historyRule = historyRule === rule.id ? '' : rule.id)}><History /></Button>
+							<Switch
+								aria-label={m['automations.enabled']({ name: rule.name })}
+								checked={rule.enabled}
+								onCheckedChange={(value) => void toggle(rule, value)}
+							/>
+							<Button
+								type="button"
+								size="icon"
+								variant="ghost"
+								aria-label={m['automations.delete_named']({ name: rule.name })}
+								onclick={() => void remove(rule)}><Trash2 /></Button
+							>
+						</div>
 					</div>
-					<div class="flex shrink-0 items-center gap-2">
-						<Switch
-							aria-label={m['automations.enabled']({ name: rule.name })}
-							checked={rule.enabled}
-							onCheckedChange={(value) => void toggle(rule, value)}
-						/>
-						<Button
-							type="button"
-							size="icon"
-							variant="ghost"
-							aria-label={m['automations.delete_named']({ name: rule.name })}
-							onclick={() => void remove(rule)}><Trash2 /></Button
-						>
-					</div>
+					{#if historyRule === rule.id}
+						<AutomationRunHistory {slug} ruleId={rule.id} {statusLabel} />
+					{/if}
 				</li>
 			{/each}
 		</ul>

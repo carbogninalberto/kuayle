@@ -11,6 +11,18 @@ async function mockAutomationsApi(page: Page) {
 		created: [] as any[],
 		patches: [] as any[],
 		approvals: 0,
+		replays: 0,
+		history: [{
+			id: 'failed-1', automation_id: 'rule-1', automation_name: 'Agent label', issue_identifier: 'ENG-8',
+			issue_title: 'Retry import', issue_id: 'issue-8', status: 'failed', attempts: 3, replays: 0, can_replay: true,
+			error: 'Temporary failure contacting the coding task service', workflow_name: 'Review loop', pinned_version: 3,
+			created_at: '2026-11-19T08:30:00Z'
+		}, {
+			id: 'started-1', automation_id: 'rule-1', automation_name: 'Agent label', issue_identifier: 'ENG-9',
+			issue_title: 'Import labels', issue_id: 'issue-9', status: 'started', attempts: 1, replays: 0,
+			task_id: 'task-9', workflow_name: 'Review loop', task_version: 3, task_step: 'review', task_state: 'running',
+			created_at: '2026-11-18T08:30:00Z'
+		}],
 		runs: [
 			{
 				id: 'run-1',
@@ -93,6 +105,13 @@ async function mockAutomationsApi(page: Page) {
 			state.patches.push(input);
 			return route.fulfill({ json: { ...state.rules[0], ...input } });
 		}
+		if (path === '/api/workspaces/test/agent-automation-runs/failed-1/replay') {
+			state.replays++;
+			Object.assign(state.history[0], { status: 'starting', can_replay: false, error: '', attempts: 0, replays: 1 });
+			return route.fulfill({ json: state.history[0] });
+		}
+		if (path === '/api/workspaces/test/agent-automation-runs' && new URL(request.url()).searchParams.get('automation_id') === 'rule-1')
+			return route.fulfill({ json: state.history });
 		if (path === '/api/workspaces/test/agent-automation-runs') return route.fulfill({ json: state.runs });
 		if (path === '/api/workspaces/test/agent-automation-runs/run-1/approve') {
 			state.approvals++;
@@ -177,6 +196,15 @@ test('admins create, pause and approve agent automations', async ({ page }) => {
 	await expect(section.getByText(/Next run:.*09:30|Next run:.*9:30/)).toBeVisible();
 	await expect(section.getByText('Review loop · Version 3')).toBeVisible();
 
+	await section.getByRole('button', { name: 'Run history' }).click();
+	const history = section.getByRole('region', { name: 'Run history' });
+	await expect(history.getByRole('link', { name: 'ENG-8 · Retry import' })).toBeVisible();
+	await expect(history.getByText('Temporary failure contacting the coding task service')).toBeVisible();
+	await expect(history.getByText(/Review loop · Version 3 · review/)).toBeVisible();
+	await expect(history.getByText(/Attempts: 3/)).toBeVisible();
+	await history.getByRole('button', { name: 'Retry', exact: true }).click();
+	await expect.poll(() => state.replays).toBe(1);
+	await expect(history.getByText('Starting')).toBeVisible();
 	await section.getByRole('switch', { name: 'Enable Agent label' }).click();
 	await expect.poll(() => state.patches).toEqual([{ enabled: false }]);
 
