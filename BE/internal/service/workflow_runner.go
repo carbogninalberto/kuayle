@@ -296,6 +296,9 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 	// every later step sees it, not only the next one.
 	current, _ := graph.Node(cursor.Node)
 	switch {
+	case outcome == domain.WorkflowBranchConflict:
+		vars.Rebase = detail
+		apply.Notes = append(apply.Notes, domain.NotebookNote{Event: "Kuayle sent the work back: the pull request conflicts with its base"})
 	case outcome == domain.WorkflowReviewChangesRequested && strings.TrimSpace(vars.ReviewComments) != "":
 		apply.Notes = append(apply.Notes, domain.NotebookNote{FindingSource: domain.NotebookFindingReview, Finding: vars.ReviewComments})
 	case outcome == domain.WorkflowChecksFailed && strings.TrimSpace(vars.FailingChecks) != "":
@@ -334,6 +337,9 @@ func (w *WorkflowRunner) planWith(ctx context.Context, task domain.AgentTask, ou
 		reason := domain.WorkflowReasonPrefix + decision.Reason
 		if outcome == domain.WorkflowCheckoutBlocked {
 			reason += ". " + detail
+		}
+		if outcome == domain.WorkflowBranchConflict && (decision.Stuck || decision.Limit != "") {
+			reason += ". " + oneLine(vars.Rebase, 1000)
 		}
 		if decision.Stuck {
 			apply.Moves = append(apply.Moves, repository.WorkflowMove{Decision: decision, Stop: true})

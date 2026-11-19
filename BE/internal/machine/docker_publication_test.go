@@ -317,7 +317,7 @@ func TestPublishScriptsNeverRunProgramsNamedByTheCheckout(t *testing.T) {
 	}
 	sync := func() string {
 		t.Helper()
-		return script("sync", publishSyncScript, input, "acme/app", "kuayle/rec-1", worktree, "", "Kuayle Agent", "agent@kuayle.invalid", "REC-1: Dark mode")
+		return script("sync", publishSyncScript, input, "acme/app", "kuayle/rec-1", worktree, "", "Kuayle Agent", "agent@kuayle.invalid", "REC-1: Dark mode", "main")
 	}
 
 	sync()

@@ -495,6 +495,33 @@ func TestUpdateBranchExplainsConflictsAndUpToDateBranches(t *testing.T) {
 	require.ErrorContains(t, err, "is closed")
 }
 
+func TestUpdateBranchSendsMigrationRepairToTheTaskAgent(t *testing.T) {
+	f := newPRFixture()
+	ctx := context.Background()
+	f.tools.work = prWork{followUp: &repository.FollowUpTarget{TaskID: f.task, CreatorID: f.creator, State: "awaiting_review"}}
+	const arguments = `{"identifier":"ENG-1","method":"github"}`
+	f.github.status.Behind = 1
+	_, pending, action, err := f.tools.preparePullRequestAction(ctx, f.ws, f.creator, "update_pull_request_branch", arguments)
+	require.NoError(t, err)
+	require.Equal(t, "update_pull_request_branch", action)
+
+	repair := migrationRepairInstruction("main", []string{"BE/migrations/000178_saml_sso.up.sql"}, []string{"BE/migrations/000178_bulk_issue_approvals.up.sql"})
+	f.github.status.migrationRepair = repair
+	approvals, approval := approvalFor(f, f.creator, action, pending.(domain.PullRequestActionPayload))
+	_, message, err := approvals.applyPullRequestAction(ctx, f.ws, approval)
+	require.NoError(t, err)
+	require.Contains(t, message, repair)
+	require.Empty(t, f.github.calls, "a collision discovered after approval was requested still prevents the GitHub update")
+
+	f.github.status.Behind = 0
+	_, payload, action, err := f.tools.preparePullRequestAction(ctx, f.ws, f.creator, "update_pull_request_branch", `{"identifier":"ENG-1"}`)
+	require.NoError(t, err)
+	require.Equal(t, "follow_up_task", action)
+	require.Contains(t, payload.(domain.FollowUpPayload).Instructions, repair)
+	_, _, _, err = f.tools.preparePullRequestAction(ctx, f.ws, f.creator, "update_pull_request_branch", arguments)
+	require.ErrorContains(t, err, repair)
+}
+
 func TestMergeRequestIsRefusedForDraftsWithTheNextStepAndShowsTheMethod(t *testing.T) {
 	f := newPRFixture()
 	ctx := context.Background()

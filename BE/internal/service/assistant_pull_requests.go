@@ -388,7 +388,7 @@ func (t *AssistantTools) prepareBranchUpdate(ctx context.Context, ws, user uuid.
 	if err != nil {
 		return uuid.Nil, nil, "", err
 	}
-	if status.Behind == 0 && status.MergeableState != "dirty" {
+	if status.Behind == 0 && status.MergeableState != "dirty" && status.migrationRepair == "" {
 		return uuid.Nil, nil, "", toolFailure("the branch is already up to date with %s", status.BaseRef)
 	}
 	payload.Head, payload.Base, payload.Behind = status.HeadSHA, status.BaseRef, status.Behind
@@ -403,6 +403,10 @@ func (t *AssistantTools) prepareBranchUpdate(ctx context.Context, ws, user uuid.
 	}
 	conflicts := status.MergeableState == "dirty" || (status.Mergeable != nil && !*status.Mergeable)
 	switch {
+	case status.migrationRepair != "" && !agentPossible:
+		return uuid.Nil, nil, "", toolFailure("%s Ask the task's creator to send the repair to its agent", status.migrationRepair)
+	case status.migrationRepair != "" && method == "github":
+		return uuid.Nil, nil, "", toolFailure("%s Ask for update_pull_request_branch with method task_agent to send the repair for approval", status.migrationRepair)
 	case method == "github" && conflicts && agentPossible:
 		return uuid.Nil, nil, "", toolFailure("the branch has merge conflicts with %s, which only the task's coding agent can resolve (GitHub's update-branch cannot). Next step: follow_up_task with instructions to rebase onto %s and resolve the conflicts, which needs the user's approval in Kuayle", status.BaseRef, status.BaseRef)
 	case method == "task_agent" && !agentPossible, conflicts && !agentPossible:
@@ -418,6 +422,9 @@ func (t *AssistantTools) prepareBranchUpdate(ctx context.Context, ws, user uuid.
 		return uuid.Nil, nil, "", err
 	}
 	instructions := fmt.Sprintf("Bring pull request #%d up to date with %s: fetch origin, merge origin/%s into the task branch (a merge commit, no rebase or force-push), resolve any conflicts, run the checks, and publish.", target.Number, status.BaseRef, status.BaseRef)
+	if status.migrationRepair != "" {
+		instructions += "\n\n" + status.migrationRepair
+	}
 	audit.Log("pull_request.update_via_task_agent_requested", user, map[string]interface{}{"workspace_id": ws, "repository": target.Repository, "pull_request": target.Number})
 	return issue.ID, domain.FollowUpPayload{Identifier: issue.Identifier, Title: issue.Title, TaskID: followUp.TaskID, Generation: followUp.Generation, Instructions: instructions, MergedPullRequest: merged}, "follow_up_task", nil
 }
@@ -472,6 +479,14 @@ func (s *AssistantApprovals) applyPullRequestAction(ctx context.Context, ws uuid
 	case "resolve_review_thread":
 		err = s.pulls.ResolveReviewThread(ctx, ws, payload.Repository, payload.PullRequest, payload.ThreadID)
 	case "update_pull_request_branch":
+		status, readErr := s.pulls.PullRequestStatus(ctx, ws, payload.Repository, payload.PullRequest)
+		if readErr != nil {
+			err = readErr
+			break
+		}
+		if status.migrationRepair != "" {
+			return fail(status.migrationRepair + " Ask again with method task_agent to send the repair to the task agent")
+		}
 		newHead, err = s.pulls.UpdatePullRequestBranch(ctx, ws, payload.Repository, payload.PullRequest, payload.Head)
 	case "mark_pull_request_ready":
 		err = s.pulls.SetPullRequestDraft(ctx, ws, payload.Repository, payload.PullRequest, payload.Draft)

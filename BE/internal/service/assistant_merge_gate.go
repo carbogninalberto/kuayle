@@ -54,6 +54,9 @@ const (
 // mergeHold is why Kuayle does not merge now; an empty reason lets it merge.
 type mergeHold struct {
 	reason string
+	// GitHub's branch update cannot repair this collision, and the
+	// approved commit must not be rewritten during a merge.
+	migrationRepair string
 	// pending is set when only the head's checks are still running (or not
 	// registered yet), so the same head may merge once they pass.
 	pending bool
@@ -175,6 +178,10 @@ func (g mergeGate) check(ctx context.Context, ws, actor uuid.UUID, repository st
 			return mergeHold{transient: true, reason: fmt.Sprintf("GitHub is still bringing pull request #%d up to date with %s", number, base)}, nil
 		}
 		wait.Updating = false
+	}
+	if status.migrationRepair != "" {
+		return mergeHold{migrationRepair: status.migrationRepair,
+			reason: status.migrationRepair + " Next step: update_pull_request_branch to send the repair to the task agent, then ask to merge again once its checks pass"}, nil
 	}
 	switch {
 	case status.Behind < 0:

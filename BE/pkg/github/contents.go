@@ -18,11 +18,15 @@ type TreeEntry struct {
 // ListTree lists one level of the tree named by ref: a branch, commit or tree SHA.
 func (c *Client) ListTree(token, owner, repo, ref string) ([]TreeEntry, error) {
 	var tree struct {
-		Tree []TreeEntry `json:"tree"`
+		Tree      []TreeEntry `json:"tree"`
+		Truncated bool        `json:"truncated"`
 	}
 	endpoint := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s", githubAPIBaseURL, owner, repo, escapePath(ref))
 	if err := c.doGet(token, endpoint, &tree); err != nil {
 		return nil, err
+	}
+	if tree.Truncated {
+		return nil, fmt.Errorf("the GitHub tree at %s was truncated", ref)
 	}
 	return tree.Tree, nil
 }

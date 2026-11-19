@@ -1306,11 +1306,15 @@ func withValidationFile(prompt string) string {
 // also asks for the final message a run must end with.
 const publicationLine = "Publishing: Kuayle commits and pushes for you. Before editing, check git status. If the checkout conflicts with the fetched task branch, resolve and stage the affected files. When you finish, Kuayle commits every change in this worktree as the workspace's configured author, pushes the task branch and opens or updates the pull request. This container has no git identity and no GitHub token on purpose, so do not run git commit, git push or gh, do not configure a git identity, and do not report their absence as a problem: leave your changes uncommitted in the worktree. End with a final message that says what you changed and what you tested; the next step and the reviewer read it, and a run that ends without one fails."
 
+const migrationNumberLine = "If you add migrations under BE/migrations, check the latest base before choosing a migration number and again before publishing. Run `git fetch origin <base-branch>` using the base branch in the execution contract, then `git ls-tree --name-only FETCH_HEAD:BE/migrations`. Choose the next number after the highest version on the fetched base and your task branch. If the base takes your number, renumber both SQL files and their references and rerun the checks. If fetch is unavailable for a private repository, use the base tracking ref refreshed by Kuayle and mention the fetch limit in your summary. Kuayle checks the remote base at publication."
+
 func withPublication(prompt string) string {
-	if strings.Contains(prompt, publicationLine) || len(prompt)+len(publicationLine) > 32000 {
-		return prompt
+	for _, line := range []string{publicationLine, migrationNumberLine} {
+		if !strings.Contains(prompt, line) && len(prompt)+len(line) <= 32000 {
+			prompt += "\n\n" + line
+		}
 	}
-	return prompt + "\n\n" + publicationLine
+	return prompt
 }
 
 // pullRequestFileLine asks an implementing attempt to describe its change and

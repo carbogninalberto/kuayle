@@ -20,6 +20,14 @@ func TestListTreeReadsOneLevel(t *testing.T) {
 	require.Equal(t, []TreeEntry{{Path: "go.mod", Type: "blob", SHA: "a"}, {Path: "UI", Type: "tree", SHA: "b"}}, entries)
 }
 
+func TestListTreeRejectsTruncatedResults(t *testing.T) {
+	c := &Client{httpClient: &http.Client{Transport: commentTransport(func(*http.Request) (*http.Response, error) {
+		return commentResponse(200, `{"tree":[],"truncated":true}`), nil
+	})}}
+	_, err := c.ListTree("secret", "owner", "repo", "main")
+	require.ErrorContains(t, err, "truncated")
+}
+
 func TestGetFileContentIsRawAndCapped(t *testing.T) {
 	c := &Client{httpClient: &http.Client{Transport: commentTransport(func(r *http.Request) (*http.Response, error) {
 		require.Equal(t, "/repos/owner/repo/contents/UI/package.json", r.URL.Path)

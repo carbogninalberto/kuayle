@@ -145,12 +145,7 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	}
 	request.Lease, err = m.runtime.SyncCheckout(ctx, machine, services, checkout, request)
 	if err != nil {
-		var blocked *checkoutSyncBlockedError
-		if errors.As(err, &blocked) {
-			detail := strings.ToValidUTF8(strings.ReplaceAll(blocked.detail, token, "[redacted]"), "�")
-			return &terminalOperationError{code: domain.PublicationCheckoutBlockedCode, message: truncateText(detail, 1900)}
-		}
-		return errors.New("checkout_sync_failed: " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
+		return publicationCheckoutError("checkout_sync_failed", token, err)
 	}
 	if publication.FromStoppedTask {
 		// An open pull request must be a draft before its branch receives
@@ -162,7 +157,7 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	commit, err := m.runtime.PublishCheckout(ctx, machine, services, checkout, request)
 	remains := errors.Is(err, ErrPublishedWorkRemains)
 	if err != nil && !remains {
-		return errors.New("publication_failed: " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
+		return publicationCheckoutError("publication_failed", token, err)
 	}
 	result := domain.AgentPublicationResult{}
 	if remains && !publication.FromStoppedTask {
@@ -220,6 +215,15 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 		result = domain.AgentPublicationResult{Branch: checkout.WorkingBranch, Commit: commit, PullRequestNumber: pullRequest.Number, PullRequestURL: safeURL}
 	}
 	return m.store.CompletePublication(ctx, *op, result)
+}
+
+func publicationCheckoutError(code, token string, err error) error {
+	var blocked *checkoutSyncBlockedError
+	if errors.As(err, &blocked) {
+		detail := strings.ToValidUTF8(strings.ReplaceAll(blocked.detail, token, "[redacted]"), "�")
+		return &terminalOperationError{code: domain.PublicationCheckoutBlockedCode, message: truncateText(detail, 1900)}
+	}
+	return errors.New(code + ": " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
 }
 
 func stoppedPullRequest(github githubAPI, token, owner, repository string, checkout *domain.DevMachineCheckout) (*githubclient.PullRequest, error) {

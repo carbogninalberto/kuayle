@@ -90,6 +90,9 @@ func (w *WorkflowRunner) prepareBranch(ctx context.Context, task domain.AgentTas
 	if base == "" {
 		base = target.BaseBranch
 	}
+	if status.migrationRepair != "" {
+		return nil, status.migrationRepair
+	}
 	if ready && status.Draft {
 		if err := w.pulls.SetPullRequestDraft(ctx, task.WorkspaceID, target.Repository, target.PullRequestNumber, false); err != nil {
 			log.WithFields(log.Fields{"task_id": task.ID}).WithError(err).Warn("The workflow could not mark the pull request ready for review")
@@ -363,6 +366,13 @@ func (w *WorkflowRunner) driveMerge(ctx context.Context, task domain.AgentTask, 
 		}
 		at := now.Add(mergeWaitPoll)
 		return true, record("approved; "+lowerFirst(wait.Waiting), &at, false)
+	}
+	if hold.migrationRepair != "" {
+		err := w.Outcome(ctx, task, domain.WorkflowBranchConflict, hold.migrationRepair)
+		if errors.Is(err, repository.ErrAgentTaskConflict) {
+			err = nil
+		}
+		return true, err
 	}
 	return fail(hold.reason)
 }
