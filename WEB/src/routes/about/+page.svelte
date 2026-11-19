@@ -59,7 +59,7 @@
 		},
 		{
 			heading: 'Current state',
-			body: `Version ${release.version} is a runnable MVP, not a mature enterprise platform. Core issue workflows, cycles, projects, analytics, GitHub integration, public sharing, private teams and workspace roles are available. Dev Machines are available as an opt-in subsystem. Importers from other trackers, SAML single sign-on, SCIM and LDAP are not implemented; OIDC single sign-on is available.`,
+			body: `Version ${release.version} is a runnable MVP, not a mature enterprise platform. Core issue workflows, cycles, projects, analytics, GitHub integration, public sharing, private teams and workspace roles are available. Dev Machines are available as an opt-in subsystem.`,
 			list: [
 				'Available: issues, labels, comments, version history, sub-issues and relations',
 				'Available: cycles and projects with the full issue list, charts, a Gantt view and insights analytics',
@@ -67,7 +67,8 @@
 				'Available: GitHub activity linking, status transitions and pull-request issue-link comments',
 				'Available: a workspace assistant on your own OpenAI-compatible model',
 				'Available (opt-in): Dev Machines with agent tasks, automations, workflows and issue worktrees',
-				'Not available: SAML SSO, SCIM, LDAP and importers from other tools (OIDC SSO is available)'
+				'Available: OIDC or SAML 2.0 single sign-on and SCIM 2.0 user and group provisioning',
+				'Not available: LDAP and importers from other tools'
 			]
 		}
 	]);

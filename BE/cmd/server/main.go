@@ -159,7 +159,8 @@ func main() {
 	favSvc := service.NewFavoriteService(favRepo)
 	prefsSvc := service.NewPreferencesService(prefsRepo)
 	conversationRepo := repository.NewConversationRepository(db)
-	pushSvc := service.NewPushService(cfg.VAPID, repository.NewPushSubscriptionRepository(db), prefsSvc, workspaceRepo,
+	instanceSettings := repository.NewInstanceSettingsRepository(db, crypto.DeriveKey(cfg.JWTSecret+":instance-settings"))
+	pushSvc := service.NewPushService(cfg.VAPID, instanceSettings, repository.NewPushSubscriptionRepository(db), prefsSvc, workspaceRepo,
 		ssoSvc.RequiresSSO, notifRepo, conversationRepo.Authorize)
 	notifSvc.SetPush(pushSvc)
 	tokenSvc := service.NewTokenService(patRepo, workspaceRepo)
@@ -532,7 +533,7 @@ func main() {
 		teamStatus:        teamStatusH,
 		fav:               favH,
 		prefs:             prefsH,
-		push:              handler.NewPushHandler(pushSvc),
+		push:              handler.NewPushHandler(pushSvc, cfg.IsSysAdmin),
 		token:             tokenH,
 		cliLink:           cliLinkH,
 		aiSettings:        aiSettingsH,
