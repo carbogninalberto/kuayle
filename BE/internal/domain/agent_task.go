@@ -370,6 +370,7 @@ type AgentPublication struct {
 	Step            DevMachineAgentRunStep
 	IssueIdentifier string
 	IssueTitle      string
+	FromStoppedTask bool
 	// The independent check that passed for this attempt, for the PR body.
 	CheckArgv     []string
 	CheckExitCode *int
@@ -391,6 +392,10 @@ type AgentPublication struct {
 	// development setting's template; empty uses DefaultPullRequestTemplate.
 	PullRequestTemplate string
 }
+
+const StoppedPublicationUnavailable = "The original task checkout is unavailable. Start its Dev Machine if it still exists, then try again. If the checkout is gone, ask the task creator to recover the work or start a new task."
+
+const StoppedPublicationEmpty = "Nothing to publish. The task checkout has no unpublished changes."
 
 // AgentPublicationResult is recorded after a publication attempt reached
 // GitHub. An empty Commit means nothing was published: the branch adds no

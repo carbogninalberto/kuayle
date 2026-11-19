@@ -1968,8 +1968,9 @@ the assistant list teams, search, read, create and update issues, read and list
 agent work, watch a coding task so the user is pinged in chat when it reaches a
 state they asked about, link an issue or project to a repository and request
 approval for
-delegation, an agent review of a published pull request, a follow-up on a task
-or a merge, start or stop a task's preview and expose or list its machine's app
+delegation, an agent review of a published pull request, a follow-up on a task,
+publishing a stopped task's uncommitted changes as a draft, or a merge, start or
+stop a task's preview and expose or list its machine's app
 ports (start and expose need approval), with the user's own permissions; it
 cannot change Dev Machine lifecycles. One reply runs up to 10 minutes, 400 tool calls and 10 issue
 changes, with a bounded per-round context. Every merge Kuayle makes goes

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/audit"
 	gh "github.com/kuayle/kuayle-backend/pkg/github"
 	log "github.com/sirupsen/logrus"
@@ -48,16 +49,17 @@ type assistantActionPolicy struct {
 }
 
 var assistantActionPolicies = map[string]assistantActionPolicy{
-	bulkUpdateAction:       {role: roleMember},
-	"delegate_issue":       {machine: true},
-	"accept_agent_work":    {},
-	"request_agent_review": {machine: true},
-	"follow_up_task":       {machine: true},
-	"message_task":         {machine: true},
-	"start_preview":        {machine: true},
-	"expose_port":          {machine: true},
-	"run_check":            {machine: true},
-	"run_custom_tool":      {machine: true},
+	bulkUpdateAction:                {role: roleMember},
+	"delegate_issue":                {machine: true},
+	"accept_agent_work":             {},
+	"request_agent_review":          {machine: true},
+	domain.PublishTaskChangesAction: {machine: true, github: map[string]string{"pull_requests": "write", "contents": "write"}, role: roleAdminOrCreator, refusal: repository.ErrStoppedPublicationForbidden.Error()},
+	"follow_up_task":                {machine: true},
+	"message_task":                  {machine: true},
+	"start_preview":                 {machine: true},
+	"expose_port":                   {machine: true},
+	"run_check":                     {machine: true},
+	"run_custom_tool":               {machine: true},
 	// Commands and temporary machines (KUA-153): the machine's owner, checked
 	// where the machine is resolved and again when the run is queued.
 	"start_temporary_machine": {machine: true},

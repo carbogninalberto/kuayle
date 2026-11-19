@@ -36,6 +36,7 @@ func (f *publicationStoreFake) CompletePublication(_ context.Context, _ domain.D
 
 type publicationRuntimeFake struct {
 	*runtimeFake
+	dirty   bool
 	request PublishRequest
 	commit  string
 	err     error
@@ -43,6 +44,10 @@ type publicationRuntimeFake struct {
 	// files are the worktree's .kuayle files by name.
 	files map[string][]byte
 	reads []string
+}
+
+func (f *publicationRuntimeFake) ScanWorktree(_ context.Context, _ *domain.DevMachine, _ []domain.DevMachineService, job WorktreeScanJob) (*domain.WorktreeScanResult, error) {
+	return &domain.WorktreeScanResult{Branch: job.Branch, Commit: strings.Repeat("a", 40), Dirty: f.dirty}, nil
 }
 
 func (f *publicationRuntimeFake) ReadAgentFile(_ context.Context, _ []domain.DevMachineService, _ *domain.DevMachineCheckout, name string, limit int) ([]byte, error) {
@@ -76,6 +81,7 @@ type publicationGitHubFake struct {
 	base     string
 	readied  []string
 	readyErr error
+	drafted  []string
 
 	screenshotBranch string
 	screenshotFiles  []githubclient.RepositoryFile
@@ -111,6 +117,12 @@ func (f *publicationGitHubFake) UpdatePullRequestBody(_, _, _ string, _ int, bod
 func (f *publicationGitHubFake) MarkPullRequestReadyForReview(_, nodeID string) error {
 	f.readied = append(f.readied, nodeID)
 	return f.readyErr
+}
+
+func (f *publicationGitHubFake) ConvertPullRequestToDraft(_, nodeID string) error {
+	f.drafted = append(f.drafted, nodeID)
+	f.existing.Draft = true
+	return nil
 }
 
 func publicationFixture() (*domain.DevMachine, *publicationStoreFake) {
@@ -162,6 +174,53 @@ func TestPublishAgentWithoutCheckOpensADraft(t *testing.T) {
 	require.True(t, github.draft, "the draft says the change is unchecked; the description carries no warning")
 	require.Equal(t, "## Description\nAddresses REC-1: Dark mode.\n", github.body)
 	require.Equal(t, 12, store.result.PullRequestNumber)
+}
+
+func TestPublishAgentFromStoppedTask(t *testing.T) {
+	for _, tc := range []struct {
+		name                     string
+		dirty, resumed, existing bool
+	}{
+		{name: "uncommitted changes", dirty: true},
+		{name: "nothing to publish"},
+		{name: "restart after making the commit", resumed: true},
+		{name: "existing ready pull request", dirty: true, existing: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			machine, store := publicationFixture()
+			store.publication.FromStoppedTask = true
+			if tc.resumed {
+				store.publication.Step.Status = domain.DevMachineAgentRunStepStatusRunning
+			}
+			runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, dirty: tc.dirty, commit: strings.Repeat("a", 40)}
+			github := &publicationGitHubFake{created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
+			if tc.existing {
+				github.existing = &githubclient.PullRequest{Number: 12, HTMLURL: github.created.HTMLURL, NodeID: "PR_node"}
+			}
+			manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+			require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+			if !tc.dirty && !tc.resumed {
+				require.Equal(t, &domain.AgentPublicationResult{}, store.result)
+				require.Zero(t, runtime.calls)
+				require.Zero(t, runtime.syncs)
+				require.Zero(t, github.creates)
+				return
+			}
+			require.Equal(t, runtime.commit, store.result.Commit)
+			require.Equal(t, 1, runtime.syncs)
+			require.Equal(t, 1, runtime.calls)
+			require.Contains(t, github.body, "not validated: published from a failed task")
+			require.NotContains(t, github.body, "passed.")
+			require.Empty(t, github.readied)
+			if tc.existing {
+				require.Equal(t, []string{"PR_node"}, github.drafted)
+				require.Zero(t, github.creates)
+			} else {
+				require.Equal(t, 1, github.creates)
+				require.True(t, github.draft)
+			}
+		})
+	}
 }
 
 func TestPublishAgentRefreshesReusedPullRequestDescription(t *testing.T) {

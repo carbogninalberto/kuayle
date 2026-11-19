@@ -294,6 +294,16 @@ type TaskMessagePayload struct {
 	Body       string    `json:"body"`
 }
 
+const PublishTaskChangesAction = "publish_task_changes"
+
+// PublishTaskChangesPayload pins the stopped attempt shown on the card.
+type PublishTaskChangesPayload struct {
+	Identifier string    `json:"identifier"`
+	Title      string    `json:"title"`
+	TaskID     uuid.UUID `json:"task_id"`
+	Generation int64     `json:"generation"`
+}
+
 // FollowUpPayload binds a follow-up approval to the task attempt the user saw
 // and the exact instructions shown to them.
 type FollowUpPayload struct {

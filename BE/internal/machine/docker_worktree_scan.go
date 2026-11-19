@@ -82,7 +82,7 @@ awk -v start="$start" -v end="$end" 'NR>=start && NR<=end {print}' "$resolved"
 
 const worktreeStatusScript = `set -eu
 path=$1 branch=$2 step=scan base=$3
-` + publishCheckoutScript + `changed=$(g status --porcelain=v1 --untracked-files=normal --ignore-submodules=all 2>/dev/null || true)
+` + publishCheckoutScript + `changed=$(GIT_OPTIONAL_LOCKS=0 g status --porcelain=v1 --untracked-files=normal --ignore-submodules=all)
 printf '%s\n' "$branch"
 printf '%s\n' "$(g rev-parse --verify HEAD 2>/dev/null || true)"
 case $changed in

@@ -393,6 +393,22 @@
 					return m['assistant.custom_run_denied']({ identifier, tool });
 			}
 		}
+		if (approval.action === 'publish_task_changes') {
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.publish_task_approving']({ identifier });
+				case 'approved':
+					return approval.payload.pull_request_url
+						? m['assistant.publish_task_approved']({ identifier })
+						: m['assistant.publish_task_empty']({ identifier });
+				case 'failed':
+					return approval.error ?? m['assistant.tool_failed']({ tool: m['assistant.tool_publish_task_changes']() });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier });
+				default:
+					return m['assistant.publish_task_denied']({ identifier });
+			}
+		}
 		if (approval.action === 'message_task') {
 			switch (approval.status) {
 				case 'approving':
@@ -782,6 +798,9 @@
 										</Alert.Description>
 									</Alert.Root>
 								{/if}
+							{:else if approval.action === 'publish_task_changes'}
+								<Item.Title>{m['assistant.publish_task_title']({ identifier })}</Item.Title>
+								<Item.Description class="line-clamp-none">{m['assistant.publish_task_description']()}</Item.Description>
 							{:else if approval.action === 'message_task'}
 								<Item.Title>{m['assistant.message_task_title']({ identifier })}</Item.Title>
 								<Item.Description class="line-clamp-none"
@@ -1088,7 +1107,15 @@
 							port={approval.payload.port}
 							wait
 						/>{:else if approval.action === 'upgrade_instance' && approval.status === 'approved'}<UpgradeProgress
-						/>{:else if approval.action === 'create_release' && approval.status === 'approved'}<a
+						/>{:else if approval.action === 'publish_task_changes' && approval.status === 'approved'}
+						{@const href = safePullRequestUrl(approval.payload.pull_request_url)}
+						{#if href}<a
+								class="inline-flex items-center gap-1 pl-6 text-xs underline underline-offset-2"
+								{href}
+								target="_blank"
+								rel="noopener noreferrer"><ExternalLink size={12} />{m['assistant.publish_task_open']()}</a
+							>{/if}
+					{:else if approval.action === 'create_release' && approval.status === 'approved'}<a
 							class="inline-flex items-center gap-1 pl-6 text-xs underline underline-offset-2"
 							href={approval.payload.release_url}
 							target="_blank"

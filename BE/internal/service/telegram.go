@@ -774,6 +774,9 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 	}
 	switch approval.Status {
 	case "approving":
+		if approval.Action == domain.PublishTaskChangesAction {
+			return "Approved. Kuayle is publishing the draft. The result appears in the chat in Kuayle.", true
+		}
 		if approval.Action == shipAction {
 			return "Approved: shipping started. Kuayle merges, waits for the tests and releases; follow each step in the chat in Kuayle.", true
 		}
@@ -790,6 +793,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: the follow-up is starting.", true
 		case "message_task":
 			return "Approved: the message was sent to the coding agent.", true
+		case domain.PublishTaskChangesAction:
+			return "Publication finished. The result appears in the chat in Kuayle.", true
 		case "run_check":
 			return "Approved: the check is starting.", true
 		case "run_custom_tool":
@@ -839,6 +844,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			message = "The preview could not be started."
 		case "expose_port":
 			message = "The port could not be exposed."
+		case domain.PublishTaskChangesAction:
+			message = "Kuayle could not publish the draft."
 		case "run_check":
 			message = "The check could not start."
 		case "run_custom_tool":
