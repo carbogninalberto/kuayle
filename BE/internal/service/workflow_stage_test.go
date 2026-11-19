@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 )
 
 // Use the real task, pinned version, leases, run results and step journal.
-// Only the machine's execution and the independent test result are simulated.
+// Only the machine execution is simulated.
 func TestStageAssistantRunsAndRoutesInTheTaskWorktree(t *testing.T) {
 	f := newProfileFixture(t)
 	profile := f.storedProfile(t, "Stage owner", "codex", "", "")
@@ -36,11 +37,18 @@ func TestStageAssistantRunsAndRoutesInTheTaskWorktree(t *testing.T) {
 	}
 	raw, err := json.Marshal(graph)
 	require.NoError(t, err)
-	workflow, err := f.workflows.Create(f.ctx, f.ws, WorkflowRequest{Name: "Supervised delivery", Graph: raw})
+	issues, err := f.workflows.Validate(f.ctx, f.ws, raw)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	require.Equal(t, "invalid_check", issues[0].Code)
+	// A version saved before the local check was retired still runs its stage assistants.
+	var workflowID string
+	require.NoError(t, f.db.Get(&workflowID, `INSERT INTO workflows(workspace_id,name,latest_version,created_by) VALUES($1,'Supervised delivery',1,$2) RETURNING id`, f.ws, f.user))
+	_, err = f.db.Exec(`INSERT INTO workflow_versions(workflow_id,workspace_id,version,graph,created_by) VALUES($1,$2,1,$3,$4)`, workflowID, f.ws, raw, f.user)
 	require.NoError(t, err)
 	chat, err := repository.NewConversationRepository(f.db).OpenIssue(f.ctx, f.ws, f.issue)
 	require.NoError(t, err)
-	task, err := f.tasks.Create(f.ctx, f.ws, chat.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Deliver the change", WorkflowID: &workflow.ID, Provider: "claude-code"})
+	task, err := f.tasks.Create(f.ctx, f.ws, chat.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Deliver the change", WorkflowID: &workflowID, Provider: "claude-code"})
 	require.NoError(t, err)
 	require.Equal(t, "codex", task.Provider)
 	require.Equal(t, 1, task.WorkflowSequence)
@@ -75,10 +83,7 @@ func TestStageAssistantRunsAndRoutesInTheTaskWorktree(t *testing.T) {
 	run("start", "Ready for testing.\nKUAYLE_STAGE_ROUTE verify", false)
 	testsRun := task.RunID
 	run("test", "Fixed the failing fixture.\nKUAYLE_STAGE_CONTINUE", true)
-	require.Equal(t, "validating", task.State)
-	require.Equal(t, testsRun, task.RunID)
-	require.NoError(t, f.tasks.Workflow().Outcome(f.ctx, *task, domain.WorkflowChecksPassed, "Independent tests passed"))
-	refresh()
+	// An older workflow can continue through its retired local check.
 	run("publish", "Prepared the publication.", false)
 	require.Equal(t, "publishing", task.State)
 	require.Equal(t, testsRun, task.RunID)
@@ -88,7 +93,7 @@ func TestStageAssistantRunsAndRoutesInTheTaskWorktree(t *testing.T) {
 	refresh()
 	run("gate", "Prepared a handoff.\nKUAYLE_STAGE_CONTINUE", false)
 	require.Equal(t, "awaiting_review", task.State)
-	require.Equal(t, testsRun, task.RunID, "the unchanged stage keeps the attempt whose tests passed")
+	require.Equal(t, testsRun, task.RunID, "the unchanged stage keeps its input attempt")
 	_, err = f.tasks.Workflow().Decide(f.ctx, f.ws, task.ID, task.WorkflowSequence, WorkflowDecisionApprove)
 	require.NoError(t, err)
 	refresh()
@@ -126,10 +131,12 @@ func TestStageAssistantCannotChooseANativeApproval(t *testing.T) {
 	h.restart()
 	h.w.task.WorkflowNode = &ship.ID
 	h.w.steps[h.w.task.WorkflowSequence].NodeID = ship.ID
-	h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{FinalMessage: true, Summary: "KUAYLE_STAGE_ROUTE ship-approved"}
+	h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{FinalMessage: true, Summary: "KUAYLE_STAGE_ROUTE ship-approved", WorktreeChanged: ptr(false)}
 	require.NoError(t, h.runner.AgentFinished(t.Context(), h.w.task))
-	require.Equal(t, "cancelling", h.w.task.State)
-	require.Contains(t, h.w.task.Reason, "unavailable transition")
+	require.Equal(t, "awaiting_review", h.w.task.State)
+	require.Contains(t, h.w.task.Reason, "waiting for approval")
+	require.Contains(t, h.w.task.Reason, "ship-approved")
+	require.Contains(t, h.w.task.Reason, "Selectable transitions: none")
 }
 
 func TestTerminalAssistantHandsOffTheApprovedMerge(t *testing.T) {
@@ -162,4 +169,123 @@ func TestTerminalAssistantHandsOffTheApprovedMerge(t *testing.T) {
 	require.True(t, h.tick())
 	require.Equal(t, []string{"acme/app#12@" + approved + "/squash"}, merger.merged)
 	require.Equal(t, "completed", h.w.task.State)
+}
+
+func TestCheckStageAssistantContinuesOnPublishedWork(t *testing.T) {
+	head, tree := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	ignored, output := strings.Repeat("c", 40), strings.Repeat("d", 40)
+	before := head + " " + tree + " " + ignored
+	build := head + " " + tree + " " + output
+	edited := head + " " + output + " " + ignored
+	commit := output + " " + tree + " " + ignored
+	for _, tc := range []struct {
+		name, firstAfter, after string
+		files                   []string
+		wantProblem             string
+	}{
+		{"ignored build output", "", build, []string{"files that git ignores"}, ""},
+		{"retry leaves ignored output", edited, build, []string{"src/check.go"}, ""},
+		{"tracked file", "", edited, []string{"src/check.go"}, "src/check.go"},
+		{"tracked file named like the ignored marker", "", edited, []string{"files that git ignores"}, "files that git ignores"},
+		{"legacy run with a changed file", "", "", []string{"src/check.go"}, "src/check.go"},
+		{"earlier run edited a file", edited, edited, nil, "src/check.go"},
+		{"new commit with identical files", "", commit, nil, "HEAD"},
+		{"missing retry fingerprint", build, "", nil, "could not verify"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, input := supervisedCI(t)
+			start := before
+			if tc.firstAfter != "" {
+				h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{WorktreeBefore: before, WorktreeAfter: tc.firstAfter, WorktreeChanged: ptr(true), WorktreeFiles: []string{"src/check.go"}}
+				h.w.task.RunID = uuid.New() // A retry keeps the visit's first run and input attempt.
+				start = tc.firstAfter
+			}
+			h.w.task.State = "running"
+			h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{
+				Status: "succeeded", Summary: "Ran the build.\nKUAYLE_STAGE_CONTINUE", FinalMessage: true,
+				WorktreeBefore: start, WorktreeAfter: tc.after, WorktreeChanged: ptr(start != tc.after), WorktreeFiles: tc.files,
+			}
+			require.NoError(t, h.runner.AgentFinished(t.Context(), h.w.task))
+			if tc.wantProblem != "" {
+				require.Equal(t, "cancelling", h.w.task.State)
+				require.Contains(t, h.w.task.Reason, "no transition follows")
+				require.Contains(t, h.w.task.Reason, tc.wantProblem)
+				return
+			}
+			require.Equal(t, "awaiting_review", h.w.task.State, h.w.task.Reason)
+			require.Equal(t, input, h.w.task.RunID, "built-in CI uses the validated, published attempt")
+			h.ci("success", "Checks passed")
+			require.Equal(t, "ship", h.current().NodeID)
+		})
+	}
+}
+
+func supervisedCI(t *testing.T) (*workflowHarness, uuid.UUID) {
+	t.Helper()
+	h := newWorkflowHarness(t, domain.WorkflowBudget{})
+	var graph domain.WorkflowGraph
+	require.NoError(t, json.Unmarshal(h.w.version.Graph, &graph))
+	for i := range graph.Nodes {
+		if graph.Nodes[i].ID == "ci" {
+			graph.Nodes[i].ProfileID = graph.FirstRun().ProfileID
+		}
+	}
+	h.w.version.Graph = *rawJSON(t, graph)
+	h.restart()
+	input := h.w.task.RunID
+	h.toCI("Implemented the change")
+	require.Equal(t, "queued", h.w.task.State)
+	require.Equal(t, input, *h.current().StageInputRunID)
+	return h, input
+}
+
+func TestCheckStageAssistantRouting(t *testing.T) {
+	for _, directive := range []string{"KUAYLE_STAGE_ROUTE ci-passed", "KUAYLE_STAGE_ROUTE missing", "KUAYLE_STAGE_SKIP", "KUAYLE_STAGE_ROUTE"} {
+		t.Run(directive, func(t *testing.T) {
+			h, input := supervisedCI(t)
+			h.w.task.State = "running"
+			h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{FinalMessage: true, Summary: "Reviewed CI.\n" + directive, WorktreeChanged: ptr(false)}
+			require.NoError(t, h.runner.AgentFinished(t.Context(), h.w.task))
+			require.Equal(t, "awaiting_review", h.w.task.State)
+			require.Equal(t, input, h.w.task.RunID)
+			require.Contains(t, h.w.task.Reason, "waiting for CI")
+			require.Contains(t, h.w.task.Reason, directive)
+			require.Contains(t, h.w.task.Reason, "Selectable transitions: ci-failed")
+			h.ci("success", "Checks passed")
+			require.Equal(t, "ship", h.current().NodeID)
+		})
+	}
+	t.Run("built-in route with modified worktree", func(t *testing.T) {
+		h, _ := supervisedCI(t)
+		h.w.task.State = "running"
+		h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{FinalMessage: true, Summary: "KUAYLE_STAGE_ROUTE ci-passed", WorktreeChanged: ptr(true), WorktreeFiles: []string{"main.go"}}
+		require.NoError(t, h.runner.AgentFinished(t.Context(), h.w.task))
+		require.Equal(t, "cancelling", h.w.task.State)
+		require.Contains(t, h.w.task.Reason, "main.go")
+		require.Contains(t, h.w.task.Reason, "ci-passed")
+		require.Contains(t, h.w.task.Reason, "Selectable transitions: ci-failed")
+	})
+	t.Run("many selectable routes with modified worktree", func(t *testing.T) {
+		h, _ := supervisedCI(t)
+		var graph domain.WorkflowGraph
+		require.NoError(t, json.Unmarshal(h.w.version.Graph, &graph))
+		for i := range 40 {
+			graph.Edges = append(graph.Edges, domain.WorkflowEdge{ID: fmt.Sprintf("recover-%02d-%s", i, strings.Repeat("a", 48)), Source: "ci", Target: "implement", Condition: domain.WorkflowAssistant})
+		}
+		h.w.version.Graph = *rawJSON(t, graph)
+		h.restart()
+		h.w.task.State = "running"
+		h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{FinalMessage: true, Summary: "KUAYLE_STAGE_ROUTE ci-passed", WorktreeChanged: ptr(true), WorktreeFiles: []string{"main.go"}}
+		require.NoError(t, h.runner.AgentFinished(t.Context(), h.w.task))
+		require.LessOrEqual(t, len(h.w.task.Reason), 2048, "the transition must fit the task timeline")
+		require.Contains(t, h.current().Detail, graph.Edges[len(graph.Edges)-1].ID)
+	})
+	t.Run("selectable recovery route", func(t *testing.T) {
+		h, _ := supervisedCI(t)
+		h.w.task.State = "running"
+		h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{FinalMessage: true, Summary: "KUAYLE_STAGE_ROUTE ci-failed", WorktreeChanged: ptr(true)}
+		require.NoError(t, h.runner.AgentFinished(t.Context(), h.w.task))
+		require.Equal(t, "queued", h.w.task.State)
+		require.Equal(t, "ci-failed", *h.current().EdgeID)
+	})
 }

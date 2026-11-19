@@ -238,7 +238,6 @@ async function fixture(page: Page) {
 				const all = (state.logs[logs[1]] ?? []).filter((log) => log.id > Number(url.searchParams.get('after') ?? 0));
 				return route.fulfill({ json: { logs: all } });
 			}
-			if (rest.endsWith('/validation')) return route.fulfill({ json: null });
 			if (rest.endsWith('/checks')) return route.fulfill({ json: [] });
 			if (rest === '/live-messages') return route.fulfill({ json: { messages: [] } });
 			if (rest === '/history') return route.fulfill({ json: { transitions: [] } });
@@ -605,10 +604,15 @@ test('only the running step refetches while the agent streams', async ({ page })
 	await expect(page.locator('#step-3').getByText('Search is added and covered.')).toBeVisible();
 	await expect(page.locator('#step-2').getByText('Reading the list first.')).toBeVisible();
 	await expect(page.locator('#step-6').getByText('Renaming the parameter.')).toBeVisible();
-	// A finished run was read once: its output, its check and its manual checks.
-	const finished = /^task-1\/runs\/(run-plan|run-impl-1)\//;
+	// Each finished run loads its logs and manual checks once.
+	const finishedRequests = () => state.requests
+		.filter((request) => /^task-1\/runs\/(run-plan|run-impl-1)\//.test(request))
+		.map((request) => request.split('?')[0]).sort();
+	const expectedFinished = ['run-impl-1', 'run-plan'].flatMap((run) =>
+		['checks', 'logs'].map((resource) => `task-1/runs/${run}/${resource}`)
+	);
 	const running = /^task-1\/runs\/run-impl-2\/logs/;
-	expect(count(state.requests, finished)).toBe(6);
+	expect(finishedRequests()).toEqual(expectedFinished);
 	const streamed = count(state.requests, running);
 	for (const [id, value] of [
 		[2, 'Still renaming.'],
@@ -622,7 +626,7 @@ test('only the running step refetches while the agent streams', async ({ page })
 		await expect(page.locator('#step-6').getByText(value)).toBeVisible();
 	}
 	expect(count(state.requests, running)).toBeGreaterThan(streamed);
-	expect(count(state.requests, finished)).toBe(6);
+	expect(finishedRequests()).toEqual(expectedFinished);
 });
 
 test('a waiting task is not polled like a running one, and known summaries are not fetched again', async ({ page }) => {

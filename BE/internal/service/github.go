@@ -1422,19 +1422,7 @@ func (s *GitHubService) MergeTaskPullRequest(ctx context.Context, workspaceID uu
 }
 
 func (s *GitHubService) githubMergePullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha, method string) error {
-	owner, name, ok := strings.Cut(repository, "/")
-	if !ok {
-		return fmt.Errorf("invalid repository %q", repository)
-	}
-	inst, err := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
-	if err != nil || inst == nil {
-		return fmt.Errorf("GitHub not connected")
-	}
-	client, _, err := s.getClient(ctx, workspaceID)
-	if err != nil {
-		return err
-	}
-	token, _, err := client.GetRepositoryInstallationToken(inst.InstallationID, name)
+	client, token, owner, name, err := s.branchWriteClient(ctx, workspaceID, repository)
 	if err != nil {
 		return err
 	}

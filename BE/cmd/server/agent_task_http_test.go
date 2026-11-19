@@ -91,16 +91,20 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 		}
 	}
 	path := "/conversations/" + chat.ID.String() + "/tasks"
-	body := fmt.Sprintf(`{"request_id":%q,"prompt":"Implement and test","provider":"codex","test_command":["npm","test"]}`, uuid.NewString())
+	body := fmt.Sprintf(`{"request_id":%q,"prompt":"Implement and test","provider":"codex"}`, uuid.NewString())
+	request("POST", path, strings.TrimSuffix(body, "}")+`,"test_command":["true"]}`, token, 400, nil)
 	var task domain.AgentTask
 	request("POST", path, body, token, 202, &task)
 	require.NotEqual(t, uuid.Nil, task.ID)
-	require.JSONEq(t, `["npm","test"]`, string(task.ValidationCommand))
 	var duplicate domain.AgentTask
 	request("POST", path, body, token, 202, &duplicate)
 	require.Equal(t, task.ID, duplicate.ID)
 	request("POST", path, strings.Replace(body, "Implement and test", "Different request", 1), token, 409, nil)
 	taskPath := "/agent-tasks/" + task.ID.String()
+	var fields map[string]json.RawMessage
+	request("GET", taskPath, "", token, 200, &fields)
+	require.NotContains(t, fields, "test_command")
+	require.NotContains(t, fields, "validation_command")
 	optionsPath := "/conversations/" + chat.ID.String() + "/task-options"
 	var options service.AgentTaskOptions
 	request("GET", optionsPath, "", token, 200, &options)
@@ -153,8 +157,6 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	request("POST", path, strings.TrimSuffix(body, "}")+`,"machine_id":"untrusted"}`, token, 400, nil)
 	request("POST", path, body+body, token, 400, nil)
 	newRequestBody := strings.Replace(body, task.RequestID.String(), uuid.NewString(), 1)
-	request("POST", path, strings.Replace(newRequestBody, `["npm","test"]`, `[""]`, 1), token, 400, nil)
-	request("POST", path, strings.Replace(body, `["npm","test"]`, `[]`, 1), token, 409, nil)
 	request("POST", path, strings.Replace(newRequestBody, `"codex"`, `"unknown"`, 1), token, 403, nil)
 	request("POST", path, strings.TrimSuffix(newRequestBody, "}")+`,"model":"not a model\" -c x"}`, token, 400, nil)
 	request("POST", path, strings.TrimSuffix(newRequestBody, "}")+`,"model_server_id":"`+uuid.NewString()+`"}`, token, 400, nil)

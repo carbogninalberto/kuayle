@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"strings"
 
@@ -12,7 +11,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
-// EnsurePublication queues the single publication of an independently validated
+// EnsurePublication queues the single publication of a finished
 // attempt. The task lease, step and operation commit together; replays return
 // the existing step instead of publishing twice.
 func (r *AgentTaskRepository) EnsurePublication(ctx context.Context, claimed domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {
@@ -42,7 +41,7 @@ func (r *AgentTaskRepository) EnsurePublication(ctx context.Context, claimed dom
 	if err != nil {
 		return nil, err
 	}
-	if err = tx.GetContext(ctx, step, `INSERT INTO dev_machine_agent_run_steps(agent_run_id,sequence,step_type,name,status,command_argv,summary) VALUES($1,1,'publication','Publish changes','queued','[]','Waiting to publish the validated changes') RETURNING *`, task.RunID); err != nil {
+	if err = tx.GetContext(ctx, step, `INSERT INTO dev_machine_agent_run_steps(agent_run_id,sequence,step_type,name,status,command_argv,summary) VALUES($1,1,'publication','Publish changes','queued','[]','Waiting to publish the changes') RETURNING *`, task.RunID); err != nil {
 		return nil, err
 	}
 	op := &domain.DevMachineOperation{ID: uuid.New(), WorkspaceID: task.WorkspaceID, MachineID: *task.MachineID, AgentRunID: &task.RunID, Action: domain.DevMachineOpPublishAgent, Status: domain.DevMachineOpStatusPending, Generation: generation, IdempotencyKey: "task-publication:" + task.RunID.String(), RequestedByUserID: &task.CreatorID, MaxAttempts: 3}
@@ -135,24 +134,7 @@ func (r *DevMachineRepository) GetPublication(ctx context.Context, op domain.Dev
 	if err != nil {
 		return nil, err
 	}
-	if publication.FromStoppedTask {
-		return publication, nil
-	}
-	check := domain.DevMachineAgentRunStep{}
-	err = tx.GetContext(ctx, &check, `SELECT * FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 AND sequence=0 AND step_type='validation' AND status='succeeded'`, task.RunID)
-	if err == nil {
-		_ = json.Unmarshal(check.CommandArgv, &publication.CheckArgv)
-		publication.CheckExitCode = check.ExitCode
-		publication.CheckCommands = check.CheckRuns()
-		if check.CommandSource != nil {
-			publication.CheckSource = *check.CommandSource
-		}
-		if check.AgentSummary != nil {
-			publication.AgentSummary = *check.AgentSummary
-		}
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
+
 	return publication, nil
 }
 
@@ -192,7 +174,7 @@ func (r *DevMachineRepository) StartPublication(ctx context.Context, op domain.D
 	if step.Status == domain.DevMachineAgentRunStepStatusRunning {
 		return nil
 	}
-	summary := "Publishing the validated changes"
+	summary := "Publishing the changes"
 	if isStoppedPublication(op) {
 		summary = "Publishing stopped task changes as a draft"
 	}

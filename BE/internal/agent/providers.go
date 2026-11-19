@@ -262,8 +262,7 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 	// harnessError is the error OpenCode reported after the agent last spoke.
 	harnessError := ""
 	// toolFailures and toolGuesses are risk notes; they fail the run only
-	// when the agent did not conclude. Kuayle's validation re-runs the
-	// declared tests, so a concluded run's claims are checked there.
+	// when the agent did not conclude.
 	var toolFailures, toolGuesses []string
 
 	for _, line := range lines {
@@ -373,8 +372,7 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 	}
 
 	// A tool failure or a guess is a risk note; it fails the run only when
-	// the agent did not conclude. Kuayle's validation re-runs the declared
-	// tests, so a concluded run's claims are checked there.
+	// the agent did not conclude.
 	if (len(toolFailures) > 0 || len(toolGuesses) > 0) && !result.FinalMessage {
 		if result.Status == "succeeded" {
 			result.Status = "failed"

@@ -230,6 +230,12 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(api, http.MethodDelete, "/cli-links/:id", h.cliLink.Revoke)
 	sessionOnly(api, http.MethodGet, "/system/update-status", h.system.UpdateStatus)
 	sessionOnly(api, http.MethodPost, "/system/update", h.system.StartUpdate, mw.RejectSSOScopedSession())
+
+	sessionOnly(api, http.MethodGet, "/system/push/settings", h.push.Settings, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPut, "/system/push/settings", h.push.UpdateSettings, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/system/push/keys", h.push.GenerateKeys, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/system/push/test", h.push.Test, mw.RejectSSOScopedSession(), m.authRateLimit)
+
 	// Backups hold every workspace's data: a session minted by one
 	// workspace's SSO must not read, configure or export them.
 	sessionOnly(api, http.MethodGet, "/system/backups/settings", h.backup.GetSettings, mw.RejectSSOScopedSession())
@@ -612,7 +618,6 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(dm, http.MethodGet, "/agent-tasks/:taskId/history", h.agentTask.History, domain.PermAgentTasksRead)
 	scoped(dm, http.MethodGet, "/agent-tasks/:taskId/runs", h.agentTask.Runs, domain.PermAgentTasksRead)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/logs", h.agentTask.Logs)
-	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/validation", h.agentTask.Validation)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/checks", h.agentTask.ManualChecks)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/diff", h.agentTask.Diff)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/prompt", h.agentTask.Prompt)
@@ -632,6 +637,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 		sessionOnly(dm, http.MethodPatch, "/agent-automations/:automationId", h.agentAutomation.Update)
 		sessionOnly(dm, http.MethodDelete, "/agent-automations/:automationId", h.agentAutomation.Delete)
 		sessionOnly(dm, http.MethodGet, "/agent-automation-runs", h.agentAutomation.Runs)
+		sessionOnly(dm, http.MethodPost, "/agent-automation-runs/:runId/replay", h.agentAutomation.Replay)
 		sessionOnly(dm, http.MethodPost, "/agent-automation-runs/:runId/approve", h.agentAutomation.Approve)
 		sessionOnly(dm, http.MethodPost, "/agent-automation-runs/:runId/dismiss", h.agentAutomation.Dismiss)
 	}
@@ -682,7 +688,6 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(dm, http.MethodGet, "/dev-machine-scope-settings", h.devMachine.ScopeSettings, "dev_machine:read")
 	scoped(dm, http.MethodGet, "/dev-machine-scope-setting", h.devMachine.ScopeSetting, "dev_machine:read")
 	scoped(dm, http.MethodGet, "/dev-machine-repository-defaults", h.devMachine.RepositoryDefaults, "dev_machine:read")
-	scoped(dm, http.MethodGet, "/dev-machine-check-suggestion", h.devMachine.CheckSuggestion, "dev_machine:manage")
 	scoped(dm, http.MethodPut, "/dev-machine-scope-setting", h.devMachine.UpdateScopeSetting, "dev_machine:manage")
 	scoped(dm, http.MethodDelete, "/dev-machine-scope-setting", h.devMachine.DeleteScopeSetting, "dev_machine:manage")
 	scoped(dm, http.MethodGet, "/dev-machine-environments", h.devMachine.Environments, "dev_machine:read")

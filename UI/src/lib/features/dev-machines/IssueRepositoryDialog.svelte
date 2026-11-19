@@ -1,12 +1,12 @@
 <script lang="ts">
-	import TestCommandField from '$lib/features/dev-machines/TestCommandField.svelte';
+
 	import ComposeFileField from '$lib/features/dev-machines/ComposeFileField.svelte';
 	import PreviewSettingField from '$lib/features/dev-machines/PreviewSettingField.svelte';
 	import { previewSettingPayload } from '$lib/features/dev-machines/preview-setting';
 	import AgentDefaultsField from '$lib/features/dev-machines/AgentDefaultsField.svelte';
 	import PullRequestTemplateField from '$lib/features/dev-machines/PullRequestTemplateField.svelte';
 	import { pullRequestTemplatePayload, pullRequestTemplateValue } from '$lib/features/dev-machines/pull-request-template';
-	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
+
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
 	import * as Command from '$lib/components/ui/command';
@@ -28,7 +28,7 @@
 	let environments = $state<DevMachineEnvironment[]>([]);
 	let repositoryId = $state('inherit');
 	let environmentId = $state('inherit');
-	let testCommand = $state('');
+
 	let agentProvider = $state('inherit');
 	let agentInstructions = $state('');
 	let pullRequestTemplate = $state('');
@@ -66,7 +66,7 @@
 			environments = (availableEnvironments ?? []).filter((item) => item.status === 'ready');
 			repositoryId = setting.github_repo_id ?? 'inherit';
 			environmentId = setting.environment_id ?? 'inherit';
-			testCommand = formatTestCommand(setting.test_command); agentProvider = setting.agent_provider ?? 'inherit'; agentInstructions = setting.agent_instructions ?? ''; pullRequestTemplate = pullRequestTemplateValue(setting.pull_request_template, true); composeFile = setting.compose_file ?? ''; previewCommand = setting.preview_command ? JSON.stringify(setting.preview_command) : ''; previewPort = setting.preview_port ? String(setting.preview_port) : '';
+			agentProvider = setting.agent_provider ?? 'inherit'; agentInstructions = setting.agent_instructions ?? ''; pullRequestTemplate = pullRequestTemplateValue(setting.pull_request_template, true); composeFile = setting.compose_file ?? ''; previewCommand = setting.preview_command ? JSON.stringify(setting.preview_command) : ''; previewPort = setting.preview_port ? String(setting.preview_port) : '';
 		} catch (error) {
 			appToast.apiError(error, 'Failed to load issue development defaults');
 		} finally {
@@ -77,9 +77,9 @@
 	async function save() {
 		saving = true;
 		try {
-			const command = parseTestCommand(testCommand);
+
 			const template = pullRequestTemplatePayload(pullRequestTemplate, true);
-			if (repositoryId === 'inherit' && environmentId === 'inherit' && command === undefined && agentProvider === 'inherit' && !agentInstructions.trim() && !template.pull_request_template && !composeFile.trim() && !previewCommand.trim()) {
+			if (repositoryId === 'inherit' && environmentId === 'inherit' && agentProvider === 'inherit' && !agentInstructions.trim() && !template.pull_request_template && !composeFile.trim() && !previewCommand.trim()) {
 				await deleteDevMachineScopeSetting(slug, 'issue', issue.id);
 			} else {
 				await updateDevMachineScopeSetting(slug, {
@@ -87,7 +87,7 @@
 					github_repo_id: selectedRepository?.id,
 					base_branch: selectedRepository?.default_branch,
 					environment_id: selectedEnvironment?.id,
-					test_command: command, agent_provider: agentProvider === 'inherit' ? undefined : agentProvider, agent_instructions: agentInstructions.trim() || undefined, compose_file: composeFile.trim() || undefined, ...previewSettingPayload(previewCommand, previewPort), ...template
+					agent_provider: agentProvider === 'inherit' ? undefined : agentProvider, agent_instructions: agentInstructions.trim() || undefined, compose_file: composeFile.trim() || undefined, ...previewSettingPayload(previewCommand, previewPort), ...template
 				});
 			}
 			appToast.success('Issue development defaults saved');
@@ -120,7 +120,7 @@
 				</ComboboxPopover>
 			</div>
 			<div class="space-y-1.5"><Label>{m['machines.environment']()}</Label><Select.Root type="single" value={environmentId} disabled={loading} onValueChange={(value) => value && (environmentId = value)}><Select.Trigger class="w-full">{selectedEnvironment?.name ?? m['machines.use_workspace_default']()}</Select.Trigger><Select.Content><Select.Item value="inherit" label={m['machines.use_inherited_default']()}>{m['machines.use_inherited_default']()}</Select.Item>{#each environments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}</Select.Content></Select.Root></div>
-			<TestCommandField bind:value={testCommand} disabled={loading || saving} /><ComposeFileField bind:value={composeFile} disabled={loading || saving} /><PreviewSettingField bind:command={previewCommand} bind:port={previewPort} disabled={loading || saving} /><AgentDefaultsField bind:provider={agentProvider} bind:instructions={agentInstructions} disabled={loading || saving} /><PullRequestTemplateField bind:value={pullRequestTemplate} inherits disabled={loading || saving} />
+			<ComposeFileField bind:value={composeFile} disabled={loading || saving} /><PreviewSettingField bind:command={previewCommand} bind:port={previewPort} disabled={loading || saving} /><AgentDefaultsField bind:provider={agentProvider} bind:instructions={agentInstructions} disabled={loading || saving} /><PullRequestTemplateField bind:value={pullRequestTemplate} inherits disabled={loading || saving} />
 		</div>
 		<Dialog.Footer><Button variant="outline" onclick={() => (open = false)}>{m['common.cancel']()}</Button><Button onclick={save} disabled={loading || saving}>{saving ? m['common.saving']() : m['machines.save_defaults']()}</Button></Dialog.Footer>
 	</Dialog.Content>

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -13,8 +14,9 @@ import (
 // PublishRequest carries manager-held publication authority. The token is never
 // written into the checkout, environment or git configuration of the machine.
 type PublishRequest struct {
-	AuthorName  string
-	AuthorEmail string
+	WorkflowsWrite bool
+	AuthorName     string
+	AuthorEmail    string
 	// The last commit Kuayle published on this branch; commits up to it are kept.
 	PublishedCommit string
 	// Lease is the GitHub tip SyncCheckout saw when the agent had rewritten the
@@ -263,6 +265,24 @@ messages=$(git --git-dir="$work/repo" log --format=%B "$commit" --not --glob='re
 if printf '%s\n' "$authors" | grep -vxF -- "$email" | grep -q . || printf '%s\n' "$messages" | grep -qi '^co-authored-by:'; then
   echo "publication adds commits by another author" >&2; exit 1
 fi
+# Check the outgoing history against the destination tip. For a new branch,
+# exclude its base history. For an existing branch include base commits a
+# sync brings in, and tree changes from dropping commits on a leased push.
+if [ "${8:-false}" != true ]; then
+  tip=refs/kuayle/remote/base
+  changes="$work/workflows"
+  : > "$changes"
+  if git --git-dir="$work/repo" rev-parse -q --verify refs/kuayle/remote/branch >/dev/null; then
+    tip=refs/kuayle/remote/branch
+    git --git-dir="$work/repo" diff --no-renames --name-only "$tip" "$commit" -- .github/workflows/ > "$changes"
+  fi
+  git --git-dir="$work/repo" log --full-history --diff-merges=first-parent --no-renames --name-only --format= "$tip..$commit" -- .github/workflows/ >> "$changes"
+  if [ -s "$changes" ]; then
+    echo workflows
+    LC_ALL=C sort -u "$changes"
+    exit 0
+  fi
+fi
 # The bare repository has no remote-tracking ref, so the expected tip is named
 # explicitly. It is the tip the sync saw; if the branch moved since then, GitHub
 # refuses the push instead of losing that commit. A force can also replace
@@ -322,7 +342,7 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 		return "", fmt.Errorf("publication returned an invalid commit")
 	}
 	pushed, err := r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishPushScript, "kuayle-publish-push",
-		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit, checkout.BaseBranch, request.AuthorEmail, request.Lease}, request.Token+"\n")
+		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit, checkout.BaseBranch, request.AuthorEmail, request.Lease, strconv.FormatBool(request.WorkflowsWrite)}, request.Token+"\n")
 	if err != nil {
 		return "", err
 	}
@@ -331,9 +351,13 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 
 // pushedCommit reads the push step's stdout: none when the commit had nothing
 // to publish, remains when GitHub's task branch still holds removed work, and
-// nothing when the commit was pushed.
+// a list of workflow paths when permission is missing, and nothing after a push.
 func pushedCommit(output, commit string) (string, error) {
-	switch strings.TrimSpace(output) {
+	output = strings.TrimSpace(output)
+	if paths, ok := strings.CutPrefix(output, "workflows\n"); ok {
+		return "", workflowPermissionError(strings.ReplaceAll(strings.TrimSpace(paths), "\n", ", "))
+	}
+	switch output {
 	case "none":
 		return "", nil
 	case "remains":

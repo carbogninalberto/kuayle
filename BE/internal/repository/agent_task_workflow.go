@@ -26,7 +26,6 @@ var workflowNamespace = uuid.MustParse("2b0f8f36-79a4-4d47-9b55-8f1c0a0b6a95")
 const (
 	WorkflowEnterIteration = "iteration"
 	WorkflowEnterReview    = "review"
-	WorkflowEnterValidate  = "validate"
 	WorkflowEnterPublish   = "publish"
 	WorkflowEnterWait      = "wait"
 	WorkflowEnterComplete  = "complete"
@@ -499,8 +498,6 @@ func WorkflowEntryState(kind string) string {
 		return "queued"
 	case WorkflowEnterReview, WorkflowEnterWait:
 		return "awaiting_review"
-	case WorkflowEnterValidate:
-		return "validating"
 	case WorkflowEnterPublish:
 		return "publishing"
 	case WorkflowEnterComplete:
@@ -1111,15 +1108,6 @@ func (r *AgentTaskRepository) HasPublishedWork(ctx context.Context, task domain.
 
 // ValidationOutput is the failing check's recorded summary for the next
 // agent's {{failing_checks}}.
-func (r *AgentTaskRepository) ValidationOutput(ctx context.Context, task domain.AgentTask) (string, error) {
-	var summary sql.NullString
-	err := r.db.GetContext(ctx, &summary, `SELECT COALESCE(summary,'') FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 AND sequence=0 AND step_type='validation'`, task.RunID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
-	return summary.String, err
-}
-
 // WorkflowRun is the task's current run as the next step sees it: its
 // status, the agent's final message and the files it changed.
 type WorkflowRun struct {
