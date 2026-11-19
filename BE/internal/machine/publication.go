@@ -36,6 +36,39 @@ func (m *Manager) gitIdentity() GitIdentity {
 	return m.agentGitIdentity
 }
 
+// Refresh a previously published task worktree before the next harness starts.
+func (m *Manager) syncBeforeTaskVisit(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, services []domain.DevMachineService, checkout *domain.DevMachineCheckout) error {
+	published, err := m.store.LastPublishedCommit(ctx, run.ID)
+	if err != nil || published == "" {
+		return err
+	}
+	_, token, err := m.repositoryToken(ctx, machine, checkout.RepositoryFullName)
+	if err != nil {
+		return errors.New("checkout_sync_failed: repository credential unavailable")
+	}
+	policy, err := m.store.GetPolicy(ctx, machine.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	identity := m.gitIdentity()
+	if policy != nil && policy.AgentGitName != nil && policy.AgentGitEmail != nil {
+		identity = GitIdentity{Name: *policy.AgentGitName, Email: *policy.AgentGitEmail}
+	}
+	_, err = m.runtime.SyncCheckout(ctx, machine, services, checkout, PublishRequest{
+		PublishedCommit: published, Token: token, AuthorName: identity.Name, AuthorEmail: identity.Email,
+		Message: "Save pending task changes before follow-up",
+	})
+	var blocked *checkoutSyncBlockedError
+	if errors.As(err, &blocked) {
+		// The implementing agent can resolve the saved merge in this visit.
+		return nil
+	}
+	if err != nil {
+		return errors.New("checkout_sync_failed: " + strings.ReplaceAll(err.Error(), token, "[redacted]"))
+	}
+	return nil
+}
+
 // publishAgent commits, pushes and opens the pull request for an independently
 // validated task attempt. The native harness never receives the credential.
 func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, op *domain.DevMachineOperation) error {

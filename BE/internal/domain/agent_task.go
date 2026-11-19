@@ -303,7 +303,7 @@ func ValidAgentTaskTransition(from, to string) bool {
 	case "validating":
 		return to == "running" || to == "publishing"
 	case "publishing":
-		return to == "awaiting_review"
+		return to == "awaiting_review" || to == "queued"
 	case "awaiting_review":
 		return to == "completed" || to == "queued"
 	case "blocked", "failed":

@@ -382,6 +382,8 @@ if remote ls-remote --exit-code --heads "$url" "refs/heads/$branch" >/dev/null; 
   remote fetch -q --no-tags --no-recurse-submodules "$url" "+refs/heads/$branch:refs/kuayle/branch"
   fetched=1
 else
+  status=$?
+  [ "$status" -eq 2 ] || exit "$status"
   fetched=
 fi
 rm -f "$work/token" "$work/askpass"
@@ -405,12 +407,11 @@ fi
 g merge-base --is-ancestor "$tip" HEAD && exit 0
 if g merge-base --is-ancestor HEAD "$tip"; then
   [ ! -f "$gitdir/MERGE_HEAD" ] || block_checkout "Finish the in-progress merge before bringing in commits from the GitHub task branch."
-  if g merge -q --ff-only --no-overwrite-ignore "$tip" >"$work/merge-output" 2>&1; then
-    exit 0
-  fi
   stage_changes
   if g diff --cached --quiet; then
-    block_checkout "Could not fast-forward to the GitHub task branch. $(cat "$work/merge-output")"
+    g merge -q --ff-only --no-overwrite-ignore "$tip" >"$work/merge-output" 2>&1 ||
+      block_checkout "Could not fast-forward to the GitHub task branch. $(cat "$work/merge-output")"
+    exit 0
   fi
   # Keep a durable copy before the merge touches the working tree.
   g commit --no-verify -q -m "$message"
@@ -418,7 +419,7 @@ if g merge-base --is-ancestor HEAD "$tip"; then
     if [ -f "$work/checkout/MERGE_HEAD" ]; then
       # Keep the standard merge state after the isolated git directory goes away.
       for state in ORIG_HEAD MERGE_MODE MERGE_MSG MERGE_HEAD; do
-        mv -fT "$work/checkout/$state" "$gitdir/$state"
+        mv -f "$work/checkout/$state" "$gitdir/"
       done
     fi
     check_conflicts

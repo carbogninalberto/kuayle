@@ -330,13 +330,17 @@ fenced task transaction, using the same machine locks as validation. The manager
 re-verifies the same phase authority (task still `publishing`, current run,
 creator, machine generation, enabled policy, live operation lease) on every read
 and write, and checks that the checkout is the task's own ready checkout. It
-first fetches the task branch from GitHub with a credential used only in a fresh
-repository and fast-forwards the checkout to commits others pushed (a maintainer
-merging the base branch into the pull request). If pending edits would be
-overwritten, it saves them in a local commit and merges the fetched tip. If the
-merge conflicts, publication blocks on the affected files and keeps the saved
-commit and merge state in the checkout. A retry passes the reason to the agent,
-which can resolve and stage the files so publication can finish the merge.
+fetches the task branch before starting a new visit on a previously published
+task checkout, and fetches again at publication. Reattaching to a running agent
+leaves its checkout alone. Only a fresh repository receives the fetch credential.
+When the remote branch advances, a clean checkout fast-forwards to its tip.
+Pending edits are committed locally first and merged with that tip. A conflict
+leaves the saved commit, unmerged files and merge state in the checkout.
+The publication detail names the affected files, and the next agent receives
+that detail and instructions to resolve and stage them. A configurable workflow
+returns to its implementing step within its visit and iteration budgets. The
+Standard flow queues one repair attempt. If the next publication is also
+blocked, it waits for a person with the latest reason.
 When the agent rebased its own branch and GitHub's tip still matches the
 recorded publication (`PublishedCommit`), the checkout is left alone and the
 push is guarded by `--force-with-lease` against
@@ -3273,8 +3277,8 @@ An agent review is stale when its commit is no longer the recorded head
 or the task has published a newer commit:
 `get_agent_work` withholds its findings and tells the assistant to offer
 `request_agent_review` for the new head. Re-running a review still pins the
-commit Kuayle published; reviewing others' commits needs the checkout updated by
-the next publication.
+commit Kuayle published. An implementing visit synchronizes its checkout before
+it starts and can publish a new commit for review.
 
 ## Usage limits
 

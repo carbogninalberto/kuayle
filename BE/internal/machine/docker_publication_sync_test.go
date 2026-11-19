@@ -1,12 +1,15 @@
 package machine
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -151,6 +154,75 @@ func TestParseSyncLeaseOnlyAcceptsAFastForwardOrALease(t *testing.T) {
 		require.Equal(t, test.valid, err == nil, test.output)
 		require.Equal(t, test.lease, lease, test.output)
 	}
+}
+
+// Use the production sync and publishing scripts with a local Git remote.
+type reviewFixRuntime struct {
+	*runtimeFake
+	fixture *scriptFixture
+}
+
+func (r reviewFixRuntime) SyncCheckout(_ context.Context, _ *domain.DevMachine, _ []domain.DevMachineService, checkout *domain.DevMachineCheckout, req PublishRequest) (string, error) {
+	output, err := r.fixture.script(publishSyncScript, req.Token+"\n", "sync", checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, req.PublishedCommit, req.AuthorName, req.AuthorEmail, req.Message)
+	if err != nil {
+		return "", err
+	}
+	return parseSyncLease(output)
+}
+
+// KUA-161: GitHub merged main into the PR while the task checkout stayed
+// at the first publication. The review-fix visit edits the very same file.
+func TestReviewFixStartsAtPublishedPRHead(t *testing.T) {
+	f := newScriptFixture(t)
+	const path = "BE/docs/agent-tasks.md"
+	seed := filepath.Join(f.root, "seed")
+	require.NoError(t, os.MkdirAll(filepath.Join(seed, "BE/docs"), 0o755))
+	f.writeAndCommit(seed, path, "original\n", 0o644, fixtureIdentity)
+	f.run(seed, nil, "push", f.origin, "main")
+	f.run(f.checkout, nil, "fetch", "origin")
+	f.run(f.checkout, nil, "merge", "--ff-only", "origin/main")
+	published := f.commitFile(f.checkout, "feature.txt", kuayleIdentity)
+	output, err := f.push(published, "")
+	require.NoError(t, err, output)
+	f.writeAndCommit(seed, path, "from main\n", 0o644, fixtureIdentity)
+	f.run(seed, nil, "push", f.origin, "main")
+	f.run(seed, nil, "fetch", f.origin, "kuayle/rec-1")
+	f.run(seed, nil, "checkout", "-B", "kuayle/rec-1", "FETCH_HEAD")
+	f.run(seed, nil, "merge", "--no-ff", "-m", "Merge main into PR", "main")
+	f.run(seed, nil, "push", f.origin, "HEAD")
+	merged := f.originTip()
+	store, rt, manager, runID := restartRunFixture(t)
+	taskID, checkoutID := uuid.New(), uuid.New()
+	store.agentRun.TaskID, store.agentRun.CheckoutID = &taskID, &checkoutID
+	store.agentRun.Status = domain.DevMachineAgentRunStatusQueued
+	store.checkout = &domain.DevMachineCheckout{ID: checkoutID, WorkspaceID: store.machine.WorkspaceID, MachineID: store.machine.ID, ScopeKey: taskID.String(), Status: "ready", RepositoryFullName: "acme/app", WorkingBranch: "kuayle/rec-1", BaseBranch: "main", WorkspacePath: f.checkout}
+	store.publishedCommit = published
+	manager.github = &publicationGitHubFake{}
+	manager.runtime = reviewFixRuntime{rt, f}
+	rt.beforeAgentStarted = func() {
+		require.Equal(t, merged, f.head(), "the fix agent must start from GitHub's merge commit")
+		require.Equal(t, "from main", f.run(f.checkout, nil, "show", "HEAD:"+path))
+		require.NoError(t, os.WriteFile(filepath.Join(f.checkout, path), []byte("from main and review fix\n"), 0o644))
+	}
+	rt.agentExecution = &AgentExecution{ExitCode: 0}
+	require.NoError(t, manager.runAgent(context.Background(), store.machine, restartOperation(store, runID)))
+	require.NotContains(t, rt.agentSecrets, "GITHUB_TOKEN")
+	output, err = f.sync(published)
+	require.NoError(t, err, output)
+	require.Empty(t, output)
+	commit, err := f.commit(published)
+	require.NoError(t, err, commit)
+	output, err = f.push(commit, "")
+	require.NoError(t, err, output)
+	require.Equal(t, merged, f.run(f.origin, nil, "rev-parse", "kuayle/rec-1^"))
+	require.Equal(t, "from main and review fix", f.run(f.origin, nil, "show", "kuayle/rec-1:"+path))
+}
+
+func TestSyncScriptDoesNotStartFromAStaleCheckoutWhenGitHubIsUnavailable(t *testing.T) {
+	f := newScriptFixture(t)
+	require.NoError(t, os.Rename(f.origin, f.origin+".offline"))
+	output, err := f.sync(f.head())
+	require.Error(t, err, output)
 }
 
 func TestSyncScriptFastForwardsToCommitsOthersPushedAndNeverRewrites(t *testing.T) {

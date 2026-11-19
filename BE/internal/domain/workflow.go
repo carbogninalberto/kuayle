@@ -69,6 +69,8 @@ const (
 	// the step that changes code (WorkflowGraph.SendBack), as an iteration
 	// limited like any other (KUA-209).
 	WorkflowBranchConflict = "branch_conflict"
+	// WorkflowCheckoutBlocked sends a publication that needs local changes back to the implementer.
+	WorkflowCheckoutBlocked = "checkout_sync_blocked"
 )
 
 // Check kinds.
@@ -996,6 +998,8 @@ func WorkflowOutcomeText(outcome string) string {
 		return "checks failed"
 	case WorkflowChecksSkipped:
 		return "no check is configured"
+	case WorkflowCheckoutBlocked:
+		return "the checkout needs repair before publishing"
 	case WorkflowBranchConflict:
 		return "the pull request conflicts with its base"
 	case WorkflowReviewApproved:

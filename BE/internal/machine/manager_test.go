@@ -53,6 +53,7 @@ type managerStoreFake struct {
 	actions                   []domain.DevMachineOperationAction
 	operations                []*domain.DevMachineOperation
 	checkout                  *domain.DevMachineCheckout
+	publishedCommit           string
 	checkoutStatus            string
 	checkoutError             *string
 	terminalSession           *domain.DevMachineTerminalSession
@@ -469,6 +470,10 @@ func (f *managerStoreFake) QueueTaskResourceCleanup(context.Context, time.Time, 
 
 func (f *managerStoreFake) BeginTaskResourceCleanup(context.Context, domain.DevMachineOperation, time.Time) (*domain.DevMachineCheckout, []uuid.UUID, error) {
 	return nil, nil, nil
+}
+
+func (f *managerStoreFake) LastPublishedCommit(context.Context, uuid.UUID) (string, error) {
+	return f.publishedCommit, nil
 }
 
 func (f *managerStoreFake) GetCheckoutInternal(context.Context, uuid.UUID) (*domain.DevMachineCheckout, error) {
