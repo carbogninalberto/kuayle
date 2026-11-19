@@ -275,7 +275,7 @@ func startForLiveMessage(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTas
 	}
 	var pending bool
 	err := tx.GetContext(ctx, &pending, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE task_id=$1 AND status IN ('queued','starting','running','waiting_input'))
- OR EXISTS(SELECT 1 FROM dev_machine_operations o WHERE (o.checkout_id=$2 OR o.agent_run_id IN (SELECT id FROM dev_machine_agent_runs WHERE task_id=$1)) AND o.status IN ('pending','leased') AND o.action NOT IN ('start_preview','stop_preview'))
+ OR EXISTS(SELECT 1 FROM dev_machine_operations o WHERE (o.checkout_id=$2 OR o.agent_run_id IN (SELECT id FROM dev_machine_agent_runs WHERE task_id=$1)) AND o.status IN ('pending','leased') AND o.action NOT IN ('start_preview','stop_preview') AND (o.action<>'cleanup_task' OR o.status='leased'))
  OR EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.id=$3 AND r.status<>'succeeded' AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.agent_run_id=r.id AND o.idempotency_key=$4 AND o.status='completed'))`, task.ID, task.CheckoutID, task.RunID, "task-cancel:"+task.ID.String()+":"+task.RunID.String())
 	if err != nil {
 		return err
