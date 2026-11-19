@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -126,10 +127,12 @@ func TestStageAssistantCannotChooseANativeApproval(t *testing.T) {
 	h.restart()
 	h.w.task.WorkflowNode = &ship.ID
 	h.w.steps[h.w.task.WorkflowSequence].NodeID = ship.ID
-	h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{FinalMessage: true, Summary: "KUAYLE_STAGE_ROUTE ship-approved"}
+	h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{FinalMessage: true, Summary: "KUAYLE_STAGE_ROUTE ship-approved", WorktreeChanged: ptr(false)}
 	require.NoError(t, h.runner.AgentFinished(t.Context(), h.w.task))
-	require.Equal(t, "cancelling", h.w.task.State)
-	require.Contains(t, h.w.task.Reason, "unavailable transition")
+	require.Equal(t, "awaiting_review", h.w.task.State)
+	require.Contains(t, h.w.task.Reason, "waiting for approval")
+	require.Contains(t, h.w.task.Reason, "ship-approved")
+	require.Contains(t, h.w.task.Reason, "Selectable transitions: none")
 }
 
 func TestTerminalAssistantHandsOffTheApprovedMerge(t *testing.T) {
@@ -186,20 +189,7 @@ func TestCheckStageAssistantContinuesOnPublishedWork(t *testing.T) {
 		{"missing retry fingerprint", build, "", nil, "could not verify"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := newWorkflowHarness(t, domain.WorkflowBudget{})
-			var graph domain.WorkflowGraph
-			require.NoError(t, json.Unmarshal(h.w.version.Graph, &graph))
-			for i := range graph.Nodes {
-				if graph.Nodes[i].ID == "ci" {
-					graph.Nodes[i].ProfileID = graph.FirstRun().ProfileID
-				}
-			}
-			h.w.version.Graph = *rawJSON(t, graph)
-			h.restart()
-			input := h.w.task.RunID
-			h.toCI("Implemented the change")
-			require.Equal(t, "queued", h.w.task.State)
-			require.Equal(t, input, *h.current().StageInputRunID)
+			h, input := supervisedCI(t)
 			start := before
 			if tc.firstAfter != "" {
 				h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{WorktreeBefore: before, WorktreeAfter: tc.firstAfter, WorktreeChanged: ptr(true), WorktreeFiles: []string{"src/check.go"}}
@@ -224,4 +214,74 @@ func TestCheckStageAssistantContinuesOnPublishedWork(t *testing.T) {
 			require.Equal(t, "ship", h.current().NodeID)
 		})
 	}
+}
+
+func supervisedCI(t *testing.T) (*workflowHarness, uuid.UUID) {
+	t.Helper()
+	h := newWorkflowHarness(t, domain.WorkflowBudget{})
+	var graph domain.WorkflowGraph
+	require.NoError(t, json.Unmarshal(h.w.version.Graph, &graph))
+	for i := range graph.Nodes {
+		if graph.Nodes[i].ID == "ci" {
+			graph.Nodes[i].ProfileID = graph.FirstRun().ProfileID
+		}
+	}
+	h.w.version.Graph = *rawJSON(t, graph)
+	h.restart()
+	input := h.w.task.RunID
+	h.toCI("Implemented the change")
+	require.Equal(t, "queued", h.w.task.State)
+	require.Equal(t, input, *h.current().StageInputRunID)
+	return h, input
+}
+
+func TestCheckStageAssistantRouting(t *testing.T) {
+	for _, directive := range []string{"KUAYLE_STAGE_ROUTE ci-passed", "KUAYLE_STAGE_ROUTE missing", "KUAYLE_STAGE_SKIP", "KUAYLE_STAGE_ROUTE"} {
+		t.Run(directive, func(t *testing.T) {
+			h, input := supervisedCI(t)
+			h.w.task.State = "running"
+			h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{FinalMessage: true, Summary: "Reviewed CI.\n" + directive, WorktreeChanged: ptr(false)}
+			require.NoError(t, h.runner.AgentFinished(t.Context(), h.w.task))
+			require.Equal(t, "awaiting_review", h.w.task.State)
+			require.Equal(t, input, h.w.task.RunID)
+			require.Contains(t, h.w.task.Reason, "waiting for CI")
+			require.Contains(t, h.w.task.Reason, directive)
+			require.Contains(t, h.w.task.Reason, "Selectable transitions: ci-failed")
+			h.ci("success", "Checks passed")
+			require.Equal(t, "ship", h.current().NodeID)
+		})
+	}
+	t.Run("built-in route with modified worktree", func(t *testing.T) {
+		h, _ := supervisedCI(t)
+		h.w.task.State = "running"
+		h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{FinalMessage: true, Summary: "KUAYLE_STAGE_ROUTE ci-passed", WorktreeChanged: ptr(true), WorktreeFiles: []string{"main.go"}}
+		require.NoError(t, h.runner.AgentFinished(t.Context(), h.w.task))
+		require.Equal(t, "cancelling", h.w.task.State)
+		require.Contains(t, h.w.task.Reason, "main.go")
+		require.Contains(t, h.w.task.Reason, "ci-passed")
+		require.Contains(t, h.w.task.Reason, "Selectable transitions: ci-failed")
+	})
+	t.Run("many selectable routes with modified worktree", func(t *testing.T) {
+		h, _ := supervisedCI(t)
+		var graph domain.WorkflowGraph
+		require.NoError(t, json.Unmarshal(h.w.version.Graph, &graph))
+		for i := range 40 {
+			graph.Edges = append(graph.Edges, domain.WorkflowEdge{ID: fmt.Sprintf("recover-%02d-%s", i, strings.Repeat("a", 48)), Source: "ci", Target: "implement", Condition: domain.WorkflowAssistant})
+		}
+		h.w.version.Graph = *rawJSON(t, graph)
+		h.restart()
+		h.w.task.State = "running"
+		h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{FinalMessage: true, Summary: "KUAYLE_STAGE_ROUTE ci-passed", WorktreeChanged: ptr(true), WorktreeFiles: []string{"main.go"}}
+		require.NoError(t, h.runner.AgentFinished(t.Context(), h.w.task))
+		require.LessOrEqual(t, len(h.w.task.Reason), 2048, "the transition must fit the task timeline")
+		require.Contains(t, h.current().Detail, graph.Edges[len(graph.Edges)-1].ID)
+	})
+	t.Run("selectable recovery route", func(t *testing.T) {
+		h, _ := supervisedCI(t)
+		h.w.task.State = "running"
+		h.w.runs[h.w.task.RunID] = &repository.WorkflowRun{FinalMessage: true, Summary: "KUAYLE_STAGE_ROUTE ci-failed", WorktreeChanged: ptr(true)}
+		require.NoError(t, h.runner.AgentFinished(t.Context(), h.w.task))
+		require.Equal(t, "queued", h.w.task.State)
+		require.Equal(t, "ci-failed", *h.current().EdgeID)
+	})
 }

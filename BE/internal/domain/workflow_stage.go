@@ -33,8 +33,19 @@ func (graph WorkflowGraph) StageInstructions(node WorkflowNode) string {
 	if len(branches) == 0 {
 		b.WriteString("(none; finish the stage)\n")
 	}
-	b.WriteString("End your final message with KUAYLE_STAGE_CONTINUE to run the built-in stage, or KUAYLE_STAGE_ROUTE <edge ID> to take a selectable transition. Kuayle evaluates all other conditions itself.")
+	b.WriteString("Never name a [built-in] transition. End your final message with KUAYLE_STAGE_CONTINUE so Kuayle evaluates built-in conditions, or KUAYLE_STAGE_ROUTE <edge ID> to take a [selectable] transition.")
 	return b.String()
+}
+
+// SelectableStageRoutes lists the outgoing edge IDs a stage assistant may name.
+func (graph WorkflowGraph) SelectableStageRoutes(node WorkflowNode) []string {
+	var ids []string
+	for _, edge := range graph.Edges {
+		if edge.Source == node.ID && graph.assistantChoice(edge) {
+			ids = append(ids, edge.ID)
+		}
+	}
+	return ids
 }
 
 func (node WorkflowNode) StageReadsWorktree() bool {

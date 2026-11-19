@@ -43,6 +43,9 @@ func (w *WorkflowRunner) agentFailedBecause(ctx context.Context, task domain.Age
 			apply.Entry.Reason += ". " + problem
 		}
 	}
+	// The timeline reason is limited to 2048 bytes. The step detail keeps
+	// the full problem, including route options for a stage assistant.
+	apply.Entry.Reason = truncateUTF8Bytes(apply.Entry.Reason, 2048)
 	_, err = w.tasks.ApplyWorkflow(ctx, task, *apply)
 	return err
 }
