@@ -21,15 +21,14 @@ func (r *AgentTaskRepository) BeginPlatformRetry(ctx context.Context, claimed do
 	if err = fenceAgentTask(ctx, tx, *task, claimed); err != nil {
 		return false, err
 	}
-	// Only a bounded number of retries in a row: the same workload would
-	// otherwise restart with the manager forever.
+	// Bound retries so repeated platform failures cannot restart a step forever.
 	if task.PlatformRetries >= domain.MaxPlatformRetries {
 		return false, nil
 	}
 	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET platform_retries=platform_retries+1,platform_retry_pending=true WHERE id=$1 RETURNING *`, task.ID); err != nil {
 		return false, err
 	}
-	if err = noteNotebook(ctx, tx, task.ID, nil, domain.NotebookNote{Event: "Kuayle's machine manager restarted during this step; the step is retried automatically and the workflow budget is unchanged"}); err != nil {
+	if err = noteNotebook(ctx, tx, task.ID, nil, domain.NotebookNote{Event: reason}); err != nil {
 		return false, err
 	}
 	// A retry is not a failure: the task keeps no failure class.

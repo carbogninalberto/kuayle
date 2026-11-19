@@ -8,12 +8,17 @@ import (
 )
 
 // retryAfterPlatformFailure retries the same step of a run that failed for a
-// retryable platform cause (the machine manager restarted): a new attempt of
-// the same visit and iteration, which never uses the workflow's budget. Once
-// the step had domain.MaxPlatformRetries automatic retries the task fails with
-// the platform reason instead.
+// retryable platform cause. The new attempt stays in the same workflow visit
+// and iteration. At the automatic retry cap the task fails with the platform
+// reason.
 func (s *AgentTaskService) retryAfterPlatformFailure(ctx context.Context, task domain.AgentTask, run *domain.DevMachineAgentRun) error {
-	reason := fmt.Sprintf("Retrying automatically: Kuayle's machine manager restarted while the agent worked (retry %d of %d); the workflow budget is unchanged", task.PlatformRetries+1, domain.MaxPlatformRetries)
+	interruption := "Kuayle's machine manager restarted while the agent worked"
+	advice := "Retry the task to continue"
+	if *run.FailureRule == domain.FailureRulePIDLimit {
+		interruption = "the agent container reached its PID limit"
+		advice = "Use fewer parallel workers when retrying the task"
+	}
+	reason := fmt.Sprintf("Retrying automatically: %s (retry %d of %d). The workflow iteration budget is unchanged", interruption, task.PlatformRetries+1, domain.MaxPlatformRetries)
 	retried, err := s.store.BeginPlatformRetry(ctx, task, reason)
 	if err != nil {
 		return err
@@ -21,6 +26,6 @@ func (s *AgentTaskService) retryAfterPlatformFailure(ctx context.Context, task d
 	if retried {
 		return nil
 	}
-	cause := fmt.Sprintf("Kuayle's machine manager restarted %d times during this step, so Kuayle stopped retrying it automatically; retry the task to continue", domain.MaxPlatformRetries)
+	cause := fmt.Sprintf("Kuayle stopped retrying this step automatically after %d platform retries. The latest failure occurred when %s. %s", domain.MaxPlatformRetries, interruption, advice)
 	return s.store.FailWithClass(ctx, task, domain.FailurePlatform, domain.TaskFailureReason(domain.FailurePlatform, cause))
 }

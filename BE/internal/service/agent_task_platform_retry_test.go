@@ -52,7 +52,7 @@ func TestAgentTaskRetriesAPlatformFailureOnTheSameStep(t *testing.T) {
 			require.Equal(t, 1, store.platformCalls, "the step is retried automatically")
 			require.True(t, store.retried)
 			require.Contains(t, store.platformReason, "retry 1 of 3")
-			require.Contains(t, store.platformReason, "workflow budget is unchanged")
+			require.Contains(t, store.platformReason, "The workflow iteration budget is unchanged")
 			require.Empty(t, store.failReason, "a retry is not a failure")
 			require.Empty(t, store.failClass)
 			require.Equal(t, "cancelling", store.task.State, "the runtime is cleaned up first")
@@ -76,16 +76,48 @@ func TestAgentTaskFailsAfterThePlatformRetryCap(t *testing.T) {
 	require.Equal(t, 1, store.platformCalls)
 	require.False(t, store.retried)
 	require.Equal(t, domain.FailurePlatform, store.failClass)
-	require.Contains(t, store.failReason, "3 times during this step")
-	require.Contains(t, store.failReason, "retry the task to continue")
+	require.Contains(t, store.failReason, "after 3 platform retries")
+	require.Contains(t, store.failReason, "machine manager restarted")
+	require.Contains(t, store.failReason, "Retry the task to continue")
 }
 
-// Only a manager restart is retried automatically: a resource limit or an
-// unclassified kill would happen again, so the task fails as before.
+func TestAgentTaskRetriesPIDLimitWithoutAdvancingWorkflow(t *testing.T) {
+	for _, retries := range []int{0, domain.MaxPlatformRetries} {
+		workflow := newWorkflowHarness(t, domain.WorkflowBudget{MaxIterations: 8})
+		workflow.w.task.WorkflowIterations = 8
+		workflow.w.task.PlatformRetries = retries
+		task := workflow.w.task
+		store := &platformRetryStoreFake{taskStoreFake: &taskStoreFake{task: task}}
+		runtime := &taskRuntimeFake{run: &domain.DevMachineAgentRun{
+			Status:       domain.DevMachineAgentRunStatusFailed,
+			FailureClass: ptr(string(domain.FailurePlatform)),
+			FailureRule:  ptr(domain.FailureRulePIDLimit),
+			FailureCause: ptr("The agent container reached its limit of 1024 processes and threads (PID limit) (exit code 139, SIGSEGV)"),
+		}}
+		svc := &AgentTaskService{store: store, runtime: runtime, workflow: workflow.runner}
+		require.NoError(t, svc.step(context.Background(), task))
+		require.Equal(t, task.WorkflowSequence, workflow.w.task.WorkflowSequence)
+		require.Equal(t, task.WorkflowIterations, workflow.w.task.WorkflowIterations)
+		require.Nil(t, workflow.w.steps[task.WorkflowSequence].Outcome, "the workflow does not receive an agent_failed outcome")
+		require.Equal(t, 1, store.platformCalls)
+		if retries < domain.MaxPlatformRetries {
+			require.True(t, store.retried)
+			require.Contains(t, store.platformReason, "PID limit")
+			require.Contains(t, store.platformReason, "retry 1 of 3")
+			require.Contains(t, store.platformReason, "The workflow iteration budget is unchanged")
+			require.Empty(t, store.failReason)
+		} else {
+			require.False(t, store.retried)
+			require.Equal(t, domain.FailurePlatform, store.failClass)
+			require.Contains(t, store.failReason, "PID limit")
+			require.Contains(t, store.failReason, "stopped retrying")
+		}
+	}
+}
+
 func TestAgentTaskDoesNotRetryOtherPlatformFailures(t *testing.T) {
 	message := "agent_failed: exit 1"
 	for name, failure := range map[string]struct{ class, rule string }{
-		"pid limit":     {string(domain.FailurePlatform), "pid_limit"},
 		"out of memory": {string(domain.FailurePlatform), "out_of_memory"},
 		"killed":        {string(domain.FailureUnknown), "killed"},
 	} {
@@ -103,6 +135,16 @@ func TestAgentTaskDoesNotRetryOtherPlatformFailures(t *testing.T) {
 			require.NotEmpty(t, store.failReason, "the task fails as before")
 			require.Equal(t, domain.FailureClass(class), store.failClass)
 		})
+	}
+}
+
+func TestPIDLimitAttemptIsToldHowToReduceProcessCount(t *testing.T) {
+	for _, resumed := range []bool{true, false} {
+		prompt := withHandoff("Implement", &domain.AgentHandoff{AttemptID: uuid.New(), Status: "failed", FailureRule: domain.FailureRulePIDLimit}, resumed, resumed)
+		require.Contains(t, prompt, "PID limit")
+		require.Contains(t, prompt, "--workers=1")
+		require.Contains(t, prompt, "continue from the worktree")
+		require.NotContains(t, prompt, "usage limit")
 	}
 }
 
