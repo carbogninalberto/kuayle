@@ -3728,6 +3728,8 @@
 	"workflows.editor.show_panel": "Zijpaneel tonen",
 	"workflows.editor.nothing_selected": "Selecteer een stap of overgang op het canvas, of in de lijsten hieronder.",
 	"workflows.editor.node_label": "Naam",
+	"workflows.editor.stage_assistant": "Faseassistent",
+	"workflows.condition.assistant": "Keuze van de assistent",
 	"workflows.editor.node_profile": "Agentprofiel",
 	"workflows.editor.node_profile_placeholder": "Kies een profiel",
 	"workflows.editor.node_prompt": "Iteratieprompt",

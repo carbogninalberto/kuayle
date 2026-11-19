@@ -3728,6 +3728,8 @@
 	"workflows.editor.show_panel": "Tampilkan panel samping",
 	"workflows.editor.nothing_selected": "Pilih langkah atau transisi di kanvas, atau di daftar di bawah.",
 	"workflows.editor.node_label": "Nama",
+	"workflows.editor.stage_assistant": "Asisten tahap",
+	"workflows.condition.assistant": "Pilihan asisten",
 	"workflows.editor.node_profile": "Profil agen",
 	"workflows.editor.node_profile_placeholder": "Pilih profil",
 	"workflows.editor.node_prompt": "Prompt iterasi",

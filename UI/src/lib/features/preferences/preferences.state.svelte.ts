@@ -1,4 +1,4 @@
-import { getPreferences, updatePreferences, type IssuesGroupByPreference } from '$lib/api/preferences';
+import { getPreferences, updatePreferences, type IssuesGroupByPreference, type PreferencesData as ApiPreferences } from '$lib/api/preferences';
 import { CATEGORY_ORDER, type StatusCategory } from '$lib/types/team-status';
 import {
 	DEFAULT_NOTIFICATION_SOUND,
@@ -39,6 +39,7 @@ interface PreferencesData {
 	notificationSound: NotificationSound;
 	notificationEvents: NotificationEvents;
 	timezone?: string;
+	timezoneDirty?: boolean;
 	localDirty?: boolean;
 }
 
@@ -77,7 +78,8 @@ class PreferencesState {
 	private initialized = false;
 	private remoteSync: Promise<void> | null = null;
 	private pushInFlight = false;
-	private pushQueued = false;
+	private queuedUpdate: Partial<ApiPreferences> | null = null;
+	private timezoneDirty = false;
 	private localVersion = 0;
 	// Persisted flag: true when local holds changes not yet confirmed by the
 	// server. Prevents a stale remote snapshot from clobbering newer local
@@ -100,13 +102,6 @@ class PreferencesState {
 		this.initialized = true;
 
 		this.loadLocal();
-
-		// The assistant computes dates in the user's zone: browsers that
-		// report one fill it once, so replies are right without a visit to
-		// settings; a picked zone here always wins.
-		if (!this.timezone) {
-			this.setTimezone(browserTimezone());
-		}
 
 		const mql = window.matchMedia('(prefers-color-scheme: dark)');
 		this.systemPrefersDark = mql.matches;
@@ -152,6 +147,7 @@ class PreferencesState {
 			if (data.notificationSound !== undefined) this.notificationSound = normalizeNotificationSound(data.notificationSound);
 			if (data.notificationEvents !== undefined) this.notificationEvents = normalizeNotificationEvents(data.notificationEvents);
 			if (data.timezone !== undefined) this.timezone = data.timezone;
+			this.timezoneDirty = data.timezoneDirty === true;
 			if (data.localDirty !== undefined) this.localDirty = data.localDirty;
 		} catch {
 			// ignore corrupt data
@@ -161,6 +157,7 @@ class PreferencesState {
 	private async loadRemote() {
 		try {
 			const data = await getPreferences();
+			if (!this.timezoneDirty) this.timezone = data.timezone ?? '';
 			// If the user changed something locally since the last confirmed sync
 			// (e.g. picked a new theme but the PATCH hasn't landed, or a reload
 			// happened mid-flight), the remote snapshot is stale relative to local.
@@ -193,10 +190,12 @@ class PreferencesState {
 			this.browserNotifications = data.browser_notifications !== false;
 			this.workflowEditorPanelOpen = data.workflow_editor_panel_open !== false;
 			this.notificationSound = normalizeNotificationSound(data.notification_sound);
-		this.notificationEvents = normalizeNotificationEvents(data.notification_events);
-		// Absent on a server that predates the field: keep the defaults.
-		this.timezone = data.timezone ?? '';
-		this.localDirty = false;
+			this.notificationEvents = normalizeNotificationEvents(data.notification_events);
+			// Only a signed-in profile with an explicitly empty zone needs detection.
+			if (data.timezone === '') {
+				this.timezone = browserTimezone();
+				if (this.timezone) this.pushRemote({ timezone: this.timezone });
+			}
 			this.persistLocal();
 		} catch {
 			// API unavailable — local-only is fine
@@ -220,6 +219,7 @@ class PreferencesState {
 			notificationSound: this.notificationSound,
 			notificationEvents: this.notificationEvents,
 			timezone: this.timezone,
+			timezoneDirty: this.timezoneDirty,
 			localDirty: this.localDirty
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -232,32 +232,33 @@ class PreferencesState {
 		this.pushRemote();
 	}
 
-	private pushRemote() {
-		this.pushQueued = true;
+	private pushRemote(update: Partial<ApiPreferences> = this.remoteSnapshot()) {
+		this.queuedUpdate = { ...this.queuedUpdate, ...update };
 		if (this.pushInFlight) return;
 		void this.flushRemote();
 	}
 
 	private async flushRemote() {
 		this.pushInFlight = true;
-		while (this.pushQueued) {
-			this.pushQueued = false;
+		while (this.queuedUpdate) {
+			const update = this.queuedUpdate;
+			this.queuedUpdate = null;
 			const version = this.localVersion;
 			try {
-				await updatePreferences(this.remoteSnapshot());
-				if (version === this.localVersion && !this.pushQueued) {
+				await updatePreferences(update);
+				if (version === this.localVersion && !this.queuedUpdate) {
 					this.localDirty = false;
+					this.timezoneDirty = false;
 					this.persistLocal();
 				}
 			} catch {
-				// Keep localDirty so the latest snapshot is retried on the next sync.
-				break;
+				// Pending local edits are retried by the next write or sync.
 			}
 		}
 		this.pushInFlight = false;
 	}
 
-	private remoteSnapshot() {
+	private remoteSnapshot(): Partial<ApiPreferences> {
 		return {
 			font_size: this.fontSize,
 			pointer_cursors: this.pointerCursors,
@@ -281,7 +282,7 @@ class PreferencesState {
 			workflow_editor_panel_open: this.workflowEditorPanelOpen,
 			notification_sound: this.notificationSound,
 			notification_events: { ...this.notificationEvents },
-			timezone: this.timezone
+			...(this.timezoneDirty ? { timezone: this.timezone } : {})
 		};
 	}
 
@@ -391,6 +392,7 @@ class PreferencesState {
 	setTimezone(timezone: string) {
 		if (!timezone || timezone === this.timezone) return;
 		this.timezone = timezone;
+		this.timezoneDirty = true;
 		this.persist();
 	}
 }

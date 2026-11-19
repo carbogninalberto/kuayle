@@ -3728,6 +3728,8 @@
 	"workflows.editor.show_panel": "Pokaż panel boczny",
 	"workflows.editor.nothing_selected": "Wybierz krok lub przejście na kanwie albo na poniższych listach.",
 	"workflows.editor.node_label": "Nazwa",
+	"workflows.editor.stage_assistant": "Asystent etapu",
+	"workflows.condition.assistant": "Wybór asystenta",
 	"workflows.editor.node_profile": "Profil agenta",
 	"workflows.editor.node_profile_placeholder": "Wybierz profil",
 	"workflows.editor.node_prompt": "Prompt iteracji",

@@ -53,7 +53,7 @@ func TestExecutePinsTodayInTheUserProfileTimezone(t *testing.T) {
 	_, err = db.Exec(`INSERT INTO user_preferences(user_id,timezone) VALUES($1,'Pacific/Auckland')`, user)
 	require.NoError(t, err)
 
-	provider, requests := scriptedProvider(t, finalAnswer)
+	provider, requests := scriptedProvider(t, finalAnswer, finalAnswer)
 	key := crypto.DeriveKey(uuid.NewString())
 	ai := NewAISettingsService(repository.NewAISettingsRepository(db), repository.NewWorkspaceRepository(db), nil, key, WithAIPrivateNetworkAccess(true))
 	apiKey, err := crypto.Encrypt("provider-fixture", key)
@@ -62,21 +62,28 @@ func TestExecutePinsTodayInTheUserProfileTimezone(t *testing.T) {
 	conversations := repository.NewConversationRepository(db)
 	chat := NewConversationService(conversations, ai)
 	chat.SetPreferences(repository.NewUserPreferencesRepository(db))
-	chat.now = func() time.Time { return time.Date(2026, 11, 13, 22, 30, 0, 0, time.UTC) }
+	now := time.Date(2026, 11, 13, 22, 30, 0, 0, time.UTC)
+	chat.now = func() time.Time { return now }
 
 	ctx := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: ws, UserID: user})
 	conversation, err := conversations.Create(ctx, ws, "Planning")
 	require.NoError(t, err)
-	_, err = conversations.Send(ctx, ws, conversation.ID, user, "What's the date of next Friday?", "openai_compatible", "fixture")
-	require.NoError(t, err)
-	attempt, err := conversations.Claim(context.Background())
-	require.NoError(t, err)
-	require.NotNil(t, attempt)
-	chat.execute(context.Background(), *attempt)
+	for i, expected := range []string{
+		"Today is Saturday, 2026-11-14 (Pacific/Auckland).",
+		"Today is Sunday, 2026-11-15 (Pacific/Auckland).",
+	} {
+		_, err = conversations.Send(ctx, ws, conversation.ID, uuid.New(), "What's the date of next Friday?", "openai_compatible", "fixture")
+		require.NoError(t, err)
+		attempt, err := conversations.Claim(context.Background())
+		require.NoError(t, err)
+		require.NotNil(t, attempt)
+		chat.execute(context.Background(), *attempt)
 
-	require.NotEmpty(t, *requests)
-	messages := (*requests)[0]["messages"].([]any)
-	prompt := messages[0].(map[string]any)
-	require.Equal(t, "system", prompt["role"])
-	require.Contains(t, prompt["content"].(string), "Today is Saturday, 2026-11-14 (Pacific/Auckland).", "the prompt pins the user's local day, not the server's")
+		require.Len(t, *requests, i+1)
+		messages := (*requests)[i]["messages"].([]any)
+		prompt := messages[0].(map[string]any)
+		require.Equal(t, "system", prompt["role"])
+		require.Contains(t, prompt["content"], expected)
+		now = now.AddDate(0, 0, 1)
+	}
 }

@@ -3728,6 +3728,8 @@
 	"workflows.editor.show_panel": "Mostra el panell lateral",
 	"workflows.editor.nothing_selected": "Selecciona un pas o una transició al llenç, o a les llistes de sota.",
 	"workflows.editor.node_label": "Nom",
+	"workflows.editor.stage_assistant": "Assistent de la fase",
+	"workflows.condition.assistant": "Elecció de l’assistent",
 	"workflows.editor.node_profile": "Perfil d'agent",
 	"workflows.editor.node_profile_placeholder": "Tria un perfil",
 	"workflows.editor.node_prompt": "Prompt de la iteració",

@@ -112,7 +112,7 @@ func guidanceMessages(images bool) []chatCompletionMessage {
 // workspace zone, else UTC. An unknown name falls back instead of failing
 // the reply.
 func assistantTimezone(profileTz string, workspace *time.Location) *time.Location {
-	if profileTz != "" {
+	if profileTz != "" && profileTz != "Local" {
 		if loc, err := time.LoadLocation(profileTz); err == nil {
 			return loc
 		}

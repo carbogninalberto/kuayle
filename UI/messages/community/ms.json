@@ -3728,6 +3728,8 @@
 	"workflows.editor.show_panel": "Tunjukkan panel sisi",
 	"workflows.editor.nothing_selected": "Pilih langkah atau peralihan pada kanvas, atau dalam senarai di bawah.",
 	"workflows.editor.node_label": "Nama",
+	"workflows.editor.stage_assistant": "Pembantu peringkat",
+	"workflows.condition.assistant": "Pilihan pembantu",
 	"workflows.editor.node_profile": "Profil ejen",
 	"workflows.editor.node_profile_placeholder": "Pilih profil",
 	"workflows.editor.node_prompt": "Gesaan lelaran",

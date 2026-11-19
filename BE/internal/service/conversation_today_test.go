@@ -63,6 +63,7 @@ func TestAssistantTimezoneFallsBackFromProfileToWorkspaceToUTC(t *testing.T) {
 	require.Equal(t, "Pacific/Auckland", assistantTimezone("Pacific/Auckland", berlin).String())
 	require.Equal(t, "Europe/Berlin", assistantTimezone("", berlin).String())
 	require.Equal(t, "Europe/Berlin", assistantTimezone("Mars/Olympus", berlin).String(), "an unknown profile timezone falls back")
+	require.Equal(t, berlin, assistantTimezone("Local", berlin), "the server host zone is not a profile timezone")
 	require.Equal(t, time.UTC, assistantTimezone("", nil))
 	require.Equal(t, time.UTC, assistantTimezone("Mars/Olympus", nil))
 }

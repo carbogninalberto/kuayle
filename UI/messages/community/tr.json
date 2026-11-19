@@ -3728,6 +3728,8 @@
 	"workflows.editor.show_panel": "Kenar panelini göster",
 	"workflows.editor.nothing_selected": "Tuvalde veya aşağıdaki listelerde bir adım ya da geçiş seçin.",
 	"workflows.editor.node_label": "Ad",
+	"workflows.editor.stage_assistant": "Aşama asistanı",
+	"workflows.condition.assistant": "Asistanın seçimi",
 	"workflows.editor.node_profile": "Ajan profili",
 	"workflows.editor.node_profile_placeholder": "Bir profil seçin",
 	"workflows.editor.node_prompt": "Yineleme istemi",

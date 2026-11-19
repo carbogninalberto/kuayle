@@ -118,7 +118,7 @@ test('saving drops empty optional fields and keeps limits', () => {
 		profile_id: 'impl',
 		max_visits: 3
 	});
-	assert.equal(saved.nodes[0].profile_id, undefined, 'only agent steps keep a profile');
+	assert.equal(saved.nodes[0].profile_id, 'impl', 'start keeps its stage assistant');
 	assert.deepEqual(saved.budget, { max_minutes: 90, on_exhausted: 'ask' });
 });
 

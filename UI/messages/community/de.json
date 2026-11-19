@@ -3728,6 +3728,8 @@
 	"workflows.editor.show_panel": "Seitenleiste einblenden",
 	"workflows.editor.nothing_selected": "Wähle einen Schritt oder Übergang auf dem Canvas oder in den Listen unten.",
 	"workflows.editor.node_label": "Name",
+	"workflows.editor.stage_assistant": "Phasenassistent",
+	"workflows.condition.assistant": "Auswahl des Assistenten",
 	"workflows.editor.node_profile": "Agent-Profil",
 	"workflows.editor.node_profile_placeholder": "Profil wählen",
 	"workflows.editor.node_prompt": "Iterations-Prompt",

@@ -307,7 +307,7 @@
 					if (v) preferencesState.setTimezone(v);
 				}}
 			>
-				<Select.Trigger size="sm" class="w-[190px]">
+				<Select.Trigger size="sm" class="w-[190px]" aria-label={m['prefs.timezone']()}>
 					{preferencesState.timezone || 'UTC'}
 				</Select.Trigger>
 				<Select.Content>

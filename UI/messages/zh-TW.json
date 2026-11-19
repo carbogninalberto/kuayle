@@ -3728,6 +3728,8 @@
 	"workflows.editor.show_panel": "顯示側邊面板",
 	"workflows.editor.nothing_selected": "在畫布或下方清單中選擇一個步驟或轉換。",
 	"workflows.editor.node_label": "名稱",
+	"workflows.editor.stage_assistant": "階段助理",
+	"workflows.condition.assistant": "助理選擇",
 	"workflows.editor.node_profile": "代理設定檔",
 	"workflows.editor.node_profile_placeholder": "選擇設定檔",
 	"workflows.editor.node_prompt": "迭代提示",

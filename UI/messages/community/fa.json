@@ -3728,6 +3728,8 @@
 	"workflows.editor.show_panel": "نمایش پنل کناری",
 	"workflows.editor.nothing_selected": "یک گام یا گذار را روی بوم یا در فهرست‌های زیر انتخاب کنید.",
 	"workflows.editor.node_label": "نام",
+	"workflows.editor.stage_assistant": "دستیار مرحله",
+	"workflows.condition.assistant": "انتخاب دستیار",
 	"workflows.editor.node_profile": "پروفایل عامل",
 	"workflows.editor.node_profile_placeholder": "یک پروفایل انتخاب کنید",
 	"workflows.editor.node_prompt": "پرامپت تکرار",

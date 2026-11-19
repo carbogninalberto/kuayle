@@ -912,7 +912,11 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		// anything else in the prompt: they are placed outside the
 		// 32000-byte budget of the task's own prompt, whole up to
 		// instructionsBytes (their end is cut beyond that).
-		prompt = assembly.applyInstructions(withWholeInstructions(prompt, task.AgentInstructions))
+		instructions := task.AgentInstructions
+		if bundle.StageInstructions != "" {
+			instructions = bundle.StageInstructions + "\n\n" + instructions
+		}
+		prompt = assembly.applyInstructions(withWholeInstructions(prompt, instructions))
 		if !inFile {
 			// In a prompt the notebook and the lessons each have a bounded
 			// share of what is left. When that is short the notebook's detail

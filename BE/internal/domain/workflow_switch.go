@@ -83,7 +83,7 @@ func MatchWorkflowNode(id string, from, to WorkflowGraph, profiles map[uuid.UUID
 	if next.Type != current.Type || next.Check != current.Check {
 		return WorkflowNode{}, WorkflowSwitchStepChanged
 	}
-	if current.Type == WorkflowNodeAgent {
+	if current.Type == WorkflowNodeAgent || current.ProfileID != nil || next.ProfileID != nil {
 		if current.ProfileID == nil || next.ProfileID == nil {
 			return WorkflowNode{}, WorkflowSwitchStepChanged
 		}
