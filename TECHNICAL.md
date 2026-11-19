@@ -383,7 +383,7 @@ turned off, spawning or starting such a machine fails with `docker_not_allowed`
 policy update that omits `allow_docker` keeps the current value.
 
 **Container.** `kuayle-{routing-key}-docker` runs `DEV_MACHINE_DOCKER_IMAGE`
-(`devmachine/docker`: the official `docker:29.9.3-dind-rootless` image pinned by
+(`devmachine/docker`: the official `docker:29.10.0-dind-rootless` image pinned by
 digest, plus `kuayle-docker-start` and a health check). The image takes Alpine
 security updates, drops the client plugins and `ctr` it does not need, and
 replaces runc, the containerd runc shim and rootlesskit with builds from the same
@@ -447,7 +447,7 @@ running as non-root users are owned by subordinate IDs.
 reinstalls its TLS secrets and dockerd keeps images, volumes and containers
 (containers return per their restart policy). A start with a missing daemon
 volume provisions the machine again. Teardown removes the container and the
-volume. The Docker CLI 29.9.3 (`devmachine/common/install-docker-cli.sh`, SHA-256
+volume. The Docker CLI 29.10.0 (`devmachine/common/install-docker-cli.sh`, SHA-256
 checked) and the Compose 5.6.1 and Buildx 0.38.1 plugins
 (`devmachine/common/build-docker-plugins.sh`, built from pinned release commits
 with dependency floors) are installed in the IDE, headless and provider agent
