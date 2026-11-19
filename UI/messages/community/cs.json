@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Světlý",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rose Light",
+	"prefs.timezone": "Časové pásmo",
+	"prefs.timezone_desc": "Asistent používá toto pásmo pro výpočet dat, jako je \"příští pátek\".",
 	"prefs.title": "Předvolby",
 	"prefs.workflow_order": "Pořadí workflow",
 	"prefs.workflow_sorting": "Řazení skupin workflow",

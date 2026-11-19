@@ -239,6 +239,7 @@ func main() {
 	cliLinkH := handler.NewCLILinkHandler(cliLinkSvc)
 	aiSettingsH := handler.NewAISettingsHandler(aiSettingsSvc)
 	conversationSvc := service.NewConversationService(conversationRepo, aiSettingsSvc)
+	conversationSvc.SetPreferences(prefsRepo)
 	assistantTools := service.NewAssistantTools(issueRepo, teamRepo, workspaceRepo, issueSvc)
 	assistantTools.SetIssueLabels(labelRepo)
 	assistantToolSettings := repository.NewAssistantToolSettingsRepository(db)

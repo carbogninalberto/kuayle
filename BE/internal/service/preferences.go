@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -140,6 +141,18 @@ func (s *PreferencesService) Update(ctx context.Context, userID uuid.UUID, req d
 			}
 			prefs.NotificationEvents[key] = enabled
 		}
+	}
+	if req.Timezone != nil {
+		// Trim on write; LoadLocation refuses anything that is not a known
+		// IANA name, and an empty value clears the stored zone.
+		timezone := strings.TrimSpace(*req.Timezone)
+		if timezone != "" {
+			// "Local" loads but names the server's zone, not the user's.
+			if _, err := time.LoadLocation(timezone); err != nil || timezone == "Local" {
+				return nil, fmt.Errorf("%w: invalid timezone %q", ErrInvalidPreferences, timezone)
+			}
+		}
+		prefs.Timezone = timezone
 	}
 
 	if err := s.prefsRepo.Upsert(ctx, prefs); err != nil {

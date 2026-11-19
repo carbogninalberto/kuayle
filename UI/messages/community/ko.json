@@ -870,6 +870,8 @@
 	"prefs.theme.light": "라이트",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "로즈 라이트",
+	"prefs.timezone": "시간대",
+	"prefs.timezone_desc": "어시스턴트는 \"다음 금요일\" 같은 날짜를 계산할 때 이 시간대를 사용합니다.",
 	"prefs.title": "환경설정",
 	"prefs.workflow_order": "워크플로 순서",
 	"prefs.workflow_sorting": "워크플로 그룹 정렬",

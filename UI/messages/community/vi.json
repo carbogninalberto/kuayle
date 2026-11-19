@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Sáng",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rose Light",
+	"prefs.timezone": "Múi giờ",
+	"prefs.timezone_desc": "Trợ lý dùng múi giờ này cho các ngày như \"thứ Sáu tuần sau\".",
 	"prefs.title": "Tùy chọn",
 	"prefs.workflow_order": "Thứ tự quy trình",
 	"prefs.workflow_sorting": "Sắp xếp nhóm quy trình",

@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Licht",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rose Light",
+	"prefs.timezone": "Tijdzone",
+	"prefs.timezone_desc": "De assistent gebruikt deze tijdzone voor datums zoals \"aanstaande vrijdag\".",
 	"prefs.title": "Voorkeuren",
 	"prefs.workflow_order": "Workflowvolgorde",
 	"prefs.workflow_sorting": "Sortering van workflowgroepen",

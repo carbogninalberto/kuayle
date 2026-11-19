@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Açık",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Gül Açık",
+	"prefs.timezone": "Saat dilimi",
+	"prefs.timezone_desc": "Asistan, \"gelecek cuma\" gibi tarihler için bu saat dilimini kullanır.",
 	"prefs.title": "Tercihler",
 	"prefs.workflow_order": "İş akışı sırası",
 	"prefs.workflow_sorting": "İş akışı grubu sıralaması",

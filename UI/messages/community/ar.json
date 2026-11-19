@@ -870,6 +870,8 @@
 	"prefs.theme.light": "فاتح",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "وردي فاتح",
+	"prefs.timezone": "المنطقة الزمنية",
+	"prefs.timezone_desc": "يستخدم المساعد هذه المنطقة الزمنية لحساب التواريخ مثل \"الجمعة القادمة\".",
 	"prefs.title": "التفضيلات",
 	"prefs.workflow_order": "ترتيب سير العمل",
 	"prefs.workflow_sorting": "ترتيب مجموعات سير العمل",

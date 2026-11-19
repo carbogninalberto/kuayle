@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Hell",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rose Light",
+	"prefs.timezone": "Zeitzone",
+	"prefs.timezone_desc": "Der Assistent verwendet diese Zeitzone für Datumsangaben wie \"nächsten Freitag\".",
 	"prefs.title": "Einstellungen",
 	"prefs.workflow_order": "Workflow-Reihenfolge",
 	"prefs.workflow_sorting": "Sortierung der Workflow-Gruppen",

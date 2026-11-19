@@ -21,6 +21,8 @@ export interface PreferencesData {
 	notification_sound: NotificationSound;
 	/** Responses carry every event key; a PATCH may send a partial map, which the server merges. */
 	notification_events: Partial<NotificationEvents>;
+	/** Absent on older servers: the assistant then computes dates in the workspace's zone. */
+	timezone?: string;
 }
 
 export interface WorkflowSortOverride {

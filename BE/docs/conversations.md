@@ -6,6 +6,17 @@ Chat Completions endpoints. The workspace owner configures the existing AI
 settings (base URL, model and encrypted key). Removing the key disables new
 requests; an already running request finishes or can be stopped.
 
+Each reply’s system prompt includes the current weekday, date and IANA timezone.
+The assistant uses the creator’s profile timezone. Workspaces currently use UTC
+as their default. Signed-in browsers fill an empty profile timezone on the first
+successful preferences sync. Users can change it in Settings → Preferences.
+
+Migration 186 adds `user_preferences.timezone`. Upgrades from v0.2.45 apply it
+automatically. For development databases that advanced past 186 before it was
+available, apply
+[`000186_profile_timezone.up.sql`](../migrations/000186_profile_timezone.up.sql)
+directly if the column is missing. Preserve the recorded migration version.
+
 ## Current scope
 
 The assistant can list teams and search, read and create issues through

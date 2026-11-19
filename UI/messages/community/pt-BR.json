@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Claro",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rosa claro",
+	"prefs.timezone": "Fuso horário",
+	"prefs.timezone_desc": "O assistente usa este fuso horário para datas como \"sexta-feira que vem\".",
 	"prefs.title": "Preferências",
 	"prefs.workflow_order": "Ordem do fluxo de trabalho",
 	"prefs.workflow_sorting": "Ordenação dos grupos do fluxo de trabalho",

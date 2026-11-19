@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Világos",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rose Light",
+	"prefs.timezone": "Időzóna",
+	"prefs.timezone_desc": "A segéd ezt az időzónát használja az olyan dátumokhoz, mint \"jövő péntek\".",
 	"prefs.title": "Beállítások",
 	"prefs.workflow_order": "Munkafolyamat sorrendje",
 	"prefs.workflow_sorting": "Munkafolyamat-csoportok rendezése",

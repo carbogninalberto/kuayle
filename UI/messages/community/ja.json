@@ -870,6 +870,8 @@
 	"prefs.theme.light": "ライト",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "ローズ ライト",
+	"prefs.timezone": "タイムゾーン",
+	"prefs.timezone_desc": "アシスタントは\"次の金曜日\"のような日付の計算にこのタイムゾーンを使用します。",
 	"prefs.title": "環境設定",
 	"prefs.workflow_order": "ワークフローの順序",
 	"prefs.workflow_sorting": "ワークフローグループの並び順",

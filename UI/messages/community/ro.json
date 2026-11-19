@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Luminos",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rose Light",
+	"prefs.timezone": "Fus orar",
+	"prefs.timezone_desc": "Asistentul folosește acest fus orar pentru date precum \"vinerea viitoare\".",
 	"prefs.title": "Preferințe",
 	"prefs.workflow_order": "Ordinea fluxului de lucru",
 	"prefs.workflow_sorting": "Sortarea grupurilor din fluxul de lucru",

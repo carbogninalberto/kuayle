@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Світла",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Рожева (світла)",
+	"prefs.timezone": "Часовий пояс",
+	"prefs.timezone_desc": "Асистент використовує цей часовий пояс для дат на кшталт \"наступної п'ятниці\".",
 	"prefs.title": "Налаштування",
 	"prefs.workflow_order": "Порядок робочого процесу",
 	"prefs.workflow_sorting": "Сортування груп робочого процесу",

@@ -40,6 +40,19 @@
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
+	// The full IANA list the engine knows; browsers without it still offer
+	// the stored zone and UTC.
+	function supportedTimezones(): string[] {
+		type IntlWithZoneList = typeof Intl & { supportedValuesOf?: (key: string) => string[] };
+		try {
+			return (Intl as IntlWithZoneList).supportedValuesOf?.('timeZone') ?? [];
+		} catch {
+			return [];
+		}
+	}
+	const timezones = supportedTimezones();
+	const timezoneOptions = $derived([...new Set([preferencesState.timezone, 'UTC', ...timezones].filter(Boolean))]);
+
 	const fontSizeLabels = $derived<Record<string, string>>({
 		small: m['prefs.font_size.small'](),
 		default: m['prefs.font_size.default'](),
@@ -276,6 +289,32 @@
 				<Select.Content>
 					{#each locales as locale}
 						<Select.Item value={locale}>{localeLabel(locale)}</Select.Item>
+					{/each}
+				</Select.Content>
+			</Select.Root>
+		</div>
+
+		<div class="border-t border-[var(--app-border)]"></div>
+
+		<!-- Timezone -->
+		<div class="flex items-center justify-between px-5 py-4">
+			<div>
+				<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['prefs.timezone']()}</p>
+				<p class="text-xs text-[var(--color-text-tertiary)]">{m['prefs.timezone_desc']()}</p>
+			</div>
+			<Select.Root
+				type="single"
+				value={preferencesState.timezone || 'UTC'}
+				onValueChange={(v) => {
+					if (v) preferencesState.setTimezone(v);
+				}}
+			>
+				<Select.Trigger size="sm" class="w-[190px]" aria-label={m['prefs.timezone']()}>
+					{preferencesState.timezone || 'UTC'}
+				</Select.Trigger>
+				<Select.Content>
+					{#each timezoneOptions as zone (zone)}
+						<Select.Item value={zone}>{zone}</Select.Item>
 					{/each}
 				</Select.Content>
 			</Select.Root>

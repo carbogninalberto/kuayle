@@ -870,6 +870,8 @@
 	"prefs.theme.light": "Clair",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rose clair",
+	"prefs.timezone": "Fuseau horaire",
+	"prefs.timezone_desc": "L'assistant utilise ce fuseau horaire pour les dates telles que \"vendredi prochain\".",
 	"prefs.title": "Préférences",
 	"prefs.workflow_order": "Ordre du workflow",
 	"prefs.workflow_sorting": "Tri des groupes de workflow",

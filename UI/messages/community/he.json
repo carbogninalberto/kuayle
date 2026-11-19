@@ -870,6 +870,8 @@
 	"prefs.theme.light": "בהיר",
 	"prefs.theme.pipboy": "Pip-Boy",
 	"prefs.theme.rose_light": "Rose Light",
+	"prefs.timezone": "אזור זמן",
+	"prefs.timezone_desc": "העוזר משתמש באזור זמן זה לחישוב תאריכים כמו \"יום שישי הבא\".",
 	"prefs.title": "העדפות",
 	"prefs.workflow_order": "סדר תהליך העבודה",
 	"prefs.workflow_sorting": "מיון קבוצות תהליך העבודה",
