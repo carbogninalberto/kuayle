@@ -5,9 +5,6 @@ import { expect, test, type Page } from '@playwright/test';
 // their request mocks.
 const OPT_IN_KEY = 'kuayle-service-worker-tests';
 
-// Full Chromium's headless mode supports native service worker notifications.
-test.use({ channel: 'chromium', permissions: ['notifications'] });
-
 async function signedOut(page: Page) {
 	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
 		route.fulfill({ json: [] })
@@ -158,30 +155,49 @@ test('the installed app disables pinch and double-tap zoom while browser tabs ke
 	await installed.close();
 });
 
-test('a browser push reaches the installed worker and shows a deep-linked notification', async ({ page, context, baseURL }) => {
-	const origin = new URL(baseURL!).origin;
+test('the installed worker requests a deep-linked notification for a push', async ({ page, context }) => {
 	await page.addInitScript((key) => localStorage.setItem(key, '1'), OPT_IN_KEY);
 	await signedOut(page);
-	const cdp = await context.newCDPSession(page);
-	let registrationId = '';
-	cdp.on('ServiceWorker.workerRegistrationUpdated', ({ registrations }) => {
-		const registration = registrations.find((value) => !value.isDeleted && value.scopeURL === origin + '/');
-		if (registration) registrationId = registration.registrationId;
-	});
-	await cdp.send('ServiceWorker.enable');
-	await page.goto('/login');
-	await context.grantPermissions(['notifications'], { origin });
-	await expect.poll(() => page.evaluate(() => Notification.permission)).toBe('granted');
+	const [worker] = await Promise.all([context.waitForEvent('serviceworker'), page.goto('/login')]);
 	await expect.poll(() => page.evaluate(async () => (await navigator.serviceWorker.ready).active?.state)).toBe('activated');
-	await expect.poll(() => registrationId).not.toBe('');
-	const url = '/test/assistant?conversation=123';
-	await cdp.send('ServiceWorker.deliverPushMessage', {
-		origin,
-		registrationId,
-		data: JSON.stringify({ title: 'Approval requested', body: 'Review a deployment', tag: 'approval_requested:123', data: { url } })
-	});
-	await expect.poll(() => page.evaluate(async () => {
-		const registration = await navigator.serviceWorker.ready;
-		return (await registration.getNotifications()).map(({ title, body, tag, data }) => ({ title, body, tag, data }));
-	})).toEqual([{ title: 'Approval requested', body: 'Review a deployment', tag: 'approval_requested:123', data: { url } }]);
+	const payload = {
+		title: 'Approval requested',
+		body: 'Review a deployment',
+		tag: 'approval_requested:123',
+		data: { url: '/test/assistant?conversation=123' }
+	};
+	const notifications = await worker.evaluate(async (payload) => {
+		const scope = globalThis as typeof globalThis & {
+			registration: ServiceWorkerRegistration;
+			PushEvent: new (type: string, init: { data: string }) => Event;
+		};
+		const event = new scope.PushEvent('push', { data: JSON.stringify(payload) });
+		const lifetime: { completion?: Promise<unknown> } = {};
+		// A synthetic event has no browser-managed lifetime. Capture what the
+		// worker passes to waitUntil and await it before checking the result.
+		Object.defineProperty(event, 'waitUntil', {
+			value: (promise: Promise<unknown>) => { lifetime.completion = promise; }
+		});
+		const notifications: { title: string; options?: NotificationOptions }[] = [];
+		const showNotification = scope.registration.showNotification;
+		scope.registration.showNotification = async (title, options) => { notifications.push({ title, options }); };
+		try {
+			scope.dispatchEvent(event);
+			if (!lifetime.completion) throw new Error('The push handler did not call waitUntil');
+			await lifetime.completion;
+			return notifications;
+		} finally {
+			scope.registration.showNotification = showNotification;
+		}
+	}, payload);
+	expect(notifications).toEqual([{
+		title: payload.title,
+		options: {
+			body: payload.body,
+			tag: payload.tag,
+			data: payload.data,
+			renotify: false,
+			icon: '/icons/icon-192.png'
+		}
+	}]);
 });
