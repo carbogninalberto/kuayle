@@ -73,6 +73,16 @@ Ready for review.`
 	}
 }
 
+func TestSanitizeEditorContentConvertsMarkdownTableWithInlineHTML(t *testing.T) {
+	input := "| Step | Result |\n| --- | --- |\n| **Build** | Pass<br>Retry <strong style=\"color: red\">once</strong> |"
+	want := `<table><thead><tr><th>Step</th><th>Result</th></tr></thead><tbody>` +
+		`<tr><td><strong>Build</strong></td><td>Pass<br>Retry <strong>once</strong></td></tr></tbody></table>`
+	if got := SanitizeEditorContent(input); got != want {
+		t.Fatalf("SanitizeEditorContent() = %q, want %q", got, want)
+	}
+	assertContains(t, EditorMarkdown(input), "Pass&lt;br&gt;Retry")
+}
+
 func TestSanitizeEditorContentRequiresMarkdownTableDelimiter(t *testing.T) {
 	for _, input := range []string{
 		"| Step | Result |\n| Build | Pass |",
@@ -82,6 +92,42 @@ func TestSanitizeEditorContentRequiresMarkdownTableDelimiter(t *testing.T) {
 		got := SanitizeEditorContent(input)
 		assertNotContains(t, got, "<table>")
 		assertContains(t, got, "| Step | Result |")
+	}
+}
+
+func TestSanitizeEditorContentKeepsHTMLTableAfterProse(t *testing.T) {
+	for _, input := range []string{
+		"Summary:\n\n<table><tr><td>Build</td><td>Passed</td></tr></table>",
+		"Summary:\n\n<table><tr><td>\n| Step | Result |\n| --- | --- |\n| Build | Passed |\n</td></tr></table>",
+	} {
+		if got := SanitizeEditorContent(input); got != input {
+			t.Errorf("SanitizeEditorContent() = %q, want %q", got, input)
+		}
+	}
+}
+
+func TestSanitizeEditorContentKeepsHTMLTableFragments(t *testing.T) {
+	for _, input := range []string{
+		"<tbody><tr><td>Build</td></tr></tbody>",
+		"<tr><th>Step</th><td>Build</td></tr>",
+		"<td>Build</td>",
+	} {
+		if got := SanitizeEditorContent(input); got != input {
+			t.Errorf("SanitizeEditorContent() = %q, want %q", got, input)
+		}
+	}
+}
+
+func TestSanitizeEditorContentKeepsTableExamplesAsCode(t *testing.T) {
+	const table = "<table><tr><td>Build</td></tr></table>"
+	const escaped = "&lt;table&gt;&lt;tr&gt;&lt;td&gt;Build&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;"
+	for input, want := range map[string]string{
+		"Example: " + "`" + table + "`": "<p>Example: <code>" + escaped + "</code></p>",
+		"```html\n" + table + "\n```":   "<pre><code>" + escaped + "</code></pre>",
+	} {
+		if got := SanitizeEditorContent(input); got != want {
+			t.Errorf("SanitizeEditorContent() = %q, want %q", got, want)
+		}
 	}
 }
 
@@ -99,6 +145,25 @@ func TestSanitizeEditorContentKeepsSafeHTMLTable(t *testing.T) {
 		if got := clean(want); got != want {
 			t.Errorf("sanitizing a stored table changed it to %q", got)
 		}
+	}
+}
+
+func TestSanitizeHTMLKeepsTiptapTableOnResave(t *testing.T) {
+	// Captured from Tiptap's getHTML() after editing the Mobile cell.
+	input := `<p>Review summary.</p><table style="min-width: 50px;"><colgroup>` +
+		`<col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody>` +
+		`<tr><th colspan="2"><p>Review checklist</p></th></tr>` +
+		`<tr><td rowspan="2"><p>UI</p></td><td><p>Desktop</p></td></tr>` +
+		`<tr><td align="center" style="text-align: center;"><p>Mobile checked</p></td></tr></tbody></table><p></p>`
+	want := `<p>Review summary.</p><table><tbody><tr><th colspan="2"><p>Review checklist</p></th></tr>` +
+		`<tr><td rowspan="2"><p>UI</p></td><td><p>Desktop</p></td></tr>` +
+		`<tr><td align="center"><p>Mobile checked</p></td></tr></tbody></table><p></p>`
+	got := SanitizeHTML(input)
+	if got != want {
+		t.Fatalf("SanitizeHTML() = %q, want %q", got, want)
+	}
+	if resaved := SanitizeEditorContent(got); resaved != want {
+		t.Fatalf("SanitizeEditorContent() on resave = %q, want %q", resaved, want)
 	}
 }
 

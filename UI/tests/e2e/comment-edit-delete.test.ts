@@ -152,8 +152,8 @@ test('a member may edit only their own comment and delete none', async ({ page }
 
 test('issue and comment tables survive editing and reloading', async ({ page }, testInfo) => {
 	// API fixtures represent the stored output of a Markdown table and an HTML table.
-	const description = '<table><thead><tr><th>Step</th><th align="right">Result</th></tr></thead><tbody><tr><td>Build</td><td align="right">Passed</td></tr></tbody></table>';
-	const comment = '<table><thead><tr><th colspan="2">Review checklist</th></tr></thead><tbody><tr><td rowspan="2">UI</td><td>Desktop</td></tr><tr><td>Mobile</td></tr></tbody></table>';
+	const description = '<table><thead><tr><th>Step</th><th align="right">Result</th></tr></thead><tbody><tr><td>Build<br>CI</td><td align="right">Passed</td></tr></tbody></table>';
+	const comment = 'Review summary.\n\n<table><thead><tr><th colspan="2">Review checklist</th></tr></thead><tbody><tr><td rowspan="2">UI</td><td>Desktop</td></tr><tr><td align="center">Mobile</td></tr></tbody></table>';
 	const { state, pageErrors, issue } = await mockIssue(page, 'owner', description, comment);
 	await page.goto('/test/issue/ENG-1');
 
@@ -181,9 +181,11 @@ test('issue and comment tables survive editing and reloading', async ({ page }, 
 
 	await page.reload();
 	await expect(descriptionTable.getByRole('cell', { name: 'Passed on CI' })).toHaveAttribute('align', 'right');
+	await expect(descriptionTable.getByRole('cell', { name: /Build\s+CI/ }).locator('br')).toHaveCount(1);
+	await expect(mine).toContainText('Review summary.');
 	await expect(mine.getByRole('table').getByRole('columnheader', { name: 'Review checklist' })).toHaveAttribute('colspan', '2');
 	await expect(mine.getByRole('cell', { name: 'UI' })).toHaveAttribute('rowspan', '2');
-	await expect(mine.getByRole('cell', { name: 'Mobile checked' })).toBeVisible();
+	await expect(mine.getByRole('cell', { name: 'Mobile checked' })).toHaveAttribute('align', 'center');
 	await page.screenshot({ path: testInfo.outputPath('issue-tables.png') });
 	expect(pageErrors).toEqual([]);
 });

@@ -5,9 +5,12 @@ import (
 	"strings"
 )
 
-var markdownTableDelimiter = regexp.MustCompile(`^:?-+:?$`)
+var (
+	markdownTableDelimiter = regexp.MustCompile(`^:?-+:?$`)
+	tableCellHTMLPattern   = regexp.MustCompile(`(?i)^</?(?:a|b|br|code|del|em|i|img|s|span|strong)(?:\s+(?:[^"'<>]|"[^"]*"|'[^']*')*)?/?>`)
+)
 
-func renderMarkdownTable(lines []string) (string, int) {
+func renderMarkdownTable(lines []string, acceptHTML bool) (string, int) {
 	header := splitMarkdownTableRow(lines[0])
 	if len(header) == 0 {
 		return "", 0
@@ -40,7 +43,7 @@ func renderMarkdownTable(lines []string) (string, int) {
 			out.WriteString("<" + tag + align + ">")
 			if i < len(cells) {
 				// An escaped pipe is literal even inside an inline code span.
-				out.WriteString(renderInlineMarkdown(strings.ReplaceAll(cells[i], `\|`, `|`)))
+				out.WriteString(renderInlineMarkdownWithHTML(strings.ReplaceAll(cells[i], `\|`, `|`), acceptHTML))
 			}
 			out.WriteString("</" + tag + ">")
 		}

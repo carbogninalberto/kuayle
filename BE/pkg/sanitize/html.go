@@ -13,8 +13,8 @@ import (
 var policy *bluemonday.Policy
 
 var (
-	allowedHTMLTagPattern = regexp.MustCompile(`(?i)</?(?:p|br|strong|b|em|i|s|del|code|pre|a|h[1-6]|ul|ol|li|blockquote|hr|span|div|label|img|input)(?:\s[^>]*)?/?>`)
-	leadingHTMLTable      = regexp.MustCompile(`(?i)^<table(?:\s[^>]*)?>`)
+	editorHTMLTokenPattern = regexp.MustCompile("(?i)`[^`\r\n]*`|" +
+		`</?(?:p|br|strong|b|em|i|s|del|code|pre|a|h[1-6]|ul|ol|li|blockquote|hr|span|div|label|img|input|table|thead|tbody|tfoot|tr|th|td)(?:\s[^>]*)?/?>`)
 	headingPattern        = regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
 	taskItemPattern       = regexp.MustCompile(`^\s*[-*+]\s+\[([ xX])\]\s+(.+)$`)
 	bulletItemPattern     = regexp.MustCompile(`^\s*[-*+]\s+(.+)$`)
@@ -74,10 +74,7 @@ func SanitizeEditorContent(input string) string {
 	if input == "" {
 		return ""
 	}
-	if leadingHTMLTable.MatchString(input) || allowedHTMLTagPattern.MatchString(input) {
-		return SanitizeHTML(input)
-	}
-	return SanitizeHTML(markdownToEditorHTML(input))
+	return SanitizeHTML(renderEditorContent(input, true))
 }
 
 // EditorMarkdown converts Markdown to safe editor HTML without the HTML
@@ -88,7 +85,17 @@ func EditorMarkdown(input string) string {
 	if input == "" {
 		return ""
 	}
-	return SanitizeHTML(markdownToEditorHTML(input))
+	return SanitizeHTML(renderEditorContent(input, false))
+}
+
+func containsEditorHTML(input string) bool {
+	for match := editorHTMLTokenPattern.FindStringIndex(input); match != nil; match = editorHTMLTokenPattern.FindStringIndex(input) {
+		if input[match[0]] == '<' {
+			return true
+		}
+		input = input[match[1]:]
+	}
+	return false
 }
 
 // PlainText normalizes text-only fields while preserving literal special
@@ -120,8 +127,17 @@ func StripHTML(input string) string {
 	return bluemonday.StrictPolicy().Sanitize(input)
 }
 
-func markdownToEditorHTML(input string) string {
+func renderEditorContent(input string, acceptHTML bool) string {
+	if acceptHTML && !strings.ContainsAny(input, "|`") && containsEditorHTML(input) {
+		return input
+	}
 	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(input, "\r\n", "\n"), "\r", "\n"), "\n")
+	// HTML inside a recognized Markdown table or code fence does not determine
+	// the format of the whole body. Check the ranges outside those blocks.
+	htmlStartLine := 0
+	containsHTMLBefore := func(end int) bool {
+		return acceptHTML && containsEditorHTML(strings.Join(lines[htmlStartLine:end], "\n"))
+	}
 	var out strings.Builder
 	var paragraph []string
 	var quote []string
@@ -185,6 +201,7 @@ func markdownToEditorHTML(input string) string {
 				out.WriteString("</code></pre>")
 				codeFence = nil
 				inCodeFence = false
+				htmlStartLine = i + 1
 				continue
 			}
 			codeFence = append(codeFence, line)
@@ -192,6 +209,9 @@ func markdownToEditorHTML(input string) string {
 		}
 
 		if strings.HasPrefix(trimmed, "```") {
+			if containsHTMLBefore(i) {
+				return input
+			}
 			flushBlocks()
 			inCodeFence = true
 			codeFence = nil
@@ -270,9 +290,13 @@ func markdownToEditorHTML(input string) string {
 		}
 
 		if i+1 < len(lines) {
-			if table, consumed := renderMarkdownTable(lines[i:]); consumed > 0 {
+			if table, consumed := renderMarkdownTable(lines[i:], acceptHTML); consumed > 0 {
+				if containsHTMLBefore(i) {
+					return input
+				}
 				flushBlocks()
 				out.WriteString(table)
+				htmlStartLine = i + consumed
 				i += consumed - 1
 				continue
 			}
@@ -287,6 +311,8 @@ func markdownToEditorHTML(input string) string {
 		out.WriteString("<pre><code>")
 		out.WriteString(html.EscapeString(strings.Join(codeFence, "\n")))
 		out.WriteString("</code></pre>")
+	} else if containsHTMLBefore(len(lines)) {
+		return input
 	}
 	flushBlocks()
 
@@ -294,6 +320,10 @@ func markdownToEditorHTML(input string) string {
 }
 
 func renderInlineMarkdown(input string) string {
+	return renderInlineMarkdownWithHTML(input, false)
+}
+
+func renderInlineMarkdownWithHTML(input string, acceptHTML bool) string {
 	var out strings.Builder
 	for i := 0; i < len(input); {
 		if input[i] == '\\' && i+1 < len(input) {
@@ -314,33 +344,41 @@ func renderInlineMarkdown(input string) string {
 			}
 		}
 
-		if htmlLink, next, ok := renderMarkdownLink(input, i); ok {
+		if acceptHTML && input[i] == '<' {
+			if tag := tableCellHTMLPattern.FindString(input[i:]); tag != "" {
+				out.WriteString(tag)
+				i += len(tag)
+				continue
+			}
+		}
+
+		if htmlLink, next, ok := renderMarkdownLink(input, i, acceptHTML); ok {
 			out.WriteString(htmlLink)
 			i = next
 			continue
 		}
 
-		if htmlText, next, ok := renderDelimitedInline(input, i, "**", "strong"); ok {
+		if htmlText, next, ok := renderDelimitedInline(input, i, "**", "strong", acceptHTML); ok {
 			out.WriteString(htmlText)
 			i = next
 			continue
 		}
-		if htmlText, next, ok := renderDelimitedInline(input, i, "__", "strong"); ok {
+		if htmlText, next, ok := renderDelimitedInline(input, i, "__", "strong", acceptHTML); ok {
 			out.WriteString(htmlText)
 			i = next
 			continue
 		}
-		if htmlText, next, ok := renderDelimitedInline(input, i, "~~", "s"); ok {
+		if htmlText, next, ok := renderDelimitedInline(input, i, "~~", "s", acceptHTML); ok {
 			out.WriteString(htmlText)
 			i = next
 			continue
 		}
-		if htmlText, next, ok := renderDelimitedInline(input, i, "*", "em"); ok {
+		if htmlText, next, ok := renderDelimitedInline(input, i, "*", "em", acceptHTML); ok {
 			out.WriteString(htmlText)
 			i = next
 			continue
 		}
-		if htmlText, next, ok := renderDelimitedInline(input, i, "_", "em"); ok {
+		if htmlText, next, ok := renderDelimitedInline(input, i, "_", "em", acceptHTML); ok {
 			out.WriteString(htmlText)
 			i = next
 			continue
@@ -353,7 +391,7 @@ func renderInlineMarkdown(input string) string {
 	return out.String()
 }
 
-func renderMarkdownLink(input string, offset int) (string, int, bool) {
+func renderMarkdownLink(input string, offset int, acceptHTML bool) (string, int, bool) {
 	if input[offset] != '[' {
 		return "", offset, false
 	}
@@ -372,10 +410,10 @@ func renderMarkdownLink(input string, offset int) (string, int, bool) {
 	if !isSafeURL(href) {
 		return "", offset, false
 	}
-	return `<a href="` + html.EscapeString(href) + `">` + renderInlineMarkdown(input[offset+1:labelEnd]) + `</a>`, hrefEnd + 1, true
+	return `<a href="` + html.EscapeString(href) + `">` + renderInlineMarkdownWithHTML(input[offset+1:labelEnd], acceptHTML) + `</a>`, hrefEnd + 1, true
 }
 
-func renderDelimitedInline(input string, offset int, delimiter, tag string) (string, int, bool) {
+func renderDelimitedInline(input string, offset int, delimiter, tag string, acceptHTML bool) (string, int, bool) {
 	if !strings.HasPrefix(input[offset:], delimiter) {
 		return "", offset, false
 	}
@@ -385,7 +423,7 @@ func renderDelimitedInline(input string, offset int, delimiter, tag string) (str
 		return "", offset, false
 	}
 	contentEnd := contentStart + contentEndRel
-	return "<" + tag + ">" + renderInlineMarkdown(input[contentStart:contentEnd]) + "</" + tag + ">", contentEnd + len(delimiter), true
+	return "<" + tag + ">" + renderInlineMarkdownWithHTML(input[contentStart:contentEnd], acceptHTML) + "</" + tag + ">", contentEnd + len(delimiter), true
 }
 
 func isSafeURL(value string) bool {
