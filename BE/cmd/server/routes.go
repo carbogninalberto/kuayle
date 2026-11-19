@@ -230,6 +230,12 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(api, http.MethodDelete, "/cli-links/:id", h.cliLink.Revoke)
 	sessionOnly(api, http.MethodGet, "/system/update-status", h.system.UpdateStatus)
 	sessionOnly(api, http.MethodPost, "/system/update", h.system.StartUpdate, mw.RejectSSOScopedSession())
+
+	sessionOnly(api, http.MethodGet, "/system/push/settings", h.push.Settings, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPut, "/system/push/settings", h.push.UpdateSettings, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/system/push/keys", h.push.GenerateKeys, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/system/push/test", h.push.Test, mw.RejectSSOScopedSession(), m.authRateLimit)
+
 	// Backups hold every workspace's data: a session minted by one
 	// workspace's SSO must not read, configure or export them.
 	sessionOnly(api, http.MethodGet, "/system/backups/settings", h.backup.GetSettings, mw.RejectSSOScopedSession())

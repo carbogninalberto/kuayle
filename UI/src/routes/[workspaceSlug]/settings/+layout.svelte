@@ -29,6 +29,7 @@
 		Workflow,
 		GitBranch,
 		DatabaseBackup,
+		Bell,
 		ShieldCheck,
 		Import
 	} from '@lucide/svelte';
@@ -151,7 +152,10 @@
 			items: [
 				{ label: m['settings.nav.version'](), href: `/${slug}/settings/version`, icon: RefreshCw },
 				...(authState.user?.is_sysadmin === true
-					? [{ label: m['settings.nav.backups'](), href: `/${slug}/settings/backups`, icon: DatabaseBackup }]
+					? [
+							{ label: m['settings.nav.backups'](), href: `/${slug}/settings/backups`, icon: DatabaseBackup },
+							{ label: m['settings.push.title'](), href: `/${slug}/settings/push`, icon: Bell }
+						]
 					: []),
 				{ label: m['settings.nav.licenses'](), href: `/${slug}/settings/licenses`, icon: ScrollText }
 			]

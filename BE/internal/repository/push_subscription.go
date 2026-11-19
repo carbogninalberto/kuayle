@@ -74,6 +74,12 @@ func (r *PushSubscriptionRepository) Delete(ctx context.Context, userID, id uuid
 	return err
 }
 
+func (r *PushSubscriptionRepository) CountByUser(ctx context.Context, userID uuid.UUID) (int, error) {
+	var count int
+	err := r.db.GetContext(ctx, &count, "SELECT count(*) FROM push_subscriptions WHERE user_id=$1", userID)
+	return count, err
+}
+
 func (r *PushSubscriptionRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.PushSubscription, error) {
 	var subscriptions []domain.PushSubscription
 	err := r.db.SelectContext(ctx, &subscriptions, `SELECT * FROM push_subscriptions WHERE user_id=$1 ORDER BY created_at, id`, userID)

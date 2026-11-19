@@ -176,6 +176,10 @@ authentication.
 | GET | `/api/system/backups/settings` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
 | PUT | `/api/system/backups/settings` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
 | POST | `/api/system/backups/test-connection` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
+| POST | `/api/system/push/keys` | session only | Instance Web Push settings and test delivery require an interactive sysadmin session. |
+| GET | `/api/system/push/settings` | session only | Instance Web Push settings and test delivery require an interactive sysadmin session. |
+| PUT | `/api/system/push/settings` | session only | Instance Web Push settings and test delivery require an interactive sysadmin session. |
+| POST | `/api/system/push/test` | session only | Instance Web Push settings and test delivery require an interactive sysadmin session. |
 | POST | `/api/system/update` | session only | Updating the instance runs privileged host operations and stays an operator action. |
 | GET | `/api/system/update-status` | session only | Updating the instance runs privileged host operations and stays an operator action. |
 | POST | `/api/telegram/webhook/:workspaceId` | public |  |
