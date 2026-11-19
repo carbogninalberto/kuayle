@@ -4381,5 +4381,22 @@
 	"pwa.browser.in_app_ios": "你正在使用 {app} 的内置浏览器，请在 Safari 中打开以使用完整应用。",
 	"pwa.browser.in_app": "你正在使用 {app} 的内置浏览器，请在系统浏览器中打开以使用完整应用。",
 	"pwa.browser.home_screen": "如果 Kuayle 已添加到主屏幕，请从主屏幕打开以使用完整应用。",
-	"pwa.browser.copy_failed": "无法复制链接"
+	"pwa.browser.copy_failed": "无法复制链接",
+	"settings.push.title": "推送通知",
+	"settings.push.denied": "只有实例管理员才能管理推送通知。",
+	"settings.push.environment": "这些设置由环境变量管理。",
+	"settings.push.app": "已在应用中配置。",
+	"settings.push.off": "尚未配置网页推送。",
+	"settings.push.public_key": "公钥",
+	"settings.push.generate": "生成密钥对",
+	"settings.push.regenerate": "重新生成密钥对",
+	"settings.push.rotation_warning": "重新生成密钥对后，每台设备都必须重新启用推送。",
+	"settings.push.contact": "联系方式",
+	"settings.push.contact_hint": "请输入供推送服务商联系的 mailto: 地址或 HTTPS 网址。",
+	"settings.push.enable": "启用网页推送",
+	"settings.push.saved": "已保存推送设置。",
+	"settings.push.devices": "你已订阅的设备数：{count}",
+	"settings.push.test": "发送测试通知",
+	"settings.push.result": "已发送：{sent}。失败：{failed}。",
+	"settings.push.failed": "无法完成网页推送请求。"
 }

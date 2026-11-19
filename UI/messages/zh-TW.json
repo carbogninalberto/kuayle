@@ -4381,5 +4381,22 @@
 	"pwa.browser.in_app_ios": "你正在使用 {app} 的內建瀏覽器，請在 Safari 中開啟以使用完整應用程式。",
 	"pwa.browser.in_app": "你正在使用 {app} 的內建瀏覽器，請在系統瀏覽器中開啟以使用完整應用程式。",
 	"pwa.browser.home_screen": "如果 Kuayle 已加入主畫面，請從主畫面開啟以使用完整應用程式。",
-	"pwa.browser.copy_failed": "無法複製連結"
+	"pwa.browser.copy_failed": "無法複製連結",
+	"settings.push.title": "推播通知",
+	"settings.push.denied": "只有執行個體管理員才能管理推播通知。",
+	"settings.push.environment": "這些設定由環境變數管理。",
+	"settings.push.app": "已在應用程式中設定。",
+	"settings.push.off": "尚未設定網頁推播。",
+	"settings.push.public_key": "公開金鑰",
+	"settings.push.generate": "產生金鑰組",
+	"settings.push.regenerate": "重新產生金鑰組",
+	"settings.push.rotation_warning": "重新產生金鑰組後，每台裝置都必須重新啟用推播。",
+	"settings.push.contact": "聯絡方式",
+	"settings.push.contact_hint": "請輸入供推播服務商聯絡的 mailto: 地址或 HTTPS 網址。",
+	"settings.push.enable": "啟用網頁推播",
+	"settings.push.saved": "已儲存推播設定。",
+	"settings.push.devices": "你已訂閱的裝置數：{count}",
+	"settings.push.test": "傳送測試通知",
+	"settings.push.result": "已傳送：{sent}。失敗：{failed}。",
+	"settings.push.failed": "無法完成網頁推播要求。"
 }
