@@ -286,6 +286,8 @@ type AgentCatalogModel struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
 	Efforts []string `json:"efforts"`
+	// ReasoningUnsupported distinguishes an explicit upstream refusal from missing metadata.
+	ReasoningUnsupported bool `json:"-"`
 }
 
 // AgentModelCatalogResponse lists the models known for a coding agent. Source
