@@ -672,8 +672,8 @@ for (const size of sizes) {
 }
 
 // Opens the issue conversation's agent panel on the task's running chart.
-async function openTaskChart(page: Page) {
-	const { advance } = await mockTask(page);
+async function openTaskChart(page: Page, options?: Parameters<typeof mockTask>[1]) {
+	const { advance } = await mockTask(page, options);
 	await page.goto('/test/assistant?conversation=chat-1');
 	const agents = page.getByRole('button', { name: 'Agents', exact: true }).first();
 	await expect(agents).toBeVisible();
@@ -681,7 +681,7 @@ async function openTaskChart(page: Page) {
 	if (!(await view.isVisible())) await agents.click();
 	await expect(view).toBeVisible();
 	const chart = view.getByTestId('task-workflow-chart');
-	await expect(chart.getByTestId('workflow-node-ci')).toBeVisible();
+	await expect(chart.getByTestId(`workflow-node-${options?.at ?? 'ci'}`)).toBeVisible();
 	return { view, chart, advance };
 }
 
@@ -745,10 +745,10 @@ async function drag(page: Page, chart: Locator, direction: 1 | -1) {
 	await page.mouse.up();
 }
 
-// An issue conversation whose coding task follows a workflow and waits on CI;
-// advance() moves the run to another step, as the server would announce it.
-async function mockTask(page: Page, { at = 'ci', decide = false, shipMerge = false } = {}) {
-	let node = at;
+// An issue conversation whose coding task follows a workflow. advance()
+// updates the run as the server would announce it.
+async function mockTask(page: Page, { at = 'ci', decide = false, shipMerge = false, fullCycle = false } = {}) {
+	const graph = vertical(fullCycle ? templates.full_cycle : templates.review_loop);
 	const sockets: WebSocketRoute[] = [];
 	const conversation = {
 		id: 'chat-1',
@@ -773,13 +773,13 @@ async function mockTask(page: Page, { at = 'ci', decide = false, shipMerge = fal
 		thinking: '',
 		prompt: 'Implement and test issue search',
 		state: 'awaiting_review',
-		reason: 'Waiting for CI',
+		reason: fullCycle ? 'Waiting for merge' : 'Waiting for CI',
 		generation: 1,
 		failure_count: 0,
 		checkout_id: 'checkout-1',
 		run_id: 'run-1',
 		workflow_version_id: 'legacy-v1',
-		workflow_node: 'ci',
+		workflow_node: at,
 		workflow_status: 'waiting',
 		created_at: time,
 		updated_at: time
@@ -788,7 +788,7 @@ async function mockTask(page: Page, { at = 'ci', decide = false, shipMerge = fal
 		task_id: 'task-1',
 		sequence,
 		node_id: node,
-		node_type: 'agent',
+		node_type: graph.nodes.find((step) => step.id === node)?.type,
 		visit: 1,
 		from_node: from ?? null,
 		edge_id: from ? `${from}-${node}-${condition}` : null,
@@ -797,6 +797,24 @@ async function mockTask(page: Page, { at = 'ci', decide = false, shipMerge = fal
 		detail: '',
 		entered_at: time
 	});
+	const steps = fullCycle
+		? [
+				step(1, 'start'),
+				step(2, 'implement', 'start', 'else'),
+				step(3, 'tests', 'implement', 'agent_finished'),
+				step(4, 'publish', 'tests', 'checks_passed'),
+				step(5, 'review', 'publish', 'published'),
+				step(6, 'ci', 'review', 'review_approved'),
+				step(7, 'ship', 'ci', 'checks_passed'),
+				step(8, 'merge', 'ship', 'approval_approved')
+			]
+		: [
+				step(1, 'start'),
+				step(2, 'implement', 'start', 'else'),
+				step(3, 'publish', 'implement', 'agent_finished'),
+				step(4, 'review', 'publish', 'published'),
+				step(5, 'ci', 'review', 'review_approved')
+			];
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
 	await page.routeWebSocket('**/conversations/chat-1/stream*', (socket) => void sockets.push(socket));
 	await page.route('https://raw.githubusercontent.com/**', (route) => route.fulfill({ json: [] }));
@@ -818,7 +836,7 @@ async function mockTask(page: Page, { at = 'ci', decide = false, shipMerge = fal
 					model_servers: []
 				}
 			});
-		if (path.endsWith('/tasks')) return route.fulfill({ json: { tasks: [{ ...task, workflow_node: node }] } });
+		if (path.endsWith('/tasks')) return route.fulfill({ json: { tasks: [task] } });
 		if (path.endsWith('/conversations/chat-1'))
 			return route.fulfill({
 				json: {
@@ -834,26 +852,24 @@ async function mockTask(page: Page, { at = 'ci', decide = false, shipMerge = fal
 			return route.fulfill({
 				json: {
 					workflow_id: 'legacy',
-					name: 'Review loop',
+					name: fullCycle ? 'Full cycle' : 'Review loop',
 					version: 1,
 					builtin: false,
-					graph: vertical(templates.review_loop),
-					node,
-					status: 'waiting',
-					visits: { start: 1, implement: 1, publish: 1, review: 1, ci: 1 },
+					graph,
+					node: task.workflow_node,
+					status: task.workflow_status,
+					visits: Object.fromEntries(steps.map((step) => [step.node_id, 1])),
 					iterations: 1,
-					sequence: 5,
-					steps: [
-						step(1, 'start'),
-						step(2, 'implement', 'start', 'else'),
-						step(3, 'publish', 'implement', 'agent_finished'),
-						step(4, 'review', 'publish', 'published'),
-						step(5, 'ci', 'review', 'review_approved')
-					],
+					sequence: steps.length,
+					steps: steps.map((step, i) =>
+						i < steps.length - 1 || task.state === 'completed'
+							? { ...step, finished_at: time, outcome: steps[i + 1]?.condition ?? 'task_completed' }
+							: step
+					),
 					profiles,
 					can_decide: decide,
-					task_state: 'awaiting_review',
-					task_reason: 'Waiting for CI',
+					task_state: task.state,
+					task_reason: task.reason,
 					task_generation: 1,
 					ship_merge: shipMerge
 				}
@@ -867,7 +883,7 @@ async function mockTask(page: Page, { at = 'ci', decide = false, shipMerge = fal
 			if (path.endsWith('/publication')) return route.fulfill({ json: { step: null } });
 			if (path.endsWith('/validation')) return route.fulfill({ json: null });
 			if (path.endsWith('/signals')) return route.fulfill({ json: [] });
-			return route.fulfill({ json: { ...task, workflow_node: node } });
+			return route.fulfill({ json: task });
 		}
 		if (path === '/api/workspaces/test/agent-messages') return route.fulfill({ json: { messages: [] } });
 		return route.fulfill({ json: [] });
@@ -875,15 +891,52 @@ async function mockTask(page: Page, { at = 'ci', decide = false, shipMerge = fal
 	let cursor = 0;
 	return {
 		// Waits for the conversation's stream to have connected before announcing.
-		async advance(to: string) {
+		async advance(to: string, status = 'running') {
 			await expect.poll(() => sockets.length).toBeGreaterThan(0);
-			node = to;
-			const payload = { ...task, workflow_node: to, workflow_status: 'running', updated_at: '2026-11-01T00:05:00Z' };
-			const event = { id: `event-${++cursor}`, conversation_id: 'chat-1', cursor, type: 'task.state_changed', payload };
+			task.workflow_node = to;
+			task.workflow_status = status;
+			task.updated_at = '2026-11-01T00:05:00Z';
+			if (status === 'done') {
+				task.state = 'completed';
+				task.reason = 'Pull request #12 was merged on GitHub';
+			}
+			const event = { id: `event-${++cursor}`, conversation_id: 'chat-1', cursor, type: 'task.state_changed', payload: task };
 			sockets.at(-1)!.send(JSON.stringify(event));
 		}
 	};
 }
+
+test('a task finished by merging shows its completed workflow path', async ({ page }, testInfo) => {
+	await page.setViewportSize({ width: 1440, height: 900 });
+	const { view, chart, advance } = await openTaskChart(page, { at: 'merge', fullCycle: true });
+	const merge = chart.getByTestId('workflow-node-merge');
+	const done = chart.getByTestId('workflow-node-done');
+	const edge = (id: string) => chart.locator(`.svelte-flow__edge[data-id="${id}"]`);
+	const mergeEdge = edge('merge-done-merged');
+	const failureEdge = edge('ci-failed-timeout');
+	await expect(merge).toHaveAttribute('data-current', 'true');
+	await expect(mergeEdge).toHaveClass(/workflow-edge-idle/);
+	await expect(failureEdge).toHaveClass(/workflow-edge-idle/);
+
+	// GitHub finishes the task while its persisted cursor still names Merge.
+	await advance('merge', 'done');
+	await expect(view.getByTestId('task-workflow-status')).toHaveText('Done');
+	await expect(view.getByText(/Current step/)).toHaveCount(0);
+	await expect(chart.locator('[data-current="true"]')).toHaveCount(0);
+	await expect(merge).toHaveClass(/border-primary\/50/);
+	await expect(done).toHaveClass(/border-primary\/50/);
+	await expect.poll(() => offCentre(chart, 'done')).toBeLessThanOrEqual(8);
+	await expect(mergeEdge).toHaveClass(/workflow-edge-fired/);
+	await expect(mergeEdge).not.toHaveClass(/\banimated\b/);
+	await expect(failureEdge).toHaveCount(0);
+	await expect(chart.getByTestId('workflow-node-failed')).toHaveCount(0);
+	await page.screenshot({ path: testInfo.outputPath('completed-workflow-panel.png'), animations: 'disabled' });
+
+	await chart.getByRole('button', { name: 'Expand chart' }).click();
+	const expanded = page.getByTestId('task-workflow-chart-expanded');
+	await expect.poll(() => offCentre(expanded, 'done')).toBeLessThanOrEqual(8);
+	await page.screenshot({ path: testInfo.outputPath('completed-workflow.png'), animations: 'disabled' });
+});
 
 // KUA-216: the ship approval says that approving merges the pull request;
 // another approval does not.
