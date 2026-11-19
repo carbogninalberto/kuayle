@@ -14,7 +14,7 @@ test('a link_required callback signs in with the password and then starts the li
 		calls.push(`${request.method()} ${path}`);
 		if (path === '/api/config')
 			return route.fulfill({
-				json: { registration_enabled: true, passkeys_enabled: false, sso_enabled_instance: false }
+				json: { registration_enabled: true, passkeys_enabled: false, sso_enabled: false }
 			});
 		if (path === '/api/auth/login')
 			return route.fulfill({
@@ -37,6 +37,7 @@ test('a link_required callback signs in with the password and then starts the li
 			'An account with this email already exists. Sign in with your password and link SSO from your profile; if you are not a member of this workspace yet, ask an admin to invite you first.'
 		)
 	).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Sign in with SSO' })).toHaveCount(0);
 
 	await page.getByLabel('Email').fill('person@example.com');
 	await page.getByLabel('Password', { exact: true }).fill('correct-horse-battery-1');

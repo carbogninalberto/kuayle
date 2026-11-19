@@ -18,6 +18,10 @@ secrets are public defaults that the backend accepts only with
 `ENVIRONMENT=development`. Do not expose this stack to a network; use the
 [self-hosting](self-hosting.md) bundle for that.
 
+The sample `.env` enables demo mode with `PUBLIC_DEMO_MODE=true`. The
+registration API rejects signup in this mode, including requests with workspace
+invite tokens.
+
 ### Local dev
 
 ```sh

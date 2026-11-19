@@ -60,6 +60,7 @@ func TestAuthHandler_Register_Success(t *testing.T) {
 	userRepo := &testUserRepo{}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
+	require.True(t, authSvc.PublicRegistrationEnabled())
 	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute), nil)
 
 	err := h.Register(c)
@@ -81,6 +82,31 @@ func TestAuthHandler_Register_Success(t *testing.T) {
 	}
 	assert.True(t, hasAccess, "access_token cookie should be set")
 	assert.True(t, hasRefresh, "refresh_token cookie should be set")
+}
+
+func TestAuthHandler_Register_PublicDemoMode(t *testing.T) {
+	svc := service.NewAuthService(&testUserRepo{}, &testRefreshTokenRepo{}, "test-secret", service.WithPublicDemoMode(true))
+	e := echo.New()
+	e.POST("/api/auth/register", NewAuthHandler(svc, false, nil, nil).Register)
+	e.GET("/api/config", NewConfigHandler(svc.PublicRegistrationEnabled()).Get)
+
+	config := httptest.NewRecorder()
+	e.ServeHTTP(config, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+	require.Equal(t, http.StatusOK, config.Code)
+	require.Contains(t, config.Body.String(), `"registration_enabled":false`)
+
+	for _, body := range []string{
+		`{"email":"new@example.test","password":"Password123!!","name":"New User"}`,
+		`{"email":"new@example.test","password":"Password123!!","name":"New User","invite_token":"invite-tok"}`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusForbidden, rec.Code)
+		require.Contains(t, rec.Body.String(), `"code":"REGISTRATION_DISABLED"`)
+		require.Empty(t, rec.Result().Cookies())
+	}
 }
 
 func TestAuthHandler_Register_DuplicateEmail(t *testing.T) {

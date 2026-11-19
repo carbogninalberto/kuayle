@@ -4270,7 +4270,7 @@
 	"login.sso.button": "Sign in with SSO",
 	"login.sso.slug_label": "Workspace",
 	"login.sso.slug_placeholder": "workspace-slug",
-	"login.sso.continue": "Continue to identity provider",
+	"login.sso.continue": "Продовжити",
 	"login.sso.cancel": "Cancel",
 	"login.sso.not_enabled": "This workspace does not offer single sign-on.",
 	"login.sso.required": "This account must sign in through its workspace identity provider.",
