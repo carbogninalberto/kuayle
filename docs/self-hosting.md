@@ -229,8 +229,22 @@ See [GitHub integration](github-integration.md) for the GitHub App, webhooks on 
 
 ## Web Push (optional)
 
-Generate a dedicated VAPID pair once. From the repository root, append it to the
-deployment's existing `selfhosting/.env` using the backend image.
+Sign in with an instance sysadmin account and open **Settings → Push notifications**.
+Choose **Generate key pair**, enter a contact such as `mailto:admin@example.com`
+or an HTTPS contact URL, turn on **Enable Web Push**, and save. These settings
+apply immediately across backend instances. The database stores the key pair
+encrypted. Keep the deployment’s `JWT_SECRET` with your recovery secrets so
+a restored database can still decrypt it.
+
+Enroll your browser in **Settings → Preferences**, then choose **Send test
+notification** on the Push notifications page to see how many of your devices
+accepted or failed delivery. Regenerating the pair requires confirmation.
+Every device must enable push again after a rotation.
+
+To manage the configuration through the environment, set all three VAPID
+variables. They take precedence and make the app configuration read-only.
+From the repository root, append a generated pair to the deployment’s
+existing `selfhosting/.env` using the backend image.
 
 ```sh
 cd selfhosting
@@ -241,9 +255,9 @@ docker compose run --rm --no-deps --entrypoint /app/server backend vapid-keys >>
 Set `VAPID_SUBJECT` in the same file to an operator contact such as
 `mailto:admin@example.com` or an HTTPS contact URL. Protect and back up
 `VAPID_PRIVATE_KEY` with other deployment secrets. Preserve the pair across
-deployments and share it across backend instances. If you rotate it, users must
-re-enable push on their devices. Apply migrations and recreate the backend after
-configuration changes. Leave all three settings empty to disable delivery.
+deployments and share it across backend instances. Recreate the backend after
+changing the environment. Clearing all three variables restores the saved app settings. To pause delivery while retaining
+an app-managed pair, switch off **Enable Web Push** and save.
 
 The app must run in a secure context (HTTPS, or localhost for desktop development).
 The backend needs outbound HTTPS access on port 443 to the browser push services,

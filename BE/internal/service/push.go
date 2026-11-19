@@ -30,6 +30,7 @@ var (
 type pushStore interface {
 	Register(context.Context, domain.PushSubscription, *uuid.UUID) (uuid.UUID, error)
 	Delete(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID) error
+	CountByUser(context.Context, uuid.UUID) (int, error)
 	ListByUser(context.Context, uuid.UUID) ([]domain.PushSubscription, error)
 	RecordDelivery(context.Context, domain.PushSubscription, int) error
 }
@@ -48,35 +49,36 @@ type pushAccess struct {
 }
 
 type PushService struct {
-	publicKey string
-	store     pushStore
-	prefs     *PreferencesService
-	access    pushAccess
-	queue     chan pushJob
-	send      func(context.Context, domain.PushSubscription, []byte) (int, error)
+	env      config.VAPIDConfig
+	settings instanceSettings
+	store    pushStore
+	prefs    *PreferencesService
+	access   pushAccess
+	queue    chan pushJob
+	send     func(context.Context, config.VAPIDConfig, domain.PushSubscription, []byte) (int, error)
 }
 
-func NewPushService(cfg config.VAPIDConfig, store pushStore, prefs *PreferencesService, workspaces pushWorkspaces,
+func NewPushService(cfg config.VAPIDConfig, settings instanceSettings, store pushStore, prefs *PreferencesService, workspaces pushWorkspaces,
 	requiresSSO func(context.Context, uuid.UUID) (bool, error), notifications *repository.NotificationRepository,
 	authorizeChat func(context.Context, uuid.UUID, uuid.UUID) error) *PushService {
-	s := &PushService{publicKey: cfg.PublicKey, store: store, prefs: prefs,
+	s := &PushService{env: cfg, settings: settings, store: store, prefs: prefs,
 		access: pushAccess{workspaces, requiresSSO, authorizeChat, notifications}}
-	if !cfg.Enabled() {
-		return s
-	}
 	s.queue = make(chan pushJob, 128)
 	dialer := &net.Dialer{Control: validate.PublicAddressControl}
-	options := &webpush.Options{
-		HTTPClient: &http.Client{
-			Timeout: 4 * time.Second,
-			// Direct HTTPS with public DNS results only. Redirects must never carry the VAPID token.
-			Transport:     &http.Transport{DialContext: dialer.DialContext, IdleConnTimeout: time.Minute},
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		},
-		Subscriber: strings.TrimPrefix(cfg.Subject, "mailto:"), VAPIDPublicKey: cfg.PublicKey,
-		VAPIDPrivateKey: cfg.PrivateKey, TTL: 300,
+	client := &http.Client{
+		Timeout: 4 * time.Second,
+		// Direct HTTPS with public DNS results only. Redirects must never carry the VAPID token.
+		Transport:     &http.Transport{DialContext: dialer.DialContext, IdleConnTimeout: time.Minute},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	s.send = func(ctx context.Context, sub domain.PushSubscription, payload []byte) (int, error) {
+	s.send = func(ctx context.Context, cfg config.VAPIDConfig, sub domain.PushSubscription, payload []byte) (int, error) {
+		options := &webpush.Options{
+			HTTPClient:      client,
+			Subscriber:      strings.TrimPrefix(cfg.Subject, "mailto:"),
+			VAPIDPublicKey:  cfg.PublicKey,
+			VAPIDPrivateKey: cfg.PrivateKey,
+			TTL:             300,
+		}
 		response, err := webpush.SendNotificationWithContext(ctx, payload, &webpush.Subscription{
 			Endpoint: sub.Endpoint, Keys: webpush.Keys{P256dh: sub.P256DH, Auth: sub.Auth},
 		}, options)
@@ -89,10 +91,20 @@ func NewPushService(cfg config.VAPIDConfig, store pushStore, prefs *PreferencesS
 	return s
 }
 
-func (s *PushService) PublicKey() string { return s.publicKey }
+func (s *PushService) PublicKey(ctx context.Context) (string, error) {
+	state, err := s.effective(ctx)
+	if err != nil || !state.Enabled {
+		return "", err
+	}
+	return state.PublicKey, nil
+}
 
 func (s *PushService) Register(ctx context.Context, userID, ssoWorkspace uuid.UUID, userAgent string, req dto.RegisterPushSubscriptionRequest) (uuid.UUID, error) {
-	if s.publicKey == "" {
+	key, err := s.PublicKey(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if key == "" {
 		return uuid.Nil, ErrPushUnavailable
 	}
 	if !validPushSubscription(req) {
@@ -159,12 +171,13 @@ func validPushSubscription(req dto.RegisterPushSubscriptionRequest) bool {
 	return err == nil && len(auth) == 16
 }
 
-func (s *PushService) deliver(ctx context.Context, sub domain.PushSubscription, payload []byte) {
-	status, err := s.send(ctx, sub, payload)
+func (s *PushService) deliver(ctx context.Context, cfg config.VAPIDConfig, sub domain.PushSubscription, payload []byte) bool {
+	status, err := s.send(ctx, cfg, sub, payload)
 	if ctx.Err() == nil && (err != nil || status >= 500) {
-		status, _ = s.send(ctx, sub, payload)
+		status, err = s.send(ctx, cfg, sub, payload)
 	}
 	if err := s.store.RecordDelivery(ctx, sub, status); err != nil && ctx.Err() == nil {
 		log.WithError(err).Warn("Could not record web push delivery")
 	}
+	return err == nil && status >= 200 && status < 300
 }

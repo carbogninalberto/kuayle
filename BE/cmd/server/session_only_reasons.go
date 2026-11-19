@@ -44,6 +44,7 @@ var sessionOnlyReasons = []sessionOnlyReason{
 	{Method: "POST", PathPrefix: "/api/auth/me/avatar", Exact: true, Reason: reasonSignInSecrets},
 	{PathPrefix: "/api/system/update", Reason: reasonInstanceUpdate},
 	{PathPrefix: "/api/system/backups", Reason: reasonInstanceBackup},
+	{PathPrefix: "/api/system/push/", Reason: "Instance Web Push settings and test delivery require an interactive sysadmin session."},
 	{Method: "POST", PathPrefix: "/api/workspaces", Exact: true, Reason: reasonWorkspaceAdmin},
 	{Method: "POST", PathPrefix: "/api/workspaces/import", Reason: reasonWorkspaceAdmin},
 	{Method: "POST", PathPrefix: "/api/invite/", Reason: reasonWorkspaceAdmin},

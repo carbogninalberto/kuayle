@@ -34,12 +34,27 @@ func (c VAPIDConfig) validate() error {
 	if err != nil || !bytes.Equal(key.PublicKey().Bytes(), public) {
 		return errors.New("VAPID_PUBLIC_KEY must match VAPID_PRIVATE_KEY")
 	}
-	if subject, err := url.Parse(c.Subject); err == nil && subject.Scheme == "https" && subject.Hostname() != "" && subject.User == nil {
+	if ValidVAPIDSubject(c.Subject) {
 		return nil
 	}
-	address := strings.TrimPrefix(c.Subject, "mailto:")
-	if contact, err := mail.ParseAddress(address); err == nil && contact.Address == address {
+	// Existing deployments may also use a bare email address.
+	if !strings.Contains(c.Subject, ":") && ValidVAPIDSubject("mailto:"+c.Subject) {
 		return nil
 	}
 	return errors.New("VAPID_SUBJECT must be a contact email or HTTPS URL")
+}
+
+func ValidVAPIDSubject(value string) bool {
+	if len(value) > 2048 {
+		return false
+	}
+	if subject, err := url.ParseRequestURI(value); err == nil && subject.Scheme == "https" && subject.Hostname() != "" && subject.User == nil {
+		return true
+	}
+	address, ok := strings.CutPrefix(value, "mailto:")
+	if !ok {
+		return false
+	}
+	contact, err := mail.ParseAddress(address)
+	return err == nil && contact.Address == address
 }

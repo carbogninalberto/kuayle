@@ -11,7 +11,7 @@
 	import { alternativePages, competitorBySlug } from '$lib/data/alternative-pages';
 	import { alternativePath, hostingLabel } from '$lib/data/competitor-types';
 	import { competitors } from '$lib/data/competitors';
-	import { KUAYLE_FACTS_VERSION } from '$lib/data/kuayle-facts';
+	import { KUAYLE_FACTS_SOURCE } from '$lib/data/kuayle-facts';
 	import { breadcrumbsFrom, faqLd, metaForStandalone, webPageLd } from '$lib/data/routes';
 
 	const meta = metaForStandalone('compare')!;
@@ -38,7 +38,7 @@
 		},
 		{
 			question: 'How were these comparisons checked?',
-			answer: `Every competitor fact links to the vendor’s own pricing page, documentation or licence file, checked on 6 November 2026. Kuayle facts were verified against the ${KUAYLE_FACTS_VERSION} source code. Unverified details are marked “Not documented”.`
+			answer: `Every competitor fact links to the vendor’s own pricing page, documentation or licence file, checked on 6 November 2026. ${KUAYLE_FACTS_SOURCE} Unverified details are marked “Not documented”.`
 		}
 	];
 
