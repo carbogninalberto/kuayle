@@ -51,6 +51,7 @@ const (
 	// DevMachineOpRunCheck runs a task's check on demand, outside its workflow.
 	DevMachineOpRunCheck            DevMachineOperationAction = "run_check"
 	DevMachineOpPurgeTaskSession    DevMachineOperationAction = "purge_task_session"
+	DevMachineOpCleanupTask         DevMachineOperationAction = "cleanup_task"
 	DevMachineOpStartPreview        DevMachineOperationAction = "start_preview"
 	DevMachineOpStopPreview         DevMachineOperationAction = "stop_preview"
 	DevMachineOpCaptureSignIn       DevMachineOperationAction = "capture_sign_in"

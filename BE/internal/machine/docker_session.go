@@ -17,35 +17,41 @@ import (
 // helper on the workspace volume: no network, read-only root, no capabilities,
 // and an argv-only removal of the single validated task directory.
 func (r *DockerRuntime) PurgeTaskSession(ctx context.Context, machine *domain.DevMachine, imageRef string, taskID uuid.UUID) error {
+	_, err := r.runTaskWorkspaceHelper(ctx, machine, imageRef, taskID, "session-purge",
+		[]string{"rm", "-rf", "--", "/workspace/.kuayle/agent-sessions/" + taskID.String()})
+	return err
+}
+
+func (r *DockerRuntime) runTaskWorkspaceHelper(ctx context.Context, machine *domain.DevMachine, imageRef string, taskID uuid.UUID, name string, command []string) (string, error) {
 	if machine.WorkspaceVolumeName == nil {
-		return nil
+		return "", nil
 	}
 	if _, err := r.client.VolumeInspect(ctx, *machine.WorkspaceVolumeName, client.VolumeInspectOptions{}); errdefs.IsNotFound(err) {
-		return nil
+		return "", nil
 	} else if err != nil {
-		return err
+		return "", err
 	}
 	if err := r.ensureImage(ctx, imageRef); err != nil {
-		return err
+		return "", err
 	}
-	containerName := "kuayle-" + machine.RoutingKey + "-session-purge-" + taskID.String()
+	containerName := "kuayle-" + machine.RoutingKey + "-" + name + "-" + taskID.String()
 	if inspection, err := r.client.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{}); err == nil {
 		if inspection.Container.Config.Labels["com.kuayle.machine-id"] != machine.ID.String() {
-			return fmt.Errorf("existing session purge container is not managed by Kuayle")
+			return "", fmt.Errorf("existing task workspace helper is not managed by Kuayle")
 		}
 		if _, err := r.client.ContainerRemove(ctx, inspection.Container.ID, client.ContainerRemoveOptions{Force: true}); err != nil {
-			return err
+			return "", err
 		}
 	} else if !errdefs.IsNotFound(err) {
-		return err
+		return "", err
 	}
 	labels := machineLabels(machine)
-	labels["com.kuayle.service"] = "session-purge"
+	labels["com.kuayle.service"] = name
 	pidsLimit := int64(16)
 	response, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
 			Image: imageRef, User: "1000:1000", Labels: labels,
-			Entrypoint: []string{"rm"}, Cmd: []string{"-rf", "--", "/workspace/.kuayle/agent-sessions/" + taskID.String()},
+			Entrypoint: command[:1], Cmd: command[1:],
 		},
 		HostConfig: &container.HostConfig{
 			NetworkMode: "none", ReadonlyRootfs: true, CapDrop: []string{"ALL"},
@@ -60,25 +66,25 @@ func (r *DockerRuntime) PurgeTaskSession(ctx context.Context, machine *domain.De
 		Name: containerName,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() {
 		_, _ = r.client.ContainerRemove(context.Background(), response.ID, client.ContainerRemoveOptions{Force: true})
 	}()
 	if _, err := r.client.ContainerStart(ctx, response.ID, client.ContainerStartOptions{}); err != nil {
-		return err
+		return "", err
 	}
 	waitResult := r.client.ContainerWait(ctx, response.ID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
 	case result := <-waitResult.Result:
+		stdout, stderr, _ := r.containerLogs(ctx, response.ID)
 		if result.StatusCode != 0 {
-			_, stderr, _ := r.containerLogs(ctx, response.ID)
-			return fmt.Errorf("session purge exited %d: %s", result.StatusCode, strings.TrimSpace(stderr))
+			return stdout, fmt.Errorf("%s exited %d: %s", name, result.StatusCode, strings.TrimSpace(stderr))
 		}
-		return nil
+		return stdout, nil
 	case err := <-waitResult.Error:
-		return err
+		return "", err
 	case <-ctx.Done():
-		return ctx.Err()
+		return "", ctx.Err()
 	}
 }

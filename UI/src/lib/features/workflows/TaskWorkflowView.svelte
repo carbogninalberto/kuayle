@@ -12,7 +12,7 @@
 	import { m } from '$lib/features/i18n/messages';
 	import RunChart from './RunChart.svelte';
 	import { statusLabel } from './labels';
-	import { leftToRight, pendingDecision, runOverlay } from './workflow-graph';
+	import { leftToRight, pendingDecision, runChartGraph, runOverlay } from './workflow-graph';
 
 	// A task's workflow run: the graph with the current step highlighted and
 	// the decisions a person can make (an approval, or a reached limit). The
@@ -45,7 +45,8 @@
 
 	// The chart runs left to right at a readable size, opens on the step the
 	// task is at and pans when the panel is narrower; Expand shows it full-screen.
-	const chart = $derived(run ? leftToRight(run.graph) : null);
+	const layout = $derived(run ? leftToRight(run.graph) : null);
+	const chart = $derived(layout && overlay ? runChartGraph(layout, overlay) : null);
 	const name = $derived(run ? (run.builtin ? m['workflows.standard']() : run.name) : '');
 	let expanded = $state(false);
 
@@ -83,8 +84,10 @@
 					{#if statusLabel(run.status)}<Badge variant="outline" data-testid="task-workflow-status"
 							>{statusLabel(run.status)}</Badge
 						>{/if}
-					<span>{m['workflows.task.current']()}: {nodeLabel(run.node)}</span>
-					<span>· {m['workflows.task.iterations']({ count: run.iterations })}</span>
+				{#if overlay?.current}
+					<span>{m['workflows.task.current']()}: {nodeLabel(overlay.current)}</span>
+				{/if}
+				<span>{overlay?.current ? '· ' : ''}{m['workflows.task.iterations']({ count: run.iterations })}</span>
 				</p>
 			</div>
 			<Button
