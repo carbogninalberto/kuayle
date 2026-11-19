@@ -378,8 +378,8 @@ services:
     profiles: ["dev-machine-images"]
     image: ${DEV_MACHINE_EGRESS_IMAGE:-kuayle/dev-machine-egress:0.1.0}
     build:
-      context: ..
-      dockerfile: devmachine/egress/Dockerfile
+      context: ../devmachine
+      dockerfile: egress/Dockerfile
     entrypoint: ["/bin/true"]
 
   dev-machine-docker:

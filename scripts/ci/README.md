@@ -21,7 +21,6 @@ advances. Product checks and images continue to verify the recorded PR head.
 | Sanitizer class allowlist (`BE/pkg/sanitize/editor_classes.go` and its `testdata/editor_html_contract.json`) | Also Frontend Checks: the UI sanitizer unit and browser tests read the shared contract. |
 | `BE/**/*_test.go` | Backend tests and Go security. Docker lifecycle is also selected for its integration test file; no production image builds for test-only changes. |
 | `BE/assistant-tools/` | Backend Tests. Frontend Checks reads the URL tool's script and schema in its activation test. Run the Python URL tool suite directly with `python3 -B -m unittest -v` from `BE/assistant-tools`. |
-| `BE/cmd/machine-egress/main.go` | Backend tests, Docker lifecycle and the egress image on both architectures. The egress image builds from the repository root so it also tracks `BE/pkg/validate/dial.go` and the Go module files. |
 | `UI/` runtime, translations, assets and dependencies | Frontend type/unit/browser checks and npm audit; web and all-in-one readiness on both architectures. WEB fetches the release manifest from main at runtime, so a PR manifest edit does not select WEB. |
 | `UI/tests/`, `UI/playwright*.ts` | Frontend checks and audit; no production container checks. |
 | `WEB/` source (including Markdown content), assets and dependencies | Marketing type/build/SEO/responsive checks. WEB is not the UI application image. |

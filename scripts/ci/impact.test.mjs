@@ -38,7 +38,7 @@ test('backend runtime and dependency changes include API, all-in-one and Go runt
     assert.equal(plan.runtime, true);
     assert.equal(plan.frontend, false);
     assert.deepEqual(ids(plan.releaseImages), ['all-in-one', 'api']);
-    assert.deepEqual(ids(plan.devImages), path === 'BE/go.sum' ? ['gateway', 'manager', 'egress'] : ['gateway', 'manager']);
+    assert.deepEqual(ids(plan.devImages), ['gateway', 'manager']);
     assert.deepEqual(ids(plan.securityImages), ['updater']);
   }
 });
@@ -93,14 +93,15 @@ test('headless and shared developer image inputs select only their consumers', (
   }
 });
 
-test('the egress image builds from the root and tracks the shared forge address guard', () => {
-  const proxy = planForPaths(['BE/cmd/machine-egress/main.go']);
-  assert.equal(proxy.backend, true);
-  assert.equal(proxy.runtime, true);
-  assert.deepEqual(proxy.architectures, ['amd64', 'arm64']);
-  assert.deepEqual(ids(proxy.devImages), ['egress']);
-  assert.equal(proxy.devImages[0].context, '.');
-  assert.ok(ids(planForPaths(['BE/pkg/validate/dial.go']).devImages).includes('egress'));
+test('the egress proxy and its address guard use the devmachine image context', () => {
+  for (const path of ['devmachine/egress/main.go', 'devmachine/egress/public_ip.go']) {
+    const plan = planForPaths([path]);
+    assert.equal(plan.backend, true);
+    assert.equal(plan.runtime, true);
+    assert.deepEqual(plan.architectures, ['amd64', 'arm64']);
+    assert.deepEqual(ids(plan.devImages), ['egress']);
+    assert.equal(plan.devImages[0].context, './devmachine');
+  }
 });
 
 test('the public URL custom tool selects backend tests and its browser fixture', () => {

@@ -11,8 +11,6 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"github.com/kuayle/kuayle-backend/pkg/validate"
 )
 
 type proxy struct {
@@ -121,7 +119,7 @@ func (p *proxy) dialContext(ctx context.Context, _, address string) (net.Conn, e
 		dial = (&net.Dialer{Timeout: 10 * time.Second}).DialContext
 	}
 	for _, address := range addresses {
-		if !validate.IsPublicIP(address.IP) {
+		if !IsPublicIP(address.IP) {
 			continue
 		}
 		return dial(ctx, "tcp", net.JoinHostPort(address.IP.String(), port))
