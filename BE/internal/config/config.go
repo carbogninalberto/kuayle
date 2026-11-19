@@ -42,6 +42,7 @@ type Config struct {
 	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://localhost:5173"`
 	Environment string `envconfig:"ENVIRONMENT" default:"development"`
 	Storage     storage.Config
+	VAPID       VAPIDConfig
 	// SMTP is optional; password reset emails need it (the link is logged in development otherwise).
 	SMTP           mail.Config
 	Sysadmins      string `envconfig:"SYSADMINS"`
@@ -430,6 +431,9 @@ func Load() (*Config, error) {
 	}
 	if len(cfg.JWTSecret) < 32 {
 		return nil, fmt.Errorf("JWT_SECRET must be at least 32 characters")
+	}
+	if err := cfg.VAPID.validate(); err != nil {
+		return nil, err
 	}
 	if cfg.SystemUpdaterToken != "" && len(cfg.SystemUpdaterToken) < 32 {
 		return nil, fmt.Errorf("SYSTEM_UPDATER_TOKEN must be at least 32 characters")

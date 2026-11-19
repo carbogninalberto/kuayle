@@ -35,6 +35,10 @@ func NewRefreshTokenRepository(db *sqlx.DB) *RefreshTokenRepository {
 }
 
 func (r *RefreshTokenRepository) Create(ctx context.Context, rt *RefreshToken) error {
+	return createRefreshToken(ctx, r.db, rt)
+}
+
+func createRefreshToken(ctx context.Context, db sqlx.ExtContext, rt *RefreshToken) error {
 	// Serialize session issuance with deprovisioning. A refresh also has to
 	// carry the original session version across rotation.
 	query := `WITH scope AS MATERIALIZED (
@@ -46,7 +50,7 @@ func (r *RefreshTokenRepository) Create(ctx context.Context, rt *RefreshToken) e
 		SELECT $1, $2, $3, $4, $5, $6, $7, session_version FROM account
 		WHERE ($8::bigint IS NULL OR session_version=$8)
 		RETURNING created_at, session_version`
-	return r.db.QueryRowContext(ctx, query, rt.ID, rt.UserID, rt.TokenHash, rt.ExpiresAt, rt.AuthenticatedAt,
+	return db.QueryRowxContext(ctx, query, rt.ID, rt.UserID, rt.TokenHash, rt.ExpiresAt, rt.AuthenticatedAt,
 		rt.PasskeyCredentialID, rt.SSOWorkspaceID, rt.ExpectedVersion).Scan(&rt.CreatedAt, &rt.SessionVersion)
 }
 

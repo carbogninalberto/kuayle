@@ -66,9 +66,10 @@ func TestTelegramLinksBackOnlyToPublicAddresses(t *testing.T) {
 		}))
 		svc := NewTelegramService(nil, nil, nil, nil, frontend)
 		svc.endpoint, svc.client = remote.URL, remote.Client()
-		require.NoError(t, svc.sendFormatted(context.Background(), "token", "sendMessage", map[string]any{"chat_id": 1}, svc.replyText("Done", "acme", uuid.New()), nil))
+		require.NoError(t, svc.sendFormatted(context.Background(), "token", "sendMessage", map[string]any{"chat_id": 1}, svc.replyText("Done", "acme", uuid.New(), "fixture"), nil))
 		remote.Close()
 		require.Equal(t, linked, strings.Contains(sent, "Open in Kuayle"), frontend)
+		require.Equal(t, linked, strings.Contains(sent, "&amp;sign_in=fixture"), frontend)
 		require.NotContains(t, sent, "localhost", frontend)
 	}
 }

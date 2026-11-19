@@ -114,6 +114,7 @@ authentication.
 | POST | `/api/auth/refresh` | public |  |
 | POST | `/api/auth/register` | public |  |
 | POST | `/api/auth/reset-password` | public |  |
+| POST | `/api/auth/sign-in-token/:slug` | public |  |
 | GET | `/api/auth/sso/:slug` | public |  |
 | GET | `/api/auth/sso/:slug/callback` | public |  |
 | POST | `/api/auth/sso/:slug/callback` | public |  |
@@ -149,6 +150,9 @@ authentication.
 | GET | `/api/public/share/:token/issues` | public |  |
 | GET | `/api/public/system/update-activity` | public |  |
 | GET | `/api/public/wiki/:token` | public |  |
+| POST | `/api/push/subscriptions` | session only | Push subscriptions bind a browser to a user and require an interactive session. |
+| DELETE | `/api/push/subscriptions/:id` | session only | Push subscriptions bind a browser to a user and require an interactive session. |
+| GET | `/api/push/vapid-public-key` | public |  |
 | GET | `/api/scim/v2/:slug/Groups` | SCIM bearer only | workspace provisioning token |
 | POST | `/api/scim/v2/:slug/Groups` | SCIM bearer only | workspace provisioning token |
 | DELETE | `/api/scim/v2/:slug/Groups/:id` | SCIM bearer only | workspace provisioning token |

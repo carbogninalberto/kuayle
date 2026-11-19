@@ -55,7 +55,9 @@ func newPasskeyServer(t *testing.T, opts ...service.AuthServiceOption) *passkeyS
 	const secret = "passkey-http-test-secret-0123456789abcdef"
 	users := repository.NewUserRepository(db)
 	opts = append(opts, service.WithPasswordReset(repository.NewPasswordResetRepository(db), nil, passkeyHTTPOrigin, false))
-	authSvc := service.NewAuthService(users, repository.NewRefreshTokenRepository(db), secret, opts...)
+	refresh := repository.NewRefreshTokenRepository(db)
+	authSvc := service.NewAuthService(users, refresh, secret, opts...)
+	authSvc.SetSignInTokens(repository.NewSignInTokenRepository(db))
 	rp, err := service.NewPasskeyRelyingParty("", "", "Kuayle Test", passkeyHTTPOrigin)
 	require.NoError(t, err)
 	passkeys, err := service.NewPasskeyService(authSvc, users, repository.NewPasskeyRepository(db), rp)
@@ -63,7 +65,7 @@ func newPasskeyServer(t *testing.T, opts ...service.AuthServiceOption) *passkeyS
 	authH := handler.NewAuthHandler(authSvc, false, mw.NewLoginThrottle(5, time.Minute), nil)
 
 	e := echo.New()
-	middleware := testMiddleware(mw.AuthWithPasskeys(secret, repository.NewPersonalAccessTokenRepository(db), passkeys))
+	middleware := testMiddleware(mw.AuthWithSessionVersions(secret, repository.NewPersonalAccessTokenRepository(db), passkeys, refresh))
 	registerRoutes(e, &appHandlers{
 		auth:    authH,
 		passkey: handler.NewPasskeyHandler(passkeys, authH),

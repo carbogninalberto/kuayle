@@ -75,6 +75,9 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-kuayle}:${POSTGRES_PASSWORD:-kuayle}@postgres:5432/${POSTGRES_DB:-kuayle}?sslmode=disable
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-local_dev_jwt_secret_32_chars_minimum_do_not_use_prod}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       DISABLE_REGISTRATION: ${DISABLE_REGISTRATION:-false}
       PASSKEYS_ENABLED: ${PASSKEYS_ENABLED:-true}
       PASSKEY_RP_ID: ${PASSKEY_RP_ID:-}

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { redirectToLogin } from '$lib/api/client';
+	import BrowserGuide from '$lib/features/pwa/BrowserGuide.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
@@ -242,9 +244,9 @@
 	}
 
 	onMount(async () => {
-		await authState.init();
+		await authState.init(false);
 		if (!authState.authenticated) {
-			goto('/login');
+			redirectToLogin();
 			return;
 		}
 		void preferencesState.syncRemote();
@@ -684,6 +686,7 @@
 			</Sheet.Root>
 		{/if}
 		<main class="flex min-w-0 flex-1 flex-col overflow-hidden">
+			<BrowserGuide />
 			{#if workspace.privacy_enabled}
 				<details class="shrink-0 border-b border-[var(--app-border)] px-4 py-2 text-xs text-[var(--color-text-secondary)]"><summary class="cursor-pointer">{m['privacy.workspace_limits']()}</summary><p class="mt-2 max-w-3xl">{m['privacy.limits']()}</p></details>
 			{/if}

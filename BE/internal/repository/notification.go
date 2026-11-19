@@ -19,7 +19,7 @@ func NewNotificationRepository(db *sqlx.DB) *NotificationRepository {
 }
 
 func (r *NotificationRepository) Create(ctx context.Context, n *domain.Notification) error {
-	if err := r.prepareDelivery(ctx, n); err != nil {
+	if err := r.AuthorizeDelivery(ctx, n); err != nil {
 		return err
 	}
 	query := `INSERT INTO notifications (id, user_id, workspace_id, issue_id, type, title, source_team_ids) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING created_at`
@@ -27,7 +27,7 @@ func (r *NotificationRepository) Create(ctx context.Context, n *domain.Notificat
 }
 
 func (r *NotificationRepository) CreateOrRefresh(ctx context.Context, n *domain.Notification, window time.Duration) error {
-	if err := r.prepareDelivery(ctx, n); err != nil {
+	if err := r.AuthorizeDelivery(ctx, n); err != nil {
 		return err
 	}
 	query := `
@@ -61,7 +61,7 @@ func (r *NotificationRepository) CreateOrRefresh(ctx context.Context, n *domain.
 
 // Delivery and every subsequent read use the recipient's live membership. The
 // triggering actor's access cannot authorize another user's notification.
-func (r *NotificationRepository) prepareDelivery(ctx context.Context, n *domain.Notification) error {
+func (r *NotificationRepository) AuthorizeDelivery(ctx context.Context, n *domain.Notification) error {
 	if n.SourceTeamIDs == nil && n.IssueID != nil {
 		if err := r.db.GetContext(ctx, &n.SourceTeamIDs, `SELECT ARRAY[team_id] FROM issues WHERE id=$1 AND workspace_id=$2`, n.IssueID, n.WorkspaceID); err != nil {
 			return err

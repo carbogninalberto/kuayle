@@ -62,8 +62,8 @@ func (f *userEventsFake) BroadcastToUser(workspace, user uuid.UUID, event realti
 func TestEachPublishedNotificationHasItsOwnEventID(t *testing.T) {
 	events := &userEventsFake{}
 	event := notificationEvent{Type: "assigned", Title: "You were assigned"}
-	publishNotification(events, uuid.New(), uuid.New(), event)
-	publishNotification(events, uuid.New(), uuid.New(), event)
+	publishNotification(events, uuid.New(), uuid.New(), event, nil)
+	publishNotification(events, uuid.New(), uuid.New(), event, nil)
 
 	require.Len(t, events.eventIDs, 2)
 	for _, id := range events.eventIDs {

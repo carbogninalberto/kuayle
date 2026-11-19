@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
@@ -46,6 +47,15 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "backup" {
 		runBackupCommand(os.Args[2:])
+		return
+	}
+
+	if len(os.Args) > 1 && os.Args[1] == "vapid-keys" {
+		privateKey, publicKey, err := webpush.GenerateVAPIDKeys()
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("VAPID_PUBLIC_KEY=%s\nVAPID_PRIVATE_KEY=%s\n", publicKey, privateKey)
 		return
 	}
 
@@ -101,6 +111,8 @@ func main() {
 		service.WithInviteRedeemer(inviteLinkSvc),
 		service.WithPasswordReset(repository.NewPasswordResetRepository(db), resetMailer(cfg), cfg.FrontendURL, cfg.Environment == "development"),
 	)
+	signInTokenRepo := repository.NewSignInTokenRepository(db)
+	authSvc.SetSignInTokens(signInTokenRepo)
 	ssoSvc := service.NewSSOService(
 		ssoRepo, userRepo, workspaceRepo, authSvc,
 		crypto.DeriveKey(cfg.JWTSecret+":sso"), cfg.FrontendURL, cfg.OIDCAllowPrivateNetwork,
@@ -146,6 +158,10 @@ func main() {
 	teamStatusSvc := service.NewTeamStatusService(teamStatusRepo, visibilityRepo)
 	favSvc := service.NewFavoriteService(favRepo)
 	prefsSvc := service.NewPreferencesService(prefsRepo)
+	conversationRepo := repository.NewConversationRepository(db)
+	pushSvc := service.NewPushService(cfg.VAPID, repository.NewPushSubscriptionRepository(db), prefsSvc, workspaceRepo,
+		ssoSvc.RequiresSSO, notifRepo, conversationRepo.Authorize)
+	notifSvc.SetPush(pushSvc)
 	tokenSvc := service.NewTokenService(patRepo, workspaceRepo)
 	// Tokens and connection links refuse workspaces that require SSO unless
 	// minted through that workspace's SSO sign-in.
@@ -222,7 +238,7 @@ func main() {
 	tokenH := handler.NewTokenHandler(tokenSvc)
 	cliLinkH := handler.NewCLILinkHandler(cliLinkSvc)
 	aiSettingsH := handler.NewAISettingsHandler(aiSettingsSvc)
-	conversationSvc := service.NewConversationService(repository.NewConversationRepository(db), aiSettingsSvc)
+	conversationSvc := service.NewConversationService(conversationRepo, aiSettingsSvc)
 	conversationSvc.SetPreferences(prefsRepo)
 	assistantTools := service.NewAssistantTools(issueRepo, teamRepo, workspaceRepo, issueSvc)
 	assistantTools.SetIssueLabels(labelRepo)
@@ -457,7 +473,7 @@ func main() {
 	forgeSvc.SetWebhooks(webhookSvc)
 	forgeH := handler.NewForgeHandler(forgeSvc)
 
-	// Background: clean up expired refresh tokens every hour
+	// Background: clean up expired authentication tokens every hour
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
@@ -466,6 +482,9 @@ func main() {
 				log.WithError(err).Warn("failed to clean up expired refresh tokens")
 			} else {
 				log.Info("expired refresh tokens cleaned up")
+			}
+			if err := signInTokenRepo.DeleteExpired(context.Background()); err != nil {
+				log.WithError(err).Warn("failed to clean up expired sign-in tokens")
 			}
 		}
 	}()
@@ -512,6 +531,7 @@ func main() {
 		teamStatus:        teamStatusH,
 		fav:               favH,
 		prefs:             prefsH,
+		push:              handler.NewPushHandler(pushSvc),
 		token:             tokenH,
 		cliLink:           cliLinkH,
 		aiSettings:        aiSettingsH,
@@ -560,6 +580,7 @@ func main() {
 	go taskFeedback.Run(conversationCtx)
 	go agentTaskSvc.Run(conversationCtx)
 	go agentTaskSvc.RunNotifications(conversationCtx)
+	go pushSvc.Run(conversationCtx)
 	go wikiSvc.RunOverviewSchedules(conversationCtx)
 	go backupSvc.Run(conversationCtx)
 	go importSvc.Run(conversationCtx)

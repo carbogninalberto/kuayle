@@ -182,7 +182,7 @@ func TestIssueConversationsRecheckScopeAcrossChannels(t *testing.T) {
 	next, err := repo.Claim(context.Background())
 	require.NoError(t, err)
 	require.Nil(t, next, "revoked issue must not reach a model")
-	require.NoError(t, tg.Deliver(context.Background(), *delivery, func(domain.TelegramDelivery) error { t.Error("private output delivered after revocation"); return nil }))
+	require.NoError(t, tg.Deliver(context.Background(), *delivery, "", func(domain.TelegramDelivery) error { t.Error("private output delivered after revocation"); return nil }))
 	incoming := domain.TelegramUpdate{ID: 1, UserID: 12345, ChatID: 12345, Private: true, Text: "Denied Telegram input"}
 	require.NoError(t, tg.Receive(context.Background(), ws, "header-fixture", incoming, "", "compatible", "test"))
 	var count int
@@ -246,7 +246,7 @@ func TestIssueConversationsRecheckScopeAcrossChannels(t *testing.T) {
 		timeout, stop := context.WithTimeout(context.Background(), 8*time.Second)
 		defer stop()
 		sent, deleted := make(chan error, 1), make(chan error, 1)
-		go func() { sent <- tg.Deliver(timeout, *d, func(domain.TelegramDelivery) error { return nil }) }()
+		go func() { sent <- tg.Deliver(timeout, *d, "", func(domain.TelegramDelivery) error { return nil }) }()
 		require.Eventually(t, func() bool {
 			var waiting bool
 			e := db.Get(&waiting, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%FROM issues WHERE id=%FOR SHARE%')`)
