@@ -153,7 +153,7 @@ func TestDeveloperImagesBuildCrushWithPatchedGo(t *testing.T) {
 		dockerfileBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", image, "Dockerfile"))
 		require.NoError(t, err)
 		dockerfile := string(dockerfileBytes)
-		require.Contains(t, dockerfile, "FROM golang:1.27.3-bookworm AS crush-build", image)
+		require.Contains(t, dockerfile, "FROM golang:1.27.4-bookworm AS crush-build", image)
 		// Release bumps update the pin, so the test checks that one exists.
 		require.Regexp(t, `(?m)^ARG CRUSH_VERSION=[0-9]+\.[0-9]+\.[0-9]+$`, dockerfile, image)
 		require.Contains(t, dockerfile, "github.com/charmbracelet/crush@v${CRUSH_VERSION}", image)
