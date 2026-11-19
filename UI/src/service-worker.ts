@@ -18,6 +18,10 @@ import {
 } from '$lib/features/pwa/service-worker-policy';
 import { notificationTargetUrl, openNotificationTarget, requestClientNavigation } from '$lib/features/pwa/notification-click';
 
+import { showPushNotification, renewPushSubscription } from '$lib/features/pwa/push-events';
+import { PUSH_SUBSCRIPTIONS_PATH, PUSH_DEVICE_CHANGED } from '$lib/features/notifications/push';
+import { pushDeviceStorage } from '$lib/features/notifications/push-device';
+
 const worker = self as unknown as ServiceWorkerGlobalScope;
 const CACHE = `${SHELL_CACHE_PREFIX}${version}`;
 // Manifest paths are relative to the base path, where this worker is served;
@@ -46,6 +50,43 @@ worker.addEventListener('activate', (event) => {
 
 worker.addEventListener('message', (event) => {
 	if (event.data?.type === 'SKIP_WAITING') void worker.skipWaiting();
+});
+
+worker.addEventListener('push', (event) => {
+	event.waitUntil(showPushNotification(worker.registration, worker.location.origin, event.data));
+});
+
+async function pushRequest(path: string, options: RequestInit): Promise<Response> {
+	let response = await fetch(path, options);
+	if (response.status === 401 && (await fetch('/api/auth/refresh', { method: 'POST' })).ok) {
+		response = await fetch(path, options);
+	}
+	if (!response.ok) throw new Error('Could not update push subscription');
+	return response;
+}
+
+worker.addEventListener('pushsubscriptionchange', (event) => {
+	// lib.webworker does not yet expose PushSubscriptionChangeEvent.
+	const change = event as ExtendableEvent & {
+		newSubscription?: PushSubscription | null;
+		oldSubscription?: PushSubscription | null;
+	};
+	change.waitUntil((async () => {
+		await renewPushSubscription(
+			worker.registration.pushManager,
+			pushDeviceStorage,
+			async (body) => (await pushRequest(PUSH_SUBSCRIPTIONS_PATH, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
+			})).json(),
+			async (id) => { await pushRequest(`${PUSH_SUBSCRIPTIONS_PATH}/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
+			change
+		);
+		for (const client of await worker.clients.matchAll({ type: 'window' })) {
+			client.postMessage({ type: PUSH_DEVICE_CHANGED });
+		}
+	})());
 });
 
 // A clicked notification reuses an open Kuayle window when there is one. That

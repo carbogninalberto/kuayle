@@ -56,8 +56,7 @@ func (o *TeamWorkflowSortOverrides) Scan(value interface{}) error {
 	return scanJSON(value, o)
 }
 
-// NotificationEventKeys are the events a user can switch browser notifications
-// on or off for.
+// NotificationEventKeys are the events a user can switch notifications on or off for.
 var NotificationEventKeys = []string{"approval_requested", "task_finished", "review_needed", "assigned", "mentioned", "comment", "issue_updated"}
 
 // NotificationSounds are the selectable notification sounds; "off" is silent.
@@ -124,6 +123,7 @@ type UserPreferences struct {
 	RecentDueDates            RecentDueDates            `json:"recent_due_dates" db:"recent_due_dates"`
 	IssuesGroupBy             string                    `json:"issues_group_by" db:"issues_group_by"`
 	BrowserNotifications      bool                      `json:"browser_notifications" db:"browser_notifications"`
+	PushNotifications         bool                      `json:"push_notifications" db:"push_notifications"`
 	WorkflowEditorPanelOpen   bool                      `json:"workflow_editor_panel_open" db:"workflow_editor_panel_open"`
 	NotificationSound         string                    `json:"notification_sound" db:"notification_sound"`
 	NotificationEvents        NotificationEvents        `json:"notification_events" db:"notification_events"`

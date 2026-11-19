@@ -90,7 +90,7 @@ func (s *AgentTaskService) deliverTaskNotices(ctx context.Context) {
 		publishNotification(s.userEvents, notice.WorkspaceID, notice.CreatorID, notificationEvent{
 			Type: notifType, Title: title, IssueID: &notice.IssueID, IssueIdentifier: notice.IssueIdentifier,
 			Extra: map[string]string{"task_id": notice.TaskID.String(), "status": notice.State},
-		})
+		}, s.notifications)
 	}
 }
 
@@ -129,7 +129,7 @@ func (s *AgentTaskService) deliverTaskWatches(ctx context.Context) {
 			publishNotification(s.userEvents, watch.WorkspaceID, watch.UserID, notificationEvent{
 				Type: notifType, Title: title, IssueID: &watch.IssueID, IssueIdentifier: watch.IssueIdentifier,
 				Extra: map[string]string{"task_id": watch.TaskID.String(), "status": watch.State},
-			})
+			}, s.notifications)
 		}
 		asWatcher := domain.WithAccess(ctx, domain.Access{WorkspaceID: watch.WorkspaceID, UserID: watch.UserID})
 		if _, err := s.conversations.PostAssistantNotice(asWatcher, watch.WorkspaceID, watch.ConversationID, watch.ParentMessageID, watchPingMessage(title)); err != nil {

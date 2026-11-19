@@ -18,6 +18,7 @@ function serverPreferences(): Preferences {
 		recent_due_dates: [],
 		issues_group_by: 'status',
 		browser_notifications: true,
+		push_notifications: true,
 		notification_sound: 'chime',
 		notification_events: Object.fromEntries(eventKeys.map((key) => [key, true]))
 	};
@@ -33,7 +34,7 @@ async function stubBrowserApis(page: Page, permission: 'default' | 'denied' | nu
 			Reflect.deleteProperty(window, 'Notification');
 		} else {
 			class FakeNotification {
-				static permission: string = initial ?? 'default';
+				static permission: string = sessionStorage.getItem('fake-push') ? 'granted' : initial ?? 'default';
 				static async requestPermission() {
 					calls.permissionRequests++;
 					FakeNotification.permission = 'granted';
@@ -146,10 +147,10 @@ test('notification preferences ask for permission, preview sounds and persist', 
 	expect(await calls(page)).toEqual({ permissionRequests: 0, oscillators: 0, contexts: 0 });
 
 	// Permission is requested only from the button.
-	await section.getByRole('button', { name: 'Enable' }).click();
+	await section.getByRole('button', { name: 'Enable', exact: true }).click();
 	await expect(permission).toHaveAttribute('data-permission', 'granted');
 	await expect(permission).toHaveText('Browser notifications are allowed.');
-	await expect(section.getByRole('button', { name: 'Enable' })).toHaveCount(0);
+	await expect(section.getByRole('button', { name: 'Enable', exact: true })).toHaveCount(0);
 	expect((await calls(page)).permissionRequests).toBe(1);
 
 	// The preview button plays the selected preset through Web Audio.
@@ -184,7 +185,7 @@ test('notification preferences ask for permission, preview sounds and persist', 
 	await expect(reloaded.getByRole('switch', { name: 'Browser notifications' })).toHaveAttribute('aria-checked', 'false');
 	await expect(reloaded.getByRole('switch', { name: 'New comments' })).toHaveAttribute('aria-checked', 'false');
 	await expect(reloaded.getByRole('switch', { name: 'You are mentioned' })).toHaveAttribute('aria-checked', 'true');
-	await expect(reloaded.getByRole('switch')).toHaveCount(8);
+	await expect(reloaded.getByRole('switch')).toHaveCount(9);
 });
 
 test('sound off disables the preview and plays nothing', async ({ page }) => {
@@ -213,7 +214,7 @@ for (const [name, permission, text] of [
 		const section = page.getByTestId('notification-preferences');
 		await expect(section.getByTestId('notification-permission')).toHaveAttribute('data-permission', name);
 		await expect(section.getByTestId('notification-permission')).toHaveText(text);
-		await expect(section.getByRole('button', { name: 'Enable' })).toHaveCount(0);
+		await expect(section.getByRole('button', { name: 'Enable', exact: true })).toHaveCount(0);
 
 		// Sound and event settings do not depend on the permission.
 		await section.getByRole('switch', { name: 'An issue is assigned to you' }).click();
@@ -270,4 +271,97 @@ test('two open tabs announce a realtime notification once', async ({ page, conte
 	await page.waitForTimeout(700);
 	expect(await total()).toBe(4);
 	expect(errors).toEqual([]);
+});
+
+test('subscribes only on a tap, remembers the device and revokes it separately from the preference', async ({ page }, testInfo) => {
+	await stubBrowserApis(page, 'default');
+	const api = await mockApi(page);
+	const registrations: Record<string, unknown>[] = [];
+	let revocations = 0;
+	await page.route('**/api/push/vapid-public-key', (route) => route.fulfill({ json: { public_key: 'AQL_' } }));
+	await page.route('**/api/push/subscriptions', (route) => {
+		registrations.push(route.request().postDataJSON());
+		return route.fulfill({ json: { id: 'push-device' } });
+	});
+	await page.route('**/api/push/subscriptions/push-device', (route) => {
+		expect(route.request().method()).toBe('DELETE');
+		revocations++;
+		return route.fulfill({ status: 204 });
+	});
+	await page.addInitScript(() => {
+		const manager = {
+			getSubscription: async () => sessionStorage.getItem('fake-push') ? subscription : null,
+			subscribe: async ({ userVisibleOnly, applicationServerKey }: PushSubscriptionOptionsInit) => {
+				if (!userVisibleOnly || String(applicationServerKey) !== '1,2,255') throw new Error('Incorrect push options');
+				if (!navigator.userActivation.isActive) throw new Error('Missing user gesture');
+				await Notification.requestPermission();
+				sessionStorage.setItem('fake-push', '1');
+				return subscription;
+			}
+		};
+		const subscription = {
+			endpoint: 'https://push.example/device',
+			toJSON: () => ({ keys: { p256dh: 'browser-key', auth: 'browser-secret' } }),
+			unsubscribe: async () => {
+				sessionStorage.removeItem('fake-push');
+				return true;
+			}
+		};
+		navigator.serviceWorker.getRegistration = async () =>
+			({ active: {}, pushManager: manager }) as unknown as ServiceWorkerRegistration;
+	});
+
+	await page.goto('/test/settings/preferences');
+	const status = page.getByTestId('push-status');
+	await expect(status).toHaveAttribute('data-state', 'ready');
+	expect(registrations).toHaveLength(0);
+	expect((await calls(page)).permissionRequests).toBe(0);
+	await page.getByRole('button', { name: 'Enable push' }).click();
+	await expect(status).toHaveAttribute('data-state', 'subscribed');
+	expect(registrations).toEqual([{ workspace_slug: 'test', endpoint: 'https://push.example/device', p256dh: 'browser-key', auth: 'browser-secret' }]);
+	expect((await calls(page)).permissionRequests).toBe(1);
+
+	const toggle = page.getByRole('switch', { name: 'Web Push notifications' });
+	await toggle.click();
+	await expect.poll(() => api.preferences.push_notifications).toBe(false);
+	expect(revocations).toBe(0);
+	await page.reload();
+	await expect(status).toHaveAttribute('data-state', 'subscribed');
+	await expect(toggle).toHaveAttribute('aria-checked', 'false');
+	expect(registrations).toHaveLength(1);
+
+	const section = page.getByTestId('notification-preferences');
+	await expect(section.getByTestId('notification-permission')).toHaveAttribute('data-permission', 'granted');
+	await section.screenshot({ path: testInfo.outputPath('push-preferences-desktop.png') });
+
+	await page.evaluate(() => sessionStorage.removeItem('fake-push'));
+	await page.reload();
+	await expect(status).toHaveText('Push notifications need to be re-enabled on this device.');
+	await page.getByRole('button', { name: 'Enable push' }).click();
+	await expect(status).toHaveAttribute('data-state', 'subscribed');
+	expect(registrations).toHaveLength(2);
+
+	await page.getByRole('button', { name: 'Disable push' }).click();
+	await expect(status).toHaveAttribute('data-state', 'ready');
+	expect(revocations).toBe(1);
+});
+
+test.describe('iOS browser tab', () => {
+	test.use({
+		userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_4 like Mac OS X) AppleWebKit/605.1.15 Version/16.4 Mobile/15E148 Safari/604.1',
+		viewport: { width: 390, height: 844 },
+		isMobile: true,
+		hasTouch: true
+	});
+	test('shows the Home Screen requirement without requesting permission', async ({ page }, testInfo) => {
+		await stubBrowserApis(page, 'default');
+		await mockApi(page);
+		await page.goto('/test/settings/preferences');
+		await expect(page.getByTestId('push-status')).toHaveText(
+			'Add Kuayle to your Home Screen first; iOS only delivers Web Push to an installed web app.'
+		);
+		await expect(page.getByRole('button', { name: 'Enable push' })).toHaveCount(0);
+		expect((await calls(page)).permissionRequests).toBe(0);
+		await page.getByTestId('notification-preferences').screenshot({ path: testInfo.outputPath('push-preferences-ios.png') });
+	});
 });

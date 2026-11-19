@@ -34,6 +34,8 @@
 		type NotificationSound
 	} from '$lib/features/notifications/notification-policy';
 	import { readPermission, requestPermission } from '$lib/features/notifications/permissions';
+	import { authState } from '$lib/features/auth/auth.state.svelte';
+	import PushPreferences from '$lib/features/notifications/PushPreferences.svelte';
 	import { notificationSound } from '$lib/features/notifications/notifier';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -426,6 +428,11 @@
 				</Button>
 			{/if}
 		</div>
+
+		{#if authState.user}
+			<PushPreferences workspaceSlug={slug} userId={authState.user.id}
+				onpermissionchange={() => notificationPermission = readPermission()} />
+		{/if}
 
 		<div class="border-t border-[var(--app-border)]"></div>
 
