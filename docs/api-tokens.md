@@ -252,7 +252,6 @@ authentication.
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/runs/:runId/logs` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/runs/:runId/prompt` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/runs/:runId/publication` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
-| GET | `/api/workspaces/:slug/agent-tasks/:taskId/runs/:runId/validation` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/sessions` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/sign-in` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/signals` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
@@ -322,7 +321,6 @@ authentication.
 | GET | `/api/workspaces/:slug/conversations/:conversationId/tasks` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
 | POST | `/api/workspaces/:slug/conversations/:conversationId/tasks` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
 | POST | `/api/workspaces/:slug/conversations/:conversationId/transcriptions` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
-| GET | `/api/workspaces/:slug/dev-machine-check-suggestion` | token | dev_machine:manage |
 | GET | `/api/workspaces/:slug/dev-machine-environments` | token | dev_machine:read |
 | POST | `/api/workspaces/:slug/dev-machine-environments` | token | dev_machine:admin |
 | DELETE | `/api/workspaces/:slug/dev-machine-environments/:environmentId` | token | dev_machine:admin |

@@ -38,7 +38,7 @@ var checkableStates = []string{"awaiting_review", "blocked", "failed", "complete
 
 // prepareRunCheck binds a check request to the issue's newest task, its
 // current attempt and the exact command shown to the user. A command is run
-// as `sh -c <command>`; without one the task's own check runs.
+// as `sh -c <command>`.
 func (t *AssistantTools) prepareRunCheck(ctx context.Context, ws, user uuid.UUID, arguments string) (uuid.UUID, domain.RunCheckPayload, error) {
 	member, err := t.members.GetMember(ctx, ws, user)
 	if err != nil || member == nil || member.Role == domain.RoleGuest {
@@ -54,18 +54,19 @@ func (t *AssistantTools) prepareRunCheck(ctx context.Context, ws, user uuid.UUID
 	if err = decodeToolInput(arguments, &input); err != nil {
 		return uuid.Nil, domain.RunCheckPayload{}, err
 	}
-	var command []string
-	if text := strings.TrimSpace(input.Command); text != "" {
-		if utf8.RuneCountInString(text) > 2000 {
-			return uuid.Nil, domain.RunCheckPayload{}, toolFailure("the command must be at most 2000 characters")
-		}
-		if !domain.HasPermission(member.Role, domain.PermDevMachineManage) {
-			return uuid.Nil, domain.RunCheckPayload{}, toolFailure("your role cannot run a custom check command")
-		}
-		command = []string{"sh", "-c", text}
-		if domain.ValidateTestCommand(command) != nil {
-			return uuid.Nil, domain.RunCheckPayload{}, toolFailure("invalid command")
-		}
+	text := strings.TrimSpace(input.Command)
+	if text == "" {
+		return uuid.Nil, domain.RunCheckPayload{}, toolFailure("provide a check command")
+	}
+	if utf8.RuneCountInString(text) > 2000 {
+		return uuid.Nil, domain.RunCheckPayload{}, toolFailure("the command must be at most 2000 characters")
+	}
+	if !domain.HasPermission(member.Role, domain.PermDevMachineManage) {
+		return uuid.Nil, domain.RunCheckPayload{}, toolFailure("your role cannot run a custom check command")
+	}
+	command := []string{"sh", "-c", text}
+	if domain.ValidateTestCommand(command) != nil {
+		return uuid.Nil, domain.RunCheckPayload{}, toolFailure("invalid command")
 	}
 	issue, err := t.issues.GetByIdentifier(ctx, ws, strings.ToUpper(strings.TrimSpace(input.Identifier)))
 	if err != nil || issue == nil {

@@ -19,7 +19,7 @@ type ResourceLimitHit struct {
 	AgentRunID  *uuid.UUID
 	ContainerID string
 	// Service is the container's com.kuayle.service label, or "validation"
-	// for an independent check container.
+	// for a manual check container.
 	Service    string
 	LimitBytes int64
 	// MachineMemory reports that the container shares the machine's memory,

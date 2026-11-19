@@ -309,7 +309,7 @@ func checkRestartFixture(t *testing.T) (*validationStoreFake, *validationRuntime
 			checkout: &domain.DevMachineCheckout{ID: checkoutID, MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, ScopeKey: taskID.String(), Status: "ready"},
 			services: []domain.DevMachineService{{ServiceType: "terminal", ImageRef: "developer:fixture"}},
 		},
-		step: domain.DevMachineAgentRunStep{ID: uuid.New(), AgentRunID: runID, Status: "queued", CreatedAt: time.Now(), CommandArgv: []byte(`["test"]`), ComposeFile: "compose.yaml"},
+		step: domain.DevMachineAgentRunStep{ID: uuid.New(), StepType: manualCheckStepType, AgentRunID: runID, Status: "queued", CreatedAt: time.Now(), CommandArgv: []byte(`["test"]`), ComposeFile: "compose.yaml"},
 	}
 	runtime := &validationRuntimeFake{runtimeFake: &runtimeFake{}}
 	operation := &domain.DevMachineOperation{ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, AgentRunID: &runID, Action: domain.DevMachineOpRunCheck}
@@ -320,27 +320,22 @@ func checkRestartFixture(t *testing.T) (*validationStoreFake, *validationRuntime
 // manager: its container and compose services stay, nothing is recorded and
 // it is not cancelled.
 func TestCheckIsHandedBackWhenTheManagerStops(t *testing.T) {
-	for _, stepType := range []string{"validation", manualCheckStepType} {
-		t.Run(stepType, func(t *testing.T) {
-			store, runtime, machine, operation, key := checkRestartFixture(t)
-			store.step.StepType = stepType
-			var observed *AgentObserver
-			runtime.onRun = func(observer *AgentObserver) (*AgentExecution, error) {
-				observed = observer
-				return &AgentExecution{ContainerID: "check", ExitCode: -1}, ErrAgentDetached
-			}
-			manager := &Manager{store: store, runtime: runtime, encryptionKey: key, detach: make(chan struct{})}
-			err := manager.validateAgent(context.Background(), machine, operation)
-			require.ErrorIs(t, err, errManagerShutdown)
-			require.NotNil(t, observed)
-			require.NotNil(t, observed.Detach, "the check detaches like an agent attempt")
-			require.Equal(t, (<-chan struct{})(manager.detach), observed.Detach)
-			require.Nil(t, store.exit, "the next manager records the result")
-			require.Zero(t, runtime.checkCleanups, "compose services stay for the next manager")
-			require.Zero(t, runtime.agentCancellations)
-			require.Empty(t, runtime.removedChecks)
-		})
+	store, runtime, machine, operation, key := checkRestartFixture(t)
+	var observed *AgentObserver
+	runtime.onRun = func(observer *AgentObserver) (*AgentExecution, error) {
+		observed = observer
+		return &AgentExecution{ContainerID: "check", ExitCode: -1}, ErrAgentDetached
 	}
+	manager := &Manager{store: store, runtime: runtime, encryptionKey: key, detach: make(chan struct{})}
+	err := manager.runManualCheck(context.Background(), machine, operation)
+	require.ErrorIs(t, err, errManagerShutdown)
+	require.NotNil(t, observed)
+	require.NotNil(t, observed.Detach, "the check detaches like an agent attempt")
+	require.Equal(t, (<-chan struct{})(manager.detach), observed.Detach)
+	require.Nil(t, store.exit, "the next manager records the result")
+	require.Zero(t, runtime.checkCleanups, "compose services stay for the next manager")
+	require.Zero(t, runtime.agentCancellations)
+	require.Empty(t, runtime.removedChecks)
 }
 
 // A stopping manager starts no check container at all: the next manager runs
@@ -349,7 +344,7 @@ func TestStoppingManagerStartsNoCheck(t *testing.T) {
 	store, runtime, machine, operation, key := checkRestartFixture(t)
 	manager := &Manager{store: store, runtime: runtime, encryptionKey: key, detach: make(chan struct{})}
 	manager.beginShutdown()
-	require.ErrorIs(t, manager.validateAgent(context.Background(), machine, operation), errManagerShutdown)
+	require.ErrorIs(t, manager.runManualCheck(context.Background(), machine, operation), errManagerShutdown)
 	require.Zero(t, runtime.calls, "no check container is started")
 }
 
@@ -433,4 +428,15 @@ func TestManagerRunDetachesAgentRunsOnShutdown(t *testing.T) {
 			require.Nil(t, store.completedRun)
 		})
 	}
+}
+
+func TestPreUpgradeValidationOnlyCleansUpItsRun(t *testing.T) {
+	store, runtime, machine, operation, key := checkRestartFixture(t)
+	run := store.agentRun
+	run.MachineID, run.WorkspaceID, run.Status = machine.ID, machine.WorkspaceID, domain.DevMachineAgentRunStatusSucceeded
+	operation.Action = domain.DevMachineOpValidateAgent
+	manager := &Manager{store: store, runtime: runtime, encryptionKey: key}
+	require.NoError(t, manager.processOperation(t.Context(), operation))
+	require.Zero(t, runtime.calls)
+	require.Equal(t, 1, runtime.agentCancellations)
 }

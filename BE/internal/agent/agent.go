@@ -33,7 +33,6 @@ type RunInput struct {
 	Prompt             string          `json:"prompt"`
 	WorkspacePath      string          `json:"workspace_path"`
 	AcceptanceCriteria []string        `json:"acceptance_criteria"`
-	TestCommand        []string        `json:"test_command"`
 	ExtraArgs          []string        `json:"extra_args"`
 	Config             json.RawMessage `json:"config"`
 	Model              string          `json:"model,omitempty"`

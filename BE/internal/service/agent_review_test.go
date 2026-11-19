@@ -39,7 +39,7 @@ func TestReviewAttemptCompletesWithoutValidationOrPublication(t *testing.T) {
 	svc := &AgentTaskService{store: implement, runtime: &taskRuntimeFake{run: &domain.DevMachineAgentRun{Status: domain.DevMachineAgentRunStatusSucceeded}}}
 	require.NoError(t, svc.step(context.Background(), implement.task))
 	require.Zero(t, implement.completed)
-	require.Equal(t, []string{"validating"}, implement.transitions)
+	require.Equal(t, []string{"publishing"}, implement.transitions)
 }
 
 func TestReviewTransitionsNeverReachPublication(t *testing.T) {
