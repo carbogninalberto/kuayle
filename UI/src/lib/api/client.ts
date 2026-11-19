@@ -1,4 +1,10 @@
 import { goto } from '$app/navigation';
+import { loginRedirectUrl } from '$lib/features/auth/sign-in-link';
+
+export function redirectToLogin(): void {
+	const current = new URL(window.location.href);
+	if (current.pathname !== '/login') void goto(loginRedirectUrl(current), { replaceState: true });
+}
 
 export interface ApiRequestOptions extends RequestInit {
 	/** Let public onboarding routes preserve their own destination on a missing session. */
@@ -45,12 +51,12 @@ class ApiClient {
 				try {
 					await this.refresh();
 				} catch (error) {
-					if (redirectOnUnauthorized) void goto('/login');
+					if (redirectOnUnauthorized) redirectToLogin();
 					throw error;
 				}
 				return this.fetchResponse(path, options, true);
 			}
-			if (redirectOnUnauthorized) void goto('/login');
+			if (redirectOnUnauthorized) redirectToLogin();
 		}
 
 		return res;

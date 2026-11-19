@@ -4354,5 +4354,9 @@
 	"settings.import.sub_issues": "Sub-issues",
 	"settings.import.comments": "Comments",
 	"settings.import.attachments": "Attachments",
-	"settings.import.links": "Links"
+	"settings.import.links": "Links",
+	"pwa.browser.in_app_ios": "{app} tarayıcısındasınız. Uygulamanın tamamını kullanmak için bağlantıyı Safari’de açın.",
+	"pwa.browser.in_app": "{app} tarayıcısındasınız. Uygulamanın tamamını kullanmak için bağlantıyı kendi tarayıcınızda açın.",
+	"pwa.browser.home_screen": "Kuayle ana ekranınızdaysa uygulamanın tamamını kullanmak için oradan açın.",
+	"pwa.browser.copy_failed": "Bağlantı kopyalanamadı"
 }

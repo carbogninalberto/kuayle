@@ -4354,5 +4354,9 @@
 	"settings.import.sub_issues": "Sub-issues",
 	"settings.import.comments": "Comments",
 	"settings.import.attachments": "Attachments",
-	"settings.import.links": "Links"
+	"settings.import.links": "Links",
+	"pwa.browser.in_app_ios": "你正在使用 {app} 的内置浏览器，请在 Safari 中打开以使用完整应用。",
+	"pwa.browser.in_app": "你正在使用 {app} 的内置浏览器，请在系统浏览器中打开以使用完整应用。",
+	"pwa.browser.home_screen": "如果 Kuayle 已添加到主屏幕，请从主屏幕打开以使用完整应用。",
+	"pwa.browser.copy_failed": "无法复制链接"
 }

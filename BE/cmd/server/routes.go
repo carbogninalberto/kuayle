@@ -130,6 +130,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	auth := e.Group("/api/auth", m.authRateLimit)
 	public(auth, http.MethodPost, "/register", h.auth.Register)
 	public(auth, http.MethodPost, "/login", h.auth.Login)
+	public(auth, http.MethodPost, "/sign-in-token/:slug", h.auth.ExchangeSignInToken)
 	public(auth, http.MethodPost, "/refresh", h.auth.Refresh)
 	public(auth, http.MethodPost, "/logout", h.auth.Logout)
 	public(auth, http.MethodPost, "/forgot-password", h.auth.ForgotPassword)

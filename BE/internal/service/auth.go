@@ -85,6 +85,7 @@ type AuthService struct {
 	logResetLinks       bool
 	async               func(func()) // test hook; nil runs in a goroutine
 	sso                 SSOEnforcer
+	signInTokens        *repository.SignInTokenRepository
 }
 
 // SetSSOEnforcer enables the per-workspace require-SSO sign-in check.
@@ -255,6 +256,10 @@ func (s *AuthService) issueSession(ctx context.Context, userID uuid.UUID, authen
 }
 
 func (s *AuthService) issueSessionFor(ctx context.Context, userID uuid.UUID, authenticatedAt time.Time, passkeyID, ssoWorkspaceID *uuid.UUID, expectedVersion *int64) (string, string, error) {
+	return s.issueSessionWith(ctx, userID, authenticatedAt, passkeyID, ssoWorkspaceID, expectedVersion, s.refreshRepo.Create)
+}
+
+func (s *AuthService) issueSessionWith(ctx context.Context, userID uuid.UUID, authenticatedAt time.Time, passkeyID, ssoWorkspaceID *uuid.UUID, expectedVersion *int64, store func(context.Context, *repository.RefreshToken) error) (string, string, error) {
 	refreshToken, expiresAt, err := jwtpkg.GenerateRefreshToken(userID, s.jwtSecret)
 	if err != nil {
 		return "", "", err
@@ -272,7 +277,7 @@ func (s *AuthService) issueSessionFor(ctx context.Context, userID uuid.UUID, aut
 	if !authenticatedAt.IsZero() {
 		rt.AuthenticatedAt = &authenticatedAt
 	}
-	if err := s.refreshRepo.Create(ctx, rt); err != nil {
+	if err := store(ctx, rt); err != nil {
 		return "", "", err
 	}
 

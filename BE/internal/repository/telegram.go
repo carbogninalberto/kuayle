@@ -418,7 +418,7 @@ func (r *TelegramRepository) ClaimDelivery(ctx context.Context) (*domain.Telegra
 	}
 	return &d, tx.Commit()
 }
-func (r *TelegramRepository) Deliver(ctx context.Context, d domain.TelegramDelivery, send func(domain.TelegramDelivery) error) error {
+func (r *TelegramRepository) Deliver(ctx context.Context, d domain.TelegramDelivery, signInHash string, send func(domain.TelegramDelivery) error) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
@@ -464,6 +464,12 @@ func (r *TelegramRepository) Deliver(ctx context.Context, d domain.TelegramDeliv
 		}
 	}
 	if allowed {
+		if signInHash != "" && d.ConversationID != nil {
+			if _, err = tx.ExecContext(ctx, `INSERT INTO sign_in_tokens (workspace_id,user_id,token_hash,purpose)
+ VALUES ($1,$2,$3,'telegram')`, d.WorkspaceID, d.UserID, signInHash); err != nil {
+				return err
+			}
+		}
 		d.TokenEncrypted = token
 		status = "sent"
 		if send(d) != nil {

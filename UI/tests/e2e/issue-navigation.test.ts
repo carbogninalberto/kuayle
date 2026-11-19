@@ -6,11 +6,13 @@ const secondTeamId = '00000000-0000-0000-0000-000000000011';
 const statusId = '00000000-0000-0000-0000-000000000020';
 const teamPath = `/test/teams/${teamId}`;
 const createdAt = '2026-01-01T00:00:00Z';
+const iOSUserAgent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 Version/18.6 Mobile/15E148 Safari/604.1';
 
-async function mockWorkspace(page: Page, options: { longDescription?: boolean } = {}) {
+async function mockWorkspace(page: Page, options: { longDescription?: boolean; signedOut?: boolean; expiredLink?: boolean } = {}) {
 	await page.routeWebSocket('**/ws', () => {});
 	const unhandledPaths: string[] = [];
 	const pageErrors: string[] = [];
+	let signedIn = !options.signedOut;
 	page.on('pageerror', (error) => pageErrors.push(error.message));
 	const user = {
 		id: userId,
@@ -79,7 +81,24 @@ async function mockWorkspace(page: Page, options: { longDescription?: boolean } 
 		const url = new URL(route.request().url());
 		const path = url.pathname;
 		if (!path.startsWith('/api/')) return route.continue();
-		if (path === '/api/auth/me') return route.fulfill({ json: user });
+		if (path === '/api/config') return route.fulfill({ json: {} });
+		if (path === '/api/auth/passkey/credentials') return route.fulfill({ json: [] });
+		if (path === '/api/auth/me' || path === '/api/auth/refresh') {
+			if (!signedIn) return route.fulfill({ status: 401, json: { error: { code: 'UNAUTHORIZED' } } });
+			return route.fulfill({ json: user });
+		}
+		if (path === '/api/auth/login') {
+			signedIn = true;
+			return route.fulfill({ json: user });
+		}
+		if (path === '/api/auth/sign-in-token/test') {
+			expect(route.request().postDataJSON()).toEqual({ token: 'fixture-token' });
+			expect(route.request().headers().referer).toBeUndefined();
+			expect(route.request().headers().origin).toBe(url.origin);
+			if (options.expiredLink) return route.fulfill({ status: 401, json: { error: { code: 'INVALID_SIGN_IN_TOKEN' } } });
+			signedIn = true;
+			return route.fulfill({ status: 204 });
+		}
 		if (path === '/api/preferences')
 			return route.fulfill({
 				json: {
@@ -153,6 +172,75 @@ async function mockWorkspace(page: Page, options: { longDescription?: boolean } 
 		expect(pageErrors).toEqual([]);
 	};
 }
+
+test('returns to the issue URL after signing in with a password', async ({ page }) => {
+	const assertHealthy = await mockWorkspace(page, { signedOut: true });
+	const destination = '/test/issue/ENG-1?source=telegram#activity';
+	await page.goto(destination);
+	await expect(page).toHaveURL('/login?' + new URLSearchParams({ next: destination }));
+	await page.getByLabel('Email').fill('test@example.com');
+	await page.getByRole('textbox', { name: 'Password', exact: true }).fill('test-password');
+	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+	await expect(page).toHaveURL(destination);
+	await expect(page.getByText('Navigation issue 1', { exact: true })).toBeVisible();
+	assertHealthy();
+});
+
+test.describe('Telegram browser', () => {
+	test.use({
+		viewport: { width: 390, height: 844 },
+		userAgent: iOSUserAgent,
+		isMobile: true,
+		permissions: ['clipboard-read', 'clipboard-write']
+	});
+	test.beforeEach(async ({ page }) => {
+		await page.addInitScript(() => Object.defineProperty(window, 'TelegramWebviewProxy', { value: {} }));
+	});
+
+	test('opens the signed-in destination and copies the link without credentials', async ({ page }) => {
+		const assertHealthy = await mockWorkspace(page, { signedOut: true });
+		const destination = '/test/issue/ENG-1?source=telegram#activity';
+		await page.goto('/test/issue/ENG-1?source=telegram&sign_in=fixture-token#activity');
+		await expect(page).toHaveURL(destination);
+		await expect(page.getByText('Navigation issue 1', { exact: true })).toBeVisible();
+		const guidance = page.getByText("You are in Telegram's browser — open in Safari for the full app");
+		await expect(guidance).toBeVisible();
+		await page.getByRole('button', { name: 'Copy link', exact: true }).first().click();
+		expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(new URL(destination, page.url()).href);
+		await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
+		await expect(guidance).toHaveCount(0);
+		assertHealthy();
+	});
+
+	test('preserves the destination after an expired link', async ({ page }) => {
+		const assertHealthy = await mockWorkspace(page, { signedOut: true, expiredLink: true });
+		const destination = '/test/issue/ENG-1?source=telegram#activity';
+		await page.goto('/test/issue/ENG-1?source=telegram&sign_in=fixture-token#activity');
+		await expect(page).toHaveURL('/login?' + new URLSearchParams({ next: destination }));
+		await expect(page.getByText("You are in Telegram's browser — open in Safari for the full app")).toBeVisible();
+		assertHealthy();
+	});
+});
+
+test.describe('iOS Safari', () => {
+	test.use({
+		viewport: { width: 390, height: 844 },
+		userAgent: iOSUserAgent,
+		isMobile: true
+	});
+
+	test('points users to the Home Screen in Safari and hides the guidance in standalone', async ({ page }) => {
+		const assertHealthy = await mockWorkspace(page);
+		await page.goto('/test/issue/ENG-1');
+		const guidance = page.getByText('If Kuayle is on your Home Screen, open it there for the full app');
+		await expect(guidance).toBeVisible();
+		await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }));
+		await page.reload();
+		await expect(page.getByText('Navigation issue 1', { exact: true })).toBeVisible();
+		await expect(guidance).toHaveCount(0);
+		assertHealthy();
+	});
+});
 
 async function expectLayout(page: Page, layout: 'List' | 'Board') {
 	await expect(page.getByRole('radio', { name: `${layout} view`, exact: true })).toBeChecked();

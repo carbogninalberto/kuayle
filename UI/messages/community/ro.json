@@ -4354,5 +4354,9 @@
 	"settings.import.sub_issues": "Sub-issues",
 	"settings.import.comments": "Comments",
 	"settings.import.attachments": "Attachments",
-	"settings.import.links": "Links"
+	"settings.import.links": "Links",
+	"pwa.browser.in_app_ios": "Folosești browserul din {app}. Deschide linkul în Safari pentru a folosi aplicația completă.",
+	"pwa.browser.in_app": "Folosești browserul din {app}. Deschide linkul în browserul tău pentru a folosi aplicația completă.",
+	"pwa.browser.home_screen": "Dacă ai Kuayle pe ecranul principal, deschide-l de acolo pentru a folosi aplicația completă.",
+	"pwa.browser.copy_failed": "Linkul nu a putut fi copiat"
 }

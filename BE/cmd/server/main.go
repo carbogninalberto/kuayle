@@ -101,6 +101,8 @@ func main() {
 		service.WithInviteRedeemer(inviteLinkSvc),
 		service.WithPasswordReset(repository.NewPasswordResetRepository(db), resetMailer(cfg), cfg.FrontendURL, cfg.Environment == "development"),
 	)
+	signInTokenRepo := repository.NewSignInTokenRepository(db)
+	authSvc.SetSignInTokens(signInTokenRepo)
 	ssoSvc := service.NewSSOService(
 		ssoRepo, userRepo, workspaceRepo, authSvc,
 		crypto.DeriveKey(cfg.JWTSecret+":sso"), cfg.FrontendURL, cfg.OIDCAllowPrivateNetwork,
@@ -456,7 +458,7 @@ func main() {
 	forgeSvc.SetWebhooks(webhookSvc)
 	forgeH := handler.NewForgeHandler(forgeSvc)
 
-	// Background: clean up expired refresh tokens every hour
+	// Background: clean up expired authentication tokens every hour
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
@@ -465,6 +467,9 @@ func main() {
 				log.WithError(err).Warn("failed to clean up expired refresh tokens")
 			} else {
 				log.Info("expired refresh tokens cleaned up")
+			}
+			if err := signInTokenRepo.DeleteExpired(context.Background()); err != nil {
+				log.WithError(err).Warn("failed to clean up expired sign-in tokens")
 			}
 		}
 	}()

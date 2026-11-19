@@ -4354,5 +4354,9 @@
 	"settings.import.sub_issues": "Sub-issues",
 	"settings.import.comments": "Comments",
 	"settings.import.attachments": "Attachments",
-	"settings.import.links": "Links"
+	"settings.import.links": "Links",
+	"pwa.browser.in_app_ios": "פתחת את הדף בדפדפן של {app}. כדי להשתמש באפליקציה המלאה, יש לפתוח את הקישור ב-Safari.",
+	"pwa.browser.in_app": "פתחת את הדף בדפדפן של {app}. כדי להשתמש באפליקציה המלאה, יש לפתוח את הקישור בדפדפן שלך.",
+	"pwa.browser.home_screen": "אם Kuayle נמצא במסך הבית, אפשר לפתוח אותו משם כדי להשתמש באפליקציה המלאה.",
+	"pwa.browser.copy_failed": "לא ניתן להעתיק את הקישור"
 }
