@@ -8,8 +8,8 @@ import (
 
 // AgentAutomation delegates matching issues of a team to a coding agent. It
 // matches current issue state (a label and/or a status), optionally only during
-// one UTC hour or on a timezone-aware cron schedule. Unattended rules start tasks without approval only when the
-// workspace policy allows it.
+// one UTC hour or on a timezone-aware cron schedule. Unattended starts
+// require the workspace policy to allow them.
 type AgentAutomation struct {
 	ID            uuid.UUID  `json:"id" db:"id"`
 	WorkspaceID   uuid.UUID  `json:"workspace_id" db:"workspace_id"`
@@ -27,6 +27,7 @@ type AgentAutomation struct {
 	Cron          string     `json:"cron,omitempty" db:"cron"`
 	Timezone      string     `json:"timezone" db:"timezone"`
 	NextRunAt     *time.Time `json:"next_run_at,omitempty" db:"next_run_at"`
+	ScheduleError *string    `json:"schedule_error,omitempty" db:"schedule_error"`
 	LastCheckedAt *time.Time `json:"-" db:"last_checked_at"`
 	MaxActive     int        `json:"max_active" db:"max_active"`
 	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
@@ -34,6 +35,11 @@ type AgentAutomation struct {
 }
 
 type AgentAutomationRun struct {
+	Attempts     int        `json:"attempts" db:"attempts"`
+	Replays      int        `json:"replays" db:"replays"`
+	Approved     bool       `json:"-" db:"approved"`
+	LeaseID      *uuid.UUID `json:"-" db:"lease_id"`
+	AvailableAt  time.Time  `json:"-" db:"available_at"`
 	ID           uuid.UUID  `json:"id" db:"id"`
 	AutomationID uuid.UUID  `json:"automation_id" db:"automation_id"`
 	WorkspaceID  uuid.UUID  `json:"workspace_id" db:"workspace_id"`
@@ -50,6 +56,11 @@ type AgentAutomationRun struct {
 // AgentAutomationRunView is a run with what a reviewer needs to decide on it.
 type AgentAutomationRunView struct {
 	AgentAutomationRun
+	WorkflowName    *string    `json:"workflow_name,omitempty" db:"workflow_name"`
+	TaskVersion     *int       `json:"task_version,omitempty" db:"task_version"`
+	TaskStep        *string    `json:"task_step,omitempty" db:"task_step"`
+	TaskState       *string    `json:"task_state,omitempty" db:"task_state"`
+	CanReplay       bool       `json:"can_replay,omitempty" db:"can_replay"`
 	WorkflowID      *uuid.UUID `json:"workflow_id,omitempty" db:"workflow_id"`
 	PinnedVersion   *int       `json:"pinned_version,omitempty" db:"pinned_version"`
 	AutomationName  string     `json:"automation_name" db:"automation_name"`

@@ -34,7 +34,8 @@ var (
 	ErrWorkflowScopeNotFound      = errors.New("workflow default scope not found")
 	// ErrWorkflowInUse: a task that can still move runs a version of the
 	// workflow, so it cannot be deleted yet.
-	ErrWorkflowInUse = errors.New("workflow is used by an active task")
+	ErrWorkflowInUse      = errors.New("workflow is used by an active task")
+	ErrWorkflowAutomation = errors.New("workflow is used by an automation")
 )
 
 // WorkflowRepository stores agent profiles, workflows, their immutable
@@ -510,6 +511,13 @@ func (r *WorkflowRepository) DeleteWorkflow(ctx context.Context, ws, id, actor u
 	}
 	if active {
 		return ErrWorkflowInUse
+	}
+	var automated bool
+	if err = tx.GetContext(ctx, &automated, `SELECT EXISTS(SELECT 1 FROM agent_automations WHERE workspace_id=$1 AND workflow_id=$2)`, ws, id); err != nil {
+		return err
+	}
+	if automated {
+		return ErrWorkflowAutomation
 	}
 	var detached int
 	if err = tx.GetContext(ctx, &detached, `WITH d AS (UPDATE agent_tasks t SET workflow_version_id=NULL,workflow_wake_at=NULL

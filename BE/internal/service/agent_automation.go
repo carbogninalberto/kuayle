@@ -3,27 +3,17 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
-	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	log "github.com/sirupsen/logrus"
 )
 
 var ErrInvalidAutomation = errors.New("invalid automation")
-
-type automationNotifier interface {
-	Create(ctx context.Context, userID, workspaceID uuid.UUID, issueID *uuid.UUID, notifType, title string, sourceTeams ...uuid.UUID) error
-}
-
-type automationHub interface {
-	BroadcastToUser(workspaceID, userID uuid.UUID, event realtime.Event)
-}
 
 // AgentAutomationService runs event-driven and scheduled delegation rules.
 // Every start goes through the same path as chat delegation and acts for one
@@ -33,12 +23,10 @@ type AgentAutomationService struct {
 	repo          *repository.AgentAutomationRepository
 	conversations *repository.ConversationRepository
 	tasks         approvalTasks
-	notifications automationNotifier
-	hub           automationHub
 }
 
-func NewAgentAutomationService(repo *repository.AgentAutomationRepository, conversations *repository.ConversationRepository, tasks approvalTasks, notifications automationNotifier, hub automationHub) *AgentAutomationService {
-	return &AgentAutomationService{repo: repo, conversations: conversations, tasks: tasks, notifications: notifications, hub: hub}
+func NewAgentAutomationService(repo *repository.AgentAutomationRepository, conversations *repository.ConversationRepository, tasks approvalTasks) *AgentAutomationService {
+	return &AgentAutomationService{repo: repo, conversations: conversations, tasks: tasks}
 }
 
 type AutomationInput struct {
@@ -60,8 +48,8 @@ func (s *AgentAutomationService) List(ctx context.Context, ws uuid.UUID) ([]doma
 	return s.repo.List(ctx, ws)
 }
 
-func (s *AgentAutomationService) Runs(ctx context.Context, ws uuid.UUID) ([]domain.AgentAutomationRunView, error) {
-	return s.repo.Runs(ctx, ws, 50)
+func (s *AgentAutomationService) Runs(ctx context.Context, ws uuid.UUID, rule, before *uuid.UUID) ([]domain.AgentAutomationRunView, error) {
+	return s.repo.Runs(ctx, ws, rule, before, 50)
 }
 
 func (s *AgentAutomationService) Create(ctx context.Context, ws, owner uuid.UUID, input AutomationInput) (*domain.AgentAutomation, error) {
@@ -125,27 +113,22 @@ func (s *AgentAutomationService) Decide(ctx context.Context, ws, id, actor uuid.
 func (s *AgentAutomationService) Run(ctx context.Context) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
-	for {
+	for ctx.Err() == nil {
+		if err := s.tick(ctx); err != nil && ctx.Err() == nil {
+			log.WithError(err).Warn("Agent automation pass failed")
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := s.tick(ctx); err != nil {
-				log.WithError(err).Warn("Agent automation pass failed")
-			}
 		}
 	}
 }
 
 func (s *AgentAutomationService) tick(ctx context.Context) error {
-	claimed, err := s.repo.Claim(ctx, 50)
+	_, err := s.repo.Claim(ctx, 50)
 	if err != nil {
 		return err
-	}
-	for _, run := range claimed {
-		if run.Status == "pending_approval" {
-			s.notifyApproval(ctx, run)
-		}
 	}
 	starting, err := s.repo.Starting(ctx, 20)
 	if err != nil {
@@ -157,38 +140,43 @@ func (s *AgentAutomationService) tick(ctx context.Context) error {
 	return nil
 }
 
-func (s *AgentAutomationService) notifyApproval(ctx context.Context, run domain.AgentAutomationRunView) {
-	title := fmt.Sprintf("%s wants to start a coding task on %s", run.AutomationName, run.IssueIdentifier)
-	if err := s.notifications.Create(ctx, run.OwnerID, run.WorkspaceID, &run.IssueID, "agent_automation_approval", title, run.TeamID); err != nil {
-		log.WithError(err).Warn("Failed to notify about an automation approval")
-		return
-	}
-	s.hub.BroadcastToUser(run.WorkspaceID, run.OwnerID, realtime.Event{Type: "notification.created", Payload: map[string]string{"type": "agent_automation_approval"}})
-}
-
 // start delegates the issue for the run's actor. The run's request ID makes a
 // repeated start (crash, concurrent worker) replay the same task.
 func (s *AgentAutomationService) start(ctx context.Context, run domain.AgentAutomationRunView) {
-	if run.ActorID == nil {
+	lease, err := s.repo.LeaseStart(ctx, run.WorkspaceID, run.ID)
+	if err != nil {
+		log.WithError(err).WithField("automation_run_id", run.ID).Warn("Failed to lease automation run")
 		return
 	}
-	access := domain.WithAccess(ctx, domain.Access{WorkspaceID: run.WorkspaceID, UserID: *run.ActorID})
+	if lease == nil {
+		return
+	}
+	run = *lease
+	startCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	access := domain.WithAccess(startCtx, domain.Access{WorkspaceID: run.WorkspaceID, UserID: *run.ActorID})
 	workflow := ""
 	if run.WorkflowID != nil {
 		workflow = run.WorkflowID.String()
 	}
-	task, err := delegateIssue(access, s.conversations, s.tasks, run.WorkspaceID, run.IssueID, run.Instructions, run.RequestID, "", "", nil, workflow, "", run.PinnedVersion)
+	task, err := delegateIssue(access, s.conversations, s.tasks, run.WorkspaceID, run.IssueID, issueDelegation{
+		requestID: run.RequestID, instructions: run.Instructions, workflow: workflow, pinnedVersion: run.PinnedVersion, team: &run.TeamID,
+	})
 	if err != nil {
 		message, permanent := delegationFailure(err)
 		if !permanent {
-			log.WithError(err).WithField("automation_run_id", run.ID).Warn("Automation run will be retried")
-			return
+			message = "Temporary failure contacting the coding task service"
+			log.WithError(err).WithField("automation_run_id", run.ID).Warn(message)
 		}
-		err = s.repo.Finish(ctx, run.ID, nil, message)
+		err = s.repo.Finish(ctx, run, nil, message, !permanent)
 	} else {
-		err = s.repo.Finish(ctx, run.ID, &task.ID, "")
+		err = s.repo.Finish(ctx, run, &task.ID, "", false)
 	}
 	if err != nil {
 		log.WithError(err).WithField("automation_run_id", run.ID).Warn("Failed to record automation run")
 	}
+}
+
+func (s *AgentAutomationService) Replay(ctx context.Context, ws, id, actor uuid.UUID, admin bool) (*domain.AgentAutomationRunView, error) {
+	return s.repo.Replay(ctx, ws, id, actor, admin)
 }

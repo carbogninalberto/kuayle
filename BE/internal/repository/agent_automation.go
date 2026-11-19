@@ -23,7 +23,7 @@ const runViewColumns = `r.*, a.workflow_id, a.pinned_version, a.name AS automati
 
 func (r *AgentAutomationRepository) List(ctx context.Context, ws uuid.UUID) ([]domain.AgentAutomation, error) {
 	automations := []domain.AgentAutomation{}
-	err := r.db.SelectContext(ctx, &automations, `SELECT * FROM agent_automations WHERE workspace_id=$1 ORDER BY created_at, id`, ws)
+	err := r.db.SelectContext(ctx, &automations, `SELECT * FROM agent_automations WHERE workspace_id=$1 AND `+teamVisible(ctx, "team_id")+` ORDER BY created_at, id`, ws)
 	return automations, err
 }
 
@@ -59,7 +59,7 @@ func (r *AgentAutomationRepository) Create(ctx context.Context, a *domain.AgentA
 		}
 	}
 	err = tx.GetContext(ctx, a, `INSERT INTO agent_automations(workspace_id,team_id,owner_id,name,label_id,status_id,instructions,unattended,run_hour,max_active,workflow_id,pinned_version,cron,timezone,next_run_at)
- SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE(NULLIF($14,''),'UTC'),$15 FROM teams t WHERE t.id=$2 AND t.workspace_id=$1
+ SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE(NULLIF($14,''),'UTC'),$15 FROM teams t WHERE t.id=$2 AND t.workspace_id=$1 AND `+teamVisible(ctx, "t.id")+`
  AND ($5::uuid IS NULL OR EXISTS(SELECT 1 FROM labels l WHERE l.id=$5 AND l.workspace_id=$1))
  AND ($6::uuid IS NULL OR EXISTS(SELECT 1 FROM team_statuses s WHERE s.id=$6 AND s.team_id=$2))
  RETURNING *`, a.WorkspaceID, a.TeamID, a.OwnerID, a.Name, a.LabelID, a.StatusID, a.Instructions, a.Unattended, a.RunHour, a.MaxActive, a.WorkflowID, a.PinnedVersion, a.Cron, a.Timezone, a.NextRunAt)
@@ -74,7 +74,7 @@ func (r *AgentAutomationRepository) Create(ctx context.Context, a *domain.AgentA
 
 func (r *AgentAutomationRepository) SetEnabled(ctx context.Context, ws, id uuid.UUID, enabled bool) (*domain.AgentAutomation, error) {
 	automation := &domain.AgentAutomation{}
-	err := r.db.GetContext(ctx, automation, `UPDATE agent_automations SET enabled=$3,updated_at=now() WHERE id=$1 AND workspace_id=$2 RETURNING *`, id, ws, enabled)
+	err := r.db.GetContext(ctx, automation, `UPDATE agent_automations SET enabled=$3,schedule_error=NULL,updated_at=now() WHERE id=$1 AND workspace_id=$2 AND `+teamVisible(ctx, "team_id")+` RETURNING *`, id, ws, enabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrAutomationNotFound
 	}
@@ -82,7 +82,7 @@ func (r *AgentAutomationRepository) SetEnabled(ctx context.Context, ws, id uuid.
 }
 
 func (r *AgentAutomationRepository) Delete(ctx context.Context, ws, id uuid.UUID) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM agent_automations WHERE id=$1 AND workspace_id=$2`, id, ws)
+	result, err := r.db.ExecContext(ctx, `DELETE FROM agent_automations WHERE id=$1 AND workspace_id=$2 AND `+teamVisible(ctx, "team_id"), id, ws)
 	if err != nil {
 		return err
 	}
@@ -93,10 +93,19 @@ func (r *AgentAutomationRepository) Delete(ctx context.Context, ws, id uuid.UUID
 }
 
 // Runs lists a workspace's recent runs, newest first.
-func (r *AgentAutomationRepository) Runs(ctx context.Context, ws uuid.UUID, limit int) ([]domain.AgentAutomationRunView, error) {
+func (r *AgentAutomationRepository) Runs(ctx context.Context, ws uuid.UUID, rule, before *uuid.UUID, limit int) ([]domain.AgentAutomationRunView, error) {
 	runs := []domain.AgentAutomationRunView{}
-	err := r.db.SelectContext(ctx, &runs, `SELECT `+runViewColumns+` FROM agent_automation_runs r JOIN agent_automations a ON a.id=r.automation_id JOIN issues i ON i.id=r.issue_id
- WHERE r.workspace_id=$1 ORDER BY r.created_at DESC, r.id LIMIT $2`, ws, limit)
+	actor, _ := domain.AccessFromContext(ctx)
+	err := r.db.SelectContext(ctx, &runs, `SELECT `+runViewColumns+`,w.name AS workflow_name,v.version AS task_version,
+ t.workflow_node AS task_step,t.state AS task_state, (r.status='failed' AND a.enabled AND COALESCE(r.actor_id=$5,false)) AS can_replay
+ FROM agent_automation_runs r JOIN agent_automations a ON a.id=r.automation_id JOIN issues i ON i.id=r.issue_id
+ LEFT JOIN agent_tasks t ON t.id=r.task_id AND t.workspace_id=r.workspace_id
+ LEFT JOIN workflow_versions v ON v.id=t.workflow_version_id AND v.workspace_id=r.workspace_id
+ LEFT JOIN workflows w ON w.id=COALESCE(v.workflow_id,a.workflow_id) AND w.workspace_id=r.workspace_id
+ WHERE r.workspace_id=$1 AND ($3::uuid IS NULL OR a.id=$3)
+ AND ($4::uuid IS NULL OR (r.created_at,r.id)<(SELECT b.created_at,b.id FROM agent_automation_runs b WHERE b.id=$4 AND b.workspace_id=$1 AND b.automation_id=$3))
+ AND `+teamVisible(ctx, "i.team_id")+` AND `+teamVisible(ctx, "a.team_id")+`
+ ORDER BY r.created_at DESC,r.id DESC LIMIT $2`, ws, limit, rule, before, actor.UserID)
 	return runs, err
 }
 
@@ -110,6 +119,10 @@ func (r *AgentAutomationRepository) Claim(ctx context.Context, limit int) ([]dom
 		return nil, err
 	}
 	defer tx.Rollback()
+	var now time.Time
+	if err = tx.GetContext(ctx, &now, `SELECT now()`); err != nil {
+		return nil, err
+	}
 	var automations []domain.AgentAutomation
 	if err = tx.SelectContext(ctx, &automations, `SELECT a.* FROM agent_automations a JOIN dev_machine_workspace_policies p ON p.workspace_id=a.workspace_id AND p.enabled
  WHERE a.enabled AND (a.next_run_at IS NULL OR a.next_run_at <= now()) AND (a.run_hour IS NULL OR a.run_hour=extract(hour FROM now() AT TIME ZONE 'UTC'))
@@ -119,9 +132,14 @@ func (r *AgentAutomationRepository) Claim(ctx context.Context, limit int) ([]dom
 	claimed := []domain.AgentAutomationRunView{}
 	for _, a := range automations {
 		if a.Cron != "" {
-			next, err := domain.NextAutomationCron(a.Cron, a.Timezone, time.Now())
-			if err != nil {
-				return nil, err
+			next, scheduleErr := domain.NextAutomationCron(a.Cron, a.Timezone, now)
+			if scheduleErr != nil {
+				// A timezone can disappear after a tzdata update. Isolate an
+				// invalid schedule so other rules and pending starts still run.
+				if _, err = tx.ExecContext(ctx, `UPDATE agent_automations SET enabled=false,schedule_error=$2,updated_at=now() WHERE id=$1`, a.ID, "Cannot determine the next run. Check the cron expression and timezone."); err != nil {
+					return nil, err
+				}
+				continue
 			}
 			a.NextRunAt = &next
 		}
@@ -129,9 +147,7 @@ func (r *AgentAutomationRepository) Claim(ctx context.Context, limit int) ([]dom
 			return nil, err
 		}
 		var active int
-		if err = tx.GetContext(ctx, &active, `SELECT count(*) FROM agent_automation_runs r LEFT JOIN agent_tasks t ON t.id=r.task_id
- WHERE r.automation_id=$1 AND (r.status IN ('pending_approval','starting') OR (r.status='started' AND t.state NOT IN ('completed','cancelled','failed')))
- AND (r.issue_id IS NULL OR EXISTS (SELECT 1 FROM issues live_issue WHERE live_issue.id=r.issue_id))`, a.ID); err != nil {
+		if err = tx.GetContext(ctx, &active, automationActiveCount, a.ID); err != nil {
 			return nil, err
 		}
 		if active >= a.MaxActive {
@@ -146,7 +162,7 @@ func (r *AgentAutomationRepository) Claim(ctx context.Context, limit int) ([]dom
  JOIN dev_machine_workspace_policies p ON p.workspace_id=a.workspace_id
  JOIN issues i ON i.team_id=a.team_id AND i.workspace_id=a.workspace_id
  JOIN team_statuses s ON s.id=i.status_id
- WHERE a.id=$1
+ WHERE a.id=$1 AND kuayle_team_access(a.team_id,a.owner_id,a.workspace_id)
  AND (a.status_id IS NULL OR i.status_id=a.status_id)
  AND (a.status_id IS NOT NULL OR s.category NOT IN ('completed','cancelled'))
  AND (a.label_id IS NULL OR EXISTS(SELECT 1 FROM issue_labels l WHERE l.issue_id=i.id AND l.label_id=a.label_id))
@@ -168,6 +184,13 @@ func (r *AgentAutomationRepository) Claim(ctx context.Context, limit int) ([]dom
 		if err = tx.SelectContext(ctx, &runs, tx.Rebind(query), args...); err != nil {
 			return nil, err
 		}
+		for _, run := range runs {
+			if run.Status == "pending_approval" {
+				if err := recordAutomationApproval(ctx, tx, run); err != nil {
+					return nil, err
+				}
+			}
+		}
 		claimed = append(claimed, runs...)
 	}
 	return claimed, tx.Commit()
@@ -177,7 +200,7 @@ func (r *AgentAutomationRepository) Claim(ctx context.Context, limit int) ([]dom
 func (r *AgentAutomationRepository) Starting(ctx context.Context, limit int) ([]domain.AgentAutomationRunView, error) {
 	runs := []domain.AgentAutomationRunView{}
 	err := r.db.SelectContext(ctx, &runs, `SELECT `+runViewColumns+` FROM agent_automation_runs r JOIN agent_automations a ON a.id=r.automation_id JOIN issues i ON i.id=r.issue_id
- WHERE r.status='starting' ORDER BY r.updated_at LIMIT $1`, limit)
+ WHERE r.status='starting' AND r.available_at<=now() ORDER BY r.available_at, r.id LIMIT $1`, limit)
 	return runs, err
 }
 
@@ -189,8 +212,9 @@ func (r *AgentAutomationRepository) Decide(ctx context.Context, ws, id, actor uu
 		status = "starting"
 	}
 	var updated uuid.UUID
-	err := r.db.GetContext(ctx, &updated, `UPDATE agent_automation_runs r SET status=$4,actor_id=CASE WHEN $4='starting' THEN $3::uuid ELSE r.actor_id END,updated_at=now()
+	err := r.db.GetContext(ctx, &updated, `UPDATE agent_automation_runs r SET status=$4,approved=($4='starting'),actor_id=CASE WHEN $4='starting' THEN $3::uuid ELSE r.actor_id END,updated_at=now()
  FROM agent_automations a WHERE r.id=$1 AND r.workspace_id=$2 AND a.id=r.automation_id AND r.status='pending_approval' AND ($5 OR a.owner_id=$3)
+ AND `+teamVisible(ctx, "a.team_id")+` AND `+issueVisible(ctx, "r.issue_id")+`
  RETURNING r.id`, id, ws, actor, status, admin)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrAutomationNotFound
@@ -203,19 +227,13 @@ func (r *AgentAutomationRepository) Decide(ctx context.Context, ws, id, actor uu
 
 func (r *AgentAutomationRepository) Run(ctx context.Context, ws, id uuid.UUID) (*domain.AgentAutomationRunView, error) {
 	run := &domain.AgentAutomationRunView{}
-	err := r.db.GetContext(ctx, run, `SELECT `+runViewColumns+` FROM agent_automation_runs r JOIN agent_automations a ON a.id=r.automation_id JOIN issues i ON i.id=r.issue_id WHERE r.id=$1 AND r.workspace_id=$2`, id, ws)
+	err := r.db.GetContext(ctx, run, `SELECT `+runViewColumns+` FROM agent_automation_runs r JOIN agent_automations a ON a.id=r.automation_id JOIN issues i ON i.id=r.issue_id WHERE r.id=$1 AND r.workspace_id=$2 AND `+teamVisible(ctx, "a.team_id")+` AND `+teamVisible(ctx, "i.team_id"), id, ws)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrAutomationNotFound
 	}
 	return run, err
 }
 
-// Finish settles a starting run once; a concurrent finisher is a no-op.
-func (r *AgentAutomationRepository) Finish(ctx context.Context, id uuid.UUID, task *uuid.UUID, failure string) error {
-	status, message := "started", sql.NullString{}
-	if task == nil {
-		status, message = "failed", sql.NullString{String: failure, Valid: true}
-	}
-	_, err := r.db.ExecContext(ctx, `UPDATE agent_automation_runs SET status=$2,task_id=$3,error=left($4,1024),updated_at=now() WHERE id=$1 AND status='starting'`, id, status, task, message)
-	return err
-}
+const automationActiveCount = `SELECT count(*) FROM agent_automation_runs r LEFT JOIN agent_tasks t ON t.id=r.task_id
+ WHERE r.automation_id=$1 AND (r.status IN ('pending_approval','starting') OR (r.status='started' AND t.state NOT IN ('completed','cancelled','failed')))
+ AND (r.issue_id IS NULL OR EXISTS (SELECT 1 FROM issues live_issue WHERE live_issue.id=r.issue_id))`

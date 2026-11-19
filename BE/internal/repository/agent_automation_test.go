@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -68,6 +69,9 @@ func TestAutomationsClaimEachOpenMatchOnceWithinTheBudget(t *testing.T) {
 	require.Equal(t, "pending_approval", claimed[0].Status, "rules need approval by default")
 	require.Nil(t, claimed[0].ActorID)
 	require.Equal(t, "AUT-1", claimed[0].IssueIdentifier)
+	var notice string
+	require.NoError(t, f.db.Get(&notice, `SELECT title FROM notifications WHERE user_id=$1 AND issue_id=$2 AND type='agent_automation_approval'`, f.user, f.labelled))
+	require.Contains(t, notice, "Agent label wants to start a coding task on AUT-1")
 	again, err := f.repo.Claim(f.ctx, 10)
 	require.NoError(t, err)
 	require.Empty(t, again, "a match runs at most once")
@@ -163,11 +167,14 @@ func TestOnlyTheOwnerOrAnAdminDecidesAndTheApproverActs(t *testing.T) {
 
 	chat, err := NewConversationRepository(f.db).OpenIssue(f.ctx, f.workspace, f.labelled)
 	require.NoError(t, err)
+	leased, err := f.repo.LeaseStart(f.ctx, f.workspace, run.ID)
+	require.NoError(t, err)
+	require.NotNil(t, leased)
 	created, err := NewAgentTaskRepository(f.db).Create(f.ctx, f.workspace, chat.ID, domain.AgentTaskRequest{RequestID: run.RequestID, Prompt: "Fix it", Provider: "codex"})
 	require.NoError(t, err)
 	task := created.ID
-	require.NoError(t, f.repo.Finish(f.ctx, run.ID, &task, ""))
-	require.NoError(t, f.repo.Finish(f.ctx, run.ID, nil, "late failure"), "a settled run is not changed")
+	require.NoError(t, f.repo.Finish(f.ctx, *leased, &task, "", false))
+	require.NoError(t, f.repo.Finish(f.ctx, *leased, nil, "late failure", false), "a settled run is not changed")
 	settled, err := f.repo.Run(f.ctx, f.workspace, run.ID)
 	require.NoError(t, err)
 	require.Equal(t, "started", settled.Status)
@@ -203,4 +210,130 @@ func TestCronClaimsOnceWhenOverdueAndAdvancesEmptyMatches(t *testing.T) {
 		require.True(t, next.After(time.Now()))
 		require.WithinDuration(t, time.Now(), next, 15*time.Minute)
 	}
+}
+
+func TestAutomationLeaseFencesStaleWorkersAndRechecksUnattendedPolicy(t *testing.T) {
+	f := newAutomationFixture(t)
+	f.rule(t, func(a *domain.AgentAutomation) { a.Unattended = true })
+	_, err := f.db.Exec(`UPDATE dev_machine_workspace_policies SET allow_unattended_automations=true WHERE workspace_id=$1`, f.workspace)
+	require.NoError(t, err)
+	claimed, err := f.repo.Claim(f.ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	id := claimed[0].ID
+	first, err := f.repo.LeaseStart(f.ctx, f.workspace, id)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	busy, err := f.repo.LeaseStart(f.ctx, f.workspace, id)
+	require.NoError(t, err)
+	require.Nil(t, busy)
+	_, err = f.db.Exec(`UPDATE agent_automation_runs SET available_at=now() WHERE id=$1`, id)
+	require.NoError(t, err)
+	second, err := f.repo.LeaseStart(f.ctx, f.workspace, id)
+	require.NoError(t, err)
+	require.NotEqual(t, first.LeaseID, second.LeaseID)
+	require.NoError(t, f.repo.Finish(f.ctx, *first, nil, "stale refusal", false))
+	require.NoError(t, f.repo.Finish(f.ctx, *second, nil, "temporary failure", true))
+	delayed, err := f.repo.Starting(f.ctx, 20)
+	require.NoError(t, err)
+	require.Empty(t, delayed)
+	_, err = f.db.Exec(`UPDATE dev_machine_workspace_policies SET allow_unattended_automations=false WHERE workspace_id=$1`, f.workspace)
+	require.NoError(t, err)
+	_, err = f.db.Exec(`UPDATE agent_automation_runs SET available_at=now() WHERE id=$1`, id)
+	require.NoError(t, err)
+	stopped, err := f.repo.LeaseStart(f.ctx, f.workspace, id)
+	require.NoError(t, err)
+	require.Nil(t, stopped)
+	pending, err := f.repo.Run(f.ctx, f.workspace, id)
+	require.NoError(t, err)
+	require.Equal(t, "pending_approval", pending.Status)
+	require.Nil(t, pending.ActorID)
+	var count int
+	require.NoError(t, f.db.Get(&count, `SELECT count(*) FROM notifications WHERE user_id=$1 AND type='agent_automation_approval'`, f.user))
+	require.Equal(t, 1, count)
+}
+
+func TestAutomationHistoryFiltersByRuleBeforePagination(t *testing.T) {
+	f := newAutomationFixture(t)
+	rule := f.rule(t, func(a *domain.AgentAutomation) { a.StatusID = &f.todo; a.LabelID = nil; a.MaxActive = 5 })
+	f.rule(t, nil)
+	_, err := f.repo.Claim(f.ctx, 50)
+	require.NoError(t, err)
+	page, err := f.repo.Runs(f.ctx, f.workspace, &rule.ID, nil, 1)
+	require.NoError(t, err)
+	require.Len(t, page, 1)
+	older, err := f.repo.Runs(f.ctx, f.workspace, &rule.ID, &page[0].ID, 1)
+	require.NoError(t, err)
+	require.Len(t, older, 1)
+	require.NotEqual(t, page[0].ID, older[0].ID)
+	require.Equal(t, rule.ID, older[0].AutomationID)
+	outsider := domain.WithAccess(f.ctx, domain.Access{WorkspaceID: f.workspace, UserID: uuid.New()})
+	denied, err := f.repo.Runs(outsider, f.workspace, &rule.ID, nil, 50)
+	require.NoError(t, err)
+	require.Empty(t, denied)
+}
+
+func TestDeletingReferencedWorkflowPreservesRuleAndHistory(t *testing.T) {
+	f := newAutomationFixture(t)
+	w := NewWorkflowRepository(f.db)
+	implementer, reviewer := builtinIDs(t, w, f.workspace)
+	graph, err := json.Marshal(domain.ReviewLoopWorkflowGraph(implementer, reviewer))
+	require.NoError(t, err)
+	workflow, err := w.CreateWorkflow(f.ctx, f.workspace, f.user, "Review", "", graph, "created")
+	require.NoError(t, err)
+	rule := f.rule(t, func(a *domain.AgentAutomation) { a.WorkflowID = &workflow.ID })
+	_, err = f.repo.Claim(f.ctx, 1)
+	require.NoError(t, err)
+	require.ErrorIs(t, w.DeleteWorkflow(f.ctx, f.workspace, workflow.ID, f.user), ErrWorkflowAutomation)
+	history, err := f.repo.Runs(f.ctx, f.workspace, &rule.ID, nil, 50)
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+}
+
+func TestAutomationRejectsForeignUnpublishedAndAgentlessWorkflows(t *testing.T) {
+	f := newAutomationFixture(t)
+	other := newEnvironmentRaceFixture(t, f.db)
+	insert := func(ws uuid.UUID, name string, graph string) uuid.UUID {
+		t.Helper()
+		var id uuid.UUID
+		require.NoError(t, f.db.Get(&id, `INSERT INTO workflows(workspace_id,name) VALUES($1,$2) RETURNING id`, ws, name))
+		if graph != "" {
+			_, err := f.db.Exec(`INSERT INTO workflow_versions(workspace_id,workflow_id,version,graph) VALUES($1,$2,1,$3)`, ws, id, graph)
+			require.NoError(t, err)
+			_, err = f.db.Exec(`UPDATE workflows SET latest_version=1 WHERE id=$1`, id)
+			require.NoError(t, err)
+		}
+		return id
+	}
+	foreignProfiles := NewWorkflowRepository(f.db)
+	implementer, reviewer := builtinIDs(t, foreignProfiles, other.workspaceID)
+	graph, err := json.Marshal(domain.ReviewLoopWorkflowGraph(implementer, reviewer))
+	require.NoError(t, err)
+	for _, id := range []uuid.UUID{
+		insert(other.workspaceID, "Private", string(graph)),
+		insert(f.workspace, "Draft", ""),
+		insert(f.workspace, "Missing agent", `{"nodes":[{"id":"start","type":"start"}],"edges":[]}`),
+	} {
+		rule := domain.AgentAutomation{WorkspaceID: f.workspace, TeamID: f.team, OwnerID: f.user, StatusID: &f.todo, Name: "Test", Instructions: "Inspect the change", MaxActive: 1, WorkflowID: &id}
+		require.ErrorIs(t, f.repo.Create(f.ctx, &rule, true), ErrAutomationNotFound)
+	}
+}
+
+func TestBrokenCronCannotBlockOtherRules(t *testing.T) {
+	f := newAutomationFixture(t)
+	past := time.Now().Add(-time.Minute)
+	broken := f.rule(t, func(a *domain.AgentAutomation) {
+		a.Cron = "0 9 * * *"
+		a.Timezone = "Zone/Removed"
+		a.NextRunAt = &past
+	})
+	good := f.rule(t, nil)
+	runs, err := f.repo.Claim(f.ctx, 50)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	require.Equal(t, good.ID, runs[0].AutomationID)
+	var disabled domain.AgentAutomation
+	require.NoError(t, f.db.Get(&disabled, `SELECT * FROM agent_automations WHERE id=$1`, broken.ID))
+	require.False(t, disabled.Enabled)
+	require.NotEmpty(t, disabled.ScheduleError)
 }
