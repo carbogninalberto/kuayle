@@ -126,7 +126,7 @@ func (t *AssistantTools) applyBulkChange(ctx context.Context, ws, actor uuid.UUI
 		}
 		labels = append(labels, id)
 	}
-	_, id, err := t.updateIssue(domain.WithActingAgent(ctx, "assistant"), ws, actor, result.Identifier, request)
+	_, id, err := t.updateIssue(domain.WithActingAgent(ctx, "assistant"), ws, actor, result.Identifier, request, assistantIssueFields{})
 	if err != nil {
 		return fail(toolErrorText(err))
 	}

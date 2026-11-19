@@ -741,6 +741,64 @@ test('renders recorded tool calls from history and live events as escaped data',
 	await expect(page.getByRole('button', { name: 'Updated ENG-7' })).toBeVisible();
 });
 
+test('shows issue metadata, valid options and a saved issue warning', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'ENG-7 was created. Check the cycle name for the update.' };
+	state.messages = [
+		{ ...userMessage, content: 'Create an issue assigned to me, due Friday, in Sprint X with label Needs QA.' },
+		answered
+	];
+	const created = {
+		id: 'tool-1',
+		conversation_id: 'chat-1',
+		message_id: answered.id,
+		sequence: 0,
+		call_id: 'call_1',
+		name: 'create_issue',
+		input: { team_key: 'ENG', title: 'Ship the fix', assignees: ['me'], due_date: '2026-11-20', cycle: 'Sprint X', labels: ['Needs QA'] },
+		status: 'completed',
+		output: { identifier: 'ENG-7', title: 'Ship the fix' },
+		created_at: conversation.created_at
+	};
+	const error = 'cycle value "Sprint Z" did not match. Valid options include "Sprint X" (more options available)';
+	const warning = 'Issue ENG-8 was created. The requested labels could not be confirmed. Check the existing issue and use update_issue if a correction is needed.';
+	state.tools = [
+		created,
+		{
+			...created,
+			id: 'tool-2',
+			sequence: 1,
+			call_id: 'call_2',
+			name: 'update_issue',
+			input: { identifier: 'ENG-7', cycle: 'Sprint Z' },
+			status: 'failed',
+			output: undefined,
+			error
+		},
+		{
+			...created,
+			id: 'tool-3',
+			sequence: 2,
+			call_id: 'call_3',
+			input: { team_key: 'ENG', title: 'Check the fix', labels: ['Needs QA'] },
+			status: 'failed',
+			output: undefined,
+			error: warning
+		}
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByRole('button', { name: 'Created ENG-7' }).click();
+	const toolCode = page.locator('[data-slot="code-block-code"]');
+	const createInput = toolCode.filter({ hasText: '"due_date"' });
+	for (const value of ['"me"', '"2026-11-20"', '"Sprint X"', '"Needs QA"']) {
+		await expect(createInput).toContainText(value);
+	}
+	await page.getByRole('button', { name: 'Failed to run Update issue' }).click();
+	await expect(toolCode.filter({ hasText: error })).toBeVisible();
+	await page.getByRole('button', { name: 'Failed to run Create issue' }).click();
+	await expect(toolCode.filter({ hasText: warning })).toBeVisible();
+});
+
 test('asks for approval before delegating and records the decision from the backend', async ({ page }) => {
 	const state = await fixture(page);
 	const answered = { ...reply, status: 'completed', content: 'Approval is pending.' };
