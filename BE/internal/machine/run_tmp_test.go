@@ -114,17 +114,28 @@ func TestAutonomousAgentContainerUsesARunDirectory(t *testing.T) {
 			defer docker.Close()
 			machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture", DockerNetworkName: ptr("network"), WorkspaceVolumeName: ptr("volume")}
 			run := &domain.DevMachineAgentRun{ID: uuid.New(), Mode: mode, CommandArgv: []byte(`["codex"]`)}
+			var checkout *domain.DevMachineCheckout
+			var secrets map[string]string
+			taskID := uuid.New()
+			project := "COMPOSE_PROJECT_NAME=rec1-" + taskID.String()
+			if mode == "autonomous" {
+				run.TaskID = &taskID
+				checkout = &domain.DevMachineCheckout{ScopeKey: taskID.String(), WorkspacePath: "/workspace/tasks/rec.1-" + taskID.String()}
+				secrets = map[string]string{"KUAYLE_DOCKER_HOST": "tcp://docker:2376"}
+			}
 			stop := errors.New("stop after create")
-			_, err = (&DockerRuntime{client: docker}).RunAgent(context.Background(), machine, run, &domain.DevMachineAgentProvider{ImageRef: "fixture"}, nil, nil, &AgentObserver{Authorize: func() error { return stop }})
+			_, err = (&DockerRuntime{client: docker}).RunAgent(context.Background(), machine, run, &domain.DevMachineAgentProvider{ImageRef: "fixture"}, checkout, secrets, &AgentObserver{Authorize: func() error { return stop }})
 			require.ErrorIs(t, err, stop)
 			gocache := "GOCACHE=/workspace/.kuayle/tmp/agent-" + run.ID.String() + "/cache/go-build"
 			if mode == "interactive" {
 				require.Equal(t, []string{"/usr/local/bin/kuayle-agent-runner"}, input.Entrypoint)
 				require.NotContains(t, input.Env, gocache)
 				require.NotContains(t, input.Env, "XDG_DATA_HOME=/workspace/.kuayle/tmp/agent-"+run.ID.String()+"/data")
+				require.NotContains(t, input.Env, project)
 				return
 			}
 			require.Equal(t, agentEntrypoint([]string{"/usr/local/bin/kuayle-agent-runner"}), input.Entrypoint)
+			require.Contains(t, input.Env, project)
 			require.Contains(t, input.Env, gocache)
 			require.Contains(t, input.Env, "TMPDIR=/workspace/.kuayle/tmp/agent-"+run.ID.String()+"/tmp")
 			require.Contains(t, input.Env, "XDG_DATA_HOME=/workspace/.kuayle/tmp/agent-"+run.ID.String()+"/data", "OpenCode's database and snapshots stay off the home tmpfs")

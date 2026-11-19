@@ -57,6 +57,8 @@ type ManagerStore interface {
 	SetListeningPorts(context.Context, uuid.UUID, []int, []int) error
 	ListPortScanMachines(context.Context, int) ([]domain.DevMachine, error)
 	TaskForWorktree(context.Context, uuid.UUID, string) (*uuid.UUID, error)
+	QueueTaskResourceCleanup(context.Context, time.Time, int) (int64, error)
+	BeginTaskResourceCleanup(context.Context, domain.DevMachineOperation, time.Time) (*domain.DevMachineCheckout, []uuid.UUID, error)
 	PreviewTarget(context.Context, uuid.UUID) (*repository.TaskPreviewTarget, error)
 	SetTaskPreview(context.Context, uuid.UUID, string, *string, *domain.DevMachinePort) error
 	StopTaskPreview(context.Context, uuid.UUID) error
@@ -621,7 +623,7 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 	}
 	if operation.Generation < machine.Generation {
 		switch operation.Action {
-		case domain.DevMachineOpTeardown, domain.DevMachineOpCancelAgent, domain.DevMachineOpTerminateTerminal, domain.DevMachineOpPurgeTaskSession, domain.DevMachineOpStopPreview:
+		case domain.DevMachineOpTeardown, domain.DevMachineOpCancelAgent, domain.DevMachineOpTerminateTerminal, domain.DevMachineOpPurgeTaskSession, domain.DevMachineOpCleanupTask, domain.DevMachineOpStopPreview:
 			// Destructive cleanup must still converge after a newer generation.
 		case domain.DevMachineOpStartPreview:
 			return m.stalePreview(ctx, operation)
@@ -838,6 +840,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		return err
 	case domain.DevMachineOpPurgeTaskSession:
 		return m.purgeTaskSession(ctx, machine, operation)
+	case domain.DevMachineOpCleanupTask:
+		return m.cleanupTask(ctx, machine, services, operation)
 	case domain.DevMachineOpStartPreview:
 		return m.startPreview(ctx, machine, operation)
 	case domain.DevMachineOpStopPreview:
@@ -1796,6 +1800,9 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	}
 	if _, err := m.store.PurgeAccessLogs(ctx, now.Add(-gatewayAccessLogRetention), gatewayAccessLogPurgeBatch); err != nil {
 		log.WithError(err).Warn("gateway access log purge failed")
+	}
+	if _, err := m.store.QueueTaskResourceCleanup(ctx, now, 100); err != nil {
+		log.WithError(err).Warn("task resource cleanup queue failed")
 	}
 	timedOutRuns, err := m.store.ListTimedOutAgentRuns(ctx, 100)
 	if err != nil {

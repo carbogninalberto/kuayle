@@ -463,6 +463,14 @@ func (f *managerStoreFake) GetGitHubAppConfig(context.Context, uuid.UUID) (*doma
 	f.githubAppConfigCalls++
 	return nil, nil
 }
+func (f *managerStoreFake) QueueTaskResourceCleanup(context.Context, time.Time, int) (int64, error) {
+	return 0, nil
+}
+
+func (f *managerStoreFake) BeginTaskResourceCleanup(context.Context, domain.DevMachineOperation, time.Time) (*domain.DevMachineCheckout, []uuid.UUID, error) {
+	return nil, nil, nil
+}
+
 func (f *managerStoreFake) GetCheckoutInternal(context.Context, uuid.UUID) (*domain.DevMachineCheckout, error) {
 	return f.checkout, nil
 }
@@ -635,6 +643,10 @@ type runtimeFake struct {
 	// previewRemovals records, per RemovePreviews call, what had run before.
 	previewRemovals   []string
 	removePreviewsErr error
+}
+
+func (f *runtimeFake) CleanupTaskResources(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, uuid.UUID, []uuid.UUID) error {
+	return nil
 }
 
 func (f *runtimeFake) SyncAgentSignIns(_ context.Context, _ []domain.DevMachineService, files map[string]string) error {
