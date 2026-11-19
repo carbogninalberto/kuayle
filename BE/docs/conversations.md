@@ -911,13 +911,14 @@ issue `identifier`) to the conversation that owns the task, when that
 conversation's creator is the task's creator; this includes messages the
 machine manager records while the attempt runs, so an open chat updates within
 seconds. History returns `agent_messages`: the accepted (`received`)
-`from_agent` messages of the conversation's tasks in the page's span of time
+`from_agent` messages and the creator's queued or delivered `to_agent` messages
+of the conversation's tasks in the page's span of time
 (from its oldest message, or the beginning for the oldest page, up to the
 next newer page),
 newest 200, oldest first, labelled with their issue. The chat places them
 between its messages by time as distinct items labelled "Coding agent ·
-ENG-1", rendered as escaped plain text (never Markdown, so no links, images or
-HTML), with a note that the assistant does not act on them unless asked. A
+ENG-1" or "You · ENG-1", rendered as escaped plain text. Incoming items carry a
+note that the assistant does not act on them unless asked. A
 `kind: "question"` item is marked as a question, and one that arrives live
 raises a toast; the creator also gets a [Telegram notice](telegram.md#task-notifications)
 when linked. The agent view shows both directions with their delivery state

@@ -1,4 +1,4 @@
-import type { AgentLiveChatMessage, AgentTask, TaskActivity } from '$lib/api/agent-tasks';
+import type { AgentLiveChatMessage, AgentLiveMessage, AgentTask, TaskActivity } from '$lib/api/agent-tasks';
 import {
 	conversations,
 	type Conversation,
@@ -149,11 +149,11 @@ export class ConversationState {
 		} else if (event.type === 'task.live_message') {
 			const message = event.payload as AgentLiveChatMessage;
 			this.taskLiveCursor = { ...this.taskLiveCursor, [message.task_id]: event.cursor };
-			if (message.direction === 'from_agent' && message.state === 'received') {
-				const known = this.agentMessages.some((m) => m.id === message.id);
-				this.acceptAgentMessages([message]);
-				if (!known && message.kind === 'question') this.onAgentQuestion?.(message);
-			}
+			const receivedQuestion =
+				message.direction === 'from_agent' && message.state === 'received' && message.kind === 'question' &&
+				!this.agentMessages.some((known) => known.id === message.id);
+			this.acceptAgentMessages([message]);
+			if (receivedQuestion) this.onAgentQuestion?.(message);
 		} else if (event.type === 'task.workflow_updated') {
 			const data = event.payload as { task_id: string };
 			this.taskWorkflowCursor = { ...this.taskWorkflowCursor, [data.task_id]: event.cursor };
@@ -211,16 +211,25 @@ export class ConversationState {
 		this.tools = next;
 	}
 	acceptAgentMessages(messages: AgentLiveChatMessage[]) {
+		if (this.disposed || this.unavailable) return;
 		const fresh = messages.filter(
 			(message) =>
-				message.direction === 'from_agent' &&
-				message.state === 'received' &&
+				((message.direction === 'from_agent' && message.state === 'received') ||
+					(message.direction === 'to_agent' && message.sender === 'user' &&
+						(message.state === 'queued' || message.state === 'delivered'))) &&
 				!this.agentMessages.some((known) => known.id === message.id)
 		);
 		if (!fresh.length) return;
 		this.agentMessages = [...this.agentMessages, ...fresh].sort(
 			(a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id)
 		);
+	}
+	recordAgentSend(message: AgentLiveMessage) {
+		if (this.disposed || this.unavailable) return;
+		this.acceptAgentMessages([{ ...message, identifier: this.issue?.identifier ?? '' }]);
+		// The task thread also refreshes when the response arrives before the stream event.
+		const taskId = message.task_id;
+		this.taskLiveCursor = { ...this.taskLiveCursor, [taskId]: -(Math.abs(this.taskLiveCursor[taskId] ?? 0) + 1) };
 	}
 	private reviewChanged(taskId: string) {
 		this.taskReviewCursor = { ...this.taskReviewCursor, [taskId]: (this.taskReviewCursor[taskId] ?? 0) + 1 };
