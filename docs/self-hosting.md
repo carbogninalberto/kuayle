@@ -374,7 +374,7 @@ See the [Microsoft Entra SCIM provisioning guide](https://learn.microsoft.com/en
   membership to active SCIM users, including on private teams. Removing members
   from the group, unmapping the group, or deleting it removes memberships that
   SCIM granted and preserves existing manual memberships.
-- Migration rollback removes SCIM configuration, records and grant tracking.
+- Rolling back migration 183 removes SCIM configuration, records and grant tracking.
   It preserves account and membership rows and does not reconstruct removed
   memberships, refresh sessions or personal access tokens. Pre-existing access
   JWTs may remain valid until they expire if rolled back to a server that does
