@@ -2414,7 +2414,7 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   and no server's default model or thinking level; with no model it runs the
   one OpenCode is configured with. Profiles stored before that check
   still load and are checked when they are saved again.
-- **Stage assistants** (KUA-233, migration 183). In the node inspector, an
+- **Stage assistants** (KUA-233, migration 184). In the node inspector, an
   owner or admin can assign a profile with the “changes code” behaviour to a
   start, check, publish, approval, merge or end. Each visit runs the assistant
   in the task worktree before the built-in action, using the profile's harness,
