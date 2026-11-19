@@ -2208,9 +2208,9 @@ func TestManagerRedactsCredentialsWithoutCorruptingModelConfigurationOrNumbers(t
 	}
 }
 
-func (f *runtimeFake) SyncCheckout(_ context.Context, _ *domain.DevMachine, _ []domain.DevMachineService, _ *domain.DevMachineCheckout, _, published string) (string, error) {
+func (f *runtimeFake) SyncCheckout(_ context.Context, _ *domain.DevMachine, _ []domain.DevMachineService, _ *domain.DevMachineCheckout, request PublishRequest) (string, error) {
 	f.syncs++
-	f.syncPublished = published
+	f.syncPublished = request.PublishedCommit
 	return f.lease, f.syncErr
 }
 

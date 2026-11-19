@@ -240,6 +240,30 @@ func TestExhaustedPublicationFailsInsteadOfWaiting(t *testing.T) {
 	require.Equal(t, domain.DevMachineAgentRunStepStatusFailed, step.Status)
 }
 
+func TestPublicationCheckoutBlockIsRecordedAndPassedToARetry(t *testing.T) {
+	db, repo, ctx, task, claimed := publishingTask(t)
+	_, err := repo.EnsurePublication(ctx, *claimed)
+	require.NoError(t, err)
+	store := NewDevMachineRepository(db)
+	op := leasePublication(t, store, ctx)
+	require.NoError(t, store.StartPublication(ctx, op))
+	reason := "Merge conflicts in notes.md"
+	summary := domain.PublicationCheckoutBlockedCode + ": " + reason
+	retrying, err := store.FailOperation(ctx, op.ID, *op.LeaseOwner, domain.PublicationCheckoutBlockedCode, summary, false)
+	require.NoError(t, err)
+	require.False(t, retrying)
+	step, err := repo.EnsurePublication(ctx, *claimed)
+	require.NoError(t, err)
+	require.Equal(t, domain.DevMachineAgentRunStepStatusFailed, step.Status)
+	require.Equal(t, reason, domain.PublicationCheckoutBlockReason(step.Summary))
+	require.NoError(t, repo.Transition(ctx, *claimed, "blocked", reason))
+	retried, err := repo.Retry(ctx, task.WorkspaceID, task.ID, domain.AgentTaskRetryRequest{RequestID: uuid.New(), Generation: task.Generation, Prompt: "Continue"})
+	require.NoError(t, err)
+	handoff, err := repo.PreviousAttempt(ctx, *retried)
+	require.NoError(t, err)
+	require.Equal(t, reason, handoff.PublicationBlock)
+}
+
 func TestPublicationRejectsRevokedAuthority(t *testing.T) {
 	for _, scenario := range []string{"cancelled", "membership", "policy", "machine_generation", "expired_lease", "superseded_attempt"} {
 		t.Run(scenario, func(t *testing.T) {

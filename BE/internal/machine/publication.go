@@ -88,14 +88,20 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	// instead of being refused. When the agent rewrote the commits Kuayle
 	// published itself, the sync returns Kuayle's published commit as the lease
 	// for a guarded force push instead of changing the checkout.
-	lease, err := m.runtime.SyncCheckout(ctx, machine, services, checkout, token, publication.PublishedCommit)
+	request := PublishRequest{
+		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token, PublishedCommit: publication.PublishedCommit,
+		Message: title + "\n\nKuayle agent task " + run.TaskID.String(),
+	}
+	request.Lease, err = m.runtime.SyncCheckout(ctx, machine, services, checkout, request)
 	if err != nil {
+		var blocked *checkoutSyncBlockedError
+		if errors.As(err, &blocked) {
+			detail := strings.ToValidUTF8(strings.ReplaceAll(blocked.detail, token, "[redacted]"), "�")
+			return &terminalOperationError{code: domain.PublicationCheckoutBlockedCode, message: truncateText(detail, 1900)}
+		}
 		return errors.New("checkout_sync_failed: " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
 	}
-	commit, err := m.runtime.PublishCheckout(ctx, machine, services, checkout, PublishRequest{
-		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token, PublishedCommit: publication.PublishedCommit, Lease: lease,
-		Message: title + "\n\nKuayle agent task " + run.TaskID.String(),
-	})
+	commit, err := m.runtime.PublishCheckout(ctx, machine, services, checkout, request)
 	remains := errors.Is(err, ErrPublishedWorkRemains)
 	if err != nil && !remains {
 		return errors.New("publication_failed: " + strings.ReplaceAll(safeError(err), token, "[redacted]"))

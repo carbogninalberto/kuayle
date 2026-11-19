@@ -287,6 +287,11 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if result == nil {
 			return nil
 		}
+		if reason := domain.PublicationCheckoutBlockReason(result.Summary); result.Status == domain.DevMachineAgentRunStepStatusFailed && reason != "" {
+			// Leave a workflow on its publish step. A retry needs to fix the
+			// checkout before another publication can succeed.
+			return s.store.Transition(ctx, task, "blocked", reason)
+		}
 		if task.RunsWorkflow() {
 			return s.workflowPublished(ctx, task, result)
 		}
@@ -1107,6 +1112,10 @@ func withLiveHandoff(prompt string, previous *domain.AgentHandoff, resumed, cont
 	}
 	if previous.PullRequestURL != "" {
 		fmt.Fprintf(&b, "- Published pull request: %s (keep working on its branch)\n", previous.PullRequestURL)
+	}
+	if previous.PublicationBlock != "" {
+		b.WriteString("- The previous publication is blocked on the checkout. Inspect `git status`, resolve the problem below, and stage any merge resolutions before you finish. Preserve the saved work and the incoming commits.\n")
+		fmt.Fprintf(&b, "~~~text\n%s\n~~~\n", strings.ReplaceAll(previous.PublicationBlock, "~~~", "~ ~ ~"))
 	}
 	if len(previous.ChangedFiles) > 0 {
 		files := previous.ChangedFiles

@@ -89,7 +89,7 @@ func (f *scriptFixture) script(body, input, name string, args ...string) (string
 }
 
 func (f *scriptFixture) sync(published string) (string, error) {
-	return f.script(publishSyncScript, "fixture-credential\n", "sync", "acme/app", "kuayle/rec-1", f.checkout, published)
+	return f.script(publishSyncScript, "fixture-credential\n", "sync", "acme/app", "kuayle/rec-1", f.checkout, published, "Kuayle Agent", "agent@kuayle.invalid", "REC-1: Dark mode")
 }
 
 // commit runs the commit step with a commit message, as the manager does.
@@ -204,10 +204,10 @@ func TestSyncScriptFastForwardsToCommitsOthersPushedAndNeverRewrites(t *testing.
 	pushed := f.run(maintainer, nil, "rev-parse", "HEAD")
 	f.run(maintainer, nil, "push", "-q", f.origin, "kuayle/rec-1")
 	output, err = f.sync(published)
-	require.Error(t, err)
-	require.Contains(t, output, "someone else pushed to the branch")
-	require.Contains(t, output, "cannot be fast-forwarded")
-	require.NotContains(t, output, "lease ")
+	require.NoError(t, err, output)
+	lease, err := parseSyncLease(output)
+	require.ErrorContains(t, err, "have diverged")
+	require.Empty(t, lease)
 	require.Equal(t, local, f.head())
 	require.Equal(t, pushed, f.originTip())
 }
@@ -281,10 +281,10 @@ func TestSyncScriptRefusesDivergenceWhenSomeoneElsePushedAfterKuayle(t *testing.
 	rewritten := f.head()
 
 	output, err := f.sync(published)
-	require.Error(t, err)
-	require.Contains(t, output, "someone else pushed to the branch")
-	require.Contains(t, output, "nothing was force-pushed")
-	require.NotContains(t, output, "lease ")
+	require.NoError(t, err, output)
+	lease, err := parseSyncLease(output)
+	require.ErrorContains(t, err, "have diverged")
+	require.Empty(t, lease)
 	require.Equal(t, rewritten, f.head())
 	require.Equal(t, other, f.originTip(), "nothing was pushed")
 }

@@ -332,10 +332,14 @@ creator, machine generation, enabled policy, live operation lease) on every read
 and write, and checks that the checkout is the task's own ready checkout. It
 first fetches the task branch from GitHub with a credential used only in a fresh
 repository and fast-forwards the checkout to commits others pushed (a maintainer
-merging the base branch into the pull request). When the histories diverged
-because the agent rebased its own branch, GitHub's tip is exactly the commit
-Kuayle recorded as published (`PublishedCommit`) and nobody else pushed: the
-checkout is left alone, and the push is guarded by `--force-with-lease` against
+merging the base branch into the pull request). If pending edits would be
+overwritten, it saves them in a local commit and merges the fetched tip. If the
+merge conflicts, publication blocks on the affected files and keeps the saved
+commit and merge state in the checkout. A retry passes the reason to the agent,
+which can resolve and stage the files so publication can finish the merge.
+When the agent rebased its own branch and GitHub's tip still matches the
+recorded publication (`PublishedCommit`), the checkout is left alone and the
+push is guarded by `--force-with-lease` against
 that tip. The commit step normally rebuilds the agent's changes on the published
 commit, so the guarded push is a fast-forward; it really forces only when the
 published commit is missing from the checkout, and then the push is refused

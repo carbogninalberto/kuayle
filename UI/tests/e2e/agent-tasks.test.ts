@@ -1010,6 +1010,24 @@ test('runs the check from the task card and shows the manual check live, apart f
 	).toBeVisible();
 });
 
+test('a publish conflict names the file and leaves a retry available', async ({ page }, testInfo) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const reason = 'Merge conflicts in BE/docs/conversations.md';
+	state.task = { ...state.task, state: 'blocked', reason };
+	emit('task.state_changed', state.task);
+	const step = page.getByRole('group', { name: 'Agent task for ENG-1' });
+	await expect(step.getByText(`Stopped: ${reason}`, { exact: true })).toBeVisible();
+	await expect(page.getByRole('region', { name: 'Coding tasks' }).getByText('Blocked', { exact: true })).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('publish-checkout-conflict.png') });
+	await step.getByRole('button', { name: 'Retry this task' }).click();
+	const retry = page.getByRole('dialog', { name: 'Retry task', exact: true });
+	await retry.getByRole('textbox', { name: 'Task instructions' }).fill('Keep both sets of edits');
+	await retry.getByRole('button', { name: 'Retry task', exact: true }).click();
+	await expect.poll(() => state.retries.length).toBe(1);
+});
+
 test('opens the recorded pull request only after publication succeeds', async ({ page }) => {
 	const { state, emit } = await fixture(page);
 	await page.goto('/test/assistant?conversation=chat-1');
