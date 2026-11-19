@@ -34,7 +34,8 @@ var (
 	ErrWorkflowScopeNotFound      = errors.New("workflow default scope not found")
 	// ErrWorkflowInUse: a task that can still move runs a version of the
 	// workflow, so it cannot be deleted yet.
-	ErrWorkflowInUse = errors.New("workflow is used by an active task")
+	ErrWorkflowInUse      = errors.New("workflow is used by an active task")
+	ErrWorkflowAutomation = errors.New("workflow is used by an automation")
 )
 
 // WorkflowRepository stores agent profiles, workflows, their immutable
@@ -511,6 +512,13 @@ func (r *WorkflowRepository) DeleteWorkflow(ctx context.Context, ws, id, actor u
 	if active {
 		return ErrWorkflowInUse
 	}
+	var automated bool
+	if err = tx.GetContext(ctx, &automated, `SELECT EXISTS(SELECT 1 FROM agent_automations WHERE workspace_id=$1 AND workflow_id=$2)`, ws, id); err != nil {
+		return err
+	}
+	if automated {
+		return ErrWorkflowAutomation
+	}
 	var detached int
 	if err = tx.GetContext(ctx, &detached, `WITH d AS (UPDATE agent_tasks t SET workflow_version_id=NULL,workflow_wake_at=NULL
  FROM workflow_versions v WHERE v.id=t.workflow_version_id AND v.workflow_id=$1 AND t.workspace_id=$2 RETURNING 1) SELECT count(*) FROM d`, id, ws); err != nil {
@@ -625,9 +633,13 @@ func resolveWorkflowVersion(ctx context.Context, q sqlx.QueryerContext, ws, issu
 		}
 		workflowID = row.WorkflowID
 	}
+	return publishedWorkflowVersion(ctx, q, ws, *workflowID, nil)
+}
+
+func publishedWorkflowVersion(ctx context.Context, q sqlx.QueryerContext, ws, workflow uuid.UUID, number *int) (*domain.WorkflowVersion, error) {
 	version := &domain.WorkflowVersion{}
-	err := sqlx.GetContext(ctx, q, version, `SELECT v.* FROM workflows w JOIN workflow_versions v ON v.workflow_id=w.id AND v.version=w.latest_version
- WHERE w.id=$1 AND w.workspace_id=$2 AND w.archived_at IS NULL`, workflowID, ws)
+	err := sqlx.GetContext(ctx, q, version, `SELECT v.* FROM workflows w JOIN workflow_versions v ON v.workflow_id=w.id AND v.version=COALESCE($3,w.latest_version)
+ WHERE w.id=$1 AND w.workspace_id=$2 AND w.archived_at IS NULL FOR SHARE OF w`, workflow, ws, number)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrWorkflowNotFound
 	}
@@ -649,4 +661,17 @@ func standardOverrideVersion(ctx context.Context, q sqlx.QueryerContext, ws uuid
 // ResolveWorkflow is resolveWorkflowVersion outside a transaction.
 func (r *WorkflowRepository) ResolveWorkflow(ctx context.Context, ws, issue uuid.UUID, chosen *string) (*domain.WorkflowVersion, error) {
 	return resolveWorkflowVersion(ctx, r.db, ws, issue, chosen)
+}
+
+// PinnedVersion resolves an automation's immutable version only while the
+// selected workflow is still available to start tasks in this workspace.
+func (r *WorkflowRepository) PinnedVersion(ctx context.Context, ws uuid.UUID, workflow *string, number int) (*domain.WorkflowVersion, error) {
+	if workflow == nil {
+		return nil, ErrWorkflowNotFound
+	}
+	id, err := uuid.Parse(*workflow)
+	if err != nil {
+		return nil, ErrWorkflowNotFound
+	}
+	return publishedWorkflowVersion(ctx, r.db, ws, id, &number)
 }

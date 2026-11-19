@@ -56,7 +56,8 @@ const PERMISSION_LABELS: Record<string, string> = {
 	contents: 'Contents',
 	metadata: 'Metadata',
 	issues: 'Issues',
-	checks: 'Checks'
+	checks: 'Checks',
+	workflows: 'Workflows'
 };
 
 const LEVEL_LABELS: Record<string, string> = {

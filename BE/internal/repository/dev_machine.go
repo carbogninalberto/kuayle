@@ -1258,14 +1258,14 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 	// Task attempts run inside their task's agent session.
 	if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_agent_runs
 		(id, machine_id, workspace_id, issue_id, checkout_id, requested_by_user_id, provider_id, mode, status, prompt,
-		 acceptance_criteria, allowed_commands, forbidden_paths, allowed_secrets, test_command, command_argv, command_environment,
+		 acceptance_criteria, allowed_commands, forbidden_paths, allowed_secrets, command_argv, command_environment,
 		 model, thinking, max_runtime_seconds, push_branch, open_pull_request,task_id,native_session_id,model_server_id,session_id,profile_files,
 		 notebook_required, worktree_read_only, closing_continuation)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
-		 (SELECT id FROM agent_sessions WHERE task_id=$23 AND workspace_id=$3),COALESCE($26::jsonb,'[]'::jsonb),$27,$28,$29::jsonb) RETURNING created_at,session_id`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
+		 (SELECT id FROM agent_sessions WHERE task_id=$22 AND workspace_id=$3),COALESCE($25::jsonb,'[]'::jsonb),$26,$27,$28::jsonb) RETURNING created_at,session_id`,
 		run.ID, run.MachineID, run.WorkspaceID, run.IssueID, run.CheckoutID, run.RequestedByUserID, run.ProviderID,
 		run.Mode, run.Status, run.Prompt, run.AcceptanceCriteria, run.AllowedCommands, run.ForbiddenPaths,
-		run.AllowedSecrets, nullJSONPointer(run.TestCommand), run.CommandArgv, run.CommandEnvironment, run.Model, run.Thinking,
+		run.AllowedSecrets, run.CommandArgv, run.CommandEnvironment, run.Model, run.Thinking,
 		run.MaxRuntimeSeconds, run.PushBranch, run.OpenPullRequest, run.TaskID, run.NativeSessionID, run.ModelServerID, nullJSON(run.ProfileFiles),
 		run.NotebookRequired, run.WorktreeReadOnly, nullJSON(run.ClosingContinuation),
 	).Scan(&run.CreatedAt, &run.SessionID); err != nil {
@@ -1410,15 +1410,15 @@ func (r *DevMachineRepository) CompleteAgentRun(ctx context.Context, run *domain
 	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET status=$1, result=$2, summary=$3,
 		changed_files=$4, commits=$5, branch=$6, pull_request_url=$7, tests_run=$8, test_status=$9,
 		risk_notes=$10, exit_code=$11, error_message=$12, diff=$14, diff_truncated=$15,
-		declared_validation=COALESCE($16, declared_validation), worktree_changed=$17,
-		worktree_changed_files=COALESCE($18, '[]'::jsonb), failure_class=$19, failure_rule=$20,
-		failure_cause=$21, environment=$22, output_cuts=COALESCE($23, '[]'::jsonb), completed_at=NOW()
+		worktree_changed=$16,
+		worktree_changed_files=COALESCE($17, '[]'::jsonb), failure_class=$18, failure_rule=$19,
+		failure_cause=$20, environment=$21, output_cuts=COALESCE($22, '[]'::jsonb), completed_at=NOW()
 		WHERE id=$13 AND (status NOT IN ('succeeded','failed','cancelled','timeout') OR status=$1)`,
 		run.Status, nullJSONPointer(run.Result), postgresTextPointer(run.Summary), sanitize.PostgresJSON(run.ChangedFiles),
 		sanitize.PostgresJSON(run.Commits), postgresTextPointer(run.Branch), postgresTextPointer(run.PullRequestURL),
 		sanitize.PostgresJSON(run.TestsRun), run.TestStatus, sanitize.PostgresJSON(run.RiskNotes), run.ExitCode,
 		postgresTextPointer(run.ErrorMessage), run.ID, sanitize.PostgresText(run.Diff), run.DiffTruncated,
-		nullJSONPointer(run.DeclaredValidation), run.WorktreeChanged, nullJSON(run.WorktreeChangedFiles),
+		run.WorktreeChanged, nullJSON(run.WorktreeChangedFiles),
 		run.FailureClass, run.FailureRule, postgresTextPointer(run.FailureCause), nullJSON(run.Environment), nullJSON(run.OutputCuts))
 	return err
 }
@@ -2107,17 +2107,17 @@ func (r *DevMachineRepository) UpsertScopeSetting(ctx context.Context, setting *
 		return errors.New("invalid development setting scope")
 	}
 	query := `INSERT INTO dev_machine_scope_settings
-		(id,workspace_id,team_id,project_id,issue_id,github_repo_id,base_branch,environment_id,test_command,agent_provider,agent_instructions,compose_file,preview_command,preview_port,pull_request_template)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		(id,workspace_id,team_id,project_id,issue_id,github_repo_id,base_branch,environment_id,agent_provider,agent_instructions,compose_file,preview_command,preview_port,pull_request_template)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		ON CONFLICT ` + conflictTarget + ` DO UPDATE SET
 			github_repo_id=EXCLUDED.github_repo_id,base_branch=EXCLUDED.base_branch,
-			environment_id=EXCLUDED.environment_id,test_command=EXCLUDED.test_command,
+			environment_id=EXCLUDED.environment_id,
 			agent_provider=EXCLUDED.agent_provider,agent_instructions=EXCLUDED.agent_instructions,compose_file=EXCLUDED.compose_file,
 			preview_command=EXCLUDED.preview_command,preview_port=EXCLUDED.preview_port,pull_request_template=EXCLUDED.pull_request_template,updated_at=NOW()
 		WHERE dev_machine_scope_settings.workspace_id=EXCLUDED.workspace_id
 		RETURNING id,created_at,updated_at`
 	if err := tx.QueryRowContext(ctx, query, setting.ID, setting.WorkspaceID,
-		setting.TeamID, setting.ProjectID, setting.IssueID, setting.GitHubRepoID, setting.BaseBranch, setting.EnvironmentID, setting.TestCommand,
+		setting.TeamID, setting.ProjectID, setting.IssueID, setting.GitHubRepoID, setting.BaseBranch, setting.EnvironmentID,
 		setting.AgentProvider, setting.AgentInstructions, setting.ComposeFile, setting.PreviewCommand, setting.PreviewPort, setting.PullRequestTemplate,
 	).Scan(&setting.ID, &setting.CreatedAt, &setting.UpdatedAt); err != nil {
 		return err

@@ -19,7 +19,6 @@ import type {
 	DevMachineEnvironment,
 	DevMachineScopeSetting,
 	DevMachineRepositoryDefaults,
-	DevMachineCheckSuggestion,
 	EnvironmentStatus,
 	LaunchMachineServiceResponse,
 	MigrationAction,
@@ -320,17 +319,6 @@ export function getDevMachineRepositoryDefaults(
 	return api.get(`${base(slug)}/dev-machine-repository-defaults${suffix}`);
 }
 
-/** Proposes a check for a repository, or for the repository a project or team inherits; null when nothing is recognised. */
-export function getDevMachineCheckSuggestion(
-	slug: string,
-	scope: { repositoryId: string } | { projectId: string } | { teamId: string }
-): Promise<DevMachineCheckSuggestion | null> {
-	const query = new URLSearchParams(
-		'repositoryId' in scope ? { repository_id: scope.repositoryId } : 'projectId' in scope ? { project_id: scope.projectId } : { team_id: scope.teamId }
-	);
-	return api.get(`${base(slug)}/dev-machine-check-suggestion?${query}`);
-}
-
 export function getDevMachineScopeSetting(
 	slug: string,
 	scopeType: 'workspace' | 'team' | 'project' | 'issue',
@@ -349,7 +337,6 @@ export function updateDevMachineScopeSetting(
 		github_repo_id?: string;
 		base_branch?: string;
 		environment_id?: string;
-		test_command?: string[];
 		agent_provider?: string;
 		agent_instructions?: string;
 		compose_file?: string;

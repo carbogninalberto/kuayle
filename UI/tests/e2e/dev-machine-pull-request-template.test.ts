@@ -100,10 +100,10 @@ test('admins edit the pull request template, see invalid placeholders and reset 
 });
 
 test('a stored template is shown and kept when other defaults are saved', async ({ page }) => {
-	const state = await mockApi(page, { test_command: ['npm', 'test'], pull_request_template: '## What\n{{description}}' });
+	const state = await mockApi(page, { pull_request_template: '## What\n{{description}}' });
 	await page.goto('/test/settings/dev-machines?tab=policy');
 	await expect(page.getByRole('textbox', { name: 'Pull request description template' })).toHaveValue('## What\n{{description}}');
 	await page.getByRole('button', { name: 'Save policy' }).click();
 	await expect.poll(() => state.saved.length).toBe(1);
-	expect(state.saved[0]).toMatchObject({ test_command: ['npm', 'test'], pull_request_template: '## What\n{{description}}' });
+	expect(state.saved[0]).toMatchObject({ pull_request_template: '## What\n{{description}}' });
 });

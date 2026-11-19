@@ -117,7 +117,7 @@
 				return profile ? profileTitle(profile) : '';
 			}
 			case 'check':
-				return node.check === 'ci' ? m['workflows.editor.check_ci']() : m['workflows.editor.check_tests']();
+				return node.check === 'ci' ? m['workflows.editor.check_ci']() : '';
 			case 'end':
 				return node.outcome === 'failed'
 					? m['workflows.editor.outcome_failed']()

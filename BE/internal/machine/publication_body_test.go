@@ -11,8 +11,7 @@ import (
 )
 
 func bodyPublication() *domain.AgentPublication {
-	return &domain.AgentPublication{IssueIdentifier: "REC-1", IssueTitle: "Dark mode ignores the system theme", WorkspaceSlug: "acme",
-		CheckArgv: []string{"npm", "test"}, CheckExitCode: ptr(0), CheckSource: domain.CheckSourceConfigured}
+	return &domain.AgentPublication{IssueIdentifier: "REC-1", IssueTitle: "Dark mode ignores the system theme", WorkspaceSlug: "acme"}
 }
 
 func TestPublicationBodyRendersTheDefaultTemplate(t *testing.T) {
@@ -31,14 +30,12 @@ func TestPublicationBodyRendersTheDefaultTemplate(t *testing.T) {
 		"The toggle stored only explicit choices, so \"System\" fell back to light. It now follows `prefers-color-scheme`.\n\n"+
 		"## Changes\n- Read the system theme on load\n- Update the theme live when the system changes\n\n"+
 		"## Verification\n- `npm run test:unit`: passed\n- `npm run check`: passed\n\n"+
-		"Kuayle also ran `npm test` independently in a clean container: passed.\n\n"+
 		"## Screenshots\nSettings, dark\n![Settings, dark](https://github.com/acme/app/blob/"+strings.Repeat("a", 40)+"/settings-dark.png?raw=true)\n\n"+
 		"## Notes\nThe old `theme` cookie is still read once.\n", body)
 }
 
 func TestPublicationBodyDropsEmptySections(t *testing.T) {
 	publication := bodyPublication()
-	publication.CheckArgv, publication.CheckExitCode, publication.CheckSource = nil, nil, ""
 	body := publicationBody(publication, pullRequestContent{file: &domain.AgentPullRequest{Changes: []string{"One change"}}}, "")
 	require.Equal(t, "## Description\nAddresses REC-1: Dark mode ignores the system theme.\n\n## Changes\n- One change\n", body,
 		"sections without content lose their heading; without Kuayle's address the issue is not linked")
@@ -56,24 +53,13 @@ func TestPublicationBodyRendersACustomTemplate(t *testing.T) {
 
 func TestPublicationBodyFallsBackWithoutTheAgentsFile(t *testing.T) {
 	publication := bodyPublication()
-	publication.CheckSource = domain.CheckSourceAgent
-	publication.CheckArgv = []string{"sh", "-c", "cd BE && go test ./internal/service/..."}
-	publication.CheckCommands = []domain.CheckCommandRun{{Argv: publication.CheckArgv}, {Argv: []string{"npm", "run", "check"}}}
-	publication.AgentSummary = "Service tests cover the change. @maintainers merge now"
-	body := publicationBody(publication, pullRequestContent{}, "https://kuayle.test")
-	require.Equal(t, "## Description\nAddresses [REC-1](https://kuayle.test/acme/issue/REC-1): Dark mode ignores the system theme.\n\n"+
-		"## Verification\nService tests cover the change. @\u200bmaintainers merge now\n\n"+
-		"Kuayle re-ran the 2 commands the agent chose independently in a clean container: all passed.\n", body)
-
 	publication = bodyPublication()
-	publication.CheckArgv, publication.CheckExitCode, publication.CheckSource = nil, nil, ""
 	require.Equal(t, "## Description\nAddresses REC-1: Dark mode ignores the system theme.\n", publicationBody(publication, pullRequestContent{file: &domain.AgentPullRequest{}}, "javascript:alert(1)"),
 		"an empty file is the same as none; a bad address links nothing")
 }
 
 func TestPublicationBodyCarriesNoModelWarningOrDumps(t *testing.T) {
 	publication := bodyPublication()
-	publication.CheckArgv, publication.CheckExitCode = nil, nil
 	publication.Step = domain.DevMachineAgentRunStep{AgentRunID: uuid.New()}
 	body := publicationBody(publication, pullRequestContent{file: &domain.AgentPullRequest{Description: "Fix."}}, "")
 	for _, boilerplate := range []string{"WARNING", "Not validated", "Written by", "Codex", "Claude", "model", "Kuayle agent task", "Review feedback", "Commits:", publication.Step.AgentRunID.String()} {

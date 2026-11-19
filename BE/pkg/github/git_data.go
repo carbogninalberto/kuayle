@@ -7,12 +7,19 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strings"
 )
 
 // RepositoryFile is one file of a commit made through the Git data API.
 type RepositoryFile struct {
 	Path    string
 	Content []byte
+}
+
+// TreeEntry is one entry in a branch snapshot's root tree.
+type TreeEntry struct {
+	Path string `json:"path"`
+	Type string `json:"type"`
 }
 
 var gitObjectSHA = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
@@ -67,8 +74,13 @@ func (c *Client) ListBranchSnapshot(token, owner, repo, branch string) (string, 
 	if err != nil {
 		return "", nil, err
 	}
-	entries, err := c.ListTree(token, owner, repo, tree)
-	return head, entries, err
+	var result struct {
+		Tree []TreeEntry `json:"tree"`
+	}
+	if err := c.do(http.MethodGet, gitDataURL(owner, repo)+"/trees/"+tree, token, nil, &result); err != nil {
+		return "", nil, err
+	}
+	return head, result.Tree, nil
 }
 
 // PublishFilesToBranch commits files as the whole tree of a branch with its
@@ -131,4 +143,13 @@ func (c *Client) PublishFilesToBranch(token, owner, repo, branch, message string
 		return "", err
 	}
 	return commit, nil
+}
+
+// escapePath escapes each segment of a slash-separated path.
+func escapePath(path string) string {
+	segments := strings.Split(path, "/")
+	for i, segment := range segments {
+		segments[i] = url.PathEscape(segment)
+	}
+	return strings.Join(segments, "/")
 }

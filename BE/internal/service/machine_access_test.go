@@ -149,10 +149,9 @@ func TestDemoModeStopsTaskWorkerForNonSysadminCreators(t *testing.T) {
 	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), IssueID: uuid.New(), CreatorID: member, MachineID: &machine, State: "preparing", Provider: "codex"}
 	ctx := context.Background()
 	for name, call := range map[string]func() error{
-		"prepare":  func() error { _, err := runtime.Prepare(ctx, &task); return err },
-		"attempt":  func() error { _, err := runtime.Attempt(ctx, task); return err },
-		"validate": func() error { _, err := runtime.Validate(ctx, task); return err },
-		"publish":  func() error { _, err := runtime.Publish(ctx, task); return err },
+		"prepare": func() error { _, err := runtime.Prepare(ctx, &task); return err },
+		"attempt": func() error { _, err := runtime.Attempt(ctx, task); return err },
+		"publish": func() error { _, err := runtime.Publish(ctx, task); return err },
 	} {
 		refusedBeforeStorage(t, name, call)
 	}

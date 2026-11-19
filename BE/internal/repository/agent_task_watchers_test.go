@@ -99,7 +99,7 @@ func TestTaskWatchFiresOnceOnTheFirstMatchingLaterTransition(t *testing.T) {
 	require.Equal(t, "running", state)
 	require.Equal(t, 1, f.watches(t))
 
-	f.transition(t, nil, "validating", "publishing", "awaiting_review")
+	f.transition(t, nil, "publishing", "awaiting_review")
 	require.Empty(t, claimTaskWatches(t, f.tasks, f.ctx, f.task), "an unnamed until fires only on an end state")
 
 	f.transition(t, nil, "completed")
@@ -119,7 +119,7 @@ func TestTaskWatchFiresOnTheNamedStateAndOnCancelled(t *testing.T) {
 	f := newTaskWatcherFixture(t)
 	_, _, watching := f.watch(t, f.user, "failed")
 	require.True(t, watching)
-	f.transition(t, nil, "validating", "publishing", "awaiting_review", "cancelling")
+	f.transition(t, nil, "publishing", "awaiting_review", "cancelling")
 	require.Empty(t, claimTaskWatches(t, f.tasks, f.ctx, f.task), "review and cancelling do not satisfy a watch for failed")
 	f.transition(t, nil, "failed")
 	watches := claimTaskWatches(t, f.tasks, f.ctx, f.task)
@@ -143,7 +143,7 @@ func TestTaskWatchKnowsWhetherTheCreatorNoticeCoversTheWatcher(t *testing.T) {
 	f := newTaskWatcherFixture(t)
 	f.watch(t, f.user, "awaiting_review")
 	f.watch(t, f.stranger, "awaiting_review")
-	f.transition(t, nil, "validating", "publishing", "awaiting_review")
+	f.transition(t, nil, "publishing", "awaiting_review")
 	notified := map[uuid.UUID]bool{}
 	for _, watch := range claimTaskWatches(t, f.tasks, f.ctx, f.task) {
 		require.Equal(t, "awaiting_review", watch.State)
@@ -153,7 +153,7 @@ func TestTaskWatchKnowsWhetherTheCreatorNoticeCoversTheWatcher(t *testing.T) {
 
 	f2 := newTaskWatcherFixture(t)
 	f2.watch(t, f2.user, "awaiting_review")
-	f2.transition(t, &f2.user, "validating", "publishing", "awaiting_review")
+	f2.transition(t, &f2.user, "publishing", "awaiting_review")
 	watches := claimTaskWatches(t, f2.tasks, f2.ctx, f2.task)
 	require.Len(t, watches, 1)
 	require.False(t, watches[0].Notified, "the creator's own change sends them no notice")
@@ -163,7 +163,7 @@ func TestTaskWatchKnowsWhetherTheCreatorNoticeCoversTheWatcher(t *testing.T) {
 // reports the state instead, read together with the registration.
 func TestTaskWatchReportsAStateAlreadyReached(t *testing.T) {
 	f := newTaskWatcherFixture(t)
-	f.transition(t, nil, "validating", "publishing", "awaiting_review")
+	f.transition(t, nil, "publishing", "awaiting_review")
 	_, state, watching := f.watch(t, f.user, "awaiting_review")
 	require.False(t, watching)
 	require.Equal(t, "awaiting_review", state)
