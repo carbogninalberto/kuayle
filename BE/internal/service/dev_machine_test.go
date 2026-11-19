@@ -717,7 +717,7 @@ func TestCreateCustomMachinePersistsExactResources(t *testing.T) {
 	require.Equal(t, 6000, machine.CPUMillis)
 	require.Equal(t, 12288, machine.MemoryMB)
 	require.Equal(t, 150, machine.DiskGB)
-	require.Equal(t, 512, machine.PidsLimit)
+	require.Equal(t, 4096, machine.PidsLimit)
 	require.Equal(t, machine, store.createdMachine)
 }
 
