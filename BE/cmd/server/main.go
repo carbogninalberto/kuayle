@@ -608,6 +608,7 @@ func main() {
 	// Approved merges whose branch Kuayle brought up to date merge once the
 	// new head's checks pass (KUA-207); each wait is read at most once a minute.
 	go assistantApprovals.RunMergeWaits(conversationCtx, 15*time.Second)
+	go assistantApprovals.RunStoppedPublicationDecisions(conversationCtx, 5*time.Second)
 
 	// Start
 	addr := fmt.Sprintf(":%d", cfg.Port)

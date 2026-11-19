@@ -467,6 +467,7 @@ status or priority; assignees are not changed), `delegate_issue`, `plan_issues` 
 (see [watching agent work](#watching-agent-work)), `merge_pull_request`, `accept_agent_work`
 (see [accepting without merge](agent-tasks.md#accepting-without-merge)), `request_agent_review`,
 `follow_up_task` (see [requested agent reviews](agent-tasks.md#requested-agent-reviews)),
+`publish_task_changes` (see [publishing a stopped task](#publishing-a-stopped-task)),
 `run_check` (see [manual checks](agent-tasks.md#manual-checks)),
 `link_repository`, and `start_preview`, `stop_preview`, `expose_port` and
 `list_ports` (see [previews and ports from chat](#previews-and-ports-from-chat)),
@@ -944,6 +945,17 @@ this same resolution path; see [Telegram approval buttons](telegram.md#approval-
 does too (migration 134); see [agent messages in chat](#agent-messages-in-chat). `run_check` does too (migration 97); see
 [manual checks](agent-tasks.md#manual-checks).
 
+### Publishing a stopped task
+
+`publish_task_changes(identifier)` asks for approval to publish local commits and uncommitted
+changes from the issue's latest failed, cancelled or blocked coding task. The
+task creator or a workspace admin can approve from their own chat. The approval
+is bound to the task attempt and requires its original checkout on a running
+Dev Machine. After approval, the card shows the draft pull request, an empty
+checkout result or the reason publication could not finish. A completed approval
+records `outcome` as `published` or `empty`. The task keeps its
+state. See [publication](agent-tasks.md#publication) for GitHub and lease rules.
+
 ### Model choice for agents started from chat
 
 `delegate_issue`, `request_agent_review` and `follow_up_task` accept an optional
@@ -1066,7 +1078,7 @@ decided not to cover it from chat, so it is not an open gap.
 | Install a system package (`apt-get install`) | The machine's image: packages added in an Environment Builder and saved as a Development Environment, then `run_command`/`run_command_write` with that machine's `machine_id`; static binaries can be downloaded into the conversation folder. No install from chat ([system packages](#system-packages)) | by design (KUA-180) |
 | Run a database migration against a real database | `run_migration` (see [database migrations from chat](#database-migrations-from-chat)) | covered (KUA-181) |
 | Read a machine's container or agent logs, `docker ps` | none | gap, KUA-182 |
-| Commit, branch or push on a checkout | read-only git through `get_task_worktree` and `run_command`; changes through `follow_up_task`, which republishes the task branch and its pull request ([publication](agent-tasks.md#publication)). No commit, branch or push from chat ([commits and pushes from chat](#commits-and-pushes-from-chat)) | by design (KUA-183) |
+| Publish work on a task checkout | `follow_up_task` for a new iteration, or `publish_task_changes` for a stopped task with unpublished changes. Both use [task publication](agent-tasks.md#publication). | approval required |
 | Keep a process running (a dev server outside a task) | `start_preview` for a task's configured preview only | partial: ad-hoc long-running processes are a gap, KUA-184 |
 
 ### Commands and temporary machines
@@ -1274,8 +1286,9 @@ Non-root options for a one-off command:
 
 The command tools never commit, branch or push a task checkout, and there
 is no approval-gated `git commit` or `git push` for a task's branch (KUA-183).
-Changes go through `follow_up_task`, which runs the task's own agent and
-publishes through [publication](agent-tasks.md#publication).
+Changes go through [publication](agent-tasks.md#publication). Use
+`follow_up_task` for a new agent iteration or `publish_task_changes` to recover
+unpublished work from a stopped task as a draft.
 
 Why this stays closed:
 
@@ -1318,8 +1331,7 @@ Why this stays closed:
   branch that conflicts with its base goes back to the agent through
   `update_pull_request_branch`.
 
-To publish changes from chat, approve a `follow_up_task` with the
-instructions. To see what would be published first, `get_task_worktree`
+To see what would be published first, `get_task_worktree`
 reports the branch, dirty state, changed paths and ahead/behind counts, and
 `run_check` runs the task's checks on the same checkout.
 
