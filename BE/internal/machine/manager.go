@@ -176,6 +176,7 @@ type githubAPI interface {
 	UpdatePullRequestBody(string, string, string, int, string) error
 	FindOpenPullRequest(string, string, string, string, string) (*githubclient.PullRequest, error)
 	MarkPullRequestReadyForReview(string, string) error
+	ConvertPullRequestToDraft(string, string) error
 }
 
 type DiskQuotaConfig struct {
@@ -829,7 +830,14 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 	case domain.DevMachineOpScanWorktree:
 		return m.runWorktreeScan(ctx, machine, operation)
 	case domain.DevMachineOpPublishAgent:
-		return m.publishAgent(ctx, machine, operation)
+		err := m.publishAgent(ctx, machine, operation)
+		switch {
+		case errors.Is(err, repository.ErrStoppedPublicationForbidden):
+			return &terminalOperationError{code: "publication_forbidden", message: err.Error()}
+		case errors.Is(err, repository.ErrStoppedPublicationUnavailable):
+			return &terminalOperationError{code: "publication_unavailable", message: err.Error()}
+		}
+		return err
 	case domain.DevMachineOpPurgeTaskSession:
 		return m.purgeTaskSession(ctx, machine, operation)
 	case domain.DevMachineOpCleanupTask:

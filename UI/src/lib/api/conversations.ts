@@ -450,6 +450,7 @@ export type ConversationApproval = ApprovalBase &
 		| { action: 'accept_agent_work'; payload: AcceptPayload }
 		| { action: 'request_agent_review'; payload: ReviewPayload }
 		| { action: 'follow_up_task'; payload: FollowUpPayload }
+		| { action: 'publish_task_changes'; payload: { identifier: string; title: string; outcome?: 'published' | 'empty'; pull_request_url?: string } }
 		| { action: 'message_task'; payload: TaskMessagePayload }
 		| { action: 'start_preview'; payload: PreviewPayload }
 		| { action: 'expose_port'; payload: ExposePortPayload }
