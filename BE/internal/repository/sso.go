@@ -29,6 +29,12 @@ func NewSSORepository(db *sqlx.DB) *SSORepository {
 	return &SSORepository{db: db}
 }
 
+func (r *SSORepository) HasEnabledConfig(ctx context.Context) (bool, error) {
+	var enabled bool
+	err := r.db.GetContext(ctx, &enabled, `SELECT EXISTS(SELECT 1 FROM workspace_sso_configs WHERE enabled)`)
+	return enabled, err
+}
+
 // RequiresSSO runs for every workspace request. Read only the policy flags.
 func (r *SSORepository) RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (bool, error) {
 	var required bool

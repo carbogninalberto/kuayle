@@ -2,6 +2,10 @@
 
 Each workspace can use OpenID Connect or SAML 2.0. Both use the same membership, account linking, session scoping, require-SSO and owner break-glass rules.
 
+The login page shows **Sign in with SSO** when at least one workspace offers it.
+The public `/api/config` response reports this as `sso_enabled`. Kuayle checks
+the selected workspace before starting the provider flow.
+
 An owner or admin configures the provider in **Workspace settings → SSO**. The
 client secret is write-only: it is encrypted at rest, never returned by an API
 response and never written to the logs. The page shows the exact redirect URI

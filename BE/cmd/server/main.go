@@ -202,7 +202,8 @@ func main() {
 	ssoH := handler.NewSSOHandler(ssoSvc, authH, cfg.Environment != "development" || cfg.DevMachine.AllowSameSite)
 	configH := handler.NewConfigHandler(!cfg.DisableRegistration).
 		WithPasskeys(passkeySvc.Enabled()).
-		WithSSOInstance(cfg.SSOInstanceConfig().Configured())
+		WithSSOInstance(cfg.SSOInstanceConfig().Configured()).
+		WithSSOAvailability(ssoSvc.SignInEnabled)
 	teamH := handler.NewTeamHandler(teamSvc)
 	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo, teamStatusRepo, projectRepo, cycleRepo, relationSvc)
 	labelH := handler.NewLabelHandler(labelSvc)

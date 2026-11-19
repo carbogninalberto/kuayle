@@ -48,6 +48,15 @@ func newSSOFakeRepo() *ssoFakeRepo {
 	}
 }
 
+func (r *ssoFakeRepo) HasEnabledConfig(context.Context) (bool, error) {
+	for _, config := range r.configs {
+		if config.Enabled {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (r *ssoFakeRepo) RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (bool, error) {
 	config := r.configs[workspaceID]
 	return config != nil && config.Enabled && config.RequireSSO, nil
@@ -994,6 +1003,38 @@ func TestSSOInstanceSlugWithoutWorkspaceIsIgnored(t *testing.T) {
 
 	// The miss is cached: later requests do not look the slug up again.
 	require.Equal(t, 1, rig.lookups["typo"])
+}
+
+func TestSSOSignInAvailability(t *testing.T) {
+	rig := newSSOTestRig(t)
+	ctx := context.Background()
+	config := rig.repo.configs[rig.workspace.ID]
+
+	enabled, err := rig.service.SignInEnabled(ctx)
+	require.NoError(t, err)
+	require.True(t, enabled)
+
+	config.Enabled = false
+	enabled, err = rig.service.SignInEnabled(ctx)
+	require.NoError(t, err)
+	require.False(t, enabled)
+
+	rig.service.instance = InstanceSSOConfig{
+		WorkspaceSlug: "missing", IssuerURL: rig.idp.server.URL, ClientID: "instance-client",
+	}
+	enabled, err = rig.service.SignInEnabled(ctx)
+	require.NoError(t, err)
+	require.False(t, enabled)
+
+	rig.service.instance.WorkspaceSlug = rig.workspace.Slug
+	enabled, err = rig.service.SignInEnabled(ctx)
+	require.NoError(t, err)
+	require.True(t, enabled)
+
+	delete(rig.byslug, rig.workspace.Slug)
+	enabled, err = rig.service.SignInEnabled(ctx)
+	require.NoError(t, err)
+	require.False(t, enabled)
 }
 
 func TestSSOInstanceWorkspaceIDIsCached(t *testing.T) {

@@ -26,20 +26,23 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
-	let mode = $state<'login' | 'register'>('login');
+	let signingUp = $state(false);
 	let email = $state('');
 	let password = $state('');
 	let name = $state('');
 	let loading = $state(false);
 	let demoDrawerOpen = $state(false);
-	let registrationEnabled = $state(true);
+	let registrationEnabled = $state(false);
 	let passkeysEnabled = $state(false);
-	let ssoInstanceEnabled = $state(false);
+	let ssoEnabled = $state(false);
 	let ssoOpen = $state(false);
 	let ssoSlug = $state(page.url.searchParams.get('workspace') ?? '');
 	let ssoBusy = $state(false);
 	let ssoMessage = $state<string | null>(null);
 	const inviteToken = $derived(page.url.searchParams.get('invite') ?? '');
+	// The backend accepts invite tokens even when public registration is off.
+	const canSignUp = $derived(!demoMode && (registrationEnabled || Boolean(inviteToken)));
+	const mode = $derived(signingUp && canSignUp ? 'register' : 'login');
 	const ssoError = $derived(page.url.searchParams.get('sso_error'));
 	// A link_required callback names the workspace whose IdP the account must
 	// link after proving its password or passkey.
@@ -50,14 +53,11 @@
 	onMount(async () => {
 		try {
 			const config = await getConfig();
-			registrationEnabled = config.registration_enabled;
+			registrationEnabled = config.registration_enabled === true;
 			passkeysEnabled = config.passkeys_enabled === true;
-			ssoInstanceEnabled = config.sso_enabled_instance === true;
-			// With an invite token, registration stays available even when
-			// public registration is disabled (the backend accepts the token).
-			if (!registrationEnabled && !inviteToken) mode = 'login';
+			ssoEnabled = (config.sso_enabled ?? config.sso_enabled_instance) === true;
 		} catch {
-			// Config unavailable — keep registration visible.
+			// Public signup and optional sign-in methods require configuration.
 		}
 	});
 
@@ -163,7 +163,6 @@
 	}
 
 	function useDemoUser(user: DemoUser) {
-		mode = 'login';
 		email = user.email;
 		password = user.password;
 		demoDrawerOpen = false;
@@ -230,20 +229,20 @@
 		{#if mode === 'login'}
 			<PasskeySignInButton enabled={passkeysEnabled} disabled={loading} autofill onSignedIn={passkeySignedIn} />
 
-			{#if ssoError || ssoInstanceEnabled || ssoOpen}
+			{#if ssoError || ssoEnabled || ssoOpen}
 				<div class="space-y-2 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-3">
 					{#if ssoError}
 						<p class="text-sm text-[var(--status-error)]" role="alert">{m[ssoErrorKey(ssoError)]()}</p>
 					{/if}
-					{#if !ssoOpen}
+					{#if ssoEnabled && !ssoOpen}
 						<Button variant="plain" type="button"
 							onclick={() => (ssoOpen = true)}
 							class="w-full rounded-md border border-[var(--app-border)] px-4 py-2 text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 						>
 							{m['login.sso.button']()}
 						</Button>
-					{:else}
-						<form onsubmit={startSSO} class="space-y-2">
+					{:else if ssoOpen}
+						<form onsubmit={startSSO} aria-label={m['login.sso.button']()} class="space-y-2">
 							<label for="sso-workspace" class="block text-sm text-[var(--color-text-secondary)]">
 								{m['login.sso.slug_label']()}
 							</label>
@@ -273,27 +272,18 @@
 						</form>
 					{/if}
 				</div>
-			{:else}
-				<Button variant="plain" type="button"
-					onclick={() => (ssoOpen = true)}
-					class="w-full rounded-md border border-[var(--app-border)] px-4 py-2 text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-				>
-					{m['login.sso.button']()}
-				</Button>
 			{/if}
 		{/if}
 
-		{#if registrationEnabled || inviteToken}
-			<p class="text-center text-sm text-[var(--color-text-secondary)]">
-				{mode === 'login' ? m['login.no_account']() : m['login.has_account']()}
-				<Button variant="plain" onclick={() => (mode = mode === 'login' ? 'register' : 'login')}
-					disabled={loading}
-					class="text-[var(--app-accent)] hover:underline"
-				>
-					{mode === 'login' ? m['login.button.sign_up']() : m['login.button.signin']()}
-				</Button>
-			</p>
-		{/if}
+		<p class="text-center text-sm text-[var(--color-text-secondary)]">
+			{mode === 'login' ? m['login.no_account']() : m['login.has_account']()}
+			<Button variant="plain" onclick={() => (signingUp = mode === 'login')}
+				disabled={loading || !canSignUp}
+				class="text-[var(--app-accent)] enabled:hover:underline disabled:opacity-50"
+			>
+				{mode === 'login' ? m['login.button.sign_up']() : m['login.button.signin']()}
+			</Button>
+		</p>
 	</div>
 
 	{#if demoMode && mode === 'login'}

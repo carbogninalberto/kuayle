@@ -36,6 +36,7 @@ type RefreshTokenRepo interface {
 // identities. ProvisionIdentity runs the whole just-in-time sign-in in one
 // transaction.
 type SSORepo interface {
+	HasEnabledConfig(ctx context.Context) (bool, error)
 	RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (bool, error)
 	GetConfig(ctx context.Context, workspaceID uuid.UUID) (*domain.SSOConfig, error)
 	SaveConfig(ctx context.Context, config *domain.SSOConfig) error

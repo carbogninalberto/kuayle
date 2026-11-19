@@ -27,6 +27,10 @@ type ssoHandlerRepo struct {
 	states map[string]*domain.SSOLoginState
 }
 
+func (r *ssoHandlerRepo) HasEnabledConfig(context.Context) (bool, error) {
+	return r.config != nil && r.config.Enabled, nil
+}
+
 func (r *ssoHandlerRepo) RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (bool, error) {
 	config := r.config
 	return config != nil && config.Enabled && config.RequireSSO, nil

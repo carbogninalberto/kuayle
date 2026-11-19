@@ -42,6 +42,8 @@ export interface AppConfig {
 	registration_enabled: boolean;
 	/** Whether this instance can run passkey sign-in and registration. */
 	passkeys_enabled?: boolean;
+	/** Whether at least one workspace offers SSO sign-in. */
+	sso_enabled?: boolean;
 	/** Whether the instance pins one workspace's SSO configuration. */
 	sso_enabled_instance?: boolean;
 }
