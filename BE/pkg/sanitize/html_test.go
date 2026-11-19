@@ -56,6 +56,117 @@ func TestSanitizeEditorContentKeepsSafeEditorHTML(t *testing.T) {
 	assertNotContains(t, got, `alert(1)`)
 }
 
+func TestSanitizeEditorContentConvertsMarkdownTable(t *testing.T) {
+	input := `Release checklist
+
+Step | Result
+:--- | ---:
+**Build** | Pass \| retry
+Test | ` + "`<table> \\| go test`" + `
+
+Ready for review.`
+	want := `<p>Release checklist</p><table><thead><tr><th align="left">Step</th><th align="right">Result</th></tr></thead>` +
+		`<tbody><tr><td align="left"><strong>Build</strong></td><td align="right">Pass | retry</td></tr>` +
+		`<tr><td align="left">Test</td><td align="right"><code>&lt;table&gt; | go test</code></td></tr></tbody></table><p>Ready for review.</p>`
+	if got := SanitizeEditorContent(input); got != want {
+		t.Fatalf("SanitizeEditorContent() = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizeEditorContentConvertsMarkdownTableWithInlineHTML(t *testing.T) {
+	input := "| Step | Result |\n| --- | --- |\n| **Build** | Pass<br>Retry <strong style=\"color: red\">once</strong> |"
+	want := `<table><thead><tr><th>Step</th><th>Result</th></tr></thead><tbody>` +
+		`<tr><td><strong>Build</strong></td><td>Pass<br>Retry <strong>once</strong></td></tr></tbody></table>`
+	if got := SanitizeEditorContent(input); got != want {
+		t.Fatalf("SanitizeEditorContent() = %q, want %q", got, want)
+	}
+	assertContains(t, EditorMarkdown(input), "Pass&lt;br&gt;Retry")
+}
+
+func TestSanitizeEditorContentRequiresMarkdownTableDelimiter(t *testing.T) {
+	for _, input := range []string{
+		"| Step | Result |\n| Build | Pass |",
+		"| Step | Result |\n| ---- |\n| Build | Pass |",
+		"```md\n| Step | Result |\n| ---- | ------ |\n| Build | Pass |\n```",
+	} {
+		got := SanitizeEditorContent(input)
+		assertNotContains(t, got, "<table>")
+		assertContains(t, got, "| Step | Result |")
+	}
+}
+
+func TestSanitizeEditorContentKeepsHTMLTableAfterProse(t *testing.T) {
+	for _, input := range []string{
+		"Summary:\n\n<table><tr><td>Build</td><td>Passed</td></tr></table>",
+		"Summary:\n\n<table><tr><td>\n| Step | Result |\n| --- | --- |\n| Build | Passed |\n</td></tr></table>",
+	} {
+		if got := SanitizeEditorContent(input); got != input {
+			t.Errorf("SanitizeEditorContent() = %q, want %q", got, input)
+		}
+	}
+}
+
+func TestSanitizeEditorContentKeepsHTMLTableFragments(t *testing.T) {
+	for _, input := range []string{
+		"<tbody><tr><td>Build</td></tr></tbody>",
+		"<tr><th>Step</th><td>Build</td></tr>",
+		"<td>Build</td>",
+	} {
+		if got := SanitizeEditorContent(input); got != input {
+			t.Errorf("SanitizeEditorContent() = %q, want %q", got, input)
+		}
+	}
+}
+
+func TestSanitizeEditorContentKeepsTableExamplesAsCode(t *testing.T) {
+	const table = "<table><tr><td>Build</td></tr></table>"
+	const escaped = "&lt;table&gt;&lt;tr&gt;&lt;td&gt;Build&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;"
+	for input, want := range map[string]string{
+		"Example: " + "`" + table + "`": "<p>Example: <code>" + escaped + "</code></p>",
+		"```html\n" + table + "\n```":   "<pre><code>" + escaped + "</code></pre>",
+	} {
+		if got := SanitizeEditorContent(input); got != want {
+			t.Errorf("SanitizeEditorContent() = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestSanitizeEditorContentKeepsSafeHTMLTable(t *testing.T) {
+	input := `<table class="fixed" style="position:fixed"><thead><tr><th colspan="2" onclick="run()">Release</th></tr></thead>` +
+		`<tbody><tr><td rowspan="2">Build</td><td align="right">Passed</td></tr><tr><td>Reviewed</td></tr></tbody>` +
+		`<tfoot><tr><td colspan="-1" rowspan="0" align="bad">Total</td><td></td></tr></tfoot></table>`
+	want := `<table><thead><tr><th colspan="2">Release</th></tr></thead>` +
+		`<tbody><tr><td rowspan="2">Build</td><td align="right">Passed</td></tr><tr><td>Reviewed</td></tr></tbody>` +
+		`<tfoot><tr><td>Total</td><td></td></tr></tfoot></table>`
+	for _, clean := range []func(string) string{SanitizeHTML, SanitizeEditorContent} {
+		if got := clean(input); got != want {
+			t.Errorf("sanitized table = %q, want %q", got, want)
+		}
+		if got := clean(want); got != want {
+			t.Errorf("sanitizing a stored table changed it to %q", got)
+		}
+	}
+}
+
+func TestSanitizeHTMLKeepsTiptapTableOnResave(t *testing.T) {
+	// Captured from Tiptap's getHTML() after editing the Mobile cell.
+	input := `<p>Review summary.</p><table style="min-width: 50px;"><colgroup>` +
+		`<col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody>` +
+		`<tr><th colspan="2"><p>Review checklist</p></th></tr>` +
+		`<tr><td rowspan="2"><p>UI</p></td><td><p>Desktop</p></td></tr>` +
+		`<tr><td align="center" style="text-align: center;"><p>Mobile checked</p></td></tr></tbody></table><p></p>`
+	want := `<p>Review summary.</p><table><tbody><tr><th colspan="2"><p>Review checklist</p></th></tr>` +
+		`<tr><td rowspan="2"><p>UI</p></td><td><p>Desktop</p></td></tr>` +
+		`<tr><td align="center"><p>Mobile checked</p></td></tr></tbody></table><p></p>`
+	got := SanitizeHTML(input)
+	if got != want {
+		t.Fatalf("SanitizeHTML() = %q, want %q", got, want)
+	}
+	if resaved := SanitizeEditorContent(got); resaved != want {
+		t.Fatalf("SanitizeEditorContent() on resave = %q, want %q", resaved, want)
+	}
+}
+
 func TestSanitizeEditorContentKeepsProtectedAssetImages(t *testing.T) {
 	assetID := "123e4567-e89b-12d3-a456-426614174000"
 	input := `<p><img src="/api/workspaces/acme/assets/` + assetID + `" alt="Screenshot"></p>`
