@@ -1530,7 +1530,15 @@ func (s *IssueService) notifyIssue(ctx context.Context, actorID, userID uuid.UUI
 		return
 	}
 	// An unlinked notice (a deleted issue) carries no issue to open.
-	publishNotification(s.hub, issue.WorkspaceID, userID, notificationEvent{Type: notifType, Title: title, IssueID: issueID, IssueIdentifier: issue.Identifier, ActorID: &actorID})
+	publishNotification(s.hub, issue.WorkspaceID, userID, notificationEvent{Type: notifType, Title: title, IssueID: issueID, IssueIdentifier: issue.Identifier, ActorID: &actorID, SourceTeams: []string{issue.TeamID.String()}}, s.notifSvc)
+}
+
+func teamIDStrings(ids []uuid.UUID) []string {
+	var teams []string
+	for _, id := range ids {
+		teams = append(teams, id.String())
+	}
+	return teams
 }
 
 func (s *IssueService) notifyWorkspace(ctx context.Context, workspaceID, actorID, userID uuid.UUID, notifType, title string, dedupe bool, sourceTeams ...uuid.UUID) {
@@ -1544,7 +1552,7 @@ func (s *IssueService) notifyWorkspace(ctx context.Context, workspaceID, actorID
 		log.WithError(err).Warn("failed to create notification")
 		return
 	}
-	publishNotification(s.hub, workspaceID, userID, notificationEvent{Type: notifType, Title: title, ActorID: &actorID})
+	publishNotification(s.hub, workspaceID, userID, notificationEvent{Type: notifType, Title: title, ActorID: &actorID, SourceTeams: teamIDStrings(sourceTeams)}, s.notifSvc)
 }
 
 func (s *IssueService) notifyAssignees(ctx context.Context, issue *domain.Issue, actorID, workspaceID uuid.UUID) {

@@ -37,6 +37,8 @@ type notificationEvent struct {
 	LiveOnly bool
 	// Extra adds the fields of one notification type, such as task_id.
 	Extra map[string]string
+	// SourceTeams retains the visibility provenance for delivery after enqueueing.
+	SourceTeams []string
 }
 
 // payload is a flat string map: "type" is always present, every other field
@@ -71,7 +73,10 @@ func (e notificationEvent) payload() map[string]string {
 // see what the title and issue reveal. Each publication carries a fresh
 // event_id, so the recipient's open tabs can tell they received the same
 // event and announce it once.
-func publishNotification(hub userEventPublisher, workspaceID, userID uuid.UUID, event notificationEvent) {
+func publishNotification(hub userEventPublisher, workspaceID, userID uuid.UUID, event notificationEvent, creator notificationCreator) {
+	if service, ok := creator.(*NotificationService); ok {
+		service.push.enqueue(workspaceID, userID, event)
+	}
 	payload := event.payload()
 	payload["event_id"] = uuid.NewString()
 	hub.BroadcastToUser(workspaceID, userID, realtime.Event{Type: "notification.created", Payload: payload})

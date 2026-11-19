@@ -1,4 +1,5 @@
 import { api } from './client';
+import { disconnectPushDevice } from './push';
 import type { User, LoginRequest, RegisterRequest, UpdateProfileRequest } from '$lib/types/auth';
 import { uploadWithProgress } from './upload';
 
@@ -10,7 +11,8 @@ export function register(req: RegisterRequest): Promise<User> {
 	return api.post<User>('/api/auth/register', req, { redirectOnUnauthorized: false, retryUnauthorized: false });
 }
 
-export function logout(): Promise<void> {
+export async function logout(): Promise<void> {
+	await disconnectPushDevice().catch(() => undefined);
 	return api.post<void>('/api/auth/logout');
 }
 

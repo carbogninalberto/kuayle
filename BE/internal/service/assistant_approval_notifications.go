@@ -45,6 +45,7 @@ func (s *AssistantApprovals) notifyRequested(ctx context.Context, conversation d
 		}
 		err = s.notifications.Create(ctx, approval.ActorID, conversation.WorkspaceID, event.IssueID, event.Type, event.Title)
 	case conversation.TeamID != nil:
+		event.SourceTeams = []string{conversation.TeamID.String()}
 		err = s.notifications.Create(ctx, approval.ActorID, conversation.WorkspaceID, nil, event.Type, event.Title, *conversation.TeamID)
 	default:
 		event.LiveOnly = true
@@ -53,5 +54,5 @@ func (s *AssistantApprovals) notifyRequested(ctx context.Context, conversation d
 		log.WithField("approval_id", approval.ID).WithError(err).Warn("Could not notify about an approval request")
 		return
 	}
-	publishNotification(s.userEvents, conversation.WorkspaceID, approval.ActorID, event)
+	publishNotification(s.userEvents, conversation.WorkspaceID, approval.ActorID, event, s.notifications)
 }

@@ -227,6 +227,40 @@ The service has no published port: only the backend reaches it on the internal `
 
 See [GitHub integration](github-integration.md) for the GitHub App, webhooks on private networks and local development.
 
+## Web Push (optional)
+
+Generate a dedicated VAPID pair once. From the repository root, append it to the
+deployment's existing `selfhosting/.env` using the backend image.
+
+```sh
+cd selfhosting
+umask 077
+docker compose run --rm --no-deps --entrypoint /app/server backend vapid-keys >> .env
+```
+
+Set `VAPID_SUBJECT` in the same file to an operator contact such as
+`mailto:admin@example.com` or an HTTPS contact URL. Protect and back up
+`VAPID_PRIVATE_KEY` with other deployment secrets. Preserve the pair across
+deployments and share it across backend instances. If you rotate it, users must
+re-enable push on their devices. Apply migrations and recreate the backend after
+configuration changes. Leave all three settings empty to disable delivery.
+
+The app must run in a secure context (HTTPS, or localhost for desktop development).
+The backend needs outbound HTTPS access on port 443 to the browser push services,
+including `*.push.apple.com` for Apple devices.
+
+### Platform availability for release notes
+
+- iOS and iPadOS 16.4+ deliver Web Push to web apps launched from the Home Screen.
+  Open Kuayle from its icon and tap **Enable push** under **Settings → Preferences**.
+  Safari tabs and Telegramx27s in-app webview on iOS receive no Web Push notifications. [Apple platform requirements](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers)
+- Supported Android Chrome and desktop browsers also support enrollment from a
+  regular tab.
+- Every push displays a system notification. Kuayle uses no silent pushes.
+- Users can revoke the current device or pause Web Push across all devices in
+  Preferences. The notification event switches apply to all notification channels
+  in Preferences.
+
 ## Passkeys
 
 Users can add passkeys under Settings → Profile and then sign in with a fingerprint,

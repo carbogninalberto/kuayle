@@ -75,6 +75,7 @@ type appHandlers struct {
 	teamStatus        *handler.TeamStatusHandler
 	fav               *handler.FavoriteHandler
 	prefs             *handler.PreferencesHandler
+	push              *handler.PushHandler
 	token             *handler.TokenHandler
 	cliLink           *handler.CLILinkHandler
 	aiSettings        *handler.AISettingsHandler
@@ -171,6 +172,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// allows for a server without a stream.
 	addNamedRoute(e, http.MethodPost, "/mcp", mcp.NewServer(e).Handle, "token", m.mcpRateLimit, m.auth)
 
+	public(e, http.MethodGet, "/api/push/vapid-public-key", h.push.PublicKey, m.publicAssetRateLimit)
+
 	// Authenticated routes
 	api := e.Group("/api", m.auth)
 
@@ -220,6 +223,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(api, http.MethodPost, "/workspaces/import/preview", h.workspaceTransfer.Preview, mw.RejectSSOScopedSession())
 	sessionOnly(api, http.MethodPost, "/workspaces/import", h.workspaceTransfer.Import, mw.RejectSSOScopedSession())
 	sessionOnly(api, http.MethodPost, "/invite/:token/accept", h.inviteLink.Accept, mw.RejectSSOScopedSession())
+
+	sessionOnly(api, http.MethodPost, "/push/subscriptions", h.push.Register, m.authRateLimit)
+	sessionOnly(api, http.MethodDelete, "/push/subscriptions/:id", h.push.Delete)
 
 	// Workspace-scoped routes
 	ws := api.Group("/workspaces/:slug", m.workspaceMembership)

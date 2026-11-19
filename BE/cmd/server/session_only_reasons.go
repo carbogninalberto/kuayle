@@ -32,6 +32,7 @@ const (
 )
 
 var sessionOnlyReasons = []sessionOnlyReason{
+	{PathPrefix: "/api/push/subscriptions", Reason: "Push subscriptions bind a browser to a user and require an interactive session."},
 	{PathPrefix: "/api/tokens", Reason: reasonTokenManagement},
 	{PathPrefix: "/api/cli-links", Reason: reasonTokenManagement},
 	{PathPrefix: "/api/auth/passkey", Reason: reasonSignInSecrets},

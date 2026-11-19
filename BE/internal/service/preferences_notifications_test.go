@@ -45,6 +45,7 @@ func TestPreferencesNotificationDefaultsForUserWithoutRow(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, prefs.BrowserNotifications)
+	require.True(t, prefs.PushNotifications)
 	require.Equal(t, "chime", prefs.NotificationSound)
 	require.Equal(t, allNotificationEvents, map[string]bool(prefs.NotificationEvents))
 }
@@ -116,4 +117,16 @@ func TestPreferencesNotificationSound(t *testing.T) {
 		require.ErrorIs(t, err, ErrInvalidPreferences, sound)
 		require.Zero(t, repo.upserts)
 	}
+}
+
+func TestPreferencesCanDisablePushIndependently(t *testing.T) {
+	svc := NewPreferencesService(&preferencesRepoFake{})
+	user := uuid.New()
+	off := false
+	_, err := svc.Update(t.Context(), user, dto.UpdatePreferencesRequest{PushNotifications: &off})
+	require.NoError(t, err)
+	prefs, err := svc.Get(t.Context(), user)
+	require.NoError(t, err)
+	require.False(t, prefs.PushNotifications)
+	require.True(t, prefs.BrowserNotifications)
 }

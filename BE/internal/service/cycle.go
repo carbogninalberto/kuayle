@@ -289,6 +289,6 @@ func (s *CycleService) broadcastAndNotifyTeam(ctx context.Context, cycle *domain
 			log.WithError(err).Warn("failed to create cycle notification")
 			continue
 		}
-		publishNotification(s.hub, team.WorkspaceID, m.UserID, notificationEvent{Type: "cycle_changed", Title: title, ActorID: actor})
+		publishNotification(s.hub, team.WorkspaceID, m.UserID, notificationEvent{Type: "cycle_changed", Title: title, ActorID: actor, SourceTeams: []string{team.ID.String()}}, s.notifSvc)
 	}
 }
